@@ -21,6 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { classifyChangedPaths } from '../scripts/ci/classify-ci-changes.mjs';
 
 const MIGRATIONS = join(__dirname, '..', 'supabase', 'migrations');
 const ALL = readdirSync(MIGRATIONS)
@@ -119,5 +120,22 @@ describe('a finish does not hold the union wallet', () => {
     expect(HARNESS).toContain('two-union-claims-wait-in-sorted-order-and-hands-pass');
     expect(HARNESS).toContain('the-row-is-held-from-the-finishs-real-write');
     expect(HARNESS).toContain("OLD, NEW = side('v_old'), side('v_new')");
+  });
+
+  it('executes the native contention proof in required accounting CI', () => {
+    const workflow = readFileSync(join(__dirname, '..', '.github/workflows/ci.yml'), 'utf8');
+    expect(workflow).toMatch(
+      /id: finish_union_wallet\s+if: matrix.shard == 3[\s\S]*?run: python3 scripts\/ci\/test-a-finish-does-not-hold-the-union-wallet\.py/
+    );
+    expect(workflow).toContain('path: artifacts/finish-union-wallet-lock/');
+    expect(HARNESS).not.toContain("dir='/tmp'");
+    expect(HARNESS).toContain("scratch.is_relative_to('/Volumes/SmarterWork/agent-work')");
+  });
+
+  it.each([
+    'scripts/ci/test-a-finish-does-not-hold-the-union-wallet.py',
+    'tests/a-finish-does-not-hold-the-union-wallet.law.test.ts',
+  ])('admits required accounting checks for isolated input %s', (path) => {
+    expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
   });
 });

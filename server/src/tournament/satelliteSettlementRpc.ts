@@ -1,3 +1,11 @@
+import {
+  prepareDurableTerminalRequest,
+  executeDurableTerminalRequest,
+  resolveDurableTerminalRequest,
+  closeDurableTerminalRequest,
+  type DurableTerminalRequest,
+} from './terminalDurableRequest.js';
+import { freezeTerminalRequest, type TerminalRequestIdentity } from './terminalRequestIdentity.js';
 import { maintenanceSupabase } from '../services/supabase.js';
 import { isDeterministicSettlementRefusal } from './settlementRefusal.js';
 import {
@@ -13,9 +21,12 @@ export class SatelliteSettlementRefusedError extends Error {
 }
 
 export class SatelliteSettlementOutcomeUnknownError extends Error {
-  constructor(message: string) {
+  readonly originalRequest: TerminalRequestIdentity | null;
+
+  constructor(message: string, originalRequest: TerminalRequestIdentity | null = null) {
     super(message);
     this.name = 'SatelliteSettlementOutcomeUnknownError';
+    this.originalRequest = originalRequest ? freezeTerminalRequest(originalRequest) : null;
   }
 }
 
@@ -58,6 +69,74 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
+export type OriginalSatelliteOutcome =
+  | { state: 'committed'; receipt: VerifiedSatelliteSettlementReceipt }
+  | { state: 'not_committed' }
+  | { state: 'unknown'; reason: string };
+
+/** Serialized read of one original satellite request; never invokes settlement. */
+export async function resolveOriginalSatelliteOutcome(
+  identity: TerminalRequestIdentity,
+  durable: DurableTerminalRequest | null = null
+): Promise<OriginalSatelliteOutcome> {
+  const request = freezeTerminalRequest(identity);
+  if (request.kind !== 'satellite' || !request.observedWinnerId)
+    return { state: 'unknown', reason: 'Wrong satellite resolver' };
+  return resolveOriginalSatelliteOutcomeWithArgs(
+    request,
+    {
+      p_tournament_id: request.tournamentId,
+      p_observed_winner_id: request.observedWinnerId,
+    },
+    durable
+  );
+}
+
+async function resolveOriginalSatelliteOutcomeWithArgs(
+  request: TerminalRequestIdentity,
+  args: Readonly<Record<string, unknown>>,
+  durable: DurableTerminalRequest | null = null
+): Promise<OriginalSatelliteOutcome> {
+  if (!request.observedWinnerId)
+    return { state: 'unknown', reason: 'Satellite winner unavailable' };
+  try {
+    const { data, error } = durable
+      ? await resolveDurableTerminalRequest(durable)
+      : await authority.rpc('fn_resolve_satellite_settlement_outcome', args);
+    if (error) return { state: 'unknown', reason: errorMessage(error) };
+    const outcome = record(data);
+    const exact =
+      outcome.ok === true &&
+      outcome.tournament_id === request.tournamentId &&
+      outcome.winner_id === request.observedWinnerId;
+    if (
+      exact &&
+      outcome.satellite_committed === true &&
+      outcome.definitively_not_committed === false &&
+      outcome.status === 'COMPLETED'
+    ) {
+      const receipt = verifySatelliteSettlementReceipt(
+        outcome.receipt,
+        request.tournamentId,
+        request.observedWinnerId
+      );
+      if (receipt) return { state: 'committed', receipt };
+      return { state: 'unknown', reason: 'serialized committed receipt was invalid' };
+    }
+    if (
+      exact &&
+      outcome.satellite_committed === false &&
+      outcome.definitively_not_committed === true &&
+      (outcome.status === 'RUNNING' || outcome.status === 'COMPLETING') &&
+      outcome.receipt === null
+    )
+      return { state: 'not_committed' };
+    return { state: 'unknown', reason: 'serialized outcome shape was invalid' };
+  } catch (error) {
+    return { state: 'unknown', reason: errorMessage(error) };
+  }
+}
+
 /**
  * Replay the same idempotent whole-satellite request after a transport error.
  * If every direct response is lost, the resolver waits behind the same global
@@ -77,13 +156,21 @@ export async function requestSatelliteSettlementReceipt(
     p_tournament_id: tournamentId,
     p_observed_winner_id: observedWinnerId,
   };
+  const originalRequest = freezeTerminalRequest({
+    kind: 'satellite' as const,
+    tournamentId,
+    observedWinnerId,
+  });
+  const durable = await prepareDurableTerminalRequest(originalRequest);
   let lastFailure = 'satellite settlement returned no receipt';
   let attemptedWrites = 0;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       attemptedWrites++;
-      const { data, error } = await authority.rpc('fn_settle_satellite_tournament', request);
+      const { data, error } = durable
+        ? await executeDurableTerminalRequest(durable)
+        : await authority.rpc('fn_settle_satellite_tournament', request);
       if (!error) {
         const receipt = verifySatelliteSettlementReceipt(data, tournamentId, observedWinnerId);
         if (receipt) return receipt;
@@ -99,47 +186,20 @@ export async function requestSatelliteSettlementReceipt(
     if (attempt < attempts) await wait(200 * 2 ** (attempt - 1));
   }
 
-  try {
-    const { data, error } = await authority.rpc('fn_resolve_satellite_settlement_outcome', request);
-    if (error) {
-      lastFailure = `${lastFailure}; serialized outcome check failed: ${errorMessage(error)}`;
-    } else {
-      const outcome = record(data);
-      const identityIsExact =
-        outcome.ok === true &&
-        outcome.tournament_id === tournamentId &&
-        outcome.winner_id === observedWinnerId;
-      if (
-        identityIsExact &&
-        outcome.satellite_committed === true &&
-        outcome.definitively_not_committed === false &&
-        outcome.status === 'COMPLETED'
-      ) {
-        const receipt = verifySatelliteSettlementReceipt(
-          outcome.receipt,
-          tournamentId,
-          observedWinnerId
-        );
-        if (receipt) return receipt;
-        lastFailure = `${lastFailure}; serialized committed receipt was invalid`;
-      } else if (
-        identityIsExact &&
-        outcome.satellite_committed === false &&
-        outcome.definitively_not_committed === true &&
-        (outcome.status === 'RUNNING' || outcome.status === 'COMPLETING') &&
-        outcome.receipt === null
-      ) {
-        throw new SatelliteSettlementRefusedError(lastFailure);
-      } else {
-        lastFailure = `${lastFailure}; serialized outcome shape was invalid`;
-      }
-    }
-  } catch (error) {
-    if (error instanceof SatelliteSettlementRefusedError) throw error;
-    lastFailure = `${lastFailure}; status check failed: ${errorMessage(error)}`;
+  const resolved = await resolveOriginalSatelliteOutcomeWithArgs(originalRequest, request, durable);
+  if (resolved.state === 'committed') return resolved.receipt;
+  if (resolved.state === 'not_committed') {
+    if (durable && !(await closeDurableTerminalRequest(durable)))
+      throw new SatelliteSettlementOutcomeUnknownError(
+        'Original satellite request close is unproven',
+        originalRequest
+      );
+    throw new SatelliteSettlementRefusedError(lastFailure);
   }
+  lastFailure = `${lastFailure}; serialized outcome check failed: ${resolved.reason}`;
 
   throw new SatelliteSettlementOutcomeUnknownError(
-    `Satellite settlement outcome is unknown after ${attemptedWrites} identical attempt(s): ${lastFailure}`
+    `Satellite settlement outcome is unknown after ${attemptedWrites} identical attempt(s): ${lastFailure}`,
+    originalRequest
   );
 }

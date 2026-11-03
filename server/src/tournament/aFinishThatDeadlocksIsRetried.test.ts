@@ -72,16 +72,20 @@ describe('the finish boundary is owned by one database contract', () => {
       attempts
     );
     const resolve = TERMINAL_RPC.indexOf(
-      "terminalAuthority.rpc('fn_resolve_tournament_terminal_outcome'",
+      'const resolved = await resolveOriginalTerminalOutcomeWithArgs(',
       settle
     );
-    const committed = TERMINAL_RPC.indexOf('outcome.terminal_committed === true', resolve);
-    const provenMiss = TERMINAL_RPC.indexOf(
-      'outcome.definitively_not_committed === true',
-      committed
-    );
+    const committed = TERMINAL_RPC.indexOf("resolved.state === 'committed'", resolve);
+    const provenMiss = TERMINAL_RPC.indexOf("resolved.state === 'not_committed'", committed);
     const unknown = TERMINAL_RPC.indexOf('new TerminalSettlementOutcomeUnknownError(', provenMiss);
-
+    const resolver = TERMINAL_RPC.slice(
+      TERMINAL_RPC.indexOf('async function resolveOriginalTerminalOutcomeWithArgs('),
+      request
+    );
+    expect(resolver).toContain("'fn_resolve_tournament_terminal_outcome'");
+    expect(resolver).toContain('outcome.terminal_committed === true');
+    expect(resolver).toContain('outcome.definitively_not_committed === true');
+    expect(resolver).toContain("return { state: 'unknown'");
     expect(request).toBeGreaterThanOrEqual(0);
     expect(attempts).toBeGreaterThan(request);
     expect(settle).toBeGreaterThan(attempts);

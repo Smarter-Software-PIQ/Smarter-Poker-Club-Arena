@@ -3,6 +3,10 @@ import { TournamentManagerEliminations } from './TournamentManagerEliminations.j
 import { TournamentManagerBase } from './TournamentManagerBase.js';
 import { tournamentEliminationScheduler } from './TournamentEliminationScheduler.js';
 import { requestTournamentTerminalReceipt } from './terminalSettlementRpc.js';
+import * as terminal from './terminalSettlementRpc.js';
+import * as durable from './terminalDurableRequest.js';
+import * as satellite from './satelliteSettlementRpc.js';
+import * as qualifiers from './satelliteQualifierRpc.js';
 
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
 vi.mock('../services/financialAlerts.js', () => ({ raiseFinancialAlert: vi.fn() }));
@@ -125,4 +129,83 @@ describe('the first committed terminal cleanup failure retains its own causal wa
     expect(await m.cleanupCommittedTournament(receipt)).toBe(false);
     expect(wake).not.toHaveBeenCalled();
   });
+});
+
+describe('adopted original cleanup starts before ordinary scheduler admission', () => {
+  it.each(['places', 'proposal_deal', 'legacy_deal', 'satellite', 'satellite_qualifiers'] as const)(
+    '%s registers only its committed cleanup after the first physical refusal',
+    async (kind) => {
+      vi.useFakeTimers();
+      const m = manager('MTT', true);
+      const identity: any = { kind, tournamentId: TOURNAMENT, observedWinnerId: WINNER };
+      if (kind === 'proposal_deal')
+        Object.assign(identity, { proposalId: TABLE, revision: 'a'.repeat(64) });
+      if (kind === 'satellite_qualifiers') identity.qualifierIds = [WINNER];
+      const original: any = { identity, phase: 'prepared', requestId: TABLE };
+      const committed: any = {
+        ...receipt,
+        settlementMode: kind.includes('deal') ? 'final_table_deal' : 'places',
+      };
+      vi.spyOn(durable, 'readDurableTerminalRequest').mockResolvedValue(original);
+      vi.spyOn(durable, 'adoptDurableTerminalRequest').mockResolvedValue(original);
+      vi.spyOn(terminal, 'resolveOriginalTerminalOutcome').mockResolvedValue({
+        state: 'committed',
+        receipt: committed,
+      });
+      vi.spyOn(satellite, 'resolveOriginalSatelliteOutcome').mockResolvedValue({
+        state: 'committed',
+        receipt: committed,
+      });
+      vi.spyOn(qualifiers, 'resolveOriginalSatelliteQualifierOutcome').mockResolvedValue({
+        kind: 'committed',
+        receipt: committed,
+      });
+      const writers = [
+        vi.mocked(requestTournamentTerminalReceipt),
+        vi.spyOn(satellite, 'requestSatelliteSettlementReceipt'),
+        vi.spyOn(qualifiers, 'requestSatelliteQualifierReceipt'),
+      ];
+      let admissions = 0;
+      let unregister = () => {};
+      // Use the real scheduler and real receipt-only cleanup branch, without
+      // enabling the ordinary gameplay stages that startup has not admitted.
+      m.startEliminationChecker = vi.fn(() => {
+        expect(m.gameServer.stopClosedTournamentTableEngine).toHaveBeenCalledOnce();
+        unregister = tournamentEliminationScheduler.register({
+          tournamentId: TOURNAMENT,
+          isActive: () => m.running,
+          run: async () => {
+            admissions++;
+            expect(
+              [
+                m.committedFinishReceipt,
+                m.committedFinalTableDealReceipt,
+                m.committedSatelliteReceipt,
+                m.committedSatelliteQualifierReceipt,
+              ].some((value) => value === committed)
+            ).toBe(true);
+            expect(await m.resumeCommittedTerminalCleanup()).toBe(true);
+          },
+        });
+      });
+      try {
+        expect(tournamentEliminationScheduler.snapshot().registered).toBe(0);
+        expect(await m.continueOriginalTerminalRequest()).toBe(true);
+        await flush();
+        await vi.advanceTimersByTimeAsync(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
+        await flush();
+        expect(m.startEliminationChecker).toHaveBeenCalledOnce();
+        expect(admissions).toBe(1);
+        expect(m.gameServer.stopClosedTournamentTableEngine).toHaveBeenCalledTimes(2);
+        expect(m.stop).toHaveBeenCalledOnce();
+        expect(m.running).toBe(false);
+        for (const writer of writers) expect(writer).not.toHaveBeenCalled();
+        expect(m.processSatelliteAwards).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS * 2);
+        expect(admissions).toBe(1);
+      } finally {
+        unregister();
+      }
+    }
+  );
 });

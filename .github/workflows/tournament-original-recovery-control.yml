@@ -1,4 +1,5 @@
 name: Explicit Original Recovery And Tournament Closure Control
+run-name: '${{ inputs.action }} / ${{ inputs.tournament_id }} / ${{ inputs.nonce }}'
 on:
   workflow_dispatch:
     inputs:
@@ -9,6 +10,8 @@ on:
             owner_request,
             owner_read,
             owner_ack,
+            additional_refund_read,
+            additional_refund_settle,
             prepare,
             read,
             abort_request,
@@ -23,7 +26,7 @@ on:
           ]
         required: true
       tournament_id:
-        description: Owner actions use immutable November2 140-event manifest and never settle funds; legacy actions retain their original scope
+        description: Owner actions stop original140 plus five additional old events; additional_refund actions refund only the five through original charges; legacy scope unchanged
         type: string
         required: true
       nonce:
@@ -31,7 +34,7 @@ on:
         type: string
         required: true
       expected_engine_sha:
-        description: Actually sealed containing full engine SHA, independently verified by operator
+        description: Exact verified serving SHA for owner request/read; sealed containing SHA for runtime or financial actions
         type: string
         required: true
       expected_instance:
@@ -43,7 +46,7 @@ on:
         type: string
         required: true
       expected_money_hash:
-        description: Required for abort_settle, equal_preview or equal_settle, exact independently reviewed current money hash
+        description: Required for additional_refund_settle, abort_settle, equal_preview or equal_settle, exact independently reviewed current money hash
         type: string
         required: false
 permissions:

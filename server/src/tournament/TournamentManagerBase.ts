@@ -5099,6 +5099,11 @@ export abstract class TournamentManagerBase {
   }
 
   /** Implemented by the receipt owner; a status/refusal alone cannot stop a dealer. */
+  /** Resolve the original terminal request before admitting any dealer. */
+  protected async continueOriginalTerminalRequest(): Promise<boolean> {
+    return false;
+  }
+
   protected async adoptCommittedTerminalOutcome(): Promise<boolean> {
     return false;
   }
@@ -6819,6 +6824,8 @@ export abstract class TournamentManagerBase {
       this.assertLifecycleCurrent(lifecycle);
 
       if (!tournament) throw new Error('Tournament not found');
+      if (await this.continueOriginalTerminalRequest()) return;
+      this.assertLifecycleCurrent(lifecycle);
       // BAGGED (multi-day) has no manager, no lease and no tables between
       // stages. Only resumeStage() may take it back to RUNNING, through the
       // stage-resume receipt; a launch must never touch it.
@@ -8289,6 +8296,8 @@ export abstract class TournamentManagerBase {
         throw new Error(`Tournament resume read failed: ${tournamentError.message}`);
       if (!tournament || tournament.id !== this.tournamentId)
         throw new Error('Tournament resume did not identify the admitted event');
+      if (await this.continueOriginalTerminalRequest()) return;
+      this.assertLifecycleCurrent(lifecycle);
       // Discovery may have read RUNNING before the previous manager committed
       // completion. The fresh row owns gameplay eligibility. Return through
       // GameServer's existing exact-manager teardown; never await our own

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { controlOriginalRecovery } from '../../.github/scripts/tournament-original-recovery-control.mjs';
@@ -1157,6 +1158,7 @@ function retirementFixture({
   changedEvent = false,
   wrongOperation = false,
   changedRuntime = false,
+  servingSha = input.sha,
 } = {}) {
   const calls = [];
   let state = initial;
@@ -1165,7 +1167,12 @@ function retirementFixture({
     if (url.includes('/health'))
       return {
         ok: true,
-        json: async () => ({ ...health, ...(changedRuntime ? { instanceId: '1-deadbeef' } : {}) }),
+        json: async () => ({
+          ...health,
+          releaseSha: servingSha,
+          version: servingSha.slice(0, 8),
+          ...(changedRuntime ? { instanceId: '1-deadbeef' } : {}),
+        }),
       };
     if (url.includes('/tournaments?'))
       return {
@@ -1241,7 +1248,7 @@ function retirementFixture({
     calls,
     run: (action) =>
       controlOriginalRecovery(
-        { ...input, action, tournamentId: retirementMember.tournament_id },
+        { ...input, sha: servingSha, action, tournamentId: retirementMember.tournament_id },
         { fetchImpl, serviceIdentity: privateCanary, supabaseUrl: db }
       ),
   };
@@ -1256,17 +1263,10 @@ const preservedHumans = [
   '7986217a-0a67-4585-bd43-254356a9cb54',
   'd5decc98-cd0f-417f-aa28-6df009a74c76',
 ];
-test('owner control retains the140-event manifest and excludes later preserved human events, waiting events and money actions', () => {
+test('latest old-event closeout admits all140 original owners but excludes waiting events and unqualified money actions', () => {
   for (const m of retirementManifest.targets) {
     if (preservedHumans.includes(m.tournament_id)) {
-      for (const action of [
-        'owner_request',
-        'owner_read',
-        'owner_ack',
-        'abort_ack',
-        'abort_settle',
-        'equal_settle',
-      ])
+      for (const action of ['abort_ack', 'abort_settle', 'equal_settle'])
         assert.throws(() =>
           originalControlIntent({ ...input, action, tournamentId: m.tournament_id })
         );
@@ -1280,7 +1280,6 @@ test('owner control retains the140-event manifest and excludes later preserved h
             originalControlIntent({ ...input, action, tournamentId: m.tournament_id }).tournamentId,
             m.tournament_id
           );
-      continue;
     }
     const r = originalControlIntent({
       ...input,
@@ -1288,6 +1287,7 @@ test('owner control retains the140-event manifest and excludes later preserved h
       tournamentId: m.tournament_id,
     });
     assert.equal(r.operationId, m.original_operation_id);
+    assert.equal(r.cutoff, retirementManifest.cutoff_utc);
     assert.equal(r.disposition, 'no_financial_action');
     assert.match(r.manifestHash, /^[a-f0-9]{64}$/);
   }
@@ -1302,6 +1302,31 @@ test('owner control retains the140-event manifest and excludes later preserved h
       tournamentId: retirementMember.tournament_id,
     })
   );
+});
+test('latest closeout includes exactly the five additional old started events with separate original operation identities', () => {
+  const extra = JSON.parse(
+    fs.readFileSync(
+      new URL(
+        '../../scripts/ci/fixtures/tournament-abort/owner-closeout-nov3-additional.json',
+        import.meta.url
+      )
+    )
+  );
+  assert.equal(extra.targets.length, 5);
+  const operations = new Set();
+  for (const row of extra.targets) {
+    const intent = originalControlIntent({
+      ...input,
+      action: 'owner_request',
+      tournamentId: row.tournament_id,
+    });
+    assert.equal(intent.operationId, row.original_operation_id);
+    assert.equal(intent.originalStartedAt, row.original_started_at);
+    assert.equal(intent.cutoff, extra.cutoff_utc);
+    assert.equal(intent.disposition, 'no_financial_action');
+    operations.add(intent.operationId);
+  }
+  assert.equal(operations.size, 5);
 });
 test('owner request writes once under original operation then reads durable state', async () => {
   const f = retirementFixture();
@@ -1357,4 +1382,170 @@ test('owner ACK verifies actual current boundary and read does not actuate', asy
   const read = retirementFixture({ initial: 'stop_requested' });
   assert.equal((await read.run('owner_read')).outcome, 'owner_stop_readback');
   assert.equal(retirementWrites(read).length, 0);
+});
+
+const additional = JSON.parse(
+  fs.readFileSync(
+    new URL(
+      '../../scripts/ci/fixtures/tournament-abort/owner-closeout-nov3-additional.json',
+      import.meta.url
+    )
+  )
+);
+function additionalFixture(member, options = {}) {
+  const f = abortFixture(options);
+  const prior = f.fetchImpl;
+  f.fetchImpl = async (url, init) => {
+    const response = await prior(url, init);
+    if (!url.endsWith('/fn_ca_tournament_abort_stop_state')) return response;
+    const value = await response.json();
+    value.operation_id = member.original_operation_id;
+    value.tournament_id = member.tournament_id;
+    if (value.receipt)
+      Object.assign(value.receipt, {
+        operation_id: member.original_operation_id,
+        tournament_id: member.tournament_id,
+      });
+    Object.assign(value, options.canonical ?? {});
+    return { ok: true, json: async () => value };
+  };
+  return f;
+}
+for (const member of additional.targets) {
+  test(`additional refund retains original operation and payer: ${member.tournament_id}`, async () => {
+    const f = additionalFixture(member);
+    const request = {
+      ...input,
+      action: 'additional_refund_settle',
+      tournamentId: member.tournament_id,
+      moneyHash: '0'.repeat(32),
+    };
+    const r = await controlOriginalRecovery(request, {
+      ...f,
+      serviceIdentity: 'isolated-key',
+      supabaseUrl: db,
+    });
+    assert.equal(r.outcome, 'original_abort_settled_readback');
+    assert.equal(r.request.action, request.action);
+    assert.equal(r.request.operationId, member.original_operation_id);
+    const writes = f.calls.filter((c) => c.url.endsWith('/fn_ca_settle_tournament_abort'));
+    assert.equal(writes.length, 1);
+    assert.deepEqual(JSON.parse(writes[0].options.body), {
+      p_operation_id: member.original_operation_id,
+      p_tournament_id: member.tournament_id,
+      p_expected_money_hash: request.moneyHash,
+    });
+    assert.equal(
+      f.calls.some((c) =>
+        /owner_retire|bank_refund|equal_share|request_tournament_abort|\/admin\//.test(c.url)
+      ),
+      false
+    );
+  });
+}
+const additionalMember = additional.targets[0];
+const additionalInput = {
+  ...input,
+  tournamentId: additionalMember.tournament_id,
+  action: 'additional_refund_settle',
+  moneyHash: '0'.repeat(32),
+};
+for (const canonical of [
+  { state: 'stop_requested' },
+  { current_boundary_valid: false },
+  { quiescence_generation: input.nonce },
+  { current_generation: input.nonce },
+  { money_hash: '1'.repeat(32) },
+  { operation_id: input.nonce },
+]) {
+  test(`additional refund refuses changed boundary ${JSON.stringify(canonical)}`, async () => {
+    const f = additionalFixture(additionalMember, { canonical });
+    const r = await controlOriginalRecovery(additionalInput, {
+      ...f,
+      serviceIdentity: 'isolated-key',
+      supabaseUrl: db,
+    });
+    assert.equal(r.outcome, 'unknown');
+    assert.equal(f.calls.filter((c) => c.url.endsWith('/fn_ca_settle_tournament_abort')).length, 0);
+  });
+}
+test('additional refund read, already-settled, and lost ACK never repay', async () => {
+  for (const options of [{ read: true }, { initiallySettled: true }, { timeout: true }]) {
+    const f = additionalFixture(additionalMember, options);
+    const r = await controlOriginalRecovery(
+      { ...additionalInput, ...(options.read ? { action: 'additional_refund_read' } : {}) },
+      { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+    );
+    assert.equal(
+      f.calls.filter((c) => c.url.endsWith('/fn_ca_settle_tournament_abort')).length,
+      options.timeout ? 1 : 0
+    );
+    assert.equal(
+      r.outcome,
+      options.timeout
+        ? 'unknown'
+        : options.read
+          ? 'original_abort_readback'
+          : 'original_abort_already_settled'
+    );
+    if (options.timeout) assert.equal(r.canonicalAfter.state, 'settled');
+  }
+});
+test('additional refund cannot enter original140, arbitrary event, legacy mutation, or unreviewed money', async () => {
+  for (const change of [
+    { tournamentId: other },
+    { tournamentId: input.nonce },
+    { action: 'abort_settle' },
+    { moneyHash: undefined },
+    { sha: 'bad' },
+  ]) {
+    const f = additionalFixture(additionalMember);
+    await assert.rejects(
+      controlOriginalRecovery(
+        { ...additionalInput, ...change },
+        { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+      )
+    );
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+const oldServingSha = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
+test('old exact runtime can persist/read original stop intent but cannot acknowledge custody', async () => {
+  for (const action of ['owner_request', 'owner_read']) {
+    const f = retirementFixture({ servingSha: oldServingSha });
+    assert.equal(
+      (await f.run(action)).outcome,
+      action === 'owner_request' ? 'owner_stop_requested' : 'owner_stop_readback'
+    );
+    assert.equal(
+      f.calls.some((c) => c.url.includes('/admin/')),
+      false
+    );
+  }
+  const f = retirementFixture({ servingSha: oldServingSha, initial: 'stop_requested' });
+  await assert.rejects(f.run('owner_ack'), /Current Runtime Required/);
+  assert.equal(f.calls.length, 0);
+});
+for (const scene of [
+  { stale: true },
+  { changedRuntime: true },
+  { changedEvent: true },
+  { wrongOperation: true, initial: 'stop_requested' },
+])
+  test('old stop request preserves identity refusal ' + JSON.stringify(scene), async () => {
+    const f = retirementFixture({ ...scene, servingSha: oldServingSha });
+    assert.equal((await f.run('owner_request')).outcome, 'unknown');
+    assert.equal(retirementWrites(f).length, 0);
+  });
+test('old runtime remains refused for financial and other runtime controls', () => {
+  for (const action of [
+    'prepare',
+    'abort_ack',
+    'abort_settle',
+    'equal_preview',
+    'equal_settle',
+    'additional_refund_settle',
+  ])
+    assert.throws(() => originalControlIntent({ ...input, action, sha: oldServingSha }));
 });

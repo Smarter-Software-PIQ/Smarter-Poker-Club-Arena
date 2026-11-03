@@ -787,6 +787,14 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/satellite_qualifier_concurrency.py',
     'scripts/ci/satellite_entry_club_native.py',
     'scripts/ci/ordinary_terminal_transport.py',
+    'scripts/ci/terminal_original_request_native.py',
+    'scripts/ci/fixtures/terminal-original-request/custody-preimage.sql',
+    'scripts/ci/fixtures/terminal-original-request/deal-consent.sql',
+    'scripts/ci/fixtures/terminal-original-request/legacy-deal-votes.sql',
+    'scripts/deploy/phase-three-versioned-final-deal.sql',
+    'scripts/deploy/phase-three-activate-versioned-final-deal.sql',
+    'server/scripts/qualify-terminal-intent.ts',
+    'server/scripts/qualify-terminal-intent-transport.ts',
     'scripts/ci/fixtures/ordinary-terminal-transport/current-catalog.json',
     'scripts/ci/fixtures/ordinary-terminal-transport/spin-opening.sql',
     'server/scripts/qualify-ordinary-terminal-transport.ts',
@@ -2489,5 +2497,14 @@ describe('scoped launch reset keeps its real recovery regression enforced', () =
     );
     expect(evidence.with['if-no-files-found']).toBe('error');
     expect(evidence.if).toContain('always()');
+  });
+});
+
+describe('Additional five original refund qualification', () => {
+  it.each([
+    '.github/scripts/additional-five-refund-control.mjs',
+    'scripts/ci/additional_five_refund_native.py',
+  ])('selects required accounting and source checks for %s', (path) => {
+    expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
   });
 });

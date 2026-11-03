@@ -7,24 +7,27 @@ const bytes = fs.readFileSync(
   )
 );
 const manifest = JSON.parse(bytes);
-const humanPreservation = JSON.parse(
-  fs.readFileSync(
-    new URL(
-      '../../scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json',
-      import.meta.url
-    )
+const additionalBytes = fs.readFileSync(
+  new URL(
+    '../../scripts/ci/fixtures/tournament-abort/owner-closeout-nov3-additional.json',
+    import.meta.url
   )
 );
-const manifestHash = createHash('sha256').update(bytes).digest('hex');
+const additional = JSON.parse(additionalBytes);
+const targets = [...manifest.targets, ...additional.targets];
+const manifestHash = createHash('sha256').update(bytes).update(additionalBytes).digest('hex');
 const UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 export const OWNER_ACTIONS = ['owner_request', 'owner_read', 'owner_ack'];
 export function ownerRetirementIntent(input) {
-  const member = manifest.targets.find((r) => r.tournament_id === input.tournamentId);
+  const member = targets.find((r) => r.tournament_id === input.tournamentId);
   if (
     !OWNER_ACTIONS.includes(input.action) ||
     !member ||
-    humanPreservation.preserved_started_human_events.includes(input.tournamentId) ||
     manifest.targets.length !== 140 ||
+    additional.targets.length !== 5 ||
+    targets.length !== 145 ||
+    new Set(targets.map((r) => r.tournament_id)).size !== 145 ||
+    additional.cutoff_utc !== '2026-11-02T20:31:18.761336Z' ||
     new Set(manifest.targets.map((r) => r.tournament_id)).size !== 140 ||
     manifest.preserved_outside_diamond_event_ids.includes(input.tournamentId) ||
     manifest.cutoff_utc !== '2026-11-02T06:00:00Z' ||
@@ -32,7 +35,9 @@ export function ownerRetirementIntent(input) {
     !UUID.test(input.nonce ?? '') ||
     !UUID.test(input.generation ?? '') ||
     !/^[a-f0-9]{40}$/.test(input.sha ?? '') ||
-    input.sha === 'eed06fe51dea622069c661a6213d5b031ff3a9e3' ||
+    // Persisting/reading canonical stop intent does not actuate the engine.
+    // Physical acknowledgement still requires the containing new runtime.
+    (input.action === 'owner_ack' && input.sha === 'eed06fe51dea622069c661a6213d5b031ff3a9e3') ||
     !/^[1-9][0-9]*-[0-9a-f]{8}$/.test(input.instance ?? '')
   )
     throw Error('Exact Owner Retirement Manifest And Current Runtime Required');
@@ -42,7 +47,7 @@ export function ownerRetirementIntent(input) {
     operationId: member.original_operation_id,
     originalStartedAt: member.original_started_at,
     manifestHash,
-    cutoff: manifest.cutoff_utc,
+    cutoff: additional.targets.includes(member) ? additional.cutoff_utc : manifest.cutoff_utc,
     financialWriter: manifest.financial_writer,
     nonce: input.nonce,
     generation: input.generation,
@@ -50,7 +55,7 @@ export function ownerRetirementIntent(input) {
     instance: input.instance,
     disposition: 'no_financial_action',
     reason:
-      'Owner-directed retirement November 2 Chicago: equal-share superseded; preserve player liabilities and prior awards; financial disposition requires separate qualified authority.',
+      'Owner-directed old-event closeout November 3 Chicago supersedes human-event preservation; equal-share superseded; retain original operations, player liabilities and prior awards; financial disposition requires separate qualified authority.',
   };
 }
 // This adapter only drives the existing physical-stop protocol. It has no

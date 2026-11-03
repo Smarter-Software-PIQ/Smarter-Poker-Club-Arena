@@ -1,0 +1,6 @@
+{
+  "functions": [
+    "fn_ca_withdraw_tournament_abort_for_original_recovery",
+    "fn_ca_lock_tournament_seat_acquisition"
+  ]
+}
