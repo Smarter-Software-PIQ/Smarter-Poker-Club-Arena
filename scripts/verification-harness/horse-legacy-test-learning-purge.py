@@ -70,6 +70,17 @@ END $fn$;
 SELECT pg_temp.legacy_protected_snapshot();
 """
 
+APPEND_CLOCK_AT_PURGE_DAY = """
+DO $pin$
+DECLARE
+ src text := pg_get_functiondef('public.fn_append_horse_adaptive_observations(text)'::regprocedure);
+ wall text := 'floor(extract(epoch FROM statement_timestamp())*1000)::bigint';
+BEGIN
+ IF position(wall IN src) = 0 THEN RAISE EXCEPTION 'append door clock anchor missing'; END IF;
+ EXECUTE replace(src, wall, 'floor(extract(epoch FROM timestamptz ''2026-10-15 21:25:15+00'')*1000)::bigint');
+END $pin$;
+"""
+
 def digest(value):
  return hashlib.sha256(value.encode()).hexdigest()
 
@@ -78,6 +89,12 @@ def fixture(e, template):
  old = module(ROOT / 'scripts/ci/test-hand-submission-retention-disposal.py', 'legacy_history_fixture')
  # This genuine human history and completed atomic settlement are protected.
  e.sql(d, old.SEED + "UPDATE public.hand_history SET has_human=true; UPDATE public.profiles SET is_horse=false;", label='legacy-protected-human-history-and-financial-world')
+ # The one-time purge ran on 2026-10-15 against facts observed before its
+ # fixed 2026-10-04 cutoff, and the real append door only accepts facts from
+ # the last 30 days. From 2026-11-02 23:00Z no real clock can satisfy both, so
+ # this throwaway database's append door reads the purge's own day instead of
+ # the wall clock. Every other check in the door is unchanged.
+ e.sql(d, APPEND_CLOCK_AT_PURGE_DAY, label='legacy-append-clock-at-purge-day')
  actor = digest('legacy-test-actor')
  scope = json.dumps(['adaptive-public-node-v1']+[None]*28,separators=(',',':'))
  def fact(hand, number, observed=1791068400000, origin='horse_policy'):
