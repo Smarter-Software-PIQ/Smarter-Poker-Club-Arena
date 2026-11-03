@@ -125,7 +125,7 @@ const breakfastWitness =
   /^scripts\/ci\/(?:test-breakfast-original-witness\.py$|breakfast_(?:fixture|original_witness|qualification|concurrency)\.py$|fixtures\/breakfast-original-witness\/|probes\/breakfast-original-witness\/)/;
 
 const cancellationAdmission =
-  /^(scripts\/ci\/(?:test-(?:tournament-cancellation-lane|undrawn-spin-cancellation)\.py$|fixtures\/(?:tournament-cancellation-lane|undrawn-spin-cancellation)\/)|tests\/unit\/(?:tournamentCancellationLane|undrawnSpinCancellation)\.test\.ts$)/;
+  /^(scripts\/ci\/(?:test-(?:tournament-cancellation-lane|undrawn-spin-cancellation|tournament-original-recovery)\.py$|tournament_entry_hold_native\.py$|fixtures\/(?:tournament-cancellation-lane|undrawn-spin-cancellation|tournament-recovery20|tournament-abort)\/)|\.github\/scripts\/(?:owner-retirement-control|tournament-original-recovery-control)\.mjs$|tests\/operations\/tournament-original-recovery-control\.test\.mjs$|tests\/unit\/(?:tournamentCancellationLane|undrawnSpinCancellation)\.test\.ts$)/;
 
 const satelliteQualifiers =
   /^(scripts\/ci\/(?:test-satellite-qualifiers\.py$|(?:satellite_qualifier_(?:fixture|concurrency)|satellite_entry_club_native)\.py$|fixtures\/satellite-qualifiers\/|probes\/(?:satellite-entry-club-native\.sql|satellite-qualifier(?:s-native\.sql|-(?:finish|reader)\.spec))$)|tests\/operations\/satellite-qualifier-results\.test\.py$)/;
