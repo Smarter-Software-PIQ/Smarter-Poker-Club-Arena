@@ -3811,6 +3811,9 @@ jobs:
     needs: [changes, stub_gate, typecheck, typecheck_compile, fixture_native, unit, server]
     steps:
       - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/agent-policy
+          sparse-checkout-cone-mode: false
       - name: Exact revision evidence summary
         env:
           POLICY_CI_NEEDS: ${{ toJSON(needs) }}

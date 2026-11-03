@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 277650,
-      "sha256": "8a2e47338053bac98f660f07e062dd45ac3f684e61e3d8996208c6e1035abe73"
+      "bytes": 277752,
+      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -2460,5 +2460,17 @@
     },
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "verdictSparseCheckout20261103": {
+    "reason": "Only informational verdict checkout selects docs/agent-policy. Two-minute budget, revision, needs, all report assertions and every other job unchanged. Current input identity only; no historical qualification or live proof restamped.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 277650,
+      "sha256": "8a2e47338053bac98f660f07e062dd45ac3f684e61e3d8996208c6e1035abe73"
+    },
+    "current": {
+      "bytes": 277752,
+      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
+    }
   }
 }
