@@ -1,5 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameServer } from './GameServer.js';
+import { supabase } from './services/supabase.js';
+
+afterEach(() => vi.restoreAllMocks());
 
 /*
  * A TOURNAMENT TABLE WITH NO DEALER IS HANDED ON, NOT LEFT (2026-10-22).
@@ -155,5 +158,68 @@ describe('a tournament table with no dealer is handed on, not left', () => {
     s.tournamentOwnedTables = new Set();
     run(s, 0);
     expect(s.unregisterTableEngine).not.toHaveBeenCalled();
+  });
+});
+
+describe('handoff budgets survive fleet pressure until proven retirement', () => {
+  it('never resets exhausted budgets when more than 500 live tables fail', () => {
+    const managers = Array.from(
+      { length: 501 },
+      (_, i) =>
+        [
+          `event-${i}`,
+          manager([`table-${i}`], [{ tableId: `table-${i}`, msFailing: 6 * MIN }]),
+        ] as [string, any]
+    );
+    const s = server([], managers);
+    for (let i = 0; i < managers.length; i++) s.stuckTournamentTableHandoffs.set(`table-${i}`, 3);
+    run(s, 10 * MIN);
+    run(s, 11 * MIN);
+    expect(s.stuckTournamentTableHandoffs.size).toBe(501);
+    for (const [, m] of managers) expect(m.requestSuccessorForStuckTable).not.toHaveBeenCalled();
+  });
+
+  function terminalFixture(reply: unknown) {
+    const s = server([], []);
+    s.stuckTournamentTableHandoffs.set(T, 3);
+    s.stuckTournamentTableSince.set(T, 1);
+    const query = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn(async () => reply) };
+    query.select.mockReturnValue(query);
+    query.eq.mockReturnValue(query);
+    vi.spyOn(supabase, 'from').mockReturnValue(query as any);
+    return s;
+  }
+
+  it('retires an absent table budget only after the existing terminal read proves closure', async () => {
+    const s = terminalFixture({ data: { status: 'closed', tournament_id: EVENT }, error: null });
+    expect(await s.stopClosedTournamentTableEngine(T)).toBe(true);
+    expect(s.stuckTournamentTableHandoffs.has(T)).toBe(false);
+    expect(s.stuckTournamentTableSince.has(T)).toBe(false);
+  });
+
+  it.each([
+    { data: null, error: { message: 'unreadable' } },
+    { data: null, error: null },
+    { data: { status: 'running', tournament_id: EVENT }, error: null },
+  ])('retains the budget when terminal closure is not proven: %j', async (reply) => {
+    const s = terminalFixture(reply);
+    expect(await s.stopClosedTournamentTableEngine(T)).toBe(false);
+    expect(s.stuckTournamentTableHandoffs.get(T)).toBe(3);
+  });
+
+  it('retains a budget when exact-instance retirement loses to a successor', async () => {
+    const s = terminalFixture({ data: { status: 'closed', tournament_id: EVENT }, error: null });
+    const old = { stop: vi.fn(async () => undefined) };
+    s.tableEngines.set(T, old);
+    s.unregisterTableEngine.mockReturnValue(false);
+    expect(await s.stopClosedTournamentTableEngine(T)).toBe(false);
+    expect(s.stuckTournamentTableHandoffs.get(T)).toBe(3);
+  });
+
+  it('retires the budget after confirmed closure and successful exact-instance retirement', async () => {
+    const s = terminalFixture({ data: { status: 'closed', tournament_id: EVENT }, error: null });
+    s.tableEngines.set(T, { stop: vi.fn(async () => undefined) });
+    expect(await s.stopClosedTournamentTableEngine(T)).toBe(true);
+    expect(s.stuckTournamentTableHandoffs.has(T)).toBe(false);
   });
 });

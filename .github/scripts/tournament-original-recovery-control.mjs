@@ -14,6 +14,12 @@ const COHORT = JSON.parse(
     'utf8'
   )
 );
+const HUMAN_PRESERVATION = JSON.parse(
+  fs.readFileSync(
+    path.join(ROOT, 'scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json'),
+    'utf8'
+  )
+);
 const NIGHTLY = JSON.parse(
   fs.readFileSync(
     path.join(ROOT, 'scripts/ci/fixtures/tournament-recovery20/nightly-closure-intent.json'),
@@ -225,8 +231,10 @@ export function originalControlIntent(input) {
     ? (equalCohort?.members ?? []).map((row) => row.tournamentId)
     : abort
       ? [...COHORT.original89, NIGHTLY.tournamentId]
-      : COHORT.natural_finish_twenty;
+      : [...COHORT.natural_finish_twenty, ...HUMAN_PRESERVATION.original_abort_recovery_events];
   if (
+    ((equal || abort) &&
+      HUMAN_PRESERVATION.preserved_started_human_events.includes(input.tournamentId)) ||
     (!equal && !abort && !['prepare', 'read'].includes(input.action)) ||
     !allowed.includes(input.tournamentId) ||
     (input.action === 'abort_request' && !nightly) ||

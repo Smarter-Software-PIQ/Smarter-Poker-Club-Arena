@@ -1,5 +1,24 @@
 # Exact20 original tournament recovery
 
+## November 3 human-event preservation
+
+The later owner instruction in recovery chat `01a1a01a-7f70-7d62-8da1-8d086594c658`
+preserves already-started human events. The immutable prior manifests remain
+historical evidence. `scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json`
+names four events whose stop/settlement actions are now refused. Only the three
+listed in `original_abort_recovery_events` have existing stop requests and gain
+access to the preparation and withdrawal path below. The fourth has no pending
+stop and must continue normally; do not create an operation for it.
+
+Migration `20261103110751_preserve_started_human_events_under_original_custody.sql`
+and its containing engine must be installed and verified before using the added
+scope. Every actual seal, serving identity, native custody, own complete v3 thaw,
+no-refund and original-hand acceptance requirement below remains unchanged.
+Neither the older 20-event authority nor an old retirement manifest authorizes
+cancelling these four events. A new start hold remains independent of their play.
+
+## Historical original20 authority and unchanged procedure
+
 This is an explicit one-time operator action for human instruction
 `01a192b6-c749-7ac2-8c18-cadeb3923073`. It is not a scheduler or recovery loop.
 Original operation `d44c4440-2911-430c-8ee7-376611ef3f38` and its89 targets remain
