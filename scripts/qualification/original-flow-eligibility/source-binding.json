@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278025,
-      "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
+      "bytes": 278311,
+      "sha256": "8891a5a8976a5c75f5d7f385b7490f062195e179288b31c8138dfbb421f2add4"
     },
     "scripts/qualification/original-flow-eligibility/README.md": {
       "bytes": 2608,
@@ -2549,5 +2549,22 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "nov3AttendanceNativeEnforcement20261103": {
+    "reason": "Reviewed five-line CI addition: execute exact dated zero-guarantee/attendance PostgreSQL qualification in existing accounting shard2. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certificate restamped.",
+    "changes": [
+      {
+        "section": "files",
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278025,
+          "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
+        },
+        "current": {
+          "bytes": 278311,
+          "sha256": "8891a5a8976a5c75f5d7f385b7490f062195e179288b31c8138dfbb421f2add4"
+        }
+      }
+    ]
   }
 }
