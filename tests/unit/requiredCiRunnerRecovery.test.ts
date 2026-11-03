@@ -576,6 +576,13 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     }
     expect(normalized.jobs.unit_shards.env.VITEST_MAX_THREADS).toBe(8);
     normalized.jobs.unit_shards.env.VITEST_MAX_THREADS = 4;
+    // The informational report needs only the maintained policy reader. Keep
+    // its deadline and every reporting assertion pinned by the original job hash.
+    expect(normalized.jobs.verdict.steps[0]).toStrictEqual({
+      uses: 'actions/checkout@v4',
+      with: { 'sparse-checkout': 'docs/agent-policy', 'sparse-checkout-cone-mode': false },
+    });
+    delete normalized.jobs.verdict.steps[0].with;
     // Ordered inventories plus all non-job fields and every whole job cover the
     // complete reviewed workflow. Unrelated job edits update only their own pin.
     const fingerprint = (value: unknown) =>
