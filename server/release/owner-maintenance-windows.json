@@ -803,6 +803,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "af803fe4f3c9da76902f27e27e311a5d581cfe59296d3ac4135d8eed1569bebf"
       }
+    },
+    {
+      "id": "2026-11-03-tournament-recovery-next-safe-55",
+      "ownerOrder": "Dan directly in recovery chat 01a1a01a-7f70-7d62-8da1-8d086594c658 answered \"Proceed through the next certified safe window\" to whether the earlier \"No more PRs or cutovers tonight; wait until 04:00 AM CST\" restriction still applies. This fixed six-hour source window implements that later authorization for one activation at the next certified :55 break after protected checks and preparation. It preserves the existing :53 announcement and :55 cutover route, full custody, 120-second notice, 285-second cutover/proof/rollback reserve, hand-boundary drain, durable freeze, sealed certificate and v3 thaw. It supersedes fresh Phase1 on-the-hour selection only within these bounds; it never retargets an already-owned or unknown-outcome operation. Tournament starts remain held until the recovery is verified, and already-started human events retain their hands and financial state. No force restart, second publisher, watcher, recurring repair, replay of expired releases, or automatic window renewal is authorized. Previous owner entries and operation receipts remain unchanged.",
+      "contains": "1427f0d3a19ea4b8231a491499f86c9561e00330",
+      "notBefore": "2026-11-03T11:00:00Z",
+      "notAfter": "2026-11-03T17:00:00Z",
+      "announceAtChicagoMinutes": [53],
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "97c69b961ba47b565666df50066c7ded36be2daef5e6adc557d32f91c5de2de0"
+      }
     }
   ],
   "databaseWindows": [
