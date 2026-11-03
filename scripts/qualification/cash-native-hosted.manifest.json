@@ -436,8 +436,8 @@
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 47562,
-      "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+      "bytes": 47622,
+      "sha256": "7849b4aab2e653030698088105e1b72f721204e482cebeae849d82dfed1f8e66"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -532,8 +532,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 121735,
-      "sha256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb"
+      "bytes": 121993,
+      "sha256": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780"
     }
   },
   "nativePgCron": {
@@ -6578,6 +6578,31 @@
         "current": {
           "bytes": 47562,
           "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+        }
+      }
+    }
+  },
+  "ordinaryTerminalTransportQualification20261103": {
+    "review": "Reviewed additive ordinary MTT/SNG/Spin fixture input classification and four regression routing cases. Existing cash logic, qualification assertions and historical evidence remain unchanged. This is current source identity only, not cash financial recertification or production acceptance.",
+    "changes": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "previous": {
+          "bytes": 47562,
+          "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+        },
+        "current": {
+          "bytes": 47622,
+          "sha256": "7849b4aab2e653030698088105e1b72f721204e482cebeae849d82dfed1f8e66"
+        }
+      },
+      "tests/unit/fixtureNativeCi.test.ts": {
+        "previous": {
+          "bytes": 121735,
+          "sha256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb"
+        },
+        "current": {
+          "bytes": 121993,
+          "sha256": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780"
         }
       }
     }
