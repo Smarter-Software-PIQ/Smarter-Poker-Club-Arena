@@ -732,6 +732,25 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     expect(ci.jobs.fixture_native.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(ci.jobs.fixture_native.secrets).toBeUndefined();
     const job = normalized.jobs['native-smoke'];
+    const alertInstall = job.steps.findIndex(
+      (step: { name?: string }) =>
+        step.name === 'Install locked native alert transport dependencies'
+    );
+    expect(job.steps[alertInstall]).toStrictEqual({
+      name: 'Install locked native alert transport dependencies',
+      if: '${{ !inputs.connected_ui_observations }}',
+      run: 'npm ci --prefix tools/production-alerts-native-wakeup --ignore-scripts --no-audit --no-fund',
+    });
+    const alertGate = job.steps[alertInstall + 1];
+    expect(alertGate).toStrictEqual({
+      name: 'Native alert intake survives actual process death without duplicate queue submission',
+      if: '${{ !inputs.connected_ui_observations }}',
+      env: { TMPDIR: '${{ runner.temp }}' },
+      run: 'node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs',
+    });
+    // Qualify the exact additive transport gate, then retain every historical stage/hash.
+    alertGate.run = 'node --test tools/production-alerts-native-wakeup/state.test.mjs';
+    job.steps.splice(alertInstall, 1);
     expect(job['timeout-minutes']).toBe('${{ inputs.connected_ui_observations && 120 || 55 }}');
     const budget = new Function('inputs', `return (${job['timeout-minutes'].slice(3, -2)});`);
     expect(budget({ connected_ui_observations: false })).toBe(55);
