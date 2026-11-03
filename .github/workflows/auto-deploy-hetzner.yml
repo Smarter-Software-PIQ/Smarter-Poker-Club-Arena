@@ -221,7 +221,11 @@ jobs:
           [[ "$RELEASE_TEST_SHARD" =~ ^[1-4]$ ]]
           npm ci --no-audit --no-fund
           npm run build
-          npm test -- --shard="$RELEASE_TEST_SHARD/4"
+          # Run this nested historical qualification once before CPU-heavy tests.
+          if [ "$RELEASE_TEST_SHARD" = 1 ]; then
+            npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
+          fi
+          npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$RELEASE_TEST_SHARD/4"
 
   engine-doors:
     name: Prove The Exact Engine Has Every Production Door

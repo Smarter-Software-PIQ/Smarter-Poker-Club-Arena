@@ -3728,12 +3728,16 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: python3 -B -m unittest discover -s scripts -p 'test_*public215*.py'
 
+      - name: Exact retained historical owners qualify before competing workloads
+        if: matrix.shard == 1
+        run: npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
+
       - name: Full server test suite
         env:
           SERVER_TEST_SHARD: ${{ matrix.shard }}
         run: |
           [[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]
-          npm test -- --shard="$SERVER_TEST_SHARD/4"
+          npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$SERVER_TEST_SHARD/4"
 
       # Guards the single highest-impact line of the freeze fix. The all-in
       # dead-buttons bug (production hand #1315: 30.1s between a river shove

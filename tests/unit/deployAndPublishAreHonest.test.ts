@@ -54,7 +54,9 @@ describe('the required server check joins independent accounting and engine work
     expect(shards).not.toContain('needs.accounting_postgres');
     expect(shards).toMatch(/^ {8}shard: \[1, 2, 3, 4\]$/m);
     expect(shards).not.toMatch(/^\s+(?:include|exclude|continue-on-error):/m);
-    expect(shards).toMatch(/^\s+npm test -- --shard="\$SERVER_TEST_SHARD\/4"\s*$/m);
+    expect(shards).toMatch(
+      /^\s+npm test -- --exclude src\/engine\/RetainedHistoricalCheckpointQualification\.test\.ts --shard="\$SERVER_TEST_SHARD\/4"\s*$/m
+    );
     expect(shards).toContain("needs.changes.result != 'success'");
     expect(aggregate).toContain('ACCOUNTING_RESULT: ${{ needs.accounting_postgres.result }}');
   });
@@ -246,7 +248,9 @@ describe('engine deployment reports what actually happened', () => {
       /^ {4}strategy:\n {6}fail-fast: false\n {6}max-parallel: 4\n {6}matrix:\n {8}shard: \[1, 2, 3, 4\]$/m
     );
     expect(preflight).toMatch(/^ {10}RELEASE_TEST_SHARD: \$\{\{ matrix\.shard \}\}$/m);
-    expect(preflight).toMatch(/^\s+npm test -- --shard="\$RELEASE_TEST_SHARD\/4"\s*$/m);
+    expect(preflight).toMatch(
+      /^\s+npm test -- --exclude src\/engine\/RetainedHistoricalCheckpointQualification\.test\.ts --shard="\$RELEASE_TEST_SHARD\/4"\s*$/m
+    );
     // The whole matrix belongs only to deployment events. Withdrawal has no
     // image authority; every actual deployment still executes all four shards.
     const eventGate = "    if: github.event.action == 'deploy-club-arena-engine'";

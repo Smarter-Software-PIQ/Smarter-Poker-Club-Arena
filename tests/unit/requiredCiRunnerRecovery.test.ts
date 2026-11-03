@@ -17,6 +17,25 @@ const jobs = [
   ['native-smoke', native.jobs['native-smoke'], 'ubuntu-24.04'],
 ] as const;
 
+const retainedWrapper = 'src/engine/RetainedHistoricalCheckpointQualification.test.ts';
+const retainedStep = {
+  name: 'Exact retained historical owners qualify before competing workloads',
+  if: 'matrix.shard == 1',
+  run: `npm test -- ${retainedWrapper}`,
+};
+const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === retainedStep.name);
+  expect(job.steps.filter((step) => step.name === retainedStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(retainedStep);
+  const full = job.steps[index + 1];
+  expect(full?.name).toBe('Full server test suite');
+  expect(full.run).toBe(
+    `[[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]\nnpm test -- --exclude ${retainedWrapper} --shard="$SERVER_TEST_SHARD/4"\n`
+  );
+  full.run = '[[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]\nnpm test -- --shard="$SERVER_TEST_SHARD/4"\n';
+  job.steps.splice(index, 1);
+};
+
 const frameCoverSteps = [
   {
     name: 'Weekly cash boundaries keep original rows and use the frame cover',
@@ -530,6 +549,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     );
     // Enforce the exact new regression, then retain every historical job pin.
     accountingSteps.splice(fixedLimitIndex, 1);
+    normalizeRetainedOwnerScheduling(normalized.jobs.server_shards);
     normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
     normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
     normalizeScheduleRequestAddition(normalized.jobs.accounting_postgres);
@@ -933,4 +953,27 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       '13a3a555958b2a8bd92ba5a7a45083c0af0993c9f02b10e885c1d858aefa8afc'
     );
   });
+});
+
+it('refuses missing, duplicated, moved or broadened retained-owner scheduling', () => {
+  for (const mutation of [
+    (job: any, index: number) => job.steps.splice(index, 1),
+    (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
+    (job: any, index: number) => {
+      job.steps[index].if = 'matrix.shard == 2';
+    },
+    (job: any, index: number) => {
+      job.steps[index + 1].run += '--exclude src/other.test.ts';
+    },
+    (job: any, index: number) => {
+      [job.steps[index], job.steps[index + 1]] = [job.steps[index + 1], job.steps[index]];
+    },
+  ]) {
+    const job = structuredClone(ci.jobs.server_shards);
+    mutation(
+      job,
+      job.steps.findIndex((step: any) => step.name === retainedStep.name)
+    );
+    expect(() => normalizeRetainedOwnerScheduling(job)).toThrow();
+  }
 });

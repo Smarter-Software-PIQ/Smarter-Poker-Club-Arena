@@ -1,0 +1,7 @@
+# Qualify retained owners before competing server workloads
+
+Required server shard1 in run41700927932 timed out the historical44-case child at its unchanged120second budget while the same outer suite ran long CPU-heavy horse qualifications. The same exact owner fixture had passed locally in88–90seconds. The failed child emitted no per-case result, so it does not establish an owner-guard failure or identify which fixture phase consumed the remaining time.
+
+The existing required CI server job now executes that wrapper once on shard1 before the full suite. The immutable release receiver does the same inside its existing compile/test step. Only that already-required wrapper is excluded from each subsequent sharded full-suite call; all other files, four shards, failure propagation, total job bounds and the required joins remain. The44-case driver120second total and150/180second outer bounds are unchanged. Local/prepush direct invocation is unchanged.
+
+Regression executes the actual declared CI and receiver shell commands across all four shard values, requiring exactly one wrapper invocation followed by four exact single-file exclusions. A receiver wrapper failure prevents its full-suite invocation. Strict workflow normalization refuses missing, duplicate, displaced or broadened coverage while preserving every other prior job fingerprint. Actual isolated hosted qualification remains required; this scheduling correction is not a larger production or fixture deadline.
