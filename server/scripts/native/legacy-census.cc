@@ -93,7 +93,11 @@ class Predicate final : public v8::QueryObjectPredicate {
       // allocates an escape slot in QueryObjects' enclosing scope. No user
       // callback or microtask can mutate this ordinary prototype between reads.
       v8::EscapableHandleScope pin(context_->GetIsolate());
-      const auto prototype = object->GetPrototype().As<v8::Object>();
+      // Classify cached only the suffix starting at depth two. Recreate
+      // that exact key after its local scope closes; no script or mutation
+      // can run between classification and this bounded pin.
+      const auto prototype = object->GetPrototype().As<v8::Object>()
+          ->GetPrototype().As<v8::Object>()->GetPrototype().As<v8::Object>();
       cache_.Store(pin.Escape(prototype), vacant, matches);
     }
     if (!matches) return false;
@@ -125,7 +129,6 @@ class Predicate final : public v8::QueryObjectPredicate {
       return false;
     v8::Local<v8::Value> cursor = object->GetPrototype();
     if (!cursor->IsObject()) return false;
-    const auto prototype = cursor.As<v8::Object>();
     // Preserve the original common shallow path without hashing or pinning.
     // Only a chain deeper than these exact first two iterations uses the cache.
     for (size_t depth = 0; depth < 2; ++depth) {
@@ -135,6 +138,10 @@ class Predicate final : public v8::QueryObjectPredicate {
       cursor = cursor.As<v8::Object>()->GetPrototype();
     }
     if (!cursor->IsObject()) return false;
+    // The first two links were already judged. Cache the remaining suffix,
+    // not a per-instance wrapper above it. Every lookup starts at depth two,
+    // preserving the exact 256-depth refusal and marker/proxy semantics.
+    const auto prototype = cursor.As<v8::Object>();
     // Pinned V8 implementation executes identity hashing without GC or script.
     const int hash = prototype->GetIdentityHash();
     bool cached;

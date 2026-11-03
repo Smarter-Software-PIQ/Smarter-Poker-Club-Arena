@@ -1,4 +1,4 @@
-export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = '4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1';
+export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = '87b436c6986e0ecabadb4373e7fb25ee47042b362ac7308a99748785e1b21323';
 // Concatenated after the exact guard by the owning release transaction.
 // Importing this module only exposes the isolated fixture seam.
 import { setTimeout as checkpointDelay } from 'node:timers/promises';
@@ -662,7 +662,7 @@ export function bindLegacyCensusModules(holderKey, workDeadlineMs, nativeCensus 
   const extended = profile === 'eed-80s-v1';
   if (profile !== null && (!extended ||
       process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3' ||
-      nativeCensus?.sourceSHA256 !== '4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1'))
+      nativeCensus?.sourceSHA256 !== '87b436c6986e0ecabadb4373e7fb25ee47042b362ac7308a99748785e1b21323'))
     throw new Error('native census allocation profile refused');
   if (
     typeof holderKey !== 'string' ||

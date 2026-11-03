@@ -29,7 +29,7 @@ def valid_result():
             'transport':{'ok':True,'closed':True,'outerMs':19000},
             'count':35000000, 'prototypeRestored':True, 'matched':11, 'node':'v22.23.2',
             'v8':'12.4.254.21-node.56', 'platform':'linux', 'arch':'x64',
-            'sourceSHA256':'4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1',
+            'sourceSHA256':'87b436c6986e0ecabadb4373e7fb25ee47042b362ac7308a99748785e1b21323',
             'prototypeCacheBytes':1048576, 'binarySHA256':'b'*64, 'before':{'used':3913011648, 'available':322107592,
             'process':50471874560}, 'queryMs':19000, 'fixtureMs':34000,
             'cgroupPeak':5*1024**3, 'maxRSSKiB':4000000,
