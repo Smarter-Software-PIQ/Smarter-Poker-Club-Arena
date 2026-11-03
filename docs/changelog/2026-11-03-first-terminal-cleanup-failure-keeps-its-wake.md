@@ -7,3 +7,9 @@ Each affected receipt-owned tail now asks the existing elimination scheduler for
 `CommittedTerminalCleanupContinuation.test.ts` drives the actual process scheduler and terminal tails. The five format paths fail against the previous source with no pending wake and pass after the change: one transient table-release refusal is followed by cleanup without another hand, external event or second payout call. Successful and stopped managers do not rearm. The related terminal receipt, cleanup-contract and stop-ownership tests remain passing. Local proof is not production deployment or live verification.
 
 The same review found that ordinary/satellite unknown settlements, both final-table-deal paths and terminal receipt disagreement awaited alert persistence before applying their existing dealer fence. The fence now runs synchronously first. It still does not await its own scheduler teardown, and committed receipt cleanup, proven refusal and not-sent behavior retain their original semantics. Behavioral tests hold the alert promise unresolved and prove the real manager stop fences dealers immediately; source contracts pin both deal paths and the new ordering. The prior ordinary/satellite behavior fails that regression while its alert is pending.
+
+Required CI exposed an existing chip-statement test race: its static heading
+was used as proof that the asynchronous ledger response had rendered. The test
+now controls a delayed response, proves the heading exists while still loading,
+and waits for the actual incoming movement before asserting both directions and
+the audit line. No product behavior or financial assertions changed.
