@@ -17,6 +17,7 @@ try:
  run([a.pg_bin/'pg_ctl','-D',data,'-l',base/'log','-o',f"-h 127.0.0.1 -k '' -p {port}",'-w','start']);started=True
  sql("""CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role;
  CREATE SCHEMA auth;CREATE SCHEMA smarter_private;
+ CREATE TABLE ca_declared_money_triggers(table_name text,trigger_name text,note text,PRIMARY KEY(table_name,trigger_name));
  CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$SELECT current_setting('request.jwt.claim.role',true)$$;
  CREATE TABLE tournaments(id uuid PRIMARY KEY,name text NOT NULL,description text,short_description text,club_id uuid,status text,start_time timestamptz,started_at timestamptz,guaranteed_prize numeric,buy_in_amount numeric,buy_in_fee numeric,bounty_amount numeric,is_bounty boolean,is_pko boolean,is_mystery_bounty boolean,format_contract text,current_players integer,max_players integer,prize_pool numeric DEFAULT 0,prize_pool_finalized boolean DEFAULT false);
  CREATE TABLE tournament_players(tournament_id uuid);CREATE TABLE tournament_refund_entitlements(tournament_id uuid);

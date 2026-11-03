@@ -69,6 +69,9 @@ REVOKE ALL ON FUNCTION smarter_private.apply_nov3_zero_guarantee() FROM PUBLIC,a
 -- Runs after the diamond copy normalizer, before affordability/funding guards.
 CREATE TRIGGER ab_nov3_zero_guarantee BEFORE INSERT OR UPDATE OF status,start_time,buy_in_amount,buy_in_fee,guaranteed_prize,name,description,short_description
  ON public.tournaments FOR EACH ROW EXECUTE FUNCTION smarter_private.apply_nov3_zero_guarantee();
+INSERT INTO public.ca_declared_money_triggers(table_name,trigger_name,note)
+VALUES('tournaments','ab_nov3_zero_guarantee','Owner-requested Nov3 unstarted cash guarantees become zero; private attendance count cannot fund prizes; existing financial and registration guards remain.')
+ON CONFLICT(table_name,trigger_name) DO NOTHING;
 
 CREATE FUNCTION public.fn_ca_nov3_tournament_attendance(p_tournament_ids uuid[])
 RETURNS TABLE(tournament_id uuid,attendance_floor integer)
@@ -124,6 +127,10 @@ AS $function$
   order by t.start_time asc;
 $function$
 ;
+
+-- Restate the measured existing ACL; CREATE OR REPLACE retains its owner.
+REVOKE ALL ON FUNCTION public.fn_overlay_at_risk(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_overlay_at_risk(uuid) TO service_role;
 
 DO $existing$
 DECLARE v_count integer;

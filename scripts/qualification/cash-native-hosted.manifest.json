@@ -428,8 +428,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278025,
-      "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
+      "bytes": 278311,
+      "sha256": "8891a5a8976a5c75f5d7f385b7490f062195e179288b31c8138dfbb421f2add4"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6902,5 +6902,16 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "nov3AttendanceNativeEnforcement20261103": {
+    "reason": "Reviewed five-line accounting shard2 addition for dated attendance native qualification. Cash commands/assertions/budgets and original financial inputs unchanged. Source identity only; no historical or live certificate restamp.",
+    "previous": {
+      "bytes": 278025,
+      "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
+    },
+    "current": {
+      "bytes": 278311,
+      "sha256": "8891a5a8976a5c75f5d7f385b7490f062195e179288b31c8138dfbb421f2add4"
+    }
   }
 }
