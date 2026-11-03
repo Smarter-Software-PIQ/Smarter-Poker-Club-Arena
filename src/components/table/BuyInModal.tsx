@@ -10,7 +10,6 @@
  * - Account balance display
  */
 
-import { isFixedLimitVariant } from '../../lib/bettingStructure';
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { haptic, soundService } from '../../services/SoundService';
 import {
@@ -131,12 +130,7 @@ export function BuyInModal({
 }: BuyInModalProps) {
   const rebuyDialogRef = useFocusTrap(isOpen && purchaseKind === 'rebuy', '#buy-in-modal-title');
   // State
-  const unlimitedBuyIn = isFixedLimitVariant(gameType);
-  // The wallet bounds this input, never the fixed-limit table's permitted stack.
-  // An unknown balance keeps confirmation closed and the minimum visible.
-  const maxBuyIn = unlimitedBuyIn
-    ? Math.max(minBuyIn, cashoutRestriction ?? 0, accountBalance ?? 0)
-    : Math.max(tableMaxBuyIn, cashoutRestriction ?? 0);
+  const maxBuyIn = Math.max(tableMaxBuyIn, cashoutRestriction ?? 0);
   const wholeDiamonds = currency === 'diamonds';
   const gameTypeName = gameTypeLongName(gameType);
   const balanceKnown = accountBalance !== null;
@@ -408,11 +402,7 @@ export function BuyInModal({
               <React.Fragment key="range">
                 <span>Allowed Range</span>
                 <strong>
-                  <PurchaseText>
-                    {unlimitedBuyIn
-                      ? `${formatAmount(effectiveMinBuyIn, currency)} Min / No Maximum`
-                      : `${formatAmount(effectiveMinBuyIn, currency)} - ${formatAmount(maxBuyIn, currency)}`}
-                  </PurchaseText>
+                  <PurchaseText>{`${formatAmount(effectiveMinBuyIn, currency)} - ${formatAmount(maxBuyIn, currency)}`}</PurchaseText>
                 </strong>
               </React.Fragment>,
               <React.Fragment key="balance">
@@ -661,10 +651,7 @@ export function BuyInModal({
           <div className="buy-in-modal__deck">
             <BayLabel zone={BUY_IN_ZONES.bays[0].label} text="Min" />
             <BayLabel zone={BUY_IN_ZONES.bays[1].label} text="BB" />
-            <BayLabel
-              zone={BUY_IN_ZONES.bays[2].label}
-              text={unlimitedBuyIn ? 'Available' : 'Max'}
-            />
+            <BayLabel zone={BUY_IN_ZONES.bays[2].label} text="Max" />
             <BayLabel zone={BUY_IN_ZONES.bays[3].label} text="Balance" />
             <BayButton
               zone={BUY_IN_ZONES.bays[0].value}

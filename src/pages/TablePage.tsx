@@ -14644,13 +14644,11 @@ function LiveTablePage({
             isTournament: table.game_type === 'tournament' || !!table.tournament_id,
             tournamentId: table.tournament_id || undefined,
             minBuyIn: cashBuyInRange({
-              game_variant: table.game_variant,
               big_blind: table.big_blind,
               min_buy_in: table.min_buy_in,
               max_buy_in: table.max_buy_in,
             }).min,
             maxBuyIn: cashBuyInRange({
-              game_variant: table.game_variant,
               big_blind: table.big_blind,
               min_buy_in: table.min_buy_in,
               max_buy_in: table.max_buy_in,

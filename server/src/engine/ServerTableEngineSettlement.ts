@@ -1816,7 +1816,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     if (this.clusterLightningEnabled === true) return;
     if (this.tableInfo?.cluster_id && this.clusterLightningEnabled !== false) return;
     const maxBuyIn = this.getMaxBuyIn();
-    if (!(maxBuyIn > 0)) return;
+    if (maxBuyIn === null || !(maxBuyIn > 0)) return;
     const batch = await readHorseTopUpBatch(
       this.tableId,
       () => this.lifecycleCanMutate() && !isMaintenanceFrozen(),

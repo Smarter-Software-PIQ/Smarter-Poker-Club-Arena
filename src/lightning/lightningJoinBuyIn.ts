@@ -109,7 +109,7 @@ export async function readLightningBuyInContext(
 ): Promise<LightningBuyInContext | null> {
   const { data: table, error } = await supabase
     .from('tables')
-    .select('id, game_variant, big_blind, min_buy_in, max_buy_in')
+    .select('id, big_blind, min_buy_in, max_buy_in')
     .eq('cluster_id', clusterId)
     .neq('lifecycle', 'closed')
     .order('created_at', { ascending: true })
@@ -118,7 +118,6 @@ export async function readLightningBuyInContext(
   if (error) throw error;
   const row = table as {
     id?: string;
-    game_variant?: string | null;
     big_blind?: number | null;
     min_buy_in?: number | null;
     max_buy_in?: number | null;
@@ -142,7 +141,7 @@ export async function readLightningBuyInContext(
   return {
     tableId: row.id,
     minBuyIn: min,
-    maxBuyIn: range.unlimited ? Math.max(min, balance ?? min) : Math.max(min, range.max),
+    maxBuyIn: Math.max(min, range.max),
     bigBlind: Number(row.big_blind) || 0,
     balance: balance ?? null,
   };
