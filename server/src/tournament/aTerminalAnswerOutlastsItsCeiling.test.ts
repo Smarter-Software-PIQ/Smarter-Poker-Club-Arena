@@ -96,7 +96,9 @@ describe('the terminal authority answers on a client that outlasts it', () => {
     expect(client).toContain(
       "import { resolveMaintenanceClientTimeoutMs } from '../maintenanceClientTimeout.js'"
     );
-    expect(client).toContain('const MAINTENANCE_DB_TIMEOUT_MS = resolveMaintenanceClientTimeoutMs()');
+    expect(client).toContain(
+      'const MAINTENANCE_DB_TIMEOUT_MS = resolveMaintenanceClientTimeoutMs()'
+    );
     expect(DEFAULT_MAINTENANCE_CLIENT_TIMEOUT_MS).toBeGreaterThan(45_000);
   });
 });
