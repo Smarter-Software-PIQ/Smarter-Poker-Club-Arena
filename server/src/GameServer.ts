@@ -1,3 +1,4 @@
+import { readDurableTerminalRequest } from './tournament/terminalDurableRequest.js';
 import {
   ORIGINAL_RECOVERY_OPERATION,
   ORIGINAL_RECOVERY_TWENTY,
@@ -9517,6 +9518,20 @@ export class GameServer {
             // for the rest of the board: stop at the fence, as every other
             // per-event loop in this pass does.
             if (!this.directAdmissionIsCurrent(generation)) break;
+            // A durable original request is a continuation, not a reconstructed
+            // five-minute recovery. Use the same leased manager admission now.
+            if (
+              !this.tournamentEngines.has(stuck.id) &&
+              (await readDurableTerminalRequest(stuck.id))
+            ) {
+              await this.ensureTournamentManagerAdmission(
+                stuck.id,
+                'resume',
+                'original terminal continuation',
+                generation
+              );
+              continue;
+            }
             if (!dueIds.has(String(stuck.id))) continue;
             /* A MANAGER THAT NEVER CAME BACK (2026-09-06). See
                managerHasOverstayed. Past the grace the registered manager is

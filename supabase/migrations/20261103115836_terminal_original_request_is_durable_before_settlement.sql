@@ -123,6 +123,9 @@ BEGIN
      OR EXISTS(SELECT 1 FROM public.tournament_satellite_settlements WHERE tournament_id=v_event) THEN
     RETURN jsonb_build_object('ok',true,'already_terminal',true,'tournament_id',v_event);
   END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.tournaments WHERE id=v_event AND status IN ('RUNNING','COMPLETING')) THEN
+    RAISE EXCEPTION 'terminal request requires a running or completing event' USING ERRCODE='55000';
+  END IF;
   INSERT INTO smarter_private.tournament_terminal_requests(request_id,tournament_id,original_request,original_generation,current_generation)
    VALUES(p_request_id,v_event,p_request,p_generation,p_generation) RETURNING * INTO v_row;
   RETURN jsonb_build_object('ok',true,'request',to_jsonb(v_row));
@@ -282,7 +285,7 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'terminal receipt requires its open original request' USING ERRCODE='55000'; END IF;
   IF TG_TABLE_NAME='tournament_terminal_settlements' THEN
     IF v_row.original_request->>'kind' NOT IN ('places','legacy_deal','proposal_deal')
-       OR NEW.settlement_mode IS DISTINCT FROM CASE WHEN v_row.original_request->>'kind'='places' THEN 'places' ELSE 'final_table_deal' END
+       OR NEW.settlement_mode IS DISTINCT FROM (CASE WHEN v_row.original_request->>'kind'='places' THEN 'places' ELSE 'final_table_deal' END)
        OR (v_row.original_request->>'observedWinnerId' IS NOT NULL AND NEW.winner_id IS DISTINCT FROM (v_row.original_request->>'observedWinnerId')::uuid)
        OR (v_row.original_request->>'kind'='proposal_deal' AND
           (current_setting('app.tournament_deal_proposal_id',true) IS DISTINCT FROM v_row.original_request->>'proposalId'

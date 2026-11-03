@@ -9,6 +9,10 @@
  */
 
 import nodeCrypto from 'node:crypto';
+import {
+  readDurableTerminalRequest,
+  adoptDurableTerminalRequest,
+} from './terminalDurableRequest.js';
 import { UUID_SHAPE as UUID } from '../lib/uuidShape.js';
 import { isMaintenanceFrozen, isTerminalSettlementFrozen } from '../maintenance/freezeState.js';
 import { supabase } from '../services/supabase.js';
@@ -42,6 +46,7 @@ import { resolvePayoutStructure, parsePayoutStructure } from './payoutStructure.
 import type { ServerTableEngine } from '../engine/ServerTableEngine.js';
 import type { VerifiedTournamentCompletionReceipt } from './completionSettlementReceipt.js';
 import {
+  resolveOriginalTerminalOutcome,
   readCommittedTournamentTerminalReceipt,
   requestTournamentTerminalReceipt,
   TerminalSettlementDisagreementError,
@@ -52,6 +57,7 @@ import {
 import type { VerifiedSatelliteSettlementReceipt } from './satelliteSettlementReceipt.js';
 import type { VerifiedSatelliteQualifierReceipt } from './satelliteQualifierReceipt.js';
 import {
+  resolveOriginalSatelliteQualifierOutcome,
   readSatelliteQualifierState,
   requestSatelliteQualifierReceipt,
 } from './satelliteQualifierRpc.js';
@@ -62,6 +68,8 @@ import {
   type TournamentManagerWakeReceipt,
 } from './TournamentManagerWakeProtocol.js';
 import {
+  resolveOriginalSatelliteOutcome,
+  requestSatelliteSettlementReceipt,
   SatelliteSettlementOutcomeUnknownError,
   SatelliteSettlementRefusedError,
 } from './satelliteSettlementRpc.js';
@@ -5266,6 +5274,68 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       return 'final_table_deal_review';
     }
     return null;
+  }
+
+  protected override async continueOriginalTerminalRequest(): Promise<boolean> {
+    const original = await readDurableTerminalRequest(this.tournamentId);
+    if (!original) return false;
+    // No table engine has been admitted yet. Retain the original request and
+    // transfer only its generation, never reconstruct winners from new state.
+    const request = await adoptDurableTerminalRequest(original);
+    if (request.phase === 'closed') return false;
+    const identity = request.identity;
+    this.tournamentFinished = true;
+    try {
+      if (identity.kind === 'satellite_qualifiers') {
+        const outcome = await resolveOriginalSatelliteQualifierOutcome(identity, request);
+        if (outcome.kind === 'unreadable') throw new Error(outcome.failure);
+        const receipt =
+          outcome.kind === 'committed'
+            ? outcome.receipt
+            : await requestSatelliteQualifierReceipt(this.tournamentId, [...identity.qualifierIds]);
+        await this.cleanupCommittedSatelliteQualifiers(receipt);
+      } else if (identity.kind === 'satellite') {
+        const outcome = await resolveOriginalSatelliteOutcome(identity, request);
+        if (outcome.state === 'unknown') throw new Error(outcome.reason);
+        const receipt =
+          outcome.state === 'committed'
+            ? outcome.receipt
+            : await requestSatelliteSettlementReceipt(
+                this.tournamentId,
+                identity.observedWinnerId!
+              );
+        await this.cleanupCommittedSatellite(receipt);
+      } else {
+        const outcome = await resolveOriginalTerminalOutcome(identity, request);
+        if (outcome.state === 'unknown') throw new Error(outcome.reason);
+        const receipt =
+          outcome.state === 'committed'
+            ? outcome.receipt
+            : await requestTournamentTerminalReceipt(
+                this.tournamentId,
+                identity.kind === 'places' ? 'places' : 'final_table_deal',
+                identity.observedWinnerId,
+                identity.kind === 'proposal_deal'
+                  ? {
+                      dealProposal: {
+                        proposalId: identity.proposalId,
+                        revision: identity.revision,
+                      },
+                    }
+                  : identity.kind === 'legacy_deal'
+                    ? { legacyDealAuthority: 'proposal_authority_not_active' }
+                    : {}
+              );
+        if (receipt.settlementMode === 'final_table_deal') await this.settleFinalTableDeal(receipt);
+        else await this.cleanupCommittedTournament(receipt);
+      }
+    } catch (error) {
+      // A definite refusal has closed the original request under its lock.
+      // The next admission may then rebuild gameplay; unknown stays durable.
+      this.fenceUnknownTerminalOutcome('Tournament.original_terminal_continuation_stop_failed');
+      reportError(error, 'Tournament.original_terminal_continuation_failed');
+    }
+    return true;
   }
 
   protected override async adoptCommittedTerminalOutcome(): Promise<boolean> {
