@@ -9,6 +9,10 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  DEFAULT_MAINTENANCE_CLIENT_TIMEOUT_MS,
+  resolveMaintenanceClientTimeoutMs,
+} from '../services/maintenanceClientTimeout.js';
 
 const SQL = readFileSync(
   resolve(
@@ -216,7 +220,16 @@ describe('maintenance and new entries share one transaction boundary', () => {
       'p_require_exact'
     );
     expect(STORE).not.toContain('p_require_exact');
-    expect(SUPABASE_CLIENT).toMatch(/MAINTENANCE_SUPABASE_TIMEOUT_MS[\s\S]*?50_000/);
+    expect(SUPABASE_CLIENT).toContain(
+      "import { resolveMaintenanceClientTimeoutMs } from '../maintenanceClientTimeout.js'"
+    );
+    expect(SUPABASE_CLIENT).toContain(
+      'const MAINTENANCE_DB_TIMEOUT_MS = resolveMaintenanceClientTimeoutMs()'
+    );
+    expect(DEFAULT_MAINTENANCE_CLIENT_TIMEOUT_MS).toBe(50_000);
+    expect(
+      resolveMaintenanceClientTimeoutMs({ MAINTENANCE_SUPABASE_TIMEOUT_MS: '100' })
+    ).toBeGreaterThan(45_000);
     expect(SUPABASE_CLIENT).toMatch(
       /maintenanceSupabase[\s\S]*?createBoundedServiceClient\([\s\S]*?MAINTENANCE_DB_TIMEOUT_MS/
     );
