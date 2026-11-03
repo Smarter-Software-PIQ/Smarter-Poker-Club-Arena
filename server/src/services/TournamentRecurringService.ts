@@ -32,6 +32,7 @@ import { isGuaranteeBankRefusal } from '../domain/guaranteeBankRefusal.js';
 
 import { supabase } from './supabase.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
+import { spinSngBoardsOpen } from '../maintenance/dailyWindow.js';
 import { fetchAllRows } from './supabase/pagination.js';
 import { IN_LIST_CHUNK, selectInChunks } from './supabase/chunkedIn.js';
 import { diamondArenaEntrantClubIds, isDiamondArenaClubRow } from './diamondScheduledSpawn.js';
@@ -3781,6 +3782,9 @@ export class TournamentRecurringService {
     await this.withBoardTick('sng', async () => {
       // THE FREEZE IS TOTAL (Dan 2026-09-03) - see checkAndLaunchTournaments.
       if (isMaintenanceFrozen()) return;
+      // THE DAILY WINDOW (owner 2026-11-03): no new Spin or Sit & Go board from
+      // 3:00 AM until 6:00 AM Chicago, so none is running when games close at 4.
+      if (!spinSngBoardsOpen(new Date())) return;
 
       /* Dan 2026-09-01 (Deep Stack Society directive): heads-up and SNG
        * boards for activated club owners, exactly the way the Spin pass
@@ -4312,6 +4316,9 @@ export class TournamentRecurringService {
     await this.withBoardTick('spin', async () => {
       // THE FREEZE IS TOTAL (Dan 2026-09-03) - see checkAndLaunchTournaments.
       if (isMaintenanceFrozen()) return;
+      // THE DAILY WINDOW (owner 2026-11-03): no new Spin or Sit & Go board from
+      // 3:00 AM until 6:00 AM Chicago, so none is running when games close at 4.
+      if (!spinSngBoardsOpen(new Date())) return;
 
       // ONE ceiling for the whole pass (BURST), split into a share per board
       // before anyone spends. The house board used to go first on a single
