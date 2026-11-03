@@ -51,7 +51,7 @@ try {
   let instrumented = replaceOne(
     actual,
     'struct Attempt {',
-    'struct Attempt {\n  int firstHandles = 0, lastHandles = 0;'
+    'struct Attempt {\n  uint64_t prototypeSteps = 0; int firstHandles = 0, lastHandles = 0;'
   );
   instrumented = replaceOne(
     instrumented,
@@ -65,8 +65,9 @@ try {
   instrumented = replaceOne(
     instrumented,
     'NUMBER(predicateVisits);',
-    'NUMBER(firstHandles); NUMBER(lastHandles); NUMBER(predicateVisits);'
+    'NUMBER(prototypeSteps); NUMBER(firstHandles); NUMBER(lastHandles); NUMBER(predicateVisits);'
   );
+  instrumented = instrumented.replaceAll('cursor = cursor.As<v8::Object>()->GetPrototype();', '++lastAttempt.prototypeSteps; cursor = cursor.As<v8::Object>()->GetPrototype();');
   const probeSource = path.join(probeDir, 'instrumented.cc');
   const probeAddon = path.join(probeDir, 'instrumented.node');
   fs.writeFileSync(probeSource, instrumented);
@@ -127,7 +128,7 @@ try {
     const owners=types.map(C=>new C());
     const detached=(()=>{const value=new types[2]();return()=>value})();
     const anchor=Object.create(Object.create(marker));
-    const prototypes=Array.from({length:5000},()=>Object.create(anchor));
+    const prototypes=Array.from({length:5000},()=>Object.create(Object.create(Object.create(anchor))));
     const extra=prototypes.map(p=>Object.create(p));
     globalThis.cacheFixture={types,owners,detached,prototypes,extra};
     const collect=()=>addon.collect(marker,Date.now()+30000,process.availableMemory());
@@ -136,7 +137,10 @@ try {
     assert.ok(before.cachePins<=4096);
     if(collision)assert.ok(before.cachePins<=8);else assert.equal(before.cachePins,4096);
     assert.ok(before.handlesAfter-before.handlesBefore<=before.predicateVisits+before.cachePins+32);
-    prototypes.forEach(p=>Object.setPrototypeOf(p,null));
+    prototypes.forEach(p=>{
+      const parent=Object.getPrototypeOf(p), grandparent=Object.getPrototypeOf(parent);
+      for(const value of [p,parent,grandparent])Object.setPrototypeOf(value,null);
+    });
     const second=collect(); const after=addon.diagnostics();
     for(const x of [...prototypes,...extra])assert.equal(second.includes(x),false);
     for(const x of [...owners,detached()])assert.ok(second.includes(x));
@@ -144,6 +148,22 @@ try {
     assert.ok(after.handlesAfter-after.handlesBefore<=after.predicateVisits+after.cachePins+32);
     assert.equal(after.positivePins,0,'shallow matching prototypes must not enter cache');
     console.log(JSON.stringify({schema:'legacy-census-prototype-cache-proof/v1',collision,before,after,complete:true}));
+  `;
+  const suffixProbe = `
+    const assert=require('node:assert/strict');const addon=require(process.argv[1]);
+    const marker={};class Owner{};Object.setPrototypeOf(Owner.prototype,marker);
+    const active=new Owner();const detached=(()=>{const v=new Owner();return()=>v})();
+    let tail=Object.prototype;for(let i=0;i<200;i++)tail=Object.create(tail);
+    const ballast=Array.from({length:100000},()=>Object.create(Object.create(tail)));
+    globalThis.suffixFixture={active,detached,ballast,tail,Owner};
+    const result=addon.collect(marker,Date.now()+30000,process.availableMemory());
+    const attempt=addon.diagnostics();
+    assert(result.includes(active)&&result.includes(detached()));
+    assert(!result.includes(ballast[0]));
+    assert(attempt.predicateVisits>=200000);
+    assert(attempt.prototypeSteps<1000000,'shared suffix classification repeated per unique wrapper');
+    assert.equal(attempt.deadlineRefused,false);assert.equal(attempt.arrayAllocated,true);
+    console.log(JSON.stringify({schema:'legacy-census-shared-suffix/v1',attempt,detachedComplete:true}));
   `;
   for (const collision of [false, true]) {
     const text = collision ? replaceOne(cacheInstrumented,
@@ -157,6 +177,13 @@ try {
       {encoding:'utf8',timeout:40000,maxBuffer:16384});
     assert.equal(qualified.status,0,qualified.stdout+'\n'+qualified.stderr+'\n'+String(qualified.error));
     console.error(qualified.stdout.trim());
+    if (!collision) {
+      const suffix = spawnSync(process.execPath,
+        ['--max-old-space-size=256','-e',suffixProbe,probeAddon],
+        {encoding:'utf8',timeout:40000,maxBuffer:16384});
+      assert.equal(suffix.status,0,suffix.stdout+'\n'+suffix.stderr+'\n'+String(suffix.error));
+      console.error(suffix.stdout.trim());
+    }
   }
 } finally {
   fs.rmSync(probeDir, { recursive: true, force: true });

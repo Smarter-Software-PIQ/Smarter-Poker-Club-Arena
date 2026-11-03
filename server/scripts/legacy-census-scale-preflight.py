@@ -262,7 +262,7 @@ def validate_result(result, fixture_sha):
             result.get('node') == 'v22.23.2' and result.get('v8') == '12.4.254.21-node.56' and
             result.get('platform') == 'linux' and result.get('arch') in ('x64', 'arm64') and
             result.get('prototypeCacheBytes') == 1048576 and
-            result.get('sourceSHA256') == '4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1' and
+            result.get('sourceSHA256') == '87b436c6986e0ecabadb4373e7fb25ee47042b362ac7308a99748785e1b21323' and
             re.fullmatch(r'[0-9a-f]{64}', result.get('binarySHA256', '')),
             'scale fixture identity or completeness refused')
     transport = result.get('transport')

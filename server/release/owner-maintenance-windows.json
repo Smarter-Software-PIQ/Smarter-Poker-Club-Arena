@@ -831,6 +831,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "158cde223c33217829017ad51fbde5ac5332043e09bdb39f8dc8a43bc7b96e18"
       }
+    },
+    {
+      "id": "2026-11-03-tournament-census-recovery-continuation",
+      "ownerOrder": "Dan directly in recovery chat 01a1a01a-7f70-7d62-8da1-8d086594c658 ordered completion through verified publication, explicitly instructed DO NOT WAIT FOR THE NEXT :55 BREAK, RESET THE ENGINE AND RUN IT AGAIN AS SOON AS ITS AVAILABLE AND ALL CONFLICTS OR OTHER ISSUES ARE RESOLVED, and subsequently required both hardening rounds before relaunch. This fixed source continuation addresses the same unfinished Round1 recovery after original operation41669483444-1 permanently refused its native census and recovered the unchanged sealed EED runtime. It does not replay, extend, retarget or certify that failed operation. A new exact corrected and qualified protected candidate may use only the existing stage/receiver and original bounded transaction after prior outcomes, inspector ownership and cleanup are authoritatively resolved. Keep full120second notice,300second window,285second admission/proof/rollback reserve, original controller/deck/bank custody, durable freeze, exclusive ownership, rolling seal, immutable source/image and completed own-window v3 thaw. No age-only custody substitution, forced restart, second publisher, watcher, timer, recurring release repair or automatic renewal. All previous entries and receipts remain immutable. This explicit fixed three-hour continuation ends fresh admission at expiry. Tournament registrations and starts remain held until both required rounds and relaunch acceptance pass; no release is inferred from a time target.",
+      "contains": "0de3e5b9f6ae9b6def3a2603ef69fab5d934977d",
+      "notBefore": "2026-11-03T16:35:00Z",
+      "notAfter": "2026-11-03T19:35:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "e095c73ccd8464deb747a701d1f411b89519388f0d26fec8220d2f971cefc1cc"
+      }
     }
   ],
   "databaseWindows": [

@@ -41,9 +41,10 @@ if (scenario === 'near-limit') {
 if (scenario === 'scan-deadline') {
   let chain = Object.prototype;
   for(let i=0;i<200;i++) chain=Object.create(chain);
-  // 100k owners plus 100k distinct first prototypes preserve the original
-  // roughly 200k-object footprint while retaining a real uncached deep span.
-  globalThis.deadlineBallast=Array.from({length:100000},()=>Object.create(Object.create(chain)));
+  // Keep a real uncached deep span after suffix caching: each owner has
+  // distinct prototypes through depth two, retaining the original ~200k
+  // object footprint and an uncached span for the midpoint deadline test.
+  globalThis.deadlineBallast=Array.from({length:50000},()=>Object.create(Object.create(Object.create(Object.create(chain)))));
 }
 if (scenario === 'overflow' || scenario === 'at-cap') {
   globalThis.overflowOwners = Array.from({ length:scenario === 'overflow' ? addon.maxMatches+1 : addon.maxMatches-12 }, () => new types[0]());
