@@ -95,6 +95,34 @@ describe('addChips sizes a request against the chips already queued', () => {
   });
 });
 
+describe('fixed-limit has no maximum buy-in', () => {
+  it.each(['flh', 'flo8'])(
+    'retains a nullable ceiling for %s even on a legacy capped row',
+    (variant) => {
+      const engine = new ServerTableEngine(TABLE) as any;
+      engine.tableInfo = { game_variant: variant, big_blind: 10, max_buy_in: 2000 };
+      expect(engine.getMaxBuyIn()).toBeNull();
+    }
+  );
+  it('accepts a finite requested top-up above 200BB with queued chips already present', async () => {
+    const engine = engineWith(4000, 1000, true);
+    engine.getMaxBuyIn = () => null;
+    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({ data: null, error: null } as any);
+    const result = await engine.addChips('hero', 3000, 'unlimited-op');
+    expect(result.success).toBe(true);
+    expect(result.applied).toBe(3000);
+    expect(rpc).toHaveBeenCalledWith(
+      'atomic_table_addon',
+      expect.objectContaining({ p_amount: 3000 })
+    );
+  });
+  it('retains the configured cap for no-limit', () => {
+    const engine = new ServerTableEngine(TABLE) as any;
+    engine.tableInfo = { game_variant: 'nlh', big_blind: 2, max_buy_in: 400 };
+    expect(engine.getMaxBuyIn()).toBe(400);
+  });
+});
+
 describe('the player is told when the landing was reduced', () => {
   it('sends a private add_on_adjusted frame with the numbers that moved', () => {
     const engine = engineWith(1.12, 0, false);
