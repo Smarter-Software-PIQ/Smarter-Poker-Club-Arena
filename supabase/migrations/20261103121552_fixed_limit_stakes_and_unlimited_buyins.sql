@@ -63,6 +63,36 @@ BEGIN
 $inject$);
 END
 $stake_guard$;
+DO $managed_patch$
+DECLARE src text:=pg_get_functiondef('public.fn_update_managed_game(text,uuid,jsonb)'::regprocedure); needle text;
+BEGIN
+ needle:='  v_seats integer;';
+ IF strpos(src,needle)=0 THEN RAISE EXCEPTION 'managed limits declaration changed'; END IF;
+ src:=replace(src,needle,needle||E'\n  v_fixed_limit boolean := false;');
+ needle:=$n$COALESCE((p_patch ->> 'max_buy_in')::numeric, t.max_buy_in),$n$;
+ IF strpos(src,needle)=0 THEN RAISE EXCEPTION 'managed limits maximum read changed'; END IF;
+ src:=replace(src,needle,$r$CASE WHEN t.game_variant IN ('flh','flo8') THEN NULL ELSE COALESCE((p_patch ->> 'max_buy_in')::numeric, t.max_buy_in) END,$r$);
+ needle:=$n$COALESCE((p_patch ->> 'max_players')::integer, t.max_players)
+        INTO v_sb, v_bb, v_min, v_max, v_seats$n$;
+ IF strpos(src,needle)=0 THEN RAISE EXCEPTION 'managed limits variant read changed'; END IF;
+ src:=replace(src,needle,$r$COALESCE((p_patch ->> 'max_players')::integer, t.max_players),
+             coalesce(t.game_variant IN ('flh','flo8'),false)
+        INTO v_sb, v_bb, v_min, v_max, v_seats, v_fixed_limit$r$);
+ needle:='v_min IS NULL OR v_max IS NULL OR v_seats IS NULL';
+ IF strpos(src,needle)=0 THEN RAISE EXCEPTION 'managed limits validation changed'; END IF;
+ src:=replace(src,needle,'v_min IS NULL OR (NOT v_fixed_limit AND v_max IS NULL) OR v_seats IS NULL');
+ needle:='OR v_sb <= 0 OR v_bb < v_sb OR v_min <= 0 OR v_max < v_min THEN';
+ IF strpos(src,needle)=0 THEN RAISE EXCEPTION 'managed blind validation changed'; END IF;
+ src:=replace(src,needle,'OR (v_fixed_limit AND (v_sb > 5 OR v_bb > 10)) OR v_sb <= 0 OR v_bb < v_sb OR v_min <= 0 OR v_max < v_min THEN');
+ needle:='SET name = v_name, updated_at = now()';
+ IF strpos(src,needle)=0 THEN RAISE EXCEPTION 'managed active limits write changed'; END IF;
+ src:=replace(src,needle,$r$SET name = v_name,
+             max_buy_in = CASE WHEN game_variant IN ('flh','flo8') THEN NULL ELSE max_buy_in END,
+             updated_at = now()$r$);
+ EXECUTE src;
+END
+$managed_patch$;
+
 -- Update configuration through its original projection; no financial rows change.
 UPDATE public.cash_games SET ruleset_snapshot=ruleset_snapshot || jsonb_build_object('max_buyin_bb',NULL),updated_at=now()
 WHERE variant IN ('flh','flo8') AND enabled AND ruleset_snapshot->>'max_buyin_bb' IS NOT NULL;
