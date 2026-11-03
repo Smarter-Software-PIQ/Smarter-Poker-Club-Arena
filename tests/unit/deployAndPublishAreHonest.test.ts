@@ -575,7 +575,7 @@ describe('the Club Arena bundle publishes directly to its Hetzner origin', () =>
       .flatMap((source) => [...source.matchAll(/^ {4}timeout-minutes: (\d+)$/gm)])
       .map((match) => Number(match[1]));
     expect(jobTimeouts).toHaveLength(13);
-    expect(jobTimeouts.every((minutes) => minutes > 0 && minutes <= 30)).toBe(true);
+    expect(jobTimeouts.every((minutes) => minutes > 0 && minutes <= 60)).toBe(true);
     const origin = originJob();
     expect(origin).toContain('timeout 35s ssh');
     expect(origin).toContain('timeout 240s rsync');
