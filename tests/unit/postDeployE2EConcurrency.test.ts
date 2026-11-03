@@ -124,7 +124,7 @@ describe('post-deploy E2E concurrency', () => {
       return body.replace(/^ {10}/gm, '');
     })();
 
-    const verdict = (payload: unknown) => {
+    const verdict = (payload: unknown, sourceConclusion = 'success') => {
       const directory = mkdtempSync(join(tmpdir(), 'post-deploy-gate-'));
       const jobsFile = join(directory, 'jobs.json');
       const output = join(directory, 'output');
@@ -133,6 +133,7 @@ describe('post-deploy E2E concurrency', () => {
       const run = spawnSync(process.execPath, ['-', jobsFile, output], {
         input: script,
         encoding: 'utf8',
+        env: { ...process.env, SOURCE_CONCLUSION: sourceConclusion },
       });
       const result = {
         status: run.status,
@@ -180,6 +181,54 @@ describe('post-deploy E2E concurrency', () => {
       // No should_run at all, so every downstream job skips and this run takes
       // no production lock. It is a non-event, not a pass and not a failure.
       expect(result.output).toBe('');
+    });
+
+    it('stands down the actual cancelled 41669512287 preparation without certifying production', () => {
+      const completed = (name: string, conclusion = 'success') => ({
+        name,
+        status: 'completed',
+        conclusion,
+        steps: [] as { name: string }[],
+      });
+      // Provider shape: selected-source checkout cancelled, read-only build/tests
+      // succeeded, both production callers skipped before nested writers existed.
+      const jobs = [
+        completed('publish-needed'),
+        completed('client-publication / admit'),
+        completed(
+          'client-publication / Validate The Selected Client Publication Source',
+          'cancelled'
+        ),
+        completed('build-record-gateway', 'skipped'),
+        completed('production', 'skipped'),
+        completed('client-publication / build-and-store'),
+        ...Array.from({ length: 16 }, (_, i) =>
+          completed(`client-publication / client-tests (${i + 1})`)
+        ),
+        completed('client-publication / production', 'skipped'),
+      ];
+      const payload = { total_count: jobs.length, jobs };
+      const result = verdict(payload, 'cancelled');
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.output).toBe(''); // A non-verdict, never should_run=true.
+      expect(verdict(payload, 'success').status).toBe(1);
+      for (const replacement of [
+        completed('unknown-preparation'),
+        completed('client-publication / production', 'success'),
+        {
+          ...completed('client-publication / production', 'cancelled'),
+          steps: [{ name: 'Started transaction' }],
+        },
+        completed(
+          'client-publication / Validate The Selected Client Publication Source',
+          'failure'
+        ),
+      ]) {
+        const changed = [...jobs.slice(0, -1), replacement];
+        const refused = verdict({ total_count: changed.length, jobs: changed }, 'cancelled');
+        expect(refused.status, JSON.stringify(replacement)).toBe(1);
+        expect(refused.output).toBe('');
+      }
     });
 
     it('still certifies a real publish and a safe forward stand-down', () => {

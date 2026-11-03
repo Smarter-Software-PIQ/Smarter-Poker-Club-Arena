@@ -532,6 +532,7 @@ jobs:
             ...[1,2,3,4].map(n => `client-tests (${n})`),
             'client-publication / admit',
             'client-publication / Admit The Selected Client Publication Window',
+            'client-publication / Validate The Selected Client Publication Source',
             'client-publication / build-and-store',
             ...Array.from({length:16}, (_, i) => `client-publication / client-tests (${i + 1})`),
           ]);
