@@ -501,6 +501,7 @@ export async function lateRegisterHorsesOnce(
     const scopedIds = events
       .filter((t) => {
         const scheduled = Date.parse(String(t.start_time ?? ''));
+        // Exact half-open November 3, 2026 America/Chicago civil date.
         return (
           scheduled >= Date.parse('2026-11-03T06:00:00Z') &&
           scheduled < Date.parse('2026-11-04T06:00:00Z')
@@ -510,29 +511,37 @@ export async function lateRegisterHorsesOnce(
     const attendanceFloors = new Map<string, number>();
     let datedAttendanceUnreadable = false;
     // This is attendance metadata, never a second financial guarantee.
-    if (scopedIds.length > 0) {
+    for (let offset = 0; offset < scopedIds.length; offset += 1000) {
+      const batch = scopedIds.slice(offset, offset + 1000);
+      const seen = new Set<string>();
       const { data: floors, error: floorError } = await supabase.rpc(
         'fn_ca_nov3_tournament_attendance',
-        { p_tournament_ids: scopedIds }
+        { p_tournament_ids: batch }
       );
       if (floorError || !Array.isArray(floors)) datedAttendanceUnreadable = true;
       for (const row of Array.isArray(floors) ? floors : []) {
         if (
           !row ||
-          !scopedIds.includes(row.tournament_id) ||
-          attendanceFloors.has(row.tournament_id) ||
-          !Number.isSafeInteger(row.attendance_floor) ||
-          row.attendance_floor < 0
+          !batch.includes(row.tournament_id) ||
+          seen.has(row.tournament_id) ||
+          (row.attendance_floor !== null &&
+            (!Number.isSafeInteger(row.attendance_floor) || row.attendance_floor < 0))
         )
           datedAttendanceUnreadable = true;
-        else attendanceFloors.set(row.tournament_id, row.attendance_floor);
+        else {
+          seen.add(row.tournament_id);
+          // Explicit null means a historical event has no dated override.
+          if (row.attendance_floor !== null)
+            attendanceFloors.set(row.tournament_id, row.attendance_floor);
+        }
       }
-      if (datedAttendanceUnreadable)
-        reportError(
-          new Error('November 3 Horse attendance plan is unreadable or invalid'),
-          'HorseOverlayGuard.dated_attendance_unreadable'
-        );
+      if (seen.size !== batch.length) datedAttendanceUnreadable = true;
     }
+    if (datedAttendanceUnreadable)
+      reportError(
+        new Error('November 3 Horse attendance plan is unreadable or invalid'),
+        'HorseOverlayGuard.dated_attendance_unreadable'
+      );
 
     for (const t of events) {
       if (!shouldContinue() || isMaintenanceFrozen()) return added;

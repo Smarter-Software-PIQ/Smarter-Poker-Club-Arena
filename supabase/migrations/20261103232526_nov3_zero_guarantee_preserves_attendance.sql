@@ -81,9 +81,9 @@ BEGIN
   IF p_tournament_ids IS NULL OR cardinality(p_tournament_ids)>1000 OR array_position(p_tournament_ids,NULL) IS NOT NULL THEN
     RAISE EXCEPTION 'invalid_tournament_ids';
   END IF;
-  RETURN QUERY SELECT a.tournament_id,a.attendance_floor
-    FROM smarter_private.nov3_tournament_attendance a JOIN public.tournaments t ON t.id=a.tournament_id
-    WHERE a.tournament_id=ANY(p_tournament_ids)
+  RETURN QUERY SELECT t.id,a.attendance_floor
+    FROM public.tournaments t LEFT JOIN smarter_private.nov3_tournament_attendance a ON a.tournament_id=t.id
+    WHERE t.id=ANY(p_tournament_ids)
       AND (t.start_time AT TIME ZONE 'America/Chicago')::date=DATE '2026-11-03';
 END $body$;
 REVOKE ALL ON FUNCTION public.fn_ca_nov3_tournament_attendance(uuid[]) FROM PUBLIC,anon,authenticated;

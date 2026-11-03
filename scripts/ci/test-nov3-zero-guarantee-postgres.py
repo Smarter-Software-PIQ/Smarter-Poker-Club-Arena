@@ -98,6 +98,12 @@ try:
  assert sql("SELECT guaranteed_prize||':'||satellite_seats||':'||prize_pool FROM tournaments WHERE id=md5('sat')::uuid")=='0:1:50.00'
  assert sql("SELECT chip_treasury FROM clubs WHERE id=md5('club')::uuid")=='450.00'
  assert sql("SELECT amount FROM chip_ledger WHERE tournament_id=md5('sat')::uuid")=='50.00'
+ # Explicit historical-null differs from missing IDs; no invented override.
+ sql("INSERT INTO tournaments(id,name,status,start_time,started_at,guaranteed_prize,buy_in_amount,buy_in_fee) VALUES(md5('historical')::uuid,'Historical','RUNNING','2026-11-03 07:00Z','2026-11-03 07:00Z',0,9,1)")
+ assert sql("SET ROLE service_role;SET request.jwt.claim.role='service_role';SELECT attendance_floor IS NULL FROM public.fn_ca_nov3_tournament_attendance(ARRAY[md5('historical')::uuid])")=='t'
+ assert sql("SET ROLE service_role;SET request.jwt.claim.role='service_role';SELECT count(*) FROM public.fn_ca_nov3_tournament_attendance(ARRAY[md5('missing')::uuid])")=='0'
+ sql("SET ROLE service_role;SET request.jwt.claim.role='service_role';SELECT * FROM public.fn_ca_nov3_tournament_attendance(array_fill(md5('historical')::uuid,ARRAY[1001]))",'invalid_tournament_ids')
+ sql("SET ROLE service_role;SET request.jwt.claim.role='service_role';SELECT * FROM public.fn_ca_nov3_tournament_attendance(ARRAY['not-a-uuid']::uuid[])",'invalid input syntax')
  # Existing funded/registered promises are refused, never quietly reduced.
  sql("INSERT INTO tournament_players VALUES(md5('registered')::uuid)")
  sql("INSERT INTO tournaments(id,name,status,start_time,guaranteed_prize,buy_in_amount,buy_in_fee) VALUES(md5('registered')::uuid,'Funded','REGISTERING','2026-11-03 12:00Z',500,9,1)",'nov3_existing_financial_contract_refused')

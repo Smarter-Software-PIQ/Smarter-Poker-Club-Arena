@@ -299,6 +299,61 @@ describe('the pass enters horses through the ordinary door', () => {
     expect(h.topUp.mock.calls[0][0]).toBe(running.id);
   });
 
+  it.each(['omitted', 'duplicate', 'foreign', 'invalid'])(
+    'refuses %s dated plan rows',
+    async (kind) => {
+      h.tables.set('tournaments', [{ ...running, start_time: '2026-11-04T01:00:00Z' }]);
+      const row = { tournament_id: running.id, attendance_floor: 286 };
+      const data =
+        kind === 'omitted'
+          ? []
+          : kind === 'duplicate'
+            ? [row, row]
+            : kind === 'foreign'
+              ? [{ ...row, tournament_id: 'another-event' }]
+              : [{ ...row, attendance_floor: -1 }];
+      h.rpc.mockResolvedValue({ data, error: null });
+      await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 30 * MIN);
+      expect(h.topUp).not.toHaveBeenCalled();
+      expect(h.rpc).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('retains ordinary behavior for an explicitly uncaptured historical event', async () => {
+    h.tables.set('tournaments', [{ ...running, start_time: '2026-11-04T01:00:00Z' }]);
+    h.rpc.mockImplementation(async (name: string) => ({
+      data:
+        name === 'fn_ca_nov3_tournament_attendance'
+          ? [{ tournament_id: running.id, attendance_floor: null }]
+          : true,
+      error: null,
+    }));
+    await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 30 * MIN);
+    expect(h.topUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps every attendance request within the RPC bound', async () => {
+    h.tables.set(
+      'tournaments',
+      Array.from({ length: 1001 }, (_, index) => ({
+        ...running,
+        id: `event-${index}`,
+        start_time: '2026-11-04T01:00:00Z',
+      }))
+    );
+    h.rpc.mockImplementation(async (name: string, args: { p_tournament_ids?: string[] }) => ({
+      data:
+        name === 'fn_ca_nov3_tournament_attendance'
+          ? args.p_tournament_ids!.map((id) => ({ tournament_id: id, attendance_floor: null }))
+          : false,
+      error: null,
+    }));
+    await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 30 * MIN);
+    const reads = h.rpc.mock.calls.filter(([name]) => name === 'fn_ca_nov3_tournament_attendance');
+    expect(reads.map(([, args]) => args.p_tournament_ids.length)).toEqual([1000, 1]);
+    expect(h.topUp).not.toHaveBeenCalled();
+  });
+
   it('an unreadable late-registration answer enters nobody', async () => {
     h.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
     await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 30 * MIN);
