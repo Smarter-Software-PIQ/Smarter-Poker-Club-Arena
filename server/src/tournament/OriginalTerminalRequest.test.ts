@@ -15,17 +15,22 @@ import {
   requestTournamentTerminalReceipt,
   resolveOriginalTerminalOutcome,
   TerminalSettlementOutcomeUnknownError,
+  TerminalSettlementRefusedError,
+  closeTerminalFinishLanes,
+  openTerminalFinishLanes,
 } from './terminalSettlementRpc.js';
 import {
   requestSatelliteSettlementReceipt,
   resolveOriginalSatelliteOutcome,
 } from './satelliteSettlementRpc.js';
 
+import { runWithTournamentDataAuthority } from '../services/supabase/dataActorContext.js';
 const tournamentId = '00000000-0000-4000-8000-000000000001';
 const winner = '00000000-0000-4000-8000-000000000002';
 const proposal = '00000000-0000-4000-8000-000000000003';
 beforeEach(() => {
   vi.clearAllMocks();
+  openTerminalFinishLanes();
   mocks.rpc.mockResolvedValue({ error: { message: 'lost' } });
 });
 
@@ -114,5 +119,86 @@ describe('the original terminal request survives an unknown outcome', () => {
     expect(
       mocks.rpc.mock.calls.every(([name]) => name === 'fn_resolve_tournament_terminal_outcome')
     ).toBe(true);
+  });
+});
+
+describe('durable requests remain fenced until acknowledged closure', () => {
+  const generation = '00000000-0000-4000-8000-000000000004';
+  const authority = { tournamentId, leaseGeneration: generation };
+  function preparedMock(close: boolean) {
+    let request: any;
+    mocks.rpc.mockImplementation(async (name, args) => {
+      if (name === 'fn_prepare_tournament_terminal_request') {
+        request = {
+          request_id: args.p_request_id,
+          tournament_id: tournamentId,
+          original_request: args.p_request,
+          original_generation: generation,
+          current_generation: generation,
+          phase: 'prepared',
+        };
+        return { data: { ok: true, request }, error: null };
+      }
+      if (name === 'fn_get_tournament_deal_consensus')
+        return { data: { ok: true, ready: true }, error: null };
+      if (name === 'fn_close_uncommitted_tournament_terminal_request')
+        return close
+          ? {
+              data: {
+                ok: true,
+                request: { ...request, phase: 'closed' },
+                outcome: {
+                  ok: true,
+                  tournament_id: tournamentId,
+                  definitively_not_committed: true,
+                  receipt: null,
+                  status: 'RUNNING',
+                },
+              },
+              error: null,
+            }
+          : { error: { message: 'lost' } };
+      throw new Error('Unexpected RPC ' + name);
+    });
+  }
+  it.each([true, false])(
+    'legacy refusal releases gameplay only after closure acknowledgement=%s',
+    async (closed) => {
+      preparedMock(closed);
+      const error = await runWithTournamentDataAuthority(authority, () =>
+        requestTournamentTerminalReceipt(tournamentId, 'final_table_deal', null, {
+          legacyDealAuthority: 'proposal_authority_not_active',
+        })
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(
+        closed ? TerminalSettlementRefusedError : TerminalSettlementOutcomeUnknownError
+      );
+      expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual([
+        'fn_prepare_tournament_terminal_request',
+        'fn_get_tournament_deal_consensus',
+        'fn_close_uncommitted_tournament_terminal_request',
+      ]);
+      if (!closed) expect(error.originalRequest.kind).toBe('legacy_deal');
+    }
+  );
+  it('shutdown keeps the acknowledged original fenced without sending a payer or queuing a close', async () => {
+    preparedMock(true);
+    closeTerminalFinishLanes();
+    try {
+      const error = await runWithTournamentDataAuthority(authority, () =>
+        requestTournamentTerminalReceipt(tournamentId, 'places', winner)
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(TerminalSettlementOutcomeUnknownError);
+      expect(error.originalRequest).toEqual({
+        kind: 'places',
+        tournamentId,
+        observedWinnerId: winner,
+      });
+      expect(mocks.rpc.mock.calls.map(([name]) => name)).toEqual([
+        'fn_prepare_tournament_terminal_request',
+      ]);
+    } finally {
+      openTerminalFinishLanes();
+    }
   });
 });

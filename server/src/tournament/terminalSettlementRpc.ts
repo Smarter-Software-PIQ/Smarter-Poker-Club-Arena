@@ -714,10 +714,16 @@ export async function requestTournamentTerminalReceipt(
         /* No authoritative response means no legacy money call. */
       }
       if (!inactive) {
-        if (attempt === 1)
+        if (attempt === 1) {
+          if (durable && !(await closeDurableTerminalRequest(durable)))
+            throw new TerminalSettlementOutcomeUnknownError(
+              'Legacy deal refusal could not close its original request',
+              originalRequest
+            );
           throw new TerminalSettlementRefusedError(
             'Legacy deal authority is not confirmed inactive'
           );
+        }
         // A prior attempt may already have committed. Resolve its immutable
         // outcome before releasing a dealer; activation is not a proven miss.
         lastFailure = 'Legacy deal authority changed after an attempted settlement';
@@ -786,6 +792,13 @@ export async function requestTournamentTerminalReceipt(
   // cannot have committed. An attempt whose outcome the database did NOT state
   // still goes to the resolver below, exactly as before.
   if (stoppedBeforeSending && unprovenAttempts === 0) {
+    // A persisted intent survives shutdown even when its payer was never sent.
+    // Keep gameplay fenced for successor adoption without queuing a close.
+    if (durable)
+      throw new TerminalSettlementOutcomeUnknownError(
+        'Shutdown retained the original terminal request for successor admission',
+        originalRequest
+      );
     throw new TerminalSettlementNotSentError(
       attemptedWrites === 0
         ? 'terminal settlement was not sent: the engine is shutting down'

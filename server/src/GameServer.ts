@@ -9520,18 +9520,8 @@ export class GameServer {
             if (!this.directAdmissionIsCurrent(generation)) break;
             // A durable original request is a continuation, not a reconstructed
             // five-minute recovery. Use the same leased manager admission now.
-            if (
-              !this.tournamentEngines.has(stuck.id) &&
-              (await readDurableTerminalRequest(stuck.id))
-            ) {
-              await this.ensureTournamentManagerAdmission(
-                stuck.id,
-                'resume',
-                'original terminal continuation',
-                generation
-              );
-              continue;
-            }
+            if (await this.admitOriginalTerminalContinuation(stuck.id, generation)) continue;
+            if (!this.directAdmissionIsCurrent(generation)) break;
             if (!dueIds.has(String(stuck.id))) continue;
             /* A MANAGER THAT NEVER CAME BACK (2026-09-06). See
                managerHasOverstayed. Past the grace the registered manager is
@@ -10164,6 +10154,30 @@ export class GameServer {
    * reported its last roster as seated players, so a closed table read as a
    * stalled one and paged "Tables Have Stopped Dealing".
    */
+  private async admitOriginalTerminalContinuation(
+    id: string,
+    generation: number
+  ): Promise<boolean> {
+    if (this.tournamentEngines.has(id)) return false;
+    try {
+      const original = await readDurableTerminalRequest(id);
+      if (!this.directAdmissionIsCurrent(generation)) return true;
+      if (!original) return false;
+      await this.ensureTournamentManagerAdmission(
+        id,
+        'resume',
+        'original terminal continuation',
+        generation
+      );
+      return true;
+    } catch (error) {
+      // Unknown intent fences this event from legacy reconstruction, but must
+      // not prevent independent events later in the discovery pass from resuming.
+      reportError(error, 'GameServer.original_terminal_continuation_failed');
+      return true;
+    }
+  }
+
   private escalateStuckTournamentTables(now: number): void {
     if (!this.tournamentEngines || !this.tableEngines) return;
     const since$ = (this.stuckTournamentTableSince ??= new Map());

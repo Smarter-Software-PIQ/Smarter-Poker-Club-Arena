@@ -1,6 +1,6 @@
 {
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "7849b4aab2e653030698088105e1b72f721204e482cebeae849d82dfed1f8e66",
+    "scripts/ci/classify-ci-changes.mjs": "e24cbc30b09196198f35d2a7959819d0b390d73de0d8ab9f53a8634cf5945491",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
@@ -1360,5 +1360,17 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "durableTerminalRequestQualification20261103": {
+    "reason": "Reviewed additive original-terminal native fixture routing and three source-input classification cases. Existing accounting routes and assertions are preserved. Current source pins only; historical financial evidence and qualification state are unchanged.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "7849b4aab2e653030698088105e1b72f721204e482cebeae849d82dfed1f8e66",
+        "currentSHA256": "e24cbc30b09196198f35d2a7959819d0b390d73de0d8ab9f53a8634cf5945491"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

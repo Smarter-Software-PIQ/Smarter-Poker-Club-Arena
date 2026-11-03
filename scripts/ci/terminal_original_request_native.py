@@ -24,6 +24,12 @@ def qualify(e, root, output):
     e.sql(template, file=opening, label='original-terminal-funded-sng', seconds=90)
     e.sql(template, file=custody, label='original-terminal-custody-preimage')
     e.sql(template, file=candidate, label='original-terminal-migration')
+    live_proofs = [line.removeprefix('-- @live-proof: ') for line in candidate.read_text().splitlines() if line.startswith('-- @live-proof: ')]
+    if len(live_proofs) != 1:
+        raise RuntimeError('exact original terminal live proof missing')
+    _, proof, _ = e.sql(template, 'SELECT (' + live_proofs[0] + ');', label='original-terminal-live-proof')
+    if proof.strip() != 't':
+        raise RuntimeError('declared original terminal live proof refused')
     _, raw, _ = e.sql(template, """SELECT jsonb_object_agg(p.oid::regprocedure::text, md5(pg_get_functiondef(p.oid)))
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname IN ('public','smarter_private') AND p.proname IN
