@@ -101,8 +101,12 @@ def policy(repo, target, control):
             raise ValueError('exact owner window unavailable')
         window = matches[0]
         if 'supersedesPhase1Schedule' in window:
-            if window['supersedesPhase1Schedule'] is not True or window.get('announceAtChicagoMinutes') != [53]:
-                raise ValueError('later owner schedule must explicitly bind the 53-minute announcement')
+            fixed_minute = (window.get('announceAtChicagoMinutes') == [53]
+                            and 'announcementPolicy' not in window)
+            earliest = (window.get('announcementPolicy') == 'earliest-certified'
+                        and 'announceAtChicagoMinutes' not in window)
+            if window['supersedesPhase1Schedule'] is not True or not (fixed_minute or earliest):
+                raise ValueError('later owner schedule requires an exact announcement policy')
             supersedes_phase1 = True
         if (window.get('notBefore') != doc['activationAt'] or window.get('notAfter') != doc['expiresAt']
                 or not isinstance(window.get('ownerOrder'), str) or len(window['ownerOrder'].strip()) < 10
@@ -351,7 +355,7 @@ def main():
             print('announced' if prior.get('phase') == 'announcement' else 'entered')
             return
     record = policy(args.repo, args.target, args.control)
-    # A release explicitly restricted to :55 cannot become an on-the-hour or
+    # An explicitly selected owner window cannot become an on-the-hour or
     # degraded-engine release merely because its bounded order expired. This
     # applies only to that reviewed opt-in; legacy floor expiry is unchanged.
     # Existing runtime entries returned above keep their original recovery.
@@ -363,7 +367,7 @@ def main():
         selected = phase1_policy(args.repo, args.target, args.control)
         if prior is not None and selected is None:
             raise ValueError('owned Phase1 scheduling capability disappeared')
-        # A later explicit owner order may select its bounded :55 window for
+        # A later explicit owner order may select its bounded certified window for
         # fresh work. Already-owned routine entries retain their exact policy;
         # a new order never retargets an announcement or an unknown outcome.
         later_owner = (prior is None and record is not None

@@ -87,6 +87,7 @@ class ActivationFloor(unittest.TestCase):
         windows = json.loads(path.read_text())
         windows['windows'][0]['supersedesPhase1Schedule'] = True
         windows['windows'][0]['announceAtChicagoMinutes'] = [53]
+        windows['windows'][0].pop('announcementPolicy', None)
         path.write_text(json.dumps(windows))
         for name in ('server/scripts/engine-release-seal.py', 'server/src/maintenance/maintenanceSchedulePolicy.json'):
             target = self.repo / name
@@ -133,6 +134,26 @@ class ActivationFloor(unittest.TestCase):
                 windows['windows'][0]['announceAtChicagoMinutes'] = minutes
                 path.write_text(json.dumps(windows)); self.sha = self.commit()
                 with self.assertRaises(ValueError): floor.policy(str(self.repo), self.sha, self.sha)
+
+    def test_earliest_certified_owner_policy_requires_explicit_unambiguous_authority(self):
+        record = self.owner_record()
+        self.assertTrue(record['supersedesPhase1Schedule'])
+        path = self.repo / 'server/release/owner-maintenance-windows.json'
+        original = json.loads(path.read_text())
+        self.assertEqual(original['windows'][0]['announcementPolicy'], 'earliest-certified')
+        self.assertNotIn('announceAtChicagoMinutes', original['windows'][0])
+        floor.check_window(record, record['activationEpoch'] + 30, record['expiresEpoch'], 'admit')
+        with self.assertRaises(ValueError):
+            floor.check_window(record, record['expiresEpoch'] - 419, record['expiresEpoch'], 'admit')
+        for changes in ({'announcementPolicy': 'immediate'}, {'announcementPolicy': True},
+                        {'announcementPolicy': None}, {'announceAtChicagoMinutes': [53]},
+                        {'announceAtChicagoMinutes': []}, {'supersedesPhase1Schedule': 'true'}):
+            with self.subTest(changes=changes):
+                candidate = json.loads(json.dumps(original))
+                candidate['windows'][0].update(changes)
+                path.write_text(json.dumps(candidate)); self.sha = self.commit()
+                with self.assertRaises(ValueError):
+                    floor.policy(str(self.repo), self.sha, self.sha)
 
     def test_later_owner_transaction_preserves_custody_without_reserving_hourly_cycle(self):
         source = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()

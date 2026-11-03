@@ -25,6 +25,10 @@ export const ORIGINAL_RECOVERY_TWENTY = new Set([
   'deaa61a7-0553-4c81-a178-e9ba822a1ba2',
   'debf5e04-6f4d-4858-88a0-84b6fe1ba598',
   'fdfcadfd-4044-4696-874d-5ec50cf93a48',
+  // November 3 owner direction: preserve these started human events too.
+  '2781bcd7-cc8a-4713-ab3e-0d0a81fdf110',
+  '6379b29e-1307-4e8b-91e7-e9a0975cd64d',
+  '7986217a-0a67-4585-bd43-254356a9cb54',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

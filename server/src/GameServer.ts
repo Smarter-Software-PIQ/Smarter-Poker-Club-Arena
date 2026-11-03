@@ -1,3 +1,4 @@
+import { readDurableTerminalRequest } from './tournament/terminalDurableRequest.js';
 import {
   ORIGINAL_RECOVERY_OPERATION,
   ORIGINAL_RECOVERY_TWENTY,
@@ -9517,6 +9518,10 @@ export class GameServer {
             // for the rest of the board: stop at the fence, as every other
             // per-event loop in this pass does.
             if (!this.directAdmissionIsCurrent(generation)) break;
+            // A durable original request is a continuation, not a reconstructed
+            // five-minute recovery. Use the same leased manager admission now.
+            if (await this.admitOriginalTerminalContinuation(stuck.id, generation)) continue;
+            if (!this.directAdmissionIsCurrent(generation)) break;
             if (!dueIds.has(String(stuck.id))) continue;
             /* A MANAGER THAT NEVER CAME BACK (2026-09-06). See
                managerHasOverstayed. Past the grace the registered manager is
@@ -10149,6 +10154,30 @@ export class GameServer {
    * reported its last roster as seated players, so a closed table read as a
    * stalled one and paged "Tables Have Stopped Dealing".
    */
+  private async admitOriginalTerminalContinuation(
+    id: string,
+    generation: number
+  ): Promise<boolean> {
+    if (this.tournamentEngines.has(id)) return false;
+    try {
+      const original = await readDurableTerminalRequest(id);
+      if (!this.directAdmissionIsCurrent(generation)) return true;
+      if (!original) return false;
+      await this.ensureTournamentManagerAdmission(
+        id,
+        'resume',
+        'original terminal continuation',
+        generation
+      );
+      return true;
+    } catch (error) {
+      // Unknown intent fences this event from legacy reconstruction, but must
+      // not prevent independent events later in the discovery pass from resuming.
+      reportError(error, 'GameServer.original_terminal_continuation_failed');
+      return true;
+    }
+  }
+
   private escalateStuckTournamentTables(now: number): void {
     if (!this.tournamentEngines || !this.tableEngines) return;
     const since$ = (this.stuckTournamentTableSince ??= new Map());
@@ -10241,11 +10270,11 @@ export class GameServer {
     for (const tableId of [...since$.keys()]) {
       if (!seen.has(tableId)) since$.delete(tableId);
     }
-    // Hand-off counts outlive the manager generation they replaced (the next
-    // generation owns the same table), so a durable refusal cannot reset its
-    // own budget. Bounded: only tables that were handed on are kept, and the
-    // engine process restarts daily.
-    if (handoffs$.size > 500) handoffs$.clear();
+    // Hand-off counts outlive manager replacement and gaps in discovery. Fleet
+    // size cannot erase an exhausted budget: clearing all entries above 500
+    // turns the next pass into another fleet-wide successor wave. Healthy
+    // progress above and proven terminal retirement below release individual
+    // entries; unknown or still-failing tables retain their original allowance.
     for (const tournamentId of [...lastAt$.keys()]) {
       if (
         !this.tournamentEngines.has(tournamentId) &&
@@ -10713,8 +10742,9 @@ export class GameServer {
            read whole; an unreadable read yields NO orphans (unknown is not
            "unleased"), so an outage cannot become a storm. A failed claim
            waits out the same per-tournament cooldown as any resume, and after
-           ORPHAN_CLAIM_MAX_ATTEMPTS failures the orphan lane stops and raises
-           a financial alert instead (operator policy: no new repair loops). */
+           ORPHAN_CLAIM_MAX_ATTEMPTS failures only this priority lane stops and
+           raises a financial alert. Ordinary budgeted admission below remains
+           eligible after cooldown; the alert never creates another retry lane. */
         const orphanClaims: typeof running = [];
         if (running.length > 0 && isLeader()) {
           const leased = await this.readTournamentLeaseRowIds();
@@ -12568,8 +12598,8 @@ export class GameServer {
   }
 
   /**
-   * AN ORPHAN THE LANE GAVE UP ON IS PAGED, NOT RETRIED (Phase 6, operator
-   * policy 2026-10-31). One CRITICAL financial alert per RUNNING tournament
+   * EXHAUSTED ORPHAN PRIORITY IS PAGED (Phase 6, 2026-10-31). Ordinary
+   * budgeted admission remains eligible. One CRITICAL alert per RUNNING tournament
    * with no lease row whose claim failed ORPHAN_CLAIM_MAX_ATTEMPTS times in a
    * row; the set is pruned to the current exhausted ids, so a streak that ends
    * (a manager, or the id leaves the board) and comes back alerts again.
@@ -12587,9 +12617,9 @@ export class GameServer {
         'critical',
         'GameServer.tournament_orphan_claim_exhausted',
         `Tournament ${tournamentId} is RUNNING with no engine_tournament_leases row and the leader's ` +
-          `orphan claim failed ${failures} time(s) (cap ${ORPHAN_CLAIM_MAX_ATTEMPTS}); the orphan lane ` +
-          'has stopped claiming it. Its players are seated with no dealer. Read the engine log for ' +
-          'its admission refusal',
+          `orphan claim failed ${failures} time(s) (cap ${ORPHAN_CLAIM_MAX_ATTEMPTS}); priority claims ` +
+          'have stopped, but ordinary budgeted admission remains eligible after its cooldown. ' +
+          'Read the engine log for its admission refusal',
         { tournament_id: tournamentId, failures, max_attempts: ORPHAN_CLAIM_MAX_ATTEMPTS },
         `tournament-orphan-claim-exhausted:${tournamentId}`,
         tournamentId
@@ -13448,6 +13478,8 @@ export class GameServer {
       // absent.
       this.tournamentOwnedTables.delete(tableId);
       tableStateHub.dropTable(tableId);
+      this.stuckTournamentTableHandoffs?.delete(tableId);
+      this.stuckTournamentTableSince?.delete(tableId);
       return true;
     }
 
@@ -13463,7 +13495,12 @@ export class GameServer {
       // captured above to leave the process registry.
       reportError(stopError, 'GameServer.terminal_table_engine_stop_cleanup_failed', { tableId });
     }
-    return this.unregisterTableEngine(tableId, current);
+    const retired = this.unregisterTableEngine(tableId, current);
+    if (retired) {
+      this.stuckTournamentTableHandoffs?.delete(tableId);
+      this.stuckTournamentTableSince?.delete(tableId);
+    }
+    return retired;
   }
 
   /**

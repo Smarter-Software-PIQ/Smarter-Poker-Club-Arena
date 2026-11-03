@@ -220,8 +220,8 @@ const nlhPremiumV1 = skin(
   presentation(
     'nlh',
     'mobile',
-    'nlh/spade-nlh-premium-v1/chassis.png',
-    '729 / 945',
+    'nlh/spade-nlh-premium-v1/chassis-alpha-v2.png',
+    '1101 / 1429',
     280,
     'premium-v1'
   ),

@@ -16,6 +16,7 @@ beforeEach(async () => {
   vi.resetModules();
   captured.fetches.length = 0;
   vi.stubEnv('SUPABASE_TIMEOUT_MS', '100');
+  // An unsafe maintenance override must retain the established 50-second floor.
   vi.stubEnv('MAINTENANCE_SUPABASE_TIMEOUT_MS', '100');
   vi.stubEnv('SEEDING_SUPABASE_TIMEOUT_MS', '100');
   await import('./client.js');
@@ -58,7 +59,9 @@ describe.each([0, 1, 2])('client %i independently owns its response deadline', (
         }
       );
       try {
-        await vi.advanceTimersByTimeAsync(101);
+        await vi.advanceTimersByTimeAsync(clientIndex === 1 ? 49_999 : 99);
+        expect(outcome).toBe('pending');
+        await vi.advanceTimersByTimeAsync(2);
         expect(outcome).toBe('supabase_timeout');
         expect(signal.aborted).toBe(true);
         expect(vi.getTimerCount()).toBe(0);
@@ -100,7 +103,9 @@ describe.each([0, 1, 2])('client %i independently owns its response deadline', (
       }
     );
     try {
-      await vi.advanceTimersByTimeAsync(101);
+      await vi.advanceTimersByTimeAsync(clientIndex === 1 ? 49_999 : 99);
+      expect(outcome).toBe('pending');
+      await vi.advanceTimersByTimeAsync(2);
       expect(outcome).toBe('supabase_timeout');
       expect(signal.aborted).toBe(true);
       expect(vi.getTimerCount()).toBe(0);

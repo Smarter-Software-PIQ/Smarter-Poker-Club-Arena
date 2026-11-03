@@ -114,9 +114,18 @@ beforeEach(() => {
 
 describe('ChipStatement', () => {
   it("asks for the caller's own statement and renders both directions with the audit line", async () => {
-    rpc.mockResolvedValueOnce({ data: statement(), error: null });
-    render(<ChipStatement scope="player" />);
-    await waitFor(() => expect(screen.getByText('Your Chip Statement')).toBeTruthy());
+    let resolveStatement!: (value: unknown) => void;
+    rpc.mockReturnValueOnce(new Promise((resolve) => (resolveStatement = resolve)));
+    const view = render(<ChipStatement scope="player" />);
+    // The heading exists during loading; it cannot certify the response rendered.
+    expect(screen.getByText('Your Chip Statement')).toBeTruthy();
+    expect(view.container.querySelector('section')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('+12')).toBeNull();
+    await act(async () => {
+      resolveStatement({ data: statement(), error: null });
+    });
+    expect(await screen.findByText('+12')).toBeTruthy();
+    expect(view.container.querySelector('section')).not.toHaveAttribute('aria-busy');
     expect(rpc).toHaveBeenCalledWith('fn_ca_chip_statement_page', {
       p_scope: 'player',
       p_club_id: null,

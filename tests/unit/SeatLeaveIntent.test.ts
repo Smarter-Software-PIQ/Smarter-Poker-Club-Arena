@@ -183,3 +183,13 @@ describe('captured bulk removal identity', () => {
     expect((await first).success).toBe(true);
   });
 });
+
+it('preserves tournament sit-out acknowledgement without inventing a cashout', async () => {
+  mocks.leave.mockResolvedValue({ ...response(), tournament: true, cashout: null });
+  expect(await leaveSeatWithIntent(table, user)).toEqual({
+    success: true,
+    chipsReturned: 0,
+    tournament: true,
+    occupancyId: occupancy,
+  });
+});

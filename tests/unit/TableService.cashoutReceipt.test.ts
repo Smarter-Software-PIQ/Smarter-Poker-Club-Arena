@@ -107,6 +107,7 @@ describe('TableService wired to the occupancy receipt contract', () => {
     mocks.leave.mockResolvedValue({ ...response(), tournament: true, cashout: null });
     expect(await tableService.leaveTable(table, 2, user)).toEqual({
       success: true,
+      tournament: true,
       occupancyId: occupancy,
       chipsReturned: 0,
     });

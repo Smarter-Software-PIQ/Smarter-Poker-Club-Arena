@@ -9,11 +9,11 @@ import { TickerRail } from '../../../src/components/tournament/TickerRail';
 import { startingSoonItem } from '../../../src/components/tournament/tickerMessages';
 const kind = document.documentElement.dataset.kind || 'cash';
 const entry =
-  kind === 'cash' || kind === 'cash-full'
+  kind === 'cash' || kind === 'cash-full' || kind === 'cash-nlh'
     ? cashEntry({
         id: kind === 'cash-full' ? 'fixture-cash-full' : 'fixture-cash',
         name: 'Classic',
-        game_variant: 'plo6',
+        game_variant: kind === 'cash-nlh' ? 'nlh' : 'plo6',
         small_blind: 1,
         big_blind: 2,
         min_buy_in: 80,

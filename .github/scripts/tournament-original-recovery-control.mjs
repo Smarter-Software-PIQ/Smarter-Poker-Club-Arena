@@ -1,4 +1,8 @@
 import {
+  ADDITIONAL_REFUND_ACTIONS,
+  additionalRefundIntent,
+} from './additional-five-refund-control.mjs';
+import {
   OWNER_ACTIONS,
   ownerRetirementIntent,
   controlOwnerRetirement,
@@ -11,6 +15,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const COHORT = JSON.parse(
   fs.readFileSync(
     path.join(ROOT, 'scripts/ci/fixtures/tournament-recovery20/cohort-membership.json'),
+    'utf8'
+  )
+);
+const HUMAN_PRESERVATION = JSON.parse(
+  fs.readFileSync(
+    path.join(ROOT, 'scripts/ci/fixtures/tournament-recovery20/nov3-human-preservation.json'),
     'utf8'
   )
 );
@@ -163,7 +173,8 @@ function publicResult(result) {
         'abort_read',
         'abort_ack',
         'abort_settle',
-        ...EQUAL_ACTIONS
+        ...EQUAL_ACTIONS,
+        ...ADDITIONAL_REFUND_ACTIONS
       ),
       tournamentId: uuid,
       operationId: uuid,
@@ -172,7 +183,8 @@ function publicResult(result) {
       sha: matches(SHA),
       instance: matches(INSTANCE),
       moneyHash: matches(MONEY_HASH),
-      closureMode: enums('equal_share'),
+      closureMode: enums('equal_share', 'started_operator_abort'),
+      manifestHash: matches(/^[a-f0-9]{64}$/),
     }),
     outcome: result.outcome,
   };
@@ -212,6 +224,7 @@ function publicResult(result) {
   return output;
 }
 export function originalControlIntent(input) {
+  if (ADDITIONAL_REFUND_ACTIONS.includes(input.action)) return additionalRefundIntent(input);
   if (OWNER_ACTIONS.includes(input.action)) return ownerRetirementIntent(input);
   const equal = EQUAL_ACTIONS.includes(input.action);
   const equalCohorts = [EQUAL, FROZEN_EVENTS].filter((cohort) =>
@@ -225,8 +238,10 @@ export function originalControlIntent(input) {
     ? (equalCohort?.members ?? []).map((row) => row.tournamentId)
     : abort
       ? [...COHORT.original89, NIGHTLY.tournamentId]
-      : COHORT.natural_finish_twenty;
+      : [...COHORT.natural_finish_twenty, ...HUMAN_PRESERVATION.original_abort_recovery_events];
   if (
+    ((equal || abort) &&
+      HUMAN_PRESERVATION.preserved_started_human_events.includes(input.tournamentId)) ||
     (!equal && !abort && !['prepare', 'read'].includes(input.action)) ||
     !allowed.includes(input.tournamentId) ||
     (input.action === 'abort_request' && !nightly) ||
@@ -248,7 +263,8 @@ export function originalControlIntent(input) {
         'abort_read',
         'abort_ack',
         'abort_settle',
-        ...EQUAL_ACTIONS
+        ...EQUAL_ACTIONS,
+        ...ADDITIONAL_REFUND_ACTIONS
       ),
       tournamentId: uuid,
       nonce: uuid,
@@ -274,7 +290,11 @@ export async function controlOriginalRecovery(
     return controlOwnerRetirement(input, { fetchImpl, serviceIdentity, supabaseUrl });
   const intent = originalControlIntent(input);
   if (!serviceIdentity) throw Error('Configured Service Required');
-  const abort = input.action.startsWith('abort_');
+  // Exact-five intent is checked before aliasing into the existing payer path.
+  const action = ADDITIONAL_REFUND_ACTIONS.includes(input.action)
+    ? input.action.replace('additional_refund_', 'abort_')
+    : input.action;
+  const abort = action.startsWith('abort_');
   const operationId = intent.operationId;
   const result = { request: intent, outcome: 'unknown' };
   async function health() {
@@ -311,7 +331,7 @@ export async function controlOriginalRecovery(
       const database = new URL(supabaseUrl);
       if (
         database.origin !== 'https://kuklfnapbkmacvwxktbh.supabase.co' ||
-        (input.action === 'abort_settle' && !/^[a-f0-9]{32}$/.test(input.moneyHash ?? ''))
+        (action === 'abort_settle' && !/^[a-f0-9]{32}$/.test(input.moneyHash ?? ''))
       )
         throw Error('Canonical Database Or Reviewed Money Hash Required');
       async function rpc(name, args, allowAbsent = false) {
@@ -381,13 +401,13 @@ export async function controlOriginalRecovery(
       result.canonicalBefore = await readCanonical();
       if (
         result.canonicalBefore.state === 'not_requested' &&
-        input.action !== 'abort_request' &&
-        input.action !== 'abort_read'
+        action !== 'abort_request' &&
+        action !== 'abort_read'
       )
         throw Error('Original Operation Not Requested');
       let mutationAttempted = false;
       try {
-        if (input.action === 'abort_request' && result.canonicalBefore.state === 'not_requested') {
+        if (action === 'abort_request' && result.canonicalBefore.state === 'not_requested') {
           // Read only the exact public lease tuple; never infer a current owner
           // from target absence. The RPC still owns admission atomically.
           const leaseResponse = await fetchImpl(
@@ -426,7 +446,7 @@ export async function controlOriginalRecovery(
             requested.tournament_ids[0] !== input.tournamentId
           )
             throw Error('Request Receipt Unknown');
-        } else if (input.action === 'abort_ack') {
+        } else if (action === 'abort_ack') {
           mutationAttempted = true;
           const response = await fetchImpl(`${ORIGIN}/admin/tournament-abort-boundary`, {
             method: 'POST',
@@ -446,7 +466,7 @@ export async function controlOriginalRecovery(
           if (body.success !== true || body.runtime?.operation_id !== operationId)
             throw Error('Abort Boundary Receipt Unknown');
           result.runtime = body.runtime;
-        } else if (input.action === 'abort_settle' && result.canonicalBefore.state !== 'settled') {
+        } else if (action === 'abort_settle' && result.canonicalBefore.state !== 'settled') {
           if (
             result.canonicalBefore.state !== 'quiesced' ||
             result.canonicalBefore.current_boundary_valid !== true ||
@@ -467,13 +487,13 @@ export async function controlOriginalRecovery(
       result.canonicalAfter = await readCanonical();
       result.after = await health();
       if (result.mutationAcknowledgement === 'unknown') return publicResult(result);
-      if (input.action === 'abort_read') result.outcome = 'original_abort_readback';
-      else if (input.action === 'abort_request' && result.canonicalAfter.state !== 'not_requested')
+      if (action === 'abort_read') result.outcome = 'original_abort_readback';
+      else if (action === 'abort_request' && result.canonicalAfter.state !== 'not_requested')
         result.outcome = mutationAttempted
           ? 'original_abort_requested_readback'
           : 'original_abort_already_requested';
       else if (
-        input.action === 'abort_settle' &&
+        action === 'abort_settle' &&
         result.canonicalAfter.state === 'settled' &&
         result.canonicalAfter.tournament_status === 'CANCELLED' &&
         result.canonicalAfter.receipt?.fully_settled === true &&
@@ -484,13 +504,13 @@ export async function controlOriginalRecovery(
           ? 'original_abort_settled_readback'
           : 'original_abort_already_settled';
       else if (
-        input.action === 'abort_ack' &&
+        action === 'abort_ack' &&
         result.canonicalAfter.current_boundary_valid === true &&
         result.canonicalAfter.quiescence_generation === input.generation
       )
         result.outcome = 'original_abort_boundary_readback';
       else if (
-        input.action === 'abort_ack' &&
+        action === 'abort_ack' &&
         result.canonicalAfter.state === 'settled' &&
         result.runtime?.runtime_retired === true
       )

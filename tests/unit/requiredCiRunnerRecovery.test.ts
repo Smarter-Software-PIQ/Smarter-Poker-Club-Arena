@@ -155,6 +155,68 @@ const normalizeStallProgressAddition = (job: { steps: Array<Record<string, unkno
   job.steps.splice(index, 1);
 };
 
+const undrawnSpinSteps = [
+  {
+    name: 'Undrawn Spin cancellation returns exact gross entries atomically',
+    if: 'matrix.shard == 4',
+    run: 'python3 -B scripts/ci/test-undrawn-spin-cancellation.py \\\n  --evidence artifacts/undrawn-spin-cancellation \\\n  --work-root "$RUNNER_TEMP/undrawn-spin-work" \\\n  --socket-root "$RUNNER_TEMP/undrawn-spin-socket" \\\n  --pg-bin /usr/lib/postgresql/17/bin\n',
+  },
+  {
+    name: 'Retain undrawn Spin cancellation evidence',
+    if: 'always() && matrix.shard == 4',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'undrawn-spin-cancellation-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: 'artifacts/undrawn-spin-cancellation/',
+      'retention-days': 7,
+      'if-no-files-found': 'error',
+    },
+  },
+];
+const normalizeUndrawnSpinAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === undrawnSpinSteps[0].name);
+  for (const step of undrawnSpinSteps)
+    expect(job.steps.filter((actual) => actual.name === step.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe(
+    'Cancellation admission cannot queue ahead of unrelated hands'
+  );
+  expect(job.steps.slice(start, start + 2)).toStrictEqual(undrawnSpinSteps);
+  expect(job.steps[start + 2]?.name).toBe(
+    'Retain cancellation admission and funded rollback evidence'
+  );
+  job.steps.splice(start, 2);
+};
+
+const finishUnionSteps = [
+  {
+    name: 'Tournament finish leaves the union cash-hand wallet available',
+    id: 'finish_union_wallet',
+    if: 'matrix.shard == 3',
+    env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+    run: 'python3 scripts/ci/test-a-finish-does-not-hold-the-union-wallet.py',
+  },
+  {
+    name: 'Retain finish and cash-hand lock evidence',
+    if: 'always() && matrix.shard == 3 && contains(fromJSON(\'["success", "failure", "cancelled"]\'), steps.finish_union_wallet.outcome)',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'finish-union-wallet-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: 'artifacts/finish-union-wallet-lock/',
+      'if-no-files-found': 'error',
+      'retention-days': 7,
+    },
+  },
+];
+const normalizeFinishUnionAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === finishUnionSteps[0].name);
+  for (const step of finishUnionSteps)
+    expect(job.steps.filter((actual) => actual.name === step.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe('Atomic departures, ownership, rollback and concurrency');
+  expect(job.steps.slice(start, start + 2)).toStrictEqual(finishUnionSteps);
+  expect(job.steps[start + 2]?.name).toBe('Accepted eliminations preserve parked source custody');
+  job.steps.splice(start, 2);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -402,6 +464,26 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       delete selected[0].if;
     }
     delete normalized.jobs['css-beats-build'];
+    const fixedLimitStep = {
+      name: 'Fixed-limit blinds and uncapped buy-ins use the original cash owners',
+      if: 'matrix.shard == 3',
+      env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+      run: 'python3 -B scripts/ci/test-fixed-limit-policy-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"',
+    };
+    const accountingSteps = normalized.jobs.accounting_postgres.steps;
+    const fixedLimitIndex = accountingSteps.findIndex((step) => step.name === fixedLimitStep.name);
+    expect(accountingSteps.filter((step) => step.name === fixedLimitStep.name)).toHaveLength(1);
+    expect(accountingSteps[fixedLimitIndex]).toStrictEqual(fixedLimitStep);
+    expect(accountingSteps[fixedLimitIndex - 1].name).toBe(
+      'Original committed horse turns have an independent complete census'
+    );
+    expect(accountingSteps[fixedLimitIndex + 1].name).toBe(
+      'Runtime privilege changes preserve the schema DDL boundary'
+    );
+    // Enforce the exact new regression, then retain every historical job pin.
+    accountingSteps.splice(fixedLimitIndex, 1);
+    normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
+    normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
     normalizeScheduleRequestAddition(normalized.jobs.accounting_postgres);
     normalizeMysteryAwardOrderAddition(normalized.jobs.accounting_postgres);
     normalizeFrameCoverAddition(normalized.jobs.accounting_postgres);
@@ -692,6 +774,33 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       expect(() => normalizeScheduleRequestAddition(job)).toThrow();
     }
   });
+  it('rejects missing, duplicate or weakened union-finish qualification', () => {
+    for (const mutate of [
+      (steps: Array<Record<string, unknown>>, start: number) => steps.splice(start, 1),
+      (steps: Array<Record<string, unknown>>, start: number) =>
+        steps.push(structuredClone(steps[start])),
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].run = String(steps[start].run) + ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        (steps[start + 1].with as Record<string, unknown>)['if-no-files-found'] = 'ignore';
+      },
+    ]) {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const start = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === finishUnionSteps[0].name
+      );
+      mutate(job.steps, start);
+      expect(() => normalizeFinishUnionAddition(job)).toThrow();
+    }
+  });
+
   it('preserves every native qualification stage and cleanup requirement', () => {
     const normalized = structuredClone(native);
     expect(normalized.jobs['native-smoke']['runs-on']).toBe('ubuntu-24.04');
@@ -699,6 +808,25 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     expect(ci.jobs.fixture_native.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(ci.jobs.fixture_native.secrets).toBeUndefined();
     const job = normalized.jobs['native-smoke'];
+    const alertInstall = job.steps.findIndex(
+      (step: { name?: string }) =>
+        step.name === 'Install locked native alert transport dependencies'
+    );
+    expect(job.steps[alertInstall]).toStrictEqual({
+      name: 'Install locked native alert transport dependencies',
+      if: '${{ !inputs.connected_ui_observations }}',
+      run: 'npm ci --prefix tools/production-alerts-native-wakeup --ignore-scripts --no-audit --no-fund',
+    });
+    const alertGate = job.steps[alertInstall + 1];
+    expect(alertGate).toStrictEqual({
+      name: 'Native alert intake survives actual process death without duplicate queue submission',
+      if: '${{ !inputs.connected_ui_observations }}',
+      env: { TMPDIR: '${{ runner.temp }}' },
+      run: 'node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs',
+    });
+    // Qualify the exact additive transport gate, then retain every historical stage/hash.
+    alertGate.run = 'node --test tools/production-alerts-native-wakeup/state.test.mjs';
+    job.steps.splice(alertInstall, 1);
     expect(job['timeout-minutes']).toBe('${{ inputs.connected_ui_observations && 120 || 55 }}');
     const budget = new Function('inputs', `return (${job['timeout-minutes'].slice(3, -2)});`);
     expect(budget({ connected_ui_observations: false })).toBe(55);
