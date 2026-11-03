@@ -231,6 +231,8 @@ def main():
         e.report['cohort_assertions']=len(re.findall('NOTICE:  QUALIFIER PASS:',err))
         if e.report['cohort_assertions'] != 67:
             raise RuntimeError('exact cohort assertion count differs')
+        from ordinary_terminal_transport import qualify as qualify_ordinary_transport
+        manifest['source_sha256'].update(qualify_ordinary_transport(e,root,output))
         from satellite_terminal_transport import qualify as qualify_terminal_transport
         manifest['source_sha256'].update(qualify_terminal_transport(e,root,db,output,probe))
         qualify_concurrency(e,root,native,db,output,qualifier_probe)
