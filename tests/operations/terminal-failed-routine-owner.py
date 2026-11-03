@@ -1650,5 +1650,87 @@ class RoutineCycleAdmissionLead(unittest.TestCase):
         self.assertEqual(self.reserve(hour, '6-1'), hour + 3600)                # 20:00:00
 
 
+class GenericPreguardCheckpointRefusalOwner(unittest.TestCase):
+    """A later owner that bound a window, wrote its one-shot checkpoint intent,
+    and refused before guardCall with inspectorClosed:true resolves by proof
+    (41535679597-1 shape)."""
+    RUN = '41535679597-1'
+    TARGET = '1adb1eaa2c974969ef32c0330bbd3aed94e97a99'
+    START = 1793660400  # 23:00 UTC
+    WINDOW = {'announcedAt': 1793660286156, 'startsAt': 1793660406156, 'endsAt': 1793660706156, 'verified': True}
+    NATIVE = {'club-arena-engine-release-v1@41535679597-1.service': {'ActiveState': 'failed'}}
+    RUNTIME = {'containerId': CONTAINER, 'startedAt': '2026-11-02T19:35:05.1Z', 'instanceId': '1-b8912ba6'}
+
+    def setUp(self):
+        clock = patch.object(seal.time, 'time', return_value=self.START + 300 + 120)
+        clock.start(); self.addCleanup(clock.stop)
+        scratch = os.environ.get('TMPDIR')
+        if sys.platform == 'darwin' and not scratch:
+            scratch = '/Volumes/SmarterWork/agent-work'
+        self.tmp = tempfile.TemporaryDirectory(prefix='generic-preguard-', dir=scratch)
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, value in {'STATE_DIR': self.root, 'STATE_FILE': self.root / 'engine-release-seal.json',
+                'AUDIT_FILE': self.root / 'audit.jsonl', 'RESULT_DIR': self.root / 'engine-release-results',
+                'LOCK_FILE': self.root / 'lock'}.items():
+            p = patch.object(seal, name, value); p.start(); self.addCleanup(p.stop)
+        seal.RESULT_DIR.mkdir(mode=0o700)
+        self.requests = self.root / 'engine-release-requests'
+        self.requests.mkdir(mode=0o700)
+        self.failure = {'completedAt': self.START + 45, 'controlSha': self.TARGET,
+            'invocationId': 'e1036679d4b745429f9bb084ed39362b', 'recoveredDesiredImageId': A_IMAGE,
+            'recoveredDesiredSha': A_SHA, 'result': 'failed', 'runId': self.RUN, 'schema': 1,
+            'sha': self.TARGET, 'transactionExitStatus': 1}
+        seal.result_path(self.RUN).write_text(json.dumps(self.failure))
+        self.intent = {'instance': '1-b8912ba6', 'container': CONTAINER, 'startedAt': '2026-11-02T19:35:05.1Z',
+            'hostPid': 4242, 'source': A_SHA, 'runId': self.RUN, 'controlSha': self.TARGET,
+            'at': self.WINDOW['startsAt'] / 1000 + 25, 'retryAllowed': False,
+            'nativeCensus': {'candidateSHA': self.TARGET, 'prototypeCacheBytes': 1048576}}
+        (self.requests / f'{self.RUN}.legacy-checkpoint-intent').write_text(json.dumps(self.intent))
+        self.cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
+            'policyDigest': seal.NINEF_POLICY_DIGEST, 'startsAt': self.START, 'endsAt': self.START + 300,
+            'runId': self.RUN, 'sha': self.TARGET, 'controlSha': self.TARGET, 'status': 'reserved',
+            'window': dict(self.WINDOW), 'failure': dict(self.failure)}
+        self.base = {'schema': 1, 'desired': {'sha': A_SHA, 'imageId': A_IMAGE, 'legacyUnlabelled': False},
+            'highWaterSha': A_SHA, 'committedRuns': {}, 'pending': None, 'finalization': None,
+            'generation': 315, 'routineMaintenanceCycles': {str(self.START): self.cycle}}
+        seal.write_state(copy.deepcopy(self.base))
+        self.db_reply = {'schema': 'terminal-owned-thaw/v1', 'sha': A_SHA, 'instanceId': '1-b8912ba6',
+            'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True,
+            'announcedAt': self.WINDOW['announcedAt'], 'startsAt': self.WINDOW['startsAt'],
+            'endsAt': self.WINDOW['endsAt']}
+        for name, value in [('require_engine_lock', lambda fd: None),
+                ('failed_routine_current', lambda a, d: {'same': True}),
+                ('generic_preguard_checkpoint_native_proof', lambda d, o: dict(self.NATIVE)),
+                ('generic_preguard_checkpoint_refusal', lambda r, f, w, d: 'c' * 64),
+                ('failed_routine_runtime', lambda d, bounded=False: dict(self.RUNTIME)),
+                ('failed_routine_command', lambda cmd, d, *a, **kw: json.dumps(self.db_reply)),
+                ('failed_routine_json', lambda p: json.loads(Path(p).read_text()))]:
+            p = patch.object(seal, name, side_effect=value); p.start(); self.addCleanup(p.stop)
+
+    def resolve(self):
+        with patch.object(seal.os, 'geteuid', return_value=0), redirect_stdout(io.StringIO()) as out, \
+                redirect_stderr(io.StringIO()):
+            args = seal.parser().parse_args(['resolve-terminal-routine-failures', '--engine-lock-fd', '9',
+                '--run-id', LIVE_RUN, '--sha', TARGET_SHA, '--control-sha', TARGET_SHA,
+                '--invocation-id', INVOCATION])
+            args.handler(args)
+        return out.getvalue().strip()
+
+    def test_resolves_and_validates_preguard_checkpoint_refusal_owner(self):
+        original = copy.deepcopy(self.cycle)
+        self.assertEqual(self.resolve(), self.RUN)
+        state = seal.load_state()
+        self.assertFalse(seal.routine_owner_unresolved(state, state['routineMaintenanceCycles'][str(self.START)]))
+        resolution = state['routineFailureResolutions'][self.RUN]
+        self.assertEqual(resolution['result'], 'preguard-checkpoint-refusal-proved')
+        fd = os.open(seal.RESULT_DIR, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            answer, _ = observer.routine_failure_resolution(resolution, original, self.failure, fd)
+            self.assertTrue(answer['present'] and answer['receiptMatches'] and answer['databaseIdleRecorded'])
+        finally:
+            os.close(fd)
+
+
 if __name__ == '__main__':
     unittest.main()
