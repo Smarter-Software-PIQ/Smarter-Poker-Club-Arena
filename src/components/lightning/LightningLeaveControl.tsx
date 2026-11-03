@@ -63,6 +63,12 @@ export function LightningLeaveControl({
       aria-busy={busy}
       onClick={() => void leave()}
     >
+      <img
+        className="lightning-leave-control__chip"
+        src={`${import.meta.env.BASE_URL}game-card-icons/classic-spade-chip-v1.png`}
+        alt=""
+        aria-hidden="true"
+      />
       <span ref={labelRef}>{label}</span>
     </button>
   );

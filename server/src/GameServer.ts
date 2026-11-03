@@ -10713,8 +10713,9 @@ export class GameServer {
            read whole; an unreadable read yields NO orphans (unknown is not
            "unleased"), so an outage cannot become a storm. A failed claim
            waits out the same per-tournament cooldown as any resume, and after
-           ORPHAN_CLAIM_MAX_ATTEMPTS failures the orphan lane stops and raises
-           a financial alert instead (operator policy: no new repair loops). */
+           ORPHAN_CLAIM_MAX_ATTEMPTS failures only this priority lane stops and
+           raises a financial alert. Ordinary budgeted admission below remains
+           eligible after cooldown; the alert never creates another retry lane. */
         const orphanClaims: typeof running = [];
         if (running.length > 0 && isLeader()) {
           const leased = await this.readTournamentLeaseRowIds();
@@ -12568,8 +12569,8 @@ export class GameServer {
   }
 
   /**
-   * AN ORPHAN THE LANE GAVE UP ON IS PAGED, NOT RETRIED (Phase 6, operator
-   * policy 2026-10-31). One CRITICAL financial alert per RUNNING tournament
+   * EXHAUSTED ORPHAN PRIORITY IS PAGED (Phase 6, 2026-10-31). Ordinary
+   * budgeted admission remains eligible. One CRITICAL alert per RUNNING tournament
    * with no lease row whose claim failed ORPHAN_CLAIM_MAX_ATTEMPTS times in a
    * row; the set is pruned to the current exhausted ids, so a streak that ends
    * (a manager, or the id leaves the board) and comes back alerts again.
@@ -12587,9 +12588,9 @@ export class GameServer {
         'critical',
         'GameServer.tournament_orphan_claim_exhausted',
         `Tournament ${tournamentId} is RUNNING with no engine_tournament_leases row and the leader's ` +
-          `orphan claim failed ${failures} time(s) (cap ${ORPHAN_CLAIM_MAX_ATTEMPTS}); the orphan lane ` +
-          'has stopped claiming it. Its players are seated with no dealer. Read the engine log for ' +
-          'its admission refusal',
+          `orphan claim failed ${failures} time(s) (cap ${ORPHAN_CLAIM_MAX_ATTEMPTS}); priority claims ` +
+          'have stopped, but ordinary budgeted admission remains eligible after its cooldown. ' +
+          'Read the engine log for its admission refusal',
         { tournament_id: tournamentId, failures, max_attempts: ORPHAN_CLAIM_MAX_ATTEMPTS },
         `tournament-orphan-claim-exhausted:${tournamentId}`,
         tournamentId

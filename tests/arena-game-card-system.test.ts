@@ -234,7 +234,7 @@ describe('Arena game-card creation', () => {
       nlh: {
         id: 'spade-nlh-premium-v1',
         version: 1,
-        mobileAsset: /nlh\/spade-nlh-premium-v1\/chassis\.png$/,
+        mobileAsset: /nlh\/spade-nlh-premium-v1\/chassis-alpha-v2\.png$/,
       },
       plo: {
         id: 'spade-plo-premium-v1',

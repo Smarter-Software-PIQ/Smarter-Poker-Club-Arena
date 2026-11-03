@@ -402,3 +402,20 @@ export function syncPreActionToEngine(input: PreActionSyncInput): void {
     }
   }
 }
+
+/** Leaving a Lightning session folds only the captured hand after matchmaking stopped.
+ * This is an explicit leave intent, never a restored or retried pre-action.
+ */
+export async function foldLightningHandForLeave(input: {
+  tableId: string;
+  handId: string;
+  currentHandId: () => string | null;
+  send: PreActionSyncInput['serverSetPreAction'];
+}): Promise<boolean> {
+  const reply = await input.send(input.tableId, 'auto_fold', undefined, input.handId);
+  return (
+    reply.success ||
+    classifyPreActionReply(reply) === 'nothing_can_run' ||
+    input.currentHandId() !== input.handId
+  );
+}

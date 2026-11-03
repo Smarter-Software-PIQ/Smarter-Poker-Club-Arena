@@ -1,6 +1,6 @@
 {
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+    "scripts/ci/classify-ci-changes.mjs": "ef60d9c402d05eafe2eae7f4f5e01cf6512c07283a660189e2f6219d9b964d39",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
@@ -1359,5 +1359,27 @@
         "currentSHA256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
       }
     ]
+  },
+  "ordinaryTerminalTransportQualification20261103": {
+    "reason": "Reviewed additive MTT/SNG/Spin terminal transport fixture selection and four input-routing regression cases. Native PostgreSQL qualification passed the 12 new ordinary cases plus four existing satellite cases. No financial fixture data, historical result, assertion or existing route changed; nested binding identities follow only these reviewed source changes.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
+        "currentSHA256": "7849b4aab2e653030698088105e1b72f721204e482cebeae849d82dfed1f8e66"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "oldCloseoutProtectedMainComposition20261103": {
+    "reason": "Reviewed composition of additive ordinary terminal qualification and old-event closure routing. Both original audit records retained unchanged. Runtime, migration bytes and historical financial results unchanged; current source identities only.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+        "current": "ef60d9c402d05eafe2eae7f4f5e01cf6512c07283a660189e2f6219d9b964d39"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

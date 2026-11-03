@@ -1,0 +1,7 @@
+# Satellite terminal receipts survive an interrupted response
+
+The existing required satellite PostgreSQL qualification now exercises the real server maintenance client and satellite settlement request through a local HTTP server that drops responses. Each case uses a separate owned PostgreSQL 17 database cloned from the runner's current captured financial catalog and its existing authenticated, funded satellite opening.
+
+The cases distinguish an already committed result, an in-flight transaction that commits, an in-flight transaction that rolls back, and an unresolved transaction whose resolver response is also lost. In-flight cases require an observed PostgreSQL lock dependency before releasing the original transaction. Successful resolution must return the exact original stored receipt. A replay must preserve all 28 financial and seat relations, with one actual 100-chip satellite award and its 90/10 target entitlement. Unknown transport outcomes must remain unknown even when an ordinary read sees no committed effect.
+
+This extends the existing accounting shard 4 runner, without changing a payer, permission, financial guard, runtime recovery path or release process. It qualifies the captured current single-winner satellite contract. The HTTP adapter is not PostgREST; manager teardown/re-admission, other tournament formats, deployed behavior and historical Stage B activation remain separate acceptance requirements. Native latency observations are local measurements, not a universal recovery guarantee.

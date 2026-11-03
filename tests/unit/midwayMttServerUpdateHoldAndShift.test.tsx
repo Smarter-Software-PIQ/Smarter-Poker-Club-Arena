@@ -35,13 +35,30 @@ describe('Midway Union MTT server-update popup & +3h 30m schedule shift', () => 
     resetTournamentStartHoldCacheForTests();
   });
 
-  it('defines the exact owner-requested popup message', () => {
+  it('describes verified reopening without an expired time or a cash-game freeze', () => {
     expect(MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE).toBe(
-      "MIDWAY UNION MTT'S ARE ON A SERVER UPDATE, THEY WILL BE BACK ONLINE AND RUNNING AT 6PM CST. ALL GAMES ARE FROZE UNTIL THE FINAL SERVER UPDATE IS COMPLETED."
+      'New Tournament Starts Are Paused For A Server Update. MTTs, Spins, Sit & Gos And Satellites Will Reopen After Verification Is Complete.'
     );
     expect(registerReasonText('operator_floor_parked')).toBe(
       MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE
     );
+  });
+
+  it('uses the same current fallback when a held response has no popup copy', async () => {
+    rpcMock.mockResolvedValueOnce({ data: { blocked: true }, error: null });
+    const status = await readTournamentStartHoldStatus();
+    expect(status.popupMessage).toBe(MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE);
+  });
+
+  it('updates only the reader in a forward migration, preserving the hold and schedules', () => {
+    const migration = read(
+      'supabase/migrations/20261103115826_tournament_hold_notice_uses_verified_reopening_condition.sql'
+    );
+    expect(migration).toContain(MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE);
+    expect(migration).toContain("'478cf8e5f6e683adf5035ffc255d2304'");
+    expect(migration).toContain('FROM public.ca_tournament_start_hold h');
+    expect(migration).toContain('TO anon, authenticated, service_role');
+    expect(migration).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM) public\./i);
   });
 
   it('renders MidwayMttServerUpdateModal with the exact message when open and closes on Understood', () => {
@@ -66,7 +83,7 @@ describe('Midway Union MTT server-update popup & +3h 30m schedule shift', () => 
     rpcMock.mockResolvedValueOnce({
       data: {
         blocked: true,
-        reason: 'Owner hold until 6PM CST',
+        reason: 'Owner hold until verification completes',
         requested_at: '2026-11-02T20:28:18.698Z',
         popup_message: MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE,
       },
@@ -90,7 +107,7 @@ describe('Midway Union MTT server-update popup & +3h 30m schedule shift', () => 
     rpcMock.mockResolvedValueOnce({
       data: {
         blocked: false,
-        reason: 'Released at 6PM CST',
+        reason: 'Released after verification',
         requested_at: '2026-11-03T00:00:00.000Z',
         popup_message: null,
       },
