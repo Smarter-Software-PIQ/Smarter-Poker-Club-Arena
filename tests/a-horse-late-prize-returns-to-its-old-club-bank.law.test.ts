@@ -13,14 +13,17 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const NAME = '20261103113029_horse_late_prizes_return_to_the_old_club_bank.sql';
+const TRIGGER = '20261103114208_horse_late_prize_return_trigger_installs.sql';
 const sql = readFileSync(join(__dirname, '..', 'supabase', 'migrations', NAME), 'utf8');
+const trigger = readFileSync(join(__dirname, '..', 'supabase', 'migrations', TRIGGER), 'utf8');
 
 describe('a horse late prize returns to its old club bank', () => {
   it('fires only when a departed record balance goes up, and installs in the daily window', () => {
-    expect(sql).toContain('-- @install-window: daily-maintenance');
-    expect(sql).toContain('AFTER UPDATE OF chip_balance ON public.club_members');
-    expect(sql).toContain("WHEN (NEW.membership_lifecycle_status = 'departed' AND NEW.chip_balance > OLD.chip_balance)");
-    expect(sql).toContain("VALUES ('club_members', 'zzzz_horse_split_late_credit_returns_to_bank'");
+    expect(trigger).toContain('-- @install-window: daily-maintenance');
+    expect(trigger).toContain('AFTER UPDATE OF chip_balance ON public.club_members');
+    expect(trigger).toContain("WHEN (NEW.membership_lifecycle_status = 'departed' AND NEW.chip_balance > OLD.chip_balance)");
+    expect(trigger).toContain("VALUES ('club_members', 'zzzz_horse_split_late_credit_returns_to_bank'");
+    expect(sql).not.toContain('CREATE TRIGGER');
   });
 
   it('acts only on records the split departed, outside the horse assigned club', () => {

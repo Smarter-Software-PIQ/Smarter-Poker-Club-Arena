@@ -12,7 +12,7 @@ The horse club split closed every horse membership in a club the horse no longer
 
 ## The Fix
 
-Migration `20261103113029_horse_late_prizes_return_to_the_old_club_bank.sql` installs in the daily maintenance window, because a trigger on `club_members` needs a table lock that is never taken during play.
+Migration `20261103113029_horse_late_prizes_return_to_the_old_club_bank.sql` installs the return function and its receipt table right away. Migration `20261103114208_horse_late_prize_return_trigger_installs.sql` binds it to `club_members` inside the daily maintenance window, because a trigger there needs a table lock that is never taken during play.
 
 - **Trigger:** `zzzz_horse_split_late_credit_returns_to_bank` fires after a departed record's `chip_balance` goes up. It acts only on records the split departed, outside the horse's assigned club.
 - **Return:** in the same transaction it moves the record's whole balance to that club's bank through the same declared Club Bank claim the split used. Each return gets a `chip_transactions` row on a fresh op id and a row in `ca_horse_club_split_late_returns`.
