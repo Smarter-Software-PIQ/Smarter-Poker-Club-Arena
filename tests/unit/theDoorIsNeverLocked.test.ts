@@ -72,9 +72,7 @@ describe('Leave Table (the menu door)', () => {
       'if (heroLeaveLocked)'
     );
     expect(body).toContain('result.tournament || result.held');
-    expect(body).toContain(
-      "if (result.held) goToLobbyKeepingSeat(result.error || 'Your Seat Is Sitting Out.');"
-    );
+    expect(body).toContain('seatCopy(tableState.arenaAsset).seatStaysTapToReturn');
   });
 });
 

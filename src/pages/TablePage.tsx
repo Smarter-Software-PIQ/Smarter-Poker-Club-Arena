@@ -11955,7 +11955,10 @@ function LiveTablePage({
           setHeroSitsOutPerRow(true);
           setSitOutNextHand(true);
           onTableInfoUpdate?.({ isMyTurn: false, sittingOut: true });
-          if (result.held) goToLobbyKeepingSeat(result.error || 'Your Seat Is Sitting Out.');
+          if (result.held)
+            goToLobbyKeepingSeat(
+              `${result.error || 'Your Seat Is Sitting Out.'}. ${seatCopy(tableState.arenaAsset).seatStaysTapToReturn}`
+            );
           else showLobbyNow();
           return;
         }
