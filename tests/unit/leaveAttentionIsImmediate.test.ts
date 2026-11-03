@@ -30,7 +30,12 @@ describe('leave attention uses the immediate intent in discrete events', () => {
     expect(reset).not.toHaveBeenCalled();
   });
   it('keeps asynchronous haptics and timed decisions behind the same ref', () => {
-    expect(page).toContain('if (!leaveAttentionSuppressedRef.current) haptic.medium();');
+    expect(
+      page.match(/if \(!leaveAttentionSuppressedRef.current\) haptic.medium\(\);/g)
+    ).toHaveLength(2);
+    expect(page).toContain(
+      'isOpen={isActive && !leaveAttentionSuppressed && !!heroPineappleCards}'
+    );
     expect(page).toContain('if (heroOffer && !leaveAttentionSuppressedRef.current)');
     expect(page).toContain('if (!leaveAttentionSuppressedRef.current) setShowRIT(true);');
     expect(page).toContain('leaveAttentionSuppressedRef.current = suppressed;');

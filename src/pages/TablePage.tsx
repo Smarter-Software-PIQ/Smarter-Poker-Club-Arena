@@ -19553,7 +19553,9 @@ function LiveTablePage({
             if (preActionArmedRef.current !== null) {
               setTurnAlertDeferred(true);
             } else {
-              import('../services/HapticService').then(({ haptic }) => haptic.medium());
+              import('../services/HapticService').then(({ haptic }) => {
+                if (!leaveAttentionSuppressedRef.current) haptic.medium();
+              });
               // Bible V8 §5.3: turn alert sound for hero.
               // Batch 2 tiering: the BELL is the active table's sound; a
               // background table's turn start gets the softer ping from
@@ -30758,7 +30760,7 @@ function LiveTablePage({
         /* `isActive` is the gate: see heroPineappleCards. A background table
            alarms through the tab strip instead of painting a dead, unclickable
            panel across the table you are actually playing. */
-        isOpen={isActive && !!heroPineappleCards}
+        isOpen={isActive && !leaveAttentionSuppressed && !!heroPineappleCards}
         /* The discard is a decision, so it can buy time like any other. The
            same endpoint and the same bank; the engine routes a press made
            during the round to this seat's own deadline. */
