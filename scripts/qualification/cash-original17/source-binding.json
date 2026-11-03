@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 276833,
-      "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
+      "bytes": 277650,
+      "sha256": "8a2e47338053bac98f660f07e062dd45ac3f684e61e3d8996208c6e1035abe73"
     },
     "scripts/ci/satellite_qualifier_fixture.py": {
       "bytes": 18466,
@@ -949,7 +949,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -2723,6 +2723,20 @@
         }
       }
     ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "browserProducerArtifactIdentity20261103": {
+    "reason": "CSS consumers use the successful producer job output on partial reruns instead of recomputing an absent artifact from their newer attempt. Same run/SHA, sealed file bytes and validation-only provenance remain checked. Accounting steps are unchanged.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 276833,
+      "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
+    },
+    "current": {
+      "bytes": 277650,
+      "sha256": "8a2e47338053bac98f660f07e062dd45ac3f684e61e3d8996208c6e1035abe73"
+    },
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   }

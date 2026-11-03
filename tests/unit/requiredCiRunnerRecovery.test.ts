@@ -433,6 +433,54 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     const browserBuild = normalized.jobs['css-beats-build'];
     const browserJob = normalized.jobs['css-beats-e2e'];
     normalizeCashDecisionAddition(browserJob);
+    // Verify the producer-owned identity delta, then compare every retained
+    // producer/transfer command against the original reviewed fingerprints.
+    expect(browserBuild.outputs).toEqual({
+      artifact_name: '${{ steps.browser_build.outputs.artifact_name }}',
+    });
+    delete browserBuild.outputs;
+    const seal = browserBuild.steps.find(
+      (step: { name: string }) => step.name === "Seal this run's browser build"
+    );
+    expect(seal.id).toBe('browser_build');
+    delete seal.id;
+    const originalArtifactName =
+      'browser-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}';
+    expect(seal.env.BROWSER_ARTIFACT_NAME).toBe(originalArtifactName);
+    delete seal.env.BROWSER_ARTIFACT_NAME;
+    const outputLine =
+      `          printf 'artifact_name=%s\\n' "$BROWSER_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"`.trimStart() +
+      '\n';
+    expect(seal.run.endsWith(outputLine)).toBe(true);
+    seal.run = seal.run.slice(0, -outputLine.length);
+    const upload = browserBuild.steps.find(
+      (step: { uses?: string }) => step.uses === 'actions/upload-artifact@v4'
+    );
+    expect(upload.with.name).toBe('${{ steps.browser_build.outputs.artifact_name }}');
+    upload.with.name = originalArtifactName;
+    const guardIndex = browserJob.steps.findIndex(
+      (step: { name: string }) => step.name === "Require the producer's browser artifact"
+    );
+    expect(
+      browserJob.steps.filter(
+        (step: { name: string }) => step.name === "Require the producer's browser artifact"
+      )
+    ).toHaveLength(1);
+    expect(browserJob.steps[guardIndex]).toEqual({
+      name: "Require the producer's browser artifact",
+      if: "needs.changes.outputs.server == 'true'",
+      env: {
+        BROWSER_ARTIFACT_NAME: '${{ needs.css-beats-build.outputs.artifact_name }}',
+        EXPECTED_RUN_ID: '${{ github.run_id }}',
+        EXPECTED_SHA: '${{ github.sha }}',
+      },
+      run: 'set -euo pipefail\ntest -n "$BROWSER_ARTIFACT_NAME"\n[[ "$BROWSER_ARTIFACT_NAME" =~ ^browser-harness-${EXPECTED_RUN_ID}-[1-9][0-9]*-${EXPECTED_SHA}$ ]]\n',
+    });
+    const download = browserJob.steps[guardIndex + 1];
+    expect(download.name).toBe("Download this run's browser build");
+    expect(download.with.name).toBe('${{ needs.css-beats-build.outputs.artifact_name }}');
+    download.with.name = originalArtifactName;
+    browserJob.steps.splice(guardIndex, 1);
     const exactHash = (value: unknown) =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex');
     expect(exactHash(browserBuild)).toBe(
