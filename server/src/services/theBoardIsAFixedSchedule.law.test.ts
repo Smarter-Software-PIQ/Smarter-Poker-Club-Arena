@@ -95,9 +95,14 @@ describe('the migration schedules the whole board', () => {
     }
   });
 
-  it('every lobby and union template the timers used to launch is on the hard-coded board', () => {
+  it('every lobby and union template the timers used to launch is on the hard-coded board, except the two retired after 11 PM', () => {
     const names = new Set(FIXED_BOARD.map((e) => e.name));
-    for (const name of fixedBoardTemplateNames()) expect(names.has(name), name).toBe(true);
+    // owner 2026-11-03 daily window: nothing starts after 11 PM, so these two left the board.
+    const retiredByDailyWindow = new Set(['Union Late Night Turbo (NLH)', 'Midnight Bounty (NLH)']);
+    for (const name of fixedBoardTemplateNames()) {
+      if (retiredByDailyWindow.has(name)) continue;
+      expect(names.has(name), name).toBe(true);
+    }
   });
 
   it('is on a wall clock that survives daylight saving, for both clubs', () => {
@@ -236,12 +241,14 @@ describe('the Diamond Arena prices a fixed-board occurrence at its real total', 
 });
 
 describe('the board is hard coded in the engine, so it can never run ahead of its code', () => {
-  it('carries 26 events, each once a day (11 on Sunday, the Sunday Funday day), for both clubs', () => {
-    expect(FIXED_BOARD.length).toBe(26);
+  it('carries 23 events, each once a day (8 on Sunday, the Sunday Funday day), for both clubs', () => {
+    // owner 2026-11-03 daily window: 26 -> 23 (Late Night Turbo, Midnight Bounty, Midnight Free Buy removed).
+    expect(FIXED_BOARD.length).toBe(23);
     expect(FIXED_BOARD.every((e) => e.times.length === 1)).toBe(true);
     const onDay = (d: number) => FIXED_BOARD.filter((e) => !e.days || e.days.includes(d)).length;
-    expect(onDay(0)).toBe(11);
-    for (const d of [1, 2, 3, 4, 5, 6]) expect(onDay(d)).toBe(26);
+    // owner 2026-11-03 daily window: Sunday 11 -> 8, Monday to Saturday 26 -> 23.
+    expect(onDay(0)).toBe(8);
+    for (const d of [1, 2, 3, 4, 5, 6]) expect(onDay(d)).toBe(23);
     expect(FIXED_BOARD_CLUBS.map((c) => c.clubId)).toEqual([MIDWAY, ARENA]);
   });
 
@@ -284,9 +291,10 @@ describe('the board is hard coded in the engine, so it can never run ahead of it
     };
   };
 
-  it('an empty table gets 51 rows after the Midway 11 AM removal', () => {
+  it('an empty table gets 45 rows after the Midway 11 AM removal and the 11 PM close', () => {
     const plan = planFixedBoardSync([]);
-    expect(plan.inserts).toHaveLength(51);
+    // owner 2026-11-03 daily window: 51 -> 45 (three events removed, two clubs each).
+    expect(plan.inserts).toHaveLength(45);
     expect(plan.updates).toEqual([]);
     expect(plan.deactivate).toEqual([]);
   });
@@ -393,7 +401,7 @@ describe('the board is hard coded in the engine, so it can never run ahead of it
  * TOURNAMENTS'. YOU SHOULD ALWAYS HAVE A REAL TOURNAMENT RUNNING IN THOSE
  * SPOTS, ALL SATELLITES SHOULD START AT THE :15 OR :45."
  */
-describe("a real room's day: a real tournament every half hour from 8 AM to 1 AM, nothing overnight", () => {
+describe("a real room's day: a real tournament every half hour from 8 AM to 11 PM, nothing after 11 PM", () => {
   const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
   const startsOn = (day: number) => [
     ...FIXED_BOARD.filter((e) => !e.days || e.days.includes(day)).flatMap((e) =>
@@ -404,8 +412,9 @@ describe("a real room's day: a real tournament every half hour from 8 AM to 1 AM
       who: `weekly ${t}`,
     })),
   ];
-  // 08:00, 08:30 ... 23:30, 00:00, 00:30, 01:00.
-  const dayOfSlots = [...Array.from({ length: 32 }, (_, i) => 8 * 60 + i * 30), 0, 30, 60].map(
+  // 08:00, 08:30 ... 22:30, 23:00, and nothing after.
+  // owner 2026-11-03 daily window: was 08:00 through 01:00; now 08:00 through 23:00 inclusive.
+  const dayOfSlots = Array.from({ length: 31 }, (_, i) => 8 * 60 + i * 30).map(
     (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
   );
 
@@ -414,7 +423,7 @@ describe("a real room's day: a real tournament every half hour from 8 AM to 1 AM
       for (const s of startsOn(d)) expect(toMin(s.t) % 30, `${s.who} at ${s.t}`).toBe(0);
   });
 
-  it('every half hour from 8 AM to 1 AM holds exactly one real tournament, every day', () => {
+  it('every half hour from 8 AM to 11 PM holds exactly one real tournament, every day', () => {
     for (let d = 0; d < 7; d++) {
       const starts = startsOn(d);
       const seen = new Map<string, string>();
@@ -426,13 +435,14 @@ describe("a real room's day: a real tournament every half hour from 8 AM to 1 AM
     }
   });
 
-  it('nothing starts between 1:30 AM and 8 AM', () => {
+  it('nothing starts after 11 PM or before 8 AM', () => {
     expect(BOARD_DAY_OPENS).toBe('08:00');
-    expect(BOARD_DAY_CLOSES).toBe('01:00');
+    // owner 2026-11-03 daily window: the board day closes at 23:00 (was 01:00).
+    expect(BOARD_DAY_CLOSES).toBe('23:00');
     for (let d = 0; d < 7; d++)
       for (const s of startsOn(d)) {
         const m = toMin(s.t);
-        expect(m > 60 && m < 8 * 60, `${s.who} at ${s.t}`).toBe(false);
+        expect(m > 23 * 60 || m < 8 * 60, `${s.who} at ${s.t}`).toBe(false);
       }
   });
 
@@ -455,7 +465,12 @@ describe("a real room's day: a real tournament every half hour from 8 AM to 1 AM
     const sql = readFileSync(join(migrationsDir, file!), 'utf8');
     const m = /IF v_slots IS DISTINCT FROM ARRAY\[([^\]]+)\]::text\[\]/.exec(sql);
     expect(m, 'the weekly-slot assertion').toBeTruthy();
-    const slots = m![1].split(',').map((x) => x.trim().replace(/'/g, ''));
+    // owner 2026-11-03 daily window: the 1 AM club Graveyard slot that migration moved
+    // events onto was retired, so the live weekly slots are its slots without '01:00'.
+    const slots = m![1]
+      .split(',')
+      .map((x) => x.trim().replace(/'/g, ''))
+      .filter((t) => t !== '01:00');
     expect(slots).toEqual([...WEEKLY_EVENT_SLOTS]);
   });
 
@@ -493,9 +508,9 @@ describe("a real room's day: a real tournament every half hour from 8 AM to 1 AM
       expect(targets.has(t), t).toBe(true);
   });
 
-  it('the five Free Buys run every day at 8:30 AM, 12:30 PM, 4:30 PM, 8:30 PM and 12:30 AM', () => {
+  it('the four Free Buys run every day at 8:30 AM, 12:30 PM, 4:30 PM and 8:30 PM', () => {
+    // owner 2026-11-03 daily window: the 12:30 AM Midnight Free Buy was removed.
     expect(FREE_BUY_SLOTS.map(freeBuySlotTime).sort()).toEqual([
-      '00:30',
       '08:30',
       '12:30',
       '16:30',
@@ -688,7 +703,7 @@ describe('daily Free Buy guarantees in both live schedule creators', () => {
         [12, 'Midday', 500],
         [16, 'Afternoon', 500],
         [20, 'Prime Time', 500],
-        [0, 'Midnight', 250],
+        // owner 2026-11-03 daily window: the 12:30 AM Midnight Free Buy cases were removed.
       ].map(([hour, label, guarantee]) => ({
         day,
         hour: Number(hour),

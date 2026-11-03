@@ -128,8 +128,9 @@ export const FREE_BUY_SLOTS: FreeBuySlot[] = [
   { chicagoHour: 12, tier: 'standard', label: 'Midday Free Buy' },
   { chicagoHour: 16, tier: 'standard', label: 'Afternoon Free Buy' },
   { chicagoHour: 20, tier: 'feature', label: 'Prime Time Free Buy' },
-  { chicagoHour: 0, tier: 'standard', label: 'Midnight Free Buy' },
 ];
+// Owner 2026-11-03 (the daily 4 to 6 AM window): no tournament starts after
+// 11:00 PM, so the 12:30 AM Midnight Free Buy was removed. Four Free Buys a day.
 
 /**
  * THE FREE BUYS START ON THE HALF HOUR (Dan 2026-10-16): "MAKE SURE THE FREE

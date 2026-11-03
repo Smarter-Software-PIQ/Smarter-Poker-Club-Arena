@@ -85,8 +85,9 @@ describe('the Diamond Arena charges ten Diamonds for every Midway chip', () => {
       if (mapped.config.rebuyCost !== undefined) expect(mapped.config.rebuyCost, e.name).toBe(100);
       if (mapped.config.addonCost !== undefined) expect(mapped.config.addonCost, e.name).toBe(100);
     }
-    // Five Free Buys and the Coffee Break Freeroll.
-    expect(free).toBe(6);
+    // Four Free Buys and the Coffee Break Freeroll.
+    // owner 2026-11-03 daily window: 6 -> 5, the Midnight Free Buy was removed.
+    expect(free).toBe(5);
   });
 
   it('the Nightly 10K is 35 chips at the Midway and 350 Diamonds in the arena', () => {

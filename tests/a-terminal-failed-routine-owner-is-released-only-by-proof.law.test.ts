@@ -41,9 +41,13 @@ it('records a terminal failed owner only under complete proof and keeps every un
     cwd: resolve(import.meta.dirname, '..'),
     env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
     encoding: 'utf8',
-    timeout: 30000,
+    // CI checks out with `filter: blob:none`, so the historical sources this
+    // proof reads with `git show <sha>:...` are fetched lazily, one blob per
+    // round trip. The 50 cases run in about a second; the fetches alone ran
+    // past 30 s on busy runners (39 of 50 cases done, status null).
+    timeout: 120000,
   });
   expect(result.status, result.stdout + result.stderr).toBe(0);
   expect(result.stdout + result.stderr).toContain('Ran 50 tests');
   expect(result.stdout + result.stderr).toContain('OK');
-}, 35000);
+}, 125000);

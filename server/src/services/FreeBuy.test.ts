@@ -68,34 +68,34 @@ describe('the Free Buy tiers carry the current owner guarantees', () => {
 });
 
 describe('the daily schedule', () => {
-  it('runs five events every four hours from 08:30 Chicago, on the half hour (Dan 2026-10-16)', () => {
-    expect(FREE_BUY_SLOTS.map((s) => s.chicagoHour)).toEqual([8, 12, 16, 20, 0]);
-    expect(FREE_BUY_SLOTS).toHaveLength(5);
+  it('runs four events every four hours from 08:30 to 20:30 Chicago, on the half hour (owner 2026-11-03)', () => {
+    // owner 2026-11-03 daily window: the 12:30 AM slot was removed, five slots -> four.
+    expect(FREE_BUY_SLOTS.map((s) => s.chicagoHour)).toEqual([8, 12, 16, 20]);
+    expect(FREE_BUY_SLOTS).toHaveLength(4);
     expect(FREE_BUY_SLOT_MINUTE).toBe(30);
-    expect(FREE_BUY_SLOTS.map(freeBuySlotTime)).toEqual([
-      '08:30',
-      '12:30',
-      '16:30',
-      '20:30',
-      '00:30',
-    ]);
+    expect(FREE_BUY_SLOTS.map(freeBuySlotTime)).toEqual(['08:30', '12:30', '16:30', '20:30']);
   });
   it('makes 20:00 the feature and every other slot standard', () => {
     expect(slotForChicagoHour(20)?.tier).toBe('feature');
-    [8, 12, 16, 0].forEach((h) => expect(slotForChicagoHour(h)?.tier).toBe('standard'));
+    // owner 2026-11-03 daily window: hour 0 is no longer a slot.
+    [8, 12, 16].forEach((h) => expect(slotForChicagoHour(h)?.tier).toBe('standard'));
+    expect(slotForChicagoHour(0)).toBeNull();
     expect(slotForChicagoHour(9)).toBeNull();
   });
-  it('guarantees 2,000 per host per day', () => {
-    expect(dailyGuaranteePerHost()).toBe(2000);
+  it('guarantees 1,750 per host per day', () => {
+    // owner 2026-11-03 daily window: 250 + 500 + 500 + 500 = 1,750 (was 2,000 with the 250 Midnight slot).
+    expect(dailyGuaranteePerHost()).toBe(1750);
   });
-  it('and 4,000 across both hosts - the number worth saying out loud', () => {
-    expect(dailyGuaranteePerHost() * 2).toBe(4000);
+  it('and 3,500 across both hosts - the number worth saying out loud', () => {
+    // owner 2026-11-03 daily window: 2 x 1,750 (was 4,000).
+    expect(dailyGuaranteePerHost() * 2).toBe(3500);
   });
-  it('runs four-hourly from 08:30 to 00:30, then leaves the night dark', () => {
+  it('runs four-hourly from 08:30 to 20:30, then leaves the night dark', () => {
     const hours = FREE_BUY_SLOTS.map((s) => s.chicagoHour);
-    const inOrder = [8, 12, 16, 20, 24];
-    expect(inOrder.slice(1).map((h, i) => h - inOrder[i])).toEqual([4, 4, 4, 4]);
-    expect(hours).toEqual([8, 12, 16, 20, 0]);
+    // owner 2026-11-03 daily window: nothing starts after 11 PM, so the last slot is 20:30.
+    const inOrder = [8, 12, 16, 20];
+    expect(inOrder.slice(1).map((h, i) => h - inOrder[i])).toEqual([4, 4, 4]);
+    expect(hours).toEqual([8, 12, 16, 20]);
   });
 });
 
@@ -350,13 +350,14 @@ describe('the full next day of Free Buys is visible for preregistration', () => 
   it('publishes a full day ahead', () => {
     expect(FREE_BUY_PUBLISH_LEAD_MS).toBe(24 * HOUR);
   });
-  it('has all five distinct future slots throughout an ordinary day', () => {
+  it('has all four distinct future slots throughout an ordinary day', () => {
     const day = Date.UTC(2026, 6, 15, 0, 0, 0);
     for (let m = 0; m < 24 * 60; m += 5) {
       const now = day + m * 60_000;
       const due = freeBuySlotsDue(now);
-      expect(due).toHaveLength(5);
-      expect(new Set(due.map((d) => d.startMs)).size).toBe(5);
+      // owner 2026-11-03 daily window: four slots a day (was five).
+      expect(due).toHaveLength(4);
+      expect(new Set(due.map((d) => d.startMs)).size).toBe(4);
       expect(due.every((d) => d.startMs > now && d.startMs <= now + 24 * HOUR)).toBe(true);
     }
   });
@@ -376,9 +377,9 @@ describe('freeBuySlotsDue', () => {
   it('keeps the intermediate Chicago day across spring forward', () => {
     const now = Date.parse('2026-03-08T05:30:00Z'); // Mar 7, 23:30 Chicago
     const due = freeBuySlotsDue(now);
-    expect(due).toHaveLength(6);
-    expect(due.filter((d) => d.dayKey === '2026-03-08')).toHaveLength(5);
-    expect(due.some((d) => d.dayKey === '2026-03-09' && d.slot.chicagoHour === 0)).toBe(true);
+    // owner 2026-11-03 daily window: the 00:30 slots on Mar 8 and Mar 9 are gone (6 -> 4, 5 -> 4).
+    expect(due).toHaveLength(4);
+    expect(due.filter((d) => d.dayKey === '2026-03-08')).toHaveLength(4);
     expect(due.every((d) => d.startMs > now && d.startMs <= now + 24 * HOUR)).toBe(true);
   });
 
@@ -388,15 +389,16 @@ describe('freeBuySlotsDue', () => {
     expect(due.map((d) => d.startMs)).not.toContain(start);
   });
 
-  it('sees TOMORROW 12:30 AM from the evening before', () => {
-    // 22:00 Chicago on the 15th: the 00:30 slot belongs to the 16th and is
-    // two and a half hours away. Reading only "today" would never find it.
-    const due = freeBuySlotsDue(chicagoWallClockToUtcMs('2026-07-15', 22)).filter(
-      (d) => d.slot.chicagoHour === 0
-    );
+  it('sees TOMORROW 8:30 AM from the evening before, and no slot after 11 PM', () => {
+    // 22:00 Chicago on the 15th: the 08:30 slot belongs to the 16th and is
+    // ten and a half hours away. Reading only "today" would never find it.
+    // owner 2026-11-03 daily window: the 00:30 slot this test used was removed.
+    const evening = freeBuySlotsDue(chicagoWallClockToUtcMs('2026-07-15', 22));
+    expect(evening.filter((d) => d.slot.chicagoHour === 0)).toHaveLength(0);
+    const due = evening.filter((d) => d.slot.chicagoHour === 8);
     expect(due).toHaveLength(1);
     expect(due[0].dayKey).toBe('2026-07-16');
-    expect(due[0].slot.chicagoHour).toBe(0);
+    expect(due[0].slot.chicagoHour).toBe(8);
   });
 
   it('carries the tier the slot was declared with', () => {
@@ -407,7 +409,7 @@ describe('freeBuySlotsDue', () => {
     expect(std8[0].slot.tier).toBe('standard');
   });
 
-  it('produces exactly five starts per host per Chicago day', () => {
+  it('produces exactly four starts per host per Chicago day', () => {
     // Start sampling at 21:00 the evening BEFORE, so a slot that comes due
     // ahead of itself on the previous date is still seen.
     const dayStart = chicagoWallClockToUtcMs('2026-07-14', 21);
@@ -417,9 +419,10 @@ describe('freeBuySlotsDue', () => {
         if (chicagoDayKey(d.startMs) === '2026-07-15') seen.add(d.startMs);
       }
     }
-    expect(seen.size).toBe(5);
+    // owner 2026-11-03 daily window: four starts, no hour 0 (was five).
+    expect(seen.size).toBe(4);
     expect([...seen].map((ms) => chicagoParts(ms).hour).sort((a, b) => a - b)).toEqual([
-      0, 8, 12, 16, 20,
+      8, 12, 16, 20,
     ]);
   });
 });
@@ -745,7 +748,7 @@ describe('auditFreeBuyRow', () => {
   });
 
   it('reads an event that started before the board moved against the board it ran on', () => {
-    // The last four of the old board ran at the top of the hour on 2026-10-16
+    // The last slots of the old board ran at the top of the hour on 2026-10-16
     // and 10-17, and the audit reads 24 hours back.
     const at = (hour: number, day: string, minute: number) =>
       new Date(chicagoWallClockToUtcMs(day, hour, minute)).toISOString();
@@ -753,7 +756,7 @@ describe('auditFreeBuyRow', () => {
       [12, '2026-10-16', 250],
       [16, '2026-10-16', 250],
       [20, '2026-10-16', 500],
-      [0, '2026-10-17', 250],
+      // owner 2026-11-03 daily window: the Midnight Free Buy case was removed (no hour-0 slot).
     ] as const) {
       const name = FREE_BUY_SLOTS.find((s) => s.chicagoHour === hour)!.label + ' (NLH)';
       expect(

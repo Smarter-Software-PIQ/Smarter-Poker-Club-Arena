@@ -18,6 +18,7 @@ import {
 } from './tournament/completedF06Custody.js';
 import { LightningObserverProjection } from './lightning/LightningObserverProjection.js';
 import { nearbyMaintenanceWindows } from './maintenance/maintenanceSchedule.js';
+import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
 import { readPendingOperatorCashClose } from './services/operatorCashClose.js';
 import { type OperatorCommand, acknowledgeMaintenance } from './maintenance/OperatorCommands.js';
@@ -3803,6 +3804,8 @@ export class GameServer {
   private lastNoHandResultCheckAt = 0;
   /** Last fn_spin_expire_unfilled pass (2026-08-31 phase 2 review). */
   private lastSpinExpireAt = 0;
+  /** Last fn_daily_window_close_seat_first_lobbies pass (owner, 2026-11-03). */
+  private lastLobbyCloseAt = 0;
   private running: boolean = false;
   /** One boot and one teardown per orchestrator instance; neither may outrun the other. */
   private startOperation: Promise<void> | null = null;
@@ -9767,6 +9770,51 @@ export class GameServer {
             }
           } catch (expEx) {
             reportError(expEx, 'GameServer.spin_expire_unfilled_threw');
+          }
+        }
+
+        /* ── THE 3:00 AM LOBBY CLOSE (owner, 2026-11-03) ──
+         * "ALL SPINS AND SIT N GO'S STOP AT 3AM TO INSURE THERE ARE NONE
+         * RUNNING BEFORE THE GAMES ALL SHUT DOWN." From 3:00 the database
+         * refuses every new Spin or Sit & Go entry and this engine opens no new
+         * board (maintenance/dailyWindow.ts), but a lobby opened at 2:55 would
+         * still hold its seated players' buy-ins through the 4:00 to 6:00
+         * window. Every minute from 3:00 to 6:00 Chicago this asks
+         * fn_daily_window_close_seat_first_lobbies to cancel each one that is
+         * open, unstarted and not full, through atomic_cancel_tournament, which
+         * refunds buy-in and fee and writes the receipt. A full game is left to
+         * deal. It is the engine's call because only the engine (service_role)
+         * may cancel a game somebody has entered; the database's own watchdog
+         * (smarter_private.daily_window_lobby_watchdog) pages if any lobby is
+         * still open at 4:00. The RPC only acts on open games, so a repeat or a
+         * second engine costs nothing. */
+        if (!spinSngBoardsOpen(new Date()) && Date.now() - this.lastLobbyCloseAt > 60 * 1000) {
+          this.lastLobbyCloseAt = Date.now();
+          try {
+            const { data: lc, error: lcErr } = await supabase.rpc(
+              'fn_daily_window_close_seat_first_lobbies',
+              { p_limit: 10 }
+            );
+            if (lcErr) {
+              reportError(
+                new Error(`[GameServer] 3 AM lobby close failed: ${lcErr.message}`),
+                'GameServer.daily_window_lobby_close_failed'
+              );
+            } else if (lc?.ok === false || Number(lc?.failed) > 0) {
+              reportError(
+                new Error(
+                  `[GameServer] 3 AM lobby close: ${Number(lc?.failed) || 0} failure(s), ` +
+                    `${Number(lc?.closed) || 0} closed`
+                ),
+                'GameServer.daily_window_lobby_close_failed'
+              );
+            } else if (Number(lc?.closed) > 0) {
+              console.log(
+                `[GameServer] 3 AM lobby close: ${lc.closed} Spin/Sit & Go lobby(ies) cancelled and refunded`
+              );
+            }
+          } catch (lcEx) {
+            reportError(lcEx, 'GameServer.daily_window_lobby_close_threw');
           }
         }
 
