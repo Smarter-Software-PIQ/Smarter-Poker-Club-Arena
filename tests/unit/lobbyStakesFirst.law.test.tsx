@@ -193,8 +193,8 @@ describe('every stakes order keeps one price together in canonical variant order
   });
 });
 
-describe('the ALL board keeps one printed stakes level together across betting structures', () => {
-  it('a limit "1/2" (blinds 0.50/1) sits with the no-limit 1/2 games, both directions', () => {
+describe('the ALL board keeps fixed-limit below the other betting structures', () => {
+  it('fixed-limit remains last in both stakes directions', () => {
     const ids = rendered({
       entries: [entry('flh', 1), entry('nlh', 1), entry('nlh', 2), entry('plo', 2)],
       category: 'ALL',
@@ -205,6 +205,6 @@ describe('the ALL board keeps one printed stakes level together across betting s
     press();
     expect(ids()).toEqual(['nlh-1', 'nlh-2', 'plo-2', 'flh-1']);
     press();
-    expect(ids()).toEqual(['nlh-2', 'plo-2', 'flh-1', 'nlh-1']);
+    expect(ids()).toEqual(['nlh-2', 'plo-2', 'nlh-1', 'flh-1']);
   });
 });

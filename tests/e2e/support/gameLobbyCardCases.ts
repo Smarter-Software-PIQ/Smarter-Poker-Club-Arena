@@ -10,7 +10,7 @@ export function registerGameLobbyCardCases() {
     { width: 375, height: 812 },
     { width: 812, height: 375 },
   ]) {
-    for (const kind of ['cash', 'cash-full', 'mtt', 'spin', 'sng']) {
+    for (const kind of ['cash', 'cash-full', 'cash-nlh', 'mtt', 'spin', 'sng']) {
       test(`selected ${kind} card survives overflowing details at ${viewport.width}px`, async ({
         page,
       }) => {

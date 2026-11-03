@@ -10241,11 +10241,11 @@ export class GameServer {
     for (const tableId of [...since$.keys()]) {
       if (!seen.has(tableId)) since$.delete(tableId);
     }
-    // Hand-off counts outlive the manager generation they replaced (the next
-    // generation owns the same table), so a durable refusal cannot reset its
-    // own budget. Bounded: only tables that were handed on are kept, and the
-    // engine process restarts daily.
-    if (handoffs$.size > 500) handoffs$.clear();
+    // Hand-off counts outlive manager replacement and gaps in discovery. Fleet
+    // size cannot erase an exhausted budget: clearing all entries above 500
+    // turns the next pass into another fleet-wide successor wave. Healthy
+    // progress above and proven terminal retirement below release individual
+    // entries; unknown or still-failing tables retain their original allowance.
     for (const tournamentId of [...lastAt$.keys()]) {
       if (
         !this.tournamentEngines.has(tournamentId) &&
@@ -13448,6 +13448,8 @@ export class GameServer {
       // absent.
       this.tournamentOwnedTables.delete(tableId);
       tableStateHub.dropTable(tableId);
+      this.stuckTournamentTableHandoffs?.delete(tableId);
+      this.stuckTournamentTableSince?.delete(tableId);
       return true;
     }
 
@@ -13463,7 +13465,12 @@ export class GameServer {
       // captured above to leave the process registry.
       reportError(stopError, 'GameServer.terminal_table_engine_stop_cleanup_failed', { tableId });
     }
-    return this.unregisterTableEngine(tableId, current);
+    const retired = this.unregisterTableEngine(tableId, current);
+    if (retired) {
+      this.stuckTournamentTableHandoffs?.delete(tableId);
+      this.stuckTournamentTableSince?.delete(tableId);
+    }
+    return retired;
   }
 
   /**

@@ -155,6 +155,12 @@ const TX_TYPE_LABELS: Record<string, string> = {
   chip_purchase: 'Chip Purchase',
   // Rake and promotions
   rakeback: 'Rakeback',
+  /* Agent-wallet movements written to chip_ledger alone, listed by
+     fn_my_wallet_ledger since 20261102201013 so an agent's history explains
+     every change to the agent wallet balance. */
+  agent_commission: 'Agent Commission',
+  agent_wallet_rakeback: 'Rakeback Paid From Agent Wallet',
+  agent_treasury_transfer: 'Club Bank Transfer',
   bbj_promo_sweep: 'BBJ Promo Sweep',
   promo_closed_on_union_join: 'Promo Wallet Closed On Union Join',
   /* A treasury-funded seat reads exactly as the human Club Bank send it is

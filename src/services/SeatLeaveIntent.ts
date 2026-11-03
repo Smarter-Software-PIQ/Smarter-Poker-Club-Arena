@@ -17,6 +17,7 @@ export type SeatLeaveResult = {
   success: boolean;
   chipsReturned: number;
   deferred?: boolean;
+  tournament?: boolean;
   occupancyId?: string;
   error?: string;
 };
@@ -195,7 +196,7 @@ async function requestSeatWithIntent(
       if (result.immediate === false && result.cashout === null) {
         outcome = { success: true, chipsReturned: 0, deferred: true };
       } else if (result.tournament === true && result.cashout === null) {
-        outcome = { success: true, chipsReturned: 0 };
+        outcome = { success: true, chipsReturned: 0, tournament: true };
       } else {
         const receipt = result.cashout as Record<string, unknown> | null;
         if (

@@ -27,7 +27,6 @@ const board = [
 describe('cashBoardComparator', () => {
   it('ALL: Stakes High To Low keeps each price together in canonical variant order', () => {
     expect(names(board, 'stakes_high', 'ALL')).toEqual([
-      'FLH 2/4',
       'NLH 1/2',
       'Pineapple 1/2',
       'Short Deck 1/2',
@@ -35,6 +34,7 @@ describe('cashBoardComparator', () => {
       'PLO8 1/2',
       'NLH .5/1',
       'PLO5 .5/1',
+      'FLH 2/4',
     ]);
   });
 
@@ -64,7 +64,6 @@ describe('cashBoardComparator', () => {
 
   it('the other sorts are unchanged: ALL stays a flat list, OMAHA keeps its variant groups', () => {
     expect(names(board, 'recommended', 'ALL')).toEqual([
-      'FLH 2/4',
       'Pineapple 1/2',
       'PLO8 1/2',
       'Short Deck 1/2',
@@ -72,16 +71,17 @@ describe('cashBoardComparator', () => {
       'PLO 1/2',
       'PLO5 .5/1',
       'NLH .5/1',
+      'FLH 2/4',
     ]);
     expect(names(board, 'players', 'ALL').slice(0, 3)).toEqual([
-      'FLH 2/4',
       'Pineapple 1/2',
       'PLO5 .5/1',
+      'PLO8 1/2',
     ]);
   });
 });
 
-describe('a fixed-limit row is ordered by the stakes it prints (2026-10-24)', () => {
+describe('fixed-limit stays last regardless of displayed stakes (2026-11-03)', () => {
   // Blinds 0.50/1 FLH prints "1/2"; blinds 1/2 NLH prints "1/2" too. On ALL
   // they are one stakes level, never split around the 0.50/1 group.
   const mixed = [
@@ -90,12 +90,12 @@ describe('a fixed-limit row is ordered by the stakes it prints (2026-10-24)', ()
     row('NLH .5/1', 'nlh', 1),
     row('PLO 1/2', 'plo4', 2),
   ];
-  it('High To Low keeps every "1/2" ahead of every "0.50/1"', () => {
+  it('High To Low orders non-limit prices before fixed-limit', () => {
     expect(names(mixed, 'stakes_high', 'ALL')).toEqual([
       'NLH 1/2',
       'PLO 1/2',
-      'FLH prints 1/2',
       'NLH .5/1',
+      'FLH prints 1/2',
     ]);
   });
   it('Low To High reverses the levels, not the variant order', () => {

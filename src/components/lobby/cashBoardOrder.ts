@@ -13,13 +13,13 @@
  * a 1/2 PLO and a 1/2 Short Deck were interleaved by player count. A stakes
  * sort now breaks every tie with the same canonical rank LobbyTable uses
  * (NLH, Pineapple, Short Deck, PLO, PLO5, PLO6, PLO8, FLH, FLO, FLO8), on
- * every tab. The other sorts keep the Omaha tab's variant grouping exactly
- * as before.
+ * every tab. Owner update November 3: fixed-limit is a final tier regardless
+ * of the selected stakes direction. Within each tier the existing sort holds.
  */
 import { variantRank, UNLISTED_VARIANT_RANK } from './variantRank';
 import { variantDisplay } from './lobbyEntries';
 import { variantKey } from './advancedFilterSpec';
-import { stakesSortValue } from '../../lib/bettingStructure';
+import { stakesSortValue, isFixedLimitVariant } from '../../lib/bettingStructure';
 
 export type CashBoardSortKey =
   | 'recommended'
@@ -35,8 +35,7 @@ export interface CashBoardRow {
   game_variant?: string | null;
 }
 
-/* The stakes a row prints (see stakesSortValue): a fixed-limit "1/2" is
-   ordered with every other "1/2", not half a level below it. */
+/* Within each betting-structure tier, sort by the stakes printed to the player. */
 const bb = (t: CashBoardRow) => stakesSortValue(Number(t.big_blind) || 0, t.game_variant);
 /* Fold legacy spellings (`plo`, `limit_holdem`, `hilo`) through the filter's
    own key first, so a row is ranked as the game the Variant chips call it. */
@@ -70,18 +69,30 @@ export function cashBoardComparator(
   const cmpVariant = (a: CashBoardRow, b: CashBoardRow) =>
     gameType === 'OMAHA' ? compareCanonicalVariant(a, b) : 0;
 
+  const limitLast = (a: CashBoardRow, b: CashBoardRow) =>
+    Number(isFixedLimitVariant(a.game_variant)) - Number(isFixedLimitVariant(b.game_variant));
   switch (sortKey) {
     case 'stakes_high':
       return (a, b) =>
-        cmpStakes(a, b) || compareCanonicalVariant(a, b) || cmpPlayers(a, b) || cmpName(a, b);
+        limitLast(a, b) ||
+        cmpStakes(a, b) ||
+        compareCanonicalVariant(a, b) ||
+        cmpPlayers(a, b) ||
+        cmpName(a, b);
     case 'stakes_low':
       return (a, b) =>
-        cmpStakesLow(a, b) || compareCanonicalVariant(a, b) || cmpPlayers(a, b) || cmpName(a, b);
+        limitLast(a, b) ||
+        cmpStakesLow(a, b) ||
+        compareCanonicalVariant(a, b) ||
+        cmpPlayers(a, b) ||
+        cmpName(a, b);
     case 'players':
     case 'starting_soon':
-      return (a, b) => cmpVariant(a, b) || cmpPlayers(a, b) || cmpStakes(a, b) || cmpName(a, b);
+      return (a, b) =>
+        limitLast(a, b) || cmpVariant(a, b) || cmpPlayers(a, b) || cmpStakes(a, b) || cmpName(a, b);
     case 'recommended':
     default:
-      return (a, b) => cmpVariant(a, b) || cmpStakes(a, b) || cmpPlayers(a, b) || cmpName(a, b);
+      return (a, b) =>
+        limitLast(a, b) || cmpVariant(a, b) || cmpStakes(a, b) || cmpPlayers(a, b) || cmpName(a, b);
   }
 }

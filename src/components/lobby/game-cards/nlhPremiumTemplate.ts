@@ -9,7 +9,7 @@ export const NLH_PREMIUM_CANVAS = {
 
 export const NLH_PREMIUM_ASSETS = {
   reference: `${assetRoot}/source/approved-reference.png`,
-  chassis: `${assetRoot}/chassis.png`,
+  chassis: `${assetRoot}/chassis-alpha-v2.png`,
   statusRunning: `${assetRoot}/statuses/running.png`,
   liveDot: `${assetRoot}/statuses/live-dot.png`,
   gameTypeNlh: `${assetRoot}/types/nlh.png`,
