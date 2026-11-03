@@ -61,6 +61,25 @@ describe('Midway Union MTT server-update popup & +3h 30m schedule shift', () => 
     expect(migration).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM) public\./i);
   });
 
+  it('keeps the forward reader contract authenticated and qualifies real database roles', () => {
+    const migration = read(
+      'supabase/migrations/20261103124757_tournament_hold_reader_matches_authenticated_consumers.sql'
+    );
+    expect(migration).toContain(MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE);
+    expect(migration).toContain("IF v_role NOT IN ('authenticated', 'service_role')");
+    expect(migration).toContain('FROM PUBLIC,anon');
+    expect(migration).toContain('TO authenticated,service_role');
+    expect(migration).toContain("NOT has_function_privilege('anon'");
+    expect(migration).not.toMatch(/(?:INSERT INTO|UPDATE|DELETE FROM) public\./i);
+    const runner = read('scripts/ci/test-tournament-cancellation-lane.py');
+    expect(runner).toContain('fixtures/tournament-cancellation-lane/hold-reader/qualify.py');
+    expect(runner).toContain("hold_report.get('passed') is True");
+    const proof = read('scripts/ci/fixtures/tournament-cancellation-lane/hold-reader/qualify.py');
+    expect(proof).toContain('SET ROLE anon;');
+    expect(proof).toContain("label='anon-refused-even-with-spoofed-claim'");
+    expect(proof).toContain('CREATE EVENT TRIGGER trg_autorevoke_privileged_anon');
+  });
+
   it('renders MidwayMttServerUpdateModal with the exact message when open and closes on Understood', () => {
     const onClose = vi.fn();
     render(<MidwayMttServerUpdateModal isOpen={true} onClose={onClose} />);
