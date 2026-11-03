@@ -3408,6 +3408,24 @@ jobs:
             --socket-root "$RUNNER_TEMP/cancellation-socket" \
             --pg-bin /usr/lib/postgresql/17/bin
 
+      - name: Undrawn Spin cancellation returns exact gross entries atomically
+        if: matrix.shard == 4
+        run: |
+          python3 -B scripts/ci/test-undrawn-spin-cancellation.py \
+            --evidence artifacts/undrawn-spin-cancellation \
+            --work-root "$RUNNER_TEMP/undrawn-spin-work" \
+            --socket-root "$RUNNER_TEMP/undrawn-spin-socket" \
+            --pg-bin /usr/lib/postgresql/17/bin
+
+      - name: Retain undrawn Spin cancellation evidence
+        if: always() && matrix.shard == 4
+        uses: actions/upload-artifact@v4
+        with:
+          name: undrawn-spin-cancellation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/undrawn-spin-cancellation/
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Retain cancellation admission and funded rollback evidence
         if: always() && matrix.shard == 4
         uses: actions/upload-artifact@v4

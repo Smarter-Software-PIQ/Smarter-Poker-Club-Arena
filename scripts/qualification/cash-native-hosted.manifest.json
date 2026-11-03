@@ -428,16 +428,16 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 275034,
-      "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
+      "bytes": 275817,
+      "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 47474,
-      "sha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785"
+      "bytes": 47562,
+      "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -6556,5 +6556,30 @@
     "validation": "Eight local installer/mirror regressions pass; hosted exact-head qualification remains required. Source identity only, not native scheduler, financial or live recertification.",
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "undrawnSpinCancellationSourceAudit20261103": {
+    "review": "Added finite booked-undrawn Spin cancellation native proof in accounting shard4 and matching classification. Existing cash cases, financial assertions and execution states unchanged. Current source identity only; no financial recertification or production proof.",
+    "changes": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 275034,
+          "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
+        },
+        "current": {
+          "bytes": 275817,
+          "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+        }
+      },
+      "scripts/ci/classify-ci-changes.mjs": {
+        "previous": {
+          "bytes": 47474,
+          "sha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785"
+        },
+        "current": {
+          "bytes": 47562,
+          "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+        }
+      }
+    }
   }
 }

@@ -68,7 +68,7 @@
     }
   },
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
+    "scripts/ci/classify-ci-changes.mjs": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/qualify-sep8-spin-custody.py": "28a2b63e4424f15d3b85ad742f7592fd65c2f8a8493eabb06210665e01e9ad67",
@@ -1850,5 +1850,15 @@
     "previousSha256": "443a7a7b5ef2936247fdec93edb2ad115a0835a795d32c9c758cd4eec8622c62",
     "currentSha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
     "historicalEvidenceRestamped": false
+  },
+  "undrawnSpinCancellationAudit20261103": {
+    "reason": "Reviewed additive accounting shard4 native Spin cancellation qualification and exact input classifier extension. No existing job, fixture assertion, timeout or financial certificate is relaxed or restamped. Native PostgreSQL regression and source contracts qualify the addition; production installation remains separate.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
+        "currentSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+      }
+    ]
   }
 }
