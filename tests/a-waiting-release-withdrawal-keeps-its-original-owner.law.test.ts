@@ -37,7 +37,7 @@ it(
         }
       );
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(result.stderr).toContain('Ran 64 tests');
+      expect(result.stderr).toContain('Ran 65 tests');
       expect(readFileSync(join(sentinel, 'HEAD'), 'utf8')).toBe(originalHead);
       const refs = spawnSync('git', ['--git-dir', sentinel, 'for-each-ref'], {
         env: cleanEnv,
@@ -75,6 +75,11 @@ it('keeps the revoked off-cycle owner order closed', () => {
 });
 
 it('withdrawal qualification reads its pinned original generation from full protected history', () => {
+  const hydration = readFileSync(
+    resolve(import.meta.dirname, 'operations/pinned-history-sources.py'),
+    'utf8'
+  );
+  expect(hydration).toContain("GIT_NO_LAZY_FETCH='1'");
   const workflow = parse(
     readFileSync(
       resolve(import.meta.dirname, '../.github/workflows/auto-deploy-hetzner.yml'),

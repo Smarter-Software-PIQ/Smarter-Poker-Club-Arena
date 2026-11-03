@@ -29,6 +29,19 @@ observer_spec = importlib.util.spec_from_file_location('terminal_owner_observer'
 observer = importlib.util.module_from_spec(observer_spec)
 observer_spec.loader.exec_module(observer)
 
+# Historical immutable source is fixture input. Hydrate its finite blob closure
+# once before behavior assertions; later Git reads cannot open lazy transports.
+history_spec = importlib.util.spec_from_file_location('pinned_history_sources',
+                                                     ROOT / 'tests/operations/pinned-history-sources.py')
+history = importlib.util.module_from_spec(history_spec)
+history_spec.loader.exec_module(history)
+
+
+def setUpModule():
+    history.hydrate_historical_sources(ROOT, [seal.DAILY_REFUSAL_SHA],
+        ['server/scripts/' + name for name in seal.DAILY_REFUSAL_SOURCES])
+
+
 # The one owner the terminal proof may release: the exact 9f census refusal.
 DEAD_RUN = seal.NINEF_RUN
 LIVE_RUN = '777000333-1'
@@ -297,6 +310,7 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
     def test_daily_recovery_pins_actual_original_sources_and_native_templates(self):
         import subprocess
         env={k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
+        env.update(GIT_NO_LAZY_FETCH='1', GIT_NO_REPLACE_OBJECTS='1')
         files={name:subprocess.check_output(['git','-C',str(ROOT),'show',seal.DAILY_REFUSAL_SHA+':server/scripts/'+name],env=env)
                for name in seal.DAILY_REFUSAL_SOURCES}
         files['engine-release-unit-wrapper-v1.sh']=files['engine-release-unit-wrapper.sh']

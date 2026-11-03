@@ -8,8 +8,16 @@
 import { expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 it('records a terminal failed owner only under complete proof and keeps every unproved owner', () => {
+  // Keep this real consumer selected when the shared preparation helper changes.
+  expect(
+    readFileSync(
+      resolve(import.meta.dirname, '../tests/operations/pinned-history-sources.py'),
+      'utf8'
+    )
+  ).toContain("GIT_NO_LAZY_FETCH='1'");
   const result = spawnSync('python3', ['-B', 'tests/operations/terminal-failed-routine-owner.py'], {
     cwd: resolve(import.meta.dirname, '..'),
     env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },

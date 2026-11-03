@@ -8,9 +8,11 @@ import os
 from pathlib import Path
 import signal
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -32,6 +34,103 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('withdrawal', ROOT / 'scripts/ci/withdraw-waiting-engine-release.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+
+history_spec = importlib.util.spec_from_file_location('pinned_history_sources',
+    ROOT / 'tests/operations/pinned-history-sources.py')
+history = importlib.util.module_from_spec(history_spec)
+history_spec.loader.exec_module(history)
+hydrate_historical_sources = history.hydrate_historical_sources
+
+def setUpModule():
+    controls = [value for name, value in vars(module).items()
+                if name.endswith('_CONTROL') and isinstance(value, str)]
+    paths = ['server/scripts/' + name for name in module.GENERIC_SOURCE_NAMES] + [
+        'server/scripts/engine-release-unit-wrapper.sh',
+        'server/scripts/engine-release-intake.sh',
+        'server/release/activation-floor.json',
+        'server/release/owner-maintenance-windows.json',
+        'server/src/maintenance/maintenanceSchedulePolicy.json',
+        '.gitattributes', '.gitmodules']
+    hydrate_historical_sources(ROOT, controls, paths)
+    # Missing source during any of the behavioral cases is now a named failure,
+    # not an implicit network transaction inside the unchanged sixty-second run.
+    os.environ['GIT_NO_LAZY_FETCH'] = '1'
+
+
+class HistoricalSourceHydration(unittest.TestCase):
+    def test_exact_promisor_blobs_arrive_in_one_batch_without_ref_or_fallback_writes(self):
+        env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+        def git(*args, cwd=None, extra=None):
+            return subprocess.run(['git', *args], cwd=cwd, env={**env, **(extra or {})},
+                capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as directory:
+            root = Path(directory); source = root / 'source'; source.mkdir()
+            git('init', '-q', cwd=source)
+            for name in ('one', 'two', 'unrequested'):
+                (source / (name + '.txt')).write_text(name + ' original bytes\n')
+            git('add', '.', cwd=source)
+            git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                'commit', '-qm', 'fixture', cwd=source)
+            revision = git('rev-parse', 'HEAD', cwd=source)
+            git('config', 'uploadpack.allowFilter', 'true', cwd=source)
+            log = root / 'fetch.log'; wrapper = root / 'upload-pack'
+            wrapper.write_text('#!/bin/sh\nprintf "fetch\\n" >> ' + shlex.quote(str(log)) +
+                               '\nexec git-upload-pack "$@"\n')
+            wrapper.chmod(0o700)
+            for name, batch in [('before', False), ('after', True)]:
+                client = root / name
+                git('clone', '--filter=blob:none', '--no-checkout', '--bare',
+                    source.as_uri(), str(client))
+                git('config', 'remote.origin.uploadpack', str(wrapper), cwd=client)
+                log.write_text('')
+                refs = git('show-ref', cwd=client); head = (client / 'HEAD').read_bytes()
+                if batch:
+                    self.assertEqual(hydrate_historical_sources(client, [revision], ['one.txt', 'two.txt']), 2)
+                for path in ('one.txt', 'two.txt'):
+                    self.assertEqual(git('show', revision + ':' + path, cwd=client,
+                        extra={'GIT_NO_LAZY_FETCH': '1'} if batch else {}),
+                        (source / path).read_text().strip())
+                self.assertEqual(len(log.read_text().splitlines()), 1 if batch else 2)
+                self.assertEqual(git('show-ref', cwd=client), refs)
+                self.assertEqual((client / 'HEAD').read_bytes(), head)
+                oid = git('rev-parse', revision + ':unrequested.txt', cwd=client)
+                absent = subprocess.run(['git', '-C', str(client), 'cat-file', '--batch-check'],
+                    input=oid + '\n', env={**env, 'GIT_NO_LAZY_FETCH': '1'},
+                    capture_output=True, text=True, check=True, timeout=5).stdout.strip()
+                self.assertEqual(absent, oid + ' missing')
+            # Unknown references and missing blobs without the configured
+            # promisor are refusals, not requests to broaden the fetch.
+            log.write_text('')
+            for bad in ('main', 'f' * 40):
+                with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                    hydrate_historical_sources(client, [bad], ['unrequested.txt'])
+            git('config', 'remote.origin.promisor', 'false', cwd=client)
+            with self.assertRaises(ValueError):
+                hydrate_historical_sources(client, [revision], ['unrequested.txt'])
+            self.assertEqual(log.read_text(), '')
+            git('config', 'remote.origin.promisor', 'true', cwd=client)
+            wrapper.write_text('#!/bin/sh\nprintf "fetch\\n" >> ' + shlex.quote(str(log)) + '\nexit 73\n')
+            with self.assertRaises(subprocess.CalledProcessError):
+                hydrate_historical_sources(client, [revision], ['unrequested.txt'])
+            self.assertEqual(log.read_text().splitlines(), ['fetch'])
+            # A delayed remote child retaining the pipes must be killed with
+            # its Git parent, not escape the bootstrap's wall-clock bound.
+            pid_file = root / 'transport-child.pid'
+            wrapper.write_text('#!/bin/sh\nsleep 30 &\necho $! > ' + shlex.quote(str(pid_file)) + '\nwait\n')
+            started = time.monotonic()
+            with self.assertRaises(subprocess.TimeoutExpired):
+                hydrate_historical_sources(client, [revision], ['unrequested.txt'], budget_seconds=2)
+            self.assertLess(time.monotonic() - started, 2.5)
+            child = int(pid_file.read_text())
+            expiry = time.monotonic() + 1
+            while time.monotonic() < expiry:
+                try: os.kill(child, 0)
+                except ProcessLookupError: break
+                time.sleep(0.01)
+            else: self.fail('Owned timed-out transport child survived cleanup')
+            self.assertEqual(git('show-ref', cwd=client), refs)
+            self.assertEqual((client / 'HEAD').read_bytes(), head)
 
 
 class Withdrawal(unittest.TestCase):
