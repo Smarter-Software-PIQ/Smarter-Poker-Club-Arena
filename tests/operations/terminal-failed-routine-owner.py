@@ -37,9 +37,14 @@ history = importlib.util.module_from_spec(history_spec)
 history_spec.loader.exec_module(history)
 
 
-def setUpModule():
+def prepare_history(allow_fetch=False):
     history.hydrate_historical_sources(ROOT, [seal.DAILY_REFUSAL_SHA],
-        ['server/scripts/' + name for name in seal.DAILY_REFUSAL_SOURCES])
+        ['server/scripts/' + name for name in seal.DAILY_REFUSAL_SOURCES],
+        budget_seconds=90 if allow_fetch else 10, allow_fetch=allow_fetch)
+
+
+def setUpModule():
+    prepare_history()
 
 
 # The one owner the terminal proof may release: the exact 9f census refusal.
@@ -1747,4 +1752,7 @@ class GenericPreguardCheckpointRefusalOwner(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    if sys.argv[1:] == ['--prepare-history']:
+        prepare_history(allow_fetch=True)
+    else:
+        unittest.main()

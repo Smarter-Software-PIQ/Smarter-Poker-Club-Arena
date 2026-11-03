@@ -42,7 +42,7 @@ history = importlib.util.module_from_spec(history_spec)
 history_spec.loader.exec_module(history)
 hydrate_historical_sources = history.hydrate_historical_sources
 
-def setUpModule():
+def prepare_history(allow_fetch=False):
     controls = [value for name, value in vars(module).items()
                 if name.endswith('_CONTROL') and isinstance(value, str)]
     paths = ['server/scripts/' + name for name in module.GENERIC_SOURCE_NAMES] + [
@@ -52,10 +52,15 @@ def setUpModule():
         'server/release/owner-maintenance-windows.json',
         'server/src/maintenance/maintenanceSchedulePolicy.json',
         '.gitattributes', '.gitmodules']
-    hydrate_historical_sources(ROOT, controls, paths)
+    hydrate_historical_sources(ROOT, controls, paths,
+        budget_seconds=90 if allow_fetch else 10, allow_fetch=allow_fetch)
     # Missing source during any of the behavioral cases is now a named failure,
     # not an implicit network transaction inside the unchanged sixty-second run.
     os.environ['GIT_NO_LAZY_FETCH'] = '1'
+
+
+def setUpModule():
+    prepare_history()
 
 
 class HistoricalSourceHydration(unittest.TestCase):
@@ -86,7 +91,11 @@ class HistoricalSourceHydration(unittest.TestCase):
                 log.write_text('')
                 refs = git('show-ref', cwd=client); head = (client / 'HEAD').read_bytes()
                 if batch:
+                    with self.assertRaisesRegex(ValueError, 'network-free behavior'):
+                        hydrate_historical_sources(client, [revision], ['one.txt', 'two.txt'], allow_fetch=False)
+                    self.assertEqual(log.read_text(), '')
                     self.assertEqual(hydrate_historical_sources(client, [revision], ['one.txt', 'two.txt']), 2)
+                    self.assertEqual(hydrate_historical_sources(client, [revision], ['one.txt', 'two.txt'], allow_fetch=False), 0)
                 for path in ('one.txt', 'two.txt'):
                     self.assertEqual(git('show', revision + ':' + path, cwd=client,
                         extra={'GIT_NO_LAZY_FETCH': '1'} if batch else {}),
@@ -1668,4 +1677,7 @@ class BytecodeCustody(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    if sys.argv[1:] == ['--prepare-history']:
+        prepare_history(allow_fetch=True)
+    else:
+        unittest.main()

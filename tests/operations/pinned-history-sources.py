@@ -5,9 +5,9 @@ import subprocess
 import time
 
 
-def hydrate_historical_sources(root, revisions, paths, budget_seconds=10):
+def hydrate_historical_sources(root, revisions, paths, budget_seconds=10, allow_fetch=True):
     """Fetch this fixture's missing pinned blobs once, never during behavior proof."""
-    if not 0 < budget_seconds <= 10:
+    if not 0 < budget_seconds <= (90 if allow_fetch else 10):
         raise ValueError('Historical fixture hydration budget refused')
     deadline = time.monotonic() + budget_seconds
     cleanup_reserve = min(0.25, budget_seconds / 4)
@@ -65,6 +65,8 @@ def hydrate_historical_sources(root, revisions, paths, budget_seconds=10):
         return absent
     absent = missing()
     if absent:
+        if not allow_fetch:
+            raise ValueError('Historical fixture source unavailable before network-free behavior')
         if git('config', '--bool', '--get', 'remote.origin.promisor').strip() != b'true':
             raise ValueError('Historical fixture missing objects without configured promisor')
         git('-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '--no-tags',
