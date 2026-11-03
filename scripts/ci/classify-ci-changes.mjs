@@ -433,7 +433,7 @@ export function classifyChangedPaths(paths) {
   // The ranking inverse and reminder pg dependencies are executable accounting
   // inputs outside scripts/dev. Their changes also need the routing laws.
   const tournamentAccountingInput = matches(
-    /^(docs\/changelog\/2026-09-11-a-bust-is-ranked-by-when-it-happened\.rollback\.sql|scripts\/ci\/probes\/chip-journal-atomicity\/postgres-runtime\/package(-lock)?\.json)$/
+    /^(scripts\/ci\/test-a-finish-does-not-hold-the-union-wallet\.py|tests\/a-finish-does-not-hold-the-union-wallet\.law\.test\.ts|docs\/changelog\/2026-09-11-a-bust-is-ranked-by-when-it-happened\.rollback\.sql|scripts\/ci\/probes\/chip-journal-atomicity\/postgres-runtime\/package(-lock)?\.json)$/
   );
   // THE DIAMOND SCREENSHOT HARNESSES ARE NOT ACCOUNTING INPUTS (2026-09-26).
   // `scripts/dev/` admits the PostgreSQL accounting job because its
