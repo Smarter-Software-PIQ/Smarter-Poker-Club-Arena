@@ -63,6 +63,15 @@ type AddChipsResult = {
 };
 
 export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
+  /** A committed leave belongs to this controller, never to a later hand. */
+  protected readonly leaveFoldControllers = new WeakMap<object, Set<string>>();
+  protected hasCommittedLeaveFold(userId: string): boolean {
+    return (
+      !!this.handController &&
+      this.leaveFoldControllers.get(this.handController)?.has(userId) === true
+    );
+  }
+
   private readonly addChipsInFlight = new Map<
     string,
     { amount: number; operation: Promise<AddChipsResult> }
@@ -1631,6 +1640,12 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     const seatPlayer = state.players.find((p) => p.user_id === userId);
     if (!seatPlayer || seatPlayer.is_folded) return false;
     if (seatPlayer.is_all_in) return true;
+    let leavers = this.leaveFoldControllers.get(hc);
+    if (!leavers) {
+      leavers = new Set<string>();
+      this.leaveFoldControllers.set(hc, leavers);
+    }
+    leavers.add(userId);
     let folded = false;
     try {
       folded =

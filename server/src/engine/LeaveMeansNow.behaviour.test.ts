@@ -94,7 +94,7 @@ function makeEngine(livePlayers: LivePlayer[], currentPlayerSeat: number) {
       return true;
     }),
   };
-  e.hub = { emitEvent: vi.fn(), publish: vi.fn() };
+  e.hub = { emitEvent: vi.fn(), publish: vi.fn(), sendToUser: vi.fn() };
   e.broadcastCurrentState = vi.fn(async () => undefined);
   return e;
 }
@@ -211,4 +211,50 @@ describe('locked leave protects input without moving chips', () => {
       expect(cashout).not.toHaveBeenCalled();
     }
   );
+});
+
+describe('committed leave fold is controller owned', () => {
+  it('late clears and calls cannot cancel leave, and a new controller has no fence', () => {
+    const live: LivePlayer[] = [
+      { user_id: HUMAN, seat: 1, is_folded: false, is_all_in: false },
+      { user_id: OTHER, seat: 3, is_folded: false, is_all_in: false },
+    ];
+    const e = makeEngine(live, 3);
+    e.foldLeaverNow(HUMAN);
+    expect(e.setPreAction(HUMAN, 'clear')).toMatchObject({ success: false, code: 'NOT_IN_HAND' });
+    expect(e.setPreAction(HUMAN, 'auto_call')).toMatchObject({
+      success: false,
+      code: 'NOT_IN_HAND',
+    });
+    expect(queuedAutoFold(e, HUMAN)).toBe(true);
+    expect(e.handlePlayerAction(HUMAN, 'call', 10)).toMatchObject({
+      success: false,
+      code: 'NOT_IN_HAND',
+    });
+    const old = e.handController;
+    e.handController = { getState: () => ({ ...old.getState(), currentPlayerSeat: 3 }) };
+    expect(e.hasCommittedLeaveFold(HUMAN)).toBe(false);
+    expect(e.setPreAction(HUMAN, 'clear')).toMatchObject({ success: true });
+    expect(queuedAutoFold(e, HUMAN)).toBe(false);
+  });
+});
+
+it('a late clear/call cannot stop the real turn handler folding the leaver', async () => {
+  const live: LivePlayer[] = [
+    { user_id: HUMAN, seat: 1, is_folded: false, is_all_in: false },
+    { user_id: OTHER, seat: 3, is_folded: false, is_all_in: false },
+  ];
+  const e = makeEngine(live, 3);
+  e.lifecycleCanMutate = () => true;
+  e.actionClockSeconds = () => 15;
+  e.weeklyPayoutContinuation = (p: any) => p;
+  e.sleepHand = async () => {};
+  e.markProgress = vi.fn();
+  e.foldLeaverNow(HUMAN);
+  e.setPreAction(HUMAN, 'clear');
+  e.setPreAction(HUMAN, 'auto_call');
+  e.handController.getState().currentPlayerSeat = 1;
+  await e.handleTurnChange({ type: 'TURN_CHANGE', seat: 1 }, e.seatedPlayers);
+  expect(e.handController.performAction).toHaveBeenCalledWith(1, 'fold', undefined, 'pre_action');
+  expect(live[0].is_folded).toBe(true);
 });
