@@ -15,7 +15,7 @@
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "supabase/migrations/20260918122532_five_original_spin_standings_retain_their_recorded_cash_outc.sql": "9f6e0b02abea54394d317c6d20f8e47ae10edefc9ba6c12f6542c23daf4540c4",
     ".prettierignore": "c16ab19b2c102a1be186923c89ea0f3ca2d83d58eebaf3fcf00784134f096dfe",
-    "tests/unit/fixtureNativeCi.test.ts": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f",
+    "tests/unit/fixtureNativeCi.test.ts": "6665fe43818502dbce7c57d774060fa1afc3ae1c9ca48e1913c49468ea0b3fdd",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536"
   },
   "restamp_audit": [
@@ -723,5 +723,17 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "tournamentRecoveryComposition20261103": {
+    "reason": "Reviewed composition of durable terminal recovery, all-event closure/entry hold, exact-five refund adapter, authenticated hold reader, alert lifecycle and union-contention CI. Original source audits and historical financial verdicts retained unchanged; only current composed input identities updated. Final hosted accounting qualification remains required.",
+    "changes": [
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previousSHA256": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f",
+        "currentSHA256": "6665fe43818502dbce7c57d774060fa1afc3ae1c9ca48e1913c49468ea0b3fdd"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

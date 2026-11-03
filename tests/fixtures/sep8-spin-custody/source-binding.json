@@ -68,7 +68,7 @@
     }
   },
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "d90ea66116fcc41d3bd3b9cb1b4f89987822d2bb58e0a05ef270d3bec7255539",
+    "scripts/ci/classify-ci-changes.mjs": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/qualify-sep8-spin-custody.py": "28a2b63e4424f15d3b85ad742f7592fd65c2f8a8493eabb06210665e01e9ad67",
@@ -89,7 +89,7 @@
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/restore-synthetic-terms.sql": "9d14a15482330a285c5346e9607a3beec85b2b21b46dcec3a15372a1524e5596",
     "tests/fixtures/sep8-spin-custody/setup.sql": "eded939b6797c5e561e12071cb08938a25359b791cdb810fc49b5e0424565f29",
-    "tests/unit/fixtureNativeCi.test.ts": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f",
+    "tests/unit/fixtureNativeCi.test.ts": "6665fe43818502dbce7c57d774060fa1afc3ae1c9ca48e1913c49468ea0b3fdd",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -1947,5 +1947,33 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "finishUnionNativeEnforcement20261103": {
+    "reason": "Reviewed additive required accounting shard3 union-finish/cash-hand contention step and isolated-input routing. Runtime financial authorities, existing assertions and historical qualification outcomes unchanged. This is source identity, not financial recertification or live proof.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
+        "currentSHA256": "a907216ea253e523b7675674584cf300678e6498b0ddb899ce92544261245cf2"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "tournamentRecoveryComposition20261103": {
+    "reason": "Reviewed composition of durable terminal recovery, all-event closure/entry hold, exact-five refund adapter, authenticated hold reader, alert lifecycle and union-contention CI. Original source audits and historical financial verdicts retained unchanged; only current composed input identities updated. Final hosted accounting qualification remains required.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "d90ea66116fcc41d3bd3b9cb1b4f89987822d2bb58e0a05ef270d3bec7255539",
+        "currentSHA256": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c"
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previousSHA256": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f",
+        "currentSHA256": "6665fe43818502dbce7c57d774060fa1afc3ae1c9ca48e1913c49468ea0b3fdd"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }
