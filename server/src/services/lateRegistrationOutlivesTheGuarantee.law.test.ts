@@ -236,6 +236,69 @@ describe('the pass enters horses through the ordinary door', () => {
     expect(h.topUp).not.toHaveBeenCalled();
   });
 
+  it('uses the private November 3 attendance floor through the real late-registration consumer', async () => {
+    const start = Date.parse('2026-11-04T01:00:00Z');
+    h.tables.set('tournaments', [
+      {
+        ...running,
+        start_time: new Date(start).toISOString(),
+        started_at: new Date(start).toISOString(),
+        guaranteed_prize: 0,
+        buy_in_amount: 31.5,
+        buy_in_fee: 3.5,
+      },
+    ]);
+    h.tables.set('tournament_players', { late: 100, live: 80, all: 180 });
+    h.rpc.mockImplementation(async (name: string) => ({
+      data:
+        name === 'fn_ca_nov3_tournament_attendance'
+          ? [{ tournament_id: running.id, attendance_floor: 286 }]
+          : true,
+      error: null,
+    }));
+    await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, start + 80 * MIN);
+    expect(h.rpc).toHaveBeenCalledWith('fn_ca_nov3_tournament_attendance', {
+      p_tournament_ids: [running.id],
+    });
+    expect(h.topUp).toHaveBeenCalledTimes(1);
+    expect(h.topUp.mock.calls[0][1]).toBeGreaterThan(80);
+    h.topUp.mockClear();
+    h.rpc.mockImplementation(async (name: string) => ({
+      data:
+        name === 'fn_ca_nov3_tournament_attendance'
+          ? [{ tournament_id: running.id, attendance_floor: 0 }]
+          : true,
+      error: null,
+    }));
+    await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, start + 80 * MIN);
+    expect(h.topUp).not.toHaveBeenCalled();
+  });
+
+  it('never substitutes a small field when the dated attendance read fails', async () => {
+    h.tables.set('tournaments', [
+      { ...running, start_time: '2026-11-04T01:00:00Z', guaranteed_prize: 0 },
+    ]);
+    h.rpc.mockResolvedValue({ data: null, error: { message: 'unavailable' } });
+    await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 30 * MIN);
+    expect(h.topUp).not.toHaveBeenCalled();
+    expect(h.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps other dates running when the dated attendance read fails', async () => {
+    h.tables.set('tournaments', [
+      { ...running, id: 'dated-event', start_time: '2026-11-04T01:00:00Z', guaranteed_prize: 0 },
+      { ...running, start_time: '2026-11-05T01:00:00Z' },
+    ]);
+    h.rpc.mockImplementation(async (name: string) =>
+      name === 'fn_ca_nov3_tournament_attendance'
+        ? { data: null, error: { message: 'unavailable' } }
+        : { data: true, error: null }
+    );
+    await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 30 * MIN);
+    expect(h.topUp).toHaveBeenCalledTimes(1);
+    expect(h.topUp.mock.calls[0][0]).toBe(running.id);
+  });
+
   it('an unreadable late-registration answer enters nobody', async () => {
     h.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
     await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 30 * MIN);

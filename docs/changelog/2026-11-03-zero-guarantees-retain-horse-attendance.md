@@ -1,0 +1,11 @@
+# November 3 guarantees and Horse attendance are separate
+
+The owner requested zero financial guarantees for November 3 America/Chicago tournaments and explicitly retained the existing Horse participation targets. Previously late-registration planning derived its field from the public guarantee, so setting that guarantee to zero also reduced attendance.
+
+The dated database policy captures each unstarted event's original entry-count floor privately before setting `guaranteed_prize` to zero. It applies during creation and eligible updates, including draft admission, and retains the first plan for that UUID. Other dates, recurring templates and started/settled events retain their contracts. The fourteen measured positive offers have explicit installation preimages; registered or funded offers refuse alteration. Cash GTD copy is removed only for the dated unstarted events.
+
+The existing prestart overlay reader uses the separate count but returns the actual zero financial guarantee. The late-registration consumer reads that count through a service-only bounded RPC and uses its original deterministic UUID plan. Actual registration/payment, bounty and prize funding owners remain unchanged. A failed plan read enters no horses and reports the failure; it never guesses a smaller plan. Regular prestart arrivals remain unchanged.
+
+Satellite seat commitments remain independent funded contracts. A zero cash guarantee does not revoke tickets or remove their existing overlay funding. No wallet, historical payout, old-event closure or ticket entitlement is rewritten.
+
+Qualification: isolated PostgreSQL applies the exact migration with the recorded overlay reader and installed copy/affordability/funding trigger bodies; it checks the fourteen floors, date boundaries, draft admission, redating, immutable original plans, real-role ACL, untouched financial fields, regular zero-overlay behavior and retained satellite funding. Maintained accounting shard 2 runs it. Actual late-registration consumer tests cover retained attendance and unreadable metadata. This isolated proof is not production installation or whole-engine acceptance. The late consumer requires a containing engine release; the independent recovery candidate is unchanged.

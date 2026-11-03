@@ -428,6 +428,7 @@ interface LateRegRow {
   status: string;
   format_contract: string | null;
   started_at: string | null;
+  start_time?: string | null;
   current_level: number | null;
   late_reg_levels: number | null;
   rebuy_levels: number | null;
@@ -486,7 +487,7 @@ export async function lateRegisterHorsesOnce(
     const { data: rows, error } = await supabase
       .from('tournaments')
       .select(
-        'id, name, status, format_contract, started_at, current_level, late_reg_levels, rebuy_levels, late_reg_mins, buy_in_amount, buy_in_fee, bounty_amount, guaranteed_prize, blind_structure, max_players, prize_pool_finalized'
+        'id, name, status, format_contract, start_time, started_at, current_level, late_reg_levels, rebuy_levels, late_reg_mins, buy_in_amount, buy_in_fee, bounty_amount, guaranteed_prize, blind_structure, max_players, prize_pool_finalized'
       )
       .eq('status', 'RUNNING')
       .eq('prize_pool_finalized', false)
@@ -496,8 +497,46 @@ export async function lateRegisterHorsesOnce(
       .order('started_at', { ascending: true });
     if (error) throw new Error(error.message);
 
-    for (const t of (rows ?? []) as LateRegRow[]) {
+    const events = (rows ?? []) as LateRegRow[];
+    const scopedIds = events
+      .filter((t) => {
+        const scheduled = Date.parse(String(t.start_time ?? ''));
+        return (
+          scheduled >= Date.parse('2026-11-03T06:00:00Z') &&
+          scheduled < Date.parse('2026-11-04T06:00:00Z')
+        );
+      })
+      .map((t) => t.id);
+    const attendanceFloors = new Map<string, number>();
+    let datedAttendanceUnreadable = false;
+    // This is attendance metadata, never a second financial guarantee.
+    if (scopedIds.length > 0) {
+      const { data: floors, error: floorError } = await supabase.rpc(
+        'fn_ca_nov3_tournament_attendance',
+        { p_tournament_ids: scopedIds }
+      );
+      if (floorError || !Array.isArray(floors)) datedAttendanceUnreadable = true;
+      for (const row of Array.isArray(floors) ? floors : []) {
+        if (
+          !row ||
+          !scopedIds.includes(row.tournament_id) ||
+          attendanceFloors.has(row.tournament_id) ||
+          !Number.isSafeInteger(row.attendance_floor) ||
+          row.attendance_floor < 0
+        )
+          datedAttendanceUnreadable = true;
+        else attendanceFloors.set(row.tournament_id, row.attendance_floor);
+      }
+      if (datedAttendanceUnreadable)
+        reportError(
+          new Error('November 3 Horse attendance plan is unreadable or invalid'),
+          'HorseOverlayGuard.dated_attendance_unreadable'
+        );
+    }
+
+    for (const t of events) {
       if (!shouldContinue() || isMaintenanceFrozen()) return added;
+      if (datedAttendanceUnreadable && scopedIds.includes(t.id)) continue;
       const startedAtMs = Date.parse(String(t.started_at ?? ''));
       if (!Number.isFinite(startedAtMs)) continue;
 
@@ -540,7 +579,8 @@ export async function lateRegisterHorsesOnce(
         plannedField: mttPlannedField(
           Number(t.guaranteed_prize) || 0,
           mttGuaranteeEntryAmount(t),
-          t.id
+          t.id,
+          attendanceFloors.get(t.id)
         ),
         levelWindowMs: mttLevelWindowMs(
           t.blind_structure,
