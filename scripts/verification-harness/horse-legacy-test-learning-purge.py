@@ -70,16 +70,21 @@ END $fn$;
 SELECT pg_temp.legacy_protected_snapshot();
 """
 
-APPEND_CLOCK_AT_PURGE_DAY = """
-DO $pin$
-DECLARE
- src text := pg_get_functiondef('public.fn_append_horse_adaptive_observations(text)'::regprocedure);
- wall text := 'floor(extract(epoch FROM statement_timestamp())*1000)::bigint';
-BEGIN
- IF position(wall IN src) = 0 THEN RAISE EXCEPTION 'append door clock anchor missing'; END IF;
- EXECUTE replace(src, wall, 'floor(extract(epoch FROM timestamptz ''2026-10-15 21:25:15+00'')*1000)::bigint');
-END $pin$;
-"""
+# The one-time purge ran on 2026-10-15 against facts observed before its fixed
+# 2026-10-04 cutoff, and the real append door only accepts facts from the last
+# 30 days, so from 2026-11-02 23:00Z no wall clock satisfies both. Each real
+# append below runs, in ONE statement, through the door as it stands with its
+# clock reading the purge's own day; the door is restored byte for byte in the
+# same statement (a refusal rolls the whole statement back), so every preimage,
+# catalogue and postimage check sees the real door.
+def real_append_sql(payload):
+ return ("DO $pinned$ DECLARE src text:=pg_get_functiondef('public.fn_append_horse_adaptive_observations(text)'::regprocedure);"
+  " wall text:='floor(extract(epoch FROM statement_timestamp())*1000)::bigint'; r text;"
+  " BEGIN IF position(wall IN src)=0 THEN RAISE EXCEPTION 'append door clock anchor missing'; END IF;"
+  " EXECUTE replace(src,wall,'floor(extract(epoch FROM timestamptz ''2026-10-15 21:25:15+00'')*1000)::bigint');"
+  " r:=public.fn_append_horse_adaptive_observations("+lit(payload)+")::text;"
+  " EXECUTE src; PERFORM set_config('harness.append_result',coalesce(r,''),false); END $pinned$;\n"
+  "SELECT current_setting('harness.append_result');")
 
 def digest(value):
  return hashlib.sha256(value.encode()).hexdigest()
@@ -89,12 +94,6 @@ def fixture(e, template):
  old = module(ROOT / 'scripts/ci/test-hand-submission-retention-disposal.py', 'legacy_history_fixture')
  # This genuine human history and completed atomic settlement are protected.
  e.sql(d, old.SEED + "UPDATE public.hand_history SET has_human=true; UPDATE public.profiles SET is_horse=false;", label='legacy-protected-human-history-and-financial-world')
- # The one-time purge ran on 2026-10-15 against facts observed before its
- # fixed 2026-10-04 cutoff, and the real append door only accepts facts from
- # the last 30 days. From 2026-11-02 23:00Z no real clock can satisfy both, so
- # this throwaway database's append door reads the purge's own day instead of
- # the wall clock. Every other check in the door is unchanged.
- e.sql(d, APPEND_CLOCK_AT_PURGE_DAY, label='legacy-append-clock-at-purge-day')
  actor = digest('legacy-test-actor')
  scope = json.dumps(['adaptive-public-node-v1']+[None]*28,separators=(',',':'))
  def fact(hand, number, observed=1791068400000, origin='horse_policy'):
@@ -148,7 +147,7 @@ def qualify(e, base):
  young_key,young_payload=batch('legacy-only-newer',[fact(young,3,1791158400000)])
  work_key,work_payload=batch('legacy-unfinished',[fact(unfinished,3)])
  for name,p in [('main',payload),('veto',veto_payload),('young',young_payload),('unfinished',work_payload)]:
-  e.sql(d,'SELECT fn_append_horse_adaptive_observations('+lit(p)+');',label='legacy-real-append-'+name)
+  e.sql(d,real_append_sql(p),label='legacy-real-append-'+name)
  e.sql(d,"INSERT INTO public.hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result) SELECT table_id,hand_number+1,"+lit(atomic)+",payload_hash,stack_result FROM public.hand_atomic_commits;",label='legacy-atomic-without-history-protection')
  normal_seed=old.SEED.replace(str(old.HAND_NUMBER),str(old.HAND_NUMBER+2))
  for i,value in enumerate([old.HAND_ID,old.TABLE,old.HORSE,old.DEAD_GEN,old.LIVE_GEN,old.SEATED]):
@@ -157,7 +156,7 @@ def qualify(e, base):
  normal_seed=normal_seed.replace("'{\"p_stacks\": []}'::jsonb","jsonb_build_object('p_stacks','[]'::jsonb,'p_hand_row',jsonb_build_object('has_human',false,'players',jsonb_build_array(jsonb_build_object('userId',"+lit(normal_horse)+"))))")
  e.sql(d,normal_seed+"UPDATE hand_history SET has_human=false WHERE id="+lit(normal)+";"+old.AUTHORITY+"SELECT smarter_private.hand_submission_retention_disposal(ARRAY["+lit(normal)+"]::uuid[],'Native normal certificate remains outside legacy exception');",label='legacy-genuine-normal-certificate-protection')
  protect_key,protect_payload=batch('legacy-atomic-and-normal',[fact(atomic,3),fact(normal,3),fact(cash_human,3),fact(reported_submission,3),fact(reported_cash,3),fact(string_submission,3),fact(string_cash,3),fact(string_disposal,3)])
- e.sql(d,'SELECT fn_append_horse_adaptive_observations('+lit(protect_payload)+');',label='legacy-atomic-normal-raw')
+ e.sql(d,real_append_sql(protect_payload),label='legacy-atomic-normal-raw')
  e.sql(d,"INSERT INTO public.hand_history(id,has_human,created_at) VALUES("+lit(active)+",false,'2026-09-01'); SELECT fn_queue_horse_adaptive_batch("+lit(work_payload)+");",label='legacy-protected-active-and-unfinished')
  e.sql(d,"INSERT INTO cash_hand_provenance_receipts(table_id,hand_number,hand_id,payload_hash,accepted_request,atomic_receipt,stack_claim,stack_settlement,status,participants,all_players_included,funding_provenance_complete,issues) VALUES("+lit(old.TABLE)+",1000310,"+lit(cash_human)+",repeat('a',64),'{\"hand_row\":{\"has_human\":true}}','{}','{}','{}','captured','[]',true,true,'[]');",label='legacy-original-human-cash-receipt')
  e.sql(d,"INSERT INTO smarter_private.hand_submissions(submission_id,table_id,hand_number,instance_id,lease_generation,request,request_hash) VALUES("+lit(reported_submission)+','+lit(old.TABLE)+",1000311,'original-reported-test',"+lit(old.DEAD_GEN)+",'{\"p_hand_row\":{\"has_human\":false,\"reported\":true}}',repeat('b',64));",label='legacy-original-reported-submission')
@@ -209,12 +208,12 @@ def qualify(e, base):
  assert read(d,"SELECT count(*) FROM horse_adaptive_observation_journal WHERE hand_id="+lit(rollback_hand)+';','legacy-rollback-raw-after')==raw_before
  assert read(d,'SELECT canonical_payload FROM horse_adaptive_observation_batches WHERE batch_key='+lit(key)+';','legacy-rollback-batch-after')==batch_before
  yes(d,'SELECT NOT EXISTS(SELECT 1 FROM '+LEDGER+' WHERE hand_id='+lit(rollback_hand)+');','rollback-restores-raw-batch-and-exception-ledger')
- exact_replay=json.loads(read(d,'SELECT fn_append_horse_adaptive_observations('+lit(payload)+');','legacy-original-identical-batch-replay'))
+ exact_replay=json.loads(read(d,real_append_sql(payload),'legacy-original-identical-batch-replay'))
  assert exact_replay['status']=='recorded',exact_replay
  yes(d,'SELECT NOT EXISTS(SELECT 1 FROM horse_adaptive_observation_journal WHERE hand_id='+lit(legacy)+');','identical-old-batch-replay-stays-idempotent-without-raw')
  # A fresh batch key and cached old direct writer must both fail closed.
  new_key,new_payload=batch('legacy-replay-new-key',facts+[adjacent_fact])
- code,_,err=e.sql(d,'SELECT fn_append_horse_adaptive_observations('+lit(new_payload)+');',label='legacy-new-batch-replay-refused',check=False)
+ code,_,err=e.sql(d,real_append_sql(new_payload),label='legacy-new-batch-replay-refused',check=False)
  assert code!=0 and 'ADAPTIVE_JOURNAL_OBSERVATION_CONFLICT' in err,err
  checks.append('new-batch-replay-cannot-resurrect-legacy-raw')
  queued=json.loads(read(d,'SELECT fn_queue_horse_adaptive_batch('+lit(new_payload)+');','legacy-replay-queue-refused'))
@@ -283,7 +282,7 @@ def run_icu(e):
  try:
   checks=qualify(e,base)
   cached=module(ROOT/'scripts/verification-harness/horse-legacy-batch-cache.py','legacy_cache_comparison')
-  checks+=cached.qualify(e,base,SimpleNamespace(ROOT=ROOT,MIGRATION=MIGRATION,CACHE_MIGRATION=CACHE_MIGRATION,REQUESTED_MIGRATION=REQUESTED_MIGRATION,COMPACTION_MIGRATION=COMPACTION_MIGRATION,PROTECTED_SNAPSHOT=PROTECTED_SNAPSHOT,PURGE=PURGE,fixture=fixture,lit=lit))
+  checks+=cached.qualify(e,base,SimpleNamespace(ROOT=ROOT,MIGRATION=MIGRATION,CACHE_MIGRATION=CACHE_MIGRATION,REQUESTED_MIGRATION=REQUESTED_MIGRATION,COMPACTION_MIGRATION=COMPACTION_MIGRATION,PROTECTED_SNAPSHOT=PROTECTED_SNAPSHOT,PURGE=PURGE,fixture=fixture,lit=lit,real_append_sql=real_append_sql))
   return checks
  finally:e.discard(base)
 
