@@ -9,7 +9,11 @@ const suite = 'tests/operations/engine-activation-floor.test.py';
 const groups = [
   {
     name: 'Phase1 admission and prior-owner preservation',
-    cases: ['test_phase1_policy_owns_fresh_admission_without_retargeting_prior_owner'],
+    cases: [
+      'test_phase1_policy_owns_fresh_admission_without_retargeting_prior_owner',
+      'test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries',
+      'test_later_owner_transaction_preserves_custody_without_reserving_hourly_cycle',
+    ],
   },
   {
     name: 'immutable policy and source admission',
@@ -76,7 +80,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(24);
+  expect(selected).toHaveLength(26);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);

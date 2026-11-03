@@ -92,6 +92,21 @@ class RetainedFirstRefusalTests(unittest.TestCase):
         with patch.object(R.subprocess,'run',side_effect=AssertionError('no command execution')):
             return R.remote(self.request)
 
+    def test_retained_previous_generation_remains_readable_after_control_upgrade(self):
+        # Reconstruct the byte-exact preceding transaction by removing only
+        # this change's source block; the protected historical digest must match.
+        path = self.generation / 'engine-release-transaction.sh'
+        source = path.read_text()
+        start = source.index('    # A later, source-bound owner window selects')
+        end = source.index('    local fresh_health cause', start)
+        path.write_text(source[:start] + source[end:])
+        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
+                         R.RETAINED_REFUSAL_PRIOR_SOURCES[0][path.name])
+        with patch.object(R, 'RETAINED_REFUSAL_SOURCES', R.RETAINED_REFUSAL_PRIOR_SOURCES[0]):
+            self.produce()
+        answer = self.read()
+        self.assertEqual(answer['mode'], 'retained_first_refusal')
+
     def test_retained_selector_is_exact(self):
         self.assertEqual(R.selection(self.request),self.request)
         for key,value in [('extra','path'),('controlSha','../escape'),('runKey','123'),('releaseSha','BAD')]:

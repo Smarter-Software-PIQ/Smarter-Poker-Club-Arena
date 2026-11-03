@@ -403,6 +403,12 @@ describe('LiveHorseDecisionWorkerPool', () => {
     // Three hands, each on both shards (owner plus mirror).
     expect(busy.queueDepth).toBe(6);
     expect(busy.inFlightJobs).toBe(6);
+    expect(busy.retainedRequestBytes).toBeGreaterThan(0);
+    expect(busy.retainedRequestBytes).toBe(
+      busy.workers.reduce((sum, worker) => sum + worker.retainedRequestBytes!, 0)
+    );
+    expect(busy.retainedRequestLimitBytes).toBe(2 * 96 * 1024 * 1024);
+    expect(busy.pendingPlanReservations).toBe(0);
     expect(busy.workers.map((w) => w.queueDepth).reduce((a, b) => a + b, 0)).toBe(6);
     workers[1]!.emit({ type: 'ERROR_UNKNOWN_PROTOCOL' } as never);
     expect(pool.status().phase).toBe('failed');

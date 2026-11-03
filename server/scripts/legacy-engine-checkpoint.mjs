@@ -97,9 +97,37 @@ async function inspectorTarget(port, deadline, operation = 'inspectorDiscovery')
   }
 }
 
+/* ═══ A REFUSED EVALUATION SAYS WHAT THREW (2026-11-03) ═══
+
+   Engine Release 41572473076 (5745705c, which carries the memory bound #9387
+   and the census fixes #9420/#9425) was refused at 04:00Z with exactly
+   `target checkpoint evaluation refused`, checkpointInvoked=false. That one
+   string is produced by fifteen different Runtime.evaluate calls, and the
+   predecessor's own exception text was discarded, so the run could not say
+   which step refused or why - and the next fix had nothing to aim at.
+
+   Observability only, like `lost` above: `reason` is still exactly
+   `target checkpoint evaluation refused`, `retryAllowed` is still false. The
+   remote exception's class and its line:column inside the evaluated source
+   ride on the error and are emitted as `transportDetail` beside the
+   operation name. The exception's MESSAGE is never copied out: it is the
+   predecessor's own string and may carry table or player state, so only
+   V8's structural summary (class name, position) leaves the process. */
+const exceptionSummary = (response) => {
+  const details = response?.exceptionDetails;
+  const exception = details?.exception ?? response?.result;
+  const className = (typeof exception?.className === 'string' ? exception.className : 'unknown')
+    .replace(/[^\w]+/g, '_')
+    .slice(0, 48);
+  const position = (key) => (Number.isSafeInteger(details?.[key]) ? details[key] : 'na');
+  return `exception=${className},line=${position('lineNumber')},column=${position('columnNumber')}`;
+};
 function remoteValue(response) {
-  if (response?.exceptionDetails || response?.result?.subtype === 'error')
-    throw refused('target checkpoint evaluation refused');
+  if (response?.exceptionDetails || response?.result?.subtype === 'error') {
+    const error = refused('target checkpoint evaluation refused');
+    error.transportDetail = exceptionSummary(response);
+    throw error;
+  }
   return response?.result;
 }
 
@@ -707,6 +735,7 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
     if (workDeadlineMs <= Date.now() || workDeadlineMs > Date.now() + (profile ? 80000 : 40000))
       throw new Error('native census deadline exhausted');
     const modules = getOwnPropertyDescriptor(holder, 'modules')?.value;
+    const eventEmitterRoot = process.getBuiltinModule('node:events')?.EventEmitter?.prototype ?? null;
     const roots = [
       modules.gameServer.GameServer.prototype,
       modules.engine.ServerTableEngine.prototype,
@@ -724,9 +753,9 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
           if (other !== index && cursor === roots[other])
             throw new Error('native census root refused');
         const parent = getPrototypeOf(cursor);
-        if (parent === root) {
+        if (parent === root || (eventEmitterRoot !== null && parent === eventEmitterRoot)) {
           if (!isExtensible(cursor)) throw new Error('native census root not extensible');
-          if (!tops.includes(cursor)) tops.push(cursor);
+          if (!tops.some((entry) => entry.top === cursor)) tops.push({ top: cursor, parent });
           break;
         }
         cursor = parent;
@@ -761,9 +790,9 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
     let census, nativeObjects;
     const native = getOwnPropertyDescriptor(holder, 'nativeCensus')?.value;
     try {
-      for (const top of tops) {
-        setPrototypeOf(top, marker);
-        changed.push(top);
+      for (const entry of tops) {
+        setPrototypeOf(entry.top, marker);
+        changed.push(entry);
       }
       // The outer Runtime.evaluate has disableBreaks:true. The same native
       // dispatch owns insertion, this synchronous query and exact restoration;
@@ -782,12 +811,12 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
       let failed = false;
       for (let index = changed.length - 1; index >= 0; index--) {
         try {
-          setPrototypeOf(changed[index], root);
+          setPrototypeOf(changed[index].top, changed[index].parent);
         } catch {
           failed = true;
         }
       }
-      for (const top of tops) if (getPrototypeOf(top) !== root) failed = true;
+      for (const entry of tops) if (getPrototypeOf(entry.top) !== entry.parent) failed = true;
       if (failed) throw new Error('native census prototype restoration refused');
     }
     if (Date.now() >= workDeadlineMs) throw new Error('native census deadline exhausted');
@@ -1057,7 +1086,10 @@ export async function runLegacyEngineCheckpoint({
       );
       censusMemory = legacyCensusMemoryAdmission(memory?.value);
       if (nativeArtifact && censusMemory) {
-        censusMemory = legacyNativeCensusMemoryAdmission(memory.value, nativeArtifact.prototypeCacheBytes);
+        censusMemory = legacyNativeCensusMemoryAdmission(
+          memory.value,
+          custodyIntent.nativeCensus.prototypeCacheBytes
+        );
       }
       if (!censusMemory?.ok) throw refused('native census memory headroom refused');
       operation = 'broadPrototype';
@@ -1313,6 +1345,8 @@ export async function runLegacyEngineCheckpoint({
     // protocol refusal carries its own operation/cause/inspector error.
     if (/outcome unknown/.test(failure)) transportDetail = describeLoss(error);
     else if (failure === 'inspector protocol refused') transportDetail = detailOf(error);
+    else if (failure === 'target checkpoint evaluation refused')
+      transportDetail = `op=${operation},${detailOf(error) ?? 'exception=unreported'}`.slice(0, 512);
   } finally {
     if (signalled) {
       const cleanupDeadline = Math.min(

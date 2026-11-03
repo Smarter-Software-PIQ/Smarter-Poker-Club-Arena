@@ -190,7 +190,9 @@ import { cashBoardVisible } from '../components/lobby/cashBoardVisibility';
 import { orderForHeading } from '../components/lobby/lobbySortBridge';
 import { IconShareLink, IconSort } from '../components/icons/LobbyIcons';
 import { CLUB_HOME_CACHE_PREFIX } from '../utils/clearUserCaches';
-import { useTournamentRegistration } from '../hooks/useTournamentRegistration';
+import { useTournamentRegistration, isLateStatus } from '../hooks/useTournamentRegistration';
+import { useTournamentStartHold } from '../hooks/useTournamentStartHold';
+import MidwayMttServerUpdateModal from '../components/tournament/MidwayMttServerUpdateModal';
 import { preloadRoute } from '../utils/ChunkPreloader';
 import { prepareTableForEntry, warmTable } from '../services/tableWarmup';
 import { gameManagementService } from '../services/GameManagementService';
@@ -778,6 +780,9 @@ function ClubHomePageContent({
   onInitialGameTypeConsumed,
 }: ClubHomePageProps = {}) {
   const { register: registerMtt, isRegistering: isRegisteringMtt } = useTournamentRegistration();
+  const mttStartHold = useTournamentStartHold();
+  const [showMttUpdateModal, setShowMttUpdateModal] = useState(false);
+  const autoShownMttHoldRef = useRef(false);
 
   const { clubId: routeClubId } = useParams<{ clubId: string }>();
   const clubId = clubIdOverride || routeClubId;
@@ -975,6 +980,16 @@ function ClubHomePageContent({
      land on the requested list for this visit. A club switch drops it. */
   const gameSectionRef = useRef(gameSection);
   gameSectionRef.current = gameSection;
+  useEffect(() => {
+    if (
+      mttStartHold.blocked &&
+      !autoShownMttHoldRef.current &&
+      (gameSection === 'tournaments' || gameType === 'MTT')
+    ) {
+      autoShownMttHoldRef.current = true;
+      setShowMttUpdateModal(true);
+    }
+  }, [mttStartHold.blocked, gameSection, gameType]);
   const landingGameTypeRef = useRef<EmbeddedLobbyList | undefined>(initialGameType);
   const landingReportedRef = useRef(false);
   /* ── A SHARED ?game=<id> LINK (2026-10-25) ─────────────────────────────
@@ -4590,6 +4605,10 @@ function ClubHomePageContent({
         );
         return;
       }
+      if (mttStartHold.blocked && !isLateStatus((t as any).status ?? null)) {
+        setShowMttUpdateModal(true);
+        return;
+      }
       registerMtt(
         {
           id: t.id,
@@ -4625,7 +4644,7 @@ function ClubHomePageContent({
       );
     },
     // `navigate` is not used in this callback; `openTournamentLobby` is.
-    [registerMtt, openTournamentLobby, spinQuickJoin]
+    [registerMtt, openTournamentLobby, spinQuickJoin, mttStartHold.blocked]
   );
 
   const handleUnregister = useCallback(
@@ -6392,6 +6411,11 @@ function ClubHomePageContent({
           }
         }}
         onCancel={() => setDeleteTableConfirm({ show: false, tableId: null, tableName: null })}
+      />
+      <MidwayMttServerUpdateModal
+        isOpen={showMttUpdateModal && mttStartHold.blocked}
+        message={mttStartHold.popupMessage}
+        onClose={() => setShowMttUpdateModal(false)}
       />
 
       {club && !isAutomaticArena && (
