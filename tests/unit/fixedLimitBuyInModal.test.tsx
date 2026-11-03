@@ -21,3 +21,17 @@ describe('fixed-limit purchase amount', () => {
     expect(screen.getByText('Balance Unavailable').closest('button')?.disabled).toBe(true);
   });
 });
+
+it.each(['flh', 'flo8'])('does not offer an unpriced %s buy-in with a known wallet', (gameType) => {
+  render(
+    <BuyInModal
+      {...base}
+      gameType={gameType}
+      minBuyIn={0}
+      maxBuyIn={0}
+      bigBlind={0}
+      accountBalance={5000}
+    />
+  );
+  expect(screen.getByText('Buy-In Unavailable').closest('button')?.disabled).toBe(true);
+});

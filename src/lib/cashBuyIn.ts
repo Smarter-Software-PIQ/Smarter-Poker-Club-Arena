@@ -67,6 +67,7 @@ export function cashBuyInRange(row: CashBuyInSource): CashBuyInRange {
   const rowMin = positive(row.min_buy_in);
   const rowMax = positive(row.max_buy_in);
   if (isFixedLimitVariant(row.game_variant)) {
+    if (!(rowMin || bandMin)) return { min: 0, max: 0, unknown: true };
     return { min: rowMin || bandMin, max: 0, unlimited: true };
   }
 

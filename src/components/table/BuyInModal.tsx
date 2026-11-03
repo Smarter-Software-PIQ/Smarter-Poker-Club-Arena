@@ -132,6 +132,7 @@ export function BuyInModal({
   const rebuyDialogRef = useFocusTrap(isOpen && purchaseKind === 'rebuy', '#buy-in-modal-title');
   // State
   const unlimitedBuyIn = isFixedLimitVariant(gameType);
+  const minimumKnown = Number.isFinite(minBuyIn) && minBuyIn > 0;
   // The wallet bounds this input, never the fixed-limit table's permitted stack.
   // An unknown balance keeps confirmation closed and the minimum visible.
   const maxBuyIn = unlimitedBuyIn
@@ -218,7 +219,8 @@ export function BuyInModal({
   // Check if user has enough balance. Unknown is not enough - and not "insufficient".
   const hasEnoughBalance = balanceKnown && accountBalance >= clampedBuyIn;
   const canConfirm =
-    (!!recovery || hasEnoughBalance) && (!wholeDiamonds || Number.isSafeInteger(clampedBuyIn));
+    (!!recovery || (hasEnoughBalance && (!unlimitedBuyIn || minimumKnown))) &&
+    (!wholeDiamonds || Number.isSafeInteger(clampedBuyIn));
 
   // Animate amount counter when buyInAmount changes
   useEffect(() => {
@@ -354,13 +356,15 @@ export function BuyInModal({
     ? 'Joining'
     : recovery
       ? 'Retry Original Buy-In'
-      : hasEnoughBalance
-        ? wholeDiamonds
-          ? 'Buy In With Diamonds'
-          : 'Buy Chips'
-        : balanceKnown
-          ? 'Insufficient Balance'
-          : 'Balance Unavailable';
+      : unlimitedBuyIn && !minimumKnown
+        ? 'Buy-In Unavailable'
+        : hasEnoughBalance
+          ? wholeDiamonds
+            ? 'Buy In With Diamonds'
+            : 'Buy Chips'
+          : balanceKnown
+            ? 'Insufficient Balance'
+            : 'Balance Unavailable';
 
   if (purchaseKind === 'rebuy') {
     const unit = wholeDiamonds ? 'Diamonds' : 'Chips';
@@ -409,9 +413,11 @@ export function BuyInModal({
                 <span>Allowed Range</span>
                 <strong>
                   <PurchaseText>
-                    {unlimitedBuyIn
-                      ? `${formatAmount(effectiveMinBuyIn, currency)} Min / No Maximum`
-                      : `${formatAmount(effectiveMinBuyIn, currency)} - ${formatAmount(maxBuyIn, currency)}`}
+                    {unlimitedBuyIn && !minimumKnown
+                      ? '-'
+                      : unlimitedBuyIn
+                        ? `${formatAmount(effectiveMinBuyIn, currency)} Min / No Maximum`
+                        : `${formatAmount(effectiveMinBuyIn, currency)} - ${formatAmount(maxBuyIn, currency)}`}
                   </PurchaseText>
                 </strong>
               </React.Fragment>,
@@ -668,7 +674,9 @@ export function BuyInModal({
             <BayLabel zone={BUY_IN_ZONES.bays[3].label} text="Balance" />
             <BayButton
               zone={BUY_IN_ZONES.bays[0].value}
-              text={formatAmount(effectiveMinBuyIn, currency)}
+              text={
+                unlimitedBuyIn && !minimumKnown ? '-' : formatAmount(effectiveMinBuyIn, currency)
+              }
               ink={minPressed ? 'white' : 'silver'}
               label="Buy In For The Minimum"
               pressed={minPressed}

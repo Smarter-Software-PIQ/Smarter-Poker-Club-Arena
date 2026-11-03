@@ -26,3 +26,10 @@ it('keeps the voluntary auto-top-up target in actual blinds while admission stay
   expect(cashBuyInRange(table).max).toBe(0);
   expect(cashAutoTopUpTarget({ ...table, big_blind: null })).toBe(0);
 });
+
+it.each(['flh', 'flo8'])('keeps an unpriceable %s minimum unknown', (game_variant) => {
+  const row = { game_variant, big_blind: null, min_buy_in: null, max_buy_in: null };
+  expect(cashBuyInRange(row)).toEqual({ min: 0, max: 0, unknown: true });
+  expect(cashBuyInLabel(row)).toBe('-');
+  expect(cashAutoTopUpTarget(row)).toBe(0);
+});
