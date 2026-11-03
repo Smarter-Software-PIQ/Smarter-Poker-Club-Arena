@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { DAILY_WINDOW, chicagoClock, spinSngBoardsOpen } from './dailyWindow.js';
+import {
+  DAILY_WINDOW,
+  chicagoClock,
+  spinSngBoardsOpen,
+  tournamentStartAllowed,
+} from './dailyWindow.js';
 
 const chicago = (iso: string) => new Date(iso); // ISO with explicit offset
 
@@ -33,5 +38,16 @@ describe('the engine daily window', () => {
     expect(spinSngBoardsOpen(chicago('2026-11-04T05:59:00-06:00'))).toBe(false);
     expect(spinSngBoardsOpen(chicago('2026-11-04T06:00:00-06:00'))).toBe(true);
     expect(spinSngBoardsOpen(chicago('2026-07-01T04:30:00-05:00'))).toBe(false);
+  });
+  it('lets a tournament start from 6:00 AM to 11:00 PM Chicago only', () => {
+    expect(tournamentStartAllowed(chicago('2026-11-04T05:59:00-06:00'))).toBe(false);
+    expect(tournamentStartAllowed(chicago('2026-11-04T06:00:00-06:00'))).toBe(true);
+    expect(tournamentStartAllowed(chicago('2026-11-04T23:00:00-06:00'))).toBe(true);
+    expect(tournamentStartAllowed(chicago('2026-11-04T23:01:00-06:00'))).toBe(false);
+    expect(tournamentStartAllowed(chicago('2026-11-05T02:00:00-06:00'))).toBe(false);
+    // 10:30 UTC is 4:30 AM in winter and 5:30 AM in summer: closed in both.
+    expect(tournamentStartAllowed(new Date('2026-01-15T10:30:00Z'))).toBe(false);
+    expect(tournamentStartAllowed(new Date('2026-07-15T10:30:00Z'))).toBe(false);
+    expect(tournamentStartAllowed(new Date('2026-07-15T11:30:00Z'))).toBe(true);
   });
 });
