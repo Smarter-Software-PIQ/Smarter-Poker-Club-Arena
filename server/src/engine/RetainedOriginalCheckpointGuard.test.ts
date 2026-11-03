@@ -464,6 +464,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     manager: { TournamentManager },
     controller: { HandController },
     dataActorContext: {
+      bindToProcessRoot: (callback: (...args: any[]) => any) => bind(null, callback),
       bindTournamentDataAuthority: bind,
       currentTournamentDataAuthority: () => currentActor,
     },
