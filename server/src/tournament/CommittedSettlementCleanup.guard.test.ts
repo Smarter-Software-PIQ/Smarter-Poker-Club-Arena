@@ -99,8 +99,7 @@ describe('a committed tournament always reaches its non-money terminal cleanup',
     const proof = refusal.indexOf('settlementErr instanceof TerminalSettlementRefusedError');
     // 2026-09-18: the alarm goes through alertFinishRefusalOnce, which raises
     // it the first time this tournament reports this reason and counts the
-    // repeats. The ordering this pins is unchanged: alarm, then release, then
-    // fence.
+    // repeats. Fencing must precede that asynchronous diagnostic write.
     const alarm = refusal.indexOf('alertFinishRefusalOnce(');
     const release = refusal.indexOf('if (provenRefusal) releaseFinishGuard()');
     const stop = refusal.indexOf(
@@ -109,7 +108,8 @@ describe('a committed tournament always reaches its non-money terminal cleanup',
     expect(proof).toBeGreaterThanOrEqual(0);
     expect(alarm).toBeGreaterThan(proof);
     expect(release).toBeGreaterThan(alarm);
-    expect(stop).toBeGreaterThan(release);
+    expect(stop).toBeGreaterThan(proof);
+    expect(stop).toBeLessThan(alarm);
     expect(refusal).not.toMatch(/readDurableTournamentStatus|\.from\(|\.rpc\(/);
   });
 
@@ -224,6 +224,20 @@ describe('a committed tournament always reaches its non-money terminal cleanup',
 });
 
 describe('a committed final-table deal cannot be stranded by a lost receipt or tail exception', () => {
+  it.each(['checkFinalTableDeal', 'checkLegacyFinalTableDeal'])(
+    '%s fences ambiguous results before awaiting alert persistence',
+    (method) => {
+      const body = sliceMethod(eliminations, `${method}(): Promise<boolean>`);
+      const unknown = sliceMethod(body, 'if (!provenRefusal)');
+      const fence = unknown.indexOf(
+        "this.fenceUnknownTerminalOutcome('Tournament.final_table_deal_manager_stop_failed')"
+      );
+      const alert = unknown.indexOf('await raiseFinancialAlert(');
+      expect(fence).toBeGreaterThanOrEqual(0);
+      expect(alert).toBeGreaterThan(fence);
+    }
+  );
+
   const checkDeal = sliceMethod(eliminations, 'checkFinalTableDeal(): Promise<boolean>');
   const settleDeal = sliceMethod(
     eliminations,

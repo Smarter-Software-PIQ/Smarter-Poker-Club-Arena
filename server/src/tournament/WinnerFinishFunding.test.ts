@@ -145,14 +145,16 @@ describe('live finish accepts only a verified immutable receipt', () => {
     const release = ordinary.indexOf('if (provenRefusal) releaseFinishGuard()', unknown);
     const stop = ordinary.indexOf(
       "this.fenceUnknownTerminalOutcome('Tournament.atomic_finish_manager_stop_failed')",
-      release
+      unknown
     );
     const cleanup = ordinary.indexOf('await this.cleanupCommittedTournament(receipt)', stop);
 
     expect(refusal).toBeGreaterThanOrEqual(0);
     expect(unknown).toBeGreaterThan(refusal);
     expect(release).toBeGreaterThan(unknown);
-    expect(stop).toBeGreaterThan(release);
+    expect(stop).toBeGreaterThan(unknown);
+    expect(stop).toBeLessThan(release);
+    expect(stop).toBeLessThan(ordinary.indexOf('await this.alertFinishRefusalOnce(', unknown));
     expect(cleanup).toBeGreaterThan(stop);
   });
 

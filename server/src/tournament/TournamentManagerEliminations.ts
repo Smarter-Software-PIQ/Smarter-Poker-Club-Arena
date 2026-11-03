@@ -5519,6 +5519,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     if (cleaned) {
       this.retireCompletedCustodyAfterTerminalCleanup(receipt.tournamentId);
       this.committedFinishReceipt = null;
+    } else if (this.running) {
+      // The first failed terminal tail owns its continuation too. Completion
+      // has no later hand to wake it, and tournamentFinished suppresses the
+      // ordinary refused-finish rearm. Retry cleanup only, from this receipt.
+      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
     }
     return cleaned;
   }
@@ -5542,6 +5547,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     if (cleaned) {
       this.retireCompletedCustodyAfterTerminalCleanup(receipt.tournamentId);
       this.committedSatelliteReceipt = null;
+    } else if (this.running) {
+      // The first failed terminal tail owns its continuation too. Completion
+      // has no later hand to wake it, and tournamentFinished suppresses the
+      // ordinary refused-finish rearm. Retry cleanup only, from this receipt.
+      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
     }
     return cleaned;
   }
@@ -6345,6 +6355,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           return this.settleFinalTableDeal(committedReceipt);
         }
         if (!provenRefusal) {
+          this.fenceUnknownTerminalOutcome('Tournament.final_table_deal_manager_stop_failed');
           const alertCode = outcomeUnknown
             ? 'Tournament.final_table_deal_outcome_unknown'
             : 'Tournament.final_table_deal_unclassified_failure';
@@ -6368,7 +6379,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               alertCode,
             });
           }
-          this.fenceUnknownTerminalOutcome('Tournament.final_table_deal_manager_stop_failed');
           return false;
         }
 
@@ -6564,6 +6574,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           return this.settleFinalTableDeal(committedReceipt);
         }
         if (!provenRefusal) {
+          this.fenceUnknownTerminalOutcome('Tournament.final_table_deal_manager_stop_failed');
           const alertCode = outcomeUnknown
             ? 'Tournament.final_table_deal_outcome_unknown'
             : 'Tournament.final_table_deal_unclassified_failure';
@@ -6587,7 +6598,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               alertCode,
             });
           }
-          this.fenceUnknownTerminalOutcome('Tournament.final_table_deal_manager_stop_failed');
           return false;
         }
 
@@ -6725,6 +6735,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       this.retireCompletedCustodyAfterTerminalCleanup(receipt.tournamentId);
       this.committedFinalTableDealCleanupPending = false;
       this.committedFinalTableDealReceipt = null;
+    } else if (this.running) {
+      // The first failed terminal tail owns its continuation too. Completion
+      // has no later hand to wake it, and tournamentFinished suppresses the
+      // ordinary refused-finish rearm. Retry cleanup only, from this receipt.
+      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
     }
     return cleaned;
   }
@@ -6864,6 +6879,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         const provenRefusal = satErr instanceof SatelliteSettlementRefusedError;
         const outcomeUnknown =
           satErr instanceof SatelliteSettlementOutcomeUnknownError || !provenRefusal;
+        if (!provenRefusal) {
+          this.fenceUnknownTerminalOutcome(
+            'Tournament.atomic_satellite_finish_manager_stop_failed'
+          );
+        }
         const alertIsNew = this.noteFinishRefusal(provenRefusal, satErr);
         const message =
           `[Satellite:${this.tournamentId.slice(0, 8)}] atomic terminal settlement ` +
@@ -6894,11 +6914,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           reportError(alertErr, 'Tournament.atomic_satellite_finish_alert_failed');
         }
         if (provenRefusal) releaseFinishGuard();
-        if (!provenRefusal) {
-          this.fenceUnknownTerminalOutcome(
-            'Tournament.atomic_satellite_finish_manager_stop_failed'
-          );
-        }
         return;
       }
 
@@ -6918,8 +6933,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         // one alert names the disagreement, and this manager stands down.
         // It is neither re-armed (that was the 5,575-replay loop of
         // 2026-09-10) nor treated as an unknown outcome.
-        await this.reportTerminalReceiptDisagreement(settlementErr);
         this.fenceUnknownTerminalOutcome('Tournament.atomic_finish_disagreement_stop_failed');
+        await this.reportTerminalReceiptDisagreement(settlementErr);
         return;
       }
       const provenRefusal = settlementErr instanceof TerminalSettlementRefusedError;
@@ -6932,6 +6947,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       }
       const outcomeUnknown =
         settlementErr instanceof TerminalSettlementOutcomeUnknownError || !provenRefusal;
+      // Fencing is synchronous; an unavailable alert writer cannot defer it.
+      if (!provenRefusal) {
+        this.fenceUnknownTerminalOutcome('Tournament.atomic_finish_manager_stop_failed');
+      }
       const alertIsNew = this.noteFinishRefusal(provenRefusal, settlementErr);
       if (provenRefusal) {
         // Counted by a bounded reason so a rule can say WHY finishes are
@@ -6967,9 +6986,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         reportError(alertErr, 'Tournament.atomic_finish_alert_failed');
       }
       if (provenRefusal) releaseFinishGuard();
-      if (!provenRefusal) {
-        this.fenceUnknownTerminalOutcome('Tournament.atomic_finish_manager_stop_failed');
-      }
       return;
     }
 
