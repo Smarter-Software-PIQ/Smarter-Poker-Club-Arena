@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 275817,
-      "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+      "bytes": 276110,
+      "sha256": "d7e5d2f9ec932ee89ec040211a7dbf259f794f860caef61db8e3aded3bada90a"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -2382,5 +2382,20 @@
         "currentSHA256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
       }
     ]
+  },
+  "fixedLimitQualificationWiring20261103": {
+    "reason": "Add one native PostgreSQL fixed-limit policy regression to existing accounting shard3. All existing financial commands, assertions, matrices and gates remain unchanged. Current workflow source identity only; no financial or live certificate restamp.",
+    "changes": {
+      "files": {
+        "previous": {
+          "bytes": 275817,
+          "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+        },
+        "current": {
+          "bytes": 276110,
+          "sha256": "d7e5d2f9ec932ee89ec040211a7dbf259f794f860caef61db8e3aded3bada90a"
+        }
+      }
+    }
   }
 }
