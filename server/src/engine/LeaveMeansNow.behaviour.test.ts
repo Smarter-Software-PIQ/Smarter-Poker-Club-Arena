@@ -94,7 +94,7 @@ function makeEngine(livePlayers: LivePlayer[], currentPlayerSeat: number) {
       return true;
     }),
   };
-  e.hub = { emitEvent: vi.fn(), publish: vi.fn() };
+  e.hub = { emitEvent: vi.fn(), publish: vi.fn(), sendToUser: vi.fn() };
   e.broadcastCurrentState = vi.fn(async () => undefined);
   return e;
 }
@@ -182,3 +182,106 @@ for (const [who, id, seat] of [
     });
   });
 }
+
+describe('locked leave protects input without moving chips', () => {
+  it.each([1, 3])(
+    'folds or queues only the original controller when current seat is %s',
+    (actor) => {
+      const live: LivePlayer[] = [
+        { user_id: HUMAN, seat: 1, is_folded: false, is_all_in: false },
+        { user_id: OTHER, seat: 3, is_folded: false, is_all_in: false },
+      ];
+      const e = makeEngine(live, actor);
+      const reply = e.holdLockedLeave(HUMAN, 61000);
+      expect(reply).toMatchObject({
+        success: false,
+        immediate: false,
+        held: true,
+        sittingOut: true,
+        code: 'LEAVE_LOCKED',
+        stay_remaining_ms: 61000,
+      });
+      // Older clients still see a refused cashout, never a successful departure.
+      expect(reply.success).toBe(false);
+      expect(reply.immediate).toBe(false);
+      expect(e.isClientSitOut(HUMAN)).toBe(true);
+      expect(actor === 1 ? live[0].is_folded : queuedAutoFold(e, HUMAN)).toBe(true);
+      expect(e.seatedPlayers.some((p: any) => p.user_id === HUMAN)).toBe(true);
+      expect(departure).not.toHaveBeenCalled();
+      expect(cashout).not.toHaveBeenCalled();
+    }
+  );
+});
+
+describe('committed leave fold is controller owned', () => {
+  it('late clears and calls cannot cancel leave, and a new controller has no fence', () => {
+    const live: LivePlayer[] = [
+      { user_id: HUMAN, seat: 1, is_folded: false, is_all_in: false },
+      { user_id: OTHER, seat: 3, is_folded: false, is_all_in: false },
+    ];
+    const e = makeEngine(live, 3);
+    e.foldLeaverNow(HUMAN);
+    expect(e.setPreAction(HUMAN, 'clear')).toMatchObject({ success: false, code: 'NOT_IN_HAND' });
+    expect(e.setPreAction(HUMAN, 'auto_call')).toMatchObject({
+      success: false,
+      code: 'NOT_IN_HAND',
+    });
+    expect(queuedAutoFold(e, HUMAN)).toBe(true);
+    expect(e.handlePlayerAction(HUMAN, 'call', 10)).toMatchObject({
+      success: false,
+      code: 'NOT_IN_HAND',
+    });
+    const old = e.handController;
+    e.handController = { getState: () => ({ ...old.getState(), currentPlayerSeat: 3 }) };
+    expect(e.hasCommittedLeaveFold(HUMAN)).toBe(false);
+    expect(e.setPreAction(HUMAN, 'clear')).toMatchObject({ success: true });
+    expect(queuedAutoFold(e, HUMAN)).toBe(false);
+  });
+});
+
+it('a late clear/call cannot stop the real turn handler folding the leaver', async () => {
+  const live: LivePlayer[] = [
+    { user_id: HUMAN, seat: 1, is_folded: false, is_all_in: false },
+    { user_id: OTHER, seat: 3, is_folded: false, is_all_in: false },
+  ];
+  const e = makeEngine(live, 3);
+  e.lifecycleCanMutate = () => true;
+  e.actionClockSeconds = () => 15;
+  e.weeklyPayoutContinuation = (p: any) => p;
+  e.sleepHand = async () => {};
+  e.markProgress = vi.fn();
+  e.foldLeaverNow(HUMAN);
+  e.setPreAction(HUMAN, 'clear');
+  e.setPreAction(HUMAN, 'auto_call');
+  e.handController.getState().currentPlayerSeat = 1;
+  await e.handleTurnChange({ type: 'TURN_CHANGE', seat: 1 }, e.seatedPlayers);
+  expect(e.handController.performAction).toHaveBeenCalledWith(1, 'fold', undefined, 'pre_action');
+  expect(live[0].is_folded).toBe(true);
+});
+
+it('validated leave input cannot be overwritten while departure acknowledgement is pending', async () => {
+  const live: LivePlayer[] = [
+    { user_id: HUMAN, seat: 1, is_folded: false, is_all_in: false },
+    { user_id: OTHER, seat: 3, is_folded: false, is_all_in: false },
+  ];
+  const e = makeEngine(live, 3);
+  let acknowledge!: () => void;
+  departure.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        acknowledge = resolve;
+      })
+  );
+  const leaving = e.leaveTable(HUMAN, { occupancyId: OCC[HUMAN], seatNumber: 1 });
+  for (let i = 0; i < 10 && !acknowledge; i++) await Promise.resolve();
+  expect(acknowledge).toBeTypeOf('function');
+  expect(e.setPreAction(HUMAN, 'clear')).toMatchObject({ success: false, code: 'NOT_IN_HAND' });
+  expect(e.setPreAction(HUMAN, 'auto_call')).toMatchObject({ success: false, code: 'NOT_IN_HAND' });
+  expect(e.handlePlayerAction(HUMAN, 'call', 10)).toMatchObject({
+    success: false,
+    code: 'NOT_IN_HAND',
+  });
+  acknowledge();
+  expect(await leaving).toMatchObject({ success: true, immediate: false });
+  expect(queuedAutoFold(e, HUMAN)).toBe(true);
+});

@@ -68,13 +68,11 @@ describe('Leave Table (the menu door)', () => {
   });
 
   it('the stay clock still says when the cash-out opens, and still lets the player look at the lobby', () => {
-    const lock = body.slice(
-      body.indexOf('if (heroLeaveLocked)'),
-      body.indexOf('}', body.indexOf('if (heroLeaveLocked)'))
+    expect(body.slice(0, body.indexOf('const leaveNextHand ='))).not.toContain(
+      'if (heroLeaveLocked)'
     );
-    expect(lock).toMatch(/leaveAvailableLabel\(heroLeaveMs\)/);
-    expect(lock).toMatch(/goToLobbyKeepingSeat\(/);
-    expect(lock).not.toMatch(/toast\.error/);
+    expect(body).toContain('result.tournament || result.held');
+    expect(body).toContain('seatCopy(tableState.arenaAsset).seatStaysTapToReturn');
   });
 });
 

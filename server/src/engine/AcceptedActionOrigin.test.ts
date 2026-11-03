@@ -50,6 +50,7 @@ function harness() {
   // with a real controller, while excluding unrelated clock/lease infrastructure.
   Object.assign(engine, {
     // Fresh constructor custody, distinct from the retained-original tests.
+    leaveFoldControllers: new WeakMap(),
     pendingOriginalContinuation: null,
     handContinuation: null,
     handController: controller,

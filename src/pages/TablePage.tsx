@@ -2743,7 +2743,12 @@ function LiveTablePage({
   // Seat-exit state precedes every snapshot and removal consumer.
   const leftSeatPendingRef = useRef(false);
   const leaveRequestActiveRef = useRef(false);
-  const [leaveAttentionSuppressed, setLeaveAttentionSuppressed] = useState(false);
+  const [leaveAttentionSuppressed, setLeaveAttentionSuppressedState] = useState(false);
+  const leaveAttentionSuppressedRef = useRef(false);
+  const setLeaveAttentionSuppressed = useCallback((suppressed: boolean) => {
+    leaveAttentionSuppressedRef.current = suppressed;
+    setLeaveAttentionSuppressedState(suppressed);
+  }, []);
   const reportedSeatExitsRef = useRef(new Set<string>());
   const presentRemoteSeatExitRef = useRef<() => void>(() => {});
   const [appliedExitSnapshot, setAppliedExitSnapshot] = useState<{
@@ -3397,12 +3402,12 @@ function LiveTablePage({
   // Mirror the discard clock into the shared decision channel so the tab strip
   // can show and alarm it on a table the player is not looking at.
   useEffect(() => {
-    if (pineappleDeadline) {
+    if (pineappleDeadline && !leaveAttentionSuppressed) {
       setDecisionDeadline({ kind: 'discard', at: pineappleDeadline });
     } else {
       setDecisionDeadline((prev) => (prev?.kind === 'discard' ? null : prev));
     }
-  }, [pineappleDeadline]);
+  }, [pineappleDeadline, leaveAttentionSuppressed]);
 
   /* ── CRAZY PINEAPPLE PHASE 3 2026-08-31: MAKE THE DISCARD VISIBLE ─────────
      Until today a discard rendered NOTHING. No card left a seat, no villain's
@@ -7734,7 +7739,9 @@ function LiveTablePage({
     }
     if (heroPromptedToAct && turnAlertDeferred) {
       setTurnAlertDeferred(false);
-      import('../services/HapticService').then(({ haptic }) => haptic.medium());
+      import('../services/HapticService').then(({ haptic }) => {
+        if (!leaveAttentionSuppressedRef.current) haptic.medium();
+      });
       if (soundService.isEnabled() && (isActive || !isMultiTable) && !muted) {
         soundService.playTurnAlert();
       }
@@ -11809,6 +11816,14 @@ function LiveTablePage({
       return 'unreadable';
     }
   };
+  useEffect(() => {
+    if (!leaveAttentionSuppressed) return;
+    setTurnAlertDeferred(false);
+    setShowInsurance(false);
+    setShowRIT(false);
+    setDecisionDeadline(null);
+  }, [leaveAttentionSuppressed]);
+
   const stopLightningForLeave = useLightningLeaveStop(lightningRoom, userId);
   const handleLeaveTable = async () => {
     if (leaveRequestActiveRef.current) return;
@@ -11874,13 +11889,6 @@ function LiveTablePage({
        would refuse this anyway (and the database behind it); saying so here
        saves the round trip. The label is the whole message - and the player
        still goes to the lobby, seat and chips staying on the table, tab open. */
-      if (heroLeaveLocked) {
-        setLeaveAttentionSuppressed(false);
-        goToLobbyKeepingSeat(
-          `${leaveAvailableLabel(heroLeaveMs)}. ${seatCopy(tableState.arenaAsset).seatStaysTapToReturn}`
-        );
-        return;
-      }
 
       /**
        * ═══════════════════════════════════════════════════════════════════════
@@ -11956,13 +11964,17 @@ function LiveTablePage({
               occupancyId: lightningLeave.occupancyId,
             })
           : await tableService.leaveTable(tableId, tableState.heroSeat, userId);
-        if (result.success && result.tournament) {
+        if (result.success && (result.tournament || result.held)) {
           // Leaving an active tournament is a sit-out, not a cashout or a tab close.
           sittingOutIdsRef.current.add(String(userId));
           setHeroSitsOutPerRow(true);
           setSitOutNextHand(true);
           onTableInfoUpdate?.({ isMyTurn: false, sittingOut: true });
-          showLobbyNow();
+          if (result.held)
+            goToLobbyKeepingSeat(
+              `${result.error || 'Your Seat Is Sitting Out.'}. ${seatCopy(tableState.arenaAsset).seatStaysTapToReturn}`
+            );
+          else showLobbyNow();
           return;
         }
         if (result.success) {
@@ -13279,7 +13291,7 @@ function LiveTablePage({
 
         // Find the offer for the current hero player
         const heroOffer = serverOffers.find((o: any) => o.playerId === userId);
-        if (heroOffer) {
+        if (heroOffer && !leaveAttentionSuppressedRef.current) {
           const equityPercent = insuranceOfferEquity(heroOffer.equity);
           if (equityPercent === null) {
             setInsuranceOffer(null);
@@ -13437,7 +13449,8 @@ function LiveTablePage({
         showRitFeltBanner(RIT_WAITING_BANNER);
 
         // Only the all-in players get the consent panel itself.
-        if (!userId || !allPlayerIds?.includes(userId)) return;
+        if (!userId || !allPlayerIds?.includes(userId) || leaveAttentionSuppressedRef.current)
+          return;
 
         setRitAllPlayerIds(allPlayerIds);
         setRitAcceptedIds([chooserId]);
@@ -13466,7 +13479,7 @@ function LiveTablePage({
         if (ritPanelOpenTimerRef.current) clearTimeout(ritPanelOpenTimerRef.current);
         ritPanelOpenTimerRef.current = setTimeout(() => {
           ritPanelOpenTimerRef.current = null;
-          setShowRIT(true);
+          if (!leaveAttentionSuppressedRef.current) setShowRIT(true);
         }, 1500 * getAnimationSpeed());
         return;
       }
@@ -13481,7 +13494,7 @@ function LiveTablePage({
         const acceptedIds = (handState.accepted_ids as string[]) || [chooserId];
         const deadlineTs = Number(handState.deadline_ts) || 0;
 
-        if (!userId) return;
+        if (!userId || leaveAttentionSuppressedRef.current) return;
         if (userId !== chooserId && !waitingFor?.includes(userId) && !acceptedIds.includes(userId))
           return;
 
@@ -19523,7 +19536,7 @@ function LiveTablePage({
           });
           // Bible V8 §5.4: medium haptic when it's hero's turn
           const heroSeat = resolveHeroSeat();
-          if (newSeat === heroSeat) {
+          if (newSeat === heroSeat && !leaveAttentionSuppressedRef.current) {
             // 2026-08-15: hard reset of all-in dramatic mode whenever action
             // reaches hero. isAllInMode was only ever cleared on HAND_STARTED
             // and 3s after HAND_COMPLETE, so a shove earlier in the hand left
@@ -19540,7 +19553,9 @@ function LiveTablePage({
             if (preActionArmedRef.current !== null) {
               setTurnAlertDeferred(true);
             } else {
-              import('../services/HapticService').then(({ haptic }) => haptic.medium());
+              import('../services/HapticService').then(({ haptic }) => {
+                if (!leaveAttentionSuppressedRef.current) haptic.medium();
+              });
               // Bible V8 §5.3: turn alert sound for hero.
               // Batch 2 tiering: the BELL is the active table's sound; a
               // background table's turn start gets the softer ping from
@@ -30745,7 +30760,7 @@ function LiveTablePage({
         /* `isActive` is the gate: see heroPineappleCards. A background table
            alarms through the tab strip instead of painting a dead, unclickable
            panel across the table you are actually playing. */
-        isOpen={isActive && !!heroPineappleCards}
+        isOpen={isActive && !leaveAttentionSuppressed && !!heroPineappleCards}
         /* The discard is a decision, so it can buy time like any other. The
            same endpoint and the same bank; the engine routes a press made
            during the round to this seat's own deadline. */
