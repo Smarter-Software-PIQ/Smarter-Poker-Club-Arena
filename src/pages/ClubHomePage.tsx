@@ -186,7 +186,7 @@ import {
   type FilterGameType,
 } from '../components/lobby/advancedFilterSpec';
 import { cashBoardComparator } from '../components/lobby/cashBoardOrder';
-import { cashBoardVisible } from '../components/lobby/cashBoardVisibility';
+import { cashBoardVisible, cashVariantVisible } from '../components/lobby/cashBoardVisibility';
 import { orderForHeading } from '../components/lobby/lobbySortBridge';
 import { IconShareLink, IconSort } from '../components/icons/LobbyIcons';
 import { CLUB_HOME_CACHE_PREFIX } from '../utils/clearUserCaches';
@@ -1020,6 +1020,7 @@ function ClubHomePageContent({
   const [sortKey, setSortKey] = useState<SortKey>('stakes_high');
   // Empty games require an explicit choice on this lobby visit, on every cash tab.
   const [showEmptyTables, setShowEmptyTables] = useState(false);
+  const [includeFixedLimit, setIncludeFixedLimit] = useState(false);
   const [allStatusFilter, setAllStatusFilter] = usePlayerPreference<AllStatusFilter>(
     'ClubHomePage:allStatusFilter',
     'ALL',
@@ -3705,8 +3706,8 @@ function ClubHomePageContent({
     const tables = boardTables;
 
     /* Advanced Filters apply to the tab they were saved on. On ALL there is no
-       single tab to read, so they do not apply - ALL means "show me
-       everything", and quietly narrowing it would make the tab a lie. */
+       single tab to read, so they do not apply. Fixed-limit has its own explicit
+       Include Limit control and is off by default (owner November 3). */
     const advType = gameType === 'ALL' ? null : (gameType as FilterGameType);
     const advSpec = advType && advType !== 'ALL' ? FILTER_SPECS[advType] : undefined;
     const advValue = advType ? advFilters[advType] : undefined;
@@ -3714,6 +3715,7 @@ function ClubHomePageContent({
     const rows = tables.filter((table) => {
       if (!cashBoardVisible(table as unknown as LobbyTableRow, showEmptyTables)) return false;
       if (gameType !== 'ALL' && cashKind(table) !== gameType) return false;
+      if (!cashVariantVisible(table.game_variant, gameType, includeFixedLimit)) return false;
 
       if (gameType === 'ALL' && allStatusFilter !== 'ALL') {
         const status = String(table.status).toUpperCase();
@@ -3779,6 +3781,7 @@ function ClubHomePageContent({
     allStatusFilter,
     linkedGameId,
     showEmptyTables,
+    includeFixedLimit,
   ]);
 
   /**
@@ -4778,7 +4781,8 @@ function ClubHomePageContent({
        club with 42 NLH tables showed ten of them with nothing saying so. The
        cap is the MTT one.
 
-       ORDER COMES FROM THE SORT CONTROL. Bucketing by game kind overrode
+       Owner November 3: fixed-limit is opt-in and always a final cash tier.
+       ORDER WITHIN EACH TIER COMES FROM THE SORT CONTROL. Bucketing by game kind overrode
        whatever the player had chosen in Sort By; a flat list keeps the order
        filteredTables already put them in, so the control means what it says.
 
@@ -5740,25 +5744,23 @@ function ClubHomePageContent({
                 <LobbyGameSections
                   selected={gameSection}
                   onToggle={(section) => {
+                    if (gameSection === section) return;
                     haptic.selection();
                     setFiltersOpen(false);
-                    const opening = gameSection !== section;
-                    setGameSection(opening ? section : null);
-                    if (opening) {
-                      if (
-                        section === 'cash' &&
-                        allStatusFilter !== 'ALL' &&
-                        allStatusFilter !== 'RUNNING'
-                      ) {
-                        setAllStatusFilter('ALL');
-                      }
-                      const matching =
-                        section === 'cash'
-                          ? gameType === 'ALL' || CASH_TYPES.includes(gameType)
-                          : TOURNAMENT_TYPES.includes(gameType);
-                      // Opening a family is itself a preference, including ALL cash.
-                      selectGameType(matching ? gameType : section === 'cash' ? 'ALL' : 'MTT');
+                    setGameSection(section);
+                    if (
+                      section === 'cash' &&
+                      allStatusFilter !== 'ALL' &&
+                      allStatusFilter !== 'RUNNING'
+                    ) {
+                      setAllStatusFilter('ALL');
                     }
+                    const matching =
+                      section === 'cash'
+                        ? gameType === 'ALL' || CASH_TYPES.includes(gameType)
+                        : TOURNAMENT_TYPES.includes(gameType);
+                    // Opening a family is itself a preference, including ALL cash.
+                    selectGameType(matching ? gameType : section === 'cash' ? 'ALL' : 'MTT');
                   }}
                 />
                 {gameSection && (
@@ -5831,6 +5833,16 @@ function ClubHomePageContent({
                                 <LobbyFilterLabel>{status.label}</LobbyFilterLabel>
                               </button>
                             ))}
+                            {showsCash && (
+                              <button
+                                type="button"
+                                className={`quickprefs__chip ${includeFixedLimit ? 'is-on' : ''}`}
+                                aria-pressed={includeFixedLimit}
+                                onClick={() => setIncludeFixedLimit((included) => !included)}
+                              >
+                                <LobbyFilterLabel>Include Limit</LobbyFilterLabel>
+                              </button>
+                            )}
                             {showEmptyTablesButton}
                             {filterAndSortButton}
                           </div>

@@ -861,22 +861,7 @@ export function HandDetailModal({
              dispute and every chat about a hand opens with. */
           pill={`#${hand.handNumber}`}
           pillInk="blue"
-          plates={{
-            /* The steel plate closes; the blue glass carries the one thing a
-               player comes back to a finished hand for. With no replay handler
-               (the share route, the lobby) the plate says so rather than being
-               painted and empty. */
-            secondary: { label: 'Close', onClick: onClose, 'aria-label': 'Close' },
-            primary: onReplay
-              ? {
-                  label: 'Replay',
-                  ink: 'white' as const,
-                  title: 'Video Replay',
-                  'aria-label': 'Video Replay',
-                  onClick: () => onReplay(hand),
-                }
-              : { label: 'No Replay', ink: 'muted' as const, disabled: true },
-          }}
+          foot="foot"
         >
           <div className="hdm-subheader">
             <span>{stamp(model.playedAt) || new Date(hand.timestamp).toLocaleString()}</span>
@@ -884,44 +869,6 @@ export function HandDetailModal({
               {blindLabel(model.smallBlind)} / {blindLabel(model.bigBlind)}
               {variant ? <em className="hdm-variant">{variant}</em> : null}
             </span>
-          </div>
-
-          {/* TAKING THE HAND WITH YOU: the number, the link, and the share
-              sheet - three lit words on one engraved row, because they are one
-              intention. Share used to be a glyph in the header bar. */}
-          <div className="hdm-sn">
-            <button
-              type="button"
-              className="hdm-copy"
-              title="Copy Hand Number"
-              aria-label={`Copy Hand Number ${hand.handNumber}`}
-              onClick={() => void copyText('number', `#${hand.handNumber}`)}
-            >
-              #{hand.handNumber}
-              <span className="hdm-copy__hint">{copied === 'number' ? 'Copied' : 'Copy'}</span>
-            </button>
-            <button
-              type="button"
-              className="hdm-copy"
-              title="Copy Link To This Hand"
-              aria-label="Copy Link To This Hand"
-              onClick={() => void copyText('link', handDeepLink(hand.id))}
-            >
-              Link
-              <span className="hdm-copy__hint">{copied === 'link' ? 'Copied' : 'Copy'}</span>
-            </button>
-            {onShare && (
-              <button
-                type="button"
-                className="hdm-copy"
-                title="Share Hand"
-                aria-label="Share Hand"
-                onClick={() => onShare(hand)}
-              >
-                Share
-                <span className="hdm-copy__hint">Send</span>
-              </button>
-            )}
           </div>
 
           <div
@@ -1151,6 +1098,35 @@ export function HandDetailModal({
               onClick={() => setTab('detail')}
             >
               Hand Detail
+            </button>
+          </div>
+          <div className="hdm-actions" aria-label="Hand Actions">
+            <button type="button" onClick={onClose} aria-label="Close">
+              Close
+            </button>
+            <button
+              type="button"
+              aria-label="Copy Link To This Hand"
+              onClick={() => void copyText('link', handDeepLink(hand.id))}
+            >
+              {copied === 'link' ? 'Copied' : 'Link'}
+            </button>
+            <button
+              type="button"
+              aria-label="Share Hand"
+              disabled={!onShare}
+              onClick={() => onShare?.(hand)}
+            >
+              Share
+            </button>
+            <button
+              type="button"
+              aria-label="Video Replay"
+              title="Video Replay"
+              disabled={!onReplay}
+              onClick={() => onReplay?.(hand)}
+            >
+              Replay
             </button>
           </div>
         </SpadeConsole>
