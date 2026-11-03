@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { reportError } from '../utils/errorReporter';
+import { TOURNAMENT_START_HOLD_MESSAGE } from '../config/tournamentStartHold';
 
-export const MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE =
-  "MIDWAY UNION MTT'S ARE ON A SERVER UPDATE, THEY WILL BE BACK ONLINE AND RUNNING AT 6PM CST. ALL GAMES ARE FROZE UNTIL THE FINAL SERVER UPDATE IS COMPLETED.";
+export const MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE = TOURNAMENT_START_HOLD_MESSAGE;
 
 export interface TournamentStartHoldStatus {
   blocked: boolean;
