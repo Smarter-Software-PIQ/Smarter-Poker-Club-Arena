@@ -4338,6 +4338,8 @@ jobs:
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true') &&
       needs.changes.outputs.server == 'true'
     name: Browser harness build
+    outputs:
+      artifact_name: ${{ steps.browser_build.outputs.artifact_name }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -4452,8 +4454,10 @@ jobs:
         run: npm run build:ci
 
       - name: Seal this run's browser build
+        id: browser_build
         env:
           EXPECTED_SHA: ${{ github.sha }}
+          BROWSER_ARTIFACT_NAME: browser-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
@@ -4462,11 +4466,12 @@ jobs:
           test -z "$(find dist -type l -print -quit)"
           printf '%s\n' "$EXPECTED_SHA" > dist/.browser-build-sha
           (cd dist && find . -type f ! -name .browser-build-seal -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > .browser-build-seal)
+          printf 'artifact_name=%s\n' "$BROWSER_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload this run's browser build
         uses: actions/upload-artifact@v4
         with:
-          name: browser-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: ${{ steps.browser_build.outputs.artifact_name }}
           path: dist
           include-hidden-files: true
           retention-days: 1
@@ -4672,11 +4677,23 @@ jobs:
 
       # Full qualification already waits on native suites. UI-only checks keep
       # parallel builds rather than inheriting a shared-producer setup barrier.
+      # A failed-jobs-only retry retains the successful producer's original attempt.
+      - name: Require the producer's browser artifact
+        if: needs.changes.outputs.server == 'true'
+        env:
+          BROWSER_ARTIFACT_NAME: ${{ needs.css-beats-build.outputs.artifact_name }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BROWSER_ARTIFACT_NAME"
+          [[ "$BROWSER_ARTIFACT_NAME" =~ ^browser-harness-${EXPECTED_RUN_ID}-[1-9][0-9]*-${EXPECTED_SHA}$ ]]
+
       - name: Download this run's browser build
         if: needs.changes.outputs.server == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: browser-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: ${{ needs.css-beats-build.outputs.artifact_name }}
           path: dist
 
       - name: Verify this run's browser build
