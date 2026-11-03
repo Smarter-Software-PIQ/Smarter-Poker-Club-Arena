@@ -7861,5 +7861,36 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "additionalFiveRefundControlAudit20261103": {
+    "reason": "Reviewed additive exact-five original refund adapter/native helper routing and two routing regressions. Existing financial assertions, fixture data and historical verdicts unchanged. Source identity only; isolated new five-topology evidence is separate.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+        "current": "a7d49ee25418a8540a2447e5c933aea100857f5f7ad93afc8540faa4d92439f0"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previous": "f36f1da26ac928d9766968630c2534d281f9400deabdc7a34854294cfcd4cee0",
+        "current": "d334c8ca762ddbe3183b3f2de08905f435fe4e5373b477524a90568d6c02ef5a"
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb",
+        "current": "180940e5aed7e0caad0cb137b8392465bf84fd5567c02c7c1b4a28ca04177478"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous": "f9ed07229576f2f9750e71cb89f5b09dfe24b5fe047bf069a5dbd0fabe823b8a",
+        "current": "d35e89d0c46a52616760bd7660f776ff401ad8b38c44cf5c87d89e74a9c0dcb7"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previous": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce",
+        "current": "b755e26296a2a8d9db111bfc2d28a22782072fc021a97e19238ab78219e63d93"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

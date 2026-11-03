@@ -1405,5 +1405,16 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "additionalFiveRefundControlAudit20261103": {
+    "reason": "Reviewed additive exact-five original refund adapter/native helper routing and two routing regressions. Existing financial assertions, fixture data and historical verdicts unchanged. Source identity only; isolated new five-topology evidence is separate.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+        "current": "a7d49ee25418a8540a2447e5c933aea100857f5f7ad93afc8540faa4d92439f0"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

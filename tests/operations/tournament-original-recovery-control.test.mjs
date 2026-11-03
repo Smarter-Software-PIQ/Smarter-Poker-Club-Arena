@@ -1377,3 +1377,129 @@ test('owner ACK verifies actual current boundary and read does not actuate', asy
   assert.equal((await read.run('owner_read')).outcome, 'owner_stop_readback');
   assert.equal(retirementWrites(read).length, 0);
 });
+
+const additional = JSON.parse(
+  fs.readFileSync(
+    new URL(
+      '../../scripts/ci/fixtures/tournament-abort/owner-closeout-nov3-additional.json',
+      import.meta.url
+    )
+  )
+);
+function additionalFixture(member, options = {}) {
+  const f = abortFixture(options);
+  const prior = f.fetchImpl;
+  f.fetchImpl = async (url, init) => {
+    const response = await prior(url, init);
+    if (!url.endsWith('/fn_ca_tournament_abort_stop_state')) return response;
+    const value = await response.json();
+    value.operation_id = member.original_operation_id;
+    value.tournament_id = member.tournament_id;
+    if (value.receipt)
+      Object.assign(value.receipt, {
+        operation_id: member.original_operation_id,
+        tournament_id: member.tournament_id,
+      });
+    Object.assign(value, options.canonical ?? {});
+    return { ok: true, json: async () => value };
+  };
+  return f;
+}
+for (const member of additional.targets) {
+  test(`additional refund retains original operation and payer: ${member.tournament_id}`, async () => {
+    const f = additionalFixture(member);
+    const request = {
+      ...input,
+      action: 'additional_refund_settle',
+      tournamentId: member.tournament_id,
+      moneyHash: '0'.repeat(32),
+    };
+    const r = await controlOriginalRecovery(request, {
+      ...f,
+      serviceIdentity: 'isolated-key',
+      supabaseUrl: db,
+    });
+    assert.equal(r.outcome, 'original_abort_settled_readback');
+    assert.equal(r.request.action, request.action);
+    assert.equal(r.request.operationId, member.original_operation_id);
+    const writes = f.calls.filter((c) => c.url.endsWith('/fn_ca_settle_tournament_abort'));
+    assert.equal(writes.length, 1);
+    assert.deepEqual(JSON.parse(writes[0].options.body), {
+      p_operation_id: member.original_operation_id,
+      p_tournament_id: member.tournament_id,
+      p_expected_money_hash: request.moneyHash,
+    });
+    assert.equal(
+      f.calls.some((c) =>
+        /owner_retire|bank_refund|equal_share|request_tournament_abort|\/admin\//.test(c.url)
+      ),
+      false
+    );
+  });
+}
+const additionalMember = additional.targets[0];
+const additionalInput = {
+  ...input,
+  tournamentId: additionalMember.tournament_id,
+  action: 'additional_refund_settle',
+  moneyHash: '0'.repeat(32),
+};
+for (const canonical of [
+  { state: 'stop_requested' },
+  { current_boundary_valid: false },
+  { quiescence_generation: input.nonce },
+  { current_generation: input.nonce },
+  { money_hash: '1'.repeat(32) },
+  { operation_id: input.nonce },
+]) {
+  test(`additional refund refuses changed boundary ${JSON.stringify(canonical)}`, async () => {
+    const f = additionalFixture(additionalMember, { canonical });
+    const r = await controlOriginalRecovery(additionalInput, {
+      ...f,
+      serviceIdentity: 'isolated-key',
+      supabaseUrl: db,
+    });
+    assert.equal(r.outcome, 'unknown');
+    assert.equal(f.calls.filter((c) => c.url.endsWith('/fn_ca_settle_tournament_abort')).length, 0);
+  });
+}
+test('additional refund read, already-settled, and lost ACK never repay', async () => {
+  for (const options of [{ read: true }, { initiallySettled: true }, { timeout: true }]) {
+    const f = additionalFixture(additionalMember, options);
+    const r = await controlOriginalRecovery(
+      { ...additionalInput, ...(options.read ? { action: 'additional_refund_read' } : {}) },
+      { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+    );
+    assert.equal(
+      f.calls.filter((c) => c.url.endsWith('/fn_ca_settle_tournament_abort')).length,
+      options.timeout ? 1 : 0
+    );
+    assert.equal(
+      r.outcome,
+      options.timeout
+        ? 'unknown'
+        : options.read
+          ? 'original_abort_readback'
+          : 'original_abort_already_settled'
+    );
+    if (options.timeout) assert.equal(r.canonicalAfter.state, 'settled');
+  }
+});
+test('additional refund cannot enter original140, arbitrary event, legacy mutation, or unreviewed money', async () => {
+  for (const change of [
+    { tournamentId: other },
+    { tournamentId: input.nonce },
+    { action: 'abort_settle' },
+    { moneyHash: undefined },
+    { sha: 'bad' },
+  ]) {
+    const f = additionalFixture(additionalMember);
+    await assert.rejects(
+      controlOriginalRecovery(
+        { ...additionalInput, ...change },
+        { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+      )
+    );
+    assert.equal(f.calls.length, 0);
+  }
+});
