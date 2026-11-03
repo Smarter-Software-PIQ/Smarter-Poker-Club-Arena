@@ -38,14 +38,6 @@ if (scenario === 'near-limit') {
   }
   globalThis.fixtureBallast = ballast;
 }
-if (scenario === 'scan-deadline') {
-  let chain = Object.prototype;
-  for(let i=0;i<200;i++) chain=Object.create(chain);
-  // Keep a real uncached deep span after suffix caching: each owner has
-  // distinct prototypes through depth two, retaining the original ~200k
-  // object footprint and an uncached span for the midpoint deadline test.
-  globalThis.deadlineBallast=Array.from({length:50000},()=>Object.create(Object.create(Object.create(Object.create(chain)))));
-}
 if (scenario === 'overflow' || scenario === 'at-cap') {
   globalThis.overflowOwners = Array.from({ length:scenario === 'overflow' ? addon.maxMatches+1 : addon.maxMatches-12 }, () => new types[0]());
 }
@@ -113,19 +105,14 @@ try {
     assert.throws(() => addon.collect(marker, Date.now()+shortBudget, process.availableMemory(), 'eed-80s-v1'), /EED heap time admission/);
     untouched();
   } else if (scenario === 'scan-deadline') {
-    // Calibrate actual native predicate span in this isolated process, then
-    // expire midway through that real span. No mocked clock or production hook.
-    addon.collect(marker,Date.now()+30000,process.availableMemory());
-    const calibration=addon.diagnostics();
-    const span=calibration.lastValidAtMs-calibration.firstValidAtMs;
-    assert.ok(span>=20,'real scan span insufficient for a meaningful midpoint');
-    const budget=calibration.firstValidAtMs-calibration.queryStartedAtMs+Math.ceil(span/2);
+    // Qualification-only preload controls only this addon's external chrono clock.
+    // Other clocks remain real; no timing prediction from a prior GC is used.
     for(const top of tops)Object.setPrototypeOf(top,Object.prototype);
-    const deadline=Date.now()+budget;
+    const deadline=Date.now()+30000;
     bindLegacyCensusModules.call(modules,key,deadline,addon);
     assert.throws(()=>collectMarkedLegacyCensus(key,deadline),/deadline/);
     const diag=addon.diagnostics();
-    assert.ok(diag.validPredicateVisits>0,'must start actual predicate before expiry');
+    assert.equal(diag.validPredicateVisits,98,'controlled native clock did not bind exactly');
     assert.equal(diag.deadlineRefused,true);
     assert.equal(diag.arrayAllocated,false);
     assert.equal(Object.hasOwn(globalThis,key),false);
@@ -177,5 +164,6 @@ assert.equal(traps,0);
 for (const top of tops) assert.equal(Object.getPrototypeOf(top),Object.prototype);
 assert.ok(detached() instanceof types[2]);
 console.log(JSON.stringify({ok:true,scenario,node:process.version,platform:process.platform,arch:process.arch,
+  clockProof:scenario==='scan-deadline'?'qualification-only-interposed-native-clock':'real-clock',
   before,after:memory(),matched:result?.length??null,prototypeRestored:true,proxyTraps:traps,
   managedOutputBytes:addon.managedOutputBytes,prototypeCacheBytes:addon.prototypeCacheBytes,maxMatches:addon.maxMatches,attempt:addon.diagnostics()}));

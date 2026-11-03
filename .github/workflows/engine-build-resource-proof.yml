@@ -22,6 +22,7 @@ on:
       - server/scripts/legacy-engine-checkpoint-guard.mjs
       - tests/operations/legacy-census-scale-preflight.test.py
       - tests/operations/legacy-census-native.mjs
+      - tests/operations/legacy-census-clock.cc
       - tests/operations/legacy-census-source.test.mjs
       - tests/operations/eed-checkpoint-budget.test.py
       - tests/operations/eed-checkpoint-helper-budget.test.mjs
