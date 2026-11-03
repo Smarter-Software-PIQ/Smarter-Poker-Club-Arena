@@ -130,6 +130,11 @@
       "file": "supabase/migrations/20261027171556_zero_rakeback_receipts_need_no_player_wallet.sql",
       "by": "20261027175926",
       "reason": "Installed171556 preserved the positive-only PLAYER-wallet cohort and actual zero-due receipt without minting a wallet.175926 retains that exact WHERE owed>0 clause and every payment/source/certificate/invoice/deferred-reserve guard, changing only the existing R3 batch stop to respect its original scope deadline when chunked. Its qualified60570d34b4704fe81ff2de7fc43ad770 postimage supersedes171556 inline b07 live-proof. Immutable171556 SQL/history and paid financial math are unchanged; never replay its old exact-body patch against the evolved owner."
+    },
+    {
+      "file": "supabase/migrations/20261102150315_the_fifteen_frozen_diamond_events_close_and_their_diamonds_g.sql",
+      "by": "20261102180105",
+      "reason": "Never installed. The later owner direction replaced the house destination with verified KingFish and canonical per-event retirement. The historical SQL already aborts before every DDL or money write with owner_house_disposition_superseded_use_verified_kingfish_retirement; its bytes remain inputs to maintained hand-continuation and owner-bank-refund qualification. Installed20261102180105 supplies the original fn_ca_owner_retire_tournament and version6 receipt, with immutable original140 scope, physical quiescence, prior-award and unpaid-obligation guards. Read-only production verification2026-11-03 confirms180105 history, fifteen Diamond intents all destination47965354-0e56-43ef-931c-ddaab82af765 and no version5 or version6 closeout receipts yet. Supersession records the replaced authority, not completed settlements: the fifteen events still require their canonical physical boundary and individual retirement receipts. No migration history, financial SQL or money is changed."
     }
   ],
   "_superseded": "A merged migration that must never run, because a later file replaced it, is marked by a first line `-- SUPERSEDED BY <version>` or, when the file is byte-pinned and cannot be edited, by a row here. Either way the named version must have a file in this tree, or the mark is ignored."
