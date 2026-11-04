@@ -60,6 +60,43 @@ vi.mock('../remainingVariants/RemainingVariantLivePolicy.js', async (importOrigi
   };
 });
 import { performance } from 'node:perf_hooks';
+import { resolveHorseHybridProfile } from '../HorseHybridProfile.js';
+describe('Hybrid v1 reaches the real decision brain', () => {
+  it.each(['cash', 'tournament'] as const)(
+    'records actual %s use after a real decision',
+    async (mode) => {
+      const h = harness(true);
+      const request = mode === 'cash' ? structuredClone(fastRequest()) : phase6TournamentRequest();
+      const profile = resolveHorseHybridProfile(
+        { style: 'lag', aggression: 1.5 },
+        request.player.user_id,
+        mode
+      );
+      request.style = profile.style;
+      request.mods = profile.mods;
+      h.runtime.receive(rekey(request));
+      await h.runtime.drain();
+      expect(h.messages.at(-1)).toMatchObject({ type: 'FAST_RESULT' });
+      expect(h.features).toContain(
+        mode === 'cash' ? 'hybrid_v1_cash_grinder_decided' : 'hybrid_v1_tournament_tricky_decided'
+      );
+      expect(h.features).not.toContain(
+        mode === 'cash' ? 'hybrid_v1_tournament_tricky_decided' : 'hybrid_v1_cash_grinder_decided'
+      );
+    }
+  );
+
+  it('does not report hybrid use when the decision throws', async () => {
+    const h = harness();
+    const request = structuredClone(fastRequest());
+    Object.assign(request, resolveHorseHybridProfile({}, request.player.user_id, 'cash'));
+    h.setThrowDecision(true);
+    h.runtime.receive(rekey(request));
+    await h.runtime.drain();
+    expect(h.messages.at(-1)).toMatchObject({ type: 'ERROR' });
+    expect(h.features.filter((key) => key.startsWith('hybrid_v1_'))).toEqual([]);
+  });
+});
 
 import type { HorseDecideOpts } from '../HorseLogic.js';
 import type { HorseMindDecisionEffect } from '../HorseMind.js';

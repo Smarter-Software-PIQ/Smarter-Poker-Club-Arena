@@ -248,7 +248,14 @@ export interface PreflopCtx {
    * base open bar, `sbLimpFloor` the small blind's limp floor, `players`
    * behind hero. Undefined = the legacy open (the explicit off arm).
    */
-  gtoOpen?: { strength: number; bar: number; sbLimpFloor: number; behind: number };
+  gtoOpen?: {
+    strength: number;
+    bar: number;
+    sbLimpFloor: number;
+    behind: number;
+    /** Dedicated opening multiplier; legacy callers retain their style. */
+    tightness?: number;
+  };
   /**
    * V72 GTO DEFENCE BY OPENER (2026-10-31, HorseGtoDefenceRanges): facing one
    * no-limit hold'em open with nobody in, three or more dealt in. `strength`
@@ -1239,7 +1246,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     let openThresh: number;
     if (v70Open) {
       // V70: the seat's own base bar (its target share, ante tables wider),
-      // scaled by the style and the ICM premium exactly as before. Antes,
+      // scaled by its opening multiplier and the ICM premium. The hybrid
+      // retains reference widths without changing other style thresholds. Antes,
       // the full-ring early seats, depth and the tournament widen are inside
       // the targets; the spin structure, the Phase 6 cell and the bubble
       // widen below still move it. An ante-free tournament under 50bb keeps
@@ -1247,7 +1255,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // the 40bb no-ante MTT card ran -1.17 +/- 0.61 bb/100 without it over
       // four seeds and -0.35 +/- 0.53 with it.
       openThresh =
-        t(ctx.gtoOpen!.bar) -
+        capBar(ctx.gtoOpen!.bar * (ctx.gtoOpen!.tightness ?? ctx.tightness) + ctx.riskAdd) -
         (ctx.format === 'spin' ? 0.05 : 0) +
         vs35.open +
         phase6Shift('open') +

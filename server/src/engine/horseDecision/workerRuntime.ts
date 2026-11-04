@@ -1,4 +1,5 @@
 import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
+import { horseHybridDecisionMatches } from '../HorseHybridProfile.js';
 import { HorsePlanReadCapture } from '../HorsePlanReadReceipt.js';
 import { HorseRangeConsumptionCapture } from '../HorseRangeConsumptionReceipt.js';
 import { horseHistoryReadProvenanceIsValid } from './ownPublicHistoryProvenance.js';
@@ -2688,6 +2689,14 @@ export class HorseDecisionWorkerRuntime {
       rngAfter = this.deps.saveRng();
     } finally {
       this.deps.restoreRng(canonicalRng);
+    }
+    if (
+      !captured.value.policyFallback &&
+      horseHybridDecisionMatches(request.gameState.gameMode, request.style, request.mods)
+    ) {
+      if (request.gameState.gameMode === 'cash')
+        this.deps.noteFeature('hybrid_v1_cash_grinder_decided');
+      else this.deps.noteFeature('hybrid_v1_tournament_tricky_decided');
     }
     this.bindPhase8Authority(captured.value, phase8.receipt);
     this.bindPhase8GuardAuthority(captured.value, phase8Guard.receipt);

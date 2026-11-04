@@ -2577,6 +2577,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     0.99
   ),
   receipt(
+    'hybrid_v1_cash_grinder_decided',
+    'HorseDecisionWorkerRuntime.executeFast',
+    'a non-fallback cash decision ran the exact Hybrid v1 Grinder inputs; execution count, not proof of profitability or accepted action',
+    'HybridV1'
+  ),
+  receipt(
+    'hybrid_v1_tournament_tricky_decided',
+    'HorseDecisionWorkerRuntime.executeFast',
+    'a non-fallback tournament decision ran the exact Hybrid v1 Tricky inputs; execution count, not proof of profitability or accepted action',
+    'HybridV1'
+  ),
+  receipt(
     'phase6_tournament_context',
     'HorseLogic (Phase6)',
     'a live tournament decision received the schema-v1 tournament context',

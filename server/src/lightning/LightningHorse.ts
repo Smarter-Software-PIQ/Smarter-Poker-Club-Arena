@@ -23,7 +23,8 @@
  * The think time is mapped exactly as the physical engine maps it, including
  * the time-bank burn for a "tank" decision when the horse's bank is usable.
  */
-import { HorseLogic, resolveHorseStyle, type HorseGameStateV2 } from '../engine/HorseLogic.js';
+import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
+import { resolveHorseHybridProfile } from '../engine/HorseHybridProfile.js';
 import { horseVariantRulesFor } from '../engine/VariantRules.js';
 import {
   captureHorseHandJournalContext,
@@ -111,7 +112,7 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     minRaiseTo = null;
     maxRaiseTo = null;
   }
-  const { style, mods } = resolveHorseStyle(turn.horseProfile as never, turn.userId);
+  const { style, mods } = resolveHorseHybridProfile(turn.horseProfile, turn.userId, 'cash');
   const decisionPlayer: SeatPlayer = { ...me, cards: [...me.cards], knownDeadCards: [] };
   const publicPlayers: SeatPlayer[] = state.players.map((candidate) => {
     const { knownDeadCards: _private, ...pub } = candidate;

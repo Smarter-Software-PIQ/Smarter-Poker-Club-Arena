@@ -415,6 +415,8 @@ const snapBetSize = (amount: number, min: number, max: number, step: number): nu
 interface StyleParams {
   /** <1 = looser preflop, >1 = tighter preflop */
   tightness: number;
+  /** Opening-only multiplier transported to the preflop decision owner. */
+  nlhOpeningTightness?: number;
   /** scales bluff / semi-bluff frequencies */
   bluffFreq: number;
   /** scales 3-bet / raise aggression */
@@ -490,6 +492,10 @@ export interface HorseProfileMods {
   tightness?: number;
   bluffFreq?: number;
   sizingMultiplier?: number;
+  /** Source-assigned hybrid: use the maintained NLH opening widths. This
+   * replaces only the static style multiplier for RFI and its derived
+   * vs-3-bet continuation width, preserving floor, variant and ICM inputs. */
+  referenceNlhOpenings?: true;
   /** Historical review counts; diagnostic only, never causal policy authority. */
   leaks?: Record<string, number>;
   /** V40: reviewed hands the leak counts were taken over (the denominator). */
@@ -4793,6 +4799,9 @@ export class HorseLogic {
       aggression: base.aggression * (mods.aggression ?? 1),
       sizingMultiplier: base.sizingMultiplier * (mods.sizingMultiplier ?? 1),
     };
+    // The hybrid's donor/style tightness still owns other decision families.
+    // Applying it again to calibrated RFI widths silently undoes those ranges.
+    params.nlhOpeningTightness = mods.referenceNlhOpenings === true ? 1 : params.tightness;
     // Observational reports remain visible, without changing prices, gates or RNG.
     if (opts.v41Leaks !== false && telemetryOn(opts) && hasHorseReviewSignals(mods)) {
       noteFire('phase14_review_signal_ignored');
@@ -4847,6 +4856,7 @@ export class HorseLogic {
       params.slowplayFreq *= vpost.slowplayMul;
       params.checkRaiseFreq *= vpost.checkRaiseMul;
       params.tightness *= vpost.tightnessMul;
+      params.nlhOpeningTightness *= vpost.tightnessMul;
       params.callRespect = vpost.callRespect;
       if (styleName === 'balanced') {
         params.slowplayFreq = Math.min(params.slowplayFreq, 0.14);
@@ -4869,6 +4879,7 @@ export class HorseLogic {
     {
       const vfMul = vpipFloorMul(gs);
       params.tightness *= vfMul;
+      params.nlhOpeningTightness *= vfMul;
       if (telemetryOn(opts) && Number(gs.vpipFloor ?? 0) > 0) {
         noteFire('vpip_floor');
         const own = gs.ownVpip;
@@ -6795,6 +6806,7 @@ export class HorseLogic {
       return {
         strength: clamp01(mapped + strengthJitter),
         bar: gtoOpenBar(behind, ante70, dealt70, gs.gameMode === 'cash'),
+        tightness: params.nlhOpeningTightness ?? params.tightness,
         sbLimpFloor: gtoSbLimpFloor(ante70, dealt70),
         behind,
       };
@@ -6905,7 +6917,8 @@ export class HorseLogic {
         reRaiseRiskBB: risk73 / bb,
         effectiveBB: effBB,
         deepDiscipline: (opts.v21Deep ?? true) !== false,
-        tightness: params.tightness,
+        // V73/V75 derive their continuation width from the range we opened.
+        tightness: params.nlhOpeningTightness ?? params.tightness,
         ...(squeeze75 ? { liveCallersBehind: callersOfPreviousRaise } : {}),
       });
       if (!r73) return undefined;
