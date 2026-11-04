@@ -152,6 +152,21 @@ else:
                    RELEASE_SEAL=str(self.seal), SEAL_STATE=str(self.state),
                    SEAL_CALLS=str(self.seal_calls))
         env.update(extra_env or {})
+        # Map only the production canonical URL into this isolated real history.
+        # The actual host guard and ancestry operations remain unchanged.
+        bin_dir = self.directory / 'bin'
+        bin_dir.mkdir(exist_ok=True)
+        script = bin_dir / 'git'
+        script.write_text('#!' + sys.executable + '\n' +
+            'import os, sys\n'
+            'args = sys.argv[1:]\n'
+            'url = "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena.git"\n'
+            'if "fetch" in args and url in args:\n'
+            '    args[args.index(url)] = os.environ["REPO_DIR"]\n'
+            '    args = ["-c", "protocol.file.allow=always"] + args\n'
+            'os.execv(' + repr(REAL_GIT) + ', [' + repr(REAL_GIT) + '] + args)\n')
+        script.chmod(0o700)
+        env['PATH'] = str(bin_dir) + os.pathsep + env['PATH']
         shell = f'''set -euo pipefail
 NOW=600
 BREAK_END_EPOCH=0
