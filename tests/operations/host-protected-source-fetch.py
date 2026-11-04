@@ -112,6 +112,21 @@ os.execv(os.environ['FIXTURE_GIT'], [os.environ['FIXTURE_GIT']] + args)
                     self.assertFalse(marker.exists())
                     self.assertEqual((repo/'.git/config').read_bytes(), before)
 
+    def test_worktree_transport_configuration_refuses_before_fetch(self):
+        for command in COMMANDS:
+            with tempfile.TemporaryDirectory() as folder:
+                repo, _, _, marker, env, git = self.scene(folder)
+                git(repo, 'config', 'extensions.worktreeConfig', 'true')
+                git(repo, 'config', '--worktree', 'url.https://wrong.invalid/.insteadOf',
+                    'https://github.com/')
+                configs = [repo/'.git/config', repo/'.git/config.worktree']
+                before = [p.read_bytes() for p in configs]
+                result = subprocess.run(['bash', '-euo', 'pipefail', '-c', command],
+                    env=env, capture_output=True, timeout=15)
+                self.assertEqual(result.returncode, 78, result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertEqual([p.read_bytes() for p in configs], before)
+
     def test_unavailable_source_refuses_without_advancing_main(self):
         for command in COMMANDS:
             with tempfile.TemporaryDirectory() as folder:

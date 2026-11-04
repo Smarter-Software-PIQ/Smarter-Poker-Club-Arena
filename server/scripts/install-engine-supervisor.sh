@@ -214,7 +214,7 @@ for attempt in 1 2 3; do
     # Fetch public source without changing origin or using host credentials.
     # Local includes, rewrites and HTTP overrides must not redirect this request.
     if git -C "$1" config --local --no-includes --name-only \
-      --get-regexp "^(url\..*\.insteadof|include\..*|includeif\..*|http\..*)$" >/dev/null; then
+      --get-regexp "^(url\..*\.insteadof|include\..*|includeif\..*|http\..*|extensions\.worktreeconfig)$" >/dev/null; then
       echo "unsafe local Git transport configuration" >&2
       exit 78
     else
