@@ -71,6 +71,15 @@ try {
     globalThis.cacheDepthRefusal=Object.create(accepted);
     assert.throws(()=>addon.collect(marker,Date.now()+30000,process.availableMemory()),/topology/);
     assert.equal(addon.diagnostics().arrayAllocated,false);
+    delete globalThis.cacheDepthRefusal;
+    let nullChain=null;
+    for(let i=0;i<256;i++)nullChain=Object.create(nullChain);
+    const nullAccepted=Object.create(nullChain);globalThis.cacheNullBoundary=nullAccepted;
+    result=addon.collect(marker,Date.now()+30000,process.availableMemory());
+    assert.equal(result.includes(nullAccepted),false,'null at depth256 stays a complete nonmatch');
+    globalThis.cacheNullRefusal=Object.create(nullAccepted);
+    assert.throws(()=>addon.collect(marker,Date.now()+30000,process.availableMemory()),/topology/);
+    assert.equal(addon.diagnostics().arrayAllocated,false);
   } else if (scenario === 'eed-profile') {
     // Same concrete five classes and detached owner, with the exact opt-in.
     result = addon.collect(marker, Date.now()+58000, process.availableMemory(), 'eed-80s-v1');

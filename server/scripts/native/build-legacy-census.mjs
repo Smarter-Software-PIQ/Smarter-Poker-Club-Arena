@@ -51,7 +51,7 @@ try {
   let instrumented = replaceOne(
     actual,
     'struct Attempt {',
-    'struct Attempt {\n  uint64_t prototypeSteps = 0; int firstHandles = 0, lastHandles = 0;'
+    'struct Attempt {\n  uint64_t prototypeSteps = 0, identityHashes = 0; int firstHandles = 0, lastHandles = 0;'
   );
   instrumented = replaceOne(
     instrumented,
@@ -65,9 +65,10 @@ try {
   instrumented = replaceOne(
     instrumented,
     'NUMBER(predicateVisits);',
-    'NUMBER(prototypeSteps); NUMBER(firstHandles); NUMBER(lastHandles); NUMBER(predicateVisits);'
+    'NUMBER(prototypeSteps); NUMBER(identityHashes); NUMBER(firstHandles); NUMBER(lastHandles); NUMBER(predicateVisits);'
   );
   instrumented = instrumented.replaceAll('cursor = cursor.As<v8::Object>()->GetPrototype();', '++lastAttempt.prototypeSteps; cursor = cursor.As<v8::Object>()->GetPrototype();');
+  instrumented = instrumented.replaceAll('const int hash = ', '++lastAttempt.identityHashes; const int hash = ');
   const probeSource = path.join(probeDir, 'instrumented.cc');
   const probeAddon = path.join(probeDir, 'instrumented.node');
   fs.writeFileSync(probeSource, instrumented);
@@ -108,8 +109,8 @@ try {
     'struct Attempt {',
     'struct Attempt {\n  uint64_t cachePins=0, positivePins=0, handlesBefore=0, handlesAfter=0;');
   cacheInstrumented = replaceOne(cacheInstrumented,
-    'entries_[size_] = {prototype, matches};',
-    '++lastAttempt.cachePins; if(matches)++lastAttempt.positivePins; entries_[size_] = {prototype, matches};');
+    'entries_[size_] = {prototype, matches, distance};',
+    '++lastAttempt.cachePins; if(matches)++lastAttempt.positivePins; entries_[size_] = {prototype, matches, distance};');
   cacheInstrumented = replaceOne(cacheInstrumented,
     'lastAttempt.queryStartedAtMs = Now();',
     'lastAttempt.handlesBefore = v8::HandleScope::NumberOfHandles(isolate);\n  lastAttempt.queryStartedAtMs = Now();');
@@ -154,21 +155,38 @@ try {
     const marker={};class Owner{};Object.setPrototypeOf(Owner.prototype,marker);
     const active=new Owner();const detached=(()=>{const v=new Owner();return()=>v})();
     let tail=Object.prototype;for(let i=0;i<200;i++)tail=Object.create(tail);
-    const ballast=Array.from({length:100000},()=>Object.create(Object.create(tail)));
+    const wrappers=Number(process.argv[2]);
+    const ballast=Array.from({length:100000},()=>{let value=tail;for(let i=0;i<wrappers;i++)value=Object.create(value);return value;});
     globalThis.suffixFixture={active,detached,ballast,tail,Owner};
     const result=addon.collect(marker,Date.now()+30000,process.availableMemory());
     const attempt=addon.diagnostics();
     assert(result.includes(active)&&result.includes(detached()));
     assert(!result.includes(ballast[0]));
     assert(attempt.predicateVisits>=200000);
-    assert(attempt.prototypeSteps<1000000,'shared suffix classification repeated per unique wrapper');
+    assert(attempt.identityHashes<=attempt.predicateVisits*2,'hash work grew with suffix depth');
+    assert(attempt.prototypeSteps<(wrappers===2?1000000:2000000),'shared suffix classification repeated per unique wrapper');
     assert.equal(attempt.deadlineRefused,false);assert.equal(attempt.arrayAllocated,true);
-    console.log(JSON.stringify({schema:'legacy-census-shared-suffix/v1',attempt,detachedComplete:true}));
+    console.log(JSON.stringify({schema:'legacy-census-shared-suffix/v1',wrappers,attempt,detachedComplete:true}));
+  `;
+  const uniqueProbe = `
+    const assert=require('node:assert/strict');const addon=require(process.argv[1]);
+    const marker={};class Owner{};Object.setPrototypeOf(Owner.prototype,marker);
+    const owner=new Owner(),chains=[];
+    for(let i=0;i<1000;i++){let p=null;for(let j=0;j<200;j++)p=Object.create(p);chains.push(p);}
+    globalThis.uniqueFixture={chains,owner};
+    const result=addon.collect(marker,Date.now()+30000,process.availableMemory());
+    assert(result.includes(owner));for(const x of chains)assert(!result.includes(x));
+    const attempt=addon.diagnostics();
+    assert(attempt.predicateVisits>=200000);assert.equal(attempt.matched,2);
+    assert(attempt.identityHashes<=attempt.predicateVisits*2,'hash work grew with unshared depth');
+    assert(attempt.cachePins<=4096);assert.equal(attempt.deadlineRefused,false);
+    console.log(JSON.stringify({schema:'legacy-census-unshared-suffix/v1',attempt}));
   `;
   for (const collision of [false, true]) {
-    const text = collision ? replaceOne(cacheInstrumented,
-      'const int hash = prototype->GetIdentityHash();',
-      'const int hash = (prototype->GetIdentityHash(), 1);') : cacheInstrumented;
+    let text = cacheInstrumented;
+    if (collision) for (const name of ['prototype','candidate']) text = replaceOne(text,
+      'const int hash = '+name+'->GetIdentityHash();',
+      'const int hash = ('+name+'->GetIdentityHash(), 1);');
     fs.writeFileSync(probeSource, text);
     const compiledCache = spawnSync(compiler, probeOptions, {encoding:'utf8',timeout:60000});
     assert.equal(compiledCache.status,0,compiledCache.stderr || String(compiledCache.error));
@@ -177,9 +195,14 @@ try {
       {encoding:'utf8',timeout:40000,maxBuffer:16384});
     assert.equal(qualified.status,0,qualified.stdout+'\n'+qualified.stderr+'\n'+String(qualified.error));
     console.error(qualified.stdout.trim());
-    if (!collision) {
+    const unique = spawnSync(process.execPath,
+      ['--max-old-space-size=256','-e',uniqueProbe,probeAddon],
+      {encoding:'utf8',timeout:40000,maxBuffer:16384});
+    assert.equal(unique.status,0,unique.stdout+'\n'+unique.stderr+'\n'+String(unique.error));
+    console.error(unique.stdout.trim());
+    if (!collision) for (const wrappers of [2, 4]) {
       const suffix = spawnSync(process.execPath,
-        ['--max-old-space-size=256','-e',suffixProbe,probeAddon],
+        ['--max-old-space-size=256','-e',suffixProbe,probeAddon,String(wrappers)],
         {encoding:'utf8',timeout:40000,maxBuffer:16384});
       assert.equal(suffix.status,0,suffix.stdout+'\n'+suffix.stderr+'\n'+String(suffix.error));
       console.error(suffix.stdout.trim());

@@ -49,9 +49,9 @@ thread_local Attempt lastAttempt;
 // read after that call returns. No Global handles or young-global list growth.
 class PrototypeCache final {
  public:
-  struct Entry { v8::Local<v8::Object> prototype; bool matches = false; };
+  struct Entry { v8::Local<v8::Object> prototype; bool matches = false; uint16_t distance = 0; };
   bool Lookup(v8::Local<v8::Object> prototype, int hash,
-              bool* matches, size_t* vacant) const {
+              bool* matches, uint16_t* distance, size_t* vacant) {
     *vacant = kPrototypeSlots;
     const size_t start = static_cast<unsigned>(hash) & (kPrototypeSlots - 1);
     for (size_t probe = 0; probe < kPrototypeProbes; ++probe) {
@@ -59,8 +59,18 @@ class PrototypeCache final {
       const auto index = slots_[slot];
       if (index == 0) { *vacant = slot; return false; }
       const auto& entry = entries_[index - 1];
-      if (entry.prototype->StrictEquals(prototype)) {
-        *matches = entry.matches; return true;
+      if (entry.prototype == prototype) {
+        *matches = entry.matches; *distance = entry.distance; Touch(index); return true;
+      }
+    }
+    return false;
+  }
+  bool Recent(v8::Local<v8::Object> prototype, bool* matches, uint16_t* distance) {
+    for (const auto index : recent_) {
+      if (index == 0) continue;
+      const auto& entry = entries_[index - 1];
+      if (entry.prototype == prototype) {
+        *matches = entry.matches; *distance = entry.distance; Touch(index); return true;
       }
     }
     return false;
@@ -68,11 +78,17 @@ class PrototypeCache final {
   bool CanStore(size_t vacant) const {
     return vacant != kPrototypeSlots && size_ < kPrototypeEntries;
   }
-  void Store(v8::Local<v8::Object> prototype, size_t vacant, bool matches) {
-    entries_[size_] = {prototype, matches};
+  void Store(v8::Local<v8::Object> prototype, size_t vacant, bool matches, uint16_t distance) {
+    entries_[size_] = {prototype, matches, distance};
     slots_[vacant] = static_cast<uint16_t>(++size_);
+    Touch(static_cast<uint16_t>(size_));
   }
  private:
+  void Touch(uint16_t index) {
+    if (recent_[0] == index) return;
+    recent_[1] = recent_[0]; recent_[0] = index;
+  }
+  std::array<uint16_t, 2> recent_{};
   std::array<Entry, kPrototypeEntries> entries_{};
   std::array<uint16_t, kPrototypeSlots> slots_{};
   size_t size_ = 0;
@@ -86,19 +102,20 @@ class Predicate final : public v8::QueryObjectPredicate {
       : context_(context), marker_(marker), deadline_(deadline) {}
   bool Filter(v8::Local<v8::Object> object) override {
     bool store = false;
-    size_t vacant = kPrototypeSlots;
-    const bool matches = Classify(object, &store, &vacant);
+    size_t vacant = kPrototypeSlots, key_depth = 0;
+    uint16_t distance = 0;
+    const bool matches = Classify(object, &store, &vacant, &key_depth, &distance);
     if (store && cache_.CanStore(vacant)) {
       // Classify's ordinary scope has CLOSED. Only a newly completed entry
       // allocates an escape slot in QueryObjects' enclosing scope. No user
       // callback or microtask can mutate this ordinary prototype between reads.
       v8::EscapableHandleScope pin(context_->GetIsolate());
-      // Classify cached only the suffix starting at depth two. Recreate
-      // that exact key after its local scope closes; no script or mutation
-      // can run between classification and this bounded pin.
-      const auto prototype = object->GetPrototype().As<v8::Object>()
-          ->GetPrototype().As<v8::Object>()->GetPrototype().As<v8::Object>();
-      cache_.Store(pin.Escape(prototype), vacant, matches);
+      // Recreate the exact selected suffix after traversal handles close.
+      // No script or microtask can change ordinary prototypes in this phase.
+      auto prototype = object->GetPrototype().As<v8::Object>();
+      for (size_t depth = 0; depth < key_depth; ++depth)
+        prototype = prototype->GetPrototype().As<v8::Object>();
+      cache_.Store(pin.Escape(prototype), vacant, matches, distance);
     }
     if (!matches) return false;
     if (++lastAttempt.matched > kMatches) {
@@ -109,7 +126,8 @@ class Predicate final : public v8::QueryObjectPredicate {
   }
   bool failed_ = false;
  private:
-  bool Classify(v8::Local<v8::Object> object, bool* store, size_t* vacant) {
+  bool Classify(v8::Local<v8::Object> object, bool* store, size_t* vacant,
+                size_t* key_depth, uint16_t* distance) {
     // QueryObjects does not scope its second-pass predicate callbacks. Keep
     // context/prototype traversal handles local to this visit. Matches are
     // promoted by V8 after this boolean predicate returns.
@@ -138,24 +156,43 @@ class Predicate final : public v8::QueryObjectPredicate {
       cursor = cursor.As<v8::Object>()->GetPrototype();
     }
     if (!cursor->IsObject()) return false;
-    // The first two links were already judged. Cache the remaining suffix,
-    // not a per-instance wrapper above it. Every lookup starts at depth two,
-    // preserving the exact 256-depth refusal and marker/proxy semantics.
-    const auto prototype = cursor.As<v8::Object>();
-    // Pinned V8 implementation executes identity hashing without GC or script.
-    const int hash = prototype->GetIdentityHash();
-    bool cached;
-    if (cache_.Lookup(prototype, hash, &cached, vacant)) return cached;
-    for (size_t depth = 2; cursor->IsObject(); ++depth) {
+    // Full bounded lookup stays on the common depth-two path. Deeper links
+    // compare only two recently used pins: no per-depth hashing/probe growth.
+    // A completed predecessor progressively exposes shared tails of any depth.
+    v8::Local<v8::Object> candidate;
+    size_t candidate_depth = 0;
+    const auto prepare = [&](size_t terminal_depth, uint16_t suffix_distance) {
+      if (candidate.IsEmpty()) return;
+      bool ignored; uint16_t ignored_distance;
+      const int hash = candidate->GetIdentityHash();
+      if (cache_.Lookup(candidate, hash, &ignored, &ignored_distance, vacant)) return;
+      if (!cache_.CanStore(*vacant)) return;
+      *store = true; *key_depth = candidate_depth;
+      *distance = static_cast<uint16_t>(terminal_depth + suffix_distance - candidate_depth);
+    };
+    size_t depth = 2;
+    for (; cursor->IsObject(); ++depth) {
       if (cursor->IsProxy()) return false;
-      if (cursor == marker_) {
-        *store = true;
-        return true;
-      }
+      if (cursor == marker_) { prepare(depth, 0); return true; }
       if (depth >= 256) { failed_ = true; return false; }
+      const auto prototype = cursor.As<v8::Object>();
+      bool cached;
+      uint16_t cached_distance;
+      size_t slot;
+      bool hit = cache_.Recent(prototype, &cached, &cached_distance);
+      if (!hit && depth == 2) {
+        const int hash = prototype->GetIdentityHash();
+        hit = cache_.Lookup(prototype, hash, &cached, &cached_distance, &slot);
+      }
+      if (hit) {
+        if (depth + cached_distance > 256) { failed_ = true; return false; }
+        prepare(depth, cached_distance);
+        return cached;
+      }
+      candidate = prototype; candidate_depth = depth;
       cursor = cursor.As<v8::Object>()->GetPrototype();
     }
-    *store = true;
+    prepare(depth, 0);
     return false;
   }
   PrototypeCache cache_;

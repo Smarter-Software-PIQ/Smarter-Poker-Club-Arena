@@ -20,7 +20,7 @@
  *  -> {ok:true, tournament_id, replayed} | {ok:false, reason}`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ScheduledTournamentService } from './ScheduledTournamentService.js';
+import { ScheduledTournamentService, HORSE_SEED_WITHIN_MS } from './ScheduledTournamentService.js';
 import { TournamentRecurringService } from './TournamentRecurringService.js';
 import { supabase } from './supabase.js';
 import { reportError } from './errorReporter.js';
@@ -36,6 +36,7 @@ import { gameLaneFor, isActiveNow } from './HorseBehavior.js';
 import { withLockedLevelClock } from '../tournament/lockedLevelClock.js';
 import { withBountyRebuyUntilRegistrationCloses } from '../tournament/bountyRebuyPolicy.js';
 import { withMysteryBountyTerms } from '../tournament/mysteryBountyTerms.js';
+import { tournamentStartAllowed } from '../maintenance/dailyWindow.js';
 
 vi.mock('../maintenance/freezeState.js', () => ({ isMaintenanceFrozen: () => false }));
 vi.mock('./errorReporter.js', () => ({ reportError: vi.fn() }));
@@ -192,9 +193,17 @@ async function built(cfg: Record<string, unknown>, start: Date, clubId = ARENA) 
   return svc.buildInsertRow(schedule(clubId, cfg), cfg, start) as Promise<Record<string, unknown>>;
 }
 
-const START = new Date(Date.now() + 26 * 60 * 60 * 1000); // outside the horse-seed window
+// Keep routing fixtures inside the Chicago daily window at every runner hour.
+const NOW = new Date('2026-11-04T03:36:00.000Z');
+const START = new Date('2026-11-05T18:00:00.000Z'); // noon Chicago, outside horse seeding
 
-beforeEach(() => vi.mocked(reportError).mockClear());
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
+  expect(tournamentStartAllowed(START)).toBe(true);
+  expect(START.getTime() - Date.now()).toBeGreaterThan(HORSE_SEED_WITHIN_MS);
+  vi.mocked(reportError).mockClear();
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();

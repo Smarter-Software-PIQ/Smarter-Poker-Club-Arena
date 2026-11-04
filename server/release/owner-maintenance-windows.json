@@ -915,6 +915,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "2934432497bf4ebd51d33bfcd0ed033d02de8f1a3ab3035222d74bd96aaece0d"
       }
+    },
+    {
+      "id": "2026-11-04-tournament-census-suffix-continuation",
+      "ownerOrder": "Dan directly in tournament recovery chat01a1a01a-7f70-7d62-8da1-8d086594c658 renewed the order to finish through the earliest certified safe window without waiting for :55. This NEW fixed03:00 through06:00UTC November4 continuation follows failed operation41763094510-1: native census exceeded its unchanged59second allowance before any checkpoint invocation. At03:25UTC necessary source qualification and normal hooks plus observed40minute CI and27minute receiver exceed the prior04:00 expiry. The bounded shared-suffix optimization has a reproduced finite traversal-cost defect; attribution of the live timeout remains unknown. Preserve every prior entry and receipt. Before a new qualified operation read original terminal outcomes, protected source and current ownership; never retry failed or unknown operations. Use only the existing stage/receiver earliest-certified transaction with120second notice,300second window, full285second proof/rollback reserve, complete original hand custody, immutable source/seal checks, durable freeze and verified own-window v3thaw. No automatic renewal, timer, second publisher, extended freeze or guard bypass. This engine window does not change tournament guarantee or attendance date semantics. Fixed expiry ends this authority.",
+      "contains": "0de3e5b9f6ae9b6def3a2603ef69fab5d934977d",
+      "notBefore": "2026-11-04T03:00:00Z",
+      "notAfter": "2026-11-04T06:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "b2c264bd6f1bc8ff37dab854d7dd049cb9e27d17e00f83d5b08c9887ec0b5d3a"
+      }
     }
   ],
   "databaseWindows": [
