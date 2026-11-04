@@ -50,13 +50,29 @@ try:
  rows=json.loads((fixture/'offers.json').read_text())
  for r in rows:
   sql("INSERT INTO tournaments(id,name,status,start_time,guaranteed_prize,buy_in_amount,buy_in_fee,format_contract) VALUES('%s','%s','REGISTERING','%s',%s,%s,%s,'mtt-v2')"%(r['id'],r['name'].replace("'","''"),r['start_time'],r['guaranteed_prize'],r['buy_in_amount'],r['buy_in_fee']))
- migration=root/'supabase/migrations/20261103232526_nov3_zero_guarantee_preserves_attendance.sql'
+ migration=root/'supabase/migrations/20261104020635_nov3_guarantee_preserves_cancelled_offer_history.sql'
+ # The unchanged all-fourteen path remains qualified in a rolled-back world.
+ body=migration.read_text().replace('\nBEGIN;\n','\n',1).rsplit('COMMIT;',1)[0]
+ sql('BEGIN;'+body+"DO $$BEGIN IF (SELECT count(*) FROM smarter_private.nov3_tournament_attendance)<>14 OR EXISTS(SELECT 1 FROM tournaments WHERE guaranteed_prize<>0) THEN RAISE EXCEPTION 'all_fourteen_not_preserved'; END IF; END$$;ROLLBACK;")
+ cancelled=[rows[i]['id'] for i in [0,1,3,5]]
+ cancelled_sql=','.join("'"+x+"'" for x in cancelled)
+ sql("UPDATE tournaments SET status='CANCELLED' WHERE id IN ("+cancelled_sql+")")
+ cancelled_before=sql("SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM tournaments t WHERE id IN ("+cancelled_sql+")")
+ # A cancelled status alone never excuses a funded, entered, or started contract.
+ for change in ["UPDATE tournaments SET prize_pool=1 WHERE id='%s'"%cancelled[0],
+                "INSERT INTO tournament_players VALUES('%s')"%cancelled[0],
+                "INSERT INTO tournament_refund_entitlements VALUES('%s')"%cancelled[0],
+                "UPDATE tournaments SET started_at=start_time WHERE id='%s'"%cancelled[0],
+                "UPDATE tournaments SET guaranteed_prize=guaranteed_prize+1 WHERE id='%s'"%cancelled[0]]:
+  sql('BEGIN;'+change+';'+body+'ROLLBACK;','nov3_fourteen_preimage_changed')
  before=sql("SELECT jsonb_agg(to_jsonb(t)-'guaranteed_prize'-'name' ORDER BY id) FROM tournaments t")
  sql(migration.read_text())
  assert before==sql("SELECT jsonb_agg(to_jsonb(t)-'guaranteed_prize'-'name' ORDER BY id) FROM tournaments t")
  assert overlay_acl==sql("SELECT proowner::text||':'||proacl::text FROM pg_proc WHERE oid='fn_overlay_at_risk(uuid)'::regprocedure")
  actual=json.loads(sql("SELECT json_agg(json_build_object('id',t.id,'guarantee',t.guaranteed_prize,'floor',a.attendance_floor)) FROM tournaments t JOIN smarter_private.nov3_tournament_attendance a ON a.tournament_id=t.id"))
- assert len(actual)==14
+ assert len(actual)==10
+ assert cancelled_before==sql("SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM tournaments t WHERE id IN ("+cancelled_sql+")")
+ assert sql("SELECT count(*) FROM smarter_private.nov3_tournament_attendance WHERE tournament_id IN ("+cancelled_sql+")")=='0'
  expected={r['id']:r['original_attendance_coverage_floor'] for r in rows}
  assert all(r['guarantee']==0 and r['floor']==expected[r['id']] for r in actual)
  # All five creation boundaries, plus repeat writes retain the original plan.
@@ -107,7 +123,7 @@ try:
  # Existing funded/registered promises are refused, never quietly reduced.
  sql("INSERT INTO tournament_players VALUES(md5('registered')::uuid)")
  sql("INSERT INTO tournaments(id,name,status,start_time,guaranteed_prize,buy_in_amount,buy_in_fee) VALUES(md5('registered')::uuid,'Funded','REGISTERING','2026-11-03 12:00Z',500,9,1)",'nov3_existing_financial_contract_refused')
- print(json.dumps({'passed':True,'migration_sha256':hashlib.sha256(migration.read_bytes()).hexdigest(),'fourteen_floors_preserved':True,'date_boundaries':True,'real_role_acl':True,'overlay_zero_financial_guarantee':True,'limitation':'Isolated schema; no live financial execution or whole-engine certificate'}))
+ print(json.dumps({'passed':True,'migration_sha256':hashlib.sha256(migration.read_bytes()).hexdigest(),'all_fourteen_eligible_path_preserved':True,'cancelled_four_unchanged':True,'eligible_ten_floors_preserved':True,'date_boundaries':True,'real_role_acl':True,'overlay_zero_financial_guarantee':True,'limitation':'Isolated schema; no live financial execution or whole-engine certificate'}))
 finally:
  if started:run([a.pg_bin/'pg_ctl','-D',data,'-m','fast','-w','stop'])
  shutil.rmtree(base)
