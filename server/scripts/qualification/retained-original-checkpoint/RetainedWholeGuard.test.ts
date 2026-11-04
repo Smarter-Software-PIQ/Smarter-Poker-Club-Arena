@@ -1036,13 +1036,27 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     while (performance.now() < until) {}
     expect(retired.tournamentLeaseAuthorityExpired).toBe(false);
     expect(retired.teardownPromise).toBeNull();
-    if (queued)
-      setTimeout(() => {
-        const retirement = server.tournamentManagerRetirementOperations.get(retired);
-        if (scenario === 'manager-renewal-queued-replaced')
-          retirement?.then(() => server.tournamentEngines.set(retired.tournamentId, m));
-        releaseJob();
-      }, 20);
+    let observedOriginalRetirement = 0;
+    if (queued) {
+      const retirements = server.tournamentManagerRetirementOperations;
+      const originalGet = retirements.get;
+      retirements.get = function (owner: unknown) {
+        const retirement = originalGet.call(this, owner);
+        if (
+          owner === retired &&
+          retirement instanceof Promise &&
+          observedOriginalRetirement === 0
+        ) {
+          observedOriginalRetirement++;
+          if (scenario === 'manager-renewal-queued-replaced')
+            retirement.then(() => server.tournamentEngines.set(retired.tournamentId, m));
+          // Return the real original receipt before releasing the fixture job.
+          // No timer duration can make retirement disappear ahead of its reader.
+          queueMicrotask(releaseJob);
+        }
+        return retirement;
+      };
+    }
     if (scenario === 'manager-renewal-joined' || scenario === 'manager-renewal-replaced')
       setImmediate(() =>
         setImmediate(() => {
@@ -1060,6 +1074,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       maintenance.lastDurableState.breakEndsAt = maintenance.breakEndsAt;
     }
     finishRenewalFixture = async () => {
+      if (queued) expect(observedOriginalRetirement).toBe(1);
       loopCurrent = false;
       releaseJob();
       await renewal;
@@ -1068,6 +1083,11 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       if (!retired.tournamentLeaseAuthorityExpired) retired.fenceForTournamentLeaseLoss();
       await retired.stop();
     };
+  }
+  if (scenario.startsWith('manager-renewal-queued-')) {
+    // Model setup delayed beyond the former fixture release timer.
+    const delayedSetup = performance.now() + 25;
+    while (performance.now() < delayedSetup) {}
   }
   const guardStarted = performance.now();
   const invoke = () =>
