@@ -144,6 +144,17 @@ const recoveryClasses = [
 ] as const;
 const recoveryScript = resolve(ROOT, 'tests/operations/engine-release-recovery-window.py');
 
+it('permits engine recovery after known completion without an extra hour', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve(ROOT, 'tests/operations/engine-owner-recovery-cadence.test.py')],
+    { encoding: 'utf8', timeout: 90000 }
+  );
+  expect(result.status, result.stdout + result.stderr).toBe(0);
+  expect(result.stderr).toContain('Ran 8 tests');
+  expect(result.stderr).not.toMatch(/skipped=/);
+});
+
 it('covers the complete bounded recovery unittest inventory', () => {
   const result = spawnSync(
     'python3',

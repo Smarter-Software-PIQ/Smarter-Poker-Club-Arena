@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readXmttLobby, readXmttWaitlistPositions } from '../src/services/xmttLobbyReads';
+import { RETIRED_TOURNAMENT_IDS } from '../src/lib/retiredTournamentVisibility';
 const state = vi.hoisted(() => ({
   calls: [] as Array<any>,
   rows: [] as Array<any>,
@@ -20,6 +21,7 @@ vi.mock('../src/lib/supabase', () => ({
         'select',
         'or',
         'in',
+        'not',
         'eq',
         'ilike',
         'abortSignal',
@@ -42,9 +44,14 @@ vi.mock('../src/lib/supabase', () => ({
           }).then(resolve);
         }
         const filter = call.methods.ilike?.[0][1];
-        const matches = filter
+        let matches = filter
           ? state.rows.filter((row) => row.status.toLowerCase() === filter)
           : state.rows;
+        for (const [column, operator, value] of call.methods.not ?? []) {
+          if (column !== 'id' || operator !== 'in') throw new Error('Unexpected exclusion');
+          const excluded = new Set(value.slice(1, -1).split(','));
+          matches = matches.filter((row) => !excluded.has(row.id));
+        }
         const range = call.methods.range?.[0];
         return Promise.resolve({
           data: range ? matches.slice(range[0], range[1] + 1) : null,
@@ -68,6 +75,20 @@ beforeEach(() => {
 });
 const signal = () => new AbortController().signal;
 describe('bounded authoritative XMTT lobby reads', () => {
+  it('excludes the retired cohort from both rows and exact status counts', async () => {
+    state.rows = [
+      ...RETIRED_TOURNAMENT_IDS.map((id) => ({ id, status: 'RUNNING' })),
+      { id: 'new-running', status: 'RUNNING' },
+      { id: 'new-registering', status: 'REGISTERING' },
+    ];
+    const value = await readXmttLobby('club', 'all', 50, signal());
+    expect(value.rows.map((row) => row.id)).toEqual(['new-running', 'new-registering']);
+    expect(value.total).toBe(2);
+    expect(value.counts).toEqual({ registering: 1, running: 1, completed: 0 });
+    for (const call of state.calls) {
+      expect(call.methods.not).toEqual([['id', 'in', `(${RETIRED_TOURNAMENT_IDS.join(',')})`]]);
+    }
+  });
   it('reads fifty rows and exact whole-scope counts instead of truncating the total at1000', async () => {
     const value = await readXmttLobby('club', 'all', 50, signal());
     expect(value.rows).toHaveLength(50);

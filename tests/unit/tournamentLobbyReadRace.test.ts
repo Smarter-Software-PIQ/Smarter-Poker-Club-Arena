@@ -1,3 +1,7 @@
+import {
+  isRetiredTournament,
+  RETIRED_TOURNAMENT_IDS,
+} from '../../src/lib/retiredTournamentVisibility';
 // Execute the actual page callbacks and read-completion block with a deferred
 // response. No database, synthetic tournament, React replacement or copied reducer.
 import { readFileSync } from 'node:fs';
@@ -71,6 +75,7 @@ function model(initial: Row[]) {
   };
   const handle = new Function(
     'isCurrent',
+    'isRetiredTournament',
     'inClubScope',
     'rtScope',
     'setTournaments',
@@ -81,6 +86,7 @@ function model(initial: Row[]) {
     ) + '\nreturn handle;'
   )(
     () => state.current,
+    isRetiredTournament,
     inClubScope,
     { clubId: club },
     setTournaments,
@@ -158,6 +164,12 @@ function model(initial: Row[]) {
 }
 
 describe('tournament list reads cannot undo newer realtime results', () => {
+  it('does not insert a retired running event from realtime', () => {
+    const m = model([row('current')]);
+    m.handle({ eventType: 'INSERT', new: row(RETIRED_TOURNAMENT_IDS[0]) });
+    expect(m.state.rows).toEqual([row('current')]);
+  });
+
   it.each(['CANCELLED', 'COMPLETED'])(
     'keeps a %s event removed when an older nonempty response finishes',
     async (status) => {

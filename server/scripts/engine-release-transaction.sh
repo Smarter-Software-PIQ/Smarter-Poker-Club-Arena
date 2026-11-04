@@ -1022,7 +1022,28 @@ source_target_is_current() {
     [ "$fetch_wait" -le 20 ] || fetch_wait=20
     if GIT_NO_REPLACE_OBJECTS=1 GIT_HTTP_LOW_SPEED_LIMIT=1024 GIT_HTTP_LOW_SPEED_TIME=15 \
       legacy_entry_read timeout --signal=TERM --kill-after=5s "${fetch_wait}s" \
-      git -C "$REPO_DIR" fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'; then
+      env -u GIT_CONFIG -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+        -u GIT_ASKPASS -u SSH_ASKPASS -u GIT_SSL_NO_VERIFY \
+        GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+        bash -c '
+      set -euo pipefail
+      # Fetch public source without changing origin or using host credentials.
+      # Local includes, rewrites and HTTP overrides must not redirect this request.
+      if git -C "$1" config --local --no-includes --name-only \
+        --get-regexp "^(url\..*\.insteadof|include\..*|includeif\..*|http\..*|extensions\.worktreeconfig)$" >/dev/null; then
+        echo "unsafe local Git transport configuration" >&2
+        exit 78
+      else
+        rc=$?
+        [ "$rc" = 1 ] || exit "$rc"
+      fi
+      exec git -c credential.helper= -c core.askPass=/bin/false \
+        -c http.extraHeader= -c http.followRedirects=false -c http.sslVerify=true \
+        -c protocol.allow=never -c protocol.https.allow=always \
+        -C "$1" fetch --no-tags \
+        https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena.git \
+        +refs/heads/main:refs/remotes/origin/main
+      ' -- "$REPO_DIR"; then
       fetched=1
       break
     fi
@@ -1694,7 +1715,7 @@ print(",".join(signs))
 # authority. The entry is read from the TARGET's own immutable tree, so it
 # cannot be granted by anything other than reviewed source, and it expires on
 # its own. Everything after the reason is unchanged: newest-owner, lock, a
-# fresh health read, the seal's one-window-per-hour limit, drain, freeze,
+# fresh health read, the seal's completed-window recovery check, drain, freeze,
 # certificate, rollback reserve and thaw.
 # Prints "owner-ordered <id>" or nothing; never fails the caller.
 owner_window_reason() {

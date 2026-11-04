@@ -177,7 +177,9 @@ describe('the fast path cannot repaint a warm lobby', () => {
     expect(PAGE).toContain(
       'function setClubHomeCache(clubId: string, data: { club: any; tables: any[] })'
     );
-    expect(PAGE).toContain('const [tournaments, setTournaments] = useState<TournamentData[]>([]);');
+    expect(PAGE).toContain(
+      'const [tournamentRows, setTournaments] = useState<TournamentData[]>([]);'
+    );
   });
 
   it('routes BOTH fast-path lists through mergeFastRows, never a bare replace', () => {

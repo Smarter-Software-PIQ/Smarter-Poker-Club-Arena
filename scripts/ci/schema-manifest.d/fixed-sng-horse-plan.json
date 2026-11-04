@@ -5,7 +5,8 @@
     "fn_sng_satellite_horse_fill_plan",
     "fn_ca_fixed_sng_horse_paid_admission",
     "smarter_private.sng_horse_wait_until",
-    "smarter_private.sng_horse_plan"
+    "smarter_private.sng_horse_plan",
+    "smarter_private.sng_horse_open_slots"
   ],
   "tables": ["smarter_private.sng_horse_days", "smarter_private.sng_horse_claims"]
 }

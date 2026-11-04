@@ -1,3 +1,4 @@
+import { RETIRED_TOURNAMENT_IDS } from '../../src/lib/retiredTournamentVisibility';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  UNIT TESTS — TournamentService
@@ -9,13 +10,15 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const { mockRpc, mockEmit, mockUuid, mockTournamentRead, mockSelect } = vi.hoisted(() => ({
-  mockSelect: vi.fn(),
-  mockRpc: vi.fn(),
-  mockTournamentRead: vi.fn(async () => ({ data: null, error: null as unknown })),
-  mockEmit: vi.fn(),
-  mockUuid: vi.fn(() => '00000000-0000-4000-8000-000000000001'),
-}));
+const { mockRpc, mockEmit, mockUuid, mockTournamentRead, mockTournamentList, mockSelect } =
+  vi.hoisted(() => ({
+    mockSelect: vi.fn(),
+    mockTournamentList: vi.fn(() => ({ data: null as any, error: null })),
+    mockRpc: vi.fn(),
+    mockTournamentRead: vi.fn(async () => ({ data: null, error: null as unknown })),
+    mockEmit: vi.fn(),
+    mockUuid: vi.fn(() => '00000000-0000-4000-8000-000000000001'),
+  }));
 
 // ─── Mock dependencies ────────────────────────────────────────────────────
 
@@ -29,8 +32,7 @@ vi.mock('../../src/lib/supabase', () => {
             return new Proxy({}, handler);
           };
         if (prop === 'maybeSingle' || prop === 'single') return mockTournamentRead;
-        if (prop === 'then')
-          return (resolve: (v: any) => void) => resolve({ data: null, error: null });
+        if (prop === 'then') return (resolve: (v: any) => void) => resolve(mockTournamentList());
         return vi.fn().mockReturnValue(new Proxy({}, handler));
       },
     };
@@ -912,4 +914,27 @@ describe('Tournament Purchase Confirmation', () => {
       expect(mockEmit).not.toHaveBeenCalled();
     });
   }
+});
+
+describe('retired tournament presentation', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    mockTournamentList.mockReturnValue({ data: null, error: null });
+  });
+  it('excludes every exact retired identity before a direct read', async () => {
+    mockTournamentRead.mockClear();
+    for (const id of RETIRED_TOURNAMENT_IDS)
+      expect(await tournamentService.getTournament(id)).toBeNull();
+    expect(mockTournamentRead).not.toHaveBeenCalled();
+  });
+  it('removes retired rows from lobby results while keeping newly opened events', async () => {
+    const active = { id: 'a874ec97-1edf-47f3-aa13-1f51e7baa921', status: 'REGISTERING' };
+    mockTournamentList.mockReturnValueOnce({
+      data: [...RETIRED_TOURNAMENT_IDS.map((id) => ({ id, status: 'RUNNING' })), active],
+      error: null,
+    });
+    mockTournamentRead.mockResolvedValue({ data: null, error: null });
+    expect(await tournamentService.getTournaments('club')).toEqual([active]);
+  });
 });

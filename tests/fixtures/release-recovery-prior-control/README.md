@@ -1,0 +1,3 @@
+# Immutable release observer fixture sources
+
+These files are test data only and are never executed or installed. `engine-release-transaction.sh` is the exact protected predecessor from `ca851a52893d75c2041b85db298b04eeba830c4a`; `engine-release-seal.py` is the exact protected predecessor from `53d8c229734ac2eb678b393a7587d4ef9615b0f9`; the other four files are the exact fixed failed-custody generation `3e3c6d4752cd587fad0db521ebd262f1b485514c`. Tests verify their independently retained production digest allowlists before parsing. Keep these bytes unchanged when current release transport changes.

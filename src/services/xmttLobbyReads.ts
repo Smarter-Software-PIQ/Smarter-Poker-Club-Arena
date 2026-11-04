@@ -1,3 +1,4 @@
+import { RETIRED_TOURNAMENT_IDS } from '../lib/retiredTournamentVisibility';
 import { supabase } from '../lib/supabase';
 import { clubGamesOrFilter } from '../utils/unionScope';
 
@@ -39,7 +40,8 @@ export async function readXmttLobby(
         { count: 'exact', head }
       )
       .or(scope)
-      .in('tournament_type', ['MTT', 'XMTT']);
+      .in('tournament_type', ['MTT', 'XMTT'])
+      .not('id', 'in', `(${RETIRED_TOURNAMENT_IDS.join(',')})`);
     if (selected !== 'all') q = q.ilike('status', selected);
     return q.abortSignal(signal);
   };

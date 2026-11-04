@@ -262,9 +262,10 @@ function spyScheduleRpc() {
 }
 async function savedSchedule(rpc: ReturnType<typeof spyScheduleRpc>, container: HTMLElement) {
   fireEvent.submit(container.querySelector('form')!);
-  await waitFor(() =>
-    expect(rpc).toHaveBeenCalledWith('fn_create_tournament_schedule_request', expect.any(Object))
-  );
+  await waitFor(() => {
+    expect(mocks.error.mock.calls).toEqual([]);
+    expect(rpc).toHaveBeenCalledWith('fn_create_tournament_schedule_request', expect.any(Object));
+  });
   expect(mocks.error).not.toHaveBeenCalled();
   return (
     rpc.mock.calls.find(([name]) => name === 'fn_create_tournament_schedule_request')![1] as any
@@ -274,6 +275,45 @@ const repeat = () => screen.getByLabelText('Repeat') as HTMLSelectElement;
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 
 describe('one recurrence control at the foot of the form', () => {
+  beforeEach(() => {
+    // Creating a recurrence is allowed at Chicago midnight; its spawner owns
+    // future event times. Only Date is controlled, leaving UI timers real.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-04T06:05:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('still refuses an immediate event before saving its accompanying recurrence at night', async () => {
+    const rpc = spyScheduleRpc();
+    const { container } = mount();
+    choose(repeat(), 'daily');
+    fireEvent.change(screen.getByDisplayValue('Recurring Schedule Only'), {
+      target: { value: 'now' },
+    });
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        'Tournaments Can Start From 6:00 AM To 11:00 PM Chicago Time. Pick A Start Time In Those Hours.'
+      )
+    );
+    expect(rpc).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps a daytime immediate event when saving its accompanying recurrence', async () => {
+    vi.setSystemTime(new Date('2026-11-04T18:05:00Z'));
+    const rpc = spyScheduleRpc();
+    const { container } = mount();
+    choose(repeat(), 'daily');
+    fireEvent.change(screen.getByDisplayValue('Recurring Schedule Only'), {
+      target: { value: 'now' },
+    });
+    const schedule = await savedSchedule(rpc, container);
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(schedule.config).not.toHaveProperty('startTime');
+    expect(mocks.create.mock.calls[0][1].startTime.toISOString()).toBe('2026-11-04T18:06:00.000Z');
+  });
+
   it('offers exactly Does Not Repeat, Daily, Weekly and Monthly, and is the last control', () => {
     const { container } = mount();
     expect(
