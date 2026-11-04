@@ -251,11 +251,30 @@ describe('4. the post-cutover recheck proves against the main it already fetched
     expect(refused.stderr).toContain('bounded protected-main fetch failed after three attempts');
   });
 
-  it('only the post-cutover recheck uses local-main', () => {
+  it('only bound owner-window observation and the post-cutover recheck use local-main', () => {
     const transaction = TRANSACTION;
-    expect(transaction.match(/source_target_is_current local-main/g)).toHaveLength(1);
+    expect(transaction.match(/source_target_is_current local-main/g)).toHaveLength(2);
+    const binding = transaction.slice(
+      transaction.indexOf('bind_phase1_window() {'),
+      transaction.indexOf('seconds_to_next_break() {')
+    );
+    expect(binding).toContain('if [ "$recovery_stamp" -gt 0 ]; then');
+    expect(binding).toContain('source_target_is_current local-main >&2 || rc=$?');
+    expect(binding).toContain('else\n    source_target_is_current >&2\n');
+    const announcement = transaction.slice(transaction.indexOf('request_recovery_window() {'));
+    expect(announcement).toContain('  source_target_is_current\n');
+    expect(announcement.indexOf('  source_target_is_current\n')).toBeLessThan(
+      announcement.indexOf('reserve-recovery-window')
+    );
+    const locked = transaction.slice(
+      transaction.indexOf("  acquire_engine_lock 'maintenance cutover'")
+    );
+    expect(locked).toContain('  source_target_is_current\n');
+    expect(locked.indexOf('  source_target_is_current\n')).toBeLessThan(
+      locked.indexOf('legacy_checkpoint_countdown')
+    );
     const publicProof = transaction.indexOf('PUBLIC_INSTANCE="$(health_instance');
-    const local = transaction.indexOf('source_target_is_current local-main');
+    const local = transaction.indexOf('source_target_is_current local-main', publicProof);
     const seal = transaction.indexOf('"$RELEASE_SEAL" commit', local);
     expect(local).toBeGreaterThan(publicProof);
     expect(seal).toBeGreaterThan(local);

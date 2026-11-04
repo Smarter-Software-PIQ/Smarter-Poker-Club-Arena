@@ -949,18 +949,6 @@ try:
  ok=m.get("active") is True and m.get("phase") in ("last_hand","counting_down") and owner
 except Exception: ok=False
 raise SystemExit(0 if ok else 1)'; then return 1; fi
-  # Only the immutable old engine's demonstrated early observation needs the
-  # database witness. Normal windows retain the existing no-extra-read path.
-  if printf '%s' "$body" | python3 -c '
-import json,sys
-h=json.load(sys.stdin); m=h.get("maintenance") or {}; p=m.get("presentation") or {}
-a=p.get("break_id")
-raise SystemExit(0 if m.get("phase")=="counting_down" and type(a) is int and (p.get("break_ends_at")!=a+420000 or p.get("scheduled_ends_at")!=a+420000) else 1)'; then
-    instance="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("instanceId",""))')" || return 1
-    proof="$(legacy_entry_read "$DATABASE_PROOF" --env-file "$ENV_FILE" \
-      --sha eed06fe51dea622069c661a6213d5b031ff3a9e3 --instance-id "$instance" --maintenance-promise)" || return 1
-    promise_args=(--promise-floor-proof "$proof")
-  fi
   if [ "$LOCK_HELD" != 1 ]; then acquire_engine_lock 'routine window binding'; took=1; fi
   # This runs inside command substitutions (legacy_checkpoint_countdown and
   # maintenance_certificate return their value on stdout). A forward target
@@ -968,8 +956,33 @@ raise SystemExit(0 if m.get("phase")=="counting_down" and type(a) is int and (p.
   # became part of the break-end epoch and killed the owner at its own
   # window ("unbound variable" / "integer expression expected") after the
   # announcement, wedging every later release. Keep stdout clean here.
-  source_target_is_current >&2
-  bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" "${binding_args[@]}" "${promise_args[@]}")" || rc=$?
+  if [ "$recovery_stamp" -gt 0 ]; then
+    # This reservation already passed the locked preannouncement fetch. The
+    # wait loop refreshes main, and the locked cutover fetch still runs before
+    # checkpoint entry. Repeat all source/high-water proofs against that ref;
+    # a network fetch here can consume the15s entry margin and age the witness.
+    source_target_is_current local-main >&2 || rc=$?
+  else
+    source_target_is_current >&2
+  fi
+  # Only the immutable old engine's demonstrated early observation needs the
+  # database witness. Read AFTER lock/source proof so their delays cannot age
+  # its10s freshness bound. Normal windows retain the no-extra-read path.
+  if [ "$rc" = 0 ] && printf '%s' "$body" | python3 -c '
+import json,sys
+h=json.load(sys.stdin); m=h.get("maintenance") or {}; p=m.get("presentation") or {}
+a=p.get("break_id")
+raise SystemExit(0 if m.get("phase")=="counting_down" and type(a) is int and (p.get("break_ends_at")!=a+420000 or p.get("scheduled_ends_at")!=a+420000) else 1)'; then
+    instance="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("instanceId",""))')" || rc=$?
+    if [ "$rc" = 0 ]; then
+      proof="$(legacy_entry_read "$DATABASE_PROOF" --env-file "$ENV_FILE" \
+        --sha eed06fe51dea622069c661a6213d5b031ff3a9e3 --instance-id "$instance" --maintenance-promise)" || rc=$?
+    fi
+    if [ "$rc" = 0 ]; then promise_args=(--promise-floor-proof "$proof"); fi
+  fi
+  if [ "$rc" = 0 ]; then
+    bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" "${binding_args[@]}" "${promise_args[@]}")" || rc=$?
+  fi
   if [ "$took" = 1 ]; then release_engine_lock; fi
   [ "$rc" = 0 ] || return "$rc"
   read -r PHASE1_WINDOW_START PHASE1_WINDOW_END <<<"$(printf '%s' "$bound" | python3 -c 'import json,sys; w=json.load(sys.stdin)["window"]; print(w["startsAt"],w["endsAt"])')"
@@ -1283,6 +1296,16 @@ health_instance() {
 floor_reservation_stamp() {
   if [ -z "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then printf '0\n'; return 0; fi
   legacy_entry_read python3 "$CONTROL_DIR/engine-release-activation-floor.py" reservation     --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA"     --deadline "$MUTATION_DEADLINE_EPOCH" --run-id "$RUN_ID"     --state-root "${ENGINE_RELEASE_STATE_DIR:-/var/lib/club-arena}"
+}
+
+assert_owner_recovery_window_live() {
+  [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || return 0
+  [ "${FLOOR_DISPOSITION:-never-entered}" = announced ] || return 0
+  local original_stamp
+  original_stamp="$(floor_reservation_stamp)" || die 'original owner recovery reservation is unreadable; no later window is authorized'
+  [[ "$original_stamp" =~ ^[1-9][0-9]{12}$ ]] || die 'original owner recovery announcement is invalid'
+  [ "$(date +%s%3N)" -lt "$((original_stamp + 420000))" ] \
+    || die 'original owner recovery window expired; no later window is authorized'
 }
 
 maintenance_certificate() {
@@ -2987,6 +3010,7 @@ else
   echo "[engine-release-transaction] WARN: could not record that $SHA is waiting at the certificate; older releases will not stand aside for it" >&2
 fi
 while :; do
+  assert_owner_recovery_window_live
   if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
     cycle_limit="${PHASE1_WINDOW_END:-0}"
     [ "$cycle_limit" -gt 0 ] || cycle_limit=$(((PHASE1_CYCLE_START+360)*1000))
