@@ -16,6 +16,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261102135212_a_stalled_engine_replacement_is_paged.sql'
+# 2026-11-03: production financial_alerts.id is a uuid. The bigserial fixture this
+# test used hid a bigint v_open that failed every run once a page was open.
+UUID_FIX = ROOT / 'supabase/migrations/20261103003406_engine_release_stall_check_holds_its_open_alert_id_as_uuid.sql'
 
 
 def pg_bin(name):
@@ -34,7 +37,7 @@ CREATE TABLE public.engine_leader (id int PRIMARY KEY, instance_id text, engine_
   acquired_at timestamptz, heartbeat_at timestamptz);
 CREATE TABLE public.engine_deploy_exit_paths (id bigserial PRIMARY KEY, recorded_at timestamptz NOT NULL DEFAULT now(),
   run_id text, target_sha text, stage text, outcome text, error text, release_result jsonb);
-CREATE TABLE public.financial_alerts (id bigserial PRIMARY KEY, severity text, source text, message text,
+CREATE TABLE public.financial_alerts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), severity text, source text, message text,
   context jsonb, resolved boolean NOT NULL DEFAULT false, resolved_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(), resolved_by text, resolution text);
 CREATE SCHEMA cron;
@@ -74,6 +77,11 @@ def main():
         assert r.returncode == 0, r.stderr
         proof = re.search(r'^-- @live-proof: (.+)$', MIGRATION.read_text(), re.M).group(1)
         assert sql(f'SELECT {proof}') == 't', 'live proof must hold after install'
+        r = subprocess.run([pg_bin('psql'), '-h', str(sock), '-p', port, '-U', 'postgres', '-d', 'postgres',
+                            '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-f', str(UUID_FIX)], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        fix_proof = re.search(r'^-- @live-proof: (.+)$', UUID_FIX.read_text(), re.M).group(1)
+        assert sql(f'SELECT {fix_proof}') == 't', 'uuid fix live proof must hold after install'
 
         def check():
             return sql("SELECT public.fn_ca_engine_release_stall_check(6, 3)->>'state'")
