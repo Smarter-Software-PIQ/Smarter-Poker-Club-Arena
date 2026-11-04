@@ -19,6 +19,7 @@ CHECKPOINT_758_SHA=758610f3f844406bbbaee2f5100ced36d84fb943
 CHECKPOINT_A0_SHA=a0ab287d902879280f0c915e44f5222c5db4d7df
 CHECKPOINT_8825_SHA=8825af51817f379c4261658ca29ecc9d8d81932d
 CHECKPOINT_EED_SHA=eed06fe51dea622069c661a6213d5b031ff3a9e3
+CERTIFIED_RECOVERY_POLICY=2026-11-04-tournament-fourfold-certified-recovery
 # The compatibility floors in docs/dr/diamond-release-manifest.md section 4: below
 # the first an engine cannot read Diamond custody, below the second it deals a
 # Diamond tournament table as a chip table. A rollback drill target holds both.
@@ -98,6 +99,8 @@ LEGACY_CHECKPOINT_WORK_MS=25000
 # work deadline immediately before QueryObjects; elapsed entry grants no time.
 LEGACY_CENSUS_MS_PER_HEAP_MB=12
 LEGACY_CENSUS_ALLOWANCE_MS=59000
+CERTIFIED_AUTOHEAL_FENCED=0
+CERTIFIED_AUTOHEAL_ID=''
 NON_BREAK_RECOVERY_MAX_SECONDS=300
 # CLAUDE.md 13: routine activation starts at 04:00 America/Chicago. This is the same minute every other surface reads, and
 # tests/the-break-clocks-agree.law.test.ts pins them together.
@@ -191,6 +194,21 @@ select_legacy_checkpoint_budget() {
     LEGACY_CHECKPOINT_PROFILE='eed-80s-v1'
     LEGACY_CHECKPOINT_BUDGET_SECONDS=80
     LEGACY_CHECKPOINT_WORK_MS=65000
+  fi
+  if [ "$1" = "$CHECKPOINT_EED_SHA" ] && [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = "$CERTIFIED_RECOVERY_POLICY" ]; then
+    LEGACY_CHECKPOINT_PROFILE='eed-240s-certified-release-v1'
+    LEGACY_CHECKPOINT_BUDGET_SECONDS=320
+    LEGACY_CHECKPOINT_WORK_MS=260000
+    LEGACY_CENSUS_ALLOWANCE_MS=240000
+    LEGACY_MIN_BREAK_REMAINING_MS=205000
+    MIN_BREAK_REMAINING_MS=525000
+    BREAK_WINDOW_MS=780000
+    LEGACY_ENTRY_ALLOWANCE_MS=60000
+    # Entry includes the owned autoheal fence. The260s work allocation keeps
+    # 240s census,14s guard,5s cleanup and1s receipt inside the320s total.
+    # The45s certificate-formation slack and205s proof/rollback stay outside it.
+    BREAK_ENTRY_BUDGET_CEILING_MS=0
+    return
   fi
   LEGACY_MIN_BREAK_REMAINING_MS=$(((BREAK_CUTOVER_PROOF_SECONDS + BREAK_ROLLBACK_RESERVE_SECONDS + BREAK_DEADLINE_SLACK_SECONDS - LEGACY_CHECKPOINT_BUDGET_SECONDS) * 1000))
   LEGACY_ENTRY_ALLOWANCE_MS=$((LEGACY_CHECKPOINT_BUDGET_SECONDS * 1000 - LEGACY_CHECKPOINT_WORK_MS))
@@ -777,7 +795,7 @@ recover_on_exit() {
     if [ "$recovery_remaining" -gt 2 ]; then
       timeout --signal=TERM --kill-after=1s "${recovery_remaining}s" env \
         ENGINE_SUPERVISOR_LOCK_HELD=1 ENGINE_SUPERVISOR_FORCE_DESIRED=1 \
-        ENGINE_SUPERVISOR_REQUIRE_EXACT_HEALTH=1 \
+        ENGINE_SUPERVISOR_REQUIRE_EXACT_HEALTH=1 ENGINE_CHECKPOINT_RECOVERY_RUN_ID="$RUN_ID" \
         ENGINE_RECOVERY_DEADLINE_EPOCH="$recovery_deadline" \
         ENGINE_CONTROL_DIR="$CONTROL_DIR" CONTAINER="$CONTAINER" \
         ENGINE_URL="$PUBLIC_URL" "$CONTROL_DIR/engine-supervisor.sh" \
@@ -1301,11 +1319,25 @@ floor_reservation_stamp() {
 assert_owner_recovery_window_live() {
   [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || return 0
   [ "${FLOOR_DISPOSITION:-never-entered}" = announced ] || return 0
-  local original_stamp
+  local original_stamp whole_window_ms=420000
+  [ "${LEGACY_CHECKPOINT_PROFILE:-}" != eed-240s-certified-release-v1 ] || whole_window_ms=900000
   original_stamp="$(floor_reservation_stamp)" || die 'original owner recovery reservation is unreadable; no later window is authorized'
   [[ "$original_stamp" =~ ^[1-9][0-9]{12}$ ]] || die 'original owner recovery announcement is invalid'
-  [ "$(date +%s%3N)" -lt "$((original_stamp + 420000))" ] \
+  [ "$(date +%s%3N)" -lt "$((original_stamp + whole_window_ms))" ] \
     || die 'original owner recovery window expired; no later window is authorized'
+}
+
+# This profile consumes the completed own v3 certificate, whose raw EED
+# countdown has already elapsed. The original row/timer tuple is never edited.
+certified_recovery_read() {
+  local body="$1" minimum_ms="$2" stamp instance
+  stamp="$(floor_reservation_stamp)" || return 1
+  instance="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("instanceId",""))')" || return 1
+  printf '%s' "$body" | legacy_entry_read "$DATABASE_PROOF" --env-file "$ENV_FILE" \
+    --sha "$CHECKPOINT_EED_SHA" --instance-id "$instance" --certified-mode read \
+    --certified-health-stdin --certified-request-root "$REQUEST_ROOT" --run-id "$RUN_ID" \
+    --target-sha "$SHA" --control-sha "$CONTROL_SHA" --window-announced-ms "$stamp" \
+    --minimum-ms "$minimum_ms"
 }
 
 maintenance_certificate() {
@@ -1350,6 +1382,23 @@ raise SystemExit(0 if d["weeklyPayout"] is None else 1)
     0|2) ;;
     *) return 1 ;;
   esac
+  if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
+    # A completed native original-custody receipt is mandatory for replacement.
+    # Initial entry uses legacy_checkpoint_countdown below, never this gate.
+    [ "${LEGACY_CHECKPOINT_RC:-1}" = 0 ] || return 1
+    printf '%s' "$body" | python3 -c '
+import json,sys
+h=json.load(sys.stdin);m=h.get("maintenance") or {}
+if type(h.get("handsInFlightTotal")) is not int or h["handsInFlightTotal"]!=0 or type(m.get("unparkedTables")) is not int or m["unparkedTables"]!=0: raise SystemExit(1)
+' || return 1
+    verdict="$(certified_recovery_read "$body" "$minimum_ms")" || return 1
+    printf '%s' "$verdict" | python3 -c '
+import json,sys,time
+from datetime import datetime
+p=json.load(sys.stdin); print(int(datetime.fromisoformat(p["releaseAt"].replace("Z","+00:00")).timestamp()*1000)-int(time.time()*1000))
+'
+    return
+  fi
   set +e
   if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then bind_phase1_window "$body" || return 1; fi
   verdict="$(printf '%s' "$body" | MIN_BREAK_MS="$minimum_ms" STRICT_RESTART_CERTIFICATE="${DRAINED_PREDECESSOR_CUTOVER:-0}" DAILY_TRANSITION="${DAILY_TRANSITION:-0}" ACTIVATION_FLOOR_END_EPOCH="${ACTIVATION_FLOOR_END_EPOCH:-0}" ACTIVATION_FLOOR_OWNER_WINDOW="${ACTIVATION_FLOOR_OWNER_WINDOW:-}" FLOOR_ANNOUNCED_AT="$floor_stamp" legacy_entry_read python3 -c '
@@ -1565,6 +1614,18 @@ raise SystemExit(0 if d["weeklyPayout"] is None else 1)
     0|2) ;;
     *) return 1 ;;
   esac
+  if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
+    local required_ms=$((MIN_BREAK_REMAINING_MS + headroom - elapsed_ms)) certified_proof
+    certified_proof="$(certified_recovery_read "$body" "$required_ms")" || return 1
+    printf '%s' "$certified_proof" | python3 -c '
+import json,sys
+from datetime import datetime
+p=json.load(sys.stdin);end=int(datetime.fromisoformat(p["releaseAt"].replace("Z","+00:00")).timestamp());expected=int(sys.argv[1])
+if expected and expected!=end:raise SystemExit(1)
+print(end)
+' "$expected_end"
+    return
+  fi
   # The preceding certificate runs in command substitution: its exported
   # window cannot populate this shell. Bind this observation independently,
   # including the locked recheck, through the same exact owner/window guard.
@@ -1787,6 +1848,7 @@ for w in entries:
     if not re.fullmatch(r"[0-9a-f]{40}", contains) or len(order.strip()) < 10: continue
     if nb.tzinfo is None or na.tzinfo is None: continue
     if not (0 < (na - nb).total_seconds() <= 6 * 3600) or not (nb <= now <= na): continue
+    if w.get("certifiedRecoveryProfile") == "eed-240s-certified-release-v1" and (na - now).total_seconds() < 900: continue
     if minutes is not None and (not isinstance(minutes, list) or local.minute not in minutes): continue
     # FRESH-ENGINE WINDOW (2026-11-01). eed06fe5 restarts on its own every
     # 90-120 minutes; within minutes of a start it has re-adopted almost none of
@@ -2093,8 +2155,12 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
   if { [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; } && [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_EED_SHA" ]; then
     local promise_instance
     promise_instance="$(printf '%s' "$health" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("instanceId",""))')" || die 'old runtime identity unreadable before announcement'
+    local -a promise_mode=(--maintenance-promise)
+    if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
+      promise_mode=(--certified-mode contract)
+    fi
     "$DATABASE_PROOF" --env-file "$ENV_FILE" --sha "$CHECKPOINT_EED_SHA" \
-      --instance-id "$promise_instance" --maintenance-promise >/dev/null \
+      --instance-id "$promise_instance" "${promise_mode[@]}" >/dev/null \
       || die 'original maintenance promise contract is unproved; no recovery announcement requested'
   fi
   FLOOR_RESERVATION_FRESH=0
@@ -2109,6 +2175,9 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
   reserve_args+=(--cause "$(recovery_cause "${reason%% *}")")
   if [ "${reason%% *}" = phase1-hourly ]; then
     reserve_args+=(--scheduled-cycle-start "$PHASE1_CYCLE_START" --control-sha "$CONTROL_SHA")
+  fi
+  if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
+    reserve_args+=(--certified-policy "$CERTIFIED_RECOVERY_POLICY" --predecessor-sha "$CHECKPOINT_EED_SHA" --control-sha "$CONTROL_SHA")
   fi
   reserve_args+=(--include-eligibility)
   if ! stamp="$(timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" reserve-recovery-window \
@@ -2161,7 +2230,7 @@ print(1 if (json.load(sys.stdin).get("maintenance") or {}).get("recoveryWindowCa
   # A lost response is UNKNOWN; observe the certificate, never allocate a new
   # timestamp or send another announcement in this invocation.
   outcome="$(timeout --signal=TERM --kill-after=1s 20s docker exec -i "$CONTAINER" \
-    node - "$stamp" "$(recovery_cause "${reason%% *}")" "$cause_required" <<'NODE'
+    node - "$stamp" "$(recovery_cause "${reason%% *}")" "$cause_required" "${LEGACY_CHECKPOINT_PROFILE:-}" "$CHECKPOINT_EED_SHA" "${promise_instance:-}" <<'NODE'
 const announcedAt=Number(process.argv[2]);
 const cause=process.argv[3];
 const causeRequired=process.argv[4]==="1";
@@ -2173,10 +2242,33 @@ fetch('http://127.0.0.1:8080/internal/maintenance-recovery-window', {
 }).then(async r=>{
   const d=await r.json();
   if (!r.ok || !['accepted','active','pending','busy','expired','use_hourly','unavailable'].includes(d.status)) process.exit(1);
+  if (process.argv[5]==='eed-240s-certified-release-v1' && ['busy','expired','use_hourly'].includes(d.status)) {
+    const h=await fetch('http://127.0.0.1:8080/health',{signal:AbortSignal.timeout(2000)});
+    if (!h.ok) process.exit(1);
+    const identity=await h.json();
+    if (identity.releaseSha!==process.argv[6] || identity.instanceId!==process.argv[7] || identity.running!==true) process.exit(1);
+  }
   console.log(d.status);
 }).catch(()=>process.exit(1));
 NODE
 )" || outcome=unknown
+  if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
+    case "$outcome" in accepted|active|pending|unknown|unavailable) ;;
+      busy|expired|use_hourly)
+        "$DATABASE_PROOF" --env-file "$ENV_FILE" --sha "$CHECKPOINT_EED_SHA" \
+          --instance-id "$promise_instance" --certified-mode refused --certified-refusal-status "$outcome" \
+          --certified-request-root "$REQUEST_ROOT" --run-id "$RUN_ID" --target-sha "$SHA" \
+          --control-sha "$CONTROL_SHA" --window-announced-ms "$stamp" >/dev/null \
+          || die 'original announcement refusal receipt unconfirmed; ownership retained'
+        die 'certified recovery announcement was definitively refused; original terminal proof required' ;;
+      *) die 'certified recovery announcement outcome is invalid; ownership retained' ;;
+    esac
+    "$DATABASE_PROOF" --env-file "$ENV_FILE" --sha "$CHECKPOINT_EED_SHA" \
+      --instance-id "$promise_instance" --certified-mode register --certified-request-root "$REQUEST_ROOT" \
+      --run-id "$RUN_ID" --target-sha "$SHA" --control-sha "$CONTROL_SHA" \
+      --window-announced-ms "$stamp" >/dev/null \
+      || die 'certified recovery registration unconfirmed; original announcement and request retained'
+  fi
   release_engine_lock
   echo "[engine-release-transaction] fixed recovery announcement $stamp: $outcome; existing certificate and rollback budget remain required"
 }
@@ -2375,6 +2467,40 @@ drained_predecessor_witness() {
   return "$rc"
 }
 
+fence_certified_checkpoint_autoheal() {
+  [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ] || return 0
+  [ "$LOCK_HELD" = 1 ] && [ "$MUTATION_STARTED" = 1 ] && [ "$CERTIFIED_AUTOHEAL_FENCED" = 0 ] \
+    || die 'certified census autoheal fence has no original mutation owner'
+  # The existing entered operation and exact future boundary precede this
+  # mutation. ExecStopPost restores autoheal through the same recovery owner.
+  persist_break_deadline
+  CERTIFIED_AUTOHEAL_ID="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 5s docker container inspect -f '{{.Id}}' sp-autoheal)" \
+    || die 'certified census autoheal identity is unreadable'
+  [[ "$CERTIFIED_AUTOHEAL_ID" =~ ^[0-9a-f]{64}$ ]] \
+    || die 'certified census autoheal identity is invalid'
+  legacy_entry_read timeout --signal=TERM --kill-after=1s 20s docker stop -t 15 "$CERTIFIED_AUTOHEAL_ID" >/dev/null \
+    || die 'certified census autoheal stop is unconfirmed'
+  [ "$(legacy_entry_read timeout --signal=TERM --kill-after=1s 5s docker container inspect -f '{{.Id}} {{.State.Status}}' sp-autoheal)" = "$CERTIFIED_AUTOHEAL_ID exited" ] \
+    || die 'certified census autoheal fence changed or is not stopped'
+  CERTIFIED_AUTOHEAL_FENCED=1
+}
+
+restore_certified_checkpoint_autoheal() {
+  [ "$CERTIFIED_AUTOHEAL_FENCED" = 1 ] || return 0
+  [ "$LOCK_HELD" = 1 ] && [ "$MUTATION_STARTED" = 1 ] \
+    && [ ! -e "$REQUEST_ROOT/$RUN_ID.legacy-checkpoint-intent" ] \
+    && [ ! -L "$REQUEST_ROOT/$RUN_ID.legacy-checkpoint-intent" ] \
+    || die 'certified census no-action recovery is unproved'
+  [ "$(bounded_break_command 5 docker container inspect -f '{{.Id}}' sp-autoheal)" = "$CERTIFIED_AUTOHEAL_ID" ] \
+    || die 'certified census autoheal owner changed before restoration'
+  bounded_break_command 10 docker start "$CERTIFIED_AUTOHEAL_ID" >/dev/null \
+    || die 'certified census autoheal restoration is unconfirmed'
+  [ "$(bounded_break_command 5 docker container inspect -f '{{.Id}} {{.State.Status}}' sp-autoheal)" = "$CERTIFIED_AUTOHEAL_ID running" ] \
+    || die 'certified census autoheal restoration did not verify'
+  CERTIFIED_AUTOHEAL_FENCED=0
+  clear_break_deadline || die 'certified census no-action deadline cleanup is unconfirmed'
+}
+
 prove_rollback_readiness() {
   local rollback_sha rollback_image rollback_legacy rollback_cid rollback_started_at
   local actual_image actual_release state autoheal_label role_label restart_policy autoheal_state
@@ -2426,7 +2552,12 @@ print(values[0])
     && { [ "$actual_release" = "$rollback_sha" ] \
       || { [ "$rollback_legacy" = true ] && [ -z "$actual_release" ]; }; } \
     && [ "$autoheal_label" = true ] && [ "$role_label" = engine ] \
-    && [ "$restart_policy" = always ] && [ "$autoheal_state" = running ] \
+    && [ "$restart_policy" = always ] \
+    && { [ "$autoheal_state" = running ] || { \
+      [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ] \
+      && [ "$CERTIFIED_AUTOHEAL_FENCED" = 1 ] && [ "$MUTATION_STARTED" = 1 ] && [ "$LOCK_HELD" = 1 ] \
+      && [ "$autoheal_state" = exited ] \
+      && [ "$(bounded_break_command 5 docker container inspect -f '{{.Id}}' sp-autoheal)" = "$CERTIFIED_AUTOHEAL_ID" ]; }; } \
     || die 'rollback readiness found the sealed desired run specification inexact or not live'
 
   local_instance="$(source_instance_for_sha 'http://127.0.0.1:8080/health' "$rollback_sha")" \
@@ -2735,7 +2866,7 @@ recover_pending_owner() {
   fi
   timeout --signal=TERM --kill-after=1s "${recovery_remaining}s" env \
     ENGINE_SUPERVISOR_LOCK_HELD=1 ENGINE_SUPERVISOR_FORCE_DESIRED=1 \
-    ENGINE_SUPERVISOR_REQUIRE_EXACT_HEALTH=1 \
+    ENGINE_SUPERVISOR_REQUIRE_EXACT_HEALTH=1 ENGINE_CHECKPOINT_RECOVERY_RUN_ID="$RUN_ID" \
     ENGINE_RECOVERY_DEADLINE_EPOCH="$recovery_deadline" \
     ENGINE_CONTROL_DIR="$CONTROL_DIR" CONTAINER="$CONTAINER" ENGINE_URL="$PUBLIC_URL" \
     "$CONTROL_DIR/engine-supervisor.sh" \
@@ -2848,7 +2979,7 @@ PREWORK_RECOVERY_REMAINING="$(remaining_seconds)" \
 PREWORK_RECOVERY_DEADLINE=$(( $(date +%s) + PREWORK_RECOVERY_REMAINING ))
 timeout --signal=TERM --kill-after=1s "${PREWORK_RECOVERY_REMAINING}s" env \
   ENGINE_SUPERVISOR_LOCK_HELD=1 ENGINE_SUPERVISOR_FORCE_DESIRED=1 \
-  ENGINE_SUPERVISOR_REQUIRE_EXACT_HEALTH=1 \
+  ENGINE_SUPERVISOR_REQUIRE_EXACT_HEALTH=1 ENGINE_CHECKPOINT_RECOVERY_RUN_ID="$RUN_ID" \
   ENGINE_RECOVERY_DEADLINE_EPOCH="$PREWORK_RECOVERY_DEADLINE" \
   ENGINE_CONTROL_DIR="$CONTROL_DIR" CONTAINER="$CONTAINER" ENGINE_URL="$PUBLIC_URL" \
   "$CONTROL_DIR/engine-supervisor.sh" \
@@ -3230,6 +3361,10 @@ while :; do
       || BREAK_ENTRY_BUDGET_MS="$BREAK_ENTRY_BUDGET_CEILING_MS"
     record_floor_runtime_entry
     LEGACY_CHECKPOINT_ATTEMPTED=1
+    # Unknown native entry remains owned. Reconstruction requires the exact
+    # durable custody-complete marker, never a health-only inference.
+    if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then MUTATION_STARTED=1; fi
+    if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then fence_certified_checkpoint_autoheal; fi
     legacy_entry_trace checkpoint verified
     set +e
     "$LEGACY_CHECKPOINT" "$RUN_ID" "$((ENTRY_STARTED_MS + LEGACY_CHECKPOINT_BUDGET_SECONDS * 1000))" "$LEGACY_ENTRY_BREAK_END_EPOCH" "$SHA" "$TARGET_IMAGE_ID" "$EXPECTED_SERVER_TREE"
@@ -3254,6 +3389,7 @@ while :; do
       [ ! -e "$REQUEST_ROOT/$RUN_ID.legacy-checkpoint-intent" ] \
         && [ ! -L "$REQUEST_ROOT/$RUN_ID.legacy-checkpoint-intent" ] \
         || die 'legacy checkpoint deferred but its durable intent exists; refusing a retry'
+      if [ "${CERTIFIED_AUTOHEAL_FENCED:-0}" = 1 ]; then restore_certified_checkpoint_autoheal; fi
       if [ "$FLOOR_DISPOSITION" = never-entered ]; then
         # Exit75 plus the absent one-shot intent proves this fresh checkpoint
         # never acted. Retire only this entry marker while the owned lock is
@@ -3270,6 +3406,7 @@ FLOOR_NO_ACTION
         python3 "$CONTROL_DIR/engine-release-activation-floor.py" checkpoint-no-action           --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA"           --deadline "$MUTATION_DEADLINE_EPOCH" --request-root "$REQUEST_ROOT" --run-id "$RUN_ID"           --state-root "${ENGINE_RELEASE_STATE_DIR:-/var/lib/club-arena}"           >/dev/null || die 'checkpoint no-action could not retain announcement ownership'
       fi
       LEGACY_CHECKPOINT_ATTEMPTED=0
+      if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then MUTATION_STARTED=0; fi
       BREAK_END_EPOCH=0
       release_engine_lock
       RECOVERY_ADMISSION_MISSED=1
@@ -3286,7 +3423,10 @@ FLOOR_NO_ACTION
     fi
     [ "$LEGACY_CHECKPOINT_RC" = 0 ] \
       || die 'legacy checkpoint or cleanup refused; release cannot continue'
-    BREAK_END_EPOCH=0
+    # A certified checkpoint can retire the original maintenance lifecycle.
+    # Keep its exact future release boundary available to recovery even if
+    # the final certificate read is lost after successful retirement.
+    if [ "${LEGACY_CHECKPOINT_PROFILE:-}" != eed-240s-certified-release-v1 ]; then BREAK_END_EPOCH=0; fi
   fi
   set +e
   if [ "$LEGACY_CHECKPOINT_ATTEMPTED" = 1 ]; then

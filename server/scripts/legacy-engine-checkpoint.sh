@@ -164,7 +164,7 @@ NATIVE_CANDIDATE_TREE="$6"
 [[ "$CHECKPOINT_DEADLINE_MS" =~ ^[1-9][0-9]{12}$ ]] \
   || die 'invalid absolute checkpoint deadline'
 CHECKPOINT_NOW_MS="$(date +%s%3N)"
-[ "$CHECKPOINT_DEADLINE_MS" -le "$((CHECKPOINT_NOW_MS + 80000))" ] \
+[ "$CHECKPOINT_DEADLINE_MS" -le "$((CHECKPOINT_NOW_MS + 320000))" ] \
   || die 'absolute checkpoint deadline exceeds the maximum EED allocation'
 [ "$CHECKPOINT_DEADLINE_MS" -gt "$((CHECKPOINT_NOW_MS + 5000))" ] \
   || defer 'absolute checkpoint entry budget elapsed before intent; nothing was attempted'
@@ -254,6 +254,26 @@ if [ "$LEGACY_SHA" = eed06fe51dea622069c661a6213d5b031ff3a9e3 ]; then
   CHECKPOINT_ALLOCATION_MS=80000
   CHECKPOINT_POST_RESERVE_MS=205000
 fi
+CERTIFIED_RECOVERY=null
+CERTIFIED_REQUEST_FILE="$REQUEST_ROOT/$RUN_ID.certified-recovery-request"
+if [ -e "$CERTIFIED_REQUEST_FILE" ] || [ -L "$CERTIFIED_REQUEST_FILE" ]; then
+  [ "$LEGACY_SHA" = eed06fe51dea622069c661a6213d5b031ff3a9e3 ] \
+    || die 'certified recovery requires its exact sealed predecessor'
+  # The root-owned immutable registration, not a caller duration, selects320s.
+  CERTIFIED_IDENTITY="$(checkpoint_entry_read python3 - "$CONTROL_DIR/engine-release-database-proof.py" "$CERTIFIED_REQUEST_FILE" "$RUN_ID" "$NATIVE_CANDIDATE_SHA" "${REQUEST[4]}" <<'CERTIFIED_REQUEST'
+import importlib.util,json,sys
+from pathlib import Path
+module,path,run,target,control=sys.argv[1:]
+spec=importlib.util.spec_from_file_location('certified_proof',module);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+r=m.read_certified_request(Path(path))
+if (set(r)!={'runKey','targetSha','controlSha','predecessorSha','instanceId','announcedAt','ownershipToken','policyId'} or
+ r['runKey']!=run or r['targetSha']!=target or r['controlSha']!=control or r['predecessorSha']!=m.CERTIFIED_PREDECESSOR or r['policyId']!=m.CERTIFIED_POLICY):raise SystemExit(1)
+print(r['instanceId'],m.certified_epoch(r['announcedAt']))
+CERTIFIED_REQUEST
+)" || die 'immutable certified recovery request differs'
+  read -r CERTIFIED_INSTANCE CERTIFIED_ANNOUNCED_MS <<< "$CERTIFIED_IDENTITY"
+  CHECKPOINT_ALLOCATION_MS=320000
+fi
 [ "$CHECKPOINT_DEADLINE_MS" -le "$(( CHECKPOINT_NOW_MS + CHECKPOINT_ALLOCATION_MS ))" ] \
   || die 'absolute checkpoint deadline exceeds its sealed predecessor allocation'
 
@@ -300,6 +320,24 @@ if [ "$LEGACY_SHA" = 8825af51817f379c4261658ca29ecc9d8d81932d ]; then
     || die 'installed mixed-custody contract unavailable or incompatible; checkpoint not started'
 fi
 
+if [ "$CHECKPOINT_ALLOCATION_MS" = 320000 ]; then
+  HEALTH="$(checkpoint_entry_read curl -sS --max-time 2 http://127.0.0.1:8080/health)" \
+    || defer 'certified recovery health unavailable before intent'
+  CERTIFIED_RECOVERY="$(printf '%s' "$HEALTH" | checkpoint_entry_read python3 "$CONTROL_DIR/engine-release-database-proof.py" \
+    --env-file "${ENGINE_ENV_FILE:-/opt/club-arena/server/.env}" --sha "$LEGACY_SHA" \
+    --instance-id "$CERTIFIED_INSTANCE" --certified-mode read --certified-health-stdin \
+    --certified-request-root "$REQUEST_ROOT" --run-id "$RUN_ID" --target-sha "$NATIVE_CANDIDATE_SHA" \
+    --control-sha "${REQUEST[4]}" --window-announced-ms "$CERTIFIED_ANNOUNCED_MS" \
+    --minimum-ms "$((CHECKPOINT_POST_RESERVE_MS + CHECKPOINT_DEADLINE_MS - $(date +%s%3N)))")" \
+    || defer 'certified original freeze, custody window or reserve unproved before intent'
+  printf '%s' "$CERTIFIED_RECOVERY" | python3 -c '
+import json,sys
+from datetime import datetime
+p=json.load(sys.stdin)
+if int(datetime.fromisoformat(p["releaseAt"].replace("Z","+00:00")).timestamp())!=int(sys.argv[1]):raise SystemExit(1)
+' "$CHECKPOINT_BREAK_END_EPOCH" || die 'certified release differs from original admission'
+  INSTANCE="$CERTIFIED_INSTANCE"
+else
 INSTANCE="$(checkpoint_entry_read curl -sS --max-time 2 http://127.0.0.1:8080/health | checkpoint_entry_read python3 -c '
 import json,math,re,sys,time
 d=json.load(sys.stdin); m=d.get("maintenance",{}); instance=d.get("instanceId",""); release=sys.argv[1]
@@ -320,6 +358,7 @@ ok=(d.get("running") is True and d.get("version")==release[:8] and re.fullmatch(
 if not ok: raise SystemExit(1)
 print(instance)
 ' "$LEGACY_SHA" "$CHECKPOINT_DEADLINE_MS" "$CHECKPOINT_BREAK_END_EPOCH" "$CHECKPOINT_ALLOCATION_MS" "$CHECKPOINT_POST_RESERVE_MS")" || defer 'the break window closed before the checkpoint could start; nothing was attempted'
+fi
 
 # Persist intent before opening debugger access. A disconnect is unknown, not
 # permission to invoke again. Existing release recovery retains this run key.
@@ -338,11 +377,12 @@ print(instance)
 # (CLAUDE.md 10.86 rule 1). Nothing is retried, nothing is retired, and the
 # guard still refuses: 70 ends the release exactly as 1 did.
 set +e
-CHECKPOINT_INTENT="$(checkpoint_entry_read python3 - "$REQUEST_ROOT/$RUN_ID.legacy-checkpoint-intent" "$INSTANCE" "$CONTAINER_ID" "$STARTED_AT" "$HOST_PID" "$LEGACY_SHA" "$RUN_ID" "${REQUEST[4]}" "$NATIVE_DESCRIPTOR" <<'PY'
+CHECKPOINT_INTENT="$(checkpoint_entry_read python3 - "$REQUEST_ROOT/$RUN_ID.legacy-checkpoint-intent" "$INSTANCE" "$CONTAINER_ID" "$STARTED_AT" "$HOST_PID" "$LEGACY_SHA" "$RUN_ID" "${REQUEST[4]}" "$NATIVE_DESCRIPTOR" "$IMAGE" "$CERTIFIED_RECOVERY" <<'PY'
 import json,os,sys,time,uuid
-path,instance,container,started,pid,source,run,control,native=sys.argv[1:]
+path,instance,container,started,pid,source,run,control,native,image,certified=sys.argv[1:]
 intent={"instance":instance,"container":container,"startedAt":started,"hostPid":int(pid),
-        "source":source,"runId":run,"controlSha":control,"at":time.time(),"retryAllowed":False,"nativeCensus":json.loads(native)}
+        "source":source,"runId":run,"controlSha":control,"at":time.time(),"retryAllowed":False,"nativeCensus":json.loads(native),"containerImageId":image}
+if certified!="null": intent["certifiedRecovery"]=json.loads(certified)
 if source=="8825af51817f379c4261658ca29ecc9d8d81932d":
     if instance!="1-3846b8bb": raise SystemExit("original process instance changed")
     intent["custody"]=[{"tournament_id":event,"transfer_id":str(uuid.uuid4()),"successor_generation":str(uuid.uuid4())}

@@ -117,12 +117,13 @@ describe('the exact legacy checkpoint enters the existing release transaction', 
   it.each([
     [4000, 75],
     [-1, 75],
-    [81000, 1],
+    [321000, 1],
+    [320000, 0],
     [15000, 0],
   ])('bounds the absolute entry deadline offset %s before intent', (offset, status) => {
     // This case judges an offset at one instant. A second Node startup under
-    // load consumed >1s and turned the deliberately invalid81s input into
-    // an allowed remaining80s. This preidentity gate is the maximum EED
+    // load can consume the invalid offset. This preidentity gate is the maximum
+    // certified320s allocation; exact source/request proof is still required later.
     // allocation; the later sealed predecessor selection still bounds older
     // profiles to40s (covered by the real helper-budget fixture). Keep the clock and deadline on the same instant.
     const now = Date.now();
@@ -245,6 +246,8 @@ REQUEST=(unused unused unused unused aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
 CONTAINER_ID=c63b254ee71b76aa26f4d1394d96189963774310244b046bc91186e219ca3f66
 STARTED_AT=2026-09-18T21:55:50.88305198Z
 HOST_PID=1231816
+IMAGE=sha256:${'e'.repeat(64)}
+CERTIFIED_RECOVERY=null
 ${block}
 printf '%s' inspector-boundary-reached
 `,
@@ -474,9 +477,18 @@ fi
       '[ "$CHECKPOINT_PREDECESSOR_SHA" != "$LEGACY_CHECKPOINT_SHA" ]'
     );
     expect(reclassification).toContain('LEGACY_CHECKPOINT_REQUIRED=0');
-    expect(transaction.slice(lock, invoke)).not.toContain('MUTATION_STARTED=1');
+    const beforeInvoke = transaction.slice(lock, invoke);
+    expect(beforeInvoke).toContain(
+      'if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then MUTATION_STARTED=1; fi'
+    );
     expect(
-      sliceBetween(transaction, '"$LEGACY_CHECKPOINT" "$RUN_ID"', '\n    BREAK_END_EPOCH=0')
+      beforeInvoke.replace(
+        'if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then MUTATION_STARTED=1; fi',
+        ''
+      )
+    ).not.toContain('MUTATION_STARTED=1');
+    expect(
+      sliceBetween(transaction, '"$LEGACY_CHECKPOINT" "$RUN_ID"', '\n  fi\n  set +e')
     ).toContain("die 'legacy checkpoint or cleanup refused; release cannot continue'");
   });
 

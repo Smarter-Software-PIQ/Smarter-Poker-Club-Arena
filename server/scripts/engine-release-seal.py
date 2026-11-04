@@ -2989,11 +2989,16 @@ def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
             '--instance-id', runtime['instanceId'], '--terminal-owned-thaw',
             '--window-announced-ms', str(window['announcedAt']), '--window-starts-ms', str(window['startsAt']),
             '--window-ends-ms', str(window['endsAt']), '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'] + certified_args, deadline)
-        failed_routine_require(json.loads(raw) == {'schema': 'terminal-owned-thaw/v1', 'sha': FAILED_ROUTINE_DESIRED,
-            'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True, **window})
+        database = json.loads(raw)
+        thawed = {'schema': 'terminal-owned-thaw/v1', 'sha': FAILED_ROUTINE_DESIRED,
+            'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True, **window}
+        refused = {**thawed, 'schema': 'terminal-refused-announcement/v1',
+            'ownedV3Thaw': False, 'announcementRefused': True}
+        failed_routine_require(database == thawed or
+            (owner['certifiedRecovery'] is not None and database == refused))
         failed_routine_require(runtime == failed_routine_runtime(deadline, bounded=True)
             and owner == ownership() and state == load_state() and time.monotonic() < deadline)
-        print('expired-original-announcement-thawed')
+        print('expired-original-announcement-refused' if database == refused else 'expired-original-announcement-thawed')
 
 
 def cmd_record_failure(args: argparse.Namespace) -> None:
