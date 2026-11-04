@@ -9,6 +9,15 @@
 #include <limits>
 #include <vector>
 #include <array>
+#include <cstdio>
+#ifdef __linux__
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <signal.h>
+#include <pthread.h>
+#include <cerrno>
+#endif
 #ifndef LEGACY_CENSUS_SOURCE_SHA256
 #error "Maintained source hash must be supplied by the pinned build"
 #endif
@@ -41,9 +50,91 @@ void Refuse(v8::Isolate* isolate, const char* message) {
 struct Attempt {
   uint64_t predicateVisits = 0, validPredicateVisits = 0, matched = 0;
   int64_t queryStartedAtMs = 0, firstValidAtMs = 0, lastValidAtMs = 0, queryEndedAtMs = 0;
+  uint32_t gcBegins = 0, gcEnds = 0, traceRecords = 0;
+  int64_t gcDurationMs = 0;
+  bool traceEnabled = false, phaseTraceAvailable = false;
+  int traceFd = -1;
+  std::array<int64_t, 8> gcBeginMs{}, gcEndMs{};
   bool overflow = false, deadlineRefused = false, arrayAllocated = false;
 };
 thread_local Attempt lastAttempt;
+// No I/O or allocation in GC callbacks. Linux opens a separate nonblocking
+// FIFO description; it never changes the application's stderr flags/handlers.
+void TracePhase(const char* phase) {
+  if (!lastAttempt.traceEnabled || lastAttempt.traceFd < 0 || lastAttempt.traceRecords >= 20) return;
+#ifdef __linux__
+  char buffer[512];
+  const int length = std::snprintf(buffer, sizeof(buffer),
+      "legacy-census-phase {\"schema\":\"legacy-census-phase/v1\","
+      "\"sourceSHA256\":\"%s\",\"phase\":\"%s\",\"startedAtMs\":%lld,"
+      "\"atMs\":%lld,\"predicateVisits\":%llu,\"gcBegins\":%u,\"gcEnds\":%u,\"gcDurationMs\":%lld}\n",
+      LEGACY_CENSUS_SOURCE_SHA256, phase,
+      static_cast<long long>(lastAttempt.queryStartedAtMs), static_cast<long long>(Now()),
+      static_cast<unsigned long long>(lastAttempt.predicateVisits), lastAttempt.gcBegins, lastAttempt.gcEnds, static_cast<long long>(lastAttempt.gcDurationMs));
+  if (length <= 0 || static_cast<size_t>(length) >= sizeof(buffer)) return;
+  // Block only this thread during the single nonblocking write. Consume only
+  // a newly generated SIGPIPE, preserving any signal that was already pending.
+  sigset_t blocked, previous, pending;
+  sigemptyset(&blocked); sigaddset(&blocked, SIGPIPE);
+  if (pthread_sigmask(SIG_BLOCK, &blocked, &previous) != 0) return;
+  sigemptyset(&pending);
+  if (sigpending(&pending) != 0) { pthread_sigmask(SIG_SETMASK, &previous, nullptr); return; }
+  const bool alreadyPending = sigismember(&pending, SIGPIPE) == 1;
+  const auto written = write(lastAttempt.traceFd, buffer, static_cast<size_t>(length));
+  if (written < 0 && errno == EPIPE && !alreadyPending) {
+    // A synchronous pipe error targets this thread. Wait only after proving
+    // that new signal pending; sigwait is not interrupted with EINTR.
+    sigset_t generated; sigemptyset(&generated);
+    if (sigpending(&generated) == 0 && sigismember(&generated, SIGPIPE) == 1) {
+      int consumed = 0;
+      sigwait(&blocked, &consumed);
+    }
+  }
+  pthread_sigmask(SIG_SETMASK, &previous, nullptr);
+  ++lastAttempt.traceRecords;
+#endif
+}
+void GCBegin(v8::Isolate*, v8::GCType, v8::GCCallbackFlags, void*) {
+  if (++lastAttempt.gcBegins <= 8) lastAttempt.gcBeginMs[lastAttempt.gcBegins - 1] = Now();
+}
+void GCEnd(v8::Isolate*, v8::GCType, v8::GCCallbackFlags, void*) {
+  if (++lastAttempt.gcEnds <= 8) {
+    const auto end = Now();
+    lastAttempt.gcEndMs[lastAttempt.gcEnds - 1] = end;
+    const auto begin = lastAttempt.gcBeginMs[lastAttempt.gcEnds - 1];
+    if (begin > 0 && end >= begin) lastAttempt.gcDurationMs += end - begin;
+  }
+}
+class GCTraceScope final {
+ public:
+  explicit GCTraceScope(v8::Isolate* isolate, bool enabled) : isolate_(isolate), enabled_(enabled) {
+    if (!enabled_) return;
+#ifdef __linux__
+    const int original = fcntl(STDERR_FILENO, F_GETFL);
+    const int fd = open("/proc/self/fd/2", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+    struct stat state{};
+    if (fd >= 0 && fstat(fd, &state) == 0 && S_ISFIFO(state.st_mode) &&
+        fcntl(STDERR_FILENO, F_GETFL) == original) {
+      lastAttempt.traceFd = fd;
+      lastAttempt.phaseTraceAvailable = true;
+    } else if (fd >= 0) close(fd);
+#endif
+    isolate_->AddGCPrologueCallback(GCBegin, nullptr);
+    isolate_->AddGCEpilogueCallback(GCEnd, nullptr);
+  }
+  ~GCTraceScope() {
+    if (!enabled_) return;
+    isolate_->RemoveGCPrologueCallback(GCBegin, nullptr);
+    isolate_->RemoveGCEpilogueCallback(GCEnd, nullptr);
+#ifdef __linux__
+    if (lastAttempt.traceFd >= 0) close(lastAttempt.traceFd);
+#endif
+    lastAttempt.traceFd = -1;
+  }
+ private:
+  v8::Isolate* isolate_;
+  bool enabled_;
+};
 // Local pins escape only on insertion. The pinned QueryObjects second pass
 // uses the explicit Collect scope with no per-iteration scope; entries are never
 // read after that call returns. No Global handles or young-global list growth.
@@ -133,6 +224,7 @@ class Predicate final : public v8::QueryObjectPredicate {
     // promoted by V8 after this boolean predicate returns.
     v8::HandleScope handles(context_->GetIsolate());
     ++lastAttempt.predicateVisits;
+    if (lastAttempt.predicateVisits == 1) { TracePhase("gc_summary"); TracePhase("first_predicate"); }
     const auto now = Now();
     if (now >= deadline_) {
       failed_ = true; lastAttempt.deadlineRefused = true; return false;
@@ -249,8 +341,15 @@ void Collect(const v8::FunctionCallbackInfo<v8::Value>& args) {
   std::vector<v8::Global<v8::Object>> matches;
   Predicate predicate(context, args[0].As<v8::Object>(), deadline);
   lastAttempt.queryStartedAtMs = Now();
-  isolate->GetHeapProfiler()->QueryObjects(context, &predicate, &matches);
-  lastAttempt.queryEndedAtMs = Now();
+  lastAttempt.traceEnabled = eed_profile;
+  {
+    GCTraceScope trace(isolate, eed_profile);
+    TracePhase("query_begin");
+    isolate->GetHeapProfiler()->QueryObjects(context, &predicate, &matches);
+    lastAttempt.queryEndedAtMs = Now();
+    TracePhase("query_end");
+  }
+  lastAttempt.traceEnabled = false;
   if (lastAttempt.overflow) {
     Refuse(isolate, "native census matched output overflow before array"); return;
   }
@@ -285,7 +384,9 @@ void Diagnostics(const v8::FunctionCallbackInfo<v8::Value>& args) {
 #define NUMBER(name) out->CreateDataProperty(context, v8::String::NewFromUtf8Literal(isolate, #name), v8::Number::New(isolate, lastAttempt.name)).Check()
 #define BOOLEAN(name) out->CreateDataProperty(context, v8::String::NewFromUtf8Literal(isolate, #name), v8::Boolean::New(isolate, lastAttempt.name)).Check()
   NUMBER(predicateVisits); NUMBER(validPredicateVisits); NUMBER(matched);
+  NUMBER(gcBegins); NUMBER(gcEnds); NUMBER(gcDurationMs); NUMBER(traceRecords);
   NUMBER(queryStartedAtMs); NUMBER(firstValidAtMs); NUMBER(lastValidAtMs); NUMBER(queryEndedAtMs);
+  BOOLEAN(phaseTraceAvailable);
   BOOLEAN(overflow); BOOLEAN(deadlineRefused); BOOLEAN(arrayAllocated);
 #undef NUMBER
 #undef BOOLEAN
