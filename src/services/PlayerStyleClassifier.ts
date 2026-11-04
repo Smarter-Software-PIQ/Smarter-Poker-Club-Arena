@@ -5,7 +5,7 @@
  *
  * Automatically classifies players into archetypes based on live VPIP/PFR/AF:
  *   S   Shark  — Selective + Aggressive (TAG with edge)
- *   F   Fish   — Loose + Passive (high VPIP, low PFR)
+ *   F   Fish   - Loose + Passive (high VPIP, LOW PFR relative to VPIP)
  *   R   Rock   — Ultra-tight + Passive (low VPIP, low PFR)
  *   M   Maniac — Hyper-aggressive + Loose
  *   T   TAG    — Tight-Aggressive (standard solid)
@@ -168,76 +168,81 @@ class PlayerStyleClassifierClass {
   /**
    * Core classification logic.
    *
-   * Decision boundaries (industry-standard ranges):
-   *   VPIP < 15%  = Very tight
-   *   VPIP 15-22% = Tight
-   *   VPIP 22-35% = Loose
-   *   VPIP > 35%  = Very loose
+   * REWRITTEN 2026-11-04. A KINGS CLUB regular running 34.3% VPIP / 17.1% PFR
+   * at +13.6 bb/100 over 1,623 hands was being titled "Fish". Nothing was
+   * random about it: he missed the Fish rule proper (VPIP > 35), missed LAG
+   * (PFR > 18) and TAG (VPIP <= 28), and dropped into a catch-all that titled
+   * ANY player over 30% VPIP a Fish whenever their aggression factor was under
+   * 2.0. That catch-all was the bug. A Fish is loose AND passive, and the
+   * passive half is measured preflop by how rarely a player raises the hands
+   * he plays, not by a postflop ratio alone. The platform's aggression factor
+   * also counts preflop calls in its denominator (see
+   * ca_fact_aggression_counts), which pulls every loose player's AF well under
+   * the textbook postflop thresholds this tree was written against, so AF can
+   * only ever be a secondary signal here.
    *
-   *   PFR < 8%    = Passive
-   *   PFR 8-18%   = Standard
-   *   PFR 18-28%  = Aggressive
-   *   PFR > 28%   = Hyper-aggressive
+   * The primary read is therefore VPIP (how many hands) and PFR / VPIP (how
+   * many of them were raised). AF breaks ties. Every branch is reachable and
+   * every player lands in exactly one archetype; there is no longer a branch
+   * that labels a raiser passive.
    *
-   *   AF < 1.0    = Passive
-   *   AF 1.0-2.5  = Standard
-   *   AF > 2.5    = Aggressive
-   *   AF > 4.0    = Hyper-aggressive
+   * Reference ranges (full-ring / 6-max cash, industry HUD conventions):
+   *   VPIP < 12%  = Very tight       PFR/VPIP >= 0.60 = raises most of what he plays
+   *   VPIP 12-18% = Tight            PFR/VPIP 0.45-0.60 = mixed raise/call
+   *   VPIP 18-28% = Standard         PFR/VPIP < 0.35 = mostly calls (passive)
+   *   VPIP 28-40% = Loose            AF >= 2.5 = aggressive (postflop convention)
+   *   VPIP > 40%  = Very loose       AF < 1.5 = passive
    */
   private classifyFromStats(vpip: number, pfr: number, af: number): PlayerStyle {
+    const ratio = vpip > 0 ? Math.min(1, pfr / vpip) : 0;
+
     // ── Nit: Ultra-tight, barely plays anything ──
     if (vpip < 12 && pfr < 8) {
       return 'nit';
     }
 
-    // ── Rock: Tight and passive ──
-    if (vpip < 18 && pfr < 10 && af < 2.0) {
+    // ── Rock: Tight and passive (few hands, and calls more than it raises) ──
+    if (vpip < 18 && (pfr < 10 || ratio < 0.5) && af < 2.5) {
       return 'rock';
     }
 
-    // ── Maniac: Very loose + very aggressive ──
-    if (vpip > 40 && pfr > 25 && af > 2.5) {
+    // ── Maniac: Very loose + very aggressive, preflop or postflop ──
+    if (vpip > 40 && pfr > 25 && (af > 2.5 || ratio >= 0.6)) {
       return 'maniac';
     }
 
-    // ── Calling Station: Very loose + very passive ──
+    // ── Calling Station: Very loose + almost never raises + passive postflop ──
     if (vpip > 40 && pfr < 12 && af < 1.5) {
       return 'calling_station';
     }
 
-    // ── Fish: Loose + passive (but not as extreme as calling station) ──
-    if (vpip > 35 && pfr < 15 && af < 2.0) {
+    // ── Fish: Loose + passive. Passive means a LOW raise rate, not a middling AF ──
+    if (vpip > 30 && (pfr < 12 || ratio < 0.35)) {
       return 'fish';
     }
 
-    // ── Shark: Selective + highly aggressive + profitable style ──
-    // Sharks have tight VPIP but very high aggression — the most dangerous
+    // ── Shark: Selective + highly aggressive ──
     if (vpip >= 18 && vpip <= 28 && pfr >= 15 && pfr <= 25 && af >= 2.5) {
       return 'shark';
     }
 
-    // ── LAG: Loose + aggressive ──
-    if (vpip > 28 && pfr > 18 && af >= 2.0) {
+    // ── LAG: Loose + aggressive (raises close to half of what it plays, or more) ──
+    if (vpip > 28 && pfr >= 15 && (ratio >= 0.45 || af >= 2.0)) {
       return 'lag';
     }
 
-    // ── TAG: Tight + aggressive (the "standard solid" style) ──
-    if (vpip >= 15 && vpip <= 28 && pfr >= 10 && af >= 1.5) {
+    // ── TAG: Standard range, raises most of what it plays ──
+    if (vpip >= 15 && vpip <= 28 && pfr >= 10 && ratio >= 0.5) {
       return 'tag';
     }
 
-    // ── Fish: Catch-all for loose-passive not caught above ──
-    if (vpip > 30 && af < 2.0) {
-      return 'fish';
+    // ── Loose players not caught above: split on how much of the range is raised ──
+    if (vpip > 28) {
+      return ratio < 0.45 && af < 2.0 ? 'fish' : 'lag';
     }
 
-    // ── Rock: Catch-all for tight-passive not caught above ──
-    if (vpip < 20 && af < 1.5) {
-      return 'rock';
-    }
-
-    // Default: TAG (most common solid style)
-    return 'tag';
+    // ── Standard-or-tighter players not caught above: same split ──
+    return ratio < 0.5 ? 'rock' : 'tag';
   }
 
   /**

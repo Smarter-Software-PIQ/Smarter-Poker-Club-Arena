@@ -12,7 +12,12 @@ import { supabase } from '../../lib/supabase';
 import { useStaggerAnimation } from '../../hooks/useStaggerAnimation';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { vipService, FEATURE_PRICING } from '../../services/VIPService';
-import { NOTE_COLORS, PLAYER_TAGS, playerNotesService } from '../../services/PlayerNotesService';
+import {
+  LABEL_TO_HEX,
+  NOTE_COLORS,
+  PLAYER_TAGS,
+  playerNotesService,
+} from '../../services/PlayerNotesService';
 import { showDiamondTopUp } from '../common/DiamondTopUpToast';
 import { useToast } from '../common/Toast';
 import styles from './PlayerNotesPanel.module.css';
@@ -188,7 +193,7 @@ export default function PlayerNotesPanel({
           targetAvatar: pMap[note.target_user_id]?.avatar_url,
           note: note.notes,
           tags: note.tags || [],
-          color: note.color_label || '#6b7280',
+          color: LABEL_TO_HEX[note.color_label as string] || LABEL_TO_HEX.none,
           lastUpdated: note.updated_at,
         }));
         if (isCurrent()) setNotes(mapped);
@@ -242,6 +247,22 @@ export default function PlayerNotesPanel({
     setSaving(true);
 
     try {
+      /* A BLANK SAVE IS A CLEAR (2026-11-04). Saving with no text, no tags
+         and no colour used to write an empty row, which then counted as "a
+         note on this player" everywhere a note is counted: the Notes Library
+         listed a blank card and the seat would wear the post-it for nothing.
+         Clearing every field and saving now removes the row instead. */
+      const isBlank =
+        note === '' && visibleSelectedTags.length === 0 && visibleSelectedColor === 'none';
+      if (isBlank) {
+        await playerNotesService.deleteNote(requestedUserId, targetUserId);
+        if (isCurrent()) {
+          toast.success('Note Cleared');
+          onClose?.();
+        }
+        return;
+      }
+
       const { error } = await supabase.from('player_notes').upsert(
         {
           user_id: requestedUserId,
@@ -256,7 +277,15 @@ export default function PlayerNotesPanel({
 
       if (error) throw error;
       playerNotesService.clearCache();
-      if (isCurrent()) onClose?.();
+      playerNotesService.notifyChanged({
+        userId: requestedUserId,
+        targetUserId,
+        hasNote: true,
+      });
+      if (isCurrent()) {
+        toast.success('Note Saved');
+        onClose?.();
+      }
     } catch (error) {
       reportError(error, 'PlayerNotesPanel.Save');
       if (isCurrent()) toast.error('Failed To Save Note. Your Draft Is Still Here.');
@@ -322,6 +351,7 @@ export default function PlayerNotesPanel({
     const requestedScope = activeScope;
     if (!requestedUserId || !stateBelongsToActiveScope) return;
     const requestId = ++accountRequestRef.current;
+    const removed = visibleNotes.find((n) => n.id === noteId);
     // SECURITY: Scope to current user to prevent deleting other users' notes
     const { error } = await supabase
       .from('player_notes')
@@ -333,6 +363,14 @@ export default function PlayerNotesPanel({
     if (error) {
       toast.error('Failed To Delete Note');
       return;
+    }
+    playerNotesService.clearCache();
+    if (removed?.targetUserId) {
+      playerNotesService.notifyChanged({
+        userId: requestedUserId,
+        targetUserId: removed.targetUserId,
+        hasNote: false,
+      });
     }
     setNotes((prev) => prev.filter((n) => n.id !== noteId));
   };

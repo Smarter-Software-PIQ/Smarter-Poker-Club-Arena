@@ -1228,9 +1228,10 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   const [allTimeFetched, setAllTimeFetched] = useState<FullStats | null>(null);
   const [allTimeError, setAllTimeError] = useState(false);
   const [allTimeReload, setAllTimeReload] = useState(0);
-  // The share card's style badge is a lifetime reading too (Overview tab).
-  const wantsAllTime =
-    gameMode === 'cash' && (category === 'trophies' || category === 'overview' || printing);
+  // Trophies only (and the printed dossier, which renders every tab). The
+  // share card's badge stopped reading lifetime on 2026-11-04: it reads the
+  // range the card prints, so the Overview tab no longer needs this fetch.
+  const wantsAllTime = gameMode === 'cash' && (category === 'trophies' || printing);
   useEffect(() => {
     if (!targetUserId || !isOwnProfile || !wantsAllTime || rangeKey === 'all') return;
     const memoPayload = readStatsRangeMemo(cacheIdentityFor('all', null));
@@ -1412,13 +1413,21 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
   );
   // Style label for the share card. Shared with TrophyRoom so the two can
   // never disagree about what style a player is - see playerStyleFromStats.
-  const shareStyle = useMemo(() => {
-    const source = allTimeStats ?? full;
-    return playerStyleFromStats(
-      source?.overall,
-      source?.contract.quality.metric_availability.aggression_factor === true
-    );
-  }, [allTimeStats?.overall, full?.overall]);
+  //
+  // 2026-11-04: the badge reads the SAME range the card prints, and nothing
+  // else. It used to be a lifetime reading printed beside "Last 30 Days"
+  // numbers, so the title on the card could be computed from hands the card
+  // did not show. When the printed range is too short to call (under
+  // STYLE_MIN_HANDS) the card carries no title rather than one borrowed from
+  // a range it does not display.
+  const shareStyle = useMemo(
+    () =>
+      playerStyleFromStats(
+        full?.overall,
+        full?.contract.quality.metric_availability.aggression_factor === true
+      ),
+    [full?.overall]
+  );
   const overall = full?.overall ?? EMPTY_OVERALL;
   const lifetime = full?.lifetime ?? EMPTY_LIFETIME;
   const tourn = full?.tournaments ?? EMPTY_FULL.tournaments;

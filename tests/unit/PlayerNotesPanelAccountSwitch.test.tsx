@@ -27,8 +27,9 @@ const mocks = vi.hoisted(() => ({
   checkVIPStatus: vi.fn(),
   purchaseFeature: vi.fn(),
   showDiamondTopUp: vi.fn(),
-  toast: { error: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn() },
   save: vi.fn().mockResolvedValue({ error: null }),
+  remove: vi.fn().mockResolvedValue({ error: null }),
 }));
 
 vi.mock('../../src/hooks/useAuthUser', () => ({
@@ -46,7 +47,12 @@ vi.mock('../../src/services/VIPService', () => ({
 vi.mock('../../src/services/PlayerNotesService', () => ({
   NOTE_COLORS: [{ name: 'None', value: 'none', hex: 'transparent' }],
   PLAYER_TAGS: ['Aggressive'],
-  playerNotesService: { clearCache: vi.fn() },
+  LABEL_TO_HEX: { none: '#6b7280' },
+  playerNotesService: {
+    clearCache: vi.fn(),
+    notifyChanged: vi.fn(),
+    deleteNote: (...args: unknown[]) => mocks.remove(...args),
+  },
 }));
 
 vi.mock('../../src/hooks/useStaggerAnimation', () => ({
@@ -274,11 +280,15 @@ it('saves edited and cleared notes, blocks repeat saves and retains a failed dra
   );
   expect(input).toHaveValue('Keep My Draft');
   expect(input).not.toBeDisabled();
-  mocks.save.mockResolvedValueOnce({ error: null });
+  /* A BLANK SAVE IS A CLEAR (2026-11-04): no text, no tags and no colour
+     removes the row instead of writing an empty note that would still count
+     as a note (in the library, and as a post-it on the seat). */
   fireEvent.change(input, { target: { value: '' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save Note' }));
-  await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(3));
-  expect(mocks.save.mock.calls[2][0]).toMatchObject({ notes: '' });
+  await waitFor(() => expect(mocks.remove).toHaveBeenCalledTimes(1));
+  expect(mocks.remove).toHaveBeenCalledWith('account-a', 'opponent');
+  expect(mocks.save).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(mocks.toast.success).toHaveBeenCalledWith('Note Cleared'));
   rendered.unmount();
 });
 

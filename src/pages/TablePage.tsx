@@ -282,6 +282,7 @@ import {
   PRE_ACTION_GAP_BRIDGE_MS,
 } from '../lib/preActionPanelGate';
 import { seatTapTarget } from '../lib/heroSeatTap';
+import { usePlayerNoteMarkers } from '../hooks/usePlayerNoteMarkers';
 import { MAX_SUPPORTED_SEATS } from '../lib/heroSeatReconcile';
 import { useEngineHeroSeatInvariant } from '../hooks/useEngineHeroSeatInvariant';
 import {
@@ -4883,6 +4884,10 @@ function LiveTablePage({
   // bustPromptFiredRef provided by useTableSession hook
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const [showPlayerNotes, setShowPlayerNotes] = useState(false);
+  /* THE POST-IT (Dan 2026-11-04): the ids of every opponent the hero holds a
+     private note on, kept current by the notes service as notes are saved and
+     deleted. Each villain seat reads one bit from it. */
+  const notedPlayerIds = usePlayerNoteMarkers(userId);
   const [selectedPlayerForNotes, setSelectedPlayerForNotes] = useState<{
     id: string;
     name: string;
@@ -29023,6 +29028,12 @@ function LiveTablePage({
                 <SeatSlot
                   seatNumber={seatNumber}
                   player={displayPlayer}
+                  hasNote={
+                    !!displayPlayer &&
+                    !displayPlayer.isHero &&
+                    displayPlayer.id !== userId &&
+                    notedPlayerIds.has(displayPlayer.id)
+                  }
                   arrival={lightningRoom ? seatArrivals[seatNumber] : undefined}
                   foldCommitted={
                     lightningRoom != null &&
@@ -31807,6 +31818,12 @@ function LiveTablePage({
           onOpenProfileView={() => setShowProfileModal(true)}
           onOpenAvatarPicker={() => avatarService.openAvatarSelector()}
           onOpenIdentity={() => setShowIdentityModal(true)}
+          /* THE NOTES LIBRARY DOOR (2026-11-04): no target means the dialog
+             opens in library mode, every private note this player holds. */
+          onOpenNotesLibrary={() => {
+            setSelectedPlayerForNotes(null);
+            setShowPlayerNotes(true);
+          }}
           /* 2026-08-29: the hub knows who it belongs to, shows the figures
              inline instead of one tap away, and hands the felt back the
              moment the turn arrives (a menu must never time out a hand). */

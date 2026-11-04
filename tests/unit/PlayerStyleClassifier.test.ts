@@ -161,6 +161,81 @@ describe('PlayerStyleClassifier', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // A RAISER IS NEVER A FISH (2026-11-04)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('a loose player who raises is never titled Fish', () => {
+    it('reads Burls (34.3 / 17.1, AF 1.12 over 1,623 hands) as LAG, not Fish', () => {
+      // The live KINGS CLUB cash figures that produced the "FISH" share card.
+      const hands = 1623;
+      const result = playerStyleClassifier.classify({
+        handsPlayed: hands,
+        vpipCount: Math.round(0.3432 * hands),
+        pfrCount: Math.round(0.1707 * hands),
+        aggressiveActions: Math.round(hands * 1.12),
+        passiveActions: hands,
+      });
+      expect(result.style).toBe('lag');
+    });
+
+    it('never returns Fish for any VPIP when PFR is at least half of VPIP', () => {
+      for (let vpip = 15; vpip <= 70; vpip += 1) {
+        for (const af of [0.5, 1.0, 1.5, 1.9]) {
+          const pfr = Math.ceil(vpip / 2);
+          const result = playerStyleClassifier.classify({
+            handsPlayed: 1000,
+            vpipCount: vpip * 10,
+            pfrCount: pfr * 10,
+            aggressiveActions: Math.round(1000 * af),
+            passiveActions: 1000,
+          });
+          expect(result.style, `vpip=${vpip} pfr=${pfr} af=${af}`).not.toBe('fish');
+          expect(result.style, `vpip=${vpip} pfr=${pfr} af=${af}`).not.toBe('calling_station');
+        }
+      }
+    });
+
+    it('still reads a genuine loose-passive player as Fish', () => {
+      // 38 / 9 with a middling AF: plays a lot, raises almost nothing.
+      const result = playerStyleClassifier.classify({
+        handsPlayed: 500,
+        vpipCount: 190,
+        pfrCount: 45,
+        aggressiveActions: 600,
+        passiveActions: 500, // AF = 1.2
+      });
+      expect(result.style).toBe('fish');
+    });
+
+    it('reads a loose player who raises a third of his hands with low AF as Fish', () => {
+      // 36 / 12 (ratio 0.33): loose and mostly calling.
+      const result = playerStyleClassifier.classify({
+        handsPlayed: 500,
+        vpipCount: 180,
+        pfrCount: 60,
+        aggressiveActions: 400,
+        passiveActions: 500, // AF = 0.8
+      });
+      expect(result.style).toBe('fish');
+    });
+
+    it('lands every (vpip, pfr) pair with pfr <= vpip in exactly one named style', () => {
+      for (let vpip = 0; vpip <= 100; vpip += 5) {
+        for (let pfr = 0; pfr <= vpip; pfr += 5) {
+          const result = playerStyleClassifier.classify({
+            handsPlayed: 1000,
+            vpipCount: vpip * 10,
+            pfrCount: pfr * 10,
+            aggressiveActions: 1200,
+            passiveActions: 1000,
+          });
+          expect(result.style).not.toBe('unknown');
+        }
+      }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // CONFIDENCE SCALING
   // ─────────────────────────────────────────────────────────────────────────
 
