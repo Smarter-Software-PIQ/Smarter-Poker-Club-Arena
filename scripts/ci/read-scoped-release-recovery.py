@@ -3598,7 +3598,10 @@ def inspector_memory(value):
 
 
 def inspector_remote(request, root_fd):
-    deadline = time.monotonic() + 18
+    # The original endpoint history read exhausted the former 18s envelope
+    # (41931755859). The owner's scoped fourfold allowance covers this one
+    # read and its identity bookends, without widening other observer modes.
+    deadline = time.monotonic() + 72
     answer = {'schema': INSPECTOR_SCHEMA, 'readOnly': True, **request,
               'status': 'unproved', 'reason': 'evidence_unavailable', 'controlSha': None,
               'originalSourceSha': None, 'instanceId': None, 'endpointSha256': None,
@@ -4845,7 +4848,8 @@ def main():
                 '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
                 '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'ConnectTimeout=10',
                 'root@' + host, "python3 - --remote '" + encoded + "'"]
-        reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=30)
+        transport_seconds = 120 if request.get('mode') == 'legacy_checkpoint_inspector' else 30
+        reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=transport_seconds)
         if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner', 'failed_routine_custody'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records','original_announcement_cause','retained_first_refusal'} else 4096):
             raise ValueError('Scoped evidence transport unavailable')
         if reply.returncode:
