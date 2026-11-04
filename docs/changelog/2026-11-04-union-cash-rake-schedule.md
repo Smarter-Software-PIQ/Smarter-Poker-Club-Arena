@@ -65,4 +65,6 @@ Before this change, HorseCashSchedule enforced stakes/variants and a 0.2 activit
 
 The existing 60% reduction remains in place. New tests cover every hour of the week, continuous NLH/PLO availability, overnight/prime transitions, DST, duplicate mains/feeders, human presence and forbidden-game precedence. Connected tests drive the real session rotator through normal leave calls for off-peak higher stakes, preserve playing humans, keep lower-stakes Horse-only games, and preserve prime-time higher-stakes Horse-only play.
 
+The production noResolve emitter explicitly includes the new schedule JSON in `server/tsconfig.emit.json`; the existing build-resource guard verifies all imported runtime JSON is selected. A hosted preflight caught the initially omitted entry before any image was published, and the maintained emitter configuration was corrected without weakening that guard.
+
 Status: source candidate; protected merge, engine publication and live verification remain required. Current deployed behavior must not be inferred from this document.
