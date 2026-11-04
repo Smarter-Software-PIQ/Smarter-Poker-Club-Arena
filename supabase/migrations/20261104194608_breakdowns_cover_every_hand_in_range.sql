@@ -917,4 +917,18 @@ BEGIN
 END;
 $function$;
 
+
+-- Grants restated explicitly (the live ACL: a signed-in player and the
+-- service role, never anon or PUBLIC). CREATE OR REPLACE keeps an existing
+-- ACL, and GRANT/REVOKE never reload the schema cache; this makes the
+-- authorization visible in the file the pre-push definer guard reads.
+REVOKE ALL ON FUNCTION public.ca_player_stats_overview_separated(uuid, integer, text, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ca_player_stats_overview_separated(uuid, integer, text, text, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.ca_player_stats_overview_separated_by_club(uuid, integer, text, text, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ca_player_stats_overview_separated_by_club(uuid, integer, text, text, uuid, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.ca_player_stats_overview_v2(uuid, integer, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ca_player_stats_overview_v2(uuid, integer, text, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.ca_player_stats_overview_v2_by_club(uuid, integer, text, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ca_player_stats_overview_v2_by_club(uuid, integer, text, text, uuid) TO authenticated, service_role;
+
 COMMIT;

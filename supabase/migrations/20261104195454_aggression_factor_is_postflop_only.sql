@@ -667,4 +667,24 @@ BEGIN
 END;
 $function$;
 
+
+-- Internal readers and the trigger: engine/service only, exactly as their
+-- predecessors are held live. A browser never calls these; the overview
+-- readers reach the coverage function as their owner.
+REVOKE ALL ON FUNCTION public.ca_fact_postflop_aggression_counts(jsonb, uuid, numeric) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ca_fact_postflop_aggression_counts(jsonb, uuid, numeric) TO service_role;
+REVOKE ALL ON FUNCTION public.ca_capture_fact_aggression_counts() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ca_capture_fact_aggression_counts() TO service_role;
+REVOKE ALL ON FUNCTION public.ca_player_recorded_hand_coverage(uuid, jsonb, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ca_player_recorded_hand_coverage(uuid, jsonb, timestamptz, timestamptz) TO service_role;
+
+-- Grants restated explicitly (the live ACL: a signed-in player and the
+-- service role, never anon or PUBLIC). CREATE OR REPLACE keeps an existing
+-- ACL, and GRANT/REVOKE never reload the schema cache; this makes the
+-- authorization visible in the file the pre-push definer guard reads.
+REVOKE ALL ON FUNCTION public.ca_player_stats_overview_separated_by_club(uuid, integer, text, text, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ca_player_stats_overview_separated_by_club(uuid, integer, text, text, uuid, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.ca_player_stats_overview_v2_by_club(uuid, integer, text, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ca_player_stats_overview_v2_by_club(uuid, integer, text, text, uuid) TO authenticated, service_role;
+
 COMMIT;
