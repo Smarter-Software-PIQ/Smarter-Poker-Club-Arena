@@ -42,6 +42,7 @@ import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { seedFastRandom } from './HorseEval.js';
 import { HAND_CLASSES } from './HorseGtoOpeningRanges.js';
 import { buildTournamentMState } from './HorseTournamentPreflop.js';
+import { resolveHorseHybridProfile } from './HorseHybridProfile.js';
 import type { ActionRecord, Card, HorseStyle, SeatPlayer } from '../types.js';
 
 const SEATS: NlhOpenSeat[] = ['early', 'middle', 'cutoff', 'button', 'blind', 'heads_up'];
@@ -329,6 +330,18 @@ describe('each spot draws from its own band', () => {
       }
   });
 
+  it('cash isolation adds one full BB per limper after every sizing dial', () => {
+    for (const seat of SEATS)
+      for (const bigBlind of [0.1, 1, 2])
+        for (const mult of [0.8272, 1, 1.5]) {
+          const base = sample(deep(seat), { bigBlind, mult, n: 40, seed: 91 });
+          for (const limpers of [1, 2, 3, 4]) {
+            const isolated = sample(deep(seat), { bigBlind, mult, limpers, n: 40, seed: 91 });
+            isolated.forEach((size, i) => expect(size - base[i]).toBeCloseTo(limpers, 8));
+          }
+        }
+  });
+
   it('the persona dial leans inside the band without leaving it', () => {
     const low = sample(deep('cutoff'), { mult: 0.88 });
     const high = sample(deep('cutoff'), { mult: 1.12 });
@@ -421,7 +434,15 @@ function holeFor(cls: string, s: number): Card[] {
   return [{ rank: cls[0], suit: SUITS[su] } as Card, { rank: cls[1], suit: SUITS[s2] } as Card];
 }
 /** Hero first in at `posIdx` (0 = first seat after the big blind; last = SB). */
-function decideFirstIn(t: Table, posIdx: number, cls: string, seed: number, style: HorseStyle) {
+function decideFirstIn(
+  t: Table,
+  posIdx: number,
+  cls: string,
+  seed: number,
+  style: HorseStyle,
+  limpers = 0,
+  hybrid = false
+) {
   const BB = t.bb;
   const n = t.seats;
   const sbSeat = 1;
@@ -454,14 +475,22 @@ function decideFirstIn(t: Table, posIdx: number, cls: string, seed: number, styl
   }
   const history: ActionRecord[] = [];
   let ts = 100;
+  let limped = 0;
   for (const seat of order) {
     if (seat === heroSeat) break;
-    players[seat - 1].is_folded = true;
+    const limp = limped < limpers;
+    if (limp) {
+      limped++;
+      const p = players[seat - 1];
+      p.stack -= BB - p.bet;
+      p.totalInvested += BB - p.bet;
+      p.bet = BB;
+    } else players[seat - 1].is_folded = true;
     history.push({
       seat,
       userId: `open-${seat}`,
-      action: 'fold',
-      amount: 0,
+      action: limp ? 'call' : 'fold',
+      amount: limp ? BB : 0,
       timestamp: ts++,
       stage: 'preflop',
     } as ActionRecord);
@@ -508,7 +537,7 @@ function decideFirstIn(t: Table, posIdx: number, cls: string, seed: number, styl
   const gs = {
     players,
     communityCards: [],
-    pot: 1.5 * BB + ante,
+    pot: 1.5 * BB + ante + limped * BB,
     currentBet: BB,
     minRaise: BB,
     lastRaise: BB,
@@ -528,7 +557,13 @@ function decideFirstIn(t: Table, posIdx: number, cls: string, seed: number, styl
   const classHash = [...cls].reduce((h, ch) => (h * 131 + ch.charCodeAt(0)) >>> 0, 7);
   seedFastRandom(((classHash ^ Math.imul(seed, 2654435761)) >>> 0) + posIdx * 104729);
   const hero = players[heroSeat - 1];
-  const d = HorseLogic.decide(hero, gs, style, {}, { mind: false, telemetry: false } as never);
+  const selected = hybrid
+    ? resolveHorseHybridProfile({}, 'sizing-test', t.mode)
+    : { style, mods: {} };
+  const d = HorseLogic.decide(hero, gs, selected.style, selected.mods, {
+    mind: false,
+    telemetry: false,
+  } as never);
   return { d, hero, gs };
 }
 
@@ -553,6 +588,25 @@ function opens(t: Table, seeds = 2) {
 }
 
 describe('through HorseLogic.decide', () => {
+  it('the global hybrid keeps cash open bands and the full per-limper increment', () => {
+    for (const seats of [6, 9])
+      for (const bb of [0.1, 1, 2])
+        for (const limpers of [0, 1, 2, 3])
+          for (let seed = 1; seed <= 12; seed++) {
+            const { d } = decideFirstIn(
+              { seats, bb, stackBB: 100, mode: 'cash', ante: false },
+              seats - 3,
+              'AA',
+              seed,
+              'grinder',
+              limpers,
+              true
+            );
+            expect(d.action).toBe('raise');
+            expect(d.amount! / bb).toBeGreaterThanOrEqual(2.5 + limpers - 1e-9);
+            expect(d.amount! / bb).toBeLessThanOrEqual(4 + limpers + 1e-9);
+          }
+  });
   it('a cash table never opens to the minimum (86.8% at 0.50/1 before)', () => {
     for (const bb of [1, 0.1]) {
       const xs = opens({ seats: 6, stackBB: 100, mode: 'cash', ante: false, bb });

@@ -33,6 +33,7 @@
 import { potLimitRaiseTo } from './BettingStructure.js';
 import { completePreflopCommitment } from './HorseContinuation.js';
 import { nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
+import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import {
   tournamentMZone,
   tournamentNextLevelProjectionApplies,
@@ -51,7 +52,7 @@ export interface PreflopIntent {
    *  'v74_nlh_open_size' = the open was drawn from the V74 band;
    *  'v76_retired_four_bet_bluff' = the V7 4-bet-bluff band would have
    *  fired and was retired. Never changes the action. */
-  receipt?: 'v74_nlh_open_size' | 'v76_retired_four_bet_bluff';
+  receipt?: 'v74_nlh_open_size' | 'v76_retired_four_bet_bluff' | 'cash_nlh_three_bet_size';
 }
 
 export interface PreflopCtx {
@@ -90,6 +91,8 @@ export interface PreflopCtx {
   aggression: number;
   slowplayFreq: number;
   sizingMultiplier: number;
+  /** Cash NLH public seat/depth context, supplied by the live brain. */
+  cashThreeBetSizing?: { inPosition: boolean; depthBB: number };
   isOmaha: boolean;
   isPotLimit: boolean;
   isFixedLimit?: boolean;
@@ -1604,6 +1607,28 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     const bbDiscount = position === 'bb' ? 0.06 : 0;
     const priceOK = toCall <= Math.max(bb * 12, stack * 0.12);
     const tourney3betTrim = isTourney && stackBB <= 40 ? 0.5 : 0;
+    const cashThreeBet = (): PreflopIntent | null => {
+      if (
+        ctx.mode !== 'cash' ||
+        !ctx.cashThreeBetSizing ||
+        ctx.isOmaha ||
+        ctx.isPotLimit ||
+        ctx.isFixedLimit ||
+        ctx.isShortDeck
+      )
+        return null;
+      return {
+        a: 'raiseTo',
+        receipt: 'cash_nlh_three_bet_size',
+        to: cashNlhThreeBetRaiseTo({
+          ...ctx.cashThreeBetSizing,
+          openTo: currentBet,
+          bigBlind: bb,
+          callers,
+          rand,
+        }),
+      };
+    };
 
     // V16 PLO POLARITY: percentile strength double-counts pretty side cards;
     // real PLO 3-bet ranges are anchored on AAxx. With the layer on, AA
@@ -1660,6 +1685,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       if (ctx.isPotLimit) {
         return { a: 'raiseTo', to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand) };
       }
+      const cashSize = cashThreeBet();
+      if (cashSize) return cashSize;
       const mult = (ip ? 3.0 : 3.8) - tourney3betTrim + callers * 1.0 + rand() * 0.4;
       return { a: 'raiseTo', to: currentBet * mult * ctx.sizingMultiplier };
     }
@@ -1680,6 +1707,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // observable sizing tell (fold to the big one, call the small one).
       // Bluffs now mirror the value sizing shape, a shade under it.
       const ipSq = position === 'late';
+      const cashSize = cashThreeBet();
+      if (cashSize) return cashSize;
       const mult = (ipSq ? 2.9 : 3.7) - tourney3betTrim + callers * 1.0 + rand() * 0.4;
       return { a: 'raiseTo', to: currentBet * mult * ctx.sizingMultiplier };
     }
@@ -1729,6 +1758,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         return { a: 'raiseTo', to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand) };
       }
       const ip = position === 'late';
+      const cashSize = cashThreeBet();
+      if (cashSize) return cashSize;
       const mult = (ip ? 3.0 : 3.8) - tourney3betTrim + rand() * 0.4;
       return { a: 'raiseTo', to: currentBet * mult * ctx.sizingMultiplier };
     }

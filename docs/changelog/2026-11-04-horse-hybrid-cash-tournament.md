@@ -60,3 +60,45 @@ Horse Data Ledger registers the new execution receipts.
 
 Deployment and live proof are recorded in the owning task checkpoint;
 source and local tests alone do not establish activation.
+
+## Cash opening, isolation and 3-bet sizing
+
+The owner also requires realistic cash sizes and one extra BB per limper.
+The protected V74 opening source already draws 2.5-4BB before limpers; that
+module is absent from the serving `eed06fe5` source. Its activation is part
+of this delivery. The limper increment is added after the profile dial bends
+the base draw, so each limper contributes a full BB (one live straddle unit
+in a straddled pot). It is not discounted by the Grinder/Pebbles multiplier.
+New regression coverage checks each increment on both chip grids and the
+final hybrid decision with zero through three limpers at six- and nine-handed
+tables. Stack limits and game-specific legal caps still apply.
+
+The legacy cash 3-bet path multiplied the whole raise by the style and donor
+sizing dials. With the hybrid it turned a 3BB open into 7.69296BB IP or
+9.67824BB OOP in the regression, and a 2BB open into 5.12864BB IP. Those three
+regressions failed before the source repair. Cash NLH now selects a common
+card-blind size for value, bluff and squeeze raises: 3-3.5x IP or 4-4.5x OOP
+at ordinary depth, with 8BB/10BB floors against small opens. Each cold caller
+adds one opening raise. At 40BB or less the bands are 2.7-3.1x / 3.2-3.8x;
+above 150BB they add half an opening raise. The legalizer still owns minimum
+raises, stack caps and committing-bluff restrictions. Cash 3-bet sizing
+ignores profile size dials; other street/game sizing retains its owner.
+
+Position is measured against the opener and callers using public seat order,
+including middle versus early position and the different heads-up blind order.
+The premium passive-action correction uses the same cash sizer. Tournament,
+PLO/pot-limit, fixed-limit and short-deck sizing remain separate. The existing
+ledger registers `cash_nlh_three_bet_size` as an execution receipt; final
+accepted production wagers must also be verified.
+
+The one-BB-per-limper increment is a standard cash isolation baseline, not a
+universal GTO result. Jonathan Little describes it for live and online cash
+in [PokerCoaching's limping guide](https://pokercoaching.com/blog/limping-in-poker/).
+[GTO Wizard's custom tree documentation](https://help.gtowizard.com/how-to-build-custom-solutions/)
+allows position-specific isolation and squeeze increments; its presets are
+starting heuristics, not fully optimized solutions. The cash 3-bet baseline
+also accounts for the small-open caveat discussed in
+[Upswing's preflop sizing lesson](https://upswingpoker.com/podcast/ep29-pfr-sizing/).
+These sources support the design rationale, not a claim that this exact
+fleet policy has solved or proven positive EV. VPIP/RFI and profitability
+remain distinct measurements, separated by game, seats, position and depth.

@@ -306,6 +306,7 @@ import { evaluateTournamentPostflop, type Phase8Mode } from './HorseTournamentPo
 import { liveHorsePhase8Safety } from './HorsePhase8Safety.js';
 import { performance } from 'node:perf_hooks';
 import { chipStepFor, nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
+import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
  * A high-only blocker cannot establish scoop pressure when a low can qualify.
@@ -3916,6 +3917,18 @@ export function holdemPremiumAggression(
       dominatedFold: opts.holdemDominatedFold !== false,
       tournament: isTournamentMode(gs),
       openRaiseTo: () => holdemPremiumOpenRaiseTo(player, gs, opts),
+      threeBetRaiseTo: (callers) => {
+        const spot = cashThreeBetSizingSpot(player, gs);
+        return spot
+          ? cashNlhThreeBetRaiseTo({
+              ...spot,
+              callers,
+              openTo: gs.currentBet,
+              bigBlind: gs.bigBlind,
+              rand: fastRandom,
+            })
+          : null;
+      },
       raiserIsManiac: (seatNo) => {
         const raiser = (gs.players ?? []).find((p) => p.seat === seatNo);
         if (!raiser) return false;
@@ -4002,6 +4015,47 @@ function holdemPremiumOpenRaiseTo(
     sizingMultiplier: 1,
     rand: fastRandom,
   });
+}
+
+/** Public seat order and stacks of the opener/callers, never opponent cards
+ * or human/horse identity. An early/middle cold 3-bettor is IP on an earlier
+ * opener; the BB is OOP on the button even at a genuinely heads-up table. */
+function cashThreeBetSizingSpot(
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): { inPosition: boolean; depthBB: number } | undefined {
+  if (
+    gs.gameMode !== 'cash' ||
+    gs.stage !== 'preflop' ||
+    gs.gameVariant !== 'nlh' ||
+    (gs.bettingStructure && gs.bettingStructure !== 'no_limit') ||
+    gs.bombPot ||
+    !(gs.bigBlind > 0)
+  )
+    return undefined;
+  const dealt =
+    gs.dealtSeatIds === undefined
+      ? gs.players
+      : horsePolicyDealtPlayers(gs.players, player.seat, gs.dealtSeatIds);
+  const order = dealtSeatOrder(player.seat, gs.dealerSeat, dealt, true, true);
+  if (!order || !order.includes(player.seat)) return undefined;
+  const opponents = gs.players.filter(
+    (p) =>
+      p.seat !== player.seat &&
+      !p.is_folded &&
+      (!p.is_sitting_out || p.is_all_in) &&
+      p.bet >= gs.currentBet - 0.005
+  );
+  if (opponents.length === 0 || opponents.some((p) => !order.includes(p.seat))) return undefined;
+  const heroIndex = order.indexOf(player.seat);
+  return {
+    inPosition: opponents
+      .filter((p) => !p.is_all_in)
+      .every((p) => order.indexOf(p.seat) < heroIndex),
+    depthBB:
+      Math.min(player.stack + player.bet, Math.max(...opponents.map((p) => p.stack + p.bet))) /
+      gs.bigBlind,
+  };
 }
 
 /** The outer safety net for the hold'em premium rule (#8122), as below. */
@@ -6953,6 +7007,7 @@ export class HorseLogic {
       strength,
       position,
       raiserPosition,
+      cashThreeBetSizing: cashThreeBetSizingSpot(player, gs),
       raises,
       limpers,
       callers,
@@ -7202,6 +7257,7 @@ export class HorseLogic {
     // V74 / V76 receipts reported by the preflop engine (no action change).
     if (telemetryOn(opts)) {
       if (intent.receipt === 'v74_nlh_open_size') noteFire('v74_nlh_open_size');
+      else if (intent.receipt === 'cash_nlh_three_bet_size') noteFire('cash_nlh_three_bet_size');
       else if (intent.receipt === 'v76_retired_four_bet_bluff')
         noteFire('v76_retired_four_bet_bluff');
     }

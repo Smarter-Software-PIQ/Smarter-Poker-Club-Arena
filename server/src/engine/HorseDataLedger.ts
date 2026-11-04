@@ -2213,6 +2213,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     0.005
   ),
   receipt(
+    'cash_nlh_three_bet_size',
+    'HorsePreflop cash sizing',
+    'Cash NLH 3-bet or squeeze sized by public position, depth and callers within a card-blind band',
+    'HybridV1',
+    'decide_nlh',
+    0.002
+  ),
+  receipt(
     'v76_retired_four_bet_bluff',
     'HorsePreflop (V76)',
     "Hold'em facing one 3-bet: the V7 4-bet-bluff band rolled and was retired; the hand took the call / fold read instead",
