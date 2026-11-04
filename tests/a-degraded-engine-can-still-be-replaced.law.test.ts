@@ -329,6 +329,7 @@ printf '%s\\n%s' '${healthBody}' 503
         `#!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
+  *' config --local --no-includes --name-only --get-regexp '*) exit 1 ;;
   *' fetch --no-tags '*) exit 0 ;;
   *" rev-parse --verify origin/main^{commit}") printf '%s\\n' '${targetSha}' ;;
   *' ls-tree '*' -- server/release/activation-floor.json') exit 0 ;;

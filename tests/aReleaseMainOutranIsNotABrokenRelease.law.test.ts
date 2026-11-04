@@ -72,8 +72,9 @@ function fakeBin(): string {
   w('seal', 'echo "$HIGH_WATER"');
   w(
     'git',
-    `while [ "$1" = -C ]; do shift 2; done
+    `while [ "$1" = -C ] || [ "$1" = -c ]; do shift 2; done
 case "$1" in
+  config) [ "$2" = --local ] && [ "$3" = --no-includes ] && exit 1; exit 9 ;;
   fetch) [ -n "\${FETCH_FAILS:-}" ] && exit 1; echo fetched >> "$FETCH_LOG"; exit 0 ;;
   cat-file) exit 0 ;;
   rev-parse)
