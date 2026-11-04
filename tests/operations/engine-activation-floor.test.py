@@ -614,6 +614,9 @@ echo CHECKPOINT_MUST_NOT_RUN
 
     def test_canonical_source_continuation_preserves_prior_floor_and_fixed_expiry(self):
         import hashlib
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        window = next(w for w in windows['windows'] if w['id'] == '2026-11-04-tournament-canonical-source-continuation')
+        self.assertEqual(window['contains'], 'ca851a52893d75c2041b85db298b04eeba830c4a')
         prior, raw = self.historical_floor('2026-11-04-tournament-owned-renewal-observation')
         self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T08:30:00Z','2026-11-04T12:00:00Z'))
