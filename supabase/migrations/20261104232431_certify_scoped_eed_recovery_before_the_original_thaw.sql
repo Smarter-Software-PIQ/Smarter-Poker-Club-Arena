@@ -84,8 +84,23 @@ SET search_path=pg_catalog,public,smarter_private AS $proof$
 DECLARE r smarter_private.engine_certified_recoveries; b public.engine_maintenance_break;
  t public.engine_maintenance_thaws; raw jsonb; targets jsonb;
 BEGIN
+ IF p_run_key IS NULL OR p_run_key !~ '^[0-9]+-[1-9][0-9]*$'
+  OR p_target_sha IS NULL OR p_target_sha !~ '^[a-f0-9]{40}$'
+  OR p_control_sha IS NULL OR p_control_sha !~ '^[a-f0-9]{40}$'
+  OR p_announced_at IS NULL OR p_announced_at<'2026-11-04T23:00:00Z'::timestamptz
+  OR p_announced_at+interval '900 seconds'>'2026-11-05T05:00:00Z'::timestamptz THEN
+  RAISE EXCEPTION 'CERTIFIED_RECOVERY_IDENTITY_UNPROVEN' USING ERRCODE='55000'; END IF;
  SELECT * INTO r FROM smarter_private.engine_certified_recoveries WHERE run_key=p_run_key;
- IF NOT FOUND OR r.request->>'targetSha' IS DISTINCT FROM p_target_sha
+ IF NOT FOUND THEN
+  IF EXISTS(SELECT 1 FROM smarter_private.engine_certified_recoveries WHERE announced_at=p_announced_at) THEN
+   RAISE EXCEPTION 'CERTIFIED_RECOVERY_IDENTITY_UNPROVEN' USING ERRCODE='55000'; END IF;
+  RETURN jsonb_build_object('schema','engine-certified-recovery-absent/v1',
+   'policyId','2026-11-04-tournament-fourfold-certified-recovery',
+   'runKey',p_run_key,'targetSha',p_target_sha,'controlSha',p_control_sha,
+   'announcedAt',p_announced_at,'observedAt',statement_timestamp(),
+   'platformFrozen',public.fn_platform_frozen(),'entryPurchasesFrozen',public.fn_entry_purchases_frozen());
+ END IF;
+ IF r.request->>'targetSha' IS DISTINCT FROM p_target_sha
   OR r.request->>'controlSha' IS DISTINCT FROM p_control_sha OR r.announced_at IS DISTINCT FROM p_announced_at THEN
   RAISE EXCEPTION 'CERTIFIED_RECOVERY_IDENTITY_UNPROVEN' USING ERRCODE='55000'; END IF;
  raw:=r.raw_maintenance;
@@ -770,7 +785,7 @@ BEGIN
  IF EXISTS(SELECT 1 FROM (VALUES
   ('public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text)','e2530d18c33dd11f10d5e40bed4bd2e1'),
   ('public.fn_register_engine_certified_recovery(jsonb)','3f26d9773a33d5e28daf12da30c8af0b'),
-  ('public.fn_engine_certified_recovery_proof(text,text,text,timestamptz)','da12ec6d93f9f0ceb171050016b39b23'),
+  ('public.fn_engine_certified_recovery_proof(text,text,text,timestamptz)','10b0262959850d764253e1287531a1a9'),
   ('smarter_private.engine_certified_recovery_targets(timestamptz)','d6a145c085bddd2d67467374baa40b0c'),
   ('smarter_private.engine_certified_recovery_frozen_original()','b2df944d1e1395529035b966c6a98f66'),
   ('smarter_private.attest_frozen_hand_continuation(uuid,uuid,uuid,bigint,bigint,text)','ed8b15d74813222935d3df80992e211f')

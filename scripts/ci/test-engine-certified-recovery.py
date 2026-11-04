@@ -144,8 +144,15 @@ def main():
             c.psql("UPDATE engine_leader SET heartbeat_at=clock_timestamp()-interval '31 seconds'")
             expect_register_error(c,req,'CERTIFIED_RECOVERY_ORIGINAL_OWNER_UNPROVEN')
             c.psql('UPDATE engine_leader SET heartbeat_at=clock_timestamp()')
+            absent=proof(c,req)
+            ot.require(set(absent)=={'schema','policyId','runKey','targetSha','controlSha','announcedAt','observedAt','platformFrozen','entryPurchasesFrozen'}
+              and absent['schema']=='engine-certified-recovery-absent/v1' and absent['runKey']==req['runKey']
+              and absent['targetSha']==req['targetSha'] and absent['controlSha']==req['controlSha'],
+              'missing registration has explicit closed absence, not ambiguous identity refusal')
             first=register(c,req)
             ot.require(first['request']==req and first['thaw'] is None and first['targets']=={'familyCount':0,'allCredited':False,'complete':False},'registration reports real pre-thaw state')
+            for bad in [{**req,'targetSha':'c'*40},{**req,'controlSha':'c'*40},{**req,'runKey':'99999-1'}]:
+                c.psql("SELECT public.fn_engine_certified_recovery_proof('%s','%s','%s','%s')"%(bad['runKey'],bad['targetSha'],bad['controlSha'],bad['announcedAt']),error='CERTIFIED_RECOVERY_IDENTITY_UNPROVEN')
             original=c.val('SELECT to_jsonb(r)::text FROM smarter_private.engine_certified_recoveries r')
             register(c,req)
             ot.require(c.val('SELECT to_jsonb(r)::text FROM smarter_private.engine_certified_recoveries r')==original,'identical registration is immutable')

@@ -8,6 +8,16 @@ const suite = 'tests/operations/engine-activation-floor.test.py';
 // the original child/case deadlines rather than increasing either deadline.
 const groups = [
   {
+    name: 'certified owner duration and durable reservation',
+    cases: [
+      'test_certified_owner_requires_exact_profile_and_entire_900_second_cycle',
+      'test_certified_reservation_is_durable_exact_and_never_reannounced',
+      'test_certified_reservation_refuses_mismatch_and_late_new_cycle_without_writes',
+      'test_certified_completion_waits_for_900_seconds_and_original_terminal_receipt',
+      'test_certified_diagnostic_bounds_are_profile_and_predecessor_scoped',
+    ],
+  },
+  {
     name: 'Phase1 admission and prior-owner preservation',
     cases: [
       'test_phase1_policy_owns_fresh_admission_without_retargeting_prior_owner',
@@ -94,7 +104,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(40);
+  expect(selected).toHaveLength(45);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);
