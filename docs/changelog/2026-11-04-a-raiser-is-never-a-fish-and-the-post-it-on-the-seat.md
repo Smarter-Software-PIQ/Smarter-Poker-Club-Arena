@@ -116,3 +116,16 @@ its title unlocks. TAG, Rock and Maniac join `PLAYER_TAGS`.
   with `REPLICA IDENTITY FULL` (so a DELETE can be attributed under RLS);
   `usePlayerNoteMarkers` subscribes to the player's own rows on the shared
   socket and re-reads once after a rejoin.
+
+**Stats page (Phase 3).** The breakdowns by position, game and stake were
+computed on the most recent 750 hands while the headline totals covered every
+hand in the range, so the two sections did not add up for anyone past 750
+hands. Migration `20261104194608` redefines the four overview readers
+(`ca_player_stats_overview_separated`, `_by_club`, `_v2`, `_v2_by_club`) from
+their live production bodies with exactly four lines changed in each: the
+three breakdowns group over the full set the totals use, and
+`coverage.analysis_sampled_sections` names what still samples (session
+history on the unscoped readers; nothing on the club-scoped ones). The page's
+notice (`sampledSectionsNotice`) is worded from that list, and the blanket
+"analysis panels use your most recent 750 hands" line only survives for an
+older payload that does not carry it.

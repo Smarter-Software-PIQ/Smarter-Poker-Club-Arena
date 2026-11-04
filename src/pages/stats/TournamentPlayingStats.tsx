@@ -125,13 +125,15 @@ export default function TournamentPlayingStats({
               </tbody>
             </table>
           </div>
-          {full?.contract.coverage.analysis_hands_capped && (
-            <p className="stats-notice">
-              Position Analysis Uses The Most Recent{' '}
-              {full.contract.coverage.analysis_hand_cap.toLocaleString()} Tournament Hands In This
-              Range.
-            </p>
-          )}
+          {full?.contract.coverage.analysis_hands_capped &&
+            (full.contract.coverage.analysis_sampled_sections === undefined ||
+              full.contract.coverage.analysis_sampled_sections.includes('positions')) && (
+              <p className="stats-notice">
+                Position Analysis Uses The Most Recent{' '}
+                {full.contract.coverage.analysis_hand_cap.toLocaleString()} Tournament Hands In This
+                Range.
+              </p>
+            )}
         </section>
       )}
     </>
