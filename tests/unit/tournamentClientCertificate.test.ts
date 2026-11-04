@@ -107,6 +107,47 @@ describe('closed tournament acceptance selection', () => {
       }
     }
   });
+  it('excludes the bounty journey only from tournament mode and retains evidence only when it ran', () => {
+    const steps = workflow.jobs['production-e2e'].steps;
+    const bounty = steps.find((s: any) => s.id === 'bounty_guarantee');
+    const retain = steps.find((s: any) => s.name === 'Retain bounty guarantee browser evidence');
+    const evaluate = (
+      condition: string,
+      ready: string,
+      account: string,
+      mode: string,
+      outcome = 'skipped'
+    ) =>
+      new Function(
+        'needs',
+        'steps',
+        'always',
+        `return (${condition.replaceAll('publication-gate', 'publicationGate')});`
+      )(
+        { publicationGate: { outputs: { tournament_only: mode } } },
+        {
+          live: { outputs: { ready } },
+          account: { outcome: account },
+          bounty_guarantee: { outcome },
+        },
+        () => true
+      );
+    for (const mode of ['', 'false', 'true']) {
+      for (const ready of ['true', 'false']) {
+        for (const account of ['success', 'failure', 'skipped']) {
+          expect(evaluate(bounty.if, ready, account, mode)).toBe(
+            mode !== 'true' && ready === 'true' && account === 'success'
+          );
+        }
+      }
+    }
+    for (const outcome of ['success', 'failure', 'cancelled', 'skipped']) {
+      expect(evaluate(retain.if, 'true', 'success', 'true', outcome)).toBe(outcome !== 'skipped');
+    }
+    expect(bounty.run).toContain('production-bounty-guarantee.spec.ts');
+    expect(bounty.run).toContain('--retries=0');
+    expect(retain.with['if-no-files-found']).toBe('error');
+  });
   it('preserves auth, fixture cleanup, provenance and default coverage in the existing lanes', () => {
     const client = workflow.jobs['production-e2e'];
     const live = workflow.jobs['live-table-e2e'];
