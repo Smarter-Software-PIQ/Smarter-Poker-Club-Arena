@@ -682,4 +682,13 @@ BEGIN
 END
 $function$;
 
+-- CREATE OR REPLACE keeps the installed ACLs, but the repo's definer
+-- authorization gate reads each file on its own: restate them.
+REVOKE ALL ON FUNCTION public.fn_sp_digest_signups(date) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_sp_digest_signups(date) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_sp_signup_welcome_back_run(integer, date) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_sp_signup_welcome_back_run(integer, date) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_sp_signup_welcome_back_mark(uuid, text, boolean, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_sp_signup_welcome_back_mark(uuid, text, boolean, text) TO service_role;
+
 COMMIT;
