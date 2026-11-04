@@ -5,8 +5,11 @@
  * the chips email and play nudge link to /?welcome=chips. HomePage must open
  * the join modal with that code (and pass the referral code through), and
  * announce the welcome_chips push moment so the prompt may ask. The policy's
- * moment list and the prompt's copy table must both know the moment, in this
- * app and in the World Hub copy of the policy (they share one ledger key).
+ * moment list and the prompt's copy table must both know the moment (the
+ * World Hub keeps a matching entry in its own policy; this test reads only
+ * this repo). A signed-out player who opens one of those links sees the
+ * landing page, so its Sign In plate must carry the query back through
+ * login instead of returning everyone to a bare '/'.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -32,5 +35,12 @@ describe('welcome-back chips land in the Club Arena', () => {
     // consumed once: the params are deleted after use
     expect(src).toMatch(/next\.delete\('join'\);\s*next\.delete\('ref'\);/);
     expect(src).toMatch(/next\.delete\('welcome'\)/);
+  });
+
+  it('the landing page brings a signed-out player back to the link they clicked', () => {
+    const src = read('src/pages/PokerArenaLandingPage.tsx');
+    expect(src).not.toMatch(/signInUrl\('\/'\)/);
+    expect(src).toMatch(/signInUrl\(returnPathAfterSignIn\(\)\)/);
+    expect(src).toMatch(/window\.location\.search/);
   });
 });

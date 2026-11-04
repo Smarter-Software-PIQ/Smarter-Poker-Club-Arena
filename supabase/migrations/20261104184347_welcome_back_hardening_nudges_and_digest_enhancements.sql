@@ -55,15 +55,40 @@
 --
 -- Qualified against production as pg_temp copies in self-aborting DO blocks.
 --
--- @live-proof: (SELECT position('pg_advisory_xact_lock' in pg_get_functiondef('public.fn_sp_signup_welcome_back_run'::regproc)) > 0 AND position('agents_7d' in pg_get_functiondef('public.fn_sp_digest_signups'::regproc)) > 0 AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sp_signup_welcome_back_awards_status_check' AND pg_get_constraintdef(oid) LIKE '%failed%') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sp_signup_welcome_back_awards' AND column_name = 'play_nudge_notified_at') AND (SELECT count(*) FROM public.sp_digest_settings WHERE key LIKE 'welcome_back_%' OR key = 'promo_wallet_low_chips') = 5)
+-- @live-proof: (SELECT position('pg_advisory_xact_lock' in pg_get_functiondef('public.fn_sp_signup_welcome_back_run'::regproc)) > 0 AND position('agents_7d' in pg_get_functiondef('public.fn_sp_digest_signups'::regproc)) > 0 AND (SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.sp_signup_welcome_back_awards'::regclass AND contype = 'c') = 1 AND EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sp_signup_welcome_back_awards_status_check' AND pg_get_constraintdef(oid) LIKE '%closed%') AND to_regproc('public.fn_sp_player_has_played') IS NOT NULL AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sp_signup_welcome_back_awards' AND column_name = 'play_nudge_notified_at') AND (SELECT count(*) FROM public.sp_digest_settings WHERE key LIKE 'welcome_back_%' OR key = 'promo_wallet_low_chips') = 5)
 
 BEGIN;
+
+-- One definition of "has played a hand", used by the pay scan, the play
+-- nudge and every digest number: a hand in ca_hand_facts or any hand counted
+-- in club_member_play_totals.
+CREATE OR REPLACE FUNCTION public.fn_sp_player_has_played(p_user_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  SELECT EXISTS (SELECT 1 FROM public.ca_hand_facts f WHERE f.user_id = p_user_id)
+      OR EXISTS (SELECT 1 FROM public.club_member_play_totals t
+                  WHERE t.user_id = p_user_id AND (COALESCE(t.hands, 0) > 0 OR COALESCE(t.mtt_hands, 0) > 0));
+$function$;
+REVOKE ALL ON FUNCTION public.fn_sp_player_has_played(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_sp_player_has_played(uuid) TO service_role;
 
 -- The awards table gains a third status: 'failed' (tried to pay, could not).
 ALTER TABLE public.sp_signup_welcome_back_awards
   DROP CONSTRAINT IF EXISTS sp_signup_welcome_back_awards_status_check;
 ALTER TABLE public.sp_signup_welcome_back_awards
-  ADD CONSTRAINT sp_signup_welcome_back_awards_status_check CHECK (status IN ('awarded', 'no_club', 'failed'));
+  ADD CONSTRAINT sp_signup_welcome_back_awards_status_check CHECK (status IN ('awarded', 'no_club', 'failed', 'closed'));
+-- 'closed': the player played a hand (or is otherwise out of scope) before
+-- the chips could be paid; nothing is owed and nothing is retried.
+
+-- When a player first could not be paid: the World Hub route answers non-200
+-- (and the dispatcher pages) only for failures that are NEW this run or for
+-- an empty promo wallet, not hourly forever for one stuck row.
+ALTER TABLE public.sp_signup_welcome_back_awards
+  ADD COLUMN IF NOT EXISTS failed_at timestamptz;
 
 -- Nudge receipts. The club nudge goes to a sign-up parked without a club; the
 -- play nudge to a paid player with no hand after the configured delay. Each
@@ -161,7 +186,7 @@ BEGIN
            'in_kings_club', COALESCE(m.in_kings_club, false),
            'joined_a_club', m.user_id IS NOT NULL,
            'hands', COALESCE(hd.hands, 0),
-           'played_hand', COALESCE(hd.hands, 0) > 0,
+           'played_hand', COALESCE(hd.hands, 0) > 0 OR public.fn_sp_player_has_played(hu.id),
            'first_hand_ct', to_char(hd.first_hand_at AT TIME ZONE 'America/Chicago', 'Mon DD HH12:MI AM'),
            'phone_on_file', hu.phone IS NOT NULL AND btrim(hu.phone) <> '',
            'phone_verified', hu.phone_verified,
@@ -222,7 +247,13 @@ BEGIN
            'username', p.username,
            'signed_up_ct', to_char(a.signed_up_at AT TIME ZONE 'America/Chicago', 'Mon DD HH12:MI AM'),
            'club_nudge', CASE WHEN a.club_nudge_notified_at IS NULL THEN 'not yet'
-                              ELSE 'push ' || CASE WHEN EXISTS (SELECT 1 FROM public.push_outbox po WHERE po.recipient_user_id = a.user_id AND po.event = 'welcome_back_club_nudge' AND po.status = 'sent') THEN 'sent' ELSE 'no device' END
+                              ELSE 'push ' || COALESCE((SELECT CASE po.status WHEN 'sent' THEN 'sent'
+                                                                    WHEN 'skipped' THEN CASE WHEN po.failure_reason = 'no_subscription' THEN 'no device' ELSE 'skipped' END
+                                                                    WHEN 'deactivated' THEN 'no device'
+                                                                    WHEN 'failed' THEN 'failed' ELSE 'queued' END
+                                                         FROM public.push_outbox po
+                                                        WHERE po.recipient_user_id = a.user_id AND po.event = 'welcome_back_club_nudge'
+                                                        ORDER BY po.created_at DESC LIMIT 1), 'queued')
                                    || ', email ' || CASE WHEN a.club_nudge_email_at IS NOT NULL THEN 'sent' WHEN a.email IS NULL THEN 'none' WHEN a.club_nudge_email_error IS NOT NULL THEN 'failed' ELSE 'pending' END
                                    || ', text ' || CASE WHEN a.club_nudge_sms_at IS NOT NULL THEN 'sent' WHEN a.phone IS NULL THEN 'no phone' WHEN a.club_nudge_sms_error IS NOT NULL THEN 'failed' ELSE 'pending' END END
          ) ORDER BY a.signed_up_at), '[]'::jsonb)
@@ -297,9 +328,9 @@ BEGIN
     INTO v_agents
     FROM (
       SELECT hu7.referred_by, count(*) n,
-             count(*) FILTER (WHERE EXISTS (SELECT 1 FROM public.club_members cm WHERE cm.user_id = hu7.id AND COALESCE(cm.status, 'active') IN ('active', 'approved'))) joined,
+             count(*) FILTER (WHERE EXISTS (SELECT 1 FROM public.club_members cm WHERE cm.user_id = hu7.id AND COALESCE(cm.status, 'active') NOT IN ('departed', 'removed', 'banned', 'rejected') AND COALESCE(cm.is_active, true))) joined,
              count(*) FILTER (WHERE EXISTS (SELECT 1 FROM public.club_members cm WHERE cm.user_id = hu7.id AND cm.club_id = v_kings AND COALESCE(cm.status, 'active') IN ('active', 'approved'))) kings,
-             count(*) FILTER (WHERE EXISTS (SELECT 1 FROM public.ca_hand_facts f WHERE f.user_id = hu7.id)) played,
+             count(*) FILTER (WHERE public.fn_sp_player_has_played(hu7.id)) played,
              count(*) FILTER (WHERE EXISTS (SELECT 1 FROM public.push_subscriptions ps WHERE ps.user_id = hu7.id AND COALESCE(ps.is_active, false))) push_on,
              count(*) FILTER (WHERE EXISTS (SELECT 1 FROM public.sp_signup_welcome_back_awards a WHERE a.user_id = hu7.id AND a.status = 'awarded')) paid
         FROM hu7 GROUP BY hu7.referred_by) x
@@ -374,7 +405,7 @@ DECLARE
   v_club_nudges jsonb := '[]'::jsonb; v_play_nudges jsonb := '[]'::jsonb;
   v_kings_code text; v_kings_name text;
   v_amount_txt text := to_char(round(public.fn_sp_setting('welcome_back_chips', 25), 2), 'FM999999990.##');
-  v_scanned int := 0;
+  v_scanned int := 0; v_closed int := 0; v_is_new_failure boolean; v_failed_new int := 0; v_wallet_empty boolean := false;
 BEGIN
   IF NOT public.fn_caller_is_engine() THEN
     RAISE EXCEPTION 'fn_sp_signup_welcome_back_run is service_role only' USING ERRCODE = '42501';
@@ -385,18 +416,30 @@ BEGIN
   -- fire plus a manual call) could both pass that check and both pay. The
   -- lock is released with the transaction; a second caller waits, then sees
   -- the first run's awarded rows and pays nobody twice.
-  PERFORM pg_advisory_xact_lock(hashtext('fn_sp_signup_welcome_back_run'));
+  IF NOT pg_try_advisory_xact_lock(hashtext('fn_sp_signup_welcome_back_run')) THEN
+    RETURN jsonb_build_object('already_running', true, 'scanned', 0, 'amount', v_amount, 'hours', v_hours,
+      'awarded', '[]'::jsonb, 'awarded_count', 0, 'no_club', '[]'::jsonb, 'no_club_count', 0,
+      'failed', '[]'::jsonb, 'failed_count', 0, 'failed_new_count', 0, 'wallet_empty', false,
+      'club_nudges', '[]'::jsonb, 'club_nudge_count', 0, 'play_nudges', '[]'::jsonb, 'play_nudge_count', 0,
+      'closed_count', 0, 'ran_at', now());
+  END IF;
+
+  -- A player who played a hand before the chips could be paid is owed
+  -- nothing: close the row so it is neither retried nor nudged nor reported
+  -- as unpaid.
+  UPDATE public.sp_signup_welcome_back_awards a
+     SET status = 'closed', last_error = 'Played A Hand Before The Chips Were Paid', updated_at = now()
+   WHERE a.status IN ('no_club', 'failed') AND public.fn_sp_player_has_played(a.user_id);
+  GET DIAGNOSTICS v_closed = ROW_COUNT;
 
   FOR c IN
     SELECT h.id, h.username, h.created_at, h.phone_verified
       FROM smarter_private.sp_real_humans h
      WHERE h.created_at <= now() - make_interval(mins => (v_hours * 60)::int)
        AND h.created_at >= v_since
-       AND NOT EXISTS (SELECT 1 FROM public.ca_hand_facts f WHERE f.user_id = h.id)
-       AND NOT EXISTS (SELECT 1 FROM public.club_member_play_totals t
-                        WHERE t.user_id = h.id AND (COALESCE(t.hands, 0) > 0 OR COALESCE(t.mtt_hands, 0) > 0))
+       AND NOT public.fn_sp_player_has_played(h.id)
        AND NOT EXISTS (SELECT 1 FROM public.sp_signup_welcome_back_awards a
-                        WHERE a.user_id = h.id AND a.status = 'awarded')
+                        WHERE a.user_id = h.id AND a.status IN ('awarded', 'closed'))
        -- A player already recorded as no_club is looked at again only once
        -- they hold an active seat in a Midway Union club. Otherwise the
        -- oldest clubless sign-ups would fill the limit on every run and a
@@ -409,7 +452,10 @@ BEGIN
                                              AND (m.club_id = v_union
                                                   OR EXISTS (SELECT 1 FROM public.union_clubs uc
                                                               WHERE uc.union_id = v_union AND uc.club_id = m.club_id))))
-     ORDER BY h.created_at
+     -- Fresh sign-ups first; players already recorded as failed are retried
+     -- after them, so a stuck row can never crowd a new player out of the limit.
+     ORDER BY EXISTS (SELECT 1 FROM public.sp_signup_welcome_back_awards a WHERE a.user_id = h.id AND a.status = 'failed'),
+              h.created_at
      LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 50), 500))
   LOOP
     v_scanned := v_scanned + 1;
@@ -442,12 +488,12 @@ BEGIN
       INSERT INTO public.sp_signup_welcome_back_awards AS a
         (user_id, signed_up_at, status, amount, union_id, club_id, op_id, transaction_id, awarded_at, email, phone, last_error)
       VALUES
-        (c.id, c.created_at, 'awarded', v_amount, v_union, v_club, v_op,
+        (c.id, c.created_at, 'awarded', COALESCE(NULLIF(v_res->>'amount', '')::numeric, v_amount), v_union, v_club, v_op,
          NULLIF(v_res->>'transaction_id', '')::uuid, now(), v_email, v_phone, NULL)
       ON CONFLICT (user_id) DO UPDATE
-        SET status = 'awarded', club_id = EXCLUDED.club_id, transaction_id = EXCLUDED.transaction_id,
+        SET status = 'awarded', amount = EXCLUDED.amount, club_id = EXCLUDED.club_id, transaction_id = EXCLUDED.transaction_id,
             awarded_at = now(), email = EXCLUDED.email, phone = EXCLUDED.phone,
-            last_error = NULL, updated_at = now();
+            last_error = NULL, failed_at = NULL, updated_at = now();
 
       -- In-app notification; trg_mirror_notification_to_push_outbox forwards
       -- it to push_outbox and push-dispatch sends it to every device the
@@ -473,7 +519,8 @@ BEGIN
         (user_id, signed_up_at, status, amount, union_id, op_id, email, phone, last_error)
       VALUES (c.id, c.created_at, 'no_club', v_amount, v_union, v_op, v_email, v_phone, v_res->>'error')
       ON CONFLICT (user_id) DO UPDATE
-        SET last_error = EXCLUDED.last_error, email = EXCLUDED.email, phone = EXCLUDED.phone, updated_at = now();
+        SET status = 'no_club', last_error = EXCLUDED.last_error, email = EXCLUDED.email, phone = EXCLUDED.phone,
+            failed_at = NULL, updated_at = now();
       v_no_club := v_no_club || jsonb_build_object('user_id', c.id, 'username', c.username);
     ELSE
       -- Not paid and not a membership problem: promo wallet empty, a ledger
@@ -484,8 +531,12 @@ BEGIN
         (user_id, signed_up_at, status, amount, union_id, op_id, email, phone, last_error)
       VALUES (c.id, c.created_at, 'failed', v_amount, v_union, v_op, v_email, v_phone, left(COALESCE(v_res->>'error', 'unknown'), 500))
       ON CONFLICT (user_id) DO UPDATE
-        SET status = 'failed', last_error = EXCLUDED.last_error, email = EXCLUDED.email, phone = EXCLUDED.phone, updated_at = now();
-      v_failed := v_failed || jsonb_build_object('user_id', c.id, 'username', c.username, 'error', v_res->>'error');
+        SET status = 'failed', last_error = EXCLUDED.last_error, email = EXCLUDED.email, phone = EXCLUDED.phone, updated_at = now()
+      RETURNING (a.failed_at IS NULL) INTO v_is_new_failure;
+      UPDATE public.sp_signup_welcome_back_awards SET failed_at = COALESCE(failed_at, now()) WHERE user_id = c.id;
+      IF v_is_new_failure THEN v_failed_new := v_failed_new + 1; END IF;
+      IF v_res->>'error' ILIKE '%promo%balance%' OR v_res->>'error' ILIKE '%insufficient%' THEN v_wallet_empty := true; END IF;
+      v_failed := v_failed || jsonb_build_object('user_id', c.id, 'username', c.username, 'error', v_res->>'error', 'new', v_is_new_failure);
     END IF;
   END LOOP;
 
@@ -505,6 +556,15 @@ BEGIN
      WHERE a.status = 'no_club'
        AND a.club_nudge_notified_at IS NULL
        AND a.first_seen_at <= now() - make_interval(mins => (v_club_nudge_hours * 60)::int)
+       AND NOT public.fn_sp_player_has_played(a.user_id)
+       -- Anyone already holding a seat or a pending application in a Midway
+       -- Union club has done what the nudge asks; they are paid on the next
+       -- scan or approved by the club.
+       AND NOT EXISTS (SELECT 1 FROM public.club_members m
+                        WHERE m.user_id = a.user_id
+                          AND COALESCE(m.status, 'active') NOT IN ('departed', 'removed', 'banned', 'rejected')
+                          AND (m.club_id = v_union
+                               OR EXISTS (SELECT 1 FROM public.union_clubs uc WHERE uc.union_id = v_union AND uc.club_id = m.club_id)))
      ORDER BY a.first_seen_at
      LIMIT 100
   LOOP
@@ -517,6 +577,7 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
       UPDATE public.sp_signup_welcome_back_awards SET last_error = 'club nudge notification: ' || v_err, updated_at = now() WHERE user_id = n.user_id;
+      CONTINUE;
     END;
     UPDATE public.sp_signup_welcome_back_awards SET club_nudge_notified_at = now(), updated_at = now() WHERE user_id = n.user_id;
     v_club_nudges := v_club_nudges || jsonb_build_object(
@@ -536,7 +597,7 @@ BEGIN
      WHERE a.status = 'awarded'
        AND a.play_nudge_notified_at IS NULL
        AND a.awarded_at <= now() - make_interval(mins => (v_play_nudge_hours * 60)::int)
-       AND NOT EXISTS (SELECT 1 FROM public.ca_hand_facts f WHERE f.user_id = a.user_id)
+       AND NOT public.fn_sp_player_has_played(a.user_id)
      ORDER BY a.awarded_at
      LIMIT 100
   LOOP
@@ -549,6 +610,7 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
       UPDATE public.sp_signup_welcome_back_awards SET last_error = 'play nudge notification: ' || v_err, updated_at = now() WHERE user_id = n.user_id;
+      CONTINUE;
     END;
     UPDATE public.sp_signup_welcome_back_awards SET play_nudge_notified_at = now(), updated_at = now() WHERE user_id = n.user_id;
     v_play_nudges := v_play_nudges || jsonb_build_object(
@@ -561,6 +623,7 @@ BEGIN
     'awarded', v_awarded, 'awarded_count', jsonb_array_length(v_awarded),
     'no_club', v_no_club, 'no_club_count', jsonb_array_length(v_no_club),
     'failed', v_failed, 'failed_count', jsonb_array_length(v_failed),
+    'failed_new_count', v_failed_new, 'wallet_empty', v_wallet_empty, 'closed_count', v_closed,
     'club_nudges', v_club_nudges, 'club_nudge_count', jsonb_array_length(v_club_nudges),
     'play_nudges', v_play_nudges, 'play_nudge_count', jsonb_array_length(v_play_nudges),
     'union_promo_wallet_after', (SELECT round(promo_wallet, 2) FROM public.union_wallets WHERE union_id = v_union),

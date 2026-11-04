@@ -109,3 +109,46 @@ All of it was qualified against production as `pg_temp` copies: the digest in
 and 1 forced play nudge raised and rolled back, a forced disbursement failure
 recorded as `failed`, the advisory lock observed held). Pinned by
 `tests/welcome-back-chips-land-in-the-club-arena.law.test.ts`.
+
+## Final deep check before the first production push (two independent cold reviews plus own pass)
+
+- A row recorded as `failed` could never return to `no_club` if the player
+  later left the club, and a failed or clubless player who played a hand
+  before the chips were paid stayed on the retry list and in the digest for
+  ever. The clubless branch restores `no_club`; a new `closed` status (with
+  the reason) ends rows whose player played before being paid.
+- Failed rows were rescanned ahead of new sign-ups inside the same limit;
+  they now come after fresh sign-ups.
+- Every failed row made the World Hub route answer 503 every hour, so one
+  stuck player was a permanent pager. `failed_at` records the first failure;
+  the route pages only for an empty promo wallet or a player who first
+  failed this run. Stuck players stay visible in the digest.
+- A second overlapping run blocked on the advisory lock until the statement
+  timeout; it now returns `already_running` at once.
+- "Played a hand" had two definitions (the pay scan counted
+  `club_member_play_totals`, everything else only `ca_hand_facts`);
+  `fn_sp_player_has_played(uuid)` is now the one definition everywhere.
+- The club nudge could promise chips to a player who had already played, or
+  tell a pending KINGS CLUB applicant to join; both are skipped.
+- A nudge whose in-app notification failed to raise was stamped as sent and
+  never retried; the stamp now follows a successful raise.
+- A replayed award recorded the current setting instead of the ledger's
+  amount; the ledger amount wins when present.
+- A signed-out player opening a chips link saw the landing page, whose Sign In
+  returned everyone to a bare `/`, dropping `?join=` / `?welcome=chips`; the
+  query now travels through login.
+- `?welcome=` with an unknown value was never consumed and re-ran the
+  HomePage effect on every params change.
+- World Hub: the hourly job stops sending at 240 s (a provider outage no
+  longer kills it mid-loop with no summary); a text that timed out at Twilio
+  is never resent (no idempotency key; one possibly-missed text beats an
+  hourly duplicate); players who muted everything in notification settings
+  get neither email nor text; every email carries an unsubscribe link and
+  `List-Unsubscribe` header; the Needs Your Attention count includes the
+  promo-wallet item; a club nudge with no join code to give is not sent.
+
+Re-qualified against production as `pg_temp` copies in self-aborting `DO`
+blocks: run 330 ms, a fixture `failed` row returned to `no_club` with its
+stamp cleared, 7 club nudges and 1 play nudge raised with the right links;
+a stubbed empty wallet produced 2 new failures and `wallet_empty` on the
+first run and 0 new failures on the second.
