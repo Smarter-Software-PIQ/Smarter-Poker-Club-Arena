@@ -48,8 +48,9 @@ test('only current-boot PID1 terminal journal event can preserve invocation evid
 });
 test('workflow preserves Inspector defaults and only closed manual native modes',()=>{
  const text=readFileSync(new URL('../../.github/workflows/profile-engine-main-thread.yml',import.meta.url),'utf8');
- assert.match(text,/default: inspector/);assert.match(text,/options:\s*\[\s*inspector,\s*native_fault,\s*native_receipt,\s*native_prerequisites,\s*native_perf_install,\s*native_perf_receipt,?\s*\]/);
- assert.match(text,/inputs.mode == 'inspector'/);assert.match(text,/75s ssh/);
+ assert.match(text,/default: inspector/);assert.match(text,/options:\s*\[\s*inspector,\s*legacy_census_receipt,\s*native_fault,\s*native_receipt,\s*native_prerequisites,\s*native_perf_install,\s*native_perf_receipt,?\s*\]/);
+ assert.match(text,/inputs.mode == 'inspector'/);assert.match(text,/else\s+SSH_BUDGET=75s/);
+ assert.match(text,/timeout --signal=TERM --kill-after=5s "\$SSH_BUDGET" ssh/);
  assert.match(text,/220s ssh/);assert.match(text,/native-observation:[\s\S]*timeout-minutes: 5/);
  assert.match(text,/existing_operation_read_receipt|Unknown acknowledgement/);
  assert.doesNotMatch(text,/apt-get[^\n]*(?:native-observation|HETZNER)/);

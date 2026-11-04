@@ -100,7 +100,7 @@ async function closedInspectorTarget(t) {
   return {child,discoverTarget,openTarget:()=>child.kill('SIGUSR1')};
 }
 
-for (const failure of ['discovery','connection']) {
+for (const failure of ['discovery','connection','native-close']) {
   test('owned inspector closes after '+failure+' failure and the real process survives',async t=>{
     const target=await closedInspectorTarget(t);
     let opened=false,failed=false;
@@ -112,6 +112,7 @@ for (const failure of ['discovery','connection']) {
     await assert.rejects(collectOwnedInspector(target.child.pid,{
       discoverTarget,
       openTarget:()=>{opened=true;target.openTarget();},
+      nativeClose: failure==='native-close',
       collect:(endpoint,pid)=>profileTarget(endpoint.replace(/\/[^/]+$/,'/not-the-target'),pid,50),
     }),failure==='discovery'?/fixture_discovery_failure/:/inspector_connect_failed/);
     assert.equal(await target.discoverTarget(),null,'opened inspector must stop listening even when collection never connects');

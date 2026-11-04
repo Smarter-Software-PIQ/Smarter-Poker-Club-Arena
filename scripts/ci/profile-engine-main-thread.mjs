@@ -34,7 +34,7 @@ export function summarize(profile) {
     }) };
 }
 
-async function inspectorSession(endpoint, expectedPid, operation) {
+async function inspectorSession(endpoint, expectedPid, operation, nativeClose = false) {
   const url = new URL(endpoint);
   if (url.protocol !== 'ws:' || url.hostname !== '127.0.0.1' || !Number.isInteger(expectedPid)
       || expectedPid < 1) {
@@ -75,7 +75,7 @@ async function inspectorSession(endpoint, expectedPid, operation) {
     if (owned && socket.readyState === WebSocket.OPEN) {
       if (!stopped) { try { await send('Profiler.stop'); } catch {} }
       await send('Runtime.evaluate',{expression:"setImmediate(() => process.getBuiltinModule('node:inspector').close()); true",returnByValue:true});
-      socket.close();
+      if (!nativeClose) socket.close();
       await Promise.race([closed,delay(5000).then(()=>{throw new Error('inspector_cleanup_timeout');})]);
     }
     socket.close();
@@ -98,14 +98,15 @@ export async function profileTarget(endpoint, expectedPid, durationMs = 30000) {
 // The caller holds the release lock and has verified the target process before
 // entering. Recovery is finite and closes only a PID-identified inspector after
 // this invocation opened it; an inspector found before opening is never owned.
-export async function collectOwnedInspector(expectedPid, { discoverTarget, openTarget, collect = profileTarget }) {
+export async function collectOwnedInspector(expectedPid, { discoverTarget, openTarget, collect = profileTarget, nativeClose = false }) {
   if (await discoverTarget()) throw new Error('inspector_already_active');
   openTarget();
   let endpoint;
   let completed = false;
   let primaryError;
+  const discoveryRounds = nativeClose ? 3 : 20;
   try {
-    for (let i=0;i<20 && !endpoint;i++) { await delay(100); endpoint=await discoverTarget(); }
+    for (let i=0;i<discoveryRounds && !endpoint;i++) { await delay(100); endpoint=await discoverTarget(); }
     if (!endpoint) throw new Error('inspector_open_unknown_no_retry');
     const sample = await collect(endpoint, expectedPid);
     completed = true;
@@ -127,9 +128,9 @@ export async function collectOwnedInspector(expectedPid, { discoverTarget, openT
         if (discoveryError) throw new Error('inspector_cleanup_not_confirmed');
         if (ownedEndpoint) {
           if (endpoint && ownedEndpoint !== endpoint) throw new Error('inspector_cleanup_not_confirmed');
-          await inspectorSession(ownedEndpoint, expectedPid, async (_send, markStopped) => { markStopped(); });
+          await inspectorSession(ownedEndpoint, expectedPid, async (_send, markStopped) => { markStopped(); }, nativeClose);
           let stillOpen = true;
-          for (let i=0;i<20 && stillOpen;i++) {
+          for (let i=0;i<discoveryRounds && stillOpen;i++) {
             try { stillOpen=Boolean(await discoverTarget()); } catch { stillOpen=true; }
             if (stillOpen) await delay(100);
           }
@@ -165,6 +166,101 @@ async function health(expected) {
   return {version:h.version,instanceId:h.instanceId,uptime:h.uptime,mainEventLoopGovernor:h.mainEventLoopGovernor};
 }
 
+export const ORIGINAL_CENSUS = Object.freeze({
+  engineSha: 'eed06fe51dea622069c661a6213d5b031ff3a9e3',
+  instance: '1-3d854040',
+  runId: '41873097694-1',
+  path: '/app/.legacy-census-checkpoint-41873097694-1/legacy-census.node',
+  sourceSHA256: 'ff995c8955cfa3de5e70871b3139bd246c9f76e89b848e48ba052149b434c4dc',
+  notBeforeMs: Date.parse('2026-11-04T17:24:06.234Z'),
+  notAfterMs: Date.parse('2026-11-04T17:27:47.326538Z'),
+});
+
+// Serialized into the original main thread. This never loads a target module:
+// a deleted capture file must already have its exact, still-loaded cache entry.
+export function cachedOriginalCensus(binding) {
+  const fail = () => { throw new Error('original_census_unavailable'); };
+  const descriptor = Object.getOwnPropertyDescriptor;
+  const own = (value, key) => {
+    if (!value || process.getBuiltinModule('node:util').types.isProxy(value)) fail();
+    const d = descriptor(value, key);
+    if (!d || !Object.hasOwn(d, 'value')) fail();
+    return d.value;
+  };
+  if (process.pid !== 1 || process.version !== 'v22.23.2' ||
+      process.versions.v8 !== '12.4.254.21-node.56' || process.versions.modules !== '127' ||
+      process.env.GIT_COMMIT_SHA !== binding.engineSha) fail();
+  const loader = process.getBuiltinModule('node:module').createRequire('/app/native/legacy-census-loader.cjs');
+  const entry = own(loader.cache, binding.path);
+  if (own(entry, 'filename') !== binding.path || own(entry, 'loaded') !== true) fail();
+  const addon = own(entry, 'exports');
+  if (own(addon, 'sourceSHA256') !== binding.sourceSHA256 ||
+      own(addon, 'maxMatches') !== 22096 || own(addon, 'managedOutputBytes') !== 772608 ||
+      own(addon, 'prototypeCacheBytes') !== 1048576) fail();
+  const diagnostics = own(addon, 'diagnostics');
+  if (typeof diagnostics !== 'function') fail();
+  const result = Reflect.apply(diagnostics, addon, []);
+  const numbers = ['predicateVisits', 'validPredicateVisits', 'matched', 'queryStartedAtMs',
+    'firstValidAtMs', 'lastValidAtMs', 'queryEndedAtMs'];
+  const booleans = ['overflow', 'deadlineRefused', 'arrayAllocated'];
+  if (!result || process.getBuiltinModule('node:util').types.isProxy(result)) fail();
+  if (Reflect.ownKeys(result).length !== 10) fail();
+  const out = {};
+  for (const key of numbers) {
+    const value = own(result, key);
+    if (!Number.isSafeInteger(value) || value < 0) fail();
+    out[key] = value;
+  }
+  for (const key of booleans) {
+    const value = own(result, key);
+    if (typeof value !== 'boolean') fail();
+    out[key] = value;
+  }
+  if (!(binding.notBeforeMs <= out.queryStartedAtMs &&
+      out.queryStartedAtMs <= out.queryEndedAtMs && out.queryEndedAtMs <= binding.notAfterMs) ||
+      out.validPredicateVisits > out.predicateVisits || out.matched > out.validPredicateVisits ||
+      (out.validPredicateVisits === 0 ? out.firstValidAtMs !== 0 || out.lastValidAtMs !== 0 :
+        !(out.queryStartedAtMs <= out.firstValidAtMs && out.firstValidAtMs <= out.lastValidAtMs &&
+          out.lastValidAtMs <= out.queryEndedAtMs))) fail();
+  return out;
+}
+
+export async function originalCensusTarget(endpoint, expectedPid) {
+  if (expectedPid !== 1) throw new Error('original_census_identity_refused');
+  return inspectorSession(endpoint, expectedPid, async (send, markStopped) => {
+    // This mode never starts a CPU profile; cleanup must not stop another one.
+    markStopped();
+    const result = await send('Runtime.evaluate', {
+      expression: `(${cachedOriginalCensus.toString()})(${JSON.stringify(ORIGINAL_CENSUS)})`,
+      returnByValue: true, disableBreaks: true, awaitPromise: false,
+    });
+    if (result.exceptionDetails || result.result?.subtype === 'error' ||
+        result.result?.type !== 'object' || !result.result?.value)
+      throw new Error('original_census_unavailable');
+    return result.result.value;
+  }, true);
+}
+
+export async function originalCensusMain(expected) {
+  if (expected !== ORIGINAL_CENSUS.engineSha) throw new Error('original_census_identity_refused');
+  const cmd = readFileSync('/proc/1/cmdline', 'utf8').split('\0').filter(Boolean);
+  if (!cmd[0]?.endsWith('node') || cmd[1] !== 'dist/index.js' || cmd.length !== 2)
+    throw new Error('engine_process_refused');
+  const before = await health(expected);
+  if (before.instanceId !== ORIGINAL_CENSUS.instance) throw new Error('original_census_identity_refused');
+  const diagnostics = await collectOwnedInspector(1, {
+    discoverTarget: discover, openTarget: () => process.kill(1, 'SIGUSR1'),
+    collect: originalCensusTarget, nativeClose: true,
+  });
+  if (await discover()) throw new Error('inspector_cleanup_not_confirmed');
+  const after = await health(expected);
+  if (after.instanceId !== ORIGINAL_CENSUS.instance || after.uptime < before.uptime)
+    throw new Error('engine_changed_during_profile');
+  return {schema: 'original-census-diagnostics/v1', observationOnly: true,
+    runId: ORIGINAL_CENSUS.runId, expectedSha: expected, instanceId: after.instanceId,
+    sourceSHA256: ORIGINAL_CENSUS.sourceSHA256, inspectorClosed: true, diagnostics};
+}
+
 export async function main(expected) {
   if (!/^[a-f0-9]{40}$/.test(expected || '')) throw new Error('expected_sha_refused');
   const cmd = readFileSync('/proc/1/cmdline','utf8').split('\0').filter(Boolean);
@@ -192,13 +288,15 @@ const refusalCodes = new Set([
   'inspector_discovery_refused', 'inspector_target_count', 'engine_changed_during_profile',
   'profile_samples_missing', 'profile_sample_invalid', 'profile_duration_missing',
   'profile_sample_invalid_node', 'profile_sample_invalid_delta', 'profile_sample_invalid_negative_delta',
+  'original_census_unavailable', 'original_census_identity_refused',
 ]);
 export function failureReason(error) {
   return refusalCodes.has(error?.message) ? error.message : 'unclassified_failure';
 }
 
 if ((process.argv[1] === '-' && /\/\[eval\d*\]$/.test(import.meta.url)) || (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)) {
-  main(process.argv[2]).then(result=>console.log(JSON.stringify(result))).catch((error)=>{
+  const collect = process.argv[3] === 'legacy_census_receipt' ? originalCensusMain : main;
+  collect(process.argv[2]).then(result=>console.log(JSON.stringify(result))).catch((error)=>{
     // Fail closed without leaking URLs, source, environment, values or error payloads.
     console.error('CPU profile failed; inspect owning run and inspector state before any retry. reason=' + failureReason(error) + (error?.cleanupConfirmed === false ? ' cleanup=unknown' : ''));process.exitCode=1;
   });

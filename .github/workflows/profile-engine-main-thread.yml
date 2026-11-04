@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'scripts/ci/profile-engine-main-thread.mjs'
+      - 'scripts/ci/original-census-receipt-host.py'
+      - 'tests/operations/original-census-receipt.test.mjs'
+      - 'tests/operations/original-census-receipt-host.test.py'
       - 'scripts/ci/native-fault-observation.py'
       - 'scripts/ci/native-perf-install.py'
       - 'scripts/ci/native-perf-install-controller.py'
@@ -27,6 +30,7 @@ on:
         options:
           [
             inspector,
+            legacy_census_receipt,
             native_fault,
             native_receipt,
             native_prerequisites,
@@ -55,7 +59,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test tests/operations/engine-main-profile.test.mjs tests/operations/native-fault-observation.test.mjs
+      - run: node --test tests/operations/engine-main-profile.test.mjs tests/operations/native-fault-observation.test.mjs tests/operations/original-census-receipt.test.mjs
+        env:
+          TMPDIR: ${{ runner.temp }}
+      - run: python3 -B tests/operations/original-census-receipt-host.test.py
         env:
           TMPDIR: ${{ runner.temp }}
       - run: python3 -B tests/operations/native-perf-install.test.py && python3 -B tests/operations/native-perf-install-controller.test.py && python3 -B tests/operations/native-perf-install-provider.test.py && python3 -B tests/operations/native-perf-terminal-diagnostics.test.py
@@ -141,18 +148,19 @@ jobs:
           retention-days: 7
   profile:
     needs: verify
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'inspector' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'inspector' || inputs.mode == 'legacy_census_receipt') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
       EXPECTED_ENGINE_SHA: ${{ inputs.expected_engine_sha }}
+      PROFILE_MODE: ${{ inputs.mode }}
       HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Collect thirty seconds through the configured pinned SSH boundary
+      - name: Collect the selected bounded observation through the configured pinned SSH boundary
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           HOST_KEY: ${{ secrets.HETZNER_HOST_KEY }}
@@ -169,16 +177,30 @@ jobs:
           chmod 0600 "$SSH_DIR/key" "$SSH_DIR/known_hosts"
           ssh-keygen -y -f "$SSH_DIR/key" >/dev/null
           ssh-keygen -l -f "$SSH_DIR/known_hosts" >/dev/null
-          timeout --signal=TERM --kill-after=5s 75s ssh \
+          if [ "$PROFILE_MODE" = legacy_census_receipt ]; then
+            SSH_BUDGET=105s
+            REMOTE_COMMAND=$(python3 - <<'PY'
+          import hashlib, os, pathlib, shlex
+          source = pathlib.Path('scripts/ci/profile-engine-main-thread.mjs').read_bytes()
+          wrapper = pathlib.Path('scripts/ci/original-census-receipt-host.py').read_text()
+          print(shlex.join(['python3', '-c', wrapper, os.environ['EXPECTED_ENGINE_SHA'], hashlib.sha256(source).hexdigest()]))
+          PY
+            )
+          else
+            SSH_BUDGET=75s
+            REMOTE_COMMAND="test -f /var/lock/club-arena-engine-up.lock && exec 9>/var/lock/club-arena-engine-up.lock && flock -n 9 && test \"\$(docker inspect -f '{{index .Config.Labels \"org.opencontainers.image.revision\"}}' club-arena-engine)\" = '$EXPECTED_ENGINE_SHA' && docker exec -i club-arena-engine node --input-type=module - '$EXPECTED_ENGINE_SHA'"
+          fi
+          timeout --signal=TERM --kill-after=5s "$SSH_BUDGET" ssh \
             -i "$SSH_DIR/key" -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 \
             -o ServerAliveInterval=10 -o ServerAliveCountMax=2 \
             "root@$HETZNER_HOST" \
-            "test -f /var/lock/club-arena-engine-up.lock && exec 9>/var/lock/club-arena-engine-up.lock && flock -n 9 && test \"\$(docker inspect -f '{{index .Config.Labels \"org.opencontainers.image.revision\"}}' club-arena-engine)\" = '$EXPECTED_ENGINE_SHA' && docker exec -i club-arena-engine node --input-type=module - '$EXPECTED_ENGINE_SHA'" \
+            "$REMOTE_COMMAND" \
             < scripts/ci/profile-engine-main-thread.mjs > "$RUNNER_TEMP/main-thread-profile.json"
           cat "$RUNNER_TEMP/main-thread-profile.json"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: engine-main-thread-profile-${{ github.run_id }}
           path: ${{ runner.temp }}/main-thread-profile.json
