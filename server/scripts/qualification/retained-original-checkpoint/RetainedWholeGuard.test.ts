@@ -1027,6 +1027,11 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     const completed = scenario === 'manager-renewal-queued-completed';
     const releaseFailed = scenario === 'manager-renewal-queued-release-failed';
     const mixed = staggered || completed || releaseFailed;
+    let staggeredFirstReceipt: Promise<boolean> | null = null;
+    let staggeredRelease: Promise<void> | null = null;
+    let observedSecondRetirement = 0;
+    let firstRetirementCompleted = false;
+    let secondReleasedAfterFirst = false;
     let second: any;
     let releaseSecond!: () => void;
     if (mixed) {
@@ -1079,7 +1084,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
         const pending = originalSleep.call(this, ms);
         if (!originalQueuedSleep) {
           originalQueuedSleep = pending;
-          if (!mixed) {
+          if (!mixed || staggered) {
             // Register before the real loop awaits this original sleep. Its
             // timer resolves normally; guard entry precedes only the queued
             // loop continuation, never a synthetic renewal or retirement.
@@ -1105,7 +1110,37 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
                   false
                 );
                 expect(retired.teardownPromise, 'owner not stopping at guard entry').toBeNull();
-                return invoke();
+                if (staggered) {
+                  expect(second.tournamentLeaseAuthorityExpired, 'second owner live at entry').toBe(
+                    false
+                  );
+                  expect(second.teardownPromise, 'second owner not stopping at entry').toBeNull();
+                }
+                const result = invoke();
+                if (staggered) {
+                  // Guard capture runs synchronously before its first await.
+                  // This original cleanup starts first; the already-queued
+                  // native loop continuation starts the second retirement.
+                  const originalStop = server.stopTournamentManagerIfOwned(
+                    retired.tournamentId,
+                    retired,
+                    'qualification.original_staggered_retirement'
+                  );
+                  void originalStop.catch(() => undefined);
+                  staggeredFirstReceipt = Map.prototype.get.call(
+                    server.tournamentManagerRetirementOperations,
+                    retired
+                  );
+                  expect(
+                    staggeredFirstReceipt,
+                    'first original retirement published'
+                  ).toBeInstanceOf(Promise);
+                  expect(
+                    Map.prototype.has.call(server.tournamentManagerRetirementOperations, second),
+                    'second retirement still belongs to queued native continuation'
+                  ).toBe(false);
+                }
+                return result;
               };
               return entry;
             };
@@ -1124,20 +1159,21 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       retired.tournamentLeaseProofDeadlineMonotonicMs = performance.now() + 20;
       if (mixed) {
         second.tournamentLeaseProofDeadlineMonotonicMs = performance.now() + 20;
-        second.armTournamentLeaseExpiryTimer();
+        if (!staggered) second.armTournamentLeaseExpiryTimer();
         if (!staggered) releaseSecond();
         if (releaseFailed) wire.failedRelease = second.tournamentId;
         // Existing owner cleanup and renewal can publish their receipts in
         // different turns. Neither callback is invoked by the guard.
-        setTimeout(() => {
-          void server.stopTournamentManagerIfOwned(
-            retired.tournamentId,
-            retired,
-            'qualification.original_staggered_retirement'
-          );
-          setTimeout(releaseJob, 100);
-          setTimeout(releaseSecond, 120);
-        }, 0);
+        if (!staggered)
+          setTimeout(() => {
+            void server.stopTournamentManagerIfOwned(
+              retired.tournamentId,
+              retired,
+              'qualification.original_staggered_retirement'
+            );
+            setTimeout(releaseJob, 100);
+            setTimeout(releaseSecond, 120);
+          }, 0);
         if (completed || releaseFailed) {
           // The original loop registered its continuation on this real sleep
           // before the fixture did. Join its next native pass and the second
@@ -1164,12 +1200,12 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
         ? null
         : (gameServer.GameServer.prototype as any).renewOwnedEngineLeaseProofs.call(server);
     // Stand in only for elapsed synchronous collection, without invoking expiry.
-    const until = performance.now() + (queued ? sleepMs + (staggered ? -30 : 25) : 25);
+    const until = performance.now() + (queued ? sleepMs + 25 : 25);
     while (performance.now() < until) {}
     expect(retired.tournamentLeaseAuthorityExpired, 'owner live before guard').toBe(false);
     expect(retired.teardownPromise, 'owner not stopping before guard').toBeNull();
     let observedOriginalRetirement = 0;
-    if (queued && !mixed) {
+    if (queued && (!mixed || staggered)) {
       const retirements = server.tournamentManagerRetirementOperations;
       const originalGet = retirements.get;
       retirements.get = function (owner: unknown) {
@@ -1184,7 +1220,37 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
             retirement.then(() => server.tournamentEngines.set(retired.tournamentId, m));
           // Return the real original receipt before releasing the fixture job.
           // No timer duration can make retirement disappear ahead of its reader.
-          queueMicrotask(releaseJob);
+          if (!staggered) queueMicrotask(releaseJob);
+        }
+        if (
+          staggered &&
+          owner === second &&
+          retirement instanceof Promise &&
+          observedSecondRetirement === 0
+        ) {
+          expect(observedOriginalRetirement, 'first receipt observed before second').toBe(1);
+          expect(originalGet.call(this, retired), 'first physical retirement still held').toBe(
+            staggeredFirstReceipt
+          );
+          expect(retired.teardownPromise, 'first physical stop remains pending').toBeInstanceOf(
+            Promise
+          );
+          observedSecondRetirement++;
+          queueMicrotask(() => {
+            releaseJob();
+            staggeredRelease = staggeredFirstReceipt!.then((confirmed) => {
+              expect(confirmed, 'first original retirement confirmed').toBe(true);
+              firstRetirementCompleted = true;
+              return new Promise<void>((resolve) => {
+                setImmediate(() => {
+                  secondReleasedAfterFirst = firstRetirementCompleted;
+                  releaseSecond();
+                  resolve();
+                });
+              });
+            });
+            void staggeredRelease.catch(() => undefined);
+          });
         }
         return retirement;
       };
@@ -1225,8 +1291,16 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
           expect(second.running).toBe(false);
           expect(second.teardownPromise).toBeNull();
         }
-        if (queued && !mixed)
+        if (queued && (!mixed || staggered))
           expect(observedOriginalRetirement, JSON.stringify(guardResult)).toBe(1);
+        if (staggered) {
+          await staggeredRelease;
+          expect(observedSecondRetirement, JSON.stringify(guardResult)).toBe(1);
+          expect(firstRetirementCompleted, 'first actual receipt completed').toBe(true);
+          expect(secondReleasedAfterFirst, 'second physical release followed first receipt').toBe(
+            true
+          );
+        }
       } finally {
         await cleanupRenewalFixture();
       }
@@ -1486,7 +1560,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     return;
   }
 
-  expect(result, result.reason ?? 'whole guard positive').toMatchObject({
+  expect(result, JSON.stringify(result)).toMatchObject({
     ok: true,
     stage: 'complete',
     verifiedTables: 3,
