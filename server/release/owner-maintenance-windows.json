@@ -985,6 +985,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "9daeca9da3bc417baf8e9fc2e57aa2b31e838fff0c27e25084e7c3e067dba26f"
       }
+    },
+    {
+      "id": "2026-11-04-tournament-immediate-relaunch-continuation",
+      "ownerOrder": "Dan directly in root tournament recovery chat 01a1a01a-7f70-7d62-8da1-8d086594c658, message 01a1a7a5-c83e-7df2-8395-c49356f805f6, demands the engine updated and MTT, Spin, Sit and Go and satellite events reopened now. Earlier direct message 01a1a70f-7b59-71e1-8bb8-3bdf9018d78c says reset now; 01a1a70e-be74 clarifies the hour rule concerned rakeback. This NEW fixed November 4 17:45\u201323:45 UTC earliest-certified continuation supersedes timing preferences only, never an existing operation. Preserve every prior entry, witness, intent and failed or unknown outcome. Before admission prove original terminal outcomes, cleanup and exclusive current ownership; refuse overlapping routine maintenance or another owner. Only the existing stage/receiver and original sealed transaction may activate the exact protected qualified target. Preserve 120-second notice, 300-second freeze window, full 285-second admission/proof/rollback reserve, original custody, immutable source, durable freeze and verified own-window v3 thaw. No new admission hold, automatic renewal, timer, second publisher, lease resurrection, deadline extension, force restart, retry of unknown effects or guard bypass. Fixed expiry ends fresh authority; reopening still requires its existing verified conditions.",
+      "contains": "f986e7020b3d1f8c18a4de0c533c49c6b6401f4e",
+      "notBefore": "2026-11-04T17:45:00Z",
+      "notAfter": "2026-11-04T23:45:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "b6298cb49c7d2e2e33d17678a659e267e8af69ce17e698f0b114daada6f87a62"
+      }
     }
   ],
   "databaseWindows": [

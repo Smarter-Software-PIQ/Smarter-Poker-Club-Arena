@@ -43,6 +43,7 @@ const groups = [
       'test_original_retirement_continuation_preserves_prior_floor_and_expiry',
       'test_owned_renewal_observation_preserves_prior_floor_and_fixed_expiry',
       'test_canonical_source_continuation_preserves_prior_floor_and_fixed_expiry',
+      'test_immediate_relaunch_continuation_preserves_history_and_full_reserves',
       'test_owner_reservation_binds_run_target_cause_and_full_window',
       'test_actual_owner_certificate_binds_existing_window_and_refuses_shortcut',
       'test_actual_reservation_entry_survives_unknown_ack_and_checkpoint_no_action',
@@ -92,7 +93,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(38);
+  expect(selected).toHaveLength(39);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);
