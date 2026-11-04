@@ -91,6 +91,12 @@ PLO/pot-limit, fixed-limit and short-deck sizing remain separate. The existing
 ledger registers `cash_nlh_three_bet_size` as an execution receipt; final
 accepted production wagers must also be verified.
 
+The new cash sizer is included in `HorseReferenceDecisionSources`, so every
+variant qualification digest binds the code that sizes its reference action.
+Hosted source-closure checks exposed the missing binding; both failing
+closure checks now pass with the current sizing tests. Existing qualification
+evidence cannot silently authorize decisions using a different sizing source.
+
 The October 16 opponent-exploit neutrality corpus isolates this later cash
 sizing policy by omitting only its sizing context in the test's real preflop
 call. The original corpus, opponent reads, RNG comparisons and coverage floor
