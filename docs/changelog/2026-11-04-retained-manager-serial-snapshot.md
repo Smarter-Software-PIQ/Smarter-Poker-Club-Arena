@@ -1,0 +1,15 @@
+# Capture manager serial authority at the final checkpoint boundary
+
+Release41743213429-1 completed the native census and original process-authority entry, then refused `retained_manager_serial_changed` before attempting a checkpoint. It recovered the predecessor and proved inspector closure. The receipt did not identify which serial check failed; exact live subphase attribution remains unknown.
+
+The deployed EED manager advances its seat-move tail and authority revision even when its original recovery method has no pending movement. Its balancing recovery reaches that method before the maintenance-freeze return. Holding a revision snapshot across asynchronous native proof reads therefore rejects harmless original-owner work as well as real changes.
+
+The maintained checkpoint now joins the current original tails and publishes one authoritative snapshot after those asynchronous reads. Every join keeps the existing reserve, registry, method, idle-authority and lease checks. The final synchronous pass revalidates manager ownership, engine and shadow state, exact continuation/controller/seat/bank/hand identity, presence and canonical park acknowledgement. Live bank membership and recovery captures must match exactly, including idle banks. All serial identities are checked again immediately before the first original stop, with no intervening await. A later admission still refuses; no snapshot is refreshed to accept it. Readback retains its existing post-stop witness semantics.
+
+Serial refusals carry only bounded phase, hashed manager identity, registered/detached class, census count and changed-field booleans through the existing scalar diagnostic carrier. No private hand or player information is exported. No predecessor method is replaced, no financial write is added, and production timing/custody/thaw safeguards are unchanged.
+
+The exact compiled EED regression uses its real authority and empty-redrive methods. Initial-drain and attestation-time admissions fail against the old guard and pass after correction. Post-capture admission, unresolved authority, lost maintenance pause, changed presence, removed bank and expired zero-child-manager lease refuse before any stop. The existing whole-owner inventory grows from45 to53; native composition retains its same two selected cases. External RPC/park responses remain isolated fixture doubles, not live acceptance.
+
+The owner renewed immediate earliest-certified completion without waiting for :55. A new fixed01:00–04:00UTC November4 source window preserves prior entries and expires explicitly. Necessary qualification plus observed40-minute CI and27-minute receiver exceeds the old02:00 expiry. It changes no120-second notice,300-second window,285-second reserve, immutable custody/seal or own-window v3thaw rule. No failed operation is retried or prolonged.
+
+Protected-main integration also preserves PR9474 Horse strategy changes and its stronger exact-two-clock-anchor historical queue fixture. Source qualification is not deployment: a fresh qualified owning operation and actual checkpoint/activation/live proof remain required.

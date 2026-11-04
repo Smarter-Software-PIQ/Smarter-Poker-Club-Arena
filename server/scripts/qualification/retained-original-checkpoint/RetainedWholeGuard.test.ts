@@ -176,6 +176,14 @@ function banks(e: any, seats: any[]) {
 const wholeCases = [
   'positive',
   'manager-context',
+  'manager-serial-initial-noop',
+  'manager-serial-late-noop',
+  'manager-serial-pending',
+  'manager-serial-after-capture',
+  'manager-serial-physical-change',
+  'manager-serial-presence-change',
+  'manager-serial-bank-removed',
+  'manager-serial-empty-lease',
   'lightning-pending-host',
   'lightning-registered-host',
   'lightning-unknown-formation',
@@ -818,6 +826,68 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     }
     expect(Object.hasOwn(globalThis, key)).toBe(false);
   }
+  if (scenario === 'manager-serial-initial-noop' || scenario === 'manager-serial-pending') {
+    // The original manager admits a successor while its captured tail drains.
+    // Use the actual EED authority and redrive methods, not a synthetic revision write.
+    void m.runWithTournamentSeatMoveAuthority(async () => {
+      void m.redrivePendingTournamentSeatMoveOutcomes();
+      if (scenario === 'manager-serial-pending')
+        m.pendingTournamentParkRequests.set(id(999), { unresolved: true });
+    });
+  }
+  let emptyManager: any;
+  if (scenario === 'manager-serial-empty-lease') {
+    emptyManager = actor.bindTournamentDataAuthorityMethods(
+      { tournamentId: id(980), leaseGeneration: id(981) },
+      new TournamentManager(id(980), server, id(981), performance.now() + 600000)
+    );
+    emptyManager.running = true;
+    server.tournamentEngines.set(id(980), emptyManager);
+    managers.push(emptyManager);
+  }
+  if (
+    [
+      'manager-serial-late-noop',
+      'manager-serial-after-capture',
+      'manager-serial-physical-change',
+      'manager-serial-presence-change',
+      'manager-serial-bank-removed',
+      'manager-serial-empty-lease',
+    ].includes(scenario)
+  ) {
+    let admitted = false;
+    wire.onAttest = () => {
+      if (!admitted) {
+        admitted = true;
+        if (scenario === 'manager-serial-late-noop')
+          void m.redrivePendingTournamentSeatMoveOutcomes();
+        else if (scenario === 'manager-serial-physical-change') cash.maintenancePaused = false;
+        else if (scenario === 'manager-serial-presence-change')
+          cash.disconnectEngine.markDisconnected(cash.tableId, cash.seatedPlayers[0].user_id);
+        else if (scenario === 'manager-serial-bank-removed')
+          cash.timeBankEngine.removePlayer(cash.tableId, cash.seatedPlayers[0].user_id);
+        else if (scenario === 'manager-serial-empty-lease')
+          emptyManager.tournamentLeaseProofDeadlineMonotonicMs = performance.now() - 1;
+        else {
+          let running = cash.running,
+            entered = false;
+          Object.defineProperty(cash, 'running', {
+            configurable: true,
+            get() {
+              if (!entered) {
+                entered = true;
+                void m.redrivePendingTournamentSeatMoveOutcomes();
+              }
+              return running;
+            },
+            set(value) {
+              running = value;
+            },
+          });
+        }
+      }
+    };
+  }
   const guardStarted = performance.now();
   const invoke = () =>
     retainedOriginalCheckpointGuard.call(
@@ -849,6 +919,42 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
   if (releaseFrontLease) {
     releaseFrontLease(false);
     await worker.stop();
+  }
+  if (
+    [
+      'manager-serial-after-capture',
+      'manager-serial-pending',
+      'manager-serial-physical-change',
+      'manager-serial-presence-change',
+      'manager-serial-bank-removed',
+      'manager-serial-empty-lease',
+    ].includes(scenario)
+  ) {
+    expect(result).toMatchObject({
+      ok: false,
+      attemptedTables: 0,
+      restartAuthorized: false,
+      reason:
+        scenario === 'manager-serial-pending'
+          ? 'retained_manager_authority_unproven'
+          : scenario === 'manager-serial-physical-change'
+            ? 'retained_pre_stop_authority_changed'
+            : scenario === 'manager-serial-presence-change'
+              ? 'retained_pre_stop_presence_changed'
+              : scenario === 'manager-serial-bank-removed'
+                ? 'retained_bank_set_changed'
+                : scenario === 'manager-serial-empty-lease'
+                  ? 'retained_manager_lease_unproven'
+                  : 'retained_manager_serial_changed',
+    });
+    for (const f of originals) expect(f.e.terminal).toBe(false);
+    expect(cash.terminal).toBe(false);
+    if (scenario === 'manager-serial-after-capture')
+      expect(result.observedDetail).toMatch(
+        /^phase=pre_mutation, managerHash=[a-f0-9]{16}, class=registered, census=1, witness=true, tailChanged=true, revisionChanged=true$/
+      );
+    m.pendingTournamentParkRequests.clear();
+    return;
   }
   if (scenario.startsWith('shadow-held-'))
     expect(result, JSON.stringify(result)).toMatchObject({
@@ -892,6 +998,8 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     ![
       'positive',
       'manager-context',
+      'manager-serial-initial-noop',
+      'manager-serial-late-noop',
       'detached-drained',
       'shadow-covered-permit',
       'skew-engine',

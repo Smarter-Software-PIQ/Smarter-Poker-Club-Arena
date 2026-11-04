@@ -545,12 +545,24 @@ echo CHECKPOINT_MUST_NOT_RUN
         prior = next(w for w in doc['windows'] if w['id'] == old['ownerWindowId'])
         self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256((json.dumps(old, indent=2)+'\n').encode()).hexdigest())
         self.assertEqual((prior['notBefore'], prior['notAfter']), (old['activationAt'], old['expiresAt']))
-        current = self.owner_record()
+        current = self.owner_record(window_id='2026-11-03-tournament-process-actor-continuation')
         self.assertEqual(current['ownerWindowId'], '2026-11-03-tournament-process-actor-continuation')
         floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
         for now in [current['activationEpoch']-1, current['expiresEpoch']-419, current['expiresEpoch']]:
             with self.assertRaises(ValueError): floor.check_window(current, now, current['expiresEpoch'], 'admit')
 
+
+    def test_manager_serial_continuation_preserves_prior_floor_and_expiry(self):
+        import hashlib
+        prior, raw = self.historical_floor('2026-11-03-tournament-process-actor-continuation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-03T23:00:00Z','2026-11-04T02:00:00Z'))
+        current = self.owner_record()
+        self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-manager-serial-continuation')
+        self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 10800)
+        floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
+        for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
 
     def test_owner_reservation_binds_run_target_cause_and_full_window(self):
         r = self.owner_record(); root = self.repo / 'state'; root.mkdir()

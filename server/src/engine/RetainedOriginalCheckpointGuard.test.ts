@@ -326,6 +326,8 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     timeBankMeta: new Map(),
     parkedTimeBanks: {},
     timeBankEngine: {
+      capturePlayerForRecovery: (_tableId: string, playerId: string) =>
+        bankRows[playerId] ? structuredClone(bankRows[playerId]) : null,
       getBanksForTable: () =>
         Object.keys(bankRows).map((playerId) => ({ playerId, isActive: false, armed: false })),
     },

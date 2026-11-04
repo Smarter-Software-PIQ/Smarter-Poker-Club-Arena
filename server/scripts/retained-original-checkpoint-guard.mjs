@@ -135,7 +135,9 @@ export async function retainedOriginalCheckpointGuard(
     completedCalls = 0,
     verifiedTables = 0;
   let bankCount = 0,
-    reason = null;
+    reason = null,
+    observedDetail = null,
+    managerProofPhase = 'initial_join';
   const managerChildren = new Map();
   const need = (value, name) => {
     if (!value) throw new Error(name);
@@ -355,6 +357,7 @@ export async function retainedOriginalCheckpointGuard(
         modules.managerBase.TournamentManagerBase.prototype.captureDrainedF06Originals;
       need(typeof nativeManagerCapture === 'function', 'retained_manager_capture_unavailable');
       const moveWitnesses = new Map();
+      let managerSerialCaptured = false;
       const proveManagerAuthorities = (m) => {
         for (const key of [
           'pendingTournamentSeatMoveOutcomes',
@@ -380,7 +383,14 @@ export async function retainedOriginalCheckpointGuard(
             m.capacityAdmissionOperation === null,
           'retained_manager_authority_unproven'
         );
+        if (!managerSerialCaptured) return;
         const witness = moveWitnesses.get(m);
+        const unchanged =
+          witness &&
+          m.tournamentSeatMoveSerialTail === witness.tail &&
+          m.tournamentSeatMoveAuthorityRevision === witness.revision;
+        if (!unchanged && observedDetail === null)
+          observedDetail = `phase=${managerProofPhase}, managerHash=${digest(m.tournamentId).slice(0, 16)}, class=${managerSnapshot.has(m) ? 'registered' : 'detached'}, census=${discoveredManagers.length}, witness=${Boolean(witness)}, tailChanged=${m.tournamentSeatMoveSerialTail !== witness?.tail}, revisionChanged=${m.tournamentSeatMoveAuthorityRevision !== witness?.revision}`;
         need(
           witness &&
             m.tournamentSeatMoveSerialTail === witness.tail &&
@@ -542,10 +552,9 @@ export async function retainedOriginalCheckpointGuard(
             names.every((n) => target[n] === base.prototype[n]),
             'retained_method_owner_unproven'
           );
-        methods.set(
-          target,
-          names.map((n) => [n, target[n]])
-        );
+        methods.set(target, [
+          ...new Map([...(methods.get(target) ?? []), ...names.map((n) => [n, target[n]])]),
+        ]);
       };
       const checkMaintenance = (completeOwners = false) => {
         proveLightningAbsent(completeOwners);
@@ -639,18 +648,44 @@ export async function retainedOriginalCheckpointGuard(
           m.tournamentId,
           m.tournamentLeaseGeneration
         );
-        moveWitnesses.set(m, {
-          tail: m.tournamentSeatMoveSerialTail,
-          revision: m.tournamentSeatMoveAuthorityRevision,
-        });
       }
-      await all(discoveredManagers, async (m) => {
-        await moveWitnesses.get(m).tail;
-        checkMaintenance();
-        checkMethods(m);
+      const proveCurrentManager = (m) => {
+        if (!managerSnapshot.has(m)) return proveRetiredManager(m);
+        need(
+          m.running === true &&
+            m.teardownPromise === null &&
+            m.stopRequested !== true &&
+            m.tournamentLeaseAuthorityExpired === false &&
+            Number.isFinite(m.tournamentLeaseProofDeadlineMonotonicMs) &&
+            performance.now() < m.tournamentLeaseProofDeadlineMonotonicMs,
+          'retained_manager_lease_unproven'
+        );
         proveManagerAuthorities(m);
-        if (!managerEntries.some(([, current]) => current === m)) proveRetiredManager(m);
-      });
+      };
+      const joinCurrentManagerAuthority = async (m) => {
+        for (;;) {
+          checkMaintenance();
+          checkMethods(m);
+          const tail = m.tournamentSeatMoveSerialTail,
+            revision = m.tournamentSeatMoveAuthorityRevision;
+          need(
+            tail instanceof Promise && Number.isSafeInteger(revision),
+            'retained_manager_census_unproven'
+          );
+          await tail;
+          checkMaintenance();
+          checkMethods(m);
+          proveCurrentManager(m);
+          if (
+            tail === m.tournamentSeatMoveSerialTail &&
+            revision === m.tournamentSeatMoveAuthorityRevision
+          )
+            return { tail, revision };
+          // Only the preliminary drain can advance. Once published below,
+          // the one authoritative witness is immutable through the first stop.
+        }
+      };
+      await all(discoveredManagers, joinCurrentManagerAuthority);
       const owned = new Map();
       for (const [id, e] of directEntries) {
         need(uuid(id) && e.tableId === id && objects.has(e), 'retained_direct_owner_missing');
@@ -895,6 +930,16 @@ export async function retainedOriginalCheckpointGuard(
           // before restoreFsmStates, whose compiled owner never clobbers a player.
         } else need(e.isBetweenHands() === true, 'retained_idle_boundary_unproven');
         const banks = e.captureParkedTimeBanks();
+        const bankIds = e.timeBankEngine
+          .getBanksForTable(e.tableId)
+          .map((bank) => bank.playerId)
+          .sort();
+        need(new Set(bankIds).size === bankIds.length, 'retained_bank_set_changed');
+        const bankCaptureAt = Date.now();
+        const liveBanks = bankIds.map((id) => [
+          id,
+          e.timeBankEngine.capturePlayerForRecovery(e.tableId, id, bankCaptureAt),
+        ]);
         for (const bank of e.timeBankEngine.getBanksForTable(e.tableId))
           need(
             bank.isActive === false && (original || bank.armed === false) && banks[bank.playerId],
@@ -910,9 +955,13 @@ export async function retainedOriginalCheckpointGuard(
           packet,
           controller: e.handController,
           banks,
+          bankIds,
+          bankCaptureAt,
+          liveBanks,
           presence: e.captureRetainedPresence(),
           chairs: encode(e.seatedPlayers),
           capture: e.captureContinuationEngine(),
+          handNumber: e.handCount,
         });
         bankCount += Object.keys(banks).length;
       }
@@ -1126,6 +1175,17 @@ export async function retainedOriginalCheckpointGuard(
           'retained_shadow_history_unproven'
         );
       });
+      // Publish ONE serial witness only after all asynchronous native proof reads.
+      // Earlier drains establish idle owners, not a long-lived revision snapshot.
+      managerProofPhase = 'final_join';
+      const finalMoveWitnesses = new Map();
+      await all(discoveredManagers, async (m) => {
+        finalMoveWitnesses.set(m, await joinCurrentManagerAuthority(m));
+      });
+      for (const [m, witness] of finalMoveWitnesses) moveWitnesses.set(m, witness);
+      managerSerialCaptured = true;
+      managerProofPhase = 'pre_mutation';
+      for (const m of discoveredManagers) proveCurrentManager(m);
       // Recheck every original and every physical owner synchronously BEFORE the
       // first fence. No async gap may allow an accepted mutation to disappear.
       checkAllOwners();
@@ -1142,23 +1202,63 @@ export async function retainedOriginalCheckpointGuard(
           );
         need(
           freshAuthority?.verified === true &&
+            freshAuthority.scope === c.a.scope &&
+            Number.isFinite(freshAuthority.proofDeadlineMonotonicMs) &&
             freshAuthority.generation === c.a.generation &&
             freshAuthority.tournamentId === c.a.tournamentId &&
             performance.now() < freshAuthority.proofDeadlineMonotonicMs &&
             c.e.isCurrentEngine() === true &&
             c.e.running === true &&
             c.e.terminal === false &&
-            c.e.engineLeaseAuthorityExpired === false,
+            c.e.engineLeaseAuthorityExpired === false &&
+            c.e.maintenancePaused === true,
           'retained_pre_stop_authority_changed'
         );
-        if (c.original)
+        const savedCapture = c.original?.batch.engine ?? c.capture;
+        need(
+          equal(freshCapture.fields, savedCapture.fields) &&
+            equal(freshCapture.timeBankMeta, savedCapture.timeBankMeta) &&
+            equal(freshCapture.timeBankDebits, savedCapture.timeBankDebits) &&
+            equal(freshCapture.timeBanks, savedCapture.timeBanks) &&
+            c.e.handCount === c.handNumber &&
+            c.e.handContinuation === null &&
+            (c.original || c.e.isBetweenHands() === true),
+          'retained_pre_stop_capture_changed'
+        );
+        const currentBanks = c.e.timeBankEngine.getBanksForTable(c.e.tableId);
+        const currentBankIds = currentBanks.map((bank) => bank.playerId).sort();
+        need(
+          new Set(currentBankIds).size === currentBankIds.length &&
+            equal(currentBankIds, c.bankIds) &&
+            equal(
+              currentBankIds.map((id) => [
+                id,
+                c.e.timeBankEngine.capturePlayerForRecovery(c.e.tableId, id, c.bankCaptureAt),
+              ]),
+              c.liveBanks
+            ),
+          'retained_bank_set_changed'
+        );
+        for (const bank of currentBanks)
           need(
-            equal(freshCapture.fields, c.original.batch.engine.fields) &&
-              equal(freshCapture.timeBankMeta, c.original.batch.engine.timeBankMeta) &&
-              equal(freshCapture.timeBankDebits, c.original.batch.engine.timeBankDebits) &&
-              equal(freshCapture.timeBanks, c.original.batch.engine.timeBanks),
-            'retained_pre_stop_capture_changed'
+            bank.isActive === false &&
+              (c.original || bank.armed === false) &&
+              c.banks[bank.playerId],
+            'retained_bank_unknown'
           );
+        const currentPresence = c.e.captureRetainedPresence();
+        need(presenceMatches(c.presence, currentPresence), 'retained_pre_stop_presence_changed');
+        if (!trulyEmpty(c) && (c.a.scope === 'cash' || Object.keys(c.banks).length === 0)) {
+          need(
+            c.e.parkedBankSaveComplete === true &&
+              c.e.isMaintenanceStateDurable() === true &&
+              c.e.acknowledgedTimeBankPark?.handNumber === c.e.handCount &&
+              c.e.acknowledgedTimeBankPark.banks ===
+                JSON.stringify(Object.entries(c.banks).sort(([a], [b]) => a.localeCompare(b))),
+            'retained_cash_park_ack_unproven'
+          );
+          verifyPark(c, c.prePark, c.banks, currentPresence, false);
+        }
         need(
           c.e.handController === c.controller &&
             c.e.pendingOriginalContinuation === c.original &&
@@ -1175,7 +1275,10 @@ export async function retainedOriginalCheckpointGuard(
       for (const s of shadows) {
         noWork(s.e);
         need(
-          s.e.terminalTeardownComplete === true &&
+          s.e.terminal === true &&
+            s.e.running === false &&
+            s.e.handCount === s.handNumber &&
+            s.e.terminalTeardownComplete === true &&
             s.e.hasReleasedProcessOwnership() === true &&
             !s.e.hasUnretiredStoppedTimeBankCustody() &&
             s.e.handController === null &&
@@ -1211,6 +1314,7 @@ export async function retainedOriginalCheckpointGuard(
         'retained_stop_failed'
       );
       stage = 'readback';
+      managerProofPhase = 'readback';
       checkMaintenance();
       for (const [, m] of managerEntries) {
         const tail = m.tournamentSeatMoveSerialTail,
@@ -1288,6 +1392,7 @@ export async function retainedOriginalCheckpointGuard(
     schema: 'legacy-engine-checkpoint/v1',
     ok,
     reason,
+    ...(observedDetail ? { observedDetail } : {}),
     stage,
     attemptedTables,
     completedCalls,
