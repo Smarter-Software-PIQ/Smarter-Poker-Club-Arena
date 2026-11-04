@@ -1546,7 +1546,14 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // seeds, -0.80 +/- 0.53 bb/100 without it and -0.12 +/- 0.47 with it.
       // The re-steal volume and the flat widening below stay as deviations.
       if (def72) {
-        if (aggroBar !== null && steal) threeBetThresh = Math.min(threeBetThresh, t(aggroBar));
+        if (aggroBar !== null && steal) {
+          // At six/full-ring NLH, shift the strongest calls into re-steals.
+          // SB already has the wide 3-bet-or-fold band; keep it. The same
+          // survival premium still prices every candidate through t().
+          const actionShift =
+            (ctx.tableSize === 6 || ctx.tableSize === 9) && position !== 'sb' ? 0.02 : 0;
+          threeBetThresh = Math.min(threeBetThresh, t(aggroBar - actionShift));
+        }
       } else if (aggroBar !== null) threeBetThresh = Math.min(threeBetThresh, t(aggroBar));
       else threeBetThresh -= 0.03;
       if (position === 'late' && stackBB >= 25) callThresh -= 0.03;

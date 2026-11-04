@@ -58,7 +58,7 @@ import type { Card } from '../types.js';
 import {
   HAND_CLASSES,
   OPEN_TARGET,
-  OPEN_TARGET_THREE,
+  openTargetShare,
   holdemClass,
   parseChart,
   scoreAtShare,
@@ -222,6 +222,7 @@ function earlyWeight(openerBehind: number): number {
 }
 
 export interface Vs3BetSpot {
+  cash?: boolean;
   /** Dealt-in players behind the opener (V70 index; SB 1 .. 9-max UTG 8). */
   openerBehind: number;
   /** The opener will act after the 3-bettor on every later street. */
@@ -277,20 +278,25 @@ export function styledOpenWidth(
   openerBehind: number,
   ante: boolean,
   dealt: number,
-  tightness = 1
+  tightness = 1,
+  cash = false
 ): number {
-  const base = openWidth(openerBehind, ante, dealt);
+  const base = openWidth(openerBehind, ante, dealt, cash);
   if (!(tightness > 0) || Math.abs(tightness - 1) < 1e-9) return base;
   const bar = Math.min(0.965, Math.max(0, scoreAtShare(base / 100) * tightness));
   return 100 * shareAtScore(bar);
 }
 
 /** The opener's base open width (percent) for the seat: V70's target. */
-export function openWidth(openerBehind: number, ante: boolean, dealt: number): number {
-  const key = ante ? 'ante' : 'cash';
-  const k = clampIndex(openerBehind);
-  if (dealt === 3 && k <= 2) return OPEN_TARGET_THREE[key][k];
-  return OPEN_TARGET[key][k];
+export function openWidth(
+  openerBehind: number,
+  ante: boolean,
+  dealt: number,
+  cash = false
+): number {
+  // Preserve the separate heads-up jam caller's established reference.
+  if (dealt <= 2) return OPEN_TARGET[ante ? 'ante' : 'cash'][clampIndex(openerBehind)];
+  return openTargetShare(openerBehind, ante, dealt, cash);
 }
 
 /** Continue share of the open range (percent) for a spot, after every scaling. */
@@ -329,7 +335,7 @@ export function continueShare(spot: Vs3BetSpot): number {
 /** Continue width (percent of all 1,326 combos) for a spot. */
 export function continueWidth(spot: Vs3BetSpot): number {
   return (
-    (styledOpenWidth(spot.openerBehind, spot.ante, spot.dealt, spot.tightness) *
+    (styledOpenWidth(spot.openerBehind, spot.ante, spot.dealt, spot.tightness, spot.cash) *
       continueShare(spot)) /
     100
   );
