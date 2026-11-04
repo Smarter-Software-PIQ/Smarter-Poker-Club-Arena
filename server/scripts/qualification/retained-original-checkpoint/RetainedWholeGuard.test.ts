@@ -11,6 +11,7 @@ const wire = vi.hoisted(() => ({
   calls: [] as any[],
   clock: {} as any,
   onAttest: null as null | (() => void),
+  readActor: () => null as any,
 }));
 vi.mock('../services/supabase/client.js', () => {
   const from = (table: string) => {
@@ -38,7 +39,7 @@ vi.mock('../services/supabase/client.js', () => {
       }),
       upsert: async (row: any) => {
         if (table !== 'engine_presence_parked') throw Error('Unexpected table write');
-        wire.calls.push({ name: 'park', row: structuredClone(row) });
+        wire.calls.push({ name: 'park', row: structuredClone(row), authority: wire.readActor() });
         wire.parked.set(row.table_id, structuredClone(row));
         return { error: null };
       },
@@ -46,7 +47,7 @@ vi.mock('../services/supabase/client.js', () => {
     return q;
   };
   const rpc = async (name: string, p: any) => {
-    wire.calls.push({ name, p: structuredClone(p) });
+    wire.calls.push({ name, p: structuredClone(p), authority: wire.readActor() });
     if (name === 'save_hand_state_snapshot') return { data: null, error: null };
     if (name === 'fn_f06_attest_frozen_hand_continuation') {
       await wire.onAttest?.();
@@ -174,6 +175,15 @@ function banks(e: any, seats: any[]) {
 }
 const wholeCases = [
   'positive',
+  'manager-context',
+  'manager-serial-initial-noop',
+  'manager-serial-late-noop',
+  'manager-serial-pending',
+  'manager-serial-after-capture',
+  'manager-serial-physical-change',
+  'manager-serial-presence-change',
+  'manager-serial-bank-removed',
+  'manager-serial-empty-lease',
   'lightning-pending-host',
   'lightning-registered-host',
   'lightning-unknown-formation',
@@ -211,6 +221,7 @@ const wholeCases = [
   'skew-await-host',
 ];
 it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) => {
+  wire.readActor = actor.currentTournamentDataAuthority;
   const sha = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
   expect(releaseIdentity.ENGINE_RELEASE_IDENTITY.releaseSha).toBe(sha);
   const server: any = Object.assign(Object.create(gameServer.GameServer.prototype), {
@@ -815,25 +826,135 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     }
     expect(Object.hasOwn(globalThis, key)).toBe(false);
   }
+  if (scenario === 'manager-serial-initial-noop' || scenario === 'manager-serial-pending') {
+    // The original manager admits a successor while its captured tail drains.
+    // Use the actual EED authority and redrive methods, not a synthetic revision write.
+    void m.runWithTournamentSeatMoveAuthority(async () => {
+      void m.redrivePendingTournamentSeatMoveOutcomes();
+      if (scenario === 'manager-serial-pending')
+        m.pendingTournamentParkRequests.set(id(999), { unresolved: true });
+    });
+  }
+  let emptyManager: any;
+  if (scenario === 'manager-serial-empty-lease') {
+    emptyManager = actor.bindTournamentDataAuthorityMethods(
+      { tournamentId: id(980), leaseGeneration: id(981) },
+      new TournamentManager(id(980), server, id(981), performance.now() + 600000)
+    );
+    emptyManager.running = true;
+    server.tournamentEngines.set(id(980), emptyManager);
+    managers.push(emptyManager);
+  }
+  if (
+    [
+      'manager-serial-late-noop',
+      'manager-serial-after-capture',
+      'manager-serial-physical-change',
+      'manager-serial-presence-change',
+      'manager-serial-bank-removed',
+      'manager-serial-empty-lease',
+    ].includes(scenario)
+  ) {
+    let admitted = false;
+    wire.onAttest = () => {
+      if (!admitted) {
+        admitted = true;
+        if (scenario === 'manager-serial-late-noop')
+          void m.redrivePendingTournamentSeatMoveOutcomes();
+        else if (scenario === 'manager-serial-physical-change') cash.maintenancePaused = false;
+        else if (scenario === 'manager-serial-presence-change')
+          cash.disconnectEngine.markDisconnected(cash.tableId, cash.seatedPlayers[0].user_id);
+        else if (scenario === 'manager-serial-bank-removed')
+          cash.timeBankEngine.removePlayer(cash.tableId, cash.seatedPlayers[0].user_id);
+        else if (scenario === 'manager-serial-empty-lease')
+          emptyManager.tournamentLeaseProofDeadlineMonotonicMs = performance.now() - 1;
+        else {
+          let running = cash.running,
+            entered = false;
+          Object.defineProperty(cash, 'running', {
+            configurable: true,
+            get() {
+              if (!entered) {
+                entered = true;
+                void m.redrivePendingTournamentSeatMoveOutcomes();
+              }
+              return running;
+            },
+            set(value) {
+              running = value;
+            },
+          });
+        }
+      }
+    };
+  }
   const guardStarted = performance.now();
-  const result = await retainedOriginalCheckpointGuard.call(
-    server,
-    {
-      expectedReleaseSha: sha,
-      expectedPid: process.pid,
-      expectedInstanceId: tableLease.INSTANCE_ID,
-    },
-    census[0],
-    modules,
-    census[1],
-    scenario === 'missing-manager-census' ? [] : census[2],
-    scenario === 'lightning-missing-worker-census' ? [] : census[3],
-    census[4]
-  );
+  const invoke = () =>
+    retainedOriginalCheckpointGuard.call(
+      server,
+      {
+        expectedReleaseSha: sha,
+        expectedPid: process.pid,
+        expectedInstanceId: tableLease.INSTANCE_ID,
+      },
+      census[0],
+      modules,
+      census[1],
+      scenario === 'missing-manager-census' ? [] : census[2],
+      scenario === 'lightning-missing-worker-census' ? [] : census[3],
+      census[4]
+    );
+  const foreignAuthority = { tournamentId: id(990), leaseGeneration: id(991) };
+  const result =
+    scenario === 'manager-context'
+      ? await actor.runWithTournamentDataAuthority(foreignAuthority, async () => {
+          expect(actor.currentTournamentDataAuthority()).toEqual(foreignAuthority);
+          const observed = await invoke();
+          expect(actor.currentTournamentDataAuthority()).toEqual(foreignAuthority);
+          return observed;
+        })
+      : await invoke();
+  expect(actor.currentTournamentDataAuthority()).toBeNull();
   if (scenario.startsWith('skew-')) expect(performance.now() - guardStarted).toBeLessThan(20000);
   if (releaseFrontLease) {
     releaseFrontLease(false);
     await worker.stop();
+  }
+  if (
+    [
+      'manager-serial-after-capture',
+      'manager-serial-pending',
+      'manager-serial-physical-change',
+      'manager-serial-presence-change',
+      'manager-serial-bank-removed',
+      'manager-serial-empty-lease',
+    ].includes(scenario)
+  ) {
+    expect(result).toMatchObject({
+      ok: false,
+      attemptedTables: 0,
+      restartAuthorized: false,
+      reason:
+        scenario === 'manager-serial-pending'
+          ? 'retained_manager_authority_unproven'
+          : scenario === 'manager-serial-physical-change'
+            ? 'retained_pre_stop_authority_changed'
+            : scenario === 'manager-serial-presence-change'
+              ? 'retained_pre_stop_presence_changed'
+              : scenario === 'manager-serial-bank-removed'
+                ? 'retained_bank_set_changed'
+                : scenario === 'manager-serial-empty-lease'
+                  ? 'retained_manager_lease_unproven'
+                  : 'retained_manager_serial_changed',
+    });
+    for (const f of originals) expect(f.e.terminal).toBe(false);
+    expect(cash.terminal).toBe(false);
+    if (scenario === 'manager-serial-after-capture')
+      expect(result.observedDetail).toMatch(
+        /^phase=pre_mutation, managerHash=[a-f0-9]{16}, class=registered, census=1, witness=true, tailChanged=true, revisionChanged=true$/
+      );
+    m.pendingTournamentParkRequests.clear();
+    return;
   }
   if (scenario.startsWith('shadow-held-'))
     expect(result, JSON.stringify(result)).toMatchObject({
@@ -876,6 +997,9 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
   if (
     ![
       'positive',
+      'manager-context',
+      'manager-serial-initial-noop',
+      'manager-serial-late-noop',
       'detached-drained',
       'shadow-covered-permit',
       'skew-engine',
@@ -915,6 +1039,22 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     verifiedTables: 3,
     restartAuthorized: false,
   });
+  if (scenario === 'manager-context') {
+    const attestations = wire.calls.filter(
+      (c) => c.name === 'fn_f06_attest_frozen_hand_continuation'
+    );
+    expect(attestations.length).toBeGreaterThan(0);
+    for (const call of attestations)
+      expect(call.authority).toEqual({
+        tournamentId: call.p.p_tournament_id,
+        leaseGeneration: call.p.p_lease_generation,
+      });
+    const cashParks = wire.calls.filter(
+      (c) => c.name === 'park' && c.row.table_id === cash.tableId
+    );
+    expect(cashParks.length).toBeGreaterThan(0);
+    expect(cashParks.every((c) => c.authority === null)).toBe(true);
+  }
   for (const f of originals) {
     expect(privateContinuation.encodePrivateHandContinuation(f.original)).toEqual(f.packet);
     expect(f.hc.serializeRecoveryState()).toBe(f.original.batch.controller);
