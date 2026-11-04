@@ -1,0 +1,7 @@
+# Queued renewal qualification binds the original continuation
+
+The historical EED qualification in CI run41916651650 passed73 of74 cases but the joined queued-renewal case saw no original retirement before its barrier assertion. That assertion masked the guard's actual result, so the exact CI refusal and a timer-ordering cause were not established. The same selected joined/replaced cases passed locally before the setup correction.
+
+Those two cases now register a one-shot continuation on the real cadence sleep before returning the same Promise to the actual EED loop. Guard entry asserts that the original sleep resolved, the renewal operation is still absent, and the owner is live and not stopping. Its normal awaits allow the original renewal continuation to publish retirement, which the unchanged guard must observe and join. The existing retirement barrier, successful joined result and replaced-registry refusal remain required. The barrier diagnostic now includes the actual guard result.
+
+This controls the queued Promise continuation boundary without invoking renewal directly, prejoining a serial tail, replacing native sleep, widening any budget or changing production guard code. It does not establish arbitrary overdue-timer ordering. The maintained full74-case qualification remains required; selected real joined/replaced cases pass after the correction. All release and live verification requirements remain separate.

@@ -981,7 +981,8 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       retired.tournamentSeatMoveSerialTail = Promise.resolve().then(startOriginalRetirement);
     } else startOriginalRetirement();
   }
-  let finishRenewalFixture: (() => Promise<void>) | null = null;
+  let finishRenewalFixture: ((guardResult: unknown) => Promise<void>) | null = null;
+  let runQueuedGuard: ((invoke: () => Promise<any>) => Promise<any>) | null = null;
   if (scenario.startsWith('manager-renewal-')) {
     const queued = scenario.startsWith('manager-renewal-queued-');
     const retired: any = actor.bindTournamentDataAuthorityMethods(
@@ -1071,10 +1072,45 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
         scheduled = resolve;
       });
       const originalSleep = server.sleep;
+      let originalSleepResolved = false;
+      let invokeAtWake: (() => Promise<any>) | null = null;
       server.sleep = function (ms: number) {
         sleepMs = ms;
         const pending = originalSleep.call(this, ms);
-        originalQueuedSleep ??= pending;
+        if (!originalQueuedSleep) {
+          originalQueuedSleep = pending;
+          if (!mixed) {
+            // Register before the real loop awaits this original sleep. Its
+            // timer resolves normally; guard entry precedes only the queued
+            // loop continuation, never a synthetic renewal or retirement.
+            const entry = pending.then(() => {
+              originalSleepResolved = true;
+              expect(invokeAtWake, 'guard entry registered before original wake').toBeTypeOf(
+                'function'
+              );
+              return invokeAtWake!();
+            });
+            void entry.catch(() => undefined);
+            runQueuedGuard = (invoke) => {
+              expect(originalSleepResolved, 'original wake still queued during collection').toBe(
+                false
+              );
+              invokeAtWake = () => {
+                expect(originalSleepResolved, 'original native sleep resolved').toBe(true);
+                expect(
+                  server.ownershipLeaseRenewalOperation,
+                  'renewal continuation queued'
+                ).toBeNull();
+                expect(retired.tournamentLeaseAuthorityExpired, 'owner live at guard entry').toBe(
+                  false
+                );
+                expect(retired.teardownPromise, 'owner not stopping at guard entry').toBeNull();
+                return invoke();
+              };
+              return entry;
+            };
+          }
+        }
         scheduled();
         return pending;
       };
@@ -1169,7 +1205,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       maintenance.breakEndsAt = Date.now() + 204999;
       maintenance.lastDurableState.breakEndsAt = maintenance.breakEndsAt;
     }
-    finishRenewalFixture = async () => {
+    finishRenewalFixture = async (guardResult) => {
       try {
         if (completed || releaseFailed) {
           expect(server.tournamentEngines.has(second.tournamentId), 'second registry retired').toBe(
@@ -1189,7 +1225,8 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
           expect(second.running).toBe(false);
           expect(second.teardownPromise).toBeNull();
         }
-        if (queued && !mixed) expect(observedOriginalRetirement).toBe(1);
+        if (queued && !mixed)
+          expect(observedOriginalRetirement, JSON.stringify(guardResult)).toBe(1);
       } finally {
         await cleanupRenewalFixture();
       }
@@ -1232,11 +1269,13 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
           expect(actor.currentTournamentDataAuthority()).toEqual(foreignAuthority);
           return observed;
         })
-      : await invoke();
+      : runQueuedGuard
+        ? await runQueuedGuard(invoke)
+        : await invoke();
   const guardElapsedMs = performance.now() - guardStarted;
   expect(actor.currentTournamentDataAuthority()).toBeNull();
   if (scenario.startsWith('manager-renewal-')) {
-    if (scenario.startsWith('manager-renewal-queued-')) await finishRenewalFixture!();
+    if (scenario.startsWith('manager-renewal-queued-')) await finishRenewalFixture!(result);
     if (
       scenario !== 'manager-renewal-joined' &&
       scenario !== 'manager-renewal-queued-joined' &&
@@ -1260,7 +1299,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
                 : 'retained_renewal_observation_expired'
       );
     }
-    if (!scenario.startsWith('manager-renewal-queued-')) await finishRenewalFixture!();
+    if (!scenario.startsWith('manager-renewal-queued-')) await finishRenewalFixture!(result);
     if (
       scenario !== 'manager-renewal-joined' &&
       scenario !== 'manager-renewal-queued-joined' &&
