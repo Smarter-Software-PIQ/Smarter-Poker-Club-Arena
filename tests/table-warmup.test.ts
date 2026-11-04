@@ -71,6 +71,23 @@ const ROWS = [
 ];
 
 describe('tableWarmup', () => {
+  it.each(['6476c549-17b4-4a2a-b46f-6079bbf98013', '6476C549-17B4-4A2A-B46F-6079BBF98013'])(
+    'does no preload, roster, auth or socket work for retired table %s',
+    async (tableId) => {
+      const { preloadRoute } = await import('../src/utils/ChunkPreloader');
+      vi.mocked(preloadRoute).mockClear();
+      getSeatedPlayers.mockResolvedValue([]);
+      warm.warmTable(tableId);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(preloadRoute).not.toHaveBeenCalled();
+      expect(getSeatedPlayers).not.toHaveBeenCalled();
+      expect(getToken).not.toHaveBeenCalled();
+      expect(acquire).not.toHaveBeenCalled();
+      expect(warm.peekWarmSeats(tableId)).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    }
+  );
+
   it('caches the roster for a synchronous seed once the read resolves', async () => {
     getSeatedPlayers.mockResolvedValue(ROWS);
     expect(warm.peekWarmSeats(T)).toBeNull(); // nothing yet
