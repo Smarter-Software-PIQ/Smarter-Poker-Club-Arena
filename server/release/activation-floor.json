@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-04T01:00:00Z",
-  "activationAt": "2026-11-04T01:00:00Z",
-  "expiresAt": "2026-11-04T04:00:00Z",
+  "preparationAt": "2026-11-04T03:00:00Z",
+  "activationAt": "2026-11-04T03:00:00Z",
+  "expiresAt": "2026-11-04T06:00:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-11-04-tournament-manager-serial-continuation",
-  "clientPublicationAt": "2026-11-04T01:00:00Z"
+  "ownerWindowId": "2026-11-04-tournament-census-suffix-continuation",
+  "clientPublicationAt": "2026-11-04T03:00:00Z"
 }
