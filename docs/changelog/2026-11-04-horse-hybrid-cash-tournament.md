@@ -91,6 +91,12 @@ PLO/pot-limit, fixed-limit and short-deck sizing remain separate. The existing
 ledger registers `cash_nlh_three_bet_size` as an execution receipt; final
 accepted production wagers must also be verified.
 
+The October 16 opponent-exploit neutrality corpus isolates this later cash
+sizing policy by omitting only its sizing context in the test's real preflop
+call. The original corpus, opponent reads, RNG comparisons and coverage floor
+are unchanged. The current sizing runs through the real brain and accepted
+HandController actions in its dedicated regressions; production has no opt-out.
+
 The one-BB-per-limper increment is a standard cash isolation baseline, not a
 universal GTO result. Jonathan Little describes it for live and online cash
 in [PokerCoaching's limping guide](https://pokercoaching.com/blog/limping-in-poker/).
