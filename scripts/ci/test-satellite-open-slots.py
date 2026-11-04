@@ -91,6 +91,41 @@ BEGIN;UPDATE smarter_private.daily_window_policy SET time_zone='Europe/London';
 DO $$DECLARE s jsonb;r jsonb;BEGIN s:=jsonb_set(fixture.slots('2026-11-04'),'{0}',jsonb_build_object('slot',0,'due','2026-11-05T03:18Z','expires','2026-11-05T03:38Z'));
 r:=smarter_private.sng_horse_open_slots('2026-11-04',s,'{}','2026-11-04T06:00Z');
 PERFORM fixture.assert_true((r->0->>'due')::timestamptz>='2026-11-04T06:00Z' AND (r->0->>'expires')::timestamptz<='2026-11-05T03:00Z','adjacent policy date closure subtracted without changing Chicago day');END$$;ROLLBACK;""");cases.append('alternate_policy_zones_keep_Chicago_day_and_subtract_adjacent_closure')
+  # Exercise the existing-day paid/planning fork deterministically, only after
+  # exact migration/live-proof qualification. Substitute only this planner's
+  # wall-clock reads in the isolated database; restore its exact definition.
+  real_definition=json.loads(q("SELECT to_json(pg_get_functiondef('smarter_private.sng_horse_plan(uuid,boolean)'::regprocedure));"))
+  real_hash=q("SELECT md5(pg_get_functiondef('smarter_private.sng_horse_plan(uuid,boolean)'::regprocedure));")
+  assert real_definition.count('clock_timestamp()')==3
+  deterministic=real_definition.replace('clock_timestamp()', "TIMESTAMPTZ '2026-11-04 08:30:00+00'")
+  try:
+   q(deterministic)
+   q("""INSERT INTO tournaments VALUES
+ ('cccccccc-cccc-cccc-cccc-cccccccccccc','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','mtt-v2','REGISTERING','2026-11-05T20:00Z',NULL,NULL,'MTT','mtt',100,2,9,0,0),
+ ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','sng-v1','REGISTERING','2026-11-04T08:30Z','cccccccc-cccc-cccc-cccc-cccccccccccc',NULL,'SNG','sng',9,9,9,2,0);
+INSERT INTO smarter_private.sng_horse_days VALUES('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','2026-11-04',fixture.slots('2026-11-04'));
+DO $$DECLARE before_slots jsonb;after_slots jsonb;before_claims jsonb;r jsonb;BEGIN
+ SELECT slots INTO before_slots FROM smarter_private.sng_horse_days WHERE union_id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND local_day='2026-11-04';
+ SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY tournament_id),'[]') INTO before_claims FROM smarter_private.sng_horse_claims c;
+ r:=smarter_private.sng_horse_plan('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',true);
+ PERFORM fixture.assert_true(r->>'reason'='plan_not_initialized' AND r->>'ok'='false'
+  AND before_slots=(SELECT slots FROM smarter_private.sng_horse_days WHERE union_id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND local_day='2026-11-04')
+  AND before_claims=(SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY tournament_id),'[]') FROM smarter_private.sng_horse_claims c),'paid normalization refuses without persisting draw or claim');
+ PERFORM smarter_private.sng_horse_plan('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',false);
+ SELECT slots INTO after_slots FROM smarter_private.sng_horse_days WHERE union_id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND local_day='2026-11-04';
+ PERFORM fixture.assert_true(after_slots IS DISTINCT FROM before_slots AND jsonb_array_length(after_slots)=3
+  AND after_slots->0->>'tournament_id'=before_slots->0->>'tournament_id'
+  AND NOT(tstzrange((after_slots->0->>'due')::timestamptz,(after_slots->0->>'expires')::timestamptz,'[)') && tstzrange('2026-11-04T09:00Z','2026-11-04T12:00Z','[)'))
+  AND before_claims=(SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY tournament_id),'[]') FROM smarter_private.sng_horse_claims c),'planning caller persists eligible timing without claim');
+ PERFORM smarter_private.sng_horse_plan('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',false);
+ PERFORM fixture.assert_true(after_slots=(SELECT slots FROM smarter_private.sng_horse_days WHERE union_id='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' AND local_day='2026-11-04')
+  AND before_claims=(SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY tournament_id),'[]') FROM smarter_private.sng_horse_claims c),'repeat planning retains the committed draw');
+END$$;""")
+  finally:q(real_definition)
+  assert q("SELECT md5(pg_get_functiondef('smarter_private.sng_horse_plan(uuid,boolean)'::regprocedure));")==real_hash
+  assert q("SELECT jsonb_build_array(proowner,proacl,prosecdef,proconfig) FROM pg_proc WHERE oid='smarter_private.sng_horse_plan(uuid,boolean)'::regprocedure")==owner
+  assert q('SELECT '+proof+';')=='t'
+  cases+=['paid_normalization_refuses_without_persisting_draw_or_claim','planning_normalization_persists','repeat_planning_retains_draw','real_planner_definition_hash_acl_restored']
   q("SET ROLE anon;SELECT smarter_private.sng_horse_open_slots(NULL,NULL,NULL,NULL);",'permission denied');cases.append('private_helper_denies_public')
   hashes=json.loads(q("SELECT jsonb_object_agg(proname,md5(pg_get_functiondef(p.oid))) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='smarter_private' AND proname IN('sng_horse_plan','sng_horse_open_slots');"))
   print(json.dumps({'passed':cases,'count':len(cases),'migration':M.name,'hashes':hashes},indent=2))
