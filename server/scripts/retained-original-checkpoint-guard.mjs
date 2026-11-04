@@ -649,16 +649,24 @@ export async function retainedOriginalCheckpointGuard(
           m.tournamentLeaseGeneration
         );
       }
+      const requireManagerLease = (m, site, valid) => {
+        if (!valid && observedDetail === null) {
+          const deadline = m.tournamentLeaseProofDeadlineMonotonicMs;
+          observedDetail = `phase=${managerProofPhase}, site=${site}, managerHash=${digest(m.tournamentId).slice(0, 16)}, class=${managerSnapshot.has(m) ? 'registered' : 'detached'}, census=${discoveredManagers.length}, nativeManager=${m instanceof modules.managerBase.TournamentManagerBase}, generationValid=${uuid(m.tournamentLeaseGeneration)}, running=${m.running === true}, teardownNull=${m.teardownPromise === null}, stopRequested=${m.stopRequested === true}, authorityLive=${m.tournamentLeaseAuthorityExpired === false}, deadlineFinite=${Number.isFinite(deadline)}, deadlineFuture=${Number.isFinite(deadline) && performance.now() < deadline}`;
+        }
+        need(valid, 'retained_manager_lease_unproven');
+      };
       const proveCurrentManager = (m) => {
         if (!managerSnapshot.has(m)) return proveRetiredManager(m);
-        need(
+        requireManagerLease(
+          m,
+          'current_join',
           m.running === true &&
             m.teardownPromise === null &&
             m.stopRequested !== true &&
             m.tournamentLeaseAuthorityExpired === false &&
             Number.isFinite(m.tournamentLeaseProofDeadlineMonotonicMs) &&
-            performance.now() < m.tournamentLeaseProofDeadlineMonotonicMs,
-          'retained_manager_lease_unproven'
+            performance.now() < m.tournamentLeaseProofDeadlineMonotonicMs
         );
         proveManagerAuthorities(m);
       };
@@ -704,13 +712,14 @@ export async function retainedOriginalCheckpointGuard(
           m.running === true && m.teardownPromise === null && m.stopRequested !== true,
           'retained_manager_not_current'
         );
-        need(
+        requireManagerLease(
+          m,
+          'registered_children',
           m instanceof modules.managerBase.TournamentManagerBase &&
             uuid(m.tournamentLeaseGeneration) &&
             m.tournamentLeaseAuthorityExpired === false &&
             Number.isFinite(m.tournamentLeaseProofDeadlineMonotonicMs) &&
-            performance.now() < m.tournamentLeaseProofDeadlineMonotonicMs,
-          'retained_manager_lease_unproven'
+            performance.now() < m.tournamentLeaseProofDeadlineMonotonicMs
         );
         bindMethods(m, ['stop'], id, m.tournamentLeaseGeneration);
         managerChildren.set(m, {

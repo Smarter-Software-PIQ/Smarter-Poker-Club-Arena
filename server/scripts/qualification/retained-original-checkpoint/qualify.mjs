@@ -306,13 +306,13 @@ try {
   const result = JSON.parse(output.slice(start));
   need(
     result.success === true &&
-      result.numTotalTests === (nativeMode ? 45 : 53) &&
-      result.numPassedTests === (nativeMode ? 2 : 53) &&
-      (!nativeMode || result.numPendingTests === 43) &&
+      result.numTotalTests === (nativeMode ? 48 : 56) &&
+      result.numPassedTests === (nativeMode ? 2 : 56) &&
+      (!nativeMode || result.numPendingTests === 46) &&
       result.numFailedTests === 0,
     nativeMode
       ? 'both actual native census/EED guard cases must pass'
-      : 'all fifty-three exact EED fixture cases must actually pass'
+      : 'all fifty-six exact EED fixture cases must actually pass'
   );
   need(
     hash(readFileSync(guardPath)) === hash(guardBytes),
