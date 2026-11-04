@@ -57,7 +57,7 @@ it('qualifies exact waiting attempt admission and its original terminal signal b
       }
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toContain('Ran 74 tests');
+    expect(result.stderr).toContain('Ran 80 tests');
     expect(readFileSync(join(sentinel, 'HEAD'), 'utf8')).toBe(originalHead);
     const refs = spawnSync('git', ['--git-dir', sentinel, 'for-each-ref'], {
       env: cleanEnv,
