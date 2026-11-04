@@ -35,6 +35,14 @@ export async function retainedOriginalCheckpointGuard(
     ],
     ['/app/dist/GameServer.js', '813adcb6c6344f3307e80db966ba5eb4ffb4a651d9f3260f1df5db6544044845'],
     [
+      '/app/dist/services/tournamentLease.js',
+      'db7c6a9e5dc8d49ddac05b0cac7603be056caf2684178c19542b8d8b8924200f',
+    ],
+    [
+      '/app/dist/tournament/TournamentManagerOwnership.js',
+      '64a04336cc1199f65f36378bf76a0d77b11fec043016f6bbef67def727bc35b1',
+    ],
+    [
       '/app/dist/engine/ServerTableEngineBase.js',
       '36b670ff53d6e79c35dd515a5a7441431949c9caec7be8d22da557fa69753506',
     ],
@@ -608,6 +616,26 @@ export async function retainedOriginalCheckpointGuard(
           server.tournamentManagerRetirementOperations?.get(m),
         ])
       );
+      const retirementOperationOwner = server.tournamentManagerRetirementOperations;
+      const retirementStateMaps = new Map(
+        [
+          'tournamentManagerLeaseReleaseOperations',
+          'tournamentManagerPendingLeaseReleases',
+          'tournamentManagerAdmissionOperations',
+          'tournamentManagerAdmissionLeaseGenerations',
+          'tournamentManagerAdmissionRetryTimers',
+          'drainedF06TournamentCustody',
+          'durableMixedF06Custody',
+          'mixedF06AdmissionContinuations',
+          'completedF06TournamentCustody',
+        ].map((key) => [key, server[key]])
+      );
+      const retirementMethods = [
+        'stopTournamentManagerIfOwned',
+        'transferDrainedF06Custody',
+        'awaitTournamentManagerLeaseRelease',
+      ].map((key) => [key, server[key]]);
+      const completedOriginalRetirements = new Set();
       const preliminaryIdentities = new Map(
         discoveredManagers.map((m) => [
           m,
@@ -644,6 +672,52 @@ export async function retainedOriginalCheckpointGuard(
             'retained_retirement_owner_unproven'
           );
         }
+      };
+      const proveCompletedOriginalRetirement = (m) => {
+        checkPreliminaryOwners(m);
+        const id = preliminaryIdentities.get(m).id;
+        const valid =
+          elapsedOwnerProofs.has(m) &&
+          server.running === true &&
+          server.teardownPromise === null &&
+          server.shutdownOwnershipLeaseRenewalActive !== true &&
+          m.tournamentLeaseAuthorityExpired === true &&
+          m.tournamentLeaseProofDeadlineMonotonicMs === elapsedOwnerProofs.get(m).deadline &&
+          m.tournamentLeaseExpiryTimer === null &&
+          !managers.has(id) &&
+          server.tournamentManagerRetirementOperations === retirementOperationOwner &&
+          (retirementOperationOwner instanceof WeakMap ||
+            retirementOperationOwner instanceof Map) &&
+          !(retirementOperationOwner instanceof WeakMap
+            ? WeakMap.prototype.has.call(retirementOperationOwner, m)
+            : Map.prototype.has.call(retirementOperationOwner, m)) &&
+          retirementMethods.every(
+            ([key, fn]) =>
+              typeof fn === 'function' &&
+              server[key] === fn &&
+              fn === modules.gameServer.GameServer.prototype[key]
+          ) &&
+          [...retirementStateMaps].every(
+            ([key, map]) =>
+              map instanceof Map && server[key] === map && !Map.prototype.has.call(map, id)
+          );
+        if (!valid && observedDetail === null)
+          observedDetail = `phase=${managerProofPhase}, site=completed_original, managerHash=${digest(id).slice(0, 16)}, pendingRelease=${server.tournamentManagerPendingLeaseReleases instanceof Map && Map.prototype.has.call(server.tournamentManagerPendingLeaseReleases, id)}, registryPresent=${managers.has(id)}`;
+        need(valid, 'retained_manager_lease_unproven');
+        // Exact pinned EED: a live-server retirement removes its registry slot
+        // only after physical stop, then records the generation before release.
+        // Only a confirmed original release clears that pending entry. Its
+        // finally also clears the Promise, so a missing Promise alone proves
+        // nothing. Keep the original maps, native methods, no successor/custody,
+        // and all physical/serial/bank witnesses as one conjunctive proof.
+        proveRetiredManager(m);
+        const originals = originalChildren.get(m);
+        need(
+          originals instanceof Map &&
+            m.drainedF06Originals.length === originals.size &&
+            m.drainedF06Originals.every(([tableId, e]) => originals.get(tableId) === e),
+          'retained_retirement_originals_changed'
+        );
       };
       await all(discoveredManagers, async (m) => {
         for (;;) {
@@ -695,11 +769,13 @@ export async function retainedOriginalCheckpointGuard(
         need(
           elapsedOwners.every((m) => {
             const proof = elapsedOwnerProofs.get(m);
-            return (
+            const valid =
               m.tournamentLeaseProofDeadlineMonotonicMs === proof.deadline &&
               (m.tournamentLeaseExpiryTimer === proof.timer ||
-                m.tournamentLeaseExpiryTimer === null)
-            );
+                m.tournamentLeaseExpiryTimer === null);
+            if (!valid && observedDetail === null)
+              observedDetail = `phase=${managerProofPhase}, site=elapsed_owner_proof, managerHash=${digest(m.tournamentId).slice(0, 16)}, deadlineUnchanged=${m.tournamentLeaseProofDeadlineMonotonicMs === proof.deadline}, timerUnchanged=${m.tournamentLeaseExpiryTimer === proof.timer}, timerCleared=${m.tournamentLeaseExpiryTimer === null}`;
+            return valid;
           }),
           'retained_manager_lease_unproven'
         );
@@ -733,6 +809,12 @@ export async function retainedOriginalCheckpointGuard(
           need(originals instanceof Map, 'retained_retirement_owner_unproven');
           for (const [tableId, engine] of originals) retiringChildren.set(engine, tableId);
           joinedRetirements.set(m, { id, originals, retirement });
+        } else if (elapsedOwnerProofs.has(m) && !managers.has(id) && !retirement) {
+          proveCompletedOriginalRetirement(m);
+          completedOriginalRetirements.add(m);
+          const originals = originalChildren.get(m);
+          for (const [tableId, engine] of originals) retiringChildren.set(engine, tableId);
+          joinedRetirements.set(m, { id, originals, retirement: null });
         }
       }
       if (
@@ -740,13 +822,22 @@ export async function retainedOriginalCheckpointGuard(
         (existingRenewal instanceof Promise || joinedRetirements.size > 0)
       )
         need(
-          elapsedOwners.every((m) => joinedRetirements.has(m)),
+          elapsedOwners.every((m) => {
+            const joined = joinedRetirements.has(m);
+            if (!joined && observedDetail === null)
+              observedDetail = `phase=${managerProofPhase}, site=original_retirement_join, managerHash=${digest(m.tournamentId).slice(0, 16)}, elapsedOwners=${elapsedOwners.length}, joinedRetirements=${joinedRetirements.size}, registryPresent=${managers.has(m.tournamentId)}, capturedReceipt=${capturedRetirements.get(m) instanceof Promise}, currentReceipt=${server.tournamentManagerRetirementOperations?.get(m) instanceof Promise}`;
+            return joined;
+          }),
           existingRenewal instanceof Promise
             ? 'retained_renewal_retirement_unavailable'
             : 'retained_manager_lease_unproven'
         );
       if (joinedRetirements.size)
         await all([...joinedRetirements], async ([m, witness]) => {
+          if (completedOriginalRetirements.has(m)) {
+            proveCompletedOriginalRetirement(m);
+            return;
+          }
           let confirmed;
           if (observeExistingRenewal) {
             let timer;
@@ -873,6 +964,7 @@ export async function retainedOriginalCheckpointGuard(
         checkMaintenance(true);
         for (const target of methods.keys()) checkMethods(target);
         for (const [m] of managerWitnesses) proveRetiredManager(m);
+        for (const m of completedOriginalRetirements) proveCompletedOriginalRetirement(m);
       };
       for (const [m, witness] of joinedRetirements) {
         proveRetiredManager(m);

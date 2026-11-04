@@ -27,7 +27,9 @@ if (
 )
   throw Error('Invalid native composition input');
 const nativeMode = Boolean(nativeImage || nativeAddon);
-const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 240000);
+// Hosted EED compile measured 66.809s. Preserve the fixture's full 240s
+// allowance plus archive/compile/cleanup headroom inside one finite envelope.
+const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 360000);
 const CASES = nativeMode
   ? ['RetainedWholeGuard.test.ts']
   : [
@@ -142,8 +144,8 @@ need(pinText, 'fixed deployed pin census unavailable');
 // decoded value is still restricted to the fixed ASCII path/hash schema below.
 const pins = JSON.parse(pinText[1].replace(/'/g, '"').replace(/,\s*]/g, ']'));
 need(
-  pins.length === 29 &&
-    new Set(pins.map(([path]) => path)).size === 29 &&
+  pins.length === 31 &&
+    new Set(pins.map(([path]) => path)).size === 31 &&
     pins.every(
       ([path, sha]) => /^\/app\/dist\/[A-Za-z0-9/]+\.js$/.test(path) && /^[a-f0-9]{64}$/.test(sha)
     ),
@@ -306,13 +308,13 @@ try {
   const result = JSON.parse(output.slice(start));
   need(
     result.success === true &&
-      result.numTotalTests === (nativeMode ? 63 : 71) &&
-      result.numPassedTests === (nativeMode ? 2 : 71) &&
-      (!nativeMode || result.numPendingTests === 61) &&
+      result.numTotalTests === (nativeMode ? 66 : 74) &&
+      result.numPassedTests === (nativeMode ? 2 : 74) &&
+      (!nativeMode || result.numPendingTests === 64) &&
       result.numFailedTests === 0,
     nativeMode
       ? 'both actual native census/EED guard cases must pass'
-      : 'all sixty-five exact EED fixture cases must actually pass'
+      : 'all seventy-four exact EED fixture cases must actually pass'
   );
   need(
     hash(readFileSync(guardPath)) === hash(guardBytes),
