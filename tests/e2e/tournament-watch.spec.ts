@@ -283,10 +283,22 @@ test.describe('Owner-retired tournament bookmarks', () => {
       // Observe both legacy per-table sockets and multiplexed subscribe frames.
       // Retain only labels, never tokens or complete URLs/frame payloads.
       page.on('websocket', (socket) => {
-        if (socket.url().includes(retiredTable)) retiredEngineConnections.push('table socket');
+        const target = new URL(socket.url());
+        if (target.hostname !== 'engine.smarter.poker') return;
+        // Do not retain query strings, credentials, or arbitrary path segments.
+        const path =
+          target.pathname === '/ws/multi'
+            ? '/ws/multi'
+            : target.pathname.startsWith('/ws/table/')
+              ? '/ws/table/:tableId'
+              : '/[engine-socket]';
+        const label = `${target.protocol}//${target.host}${path}`;
+        if (socket.url().includes(retiredTable)) {
+          retiredEngineConnections.push(`table socket ${label}`);
+        }
         socket.on('framesent', (frame) => {
           if (String(frame.payload).includes(retiredTable)) {
-            retiredEngineConnections.push('table subscription');
+            retiredEngineConnections.push(`table subscription ${label}`);
           }
         });
       });
