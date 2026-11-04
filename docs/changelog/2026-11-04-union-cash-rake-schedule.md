@@ -67,4 +67,6 @@ The existing 60% reduction remains in place. New tests cover every hour of the w
 
 The production noResolve emitter explicitly includes the new schedule JSON in `server/tsconfig.emit.json`; the existing build-resource guard verifies all imported runtime JSON is selected. A hosted preflight caught the initially omitted entry before any image was published, and the maintained emitter configuration was corrected without weakening that guard.
 
+The fleet's alternate `claimOfferedSeats` path also checks the same schedule before sizing or purchasing a buy-in. Previously it checked surplus, disabled games and lifecycle but could answer an offer outside the new schedule. An isolated test of the real handler reproduced four forbidden admissions before the correction; the corrected handler preserves prime-time offers, both overnight game families and the playing-human exception while leaving refused offers and wallets untouched.
+
 Status: source candidate; protected merge, engine publication and live verification remain required. Current deployed behavior must not be inferred from this document.
