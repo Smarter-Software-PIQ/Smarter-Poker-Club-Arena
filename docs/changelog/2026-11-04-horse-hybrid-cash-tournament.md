@@ -97,6 +97,12 @@ call. The original corpus, opponent reads, RNG comparisons and coverage floor
 are unchanged. The current sizing runs through the real brain and accepted
 HandController actions in its dedicated regressions; production has no opt-out.
 
+The default-off V54 river-bluff league test also uses its full declared 6,000
+pairs for Hold'em at the original seed 4242. The changed preflop path produced
+zero divergent outcomes in the old 600-pair subset; the full card demonstrates
+actual divergence with both non-inertness assertions unchanged. No reseeding,
+production promotion or profitability claim is involved.
+
 The one-BB-per-limper increment is a standard cash isolation baseline, not a
 universal GTO result. Jonathan Little describes it for live and online cash
 in [PokerCoaching's limping guide](https://pokercoaching.com/blog/limping-in-poker/).
