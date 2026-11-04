@@ -191,7 +191,7 @@ import { cashBoardVisible, cashVariantVisible } from '../components/lobby/cashBo
 import { orderForHeading } from '../components/lobby/lobbySortBridge';
 import { IconShareLink, IconSort } from '../components/icons/LobbyIcons';
 import { CLUB_HOME_CACHE_PREFIX } from '../utils/clearUserCaches';
-import { useTournamentRegistration, isLateStatus } from '../hooks/useTournamentRegistration';
+import { useTournamentRegistration } from '../hooks/useTournamentRegistration';
 import { useTournamentStartHold } from '../hooks/useTournamentStartHold';
 import MidwayMttServerUpdateModal from '../components/tournament/MidwayMttServerUpdateModal';
 import { preloadRoute } from '../utils/ChunkPreloader';
@@ -781,9 +781,11 @@ function ClubHomePageContent({
   initialGameType,
   onInitialGameTypeConsumed,
 }: ClubHomePageProps = {}) {
-  const { register: registerMtt, isRegistering: isRegisteringMtt } = useTournamentRegistration();
   const mttStartHold = useTournamentStartHold();
   const [showMttUpdateModal, setShowMttUpdateModal] = useState(false);
+  const { register: registerMtt, isRegistering: isRegisteringMtt } = useTournamentRegistration(
+    useCallback(() => setShowMttUpdateModal(true), [])
+  );
   const autoShownMttHoldRef = useRef(false);
 
   const { clubId: routeClubId } = useParams<{ clubId: string }>();
@@ -4619,10 +4621,6 @@ function ClubHomePageContent({
         );
         return;
       }
-      if (mttStartHold.blocked && !isLateStatus((t as any).status ?? null)) {
-        setShowMttUpdateModal(true);
-        return;
-      }
       registerMtt(
         {
           id: t.id,
@@ -4658,7 +4656,7 @@ function ClubHomePageContent({
       );
     },
     // `navigate` is not used in this callback; `openTournamentLobby` is.
-    [registerMtt, openTournamentLobby, spinQuickJoin, mttStartHold.blocked]
+    [registerMtt, openTournamentLobby, spinQuickJoin]
   );
 
   const handleUnregister = useCallback(

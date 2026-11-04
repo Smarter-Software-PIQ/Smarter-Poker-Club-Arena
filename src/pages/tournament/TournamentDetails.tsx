@@ -176,9 +176,11 @@ export default function TournamentDetails({
   /** The in-table browser tab shares the global navigation; the modal does not. */
   inLobbyTab?: boolean;
 } = {}) {
-  const { register: registerMtt, isRegistering: isRegisteringMtt } = useTournamentRegistration();
   const mttStartHold = useTournamentStartHold();
   const [showMttUpdateModal, setShowMttUpdateModal] = useState(false);
+  const { register: registerMtt, isRegistering: isRegisteringMtt } = useTournamentRegistration(
+    useCallback(() => setShowMttUpdateModal(true), [])
+  );
   const autoShownMttHoldRef = useRef(false);
   useEffect(() => {
     if (mttStartHold.blocked && !autoShownMttHoldRef.current) {
@@ -1318,10 +1320,6 @@ export default function TournamentDetails({
    */
   const handleRegister = (isLate = false) => {
     if (!tournament || isTournamentEntryUnavailable(tournament, tournament.current_players)) return;
-    if (mttStartHold.blocked && !isLate && !isLateStatus(tournament.status)) {
-      setShowMttUpdateModal(true);
-      return;
-    }
     const t = tournament as unknown as {
       is_bounty?: boolean;
       bounty_amount?: number;
