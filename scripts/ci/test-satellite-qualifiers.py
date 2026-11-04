@@ -31,6 +31,8 @@ def main():
         raise ValueError('executed satellite caller differs from recorded source')
     output = args.evidence.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    subprocess.run([sys.executable, '-B', str(root/'scripts/ci/test-satellite-open-slots.py'),
+                    '--pg-bin', str(args.pg_bin), '--scratch', str(output.parent/'satellite-open-slots')], check=True)
     subprocess.run(['node',str(root/'scripts/ci/test-satellite-seat-context.mjs'),str(output/'seat-context')],check=True,env={**__import__('os').environ,'PG_BIN':str(args.pg_bin)})
     native = module(root/'scripts/ci/test-mtt-unlimited.py', 'satellite_existing_execution')
     manifest = compose(root)
