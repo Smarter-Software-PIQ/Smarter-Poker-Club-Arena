@@ -67,6 +67,7 @@ const groups = [
       'test_receiver_gate_precedes_all_control_installation_and_failure_cleanup',
       'test_installed_v1_templates_accept_current_per_run_entrypoint',
       'test_actual_recovery_skips_runtime_only_for_proved_never_entered',
+      'test_expired_original_announcement_finishes_only_through_its_failed_receipt',
       'test_fresh_prework_cannot_restore_live_engine_and_entry_is_after_certificate',
       'test_actual_confirmed_checkpoint_no_action_retires_only_fresh_entry',
     ],
@@ -93,7 +94,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(39);
+  expect(selected).toHaveLength(40);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);

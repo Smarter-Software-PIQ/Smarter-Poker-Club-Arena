@@ -1101,7 +1101,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         events = self.repo / 'runtime-events'
         for file in ('engine-release-seal.py', 'engine-supervisor.sh'):
             path = control / file
-            path.write_text('#!/usr/bin/env bash\necho runtime >> "$FIXTURE_EVENTS"\n')
+            path.write_text('#!/usr/bin/env bash\n[ "${1:-}" != prove-expired-recovery-announcement ] || exit 1\necho runtime >> "$FIXTURE_EVENTS"\n')
             path.chmod(0o755)
         (control / 'control-sha').write_text(self.sha + '\n')
         request = root / '123-1.request'
@@ -1159,9 +1159,158 @@ docker() { echo docker >> "$FIXTURE_EVENTS"; }
         floor.entry_state(r,str(root),'123-1',True,r['activationEpoch'],r['expiresEpoch']+100,True)
         result = subprocess.run([BASH, '-c', prefix + fragment], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode,75,result.stderr)
-        self.assertFalse(events.exists())
+        self.assertEqual(events.read_text().splitlines(), ['lock'])
         self.assertTrue(request.exists())
 
+
+    def test_expired_original_announcement_finishes_only_through_its_failed_receipt(self):
+        import shlex
+        import sys
+        control = self.repo / 'server/scripts'
+        for name in ('engine-release-seal.py', 'engine-release-database-proof.py', 'engine-release-lightning-hold.py'):
+            path = control / name
+            path.write_bytes((ROOT / 'server/scripts' / name).read_bytes()); path.chmod(0o755)
+        record = self.owner_record()
+        for name in ('engine-release-recover.sh',): (control / name).chmod(0o755)
+        state_root = self.repo / 'state'; state_root.mkdir()
+        requests = self.repo / 'requests'; requests.mkdir()
+        pins = self.repo / 'pins'; pins.mkdir()
+        leases = self.repo / 'leases'; leases.mkdir()
+        results = state_root / 'results'; results.mkdir()
+        run, invocation = '41904788070-1', 'e' * 32
+        stamp = 1793824762499  # Original20:39:22.499, not an invented later window.
+        desired = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+        image = 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+        base = {'schema': 1, 'desired': {'sha': desired, 'imageId': image, 'legacyUnlabelled': False},
+                'highWaterSha': desired, 'generation': 1, 'updatedAt': 1793824800,
+                'pending': None, 'finalization': None, 'committedRuns': {}}
+        (control / 'control-sha').write_text(self.sha + '\n')
+        lines = [self.sha, 'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/41904788070',
+                 'fixture', str(control), self.sha, str(record['expiresEpoch'] + 100)]
+        request = requests / (run + '.request')
+        def reset():
+            (state_root / 'seal.json').write_text(json.dumps(base))
+            for path in list(requests.iterdir()) + list(results.iterdir()) + list(pins.iterdir()): path.unlink()
+            request.write_text('\n'.join(lines) + '\n'); request.chmod(0o600)
+            (requests / (run + '.intent')).write_bytes(request.read_bytes())
+            (pins / (run + '.generation')).write_text(str(control) + '\n' + self.sha + '\n')
+            (leases / (run + '.lease')).write_text('fixture')
+            floor.entry_state(record, str(requests), run, True, record['activationEpoch'], record['expiresEpoch']+100, True)
+            reservation = state_root / ('engine-recovery-window-' + run + '.json')
+            reservation.write_text(json.dumps({'runId': run, 'sha': self.sha, 'cause': 'urgent', 'announcedAt': stamp}))
+            reservation.chmod(0o600)
+        reset()
+        # Real source parser, seal state, immutable failure/audit, actual wrapper
+        # failure branch and full recovery/cleanup. Only native host interfaces
+        # (root metadata, systemd, Docker, cgroup, DB/health) are supplied locally.
+        driver = self.repo / 'native-host-fixture.py'
+        driver.write_text(r"""
+import importlib.util,json,os,sys
+from pathlib import Path
+from unittest.mock import patch
+spec=importlib.util.spec_from_file_location('owned_seal',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+original=m.failed_routine_command
+mode=os.environ.get('FIXTURE_CASE','positive')
+def command(args,deadline,limit=32768,**kwargs):
+    if '--terminal-owned-thaw' not in args: return original(args,deadline,limit,**kwargs)
+    if mode=='thaw': m.die('fixture incomplete own thaw')
+    return json.dumps({'schema':'terminal-owned-thaw/v1','sha':m.FAILED_ROUTINE_DESIRED,'instanceId':'1-9349c742',
+        'databaseIdle':True,'freshLeader':True,'ownedV3Thaw':True,
+        **{k:int(args[args.index(flag)+1]) for k,flag in [('announcedAt','--window-announced-ms'),('startsAt','--window-starts-ms'),('endsAt','--window-ends-ms')]}})
+calls=0
+def runtime(*args,**kwargs):
+    global calls
+    calls+=1
+    return {'containerId':'d'*64,'startedAt':'2026-11-04T19:58:58Z','instanceId':'1-9349c742' if mode!='changed-runtime' or calls==1 else '1-ffffffff'}
+original_read=Path.read_text
+original_stat=Path.lstat
+original_fstat=os.fstat
+def fstat(fd):
+    value=list(original_fstat(fd));value[4]=0;return os.stat_result(value)
+def read(path,*args,**kwargs):
+    return '0::/original-owner\n' if str(path)=='/proc/self/cgroup' else original_read(path,*args,**kwargs)
+def stat(path,*args,**kwargs):
+    value=list(original_stat(path,*args,**kwargs));value[4]=0;return os.stat_result(value)
+with patch.object(m.os,'geteuid',return_value=0),patch.object(m,'require_engine_lock'),\
+     patch.object(m,'failed_routine_bytes',side_effect=lambda path,limit=65536:Path(path).read_bytes()),\
+     patch.object(m,'native_unit',return_value={'LoadState':'loaded','ActiveState':'activating','SubState':'start','MainPID':'12','ControlPID':'0',
+        'InvocationID':('f'*32 if mode=='foreign-unit' else os.environ['INVOCATION_ID']),'ControlGroup':'/original-owner'}),\
+     patch.object(Path,'read_text',read),patch.object(Path,'lstat',stat),patch.object(os,'fstat',fstat),\
+     patch.object(m,'failed_routine_runtime',side_effect=runtime),patch.object(m,'failed_routine_command',side_effect=command),\
+     patch.object(m,'container_identity',return_value=('running',m.FAILED_ROUTINE_IMAGE)),\
+     patch.object(m,'image_identity',return_value=(m.FAILED_ROUTINE_IMAGE,m.FAILED_ROUTINE_DESIRED,False)),\
+     patch.object(m.time,'time',return_value=1793825200):
+    sys.argv=sys.argv[1:];m.main()
+""")
+        bin_dir = self.repo / 'bin'; bin_dir.mkdir()
+        python = bin_dir / 'python3'
+        python.write_text('#!/usr/bin/env bash\n' +
+            'if [[ "${1:-}" == */engine-release-seal.py ]]; then exec ' + shlex.quote(sys.executable) + ' ' + shlex.quote(str(driver)) + ' "$@"; fi\n' +
+            'if [ "${1:-}" = - ] && [ "${2:-}" = /etc/systemd/system/multi-user.target.wants ]; then set -- - "$FIXTURE_ROOT"; fi\n' +
+            'exec ' + shlex.quote(sys.executable) + ' "$@"\n'); python.chmod(0o755)
+        for name, body in {'id':'echo 0', 'stat':'echo 0:600', 'flock':'exit 0',
+                           'systemctl':'[ "$1" = disable ]',
+                           'docker':'echo forbidden-runtime-command >&2; exit 91'}.items():
+            path = bin_dir / name; path.write_text('#!/usr/bin/env bash\n' + body + '\n'); path.chmod(0o755)
+        (control / 'retain-engine-images.sh').write_text('#!' + BASH + '\nexit 0\n')
+        (control / 'retain-engine-images.sh').chmod(0o755)
+        import ast
+        adapter_tree = ast.parse((ROOT / 'tests/operations/engine-drill-admission.py').read_text())
+        adapter = next(ast.literal_eval(n.value) for n in adapter_tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'PORTABLE_ROOT' for t in n.targets))
+        bash_env = self.repo / 'bash-env'; bash_env.write_text(adapter[adapter.index('if ! help mapfile'):])
+        env = {**os.environ,'BASH_ENV':str(bash_env),'PATH':str(bin_dir)+os.pathsep+os.environ['PATH'],'PYTHONDONTWRITEBYTECODE':'1',
+            'ENGINE_RELEASE_STATE_DIR':str(state_root),'ENGINE_RELEASE_STATE_FILE':str(state_root/'seal.json'),
+            'ENGINE_RELEASE_LOCK_FILE':str(state_root/'seal.lock'),'ENGINE_RELEASE_AUDIT_FILE':str(state_root/'audit.jsonl'),
+            'ENGINE_RELEASE_RESULT_DIR':str(results),'ENGINE_RELEASE_REQUEST_ROOT':str(requests),'ENGINE_RELEASE_PIN_ROOT':str(pins),
+            'ENGINE_RELEASE_IMAGE_LEASE_ROOT':str(leases),'ENGINE_LOCK_FILE':str(self.repo/'engine.lock'),
+            'REPO_DIR':str(self.repo),'INVOCATION_ID':invocation,'FIXTURE_ROOT':str(self.repo),'FIXTURE_CASE':'positive'}
+        recover = [BASH, str(control/'engine-release-recover.sh'),'--run-id',run,'--mode','retryable']
+        original = request.read_bytes()
+        for bad in ('thaw','changed-runtime','foreign-unit'):
+            result = subprocess.run(recover,env={**env,'FIXTURE_CASE':bad},capture_output=True,text=True,timeout=20)
+            self.assertEqual(result.returncode,75,result.stdout+result.stderr)
+            self.assertEqual(request.read_bytes(),original)
+            self.assertFalse(list(results.iterdir()))
+        for suffix in ('legacy-checkpoint-intent','break-deadline','main-inspector-retirement-intent','lightning-hold.json'):
+            path=requests/(run+'.'+suffix);path.write_text('unknown')
+            result=subprocess.run(recover,env=env,capture_output=True,text=True,timeout=20)
+            self.assertNotEqual(result.returncode,0,result.stdout+result.stderr);path.unlink()
+            self.assertEqual(request.read_bytes(),original)
+        # A missing original reservation/entry is not no-entry success.
+        reservation=state_root/('engine-recovery-window-'+run+'.json');saved=reservation.read_bytes();reservation.unlink()
+        result=subprocess.run(recover,env=env,capture_output=True,text=True,timeout=20)
+        self.assertEqual(result.returncode,75,result.stdout+result.stderr)
+        reservation.write_bytes(saved);reservation.chmod(0o600)
+        # Run the ACTUAL wrapper failure branch, including both real recoveries,
+        # record-failure and attest-failure, ending in its permanent exit1.
+        wrapper=(ROOT/'server/scripts/engine-release-unit-wrapper.sh').read_text()
+        start=wrapper.index('  # A permanent proof/application failure first restores')
+        end=wrapper.index('\nfi\n\nRECOVERY_MODE=retryable',start)
+        prefix='set -euo pipefail\nTRANSACTION_RC=1\nRUN_KEY='+shlex.quote(run)+'\nGENERATION='+shlex.quote(str(control))+'\nREQUEST_CONTROL_SHA='+self.sha+'\nCONTAINER=fixture\nREQUEST_LINES=('+shlex.quote(self.sha)+')\n'
+        result=subprocess.run([BASH,'-c',prefix+wrapper[start:end]],env=env,capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,1,result.stdout+result.stderr)
+        self.assertIn('expired-original-announcement-thawed',result.stdout)
+        self.assertFalse(request.exists());self.assertFalse((requests/(run+'.activation-entry')).exists())
+        self.assertFalse((pins/(run+'.generation')).exists());self.assertFalse((leases/(run+'.lease')).exists())
+        failure=json.loads((results/(run+'.json')).read_text())
+        self.assertEqual((failure['result'],failure['sha'],failure['controlSha'],failure['invocationId']),('failed',self.sha,self.sha,invocation))
+        self.assertEqual(json.loads((state_root/'seal.json').read_text()),base)
+        self.assertEqual(reservation.read_bytes(),saved)  # Immutable original reservation is never rewritten.
+        audit=(state_root/'audit.jsonl').read_text();self.assertIn('failure_recorded',audit)
+        # Resume the same terminal cleanup after its first pin/intent deletions.
+        # Its actual immutable failure permits only these already-completed edges.
+        saved_failure=(results/(run+'.json')).read_bytes()
+        reset();(results/(run+'.json')).write_bytes(saved_failure)
+        (pins/(run+'.generation')).unlink();(requests/(run+'.intent')).unlink()
+        released=requests/(run+'.lightning-hold.json.released')
+        receipt={'schema':'engine-release-lightning-hold/v2','run_id':run,'generation':1,'phase':'released',
+            **{key:[] for key in ('candidates','held','already','unknown','resume_pending','released')},
+            'refused':{},'resume_refused':{}}
+        released.write_text(json.dumps(receipt));released.chmod(0o600)
+        result=subprocess.run(recover[:-1]+['terminal'],env=env,capture_output=True,text=True,timeout=20)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertFalse(request.exists());self.assertEqual(reservation.read_bytes(),saved)
+        self.assertEqual((results/(run+'.json')).read_bytes(),saved_failure)
 
     def test_fresh_prework_cannot_restore_live_engine_and_entry_is_after_certificate(self):
         source = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()

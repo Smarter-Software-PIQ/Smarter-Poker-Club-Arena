@@ -1341,7 +1341,11 @@ class AnnouncedCancellation(unittest.TestCase):
 
 
     def test_original_announced_recovery_exits_before_engine_lock_or_supervisor(self):
-        source = (ROOT / 'server/scripts/engine-release-recover.sh').read_text()
+        # This cancellation profile owns the immutable original control, whose
+        # announced branch cannot finish itself. New controls qualify their own
+        # expiry/receipt cleanup in the activation-floor behavioral suite.
+        source = subprocess.check_output(['git', 'show', module.CANCEL_CONTROL +
+            ':server/scripts/engine-release-recover.sh'], cwd=ROOT, text=True)
         branch = source.split('case "$FLOOR_DISPOSITION" in', 1)[1].split('\nif [ "$RECOVERY_MODE"', 1)[0]
         with tempfile.TemporaryDirectory(dir=TEST_TMP) as directory:
             lock = Path(directory) / 'must-not-open'
