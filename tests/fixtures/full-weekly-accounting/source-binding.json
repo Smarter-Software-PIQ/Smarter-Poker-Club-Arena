@@ -557,10 +557,10 @@
     "tests/fixtures/legacy-fee-finality/custody-core.sql": "288e953c3b4c75c8eea9e0608a0f2d4b953c4437c9cfe6d50a450a801053d0eb",
     "tests/fixtures/legacy-fee-finality/fn_satellite_transfer_ledger_is_immutable.sql": "51af53e6eb44440aa9901452b42adb4bf3c7ab31ea21cdc1e4e9404c44bea407",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
-    "scripts/ci/classify-ci-changes.mjs": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
+    "scripts/ci/classify-ci-changes.mjs": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
-    "tests/fixtures/legacy-fee-finality/source-binding.json": "444e15a8e5b4836e3afbdad7546a5e08d914ce86ba570f0a8e966fabdf1119f5",
+    "tests/fixtures/legacy-fee-finality/source-binding.json": "bd536103510551916283e64b5dfd6b11d866b156c27bb6ce7512eda2ce3938ff",
     "tests/fixtures/sep8-spin-custody/build-candidate.py": "dc929d5df9801fbeb26c1b331fd3836b22069726e00d86c4f75401ab2b55fd4a",
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/player-finality.sql": "627be40d0634d483e2cdc421055e8eb72f9d95c22e36ab81e659b725a9db1b6e",
@@ -574,12 +574,12 @@
     "tests/fixtures/sep8-spin-custody/README.md": "be6f3eb4eb716056e9ecc8863d326c78de3d176662b77e95c2951aa42453ff73",
     "tests/fixtures/sep8-spin-custody/late-fault.sql": "43653b983d870248707525058134de21821aa8f4f1c55df3d42f0a1e02d8b7b7",
     "scripts/dev/qualify-sep8-spin-custody.py": "28a2b63e4424f15d3b85ad742f7592fd65c2f8a8493eabb06210665e01e9ad67",
-    "tests/unit/fixtureNativeCi.test.ts": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb",
+    "tests/unit/fixtureNativeCi.test.ts": "b2e12459daec2aa40b51ab33301738463605b35067ee2176e16d38d08ee2670e",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "32e38338f55ffca5579aefc807e9542e855496b981db520ede8cc7d86c93f067",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "a33f8f86ac34bdc8e0d3e96b5cfd112dd856cb33b0c833ded24f8b6c142a7fef",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -619,7 +619,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "d3bf614998ef475434cacb7ea0c4a5a990bd47dd8f5059a643526abf20b8caf0",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -7705,5 +7705,267 @@
     "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
     "previousSHA256": "0db0a730d01832b96cae63be7f92a117896e6b3f908101d038910ffd74959859",
     "currentSHA256": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce"
+  },
+  "undrawnSpinCancellationAudit20261103": {
+    "reason": "Reviewed additive accounting shard4 native Spin cancellation qualification and exact input classifier extension. No existing job, fixture assertion, timeout or financial certificate is relaxed or restamped. Native PostgreSQL regression and source contracts qualify the addition; production installation remains separate.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785",
+        "currentSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "444e15a8e5b4836e3afbdad7546a5e08d914ce86ba570f0a8e966fabdf1119f5",
+        "currentSHA256": "24870e7b3e0795f6cb690d0d5fa2395c337109a6c522f052140d202813da9056"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "32e38338f55ffca5579aefc807e9542e855496b981db520ede8cc7d86c93f067",
+        "currentSHA256": "0364dfc2370483377eb24b0e5d8baa82a2d6981d3f1d0ef39433eb790840c29e"
+      }
+    ]
+  },
+  "ordinaryTerminalTransportQualification20261103": {
+    "reason": "Reviewed additive MTT/SNG/Spin terminal transport fixture selection and four input-routing regression cases. Native PostgreSQL qualification passed the 12 new ordinary cases plus four existing satellite cases. No financial fixture data, historical result, assertion or existing route changed; nested binding identities follow only these reviewed source changes.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
+        "currentSHA256": "7849b4aab2e653030698088105e1b72f721204e482cebeae849d82dfed1f8e66"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "24870e7b3e0795f6cb690d0d5fa2395c337109a6c522f052140d202813da9056",
+        "currentSHA256": "5ae9bc6806f287334ab5ff046cda0680160df25fd583d91d117dc6add1b407d0"
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previousSHA256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb",
+        "currentSHA256": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "0364dfc2370483377eb24b0e5d8baa82a2d6981d3f1d0ef39433eb790840c29e",
+        "currentSHA256": "7438baff0ebdf7fa6147e036799daf7fc26e1e78ae8d6e118d134feec45430f7"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previousSHA256": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce",
+        "currentSHA256": "7e034735790dfd82bd53eff66b51eb7792f2521ad5b9767c20154fd001535c52"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "durableTerminalRequestQualification20261103": {
+    "reason": "Reviewed additive original-terminal native fixture routing and three source-input classification cases. Existing accounting routes and assertions are preserved. Current source pins only; historical financial evidence and qualification state are unchanged.",
+    "changes": [
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previousSHA256": "1e40a39e898a3c70dfcdb5aa619bf548be7df95fd492aee4b3d6edfe29e813df",
+        "currentSHA256": "86f2b5203c447f6f13202b4e7684d500602d304c8343705036f68b179f5e388f"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "8f9ba4f4f3e4938cea5e0ee8a559b4944b99d2d059a7d54b703c8ec04ce866e2",
+        "currentSHA256": "458f32cdad12925e2ed5212c5aa4c007652eae6aeadc36d6736c939356a990ae"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previousSHA256": "5ee99103ec327757692051bba940f6677897c9b0de46f5b2bf9f57eea982c25a",
+        "currentSHA256": "5c2308b56bde78aed2f599f8ea435fe0e6350fd6e31ad1d79559db122f2403cb"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "durableDealCoverage20261103": {
+    "reason": "Reviewed additive exact legacy/proposal deal native routing and four source-input classification cases. Existing accounting routes and assertions are preserved. Current source pins only; historical financial evidence and qualification state are unchanged.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "e24cbc30b09196198f35d2a7959819d0b390d73de0d8ab9f53a8634cf5945491",
+        "currentSHA256": "d90ea66116fcc41d3bd3b9cb1b4f89987822d2bb58e0a05ef270d3bec7255539"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "1a3f3efc3140ed7c3fda46ce037986a8489fb63ed67a05915e3569fd0cc0cf6c",
+        "currentSHA256": "6d4722de3274d3e2853163db78e0af36be377be485f67bfd411025c5ef172bca"
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previousSHA256": "86f2b5203c447f6f13202b4e7684d500602d304c8343705036f68b179f5e388f",
+        "currentSHA256": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "458f32cdad12925e2ed5212c5aa4c007652eae6aeadc36d6736c939356a990ae",
+        "currentSHA256": "b12bf06b72eca75de166443079cb92552021691ec59a003b5cc53bc834b97bb9"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previousSHA256": "5c2308b56bde78aed2f599f8ea435fe0e6350fd6e31ad1d79559db122f2403cb",
+        "currentSHA256": "ecd4991c8006ec3e92688905df099e0bd9fad79cadcb9440d6c09fafb6026e2c"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "oldEventCloseoutRoutingAudit20261103": {
+    "reason": "Reviewed additive original-recovery and entry-hold native input routing to the existing required cancellation shard. Preserves all existing financial fixtures, assertions, budgets and historical outcomes. Focused routing regressions pass.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
+        "currentSHA256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "24870e7b3e0795f6cb690d0d5fa2395c337109a6c522f052140d202813da9056",
+        "currentSHA256": "f36f1da26ac928d9766968630c2534d281f9400deabdc7a34854294cfcd4cee0"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "0364dfc2370483377eb24b0e5d8baa82a2d6981d3f1d0ef39433eb790840c29e",
+        "currentSHA256": "f9ed07229576f2f9750e71cb89f5b09dfe24b5fe047bf069a5dbd0fabe823b8a"
+      }
+    ]
+  },
+  "oldCloseoutProtectedMainComposition20261103": {
+    "reason": "Reviewed composition of additive ordinary terminal qualification and old-event closure routing. Both original audit records retained unchanged. Runtime, migration bytes and historical financial results unchanged; current source identities only.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+        "current": "ef60d9c402d05eafe2eae7f4f5e01cf6512c07283a660189e2f6219d9b964d39"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previous": "f36f1da26ac928d9766968630c2534d281f9400deabdc7a34854294cfcd4cee0",
+        "current": "3911dac55b91fd33bb418dda080fb10a19d3f252fef4a4b4448e6010f809bfef"
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb",
+        "current": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous": "f9ed07229576f2f9750e71cb89f5b09dfe24b5fe047bf069a5dbd0fabe823b8a",
+        "current": "0e6d4b1c32163eadaf65b5c76fb6fef0310ab1db2ff3d249b3c43f4d522fe23c"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previous": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce",
+        "current": "7e034735790dfd82bd53eff66b51eb7792f2521ad5b9767c20154fd001535c52"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "additionalFiveRefundControlAudit20261103": {
+    "reason": "Reviewed additive exact-five original refund adapter/native helper routing and two routing regressions. Existing financial assertions, fixture data and historical verdicts unchanged. Source identity only; isolated new five-topology evidence is separate.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64",
+        "current": "a7d49ee25418a8540a2447e5c933aea100857f5f7ad93afc8540faa4d92439f0"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previous": "f36f1da26ac928d9766968630c2534d281f9400deabdc7a34854294cfcd4cee0",
+        "current": "d334c8ca762ddbe3183b3f2de08905f435fe4e5373b477524a90568d6c02ef5a"
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb",
+        "current": "180940e5aed7e0caad0cb137b8392465bf84fd5567c02c7c1b4a28ca04177478"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous": "f9ed07229576f2f9750e71cb89f5b09dfe24b5fe047bf069a5dbd0fabe823b8a",
+        "current": "d35e89d0c46a52616760bd7660f776ff401ad8b38c44cf5c87d89e74a9c0dcb7"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previous": "0edab1e461f4c0b08f94722642b4a3ff6fb5cec59ce158ef0e1bebe0b35349ce",
+        "current": "b755e26296a2a8d9db111bfc2d28a22782072fc021a97e19238ab78219e63d93"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "finishUnionNativeEnforcement20261103": {
+    "reason": "Reviewed additive required accounting shard3 union-finish/cash-hand contention step and isolated-input routing. Runtime financial authorities, existing assertions and historical qualification outcomes unchanged. This is source identity, not financial recertification or live proof.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3",
+        "currentSHA256": "a907216ea253e523b7675674584cf300678e6498b0ddb899ce92544261245cf2"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "24870e7b3e0795f6cb690d0d5fa2395c337109a6c522f052140d202813da9056",
+        "currentSHA256": "bec87c82927596c867fcfc8b43d96de9c51b07e693b8964b162367a270d6673e"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "0364dfc2370483377eb24b0e5d8baa82a2d6981d3f1d0ef39433eb790840c29e",
+        "currentSHA256": "bf7f05d6cff83634d3d76b3199a21417f810728052e4abfd47843b9823ba526f"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "tournamentRecoveryComposition20261103": {
+    "reason": "Reviewed composition of durable terminal recovery, all-event closure/entry hold, exact-five refund adapter, authenticated hold reader, alert lifecycle and union-contention CI. Original source audits and historical financial verdicts retained unchanged; only current composed input identities updated. Final hosted accounting qualification remains required.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previousSHA256": "d90ea66116fcc41d3bd3b9cb1b4f89987822d2bb58e0a05ef270d3bec7255539",
+        "currentSHA256": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c"
+      },
+      {
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previousSHA256": "6d4722de3274d3e2853163db78e0af36be377be485f67bfd411025c5ef172bca",
+        "currentSHA256": "bd536103510551916283e64b5dfd6b11d866b156c27bb6ce7512eda2ce3938ff"
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previousSHA256": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f",
+        "currentSHA256": "6665fe43818502dbce7c57d774060fa1afc3ae1c9ca48e1913c49468ea0b3fdd"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previousSHA256": "b12bf06b72eca75de166443079cb92552021691ec59a003b5cc53bc834b97bb9",
+        "currentSHA256": "1c54af6361f621aa237e1a073a5d99be4c3da5b3fc49712927abee0b5fad8e04"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previousSHA256": "ecd4991c8006ec3e92688905df099e0bd9fad79cadcb9440d6c09fafb6026e2c",
+        "currentSHA256": "e11330c166991c5d09daebf9e1952a14db2b313ba0de016f11d03fc8bf8a9ae9"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "ownerDirectedQualificationCapacity20261103": {
+    "reason": "Direct owner instruction doubles enumerated CI qualification/build job capacities only. Individual test deadlines, financial inputs/assertions, production operation budgets and historical verdicts remain unchanged. Reviewed current source identity only.",
+    "changes": [
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": "6665fe43818502dbce7c57d774060fa1afc3ae1c9ca48e1913c49468ea0b3fdd",
+        "current": "b2e12459daec2aa40b51ab33301738463605b35067ee2176e16d38d08ee2670e"
+      },
+      {
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previous": "e11330c166991c5d09daebf9e1952a14db2b313ba0de016f11d03fc8bf8a9ae9",
+        "current": "d3bf614998ef475434cacb7ea0c4a5a990bd47dd8f5059a643526abf20b8caf0"
+      },
+      {
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous": "1c54af6361f621aa237e1a073a5d99be4c3da5b3fc49712927abee0b5fad8e04",
+        "current": "a33f8f86ac34bdc8e0d3e96b5cfd112dd856cb33b0c833ded24f8b6c142a7fef"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

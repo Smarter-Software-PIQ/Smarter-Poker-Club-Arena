@@ -307,28 +307,16 @@ export const FIXED_BOARD: readonly FixedBoardEvent[] = [
     retiredTimes: ['16:30', '17:50', '19:10'],
     horses: 25,
   },
-  // Late night, 11:30 PM - 12:30 AM, every day. Nothing after 1 AM.
-  {
-    name: 'Union Late Night Turbo (NLH)',
-    times: ['23:30'],
-    previousTimes: ['21:20', '22:40'],
-    retiredTimes: ['17:30', '18:50'],
-    horses: 16,
-  },
-  {
-    name: 'Midnight Bounty (NLH)',
-    times: ['00:00'],
-    previousTimes: ['00:40', '02:20', '23:40'],
-    retiredTimes: ['19:30', '20:45', '22:00'],
-    horses: 12,
-  },
-  { name: 'Midnight Free Buy (NLH)', times: ['00:30'], previousTimes: ['00:00'], horses: 0 },
+  // Nothing starts after 11:00 PM or before 6:00 AM Chicago (owner 2026-11-03: the
+  // daily 4 to 6 AM window; last tournament 11 PM). The 11:30 PM, 12:00 AM and
+  // 12:30 AM events were removed; the board sync retires their rows.
 ];
 
 /**
  * The half hours the clubs' OWN weekly events hold, and on which days
  * (tournament_schedules rows that are not the board, set by migration
- * *_a_real_rooms_day): the graveyard at 1 AM, a morning event at 9 AM, an
+ * *_a_real_rooms_day): a morning event at 9 AM (the 1 AM graveyard was retired
+ * by the 2026-11-03 daily window: nothing starts after 11 PM or before 6 AM), an
  * afternoon event at 3 PM, the Nightly 10K at 7 PM Monday to Saturday (the
  * Sunday Funday Warm-Up on Sunday), the openers at 7:30, and the evening
  * events at 8, 9, 10 and 11 PM every day; and on Sunday, every half hour from
@@ -337,7 +325,6 @@ export const FIXED_BOARD: readonly FixedBoardEvent[] = [
 const ALL_WEEK = [0, 1, 2, 3, 4, 5, 6] as const;
 const SUNDAY = [0] as const;
 export const WEEKLY_EVENT_DAYS: Readonly<Record<string, readonly number[]>> = {
-  '01:00': ALL_WEEK,
   '09:00': ALL_WEEK,
   '11:00': SUNDAY,
   '11:30': SUNDAY,
@@ -375,7 +362,7 @@ export const SATELLITE_MINUTES: readonly string[] = ['15', '45'];
 
 /** The first and last real start of the day, Chicago; nothing runs in between overnight. */
 export const BOARD_DAY_OPENS = '08:00';
-export const BOARD_DAY_CLOSES = '01:00';
+export const BOARD_DAY_CLOSES = '23:00';
 
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 

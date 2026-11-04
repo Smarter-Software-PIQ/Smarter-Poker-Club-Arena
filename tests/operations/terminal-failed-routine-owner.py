@@ -29,6 +29,24 @@ observer_spec = importlib.util.spec_from_file_location('terminal_owner_observer'
 observer = importlib.util.module_from_spec(observer_spec)
 observer_spec.loader.exec_module(observer)
 
+# Historical immutable source is fixture input. Hydrate its finite blob closure
+# once before behavior assertions; later Git reads cannot open lazy transports.
+history_spec = importlib.util.spec_from_file_location('pinned_history_sources',
+                                                     ROOT / 'tests/operations/pinned-history-sources.py')
+history = importlib.util.module_from_spec(history_spec)
+history_spec.loader.exec_module(history)
+
+
+def prepare_history(allow_fetch=False):
+    history.hydrate_historical_sources(ROOT, [seal.DAILY_REFUSAL_SHA],
+        ['server/scripts/' + name for name in seal.DAILY_REFUSAL_SOURCES],
+        budget_seconds=90 if allow_fetch else 10, allow_fetch=allow_fetch)
+
+
+def setUpModule():
+    prepare_history()
+
+
 # The one owner the terminal proof may release: the exact 9f census refusal.
 DEAD_RUN = seal.NINEF_RUN
 LIVE_RUN = '777000333-1'
@@ -297,6 +315,7 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
     def test_daily_recovery_pins_actual_original_sources_and_native_templates(self):
         import subprocess
         env={k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
+        env.update(GIT_NO_LAZY_FETCH='1', GIT_NO_REPLACE_OBJECTS='1')
         files={name:subprocess.check_output(['git','-C',str(ROOT),'show',seal.DAILY_REFUSAL_SHA+':server/scripts/'+name],env=env)
                for name in seal.DAILY_REFUSAL_SOURCES}
         files['engine-release-unit-wrapper-v1.sh']=files['engine-release-unit-wrapper.sh']
@@ -1083,6 +1102,172 @@ class Current26CancelledAnnouncementOwner(unittest.TestCase):
                 finally: self.proof = original
 
 
+class GenericCancelledAnnouncementOwner(unittest.TestCase):
+    """Any later expired announcement-only owner resolves with no per-run code."""
+    RUN = '41599999999-1'  # a hypothetical later owner: no code names it
+    TARGET, CONTROL = '26aaaa3f350ca063caed717b5fcbbcf34b5ae702', 'fffcb62ea1f114322da964f9e580f8be3b3e3383'
+    WINDOW = {'announcedAt': 1793635085893, 'startsAt': 1793635205893, 'endsAt': 1793635505893, 'verified': True}
+    THAW = {'announcedAtMs': 1793635085893, 'freezeStartedAtMs': 1793635205893, 'releasedThroughMs': 1793635505893,
+            'ownershipToken': 'a993695f-4a6a-4cb3-99af-b88765f21c99', 'generation': 1, 'thawRecordedAtMs': 1793635427493}
+    SOURCES = {name: format(i, 'x') * 64 for i, name in enumerate(sorted(seal.CANCELLED_PHASE1_SOURCES), 1)}
+
+    def setUp(self):
+        clock = patch.object(seal.time, "time", return_value=1793638800)  # 17:00 UTC, after the window
+        clock.start(); self.addCleanup(clock.stop)
+        scratch = os.environ.get('TMPDIR')
+        if sys.platform == 'darwin' and not scratch:
+            scratch = '/Volumes/SmarterWork/agent-work'
+        self.tmp = tempfile.TemporaryDirectory(prefix='generic-cancelled-', dir=scratch)
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, value in {'STATE_DIR': self.root, 'STATE_FILE': self.root / 'engine-release-seal.json',
+                'AUDIT_FILE': self.root / 'audit.jsonl', 'RESULT_DIR': self.root / 'engine-release-results',
+                'LOCK_FILE': self.root / 'lock'}.items():
+            p = patch.object(seal, name, value); p.start(); self.addCleanup(p.stop)
+        seal.RESULT_DIR.mkdir(mode=0o700)
+        (self.root / 'engine-release-cancellations').mkdir(mode=0o700)
+        self.withdrawal = self.root / 'engine-release-cancellations' / (self.RUN + '.receipt.json')
+        self.withdrawal.write_text('{}')
+        self.cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
+            'policyDigest': seal.NINEF_POLICY_DIGEST, 'startsAt': 1793635200, 'endsAt': 1793635500,
+            'runId': self.RUN, 'sha': self.TARGET, 'controlSha': self.CONTROL, 'status': 'reserved',
+            'window': dict(self.WINDOW)}
+        self.base = {'schema': 1, 'desired': {'sha': A_SHA, 'imageId': A_IMAGE, 'legacyUnlabelled': False},
+            'highWaterSha': A_SHA, 'committedRuns': {}, 'pending': None, 'finalization': None,
+            'generation': 312, 'routineMaintenanceCycles': {'1793635200': self.cycle}}
+        seal.write_state(copy.deepcopy(self.base))
+        self.proof = {'schema': 'cancelled-routine-announcement-proof/v1', 'originalCycle': self.cycle,
+            'recordHashes': dict.fromkeys(('receipt','intent','quiescent','stop-issued'), 'a' * 64),
+            'retainedHashes': dict.fromkeys(('entryHash','reservationHash','releasedHoldHash'), 'b' * 64),
+            'sourceHashes': dict(self.SOURCES), 'thaw': dict(self.THAW),
+            'container': {'id': CONTAINER, 'startedAt': '2026-11-02T15:03:36.03811103Z', 'image': A_IMAGE},
+            'instanceId': '1-b22cba29'}
+        self.protected = dict(self.SOURCES)
+        self.commands = []
+        def command(argv, deadline, limit=32768, **kw):
+            self.commands.append(argv)
+            if argv[0] == 'git': return '# qualified read-only helper'
+            self.assertEqual(argv[1:3], ['-B', '-c'])
+            self.assertEqual(argv[-2:], ['--phase1-cancellation-proof', self.RUN])
+            return json.dumps(self.proof)
+        for name, value in [('require_engine_lock', lambda fd: None),
+                ('failed_routine_current', lambda a,d: {'same': True}),
+                ('failed_routine_command', command),
+                ('generic_cancelled_sources', lambda repo, control, deadline: dict(self.protected)),
+                ('failed_routine_json', lambda p: json.loads(Path(p).read_text()))]:
+            p = patch.object(seal, name, side_effect=value); p.start(); self.addCleanup(p.stop)
+
+    def resolve(self):
+        with patch.object(seal.os, 'geteuid', return_value=0), redirect_stdout(io.StringIO()) as out:
+            args = seal.parser().parse_args(['resolve-terminal-routine-failures', '--engine-lock-fd', '9',
+                '--run-id', LIVE_RUN, '--sha', TARGET_SHA, '--control-sha', CONTROL_SHA,
+                '--invocation-id', INVOCATION])
+            args.handler(args)
+        return out.getvalue().strip()
+
+    def unresolved(self):
+        self.assertEqual(self.resolve(), 'not-needed')
+        state = json.loads(seal.STATE_FILE.read_text())
+        self.assertNotIn('routineFailureResolutions', state)
+        self.assertEqual(list(seal.RESULT_DIR.iterdir()), [])
+
+    def test_later_owner_resolves_without_code_change_and_replays(self):
+        self.assertEqual(self.resolve(), self.RUN)
+        state = seal.load_state()
+        self.assertEqual(state['routineMaintenanceCycles'], self.base['routineMaintenanceCycles'])
+        self.assertFalse(seal.result_path(self.RUN).exists())
+        resolution = state['routineFailureResolutions'][self.RUN]
+        self.assertEqual(resolution['result'], 'cancelled-announcement-proved')
+        self.assertEqual(resolution['proof']['sourceHashes'], self.SOURCES)
+        self.assertEqual(self.resolve(), 'not-needed')
+        self.assertFalse(seal.routine_owner_unresolved(state, self.cycle))
+        fd = os.open(seal.RESULT_DIR, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            answer, _ = observer.routine_failure_resolution(resolution, self.cycle, None, fd)
+            self.assertTrue(answer['present'] and answer['receiptMatches'])
+            for field, change in [('sourceHashes', {}), ('thaw', {}), ('container', {})]:
+                bad = copy.deepcopy(resolution); bad['proof'][field] = change
+                with self.assertRaises((ValueError, KeyError)):
+                    observer.routine_failure_resolution(bad, self.cycle, None, fd)
+        finally: os.close(fd)
+        root_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            observed = observer.routine_remote(dict(observer.ROUTINE_REQUEST), root_fd)
+            self.assertFalse(observed['owners'][0]['unresolvedOwner'])
+        finally: os.close(root_fd)
+
+    def test_every_missing_or_changed_safety_proof_keeps_the_owner(self):
+        cases = ['no-withdrawal', 'unexpired', 'committed', 'pending', 'finalization', 'failed-owner',
+                 'early-freeze', 'thaw-window', 'source', 'image', 'birth-inside-window', 'proof-cycle',
+                 'helper-refuses', 'self']
+        for case in cases:
+            with self.subTest(case=case):
+                state = copy.deepcopy(self.base); proof = copy.deepcopy(self.proof)
+                self.withdrawal.write_text('{}')
+                self.protected = dict(self.SOURCES)
+                clock = 1793638800; run_id = LIVE_RUN
+                if case == 'no-withdrawal': self.withdrawal.unlink()
+                if case == 'unexpired': clock = 1793635400
+                if case == 'committed': state['committedRuns'][self.RUN] = {'sha': self.TARGET, 'imageId': OTHER_IMAGE}
+                if case in ('pending', 'finalization'): state[case] = {'runId': LIVE_RUN, 'sha': TARGET_SHA, 'imageId': OTHER_IMAGE}
+                if case == 'failed-owner': state['routineMaintenanceCycles']['1793635200']['failure'] = {'result': 'failed'}
+                if case == 'early-freeze':
+                    w = state['routineMaintenanceCycles']['1793635200']['window']
+                    w['startsAt'] -= 1; w['endsAt'] -= 1
+                if case == 'thaw-window': proof['thaw']['freezeStartedAtMs'] -= 1
+                if case == 'source': self.protected['engine-release-seal.py'] = 'f' * 64
+                if case == 'image': proof['container']['image'] = OTHER_IMAGE
+                if case == 'birth-inside-window': proof['container']['startedAt'] = '2026-11-02T16:01:00Z'
+                if case == 'proof-cycle': proof['originalCycle'] = {**self.cycle, 'sha': A_SHA}
+                if case == 'self': run_id = self.RUN
+                original = self.proof; self.proof = proof
+                if case == 'helper-refuses':
+                    self.proof = 'not json'
+                try:
+                    if case in ('committed', 'failed-owner'):
+                        # These shapes are not even a valid routine history to load.
+                        seal.STATE_FILE.write_text(json.dumps(state))
+                    else:
+                        seal.write_state(state)
+                    for p in seal.RESULT_DIR.iterdir(): p.unlink()
+                    with patch.object(seal.time, 'time', return_value=clock), \
+                            patch.object(seal.os, 'geteuid', return_value=0), \
+                            redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
+                        try:
+                            args = seal.parser().parse_args(['resolve-terminal-routine-failures', '--engine-lock-fd', '9',
+                                '--run-id', run_id, '--sha', TARGET_SHA, '--control-sha', CONTROL_SHA,
+                                '--invocation-id', INVOCATION])
+                            args.handler(args)
+                        except SystemExit:
+                            pass
+                    self.assertNotEqual(out.getvalue().strip(), self.RUN)
+                    self.assertNotIn('routineFailureResolutions', json.loads(seal.STATE_FILE.read_text()))
+                    self.assertEqual(list(seal.RESULT_DIR.iterdir()), [])
+                finally:
+                    self.proof = original
+
+    def test_recorded_generic_resolution_is_revalidated_on_every_load(self):
+        self.assertEqual(self.resolve(), self.RUN)
+        good = json.loads(seal.STATE_FILE.read_text())
+        for field, change in [('thaw', {**self.THAW, 'freezeStartedAtMs': self.THAW['freezeStartedAtMs'] + 1}),
+                              ('sourceHashes', {}), ('container', {**self.proof['container'], 'startedAt': 'unknown'})]:
+            with self.subTest(field=field):
+                bad = copy.deepcopy(good)
+                bad['routineFailureResolutions'][self.RUN]['proof'][field] = change
+                seal.STATE_FILE.write_text(json.dumps(bad))
+                with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    seal.routine_cycles(seal.load_state())
+        seal.STATE_FILE.write_text(json.dumps(good))
+        self.assertEqual(len(seal.routine_cycles(seal.load_state())), 1)
+
+    def test_pinned_owners_never_take_the_generic_path(self):
+        for owner in (seal.NINEF_RUN, seal.DAILY_REFUSAL_RUN, seal.PREATTACH_RUN, seal.FAILED_ROUTINE_RUN,
+                      seal.CANCELLED_PHASE1_RUN, seal.SECOND_CANCELLED_PHASE1_RUN):
+            with self.subTest(owner=owner):
+                cycle = {**self.cycle, 'runId': owner}
+                self.assertFalse(seal.generic_cancelled_candidate(self.base, cycle))
+
+
 class PreattachmentOwner(unittest.TestCase):
     # Reuse only fixture plumbing, not its other-owner test cases.
     for name in ('sources','current','reset','native_unit','service_empty','container','birth',
@@ -1288,5 +1473,286 @@ class PreattachmentOwner(unittest.TestCase):
         self.refused(self.owner)
 
 
+class GenericUnenteredFailedOwner(unittest.TestCase):
+    """A later owner that reserved its hour and failed before any announcement
+    resolves by positive proof with no per-run code (41511864834-1 shape)."""
+    RUN = '41599999998-1'  # hypothetical: no code names it
+    TARGET = 'b3014ef4abca410de57464385a800241c9cc8d69'
+    START = 1793649600  # 20:00 UTC
+    NATIVE = {'club-arena-engine-release-v1@41599999998-1.service': {'ActiveState': 'failed'}}
+    RUNTIME = {'containerId': CONTAINER, 'startedAt': '2026-11-02T19:35:05.1Z', 'instanceId': '1-03b3ab60'}
+
+    def setUp(self):
+        clock = patch.object(seal.time, 'time', return_value=self.START + 300 + 120)
+        clock.start(); self.addCleanup(clock.stop)
+        scratch = os.environ.get('TMPDIR')
+        if sys.platform == 'darwin' and not scratch:
+            scratch = '/Volumes/SmarterWork/agent-work'
+        self.tmp = tempfile.TemporaryDirectory(prefix='generic-unentered-', dir=scratch)
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, value in {'STATE_DIR': self.root, 'STATE_FILE': self.root / 'engine-release-seal.json',
+                'AUDIT_FILE': self.root / 'audit.jsonl', 'RESULT_DIR': self.root / 'engine-release-results',
+                'LOCK_FILE': self.root / 'lock'}.items():
+            p = patch.object(seal, name, value); p.start(); self.addCleanup(p.stop)
+        seal.RESULT_DIR.mkdir(mode=0o700)
+        self.failure = {'completedAt': self.START + 365, 'controlSha': self.TARGET,
+            'invocationId': '2d353b539c0945429f9bb084ed39362b', 'recoveredDesiredImageId': A_IMAGE,
+            'recoveredDesiredSha': A_SHA, 'result': 'failed', 'runId': self.RUN, 'schema': 1,
+            'sha': self.TARGET, 'transactionExitStatus': 1}
+        seal.result_path(self.RUN).write_text(json.dumps(self.failure))
+        self.cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
+            'policyDigest': seal.NINEF_POLICY_DIGEST, 'startsAt': self.START, 'endsAt': self.START + 300,
+            'runId': self.RUN, 'sha': self.TARGET, 'controlSha': self.TARGET, 'status': 'reserved',
+            'failure': dict(self.failure)}
+        self.base = {'schema': 1, 'desired': {'sha': A_SHA, 'imageId': A_IMAGE, 'legacyUnlabelled': False},
+            'highWaterSha': A_SHA, 'committedRuns': {}, 'pending': None, 'finalization': None,
+            'generation': 313, 'routineMaintenanceCycles': {str(self.START): self.cycle}}
+        seal.write_state(copy.deepcopy(self.base))
+        self.native_ok = True; self.runtime_ok = True; self.database_ok = True
+        def native(deadline, owner=None, retained_preattach=False):
+            self.assertEqual(owner, self.RUN)
+            if not self.native_ok: seal.die('trace remains')
+            return dict(self.NATIVE)
+        def runtime(deadline, bounded=False):
+            if not self.runtime_ok: seal.die('runtime not idle')
+            return dict(self.RUNTIME)
+        def database(rt, deadline):
+            if not self.database_ok: seal.die('database not idle')
+        for name, value in [('require_engine_lock', lambda fd: None),
+                ('failed_routine_current', lambda a, d: {'same': True}),
+                ('failed_routine_native_proof', native), ('failed_routine_runtime', runtime),
+                ('failed_routine_database', database),
+                ('failed_routine_json', lambda p: json.loads(Path(p).read_text()))]:
+            p = patch.object(seal, name, side_effect=value); p.start(); self.addCleanup(p.stop)
+
+    def resolve(self, run_id=LIVE_RUN, sha=TARGET_SHA):
+        with patch.object(seal.os, 'geteuid', return_value=0), redirect_stdout(io.StringIO()) as out, \
+                redirect_stderr(io.StringIO()):
+            args = seal.parser().parse_args(['resolve-terminal-routine-failures', '--engine-lock-fd', '9',
+                '--run-id', run_id, '--sha', sha, '--control-sha', sha, '--invocation-id', INVOCATION])
+            args.handler(args)
+        return out.getvalue().strip()
+
+    def test_unentered_owner_resolves_without_code_change_and_replays(self):
+        original = copy.deepcopy(self.cycle)
+        self.assertEqual(self.resolve(), self.RUN)
+        state = seal.load_state()
+        self.assertEqual(state['routineMaintenanceCycles'][str(self.START)], original)
+        self.assertNotIn('window', original)
+        resolution = state['routineFailureResolutions'][self.RUN]
+        self.assertEqual(resolution['result'], 'unentered-cycle-proved')
+        self.assertEqual(resolution['proof']['runtime'], self.RUNTIME)
+        self.assertEqual(resolution['proof']['failureDigest'], seal.failed_routine_digest(self.failure))
+        self.assertFalse(seal.routine_owner_unresolved(state, original))
+        receipt = seal.terminal_receipt_path(self.RUN, LIVE_RUN, INVOCATION)
+        self.assertEqual(json.loads(receipt.read_text()), resolution)
+        before = seal.STATE_FILE.read_bytes()
+        self.assertEqual(self.resolve(), 'not-needed')
+        self.assertEqual(seal.STATE_FILE.read_bytes(), before)
+        fd = os.open(seal.RESULT_DIR, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            answer, _ = observer.routine_failure_resolution(resolution, original, self.failure, fd)
+            self.assertTrue(answer['present'] and answer['receiptMatches'] and answer['noAnnouncementRecorded'])
+            bad = copy.deepcopy(resolution); bad['proof']['database'] = {}
+            with self.assertRaises((ValueError, KeyError)):
+                observer.routine_failure_resolution(bad, original, self.failure, fd)
+        finally:
+            os.close(fd)
+
+    def test_every_missing_or_changed_safety_proof_keeps_the_owner(self):
+        cases = ['unexpired', 'committed', 'pending', 'finalization', 'announced', 'no-failure',
+                 'durable-differs', 'desired-moved', 'trace-remains', 'runtime-not-idle',
+                 'database-not-idle', 'self', 'verifier-is-owner-source', 'pinned']
+        for case in cases:
+            with self.subTest(case=case):
+                state = copy.deepcopy(self.base)
+                cycle = state['routineMaintenanceCycles'][str(self.START)]
+                seal.result_path(self.RUN).write_text(json.dumps(self.failure))
+                self.native_ok = self.runtime_ok = self.database_ok = True
+                clock = self.START + 300 + 120; run_id = LIVE_RUN; sha = TARGET_SHA; raw = False
+                if case == 'unexpired': clock = self.START + 300 + 30
+                if case == 'committed':
+                    state['committedRuns'][self.RUN] = {'sha': self.TARGET, 'imageId': OTHER_IMAGE}; raw = True
+                if case in ('pending', 'finalization'):
+                    state[case] = {'runId': LIVE_RUN, 'sha': TARGET_SHA, 'imageId': OTHER_IMAGE}
+                if case == 'announced':
+                    cycle['window'] = {'announcedAt': self.START * 1000 - 120000, 'startsAt': self.START * 1000,
+                                       'endsAt': self.START * 1000 + 300000, 'verified': True}; raw = True
+                if case == 'no-failure': del cycle['failure']; raw = True
+                if case == 'durable-differs':
+                    seal.result_path(self.RUN).write_text(json.dumps({**self.failure, 'completedAt': 1}))
+                if case == 'desired-moved': state['desired'] = {'sha': TARGET_SHA, 'imageId': OTHER_IMAGE,
+                                                                'legacyUnlabelled': False}
+                if case == 'trace-remains': self.native_ok = False
+                if case == 'runtime-not-idle': self.runtime_ok = False
+                if case == 'database-not-idle': self.database_ok = False
+                if case == 'self': run_id = self.RUN
+                if case == 'verifier-is-owner-source': sha = self.TARGET
+                if case == 'pinned':
+                    cycle['runId'] = seal.DAILY_REFUSAL_RUN; cycle['failure']['runId'] = seal.DAILY_REFUSAL_RUN
+                    raw = True
+                if raw:
+                    seal.STATE_FILE.write_text(json.dumps(state))
+                else:
+                    seal.write_state(state)
+                for p in seal.RESULT_DIR.glob('*.terminal-resolution.json'): p.unlink()
+                with patch.object(seal.time, 'time', return_value=clock):
+                    try:
+                        answer = self.resolve(run_id, sha)
+                    except SystemExit:
+                        answer = 'refused'
+                self.assertNotEqual(answer, self.RUN)
+                self.assertNotIn('routineFailureResolutions', json.loads(seal.STATE_FILE.read_text()))
+                self.assertEqual(list(seal.RESULT_DIR.glob('*.terminal-resolution.json')), [])
+
+    def test_recorded_unentered_resolution_is_revalidated_on_every_load(self):
+        self.assertEqual(self.resolve(), self.RUN)
+        good = json.loads(seal.STATE_FILE.read_text())
+        for field, change in [('database', {}), ('runtime', {**self.RUNTIME, 'startedAt': 'unknown'}),
+                              ('failureDigest', 'f' * 64)]:
+            with self.subTest(field=field):
+                bad = copy.deepcopy(good)
+                bad['routineFailureResolutions'][self.RUN]['proof'][field] = change
+                seal.STATE_FILE.write_text(json.dumps(bad))
+                with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    seal.routine_cycles(seal.load_state())
+        seal.STATE_FILE.write_text(json.dumps(good))
+        self.assertEqual(len(seal.routine_cycles(seal.load_state())), 1)
+
+    def test_pinned_and_announced_owners_never_take_the_unentered_path(self):
+        for owner in sorted(seal.pinned_routine_owners()):
+            with self.subTest(owner=owner):
+                cycle = {**self.cycle, 'runId': owner, 'failure': {**self.failure, 'runId': owner}}
+                self.assertFalse(seal.generic_unentered_candidate(self.base, cycle))
+        announced = {**self.cycle, 'window': {'announcedAt': 1, 'startsAt': 2, 'endsAt': 3, 'verified': True}}
+        self.assertFalse(seal.generic_unentered_candidate(self.base, announced))
+
+
+class RoutineCycleAdmissionLead(unittest.TestCase):
+    """An hour whose only announcement minute has passed is never reserved."""
+
+    def setUp(self):
+        scratch = os.environ.get('TMPDIR')
+        if sys.platform == 'darwin' and not scratch:
+            scratch = '/Volumes/SmarterWork/agent-work'
+        self.tmp = tempfile.TemporaryDirectory(prefix='cycle-lead-', dir=scratch)
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        for name, value in {'STATE_DIR': root, 'STATE_FILE': root / 'engine-release-seal.json',
+                'AUDIT_FILE': root / 'audit.jsonl', 'RESULT_DIR': root / 'engine-release-results',
+                'LOCK_FILE': root / 'lock'}.items():
+            p = patch.object(seal, name, value); p.start(); self.addCleanup(p.stop)
+        seal.RESULT_DIR.mkdir(mode=0o700)
+        policy = {'phase1Status': 'active', 'policyId': 'phase1-hourly-01a1944f', 'digest': seal.NINEF_POLICY_DIGEST}
+        for name, value in [('current_cycle_policy', lambda repo, sha, control: dict(policy)),
+                            ('resolved_failed_source', lambda state, sha: False)]:
+            p = patch.object(seal, name, side_effect=value); p.start(); self.addCleanup(p.stop)
+
+    def reserve(self, now, run):
+        seal.AUDIT_FILE.unlink(missing_ok=True)  # each case is an independent seal
+        seal.write_state({'schema': 1, 'desired': {'sha': A_SHA, 'imageId': A_IMAGE, 'legacyUnlabelled': False},
+            'highWaterSha': A_SHA, 'committedRuns': {}, 'pending': None, 'finalization': None, 'generation': 1})
+        with patch.object(seal.time, 'time', return_value=now), redirect_stdout(io.StringIO()) as out:
+            args = seal.parser().parse_args(['reserve-routine-cycle', '--repo', '/nonexistent', '--sha', TARGET_SHA,
+                                             '--control-sha', CONTROL_SHA, '--run-id', run])
+            args.handler(args)
+        return json.loads(out.getvalue())['startsAt']
+
+    def test_late_admission_owns_the_following_hour(self):
+        hour = 1793649600  # 20:00 UTC
+        self.assertEqual(self.reserve(hour - 3600 + 1, '1-1'), hour)            # 19:00:01
+        self.assertEqual(self.reserve(hour - 181, '2-1'), hour)                 # 19:56:59
+        self.assertEqual(self.reserve(hour - 180, '3-1'), hour)                 # 19:57:00
+        self.assertEqual(self.reserve(hour - 179, '4-1'), hour + 3600)          # 19:57:01
+        self.assertEqual(self.reserve(hour - 39, '5-1'), hour + 3600)           # 19:59:21, the 41511864834-1 case
+        self.assertEqual(self.reserve(hour, '6-1'), hour + 3600)                # 20:00:00
+
+
+class GenericPreguardCheckpointRefusalOwner(unittest.TestCase):
+    """A later owner that bound a window, wrote its one-shot checkpoint intent,
+    and refused before guardCall with inspectorClosed:true resolves by proof
+    (41535679597-1 shape)."""
+    RUN = '41535679597-1'
+    TARGET = '1adb1eaa2c974969ef32c0330bbd3aed94e97a99'
+    START = 1793660400  # 23:00 UTC
+    WINDOW = {'announcedAt': 1793660286156, 'startsAt': 1793660406156, 'endsAt': 1793660706156, 'verified': True}
+    NATIVE = {'club-arena-engine-release-v1@41535679597-1.service': {'ActiveState': 'failed'}}
+    RUNTIME = {'containerId': CONTAINER, 'startedAt': '2026-11-02T19:35:05.1Z', 'instanceId': '1-b8912ba6'}
+
+    def setUp(self):
+        clock = patch.object(seal.time, 'time', return_value=self.START + 300 + 120)
+        clock.start(); self.addCleanup(clock.stop)
+        scratch = os.environ.get('TMPDIR')
+        if sys.platform == 'darwin' and not scratch:
+            scratch = '/Volumes/SmarterWork/agent-work'
+        self.tmp = tempfile.TemporaryDirectory(prefix='generic-preguard-', dir=scratch)
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, value in {'STATE_DIR': self.root, 'STATE_FILE': self.root / 'engine-release-seal.json',
+                'AUDIT_FILE': self.root / 'audit.jsonl', 'RESULT_DIR': self.root / 'engine-release-results',
+                'LOCK_FILE': self.root / 'lock'}.items():
+            p = patch.object(seal, name, value); p.start(); self.addCleanup(p.stop)
+        seal.RESULT_DIR.mkdir(mode=0o700)
+        self.requests = self.root / 'engine-release-requests'
+        self.requests.mkdir(mode=0o700)
+        self.failure = {'completedAt': self.START + 45, 'controlSha': self.TARGET,
+            'invocationId': 'e1036679d4b745429f9bb084ed39362b', 'recoveredDesiredImageId': A_IMAGE,
+            'recoveredDesiredSha': A_SHA, 'result': 'failed', 'runId': self.RUN, 'schema': 1,
+            'sha': self.TARGET, 'transactionExitStatus': 1}
+        seal.result_path(self.RUN).write_text(json.dumps(self.failure))
+        self.intent = {'instance': '1-b8912ba6', 'container': CONTAINER, 'startedAt': '2026-11-02T19:35:05.1Z',
+            'hostPid': 4242, 'source': A_SHA, 'runId': self.RUN, 'controlSha': self.TARGET,
+            'at': self.WINDOW['startsAt'] / 1000 + 25, 'retryAllowed': False,
+            'nativeCensus': {'candidateSHA': self.TARGET, 'prototypeCacheBytes': 1048576}}
+        (self.requests / f'{self.RUN}.legacy-checkpoint-intent').write_text(json.dumps(self.intent))
+        self.cycle = {'kind': 'hourly-reset', 'policyId': 'phase1-hourly-01a1944f',
+            'policyDigest': seal.NINEF_POLICY_DIGEST, 'startsAt': self.START, 'endsAt': self.START + 300,
+            'runId': self.RUN, 'sha': self.TARGET, 'controlSha': self.TARGET, 'status': 'reserved',
+            'window': dict(self.WINDOW), 'failure': dict(self.failure)}
+        self.base = {'schema': 1, 'desired': {'sha': A_SHA, 'imageId': A_IMAGE, 'legacyUnlabelled': False},
+            'highWaterSha': A_SHA, 'committedRuns': {}, 'pending': None, 'finalization': None,
+            'generation': 315, 'routineMaintenanceCycles': {str(self.START): self.cycle}}
+        seal.write_state(copy.deepcopy(self.base))
+        self.db_reply = {'schema': 'terminal-owned-thaw/v1', 'sha': A_SHA, 'instanceId': '1-b8912ba6',
+            'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True,
+            'announcedAt': self.WINDOW['announcedAt'], 'startsAt': self.WINDOW['startsAt'],
+            'endsAt': self.WINDOW['endsAt']}
+        for name, value in [('require_engine_lock', lambda fd: None),
+                ('failed_routine_current', lambda a, d: {'same': True}),
+                ('generic_preguard_checkpoint_native_proof', lambda d, o: dict(self.NATIVE)),
+                ('generic_preguard_checkpoint_refusal', lambda r, f, w, d: 'c' * 64),
+                ('failed_routine_runtime', lambda d, bounded=False: dict(self.RUNTIME)),
+                ('failed_routine_command', lambda cmd, d, *a, **kw: json.dumps(self.db_reply)),
+                ('failed_routine_json', lambda p: json.loads(Path(p).read_text()))]:
+            p = patch.object(seal, name, side_effect=value); p.start(); self.addCleanup(p.stop)
+
+    def resolve(self):
+        with patch.object(seal.os, 'geteuid', return_value=0), redirect_stdout(io.StringIO()) as out, \
+                redirect_stderr(io.StringIO()):
+            args = seal.parser().parse_args(['resolve-terminal-routine-failures', '--engine-lock-fd', '9',
+                '--run-id', LIVE_RUN, '--sha', TARGET_SHA, '--control-sha', TARGET_SHA,
+                '--invocation-id', INVOCATION])
+            args.handler(args)
+        return out.getvalue().strip()
+
+    def test_resolves_and_validates_preguard_checkpoint_refusal_owner(self):
+        original = copy.deepcopy(self.cycle)
+        self.assertEqual(self.resolve(), self.RUN)
+        state = seal.load_state()
+        self.assertFalse(seal.routine_owner_unresolved(state, state['routineMaintenanceCycles'][str(self.START)]))
+        resolution = state['routineFailureResolutions'][self.RUN]
+        self.assertEqual(resolution['result'], 'preguard-checkpoint-refusal-proved')
+        fd = os.open(seal.RESULT_DIR, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            answer, _ = observer.routine_failure_resolution(resolution, original, self.failure, fd)
+            self.assertTrue(answer['present'] and answer['receiptMatches'] and answer['databaseIdleRecorded'])
+        finally:
+            os.close(fd)
+
+
 if __name__ == '__main__':
-    unittest.main()
+    if sys.argv[1:] == ['--prepare-history']:
+        prepare_history(allow_fetch=True)
+    else:
+        unittest.main()

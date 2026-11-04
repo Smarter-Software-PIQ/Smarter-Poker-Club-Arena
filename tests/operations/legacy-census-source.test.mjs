@@ -9,10 +9,16 @@ test('protected control source pin binds the exact native implementation',()=>{
  assert.equal(createHash('sha256').update(cpp).digest('hex'),LEGACY_CENSUS_NATIVE_SOURCE_SHA256);
 });
 test('native preallocation ceiling derives from maintained owner and topology ceilings',()=>{
- const limits=JSON.parse(/const limits = (\[[0-9, ]+\]);/.exec(js)[1]);
+ const owners=Number(/\+\+totalOwners <= ([0-9]+)/.exec(js)[1]);
+ const overflow=Number(/if \(totalOwners > ([0-9]+)\)/.exec(js)[1]);
+ const guard=fs.readFileSync(new URL('../../server/scripts/retained-original-checkpoint-guard.mjs',import.meta.url),'utf8');
+ const guardOwners=Number(/censusGroups\.reduce\([\s\S]*?discoveredServers\.length\) <= ([0-9]+)/.exec(guard)[1]);
+ assert.equal(owners,18000);
+ assert.equal(overflow,owners);
+ assert.equal(guardOwners,owners);
  const prototypes=Number(/cachedPrototypes >= ([0-9]+)/.exec(js)[1]);
  const terms=/constexpr size_t kMatches = ([0-9 +]+);/.exec(cpp.toString())[1].split('+').map(Number);
- assert.equal(terms.reduce((a,b)=>a+b,0),limits.reduce((a,b)=>a+b,0)+prototypes);
+ assert.equal(terms.reduce((a,b)=>a+b,0),owners+prototypes);
  assert.equal(terms.reduce((a,b)=>a+b,0),22096);
 });
 test('unowned native descriptors refuse before filesystem access or loading',()=>{
@@ -36,4 +42,11 @@ test('cache metadata is exact before any native filesystem read',()=>{
   candidateImageId:'sha256:'+'e'.repeat(64),candidateSourceTree:'f'.repeat(40)};
  for(const bad of [undefined,null,true,'1048576',0,1048575,1048577])
   assert.throws(()=>loadLegacyNativeCensus({...descriptor,prototypeCacheBytes:bad}),/artifact identity refused/);
+});
+test('control driver passes custodyIntent.nativeCensus.prototypeCacheBytes to native memory admission when nativeArtifact is a CDP RemoteObject handle',()=>{
+ assert.match(
+  js,
+  /legacyNativeCensusMemoryAdmission\(\s*memory\.value,\s*custodyIntent\.nativeCensus\.prototypeCacheBytes\s*\)/
+ );
+ assert.equal(js.includes('nativeArtifact.prototypeCacheBytes'),false);
 });

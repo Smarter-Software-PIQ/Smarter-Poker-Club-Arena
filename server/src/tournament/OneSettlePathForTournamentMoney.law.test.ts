@@ -119,14 +119,25 @@ describe('one terminal authority owns each tournament finish', () => {
       /const proposalRequest = dealProposal\s*\?\s*\{\s*\.\.\.request,\s*p_proposal_id:\s*dealProposal\.proposalId,\s*p_revision:\s*dealProposal\.revision,?\s*\}\s*:\s*null/
     );
     expect(terminalRpc).toMatch(
-      /proposalRequest\s*\?\s*await terminalAuthority\.rpc\(\s*'fn_complete_tournament_terminal_proposal',\s*proposalRequest\s*\)/
+      /return durable\s*\?\s*await executeDurableTerminalRequest\(durable\)\s*:\s*proposalRequest\s*\?\s*await terminalAuthority\.rpc\(\s*'fn_complete_tournament_terminal_proposal',\s*proposalRequest,?\s*\)/
     );
+    expect(terminalRpc).toContain('await prepareDurableTerminalRequest(originalRequest)');
     expect(terminalRpc).toMatch(
-      /proposalRequest\s*\?\s*await terminalAuthority\.rpc\(\s*'fn_resolve_tournament_terminal_proposal_outcome',\s*proposalRequest\s*\)/
+      /kind: 'proposal_deal' as const,\s*proposalId: dealProposal\.proposalId,\s*revision: dealProposal\.revision/
+    );
+    const resolver = sliceMethod(
+      terminalRpc,
+      'async function resolveOriginalTerminalOutcomeWithArgs('
+    );
+    expect(resolver).toMatch(
+      /durable\s*\?\s*await resolveDurableTerminalRequest\(durable\)\s*:\s*await terminalAuthority\.rpc\(\s*request\.kind === 'proposal_deal'\s*\? 'fn_resolve_tournament_terminal_proposal_outcome'\s*:\s*'fn_resolve_tournament_terminal_outcome',\s*args/
+    );
+    expect(resolver).toContain(
+      'record(raw).proposal_id === request.proposalId && record(raw).revision === request.revision'
     );
     expect(terminalRpc).toContain('receipt && proposalIdentityIsExact(data)');
-    expect(terminalRpc).toContain('proposalIdentityIsExact(outcome)');
-    expect(terminalRpc).toContain('receipt && proposalIdentityIsExact(outcome.receipt)');
+    expect(resolver).toContain('exactProposal(outcome)');
+    expect(resolver).toContain('receipt && exactProposal(outcome.receipt)');
   });
 
   it('the scanner catches literal and indirect regressions', () => {

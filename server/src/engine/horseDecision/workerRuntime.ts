@@ -1,3 +1,4 @@
+import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
 import { HorsePlanReadCapture } from '../HorsePlanReadReceipt.js';
 import { HorseRangeConsumptionCapture } from '../HorseRangeConsumptionReceipt.js';
 import { horseHistoryReadProvenanceIsValid } from './ownPublicHistoryProvenance.js';
@@ -221,6 +222,7 @@ import {
 } from '../../services/GtoPostflopLoader.js';
 import {
   loadGtoPostflopV31,
+  requireGtoV31ServingBinding,
   startGtoPostflopV31Loader,
   stopGtoPostflopV31Loader,
 } from '../../services/GtoPostflopV31Loader.js';
@@ -472,7 +474,11 @@ export async function startOwnedServices(shard?: {
       step('exploit_reads', () => hydrateHorseExploitReads()),
       step('gto_charts', () => loadGtoCharts()),
       step('gto_postflop', () => loadGtoPostflop()),
-      step('gto_postflop_v31', () => loadGtoPostflopV31()),
+      step('gto_postflop_v31', () => {
+        // Live workers serve a promoted V31 dataset only on a bound engine commit.
+        requireGtoV31ServingBinding(process.env.GIT_COMMIT_SHA);
+        return loadGtoPostflopV31();
+      }),
     ]);
     // A failed load must not drain writers while another load can still
     // hydrate or replay into them. Join every started operation before the
@@ -698,7 +704,7 @@ export class HorseDecisionWorkerRuntime {
   >();
   /** A new worker runtime is a new epoch; receipts name the epoch they came from. */
   readonly planEpoch = randomUUID();
-  private static readonly MAX_ISSUED_PLAN_BATCHES = 128;
+  private static readonly MAX_ISSUED_PLAN_BATCHES = HORSE_REQUEST_MAX_PLANS;
   private static readonly ISSUED_PLAN_BATCH_TTL_MS = 60_000;
 
   private issuePlanBatch(

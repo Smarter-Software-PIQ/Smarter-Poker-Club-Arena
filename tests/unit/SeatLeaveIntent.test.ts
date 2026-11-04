@@ -183,3 +183,45 @@ describe('captured bulk removal identity', () => {
     expect((await first).success).toBe(true);
   });
 });
+
+it('preserves tournament sit-out acknowledgement without inventing a cashout', async () => {
+  mocks.leave.mockResolvedValue({ ...response(), tournament: true, cashout: null });
+  expect(await leaveSeatWithIntent(table, user)).toEqual({
+    success: true,
+    chipsReturned: 0,
+    tournament: true,
+    occupancyId: occupancy,
+  });
+});
+
+it('preserves an authoritative held sit-out without a cashout or deferred-credit claim', async () => {
+  mocks.leave.mockResolvedValue({
+    ...response(),
+    success: false,
+    immediate: false,
+    cashout: null,
+    held: true,
+    sittingOut: true,
+    code: 'LEAVE_LOCKED',
+    error: 'Leave Available In 1:01',
+  });
+  expect(await leaveSeatWithIntent(table, user)).toEqual({
+    success: true,
+    chipsReturned: 0,
+    held: true,
+    error: 'Leave Available In 1:01',
+    occupancyId: occupancy,
+  });
+});
+it('refuses a held acknowledgement that does not confirm sitting out', async () => {
+  mocks.leave.mockResolvedValue({
+    ...response(),
+    success: false,
+    immediate: false,
+    cashout: null,
+    held: true,
+    code: 'LEAVE_LOCKED',
+    error: 'Leave Available In 1:01',
+  });
+  expect((await leaveSeatWithIntent(table, user)).success).toBe(false);
+});

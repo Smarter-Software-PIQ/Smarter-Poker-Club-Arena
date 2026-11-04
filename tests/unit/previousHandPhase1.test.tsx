@@ -299,25 +299,25 @@ describe('the surfaces', () => {
     const { rerender } = render(
       <HandDetailModal isOpen onClose={() => {}} hands={[newest, older]} heroId={HERO} />
     );
-    expect(document.querySelector('.hdm-sn')?.textContent).toContain('#7');
+    expect(document.querySelector('.hdm-console .sc__pill')?.textContent).toContain('#7');
     const landed = { ...record(), id: 'h-2', handNumber: 8 };
     rerender(
       <HandDetailModal isOpen onClose={() => {}} hands={[landed, newest, older]} heroId={HERO} />
     );
     // Still on #7; the navigator now counts three and the newer arrow is live.
-    expect(document.querySelector('.hdm-sn')?.textContent).toContain('#7');
+    expect(document.querySelector('.hdm-console .sc__pill')?.textContent).toContain('#7');
     expect(document.querySelector('.hdm-nav__label')?.textContent).toBe('2/3');
     expect((screen.getByLabelText('Newer Hand') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('the modal copies the hand number and the link', async () => {
+  it('the modal copies the link from the footer without an upper copy control', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     render(<HandDetailModal isOpen onClose={() => {}} hands={[record()]} heroId={HERO} />);
-    fireEvent.click(screen.getByLabelText('Copy Hand Number 7'));
+    expect(screen.queryByLabelText('Copy Hand Number 7')).toBeNull();
     fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
     await Promise.resolve();
-    expect(writeText).toHaveBeenCalledWith('#7');
+    expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('/hand-history?hand=h-1'));
   });
 
@@ -352,7 +352,9 @@ describe('the surfaces', () => {
       finish(bomb.id);
     });
     view.rerender(<HandDetailModal {...props} hands={[...recent, bomb]} hasOlderHands={false} />);
-    await waitFor(() => expect(document.querySelector('.hdm-sn')?.textContent).toContain('#50'));
+    await waitFor(() =>
+      expect(document.querySelector('.hdm-console .sc__pill')?.textContent).toContain('#50')
+    );
     expect((screen.getByLabelText('Older Hand') as HTMLButtonElement).disabled).toBe(true);
     expect(document.querySelector('.hdm-nav__label')?.textContent).toBe('1/51');
   });
@@ -372,7 +374,7 @@ describe('the surfaces', () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText('Load Older Hands'));
     });
-    expect(document.querySelector('.hdm-sn')?.textContent).toContain('#7');
+    expect(document.querySelector('.hdm-console .sc__pill')?.textContent).toContain('#7');
     expect((screen.getByLabelText('Load Older Hands') as HTMLButtonElement).disabled).toBe(false);
     await act(async () => {
       fireEvent.click(screen.getByLabelText('Load Older Hands'));
@@ -396,7 +398,7 @@ describe('the surfaces', () => {
     await act(async () => {
       finish(older.id);
     });
-    expect(document.querySelector('.hdm-sn')?.textContent).toContain('#7');
+    expect(document.querySelector('.hdm-console .sc__pill')?.textContent).toContain('#7');
   });
 });
 

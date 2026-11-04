@@ -1,4 +1,4 @@
-export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = '4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1';
+export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = 'ff995c8955cfa3de5e70871b3139bd246c9f76e89b848e48ba052149b434c4dc';
 // Concatenated after the exact guard by the owning release transaction.
 // Importing this module only exposes the isolated fixture seam.
 import { setTimeout as checkpointDelay } from 'node:timers/promises';
@@ -97,9 +97,37 @@ async function inspectorTarget(port, deadline, operation = 'inspectorDiscovery')
   }
 }
 
+/* ═══ A REFUSED EVALUATION SAYS WHAT THREW (2026-11-03) ═══
+
+   Engine Release 41572473076 (5745705c, which carries the memory bound #9387
+   and the census fixes #9420/#9425) was refused at 04:00Z with exactly
+   `target checkpoint evaluation refused`, checkpointInvoked=false. That one
+   string is produced by fifteen different Runtime.evaluate calls, and the
+   predecessor's own exception text was discarded, so the run could not say
+   which step refused or why - and the next fix had nothing to aim at.
+
+   Observability only, like `lost` above: `reason` is still exactly
+   `target checkpoint evaluation refused`, `retryAllowed` is still false. The
+   remote exception's class and its line:column inside the evaluated source
+   ride on the error and are emitted as `transportDetail` beside the
+   operation name. The exception's MESSAGE is never copied out: it is the
+   predecessor's own string and may carry table or player state, so only
+   V8's structural summary (class name, position) leaves the process. */
+const exceptionSummary = (response) => {
+  const details = response?.exceptionDetails;
+  const exception = details?.exception ?? response?.result;
+  const className = (typeof exception?.className === 'string' ? exception.className : 'unknown')
+    .replace(/[^\w]+/g, '_')
+    .slice(0, 48);
+  const position = (key) => (Number.isSafeInteger(details?.[key]) ? details[key] : 'na');
+  return `exception=${className},line=${position('lineNumber')},column=${position('columnNumber')}`;
+};
 function remoteValue(response) {
-  if (response?.exceptionDetails || response?.result?.subtype === 'error')
-    throw refused('target checkpoint evaluation refused');
+  if (response?.exceptionDetails || response?.result?.subtype === 'error') {
+    const error = refused('target checkpoint evaluation refused');
+    error.transportDetail = exceptionSummary(response);
+    throw error;
+  }
   return response?.result;
 }
 
@@ -634,7 +662,7 @@ export function bindLegacyCensusModules(holderKey, workDeadlineMs, nativeCensus 
   const extended = profile === 'eed-80s-v1';
   if (profile !== null && (!extended ||
       process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3' ||
-      nativeCensus?.sourceSHA256 !== '4c6cbd7027b907beadd69dfd6611da2c9072cecfb7add9cc931e99ab5628b8f1'))
+      nativeCensus?.sourceSHA256 !== 'ff995c8955cfa3de5e70871b3139bd246c9f76e89b848e48ba052149b434c4dc'))
     throw new Error('native census allocation profile refused');
   if (
     typeof holderKey !== 'string' ||
@@ -707,6 +735,7 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
     if (workDeadlineMs <= Date.now() || workDeadlineMs > Date.now() + (profile ? 80000 : 40000))
       throw new Error('native census deadline exhausted');
     const modules = getOwnPropertyDescriptor(holder, 'modules')?.value;
+    const eventEmitterRoot = process.getBuiltinModule('node:events')?.EventEmitter?.prototype ?? null;
     const roots = [
       modules.gameServer.GameServer.prototype,
       modules.engine.ServerTableEngine.prototype,
@@ -724,9 +753,9 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
           if (other !== index && cursor === roots[other])
             throw new Error('native census root refused');
         const parent = getPrototypeOf(cursor);
-        if (parent === root) {
+        if (parent === root || (eventEmitterRoot !== null && parent === eventEmitterRoot)) {
           if (!isExtensible(cursor)) throw new Error('native census root not extensible');
-          if (!tops.includes(cursor)) tops.push(cursor);
+          if (!tops.some((entry) => entry.top === cursor)) tops.push({ top: cursor, parent });
           break;
         }
         cursor = parent;
@@ -761,9 +790,9 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
     let census, nativeObjects;
     const native = getOwnPropertyDescriptor(holder, 'nativeCensus')?.value;
     try {
-      for (const top of tops) {
-        setPrototypeOf(top, marker);
-        changed.push(top);
+      for (const entry of tops) {
+        setPrototypeOf(entry.top, marker);
+        changed.push(entry);
       }
       // The outer Runtime.evaluate has disableBreaks:true. The same native
       // dispatch owns insertion, this synchronous query and exact restoration;
@@ -782,12 +811,12 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
       let failed = false;
       for (let index = changed.length - 1; index >= 0; index--) {
         try {
-          setPrototypeOf(changed[index], root);
+          setPrototypeOf(changed[index].top, changed[index].parent);
         } catch {
           failed = true;
         }
       }
-      for (const top of tops) if (getPrototypeOf(top) !== root) failed = true;
+      for (const entry of tops) if (getPrototypeOf(entry.top) !== entry.parent) failed = true;
       if (failed) throw new Error('native census prototype restoration refused');
     }
     if (Date.now() >= workDeadlineMs) throw new Error('native census deadline exhausted');
@@ -815,8 +844,11 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
 }
 
 export function projectLegacyCensus(modules, workDeadlineMs, profile = null) {
-  if (profile !== null && (profile !== 'eed-80s-v1' ||
-      process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3'))
+  if (
+    profile !== null &&
+    (profile !== 'eed-80s-v1' ||
+      process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3')
+  )
     throw new Error('native census allocation profile refused');
   const startedAt = Date.now();
   if (
@@ -832,8 +864,10 @@ export function projectLegacyCensus(modules, workDeadlineMs, profile = null) {
     modules.lightningWorker.LightningClusterWorker.prototype,
     modules.lightningHost.LightningHandHost.prototype,
   ];
+  if (this.length > 22096) throw new Error('native census count refused');
   const out = [[], [], [], [], []];
-  const limits = [4000, 4000, 2000, 4000, 4000];
+  const counts = [0, 0, 0, 0, 0];
+  let totalOwners = 0;
   const getPrototypeOf = Object.getPrototypeOf;
   const isProxy = process.getBuiltinModule('node:util').types.isProxy;
   const membership = new WeakMap([[Object.prototype, 0]]);
@@ -874,11 +908,46 @@ export function projectLegacyCensus(modules, workDeadlineMs, profile = null) {
     const mask = classify(getPrototypeOf(value));
     for (let group = 0; group < roots.length; group++)
       if (mask & (1 << group)) {
-        if (out[group].length >= limits[group]) throw new Error('native census count refused');
-        out[group].push(value);
+        counts[group]++;
+        if (++totalOwners <= 18000) out[group].push(value);
       }
   }
+  if (totalOwners > 18000) {
+    // A refusal never exports a truncated owner set. Finish only the bounded
+    // native capture to report all five scalar counts; no owner crosses CDP.
+    return JSON.stringify({ schema: 'legacy-native-census-overflow/v1', counts });
+  }
   return out;
+}
+
+export function readLegacyCensusOverflow(value) {
+  if (value?.type !== 'string' || typeof value.value !== 'string' || value.value.length > 256)
+    return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(value.value);
+  } catch {
+    return null;
+  }
+  if (
+    !parsed ||
+    Object.keys(parsed).sort().join() !== 'counts,schema' ||
+    parsed.schema !== 'legacy-native-census-overflow/v1' ||
+    !Array.isArray(parsed.counts) ||
+    parsed.counts.length !== 5 ||
+    !parsed.counts.every((count) => Number.isSafeInteger(count) && count >= 0 && count <= 22096) ||
+    parsed.counts.reduce((total, count) => total + count, 0) <= 18000 ||
+    parsed.counts.reduce((total, count) => total + count, 0) > 22096
+  )
+    return null;
+  return {
+    schema: 'legacy-native-census-counts/v1',
+    gameServers: parsed.counts[0],
+    tableEngines: parsed.counts[1],
+    tournamentManagers: parsed.counts[2],
+    lightningWorkers: parsed.counts[3],
+    lightningHosts: parsed.counts[4],
+  };
 }
 
 // Metadata already returned with each native projected array. These counts are
@@ -889,10 +958,10 @@ function nativeCensusArrayCount(value, limit) {
     value.subtype !== 'array' ||
     value.className !== 'Array' ||
     typeof value.description !== 'string' ||
-    value.description.length > 11
+    value.description.length > 12
   )
     return null;
-  const match = /^Array\((0|[1-9][0-9]{0,3})\)$/.exec(value.description);
+  const match = /^Array\((0|[1-9][0-9]{0,4})\)$/.exec(value.description);
   if (!match) return null;
   const count = Number(match[1]);
   return Number.isSafeInteger(count) && count <= limit ? count : null;
@@ -1057,7 +1126,10 @@ export async function runLegacyEngineCheckpoint({
       );
       censusMemory = legacyCensusMemoryAdmission(memory?.value);
       if (nativeArtifact && censusMemory) {
-        censusMemory = legacyNativeCensusMemoryAdmission(memory.value, nativeArtifact.prototypeCacheBytes);
+        censusMemory = legacyNativeCensusMemoryAdmission(
+          memory.value,
+          custodyIntent.nativeCensus.prototypeCacheBytes
+        );
       }
       if (!censusMemory?.ok) throw refused('native census memory headroom refused');
       operation = 'broadPrototype';
@@ -1133,14 +1205,18 @@ export async function runLegacyEngineCheckpoint({
           operation
         )
       );
+      if (projected?.type === 'string') {
+        nativeCensusCounts = readLegacyCensusOverflow(projected);
+        throw refused(nativeCensusCounts ? 'native census count refused' : 'native census projection unavailable');
+      }
       if (!projected?.objectId) throw refused('native census projection unavailable');
       const groups = [];
       const countFields = [
-        ['gameServers', 4000],
-        ['tableEngines', 4000],
-        ['tournamentManagers', 2000],
-        ['lightningWorkers', 4000],
-        ['lightningHosts', 4000],
+        ['gameServers', 18000],
+        ['tableEngines', 18000],
+        ['tournamentManagers', 18000],
+        ['lightningWorkers', 18000],
+        ['lightningHosts', 18000],
       ];
       for (let index = 0; index < 5; index++) {
         const group = remoteValue(
@@ -1253,8 +1329,21 @@ export async function runLegacyEngineCheckpoint({
           // guard rejection as unhandled between these two CDP requests. Keep
           // and return the ORIGINAL Promise: awaitPromise must still receive
           // its rejection, and no result or guard invocation is substituted.
+          // THE GUARD RUNS AS THE PROCESS (2026-11-03). On Node 22 a tournament
+          // manager's AsyncLocalStorage store can sit on whatever resource is
+          // current when Inspector evaluates, so the guard inherited a foreign
+          // tournament authority and refused retained_process_actor_unproven
+          // before touching a table (release 41730448462-1). The predecessor's
+          // own bindToProcessRoot clears that store exactly as its root-bound
+          // timers do; every check, and every bound manager method's own
+          // authority, is unchanged. A predecessor without it runs as before.
           functionDeclaration: `function (...args) {
-            const pendingCheckpoint = (${guard.toString()}).apply(this, args);
+            const context = args[2] && args[2].dataActorContext;
+            const invoke = () => (${guard.toString()}).apply(this, args);
+            const pendingCheckpoint =
+              context && typeof context.bindToProcessRoot === 'function'
+                ? context.bindToProcessRoot(invoke)()
+                : invoke();
             pendingCheckpoint.catch(() => {});
             return pendingCheckpoint;
           }`,
@@ -1264,6 +1353,7 @@ export async function runLegacyEngineCheckpoint({
                 expectedReleaseSha: releaseSha,
                 expectedInstanceId: instanceId,
                 expectedPid: pid,
+                workDeadlineMs: deadline,
                 custodyIntent,
               },
             },
@@ -1313,6 +1403,8 @@ export async function runLegacyEngineCheckpoint({
     // protocol refusal carries its own operation/cause/inspector error.
     if (/outcome unknown/.test(failure)) transportDetail = describeLoss(error);
     else if (failure === 'inspector protocol refused') transportDetail = detailOf(error);
+    else if (failure === 'target checkpoint evaluation refused')
+      transportDetail = `op=${operation},${detailOf(error) ?? 'exception=unreported'}`.slice(0, 512);
   } finally {
     if (signalled) {
       const cleanupDeadline = Math.min(

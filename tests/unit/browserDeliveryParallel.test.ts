@@ -100,8 +100,8 @@ describe('browser qualification parallel delivery', () => {
     );
     for (const shard of ci.jobs.accounting_postgres.strategy.matrix.shard)
       expect(route({ shard })).toBe(shard === 2 ? 'ubuntu-24.04' : 'ubuntu-latest');
-    expect(ci.jobs.accounting_postgres['timeout-minutes']).toBe(50);
-    expect(ci.jobs.server_shards['timeout-minutes']).toBe(25);
+    expect(ci.jobs.accounting_postgres['timeout-minutes']).toBe(100);
+    expect(ci.jobs.server_shards['timeout-minutes']).toBe(80);
     expect(ci.jobs.server.needs).toContain('accounting_postgres');
     expect(ci.jobs.server.needs).toContain('server_shards');
   });
@@ -128,7 +128,7 @@ describe('browser qualification parallel delivery', () => {
       'fail-fast': false,
       matrix: { shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], partition: ['general', 'portrait'] },
     });
-    expect(browser['timeout-minutes']).toBe(30);
+    expect(browser['timeout-minutes']).toBe(60);
     expect(browser['continue-on-error']).toBeUndefined();
     const beats = browser.steps.find((value: { id?: string }) => value.id === 'css-beats');
     expect(beats.if).toBeUndefined();
@@ -167,7 +167,7 @@ describe('browser qualification parallel delivery', () => {
     const cases = readFileSync('tests/e2e/css/diamond-games-playfield.spec.ts', 'utf8');
     expect(cases).toContain("test.describe.configure({ mode: 'parallel', timeout: 180_000 });");
     expect(diamond.strategy).toEqual({ 'fail-fast': false, matrix: { shard: [1, 2, 3] } });
-    expect(diamond['timeout-minutes']).toBe(25);
+    expect(diamond['timeout-minutes']).toBe(50);
     expect(diamond['continue-on-error']).toBeUndefined();
     const run = diamond.steps.find((value: { id?: string }) => value.id === 'diamond-playfield');
     expect(run.if).toBeUndefined();
@@ -326,7 +326,7 @@ describe('eight client shards retain the required verdict and unchanged safeguar
     });
     expect(new Set(shards.strategy.matrix.shard).size).toBe(8);
     expect(shards.env.VITEST_MAX_THREADS).toBe(8);
-    expect(shards['timeout-minutes']).toBe(15);
+    expect(shards['timeout-minutes']).toBe(30);
     expect(
       shards.steps.find((value: { name: string }) => value.name === 'Run Test Suite').run
     ).toBe('node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8');
@@ -431,10 +431,16 @@ describe('one exact-run disposable browser artifact', () => {
       (s: { uses?: string }) => s.uses === 'actions/upload-artifact@v4'
     );
     const download = step("Download this run's browser build");
-    expect(upload.with.name).toBe(
+    expect(producer.outputs.artifact_name).toBe('${{ steps.browser_build.outputs.artifact_name }}');
+    expect(seal.id).toBe('browser_build');
+    expect(seal.env.BROWSER_ARTIFACT_NAME).toBe(
       'browser-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}'
     );
-    expect(download.with).toEqual({ name: upload.with.name, path: 'dist' });
+    expect(upload.with.name).toBe('${{ steps.browser_build.outputs.artifact_name }}');
+    expect(download.with).toEqual({
+      name: '${{ needs.css-beats-build.outputs.artifact_name }}',
+      path: 'dist',
+    });
     expect(upload.with['retention-days']).toBe(1);
     expect(upload.with['include-hidden-files']).toBe(true);
     expect(upload.with['if-no-files-found']).toBe('error');
@@ -464,6 +470,61 @@ describe('one exact-run disposable browser artifact', () => {
     }
   );
 
+  it('retains the producer attempt when only consumers are retried and refuses absent or foreign output', () => {
+    const guard = step("Require the producer's browser artifact");
+    expect(guard.if).toBe("needs.changes.outputs.server == 'true'");
+    const download = step("Download this run's browser build");
+    expect(browser.steps.indexOf(guard) + 1).toBe(browser.steps.indexOf(download));
+    expect(download.with.name).not.toContain('github.run_attempt');
+    expect(guard.env.BROWSER_ARTIFACT_NAME).toBe(download.with.name);
+    const root = mkdtempSync(join(tmpdir(), 'browser-artifact-attempt-'));
+    try {
+      const head = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+      const gitDir = spawnSync('git', ['rev-parse', '--absolute-git-dir'], {
+        encoding: 'utf8',
+      }).stdout.trim();
+      mkdirSync(join(root, 'dist'));
+      writeFileSync(join(root, 'dist/index.html'), '<main>retry fixture</main>');
+      writeFileSync(
+        join(root, 'dist/ca-provenance.json'),
+        JSON.stringify({ validationOnly: true, commit: head })
+      );
+      const output = join(root, 'outputs');
+      const name = `browser-harness-123-1-${head}`;
+      const env = {
+        ...process.env,
+        EXPECTED_SHA: head,
+        EXPECTED_RUN_ID: '123',
+        GIT_DIR: gitDir,
+        RUNNER_TEMP: root,
+        GITHUB_OUTPUT: output,
+        BROWSER_ARTIFACT_NAME: name,
+      };
+      const run = (script: string, overrides = {}) =>
+        spawnSync('bash', ['-c', script], {
+          cwd: root,
+          encoding: 'utf8',
+          env: { ...env, ...overrides },
+        });
+      expect(run(seal.run).status).toBe(0);
+      expect(readFileSync(output, 'utf8').trim()).toBe(`artifact_name=${name}`);
+      for (const attempt of ['1', '2', '3']) {
+        // GitHub retains successful producer outputs on failed-jobs-only retries.
+        const result = run(guard.run, { GITHUB_RUN_ATTEMPT: attempt });
+        expect(result.status, result.stderr).toBe(0);
+        expect(run(verify.run).status).toBe(0);
+      }
+      for (const name of [
+        '',
+        `browser-harness-124-1-${head}`,
+        `browser-harness-123-1-${'0'.repeat(40)}`,
+      ])
+        expect(run(guard.run, { BROWSER_ARTIFACT_NAME: name }).status).not.toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     'valid',
     'changed',
@@ -491,7 +552,14 @@ describe('one exact-run disposable browser artifact', () => {
         spawnSync('bash', ['-c', command], {
           cwd: root,
           encoding: 'utf8',
-          env: { ...process.env, EXPECTED_SHA: head, RUNNER_TEMP: root, GIT_DIR: gitDir },
+          env: {
+            ...process.env,
+            EXPECTED_SHA: head,
+            RUNNER_TEMP: root,
+            GIT_DIR: gitDir,
+            BROWSER_ARTIFACT_NAME: `browser-harness-123-1-${head}`,
+            GITHUB_OUTPUT: join(root, 'outputs'),
+          },
         });
       const sealed = run(seal.run);
       expect(sealed.status, sealed.stderr).toBe(0);

@@ -126,6 +126,11 @@ describe('one publication transaction follows parallel preparation', () => {
       const job = caller.jobs[key] ?? client.jobs[key] ?? transaction.jobs[key];
       expect(job).toBeDefined();
       const body = { ...job };
+      if (key === 'client-tests' || key === 'build-and-store') {
+        const prior = key === 'client-tests' ? 20 : 30;
+        expect(body['timeout-minutes']).toBe(prior * 2);
+        body['timeout-minutes'] = prior;
+      }
       delete body.if;
       delete body.needs;
       // These independent gateway jobs retain their original snapshots too.

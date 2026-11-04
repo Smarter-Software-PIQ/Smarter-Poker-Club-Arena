@@ -30,3 +30,8 @@ credentials or production player data. Production installation still requires
 protected merge and the existing Apply Merged Migration workflow.
 
 The required chip-journal gate uses its pinned Node PostgreSQL client when `PGNODE` is supplied; native workstations use `psql`. Both connect only to the newly created private cluster. Fixture opening state commits explicitly before the rollback probes, preserving the same transaction boundaries under either client.
+
+The runtime-role case reproduces the Spin launch permission failure before the
+follow-up migration, then executes engine and browser updates through the real
+trigger functions. It preserves private converter permissions, rejects a forged
+conversion context and an unrelated registered-contract edit, and rolls back.

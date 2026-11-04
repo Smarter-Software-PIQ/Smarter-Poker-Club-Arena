@@ -760,6 +760,7 @@ def routine_owner_unresolved(state: dict[str, Any], cycle: dict[str, Any]) -> bo
 
 
 TERMINAL_OWNER_SETTLE_MS = 60_000
+ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS = 180
 TERMINAL_RESOLUTION_KEYS = {'schema', 'result', 'originalCycle', 'verifiedByRunId', 'verifiedByControlSha',
                             'verifiedByTargetSha', 'invocationId', 'observedAt', 'proof'}
 TERMINAL_PROOF_KEYS = {'failureDigest', 'checkpointIntentDigest', 'checkpointRefusalDigest', 'originalProcess',
@@ -1065,6 +1066,18 @@ def validate_routine_resolution(owner: str, resolution: Any, cycle: dict[str, An
     if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
         validate_cancelled_phase1_resolution(resolution, cycle)
         return
+    if owner not in pinned_routine_owners() and isinstance(resolution, dict) \
+            and resolution.get('result') == 'cancelled-announcement-proved':
+        validate_generic_cancelled_resolution(resolution, cycle)
+        return
+    if owner not in pinned_routine_owners() and isinstance(resolution, dict) \
+            and resolution.get('result') == 'unentered-cycle-proved':
+        validate_generic_unentered_resolution(resolution, cycle)
+        return
+    if owner not in pinned_routine_owners() and isinstance(resolution, dict) \
+            and resolution.get('result') == 'preguard-checkpoint-refusal-proved':
+        validate_generic_preguard_checkpoint_resolution(resolution, cycle)
+        return
     if owner != NINEF_RUN:
         die('routine failure resolution history is invalid')
     ninef_cycle(cycle)
@@ -1244,6 +1257,141 @@ def cancelled_phase1_proof(args: argparse.Namespace, state: dict[str, Any], cycl
 
 
 
+# Any later expired announcement-only owner is resolved by the same proof
+# without a per-run code change. Its identity comes from its own immutable
+# cycle; its sources from protected-main Git at its own control; its window
+# and thaw must agree exactly (no early-timer tolerance); the withdrawal
+# receipt, trace absence, unchanged runtime and seal checks are those of the
+# pinned owners above. Pinned historical owners keep their exact profiles.
+GENERIC_CANCELLED_SOURCE_NAMES = frozenset(CANCELLED_PHASE1_SOURCES)
+GENERIC_CANCELLED_CYCLE_KEYS = frozenset({'kind', 'policyId', 'policyDigest', 'startsAt', 'endsAt', 'runId',
+                                          'sha', 'controlSha', 'status', 'window'})
+UUID_RE = re.compile(r'^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$')
+
+
+def pinned_routine_owners() -> set[str]:
+    return {FAILED_ROUTINE_RUN, NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN,
+            CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN}
+
+
+def generic_cancelled_cycle(cycle: Any) -> dict[str, int]:
+    failed_routine_require(generic_cancelled_shape(cycle))
+    return cycle['window']
+
+
+def generic_cancelled_shape(cycle: Any) -> bool:
+    w = cycle.get('window') if isinstance(cycle, dict) else None
+    ints = lambda *v: all(type(x) is int for x in v)
+    return bool(isinstance(cycle, dict) and set(cycle) == GENERIC_CANCELLED_CYCLE_KEYS
+        and RUN_ID_RE.fullmatch(str(cycle['runId'])) is not None and cycle['runId'] not in pinned_routine_owners()
+        and SHA_RE.fullmatch(str(cycle['sha'])) is not None and SHA_RE.fullmatch(str(cycle['controlSha'])) is not None
+        and cycle['kind'] == 'hourly-reset' and cycle['policyId'] == SCHEDULE_POLICY_ID
+        and cycle['policyDigest'] == NINEF_POLICY_DIGEST and cycle['status'] == 'reserved'
+        and isinstance(w, dict) and set(w) == {'announcedAt', 'startsAt', 'endsAt', 'verified'} and w['verified'] is True
+        and ints(w['announcedAt'], w['startsAt'], w['endsAt'], cycle['startsAt'], cycle['endsAt'])
+        and w['announcedAt'] > 0 and w['startsAt'] == w['announcedAt'] + 120000 and w['endsAt'] == w['announcedAt'] + 420000
+        and cycle['startsAt'] == w['startsAt'] // 3600000 * 3600 and cycle['endsAt'] == cycle['startsAt'] + 300)
+
+
+def generic_cancelled_candidate(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
+    """Only an expired, never-committed announcement-only owner with a withdrawal receipt."""
+    if not generic_cancelled_shape(cycle):
+        return False
+    w = cycle['window']
+    return (cycle['runId'] not in state['committedRuns'] and time.time() * 1000 > w['endsAt']
+            and os.path.lexists(STATE_DIR / 'engine-release-cancellations' / (cycle['runId'] + '.receipt.json')))
+
+
+def generic_cancelled_started_at(value: Any, observed_at: int, window: dict[str, int], thaw: dict[str, Any]) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        started = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        birth = started.timestamp() * 1000
+        return (started.tzinfo is not None and 0 < birth < observed_at * 1000
+            and (birth < window['announcedAt'] or birth > max(window['endsAt'], thaw['thawRecordedAtMs'])))
+    except (ValueError, KeyError, TypeError):
+        return False
+
+
+def validate_generic_cancelled_resolution(resolution: Any, cycle: dict[str, Any], verify_receipt: bool = True) -> None:
+    w = generic_cancelled_cycle(cycle)
+    owner_run = cycle['runId']
+    failed_routine_require(isinstance(resolution, dict) and set(resolution) == TERMINAL_RESOLUTION_KEYS
+        and resolution['schema'] == 1 and resolution['result'] == 'cancelled-announcement-proved'
+        and resolution['originalCycle'] == cycle and RUN_ID_RE.fullmatch(str(resolution['verifiedByRunId']))
+        and resolution['verifiedByRunId'] != owner_run
+        and SHA_RE.fullmatch(str(resolution['verifiedByControlSha']))
+        and SHA_RE.fullmatch(str(resolution['verifiedByTargetSha']))
+        and not {cycle['sha'], cycle['controlSha']} & {resolution['verifiedByControlSha'], resolution['verifiedByTargetSha']}
+        and INVOCATION_ID_RE.fullmatch(str(resolution['invocationId']))
+        and type(resolution['observedAt']) is int and resolution['observedAt'] * 1000 > w['endsAt'])
+    proof = resolution['proof']
+    failed_routine_require(isinstance(proof, dict) and set(proof) == {'schema', 'originalCycle', 'recordHashes',
+        'retainedHashes', 'sourceHashes', 'thaw', 'container', 'instanceId', 'qualifiedHelperSHA256'}
+        and proof['schema'] == 'cancelled-routine-announcement-proof/v1' and proof['originalCycle'] == cycle
+        and isinstance(proof['sourceHashes'], dict) and set(proof['sourceHashes']) == GENERIC_CANCELLED_SOURCE_NAMES
+        and all(re.fullmatch('[0-9a-f]{64}', str(v)) for v in proof['sourceHashes'].values())
+        and INSTANCE_ID_RE.fullmatch(str(proof['instanceId']))
+        and isinstance(proof['container'], dict) and set(proof['container']) == {'id', 'startedAt', 'image'}
+        and CONTAINER_ID_RE.fullmatch(str(proof['container']['id']))
+        and re.fullmatch(r'sha256:[0-9a-f]{64}', str(proof['container']['image']))
+        and re.fullmatch('[0-9a-f]{64}', str(proof['qualifiedHelperSHA256'])))
+    thaw = proof['thaw']
+    failed_routine_require(isinstance(thaw, dict) and set(thaw) == {'announcedAtMs', 'freezeStartedAtMs',
+        'releasedThroughMs', 'ownershipToken', 'generation', 'thawRecordedAtMs'}
+        and thaw['announcedAtMs'] == w['announcedAt'] and thaw['freezeStartedAtMs'] == w['startsAt']
+        and thaw['releasedThroughMs'] == w['endsAt'] and isinstance(thaw['ownershipToken'], str)
+        and UUID_RE.fullmatch(thaw['ownershipToken'].lower()) is not None
+        and type(thaw['generation']) is int and thaw['generation'] > 0
+        and type(thaw['thawRecordedAtMs']) is int
+        and w['startsAt'] <= thaw['thawRecordedAtMs'] <= resolution['observedAt'] * 1000
+        and generic_cancelled_started_at(proof['container']['startedAt'], resolution['observedAt'], w, thaw))
+    for key, names in (('recordHashes', {'receipt','intent','quiescent','stop-issued'}),
+                       ('retainedHashes', {'entryHash','reservationHash','releasedHoldHash'})):
+        failed_routine_require(isinstance(proof[key], dict) and set(proof[key]) == names
+            and all(re.fullmatch('[0-9a-f]{64}', str(v)) for v in proof[key].values()))
+    if verify_receipt:
+        path = terminal_receipt_path(owner_run, resolution['verifiedByRunId'], resolution['invocationId'])
+        failed_routine_require(failed_routine_json(path) == resolution)
+
+
+def generic_cancelled_sources(repo: str, control: str, deadline: float) -> dict[str, str]:
+    """The owner's own protected-main sources, never caller-supplied hashes."""
+    failed_routine_require(SHA_RE.fullmatch(control) is not None)
+    failed_routine_command(['git', '-C', repo, 'merge-base', '--is-ancestor', control, 'refs/remotes/origin/main'], deadline)
+    hashes = {}
+    for name in sorted(GENERIC_CANCELLED_SOURCE_NAMES):
+        left = deadline - time.monotonic()
+        failed_routine_require(left > 0)
+        try:
+            raw = subprocess.run(['git', '-C', repo, 'show', control + ':server/scripts/' + name],
+                                 stdin=subprocess.DEVNULL, capture_output=True, check=True, timeout=min(left, 10),
+                                 env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'LC_ALL': 'C'}).stdout
+        except (OSError, subprocess.SubprocessError):
+            die('exact failed routine native proof failed or timed out')
+        failed_routine_require(0 < len(raw) < 262144)
+        hashes[name] = hashlib.sha256(raw).hexdigest()
+    return hashes
+
+
+def generic_cancelled_proof(args: argparse.Namespace, state: dict[str, Any], cycle: dict[str, Any],
+                            deadline: float) -> dict[str, Any]:
+    w = generic_cancelled_cycle(cycle)
+    owner_run = cycle['runId']
+    failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+        and owner_run not in state['committedRuns'] and time.time() * 1000 > w['endsAt'])
+    source = failed_routine_command(['git', '-C', args.repo, 'show',
+        str(args.control_sha) + ':scripts/ci/withdraw-waiting-engine-release.py'], deadline, 131072)
+    proof = json.loads(failed_routine_command([sys.executable, '-B', '-c', source,
+        '--phase1-cancellation-proof', owner_run], deadline, 16384, max_seconds=30))
+    failed_routine_require(isinstance(proof, dict) and proof.get('originalCycle') == cycle
+        and proof.get('sourceHashes') == generic_cancelled_sources(args.repo, cycle['controlSha'], deadline)
+        and isinstance(proof.get('container'), dict) and proof['container'].get('image') == state['desired']['imageId'])
+    proof['qualifiedHelperSHA256'] = hashlib.sha256(source.encode()).hexdigest()
+    return proof
+
+
 DAILY_REFUSAL_RUN = '41421209814-1'
 DAILY_REFUSAL_SHA = 'e64c2a68a211040b645efac90cef44206fc8b4a1'
 DAILY_REFUSAL_FAILURE = '98f2ad6cc2a23ea4e8c8c68ab08439d9c95e850e5753d249d065ebfa303964f2'
@@ -1322,6 +1470,300 @@ def daily_refusal_proof(state: dict[str,Any], cycle: dict[str,Any], deadline: fl
         return {'failureDigest':DAILY_REFUSAL_FAILURE,'sourceDigests':sources,
                 'nativeDigest':failed_routine_digest(native),'runtime':runtime,'database':json.loads(raw)}
     except (SystemExit,Exception):
+        return None
+
+
+
+# A GENERIC NEVER-ANNOUNCED FAILED OWNER (2026-11-02). A run that reserved its
+# hourly cycle and failed before any announcement (no bound window, no
+# recovery-window reservation, no checkpoint) owns nothing at runtime, yet its
+# 'reserved' cycle stayed authoritative and refused every later release
+# (41511864834-1). It resolves only by the same positive witnesses as the
+# pinned unentered daily profile: its canonical durable failure, the sealed
+# desired runtime it recovered, native quiescence with every request, intent,
+# checkpoint, retirement, hold, pin, lease and recovery-window trace absent,
+# both health views on one idle unfrozen instance with Inspector closed, and
+# the database idle with a fresh leader. Unproved owners stay authoritative.
+GENERIC_UNENTERED_CYCLE_KEYS = {'controlSha', 'endsAt', 'failure', 'kind', 'policyDigest', 'policyId', 'runId',
+                                'sha', 'startsAt', 'status'}
+GENERIC_UNENTERED_FAILURE_KEYS = {'completedAt', 'controlSha', 'invocationId', 'recoveredDesiredImageId',
+                                  'recoveredDesiredSha', 'result', 'runId', 'schema', 'sha', 'transactionExitStatus'}
+GENERIC_UNENTERED_PROOF_KEYS = {'failureDigest', 'nativeDigest', 'runtime', 'database'}
+
+
+def generic_unentered_shape(cycle: Any) -> bool:
+    f = cycle.get('failure') if isinstance(cycle, dict) else None
+    try:
+        return bool(isinstance(cycle, dict) and set(cycle) == GENERIC_UNENTERED_CYCLE_KEYS
+            and RUN_ID_RE.fullmatch(str(cycle['runId'])) is not None and cycle['runId'] not in pinned_routine_owners()
+            and SHA_RE.fullmatch(str(cycle['sha'])) is not None and SHA_RE.fullmatch(str(cycle['controlSha'])) is not None
+            and cycle['kind'] == 'hourly-reset' and cycle['policyId'] == SCHEDULE_POLICY_ID
+            and cycle['policyDigest'] == NINEF_POLICY_DIGEST and cycle['status'] == 'reserved'
+            and type(cycle['startsAt']) is int and type(cycle['endsAt']) is int
+            and cycle['startsAt'] > 0 and cycle['startsAt'] % 3600 == 0 and cycle['endsAt'] == cycle['startsAt'] + 300
+            and isinstance(f, dict) and set(f) == GENERIC_UNENTERED_FAILURE_KEYS
+            and f['schema'] == 1 and f['result'] == 'failed' and f['runId'] == cycle['runId']
+            and f['sha'] == cycle['sha'] and f['controlSha'] == cycle['controlSha']
+            and type(f['completedAt']) is int and f['completedAt'] > 0
+            and type(f['transactionExitStatus']) is int and f['transactionExitStatus'] != 0
+            and INVOCATION_ID_RE.fullmatch(str(f['invocationId'])) is not None
+            and SHA_RE.fullmatch(str(f['recoveredDesiredSha'])) is not None
+            and re.fullmatch('sha256:[0-9a-f]{64}', str(f['recoveredDesiredImageId'])) is not None)
+    except (KeyError, TypeError):
+        return False
+
+
+def generic_unentered_candidate(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
+    """Only an expired, never-committed, never-announced failed generic owner."""
+    return (generic_unentered_shape(cycle) and cycle['runId'] not in state['committedRuns']
+            and time.time() * 1000 > cycle['endsAt'] * 1000 + TERMINAL_OWNER_SETTLE_MS)
+
+
+def validate_generic_unentered_resolution(value: Any, cycle: dict[str, Any], verify_receipt: bool = True) -> None:
+    failed_routine_require(generic_unentered_shape(cycle))
+    owner = cycle['runId']
+    failed_routine_require(isinstance(value, dict) and set(value) == TERMINAL_RESOLUTION_KEYS
+        and value['schema'] == 1 and value['result'] == 'unentered-cycle-proved' and value['originalCycle'] == cycle
+        and RUN_ID_RE.fullmatch(str(value['verifiedByRunId'])) is not None and value['verifiedByRunId'] != owner
+        and all(SHA_RE.fullmatch(str(value[k])) is not None for k in ('verifiedByControlSha', 'verifiedByTargetSha'))
+        and not {cycle['sha'], cycle['controlSha']} & {value['verifiedByControlSha'], value['verifiedByTargetSha']}
+        and INVOCATION_ID_RE.fullmatch(str(value['invocationId'])) is not None
+        and type(value['observedAt']) is int
+        and value['observedAt'] * 1000 > cycle['endsAt'] * 1000 + TERMINAL_OWNER_SETTLE_MS)
+    proof = value['proof']
+    failed_routine_require(isinstance(proof, dict) and set(proof) == GENERIC_UNENTERED_PROOF_KEYS
+        and proof['failureDigest'] == failed_routine_digest(cycle['failure'])
+        and re.fullmatch('[0-9a-f]{64}', str(proof['nativeDigest'])) is not None)
+    runtime = proof['runtime']
+    failed_routine_require(isinstance(runtime, dict) and set(runtime) == {'containerId', 'startedAt', 'instanceId'}
+        and CONTAINER_ID_RE.fullmatch(str(runtime['containerId'])) is not None
+        and INSTANCE_ID_RE.fullmatch(str(runtime['instanceId'])) is not None and isinstance(runtime['startedAt'], str))
+    try:
+        birth = datetime.fromisoformat(runtime['startedAt'].replace('Z', '+00:00'))
+    except ValueError:
+        die('exact failed routine custody is unproved')
+    failed_routine_require(birth.tzinfo is not None and 0 < birth.timestamp() < value['observedAt'])
+    failed_routine_require(proof['database'] == {'schema': 'failed-routine-database-idle/v1',
+        'sha': cycle['failure']['recoveredDesiredSha'], 'instanceId': runtime['instanceId'],
+        'databaseIdle': True, 'freshLeader': True})
+    if verify_receipt:
+        failed_routine_require(failed_routine_json(terminal_receipt_path(owner, value['verifiedByRunId'],
+                                                                         value['invocationId'])) == value)
+
+
+def generic_unentered_proof(state: dict[str, Any], cycle: dict[str, Any], deadline: float) -> dict[str, Any] | None:
+    # Never synthesize an announcement or rewrite the cycle; the proof only
+    # observes that the run left nothing behind and the floor is idle.
+    try:
+        failed_routine_require(generic_unentered_candidate(state, cycle))
+        owner = cycle['runId']
+        failure = cycle['failure']
+        desired = state['desired']
+        failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+            and load_failure(owner) == failure
+            and desired['sha'] == failure['recoveredDesiredSha'] == FAILED_ROUTINE_DESIRED
+            and desired['imageId'] == failure['recoveredDesiredImageId'] == FAILED_ROUTINE_IMAGE)
+        native = failed_routine_native_proof(deadline, owner)
+        runtime = failed_routine_runtime(deadline)  # Includes closed Inspector.
+        failed_routine_database(runtime, deadline)
+        return {'failureDigest': failed_routine_digest(failure), 'nativeDigest': failed_routine_digest(native),
+                'runtime': runtime,
+                'database': {'schema': 'failed-routine-database-idle/v1', 'sha': FAILED_ROUTINE_DESIRED,
+                             'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True}}
+    except (SystemExit, Exception):
+        return None
+
+
+# A GENERIC PRE-GUARD CHECKPOINT REFUSAL OWNER (2026-11-02). A run that bound a
+# routine window, wrote its one-shot legacy checkpoint intent, and refused
+# before guardCall with checkpointInvoked:false, inspectorClosed:true and
+# cleanupConnections:0 (41535679597-1) never invoked the checkpoint or mutated
+# the serving runtime. Once its window has expired, the owned v3 thaw is
+# recorded in engine_maintenance_thaws, the serving runtime is idle/unfrozen
+# with Inspector closed, and all active release/intake units and request/intent/
+# pin/lease/hold artifacts are absent, it resolves by positive proof.
+GENERIC_PREGUARD_CYCLE_KEYS = GENERIC_UNENTERED_CYCLE_KEYS | {'window'}
+GENERIC_PREGUARD_PROOF_KEYS = {'failureDigest', 'checkpointIntentDigest', 'checkpointRefusalDigest',
+                               'nativeDigest', 'runtime', 'database'}
+
+
+def generic_preguard_checkpoint_shape(cycle: Any) -> bool:
+    f = cycle.get('failure') if isinstance(cycle, dict) else None
+    w = cycle.get('window') if isinstance(cycle, dict) else None
+    try:
+        return bool(isinstance(cycle, dict) and set(cycle) == GENERIC_PREGUARD_CYCLE_KEYS
+            and RUN_ID_RE.fullmatch(str(cycle['runId'])) is not None and cycle['runId'] not in pinned_routine_owners()
+            and SHA_RE.fullmatch(str(cycle['sha'])) is not None and SHA_RE.fullmatch(str(cycle['controlSha'])) is not None
+            and cycle['kind'] == 'hourly-reset' and cycle['policyId'] == SCHEDULE_POLICY_ID
+            and cycle['policyDigest'] == NINEF_POLICY_DIGEST and cycle['status'] == 'reserved'
+            and type(cycle['startsAt']) is int and type(cycle['endsAt']) is int
+            and cycle['startsAt'] > 0 and cycle['startsAt'] % 3600 == 0 and cycle['endsAt'] == cycle['startsAt'] + 300
+            and isinstance(w, dict) and set(w) == {'announcedAt', 'startsAt', 'endsAt', 'verified'}
+            and w['verified'] is True and all(type(w[k]) is int for k in ('announcedAt', 'startsAt', 'endsAt'))
+            and w['announcedAt'] > 0 and w['startsAt'] == w['announcedAt'] + 120000
+            and w['endsAt'] == w['announcedAt'] + 420000
+            and cycle['startsAt'] == w['startsAt'] // 3600000 * 3600
+            and isinstance(f, dict) and set(f) == GENERIC_UNENTERED_FAILURE_KEYS
+            and f['schema'] == 1 and f['result'] == 'failed' and f['runId'] == cycle['runId']
+            and f['sha'] == cycle['sha'] and f['controlSha'] == cycle['controlSha']
+            and type(f['completedAt']) is int and f['completedAt'] > 0
+            and type(f['transactionExitStatus']) is int and f['transactionExitStatus'] != 0
+            and INVOCATION_ID_RE.fullmatch(str(f['invocationId'])) is not None
+            and SHA_RE.fullmatch(str(f['recoveredDesiredSha'])) is not None
+            and re.fullmatch('sha256:[0-9a-f]{64}', str(f['recoveredDesiredImageId'])) is not None)
+    except (KeyError, TypeError):
+        return False
+
+
+def generic_preguard_checkpoint_candidate(state: dict[str, Any], cycle: dict[str, Any]) -> bool:
+    """Only an expired, never-committed routine owner with a bound window and legacy checkpoint intent."""
+    if not generic_preguard_checkpoint_shape(cycle):
+        return False
+    w = cycle['window']
+    request_root = Path(os.environ.get('ENGINE_RELEASE_REQUEST_ROOT', str(STATE_DIR / 'engine-release-requests')))
+    return (cycle['runId'] not in state['committedRuns']
+            and time.time() * 1000 > w['endsAt'] + TERMINAL_OWNER_SETTLE_MS
+            and os.path.lexists(request_root / (cycle['runId'] + '.legacy-checkpoint-intent')))
+
+
+def generic_preguard_checkpoint_native_proof(deadline: float, owner: str) -> dict[str, Any]:
+    units = {}
+    for prefix, extension in (('release', 'service'), ('intake', 'service'), ('intake', 'path')):
+        unit = f'club-arena-engine-{prefix}-v1@{owner}.{extension}'
+        value = failed_routine_unit_snapshot(unit, deadline)
+        if extension == 'service':
+            failed_routine_service_empty(unit, value, deadline)
+        require_absent(Path('/etc/systemd/system/multi-user.target.wants') / unit)
+        require_absent(Path('/etc/systemd/system/paths.target.wants') / unit)
+        units[unit] = value
+    request_root = Path(os.environ.get('ENGINE_RELEASE_REQUEST_ROOT', str(STATE_DIR / 'engine-release-requests')))
+    intake_root = Path(os.environ.get('ENGINE_RELEASE_INTAKE_ROOT', str(STATE_DIR / 'engine-intake-requests')))
+    pin_root = Path(os.environ.get('ENGINE_RELEASE_PIN_ROOT', str(STATE_DIR / 'engine-release-generation-pins')))
+    lease_root = Path(os.environ.get('ENGINE_RELEASE_IMAGE_LEASE_ROOT', str(STATE_DIR / 'engine-image-leases')))
+    roots = (
+        (request_root, ('request', 'intent', 'activation-entry', 'drill',
+         'main-inspector-retirement-intent', 'main-inspector-retirement-receipt',
+         'lightning-hold.json', 'break-deadline', 'awaiting-certificate')),
+        (intake_root, ('request', 'intent')),
+        (pin_root, ('generation',)),
+        (lease_root, ('lease',)))
+    for root, suffixes in roots:
+        for suffix in suffixes:
+            require_absent(root / (owner + '.' + suffix))
+    return units
+
+
+def generic_preguard_checkpoint_refusal(run_id: str, failure: dict[str, Any], window: dict[str, Any],
+                                        deadline: float) -> str:
+    """The failed invocation's journal holds exactly one pre-guard legacy
+    checkpoint refusal with checkpointInvoked:false, inspectorClosed:true and
+    cleanupConnections:0."""
+    unit = f'club-arena-engine-release-v1@{run_id}.service'
+    raw = failed_routine_command(['journalctl', '--unit=' + unit, '_SYSTEMD_INVOCATION_ID=' + failure['invocationId'],
+        '--no-pager', '--output=json',
+        '--output-fields=MESSAGE,_SYSTEMD_UNIT,_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP',
+        '--lines=4', '--grep="checkpointInvoked":'], deadline, 65536)
+    rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    failed_routine_require(len(rows) == 1)
+    row = rows[0]
+    outcome = json.loads(row.get('MESSAGE', ''))
+    stamp = str(row.get('__REALTIME_TIMESTAMP', ''))
+    failed_routine_require(row.get('_SYSTEMD_UNIT') == unit
+        and row.get('_SYSTEMD_INVOCATION_ID') == failure['invocationId'] and stamp.isdigit()
+        and window['startsAt'] * 1000 <= int(stamp) <= (failure['completedAt'] + 1) * 1000000
+        and isinstance(outcome, dict) and outcome.get('ok') is False and outcome.get('retryAllowed') is False
+        and outcome.get('checkpointInvoked') is False and outcome.get('inspectorClosed') is True
+        and outcome.get('cleanupConnections') == 0 and 'checkpoint' not in outcome and 'progress' not in outcome
+        and isinstance(outcome.get('reason'), str) and bool(outcome['reason']))
+    return failed_routine_digest(row)
+
+
+def validate_generic_preguard_checkpoint_resolution(value: Any, cycle: dict[str, Any],
+                                                    verify_receipt: bool = True) -> None:
+    failed_routine_require(generic_preguard_checkpoint_shape(cycle))
+    owner = cycle['runId']
+    w = cycle['window']
+    failed_routine_require(isinstance(value, dict) and set(value) == TERMINAL_RESOLUTION_KEYS
+        and value['schema'] == 1 and value['result'] == 'preguard-checkpoint-refusal-proved'
+        and value['originalCycle'] == cycle
+        and RUN_ID_RE.fullmatch(str(value['verifiedByRunId'])) is not None and value['verifiedByRunId'] != owner
+        and all(SHA_RE.fullmatch(str(value[k])) is not None for k in ('verifiedByControlSha', 'verifiedByTargetSha'))
+        and not {cycle['sha'], cycle['controlSha']} & {value['verifiedByControlSha'], value['verifiedByTargetSha']}
+        and INVOCATION_ID_RE.fullmatch(str(value['invocationId'])) is not None
+        and type(value['observedAt']) is int
+        and value['observedAt'] * 1000 > w['endsAt'] + TERMINAL_OWNER_SETTLE_MS)
+    proof = value['proof']
+    failed_routine_require(isinstance(proof, dict) and set(proof) == GENERIC_PREGUARD_PROOF_KEYS
+        and proof['failureDigest'] == failed_routine_digest(cycle['failure'])
+        and all(re.fullmatch('[0-9a-f]{64}', str(proof[k])) is not None
+                for k in ('checkpointIntentDigest', 'checkpointRefusalDigest', 'nativeDigest')))
+    runtime = proof['runtime']
+    failed_routine_require(isinstance(runtime, dict) and set(runtime) == {'containerId', 'startedAt', 'instanceId'}
+        and CONTAINER_ID_RE.fullmatch(str(runtime['containerId'])) is not None
+        and INSTANCE_ID_RE.fullmatch(str(runtime['instanceId'])) is not None and isinstance(runtime['startedAt'], str))
+    try:
+        birth = datetime.fromisoformat(runtime['startedAt'].replace('Z', '+00:00'))
+    except ValueError:
+        die('exact failed routine custody is unproved')
+    failed_routine_require(birth.tzinfo is not None and 0 < birth.timestamp() < value['observedAt'])
+    window_ms = {'announcedAt': w['announcedAt'], 'startsAt': w['startsAt'], 'endsAt': w['endsAt']}
+    expected = {'schema': 'terminal-owned-thaw/v1', 'sha': cycle['failure']['recoveredDesiredSha'],
+                'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True,
+                'ownedV3Thaw': True, **window_ms}
+    failed_routine_require(proof['database'] == expected
+        and all(type(proof['database'][k]) is bool for k in ('databaseIdle', 'freshLeader', 'ownedV3Thaw'))
+        and all(type(proof['database'][k]) is int for k in window_ms))
+    if verify_receipt:
+        failed_routine_require(failed_routine_json(terminal_receipt_path(owner, value['verifiedByRunId'],
+                                                                         value['invocationId'])) == value)
+
+
+def generic_preguard_checkpoint_proof(state: dict[str, Any], cycle: dict[str, Any],
+                                      deadline: float) -> dict[str, Any] | None:
+    try:
+        failed_routine_require(generic_preguard_checkpoint_candidate(state, cycle))
+        owner = cycle['runId']
+        failure = cycle['failure']
+        window = cycle['window']
+        desired = state['desired']
+        failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+            and load_failure(owner) == failure
+            and desired['sha'] == failure['recoveredDesiredSha'] == FAILED_ROUTINE_DESIRED
+            and desired['imageId'] == failure['recoveredDesiredImageId'] == FAILED_ROUTINE_IMAGE)
+        request_root = Path(os.environ.get('ENGINE_RELEASE_REQUEST_ROOT', str(STATE_DIR / 'engine-release-requests')))
+        intent = failed_routine_json(request_root / f'{owner}.legacy-checkpoint-intent')
+        failed_routine_require(isinstance(intent, dict) and intent.get('runId') == owner
+            and intent.get('controlSha') == cycle['controlSha'] and intent.get('source') == desired['sha']
+            and intent.get('retryAllowed') is False
+            and CONTAINER_ID_RE.fullmatch(str(intent.get('container', ''))) is not None
+            and INSTANCE_ID_RE.fullmatch(str(intent.get('instance', ''))) is not None
+            and type(intent.get('hostPid')) is int and intent['hostPid'] > 0
+            and type(intent.get('at')) in (int, float) and isinstance(intent.get('startedAt'), str)
+            and window['startsAt'] / 1000 <= intent['at'] < failure['completedAt']
+            and isinstance(intent.get('nativeCensus'), dict)
+            and intent['nativeCensus'].get('candidateSHA') == cycle['sha'])
+        refusal = generic_preguard_checkpoint_refusal(owner, failure, window, deadline)
+        native = generic_preguard_checkpoint_native_proof(deadline, owner)
+        runtime = failed_routine_runtime(deadline)  # Includes closed Inspector.
+        control = Path(__file__).resolve().parent
+        window_ms = {'announcedAt': window['announcedAt'], 'startsAt': window['startsAt'], 'endsAt': window['endsAt']}
+        raw = failed_routine_command([str(control / 'engine-release-database-proof.py'), '--env-file',
+            os.environ.get('ENV_FILE', os.environ.get('REPO_DIR', '/opt/club-arena') + '/server/.env'),
+            '--sha', desired['sha'], '--instance-id', runtime['instanceId'], '--terminal-owned-thaw',
+            '--window-announced-ms', str(window_ms['announcedAt']), '--window-starts-ms', str(window_ms['startsAt']),
+            '--window-ends-ms', str(window_ms['endsAt']),
+            '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'], deadline)
+        database = json.loads(raw)
+        failed_routine_require(database == {'schema': 'terminal-owned-thaw/v1', 'sha': desired['sha'],
+            'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True,
+            'ownedV3Thaw': True, **window_ms})
+        return {'failureDigest': failed_routine_digest(failure),
+                'checkpointIntentDigest': failed_routine_digest(intent),
+                'checkpointRefusalDigest': refusal,
+                'nativeDigest': failed_routine_digest(native),
+                'runtime': runtime,
+                'database': database}
+    except (SystemExit, Exception):
         return None
 
 
@@ -1605,7 +2047,13 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         proved = []
         for cycle in routine_cycles(state).values():
             owner = cycle['runId']
-            if owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN} or owner == run_id or not routine_owner_unresolved(state, cycle):
+            generic = owner not in pinned_routine_owners() and generic_cancelled_candidate(state, cycle)
+            unentered = (owner not in pinned_routine_owners() and not generic
+                         and generic_unentered_candidate(state, cycle))
+            preguard = (owner not in pinned_routine_owners() and not generic and not unentered
+                        and generic_preguard_checkpoint_candidate(state, cycle))
+            if (owner not in {NINEF_RUN, CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN, DAILY_REFUSAL_RUN, PREATTACH_RUN}
+                    and not generic and not unentered and not preguard) or owner == run_id or not routine_owner_unresolved(state, cycle):
                 continue
             if owner == PREATTACH_RUN:
                 establish_preattach_disposition(args, state, cycle, deadline)
@@ -1615,6 +2063,20 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
                 prove = lambda: daily_refusal_proof(state, cycle, deadline)
             if owner == PREATTACH_RUN:
                 prove = lambda: preattach_proof(state, cycle, deadline)
+            if generic:
+                def prove() -> dict[str, Any] | None:
+                    # An unproved generic owner simply stays authoritative; the
+                    # ordinary owner check that follows still refuses.
+                    try:
+                        return generic_cancelled_proof(args, state, cycle, deadline)
+                    except (SystemExit, ValueError, KeyError, TypeError):
+                        return None
+            if unentered:
+                def prove() -> dict[str, Any] | None:
+                    return generic_unentered_proof(state, cycle, deadline)
+            if preguard:
+                def prove() -> dict[str, Any] | None:
+                    return generic_preguard_checkpoint_proof(state, cycle, deadline)
             proof = prove()
             if proof is None:
                 continue
@@ -1625,11 +2087,26 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
             if (load_state() != state or prove() != proof or
                     failed_routine_current(args, deadline) != current):
                 continue
-            resolution = {'schema': 1, 'result': 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} else 'terminal-failure-proved', 'originalCycle': cycle,
+            resolution = {'schema': 1, 'result': 'preguard-checkpoint-refusal-proved' if preguard else 'unentered-cycle-proved' if unentered else 'preattach-refusal-proved' if owner == PREATTACH_RUN else 'unentered-daily-cycle-proved' if owner == DAILY_REFUSAL_RUN else 'cancelled-announcement-proved' if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN} or generic else 'terminal-failure-proved', 'originalCycle': cycle,
                 'verifiedByRunId': run_id, 'verifiedByControlSha': control_sha, 'verifiedByTargetSha': sha,
                 'invocationId': invocation, 'observedAt': int(time.time()), 'proof': proof}
             if owner in {CANCELLED_PHASE1_RUN, SECOND_CANCELLED_PHASE1_RUN, CURRENT26_CANCELLED_RUN}:
                 validate_cancelled_phase1_resolution(resolution, cycle, verify_receipt=False)
+            if generic:
+                try:
+                    validate_generic_cancelled_resolution(resolution, cycle, verify_receipt=False)
+                except SystemExit:
+                    continue  # unproved: the owner stays authoritative
+            if unentered:
+                try:
+                    validate_generic_unentered_resolution(resolution, cycle, verify_receipt=False)
+                except SystemExit:
+                    continue  # unproved: the owner stays authoritative
+            if preguard:
+                try:
+                    validate_generic_preguard_checkpoint_resolution(resolution, cycle, verify_receipt=False)
+                except SystemExit:
+                    continue  # unproved: the owner stays authoritative
             if owner == DAILY_REFUSAL_RUN:
                 validate_daily_refusal_resolution(resolution, cycle, verify_receipt=False)
             if owner == PREATTACH_RUN:
@@ -1722,6 +2199,14 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
                 print(json.dumps({'status':'daily'})); return
             kind = 'daily-restoration'
         starts = (now // 3600 + 1) * 3600
+        # An hourly cycle can only be announced in its :58 minute
+        # (recovery_window_reason admits [start-120, start-60)). Reserving an
+        # hour whose announcement minute has passed or is about to pass
+        # guarantees an unannounced failed owner that wedges every later
+        # release (41511864834-1 reserved 20:00 at 19:59:21). Such a run owns
+        # the following hour instead; nothing else about admission changes.
+        if starts - now < ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS:
+            starts += 3600
         key = str(starts)
         if key in cycles:
             print(json.dumps(cycles[key], sort_keys=True)); return

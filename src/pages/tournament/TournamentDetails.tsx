@@ -104,6 +104,8 @@ import { reportError } from '../../utils/errorReporter';
 import { platformFrozenMessage } from '../../utils/platformFrozen';
 import { formatBuyIn } from '../../utils/buyIn';
 import { useTournamentRegistration, isLateStatus } from '../../hooks/useTournamentRegistration';
+import { useTournamentStartHold } from '../../hooks/useTournamentStartHold';
+import MidwayMttServerUpdateModal from '../../components/tournament/MidwayMttServerUpdateModal';
 import { useMysteryBounty } from '../../hooks/useMysteryBounty';
 import { useTournamentStageView } from '../../hooks/useTournamentStageView';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
@@ -175,6 +177,15 @@ export default function TournamentDetails({
   inLobbyTab?: boolean;
 } = {}) {
   const { register: registerMtt, isRegistering: isRegisteringMtt } = useTournamentRegistration();
+  const mttStartHold = useTournamentStartHold();
+  const [showMttUpdateModal, setShowMttUpdateModal] = useState(false);
+  const autoShownMttHoldRef = useRef(false);
+  useEffect(() => {
+    if (mttStartHold.blocked && !autoShownMttHoldRef.current) {
+      autoShownMttHoldRef.current = true;
+      setShowMttUpdateModal(true);
+    }
+  }, [mttStartHold.blocked]);
 
   const { tournamentId: routeTournamentId } = useParams<{ tournamentId: string }>();
   const tournamentId = tournamentIdOverride || routeTournamentId;
@@ -1307,6 +1318,10 @@ export default function TournamentDetails({
    */
   const handleRegister = (isLate = false) => {
     if (!tournament || isTournamentEntryUnavailable(tournament, tournament.current_players)) return;
+    if (mttStartHold.blocked && !isLate && !isLateStatus(tournament.status)) {
+      setShowMttUpdateModal(true);
+      return;
+    }
     const t = tournament as unknown as {
       is_bounty?: boolean;
       bounty_amount?: number;
@@ -2278,6 +2293,11 @@ export default function TournamentDetails({
           unitCents={tournamentRowUnitCents(tabProps.tournament)}
         />
       )}
+      <MidwayMttServerUpdateModal
+        isOpen={showMttUpdateModal && mttStartHold.blocked}
+        message={mttStartHold.popupMessage}
+        onClose={() => setShowMttUpdateModal(false)}
+      />
     </PageErrorBoundary>
   );
 }

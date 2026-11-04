@@ -15,6 +15,8 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { getHeapStatistics } from 'node:v8';
+import { totalmem } from 'node:os';
 
 export interface ProcessMemorySample {
   /** Resident set size of the whole process, every isolate and every arena. */
@@ -22,6 +24,13 @@ export interface ProcessMemorySample {
   /** V8 main-isolate heap, committed and used. */
   heapTotalBytes: number;
   heapUsedBytes: number;
+  /** Actual main-isolate limit, distinct from allocated heapTotal. */
+  heapLimitBytes: number;
+  hostTotalBytes: number;
+  /** Node/libuv OS-imposed constraint; -1 means unknown or unconstrained. */
+  constrainedBytes: number;
+  /** Node/libuv available process memory; -1 if unavailable. */
+  availableBytes: number;
   /** Memory V8 knows about outside its heap (Buffers, bound C++ objects). */
   externalBytes: number;
   arrayBuffersBytes: number;
@@ -71,6 +80,15 @@ function readMainArenaBytes(): number {
   }
 }
 
+function memoryScalar(read: () => number, zeroIsUnknown = false): number {
+  try {
+    const value = read();
+    return Number.isSafeInteger(value) && value >= 0 && (!zeroIsUnknown || value > 0) ? value : -1;
+  } catch {
+    return -1;
+  }
+}
+
 let last: ProcessMemorySample | null = null;
 const CACHE_MS = 5_000;
 
@@ -80,13 +98,17 @@ const CACHE_MS = 5_000;
  */
 export function sampleProcessMemory(now: () => number = Date.now): ProcessMemorySample {
   const at = now();
-  if (last && at - last.sampledAt < CACHE_MS) return last;
+  if (last && at >= last.sampledAt && at - last.sampledAt < CACHE_MS) return last;
   const mu = process.memoryUsage();
   const status = readProcStatus();
   last = {
     rssBytes: mu.rss,
     heapTotalBytes: mu.heapTotal,
     heapUsedBytes: mu.heapUsed,
+    heapLimitBytes: memoryScalar(() => getHeapStatistics().heap_size_limit, true),
+    hostTotalBytes: memoryScalar(() => totalmem(), true),
+    constrainedBytes: memoryScalar(() => process.constrainedMemory(), true),
+    availableBytes: memoryScalar(() => process.availableMemory()),
     externalBytes: mu.external,
     arrayBuffersBytes: mu.arrayBuffers,
     nativeMainArenaBytes: readMainArenaBytes(),
@@ -108,6 +130,11 @@ export function processMemoryHealth(sample: ProcessMemorySample = sampleProcessM
   heapUsedMb: number;
   heapTotalMb: number;
   externalMb: number;
+  heapLimitMb: number | null;
+  hostTotalMb: number | null;
+  constrainedMb: number | null;
+  availableMb: number | null;
+  nodeVersion: string;
   nativeMainArenaMb: number | null;
   rssAnonMb: number | null;
   threads: number | null;
@@ -118,6 +145,11 @@ export function processMemoryHealth(sample: ProcessMemorySample = sampleProcessM
     heapUsedMb: mb(sample.heapUsedBytes),
     heapTotalMb: mb(sample.heapTotalBytes),
     externalMb: mb(sample.externalBytes),
+    heapLimitMb: sample.heapLimitBytes >= 0 ? mb(sample.heapLimitBytes) : null,
+    hostTotalMb: sample.hostTotalBytes >= 0 ? mb(sample.hostTotalBytes) : null,
+    constrainedMb: sample.constrainedBytes >= 0 ? mb(sample.constrainedBytes) : null,
+    availableMb: sample.availableBytes >= 0 ? mb(sample.availableBytes) : null,
+    nodeVersion: process.version,
     nativeMainArenaMb: sample.nativeMainArenaBytes >= 0 ? mb(sample.nativeMainArenaBytes) : null,
     rssAnonMb: sample.rssAnonBytes >= 0 ? mb(sample.rssAnonBytes) : null,
     threads: sample.threads >= 0 ? sample.threads : null,

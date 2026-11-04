@@ -63,6 +63,30 @@ type AddChipsResult = {
 };
 
 export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
+  /** A committed leave belongs to this controller, never to a later hand. */
+  protected readonly leaveFoldControllers = new WeakMap<object, Set<string>>();
+  protected fenceLeaveInput(userId: string): () => void {
+    const controller = this.handController;
+    const player = controller?.getState().players.find((p) => p.user_id === userId);
+    if (!controller || !player || player.is_folded || player.is_all_in) return () => {};
+    let users = this.leaveFoldControllers.get(controller);
+    if (!users) {
+      users = new Set<string>();
+      this.leaveFoldControllers.set(controller, users);
+    }
+    const existed = users.has(userId);
+    users.add(userId);
+    return () => {
+      if (!existed) users.delete(userId);
+    };
+  }
+  protected hasCommittedLeaveFold(userId: string): boolean {
+    return (
+      !!this.handController &&
+      this.leaveFoldControllers.get(this.handController)?.has(userId) === true
+    );
+  }
+
   private readonly addChipsInFlight = new Map<
     string,
     { amount: number; operation: Promise<AddChipsResult> }
@@ -403,7 +427,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     // remaining room from the start.
     const pending = this.pendingAddOns.get(userId) || 0;
     const effectiveStack = player.stack + pending;
-    const headroom = Math.max(0, maxBuyIn - effectiveStack);
+    const headroom = maxBuyIn === null ? amount : Math.max(0, maxBuyIn - effectiveStack);
     /* TO THE CENT (2026-09-08 sweep). `maxBuyIn - stack` is a float
        subtraction (50 - 33.33 = 16.670000000000002), and this number was
        sent to atomic_table_addon verbatim, which stores it verbatim in
@@ -580,7 +604,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
   protected async addDiamonds(
     userId: string,
     amount: number,
-    maxBuyIn: number,
+    maxBuyIn: number | null,
     midHand: boolean,
     player: SeatedPlayer,
     opId?: string
@@ -642,7 +666,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       const intended = [...this.diamondTopUpIntents.values()]
         .filter((intent) => intent.userId === userId)
         .reduce((sum, intent) => sum + intent.amount, 0);
-      const headroom = Math.max(0, Math.floor(maxBuyIn) - stack - intended);
+      const headroom =
+        maxBuyIn === null ? amount : Math.max(0, Math.floor(maxBuyIn) - stack - intended);
       const applied = Math.min(requested, headroom);
       if (applied < 1) {
         return { success: false, error: 'Already at the maximum buy-in for this table' };
@@ -658,7 +683,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     if (!Number.isSafeInteger(stack) || stack < 0) {
       return { success: false, error: 'Diamond Top Ups Require A Whole Stack' };
     }
-    const headroom = Math.max(0, Math.floor(maxBuyIn) - stack);
+    const headroom = maxBuyIn === null ? amount : Math.max(0, Math.floor(maxBuyIn) - stack);
     const applied = Math.min(Math.floor(amount), headroom);
     if (applied < 1) {
       return { success: false, error: 'Already at the maximum buy-in for this table' };
@@ -790,7 +815,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     }
     try {
       if (this.handController || this.hasSettlementInFlight()) return;
-      const maxBuyIn = Math.floor(this.getMaxBuyIn());
+      const limit = this.getMaxBuyIn();
+      const maxBuyIn = limit === null ? null : Math.floor(limit);
       const complete = (requestId: string, userId: string, amount: number, status: string) => {
         this.diamondTopUpIntents.delete(requestId);
         this.hub?.sendToUser(this.tableId, userId, {
@@ -829,7 +855,10 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           );
           return;
         }
-        const applied = Math.min(intent.amount, Math.max(0, maxBuyIn - stack));
+        const applied =
+          maxBuyIn === null
+            ? intent.amount
+            : Math.min(intent.amount, Math.max(0, maxBuyIn - stack));
         if (applied < 1) {
           complete(requestId, intent.userId, 0, 'capped');
           continue;
@@ -1631,6 +1660,12 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     const seatPlayer = state.players.find((p) => p.user_id === userId);
     if (!seatPlayer || seatPlayer.is_folded) return false;
     if (seatPlayer.is_all_in) return true;
+    let leavers = this.leaveFoldControllers.get(hc);
+    if (!leavers) {
+      leavers = new Set<string>();
+      this.leaveFoldControllers.set(hc, leavers);
+    }
+    leavers.add(userId);
     let folded = false;
     try {
       folded =
@@ -1670,6 +1705,22 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
    * still stands (applied or deferred to the hand end). The horse rotator
    * asks this before any automatic sit-back-in (2026-10-22).
    */
+  /** A stay clock holds the chips, never the player's current-hand input. */
+  protected holdLockedLeave(userId: string, remainingMs: number) {
+    this.disconnectEngine.markClientSitOut(this.tableId, userId);
+    this.sitOutLeaver(userId, this.foldLeaverNow(userId));
+    this.broadcastCurrentState();
+    return {
+      success: false,
+      immediate: false,
+      held: true,
+      sittingOut: true,
+      code: 'LEAVE_LOCKED' as const,
+      stay_remaining_ms: remainingMs,
+      error: leaveLabel(remainingMs),
+    };
+  }
+
   public isClientSitOut(userId: string): boolean {
     return this.disconnectEngine.isClientSitOut(this.tableId, userId);
   }
@@ -1697,6 +1748,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     error?: string;
     immediate: boolean;
     tournament?: boolean;
+    held?: boolean;
+    sittingOut?: boolean;
     /**
      * CHIP CONTINUITY (2026-09-04): 'LEAVE_LOCKED' when the player is ahead
      * of their buy-in with stay clock remaining. `stay_remaining_ms` says how
@@ -1938,6 +1991,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               immediate: false,
               error: 'Your Seat Identity Could Not Be Verified.',
             };
+          const releaseInputFence = this.fenceLeaveInput(userId);
           try {
             if (!opts.admin)
               await requestSeatDeparture(
@@ -1948,6 +2002,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
                 opts.forced ? 'forced' : 'voluntary'
               );
           } catch {
+            releaseInputFence();
             return {
               success: false,
               immediate: false,
@@ -2060,7 +2115,6 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         if (!opts.forced) {
           const lock = this.chipContinuity.leaveLock(userId, player.stack);
           if (lock.locked) {
-            const label = leaveLabel(lock.remainingMs);
             console.log(
               `[ServerTableEngine:${this.tableId}] leave refused for ${userId} - stay clock ${lock.remainingMs}ms remaining`
             );
@@ -2071,13 +2125,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               stay_remaining_ms: lock.remainingMs,
               timestamp: Date.now(),
             });
-            return {
-              success: false,
-              error: label,
-              immediate: false,
-              code: 'LEAVE_LOCKED',
-              stay_remaining_ms: lock.remainingMs,
-            };
+            return this.holdLockedLeave(userId, lock.remainingMs);
           }
         }
 
@@ -2132,6 +2180,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               immediate: false,
               error: 'Your Seat Identity Could Not Be Verified.',
             };
+          const releaseInputFence = this.fenceLeaveInput(userId);
           try {
             if (!opts.admin)
               await requestSeatDeparture(
@@ -2142,6 +2191,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
                 opts.forced ? 'forced' : 'voluntary'
               );
           } catch {
+            releaseInputFence();
             return {
               success: false,
               immediate: false,
@@ -2336,7 +2386,6 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               `[ServerTableEngine:${this.tableId}] leave refused at the door for ${userId} - stay clock ${res.stayRemainingMs}ms remaining`
             );
             this.chipContinuity.noteRefusal(userId, res.stayRemainingMs);
-            const label = leaveLabel(res.stayRemainingMs);
             this.hub?.emitEvent(this.tableId, {
               type: 'leave_blocked',
               table_id: this.tableId,
@@ -2345,13 +2394,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               timestamp: Date.now(),
             });
             this.broadcastCurrentState();
-            return {
-              success: false,
-              error: label,
-              immediate: false,
-              code: 'LEAVE_LOCKED',
-              stay_remaining_ms: res.stayRemainingMs,
-            };
+            return this.holdLockedLeave(userId, res.stayRemainingMs);
           }
           // Transport or database failure: the seat is untouched (one transaction)
           // and the player can try again. Nothing to tear down, because nothing left.

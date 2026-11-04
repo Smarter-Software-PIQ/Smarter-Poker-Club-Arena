@@ -32,6 +32,7 @@ class NativeLogReader(unittest.TestCase):
                      'StartedAt': '2026-11-02T14:00:00Z', 'FinishedAt': '2026-11-02T14:43:00Z'}
             docker.write_text('#!/bin/sh\n[ "$1" = inspect ] && [ "$2" = --format ] && [ "$4" = club-arena-engine ] || exit 1\nprintf "%s\\n" '+shlex.quote(json.dumps({'Id': 'a'*64, 'State': state}))+'\n')
             docker.chmod(0o700)
+            subprocess.run([str(docker)], env={'PATH': '/usr/bin:/bin'}, capture_output=True, timeout=4)
             result = subprocess.run([sys.executable, '-c', reader.CORE_CAPTURE_COMMAND],
                                     env={**os.environ, 'PATH': str(directory)+':/usr/bin:/bin'},
                                     capture_output=True, text=True, timeout=4)
@@ -1604,6 +1605,40 @@ class NativeLogReader(unittest.TestCase):
                 self.assertEqual(records[0]['scopeIds'], [EVENT])
                 self.assertNotIn('inferredScopeIds', records[0])
                 self.assertNotIn('scopeAttribution', records[0])
+
+    def test_native_deal_error_class_and_code_survive_without_private_payloads(self):
+        # The maintained reporter calls console.error(`[${context}]`, error).
+        # Use actual Node inspection, including Error properties and plain RPC objects.
+        script = """
+const context = 'ServerTableEngine.TABLE.deal_error_attempt_1';
+for (const error of [
+  new TypeError('PRIVATE cards credentials'),
+  Object.assign(new Error('PRIVATE message'), {code: 'ECONNRESET'}),
+  {code: '23514', details: 'PRIVATE row', hint: '', message: 'PRIVATE constraint'},
+]) console.error(`[${context}]`, error);
+""".replace('TABLE', TABLE)
+        raw = subprocess.run(['node', '-e', script], capture_output=True, check=True).stderr
+        records = reader.extract(raw, SCOPES)['records']
+        self.assertEqual([r['dealFailure'] for r in records], [
+            {'errorClass': 'TypeError', 'codes': []},
+            {'errorClass': 'Error', 'codes': ['ECONNRESET']},
+            {'errorClass': 'unknown', 'codes': ['23514']},
+        ])
+        self.assertNotIn('PRIVATE', json.dumps(records))
+
+    def test_deal_error_fields_do_not_infer_codes_from_messages_or_nested_objects(self):
+        cases = [
+            "Error: PRIVATE code: '23514' TypeError: message\n    code: '55P03',",
+            "{\n  message: \"code: '23514'\",\n  nested: {\n    code: '55P03'\n  },\n  code: 'ABCDE',\n}",
+            "PrivateError: PRIVATE\n  code: 'PRIVATE_SECRET',",
+        ]
+        for body in cases:
+            raw = ('[ServerTableEngine.'+TABLE+'.deal_error_attempt_2] '+body).encode()
+            record = reader.extract(raw, SCOPES)['records'][0]
+            self.assertEqual(record['dealFailure']['codes'], [])
+            self.assertNotIn('PRIVATE', json.dumps(record))
+        raw = ('[Tournament.finish] '+TABLE+" Error: PRIVATE\n  code: '23514',").encode()
+        self.assertNotIn('dealFailure', reader.extract(raw, SCOPES)['records'][0])
 
     def test_native_deal_failure_contexts_are_selected_exactly_and_redacted(self):
         contexts = ['deal_error_attempt_'+str(attempt) for attempt in range(1, 11)]

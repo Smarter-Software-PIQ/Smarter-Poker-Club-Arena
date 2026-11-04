@@ -22,11 +22,16 @@ describe('Lightning stand up stops re-entry before leaving', () => {
       })
     );
     const leave = vi.fn(async () => {});
-    render(<LightningLeaveControl clusterId="cluster" onLeave={leave} />);
+    const intent = vi.fn();
+    render(
+      <LightningLeaveControl clusterId="cluster" onLeave={leave} onLeaveIntentChange={intent} />
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Stand Up & Leave' }));
     fireEvent.click(screen.getByRole('button'));
     expect(mocks.stop).toHaveBeenCalledExactlyOnceWith('cluster');
     expect(leave).not.toHaveBeenCalled();
+    expect(intent).toHaveBeenCalledExactlyOnceWith(true);
+    expect(intent.mock.invocationCallOrder[0]).toBeLessThan(mocks.stop.mock.invocationCallOrder[0]);
     await act(async () => {
       answer(accepted);
     });
@@ -37,11 +42,15 @@ describe('Lightning stand up stops re-entry before leaving', () => {
     async (result) => {
       mocks.stop.mockResolvedValue(result);
       const leave = vi.fn(async () => {});
-      render(<LightningLeaveControl clusterId="cluster" onLeave={leave} />);
+      const intent = vi.fn();
+      render(
+        <LightningLeaveControl clusterId="cluster" onLeave={leave} onLeaveIntentChange={intent} />
+      );
       await act(async () => {
         fireEvent.click(screen.getByRole('button'));
       });
       expect(leave).not.toHaveBeenCalled();
+      expect(intent.mock.calls).toEqual([[true], [false]]);
       expect(mocks.warning).toHaveBeenCalledOnce();
       expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(false);
     }

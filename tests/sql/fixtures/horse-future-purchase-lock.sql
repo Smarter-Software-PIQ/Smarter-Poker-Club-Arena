@@ -9,6 +9,11 @@ DECLARE
   v_table_tournament_id uuid;
   v_status text;
 BEGIN
+  IF EXISTS(SELECT 1 FROM public.ca_diamond_arena_owner_closure c JOIN public.tournaments t ON t.club_id=c.club_id
+    WHERE t.id=COALESCE(p_tournament_id,(SELECT tournament_id FROM public.tables WHERE id=p_table_id)) AND c.closed
+    AND NOT EXISTS(SELECT 1 FROM public.tournament_players tp WHERE tp.tournament_id=t.id AND tp.user_id=p_user_id)) THEN
+    RETURN jsonb_build_object('ok',false,'reason','diamond_arena_closed');
+  END IF;
   PERFORM public.fn_ca_lock_settlement_lane_for_tournament(p_tournament_id, p_table_id);
   PERFORM pg_advisory_xact_lock_shared(530093);
   IF EXISTS(SELECT 1 FROM public.ca_operator_floor_hold h JOIN public.ca_launch_operator_scopes m ON m.operation_id=h.operation_id JOIN public.tournaments t ON t.id=COALESCE(p_tournament_id,(SELECT tournament_id FROM public.tables WHERE id=p_table_id)) WHERE h.mode='park' AND (t.club_id=ANY(m.club_ids) OR t.union_id=ANY(m.club_ids)) AND NOT EXISTS(SELECT 1 FROM public.tournament_players tp WHERE tp.tournament_id=t.id AND tp.user_id=p_user_id)) THEN

@@ -145,14 +145,16 @@ describe('live finish accepts only a verified immutable receipt', () => {
     const release = ordinary.indexOf('if (provenRefusal) releaseFinishGuard()', unknown);
     const stop = ordinary.indexOf(
       "this.fenceUnknownTerminalOutcome('Tournament.atomic_finish_manager_stop_failed')",
-      release
+      unknown
     );
     const cleanup = ordinary.indexOf('await this.cleanupCommittedTournament(receipt)', stop);
 
     expect(refusal).toBeGreaterThanOrEqual(0);
     expect(unknown).toBeGreaterThan(refusal);
     expect(release).toBeGreaterThan(unknown);
-    expect(stop).toBeGreaterThan(release);
+    expect(stop).toBeGreaterThan(unknown);
+    expect(stop).toBeLessThan(release);
+    expect(stop).toBeLessThan(ordinary.indexOf('await this.alertFinishRefusalOnce(', unknown));
     expect(cleanup).toBeGreaterThan(stop);
   });
 
@@ -171,19 +173,33 @@ describe('live finish accepts only a verified immutable receipt', () => {
 describe('lost responses are resolved by the same immutable request', () => {
   it('replays one exact request, then serializes behind the terminal transaction', () => {
     const request = terminalRpc.indexOf('const request = {');
-    const loop = terminalRpc.indexOf('for (let attempt = 1;', request);
+    const prepared = terminalRpc.indexOf(
+      'await prepareDurableTerminalRequest(originalRequest)',
+      request
+    );
+    const loop = terminalRpc.indexOf('for (let attempt = 1;', prepared);
+    const durableInvoke = terminalRpc.indexOf('await executeDurableTerminalRequest(durable)', loop);
     const invoke = terminalRpc.indexOf(
       "terminalAuthority.rpc('fn_complete_tournament_terminal', request)",
       loop
     );
-    const resolver = terminalRpc.indexOf(
-      "terminalAuthority.rpc('fn_resolve_tournament_terminal_outcome'",
-      invoke
-    );
+    const resolver = terminalRpc.indexOf('await resolveOriginalTerminalOutcomeWithArgs(', invoke);
     expect(request).toBeGreaterThanOrEqual(0);
-    expect(loop).toBeGreaterThan(request);
-    expect(invoke).toBeGreaterThan(loop);
+    expect(prepared).toBeGreaterThan(request);
+    expect(loop).toBeGreaterThan(prepared);
+    expect(durableInvoke).toBeGreaterThan(loop);
+    expect(invoke).toBeGreaterThan(durableInvoke);
     expect(resolver).toBeGreaterThan(invoke);
+    expect(terminalRpc).toMatch(
+      /const resolved = await resolveOriginalTerminalOutcomeWithArgs\(\s*originalRequest,\s*proposalRequest \?\? request,\s*durable\s*\)/
+    );
+    const resolverBody = sliceMethod(
+      terminalRpc,
+      'async function resolveOriginalTerminalOutcomeWithArgs('
+    );
+    expect(resolverBody).toMatch(
+      /durable\s*\?\s*await resolveDurableTerminalRequest\(durable\)\s*:\s*await terminalAuthority\.rpc\(\s*request\.kind === 'proposal_deal'\s*\? 'fn_resolve_tournament_terminal_proposal_outcome'\s*:\s*'fn_resolve_tournament_terminal_outcome',\s*args/
+    );
     expect(terminalRpc).toContain('verifyTournamentCompletionReceipt(');
   });
 

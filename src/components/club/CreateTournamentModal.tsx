@@ -451,7 +451,9 @@ export default function CreateTournamentModal({
     startingStack: parseInt(startingChips),
     rebuyChips: isRebuy || isReentry ? parseInt(rebuyChips) || parseInt(startingChips) : undefined,
     rebuyLevels: isRebuy || isReentry ? parseInt(lateRegLevels) || 8 : undefined,
-    addOnChips: addOnAvailable ? parseInt(startingChips) : undefined, /* Dan 2026-11-01: an add-on pays the starting stack, exactly */
+    addOnChips: addOnAvailable
+      ? parseInt(startingChips)
+      : undefined /* Dan 2026-11-01: an add-on pays the starting stack, exactly */,
     addOnLevels: addOnAvailable ? 1 : undefined,
   });
   const isFreeBuy = freeBuyTerms.freeBuy === true;
@@ -906,7 +908,9 @@ export default function CreateTournamentModal({
           isRebuy || isReentry ? parseInt(rebuyChips) || parseInt(startingChips) : undefined,
         rebuyCost: isRebuy || isReentry ? Math.round(Number(rebuyCost)) || parsedBuyIn : undefined,
         addOnAvailable,
-        addOnChips: addOnAvailable ? parseInt(startingChips) : undefined, /* Dan 2026-11-01: an add-on pays the starting stack, exactly */
+        addOnChips: addOnAvailable
+          ? parseInt(startingChips)
+          : undefined /* Dan 2026-11-01: an add-on pays the starting stack, exactly */,
         addOnCost: addOnAvailable ? Math.round(Number(addOnCost)) || parsedBuyIn : undefined,
         // Exactly one 60-second add-on period begins when rebuys close.
         // `addonBreakMinutes` carries the duration; addonLevels remains one
@@ -1007,7 +1011,13 @@ export default function CreateTournamentModal({
       if (effectiveScheduleEnabled) {
         const resolvedClubId = await resolveClubUUID(clubId);
         if (!isCurrent()) return;
-        const rpcConfig = tournamentService.buildRpcConfig(tournamentConfig);
+        // The spawner chooses a recurring-only event's start. Do not validate
+        // the synthetic immediate start against daily event hours. A schedule
+        // accompanied by a one-off still validates that event before saving.
+        const rpcConfig = tournamentService.buildRpcConfig({
+          ...tournamentConfig,
+          startTime: effectiveStartTimeMode === 'schedule_only' ? undefined : startTime,
+        });
         delete rpcConfig.startTime;
         rpcConfig.recurrenceCadence = effectiveCadence;
         if (effectiveCadence === 'monthly') rpcConfig.recurrenceDayOfMonth = scheduleDayOfMonth;

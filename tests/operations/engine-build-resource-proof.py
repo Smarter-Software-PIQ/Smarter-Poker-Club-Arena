@@ -28,6 +28,23 @@ def run(args, *, timeout=60, check=True, env=None):
     return result
 
 
+def prepare_census_clock(out):
+    # Disposable qualification input only: never copied into the built image.
+    source = ROOT / "tests/operations/legacy-census-clock.cc"
+    library = out / "legacy-census-clock.so"
+    run(["c++", "-std=c++17", "-shared", "-fPIC", str(source), "-o", str(library), "-ldl"], timeout=30)
+    return library, {"source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                     "library_sha256": hashlib.sha256(library.read_bytes()).hexdigest(),
+                     "scope": "isolated-scan-deadline-only-controlled-clock-not-latency"}
+
+
+def census_clock_args(scenario, library):
+    return (["--mount", f"type=bind,src={library},dst=/qualification-clock.so,readonly",
+             "--env", "LD_PRELOAD=/qualification-clock.so",
+             "--env", "CENSUS_QUALIFICATION_CLOCK_IMAGE=/app/native/legacy-census/legacy-census.node"]
+            if scenario == "scan-deadline" else [])
+
+
 def inspect(name):
     return json.loads(run(["docker", "inspect", name]).stdout)[0]
 
@@ -262,15 +279,17 @@ def main():
                             "process-refusal", "deadline-refusal", "headroom-refusal", "scan-deadline",
                             "cache-saturation", "cache-depth-boundaries"]
             receipt["legacy_native_census"] = {}
+            clock_library, receipt["controlled_clock_fixture"] = prepare_census_clock(out)
             for scenario in native_cases:
                 name = f"engine-native-census-{os.getpid()}-{scenario}"
                 heap = (["--max-old-space-size=16", "--max-semi-space-size=1"]
                         if scenario == "headroom-refusal" else ["--max-old-space-size=128"])
+                clock_args = census_clock_args(scenario, clock_library)
                 try:
                     qualification = run(["docker", "run", "--rm", "--name", name,
                         "--network", "none", "--memory", "1g", "--memory-swap", "1g",
                         "--read-only", "--mount", f"type=bind,src={ROOT},dst=/qualification,readonly",
-                        "--entrypoint", "node", receipt["image_id"], *heap,
+                        *clock_args, "--entrypoint", "node", receipt["image_id"], *heap,
                         "/qualification/tests/operations/legacy-census-native.mjs",
                         "/app/native/legacy-census/legacy-census.node", scenario], timeout=45)
                     (out / f"legacy-native-census-{scenario}.log").write_text(qualification.stdout)

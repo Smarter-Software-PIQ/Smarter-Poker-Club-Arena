@@ -84,6 +84,7 @@ import {
 } from '../tournament/mttStructurePolicy.js';
 import { SPIN_SEATS, SPIN_TIERS, spinBlindsForLevel } from '../config/spinSpec.js';
 import { localDateIn, zonedStartUtc } from './scheduleWallClock.js';
+import { tournamentStartAllowed } from '../maintenance/dailyWindow.js';
 import {
   FIXED_BOARD_RESYNC_MS,
   isRetiredMidwayBoardEvent,
@@ -1319,6 +1320,12 @@ export class ScheduledTournamentService {
     startTime: Date,
     deferralKey: string = spawnKey
   ): Promise<void> {
+    // THE DAILY WINDOW (owner 2026-11-03): no scheduled event starts outside
+    // 6:00 AM to 11:00 PM Chicago. The schedule writer already refuses such a
+    // fixed time; this also bounds interval schedules (which respawn five
+    // minutes after the last instance ends, at any hour) and any hand-written
+    // row. Nothing is claimed, so the occurrence is simply not published.
+    if (!tournamentStartAllowed(startTime)) return;
     // A spawn the bank refused is asked again only when the answer can have
     // changed (guaranteeRefusalBackoff.ts), not on every 60-second poll.
     if (!(await this.guaranteeBackoff.shouldAttempt(deferralKey, this.readFundingBank))) return;

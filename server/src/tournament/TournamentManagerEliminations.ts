@@ -9,6 +9,10 @@
  */
 
 import nodeCrypto from 'node:crypto';
+import {
+  readDurableTerminalRequest,
+  adoptDurableTerminalRequest,
+} from './terminalDurableRequest.js';
 import { UUID_SHAPE as UUID } from '../lib/uuidShape.js';
 import { isMaintenanceFrozen, isTerminalSettlementFrozen } from '../maintenance/freezeState.js';
 import { supabase } from '../services/supabase.js';
@@ -42,6 +46,7 @@ import { resolvePayoutStructure, parsePayoutStructure } from './payoutStructure.
 import type { ServerTableEngine } from '../engine/ServerTableEngine.js';
 import type { VerifiedTournamentCompletionReceipt } from './completionSettlementReceipt.js';
 import {
+  resolveOriginalTerminalOutcome,
   readCommittedTournamentTerminalReceipt,
   requestTournamentTerminalReceipt,
   TerminalSettlementDisagreementError,
@@ -52,6 +57,7 @@ import {
 import type { VerifiedSatelliteSettlementReceipt } from './satelliteSettlementReceipt.js';
 import type { VerifiedSatelliteQualifierReceipt } from './satelliteQualifierReceipt.js';
 import {
+  resolveOriginalSatelliteQualifierOutcome,
   readSatelliteQualifierState,
   requestSatelliteQualifierReceipt,
 } from './satelliteQualifierRpc.js';
@@ -62,6 +68,8 @@ import {
   type TournamentManagerWakeReceipt,
 } from './TournamentManagerWakeProtocol.js';
 import {
+  resolveOriginalSatelliteOutcome,
+  requestSatelliteSettlementReceipt,
   SatelliteSettlementOutcomeUnknownError,
   SatelliteSettlementRefusedError,
 } from './satelliteSettlementRpc.js';
@@ -5268,6 +5276,78 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     return null;
   }
 
+  protected override async continueOriginalTerminalRequest(): Promise<boolean> {
+    const original = await readDurableTerminalRequest(this.tournamentId);
+    if (!original) return false;
+    // No table engine has been admitted yet. Retain the original request and
+    // transfer only its generation, never reconstruct winners from new state.
+    const request = await adoptDurableTerminalRequest(original);
+    if (request.phase === 'closed') return false;
+    const identity = request.identity;
+    this.tournamentFinished = true;
+    try {
+      let cleaned: boolean;
+      if (identity.kind === 'satellite_qualifiers') {
+        const outcome = await resolveOriginalSatelliteQualifierOutcome(identity, request);
+        if (outcome.kind === 'unreadable') throw new Error(outcome.failure);
+        const receipt =
+          outcome.kind === 'committed'
+            ? outcome.receipt
+            : await requestSatelliteQualifierReceipt(this.tournamentId, [...identity.qualifierIds]);
+        cleaned = await this.cleanupCommittedSatelliteQualifiers(receipt);
+      } else if (identity.kind === 'satellite') {
+        const outcome = await resolveOriginalSatelliteOutcome(identity, request);
+        if (outcome.state === 'unknown') throw new Error(outcome.reason);
+        const receipt =
+          outcome.state === 'committed'
+            ? outcome.receipt
+            : await requestSatelliteSettlementReceipt(
+                this.tournamentId,
+                identity.observedWinnerId!
+              );
+        cleaned = await this.cleanupCommittedSatellite(receipt);
+      } else {
+        const outcome = await resolveOriginalTerminalOutcome(identity, request);
+        if (outcome.state === 'unknown') throw new Error(outcome.reason);
+        const receipt =
+          outcome.state === 'committed'
+            ? outcome.receipt
+            : await requestTournamentTerminalReceipt(
+                this.tournamentId,
+                identity.kind === 'places' ? 'places' : 'final_table_deal',
+                identity.observedWinnerId,
+                identity.kind === 'proposal_deal'
+                  ? {
+                      dealProposal: {
+                        proposalId: identity.proposalId,
+                        revision: identity.revision,
+                      },
+                    }
+                  : identity.kind === 'legacy_deal'
+                    ? { legacyDealAuthority: 'proposal_authority_not_active' }
+                    : {}
+              );
+        cleaned =
+          receipt.settlementMode === 'final_table_deal'
+            ? await this.settleFinalTableDeal(receipt)
+            : await this.cleanupCommittedTournament(receipt);
+      }
+      if (!cleaned && this.running) {
+        // Startup has not registered the ordinary sweep yet. Only after a
+        // verified committed receipt may its retained non-money tail enter
+        // the existing scheduler; unknown settlement never admits gameplay.
+        this.startEliminationChecker();
+        this.requestUrgentEliminationSweepAfter(0);
+      }
+    } catch (error) {
+      // A definite refusal has closed the original request under its lock.
+      // The next admission may then rebuild gameplay; unknown stays durable.
+      this.fenceUnknownTerminalOutcome('Tournament.original_terminal_continuation_stop_failed');
+      reportError(error, 'Tournament.original_terminal_continuation_failed');
+    }
+    return true;
+  }
+
   protected override async adoptCommittedTerminalOutcome(): Promise<boolean> {
     const lifecycle = this.captureLifecycleToken();
     if (!lifecycle || !this.lifecycleIsCurrent(lifecycle)) return false;
@@ -5519,6 +5599,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     if (cleaned) {
       this.retireCompletedCustodyAfterTerminalCleanup(receipt.tournamentId);
       this.committedFinishReceipt = null;
+    } else if (this.running) {
+      // The first failed terminal tail owns its continuation too. Completion
+      // has no later hand to wake it, and tournamentFinished suppresses the
+      // ordinary refused-finish rearm. Retry cleanup only, from this receipt.
+      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
     }
     return cleaned;
   }
@@ -5542,6 +5627,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     if (cleaned) {
       this.retireCompletedCustodyAfterTerminalCleanup(receipt.tournamentId);
       this.committedSatelliteReceipt = null;
+    } else if (this.running) {
+      // The first failed terminal tail owns its continuation too. Completion
+      // has no later hand to wake it, and tournamentFinished suppresses the
+      // ordinary refused-finish rearm. Retry cleanup only, from this receipt.
+      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
     }
     return cleaned;
   }
@@ -6345,6 +6435,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           return this.settleFinalTableDeal(committedReceipt);
         }
         if (!provenRefusal) {
+          this.fenceUnknownTerminalOutcome('Tournament.final_table_deal_manager_stop_failed');
           const alertCode = outcomeUnknown
             ? 'Tournament.final_table_deal_outcome_unknown'
             : 'Tournament.final_table_deal_unclassified_failure';
@@ -6368,7 +6459,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               alertCode,
             });
           }
-          this.fenceUnknownTerminalOutcome('Tournament.final_table_deal_manager_stop_failed');
           return false;
         }
 
@@ -6564,6 +6654,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           return this.settleFinalTableDeal(committedReceipt);
         }
         if (!provenRefusal) {
+          this.fenceUnknownTerminalOutcome('Tournament.final_table_deal_manager_stop_failed');
           const alertCode = outcomeUnknown
             ? 'Tournament.final_table_deal_outcome_unknown'
             : 'Tournament.final_table_deal_unclassified_failure';
@@ -6587,7 +6678,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               alertCode,
             });
           }
-          this.fenceUnknownTerminalOutcome('Tournament.final_table_deal_manager_stop_failed');
           return false;
         }
 
@@ -6725,6 +6815,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       this.retireCompletedCustodyAfterTerminalCleanup(receipt.tournamentId);
       this.committedFinalTableDealCleanupPending = false;
       this.committedFinalTableDealReceipt = null;
+    } else if (this.running) {
+      // The first failed terminal tail owns its continuation too. Completion
+      // has no later hand to wake it, and tournamentFinished suppresses the
+      // ordinary refused-finish rearm. Retry cleanup only, from this receipt.
+      this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
     }
     return cleaned;
   }
@@ -6864,6 +6959,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         const provenRefusal = satErr instanceof SatelliteSettlementRefusedError;
         const outcomeUnknown =
           satErr instanceof SatelliteSettlementOutcomeUnknownError || !provenRefusal;
+        if (!provenRefusal) {
+          this.fenceUnknownTerminalOutcome(
+            'Tournament.atomic_satellite_finish_manager_stop_failed'
+          );
+        }
         const alertIsNew = this.noteFinishRefusal(provenRefusal, satErr);
         const message =
           `[Satellite:${this.tournamentId.slice(0, 8)}] atomic terminal settlement ` +
@@ -6894,11 +6994,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           reportError(alertErr, 'Tournament.atomic_satellite_finish_alert_failed');
         }
         if (provenRefusal) releaseFinishGuard();
-        if (!provenRefusal) {
-          this.fenceUnknownTerminalOutcome(
-            'Tournament.atomic_satellite_finish_manager_stop_failed'
-          );
-        }
         return;
       }
 
@@ -6918,8 +7013,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         // one alert names the disagreement, and this manager stands down.
         // It is neither re-armed (that was the 5,575-replay loop of
         // 2026-09-10) nor treated as an unknown outcome.
-        await this.reportTerminalReceiptDisagreement(settlementErr);
         this.fenceUnknownTerminalOutcome('Tournament.atomic_finish_disagreement_stop_failed');
+        await this.reportTerminalReceiptDisagreement(settlementErr);
         return;
       }
       const provenRefusal = settlementErr instanceof TerminalSettlementRefusedError;
@@ -6932,6 +7027,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       }
       const outcomeUnknown =
         settlementErr instanceof TerminalSettlementOutcomeUnknownError || !provenRefusal;
+      // Fencing is synchronous; an unavailable alert writer cannot defer it.
+      if (!provenRefusal) {
+        this.fenceUnknownTerminalOutcome('Tournament.atomic_finish_manager_stop_failed');
+      }
       const alertIsNew = this.noteFinishRefusal(provenRefusal, settlementErr);
       if (provenRefusal) {
         // Counted by a bounded reason so a rule can say WHY finishes are
@@ -6967,9 +7066,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         reportError(alertErr, 'Tournament.atomic_finish_alert_failed');
       }
       if (provenRefusal) releaseFinishGuard();
-      if (!provenRefusal) {
-        this.fenceUnknownTerminalOutcome('Tournament.atomic_finish_manager_stop_failed');
-      }
       return;
     }
 

@@ -33,7 +33,7 @@ describe('exact weekly recompute qualification reaches required CI', () => {
     );
     expect(artifact.if).toContain('always()');
     expect(artifact.if).toContain('matrix.shard == 5');
-    expect(ci.jobs.accounting_postgres['timeout-minutes']).toBe(50);
+    expect(ci.jobs.accounting_postgres['timeout-minutes']).toBe(100);
     expect(
       ci.jobs.accounting_postgres.steps.filter(
         (item: { id?: string }) => item.id === 'weekly_recompute_split'

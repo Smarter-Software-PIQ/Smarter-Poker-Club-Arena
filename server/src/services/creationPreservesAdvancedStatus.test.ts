@@ -1,11 +1,27 @@
-import { afterEach, expect, it, vi } from 'vitest';
-import { TournamentRecurringService, SPIN_CONFIGS } from './TournamentRecurringService.js';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import { tournamentStartAllowed } from '../maintenance/dailyWindow.js';
+
+import {
+  TournamentRecurringService,
+  MTT_PUBLISH_LEAD_MS,
+  SPIN_CONFIGS,
+} from './TournamentRecurringService.js';
 import { supabase } from './supabase.js';
 import { MTT_BLIND_PRESETS } from '../tournament/mttStructurePolicy.js';
 import { HEADS_UP_BLIND_STRUCTURE, HEADS_UP_PAYOUTS } from '../config/headsUpSpec.js';
 
 vi.mock('./errorReporter.js', () => ({ reportError: vi.fn() }));
-afterEach(() => vi.restoreAllMocks());
+// Creation assertions exercise the admitted path independently of the runner hour.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-04T18:00:00.000Z'));
+  expect(tournamentStartAllowed(new Date(Date.now() + MTT_PUBLISH_LEAD_MS))).toBe(true);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 const config = {
   name: 'Creation Race',
@@ -99,12 +115,19 @@ it.each(['createTournament', 'createXMTT', 'createSNG', 'createSpin'])(
       method === 'createXMTT'
         ? service[method](selected, 'union', 'club')
         : service[method](selected);
-    await startedSeeding;
-    expect(inserted?.status).toBe('REGISTERING');
-    status = 'RUNNING';
-    release();
-    expect(await creating).toMatchObject({ tournamentId: 'event' });
-    expect(status).toBe('RUNNING');
-    expect(updates).toEqual([]);
+    try {
+      // A refusal must fail this assertion immediately, not wait for an unreachable seed.
+      expect(
+        await Promise.race([startedSeeding.then(() => 'seeding'), creating.then(() => 'returned')])
+      ).toBe('seeding');
+      expect(inserted?.status).toBe('REGISTERING');
+      status = 'RUNNING';
+      release();
+      expect(await creating).toMatchObject({ tournamentId: 'event' });
+      expect(status).toBe('RUNNING');
+      expect(updates).toEqual([]);
+    } finally {
+      release();
+    }
   }
 );

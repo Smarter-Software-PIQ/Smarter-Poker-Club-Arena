@@ -1160,6 +1160,18 @@ export const processHeapTotalBytes = alwaysOnRegistry.gauge(
   'poker_engine_heap_total_bytes',
   'V8 main-isolate heap committed'
 );
+export const processHeapLimitBytes = alwaysOnRegistry.gauge(
+  'poker_engine_heap_limit_bytes',
+  'V8 main-isolate heap limit; -1 when unknown'
+);
+export const processMemoryConstraintBytes = alwaysOnRegistry.gauge(
+  'poker_engine_memory_constraint_bytes',
+  'Node OS-imposed process memory constraint; -1 when unknown or unconstrained'
+);
+export const processAvailableMemoryBytes = alwaysOnRegistry.gauge(
+  'poker_engine_available_memory_bytes',
+  'Node OS-reported memory available to the process; -1 when unavailable'
+);
 export const processExternalBytes = alwaysOnRegistry.gauge(
   'poker_engine_external_bytes',
   'Memory V8 accounts for outside its heap (Buffers, bound C++ objects)'
@@ -1186,6 +1198,9 @@ export function refreshProcessMemoryGauges(): void {
   processRssBytes.set(s.rssBytes);
   processHeapUsedBytes.set(s.heapUsedBytes);
   processHeapTotalBytes.set(s.heapTotalBytes);
+  processHeapLimitBytes.set(s.heapLimitBytes);
+  processMemoryConstraintBytes.set(s.constrainedBytes);
+  processAvailableMemoryBytes.set(s.availableBytes);
   processExternalBytes.set(s.externalBytes);
   processArrayBuffersBytes.set(s.arrayBuffersBytes);
   processNativeMainArenaBytes.set(s.nativeMainArenaBytes);

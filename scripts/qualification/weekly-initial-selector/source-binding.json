@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 274871,
-      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+      "bytes": 278311,
+      "sha256": "8891a5a8976a5c75f5d7f385b7490f062195e179288b31c8138dfbb421f2add4"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -2357,5 +2357,163 @@
       "bytes": 274871,
       "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
     }
+  },
+  "pgdgRepositoryKeySourceAudit20261102": {
+    "reason": "Reviewed exact installer-only workflow diff: fetch the byte-identical PGDG signing key from apt.postgresql.org instead of the repeatedly failing website TLS endpoint. Preserve HTTPS/curl failure propagation/Signed-By, every package version, test, assertion, deadline, runner, financial input and historical receipt.",
+    "previousCiPin": {
+      "bytes": 274871,
+      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+    },
+    "currentCiPin": {
+      "bytes": 275034,
+      "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
+    },
+    "keySha256": "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76",
+    "validation": "Both official endpoints returned identical key bytes; eight local installer/mirror regressions pass. Exact-head hosted native execution remains required. Source identity only, not historical financial or live recertification.",
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "undrawnSpinCancellationAudit20261103": {
+    "reason": "Reviewed additive accounting shard4 native Spin cancellation qualification and exact input classifier extension. No existing job, fixture assertion, timeout or financial certificate is relaxed or restamped. Native PostgreSQL regression and source contracts qualify the addition; production installation remains separate.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previousSHA256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05",
+        "currentSHA256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+      }
+    ]
+  },
+  "finishUnionNativeEnforcement20261103": {
+    "reason": "Reviewed additive required accounting shard3 union-finish/cash-hand contention step and isolated-input routing. Runtime financial authorities, existing assertions and historical qualification outcomes unchanged. This is source identity, not financial recertification or live proof.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previousSHA256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e",
+        "currentSHA256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "fixedLimitQualificationWiring20261103": {
+    "reason": "Add one native PostgreSQL fixed-limit policy regression to existing accounting shard3. All existing financial commands, assertions, matrices and gates remain unchanged. Current workflow source identity only; no financial or live certificate restamp.",
+    "changes": {
+      "files": {
+        "previous": {
+          "bytes": 275817,
+          "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+        },
+        "current": {
+          "bytes": 276110,
+          "sha256": "d7e5d2f9ec932ee89ec040211a7dbf259f794f860caef61db8e3aded3bada90a"
+        }
+      }
+    }
+  },
+  "tournamentRecoveryProtectedCashComposition20261103": {
+    "source": "Protected main 2e978404745d8e89f632205c954497c5e1c2dc69 adds fixed-limit native CI beside retained tournament recovery and union contention qualification.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "prior": {
+          "bytes": 276540,
+          "sha256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+        },
+        "current": {
+          "bytes": 276833,
+          "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "browserProducerArtifactIdentity20261103": {
+    "reason": "CSS consumers use the successful producer job output on partial reruns instead of recomputing an absent artifact from their newer attempt. Same run/SHA, sealed file bytes and validation-only provenance remain checked. Accounting steps are unchanged.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 276833,
+      "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
+    },
+    "current": {
+      "bytes": 277650,
+      "sha256": "8a2e47338053bac98f660f07e062dd45ac3f684e61e3d8996208c6e1035abe73"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "verdictSparseCheckout20261103": {
+    "reason": "Only informational verdict checkout selects docs/agent-policy. Two-minute budget, revision, needs, all report assertions and every other job unchanged. Current input identity only; no historical qualification or live proof restamped.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 277650,
+      "sha256": "8a2e47338053bac98f660f07e062dd45ac3f684e61e3d8996208c6e1035abe73"
+    },
+    "current": {
+      "bytes": 277752,
+      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
+    }
+  },
+  "retainedOwnerQualificationScheduling20261103": {
+    "reason": "Exact retained-owner wrapper runs once before competing workloads on required server shard1 and is excluded only from subsequent full-suite calls. All44 assertions,120second total, other test files, financial native steps and required joins unchanged. Strict inverse workflow normalization and actual four-shard command selection qualify coverage. Current source identity only; no historical verdict restamped.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 277752,
+      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
+    },
+    "current": {
+      "bytes": 278022,
+      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "historicalQualificationJobCapacity20261103": {
+    "reason": "Measured checkout8m03 plus setup1m22 plus isolated44case3m09 plus prior fullsuite15m55 exceeds25minute job. Only CI engine job capacity40minutes; all commands, individual deadlines, accounting inputs and historical verdicts unchanged.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 278022,
+      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+    },
+    "current": {
+      "bytes": 278022,
+      "sha256": "a5eae1a5e8f9ffe45860dca4a68167fd4e2f1a98d511797f0b041936c6fdf3e3"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "ownerDirectedQualificationCapacity20261103": {
+    "reason": "Direct owner instruction doubles enumerated CI qualification/build job capacities only. Individual test deadlines, financial inputs/assertions, production operation budgets and historical verdicts remain unchanged. Reviewed current source identity only.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278022,
+          "sha256": "a5eae1a5e8f9ffe45860dca4a68167fd4e2f1a98d511797f0b041936c6fdf3e3"
+        },
+        "current": {
+          "bytes": 278025,
+          "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "nov3AttendanceNativeEnforcement20261103": {
+    "reason": "Reviewed five-line CI addition: execute exact dated zero-guarantee/attendance PostgreSQL qualification in existing accounting shard2. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certificate restamped.",
+    "changes": [
+      {
+        "section": "files",
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278025,
+          "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
+        },
+        "current": {
+          "bytes": 278311,
+          "sha256": "8891a5a8976a5c75f5d7f385b7490f062195e179288b31c8138dfbb421f2add4"
+        }
+      }
+    ]
   }
 }

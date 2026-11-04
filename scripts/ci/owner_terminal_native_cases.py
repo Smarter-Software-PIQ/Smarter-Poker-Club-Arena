@@ -8,6 +8,7 @@ def snapshot(e,db,label):
  result.update(json.loads(out.strip()));return result
 
 def exercise(e,db,event,op,money_hash,amount,fee,label):
+ authority='' if e.report.get('genuine_management_retirement') else SERVICE
  call="public.fn_ca_owner_retire_tournament('"+op+"','"+event+"','"+money_hash+"')"
  before=snapshot(e,db,label+'-before')
  def refuse(name,body,reason):
@@ -26,15 +27,15 @@ def exercise(e,db,event,op,money_hash,amount,fee,label):
   right.query('BEGIN;'+SERVICE+"DO $$DECLARE failed boolean:=false;BEGIN BEGIN PERFORM "+call+";EXCEPTION WHEN lock_not_available THEN failed:=true;END;IF NOT failed THEN RAISE EXCEPTION 'concurrent lane admitted';END IF;END$$;")
  finally:left.close();right.close()
  assert snapshot(e,db,label+'-concurrent-unchanged')==before
- sql_file(e,db,label+'-preview','BEGIN;'+SERVICE+'SELECT '+call+';SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;')
+ sql_file(e,db,label+'-preview','BEGIN;'+authority+'SELECT '+call+';SET CONSTRAINTS ALL IMMEDIATE;ROLLBACK;')
  assert snapshot(e,db,label+'-preview-unchanged')==before
  sql_file(e,db,label+'-late-fault',"BEGIN;"+SERVICE+"CREATE FUNCTION pg_temp.owner_receipt_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'native_owner_receipt_fault';END$$;CREATE TRIGGER native_owner_receipt_fault BEFORE INSERT ON public.tournament_cancellation_receipts FOR EACH ROW EXECUTE FUNCTION pg_temp.owner_receipt_fault();DO $$DECLARE failed boolean:=false;BEGIN BEGIN PERFORM "+call+";EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'native_owner_receipt_fault' THEN RAISE;END IF;failed:=true;END;IF NOT failed THEN RAISE EXCEPTION 'fault absent';END IF;END$$;ROLLBACK;")
  assert snapshot(e,db,label+'-late-fault-unchanged')==before
- _,out,_=sql_file(e,db,label+'-commit','BEGIN;'+SERVICE+'SELECT '+call+';SET CONSTRAINTS ALL IMMEDIATE;COMMIT;')
+ _,out,_=sql_file(e,db,label+'-commit','BEGIN;'+authority+'SELECT '+call+';SET CONSTRAINTS ALL IMMEDIATE;COMMIT;')
  receipt=next(json.loads(x) for x in out.splitlines() if x.startswith('{') and 'receipt_version' in x)
  assert receipt['receipt_version']==6 and receipt['financial']['amount']==amount and receipt['fee_receipt']['amount']==fee
  after=snapshot(e,db,label+'-after')
- _,out,_=sql_file(e,db,label+'-replay','BEGIN;'+SERVICE+'SELECT '+call+';COMMIT;')
+ _,out,_=sql_file(e,db,label+'-replay','BEGIN;'+authority+'SELECT '+call+';COMMIT;')
  assert next(json.loads(x) for x in out.splitlines() if x.startswith('{') and 'receipt_version' in x)==receipt
  assert snapshot(e,db,label+'-replay-unchanged')==after
  for verb in ('UPDATE smarter_private.owner_retirement_pool_transfers SET receipt=receipt','DELETE FROM smarter_private.owner_retirement_pool_transfers','TRUNCATE smarter_private.owner_retirement_pool_transfers'):
@@ -46,7 +47,7 @@ def exercise(e,db,event,op,money_hash,amount,fee,label):
  e.report.setdefault('cases',[]).extend(label+':'+x for x in ['concurrent-lane-refused','orphan-admission-refused','stale-review','wrong-role','orphan-transfer-refused','rollback','late-fault-atomic','commit-conservation','canonical-six','idempotent-replay','immutable','prior-awards'])
  return receipt
 
-def chips(e,db,root,manifest,human=False):
+def chips(e,db,root,manifest,human=False,manual=False):
  target=next(x for x in manifest['targets'] if x['asset']=='chips' and x['tournament_id'] not in ['2781bcd7-cc8a-4713-ab3e-0d0a81fdf110','6379b29e-1307-4e8b-91e7-e9a0975cd64d','d5decc98-cd0f-417f-aa28-6df009a74c76','7986217a-0a67-4585-bd43-254356a9cb54'])
  if human:target=next(x for x in manifest['targets'] if x['tournament_id']=='2781bcd7-cc8a-4713-ab3e-0d0a81fdf110')
  event=target['tournament_id'];op='ac000000-0000-4000-8000-000000000002';table='ad000000-0000-4000-8000-000000000002'
@@ -72,14 +73,20 @@ def chips(e,db,root,manifest,human=False):
   for a,b in replacements.items():seed=seed.replace(a,b)
   seed=seed.replace('IS DISTINCT FROM 5::numeric\n     OR (SELECT count(*)','IS DISTINCT FROM 195::numeric\n     OR (SELECT count(*)')
  sql_file(e,db,'real-owner-chip-entry','BEGIN;'+seed+'COMMIT;')
+ # The concurrent promo-funded bounty reader must survive retirement installation.
+ sql_file(e,db,'promo-shadow-preserved',"BEGIN;SET LOCAL session_replication_role=replica;DO $$DECLARE old_row record;new_row record;BEGIN SELECT * INTO old_row FROM public.fn_ca_tournament_escrow_chips('"+event+"');INSERT INTO public.chip_ledger(performed_by,from_type,from_entity_id,to_type,to_entity_id,tournament_id,amount,category,metadata,status) VALUES('47965354-0e56-43ef-931c-ddaab82af765','promo_wallet','47965354-0e56-43ef-931c-ddaab82af765','prize_liability','"+event+"','"+event+"',1,'promo_send','{\"kind\":\"midway_free_buy_promo_head\"}','posted');SELECT * INTO new_row FROM public.fn_ca_tournament_escrow_chips('"+event+"');IF new_row.bounty_balance<>old_row.bounty_balance+1 OR new_row.prize_balance<>old_row.prize_balance OR new_row.fee_balance<>old_row.fee_balance THEN RAISE EXCEPTION 'promo bounty accounting lost';END IF;INSERT INTO public.chip_ledger(performed_by,from_type,from_entity_id,to_type,to_entity_id,tournament_id,amount,category,metadata,status) VALUES('47965354-0e56-43ef-931c-ddaab82af765','promo_wallet','47965354-0e56-43ef-931c-ddaab82af765','prize_liability','"+event+"','"+event+"',1,'reversal','{\"kind\":\"midway_free_buy_promo_head\"}','posted');SELECT * INTO new_row FROM public.fn_ca_tournament_escrow_chips('"+event+"');IF to_jsonb(new_row)<>to_jsonb(old_row) THEN RAISE EXCEPTION 'promo reversal accounting lost';END IF;END$$;ROLLBACK;")
  sql_file(e,db,'owner-chip-start',"BEGIN;SET LOCAL session_replication_role=replica;UPDATE public.tournaments SET started_at=(SELECT original_started_at FROM smarter_private.owner_tournament_deletion_intents WHERE tournament_id='"+event+"') WHERE id='"+event+"';UPDATE public.tournament_players SET status='playing' WHERE tournament_id='"+event+"';COMMIT;")
  if human:
   sql_file(e,db,'original-human-charge-identities',"BEGIN;SET LOCAL session_replication_role=replica;UPDATE public.profiles SET is_horse=false WHERE id='eed278a8-3ca2-4e2d-a196-0a0cd9e74f90';UPDATE public.tournaments SET status='RUNNING' WHERE id='"+event+"';UPDATE public.chip_ledger SET id='322489e1-e6a3-4f6e-a8b9-50f66d7866a5' WHERE id=(SELECT source_ledger_id FROM public.tournament_refund_entitlements WHERE tournament_id='"+event+"');UPDATE public.tournament_refund_entitlements SET id='26b465dd-600d-42eb-9f37-68f6052febac',source_ledger_id='322489e1-e6a3-4f6e-a8b9-50f66d7866a5' WHERE tournament_id='"+event+"';COMMIT;")
-  sql_file(e,db,'original-human-bank-refund','BEGIN;'+SERVICE+"SELECT public.fn_ca_owner_retirement_bank_refund('26b465dd-600d-42eb-9f37-68f6052febac');COMMIT;")
+  if manual:
+   from owner_manual_refund_native import recognize
+   recognize(e,db,root,event)
+  else:
+   sql_file(e,db,'original-human-bank-refund','BEGIN;'+SERVICE+"SELECT public.fn_ca_owner_retirement_bank_refund('26b465dd-600d-42eb-9f37-68f6052febac');COMMIT;")
  money_hash=prepare_quiesced(e,db,event,op,table)
  if human:
   before=snapshot(e,db,'human-required-refund-before')
-  sql_file(e,db,'human-required-refund-refused',"BEGIN;"+SERVICE+"SET LOCAL session_replication_role=replica;DELETE FROM smarter_private.owner_retirement_bank_refunds WHERE tournament_id='"+event+"';SET LOCAL session_replication_role=origin;DO $$DECLARE failed boolean:=false;BEGIN BEGIN PERFORM public.fn_ca_owner_retire_tournament('"+op+"','"+event+"','"+money_hash+"');EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'owner_retirement_original_refund_missing' THEN RAISE;END IF;failed:=true;END;IF NOT failed THEN RAISE EXCEPTION 'missing refund admitted';END IF;END$$;ROLLBACK;")
+  sql_file(e,db,'human-required-refund-refused',"BEGIN;"+SERVICE+"SET LOCAL session_replication_role=replica;DELETE FROM smarter_private."+("owner_retirement_manual_refunds" if manual else "owner_retirement_bank_refunds")+" WHERE tournament_id='"+event+"';SET LOCAL session_replication_role=origin;DO $$DECLARE failed boolean:=false;BEGIN BEGIN PERFORM public.fn_ca_owner_retire_tournament('"+op+"','"+event+"','"+money_hash+"');EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'owner_retirement_original_refund_missing' THEN RAISE;END IF;failed:=true;END;IF NOT failed THEN RAISE EXCEPTION 'missing refund admitted';END IF;END$$;ROLLBACK;")
   assert snapshot(e,db,'human-required-refund-after')==before
   e.report.setdefault('cases',[]).append('human-original-bank-refund-required')
  receipt=exercise(e,db,event,op,money_hash,4.5 if human else 90,0.5 if human else 10,'chips-human-refunded' if human else 'chips')

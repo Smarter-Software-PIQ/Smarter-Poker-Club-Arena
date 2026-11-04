@@ -867,6 +867,25 @@ initialise_phase1_cycle() {
   fi
   phase1_custody_admission
   if [ "$prior_cycle" = none ]; then
+    # A later, source-bound owner window selects its own :53 notice / :55
+    # certificate. Keep the full custody gate above and never reserve a second
+    # on-the-hour cycle underneath it. Existing routine owners remain unchanged.
+    if printf '%s' "${ACTIVATION_FLOOR_JSON:-null}" | SHA="$SHA" CONTROL_SHA="$CONTROL_SHA" python3 -c '
+import json,os,sys,time
+r=json.load(sys.stdin)
+valid=(isinstance(r,dict)
+       and r.get("schema")=="engine-release-activation-floor/v2-owner-window"
+       and r.get("supersedesPhase1Schedule") is True
+       and r.get("ownerWindowId")==os.environ.get("ACTIVATION_FLOOR_OWNER_WINDOW")
+       and bool(r.get("ownerWindowId"))
+       and r.get("targetSha")==os.environ.get("SHA")
+       and r.get("controlSha")==os.environ.get("CONTROL_SHA")
+       and type(r.get("expiresEpoch")) is int
+       and r["expiresEpoch"]>int(time.time()))
+sys.exit(0 if valid else 1)
+'; then
+      return 0
+    fi
     local fresh_health cause
     fresh_health="$(legacy_entry_read curl -sS --max-time 5 http://127.0.0.1:8080/health)" || fresh_health='{}'
     cause="$(recovery_window_reason "$fresh_health")"
@@ -937,7 +956,13 @@ raise SystemExit(0 if m.get("phase")=="counting_down" and type(a) is int and (p.
     promise_args=(--promise-floor-proof "$proof")
   fi
   if [ "$LOCK_HELD" != 1 ]; then acquire_engine_lock 'routine window binding'; took=1; fi
-  source_target_is_current
+  # This runs inside command substitutions (legacy_checkpoint_countdown and
+  # maintenance_certificate return their value on stdout). A forward target
+  # behind main prints ENGINE_RELEASE_SUPERSEDED_BY on stdout; captured, it
+  # became part of the break-end epoch and killed the owner at its own
+  # window ("unbound variable" / "integer expression expected") after the
+  # announcement, wedging every later release. Keep stdout clean here.
+  source_target_is_current >&2
   bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" bind-routine-window --repo "$REPO_DIR" --run-id "$RUN_ID" "${promise_args[@]}")" || rc=$?
   if [ "$took" = 1 ]; then release_engine_lock; fi
   [ "$rc" = 0 ] || return "$rc"
@@ -997,7 +1022,28 @@ source_target_is_current() {
     [ "$fetch_wait" -le 20 ] || fetch_wait=20
     if GIT_NO_REPLACE_OBJECTS=1 GIT_HTTP_LOW_SPEED_LIMIT=1024 GIT_HTTP_LOW_SPEED_TIME=15 \
       legacy_entry_read timeout --signal=TERM --kill-after=5s "${fetch_wait}s" \
-      git -C "$REPO_DIR" fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'; then
+      env -u GIT_CONFIG -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+        -u GIT_ASKPASS -u SSH_ASKPASS -u GIT_SSL_NO_VERIFY \
+        GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+        bash -c '
+      set -euo pipefail
+      # Fetch public source without changing origin or using host credentials.
+      # Local includes, rewrites and HTTP overrides must not redirect this request.
+      if git -C "$1" config --local --no-includes --name-only \
+        --get-regexp "^(url\..*\.insteadof|include\..*|includeif\..*|http\..*|extensions\.worktreeconfig)$" >/dev/null; then
+        echo "unsafe local Git transport configuration" >&2
+        exit 78
+      else
+        rc=$?
+        [ "$rc" = 1 ] || exit "$rc"
+      fi
+      exec git -c credential.helper= -c core.askPass=/bin/false \
+        -c http.extraHeader= -c http.followRedirects=false -c http.sslVerify=true \
+        -c protocol.allow=never -c protocol.https.allow=always \
+        -C "$1" fetch --no-tags \
+        https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena.git \
+        +refs/heads/main:refs/remotes/origin/main
+      ' -- "$REPO_DIR"; then
       fetched=1
       break
     fi
@@ -3013,6 +3059,13 @@ while :; do
       bounded_sleep 5
       continue
     fi
+    # Only a bare epoch is a break end; anything else refuses before mutation.
+    if ! [[ "$LEGACY_COUNTDOWN_END" =~ ^[1-9][0-9]*$ ]]; then
+      LEGACY_ENTRY_DEADLINE_MS=0
+      echo '[engine-release-transaction] legacy countdown returned a non-epoch value; refused before entry' >&2
+      bounded_sleep 5
+      continue
+    fi
     LEGACY_ENTRY_BREAK_END_EPOCH="$LEGACY_COUNTDOWN_END"
     legacy_entry_trace admitted verified
   elif [ "$CERTIFICATE_RC" -eq 2 ]; then
@@ -3100,6 +3153,14 @@ while :; do
   if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ]; then
     if ! LEGACY_COUNTDOWN_END="$(legacy_checkpoint_countdown "$BREAK_ENTRY_BUDGET_MS" "$LEGACY_ENTRY_BREAK_END_EPOCH" locked)"; then
       legacy_entry_trace refused countdown_refused
+      LEGACY_ENTRY_DEADLINE_MS=0
+      release_engine_lock
+      bounded_sleep 5
+      continue
+    fi
+    # The locked recheck must name the same bare epoch it was admitted with.
+    if [ "$LEGACY_COUNTDOWN_END" != "$LEGACY_ENTRY_BREAK_END_EPOCH" ]; then
+      legacy_entry_trace refused countdown_epoch_mismatch
       LEGACY_ENTRY_DEADLINE_MS=0
       release_engine_lock
       bounded_sleep 5

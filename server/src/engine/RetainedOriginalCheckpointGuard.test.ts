@@ -93,6 +93,17 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     frozen = frozen;
     gate = lightningFormationGate;
   }
+  class LightningHandHost {
+    instanceId = 'observer-finished-host';
+    state = 'complete';
+    handEndReleased = true;
+    keepaliveTimer = null;
+    horseTimer = null;
+    horseAbort = null;
+    decisionOpenFor = null;
+    actionLock = false;
+    watching = new Map();
+  }
   class HandController {
     serializeRecoveryState() {
       return 'actual-private-controller';
@@ -200,6 +211,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
   const events: string[] = [];
   const controls: any = {
     onAttest: null,
+    remainingMs: 300_000,
     parkError: false,
     partialStop: false,
     unknownBank: false,
@@ -315,6 +327,8 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     timeBankMeta: new Map(),
     parkedTimeBanks: {},
     timeBankEngine: {
+      capturePlayerForRecovery: (_tableId: string, playerId: string) =>
+        bankRows[playerId] ? structuredClone(bankRows[playerId]) : null,
       getBanksForTable: () =>
         Object.keys(bankRows).map((playerId) => ({ playerId, isActive: false, armed: false })),
     },
@@ -392,7 +406,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     stopOperation: null,
     releaseBoundaryOnly: false,
     recoveryReadPending: false,
-    remainingMs: () => 300_000,
+    remainingMs: () => controls.remainingMs,
   });
   maintenance.lastDurableState = Object.fromEntries(
     ['phase', 'announcedAt', 'breakStartedAt', 'breakEndsAt', 'reason', 'ownershipToken'].map(
@@ -444,6 +458,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     lightningRegistry: { LightningRegistry, LightningHosting },
     lightningSupervisor: { LightningSupervisor },
     lightningWorker: { LightningClusterWorker },
+    lightningHost: { LightningHandHost },
     lightningFormation: { LightningFormationGate, lightningFormationGate },
     base: { ServerTableEngineBase },
     engine: { ServerTableEngine },
@@ -452,6 +467,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     manager: { TournamentManager },
     controller: { HandController },
     dataActorContext: {
+      bindToProcessRoot: (callback: (...args: any[]) => any) => bind(null, callback),
       bindTournamentDataAuthority: bind,
       currentTournamentDataAuthority: () => currentActor,
     },
@@ -565,6 +581,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     addDetachedManager,
     lightningFormationGate,
     lightningWorker,
+    lightningHost: new LightningHandHost(),
     discoveredLightningWorkers,
     discoveredLightningHosts,
     discoveredManagers,
@@ -688,6 +705,53 @@ describe('serialized retained-original guard owner contract', () => {
     expect(await f.run()).toMatchObject({
       ok: false,
       reason: 'retained_manager_children_changed',
+      attemptedTables: 0,
+    });
+    expect(f.events).not.toContain('stop');
+  });
+  it('settles a no-op seat-move redrive enqueued during the freeze and still stops once', async () => {
+    const f = fixture();
+    let bumped = false;
+    f.controls.onAttest = () => {
+      if (bumped) return;
+      bumped = true;
+      f.manager.tournamentSeatMoveAuthorityRevision++;
+      f.manager.tournamentSeatMoveSerialTail = Promise.resolve();
+    };
+    expect(await f.run()).toMatchObject({ ok: true, verifiedTables: 1 });
+    expect(f.events.filter((e: string) => e === 'stop')).toHaveLength(1);
+  });
+  it('refuses continuing seat-move admissions at the owned deadline before any stop', async () => {
+    const f = fixture();
+    let active = true;
+    const churn = () => {
+      if (!active) return;
+      f.controls.remainingMs -= 10_000;
+      f.manager.tournamentSeatMoveAuthorityRevision++;
+      f.manager.tournamentSeatMoveSerialTail = Promise.resolve().then(churn);
+    };
+    f.controls.onAttest = churn;
+    try {
+      expect(await f.run()).toMatchObject({
+        ok: false,
+        reason: 'retained_reserve_exhausted',
+        attemptedTables: 0,
+      });
+      expect(f.events).not.toContain('stop');
+    } finally {
+      active = false;
+      await f.manager.tournamentSeatMoveSerialTail;
+    }
+  });
+  it('refuses a settled serial that left a pending seat-move outcome before any stop', async () => {
+    const f = fixture();
+    f.controls.onAttest = () => {
+      f.manager.tournamentSeatMoveAuthorityRevision++;
+      f.manager.pendingTournamentSeatMoveOutcomes.set('move', {});
+    };
+    expect(await f.run()).toMatchObject({
+      ok: false,
+      reason: 'retained_manager_authority_unproven',
       attemptedTables: 0,
     });
     expect(f.events).not.toContain('stop');
@@ -843,5 +907,15 @@ describe('Lightning ownership is part of the serialized checkpoint fleet', () =>
       restartAuthorized: false,
     });
     expect(f.events).not.toContain('stop');
+  });
+
+  it('admits a terminal, released LightningHandHost retained only as an observer frame', async () => {
+    const f = fixture();
+    f.discoveredLightningHosts.push(f.lightningHost);
+    expect(await f.run()).toMatchObject({
+      ok: true,
+      stage: 'complete',
+      verifiedTables: 1,
+    });
   });
 });

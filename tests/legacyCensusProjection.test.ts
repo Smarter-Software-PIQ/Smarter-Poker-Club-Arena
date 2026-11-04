@@ -1,4 +1,5 @@
 import vm from 'node:vm';
+import { EventEmitter } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -8,12 +9,46 @@ import {
   readLegacyCensusMemory,
   legacyCensusMemoryAdmission,
   projectLegacyCensus,
+  readLegacyCensusOverflow,
   bindLegacyCensusModules,
   collectMarkedLegacyCensus,
   retireLegacyCensusBinding,
 } from '../server/scripts/legacy-engine-checkpoint.mjs';
 
 describe('legacy native heap census projection', () => {
+  it('accepts only closed bounded overflow counts, never arbitrary target data', () => {
+    const value = (counts: unknown, extra = {}) => ({
+      type: 'string',
+      value: JSON.stringify({ schema: 'legacy-native-census-overflow/v1', counts, ...extra }),
+    });
+    expect(readLegacyCensusOverflow(value([1, 2, 17996, 2, 2]))).toEqual({
+      schema: 'legacy-native-census-counts/v1',
+      gameServers: 1,
+      tableEngines: 2,
+      tournamentManagers: 17996,
+      lightningWorkers: 2,
+      lightningHosts: 2,
+    });
+    for (const counts of [
+      [1, 2, 17993, 2, 2],
+      [1, 2, 22097, 2, 2],
+      [1, 2, 22096, 2, 2],
+      [1, 2, -1, 2, 2],
+      [1, 2, 2003.5, 2, 2],
+      [1, 2, '2003', 2, 2],
+      [1, 2, 2003, 2],
+      null,
+    ])
+      expect(readLegacyCensusOverflow(value(counts))).toBeNull();
+    expect(
+      readLegacyCensusOverflow(value([1, 2, 17996, 2, 2], { privatePayload: 'secret' }))
+    ).toBeNull();
+    expect(readLegacyCensusOverflow({ type: 'string', value: 'invalid' })).toBeNull();
+    expect(
+      readLegacyCensusOverflow({ type: 'object', value: value([1, 2, 17996, 2, 2]).value })
+    ).toBeNull();
+  });
+
   it('matches five native concrete identity sets using one bounded marked census without invoking traps', () => {
     const result = spawnSync(
       process.execPath,
@@ -204,9 +239,97 @@ describe('legacy native heap census projection', () => {
     );
     expect(clockReads).toBe(2);
     const excess = Array.from({ length: 4001 }, () => new roots[1]());
-    expect(() => projectLegacyCensus.call(excess, modules, Date.now() + 5000)).toThrow(
-      'native census count refused'
-    );
+    const projected = projectLegacyCensus.call(excess, modules, Date.now() + 5000);
+    expect(projected[1]).toEqual(excess);
+    const mixed = [
+      ...Array.from({ length: 9000 }, () => new roots[1]()),
+      ...Array.from({ length: 9000 }, () => new roots[2]()),
+      new roots[0](),
+    ];
+    const overflow = projectLegacyCensus.call(mixed, modules, Date.now() + 5000);
+    expect(typeof overflow).toBe('string');
+    expect(JSON.parse(overflow)).toEqual({
+      schema: 'legacy-native-census-overflow/v1',
+      counts: [1, 9000, 9000, 0, 0],
+    });
+    expect(() =>
+      projectLegacyCensus.call(Array(22097).fill(excess[0]), modules, Date.now() + 5000)
+    ).toThrow('native census count refused');
+  });
+
+  it('stops walking at EventEmitter.prototype so unrelated EventEmitters are not marked while EventEmitter subclasses still match', () => {
+    class ServerTableEngineBase extends EventEmitter {}
+    class ServerTableEngine extends ServerTableEngineBase {}
+    class TournamentManagerBase extends EventEmitter {}
+    class TournamentManager extends TournamentManagerBase {}
+    class GameServer {}
+    class LightningClusterWorker {}
+    class LightningHandHost {}
+    const modules = {
+      gameServer: { GameServer },
+      engine: { ServerTableEngine },
+      manager: { TournamentManager },
+      lightningWorker: { LightningClusterWorker },
+      lightningHost: { LightningHandHost },
+    };
+    const key = '__legacyEngineCensus_44444444444444444444444444444444';
+    const deadline = Date.now() + 5000;
+    const engineInstance = new ServerTableEngine();
+    const managerInstance = new TournamentManager();
+    const unrelatedEmitter = new EventEmitter();
+    let markerDuringCollect: object | null = null;
+    let emitterProtoDuringCollect: object | null = null;
+    let engineBaseProtoDuringCollect: object | null = null;
+    let managerBaseProtoDuringCollect: object | null = null;
+    const nativeStub = {
+      sourceSHA256: 'ff995c8955cfa3de5e70871b3139bd246c9f76e89b848e48ba052149b434c4dc',
+      collect(marker: object) {
+        markerDuringCollect = marker;
+        emitterProtoDuringCollect = Object.getPrototypeOf(EventEmitter.prototype);
+        engineBaseProtoDuringCollect = Object.getPrototypeOf(ServerTableEngineBase.prototype);
+        managerBaseProtoDuringCollect = Object.getPrototypeOf(TournamentManagerBase.prototype);
+        const candidates = [engineInstance, managerInstance, unrelatedEmitter];
+        return candidates.filter((obj) => {
+          let cur = Object.getPrototypeOf(obj);
+          while (cur !== null) {
+            if (cur === marker) return true;
+            cur = Object.getPrototypeOf(cur);
+          }
+          return false;
+        });
+      },
+    };
+    class StubSession {
+      connect() {}
+      post(_method: string, _params: unknown, cb: (err: null, res: unknown) => void) {
+        cb(null, { result: { objectId: 'marker-id' } });
+      }
+      disconnect() {}
+    }
+    const context = vm.createContext({
+      Object,
+      Date,
+      Number,
+      Array,
+      Error,
+      JSON,
+      process: {
+        availableMemory: () => 1024 * 1024 * 1024,
+        getBuiltinModule: (name: string) =>
+          name === 'node:inspector' ? { Session: StubSession } : process.getBuiltinModule(name),
+      },
+    });
+    const bind = vm.runInContext(`(${bindLegacyCensusModules.toString()})`, context);
+    const collect = vm.runInContext(`(${collectMarkedLegacyCensus.toString()})`, context);
+    bind.call(modules, key, deadline, nativeStub);
+    const matched = collect(key, deadline);
+    expect(emitterProtoDuringCollect).toBe(Object.prototype);
+    expect(engineBaseProtoDuringCollect).toBe(markerDuringCollect);
+    expect(managerBaseProtoDuringCollect).toBe(markerDuringCollect);
+    expect(Object.getPrototypeOf(ServerTableEngineBase.prototype)).toBe(EventEmitter.prototype);
+    expect(Object.getPrototypeOf(TournamentManagerBase.prototype)).toBe(EventEmitter.prototype);
+    expect(matched).toEqual([engineInstance, managerInstance]);
+    expect(matched).not.toContain(unrelatedEmitter);
   });
 
   it('does not substitute host free memory when constrained-process availability is unavailable', () => {

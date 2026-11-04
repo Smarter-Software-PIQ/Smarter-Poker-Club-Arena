@@ -126,7 +126,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Promote, load eight workers and prove readiness under the engine lock
+      - name: Promote, bind the serving engine, load eight workers and prove readiness (reverts to the empty store on failure)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

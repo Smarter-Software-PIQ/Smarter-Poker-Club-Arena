@@ -2,14 +2,17 @@
 """Finite qualification of the original transaction-only terminal boundary."""
 from contextlib import ExitStack
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import signal
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -31,6 +34,112 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('withdrawal', ROOT / 'scripts/ci/withdraw-waiting-engine-release.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+
+history_spec = importlib.util.spec_from_file_location('pinned_history_sources',
+    ROOT / 'tests/operations/pinned-history-sources.py')
+history = importlib.util.module_from_spec(history_spec)
+history_spec.loader.exec_module(history)
+hydrate_historical_sources = history.hydrate_historical_sources
+
+def prepare_history(allow_fetch=False):
+    controls = [value for name, value in vars(module).items()
+                if name.endswith('_CONTROL') and isinstance(value, str)]
+    paths = ['server/scripts/' + name for name in module.GENERIC_SOURCE_NAMES] + [
+        'server/scripts/engine-release-unit-wrapper.sh',
+        'server/scripts/engine-release-intake.sh',
+        'server/release/activation-floor.json',
+        'server/release/owner-maintenance-windows.json',
+        'server/src/maintenance/maintenanceSchedulePolicy.json',
+        '.gitattributes', '.gitmodules']
+    hydrate_historical_sources(ROOT, controls, paths,
+        budget_seconds=90 if allow_fetch else 10, allow_fetch=allow_fetch)
+    # Missing source during any of the behavioral cases is now a named failure,
+    # not an implicit network transaction inside the unchanged sixty-second run.
+    os.environ['GIT_NO_LAZY_FETCH'] = '1'
+
+
+def setUpModule():
+    prepare_history()
+
+
+class HistoricalSourceHydration(unittest.TestCase):
+    def test_exact_promisor_blobs_arrive_in_one_batch_without_ref_or_fallback_writes(self):
+        env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+        def git(*args, cwd=None, extra=None):
+            return subprocess.run(['git', *args], cwd=cwd, env={**env, **(extra or {})},
+                capture_output=True, text=True, check=True, timeout=10).stdout.strip()
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as directory:
+            root = Path(directory); source = root / 'source'; source.mkdir()
+            git('init', '-q', cwd=source)
+            for name in ('one', 'two', 'unrequested'):
+                (source / (name + '.txt')).write_text(name + ' original bytes\n')
+            git('add', '.', cwd=source)
+            git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                'commit', '-qm', 'fixture', cwd=source)
+            revision = git('rev-parse', 'HEAD', cwd=source)
+            git('config', 'uploadpack.allowFilter', 'true', cwd=source)
+            log = root / 'fetch.log'; wrapper = root / 'upload-pack'
+            wrapper.write_text('#!/bin/sh\nprintf "fetch\\n" >> ' + shlex.quote(str(log)) +
+                               '\nexec git-upload-pack "$@"\n')
+            wrapper.chmod(0o700)
+            for name, batch in [('before', False), ('after', True)]:
+                client = root / name
+                git('clone', '--filter=blob:none', '--no-checkout', '--bare',
+                    source.as_uri(), str(client))
+                git('config', 'remote.origin.uploadpack', str(wrapper), cwd=client)
+                log.write_text('')
+                refs = git('show-ref', cwd=client); head = (client / 'HEAD').read_bytes()
+                if batch:
+                    with self.assertRaisesRegex(ValueError, 'network-free behavior'):
+                        hydrate_historical_sources(client, [revision], ['one.txt', 'two.txt'], allow_fetch=False)
+                    self.assertEqual(log.read_text(), '')
+                    self.assertEqual(hydrate_historical_sources(client, [revision], ['one.txt', 'two.txt']), 2)
+                    self.assertEqual(hydrate_historical_sources(client, [revision], ['one.txt', 'two.txt'], allow_fetch=False), 0)
+                for path in ('one.txt', 'two.txt'):
+                    self.assertEqual(git('show', revision + ':' + path, cwd=client,
+                        extra={'GIT_NO_LAZY_FETCH': '1'} if batch else {}),
+                        (source / path).read_text().strip())
+                self.assertEqual(len(log.read_text().splitlines()), 1 if batch else 2)
+                self.assertEqual(git('show-ref', cwd=client), refs)
+                self.assertEqual((client / 'HEAD').read_bytes(), head)
+                oid = git('rev-parse', revision + ':unrequested.txt', cwd=client)
+                absent = subprocess.run(['git', '-C', str(client), 'cat-file', '--batch-check'],
+                    input=oid + '\n', env={**env, 'GIT_NO_LAZY_FETCH': '1'},
+                    capture_output=True, text=True, check=True, timeout=5).stdout.strip()
+                self.assertEqual(absent, oid + ' missing')
+            # Unknown references and missing blobs without the configured
+            # promisor are refusals, not requests to broaden the fetch.
+            log.write_text('')
+            for bad in ('main', 'f' * 40):
+                with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                    hydrate_historical_sources(client, [bad], ['unrequested.txt'])
+            git('config', 'remote.origin.promisor', 'false', cwd=client)
+            with self.assertRaises(ValueError):
+                hydrate_historical_sources(client, [revision], ['unrequested.txt'])
+            self.assertEqual(log.read_text(), '')
+            git('config', 'remote.origin.promisor', 'true', cwd=client)
+            wrapper.write_text('#!/bin/sh\nprintf "fetch\\n" >> ' + shlex.quote(str(log)) + '\nexit 73\n')
+            with self.assertRaises(subprocess.CalledProcessError):
+                hydrate_historical_sources(client, [revision], ['unrequested.txt'])
+            self.assertEqual(log.read_text().splitlines(), ['fetch'])
+            # A delayed remote child retaining the pipes must be killed with
+            # its Git parent, not escape the bootstrap's wall-clock bound.
+            pid_file = root / 'transport-child.pid'
+            wrapper.write_text('#!/bin/sh\nsleep 30 &\necho $! > ' + shlex.quote(str(pid_file)) + '\nwait\n')
+            started = time.monotonic()
+            with self.assertRaises(subprocess.TimeoutExpired):
+                hydrate_historical_sources(client, [revision], ['unrequested.txt'], budget_seconds=2)
+            self.assertLess(time.monotonic() - started, 2.5)
+            child = int(pid_file.read_text())
+            expiry = time.monotonic() + 1
+            while time.monotonic() < expiry:
+                try: os.kill(child, 0)
+                except ProcessLookupError: break
+                time.sleep(0.01)
+            else: self.fail('Owned timed-out transport child survived cleanup')
+            self.assertEqual(git('show-ref', cwd=client), refs)
+            self.assertEqual((client / 'HEAD').read_bytes(), head)
 
 
 class Withdrawal(unittest.TestCase):
@@ -455,6 +564,63 @@ class AnnouncedCancellation(unittest.TestCase):
             self.test_phase1_seal_requires_original_uncommitted_cycle_and_no_transaction()
             self.test_phase1_actual_pinned_v3_floor_bootstrap_and_no_bytecode()
 
+    def test_generic_later_owner_profile_is_derived_from_its_own_records(self):
+        # A later announcement-only owner needs no new code: its window comes
+        # from its own reservation, its sources from protected-main Git, and
+        # the freeze must sit exactly on the announced marks (no tolerance).
+        control = module.SECOND_PHASE1_CONTROL
+        request = {'runKey': '41599999999-1', 'releaseSha': 'c' * 40, 'controlSha': control,
+                   'desiredSha': module.PHASE1_DESIRED, 'instanceId': '1-b22cba29',
+                   'mode': 'cancel_expired_announcement'}
+        stamp = 1793635085893
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, patch.dict(module.__dict__, clear=False), \
+                patch.dict(module.MARKERLESS_ORIGINALS, clear=False):
+            root = Path(folder)
+            (root / 'engine-release-requests').mkdir()
+            reservation = {'runId': request['runKey'], 'sha': request['releaseSha'], 'announcedAt': stamp, 'cause': 'urgent'}
+            entry = {'schema': 'engine-release-activation-floor/v3-phase1', 'runId': request['runKey'],
+                     'targetSha': request['releaseSha'], 'controlSha': control,
+                     'manifestSha256': module.PHASE1_POLICY, 'phase': 'announcement'}
+            def write(path, value):
+                path.write_text(json.dumps(value)); path.chmod(0o600)
+            write(root / ('engine-recovery-window-' + request['runKey'] + '.json'), reservation)
+            write(root / 'engine-release-requests' / (request['runKey'] + '.activation-entry'), entry)
+            req = root / 'engine-release-requests' / (request['runKey'] + '.request')
+            req.write_text('\n'.join([request['releaseSha'], 'url', 'actor', '/g', control, '1793644848']) + '\n'); req.chmod(0o600)
+            module.ROOT = root; module.REPO = ROOT
+            real_regular = module.regular
+            module.regular = lambda path, mode=None: Path(path).read_text()
+            try:
+                module.select_profile(request)
+            finally:
+                module.regular = real_regular
+            self.assertEqual((module.PHASE1_RUN, module.PHASE1_CONTROL, module.PHASE1_TARGET),
+                             (request['runKey'], control, request['releaseSha']))
+            self.assertEqual((module.PHASE1_STAMP, module.PHASE1_START, module.PHASE1_END),
+                             (stamp, stamp + 120000, stamp + 420000))
+            self.assertIsNone(module.PHASE1_TOKEN)
+            self.assertEqual(module.PHASE1_HASHES, module.SECOND_PHASE1_HASHES)
+            self.assertEqual(module.MARKERLESS_ORIGINALS[request['runKey']], '1793644848')
+            profile = module.cancellation_profile(request)
+            self.assertEqual((profile['control'], profile['target']), (control, request['releaseSha']))
+            for field in ('releaseSha', 'controlSha', 'desiredSha'):
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    module.cancellation_profile(request | {field: 'a' * 40})
+            iso = lambda ms: module.datetime.datetime.fromtimestamp(ms / 1000, module.datetime.timezone.utc).isoformat()
+            row = {'contract_version': 3, 'announced_at': iso(stamp), 'freeze_started_at': iso(stamp + 120000),
+                'release_target_at': iso(stamp + 420000), 'thawed_at': iso(stamp + 341600),
+                'ownership_token': 'a993695f-4a6a-4cb3-99af-b88765f21c99', 'release_generation': 1, 'frozen_seconds': 300,
+                'shifted': dict.fromkeys(module.THAW_STEPS, 0) | {'complete': True, '_targets_snapshotted': True,
+                    '_target_counts': dict.fromkeys(module.THAW_STEPS, 0)}}
+            prove = lambda value: module.prove_thaw([value], [], stamp, stamp + 500000, control)
+            self.assertEqual(prove(row)['thawRecordedAtMs'], stamp + 341600)
+            for change in ({'freeze_started_at': iso(stamp + 119999)}, {'release_target_at': iso(stamp + 419999)},
+                           {'release_generation': 2}):
+                with self.subTest(change=change), self.assertRaises(ValueError): prove(row | change)
+        for pinned in ('41400905104-1', module.E9_RUN, '41177442979-1'):
+            with self.subTest(pinned=pinned), self.assertRaises(ValueError):
+                module.select_generic_phase1_profile(request | {'runKey': pinned})
+
     def test_phase1_actual_pinned_v3_floor_bootstrap_and_no_bytecode(self):
         with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
             state = Path(folder) / 'state'; state.mkdir()
@@ -489,27 +655,82 @@ class AnnouncedCancellation(unittest.TestCase):
             reservation.chmod(0o600)
             pins = state / 'engine-release-generation-pins'; pins.mkdir()
             (pins / (key + '.generation')).write_text(str(generation) + '\n' + module.PHASE1_CONTROL + '\n')
-            # Keep exact immutable Git objects, but qualify ancestry at that
-            # original protected revision rather than traversing today's entire
-            # unrelated main history inside the five-second helper budget.
-            # CI's root checkout is blob-filtered. Hydrate only the exact
-            # historical policy closure through that configured repository
-            # before the isolated, network-free helper deadline starts.
-            for source_path in (
-                    'server/release/activation-floor.json',
-                    'server/release/owner-maintenance-windows.json',
-                    'server/src/maintenance/maintenanceSchedulePolicy.json',
-                    'server/scripts/engine-release-intake.sh',
-                    'server/scripts/engine-release-transaction.sh',
-                    'server/scripts/engine-release-recover.sh'):
-                subprocess.check_output(['git', 'show', module.PHASE1_CONTROL + ':' + source_path], cwd=ROOT, timeout=30)
-                if module.PHASE1_TARGET != module.PHASE1_CONTROL:
-                    subprocess.check_output(['git', 'show', module.PHASE1_TARGET + ':' + source_path], cwd=ROOT, timeout=30)
+            # Build a private immutable commit graph and exact policy closure.
+            # Shared pack lookups alone consumed the five-second CLI budget,
+            # even after warming the cache. No source bytes or ancestry are faked.
+            source_paths = [
+                'server/release/activation-floor.json',
+                'server/release/owner-maintenance-windows.json',
+                'server/src/maintenance/maintenanceSchedulePolicy.json',
+                'server/scripts/engine-release-intake.sh',
+                'server/scripts/engine-release-transaction.sh',
+                'server/scripts/engine-release-recover.sh',
+                'server/scripts/engine-release-activation-floor.py',
+                'server/scripts/engine-release-seal.py',
+            ]
             proof_repo = Path(folder) / 'proof.git'
-            subprocess.run(['git', 'init', '--bare', '-q', str(proof_repo)], check=True)
-            objects = subprocess.check_output(['git', 'rev-parse', '--path-format=absolute', '--git-path', 'objects'], cwd=ROOT, text=True).strip()
-            (proof_repo / 'objects/info/alternates').write_text(objects + '\n')
-            subprocess.run(['git', '-C', str(proof_repo), 'update-ref', 'refs/remotes/origin/main', module.PHASE1_CONTROL], check=True)
+            # Git exports repository-local variables to push hooks. A -C path
+            # does not override GIT_DIR: clear Git's own enumerated local
+            # environment before accessing the independent proof repository.
+            private_env = dict(os.environ)
+            local_names = subprocess.check_output(['git', 'rev-parse',
+                '--local-env-vars'], cwd=ROOT, text=True, timeout=5).splitlines()
+            for name in local_names:
+                private_env.pop(name, None)
+            subprocess.run(['git', 'init', '--bare', '-q', str(proof_repo)],
+                env=private_env, check=True)
+            # Copy real reachable commits only, not the unrelated historical
+            # file corpus. The helper still proves the actual policy ancestor.
+            revisions = list(dict.fromkeys([request['releaseSha'], request['controlSha']]))
+            graph = subprocess.check_output(['git', 'rev-list', *revisions],
+                cwd=ROOT, timeout=30)
+            graph_pack = Path(folder) / 'commits.pack'
+            with graph_pack.open('wb') as output:
+                subprocess.run(['git', 'pack-objects', '--quiet', '--stdout'], cwd=ROOT,
+                    input=graph, stdout=output, check=True, timeout=60)
+            with graph_pack.open('rb') as source:
+                subprocess.run(['git', '-C', str(proof_repo), 'index-pack', '--stdin'],
+                    stdin=source, stdout=subprocess.PIPE, env=private_env, check=True, timeout=30)
+            graph_pack.unlink()
+            copied_graph = subprocess.check_output(['git', '-C', str(proof_repo),
+                'rev-list', *revisions], env=private_env, timeout=30)
+            self.assertEqual(set(copied_graph.splitlines()), set(graph.splitlines()))
+            specs = []
+            for revision in revisions:
+                paths = source_paths + subprocess.check_output(['git', 'ls-tree', '--name-only',
+                    revision, '--', '.gitattributes', '.gitmodules'],
+                    cwd=ROOT, text=True, timeout=30).splitlines()
+                specs.append(revision + '^{tree}')
+                for source_path in paths:
+                    parts = source_path.split('/')
+                    specs.extend(revision + ':' + '/'.join(parts[:n])
+                                 for n in range(1, len(parts) + 1))
+            specs = list(dict.fromkeys(specs))
+            object_ids = subprocess.check_output(['git', 'rev-parse', *specs], cwd=ROOT,
+                                                  text=True, timeout=30).splitlines()
+            self.assertEqual(len(object_ids), len(specs))
+            # This batch hydrates the exact promisor object closure through
+            # the configured source before any network-free helper deadline.
+            object_bytes = subprocess.check_output(['git', 'cat-file', '--batch'], cwd=ROOT,
+                input=('\n'.join(object_ids) + '\n').encode(), timeout=30)
+            stream = io.BytesIO(object_bytes); records = []
+            for oid in object_ids:
+                header = stream.readline().decode().split()
+                self.assertEqual(header[0], oid)
+                self.assertIn(header[1], ('blob', 'tree'))
+                records.append((oid, header[1], stream.read(int(header[2]))))
+                self.assertEqual(stream.read(1), b'\n')
+            self.assertEqual(stream.read(), b'')
+            # Attribute blobs precede trees so normal Git fsck remains enabled.
+            for oid, kind, data in sorted(records, key=lambda row: row[1] != 'blob'):
+                copied = subprocess.check_output(['git', '-C', str(proof_repo),
+                    'hash-object', '-t', kind, '-w', '--stdin'], input=data,
+                    env=private_env, timeout=30).decode().strip()
+                self.assertEqual(copied, oid)
+                local_object = proof_repo / 'objects' / oid[:2] / oid[2:]
+                self.assertTrue(local_object.is_file() and not local_object.is_symlink())
+            self.assertFalse((proof_repo / 'objects/info/alternates').exists())
+            subprocess.run(['git', '-C', str(proof_repo), 'update-ref', 'refs/remotes/origin/main', module.PHASE1_CONTROL], env=private_env, check=True)
             calls = []
             def command(args, timeout=5):
                 calls.append(args)
@@ -517,15 +738,8 @@ class AnnouncedCancellation(unittest.TestCase):
                 # Real pinned floor CLI and imported seal, against exact original
                 # policy bytes and isolated canonical files. No production IO.
                 selected = [str(proof_repo) if arg == '/opt/club-arena' else arg for arg in args]
-                env = dict(os.environ); env.pop('PYTHONDONTWRITEBYTECODE', None)
-                # This fixture proves immutable historical policy semantics on
-                # macOS, whose measured Git startup is0.15–0.43s across about20
-                # source reads. Loaded pre-push exceeded5s despite identical
-                # inputs. Linux still executes the actual production5s bound;
-                # no production command, assertion or release budget changes.
-                fixture_timeout = 15 if (sys.platform == 'darwin' and args[3] == 'reservation'
-                    and module.PHASE1_RUN in {'41400905104-1', '41432783729-1'}) else timeout
-                return subprocess.check_output(selected, env=env, timeout=fixture_timeout, text=True).strip()
+                env = dict(private_env); env.pop('PYTHONDONTWRITEBYTECODE', None)
+                return subprocess.check_output(selected, env=env, timeout=timeout, text=True).strip()
             for name, value in [('ROOT', state), ('PARENT', parent)]:
                 patches.enter_context(patch.object(module, name, value))
             patches.enter_context(patch.object(module, 'regular', side_effect=lambda p, mode=None: Path(p).read_text()))
@@ -1463,4 +1677,7 @@ class BytecodeCustody(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    if sys.argv[1:] == ['--prepare-history']:
+        prepare_history(allow_fetch=True)
+    else:
+        unittest.main()

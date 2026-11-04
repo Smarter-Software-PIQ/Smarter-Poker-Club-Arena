@@ -54,7 +54,7 @@ function harness(ids = ['ticket']) {
   });
   const entries = () =>
     rpc.mock.calls
-      .filter(([name]) => name === 'fn_register_horse_for_tournament')
+      .filter(([name]) => name === 'fn_register_horse_for_tournament_to_target')
       .map(([, args]) => args);
   return { svc, roster, target, load, population, rpc, entries };
 }
@@ -64,7 +64,12 @@ describe('prestart ticket entry survives a satisfied ordinary funding quota', ()
     const { svc, entries } = harness();
     expect(await svc.topUpWithHorses(T, 0, { redeemTickets: true })).toBe(1);
     expect(entries()).toEqual([
-      { p_tournament_id: T, p_user_id: 'ticket', p_allow_wallet_charge: false },
+      {
+        p_tournament_id: T,
+        p_user_id: 'ticket',
+        p_allow_wallet_charge: false,
+        p_target_live_entries: 0,
+      },
     ]);
   });
   it.each(['REGISTERING', 'ANNOUNCED'])(
@@ -138,7 +143,12 @@ describe('prestart ticket entry survives a satisfied ordinary funding quota', ()
     );
     expect(await svc.topUpWithHorses(T, 0, { redeemTickets: true })).toBe(0);
     expect(entries()).toEqual([
-      { p_tournament_id: T, p_user_id: 'ticket', p_allow_wallet_charge: false },
+      {
+        p_tournament_id: T,
+        p_user_id: 'ticket',
+        p_allow_wallet_charge: false,
+        p_target_live_entries: 0,
+      },
     ]);
   });
   it.each(['finalized', 'freeze'])('keeps the %s refusal', async (kind) => {

@@ -70,6 +70,30 @@ describe('the real settlement top-up boundary', () => {
     expect(calls.fund).not.toHaveBeenCalled();
     expect(e.hub.emitEvent).not.toHaveBeenCalled();
   });
+  it.each(['flh', 'flo8'])(
+    'keeps a finite refill target for uncapped %s 1/2 horses',
+    async (variant) => {
+      const e = engine();
+      Object.assign(e.tableInfo, {
+        game_variant: variant,
+        small_blind: 1,
+        big_blind: 2,
+        min_buy_in: 80,
+        max_buy_in: null,
+      });
+      e.getMaxBuyIn = () => null as any;
+      calls.fund.mockResolvedValue({ status: 'funded', stack: 400 });
+      const p = players();
+      await run(e, p);
+      expect(calls.batch).toHaveBeenCalledWith('table', expect.any(Function), 400, 'game', true);
+      expect(calls.fund.mock.calls.map((c) => c.slice(0, 6))).toEqual([
+        ['table', 'horse-0', 300, 'club', 91, 'topup'],
+        ['table', 'horse-1', 300, 'club', 91, 'topup'],
+      ]);
+      expect(p.map((horse) => horse.stack)).toEqual([400, 400]);
+      expect(e.tableInfo.max_buy_in).toBeNull();
+    }
+  );
   it('uses one shared context and emits both simultaneous purchases with authoritative stacks', async () => {
     const e = engine();
     const p = players();

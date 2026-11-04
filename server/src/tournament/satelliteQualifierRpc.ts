@@ -1,3 +1,11 @@
+import {
+  prepareDurableTerminalRequest,
+  executeDurableTerminalRequest,
+  resolveDurableTerminalRequest,
+  closeDurableTerminalRequest,
+  type DurableTerminalRequest,
+} from './terminalDurableRequest.js';
+import { freezeTerminalRequest, type TerminalRequestIdentity } from './terminalRequestIdentity.js';
 import { maintenanceSupabase } from '../services/supabase.js';
 import { uuidShape } from '../lib/uuidShape.js';
 import {
@@ -131,15 +139,27 @@ export async function requestSatelliteQualifierReceipt(
   const resolverAttempts = Math.max(1, Math.min(5, Math.trunc(options.resolverAttempts ?? 3)));
   const wait = options.wait ?? defaultWait;
   const request = { p_tournament_id: tournamentId, p_observed_qualifier_ids: [...qualifierIds] };
+  const originalRequest = freezeTerminalRequest({
+    kind: 'satellite_qualifiers' as const,
+    tournamentId,
+    observedWinnerId: null,
+    qualifierIds: request.p_observed_qualifier_ids,
+  });
+  const durable = await prepareDurableTerminalRequest(originalRequest);
   let failure = 'Satellite qualifier settlement did not return a valid receipt';
   try {
-    const { data, error } = await authority.rpc('fn_settle_satellite_qualifiers', request);
+    const { data, error } = durable
+      ? await executeDurableTerminalRequest(durable)
+      : await authority.rpc('fn_settle_satellite_qualifiers', request);
     if (!error) {
       const receipt = verifySatelliteQualifierReceipt(data, tournamentId, qualifierIds);
       if (receipt) return receipt;
     } else {
       failure = describe(error);
-      if (isRolledBackStatementError(error)) {
+      if (
+        isRolledBackStatementError(error) &&
+        (!durable || (await closeDurableTerminalRequest(durable)))
+      ) {
         const code = (error as { code: string }).code;
         throw new SatelliteSettlementRefusedError(`${failure} (${code})`);
       }
@@ -150,14 +170,56 @@ export async function requestSatelliteQualifierReceipt(
   }
   const settleFailure = failure;
   for (let attempt = 1; attempt <= resolverAttempts; attempt++) {
-    const outcome = await readSerializedOutcome(request, tournamentId, qualifierIds, settleFailure);
+    const outcome = await readSerializedOutcome(
+      request,
+      tournamentId,
+      qualifierIds,
+      settleFailure,
+      durable
+    );
     if (outcome.kind === 'committed') return outcome.receipt;
-    if (outcome.kind === 'not_committed') throw new SatelliteSettlementRefusedError(settleFailure);
+    if (outcome.kind === 'not_committed') {
+      if (durable && !(await closeDurableTerminalRequest(durable)))
+        throw new SatelliteSettlementOutcomeUnknownError(
+          'Original satellite qualifier close is unproven',
+          originalRequest
+        );
+      throw new SatelliteSettlementRefusedError(settleFailure);
+    }
     failure = `${outcome.failure} (resolver attempt ${attempt}/${resolverAttempts})`;
     if (!outcome.retry || attempt === resolverAttempts) break;
     await wait(500 * 2 ** (attempt - 1));
   }
-  throw new SatelliteSettlementOutcomeUnknownError(failure);
+  throw new SatelliteSettlementOutcomeUnknownError(
+    failure,
+    freezeTerminalRequest({
+      kind: 'satellite_qualifiers',
+      tournamentId,
+      observedWinnerId: null,
+      qualifierIds: request.p_observed_qualifier_ids,
+    })
+  );
+}
+
+/** Resolve a retained qualifier request without invoking its settlement writer. */
+export async function resolveOriginalSatelliteQualifierOutcome(
+  identity: TerminalRequestIdentity,
+  durable: DurableTerminalRequest | null = null
+): Promise<SerializedOutcome> {
+  const request = freezeTerminalRequest(identity);
+  if (
+    request.kind !== 'satellite_qualifiers' ||
+    !canonicalIds(request.qualifierIds) ||
+    request.qualifierIds.length === 0
+  )
+    return { kind: 'unreadable', failure: 'Wrong satellite qualifier resolver', retry: false };
+  return readSerializedOutcome(
+    { p_tournament_id: request.tournamentId, p_observed_qualifier_ids: [...request.qualifierIds] },
+    request.tournamentId,
+    request.qualifierIds,
+    'Original satellite qualifier outcome unresolved',
+    durable
+  );
 }
 
 type SerializedOutcome =
@@ -169,10 +231,13 @@ async function readSerializedOutcome(
   request: { p_tournament_id: string; p_observed_qualifier_ids: string[] },
   tournamentId: string,
   qualifierIds: readonly string[],
-  failure: string
+  failure: string,
+  durable: DurableTerminalRequest | null = null
 ): Promise<SerializedOutcome> {
   try {
-    const { data, error } = await authority.rpc('fn_resolve_satellite_qualifier_outcome', request);
+    const { data, error } = durable
+      ? await resolveDurableTerminalRequest(durable)
+      : await authority.rpc('fn_resolve_satellite_qualifier_outcome', request);
     if (error) {
       // Contention (55P03 lock_timeout behind the exclusive finish lane, a
       // serialization or deadlock victim, a statement timeout) read nothing;

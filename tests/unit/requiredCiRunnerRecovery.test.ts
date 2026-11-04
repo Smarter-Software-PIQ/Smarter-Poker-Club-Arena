@@ -17,6 +17,25 @@ const jobs = [
   ['native-smoke', native.jobs['native-smoke'], 'ubuntu-24.04'],
 ] as const;
 
+const retainedWrapper = 'src/engine/RetainedHistoricalCheckpointQualification.test.ts';
+const retainedStep = {
+  name: 'Exact retained historical owners qualify before competing workloads',
+  if: 'matrix.shard == 1',
+  run: `npm test -- ${retainedWrapper}`,
+};
+const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === retainedStep.name);
+  expect(job.steps.filter((step) => step.name === retainedStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(retainedStep);
+  const full = job.steps[index + 1];
+  expect(full?.name).toBe('Full server test suite');
+  expect(full.run).toBe(
+    `[[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]\nnpm test -- --exclude ${retainedWrapper} --shard="$SERVER_TEST_SHARD/4"\n`
+  );
+  full.run = '[[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]\nnpm test -- --shard="$SERVER_TEST_SHARD/4"\n';
+  job.steps.splice(index, 1);
+};
+
 const frameCoverSteps = [
   {
     name: 'Weekly cash boundaries keep original rows and use the frame cover',
@@ -35,6 +54,21 @@ const frameCoverSteps = [
     },
   },
 ];
+
+const nov3AttendanceStep = {
+  name: 'November 3 zero guarantees preserve separate Horse attendance',
+  if: 'matrix.shard == 2',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+  run: 'python3 -B scripts/ci/test-nov3-zero-guarantee-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"',
+};
+const normalizeNov3AttendanceAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === nov3AttendanceStep.name);
+  expect(job.steps.filter((step) => step.name === nov3AttendanceStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(nov3AttendanceStep);
+  expect(job.steps[index - 1]?.name).toBe(frameCoverSteps[0].name);
+  expect(job.steps[index + 1]?.name).toBe(frameCoverSteps[1].name);
+  job.steps.splice(index, 1);
+};
 
 const normalizeFrameCoverAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const start = job.steps.findIndex((step) => step.name === frameCoverSteps[0].name);
@@ -155,6 +189,68 @@ const normalizeStallProgressAddition = (job: { steps: Array<Record<string, unkno
   job.steps.splice(index, 1);
 };
 
+const undrawnSpinSteps = [
+  {
+    name: 'Undrawn Spin cancellation returns exact gross entries atomically',
+    if: 'matrix.shard == 4',
+    run: 'python3 -B scripts/ci/test-undrawn-spin-cancellation.py \\\n  --evidence artifacts/undrawn-spin-cancellation \\\n  --work-root "$RUNNER_TEMP/undrawn-spin-work" \\\n  --socket-root "$RUNNER_TEMP/undrawn-spin-socket" \\\n  --pg-bin /usr/lib/postgresql/17/bin\n',
+  },
+  {
+    name: 'Retain undrawn Spin cancellation evidence',
+    if: 'always() && matrix.shard == 4',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'undrawn-spin-cancellation-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: 'artifacts/undrawn-spin-cancellation/',
+      'retention-days': 7,
+      'if-no-files-found': 'error',
+    },
+  },
+];
+const normalizeUndrawnSpinAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === undrawnSpinSteps[0].name);
+  for (const step of undrawnSpinSteps)
+    expect(job.steps.filter((actual) => actual.name === step.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe(
+    'Cancellation admission cannot queue ahead of unrelated hands'
+  );
+  expect(job.steps.slice(start, start + 2)).toStrictEqual(undrawnSpinSteps);
+  expect(job.steps[start + 2]?.name).toBe(
+    'Retain cancellation admission and funded rollback evidence'
+  );
+  job.steps.splice(start, 2);
+};
+
+const finishUnionSteps = [
+  {
+    name: 'Tournament finish leaves the union cash-hand wallet available',
+    id: 'finish_union_wallet',
+    if: 'matrix.shard == 3',
+    env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+    run: 'python3 scripts/ci/test-a-finish-does-not-hold-the-union-wallet.py',
+  },
+  {
+    name: 'Retain finish and cash-hand lock evidence',
+    if: 'always() && matrix.shard == 3 && contains(fromJSON(\'["success", "failure", "cancelled"]\'), steps.finish_union_wallet.outcome)',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'finish-union-wallet-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: 'artifacts/finish-union-wallet-lock/',
+      'if-no-files-found': 'error',
+      'retention-days': 7,
+    },
+  },
+];
+const normalizeFinishUnionAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === finishUnionSteps[0].name);
+  for (const step of finishUnionSteps)
+    expect(job.steps.filter((actual) => actual.name === step.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe('Atomic departures, ownership, rollback and concurrency');
+  expect(job.steps.slice(start, start + 2)).toStrictEqual(finishUnionSteps);
+  expect(job.steps[start + 2]?.name).toBe('Accepted eliminations preserve parked source custody');
+  job.steps.splice(start, 2);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -165,6 +261,50 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    const priorQualificationBudgets = {
+      changes: 5,
+      source_windows: 6,
+      typecheck: 2,
+      typecheck_compile: 20,
+      unit_shards: 15,
+      accounting_postgres: 50,
+      server_shards: 40,
+      verdict: 2,
+      build: 15,
+      'live-e2e': 25,
+      'css-beats-build': 15,
+      'css-beats-e2e': 30,
+      'diamond-playfield-e2e': 25,
+    };
+    for (const [job, prior] of Object.entries(priorQualificationBudgets)) {
+      expect(normalized.jobs[job]['timeout-minutes']).toBe(prior * 2);
+      normalized.jobs[job]['timeout-minutes'] = prior;
+    }
+    const keySetup = normalized.jobs.accounting_postgres.steps.find(
+      (step: { name?: string }) =>
+        step.name === 'Install PostgreSQL 17 tools without a default database service'
+    );
+    const currentKeyBlock = [
+      '# Fetch the identical signing key from the package repository itself.',
+      '# The website host repeatedly terminated TLS before native tests ran.',
+      'sudo curl --fail --silent --show-error --location \\',
+      '  --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \\',
+      '  https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc',
+    ].join('\n');
+    expect(keySetup.run.split(currentKeyBlock)).toHaveLength(2);
+    // Normalize only the exact separately enforced key-host correction. Every
+    // previous command, trust control and workflow fingerprint remains pinned.
+    keySetup.run = keySetup.run.replace(
+      currentKeyBlock,
+      currentKeyBlock
+        .split('\n')
+        .slice(2)
+        .join('\n')
+        .replace(
+          'https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc',
+          'https://www.postgresql.org/media/keys/ACCC4CF8.asc'
+        )
+    );
     const bountyStep = {
       name: 'Tournament guarantees include funded bounties',
       if: 'matrix.shard == 1',
@@ -346,6 +486,54 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     const browserBuild = normalized.jobs['css-beats-build'];
     const browserJob = normalized.jobs['css-beats-e2e'];
     normalizeCashDecisionAddition(browserJob);
+    // Verify the producer-owned identity delta, then compare every retained
+    // producer/transfer command against the original reviewed fingerprints.
+    expect(browserBuild.outputs).toEqual({
+      artifact_name: '${{ steps.browser_build.outputs.artifact_name }}',
+    });
+    delete browserBuild.outputs;
+    const seal = browserBuild.steps.find(
+      (step: { name: string }) => step.name === "Seal this run's browser build"
+    );
+    expect(seal.id).toBe('browser_build');
+    delete seal.id;
+    const originalArtifactName =
+      'browser-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}';
+    expect(seal.env.BROWSER_ARTIFACT_NAME).toBe(originalArtifactName);
+    delete seal.env.BROWSER_ARTIFACT_NAME;
+    const outputLine =
+      `          printf 'artifact_name=%s\\n' "$BROWSER_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"`.trimStart() +
+      '\n';
+    expect(seal.run.endsWith(outputLine)).toBe(true);
+    seal.run = seal.run.slice(0, -outputLine.length);
+    const upload = browserBuild.steps.find(
+      (step: { uses?: string }) => step.uses === 'actions/upload-artifact@v4'
+    );
+    expect(upload.with.name).toBe('${{ steps.browser_build.outputs.artifact_name }}');
+    upload.with.name = originalArtifactName;
+    const guardIndex = browserJob.steps.findIndex(
+      (step: { name: string }) => step.name === "Require the producer's browser artifact"
+    );
+    expect(
+      browserJob.steps.filter(
+        (step: { name: string }) => step.name === "Require the producer's browser artifact"
+      )
+    ).toHaveLength(1);
+    expect(browserJob.steps[guardIndex]).toEqual({
+      name: "Require the producer's browser artifact",
+      if: "needs.changes.outputs.server == 'true'",
+      env: {
+        BROWSER_ARTIFACT_NAME: '${{ needs.css-beats-build.outputs.artifact_name }}',
+        EXPECTED_RUN_ID: '${{ github.run_id }}',
+        EXPECTED_SHA: '${{ github.sha }}',
+      },
+      run: 'set -euo pipefail\ntest -n "$BROWSER_ARTIFACT_NAME"\n[[ "$BROWSER_ARTIFACT_NAME" =~ ^browser-harness-${EXPECTED_RUN_ID}-[1-9][0-9]*-${EXPECTED_SHA}$ ]]\n',
+    });
+    const download = browserJob.steps[guardIndex + 1];
+    expect(download.name).toBe("Download this run's browser build");
+    expect(download.with.name).toBe('${{ needs.css-beats-build.outputs.artifact_name }}');
+    download.with.name = originalArtifactName;
+    browserJob.steps.splice(guardIndex, 1);
     const exactHash = (value: unknown) =>
       createHash('sha256').update(JSON.stringify(value)).digest('hex');
     expect(exactHash(browserBuild)).toBe(
@@ -377,8 +565,32 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       delete selected[0].if;
     }
     delete normalized.jobs['css-beats-build'];
+    const fixedLimitStep = {
+      name: 'Fixed-limit blinds and uncapped buy-ins use the original cash owners',
+      if: 'matrix.shard == 3',
+      env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+      run: 'python3 -B scripts/ci/test-fixed-limit-policy-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"',
+    };
+    const accountingSteps = normalized.jobs.accounting_postgres.steps;
+    const fixedLimitIndex = accountingSteps.findIndex((step) => step.name === fixedLimitStep.name);
+    expect(accountingSteps.filter((step) => step.name === fixedLimitStep.name)).toHaveLength(1);
+    expect(accountingSteps[fixedLimitIndex]).toStrictEqual(fixedLimitStep);
+    expect(accountingSteps[fixedLimitIndex - 1].name).toBe(
+      'Original committed horse turns have an independent complete census'
+    );
+    expect(accountingSteps[fixedLimitIndex + 1].name).toBe(
+      'Runtime privilege changes preserve the schema DDL boundary'
+    );
+    // Enforce the exact new regression, then retain every historical job pin.
+    accountingSteps.splice(fixedLimitIndex, 1);
+    expect(normalized.jobs.server_shards['timeout-minutes']).toBe(40);
+    normalized.jobs.server_shards['timeout-minutes'] = 25;
+    normalizeRetainedOwnerScheduling(normalized.jobs.server_shards);
+    normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
+    normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
     normalizeScheduleRequestAddition(normalized.jobs.accounting_postgres);
     normalizeMysteryAwardOrderAddition(normalized.jobs.accounting_postgres);
+    normalizeNov3AttendanceAddition(normalized.jobs.accounting_postgres);
     normalizeFrameCoverAddition(normalized.jobs.accounting_postgres);
     normalizePostpaidQualityAddition(normalized.jobs.accounting_postgres);
     const formerClientRoute = '$' + '{{ ' + trusted + " && 'ca-linux-4core' || 'ubuntu-latest' }}";
@@ -421,6 +633,13 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     }
     expect(normalized.jobs.unit_shards.env.VITEST_MAX_THREADS).toBe(8);
     normalized.jobs.unit_shards.env.VITEST_MAX_THREADS = 4;
+    // The informational report needs only the maintained policy reader. Keep
+    // its deadline and every reporting assertion pinned by the original job hash.
+    expect(normalized.jobs.verdict.steps[0]).toStrictEqual({
+      uses: 'actions/checkout@v4',
+      with: { 'sparse-checkout': 'docs/agent-policy', 'sparse-checkout-cone-mode': false },
+    });
+    delete normalized.jobs.verdict.steps[0].with;
     // Ordered inventories plus all non-job fields and every whole job cover the
     // complete reviewed workflow. Unrelated job edits update only their own pin.
     const fingerprint = (value: unknown) =>
@@ -540,11 +759,42 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     ];
     for (const mutate of mutations) {
       const job = structuredClone(ci.jobs.accounting_postgres);
+      normalizeNov3AttendanceAddition(job);
       const start = job.steps.findIndex(
         (step: Record<string, unknown>) => step.name === frameCoverSteps[0].name
       );
       mutate(job.steps, start);
       expect(() => normalizeFrameCoverAddition(job)).toThrow();
+    }
+  });
+  it('rejects missing, duplicate, displaced or weakened dated attendance qualification', () => {
+    const mutations = [
+      (steps: Array<Record<string, unknown>>, index: number) => steps.splice(index, 1),
+      (steps: Array<Record<string, unknown>>, index: number) =>
+        steps.push(structuredClone(steps[index])),
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        [steps[index], steps[index + 1]] = [steps[index + 1], steps[index]];
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].run += ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].env = { PG_BIN: '/wrong' };
+      },
+    ];
+    for (const mutate of mutations) {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const index = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === nov3AttendanceStep.name
+      );
+      mutate(job.steps, index);
+      expect(() => normalizeNov3AttendanceAddition(job)).toThrow();
     }
   });
   it('rejects missing, duplicate, displaced or weakened paid-book qualification', () => {
@@ -667,6 +917,33 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       expect(() => normalizeScheduleRequestAddition(job)).toThrow();
     }
   });
+  it('rejects missing, duplicate or weakened union-finish qualification', () => {
+    for (const mutate of [
+      (steps: Array<Record<string, unknown>>, start: number) => steps.splice(start, 1),
+      (steps: Array<Record<string, unknown>>, start: number) =>
+        steps.push(structuredClone(steps[start])),
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        steps[start].run = String(steps[start].run) + ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, start: number) => {
+        (steps[start + 1].with as Record<string, unknown>)['if-no-files-found'] = 'ignore';
+      },
+    ]) {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const start = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === finishUnionSteps[0].name
+      );
+      mutate(job.steps, start);
+      expect(() => normalizeFinishUnionAddition(job)).toThrow();
+    }
+  });
+
   it('preserves every native qualification stage and cleanup requirement', () => {
     const normalized = structuredClone(native);
     expect(normalized.jobs['native-smoke']['runs-on']).toBe('ubuntu-24.04');
@@ -674,6 +951,25 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     expect(ci.jobs.fixture_native.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(ci.jobs.fixture_native.secrets).toBeUndefined();
     const job = normalized.jobs['native-smoke'];
+    const alertInstall = job.steps.findIndex(
+      (step: { name?: string }) =>
+        step.name === 'Install locked native alert transport dependencies'
+    );
+    expect(job.steps[alertInstall]).toStrictEqual({
+      name: 'Install locked native alert transport dependencies',
+      if: '${{ !inputs.connected_ui_observations }}',
+      run: 'npm ci --prefix tools/production-alerts-native-wakeup --ignore-scripts --no-audit --no-fund',
+    });
+    const alertGate = job.steps[alertInstall + 1];
+    expect(alertGate).toStrictEqual({
+      name: 'Native alert intake survives actual process death without duplicate queue submission',
+      if: '${{ !inputs.connected_ui_observations }}',
+      env: { TMPDIR: '${{ runner.temp }}' },
+      run: 'node --test tools/production-alerts-native-wakeup/state.test.mjs tools/production-alerts-native-wakeup/lifecycle.test.mjs',
+    });
+    // Qualify the exact additive transport gate, then retain every historical stage/hash.
+    alertGate.run = 'node --test tools/production-alerts-native-wakeup/state.test.mjs';
+    job.steps.splice(alertInstall, 1);
     expect(job['timeout-minutes']).toBe('${{ inputs.connected_ui_observations && 120 || 55 }}');
     const budget = new Function('inputs', `return (${job['timeout-minutes'].slice(3, -2)});`);
     expect(budget({ connected_ui_observations: false })).toBe(55);
@@ -725,4 +1021,27 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       '13a3a555958b2a8bd92ba5a7a45083c0af0993c9f02b10e885c1d858aefa8afc'
     );
   });
+});
+
+it('refuses missing, duplicated, moved or broadened retained-owner scheduling', () => {
+  for (const mutation of [
+    (job: any, index: number) => job.steps.splice(index, 1),
+    (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
+    (job: any, index: number) => {
+      job.steps[index].if = 'matrix.shard == 2';
+    },
+    (job: any, index: number) => {
+      job.steps[index + 1].run += '--exclude src/other.test.ts';
+    },
+    (job: any, index: number) => {
+      [job.steps[index], job.steps[index + 1]] = [job.steps[index + 1], job.steps[index]];
+    },
+  ]) {
+    const job = structuredClone(ci.jobs.server_shards);
+    mutation(
+      job,
+      job.steps.findIndex((step: any) => step.name === retainedStep.name)
+    );
+    expect(() => normalizeRetainedOwnerScheduling(job)).toThrow();
+  }
 });

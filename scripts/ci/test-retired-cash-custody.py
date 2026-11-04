@@ -9,15 +9,9 @@ def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--evidence',type=Path,required=True);p.add_argument('--pg-bin',type=Path,required=True);p.add_argument('--socket-root',type=Path,required=True);a=p.parse_args()
  root=Path(__file__).resolve().parents[2];out=a.evidence.resolve();out.mkdir(parents=True,exist_ok=False)
  native=module(root/'scripts/ci/test-mtt-unlimited.py','cash_pg_owner')
- # The maintained older Execution chooses /tmp for its private socket. Redirect
- # only that allocation to the explicit owned root, retaining all lifecycle checks.
- a.socket_root.mkdir(parents=True,exist_ok=True);allocate=native.tempfile.mkdtemp
- def owned_socket(*args,**kwargs):
-  if kwargs.get('dir')=='/tmp':kwargs['dir']=a.socket_root.resolve()
-  return allocate(*args,**kwargs)
- native.tempfile.mkdtemp=owned_socket
- try:e=native.Execution(root,out,a.pg_bin.resolve(),out,180)
- finally:native.tempfile.mkdtemp=allocate
+ # Honor the explicit private socket root through the maintained constructor.
+ a.socket_root.mkdir(parents=True,exist_ok=True)
+ e=native.Execution(root,out,a.pg_bin.resolve(),out,180,socket_parent=a.socket_root.resolve())
  e.report['scope']='actual private custody transitions and ACL only; full four-case native financial proof separate'
  inputs=[MIGRATION,Path('scripts/ci/probes/retired-cash-custody-native.sql'),Path(__file__).relative_to(root)]
  e.report['source_sha256']={str(f):hashlib.sha256((root/f).read_bytes()).hexdigest() for f in inputs}

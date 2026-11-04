@@ -165,6 +165,11 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+          # This finite observer imports only Python's standard library and
+          # transmits its own source; no application checkout is required.
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/read-scoped-runtime-errors.py
       - name: Read bounded existing scoped engine errors
         env:
           HETZNER_HOST: ${{ secrets.HETZNER_HOST }}

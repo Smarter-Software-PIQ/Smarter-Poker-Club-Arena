@@ -12,6 +12,7 @@ import {
   LIGHTNING_RETURN_LABEL,
 } from '../../lightning/lightningReversion';
 import { LightningSessionSummaryCard } from '../lightning/LightningSessionSummary';
+import { SpadeConsole } from '../console/SpadeConsole';
 import './LightningFoldBar.css';
 
 export default function LightningEndedNotice({
@@ -37,24 +38,31 @@ export default function LightningEndedNotice({
 }) {
   return (
     <div className="lightning-ended" data-testid="lightning-ended" role="alert">
-      <p className="lightning-ended__eyebrow">{eyebrow}</p>
-      <p className="lightning-ended__text">{text}</p>
-      <button
-        type="button"
-        className="lightning-ended__go"
-        data-testid="lightning-ended-view-game"
-        onClick={onViewGame}
+      <SpadeConsole
+        eyebrow={eyebrow}
+        title="Session Results"
+        pill="Ended"
+        crest="flat"
+        className="lightning-ended__console"
       >
-        {LIGHTNING_RETURN_LABEL}
-      </button>
-      {session ? (
-        <LightningSessionSummaryCard
-          poolSessionId={session.poolSessionId}
-          clusterId={session.clusterId}
-          name={session.name}
-          offerPlayAgain={false}
-        />
-      ) : null}
+        <p className="lightning-ended__text">{text}</p>
+        <button
+          type="button"
+          className="lightning-ended__go"
+          data-testid="lightning-ended-view-game"
+          onClick={onViewGame}
+        >
+          {LIGHTNING_RETURN_LABEL}
+        </button>
+        {session ? (
+          <LightningSessionSummaryCard
+            poolSessionId={session.poolSessionId}
+            clusterId={session.clusterId}
+            name={session.name}
+            offerPlayAgain={false}
+          />
+        ) : null}
+      </SpadeConsole>
     </div>
   );
 }

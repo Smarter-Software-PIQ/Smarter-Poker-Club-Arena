@@ -1,3 +1,4 @@
+import { readDurableTerminalRequest } from './tournament/terminalDurableRequest.js';
 import {
   ORIGINAL_RECOVERY_OPERATION,
   ORIGINAL_RECOVERY_TWENTY,
@@ -17,6 +18,7 @@ import {
 } from './tournament/completedF06Custody.js';
 import { LightningObserverProjection } from './lightning/LightningObserverProjection.js';
 import { nearbyMaintenanceWindows } from './maintenance/maintenanceSchedule.js';
+import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
 import { readPendingOperatorCashClose } from './services/operatorCashClose.js';
 import { type OperatorCommand, acknowledgeMaintenance } from './maintenance/OperatorCommands.js';
@@ -3802,6 +3804,8 @@ export class GameServer {
   private lastNoHandResultCheckAt = 0;
   /** Last fn_spin_expire_unfilled pass (2026-08-31 phase 2 review). */
   private lastSpinExpireAt = 0;
+  /** Last fn_daily_window_close_seat_first_lobbies pass (owner, 2026-11-03). */
+  private lastLobbyCloseAt = 0;
   private running: boolean = false;
   /** One boot and one teardown per orchestrator instance; neither may outrun the other. */
   private startOperation: Promise<void> | null = null;
@@ -9517,6 +9521,10 @@ export class GameServer {
             // for the rest of the board: stop at the fence, as every other
             // per-event loop in this pass does.
             if (!this.directAdmissionIsCurrent(generation)) break;
+            // A durable original request is a continuation, not a reconstructed
+            // five-minute recovery. Use the same leased manager admission now.
+            if (await this.admitOriginalTerminalContinuation(stuck.id, generation)) continue;
+            if (!this.directAdmissionIsCurrent(generation)) break;
             if (!dueIds.has(String(stuck.id))) continue;
             /* A MANAGER THAT NEVER CAME BACK (2026-09-06). See
                managerHasOverstayed. Past the grace the registered manager is
@@ -9762,6 +9770,51 @@ export class GameServer {
             }
           } catch (expEx) {
             reportError(expEx, 'GameServer.spin_expire_unfilled_threw');
+          }
+        }
+
+        /* ── THE 3:00 AM LOBBY CLOSE (owner, 2026-11-03) ──
+         * "ALL SPINS AND SIT N GO'S STOP AT 3AM TO INSURE THERE ARE NONE
+         * RUNNING BEFORE THE GAMES ALL SHUT DOWN." From 3:00 the database
+         * refuses every new Spin or Sit & Go entry and this engine opens no new
+         * board (maintenance/dailyWindow.ts), but a lobby opened at 2:55 would
+         * still hold its seated players' buy-ins through the 4:00 to 6:00
+         * window. Every minute from 3:00 to 6:00 Chicago this asks
+         * fn_daily_window_close_seat_first_lobbies to cancel each one that is
+         * open, unstarted and not full, through atomic_cancel_tournament, which
+         * refunds buy-in and fee and writes the receipt. A full game is left to
+         * deal. It is the engine's call because only the engine (service_role)
+         * may cancel a game somebody has entered; the database's own watchdog
+         * (smarter_private.daily_window_lobby_watchdog) pages if any lobby is
+         * still open at 4:00. The RPC only acts on open games, so a repeat or a
+         * second engine costs nothing. */
+        if (!spinSngBoardsOpen(new Date()) && Date.now() - this.lastLobbyCloseAt > 60 * 1000) {
+          this.lastLobbyCloseAt = Date.now();
+          try {
+            const { data: lc, error: lcErr } = await supabase.rpc(
+              'fn_daily_window_close_seat_first_lobbies',
+              { p_limit: 10 }
+            );
+            if (lcErr) {
+              reportError(
+                new Error(`[GameServer] 3 AM lobby close failed: ${lcErr.message}`),
+                'GameServer.daily_window_lobby_close_failed'
+              );
+            } else if (lc?.ok === false || Number(lc?.failed) > 0) {
+              reportError(
+                new Error(
+                  `[GameServer] 3 AM lobby close: ${Number(lc?.failed) || 0} failure(s), ` +
+                    `${Number(lc?.closed) || 0} closed`
+                ),
+                'GameServer.daily_window_lobby_close_failed'
+              );
+            } else if (Number(lc?.closed) > 0) {
+              console.log(
+                `[GameServer] 3 AM lobby close: ${lc.closed} Spin/Sit & Go lobby(ies) cancelled and refunded`
+              );
+            }
+          } catch (lcEx) {
+            reportError(lcEx, 'GameServer.daily_window_lobby_close_threw');
           }
         }
 
@@ -10149,6 +10202,30 @@ export class GameServer {
    * reported its last roster as seated players, so a closed table read as a
    * stalled one and paged "Tables Have Stopped Dealing".
    */
+  private async admitOriginalTerminalContinuation(
+    id: string,
+    generation: number
+  ): Promise<boolean> {
+    if (this.tournamentEngines.has(id)) return false;
+    try {
+      const original = await readDurableTerminalRequest(id);
+      if (!this.directAdmissionIsCurrent(generation)) return true;
+      if (!original) return false;
+      await this.ensureTournamentManagerAdmission(
+        id,
+        'resume',
+        'original terminal continuation',
+        generation
+      );
+      return true;
+    } catch (error) {
+      // Unknown intent fences this event from legacy reconstruction, but must
+      // not prevent independent events later in the discovery pass from resuming.
+      reportError(error, 'GameServer.original_terminal_continuation_failed');
+      return true;
+    }
+  }
+
   private escalateStuckTournamentTables(now: number): void {
     if (!this.tournamentEngines || !this.tableEngines) return;
     const since$ = (this.stuckTournamentTableSince ??= new Map());
@@ -10241,11 +10318,11 @@ export class GameServer {
     for (const tableId of [...since$.keys()]) {
       if (!seen.has(tableId)) since$.delete(tableId);
     }
-    // Hand-off counts outlive the manager generation they replaced (the next
-    // generation owns the same table), so a durable refusal cannot reset its
-    // own budget. Bounded: only tables that were handed on are kept, and the
-    // engine process restarts daily.
-    if (handoffs$.size > 500) handoffs$.clear();
+    // Hand-off counts outlive manager replacement and gaps in discovery. Fleet
+    // size cannot erase an exhausted budget: clearing all entries above 500
+    // turns the next pass into another fleet-wide successor wave. Healthy
+    // progress above and proven terminal retirement below release individual
+    // entries; unknown or still-failing tables retain their original allowance.
     for (const tournamentId of [...lastAt$.keys()]) {
       if (
         !this.tournamentEngines.has(tournamentId) &&
@@ -10713,8 +10790,9 @@ export class GameServer {
            read whole; an unreadable read yields NO orphans (unknown is not
            "unleased"), so an outage cannot become a storm. A failed claim
            waits out the same per-tournament cooldown as any resume, and after
-           ORPHAN_CLAIM_MAX_ATTEMPTS failures the orphan lane stops and raises
-           a financial alert instead (operator policy: no new repair loops). */
+           ORPHAN_CLAIM_MAX_ATTEMPTS failures only this priority lane stops and
+           raises a financial alert. Ordinary budgeted admission below remains
+           eligible after cooldown; the alert never creates another retry lane. */
         const orphanClaims: typeof running = [];
         if (running.length > 0 && isLeader()) {
           const leased = await this.readTournamentLeaseRowIds();
@@ -12568,8 +12646,8 @@ export class GameServer {
   }
 
   /**
-   * AN ORPHAN THE LANE GAVE UP ON IS PAGED, NOT RETRIED (Phase 6, operator
-   * policy 2026-10-31). One CRITICAL financial alert per RUNNING tournament
+   * EXHAUSTED ORPHAN PRIORITY IS PAGED (Phase 6, 2026-10-31). Ordinary
+   * budgeted admission remains eligible. One CRITICAL alert per RUNNING tournament
    * with no lease row whose claim failed ORPHAN_CLAIM_MAX_ATTEMPTS times in a
    * row; the set is pruned to the current exhausted ids, so a streak that ends
    * (a manager, or the id leaves the board) and comes back alerts again.
@@ -12587,9 +12665,9 @@ export class GameServer {
         'critical',
         'GameServer.tournament_orphan_claim_exhausted',
         `Tournament ${tournamentId} is RUNNING with no engine_tournament_leases row and the leader's ` +
-          `orphan claim failed ${failures} time(s) (cap ${ORPHAN_CLAIM_MAX_ATTEMPTS}); the orphan lane ` +
-          'has stopped claiming it. Its players are seated with no dealer. Read the engine log for ' +
-          'its admission refusal',
+          `orphan claim failed ${failures} time(s) (cap ${ORPHAN_CLAIM_MAX_ATTEMPTS}); priority claims ` +
+          'have stopped, but ordinary budgeted admission remains eligible after its cooldown. ' +
+          'Read the engine log for its admission refusal',
         { tournament_id: tournamentId, failures, max_attempts: ORPHAN_CLAIM_MAX_ATTEMPTS },
         `tournament-orphan-claim-exhausted:${tournamentId}`,
         tournamentId
@@ -13448,6 +13526,8 @@ export class GameServer {
       // absent.
       this.tournamentOwnedTables.delete(tableId);
       tableStateHub.dropTable(tableId);
+      this.stuckTournamentTableHandoffs?.delete(tableId);
+      this.stuckTournamentTableSince?.delete(tableId);
       return true;
     }
 
@@ -13463,7 +13543,12 @@ export class GameServer {
       // captured above to leave the process registry.
       reportError(stopError, 'GameServer.terminal_table_engine_stop_cleanup_failed', { tableId });
     }
-    return this.unregisterTableEngine(tableId, current);
+    const retired = this.unregisterTableEngine(tableId, current);
+    if (retired) {
+      this.stuckTournamentTableHandoffs?.delete(tableId);
+      this.stuckTournamentTableSince?.delete(tableId);
+    }
+    return retired;
   }
 
   /**

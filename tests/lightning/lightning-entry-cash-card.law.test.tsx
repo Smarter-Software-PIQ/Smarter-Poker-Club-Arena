@@ -28,7 +28,7 @@ describe('the approved Lightning cash-game card', () => {
     );
     expect(container.querySelectorAll('.agc-nlh-premium')).toHaveLength(1);
     expect(container.querySelector('.agc-nlh-premium__chassis')?.getAttribute('src')).toContain(
-      '/nlh/spade-nlh-premium-v1/chassis.png'
+      '/nlh/spade-nlh-premium-v1/chassis-alpha-v2.png'
     );
     expect(container.querySelector('[data-zone="gameType"]')?.textContent).toBe('PLO5');
     expect(container.querySelector('[data-zone="stakes"]')?.textContent).toBe('1/2');

@@ -18,6 +18,8 @@ describe('actual isolated legacy checkpoint transport', () => {
       'engine_census',
       'all registered and detached concrete engines travel by native object identity',
     ],
+    ['census_counts_skew', 'five-digit cohort remains complete within the original total budget'],
+    ['census_overflow', 'complete scalar counts survive overflow without guard or owner export'],
     ['census_counts', 'native projected group sizes survive refusal without another census'],
     ['census_counts_unknown', 'malformed native metadata remains unknown, never zero'],
     ['census_counts_zero', 'only actual empty native arrays report zero owners'],

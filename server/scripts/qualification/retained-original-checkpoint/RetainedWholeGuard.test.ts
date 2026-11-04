@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { BoundedLeaseRenewalScope } from '../services/BoundedLeaseRenewalScope.js';
 import { Worker } from 'node:worker_threads';
 import * as inspector from 'node:inspector';
 import { readFileSync } from 'node:fs';
@@ -11,6 +12,7 @@ const wire = vi.hoisted(() => ({
   calls: [] as any[],
   clock: {} as any,
   onAttest: null as null | (() => void),
+  readActor: () => null as any,
 }));
 vi.mock('../services/supabase/client.js', () => {
   const from = (table: string) => {
@@ -38,7 +40,7 @@ vi.mock('../services/supabase/client.js', () => {
       }),
       upsert: async (row: any) => {
         if (table !== 'engine_presence_parked') throw Error('Unexpected table write');
-        wire.calls.push({ name: 'park', row: structuredClone(row) });
+        wire.calls.push({ name: 'park', row: structuredClone(row), authority: wire.readActor() });
         wire.parked.set(row.table_id, structuredClone(row));
         return { error: null };
       },
@@ -46,7 +48,10 @@ vi.mock('../services/supabase/client.js', () => {
     return q;
   };
   const rpc = async (name: string, p: any) => {
-    wire.calls.push({ name, p: structuredClone(p) });
+    wire.calls.push({ name, p: structuredClone(p), authority: wire.readActor() });
+    if (name === 'release_tournament_leases_v2') return { data: 1, error: null };
+    if (name.startsWith('heartbeat_'))
+      return { data: null, error: { message: 'isolated uncertain heartbeat' } };
     if (name === 'save_hand_state_snapshot') return { data: null, error: null };
     if (name === 'fn_f06_attest_frozen_hand_continuation') {
       await wire.onAttest?.();
@@ -174,6 +179,27 @@ function banks(e: any, seats: any[]) {
 }
 const wholeCases = [
   'positive',
+  'manager-context',
+  'manager-serial-initial-noop',
+  'manager-serial-late-noop',
+  'manager-serial-pending',
+  'manager-serial-after-capture',
+  'manager-serial-physical-change',
+  'manager-serial-presence-change',
+  'manager-serial-bank-removed',
+  'manager-serial-empty-lease',
+  'manager-lease-expired-running',
+  'manager-lease-stopped',
+  'manager-lease-teardown',
+  'manager-retirement-joined',
+  'manager-retirement-replaced',
+  'manager-renewal-joined',
+  'manager-renewal-pending',
+  'manager-renewal-replaced',
+  'manager-renewal-absent',
+  'manager-renewal-deadline',
+  'manager-renewal-reserve',
+  'manager-renewal-expired-deadline',
   'lightning-pending-host',
   'lightning-registered-host',
   'lightning-unknown-formation',
@@ -198,8 +224,20 @@ const wholeCases = [
   'shadow-retention-waiter',
   'shadow-newer-retained-sequence',
   'shadow-swapped-release-method',
+  'skew-engine',
+  'skew-manager',
+  'skew-host',
+  'skew-mixed-worker',
+  'skew-mixed-manager',
+  'skew-excess',
+  'skew-duplicate',
+  'skew-unsafe',
+  'skew-await-method',
+  'skew-await-worker',
+  'skew-await-host',
 ];
 it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) => {
+  wire.readActor = actor.currentTournamentDataAuthority;
   const sha = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
   expect(releaseIdentity.ENGINE_RELEASE_IDENTITY.releaseSha).toBe(sha);
   const server: any = Object.assign(Object.create(gameServer.GameServer.prototype), {
@@ -509,6 +547,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     lightningSupervisor,
     lightningWorker,
     lightningFormation,
+    lightningHost,
     base,
     engine,
     controller,
@@ -641,7 +680,87 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     expect(server.lightningHosting.pending.size).toBe(0);
     expect(server.lightningRooms.hosts.size).toBe(0);
   }
-  let census = [[server], objects, managers, [worker], detachedHosts];
+  const extraWorkers: any[] = [];
+  if (scenario.startsWith('skew-')) {
+    const kind =
+      scenario === 'skew-manager'
+        ? 'manager'
+        : ['skew-host', 'skew-await-host'].includes(scenario)
+          ? 'host'
+          : 'engine';
+    const target = scenario === 'skew-excess' ? 18001 : 18000;
+    if (scenario.includes('mixed-worker') || scenario === 'skew-await-worker') {
+      for (let i = 0; i < 8999; i++)
+        extraWorkers.push(
+          new lightningWorker.LightningClusterWorker(id(70), parseLightningConfig(null), {
+            rpc: {} as any,
+            presence: new LightningPresence(() => []),
+            frozen: freezeState.isMaintenanceFrozen,
+            formationGate: lightningFormation.lightningFormationGate,
+          })
+        );
+    }
+    if (scenario === 'skew-mixed-manager') {
+      for (let i = 0; i < 8990; i++) {
+        const x: any = actor.bindTournamentDataAuthorityMethods(
+          { tournamentId: id(60), leaseGeneration: id(61) },
+          new TournamentManager(id(60), server, id(61), performance.now() + 600000)
+        );
+        await x.stop();
+        managers.push(x);
+      }
+    }
+    while (
+      1 + objects.length + managers.length + 1 + extraWorkers.length + detachedHosts.length <
+      target
+    ) {
+      if (kind === 'manager') {
+        const detached: any = actor.bindTournamentDataAuthorityMethods(
+          { tournamentId: id(60), leaseGeneration: id(61) },
+          new TournamentManager(id(60), server, id(61), performance.now() + 600000)
+        );
+        await detached.stop();
+        managers.push(detached);
+      } else if (kind === 'host') {
+        const host: any = new lightningHost.LightningHandHost(
+          {
+            clusterId: id(70),
+            instanceId: id(71),
+            handId: id(72),
+            bb: id(73),
+            sb: id(74),
+            btn: id(73),
+            players: [id(73), id(74)],
+            formedAtMs: now,
+          },
+          { backend: {} as any, hub: {} as any, leaseFor: () => null }
+        );
+        host.state = 'complete';
+        host.handEndReleased = true;
+        detachedHosts.push(host);
+      } else {
+        const shadow: any = m.createManagedTableEngine(originals[0].e.tableId);
+        held.push(shadow);
+        await shadow.stop();
+        objects.push(shadow);
+      }
+    }
+    if (scenario === 'skew-duplicate') objects[objects.length - 1] = objects[objects.length - 2];
+    if (scenario === 'skew-unsafe') objects[objects.length - 1].actionLock = true;
+    if (scenario === 'skew-await-method')
+      wire.onAttest = () => {
+        objects[objects.length - 1].hasReleasedProcessOwnership = () => true;
+      };
+    if (scenario === 'skew-await-worker')
+      wire.onAttest = () => {
+        extraWorkers[extraWorkers.length - 1].inFlight = Promise.resolve();
+      };
+    if (scenario === 'skew-await-host')
+      wire.onAttest = () => {
+        detachedHosts[detachedHosts.length - 1].keepaliveTimer = {};
+      };
+  }
+  let census = [[server], objects, managers, [worker, ...extraWorkers], detachedHosts];
   if (process.env.RETAINED_NATIVE_CENSUS_ADDON) {
     expect(process.version).toBe('v22.23.2');
     expect(process.versions.v8).toBe('12.4.254.21-node.56');
@@ -723,23 +842,298 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     }
     expect(Object.hasOwn(globalThis, key)).toBe(false);
   }
-  const result = await retainedOriginalCheckpointGuard.call(
-    server,
-    {
-      expectedReleaseSha: sha,
-      expectedPid: process.pid,
-      expectedInstanceId: tableLease.INSTANCE_ID,
-    },
-    census[0],
-    modules,
-    census[1],
-    scenario === 'missing-manager-census' ? [] : census[2],
-    scenario === 'lightning-missing-worker-census' ? [] : census[3],
-    census[4]
-  );
+  if (scenario === 'manager-serial-initial-noop' || scenario === 'manager-serial-pending') {
+    // The original manager admits a successor while its captured tail drains.
+    // Use the actual EED authority and redrive methods, not a synthetic revision write.
+    void m.runWithTournamentSeatMoveAuthority(async () => {
+      void m.redrivePendingTournamentSeatMoveOutcomes();
+      if (scenario === 'manager-serial-pending')
+        m.pendingTournamentParkRequests.set(id(999), { unresolved: true });
+    });
+  }
+  let emptyManager: any;
+  if (scenario === 'manager-serial-empty-lease') {
+    emptyManager = actor.bindTournamentDataAuthorityMethods(
+      { tournamentId: id(980), leaseGeneration: id(981) },
+      new TournamentManager(id(980), server, id(981), performance.now() + 600000)
+    );
+    emptyManager.running = true;
+    server.tournamentEngines.set(id(980), emptyManager);
+    managers.push(emptyManager);
+  }
+  if (
+    [
+      'manager-serial-late-noop',
+      'manager-serial-after-capture',
+      'manager-serial-physical-change',
+      'manager-serial-presence-change',
+      'manager-serial-bank-removed',
+      'manager-serial-empty-lease',
+    ].includes(scenario)
+  ) {
+    let admitted = false;
+    wire.onAttest = () => {
+      if (!admitted) {
+        admitted = true;
+        if (scenario === 'manager-serial-late-noop')
+          void m.redrivePendingTournamentSeatMoveOutcomes();
+        else if (scenario === 'manager-serial-physical-change') cash.maintenancePaused = false;
+        else if (scenario === 'manager-serial-presence-change')
+          cash.disconnectEngine.markDisconnected(cash.tableId, cash.seatedPlayers[0].user_id);
+        else if (scenario === 'manager-serial-bank-removed')
+          cash.timeBankEngine.removePlayer(cash.tableId, cash.seatedPlayers[0].user_id);
+        else if (scenario === 'manager-serial-empty-lease')
+          emptyManager.tournamentLeaseProofDeadlineMonotonicMs = performance.now() - 1;
+        else {
+          let running = cash.running,
+            entered = false;
+          Object.defineProperty(cash, 'running', {
+            configurable: true,
+            get() {
+              if (!entered) {
+                entered = true;
+                void m.redrivePendingTournamentSeatMoveOutcomes();
+              }
+              return running;
+            },
+            set(value) {
+              running = value;
+            },
+          });
+        }
+      }
+    };
+  }
+  if (scenario === 'manager-lease-expired-running')
+    m.tournamentLeaseProofDeadlineMonotonicMs = performance.now() - 1;
+  if (scenario === 'manager-lease-stopped') m.running = false;
+  if (scenario === 'manager-lease-teardown') m.teardownPromise = Promise.resolve();
+  if (scenario.startsWith('manager-retirement-')) {
+    const retired: any = actor.bindTournamentDataAuthorityMethods(
+      { tournamentId: id(970), leaseGeneration: id(971) },
+      new TournamentManager(id(970), server, id(971), performance.now() + 600000)
+    );
+    retired.running = true;
+    server.tournamentEngines.set(retired.tournamentId, retired);
+    managers.push(retired);
+    const retiringChild: any = retired.createManagedTableEngine(id(972));
+    retired.tableEngines.set(id(972), retiringChild);
+    server.tableEngines.set(id(972), retiringChild);
+    server.tournamentOwnedTables.add(id(972));
+    held.push(retiringChild);
+    objects.push(retiringChild);
+    let releaseJob!: () => void;
+    const originalJob = new Promise<void>((resolve) => {
+      releaseJob = resolve;
+    });
+    retired.lifecycleJobs.add(originalJob);
+    originalJob.then(() => retired.lifecycleJobs.delete(originalJob));
+    retired.fenceForTournamentLeaseLoss();
+    server.tournamentManagerRetirementOperations = new Map();
+    const retirement = (gameServer.GameServer.prototype as any).stopTournamentManagerIfOwned.call(
+      server,
+      retired.tournamentId,
+      retired,
+      'qualification.original_retirement',
+      false
+    );
+    if (scenario === 'manager-retirement-replaced')
+      retirement.then(() => {
+        server.tournamentEngines.set(retired.tournamentId, m);
+      });
+    // Let the already-owned teardown settle only after the guard sees it.
+    setImmediate(releaseJob);
+  }
+  let finishRenewalFixture: (() => Promise<void>) | null = null;
+  if (scenario.startsWith('manager-renewal-')) {
+    const retired: any = actor.bindTournamentDataAuthorityMethods(
+      { tournamentId: id(970), leaseGeneration: id(971) },
+      new TournamentManager(id(970), server, id(971), performance.now() + 20)
+    );
+    retired.running = true;
+    server.tournamentEngines.set(retired.tournamentId, retired);
+    managers.push(retired);
+    const child: any = retired.createManagedTableEngine(id(972));
+    retired.tableEngines.set(id(972), child);
+    server.tableEngines.set(id(972), child);
+    server.tournamentOwnedTables.add(id(972));
+    held.push(child);
+    objects.push(child);
+    let releaseJob!: () => void;
+    const job = new Promise<void>((resolve) => {
+      releaseJob = resolve;
+    });
+    retired.lifecycleJobs.add(job);
+    job.then(() => retired.lifecycleJobs.delete(job));
+    Object.assign(server, {
+      cashLeaseRenewalScope: new BoundedLeaseRenewalScope(),
+      tournamentLeaseRenewalScope: new BoundedLeaseRenewalScope(),
+      tournamentManagersJudgedLost: new WeakSet(),
+      serverLifecycleJobs: new Set(),
+      tournamentManagerRetirementOperations: new Map(),
+      tournamentManagerLeaseReleaseOperations: new Map(),
+      tournamentManagerPendingLeaseReleases: new Map(),
+      tournamentDiagnosticRetirements: new Map(),
+      directAdmissionIsCurrent: () => true,
+      tournamentResumeDistress: 0,
+    });
+    const renewal =
+      scenario === 'manager-renewal-absent'
+        ? null
+        : (gameServer.GameServer.prototype as any).renewOwnedEngineLeaseProofs.call(server);
+    // Stand in only for elapsed synchronous collection, without invoking expiry.
+    const until = performance.now() + 25;
+    while (performance.now() < until) {}
+    expect(retired.tournamentLeaseAuthorityExpired).toBe(false);
+    expect(retired.teardownPromise).toBeNull();
+    if (scenario === 'manager-renewal-joined' || scenario === 'manager-renewal-replaced')
+      setImmediate(() =>
+        setImmediate(() => {
+          const retirement = server.tournamentManagerRetirementOperations.get(retired);
+          if (scenario === 'manager-renewal-replaced')
+            retirement?.then(() => server.tournamentEngines.set(retired.tournamentId, m));
+          releaseJob();
+        })
+      );
+    if (scenario === 'manager-renewal-reserve') {
+      maintenance.breakEndsAt = Date.now() + 204999;
+      maintenance.lastDurableState.breakEndsAt = maintenance.breakEndsAt;
+    }
+    finishRenewalFixture = async () => {
+      releaseJob();
+      await renewal;
+      await Promise.allSettled([...server.tournamentManagerRetirementOperations.values()]);
+      if (!retired.tournamentLeaseAuthorityExpired) retired.fenceForTournamentLeaseLoss();
+      await retired.stop();
+    };
+  }
+  const guardStarted = performance.now();
+  const invoke = () =>
+    retainedOriginalCheckpointGuard.call(
+      server,
+      {
+        expectedReleaseSha: sha,
+        expectedPid: process.pid,
+        expectedInstanceId: tableLease.INSTANCE_ID,
+        workDeadlineMs:
+          Date.now() +
+          (scenario === 'manager-renewal-expired-deadline'
+            ? -1
+            : scenario === 'manager-renewal-deadline'
+              ? 30
+              : 20000),
+      },
+      census[0],
+      modules,
+      census[1],
+      scenario === 'missing-manager-census' ? [] : census[2],
+      scenario === 'lightning-missing-worker-census' ? [] : census[3],
+      census[4]
+    );
+  const foreignAuthority = { tournamentId: id(990), leaseGeneration: id(991) };
+  const result =
+    scenario === 'manager-context'
+      ? await actor.runWithTournamentDataAuthority(foreignAuthority, async () => {
+          expect(actor.currentTournamentDataAuthority()).toEqual(foreignAuthority);
+          const observed = await invoke();
+          expect(actor.currentTournamentDataAuthority()).toEqual(foreignAuthority);
+          return observed;
+        })
+      : await invoke();
+  expect(actor.currentTournamentDataAuthority()).toBeNull();
+  if (scenario.startsWith('manager-renewal-')) {
+    if (scenario !== 'manager-renewal-joined') {
+      expect(result).toMatchObject({ ok: false, attemptedTables: 0, restartAuthorized: false });
+      expect(cash.terminal).toBe(false);
+      expect(performance.now() - guardStarted).toBeLessThan(1500);
+      expect(result.reason).toBe(
+        scenario === 'manager-renewal-absent'
+          ? 'retained_manager_lease_unproven'
+          : scenario === 'manager-renewal-replaced'
+            ? 'retained_retirement_registry_unproven'
+            : scenario === 'manager-renewal-expired-deadline'
+              ? 'retained_renewal_deadline_unproven'
+              : 'retained_renewal_observation_expired'
+      );
+    }
+    await finishRenewalFixture!();
+    if (scenario !== 'manager-renewal-joined') return;
+  }
+  if (scenario.startsWith('skew-')) expect(performance.now() - guardStarted).toBeLessThan(20000);
   if (releaseFrontLease) {
     releaseFrontLease(false);
     await worker.stop();
+  }
+  if (
+    [
+      'manager-serial-after-capture',
+      'manager-serial-pending',
+      'manager-serial-physical-change',
+      'manager-serial-presence-change',
+      'manager-serial-bank-removed',
+      'manager-serial-empty-lease',
+    ].includes(scenario)
+  ) {
+    expect(result).toMatchObject({
+      ok: false,
+      attemptedTables: 0,
+      restartAuthorized: false,
+      reason:
+        scenario === 'manager-serial-pending'
+          ? 'retained_manager_authority_unproven'
+          : scenario === 'manager-serial-physical-change'
+            ? 'retained_pre_stop_authority_changed'
+            : scenario === 'manager-serial-presence-change'
+              ? 'retained_pre_stop_presence_changed'
+              : scenario === 'manager-serial-bank-removed'
+                ? 'retained_bank_set_changed'
+                : scenario === 'manager-serial-empty-lease'
+                  ? 'retained_manager_lease_unproven'
+                  : 'retained_manager_serial_changed',
+    });
+    for (const f of originals) expect(f.e.terminal).toBe(false);
+    expect(cash.terminal).toBe(false);
+    if (scenario === 'manager-serial-after-capture')
+      expect(result.observedDetail).toMatch(
+        /^phase=pre_mutation, managerHash=[a-f0-9]{16}, class=registered, census=1, witness=true, tailChanged=true, revisionChanged=true$/
+      );
+    if (scenario === 'manager-serial-empty-lease')
+      expect(result.observedDetail).toContain('phase=final_join, site=current_join,');
+    m.pendingTournamentParkRequests.clear();
+    return;
+  }
+  if (scenario === 'manager-retirement-replaced') {
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'retained_retirement_registry_unproven',
+      stage: 'preflight',
+      attemptedTables: 0,
+    });
+    expect(cash.terminal).toBe(false);
+    return;
+  }
+  if (scenario.startsWith('manager-lease-')) {
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'retained_manager_lease_unproven',
+      stage: 'preflight',
+      attemptedTables: 0,
+      restartAuthorized: false,
+    });
+    expect(result.observedDetail).toMatch(
+      /^phase=initial_join, site=current_join, managerHash=[a-f0-9]{16}, class=registered, census=1, /
+    );
+    expect(result.observedDetail).toContain(
+      scenario === 'manager-lease-expired-running'
+        ? 'deadlineFinite=true, deadlineFuture=false'
+        : scenario === 'manager-lease-stopped'
+          ? 'running=false'
+          : 'teardownNull=false'
+    );
+    expect(result.observedDetail).not.toContain(m.tournamentId);
+    for (const f of originals) expect(f.e.terminal).toBe(false);
+    expect(cash.terminal).toBe(false);
+    return;
   }
   if (scenario.startsWith('shadow-held-'))
     expect(result, JSON.stringify(result)).toMatchObject({
@@ -751,7 +1145,51 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       completedCalls: 0,
       verifiedTables: 0,
     });
-  if (!['positive', 'detached-drained', 'shadow-covered-permit'].includes(scenario)) {
+  if (
+    [
+      'skew-excess',
+      'skew-duplicate',
+      'skew-unsafe',
+      'skew-await-method',
+      'skew-await-worker',
+      'skew-await-host',
+    ].includes(scenario)
+  ) {
+    expect(result).toMatchObject({ ok: false, attemptedTables: 0, restartAuthorized: false });
+    for (const f of originals) expect(f.e.terminal).toBe(false);
+    expect(cash.terminal).toBe(false);
+    expect(result.reason).toBe(
+      scenario === 'skew-excess'
+        ? 'retained_aggregate_census_unproven'
+        : scenario === 'skew-duplicate'
+          ? 'retained_object_census_unproven'
+          : scenario === 'skew-await-method'
+            ? 'retained_method_changed'
+            : scenario === 'skew-await-worker'
+              ? 'retained_lightning_formation_unproven'
+              : scenario === 'skew-await-host'
+                ? 'retained_lightning_host_census_unproven'
+                : 'retained_unconfirmed_work'
+    );
+    return;
+  }
+  if (
+    ![
+      'positive',
+      'manager-context',
+      'manager-retirement-joined',
+      'manager-renewal-joined',
+      'manager-serial-initial-noop',
+      'manager-serial-late-noop',
+      'detached-drained',
+      'shadow-covered-permit',
+      'skew-engine',
+      'skew-manager',
+      'skew-host',
+      'skew-mixed-worker',
+      'skew-mixed-manager',
+    ].includes(scenario)
+  ) {
     expect(result, scenario).toMatchObject({
       ok: false,
       attemptedTables: 0,
@@ -782,6 +1220,22 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     verifiedTables: 3,
     restartAuthorized: false,
   });
+  if (scenario === 'manager-context') {
+    const attestations = wire.calls.filter(
+      (c) => c.name === 'fn_f06_attest_frozen_hand_continuation'
+    );
+    expect(attestations.length).toBeGreaterThan(0);
+    for (const call of attestations)
+      expect(call.authority).toEqual({
+        tournamentId: call.p.p_tournament_id,
+        leaseGeneration: call.p.p_lease_generation,
+      });
+    const cashParks = wire.calls.filter(
+      (c) => c.name === 'park' && c.row.table_id === cash.tableId
+    );
+    expect(cashParks.length).toBeGreaterThan(0);
+    expect(cashParks.every((c) => c.authority === null)).toBe(true);
+  }
   for (const f of originals) {
     expect(privateContinuation.encodePrivateHandContinuation(f.original)).toEqual(f.packet);
     expect(f.hc.serializeRecoveryState()).toBe(f.original.batch.controller);

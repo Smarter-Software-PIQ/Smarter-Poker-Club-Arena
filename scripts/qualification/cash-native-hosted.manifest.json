@@ -428,16 +428,16 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 274871,
-      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+      "bytes": 278311,
+      "sha256": "8891a5a8976a5c75f5d7f385b7490f062195e179288b31c8138dfbb421f2add4"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 47474,
-      "sha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785"
+      "bytes": 48221,
+      "sha256": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -532,8 +532,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 121735,
-      "sha256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb"
+      "bytes": 122859,
+      "sha256": "b2e12459daec2aa40b51ab33301738463605b35067ee2176e16d38d08ee2670e"
     }
   },
   "nativePgCron": {
@@ -6540,6 +6540,378 @@
     "current": {
       "bytes": 274871,
       "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+    }
+  },
+  "pgdgRepositoryKeySourceAudit20261102": {
+    "reason": "Reviewed exact CI installer diff: fetch the byte-identical official PGDG signing key from its package repository after repeated website TLS EOF failures before tests. Preserve HTTPS, curl failure propagation, Signed-By, package versions, test assertions, deadlines, financial inputs and every historical qualification state.",
+    "previousCiPin": {
+      "bytes": 274871,
+      "sha256": "01b4dbfdb92e6944486d8a5b029db2e988908ceda0e169540b46e6caf3f1ba95"
+    },
+    "currentCiPin": {
+      "bytes": 275034,
+      "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
+    },
+    "keySha256": "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76",
+    "validation": "Eight local installer/mirror regressions pass; hosted exact-head qualification remains required. Source identity only, not native scheduler, financial or live recertification.",
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "undrawnSpinCancellationSourceAudit20261103": {
+    "review": "Added finite booked-undrawn Spin cancellation native proof in accounting shard4 and matching classification. Existing cash cases, financial assertions and execution states unchanged. Current source identity only; no financial recertification or production proof.",
+    "changes": {
+      ".github/workflows/ci.yml": {
+        "previous": {
+          "bytes": 275034,
+          "sha256": "74c5637ed0a88a600576f82f5132a704bb53937b62f3f026cc9ebb981544fd05"
+        },
+        "current": {
+          "bytes": 275817,
+          "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+        }
+      },
+      "scripts/ci/classify-ci-changes.mjs": {
+        "previous": {
+          "bytes": 47474,
+          "sha256": "f557e86ec8c10ef667b3d3932f89e2a384d561ec035f3b6bb74ce576faaa7785"
+        },
+        "current": {
+          "bytes": 47562,
+          "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+        }
+      }
+    }
+  },
+  "ordinaryTerminalTransportQualification20261103": {
+    "review": "Reviewed additive ordinary MTT/SNG/Spin fixture input classification and four regression routing cases. Existing cash logic, qualification assertions and historical evidence remain unchanged. This is current source identity only, not cash financial recertification or production acceptance.",
+    "changes": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "previous": {
+          "bytes": 47562,
+          "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+        },
+        "current": {
+          "bytes": 47622,
+          "sha256": "7849b4aab2e653030698088105e1b72f721204e482cebeae849d82dfed1f8e66"
+        }
+      },
+      "tests/unit/fixtureNativeCi.test.ts": {
+        "previous": {
+          "bytes": 121735,
+          "sha256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb"
+        },
+        "current": {
+          "bytes": 121993,
+          "sha256": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780"
+        }
+      }
+    }
+  },
+  "durableTerminalRequestQualification20261103": {
+    "review": "Reviewed additive durable original request native qualification routing. Existing cash logic, assertions, input set and historical qualification remain unchanged. Current source identity only; no financial recertification or production acceptance.",
+    "changes": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "previous": {
+          "bytes": 47622,
+          "sha256": "7849b4aab2e653030698088105e1b72f721204e482cebeae849d82dfed1f8e66"
+        },
+        "current": {
+          "bytes": 47681,
+          "sha256": "e24cbc30b09196198f35d2a7959819d0b390d73de0d8ab9f53a8634cf5945491"
+        }
+      },
+      "tests/unit/fixtureNativeCi.test.ts": {
+        "previous": {
+          "bytes": 121993,
+          "sha256": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780"
+        },
+        "current": {
+          "bytes": 122229,
+          "sha256": "86f2b5203c447f6f13202b4e7684d500602d304c8343705036f68b179f5e388f"
+        }
+      }
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "durableDealCoverage20261103": {
+    "review": "Reviewed additive durable legacy/proposal deal source routing and four classification cases. Current source identity only. Existing accounting routes, financial inputs, assertions and historical qualification remain unchanged.",
+    "changes": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "previous": {
+          "bytes": 47681,
+          "sha256": "e24cbc30b09196198f35d2a7959819d0b390d73de0d8ab9f53a8634cf5945491"
+        },
+        "current": {
+          "bytes": 47771,
+          "sha256": "d90ea66116fcc41d3bd3b9cb1b4f89987822d2bb58e0a05ef270d3bec7255539"
+        }
+      },
+      "tests/unit/fixtureNativeCi.test.ts": {
+        "previous": {
+          "bytes": 122229,
+          "sha256": "86f2b5203c447f6f13202b4e7684d500602d304c8343705036f68b179f5e388f"
+        },
+        "current": {
+          "bytes": 122501,
+          "sha256": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f"
+        }
+      }
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "oldEventCloseoutRoutingAudit20261103": {
+    "reason": "Reviewed additive routing of original-recovery and entry-hold qualification inputs into the existing required cancellation shard. Cash behavior, assertions and historical qualification remain unchanged.",
+    "changes": {
+      "scripts/ci/classify-ci-changes.mjs": {
+        "previous": {
+          "bytes": 47562,
+          "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+        },
+        "current": {
+          "bytes": 47823,
+          "sha256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
+        }
+      }
+    },
+    "historicalEvidenceRestamped": false
+  },
+  "oldCloseoutProtectedMainComposition20261103": {
+    "reason": "Reviewed composition of additive ordinary terminal qualification and old-event closure routing. Both original audit records retained unchanged. Runtime, migration bytes and historical financial results unchanged; current source identities only.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": {
+          "bytes": 47823,
+          "sha256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
+        },
+        "current": {
+          "bytes": 47883,
+          "sha256": "ef60d9c402d05eafe2eae7f4f5e01cf6512c07283a660189e2f6219d9b964d39"
+        }
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": {
+          "bytes": 121735,
+          "sha256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb"
+        },
+        "current": {
+          "bytes": 121993,
+          "sha256": "9e8e12c052dfcc3f104a90a577e2a8ea0b1570cd3559e39086994ebb979cf780"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "additionalFiveRefundControlAudit20261103": {
+    "reason": "Reviewed additive exact-five original refund adapter/native helper routing and two routing regressions. Existing financial assertions, fixture data and historical verdicts unchanged. Source identity only; isolated new five-topology evidence is separate.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": {
+          "bytes": 47823,
+          "sha256": "790532b61115b5cfd5faae79c8f876e412e23ed2c799aec2789da706b2a8ad64"
+        },
+        "current": {
+          "bytes": 47888,
+          "sha256": "a7d49ee25418a8540a2447e5c933aea100857f5f7ad93afc8540faa4d92439f0"
+        }
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": {
+          "bytes": 121735,
+          "sha256": "3fa1c514067fb7c3fe09ea3373a5326a5f2643b45fd1776917c4f9a2457bd8cb"
+        },
+        "current": {
+          "bytes": 122093,
+          "sha256": "180940e5aed7e0caad0cb137b8392465bf84fd5567c02c7c1b4a28ca04177478"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "finishUnionNativeEnforcement20261103": {
+    "reason": "Reviewed additive required union-finish/cash-hand native contention step and isolated-input classifier routing. No financial owner, existing assertion or historical verdict changed.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 275817,
+          "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+        },
+        "current": {
+          "bytes": 276540,
+          "sha256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+        }
+      },
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": {
+          "bytes": 47562,
+          "sha256": "060aa55b311399f6a62f150d60d84fb8ccdc1f319f3cfa38c4f2abcd703e34a3"
+        },
+        "current": {
+          "bytes": 47686,
+          "sha256": "a907216ea253e523b7675674584cf300678e6498b0ddb899ce92544261245cf2"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "financial_recertification": false
+  },
+  "tournamentRecoveryComposition20261103": {
+    "reason": "Reviewed composition of durable terminal recovery, all-event closure/entry hold, exact-five refund adapter, authenticated hold reader, alert lifecycle and union-contention CI. Original source audits and historical financial verdicts retained unchanged; only current composed input identities updated. Final hosted accounting qualification remains required.",
+    "changes": [
+      {
+        "path": "scripts/ci/classify-ci-changes.mjs",
+        "previous": {
+          "bytes": 47771,
+          "sha256": "d90ea66116fcc41d3bd3b9cb1b4f89987822d2bb58e0a05ef270d3bec7255539"
+        },
+        "current": {
+          "bytes": 48221,
+          "sha256": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c"
+        }
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": {
+          "bytes": 122501,
+          "sha256": "ff83ca08b740928e12b090d327dfffe209f64b2bd07cb4539110ae06e7571c2f"
+        },
+        "current": {
+          "bytes": 122859,
+          "sha256": "6665fe43818502dbce7c57d774060fa1afc3ae1c9ca48e1913c49468ea0b3fdd"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "fixedLimitQualificationWiring20261103": {
+    "reason": "Add native fixed-limit regression to existing accounting shard3. Existing cash commands, scheduler assertions, native permutations, financial state and certificates unchanged. Current workflow identity only.",
+    "previous": {
+      "bytes": 275817,
+      "sha256": "44e561065723c131f27802954c288f65cf8ca443850368e201e5c828776a715e"
+    },
+    "current": {
+      "bytes": 276110,
+      "sha256": "d7e5d2f9ec932ee89ec040211a7dbf259f794f860caef61db8e3aded3bada90a"
+    }
+  },
+  "tournamentRecoveryProtectedCashComposition20261103": {
+    "source": "Protected main 2e978404745d8e89f632205c954497c5e1c2dc69 adds fixed-limit native CI beside retained tournament recovery and union contention qualification.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "prior": {
+          "bytes": 276540,
+          "sha256": "3081dac591692c1a174a040151da40eee5cf6c6f932f692de9c40693b8384c00"
+        },
+        "current": {
+          "bytes": 276833,
+          "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "browserProducerArtifactIdentity20261103": {
+    "reason": "CSS consumers use the successful producer job output on partial reruns instead of recomputing an absent artifact from their newer attempt. Same run/SHA, sealed file bytes and validation-only provenance remain checked. Accounting steps are unchanged.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 276833,
+      "sha256": "fea0522af36824e664a0a5783bad7342b8e31f30c28282efd80cd51a465d543d"
+    },
+    "current": {
+      "bytes": 277650,
+      "sha256": "8a2e47338053bac98f660f07e062dd45ac3f684e61e3d8996208c6e1035abe73"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "verdictSparseCheckout20261103": {
+    "reason": "Only informational verdict checkout selects docs/agent-policy. Two-minute budget, revision, needs, all report assertions and every other job unchanged. Current input identity only; no historical qualification or live proof restamped.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 277650,
+      "sha256": "8a2e47338053bac98f660f07e062dd45ac3f684e61e3d8996208c6e1035abe73"
+    },
+    "current": {
+      "bytes": 277752,
+      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
+    }
+  },
+  "retainedOwnerQualificationScheduling20261103": {
+    "reason": "Reviewed exact-once historical owner qualification before competing full-suite workloads. All 44 cases and 120/150/180 second bounds retained. Accounting commands, financial inputs, assertions and historical verdicts unchanged. Current workflow identity only.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 277752,
+      "sha256": "20e2a732a444eddb8894c82636e1ceffabdec55dfbe23f312e18c9e682ff5340"
+    },
+    "current": {
+      "bytes": 278022,
+      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "historicalQualificationJobCapacity20261103": {
+    "reason": "Measured checkout8m03 plus setup1m22 plus isolated44case3m09 plus prior fullsuite15m55 exceeds25minute job. Only CI engine job capacity40minutes; all commands, individual deadlines, accounting inputs and historical verdicts unchanged.",
+    "path": ".github/workflows/ci.yml",
+    "previous": {
+      "bytes": 278022,
+      "sha256": "f74529e61f8a0ef41e223ee5d5112ea51e4e82408f89c0e43b3ccb7631c70b31"
+    },
+    "current": {
+      "bytes": 278022,
+      "sha256": "a5eae1a5e8f9ffe45860dca4a68167fd4e2f1a98d511797f0b041936c6fdf3e3"
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "ownerDirectedQualificationCapacity20261103": {
+    "reason": "Direct owner instruction doubles enumerated CI qualification/build job capacities only. Individual test deadlines, financial inputs/assertions, production operation budgets and historical verdicts remain unchanged. Reviewed current source identity only.",
+    "changes": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278022,
+          "sha256": "a5eae1a5e8f9ffe45860dca4a68167fd4e2f1a98d511797f0b041936c6fdf3e3"
+        },
+        "current": {
+          "bytes": 278025,
+          "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
+        }
+      },
+      {
+        "path": "tests/unit/fixtureNativeCi.test.ts",
+        "previous": {
+          "bytes": 122859,
+          "sha256": "6665fe43818502dbce7c57d774060fa1afc3ae1c9ca48e1913c49468ea0b3fdd"
+        },
+        "current": {
+          "bytes": 122859,
+          "sha256": "b2e12459daec2aa40b51ab33301738463605b35067ee2176e16d38d08ee2670e"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "nov3AttendanceNativeEnforcement20261103": {
+    "reason": "Reviewed five-line accounting shard2 addition for dated attendance native qualification. Cash commands/assertions/budgets and original financial inputs unchanged. Source identity only; no historical or live certificate restamp.",
+    "previous": {
+      "bytes": 278025,
+      "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
+    },
+    "current": {
+      "bytes": 278311,
+      "sha256": "8891a5a8976a5c75f5d7f385b7490f062195e179288b31c8138dfbb421f2add4"
     }
   }
 }

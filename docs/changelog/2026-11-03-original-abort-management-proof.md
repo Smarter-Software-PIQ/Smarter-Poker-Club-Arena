@@ -1,0 +1,9 @@
+# Original closeout supports genuine management rollback proof
+
+The original refund payer admitted only service JWTs, and the managed lifecycle trigger rejected both original refund and owner retirement cancellation under a genuine PostgreSQL management session. This prevented the required single-call self-aborting financial proof.
+
+The existing payer now permits only the same genuine postgres/no assumed role/no JWT context already accepted by owner retirement. Cancellation reuses the original target's transaction-bound admission; the lifecycle trigger requires its paired prior status, current lease and closed zero escrow. The existing deferred constraint demands the full canonical original receipt. Protected field rules, service access, current-generation/hash/custody checks and all financial owners remain unchanged. No new payer, general terminal edit allowance or production operation is introduced by installation.
+
+Focused native PostgreSQL evidence includes the pre-fix top-level refusal and both nested lifecycle refusals; all five funded refund topologies pass genuine-session self-aborting rollback, commit and unchanged replay (81 refund lines, 1233 gross, 111.30 fees, 307.50 original overlay return). Service rollback remains supported; assumed anonymous/authenticated roles including forged service claims, direct terminal edits, orphan admissions and incorrect money hashes are refused. Existing chip/Diamond owner retirement cases also pass genuine-session rollback, commit and replay, retaining prior earned awards. The maintained hand-continuation accounting qualification executes both paths.
+
+These are isolated financial and authorization proofs. Production physical quiescence, each reviewed financial rollback/commit/readback, migration installation and engine restoration remain separate requirements.

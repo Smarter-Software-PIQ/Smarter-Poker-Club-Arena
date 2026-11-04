@@ -1990,6 +1990,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
      * A seat in the running hand is cleared exactly as before. Outside that,
      * only an entry that exists is touched, so a clear from somebody who holds
      * nothing here creates no per-player state. */
+    // Ordinary client clears/arms cannot withdraw an accepted leave's fold.
+    if (this.hasCommittedLeaveFold(userId)) {
+      return { success: false, error: 'You Have Left This Hand', code: 'NOT_IN_HAND' };
+    }
     if (action === 'clear') {
       const inRunningHand =
         this.handController?.getState().players.some((p) => p.user_id === userId) === true;
@@ -2103,6 +2107,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     actionContext?: string | null,
     trustedOrigin?: 'pre_action'
   ): { success: boolean; error?: string; code?: string; hint?: Record<string, unknown> } {
+    if (this.hasCommittedLeaveFold(userId) && action !== 'fold') {
+      return { success: false, error: 'You Have Left This Hand', code: 'NOT_IN_HAND' };
+    }
     if (this.isOriginalInputPending())
       return {
         success: false,
@@ -3051,6 +3058,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     // Step 1: Check for queued pre-action before starting timer (applies to ALL players)
     const toCallForPreAction = Math.max(0, state.currentBet - enginePlayer.bet);
     const canCheckForPreAction = toCallForPreAction === 0;
+    if (this.hasCommittedLeaveFold(player.user_id)) {
+      this.preActionEngine.setPreAction(this.tableId, player.user_id, 'auto_fold');
+    }
     const preResult = this.preActionEngine.executePreAction(
       this.tableId,
       player.user_id,
@@ -3101,8 +3111,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       try {
         preApplied = controllerAtBeat.performAction(
           seat,
-          preResult.action as any,
-          preResult.amount,
+          (this.hasCommittedLeaveFold(player.user_id) ? 'fold' : preResult.action) as any,
+          this.hasCommittedLeaveFold(player.user_id) ? undefined : preResult.amount,
           'pre_action'
         );
       } catch (err) {
