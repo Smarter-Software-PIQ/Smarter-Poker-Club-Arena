@@ -271,6 +271,54 @@ describe('the rotator stands exactly one horse up for a game-list person', () =>
     return { leaves, calls };
   };
 
+  it.each([
+    ['off-peak high stakes, no human', '2026-11-04T05:00:00-06:00', true, false, false, 6],
+    ['off-peak high stakes, playing human', '2026-11-04T05:00:00-06:00', true, true, false, 0],
+    ['off-peak high stakes, sitting-out human', '2026-11-04T05:00:00-06:00', true, true, true, 5],
+    ['prime-time high stakes, no human', '2026-11-04T18:00:00-06:00', true, false, false, 0],
+    [
+      'overnight scheduled low stakes, no human',
+      '2026-11-04T05:00:00-06:00',
+      false,
+      false,
+      false,
+      0,
+    ],
+  ] as const)(
+    'runs the real rotation for %s',
+    async (_label, date, higher, human, sittingOut, expected) => {
+      vi.setSystemTime(Date.parse(date));
+      const db = lightningFloor();
+      const table = {
+        ...db.tables[0],
+        union_id: MIDWAY_UNION_ID,
+        club_id: MIDWAY_UNION_ID,
+        game_variant: 'nlh',
+        small_blind: higher ? 1 : 0.1,
+        big_blind: higher ? 2 : 0.25,
+        cluster_id: higher
+          ? 'bc1a347f-2b85-49df-b3b3-40a498a6e51b'
+          : '830603f7-ed8e-4e25-8572-ce7aa45a5469',
+      };
+      db.tables = [table];
+      db.table_seats = db.table_seats
+        .filter((seat) => seat.table_id === table.id)
+        .map((seat, i) => ({
+          ...seat,
+          tables: table,
+          club_id: MIDWAY_UNION_ID,
+          stack: 200,
+          joined_at: new Date(Date.now() - 60_000).toISOString(),
+          ...(human && i === 0 ? { user_id: PERSON, is_sitting_out: sittingOut } : {}),
+        }));
+      const { leaves } = await run(db);
+      expect(leaves).toHaveLength(expected);
+      expect(leaves.every((leave) => leave.tableId === table.id && leave.userId !== PERSON)).toBe(
+        true
+      );
+    }
+  );
+
   it('Lightning game, all 18 seats horses, one person on the game list: one horse, one table', async () => {
     const { leaves } = await run(lightningFloor({ gameWaitlist: [gameRow()] }));
     expect(leaves).toHaveLength(1);

@@ -1,4 +1,9 @@
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
+import {
+  horseCashPlanPrimaryTables,
+  horseUnionCashTableAllowed,
+  playingHumansAtCashTable,
+} from './HorseUnionCashPlan.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE SESSION ROTATOR — Humanlike Session Rhythms (V7 — 2026-07-24)
@@ -978,6 +983,9 @@ export class HorseSessionRotator {
     const disabledGameIds = await this.readDisabledGameIds(byTable);
     if (!this.lifecycleIsCurrent(generation)) return;
     let rosterLeaves = 0;
+    const cashPlanPrimaryTables = horseCashPlanPrimaryTables(
+      [...byTable.values()].map((tableSeats) => tableSeats[0]?.tables ?? {})
+    );
     for (const [tableId, tableSeats] of byTable) {
       if (!this.lifecycleIsCurrent(generation)) return;
       const t = (tableSeats[0] as any)?.tables;
@@ -989,6 +997,12 @@ export class HorseSessionRotator {
         horseIds,
         disabledGameIds
       );
+      const outsideCashPlan = !horseUnionCashTableAllowed(
+        t ?? {},
+        playingHumansAtCashTable(tableSeats, horseIds),
+        Date.now(),
+        cashPlanPrimaryTables
+      );
       for (const seat of tableSeats) {
         const uid = String(seat.user_id ?? '');
         if (!uid || !horseIds.has(uid)) continue;
@@ -999,7 +1013,7 @@ export class HorseSessionRotator {
         const benched = benchedIds.has(uid) || (!exempt && cashRosterAllows(uid, t) === false);
         const offPlo = !exempt && ploRosterAllows(uid, t?.game_variant, t?.big_blind) === false;
         const restrictedCashGame = !horseCashGameAllowed(t ?? {}, Date.now());
-        if (!benched && !offPlo && !offGame && !restrictedCashGame) continue;
+        if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan) continue;
         try {
           const result = await engine.leaveTable(uid);
           if (!this.lifecycleIsCurrent(generation)) return;
@@ -1015,7 +1029,7 @@ export class HorseSessionRotator {
     }
     if (rosterLeaves > 0) {
       console.log(
-        `[SessionRotator] ${rosterLeaves} horse(s) leaving cash seats - off the cash roster, off the PLO roster, at a switched-off game or restricted by the owner cash policy`
+        `[SessionRotator] ${rosterLeaves} horse(s) leaving cash seats - off the cash roster, off the PLO roster, at a switched-off game or outside the owner cash policy/schedule`
       );
     }
 

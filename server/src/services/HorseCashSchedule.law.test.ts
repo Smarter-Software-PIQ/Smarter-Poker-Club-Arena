@@ -99,7 +99,7 @@ describe('November 2 owner cash schedule', () => {
     expect(rotator).toContain(
       'const restrictedCashGame = !horseCashGameAllowed(t ?? {}, Date.now());'
     );
-    expect(rotator).toContain('!offGame && !restrictedCashGame) continue;');
+    expect(rotator).toContain('!offGame && !restrictedCashGame && !outsideCashPlan) continue;');
     expect(rotator).toContain('await engine.leaveTable(uid)');
     expect(snapshot).toContain('cashActivityScale: now.cashActivityScale');
   });

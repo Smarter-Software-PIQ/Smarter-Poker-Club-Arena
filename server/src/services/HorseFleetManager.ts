@@ -1,4 +1,9 @@
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
+import {
+  horseCashPlanPrimaryTables,
+  horseUnionCashTableAllowed,
+  playingHumansAtCashTable,
+} from './HorseUnionCashPlan.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE FLEET MANAGER — Server-Side Cash Table Seeding
@@ -1190,6 +1195,7 @@ export class HorseFleetManager {
         return;
       }
       const tables = tablePage.rows.filter(isChipFleetTable);
+      const cashPlanPrimaryTables = horseCashPlanPrimaryTables(tables);
 
       /* ── THE DIAMOND ARENA (Dan 2026-10-06) ─────────────────────────────
          Deep Stack Society's horses play the arena's cash games too, through
@@ -1314,6 +1320,8 @@ export class HorseFleetManager {
         stack: number | null;
         club_id: string | null;
         joined_at: string | null;
+        is_sitting_out: boolean | null;
+        leave_pending: boolean | null;
       }>(
         (cursor, want) => {
           // KEYSET, not OFFSET. `.range()` paging re-reads the table under a
@@ -1324,7 +1332,9 @@ export class HorseFleetManager {
           // constantly in a live room. `id > cursor` has no such window.
           let q = supabase
             .from('table_seats')
-            .select('id, user_id, table_id, seat_number, stack, club_id, joined_at')
+            .select(
+              'id, user_id, table_id, seat_number, stack, club_id, joined_at, is_sitting_out, leave_pending'
+            )
             .is('left_at', null)
             .order('id', { ascending: true })
             .limit(want);
@@ -2923,6 +2933,18 @@ export class HorseFleetManager {
              the number. `humanAtTable` is the same boolean it always was. */
           const humansAtTable = tableOccupiedSeats.filter((x) => !horseIdSet.has(x.user_id)).length;
           const humanAtTable = humansAtTable > 0;
+          if (
+            !horseUnionCashTableAllowed(
+              table,
+              playingHumansAtCashTable(tableOccupiedSeats, horseIdSet),
+              Date.now(),
+              cashPlanPrimaryTables
+            )
+          ) {
+            beat.withheldTables++;
+            if (diag) diag.withheld = 'owner_union_cash_schedule';
+            continue;
+          }
           /* THE ONE THING THAT OPENS A SEAT (Dan 2026-09-02). Humans on this
              table's waiting list, counted from the same map for every table so
              the seeding loop stays one query deep. Horses are excluded by id:
