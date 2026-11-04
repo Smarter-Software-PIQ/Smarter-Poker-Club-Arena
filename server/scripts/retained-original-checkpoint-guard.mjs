@@ -637,13 +637,54 @@ export async function retainedOriginalCheckpointGuard(
         revision: m.tournamentSeatMoveAuthorityRevision,
       });
     }
-    await all(discoveredManagers, async (m) => {
-      await moveWitnesses.get(m).tail;
+    // A SETTLED SERIAL, NOT A FROZEN COUNTER (2026-11-03). The EED manager's
+    // public absorbOrphanedSeats() enqueues a seat-move redrive without its own
+    // freeze check; with an empty outcome map that operation is a no-op, yet it
+    // advances the serial tail and revision. Release 41743213429-1 refused
+    // retained_manager_serial_changed at preflight for exactly that. Follow each
+    // serial to a settled witness (bounded), require every pass to end with all
+    // managers simultaneously settled, and keep every authority check. A
+    // manager whose serial keeps moving still refuses.
+    const settleManagerSerial = async (m) => {
+      for (let round = 0; ; round++) {
+        const tail = m.tournamentSeatMoveSerialTail,
+          revision = m.tournamentSeatMoveAuthorityRevision;
+        need(
+          tail instanceof Promise && Number.isSafeInteger(revision),
+          'retained_manager_census_unproven'
+        );
+        await tail;
+        if (
+          m.tournamentSeatMoveSerialTail === tail &&
+          m.tournamentSeatMoveAuthorityRevision === revision
+        ) {
+          moveWitnesses.set(m, { tail, revision });
+          return;
+        }
+        need(round < 8, 'retained_manager_serial_changed');
+      }
+    };
+    const settleAllManagerSerials = async () => {
+      for (let pass = 0; ; pass++) {
+        await all(discoveredManagers, settleManagerSerial);
+        const settled = discoveredManagers.every((m) => {
+          const w = moveWitnesses.get(m);
+          return (
+            m.tournamentSeatMoveSerialTail === w.tail &&
+            m.tournamentSeatMoveAuthorityRevision === w.revision
+          );
+        });
+        if (settled) return;
+        need(pass < 4, 'retained_manager_serial_changed');
+      }
+    };
+    await settleAllManagerSerials();
+    for (const m of discoveredManagers) {
       checkMaintenance();
       checkMethods(m);
       proveManagerAuthorities(m);
       if (!managerEntries.some(([, current]) => current === m)) proveRetiredManager(m);
-    });
+    }
     const owned = new Map();
     for (const [id, e] of directEntries) {
       need(uuid(id) && e.tableId === id && objects.has(e), 'retained_direct_owner_missing');
@@ -1183,6 +1224,8 @@ export async function retainedOriginalCheckpointGuard(
         'retained_shadow_changed'
       );
     }
+    // Settle once more, then prove and stop with no await in between.
+    await settleAllManagerSerials();
     for (const m of discoveredManagers) proveManagerAuthorities(m);
     checkAllOwners();
     stage = 'checkpoint';
