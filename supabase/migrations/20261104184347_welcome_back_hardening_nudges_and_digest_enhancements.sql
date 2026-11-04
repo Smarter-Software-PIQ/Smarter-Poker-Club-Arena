@@ -456,7 +456,7 @@ BEGIN
         PERFORM public.fn_raise_notification(c.id, 'welcome_back_chips',
           format('%s Free Chips Are Waiting For You', v_amount_txt),
           format('The Midway Union just added %s free chips to your %s wallet. Sit down and play your first hand.', v_amount_txt, COALESCE(v_club_name, 'club')),
-          '/hub/club-arena/',
+          '/hub/club-arena/?welcome=chips',
           jsonb_build_object('amount', v_amount, 'club_id', v_club, 'club', v_club_name, 'op_id', v_op, 'promotion', 'signup_welcome_back'));
         UPDATE public.sp_signup_welcome_back_awards SET notification_at = now(), updated_at = now() WHERE user_id = c.id;
       EXCEPTION WHEN OTHERS THEN

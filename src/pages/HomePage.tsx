@@ -280,6 +280,7 @@ function HomePageInner() {
   const [joinIntent, setJoinIntent] = useState<{
     code: string;
     watchTableId: string | null;
+    ref?: string | null;
   } | null>(null);
   const [showCreateClubModal, setShowCreateClubModal] = useState(false);
   const [entryFlags, setEntryFlags] = useState<ClubEntryFlags>({
@@ -300,6 +301,29 @@ function HomePageInner() {
       next.delete('create');
       setSearchParams(next, { replace: true });
     }
+  }, [searchParams, setSearchParams]);
+
+  // Welcome-back chips (Dan 2026-11-04). The join-a-club nudge links to
+  // /?join=<club code>&ref=<referral code>: open the join modal with the code
+  // filled in. The chips email and the play nudge link to /?welcome=chips:
+  // announce the moment so the push prompt may ask (its own policy decides
+  // whether it is allowed to). Both params are consumed once.
+  useEffect(() => {
+    const joinCode = searchParams.get('join');
+    const welcome = searchParams.get('welcome');
+    if (!joinCode && !welcome) return;
+    const next = new URLSearchParams(searchParams);
+    if (joinCode) {
+      setJoinIntent({ code: joinCode.trim(), watchTableId: null, ref: searchParams.get('ref')?.trim() || null });
+      setShowJoinModal(true);
+      next.delete('join');
+      next.delete('ref');
+    }
+    if (welcome === 'chips') {
+      void import('../lib/pushNudgePolicy').then((m) => m.requestPushNudge('welcome_chips'));
+      next.delete('welcome');
+    }
+    setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
   // Focus trapping for modals (accessibility). The join modal owns its own
@@ -1523,6 +1547,7 @@ function HomePageInner() {
         <JoinClubModal
           isOpen={showJoinModal}
           initialCode={joinIntent?.code}
+          initialRef={joinIntent?.ref || undefined}
           onClose={() => {
             setShowJoinModal(false);
             setJoinIntent(null);
