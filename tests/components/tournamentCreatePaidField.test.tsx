@@ -29,6 +29,9 @@ import type { BlindLevel } from '../../src/config/blindStructures';
 import { supabase } from '../../src/lib/supabase';
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  // Noon Chicago: this fixture exercises creation/replay, not admission hours.
+  vi.setSystemTime(new Date('2026-11-04T18:00:00Z'));
   vi.clearAllMocks();
   mocks.create.mockResolvedValue({ id: 'synthetic-created-event' });
 });
@@ -109,6 +112,7 @@ describe('club MTT setup presets reach the creation payload', () => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 

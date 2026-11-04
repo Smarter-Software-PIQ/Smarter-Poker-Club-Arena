@@ -511,6 +511,32 @@ export async function retainedOriginalCheckpointGuard(
           managers.size <= 2000,
         'retained_registry_shape_unproven'
       );
+      // Join only an original retirement already owned by GameServer. Never
+      // start a stop, renew a lease, or turn elapsed time into custody proof.
+      const beforeManagers = new Map(managers), beforeDirect = new Map(direct);
+      const joinedRetirements = new Map(), retiringChildren = new Map();
+      for (const [id, m] of beforeManagers) {
+        const retirement = server.tournamentManagerRetirementOperations?.get(m);
+        if (m.tournamentLeaseAuthorityExpired === true && m.stopFenceApplied === true &&
+            m.teardownPromise instanceof Promise && retirement instanceof Promise) {
+          need(managerObjects.has(m) && m.tableEngines instanceof Map,
+            'retained_retirement_owner_unproven');
+          const originals = new Map(m.tableEngines);
+          for (const [tableId, engine] of originals) retiringChildren.set(engine, tableId);
+          joinedRetirements.set(m, { id, originals, retirement });
+        }
+      }
+      if (joinedRetirements.size) await all([...joinedRetirements], async ([m, witness]) => {
+        need(await witness.retirement === true, 'retained_retirement_unconfirmed');
+        need(!managers.has(witness.id), 'retained_retirement_registry_unproven');
+      });
+      need(server.tableEngines === direct && server.tournamentEngines === managers &&
+        [...managers].every(([id, m]) => beforeManagers.get(id) === m) &&
+        [...beforeManagers].every(([id, m]) => managers.get(id) === m || joinedRetirements.has(m)) &&
+        [...direct].every(([id, e]) => beforeDirect.get(id) === e) &&
+        [...beforeDirect].every(([id, e]) => direct.get(id) === e ||
+          retiringChildren.get(e) === id),
+        'retained_retirement_registry_unproven');
       const directEntries = [...direct],
         managerEntries = [...managers],
         liveEntries = [...liveMap];
@@ -632,6 +658,12 @@ export async function retainedOriginalCheckpointGuard(
         for (const target of methods.keys()) checkMethods(target);
         for (const [m] of managerWitnesses) proveRetiredManager(m);
       };
+      for (const [m, witness] of joinedRetirements) {
+        proveRetiredManager(m);
+        need(m.drainedF06Originals.length === witness.originals.size &&
+          m.drainedF06Originals.every(([id, e]) => witness.originals.get(id) === e),
+          'retained_retirement_originals_changed');
+      }
       checkAllOwners();
       for (const m of discoveredManagers) {
         need(
@@ -649,16 +681,24 @@ export async function retainedOriginalCheckpointGuard(
           m.tournamentLeaseGeneration
         );
       }
+      const requireManagerLease = (m, site, valid) => {
+        if (!valid && observedDetail === null) {
+          const deadline = m.tournamentLeaseProofDeadlineMonotonicMs;
+          observedDetail = `phase=${managerProofPhase}, site=${site}, managerHash=${digest(m.tournamentId).slice(0, 16)}, class=${managerSnapshot.has(m) ? 'registered' : 'detached'}, census=${discoveredManagers.length}, nativeManager=${m instanceof modules.managerBase.TournamentManagerBase}, generationValid=${uuid(m.tournamentLeaseGeneration)}, running=${m.running === true}, teardownNull=${m.teardownPromise === null}, stopRequested=${m.stopRequested === true}, authorityLive=${m.tournamentLeaseAuthorityExpired === false}, deadlineFinite=${Number.isFinite(deadline)}, deadlineFuture=${Number.isFinite(deadline) && performance.now() < deadline}`;
+        }
+        need(valid, 'retained_manager_lease_unproven');
+      };
       const proveCurrentManager = (m) => {
         if (!managerSnapshot.has(m)) return proveRetiredManager(m);
-        need(
+        requireManagerLease(
+          m,
+          'current_join',
           m.running === true &&
             m.teardownPromise === null &&
             m.stopRequested !== true &&
             m.tournamentLeaseAuthorityExpired === false &&
             Number.isFinite(m.tournamentLeaseProofDeadlineMonotonicMs) &&
-            performance.now() < m.tournamentLeaseProofDeadlineMonotonicMs,
-          'retained_manager_lease_unproven'
+            performance.now() < m.tournamentLeaseProofDeadlineMonotonicMs
         );
         proveManagerAuthorities(m);
       };
@@ -704,13 +744,14 @@ export async function retainedOriginalCheckpointGuard(
           m.running === true && m.teardownPromise === null && m.stopRequested !== true,
           'retained_manager_not_current'
         );
-        need(
+        requireManagerLease(
+          m,
+          'registered_children',
           m instanceof modules.managerBase.TournamentManagerBase &&
             uuid(m.tournamentLeaseGeneration) &&
             m.tournamentLeaseAuthorityExpired === false &&
             Number.isFinite(m.tournamentLeaseProofDeadlineMonotonicMs) &&
-            performance.now() < m.tournamentLeaseProofDeadlineMonotonicMs,
-          'retained_manager_lease_unproven'
+            performance.now() < m.tournamentLeaseProofDeadlineMonotonicMs
         );
         bindMethods(m, ['stop'], id, m.tournamentLeaseGeneration);
         managerChildren.set(m, {
