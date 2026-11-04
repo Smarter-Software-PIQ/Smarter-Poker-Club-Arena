@@ -8,7 +8,7 @@ Read-only production evidence covers Midway Union fade0000-0000-0000-0000-000000
 
 The completed Chicago calendar week October 26-November 2 generated 1,540,366.21 cash rake. Keeping 40% of that same game mix would still generate about 616,146.48. The seven full local days October 28-November 4 generated 1,149,981.00: Lightning contributed 838,741.34 (72.94%), Classic 311,239.66. DST makes that history 169 elapsed hours. During its 28 hours between 04:00 and 08:00, 184,354.68 rake accrued; the average hourly count was 48.43 distinct tables with at least one raked hand, not an instantaneous concurrency measurement.
 
-Monday and Tuesday November 2-3 already generated 221,791.16. At November 4 12:23 UTC the current week had reached 277,831.41. A prospective schedule cannot make that already-earned weekly total fall below 200,000; no accounting record is rewritten.
+The owner's November 4 clarification applies the 200,000 weekly pace prospectively from deployment, including the remainder of this week. Rake earned before deployment is excluded from this adjustment's budget. There is no catch-up shutdown, deduction of already-earned rake from the remaining allowance, or ledger rewrite. Historical weeks provide rate evidence only.
 
 Evidence and raw read-only queries are retained under /Volumes/SmarterArchives/agent-evidence/extreme-archive/union-cash-cap-01a1a67f. Table classification uses current catalog metadata, not a complete historical catalog reconstruction.
 
