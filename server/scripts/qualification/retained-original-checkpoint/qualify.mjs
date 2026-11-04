@@ -27,7 +27,9 @@ if (
 )
   throw Error('Invalid native composition input');
 const nativeMode = Boolean(nativeImage || nativeAddon);
-const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 240000);
+// Hosted EED compile measured 66.809s. Preserve the fixture's full 240s
+// allowance plus archive/compile/cleanup headroom inside one finite envelope.
+const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 360000);
 const CASES = nativeMode
   ? ['RetainedWholeGuard.test.ts']
   : [
