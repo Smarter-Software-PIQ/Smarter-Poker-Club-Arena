@@ -32,7 +32,7 @@ import { isGuaranteeBankRefusal } from '../domain/guaranteeBankRefusal.js';
 
 import { supabase } from './supabase.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
-import { spinSngBoardsOpen } from '../maintenance/dailyWindow.js';
+import { spinSngBoardsOpen, tournamentStartAllowed } from '../maintenance/dailyWindow.js';
 import { fetchAllRows } from './supabase/pagination.js';
 import { IN_LIST_CHUNK, selectInChunks } from './supabase/chunkedIn.js';
 import { diamondArenaEntrantClubIds, isDiamondArenaClubRow } from './diamondScheduledSpawn.js';
@@ -4607,6 +4607,11 @@ export class TournamentRecurringService {
       // to build the field in. At the old 5 minutes it had 7 ticks (42
       // entrants) and this event needs 56 to cover its guarantee.
       const startTime = new Date(Date.now() + MTT_PUBLISH_LEAD_MS);
+      // THE DAILY WINDOW (owner 2026-11-03): no union event starts outside
+      // 6:00 AM to 11:00 PM Chicago. XMTT_SCHEDULE hours are UTC, so its 10:00
+      // and 11:00 UTC blocks would otherwise start events inside the closed
+      // window for any union other than Midway (Midway is on the fixed board).
+      if (!tournamentStartAllowed(startTime)) return { tournamentId: null, registered: 0 };
       const dbGameType = dbGameTypeFor(config.gameVariant, 'createXMTT');
       validateMttBlindStructure(config.blindStructure, config.startingStack);
 
@@ -7599,6 +7604,10 @@ export class TournamentRecurringService {
               'horse_registration_not_open',
               'horse_attendance_target_met',
               'platform_frozen',
+              // The daily window (owner 2026-11-03): every later horse gets the
+              // same answer until 6:00 AM, so the pass stops at the first.
+              'daily_maintenance_window',
+              'spin_sng_closed_until_reopen',
             ].includes(reason)
           )
             break;

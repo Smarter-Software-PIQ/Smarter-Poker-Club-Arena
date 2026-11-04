@@ -66,14 +66,30 @@ class ActivationFloor(unittest.TestCase):
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
 
-    def owner_record(self, legacy=False):
+    @staticmethod
+    def historical_floor(window_id):
+        # The exact floor bytes a historical window's witness bound: same key
+        # order and formatting as every committed floor.
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        window = next(w for w in windows['windows'] if w['id'] == window_id)
+        doc = {'schema': floor.OWNER_CAPABILITY, 'preparationAt': window['notBefore'],
+               'activationAt': window['notBefore'], 'expiresAt': window['notAfter'],
+               'timeZone': 'America/Chicago', 'ownerWindowId': window_id,
+               'clientPublicationAt': window['notBefore']}
+        return window, (json.dumps(doc, indent=2) + '\n').encode()
+
+    def owner_record(self, legacy=False, window_id=None):
         source = json.loads((ROOT / MANIFEST).read_text())
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
-        window = next(w for w in windows['windows'] if w['id'] == source['ownerWindowId'])
+        if window_id is None:
+            window = next(w for w in windows['windows'] if w['id'] == source['ownerWindowId'])
+            raw = (ROOT / MANIFEST).read_bytes()
+        else:
+            window, raw = self.historical_floor(window_id)
         window['contains'] = self.sha
         if legacy:
             window.pop('supersedesPhase1Schedule', None)
-        (self.repo / MANIFEST).write_bytes((ROOT / MANIFEST).read_bytes())
+        (self.repo / MANIFEST).write_bytes(raw)
         (self.repo / 'server/release/owner-maintenance-windows.json').write_text(json.dumps({'version': 1, 'windows': [window]}))
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
@@ -136,7 +152,7 @@ class ActivationFloor(unittest.TestCase):
                 with self.assertRaises(ValueError): floor.policy(str(self.repo), self.sha, self.sha)
 
     def test_earliest_certified_owner_policy_requires_explicit_unambiguous_authority(self):
-        record = self.owner_record()
+        record = self.owner_record(window_id='2026-11-03-tournament-qualified-capacity-continuation')
         self.assertTrue(record['supersedesPhase1Schedule'])
         path = self.repo / 'server/release/owner-maintenance-windows.json'
         original = json.loads(path.read_text())
@@ -450,10 +466,9 @@ echo CHECKPOINT_MUST_NOT_RUN
         prior = next(w for w in doc['windows'] if w['id'] == old['ownerWindowId'])
         self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual(prior['notAfter'], old['expiresAt'])
-        source = json.loads((ROOT/MANIFEST).read_text())
-        latest = next(w for w in doc['windows'] if w['id'] == source['ownerWindowId'])
+        latest, latest_raw = self.historical_floor('2026-11-03-tournament-qualified-capacity-continuation')
         self.assertEqual(latest['contains'], '0de3e5b9f6ae9b6def3a2603ef69fab5d934977d')
-        self.assertEqual(latest['releaseWitness']['sha256'], hashlib.sha256((ROOT/MANIFEST).read_bytes()).hexdigest())
+        self.assertEqual(latest['releaseWitness']['sha256'], hashlib.sha256(latest_raw).hexdigest())
         self.assertEqual((latest['notBefore'], latest['notAfter']), ('2026-11-03T20:30:00Z', '2026-11-03T23:30:00Z'))
         self.assertEqual(latest['announcementPolicy'], 'earliest-certified')
         self.assertNotIn('announceAtChicagoMinutes', latest)
@@ -461,7 +476,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         (self.repo/'server/release/owner-maintenance-windows.json').write_text(json.dumps({'version':1,'windows':[{**prior,'contains':self.sha}]}))
         old_sha = self.commit()
         original = floor.policy(str(self.repo), old_sha, old_sha)
-        current = self.owner_record()
+        current = self.owner_record(window_id='2026-11-03-tournament-qualified-capacity-continuation')
         after_old = max(original['expiresEpoch'] + 1, current['activationEpoch'])
         with self.assertRaises(ValueError): floor.check_window(original, after_old, current['expiresEpoch'], 'admit')
         floor.check_window(current, after_old, current['expiresEpoch'], 'admit')
@@ -480,9 +495,8 @@ echo CHECKPOINT_MUST_NOT_RUN
         prior = next(w for w in doc['windows'] if w['id'] == old['ownerWindowId'])
         self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256((json.dumps(old, indent=2)+'\n').encode()).hexdigest())
         self.assertEqual((prior['notBefore'], prior['notAfter']), (old['activationAt'], old['expiresAt']))
-        source = json.loads((ROOT/MANIFEST).read_text())
-        self.assertEqual(source['ownerWindowId'], '2026-11-03-tournament-qualified-capacity-continuation')
-        current = self.owner_record()
+        current = self.owner_record(window_id='2026-11-03-tournament-qualified-capacity-continuation')
+        self.assertEqual(current['ownerWindowId'], '2026-11-03-tournament-qualified-capacity-continuation')
         floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
         for now in [current['activationEpoch']-1, current['expiresEpoch']-419, current['expiresEpoch']]:
             with self.assertRaises(ValueError): floor.check_window(current, now, current['expiresEpoch'], 'admit')
@@ -497,11 +511,31 @@ echo CHECKPOINT_MUST_NOT_RUN
         prior = next(w for w in doc['windows'] if w['id'] == old['ownerWindowId'])
         self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256((json.dumps(old, indent=2)+'\n').encode()).hexdigest())
         self.assertEqual((prior['notBefore'], prior['notAfter']), (old['activationAt'], old['expiresAt']))
-        current = self.owner_record()
+        current = self.owner_record(window_id='2026-11-03-tournament-qualified-capacity-continuation')
         self.assertEqual(current['ownerWindowId'], '2026-11-03-tournament-qualified-capacity-continuation')
         floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
         for now in [current['activationEpoch']-1, current['expiresEpoch']-419, current['expiresEpoch']]:
             with self.assertRaises(ValueError): floor.check_window(current, now, current['expiresEpoch'], 'admit')
+
+    def test_phase1_plo_55_window_preserves_qualified_capacity_floor(self):
+        import hashlib
+        prior, prior_raw = self.historical_floor('2026-11-03-tournament-qualified-capacity-continuation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(prior_raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-03T20:30:00Z', '2026-11-03T23:30:00Z'))
+        doc = json.loads((ROOT/'server/release/owner-maintenance-windows.json').read_text())
+        source = json.loads((ROOT/MANIFEST).read_text())
+        self.assertEqual(source['ownerWindowId'], '2026-11-03-phase1-plo-horse-55-2330z')
+        window = next(w for w in doc['windows'] if w['id'] == source['ownerWindowId'])
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256((ROOT/MANIFEST).read_bytes()).hexdigest())
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-03T23:30:00Z', '2026-11-04T05:30:00Z'))
+        self.assertEqual(window['announceAtChicagoMinutes'], [53])
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertNotIn('announcementPolicy', window)
+        self.assertEqual(window['contains'], '59b0d5dcc312235ab2f3e7fa9c97adbffabe271f')
+        current = self.owner_record()
+        self.assertEqual(current['ownerWindowId'], '2026-11-03-phase1-plo-horse-55-2330z')
+        self.assertTrue(current['supersedesPhase1Schedule'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_owner_reservation_binds_run_target_cause_and_full_window(self):
         r = self.owner_record(); root = self.repo / 'state'; root.mkdir()
