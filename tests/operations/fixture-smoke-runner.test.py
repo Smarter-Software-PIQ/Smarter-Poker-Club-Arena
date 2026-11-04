@@ -3,6 +3,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shlex
+import signal
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -83,6 +87,76 @@ def preimage_material(catalog=None, raw=None):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_timeout_is_bounded_when_detached_descendant_retains_output_pipes(self):
+        for script_name, leader_exits in (('build-image.sh', False), ('smoke-image.sh', False),
+                                          ('build-image.sh', True)):
+            with self.subTest(script=script_name, leader_exits=leader_exits), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                fixture = root / m.PREFIX
+                fixture.mkdir(parents=True)
+                child = root / 'child.py'
+                child.write_text("""
+import json, os, signal, subprocess, sys, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+escaped = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],
+                           start_new_session=True)
+Path('owned-pids.json').write_text(json.dumps([os.getpid(), escaped.pid]))
+print('x' * 200000, flush=True)
+print('PRIVATE RUNTIME TOKEN' if sys.argv[1] == 'smoke-image.sh' else 'Reviewed build before timeout', flush=True)
+print('retained stderr', file=sys.stderr, flush=True)
+if sys.argv[2] == 'True':
+    sys.exit(0)
+time.sleep(60)
+""")
+                (fixture / script_name).write_text(
+                    'exec ' + shlex.quote(sys.executable) + ' ' + shlex.quote(str(child)) + ' ' +
+                    script_name + ' ' + str(leader_exits) + '\n')
+                driver = root / 'driver.py'
+                driver.write_text("""
+import importlib.util, json, os, subprocess, sys, time
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('smoke', sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+start = time.monotonic()
+try:
+    m.command(['bash', m.PREFIX + sys.argv[2]], Path.cwd(),
+              {'PATH': os.environ['PATH'], 'FIXTURE_SMOKE_BUILD_LOG': str(Path.cwd() / 'native-build.log')},
+              timeout=1)
+except subprocess.TimeoutExpired as error:
+    print(json.dumps({'timeout': error.timeout, 'elapsed': time.monotonic() - start}))
+else:
+    raise AssertionError('timeout incorrectly reported success')
+""")
+                try:
+                    result = subprocess.run(
+                        [sys.executable, '-B', str(driver), str(ROOT / 'operations/release/ci/fixture-smoke.py'), script_name],
+                        cwd=root, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    observed = json.loads(result.stdout)
+                    self.assertEqual(observed['timeout'], 1)
+                    self.assertLess(observed['elapsed'], 25)
+                    self.assertNotIn('PRIVATE RUNTIME', result.stdout + result.stderr)
+                    diagnostic = root / 'native-build.log'
+                    if script_name == 'build-image.sh':
+                        self.assertIn('Reviewed build before timeout', diagnostic.read_text())
+                        self.assertIn('retained stderr', diagnostic.read_text())
+                        self.assertLessEqual(diagnostic.stat().st_size, 131200)
+                        self.assertEqual(diagnostic.stat().st_mode & 0o777, 0o600)
+                    else:
+                        self.assertFalse(diagnostic.exists())
+                finally:
+                    # These exact test-owned PIDs are recorded before any output.
+                    # The detached child is deliberately outside command's group.
+                    owned = root / 'owned-pids.json'
+                    if owned.exists():
+                        for pid in json.loads(owned.read_text()):
+                            try:
+                                os.kill(pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+
     def test_role_receipt_is_bound_to_actual_reviewed_template_bytes(self):
         actual = hashlib.sha256((ROOT / 'operations/release/fixture/role-alignment-installer.sql').read_bytes()).hexdigest()
         self.assertEqual(ROLE_ALIGNMENT['template_sha256'], actual)

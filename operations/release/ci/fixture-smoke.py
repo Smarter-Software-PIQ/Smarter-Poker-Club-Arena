@@ -340,15 +340,30 @@ def command(args, cwd, env, timeout=120):
         stdout, stderr = process.communicate(timeout=timeout)
     except BaseException:
         # Stop the entire locally spawned command group, then clean exact Docker resources.
+        process.poll()  # Reap an exited leader before addressing its process group.
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
         try:
             stdout, stderr = process.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate()
+        except subprocess.TimeoutExpired as drain_timeout:
+            # A detached descendant may retain either pipe after this group
+            # exits. Never wait for its EOF: retain only output already read,
+            # close our readers and reap the direct child with a finite bound.
+            stdout = (drain_timeout.output or b'').decode(process.encoding, errors='replace')
+            stderr = (drain_timeout.stderr or b'').decode(process.encoding, errors='replace')
+            process.poll()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.stdout.close()
+            process.stderr.close()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass  # Preserve the original failure; cleanup never grants success.
         raise
     finally:
         # Only the reviewed image build is eligible. Its allowlisted context has
