@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { BoundedLeaseRenewalScope } from '../services/BoundedLeaseRenewalScope.js';
 import { Worker } from 'node:worker_threads';
 import * as inspector from 'node:inspector';
 import { readFileSync } from 'node:fs';
@@ -48,6 +49,9 @@ vi.mock('../services/supabase/client.js', () => {
   };
   const rpc = async (name: string, p: any) => {
     wire.calls.push({ name, p: structuredClone(p), authority: wire.readActor() });
+    if (name === 'release_tournament_leases_v2') return { data: 1, error: null };
+    if (name.startsWith('heartbeat_'))
+      return { data: null, error: { message: 'isolated uncertain heartbeat' } };
     if (name === 'save_hand_state_snapshot') return { data: null, error: null };
     if (name === 'fn_f06_attest_frozen_hand_continuation') {
       await wire.onAttest?.();
@@ -189,6 +193,13 @@ const wholeCases = [
   'manager-lease-teardown',
   'manager-retirement-joined',
   'manager-retirement-replaced',
+  'manager-renewal-joined',
+  'manager-renewal-pending',
+  'manager-renewal-replaced',
+  'manager-renewal-absent',
+  'manager-renewal-deadline',
+  'manager-renewal-reserve',
+  'manager-renewal-expired-deadline',
   'lightning-pending-host',
   'lightning-registered-host',
   'lightning-unknown-formation',
@@ -933,6 +944,69 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     // Let the already-owned teardown settle only after the guard sees it.
     setImmediate(releaseJob);
   }
+  let finishRenewalFixture: (() => Promise<void>) | null = null;
+  if (scenario.startsWith('manager-renewal-')) {
+    const retired: any = actor.bindTournamentDataAuthorityMethods(
+      { tournamentId: id(970), leaseGeneration: id(971) },
+      new TournamentManager(id(970), server, id(971), performance.now() + 20)
+    );
+    retired.running = true;
+    server.tournamentEngines.set(retired.tournamentId, retired);
+    managers.push(retired);
+    const child: any = retired.createManagedTableEngine(id(972));
+    retired.tableEngines.set(id(972), child);
+    server.tableEngines.set(id(972), child);
+    server.tournamentOwnedTables.add(id(972));
+    held.push(child);
+    objects.push(child);
+    let releaseJob!: () => void;
+    const job = new Promise<void>((resolve) => {
+      releaseJob = resolve;
+    });
+    retired.lifecycleJobs.add(job);
+    job.then(() => retired.lifecycleJobs.delete(job));
+    Object.assign(server, {
+      cashLeaseRenewalScope: new BoundedLeaseRenewalScope(),
+      tournamentLeaseRenewalScope: new BoundedLeaseRenewalScope(),
+      tournamentManagersJudgedLost: new WeakSet(),
+      serverLifecycleJobs: new Set(),
+      tournamentManagerRetirementOperations: new Map(),
+      tournamentManagerLeaseReleaseOperations: new Map(),
+      tournamentManagerPendingLeaseReleases: new Map(),
+      tournamentDiagnosticRetirements: new Map(),
+      directAdmissionIsCurrent: () => true,
+      tournamentResumeDistress: 0,
+    });
+    const renewal =
+      scenario === 'manager-renewal-absent'
+        ? null
+        : (gameServer.GameServer.prototype as any).renewOwnedEngineLeaseProofs.call(server);
+    // Stand in only for elapsed synchronous collection, without invoking expiry.
+    const until = performance.now() + 25;
+    while (performance.now() < until) {}
+    expect(retired.tournamentLeaseAuthorityExpired).toBe(false);
+    expect(retired.teardownPromise).toBeNull();
+    if (scenario === 'manager-renewal-joined' || scenario === 'manager-renewal-replaced')
+      setImmediate(() =>
+        setImmediate(() => {
+          const retirement = server.tournamentManagerRetirementOperations.get(retired);
+          if (scenario === 'manager-renewal-replaced')
+            retirement?.then(() => server.tournamentEngines.set(retired.tournamentId, m));
+          releaseJob();
+        })
+      );
+    if (scenario === 'manager-renewal-reserve') {
+      maintenance.breakEndsAt = Date.now() + 204999;
+      maintenance.lastDurableState.breakEndsAt = maintenance.breakEndsAt;
+    }
+    finishRenewalFixture = async () => {
+      releaseJob();
+      await renewal;
+      await Promise.allSettled([...server.tournamentManagerRetirementOperations.values()]);
+      if (!retired.tournamentLeaseAuthorityExpired) retired.fenceForTournamentLeaseLoss();
+      await retired.stop();
+    };
+  }
   const guardStarted = performance.now();
   const invoke = () =>
     retainedOriginalCheckpointGuard.call(
@@ -941,6 +1015,13 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
         expectedReleaseSha: sha,
         expectedPid: process.pid,
         expectedInstanceId: tableLease.INSTANCE_ID,
+        workDeadlineMs:
+          Date.now() +
+          (scenario === 'manager-renewal-expired-deadline'
+            ? -1
+            : scenario === 'manager-renewal-deadline'
+              ? 30
+              : 20000),
       },
       census[0],
       modules,
@@ -960,6 +1041,24 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
         })
       : await invoke();
   expect(actor.currentTournamentDataAuthority()).toBeNull();
+  if (scenario.startsWith('manager-renewal-')) {
+    if (scenario !== 'manager-renewal-joined') {
+      expect(result).toMatchObject({ ok: false, attemptedTables: 0, restartAuthorized: false });
+      expect(cash.terminal).toBe(false);
+      expect(performance.now() - guardStarted).toBeLessThan(1500);
+      expect(result.reason).toBe(
+        scenario === 'manager-renewal-absent'
+          ? 'retained_manager_lease_unproven'
+          : scenario === 'manager-renewal-replaced'
+            ? 'retained_retirement_registry_unproven'
+            : scenario === 'manager-renewal-expired-deadline'
+              ? 'retained_renewal_deadline_unproven'
+              : 'retained_renewal_observation_expired'
+      );
+    }
+    await finishRenewalFixture!();
+    if (scenario !== 'manager-renewal-joined') return;
+  }
   if (scenario.startsWith('skew-')) expect(performance.now() - guardStarted).toBeLessThan(20000);
   if (releaseFrontLease) {
     releaseFrontLease(false);
@@ -1079,6 +1178,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       'positive',
       'manager-context',
       'manager-retirement-joined',
+      'manager-renewal-joined',
       'manager-serial-initial-noop',
       'manager-serial-late-noop',
       'detached-drained',

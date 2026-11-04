@@ -1353,6 +1353,7 @@ export async function runLegacyEngineCheckpoint({
                 expectedReleaseSha: releaseSha,
                 expectedInstanceId: instanceId,
                 expectedPid: pid,
+                workDeadlineMs: deadline,
                 custodyIntent,
               },
             },

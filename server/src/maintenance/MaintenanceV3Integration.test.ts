@@ -448,6 +448,23 @@ describe('one explicit recovery request uses the durable maintenance owner', () 
     expect(h.row).toBeNull();
   });
 
+  it.each([
+    ['2026-11-04T09:50:00Z', 'accepted'],
+    ['2026-11-04T09:51:00Z', 'use_hourly'],
+    ['2026-11-04T10:05:00Z', 'accepted'],
+  ])(
+    'preserves the routine Chicago boundary inside the fixed recovery source window: %s',
+    async (at, status) => {
+      vi.setSystemTime(Date.parse(at));
+      const h = harness();
+      h.dbNow = Date.now();
+      await h.owner.start();
+      expect((await h.owner.requestRecoveryWindow(Date.now(), 'urgent')).status).toBe(status);
+      if (status === 'accepted') expect(h.owner.endsAt()).toBe(Date.now() + 420000);
+      else expect(h.row).toBeNull();
+    }
+  );
+
   it('refuses legacy missing and deadline causes at the maintenance owner before a write', async () => {
     const h = harness();
     await h.owner.start();
