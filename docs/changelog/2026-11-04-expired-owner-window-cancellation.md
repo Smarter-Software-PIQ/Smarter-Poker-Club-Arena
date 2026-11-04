@@ -1,0 +1,9 @@
+# Retire an expired owner-window release through its original cancellation route
+
+An expired v2 owner-window transaction could remain in its announcement-only recovery cycle after transaction-only SIGINT. The generic cancellation selector accepted only v3 phase1 entries, so it could not establish cancellation authority for that original v2 release.
+
+The existing withdrawal helper now derives a separate v2 profile from the original protected control, immutable activation manifest, reservation and release entry. It retains exact wrapper and child generation identity, loaded systemd stop semantics, release-only cgroup custody, released Lightning hold, absence of checkpoint/adoption intent, unchanged runtime and sealed desired image. Existing durable intent, one stop, quiescence, receipt and exact-record retirement remain the only mutation route. Historical and v3 empty-only profiles retain their existing authority.
+
+The qualified EED thaw permits only the exact original start or its documented one-millisecond early callback, with exact decimal duration, original release boundary, complete shifted-target counts, installed promise-function fingerprint and fresh original leader. No general timing tolerance, engine restart, financial replay or new release workflow is introduced.
+
+Regression coverage includes fail-before/pass-after v2 selection, original live cancellation and repeat receipt, forged image refusal, exact thaw negatives, and retained 9ca source execution through the reservation CLI, hold parser, seal loader and bounded database-reader transport. The existing law wrapper retains the exact test-count assertion and includes the new retained control in history preparation. These are source qualification results, not a production cancellation or engine activation receipt.
