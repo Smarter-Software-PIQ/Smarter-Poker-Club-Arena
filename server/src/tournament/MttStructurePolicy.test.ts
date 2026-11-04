@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { tournamentStartAllowed } from '../maintenance/dailyWindow.js';
+
 import {
   mttSpeedColumns,
   mttPayoutPercent,
@@ -11,12 +13,23 @@ import {
 } from '../services/ScheduledTournamentService.js';
 import {
   BLIND_STRUCTURES,
+  MTT_PUBLISH_LEAD_MS,
   TournamentRecurringService,
 } from '../services/TournamentRecurringService.js';
 import { supabase } from '../services/supabase.js';
 import { holeCardCount, isOmahaVariant } from '../engine/VariantRules.js';
 
-afterEach(() => vi.restoreAllMocks());
+// Creation assertions exercise the admitted path independently of the runner hour.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-04T18:00:00.000Z'));
+  expect(tournamentStartAllowed(new Date(Date.now() + MTT_PUBLISH_LEAD_MS))).toBe(true);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 describe('engine MTT structure policy', () => {
   const schedule = {

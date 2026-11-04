@@ -20,13 +20,22 @@
  * update the service sends, so a returning second writer fails here.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TournamentRecurringService } from './TournamentRecurringService.js';
+import { tournamentStartAllowed } from '../maintenance/dailyWindow.js';
+
+import { TournamentRecurringService, MTT_PUBLISH_LEAD_MS } from './TournamentRecurringService.js';
 import { supabase } from './supabase.js';
 import { MTT_BLIND_PRESETS } from '../tournament/mttStructurePolicy.js';
 import { HEADS_UP_BLIND_STRUCTURE, HEADS_UP_PAYOUTS } from '../config/headsUpSpec.js';
 
 vi.mock('../maintenance/freezeState.js', () => ({ isMaintenanceFrozen: () => false }));
 vi.mock('./errorReporter.js', () => ({ reportError: vi.fn() }));
+// Creation assertions exercise the admitted path independently of the runner hour.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-04T18:00:00.000Z'));
+  expect(tournamentStartAllowed(new Date(Date.now() + MTT_PUBLISH_LEAD_MS))).toBe(true);
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
