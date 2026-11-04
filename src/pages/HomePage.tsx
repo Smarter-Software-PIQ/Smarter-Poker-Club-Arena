@@ -321,8 +321,10 @@ function HomePageInner() {
     }
     if (welcome === 'chips') {
       void import('../lib/pushNudgePolicy').then((m) => m.requestPushNudge('welcome_chips'));
-      next.delete('welcome');
     }
+    // Always consumed, whatever its value: leaving an unknown value in place
+    // would re-run this effect on every params change.
+    if (welcome !== null) next.delete('welcome');
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
