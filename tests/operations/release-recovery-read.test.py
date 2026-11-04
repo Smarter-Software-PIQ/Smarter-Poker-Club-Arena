@@ -93,13 +93,9 @@ class RetainedFirstRefusalTests(unittest.TestCase):
             return R.remote(self.request)
 
     def test_retained_previous_generation_remains_readable_after_control_upgrade(self):
-        # Reconstruct the byte-exact preceding transaction by removing only
-        # this change's source block; the protected historical digest must match.
+        # Immutable protected predecessor; later transport edits cannot rewrite history.
         path = self.generation / 'engine-release-transaction.sh'
-        source = path.read_text()
-        start = source.index('    # A later, source-bound owner window selects')
-        end = source.index('    local fresh_health cause', start)
-        path.write_text(source[:start] + source[end:])
+        path.write_bytes((ROOT/'tests/fixtures/release-recovery-prior-control'/path.name).read_bytes())
         self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
                          R.RETAINED_REFUSAL_PRIOR_SOURCES[0][path.name])
         with patch.object(R, 'RETAINED_REFUSAL_SOURCES', R.RETAINED_REFUSAL_PRIOR_SOURCES[0]):
@@ -3155,7 +3151,9 @@ class FailedRoutineCustodyTests(unittest.TestCase):
         generation = parent / 'engine-control-generations' / R.FAILED_CUSTODY_CONTROL
         generation.mkdir(parents=True); systemd.mkdir()
         for name in R.FAILED_CUSTODY_SOURCE:
-            (generation / name).write_bytes((ROOT / 'server/scripts' / name).read_bytes())
+            source = ROOT / 'tests/fixtures/release-recovery-prior-control' / name
+            self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), R.FAILED_CUSTODY_SOURCE[name])
+            (generation / name).write_bytes(source.read_bytes())
         (parent / 'engine-release-unit-wrapper-v1.sh').write_bytes((generation / 'engine-release-unit-wrapper.sh').read_bytes())
         for source, marker, target in [
             ('install-engine-supervisor.sh', 'cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT\n', 'club-arena-engine-release-v1@.service'),
