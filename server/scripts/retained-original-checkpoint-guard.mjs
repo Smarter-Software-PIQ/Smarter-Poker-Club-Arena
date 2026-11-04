@@ -589,7 +589,16 @@ export async function retainedOriginalCheckpointGuard(
           Number.isFinite(m.tournamentLeaseProofDeadlineMonotonicMs) &&
           performance.now() >= m.tournamentLeaseProofDeadlineMonotonicMs
       );
-      const observeExistingRenewal = elapsedOwners.length > 0 && existingRenewal instanceof Promise;
+      const elapsedOwnerProofs = new Map(
+        elapsedOwners.map((m) => [
+          m,
+          {
+            deadline: m.tournamentLeaseProofDeadlineMonotonicMs,
+            timer: m.tournamentLeaseExpiryTimer,
+          },
+        ])
+      );
+      const observeExistingRenewal = elapsedOwners.length > 0;
       // Drain original serial continuations before publishing the registry witness.
       // A continuation may already own lease loss and retirement; the guard only
       // joins it, never starts a stop or renews an expired generation.
@@ -658,8 +667,10 @@ export async function retainedOriginalCheckpointGuard(
         }
       });
       checkPreliminaryOwners();
-      // Release one event-loop turn only for an already-owned renewal pass.
-      // Never invoke its accessor, renewal, stop, or expiry operation here.
+      // Yield one event-loop turn for original ownership work delayed by the census.
+      // A scheduled timer may not have created its renewal Promise yet. Never
+      // invoke a renewal, timer, stop, or expiry operation, or accept renewed
+      // authority: every captured expired owner must prove original retirement.
       let observationDeadline = 0,
         observationStarted = 0,
         observationBudget = 0;
@@ -676,7 +687,22 @@ export async function retainedOriginalCheckpointGuard(
         );
         need(observationBudget > 0, 'retained_renewal_observation_expired');
         observationDeadline = Date.now() + observationBudget;
-        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise((resolve) => {
+          if (existingRenewal instanceof Promise) setImmediate(resolve);
+          else setTimeout(resolve, 0);
+        });
+        checkPreliminaryOwners();
+        need(
+          elapsedOwners.every((m) => {
+            const proof = elapsedOwnerProofs.get(m);
+            return (
+              m.tournamentLeaseProofDeadlineMonotonicMs === proof.deadline &&
+              (m.tournamentLeaseExpiryTimer === proof.timer ||
+                m.tournamentLeaseExpiryTimer === null)
+            );
+          }),
+          'retained_manager_lease_unproven'
+        );
         need(
           Date.now() < observationDeadline &&
             performance.now() - observationStarted < observationBudget &&
@@ -709,10 +735,15 @@ export async function retainedOriginalCheckpointGuard(
           joinedRetirements.set(m, { id, originals, retirement });
         }
       }
-      if (observeExistingRenewal)
+      if (
+        observeExistingRenewal &&
+        (existingRenewal instanceof Promise || joinedRetirements.size > 0)
+      )
         need(
           elapsedOwners.every((m) => joinedRetirements.has(m)),
-          'retained_renewal_retirement_unavailable'
+          existingRenewal instanceof Promise
+            ? 'retained_renewal_retirement_unavailable'
+            : 'retained_manager_lease_unproven'
         );
       if (joinedRetirements.size)
         await all([...joinedRetirements], async ([m, witness]) => {

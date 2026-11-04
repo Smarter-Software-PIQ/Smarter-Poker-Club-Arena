@@ -1715,7 +1715,7 @@ print(",".join(signs))
 # authority. The entry is read from the TARGET's own immutable tree, so it
 # cannot be granted by anything other than reviewed source, and it expires on
 # its own. Everything after the reason is unchanged: newest-owner, lock, a
-# fresh health read, the seal's one-window-per-hour limit, drain, freeze,
+# fresh health read, the seal's completed-window recovery check, drain, freeze,
 # certificate, rollback reserve and thaw.
 # Prints "owner-ordered <id>" or nothing; never fails the caller.
 owner_window_reason() {

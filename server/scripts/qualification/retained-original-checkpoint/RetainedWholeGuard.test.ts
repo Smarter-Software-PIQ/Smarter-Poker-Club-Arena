@@ -198,6 +198,8 @@ const wholeCases = [
   'manager-retirement-completed-during-serial',
   'manager-retirement-replaced',
   'manager-renewal-joined',
+  'manager-renewal-queued-joined',
+  'manager-renewal-queued-replaced',
   'manager-renewal-pending',
   'manager-renewal-replaced',
   'manager-renewal-absent',
@@ -999,20 +1001,70 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       directAdmissionIsCurrent: () => true,
       tournamentResumeDistress: 0,
     });
+    const queued = scenario.startsWith('manager-renewal-queued-');
+    let loopCurrent = true;
+    let queuedLoop: Promise<void> | null = null;
+    let sleepMs = 0;
+    if (queued) {
+      let scheduled!: () => void;
+      const sleeping = new Promise<void>((resolve) => {
+        scheduled = resolve;
+      });
+      const originalSleep = server.sleep;
+      server.sleep = function (ms: number) {
+        sleepMs = ms;
+        const pending = originalSleep.call(this, ms);
+        scheduled();
+        return pending;
+      };
+      server.directAdmissionIsCurrent = () => loopCurrent;
+      retired.tournamentLeaseProofDeadlineMonotonicMs = performance.now() + 600000;
+      queuedLoop = (gameServer.GameServer.prototype as any).runOwnershipLeaseRenewalLoop.call(
+        server,
+        1
+      );
+      await sleeping;
+      expect(server.ownershipLeaseRenewalOperation).toBeNull();
+      retired.tournamentLeaseProofDeadlineMonotonicMs = performance.now() + 20;
+    }
     const renewal =
-      scenario === 'manager-renewal-absent'
+      queued || scenario === 'manager-renewal-absent'
         ? null
         : (gameServer.GameServer.prototype as any).renewOwnedEngineLeaseProofs.call(server);
     // Stand in only for elapsed synchronous collection, without invoking expiry.
-    const until = performance.now() + 25;
+    const until = performance.now() + (queued ? sleepMs + 25 : 25);
     while (performance.now() < until) {}
     expect(retired.tournamentLeaseAuthorityExpired).toBe(false);
     expect(retired.teardownPromise).toBeNull();
+    let observedOriginalRetirement = 0;
+    if (queued) {
+      const retirements = server.tournamentManagerRetirementOperations;
+      const originalGet = retirements.get;
+      retirements.get = function (owner: unknown) {
+        const retirement = originalGet.call(this, owner);
+        if (
+          owner === retired &&
+          retirement instanceof Promise &&
+          observedOriginalRetirement === 0
+        ) {
+          observedOriginalRetirement++;
+          if (scenario === 'manager-renewal-queued-replaced')
+            retirement.then(() => server.tournamentEngines.set(retired.tournamentId, m));
+          // Return the real original receipt before releasing the fixture job.
+          // No timer duration can make retirement disappear ahead of its reader.
+          queueMicrotask(releaseJob);
+        }
+        return retirement;
+      };
+    }
     if (scenario === 'manager-renewal-joined' || scenario === 'manager-renewal-replaced')
       setImmediate(() =>
         setImmediate(() => {
           const retirement = server.tournamentManagerRetirementOperations.get(retired);
-          if (scenario === 'manager-renewal-replaced')
+          if (
+            scenario === 'manager-renewal-replaced' ||
+            scenario === 'manager-renewal-queued-replaced'
+          )
             retirement?.then(() => server.tournamentEngines.set(retired.tournamentId, m));
           releaseJob();
         })
@@ -1022,12 +1074,20 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       maintenance.lastDurableState.breakEndsAt = maintenance.breakEndsAt;
     }
     finishRenewalFixture = async () => {
+      if (queued) expect(observedOriginalRetirement).toBe(1);
+      loopCurrent = false;
       releaseJob();
       await renewal;
+      await queuedLoop;
       await Promise.allSettled([...server.tournamentManagerRetirementOperations.values()]);
       if (!retired.tournamentLeaseAuthorityExpired) retired.fenceForTournamentLeaseLoss();
       await retired.stop();
     };
+  }
+  if (scenario.startsWith('manager-renewal-queued-')) {
+    // Model setup delayed beyond the former fixture release timer.
+    const delayedSetup = performance.now() + 25;
+    while (performance.now() < delayedSetup) {}
   }
   const guardStarted = performance.now();
   const invoke = () =>
@@ -1062,16 +1122,19 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
           return observed;
         })
       : await invoke();
+  const guardElapsedMs = performance.now() - guardStarted;
   expect(actor.currentTournamentDataAuthority()).toBeNull();
   if (scenario.startsWith('manager-renewal-')) {
-    if (scenario !== 'manager-renewal-joined') {
+    if (scenario.startsWith('manager-renewal-queued-')) await finishRenewalFixture!();
+    if (scenario !== 'manager-renewal-joined' && scenario !== 'manager-renewal-queued-joined') {
       expect(result).toMatchObject({ ok: false, attemptedTables: 0, restartAuthorized: false });
       expect(cash.terminal).toBe(false);
-      expect(performance.now() - guardStarted).toBeLessThan(1500);
+      expect(guardElapsedMs).toBeLessThan(1500);
       expect(result.reason).toBe(
         scenario === 'manager-renewal-absent'
           ? 'retained_manager_lease_unproven'
-          : scenario === 'manager-renewal-replaced'
+          : scenario === 'manager-renewal-replaced' ||
+              scenario === 'manager-renewal-queued-replaced'
             ? 'retained_retirement_registry_unproven'
             : scenario === 'manager-renewal-reserve'
               ? 'retained_reserve_exhausted'
@@ -1080,8 +1143,9 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
                 : 'retained_renewal_observation_expired'
       );
     }
-    await finishRenewalFixture!();
-    if (scenario !== 'manager-renewal-joined') return;
+    if (!scenario.startsWith('manager-renewal-queued-')) await finishRenewalFixture!();
+    if (scenario !== 'manager-renewal-joined' && scenario !== 'manager-renewal-queued-joined')
+      return;
   }
   if (scenario.startsWith('skew-')) expect(performance.now() - guardStarted).toBeLessThan(20000);
   if (releaseFrontLease) {
@@ -1222,6 +1286,8 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       'manager-retirement-during-serial',
       'manager-retirement-completed-during-serial',
       'manager-renewal-joined',
+      'manager-renewal-queued-joined',
+      'manager-renewal-queued-replaced',
       'manager-serial-initial-noop',
       'manager-serial-late-noop',
       'detached-drained',

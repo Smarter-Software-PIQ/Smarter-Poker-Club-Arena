@@ -94,10 +94,10 @@ class RetainedFirstRefusalTests(unittest.TestCase):
 
     def test_retained_previous_generation_remains_readable_after_control_upgrade(self):
         # Immutable protected predecessor; later transport edits cannot rewrite history.
-        path = self.generation / 'engine-release-transaction.sh'
-        path.write_bytes((ROOT/'tests/fixtures/release-recovery-prior-control'/path.name).read_bytes())
-        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
-                         R.RETAINED_REFUSAL_PRIOR_SOURCES[0][path.name])
+        for name, digest in R.RETAINED_REFUSAL_PRIOR_SOURCES[0].items():
+            path = self.generation / name
+            path.write_bytes((ROOT/'tests/fixtures/release-recovery-prior-control'/name).read_bytes())
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
         with patch.object(R, 'RETAINED_REFUSAL_SOURCES', R.RETAINED_REFUSAL_PRIOR_SOURCES[0]):
             self.produce()
         answer = self.read()

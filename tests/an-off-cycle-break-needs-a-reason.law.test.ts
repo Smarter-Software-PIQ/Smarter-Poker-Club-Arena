@@ -1,6 +1,7 @@
 /**
  * LAW: an off-cycle maintenance break needs a reason, the newest release owns
- * it, and there is at most one per rolling hour.
+ * it. Authorized engine recovery may proceed after a proved completed window;
+ * scheduled-cycle and database-only cadence are unchanged.
  * ═══════════════════════════════════════════════════════════════════════════
  * 2026-09-25/26, measured in engine_maintenance_break_log: busy hours held
  * 4-5 breaks and 29-36 of their 60 minutes with every table parked; hands/min
@@ -135,11 +136,16 @@ describe('an off-cycle break needs a reason, and the newest release owns it', ()
     expect(queue.match(/note_missed_admission "\$\{BREAK_REMAINING_MS:-0\}"/g)).toHaveLength(2);
   });
 
-  it('allows one off-cycle window per rolling hour, decided by the seal under its lock', () => {
+  it('removes engine cooldown after completion while preserving database and scheduled cadence', () => {
     expect(seal).toContain('RECOVERY_WINDOW_MIN_INTERVAL_MS = 3600 * 1000');
     const cause = reserve.indexOf('if not cause:');
     const limit = reserve.indexOf('if blocker:');
-    expect(reserve).toContain('blocker, eligible_at = recovery_window_eligibility(run_id, now_ms)');
+    expect(reserve).toContain('run_id, now_ms, after_completed=scheduled_cycle is None');
+    // The database-only caller retains its default rolling-hour cadence.
+    expect(seal).toContain('return recovery_window_eligibility(run_id, now_ms)[0]');
+    expect(seal).toContain('if recent_recovery_window(request["runId"], now_ms):');
+    expect(seal).toContain('now_ms < announced + 420000');
+    expect(seal).toContain('state.get("pending") or state.get("finalization")');
     const write = reserve.indexOf('write_json_atomic(path, value)');
     expect(reserve.indexOf('with SealLock():')).toBeLessThan(cause);
     expect(cause).toBeLessThan(limit);

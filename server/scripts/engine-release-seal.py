@@ -2398,18 +2398,42 @@ def cmd_get(args: argparse.Namespace) -> None:
         print(fields[args.field])
 
 
-# One off-cycle "Deployment Recovery" window per rolling hour, across every
-# release and every control generation (2026-09-26). Every reservation ever
-# made is already a durable file in STATE_DIR carrying its announcedAt, so the
-# rolling hour is read from those under the seal lock - no new state, nothing
-# per process. On 2026-09-25/26 a busy hour held 4-5 breaks and 29-36 parked
-# minutes because each queued release reserved its own window.
+# Database-only reservations retain their historical rolling-hour spacing.
+# Owner correction, 2026-11-04: an authorized engine recovery does not need
+# that extra hour after the prior window and its owning recovery completed.
+# This changes spacing only, never emergency cause, custody or admission.
 RECOVERY_WINDOW_MIN_INTERVAL_MS = 3600 * 1000
 RECOVERY_WINDOW_PREFIX = "engine-recovery-window-"
 RECOVERY_CAUSE_RE = re.compile(r"^(urgent|engine-degraded)$")
 
 
-def recovery_window_eligibility(run_id: str, now_ms: int) -> tuple[str, int]:
+def completed_recovery_window(other: str, reservation: Any, now_ms: int) -> bool:
+    """A known terminal outcome may remove spacing, never unresolved ownership."""
+    if (not isinstance(reservation, dict) or reservation.get('runId') != other
+            or not SHA_RE.fullmatch(str(reservation.get('sha', '')))
+            or reservation.get('cause') not in ('urgent', 'engine-degraded')
+            or type(reservation.get('announcedAt')) is not int):
+        return False
+    announced = reservation['announcedAt']
+    if announced <= 0 or now_ms < announced + 420000:
+        return False  # Original notice and full freeze must have ended.
+    path = result_path(other)
+    if not path.exists():
+        return False  # No acknowledgement is not a terminal outcome.
+    try:
+        outcome = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as exc:
+        die(f'prior recovery outcome is unreadable: {exc}')
+    if not isinstance(outcome, dict):
+        die('prior recovery outcome is invalid')
+    result = load_failure(other) if outcome.get('result') == 'failed' else load_result(other)
+    if (result['sha'] != reservation['sha'] or type(result['completedAt']) is not int
+            or not announced <= result['completedAt'] * 1000 <= now_ms):
+        die('prior recovery outcome does not bind its original window')
+    return True
+
+
+def recovery_window_eligibility(run_id: str, now_ms: int, *, after_completed: bool = False) -> tuple[str, int]:
     """Name the first blocker and the time every blocking reservation expires.
 
     An unreadable reservation still counts, dated by its file: it can only
@@ -2421,8 +2445,10 @@ def recovery_window_eligibility(run_id: str, now_ms: int) -> tuple[str, int]:
         other = path.name[len(RECOVERY_WINDOW_PREFIX):-len(".json")]
         if other == run_id:
             continue
+        reservation = None
         try:
-            announced = json.loads(path.read_text(encoding="utf-8")).get("announcedAt")
+            reservation = json.loads(path.read_text(encoding="utf-8"))
+            announced = reservation.get("announcedAt")
         except (OSError, ValueError, AttributeError):
             announced = None
         if type(announced) is not int or announced <= 0:
@@ -2431,6 +2457,8 @@ def recovery_window_eligibility(run_id: str, now_ms: int) -> tuple[str, int]:
             except OSError:
                 continue
         if announced > now_ms - RECOVERY_WINDOW_MIN_INTERVAL_MS:
+            if after_completed and completed_recovery_window(other, reservation, now_ms):
+                continue
             if not blocker:
                 blocker = other
             eligible_at = max(eligible_at, announced + RECOVERY_WINDOW_MIN_INTERVAL_MS)
@@ -2446,10 +2474,10 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
     """Reserve one fixed announcement for this existing release transaction.
 
     This adds no publisher, scheduler or v1 wire field. A reservation needs a
-    NAMED emergency cause (engine-degraded, urgent or deadline) and a free
-    rolling hour; with a cause but no free hour the answer is `rate-limited`,
-    and with no such cause it is `unavailable`. Either way the release waits
-    for the scheduled break. A failed or missed release is not a cause.
+    NAMED emergency cause. A known completed prior engine window needs no
+    additional hour of spacing; unknown prior outcomes retain their refusal.
+    Scheduled-cycle and database-only cadence are unchanged. A failed or missed
+    release alone is not a cause. No timing change supplies a certificate.
     """
     target = valid_sha(args.sha)
     run_id = str(args.run_id)
@@ -2461,7 +2489,7 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
         state = load_state()
         git_is_ancestor(args.repo, target, "origin/main", "recovery target is not protected main")
         git_is_ancestor(args.repo, state["highWaterSha"], target, "recovery target is superseded")
-        if state.get("pending") or state["desired"]["sha"] == target:
+        if state.get("pending") or state.get("finalization") or state["desired"]["sha"] == target:
             print("unavailable")
             return
         path = STATE_DIR / f"engine-recovery-window-{run_id}.json"
@@ -2518,7 +2546,8 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
                     or cycle['startsAt'] != scheduled_cycle or args.cause != 'urgent' or p['phase1Status'] != 'active'
                     or not scheduled_cycle*1000-120000 <= now_ms < scheduled_cycle*1000-60000):
                 die('initial hourly announcement does not own the fixed58 source cycle')
-        blocker, eligible_at = recovery_window_eligibility(run_id, now_ms)
+        blocker, eligible_at = recovery_window_eligibility(
+            run_id, now_ms, after_completed=scheduled_cycle is None)
         if blocker:
             if getattr(args, "include_eligibility", False):
                 print(f"rate-limited:{eligible_at}")
