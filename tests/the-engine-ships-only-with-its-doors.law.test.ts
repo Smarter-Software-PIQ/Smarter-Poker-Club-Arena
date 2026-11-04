@@ -256,22 +256,23 @@ function mttDepthHistory() {
         .digest('hex'),
     }));
 }
+const frozenAttestationFiles = [
+  '20261029093051_attest_frozen_original_hand_continuation_custody.sql',
+  '20261104232431_certify_scoped_eed_recovery_before_the_original_thaw.sql',
+];
 function targetHistory() {
-  const file = '20261029093051_attest_frozen_original_hand_continuation_custody.sql';
   return [
     ...continuationHistory(),
     ...mttDepthHistory(),
     ...(existsSync(resolve(root, 'server/scripts/retained-original-checkpoint-guard.mjs'))
-      ? [
-          {
-            version: file.slice(0, 14),
-            name: file.slice(15, -4),
-            statement_count: 1,
-            sql_md5: createHash('md5')
-              .update(readFileSync(join(root, 'supabase/migrations', file)))
-              .digest('hex'),
-          },
-        ]
+      ? frozenAttestationFiles.map((file) => ({
+          version: file.slice(0, 14),
+          name: file.slice(15, -4),
+          statement_count: 1,
+          sql_md5: createHash('md5')
+            .update(readFileSync(join(root, 'supabase/migrations', file)))
+            .digest('hex'),
+        }))
       : []),
   ];
 }
@@ -296,7 +297,7 @@ function runContinuationFixture(functions: string[], histories: unknown, extra =
               ...histories,
               ...targetHistory().filter(
                 (row) =>
-                  row.version === '20261029093051' ||
+                  frozenAttestationFiles.some((file) => file.startsWith(row.version)) ||
                   mttDepthFiles.some((file) => file.startsWith(row.version))
               ),
             ]
@@ -420,7 +421,7 @@ function checkpointCatalog() {
       ...common,
       schema_name: 'smarter_private',
       proname: 'attest_frozen_hand_continuation',
-      body_md5: '7e5ebd0b8f622ba6daa596c2d2e45db0',
+      body_md5: '0d7f4b77102e39b35bac63a58f8e01b2',
       acl: '{postgres=X/postgres}',
       service_execute: false,
     },
@@ -441,21 +442,23 @@ function runCheckpointFixture(
       join(dir, 'server/scripts/retained-original-checkpoint-guard.mjs'),
       "modules.client.supabase.rpc('fn_f06_attest_frozen_hand_continuation');"
     );
-    const file = '20261029093051_attest_frozen_original_hand_continuation_custody.sql';
-    const sql = readFileSync(resolve(root, 'supabase/migrations', file));
-    writeFileSync(join(dir, 'supabase/migrations', file), sql);
-    const row: Record<string, unknown> = {
-      version: file.slice(0, 14),
-      name: file.slice(15, -4),
-      statement_count: 1,
-      sql_md5: createHash('md5').update(sql).digest('hex'),
-    };
-    historyMutation?.(row);
+    const rows = frozenAttestationFiles.map((file) => {
+      const sql = readFileSync(resolve(root, 'supabase/migrations', file));
+      writeFileSync(join(dir, 'supabase/migrations', file), sql);
+      const row: Record<string, unknown> = {
+        version: file.slice(0, 14),
+        name: file.slice(15, -4),
+        statement_count: 1,
+        sql_md5: createHash('md5').update(sql).digest('hex'),
+      };
+      historyMutation?.(row);
+      return row;
+    });
     const names = join(dir, 'names.json'),
       histories = join(dir, 'histories.json'),
       functions = join(dir, 'catalog.json');
     writeFileSync(names, JSON.stringify(['legacy', 'fn_f06_attest_frozen_hand_continuation']));
-    writeFileSync(histories, JSON.stringify([row]));
+    writeFileSync(histories, JSON.stringify(rows));
     writeFileSync(functions, JSON.stringify(catalog));
     return runScript(
       {
