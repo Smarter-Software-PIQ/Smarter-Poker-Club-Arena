@@ -100,6 +100,9 @@ export const TOURNAMENT_CREATE_ERRORS: Readonly<Record<string, string>> = {
   rebuy_requires_late_registration:
     'Rebuys And Re-Entries Close When Late Registration Closes. Set Late Registration To At Least 1 Level.',
   start_time_in_past: 'Pick A Start Time In The Future.',
+  // The daily window (owner, 2026-11-03; 20261103222817).
+  tournament_start_outside_daily_hours:
+    'Tournaments Can Start From 6:00 AM To 11:00 PM Chicago Time. Pick A Start Time In Those Hours.',
   table_size_exceeds_deck:
     'Too Many Seats For This Game. One Deck Seats At Most 9 In PLO5 And 7 In PLO6. Lower The Table Size.',
   blind_structure_must_not_decrease:
@@ -341,6 +344,20 @@ function hasScheduleSatelliteTarget(p: Json): boolean {
  * levels, legacy rebuy and satellite spellings count, a Spin sits three to a
  * table, and a single-table format's default table is its own field.
  */
+/** 6:00 AM to 11:00 PM on the Chicago wall clock, both ends included. */
+export function startsInDailyHours(atMs: number): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(atMs));
+  const hh = parts.find((x) => x.type === 'hour')?.value ?? '00';
+  const mm = parts.find((x) => x.type === 'minute')?.value ?? '00';
+  const t = `${hh}:${mm}`;
+  return t >= '06:00' && t <= '23:00';
+}
+
 export function tournamentRpcConfigRefusal(
   p: Json | null | undefined,
   opts: { surface?: TournamentConfigSurface; nowMs?: number } = {}
@@ -363,6 +380,11 @@ export function tournamentRpcConfigRefusal(
       const at = new Date(String(p.startTime)).getTime();
       if (!Number.isFinite(at)) throw new Unreadable();
       if (startTimeIsPast(at, opts.nowMs ?? Date.now())) return 'start_time_in_past';
+      // The daily window (owner, 2026-11-03): a timed event starts only from
+      // 6:00 AM to 11:00 PM Chicago, exactly as fn_tournament_config_refusal.
+      if (!short && type !== 'hu_sng' && type !== 'heads_up' && !startsInDailyHours(at)) {
+        return 'tournament_start_outside_daily_hours';
+      }
     }
 
     // 3. A satellite names the event its seats go into.

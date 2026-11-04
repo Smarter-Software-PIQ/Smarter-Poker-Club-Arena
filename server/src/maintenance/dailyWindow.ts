@@ -32,6 +32,16 @@ export function chicagoClock(at: Date): string {
   return `${hh}:${mm}`;
 }
 
+/**
+ * True when a timed tournament may START at `at`: 6:00 AM to 11:00 PM Chicago,
+ * both ends included, the same bounds the database's schedule writer and
+ * one-off creator enforce. Every engine spawner asks before it creates.
+ */
+export function tournamentStartAllowed(at: Date): boolean {
+  const t = chicagoClock(at);
+  return t >= DAILY_WINDOW.firstTournamentStart && t <= DAILY_WINDOW.lastTournamentStart;
+}
+
 /** False from 3:00 AM until 6:00 AM Chicago: no new Spin or Sit & Go board opens. */
 export function spinSngBoardsOpen(at: Date): boolean {
   const t = chicagoClock(at);
