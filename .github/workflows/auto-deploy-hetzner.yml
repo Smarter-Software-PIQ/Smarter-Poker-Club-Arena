@@ -430,7 +430,28 @@ jobs:
           flock -w 90 8
           GIT_HTTP_LOW_SPEED_LIMIT=1024 GIT_HTTP_LOW_SPEED_TIME=30 \
             timeout --signal=TERM --kill-after=5s 90s \
-            git -C "$REPO_DIR" fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+            env -u GIT_CONFIG -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+              -u GIT_ASKPASS -u SSH_ASKPASS -u GIT_SSL_NO_VERIFY \
+              GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+              bash -c '
+            set -euo pipefail
+            # Fetch public source without changing origin or using host credentials.
+            # Local includes, rewrites and HTTP overrides must not redirect this request.
+            if git -C "$1" config --local --no-includes --name-only \
+              --get-regexp "^(url\..*\.insteadof|include\..*|includeif\..*|http\..*|extensions\.worktreeconfig)$" >/dev/null; then
+              echo "unsafe local Git transport configuration" >&2
+              exit 78
+            else
+              rc=$?
+              [ "$rc" = 1 ] || exit "$rc"
+            fi
+            exec git -c credential.helper= -c core.askPass=/bin/false \
+              -c http.extraHeader= -c http.followRedirects=false -c http.sslVerify=true \
+              -c protocol.allow=never -c protocol.https.allow=always \
+              -C "$1" fetch --no-tags \
+              https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena.git \
+              +refs/heads/main:refs/remotes/origin/main
+            ' -- "$REPO_DIR"
           MAIN_SHA="$(git -C "$REPO_DIR" rev-parse --verify 'origin/main^{commit}')"
           for commit in "$TARGET_SHA" "$CONTROL_SHA"; do
             git -C "$REPO_DIR" cat-file -e "$commit^{commit}"

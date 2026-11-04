@@ -144,18 +144,25 @@ class ForwardAdmissionTests(unittest.TestCase):
                    SEAL_CALLS=str(self.seal_calls),
                    GITHUB_OUTPUT=str(self.directory / 'outputs'),
                    GITHUB_STEP_SUMMARY=str(self.directory / 'summary'))
-        if fault:
-            bin_dir = self.directory / 'bin'
-            bin_dir.mkdir(exist_ok=True)
-            script = bin_dir / 'git'
-            script.write_text('#!/usr/bin/env bash\n'
-                              'for argument in "$@"; do\n'
-                              '  if [ "$argument" = "$FAULT_OP" ]; then\n'
-                              '    if [ "$FAULT_OP" = log ]; then echo malformed; exit 0; fi\n'
-                              '    exit 1\n'
-                              '  fi\ndone\nexec ' + shlex.quote(REAL_GIT) + ' "$@"\n')
-            script.chmod(0o700)
-            env.update(PATH=str(bin_dir) + os.pathsep + env['PATH'], FAULT_OP=fault)
+        # Keep public-source transport inside this isolated real-Git history.
+        # Production uses the fixed HTTPS URL; this adapter never contacts it.
+        bin_dir = self.directory / 'bin'
+        bin_dir.mkdir(exist_ok=True)
+        script = bin_dir / 'git'
+        script.write_text('#!' + sys.executable + '\n' +
+            'import os, sys\n'
+            'args = sys.argv[1:]\n'
+            'fault = os.environ.get("FAULT_OP")\n'
+            'if fault and fault in args:\n'
+            '    if fault == "log": print("malformed"); sys.exit(0)\n'
+            '    sys.exit(1)\n'
+            'url = "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena.git"\n'
+            'if "fetch" in args and url in args:\n'
+            '    args[args.index(url)] = os.environ["REPO_DIR"]\n'
+            '    args = ["-c", "protocol.file.allow=always"] + args\n'
+            'os.execv(' + repr(REAL_GIT) + ', [' + repr(REAL_GIT) + '] + args)\n')
+        script.chmod(0o700)
+        env.update(PATH=str(bin_dir) + os.pathsep + env['PATH'], FAULT_OP=fault or '')
         shell = f'''set -euo pipefail
 NOW={now}
 BREAK_START_MINUTE=55

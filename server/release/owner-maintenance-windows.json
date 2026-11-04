@@ -971,6 +971,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "664326c8b1393942783e87f14b1cf6a6458d20d5a78a3d475f034491bdd8bbb8"
       }
+    },
+    {
+      "id": "2026-11-04-tournament-canonical-source-continuation",
+      "ownerOrder": "Dan directly in tournament recovery chat01a1a01a-7f70-7d62-8da1-8d086594c658 ordered continuing through the earliest certified safe window, executing the earliest verified release then cleanup. This NEW fixed12:00 through18:00UTC November4 continuation follows actual41808419638-1 host source fetch refusal before staging and the qualified canonical public HTTPS source correction. Preserve every prior entry, witness and failed or unknown operation; no replay or retargeting. Before entry prove original terminal outcomes, cleanup and exclusive current ownership. Only the existing stage/receiver and original transaction may activate the exact protected qualified target. Preserve120second notice,300second window,285second admission/proof/rollback reserve, original custody, immutable source/seal, durable freeze and verified own-window v3thaw. Actual admission must refuse overlap with routine maintenance and other owners. No new admission hold, automatic renewal, new timer, second publisher, lease resurrection, deadline extension, forced restart or guard bypass. Fixed expiry ends fresh authority.",
+      "contains": "ca851a52893d75c2041b85db298b04eeba830c4a",
+      "notBefore": "2026-11-04T12:00:00Z",
+      "notAfter": "2026-11-04T18:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "9daeca9da3bc417baf8e9fc2e57aa2b31e838fff0c27e25084e7c3e067dba26f"
+      }
     }
   ],
   "databaseWindows": [
