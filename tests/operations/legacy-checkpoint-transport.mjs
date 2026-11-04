@@ -170,7 +170,7 @@ try {
       "  if(['engine_census','shared_deadline','shared_deadline_exhausted','census_counts','census_counts_unknown'].includes(process.argv[3]) && (!Array.isArray(engines)||engines.length!==2||!engines.every(e=>Object.getPrototypeOf(e)===modules.engine.ServerTableEngine.prototype)||new Set(engines.map(e=>e.kind)).size!==2))throw Error('engine census refused');",
       "  if(['engine_census','shared_deadline','shared_deadline_exhausted','census_counts','census_counts_unknown'].includes(process.argv[3]) && (!Array.isArray(managers)||managers.length!==2||!managers.every(m=>Object.getPrototypeOf(m)===modules.manager.TournamentManager.prototype)||new Set(managers.map(m=>m.kind)).size!==2))throw Error('manager census refused');",
       "  if(options.expectedPid!==process.pid || objects.length!==1 || objects[0]!==this || modules.gameServer.GameServer.prototype!==Object.getPrototypeOf(this))throw Error('synthetic-secret-identity');",
-      "  process.stdout.write(JSON.stringify({type:'guard_started'})+'\\n');",
+      "  process.stdout.write(JSON.stringify({type:'guard_started',workDeadlineMs:options.workDeadlineMs})+'\\n');",
       "  if(process.argv[2]==='throw')throw Error('synthetic-secret-refusal');",
       "  if(process.argv[2]==='gc_settle')return new Promise(resolve=>{globalThis.__fixtureResolve=()=>resolve({ok:true,completedCalls:1});});",
       // A value the inspector cannot return by value (a BigInt): the CDP
@@ -634,7 +634,7 @@ try {
       ...(scenario === 'receipt_deadline'
         ? { checkpointDeadlineMs: receiptDeadline, createWebSocket: observedWebSocket }
         : {}),
-      ...(scenario === 'shared_deadline'
+      ...(['shared_deadline', 'success'].includes(scenario)
         ? { workBudgetMs: 20000, checkpointDeadlineMs: sharedDeadline }
         : {}),
       ...(scenario === 'shared_deadline_exhausted'
@@ -720,6 +720,11 @@ try {
       assert.ok(JSON.stringify(result.nativeCensusCounts).length < 220);
     }
     if (scenario === 'engine_census') assert.equal(result.nativeCensusCounts, undefined);
+    if (scenario === 'success') {
+      const started = await next('guard_started');
+      assert.equal(started.workDeadlineMs, sharedDeadline - options.cleanupBudgetMs - 1000,
+        'target receives the original absolute deadline after cleanup and receipt reserves');
+    }
     if (scenario === 'success')
       assert.deepEqual(result, {
         ok: true,
