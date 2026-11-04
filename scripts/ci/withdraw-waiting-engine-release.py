@@ -9,6 +9,8 @@ import base64
 import contextlib
 import io
 import datetime
+from decimal import Decimal
+from uuid import UUID
 import fcntl
 import errno
 import json
@@ -341,17 +343,51 @@ def select_generic_phase1_profile(request):
 
 
 
+OWNER_WINDOW_PROFILE = None
+EED_SHA = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+
+
+def select_owner_window_profile(request, entry):
+    """Bind a later v2 owner to its own protected source, never a historical profile."""
+    global OWNER_WINDOW_PROFILE
+    key, control = request['runKey'], request['controlSha']
+    require(key not in PINNED_CANCELLATION_RUNS and request['desiredSha'] == EED_SHA)
+    hashes = protected_sources(control)
+    raw = subprocess.run(['git', '-C', str(REPO), 'show', control + ':server/release/activation-floor.json'],
+        capture_output=True, check=True, timeout=10,
+        env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'LC_ALL': 'C'}).stdout
+    require(0 < len(raw) <= 65536)
+    manifest = json.loads(raw)
+    require(manifest.get('schema') == 'engine-release-activation-floor/v2-owner-window'
+            and isinstance(manifest.get('ownerWindowId'), str) and bool(manifest['ownerWindowId'])
+            and set(entry) == {'schema', 'runId', 'targetSha', 'controlSha', 'manifestSha256', 'phase'}
+            and entry['schema'] == manifest['schema'] and entry['runId'] == key
+            and entry['targetSha'] == request['releaseSha'] and entry['controlSha'] == control
+            and entry['manifestSha256'] == digest(raw) and entry['phase'] == 'announcement')
+    OWNER_WINDOW_PROFILE = {'request': request | {'mode': 'cancel_expired_announcement'}, 'control': control, 'target': request['releaseSha'],
+        'hashes': hashes, 'wrapper': WRAPPER_HASH, 'manifest': digest(raw), 'deadline': None}
+
+
 def select_profile(request):
+    global OWNER_WINDOW_PROFILE
+    OWNER_WINDOW_PROFILE = None
     if request['runKey'] == SECOND_PHASE1_RUN:
         select_second_phase1_profile()
     elif request['runKey'] == CURRENT26_RUN:
         select_current26_profile()
     elif (request['runKey'] not in PINNED_CANCELLATION_RUNS
           and request.get('mode') in {'cancel_expired_announcement', 'observe_expired_announcement'}):
-        select_generic_phase1_profile(request)
+        entry = json.loads(regular(ROOT / 'engine-release-requests' / (request['runKey'] + '.activation-entry'), 0o600))
+        if entry.get('schema') == 'engine-release-activation-floor/v2-owner-window':
+            select_owner_window_profile(request, entry)
+        else:
+            select_generic_phase1_profile(request)
 
 
 def cancellation_profile(request):
+    if OWNER_WINDOW_PROFILE is not None and request['runKey'] == OWNER_WINDOW_PROFILE['request']['runKey']:
+        require(request == OWNER_WINDOW_PROFILE['request'])
+        return OWNER_WINDOW_PROFILE
     if request['runKey'] == PHASE1_RUN:
         require(request['controlSha'] == PHASE1_CONTROL and request['releaseSha'] == PHASE1_TARGET
                 and request['desiredSha'] == PHASE1_DESIRED)
@@ -643,7 +679,7 @@ def time_ms(value):
     return round(parsed.timestamp() * 1000)
 
 
-def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL):
+def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL, owner_request=None, promise=None):
     require(isinstance(rows, list) and len(rows) == 1 and active == [])
     row = rows[0]
     starts, ends = stamp + 120000, stamp + 420000
@@ -653,6 +689,25 @@ def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL):
         require(stamp == PHASE1_STAMP and (PHASE1_TOKEN is None or row.get('ownership_token') == PHASE1_TOKEN)
                 and row.get('release_generation') == 1)
         starts, ends = PHASE1_START, PHASE1_END
+    owner = owner_request is not None
+    if owner:
+        require(owner_request['desiredSha'] == EED_SHA and control == owner_request['controlSha'])
+        for field in ('announced_at', 'freeze_started_at', 'release_target_at'):
+            require(datetime.datetime.fromisoformat(row[field].replace('Z', '+00:00')).microsecond % 1000 == 0)
+        require(str(UUID(row.get('ownership_token'))).lower() == row['ownership_token'].lower())
+        raw_start = time_ms(row.get('freeze_started_at'))
+        require(raw_start in (starts, starts - 1))
+        require(isinstance(promise, dict) and promise.get('schema') == 'maintenance-promise-floor/v1'
+                and promise.get('thawDefinitionMd5') == 'cb733d7201725719813ffd1b1e099b1b'
+                and promise.get('maintenance', {}) is None
+                and 0 <= now - time_ms(promise.get('observedAt')) <= 10000)
+        leader = promise.get('leader')
+        require(isinstance(leader, dict) and leader.get('version') == EED_SHA[:8]
+                and leader.get('instanceId') == owner_request['instanceId']
+                and 0 <= now - time_ms(leader.get('heartbeatAt')) <= 15000
+                and row.get('release_generation') == 1 and row.get('thawed_by') == EED_SHA[:8]
+                and Decimal(str(row.get('frozen_seconds'))) == Decimal(ends - raw_start) / 1000)
+        starts = raw_start
     require(row.get('contract_version') == 3 and time_ms(row.get('announced_at')) == stamp
             and time_ms(row.get('freeze_started_at')) == starts)
     target = time_ms(row.get('release_target_at'))
@@ -665,6 +720,8 @@ def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL):
     require(isinstance(targets, dict) and set(targets) == THAW_STEPS
             and all(type(targets[key]) is int and targets[key] >= 0 and type(shifted[key]) is int
                     and shifted[key] == targets[key] for key in THAW_STEPS))
+    if owner:
+        require(set(shifted) == THAW_STEPS | {'complete', '_targets_snapshotted', '_target_counts'})
     require(abs(float(row['frozen_seconds']) * 1000 - (target - starts)) <= 2)
     return {'announcedAtMs': stamp, 'freezeStartedAtMs': starts,
             'releasedThroughMs': target, 'ownershipToken': row['ownership_token'],
@@ -672,12 +729,14 @@ def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL):
             **({'thawRecordedAtMs': time_ms(row['thawed_at'])} if control == PHASE1_CONTROL else {})}
 
 
-def own_thaw(stamp, control=CANCEL_CONTROL):
+def own_thaw(stamp, control=CANCEL_CONTROL, owner_request=None):
     # The fixed canonical store is used only inside this protected host helper.
     # Only bounded GETs, no RPC or production write, and redirects are refused.
-    require(control in {CANCEL_CONTROL, E9_CONTROL, PHASE1_CONTROL})
+    require(control in {CANCEL_CONTROL, E9_CONTROL, PHASE1_CONTROL} or
+            (owner_request is not None and cancellation_profile(owner_request)['control'] == control))
     helper = PARENT / 'engine-control-generations' / control / 'engine-release-database-proof.py'
-    hashes = {CANCEL_CONTROL: CANCEL_HASHES, E9_CONTROL: E9_HASHES, PHASE1_CONTROL: PHASE1_HASHES}[control]
+    hashes = (cancellation_profile(owner_request)['hashes'] if owner_request is not None else
+              {CANCEL_CONTROL: CANCEL_HASHES, E9_CONTROL: E9_HASHES, PHASE1_CONTROL: PHASE1_HASHES}[control])
     require(source_hash(helper) == hashes[helper.name])
     spec = importlib.util.spec_from_file_location('qualified_withdrawal_database_reader', helper)
     reader = importlib.util.module_from_spec(spec)
@@ -703,10 +762,14 @@ def own_thaw(stamp, control=CANCEL_CONTROL):
             require(len(raw) <= 32768)
             return json.loads(raw)
     stamp_iso = datetime.datetime.fromtimestamp(stamp / 1000, datetime.timezone.utc).isoformat()
-    rows = get('engine_maintenance_thaws', {'select': 'contract_version,announced_at,freeze_started_at,release_target_at,thawed_at,ownership_token,release_generation,shifted,frozen_seconds',
+    rows = get('engine_maintenance_thaws', {'select': 'contract_version,announced_at,freeze_started_at,release_target_at,thawed_at,ownership_token,release_generation,shifted,frozen_seconds,thawed_by',
                                           'announced_at': 'eq.' + stamp_iso, 'limit': '2'})
     active = get('engine_maintenance_break', {'select': 'id', 'id': 'eq.true', 'limit': '2'})
-    return prove_thaw(rows, active, stamp, round(time.time() * 1000), control)
+    if owner_request is not None:
+        require(get('engine_maintenance_thaws', {'select': 'release_target_at', 'contract_version': 'eq.3',
+            'release_target_at': 'gt.' + datetime.datetime.now(datetime.timezone.utc).isoformat(), 'limit': '1'}) == [])
+    promise = get('rpc/fn_engine_maintenance_promise_proof', {}) if owner_request is not None else None
+    return prove_thaw(rows, active, stamp, round(time.time() * 1000), control, owner_request, promise)
 
 
 def observe_seal_state(generation):
@@ -749,6 +812,7 @@ def announcement_evidence(request, after_stop=False, read_only=False):
     profile = cancellation_profile(request)
     control, target = profile['control'], profile['target']
     key = request['runKey']
+    owner = OWNER_WINDOW_PROFILE is not None and key == OWNER_WINDOW_PROFILE['request']['runKey']
     generation = PARENT / 'engine-control-generations' / control
     require(generation.resolve(strict=True) == generation)
     for name, expected in profile['hashes'].items(): require(source_hash(generation / name) == expected)
@@ -804,7 +868,7 @@ def announcement_evidence(request, after_stop=False, read_only=False):
         require(command(['python3', '-B', str(generation / 'engine-release-activation-floor.py'), 'reservation', '--repo', '/opt/club-arena',
                          '--target', target, '--control', control, '--deadline', lines[5],
                          '--run-id', key, '--request-root', str(reqroot), '--state-root', str(ROOT)]) == str(stamp))
-    for suffix in ['break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json']:
+    for suffix in ['break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json'] + (['main-inspector-retirement-receipt', 'drill'] if owner else []):
         require(not os.path.lexists(reqroot / (key + '.' + suffix)))
     released_path = reqroot / (key + '.lightning-hold.json.released')
     released_raw = regular(released_path, 0o600)
@@ -821,9 +885,12 @@ def announcement_evidence(request, after_stop=False, read_only=False):
     seal = generation / 'engine-release-seal.py'
     if key == PHASE1_RUN:
         phase1_seal_evidence(generation)
-    if read_only:
+    if read_only or owner:
         state = observe_seal_state(generation)
         require(not isinstance(state.get('pending'), dict) and state['desired']['sha'] == request['desiredSha'])
+        if owner:
+            require(state.get('pending') is None and state.get('finalization') is None
+                    and key not in state.get('committedRuns', {}))
     else:
         require(command([str(seal), 'pending-owner']) == 'none')
         require(command([str(seal), 'get', 'desired-sha']) == request['desiredSha'])
@@ -838,8 +905,9 @@ def announcement_evidence(request, after_stop=False, read_only=False):
                                         else [lines[0], lines[4], lines[1], lines[2], lines[5]]))
             originals[str(path.relative_to(ROOT))] = digest(raw.encode())
     require(not os.path.lexists(ROOT / 'engine-release-results' / (key + '.json')))
-    return {'originals': originals, 'entryHash': digest(entry_raw.encode()),
-            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()), 'thaw': own_thaw(stamp, control)}
+    return {**({'desiredImageId': state['desired']['imageId']} if owner else {}),
+            'originals': originals, 'entryHash': digest(entry_raw.encode()),
+            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()), 'thaw': own_thaw(stamp, control, request) if owner else own_thaw(stamp, control)}
 
 
 def unchanged_evidence(actual, expected, key):
@@ -868,7 +936,9 @@ def cancellation_directory(directory):
 
 
 def cancellation_child_class(argv, key, evidence):
-    generation = PARENT / 'engine-control-generations' / CANCEL_CONTROL
+    control = (OWNER_WINDOW_PROFILE['control'] if OWNER_WINDOW_PROFILE is not None
+               and key == OWNER_WINDOW_PROFILE['request']['runKey'] else CANCEL_CONTROL)
+    generation = PARENT / 'engine-control-generations' / control
     if bash_command(argv, [str(generation / 'engine-release-transaction.sh'), '--run-id', key]):
         return 'pinned_transaction'
     marker = 'engine-release-requests/' + key + '.awaiting-certificate'
@@ -893,6 +963,9 @@ def collect_cancellation_admission(request, units, container, read_only=False):
     evidence_read = lambda: announcement_evidence(request, read_only=True) if read_only else announcement_evidence(request)
     key = request['runKey']
     evidence = evidence_read()
+    if OWNER_WINDOW_PROFILE is not None and key == OWNER_WINDOW_PROFILE['request']['runKey']:
+        require(re.fullmatch(r'sha256:[0-9a-f]{64}', str(evidence.get('desiredImageId'))) is not None
+                and container.get('image') == evidence['desiredImageId'])
     phase1_runtime_birth(request, container, evidence['thaw'])
     stop_contract = loaded_stop_contract(units[0], key)
     state = unit_snapshot(units[0])
