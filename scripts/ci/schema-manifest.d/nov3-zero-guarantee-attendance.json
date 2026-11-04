@@ -1,0 +1,4 @@
+{
+  "_comment": "Migration 20261103232526 declares the service-only dated attendance RPC; this is a source promise, not installation proof.",
+  "functions": ["fn_ca_nov3_tournament_attendance"]
+}
