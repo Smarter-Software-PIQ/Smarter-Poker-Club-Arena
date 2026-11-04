@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import type { TickerItem } from '../../src/components/tournament/tickerMessages';
+import { RETIRED_TOURNAMENT_IDS } from '../../src/lib/retiredTournamentVisibility';
 
 const mocks = vi.hoisted(() => ({
   userId: 'viewer-a' as string | null,
@@ -225,6 +226,21 @@ describe('the mounted ticker recovers without stale account data or overlapping 
     cleanup();
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it('never announces a retired event while keeping an unrelated upcoming event', async () => {
+    mocks.read.mockImplementation((query: Query) =>
+      query.table === 'tournaments'
+        ? ok([
+            ...RETIRED_TOURNAMENT_IDS.map((id) => ({ ...tournament('Retired Event'), id })),
+            tournament('New Event'),
+          ])
+        : answer(query)
+    );
+    await mount();
+    expect(screen.getByText('New Event')).toBeTruthy();
+    expect(screen.queryByText('Retired Event')).toBeNull();
+    expect(mocks.toast).not.toHaveBeenCalled();
   });
 
   it.each(['club_members', 'tournaments', 'tournament_players'])(
