@@ -306,9 +306,9 @@ try {
   const result = JSON.parse(output.slice(start));
   need(
     result.success === true &&
-      result.numTotalTests === (nativeMode ? 57 : 65) &&
-      result.numPassedTests === (nativeMode ? 2 : 65) &&
-      (!nativeMode || result.numPendingTests === 55) &&
+      result.numTotalTests === (nativeMode ? 61 : 69) &&
+      result.numPassedTests === (nativeMode ? 2 : 69) &&
+      (!nativeMode || result.numPendingTests === 59) &&
       result.numFailedTests === 0,
     nativeMode
       ? 'both actual native census/EED guard cases must pass'

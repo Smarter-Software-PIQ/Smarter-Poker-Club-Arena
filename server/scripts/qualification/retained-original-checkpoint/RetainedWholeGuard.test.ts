@@ -188,10 +188,14 @@ const wholeCases = [
   'manager-serial-presence-change',
   'manager-serial-bank-removed',
   'manager-serial-empty-lease',
+  'manager-registry-existing-value-reassigned',
   'manager-lease-expired-running',
   'manager-lease-stopped',
   'manager-lease-teardown',
   'manager-retirement-joined',
+  'manager-retirement-during-serial',
+  'manager-retirement-direct-during-serial',
+  'manager-retirement-completed-during-serial',
   'manager-retirement-replaced',
   'manager-renewal-joined',
   'manager-renewal-pending',
@@ -852,7 +856,10 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     });
   }
   let emptyManager: any;
-  if (scenario === 'manager-serial-empty-lease') {
+  if (
+    scenario === 'manager-serial-empty-lease' ||
+    scenario === 'manager-registry-existing-value-reassigned'
+  ) {
     emptyManager = actor.bindTournamentDataAuthorityMethods(
       { tournamentId: id(980), leaseGeneration: id(981) },
       new TournamentManager(id(980), server, id(981), performance.now() + 600000)
@@ -869,6 +876,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       'manager-serial-presence-change',
       'manager-serial-bank-removed',
       'manager-serial-empty-lease',
+      'manager-registry-existing-value-reassigned',
     ].includes(scenario)
   ) {
     let admitted = false;
@@ -882,6 +890,8 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
           cash.disconnectEngine.markDisconnected(cash.tableId, cash.seatedPlayers[0].user_id);
         else if (scenario === 'manager-serial-bank-removed')
           cash.timeBankEngine.removePlayer(cash.tableId, cash.seatedPlayers[0].user_id);
+        else if (scenario === 'manager-registry-existing-value-reassigned')
+          server.tournamentEngines.set(emptyManager.tournamentId, m);
         else if (scenario === 'manager-serial-empty-lease')
           emptyManager.tournamentLeaseProofDeadlineMonotonicMs = performance.now() - 1;
         else {
@@ -928,21 +938,33 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     });
     retired.lifecycleJobs.add(originalJob);
     originalJob.then(() => retired.lifecycleJobs.delete(originalJob));
-    retired.fenceForTournamentLeaseLoss();
     server.tournamentManagerRetirementOperations = new Map();
-    const retirement = (gameServer.GameServer.prototype as any).stopTournamentManagerIfOwned.call(
-      server,
-      retired.tournamentId,
-      retired,
-      'qualification.original_retirement',
-      false
-    );
-    if (scenario === 'manager-retirement-replaced')
-      retirement.then(() => {
-        server.tournamentEngines.set(retired.tournamentId, m);
-      });
-    // Let the already-owned teardown settle only after the guard sees it.
-    setImmediate(releaseJob);
+    const startOriginalRetirement = () => {
+      if (scenario.includes('during-serial'))
+        retired.tournamentLeaseProofDeadlineMonotonicMs = performance.now() - 1;
+      retired.fenceForTournamentLeaseLoss();
+      const retirement =
+        scenario === 'manager-retirement-direct-during-serial'
+          ? retired.stop()
+          : (gameServer.GameServer.prototype as any).stopTournamentManagerIfOwned.call(
+              server,
+              retired.tournamentId,
+              retired,
+              'qualification.original_retirement',
+              false
+            );
+      if (scenario === 'manager-retirement-replaced')
+        retirement.then(() => server.tournamentEngines.set(retired.tournamentId, m));
+      setImmediate(releaseJob);
+    };
+    if (scenario === 'manager-retirement-completed-during-serial') {
+      startOriginalRetirement();
+      m.tournamentSeatMoveSerialTail = new Promise((resolve) => setTimeout(resolve, 20));
+    } else if (scenario.includes('during-serial')) {
+      // The original manager serial continuation owns the lease-loss transition.
+      // The guard does not initiate this stop or supply its completion.
+      retired.tournamentSeatMoveSerialTail = Promise.resolve().then(startOriginalRetirement);
+    } else startOriginalRetirement();
   }
   let finishRenewalFixture: (() => Promise<void>) | null = null;
   if (scenario.startsWith('manager-renewal-')) {
@@ -1051,9 +1073,11 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
           ? 'retained_manager_lease_unproven'
           : scenario === 'manager-renewal-replaced'
             ? 'retained_retirement_registry_unproven'
-            : scenario === 'manager-renewal-expired-deadline'
-              ? 'retained_renewal_deadline_unproven'
-              : 'retained_renewal_observation_expired'
+            : scenario === 'manager-renewal-reserve'
+              ? 'retained_reserve_exhausted'
+              : scenario === 'manager-renewal-expired-deadline'
+                ? 'retained_renewal_deadline_unproven'
+                : 'retained_renewal_observation_expired'
       );
     }
     await finishRenewalFixture!();
@@ -1100,6 +1124,23 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     if (scenario === 'manager-serial-empty-lease')
       expect(result.observedDetail).toContain('phase=final_join, site=current_join,');
     m.pendingTournamentParkRequests.clear();
+    return;
+  }
+  if (scenario === 'manager-registry-existing-value-reassigned') {
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'retained_registry_changed',
+      attemptedTables: 0,
+      restartAuthorized: false,
+    });
+    for (const original of originals) expect(original.e.terminal).toBe(false);
+    expect(cash.terminal).toBe(false);
+    return;
+  }
+  if (scenario === 'manager-retirement-direct-during-serial') {
+    for (const original of originals) expect(original.e.terminal).toBe(false);
+    expect(result).toMatchObject({ ok: false, attemptedTables: 0, restartAuthorized: false });
+    expect(cash.terminal).toBe(false);
     return;
   }
   if (scenario === 'manager-retirement-replaced') {
@@ -1178,6 +1219,8 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       'positive',
       'manager-context',
       'manager-retirement-joined',
+      'manager-retirement-during-serial',
+      'manager-retirement-completed-during-serial',
       'manager-renewal-joined',
       'manager-serial-initial-noop',
       'manager-serial-late-noop',
