@@ -114,3 +114,31 @@ also accounts for the small-open caveat discussed in
 These sources support the design rationale, not a claim that this exact
 fleet policy has solved or proven positive EV. VPIP/RFI and profitability
 remain distinct measurements, separated by game, seats, position and depth.
+
+## Lightning preserves exact river-nuts value at acceptance
+
+A bounded review sample found an actual PLO5 Lightning check with the ace-high
+nut flush and a legal pot bet in hand 54876348. This was first to act, rather
+than a closing check-back. The current brain replay bets in all 40 sampled
+style/seed combinations; the original worker seed and decision-read frame
+were unavailable, so this is not an exact reconstruction of the original
+worker decision.
+
+Source inspection and a failing regression identify a separate reproducible
+acceptance defect: withdrawing an obsolete variant or joint policy can restore
+an earlier check from before the brain's final wager rules. Ordinary tables
+reapply the exact-nuts rule at acceptance, but Lightning omitted it. Lightning
+now applies the same rule against the controller's fresh legal menu before
+the real action is submitted. The withdrawn strategy stays withdrawn and its
+private plan effects are not restored. Existing legal caps, shared-board and
+split-pot exclusions, and opponents unable to respond retain their behavior.
+Near-nut hands remain with their range-aware strategy rather than becoming
+automatic bets.
+
+The regression fails on both withdrawal paths before the fix and passes with
+real HandController-accepted pot bets afterward. The focused acceptance and
+river-value suites pass 102 cases, including near-nut and no-responder checks.
+This fixes the demonstrated boundary defect; it does not prove that every
+reported historical check came from it. Experimental river-bluff flags are
+unchanged. Deployment and natural live proof remain pending in the next
+release, as the owner instructed; the current restoration release is untouched.
