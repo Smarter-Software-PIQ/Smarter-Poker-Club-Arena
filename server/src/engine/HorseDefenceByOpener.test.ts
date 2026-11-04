@@ -356,6 +356,25 @@ describe('V72 defence end to end (cash 6-max 100bb, 2.5x open, balanced)', () =>
 });
 
 describe('V72 defence at the full ring and with a big blind ante', () => {
+  it.each([6, 9])(
+    'the %i-handed cash big blind re-raises a steal without widening its total defense',
+    (seats) => {
+      const mix = defend({ ...CASH6, seats }, 2, seats);
+      expect(mix.threeBet).toBeGreaterThan(11);
+      expect(mix.threeBet).toBeLessThan(15);
+      expect(mix.total).toBeGreaterThan(55);
+      expect(mix.total).toBeLessThan(65);
+      expect(mix.byClass.get('72o')).toBe(0);
+    }
+  );
+
+  it.each([6, 9])('the %i-handed tournament big blind uses a bounded re-steal mix', (seats) => {
+    const mix = defend({ ...MTT9, seats }, 2, seats);
+    expect(mix.threeBet).toBeGreaterThan(14);
+    expect(mix.threeBet).toBeLessThan(19);
+    expect(mix.total).toBeLessThan(82);
+    expect(mix.byClass.get('72o')).toBe(0);
+  });
   it('nine-handed UTG is defended narrower than the six-handed UTG (the 9-max lojack)', () => {
     const utg9 = defend(CASH9, 2, 3);
     const lj9 = defend(CASH9, 2, 6);
