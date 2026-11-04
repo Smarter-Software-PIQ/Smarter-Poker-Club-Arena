@@ -143,7 +143,20 @@ function trackCta(cta: 'sign_up' | 'sign_in', placement: 'hero' | 'closing'): vo
  * pin unreadable.
  */
 function signInPlate(onClick: () => void): PlateButtonProps {
-  return { label: 'Sign In', ink: 'silver', href: signInUrl('/'), onClick };
+  return { label: 'Sign In', ink: 'silver', href: signInUrl(returnPathAfterSignIn()), onClick };
+}
+
+/**
+ * Where Sign In brings the player back. The welcome-back chips email, the
+ * join-a-club nudge and the play nudge land a signed-out player here with
+ * ?join=<code>&ref=<referral> or ?welcome=chips (Dan 2026-11-04); the query
+ * is what the home page acts on, so it travels through the login and back.
+ * Without it the landing page returned everyone to a bare '/'.
+ */
+function returnPathAfterSignIn(): string {
+  if (typeof window === 'undefined') return '/';
+  const search = window.location.search || '';
+  return search.length > 1 ? `/${search}` : '/';
 }
 
 function createAccountPlate(onClick: () => void): PlateButtonProps {
