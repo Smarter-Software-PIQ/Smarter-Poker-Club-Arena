@@ -640,8 +640,10 @@
   --sp-note-ink: #2a2208;
 }
 .seat__note-marker--green {
-  --sp-note-face: #22c55e;
-  --sp-note-fold: #14532d;
+  /* The house green and its dark step (tests/gameplay-wears-the-house-colours):
+     the note picker's green and the seat marker's green are the same read. */
+  --sp-note-face: #3fb950;
+  --sp-note-fold: #2ea043;
   --sp-note-ink: #052e16;
 }
 .seat__note-marker--blue {
