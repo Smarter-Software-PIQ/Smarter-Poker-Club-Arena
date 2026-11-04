@@ -19,6 +19,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+EED_SOURCE_BINDING = next(line for line in SOURCE.splitlines() if line.startswith('CHECKPOINT_EED_SHA='))
 PRIOR = int(dt.datetime.fromisoformat('2026-10-29T23:53:05.705+00:00').timestamp() * 1000)
 FIRST = int(dt.datetime.fromisoformat('2026-10-30T00:53:00+00:00').timestamp() * 1000)
 TARGET = 'b' * 40
@@ -57,6 +58,8 @@ CASE={shlex.quote(str(root))}
 SHA={TARGET}; RUN_ID=900-2; REPO_DIR=/offline-fixture; CONTAINER=offline-fixture
 RELEASE_SEAL="$CASE/seal-wrapper.py"; REQUEST_ROOT="$CASE/requests"; mkdir -p "$REQUEST_ROOT"
 SUPERSEDED_BY=''; LEGACY_CHECKPOINT_REQUIRED=0; CERTIFICATE_DEADLINE=0; LOCK_HELD=0
+# Match the modern serving health fixture; production binds this before request.
+CHECKPOINT_PREDECESSOR_SHA={'a' * 40}; {EED_SOURCE_BINDING}
 HEALTH={shlex.quote(health)}
 record() {{ printf '%s\\n' "$*" >> "$CASE/events"; }}
 date() {{ [ "$1" = +%s ]; echo "$((NOW_MS/1000))"; }}

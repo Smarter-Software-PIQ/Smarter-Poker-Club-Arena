@@ -29,6 +29,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+BASH = next((b for b in ('/opt/homebrew/bin/bash', '/usr/local/bin/bash') if Path(b).exists()), 'bash')
 
 
 def slice_fn(name: str) -> str:
@@ -37,7 +38,7 @@ def slice_fn(name: str) -> str:
 
 
 STATE = SOURCE[SOURCE.index('LIGHTNING_HOLD_FILE="$REQUEST_ROOT/$RUN_ID.lightning-hold.json"'):SOURCE.index('\n', SOURCE.index('[ ! -e "$LIGHTNING_HOLD_FILE" ] || LIGHTNING_HOLD_PLACED=1')) + 1]
-FUNCTIONS = slice_fn('hold_lightning_when_counting_down') + slice_fn('release_lightning_hold_if_break_over') + slice_fn('release_lightning_hold')
+FUNCTIONS = slice_fn('bind_phase1_window') + slice_fn('hold_lightning_when_counting_down') + slice_fn('release_lightning_hold_if_break_over') + slice_fn('release_lightning_hold')
 
 HELPER = r'''#!/usr/bin/env bash
 # fake engine-release-lightning-hold.py: records calls, acts on the journal.
@@ -73,6 +74,21 @@ class LightningHoldExitPaths(unittest.TestCase):
         helper = self.root / 'hold.sh'
         helper.write_text(HELPER)
         helper.chmod(0o755)
+        # Execute the actual shell binder. Its native seal, protected source and
+        # lock boundaries are isolated here; their semantics are qualified by
+        # the owner-promise suite, while this suite owns hold/exit ordering.
+        seal = self.root / 'seal.py'
+        seal.write_text('''#!/usr/bin/env python3
+import json, os, sys
+assert sys.argv[1] == 'bind-recovery-window'
+args = dict(zip(sys.argv[2::2], sys.argv[3::2]))
+assert args['--run-id'] == '7-1' and args['--sha'] == 'a' * 40 and args['--control-sha'] == 'b' * 40
+assert os.environ.get('BINDING_REFUSED', '0') == '0'
+h = json.load(sys.stdin); m = h['maintenance']; stamp = int(args['--announced-at'])
+assert stamp == int(os.environ['RESERVATION_STAMP']) == m['presentation']['break_id']
+print(json.dumps({'window': {'startsAt': stamp + 120000, 'endsAt': stamp + 420000}}))
+''')
+        seal.chmod(0o755)
         self.calls = self.root / 'calls'
         self.calls.write_text('')
         self.mode = self.root / 'mode'
@@ -91,10 +107,19 @@ class LightningHoldExitPaths(unittest.TestCase):
         """Run STATE + FUNCTIONS + body with the fakes. `chicago` is the UTC
         instant the hold's clock reads (python's datetime.now is patched)."""
         prefix = f'''set -euo pipefail
+# Host/CI Bash5 accepts an empty promise_args array under nounset. Mac Bash3
+# does not; use the same local-only compatibility as countdown-capture-epoch.
+if [ "$(uname -s)" = Darwin ] && [ "${{BASH_VERSINFO[0]}}" -lt 4 ]; then set +u; fi
 REQUEST_ROOT="{self.root}/requests"; RUN_ID=7-1; ENV_FILE=/dev/null
 LIGHTNING_HOLD="{self.root}/hold.sh"; export CALLS="{self.calls}" HELPER_MODE="{self.mode}"
 DRILL_MODE=''; DAILY_TRANSITION=0; ACTIVATION_FLOOR_END_EPOCH=0; ACTIVATION_FLOOR_OWNER_WINDOW=''
 BREAK_END_EPOCH=0; LEGACY_ENTRY_BREAK_END_EPOCH=0
+PHASE1_CYCLE_START=0; LOCK_HELD=0; REPO_DIR="{self.root}"
+SHA={'a' * 40}; CONTROL_SHA={'b' * 40}; RELEASE_SEAL="{self.root}/seal.py"
+acquire_engine_lock() {{ [ "$LOCK_HELD" = 0 ]; LOCK_HELD=1; }}
+release_engine_lock() {{ [ "$LOCK_HELD" = 1 ]; LOCK_HELD=0; }}
+source_target_is_current() {{ [ "$1" = local-main ]; }}
+legacy_entry_read() {{ "$@"; }}
 floor_reservation_stamp() {{ [ "${{RESERVATION_REFUSED:-0}}" = 0 ] || return 1; echo "${{RESERVATION_STAMP:-0}}"; }}
 weekly_read() {{
   [ "${{WEEKLY_REFUSED:-0}}" = 0 ] || return 1
@@ -122,7 +147,7 @@ exec(compile(code, "<hold>", "exec"), {{"__name__": "__main__"}})' "$2" "${{@:3}
 '''
         script = prefix + STATE + FUNCTIONS + body
         env = {**os.environ, **(env_extra or {})}
-        return subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=60, env=env)
+        return subprocess.run([BASH, '-c', script], capture_output=True, text=True, timeout=60, env=env)
 
     def calls_made(self):
         return [l for l in self.calls.read_text().splitlines() if not l.startswith('sleep')]
@@ -221,7 +246,7 @@ exec(compile(code, "<hold>", "exec"), {{"__name__": "__main__"}})' "$2" "${{@:3}
             for part in parts[:-1]:parent=parent[part]
             parent[parts[-1]]=value;cases.append((h,{},''))
         missing=json.loads(json.dumps(good));del missing['weeklyPayout'];cases.append((missing,{},''))
-        cases += [(good,{'RESERVATION_REFUSED':'1'},''),(good,{'WEEKLY_REFUSED':'1'},''),
+        cases += [(good,{'RESERVATION_REFUSED':'1'},''),(good,{'WEEKLY_REFUSED':'1'},''),(good,{'BINDING_REFUSED':'1'},''),
                   (good,{},'ACTIVATION_FLOOR_OWNER_WINDOW="";'),
                   (good,{},'ACTIVATION_FLOOR_END_EPOCH=1793429700;')]
         for health,extra,override in cases:

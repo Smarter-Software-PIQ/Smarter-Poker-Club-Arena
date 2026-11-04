@@ -428,6 +428,8 @@ def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instan
     the serving instance is the fresh leader, no maintenance row remains and no
     later v3 release boundary is authoritative. Never invokes or edits a thaw."""
     from decimal import Decimal
+    if starts_ms != announced_ms + 120000 or ends_ms != starts_ms + 300000:
+        raise ValueError('terminal owner promised120/300second window differs')
     def get(table: str, params: dict, limit_bytes: int):
         request = Request(f'{base_url}/rest/v1/{table}?{urlencode(params)}',
             headers={'apikey': service_key, 'authorization': f'Bearer {service_key}',
@@ -451,13 +453,33 @@ def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instan
         raise ValueError('terminal owner leader identity is unproved')
     if get('engine_maintenance_break', {'select': 'id', 'limit': '1'}, 4096) != []:
         raise ValueError('terminal owner database retains a maintenance owner')
-    starts_iso = datetime.fromtimestamp(starts_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
+    announced_iso = datetime.fromtimestamp(announced_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
     rows = get('engine_maintenance_thaws', {'select': 'freeze_started_at,announced_at,thawed_at,frozen_seconds,'
                'contract_version,release_target_at,release_generation,ownership_token,thawed_by,shifted',
-               'freeze_started_at': 'eq.' + starts_iso, 'limit': '2'}, 65536)
+               'announced_at': 'eq.' + announced_iso, 'limit': '2'}, 65536)
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         raise ValueError('terminal owner thaw receipt is not unique')
     row, now_ms = rows[0], int(time.time() * 1000)
+    raw_start = millis(row.get('freeze_started_at'))
+    expected_seconds = Decimal(300)
+    if raw_start != starts_ms:
+        # The pinned EED timer can enter exactly1ms early. The installed thaw
+        # credits that actual millisecond and still releases at the ORIGINAL
+        # announcement+420s. This is exact contract arithmetic, not tolerance.
+        if sha != 'eed06fe51dea622069c661a6213d5b031ff3a9e3' or raw_start != starts_ms - 1:
+            raise ValueError('terminal owner raw freeze differs from qualified predecessor')
+        proof = read_maintenance_promise(base_url, service_key)
+        proof_now_ms = int(time.time() * 1000)
+        if (not isinstance(proof, dict) or proof.get('schema') != 'maintenance-promise-floor/v1'
+                or proof.get('thawDefinitionMd5') != 'cb733d7201725719813ffd1b1e099b1b'
+                or proof.get('maintenance', {}) is not None
+                or not 0 <= proof_now_ms - millis(proof.get('observedAt')) <= 10000
+                or not isinstance(proof.get('leader'), dict)
+                or proof['leader'].get('version') != sha[:8]
+                or proof['leader'].get('instanceId') != instance_id
+                or not 0 <= proof_now_ms - millis(proof['leader'].get('heartbeatAt')) <= max_age * 1000):
+            raise ValueError('terminal owner original promise contract is unproved')
+        expected_seconds = Decimal(ends_ms - raw_start) / Decimal(1000)
     shifted = row.get('shifted')
     token = row.get('ownership_token')
     try:
@@ -472,11 +494,11 @@ def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instan
                 set(counts) == TERMINAL_THAW_TARGETS and shifted.get('_targets_snapshotted') is True and
                 all(type(shifted[k]) is int and type(counts[k]) is int and shifted[k] >= 0 and counts[k] == shifted[k]
                     for k in TERMINAL_THAW_TARGETS))
-    if (millis(row.get('announced_at')) != announced_ms or millis(row.get('freeze_started_at')) != starts_ms or
+    if (millis(row.get('announced_at')) != announced_ms or
             millis(row.get('release_target_at')) != ends_ms or row.get('contract_version') != 3 or
-            row.get('release_generation') != 1 or Decimal(str(row.get('frozen_seconds'))) != Decimal(300) or
+            row.get('release_generation') != 1 or Decimal(str(row.get('frozen_seconds'))) != expected_seconds or
             row.get('thawed_by') != sha[:8] or not token_ok or not shape_ok or shifted.get('complete') is not True or
-            not starts_ms <= millis(row.get('thawed_at')) <= now_ms or now_ms <= ends_ms):
+            not raw_start <= millis(row.get('thawed_at')) <= now_ms or now_ms <= ends_ms):
         raise ValueError('terminal owner owned v3 thaw is unproved')
     future = get('engine_maintenance_thaws', {'select': 'release_target_at', 'contract_version': 'eq.3',
                  'release_target_at': 'gt.' + datetime.now(timezone.utc).isoformat(), 'limit': '1'}, 4096)

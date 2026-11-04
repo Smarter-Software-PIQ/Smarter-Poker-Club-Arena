@@ -2,6 +2,9 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { expect, it } from 'vitest';
 
+// recovery-rolling-eligibility.py executes server/scripts/engine-release-transaction.sh
+// and server/scripts/engine-release-seal.py; retain both transitive source bindings
+// so the normal affected-test selector runs this law when either source changes.
 it('keeps authoritative rolling-hour eligibility inside the existing owner minute', () => {
   const result = spawnSync(
     'python3',

@@ -680,6 +680,50 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
         print(json.dumps(c,sort_keys=True))
 
 
+def cmd_bind_recovery_window(args: argparse.Namespace) -> None:
+    """Observe the original reserved recovery promise; never reserve or slide it."""
+    raw = sys.stdin.read(1048577)
+    if len(raw) > 1048576: die('recovery health binding exceeds its bound')
+    try: h = json.loads(raw)
+    except ValueError: die('recovery health binding is unreadable')
+    run_id, target, control = str(args.run_id), valid_sha(args.sha), valid_sha(args.control_sha)
+    if not RUN_ID_RE.fullmatch(run_id): die('recovery binding run is invalid')
+    with SealLock():
+        state = load_state()
+        git_is_ancestor(args.repo, target, 'origin/main', 'recovery binding target is not protected main')
+        git_is_ancestor(args.repo, control, 'origin/main', 'recovery binding control is not protected main')
+        try: reservation = json.loads((STATE_DIR / f'engine-recovery-window-{run_id}.json').read_text())
+        except (OSError, ValueError): die('original recovery reservation is unreadable')
+        if (reservation.get('runId') != run_id or reservation.get('sha') != target
+                or type(reservation.get('announcedAt')) is not int
+                or reservation['announcedAt'] != args.announced_at
+                or not RECOVERY_CAUSE_RE.fullmatch(str(reservation.get('cause') or ''))):
+            die('recovery promise differs from its original reservation')
+        m = h.get('maintenance') if isinstance(h, dict) else None
+        p = m.get('presentation') if isinstance(m, dict) else None
+        if (not isinstance(h, dict) or h.get('releaseSha') != state['desired']['sha']
+                or h.get('running') is not True or 'weeklyPayout' not in h or h['weeklyPayout'] is not None
+                or not isinstance(p, dict) or m.get('active') is not True or m.get('durableConfirmed') is not True
+                or m.get('phase') not in ('last_hand', 'counting_down') or p.get('phase') != m['phase']
+                or p.get('active') is not True or m.get('reason') != 'Deployment Recovery'
+                or p.get('reason') != m['reason'] or type(p.get('break_id')) is not int
+                or p['break_id'] != args.announced_at):
+            die('recovery durable maintenance identity is unproved')
+        announced = args.announced_at
+        w = {'announcedAt': announced, 'startsAt': announced + 120000,
+             'endsAt': announced + 420000, 'verified': True}
+        if (type(p.get('break_ends_at')) is not int or p['break_ends_at'] != w['endsAt']
+                or type(p.get('scheduled_ends_at')) is not int or p['scheduled_ends_at'] != w['endsAt']):
+            if not qualified_early_promise(args.repo, h, w, args.promise_floor_proof):
+                die('recovery presentation changed its promised window')
+        elif m['phase'] == 'counting_down' and m.get('breakEndsAt') != w['endsAt']:
+            die('recovery countdown differs from its original promise')
+        now = int(time.time() * 1000)
+        if not announced <= now < w['endsAt'] or (m['phase'] == 'last_hand') != (now < w['startsAt']):
+            die('recovery announcement is outside its original window/phase')
+        print(json.dumps({'window': w}, sort_keys=True))
+
+
 def routine_cycles(state: dict[str, Any]) -> dict[str, Any]:
     # A removed owner is not evidence of resolved custody. An earlier writer
     # may have recorded the expiry-only retirement shape; never accept that
@@ -2783,6 +2827,103 @@ def load_failure(run_id: str) -> dict[str, Any]:
     return value
 
 
+def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
+    """Read only: the original announced owner ended without entering cutover.
+
+    The positive immutable announcement/reservation and native unit are authority;
+    absent mutation files alone never authorize retirement. The wrapper still
+    records and attests its exact failed outcome before ordinary durable cleanup.
+    """
+    import importlib.util
+    failed_routine_require(os.geteuid() == 0 and RUN_ID_RE.fullmatch(args.run_id) is not None
+        and SHA_RE.fullmatch(args.sha) is not None and SHA_RE.fullmatch(args.control_sha) is not None)
+    require_engine_lock(args.engine_lock_fd)
+    deadline = time.monotonic() + 45
+    control = Path(__file__).resolve().parent
+    request_root = Path(os.environ.get('ENGINE_RELEASE_REQUEST_ROOT', str(STATE_DIR / 'engine-release-requests')))
+    pin_root = Path(os.environ.get('ENGINE_RELEASE_PIN_ROOT', str(STATE_DIR / 'engine-release-generation-pins')))
+    spec = importlib.util.spec_from_file_location('original_announcement_floor', control / 'engine-release-activation-floor.py')
+    floor = importlib.util.module_from_spec(spec); spec.loader.exec_module(floor)
+    hold_spec = importlib.util.spec_from_file_location('original_announcement_hold', control / 'engine-release-lightning-hold.py')
+    hold = importlib.util.module_from_spec(hold_spec); hold_spec.loader.exec_module(hold)
+    with SealLock():
+        state = load_state()
+        failed_routine_require(state.get('pending') is None and state.get('finalization') is None
+            and args.run_id not in state['committedRuns']
+            and state['desired']['sha'] == FAILED_ROUTINE_DESIRED and state['desired']['imageId'] == FAILED_ROUTINE_IMAGE)
+        record = floor.policy(args.repo, args.sha, args.control_sha)
+        failed_routine_require(isinstance(record, dict) and record['schema'] == floor.OWNER_CAPABILITY)
+        # The actual installed control, not just its recorded SHA, must contain
+        # the entry-before-checkpoint/prepare and recovery semantics being used.
+        for name in ('engine-release-seal.py', 'engine-release-recover.sh', 'engine-release-transaction.sh',
+                     'engine-release-database-proof.py', 'engine-release-lightning-hold.py'):
+            expected = failed_routine_command(['git', '-C', args.repo, 'rev-parse',
+                args.control_sha + ':server/scripts/' + name], deadline)
+            raw = failed_routine_bytes(control / name, 1048576)
+            blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+            failed_routine_require(expected == blob)
+
+        def ownership():
+            request = failed_routine_bytes(request_root / (args.run_id + '.request')).decode().splitlines()
+            failed_routine_require(len(request) == 6 and request[0] == args.sha
+                and request[1] == 'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/' + args.run_id.split('-')[0]
+                and bool(request[2]) and request[3] == str(control) and request[4] == args.control_sha
+                and request[5].isdigit() and int(request[5]) > 0
+                and failed_routine_bytes(control / 'control-sha').decode().splitlines() == [args.control_sha])
+            entry = floor.existing_entry(request_root, args.run_id, args.sha, args.control_sha)
+            failed_routine_require(entry is not None and entry['schema'] == floor.OWNER_CAPABILITY
+                and entry['phase'] == 'announcement' and entry['manifestSha256'] == record['manifestSha256'])
+            stamp = floor.reservation(record, STATE_DIR, args.run_id)
+            failed_routine_require(time.time() * 1000 > stamp + 420000 and int(request[5]) * 1000 >= stamp + 420000)
+            # A prior terminal cleanup may already have removed its pin/intent.
+            # Only the exact durable failed outcome permits that replay edge.
+            terminal = None
+            if result_path(args.run_id).exists():
+                terminal = load_failure(args.run_id)
+                failed_routine_require(terminal['sha'] == args.sha and terminal['controlSha'] == args.control_sha
+                    and terminal['recoveredDesiredSha'] == state['desired']['sha']
+                    and terminal['recoveredDesiredImageId'] == state['desired']['imageId'])
+            for path, lines in ((request_root / (args.run_id + '.intent'), request),
+                               (pin_root / (args.run_id + '.generation'), [str(control), args.control_sha])):
+                if os.path.lexists(path):
+                    failed_routine_require(failed_routine_bytes(path).decode().splitlines() == lines)
+                else:
+                    failed_routine_require(terminal is not None)
+            for suffix in ('legacy-checkpoint-intent', 'break-deadline', 'main-inspector-retirement-intent',
+                           'main-inspector-retirement-receipt'):
+                require_absent(request_root / (args.run_id + '.' + suffix))
+            # Pause acquisition precedes certificate admission. An unresolved
+            # original Lightning hold cannot be discarded by terminal cleanup.
+            hold_path = request_root / (args.run_id + '.lightning-hold.json')
+            require_absent(hold_path)
+            released = hold.own_record(hold_path.with_name(hold_path.name + '.released'), args.run_id)
+            failed_routine_require(released is None or released['phase'] == 'released')
+            unit = native_unit('club-arena-engine-release-v1@' + args.run_id + '.service')
+            groups = [line.split(':', 2)[2] for line in Path('/proc/self/cgroup').read_text().splitlines()]
+            failed_routine_require(unit['LoadState'] == 'loaded' and
+                (unit['ActiveState'], unit['SubState']) in (('activating', 'start'), ('deactivating', 'stop-post'))
+                and any(str(unit[k]).isdigit() and int(unit[k]) > 0 for k in ('MainPID', 'ControlPID'))
+                and INVOCATION_ID_RE.fullmatch(unit['InvocationID']) is not None
+                and unit['InvocationID'] == os.environ.get('INVOCATION_ID')
+                and bool(unit['ControlGroup']) and unit['ControlGroup'] in groups)
+            return {'request': request, 'entry': entry, 'announcedAt': stamp, 'unit': unit, 'releasedHold': released}
+
+        owner = ownership()
+        runtime = failed_routine_runtime(deadline, bounded=True)
+        window = {'announcedAt': owner['announcedAt'], 'startsAt': owner['announcedAt'] + 120000,
+                  'endsAt': owner['announcedAt'] + 420000}
+        raw = failed_routine_command([str(control / 'engine-release-database-proof.py'), '--env-file',
+            os.environ.get('ENV_FILE', args.repo + '/server/.env'), '--sha', FAILED_ROUTINE_DESIRED,
+            '--instance-id', runtime['instanceId'], '--terminal-owned-thaw',
+            '--window-announced-ms', str(window['announcedAt']), '--window-starts-ms', str(window['startsAt']),
+            '--window-ends-ms', str(window['endsAt']), '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'], deadline)
+        failed_routine_require(json.loads(raw) == {'schema': 'terminal-owned-thaw/v1', 'sha': FAILED_ROUTINE_DESIRED,
+            'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True, **window})
+        failed_routine_require(runtime == failed_routine_runtime(deadline, bounded=True)
+            and owner == ownership() and state == load_state() and time.monotonic() < deadline)
+        print('expired-original-announcement-thawed')
+
+
 def cmd_record_failure(args: argparse.Namespace) -> None:
     run_id = str(args.run_id)
     if not RUN_ID_RE.fullmatch(run_id):
@@ -4219,6 +4360,14 @@ def parser() -> argparse.ArgumentParser:
     binding.add_argument('--run-id', required=True)
     binding.add_argument('--promise-floor-proof')
     binding.set_defaults(handler=cmd_bind_routine_window)
+    recovery_binding = commands.add_parser('bind-recovery-window')
+    recovery_binding.add_argument('--repo', required=True)
+    recovery_binding.add_argument('--run-id', required=True)
+    recovery_binding.add_argument('--sha', required=True)
+    recovery_binding.add_argument('--control-sha', required=True)
+    recovery_binding.add_argument('--announced-at', type=int, required=True)
+    recovery_binding.add_argument('--promise-floor-proof')
+    recovery_binding.set_defaults(handler=cmd_bind_recovery_window)
     restoring = commands.add_parser('restoration-needed')
     restoring.add_argument('--repo', required=True)
     restoring.add_argument('--sha', required=True)
@@ -4343,6 +4492,12 @@ def parser() -> argparse.ArgumentParser:
         diagnostic.add_argument("--source-line", type=int, default=0)
         diagnostic.add_argument("--exit-code", type=int, default=1)
         diagnostic.set_defaults(handler=cmd_diagnostic)
+
+    expired_announcement = commands.add_parser("prove-expired-recovery-announcement")
+    for name in ("repo", "run-id", "sha", "control-sha"):
+        expired_announcement.add_argument("--" + name, required=True)
+    expired_announcement.add_argument("--engine-lock-fd", type=int, required=True)
+    expired_announcement.set_defaults(handler=cmd_prove_expired_recovery_announcement)
 
     record_failure = commands.add_parser("record-failure")
     record_failure.add_argument("--sha", required=True)

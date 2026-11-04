@@ -14,6 +14,7 @@ START = SOURCE.index('while :; do', SOURCE.index('NEXT_FRESHNESS_CHECK=$(( $(dat
 STOP = SOURCE.index('  BREAK_END_EPOCH=$(( $(date +%s) + (BREAK_REMAINING_MS / 1000) ))', START)
 QUEUE = SOURCE[START:STOP]
 RECOVERY = SOURCE[SOURCE.index('RECOVERY_REQUESTED=0'):SOURCE.index('persist_break_deadline() {')]
+OWNER_WINDOW_LIVENESS = SOURCE[SOURCE.index('assert_owner_recovery_window_live() {'):SOURCE.index('maintenance_certificate() {')]
 
 
 def run_queue(certificates, *, now=100, deadline=1000, certificate_deadline=900,
@@ -143,6 +144,7 @@ maintenance_certificate() {{
 # Queue boundary doubles: native process budget is exercised separately.
 legacy_entry_read() {{ "$@"; }}
 {RECOVERY}
+{OWNER_WINDOW_LIVENESS}
 {QUEUE}
   [ "$LOCK_HELD" = 1 ] || exit 95
   [ "$BREAK_REMAINING_MS" -ge "$CERTIFICATE_MIN_BREAK_MS" ] || exit 94
