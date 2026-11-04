@@ -112,6 +112,7 @@ describe('cross-version bootstrap compatibility contract (Phase 2)', () => {
       'HourlyCycle.test_daily_predecessor_certificate_and_lightning_predicates',
       'HourlyCycle.test_old_early_timer_requires_installed_promise_and_exact_raw_custody',
       'HourlyCycle.test_actual_countdown_consumers_keep_raw_budget_and_full_notice',
+      'HourlyCycle.test_owner_recovery_early_promise_reaches_initial_and_locked_admission',
       'HourlyCycle.test_verified_completion_restores_daily_once',
       'HourlyCycle.test_explicit_off_restores_daily_once',
       'HourlyCycle.test_promise_reader_uses_one_bounded_get_and_requires_installed_contract',

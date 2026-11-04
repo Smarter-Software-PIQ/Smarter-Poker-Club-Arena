@@ -543,7 +543,7 @@ raise SystemExit(0 if d.get("phase") == "pausing" else 1)
   http_code="${response##*$'\n'}"
   body="${response%$'\n'*}"
   case "$http_code" in 200|503) ;; *) return 0 ;; esac
-  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then bind_phase1_window "$body" || return 0; fi
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then bind_phase1_window "$body" || return 0; fi
   # Synchronous operator calls at countdown spent the headroom before
   # the unchanged 285s entry reserve. Prepare only an exact owned announcement
   # during its two-minute lead; this pauses formation, never an active hand.
@@ -929,18 +929,24 @@ phase1_reset_required() {
 }
 
 bind_phase1_window() {
-  [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || return 0
-  local body="$1" took=0 rc=0 bound proof instance
-  local -a promise_args=()
+  [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || return 0
+  local body="$1" took=0 rc=0 bound proof instance recovery_stamp=0
+  local -a promise_args=() binding_args=(bind-routine-window --repo "$REPO_DIR" --run-id "$RUN_ID")
+  if [ "${PHASE1_CYCLE_START:-0}" -eq 0 ]; then
+    recovery_stamp="$(floor_reservation_stamp)" || return 1
+    binding_args=(bind-recovery-window --repo "$REPO_DIR" --run-id "$RUN_ID" --sha "$SHA" --control-sha "$CONTROL_SHA" --announced-at "$recovery_stamp")
+  fi
   unset PHASE1_OBSERVED_WINDOW_END
-  # No engine-lock traffic for idle/unrelated health. Only this cycle's actual
-  # announced00minute may enter the durable compare-and-swap below.
-  if ! printf '%s' "$body" | PHASE1_CYCLE_START="$PHASE1_CYCLE_START" python3 -c '
+  # No engine-lock traffic for idle/unrelated health. Match either the actual
+  # routine cycle or this owner's immutable recovery reservation before binding.
+  if ! printf '%s' "$body" | PHASE1_CYCLE_START="$PHASE1_CYCLE_START" RECOVERY_STAMP="$recovery_stamp" python3 -c '
 import json,os,sys
 try:
  h=json.load(sys.stdin); m=h.get("maintenance") or {}; p=m.get("presentation") or {}
- stamp=p.get("break_id"); cycle=int(os.environ["PHASE1_CYCLE_START"])
- ok=m.get("active") is True and m.get("phase") in ("last_hand","counting_down") and type(stamp) is int and cycle*1000 <= stamp+120000 < (cycle+60)*1000
+ stamp=p.get("break_id"); cycle=int(os.environ["PHASE1_CYCLE_START"]); recovery=int(os.environ["RECOVERY_STAMP"])
+ owner=(cycle>0 and cycle*1000 <= stamp+120000 < (cycle+60)*1000) if type(stamp) is int else False
+ if not cycle: owner=type(stamp) is int and recovery>0 and stamp==recovery and m.get("reason")=="Deployment Recovery"
+ ok=m.get("active") is True and m.get("phase") in ("last_hand","counting_down") and owner
 except Exception: ok=False
 raise SystemExit(0 if ok else 1)'; then return 1; fi
   # Only the immutable old engine's demonstrated early observation needs the
@@ -963,7 +969,7 @@ raise SystemExit(0 if m.get("phase")=="counting_down" and type(a) is int and (p.
   # window ("unbound variable" / "integer expression expected") after the
   # announcement, wedging every later release. Keep stdout clean here.
   source_target_is_current >&2
-  bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" bind-routine-window --repo "$REPO_DIR" --run-id "$RUN_ID" "${promise_args[@]}")" || rc=$?
+  bound="$(printf '%s' "$body" | legacy_entry_read timeout --signal=TERM --kill-after=1s 15s     "$RELEASE_SEAL" "${binding_args[@]}" "${promise_args[@]}")" || rc=$?
   if [ "$took" = 1 ]; then release_engine_lock; fi
   [ "$rc" = 0 ] || return "$rc"
   read -r PHASE1_WINDOW_START PHASE1_WINDOW_END <<<"$(printf '%s' "$bound" | python3 -c 'import json,sys; w=json.load(sys.stdin)["window"]; print(w["startsAt"],w["endsAt"])')"
@@ -1322,7 +1328,7 @@ raise SystemExit(0 if d["weeklyPayout"] is None else 1)
     *) return 1 ;;
   esac
   set +e
-  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then bind_phase1_window "$body" || return 1; fi
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then bind_phase1_window "$body" || return 1; fi
   verdict="$(printf '%s' "$body" | MIN_BREAK_MS="$minimum_ms" STRICT_RESTART_CERTIFICATE="${DRAINED_PREDECESSOR_CUTOVER:-0}" DAILY_TRANSITION="${DAILY_TRANSITION:-0}" ACTIVATION_FLOOR_END_EPOCH="${ACTIVATION_FLOOR_END_EPOCH:-0}" ACTIVATION_FLOOR_OWNER_WINDOW="${ACTIVATION_FLOOR_OWNER_WINDOW:-}" FLOOR_ANNOUNCED_AT="$floor_stamp" legacy_entry_read python3 -c '
 import json, sys
 d=json.load(sys.stdin); m=d.get("maintenance")
@@ -1539,7 +1545,7 @@ raise SystemExit(0 if d["weeklyPayout"] is None else 1)
   # The preceding certificate runs in command substitution: its exported
   # window cannot populate this shell. Bind this observation independently,
   # including the locked recheck, through the same exact owner/window guard.
-  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then bind_phase1_window "$body" || return 1; fi
+  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then bind_phase1_window "$body" || return 1; fi
   printf '%s' "$body" | MIN_BREAK_MS=$((MIN_BREAK_REMAINING_MS + headroom)) ENTRY_STARTED_MS="${ENTRY_STARTED_MS:-0}" ENTRY_MODE="${3:-initial}" EXPECTED_BREAK_END_EPOCH="$expected_end" DAILY_TRANSITION="${DAILY_TRANSITION:-0}" ACTIVATION_FLOOR_END_EPOCH="${ACTIVATION_FLOOR_END_EPOCH:-0}" ACTIVATION_FLOOR_OWNER_WINDOW="${ACTIVATION_FLOOR_OWNER_WINDOW:-}" FLOOR_ANNOUNCED_AT="$floor_stamp" legacy_entry_read python3 -c '
 import json, math, os, sys, time
 d=json.load(sys.stdin); m=d.get("maintenance")
@@ -2061,7 +2067,7 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
   fi
   # Refuse before the announcement-entry record if the old runtime's permanent
   # database promise contract has not reached production yet.
-  if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] && [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_EED_SHA" ]; then
+  if { [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; } && [ "$CHECKPOINT_PREDECESSOR_SHA" = "$CHECKPOINT_EED_SHA" ]; then
     local promise_instance
     promise_instance="$(printf '%s' "$health" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("instanceId",""))')" || die 'old runtime identity unreadable before announcement'
     "$DATABASE_PROOF" --env-file "$ENV_FILE" --sha "$CHECKPOINT_EED_SHA" \

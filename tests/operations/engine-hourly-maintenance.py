@@ -219,6 +219,80 @@ class HourlyCycle(unittest.TestCase):
                     except SystemExit as result:self.assertNotEqual(result.code,0) if expected else self.assertEqual(result.code,0)
                     else:self.assertEqual(expected,0)
 
+    def test_owner_recovery_early_promise_reaches_initial_and_locked_admission(self):
+        from datetime import datetime, timezone
+        path=self.repo/'server/src/maintenance/MaintenanceBreak.ts'
+        path.write_bytes(subprocess.check_output(['git','-C',str(ROOT),'show',
+            'eed06fe51dea622069c661a6213d5b031ff3a9e3:server/src/maintenance/MaintenanceBreak.ts'],env=self.env))
+        self.git('add','.'); self.git('-c','user.name=Cycle Fixture','-c','user.email=cycle@example.invalid','commit','-qm','original timer')
+        self.sha=self.git('rev-parse','HEAD'); self.git('update-ref','refs/remotes/origin/main',self.sha)
+        state=seal.load_state(); state['desired']['sha']=self.sha; seal.write_state(state)
+        # Actual419047 timestamps, not a rounded hour that hides the branch.
+        announced=1793824762499; start=announced+120000; end=announced+420000
+        self.clock.return_value=(start+1)/1000
+        iso=lambda ms:datetime.fromtimestamp(ms/1000,timezone.utc).isoformat(timespec='milliseconds')
+        reservation={'runId':'41904788070-1','sha':self.sha,'announcedAt':announced,'cause':'urgent'}
+        rp=seal.STATE_DIR/'engine-recovery-window-41904788070-1.json'; rp.write_text(json.dumps(reservation))
+        h={'releaseSha':self.sha,'instanceId':'1-9349c742','running':True,'weeklyPayout':None,
+           'maintenance':{'active':True,'durableConfirmed':True,'phase':'counting_down',
+             'reason':'Deployment Recovery','breakEndsAt':end-1,'remainingMs':299998,
+             'readyForRestart':True,'unparkedTables':0,
+             'presentation':{'active':True,'phase':'counting_down','reason':'Deployment Recovery',
+                'break_id':announced,'break_ends_at':end-1,'scheduled_ends_at':end-1}}}
+        proof={'schema':'maintenance-promise-floor/v1','thawDefinitionMd5':'cb733d7201725719813ffd1b1e099b1b',
+            'observedAt':iso(start+1),'leader':{'version':self.sha[:8],'instanceId':h['instanceId'],'heartbeatAt':iso(start)},
+            'maintenance':{'id':True,'enforce_freeze':True,'phase':'counting_down','reason':'Deployment Recovery',
+              'announced_at':iso(announced),'break_started_at':iso(start-1),'break_ends_at':iso(end-1),
+              'ownership_token':'2c2aeba2-0cf2-46ca-bcbc-ee11a5b1d9fc'}}
+        def bind(data=h,witness=proof):
+            out=io.StringIO()
+            with patch.object(seal.sys,'stdin',io.StringIO(json.dumps(data))),redirect_stdout(out):
+                seal.cmd_bind_recovery_window(Namespace(repo=str(self.repo),run_id=reservation['runId'],
+                    sha=self.sha,control_sha=self.sha,announced_at=announced,
+                    promise_floor_proof=json.dumps(witness) if witness is not None else None))
+            return json.loads(out.getvalue())
+        with patch.object(seal,'DAILY_BOOTSTRAP_SHA',self.sha):
+            self.assert_refused(lambda:bind(witness=None))
+            for part,key,value in [(None,'thawDefinitionMd5','0'*32),(None,'observedAt',iso(start-11000)),
+                    ('leader','instanceId','1-deadbeef'),('maintenance','announced_at',iso(announced-1)),
+                    ('maintenance','break_started_at',iso(start-2)),('maintenance','break_ends_at',iso(end-2)),
+                    ('maintenance','ownership_token',None),('maintenance','enforce_freeze',False)]:
+                bad=copy.deepcopy(proof); (bad[part] if part else bad)[key]=value
+                self.assert_refused(lambda:bind(witness=bad))
+            for key,value in [('runId','other-1'),('sha','f'*40),('announcedAt',announced-1),('cause','routine')]:
+                rp.write_text(json.dumps({**reservation,key:value})); self.assert_refused(bind)
+            rp.write_text(json.dumps(reservation))
+            before=seal.STATE_FILE.read_bytes(); bound=bind()
+            self.assertEqual(bound['window'],{'announcedAt':announced,'startsAt':start,'endsAt':end,'verified':True})
+            self.assertEqual(seal.STATE_FILE.read_bytes(),before)  # no new cycle or authority
+            self.clock.return_value=(start-0.5)/1000; self.assert_refused(bind)
+            self.clock.return_value=end/1000; self.assert_refused(bind)
+            self.clock.return_value=(start+1)/1000
+            source=(ROOT/'server/scripts/engine-release-transaction.sh').read_text()
+            call='if [ "${PHASE1_CYCLE_START:-0}" -gt 0 ] || [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then bind_phase1_window "$body"'
+            self.assertEqual(source.count(call),3)  # hold, certificate, countdown (also locked)
+            for section,stop in [('maintenance_certificate() {','legacy_checkpoint_countdown() {'),
+                                 ('legacy_checkpoint_countdown() {','persist_break_deadline() {')]:
+                chunk=source[source.index(section):source.index(stop,source.index(section))]
+                program=next(part.split("\n'",1)[0] for part in chunk.split("python3 -c '\n")[1:]
+                    if 'hourly=isinstance(schedule' in part.split("\n'",1)[0])
+                for mode in ('initial','locked'):
+                    env={'PHASE1_CYCLE_START':'0','ACTIVATION_FLOOR_OWNER_WINDOW':'qualified-owner-window',
+                         'ACTIVATION_FLOOR_END_EPOCH':str((end+600000)//1000),'FLOOR_ANNOUNCED_AT':str(announced),
+                         'PHASE1_OBSERVED_WINDOW_END':str(h['maintenance']['breakEndsAt']),
+                         'MIN_BREAK_MS':'285000','ENTRY_MODE':mode,'ENTRY_STARTED_MS':str(start+1),
+                         'EXPECTED_BREAK_END_EPOCH':str((end-1)//1000) if mode=='locked' else '0'}
+                    for offset,remaining,allowed in [(1,299998,True),(-0.5,300000,False),(15000,284999,False)]:
+                        self.clock.return_value=(start+offset)/1000; h['maintenance']['remainingMs']=remaining
+                        # Locked minimum consumes elapsed entry, but never manufacture remaining headroom.
+                        env['ENTRY_STARTED_MS']=str(start+int(offset))
+                        with patch.dict(os.environ,env,clear=True),patch.object(seal.sys,'stdin',io.StringIO(json.dumps(h))),redirect_stdout(io.StringIO()):
+                            try: exec(compile(program,'actual-owner-floor-consumer','exec'),{}); rc=0
+                            except SystemExit as result: rc=result.code
+                        self.assertEqual(rc==0,allowed,(section,mode,offset,rc))
+        self.clock.return_value=(start+1)/1000
+        self.assert_refused(bind)  # unqualified predecessor still refused
+
     def assert_refused(self,call):
         before=seal.STATE_FILE.read_bytes()
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit): call()

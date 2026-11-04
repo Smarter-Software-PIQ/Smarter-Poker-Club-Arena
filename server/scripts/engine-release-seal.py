@@ -680,6 +680,50 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
         print(json.dumps(c,sort_keys=True))
 
 
+def cmd_bind_recovery_window(args: argparse.Namespace) -> None:
+    """Observe the original reserved recovery promise; never reserve or slide it."""
+    raw = sys.stdin.read(1048577)
+    if len(raw) > 1048576: die('recovery health binding exceeds its bound')
+    try: h = json.loads(raw)
+    except ValueError: die('recovery health binding is unreadable')
+    run_id, target, control = str(args.run_id), valid_sha(args.sha), valid_sha(args.control_sha)
+    if not RUN_ID_RE.fullmatch(run_id): die('recovery binding run is invalid')
+    with SealLock():
+        state = load_state()
+        git_is_ancestor(args.repo, target, 'origin/main', 'recovery binding target is not protected main')
+        git_is_ancestor(args.repo, control, 'origin/main', 'recovery binding control is not protected main')
+        try: reservation = json.loads((STATE_DIR / f'engine-recovery-window-{run_id}.json').read_text())
+        except (OSError, ValueError): die('original recovery reservation is unreadable')
+        if (reservation.get('runId') != run_id or reservation.get('sha') != target
+                or type(reservation.get('announcedAt')) is not int
+                or reservation['announcedAt'] != args.announced_at
+                or not RECOVERY_CAUSE_RE.fullmatch(str(reservation.get('cause') or ''))):
+            die('recovery promise differs from its original reservation')
+        m = h.get('maintenance') if isinstance(h, dict) else None
+        p = m.get('presentation') if isinstance(m, dict) else None
+        if (not isinstance(h, dict) or h.get('releaseSha') != state['desired']['sha']
+                or h.get('running') is not True or 'weeklyPayout' not in h or h['weeklyPayout'] is not None
+                or not isinstance(p, dict) or m.get('active') is not True or m.get('durableConfirmed') is not True
+                or m.get('phase') not in ('last_hand', 'counting_down') or p.get('phase') != m['phase']
+                or p.get('active') is not True or m.get('reason') != 'Deployment Recovery'
+                or p.get('reason') != m['reason'] or type(p.get('break_id')) is not int
+                or p['break_id'] != args.announced_at):
+            die('recovery durable maintenance identity is unproved')
+        announced = args.announced_at
+        w = {'announcedAt': announced, 'startsAt': announced + 120000,
+             'endsAt': announced + 420000, 'verified': True}
+        if (type(p.get('break_ends_at')) is not int or p['break_ends_at'] != w['endsAt']
+                or type(p.get('scheduled_ends_at')) is not int or p['scheduled_ends_at'] != w['endsAt']):
+            if not qualified_early_promise(args.repo, h, w, args.promise_floor_proof):
+                die('recovery presentation changed its promised window')
+        elif m['phase'] == 'counting_down' and m.get('breakEndsAt') != w['endsAt']:
+            die('recovery countdown differs from its original promise')
+        now = int(time.time() * 1000)
+        if not announced <= now < w['endsAt'] or (m['phase'] == 'last_hand') != (now < w['startsAt']):
+            die('recovery announcement is outside its original window/phase')
+        print(json.dumps({'window': w}, sort_keys=True))
+
+
 def routine_cycles(state: dict[str, Any]) -> dict[str, Any]:
     # A removed owner is not evidence of resolved custody. An earlier writer
     # may have recorded the expiry-only retirement shape; never accept that
@@ -4219,6 +4263,14 @@ def parser() -> argparse.ArgumentParser:
     binding.add_argument('--run-id', required=True)
     binding.add_argument('--promise-floor-proof')
     binding.set_defaults(handler=cmd_bind_routine_window)
+    recovery_binding = commands.add_parser('bind-recovery-window')
+    recovery_binding.add_argument('--repo', required=True)
+    recovery_binding.add_argument('--run-id', required=True)
+    recovery_binding.add_argument('--sha', required=True)
+    recovery_binding.add_argument('--control-sha', required=True)
+    recovery_binding.add_argument('--announced-at', type=int, required=True)
+    recovery_binding.add_argument('--promise-floor-proof')
+    recovery_binding.set_defaults(handler=cmd_bind_recovery_window)
     restoring = commands.add_parser('restoration-needed')
     restoring.add_argument('--repo', required=True)
     restoring.add_argument('--sha', required=True)
