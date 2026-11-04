@@ -425,6 +425,36 @@ if ! cleanup_native_capture; then
 fi
 trap - EXIT
 echo '[legacy-engine-checkpoint] native capture files removed; loaded DSO code may remain mapped until predecessor exit; handle cleanup is proved separately by the native guard' >&2
+# Native work runs in the predecessor, so its fixed scalar progress records
+# survive a timed-out inspector response in the existing Docker log. This read
+# cannot retry the checkpoint or certify its outcome/cleanup.
+set +e
+checkpoint_final_read timeout 1s docker logs --since "$(python3 -c 'import json,sys; print(int(json.loads(sys.argv[1])["at"]))' "$CHECKPOINT_INTENT")" --tail 64 "$CONTAINER_ID" 2>&1 \
+  | head -c 65536 \
+  | python3 -c '
+import json,sys,time
+intent=json.loads(sys.argv[1]); source=intent["nativeCensus"]["sourceSHA256"]
+fields={"schema","sourceSHA256","phase","startedAtMs","atMs","predicateVisits","gcBegins","gcEnds","gcDurationMs"}
+phases={"query_begin","gc_summary","first_predicate","query_end"}
+found=[]
+for line in sys.stdin:
+    if not line.startswith("legacy-census-phase "): continue
+    try: row=json.loads(line[len("legacy-census-phase "):])
+    except (ValueError,TypeError): continue
+    if not isinstance(row,dict) or set(row)!=fields: continue
+    if row["schema"]!="legacy-census-phase/v1" or row["sourceSHA256"]!=source or not isinstance(row["phase"],str) or row["phase"] not in phases: continue
+    if not all(type(row[k]) is int and 0<=row[k]<=9007199254740991 for k in ("startedAtMs","atMs","predicateVisits","gcBegins","gcEnds","gcDurationMs")): continue
+    if not int(intent["at"]*1000)<=row["startedAtMs"]<=row["atMs"]<=int(time.time()*1000)+1000: continue
+    found.append(row)
+    if len(found)>20: raise SystemExit("native phase diagnostic record bound refused")
+for row in found: print("[legacy-engine-checkpoint] native phase "+json.dumps(row,separators=(",",":")))
+if not found: print("[legacy-engine-checkpoint] native phase evidence unavailable")
+' "$CHECKPOINT_INTENT"
+TRACE_RC=$?
+set -e
+if [ "$TRACE_RC" != 0 ]; then
+  echo '[legacy-engine-checkpoint] native phase log read incomplete; checkpoint and cleanup outcomes unchanged' >&2
+fi
 if [ "$CHECKPOINT_RC" = 75 ]; then
   # The guard came back, closed its inspector, and reported a capture-then-
   # reverify refusal at stage `preflight` with attemptedTables 0, completedCalls

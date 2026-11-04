@@ -81,6 +81,18 @@ try {
     assert.throws(()=>addon.collect(marker,Date.now()+30000,process.availableMemory()),/topology/);
     assert.equal(addon.diagnostics().arrayAllocated,false);
   } else if (scenario === 'eed-profile') {
+    // Scaled retained mixture inside the unchanged 1GiB disposable envelope.
+    // This is phase evidence, not a 3.9GB production-heap latency claim.
+    const records = [];
+    const setupDeadline = Date.now() + 5000;
+    while (getHeapStatistics().used_heap_size < 64 * MiB) {
+      const row = { payload: Array.from({ length: 8192 }, (_, i) => i + 0.25), links: [] };
+      for (let i = 0; i < 32; i++) row.links.push({ index: i, row });
+      records.push(row);
+      assert(Date.now() < setupDeadline, 'bounded retained-mixture setup');
+    }
+    globalThis.retainedPhaseMixture = records;
+    const phaseHeapBytes = getHeapStatistics().used_heap_size;
     // Same concrete five classes and detached owner, with the exact opt-in.
     result = addon.collect(marker, Date.now()+58000, process.availableMemory(), 'eed-80s-v1');
     for (const value of [...owned, detached()]) assert.ok(result.includes(value));
@@ -88,6 +100,16 @@ try {
     assert.equal(result.includes(throughProxy), false);
     assert.equal(result.includes(foreign), false);
     assert.ok(addon.diagnostics().queryStartedAtMs > 0);
+    const phases = addon.diagnostics();
+    assert(phases.gcBegins > 0 && phases.gcBegins === phases.gcEnds);
+    assert.equal(phases.phaseTraceAvailable, process.platform === 'linux');
+    assert.equal(phases.traceRecords, process.platform === 'linux' ? 4 : 0);
+    assert(phases.firstValidAtMs >= phases.queryStartedAtMs);
+    assert(phases.queryEndedAtMs >= phases.firstValidAtMs);
+    console.error(JSON.stringify({ schema: 'legacy-census-scaled-phase/v1', phaseHeapBytes,
+      records: records.length, beforePredicateMs: phases.firstValidAtMs - phases.queryStartedAtMs,
+      predicateAndFinishMs: phases.queryEndedAtMs - phases.firstValidAtMs,
+      productionLatencyCertificate: false }));
   } else if (scenario === 'profile-refusal') {
     const untouched = () => {
       assert.equal(addon.diagnostics().queryStartedAtMs, 0);

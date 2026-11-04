@@ -28,7 +28,7 @@ assert.deepEqual(cgroup, { memoryMax: String(36 * 1024 ** 3), swapMax: '0',
 const binary = new URL('./legacy-census.node', import.meta.url);
 const manifest = JSON.parse(fs.readFileSync(new URL('./legacy-census.node.json', import.meta.url)));
 assert.equal(manifest.binarySHA256, sha(fs.readFileSync(binary)));
-assert.equal(manifest.sourceSHA256, 'ff995c8955cfa3de5e70871b3139bd246c9f76e89b848e48ba052149b434c4dc');
+assert.equal(manifest.sourceSHA256, '8c2c3ddc611c6abfe1967f0c6438a71e0df3c2bc13f4a7a64999a054a923830e');
 for (const [key, value] of Object.entries({ node: process.version, v8: process.versions.v8,
   modules: process.versions.modules, platform: process.platform, arch: process.arch,
   pointerCompression: process.config.variables.v8_enable_pointer_compression })) assert.equal(manifest[key], value);

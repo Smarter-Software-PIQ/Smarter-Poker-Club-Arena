@@ -38,11 +38,121 @@ const options = ['-std=c++17', '-O2', '-shared', '-fPIC', '-fno-exceptions', '-I
   ...(process.platform === 'darwin' ? ['-undefined','dynamic_lookup'] : []), source, '-o',args.output];
 const build = spawnSync(compiler, options, { encoding:'utf8', timeout:60000 });
 if (build.error || build.status !== 0) throw Error(build.stderr || String(build.error));
+// Exercise the shipped collector's bounded phase records and callback removal.
+const phaseProbe = String.raw`
+const assert = require('node:assert/strict');
+const addon = require(process.argv[1]);
+const marker = Object.create(null); class Owner {};
+Object.setPrototypeOf(Owner.prototype, marker);
+const owner = new Owner(); globalThis.phaseOwner = owner;
+const found = addon.collect(marker, Date.now()+59000, process.availableMemory(), 'eed-80s-v1');
+assert(found.includes(owner));
+const before = addon.diagnostics();
+assert(before.gcBegins > 0 && before.gcBegins === before.gcEnds);
+assert.equal(before.traceRecords, before.phaseTraceAvailable ? 4 : 0);
+global.gc();
+assert.deepEqual(addon.diagnostics(), before, 'GC callbacks must be removed after collect');
+console.log(JSON.stringify(before));
+`;
+const phase = spawnSync(process.execPath, ['--expose-gc','-e',phaseProbe,args.output],
+  {encoding:'utf8', timeout:10000, maxBuffer:16384});
+assert.equal(phase.status,0,phase.stderr+'\n'+String(phase.error));
+const phases = (phase.stderr.trim() ? phase.stderr.trim().split('\n') : []).map(line => {
+  assert(line.startsWith('legacy-census-phase '));
+  const row = JSON.parse(line.slice('legacy-census-phase '.length));
+  assert.equal(row.sourceSHA256,pin);
+  assert.deepEqual(Object.keys(row).sort(),['atMs','gcBegins','gcEnds','gcDurationMs','phase','predicateVisits','schema','sourceSHA256','startedAtMs'].sort());
+  return row;
+});
+assert(phases.length <= 20);
+if (phases.length) {
+  assert.equal(phases[0].phase,'query_begin');
+  assert.equal(phases.at(-1).phase,'query_end');
+  assert.equal(phases.filter(row => row.phase === 'first_predicate').length,1);
+}
+console.error(JSON.stringify({schema:'legacy-census-phase-proof/v1',records:phases.length,callbacksRemoved:true}));
 // Test-only instrumentation of the ACTUAL callback, never the shipped addon.
 // Upstream's second QueryObjects loop retains one input handle per object;
 // callback-created context/prototype handles must not grow on top of that.
 const probeDir = fs.mkdtempSync(path.join(path.dirname(args.output), 'handle-scope-proof-'));
 try {
+  if (process.platform === 'linux') {
+    // Qualification-only child owns its FIFO and signal disposition. No helper
+    // enters the production image; the actual shipped addon is unchanged.
+    const sinkSource = path.join(probeDir, 'sink-proof.cc');
+    const sinkAddon = path.join(probeDir, 'sink-proof.node');
+    fs.writeFileSync(sinkSource, String.raw`
+#include <node.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <signal.h>
+#include <string>
+#include <cerrno>
+static int saved=-1, reader=-1, expected=0;
+static struct sigaction original;
+static sigset_t originalMask;
+static bool closedDuringGC=false, closeCallback=false;
+void CloseReader(v8::Isolate*,v8::GCType,v8::GCCallbackFlags,void*) {
+  if(reader>=0){close(reader);reader=-1;closedDuringGC=true;}
+}
+void Setup(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  int ends[2]; if(pipe(ends)!=0) _exit(91);
+  saved=dup(2); reader=ends[0];
+  fcntl(ends[1],F_SETFL,O_NONBLOCK);
+  const int mode=args[0].As<v8::Int32>()->Value();
+  if(mode==1) { char fill[4096]{}; while(write(ends[1],fill,sizeof(fill))>0){} }
+  fcntl(ends[1],F_SETFL,0);
+  if(mode==2){args.GetIsolate()->AddGCPrologueCallback(CloseReader,nullptr);closeCallback=true;}
+  if(dup2(ends[1],2)<0)_exit(92);close(ends[1]);
+  expected=fcntl(2,F_GETFL);
+  sigaction(SIGPIPE,nullptr,&original);sigprocmask(SIG_SETMASK,nullptr,&originalMask);
+  struct sigaction action{};action.sa_handler=SIG_DFL;sigemptyset(&action.sa_mask);
+  sigaction(SIGPIPE,&action,nullptr);
+}
+void Finish(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  if(closeCallback)args.GetIsolate()->RemoveGCPrologueCallback(CloseReader,nullptr);
+  const bool flags=fcntl(2,F_GETFL)==expected;
+  sigset_t current;sigprocmask(SIG_SETMASK,nullptr,&current);
+  const bool mask=sigismember(&current,SIGPIPE)==sigismember(&originalMask,SIGPIPE);
+  struct sigaction action;sigaction(SIGPIPE,nullptr,&action);
+  const bool disposition=action.sa_handler==SIG_DFL;
+  dup2(saved,2);close(saved);saved=-1;
+  sigaction(SIGPIPE,&original,nullptr);
+  std::string trace;
+  if(reader>=0){fcntl(reader,F_SETFL,O_NONBLOCK);char bytes[4096];ssize_t n;
+    while((n=read(reader,bytes,sizeof(bytes)))>0 && trace.size()<131072)trace.append(bytes,n);
+    close(reader);reader=-1;}
+  auto* isolate=args.GetIsolate();auto context=isolate->GetCurrentContext();auto out=v8::Object::New(isolate);
+  out->Set(context,v8::String::NewFromUtf8Literal(isolate,"flags"),v8::Boolean::New(isolate,flags)).Check();
+  out->Set(context,v8::String::NewFromUtf8Literal(isolate,"mask"),v8::Boolean::New(isolate,mask)).Check();
+  out->Set(context,v8::String::NewFromUtf8Literal(isolate,"disposition"),v8::Boolean::New(isolate,disposition)).Check();
+  out->Set(context,v8::String::NewFromUtf8Literal(isolate,"closedDuringGC"),v8::Boolean::New(isolate,closedDuringGC)).Check();
+  out->Set(context,v8::String::NewFromUtf8Literal(isolate,"trace"),v8::String::NewFromUtf8(isolate,trace.c_str(),v8::NewStringType::kNormal,trace.size()).ToLocalChecked()).Check();
+  args.GetReturnValue().Set(out);
+}
+void Init(v8::Local<v8::Object> exports){NODE_SET_METHOD(exports,"setup",Setup);NODE_SET_METHOD(exports,"finish",Finish);}
+NODE_MODULE(NODE_GYP_MODULE_NAME,Init)
+`);
+    const sinkBuilt=spawnSync(compiler,['-std=c++17','-shared','-fPIC','-I'+args.headers,sinkSource,'-o',sinkAddon],{encoding:'utf8',timeout:60000});
+    assert.equal(sinkBuilt.status,0,sinkBuilt.stderr);
+    for(const mode of [0,1,2]) {
+      const result=spawnSync(process.execPath,['-e',String.raw`
+const assert=require('node:assert/strict');const sink=require(process.argv[1]);const addon=require(process.argv[2]);const mode=Number(process.argv[3]);
+const marker={};class Owner{};Object.setPrototypeOf(Owner.prototype,marker);const owner=new Owner();globalThis.owner=owner;
+sink.setup(mode);
+const found=addon.collect(marker,Date.now()+59000,process.availableMemory(),'eed-80s-v1');
+const state=sink.finish();assert(found.includes(owner));assert(state.flags&&state.mask&&state.disposition);
+assert.equal(addon.diagnostics().phaseTraceAvailable,true);
+assert.equal(state.closedDuringGC,mode===2);
+const lines=state.trace.split('\n').filter(x=>x.startsWith('legacy-census-phase '));
+assert.equal(lines.length,mode===0?4:0);
+for(const line of lines){const row=JSON.parse(line.slice(20));assert.equal(row.sourceSHA256,addon.sourceSHA256);}
+console.log(JSON.stringify({mode,complete:true,flagsUnchanged:true,signalMaskUnchanged:true,signalDispositionUnchanged:true,records:lines.length}));
+`,sinkAddon,args.output,String(mode)],{encoding:'utf8',timeout:10000,maxBuffer:16384});
+      assert.equal(result.status,0,result.stdout+'\n'+result.stderr+'\n'+String(result.error));
+      console.error(result.stdout.trim());
+    }
+  }
   const actual = fs.readFileSync(source, 'utf8');
   const replaceOne = (text, from, to) => {
     assert.equal(text.split(from).length, 2, 'actual callback instrumentation anchor changed');

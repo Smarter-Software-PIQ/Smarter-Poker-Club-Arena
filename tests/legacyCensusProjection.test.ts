@@ -1,4 +1,5 @@
 import vm from 'node:vm';
+import { readFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
@@ -16,6 +17,65 @@ import {
 } from '../server/scripts/legacy-engine-checkpoint.mjs';
 
 describe('legacy native heap census projection', () => {
+  it('retains only bounded scalar phase records from the owning native source and time', () => {
+    const shell = readFileSync('server/scripts/legacy-engine-checkpoint.sh', 'utf8');
+    const parser = shell
+      .split("  | python3 -c '\nimport json,sys,time\n")[1]
+      ?.split('\n\' "$CHECKPOINT_INTENT"')[0];
+    expect(parser).toBeTruthy();
+    const source = 'a'.repeat(64);
+    const startedAtMs = Date.now() - 500;
+    const intent = { at: (startedAtMs - 100) / 1000, nativeCensus: { sourceSHA256: source } };
+    const row = {
+      schema: 'legacy-census-phase/v1',
+      sourceSHA256: source,
+      phase: 'query_begin',
+      startedAtMs,
+      atMs: startedAtMs,
+      predicateVisits: 0,
+      gcBegins: 0,
+      gcEnds: 0,
+      gcDurationMs: 0,
+    };
+    const line = (value: unknown) => 'legacy-census-phase ' + JSON.stringify(value) + '\n';
+    const run = (input: string) =>
+      spawnSync('python3', ['-c', 'import json,sys,time\n' + parser, JSON.stringify(intent)], {
+        input,
+        encoding: 'utf8',
+        timeout: 3000,
+        maxBuffer: 16384,
+      });
+    // A timed-out request can have only query_begin. It remains evidence, never completion.
+    const valid = run(line(row));
+    expect(valid.status).toBe(0);
+    expect(valid.stdout).toContain('"phase":"query_begin"');
+    expect(valid.stdout).not.toContain('query_end');
+    for (const bad of [
+      { ...row, privatePayload: 'DO_NOT_EXPORT' },
+      { ...row, sourceSHA256: 'b'.repeat(64) },
+      { ...row, startedAtMs: 1 },
+      { ...row, phase: 'private-owner' },
+      { ...row, phase: [] },
+      { ...row, predicateVisits: true },
+      { ...row, atMs: Date.now() + 50000 },
+      { ...row, gcBegins: -1 },
+      { ...row, gcEnds: 1.5 },
+      null,
+    ]) {
+      const result = run('unrelated private text\nlegacy-census-phase {broken\n' + line(bad));
+      expect(result.status).toBe(0);
+      expect(result.stdout.trim()).toBe(
+        '[legacy-engine-checkpoint] native phase evidence unavailable'
+      );
+    }
+    const excess = run(line(row).repeat(21));
+    expect(excess.status).not.toBe(0);
+    expect(excess.stdout).toBe('');
+    expect(shell).toContain('timeout 1s docker logs');
+    expect(shell).toContain('--tail 64');
+    expect(shell).toContain('head -c 65536');
+  });
+
   it('accepts only closed bounded overflow counts, never arbitrary target data', () => {
     const value = (counts: unknown, extra = {}) => ({
       type: 'string',
@@ -282,7 +342,7 @@ describe('legacy native heap census projection', () => {
     let engineBaseProtoDuringCollect: object | null = null;
     let managerBaseProtoDuringCollect: object | null = null;
     const nativeStub = {
-      sourceSHA256: 'ff995c8955cfa3de5e70871b3139bd246c9f76e89b848e48ba052149b434c4dc',
+      sourceSHA256: '8c2c3ddc611c6abfe1967f0c6438a71e0df3c2bc13f4a7a64999a054a923830e',
       collect(marker: object) {
         markerDuringCollect = marker;
         emitterProtoDuringCollect = Object.getPrototypeOf(EventEmitter.prototype);
