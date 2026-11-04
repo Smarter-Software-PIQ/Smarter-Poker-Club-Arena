@@ -613,7 +613,8 @@ export async function retainedOriginalCheckpointGuard(
               clearTimeout(timer);
             }
             need(
-              Date.now() < observationDeadline &&
+              confirmed !== null &&
+                Date.now() < observationDeadline &&
                 performance.now() - observationStarted < observationBudget &&
                 maintenance.remainingMs() >= reserveMs,
               'retained_renewal_observation_expired'
