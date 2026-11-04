@@ -605,9 +605,21 @@ echo CHECKPOINT_MUST_NOT_RUN
         prior, raw = self.historical_floor('2026-11-04-tournament-original-retirement-join')
         self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T07:00:00Z','2026-11-04T10:00:00Z'))
-        current = self.owner_record()
+        current = self.owner_record(window_id='2026-11-04-tournament-owned-renewal-observation')
         self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-owned-renewal-observation')
         self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 12600)
+        floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
+        for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
+
+    def test_canonical_source_continuation_preserves_prior_floor_and_fixed_expiry(self):
+        import hashlib
+        prior, raw = self.historical_floor('2026-11-04-tournament-owned-renewal-observation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T08:30:00Z','2026-11-04T12:00:00Z'))
+        current = self.owner_record()
+        self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-canonical-source-continuation')
+        self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 21600)
         floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
         for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
             with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
