@@ -1,3 +1,4 @@
+import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { getTournamentEntryCapacity } from '../utils/tournamentPresentation';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -101,8 +102,16 @@ export default function UnionDetailPage() {
   const navigate = useNavigate();
   const [union, setUnion] = useState<Union | null>(null);
   const [clubs, setClubs] = useState<UnionClub[]>([]);
-  const [tables, setTables] = useState<PokerTable[]>([]);
-  const [unionTournaments, setUnionTournaments] = useState<Tournament[]>([]);
+  const [tableRows, setTables] = useState<PokerTable[]>([]);
+  const tables = useMemo(
+    () => tableRows.filter((row) => !isRetiredTournamentTable(row)),
+    [tableRows]
+  );
+  const [unionTournamentRows, setUnionTournaments] = useState<Tournament[]>([]);
+  const unionTournaments = useMemo(
+    () => unionTournamentRows.filter((row) => !isRetiredTournament(row.id)),
+    [unionTournamentRows]
+  );
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadRevision, setLoadRevision] = useState(0);

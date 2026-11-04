@@ -1,3 +1,4 @@
+import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 /**
  * ♠ CLUB ARENA — Table Service
  * Manages poker tables and game sessions
@@ -254,7 +255,7 @@ class TableService {
       reportError(error, 'TableService.getTable');
       return null;
     }
-    return data;
+    return isRetiredTournamentTable(data) ? null : data;
   }
 
   /* createTable was DELETED 2026-08-27.
@@ -492,6 +493,7 @@ class TableService {
    * (the normal case) the two answers are identical.
    */
   async resolveTournamentLiveTable(tournamentId: string): Promise<string | null> {
+    if (isRetiredTournament(tournamentId)) return null;
     const { data, error } = await supabase.rpc('fn_tournament_primary_table', {
       p_tournament_id: tournamentId,
     });

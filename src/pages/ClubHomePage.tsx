@@ -1,3 +1,4 @@
+import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
 import { prioritizeTournamentFavorites } from '../components/lobby/tournamentFavoriteOrder';
@@ -326,6 +327,7 @@ interface ClubData {
 }
 
 interface TableData {
+  tournament_id?: string | null;
   id: string;
   club_id?: string | null;
   union_id?: string | null;
@@ -922,8 +924,17 @@ function ClubHomePageContent({
   const bootCache = useState(() => (clubId ? getClubHomeCache(clubId) : null))[0];
   const [club, setClub] = useState<ClubData | null>(bootCache?.club ?? null);
   usePageTitle(club?.name ?? null);
-  const [tables, setTables] = useState<TableData[]>(bootCache?.tables ?? []);
-  const [tournaments, setTournaments] = useState<TournamentData[]>([]);
+  const [tableRows, setTables] = useState<TableData[]>(bootCache?.tables ?? []);
+  const tables = useMemo(
+    () => tableRows.filter((row) => !isRetiredTournamentTable(row)),
+    [tableRows]
+  );
+  const [tournamentRows, setTournaments] = useState<TournamentData[]>([]);
+  // Filter every presentation read, including cached and realtime rows.
+  const tournaments = useMemo(
+    () => tournamentRows.filter((row) => !isRetiredTournament(row.id)),
+    [tournamentRows]
+  );
   const [jackpotAmount, setJackpotAmount] = useState(0);
   // Tapping the lobby jackpot opens the SAME view as tapping it at a table:
   // last 5 hits, qualifying hands per game, payout % per stakes (Dan 2026-08-18).
@@ -1642,7 +1653,7 @@ function ClubHomePageContent({
       };
 
       const belongsInTournamentList = (row: any): boolean => {
-        if (!row) return false;
+        if (!row || isRetiredTournament(row.id)) return false;
         // Same array the fetch uses — see LOBBY_TOURNAMENT_STATUSES.
         if (!LOBBY_TOURNAMENT_STATUSES.includes(String(row.status))) return false;
         return inClubScope(row, rtScope);

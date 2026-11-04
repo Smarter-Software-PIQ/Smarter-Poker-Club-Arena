@@ -8,14 +8,17 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const { tableRead } = vi.hoisted(() => ({
+  tableRead: vi.fn(async () => ({ data: null as any, error: null })),
+}));
+
 // ─── Mock dependencies ────────────────────────────────────────────────────
 
 vi.mock('../../src/lib/supabase', () => {
   const buildChain = (): any => {
     const handler: ProxyHandler<any> = {
       get: (_target, prop) => {
-        if (prop === 'maybeSingle' || prop === 'single')
-          return () => Promise.resolve({ data: null, error: null });
+        if (prop === 'maybeSingle' || prop === 'single') return tableRead;
         if (prop === 'then')
           return (resolve: (v: any) => void) => resolve({ data: null, error: null });
         return vi.fn().mockReturnValue(new Proxy({}, handler));
@@ -67,12 +70,14 @@ vi.mock('../../src/services/WalletService', () => ({
 
 // ─── Import AFTER mocks ──────────────────────────────────────────────────
 
+import { RETIRED_TOURNAMENT_IDS } from '../../src/lib/retiredTournamentVisibility';
 import { tableService } from '../../src/services/TableService';
 import { supabase } from '../../src/lib/supabase';
 
 describe('TableService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    tableRead.mockResolvedValue({ data: null, error: null });
   });
 
   describe('getSeatedPlayers', () => {
@@ -186,5 +191,30 @@ describe('TableService', () => {
       // The surviving metadata subscription still exists and is exercised above.
       expect(typeof tableService.subscribeToTable).toBe('function');
     });
+  });
+});
+
+describe('retired tournament table presentation', () => {
+  it('never resolves a retired tournament to a live table', async () => {
+    vi.clearAllMocks();
+    for (const id of RETIRED_TOURNAMENT_IDS) {
+      expect(await tableService.resolveTournamentLiveTable(id)).toBeNull();
+    }
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(supabase.from).not.toHaveBeenCalled();
+  });
+  it('hides child table direct reads but preserves new tournaments and cash', async () => {
+    for (const parent of RETIRED_TOURNAMENT_IDS) {
+      tableRead.mockResolvedValueOnce({
+        data: { id: 'child', tournament_id: parent },
+        error: null,
+      });
+      expect(await tableService.getTable('child')).toBeNull();
+    }
+    for (const parent of [null, 'a874ec97-1edf-47f3-aa13-1f51e7baa921']) {
+      const row = { id: 'live', tournament_id: parent };
+      tableRead.mockResolvedValueOnce({ data: row, error: null });
+      expect(await tableService.getTable('live')).toEqual(row);
+    }
   });
 });

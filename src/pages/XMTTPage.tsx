@@ -1,3 +1,4 @@
+import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
 import { isTournamentEntryUnavailable } from '../utils/tournamentPresentation';
@@ -121,7 +122,8 @@ export default function XMTTPage() {
   const viewScopeRef = useRef(viewScope);
   viewScopeRef.current = viewScope;
   const [selection, setSelection] = useState<{ scope: string; id: string } | null>(null);
-  const selectedTournament = selection?.scope === viewScope ? selection.id : null;
+  const selectedTournament =
+    selection?.scope === viewScope && !isRetiredTournament(selection.id) ? selection.id : null;
   const setSelectedTournament = (id: string) => setSelection({ scope: viewScope, id });
   const [detail, setDetail] = useState<TournamentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -135,6 +137,11 @@ export default function XMTTPage() {
   const loadDetail = useCallback(
     async (tournamentId: string, _cId?: string) => {
       const generation = ++detailRead.current;
+      if (isRetiredTournament(tournamentId)) {
+        setDetail(null);
+        setDetailLoading(false);
+        return;
+      }
       const scope = viewScope;
       try {
         setDetailLoading(true);
