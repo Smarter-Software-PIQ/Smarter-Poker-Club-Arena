@@ -86,6 +86,20 @@ def real_append_sql(payload):
   " EXECUTE src; PERFORM set_config('harness.append_result',coalesce(r,''),false); END $pinned$;\n"
   "SELECT current_setting('harness.append_result');")
 
+# Queue admission has the same 30-day source window as append. Pin only its
+# clock in this isolated historical fixture and restore its exact definition
+# in the same statement. Assert the real durable receipt, not just SQL success.
+def real_queue_sql(payload):
+ return ("DO $pinned$ DECLARE src text:=pg_get_functiondef('public.fn_queue_horse_adaptive_batch(text)'::regprocedure);"
+  " wall text:='floor(extract(epoch FROM clock_timestamp())*1000)::bigint'; r jsonb;"
+  " BEGIN IF position(wall IN src)=0 THEN RAISE EXCEPTION 'queue door clock anchor missing'; END IF;"
+  " EXECUTE replace(src,wall,'floor(extract(epoch FROM timestamptz ''2026-10-15 21:25:15+00'')*1000)::bigint');"
+  " r:=public.fn_queue_horse_adaptive_batch("+lit(payload)+");"
+  " IF r->>'status' IS DISTINCT FROM 'durable' THEN RAISE EXCEPTION 'historical queue admission failed: %',r; END IF;"
+  " EXECUTE src;"
+  " IF pg_get_functiondef('public.fn_queue_horse_adaptive_batch(text)'::regprocedure) IS DISTINCT FROM src THEN RAISE EXCEPTION 'queue door definition changed'; END IF;"
+  " END $pinned$;")
+
 def digest(value):
  return hashlib.sha256(value.encode()).hexdigest()
 
@@ -157,7 +171,8 @@ def qualify(e, base):
  e.sql(d,normal_seed+"UPDATE hand_history SET has_human=false WHERE id="+lit(normal)+";"+old.AUTHORITY+"SELECT smarter_private.hand_submission_retention_disposal(ARRAY["+lit(normal)+"]::uuid[],'Native normal certificate remains outside legacy exception');",label='legacy-genuine-normal-certificate-protection')
  protect_key,protect_payload=batch('legacy-atomic-and-normal',[fact(atomic,3),fact(normal,3),fact(cash_human,3),fact(reported_submission,3),fact(reported_cash,3),fact(string_submission,3),fact(string_cash,3),fact(string_disposal,3)])
  e.sql(d,real_append_sql(protect_payload),label='legacy-atomic-normal-raw')
- e.sql(d,"INSERT INTO public.hand_history(id,has_human,created_at) VALUES("+lit(active)+",false,'2026-09-01'); SELECT fn_queue_horse_adaptive_batch("+lit(work_payload)+");",label='legacy-protected-active-and-unfinished')
+ e.sql(d,"INSERT INTO public.hand_history(id,has_human,created_at) VALUES("+lit(active)+",false,'2026-09-01');"+real_queue_sql(work_payload),label='legacy-protected-active-and-unfinished')
+ yes(d,"SELECT count(*)=1 AND bool_and(state='queued' AND payload="+lit(work_payload)+") FROM horse_adaptive_journal_work WHERE batch_key="+lit(work_key)+";",'fixture-has-original-unfinished-queue-custody')
  e.sql(d,"INSERT INTO cash_hand_provenance_receipts(table_id,hand_number,hand_id,payload_hash,accepted_request,atomic_receipt,stack_claim,stack_settlement,status,participants,all_players_included,funding_provenance_complete,issues) VALUES("+lit(old.TABLE)+",1000310,"+lit(cash_human)+",repeat('a',64),'{\"hand_row\":{\"has_human\":true}}','{}','{}','{}','captured','[]',true,true,'[]');",label='legacy-original-human-cash-receipt')
  e.sql(d,"INSERT INTO smarter_private.hand_submissions(submission_id,table_id,hand_number,instance_id,lease_generation,request,request_hash) VALUES("+lit(reported_submission)+','+lit(old.TABLE)+",1000311,'original-reported-test',"+lit(old.DEAD_GEN)+",'{\"p_hand_row\":{\"has_human\":false,\"reported\":true}}',repeat('b',64));",label='legacy-original-reported-submission')
  e.sql(d,"INSERT INTO cash_hand_provenance_receipts(table_id,hand_number,hand_id,payload_hash,accepted_request,atomic_receipt,stack_claim,stack_settlement,status,participants,all_players_included,funding_provenance_complete,issues) VALUES("+lit(old.TABLE)+",1000312,"+lit(reported_cash)+",repeat('c',64),'{\"hand_row\":{\"has_human\":false,\"reported\":true}}','{}','{}','{}','captured','[]',true,true,'[]');",label='legacy-original-reported-cash-receipt')
