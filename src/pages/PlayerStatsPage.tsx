@@ -66,7 +66,6 @@ const AnalysisTab = lazy(() => import('./stats/AnalysisTab'));
 const FinancialReportingPanel = lazy(() => import('../components/stats/FinancialReportingPanel'));
 const ExactCashSessionsPanel = lazy(() => import('../components/stats/ExactCashSessionsPanel'));
 const WorkspaceTab = lazy(() => import('./stats/WorkspaceTab'));
-import { playerStyleFromStats } from '../components/stats/playerStyleFromStats';
 import { ratioOrUnmeasured } from './stats/format';
 import { RANGES, num, str, type FullStats, type HandMode, type HandRow } from './stats/types';
 import PageSkeleton from '../components/common/PageSkeleton';
@@ -1411,24 +1410,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     },
     [updateStatsUrl]
   );
-  // Style label for the share card. Shared with TrophyRoom so the two can
-  // never disagree about what style a player is - see playerStyleFromStats.
-  //
-  // 2026-11-04: the badge reads the SAME range the card prints, and nothing
-  // else. It used to be a lifetime reading printed beside "Last 30 Days"
-  // numbers, so the title on the card could be computed from hands the card
-  // did not show. When the printed range is too short to call (under
-  // STYLE_MIN_HANDS) the card carries no title rather than one borrowed from
-  // a range it does not display.
-  const shareStyle = useMemo(
-    () =>
-      playerStyleFromStats(
-        full?.overall,
-        full?.contract.quality.metric_availability.aggression_factor === true,
-        full?.variants
-      ),
-    [full?.overall, full?.variants]
-  );
   const overall = full?.overall ?? EMPTY_OVERALL;
   const lifetime = full?.lifetime ?? EMPTY_LIFETIME;
   const tourn = full?.tournaments ?? EMPTY_FULL.tournaments;
@@ -1857,7 +1838,6 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
                     targetUserId={targetUserId}
                     windowDays={windowDays}
                     user={user}
-                    shareStyle={shareStyle}
                     printing={printing}
                     printDossier={printDossier}
                     openHandEvidence={openHandEvidence}

@@ -14,10 +14,6 @@ import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/st
 import { playerDisplayName } from '../../utils/playerDisplayName';
 import { compactChips } from '../../utils/format';
 import { enumToTitleCase } from '../../utils/titleCase';
-import {
-  STYLE_MIN_HANDS,
-  type playerStyleFromStats,
-} from '../../components/stats/playerStyleFromStats';
 import { StatRow } from './StatRow';
 import { NOT_YET_MEASURED, SCOPE_CASH, ratioOrUnmeasured, aggressionFactorLabel } from './format';
 import { RANGES, type FullStats, type OverallStats, type HandEvidenceFilter } from './types';
@@ -45,7 +41,6 @@ export interface OverviewTabProps {
   targetUserId: string | undefined;
   windowDays: number | null;
   user: Parameters<typeof playerDisplayName>[0];
-  shareStyle: ReturnType<typeof playerStyleFromStats>;
   printing: boolean;
   printDossier: () => void;
   openHandEvidence: (filter?: HandEvidenceFilter) => void;
@@ -68,7 +63,6 @@ export default function OverviewTab({
   targetUserId,
   windowDays,
   user,
-  shareStyle,
   printing,
   printDossier,
   openHandEvidence,
@@ -266,21 +260,16 @@ export default function OverviewTab({
         <PanelBoundary name="Share Card" resetKey={panelResetKey}>
           <StatsShareCard
             displayName={playerDisplayName(user)}
-            /* ONLY A TITLE THAT READS WELL GOES ON THE IMAGE (2026-11-04). The
-               card is made to be posted. Shark, TAG and LAG print; the rest
-               stay private on the Trophies tab, where the full honest read
-               (with its reason) lives. */
-            styleLabel={shareStyle?.shareable ? shareStyle.label : null}
-            styleColor={shareStyle?.shareable ? shareStyle.color : null}
-            styleNote={
-              shareStyle
-                ? shareStyle.shareable
-                  ? `${shareStyle.label}: ${shareStyle.reason}`
-                  : `Your Private Style Read Is On The Trophies Tab. ${shareStyle.reason}`
-                : overall.total_hands < STYLE_MIN_HANDS
-                  ? `Playing Style Title Unlocks At ${STYLE_MIN_HANDS.toLocaleString()} Hands (${overall.total_hands.toLocaleString()} So Far)`
-                  : null
-            }
+            /* The title and its reason are computed INSIDE the share card
+               (2026-11-04), which is its own lazy chunk: the classifier and
+               its reason strings stay out of the stats page's download budget
+               (scripts/ci/check-stats-performance-budgets.mjs). The card reads
+               the SAME range it prints, never lifetime. */
+            styleSource={{
+              overall,
+              aggressionAvailable: metricAvailability?.aggression_factor === true,
+              variants: full?.variants,
+            }}
             stats={{
               hands: overall.total_hands,
               bb100: overall.bb_per_100,
