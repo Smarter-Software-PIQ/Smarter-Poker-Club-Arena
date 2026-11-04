@@ -620,12 +620,31 @@ echo CHECKPOINT_MUST_NOT_RUN
         prior, raw = self.historical_floor('2026-11-04-tournament-owned-renewal-observation')
         self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T08:30:00Z','2026-11-04T12:00:00Z'))
-        current = self.owner_record()
+        current = self.owner_record(window_id='2026-11-04-tournament-canonical-source-continuation')
         self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-canonical-source-continuation')
         self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 21600)
         floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
         for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
             with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
+
+    def test_immediate_relaunch_continuation_preserves_history_and_full_reserves(self):
+        import hashlib
+        prior, raw = self.historical_floor('2026-11-04-tournament-canonical-source-continuation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T12:00:00Z', '2026-11-04T18:00:00Z'))
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        window = next(w for w in windows['windows'] if w['id'] == '2026-11-04-tournament-immediate-relaunch-continuation')
+        self.assertEqual(window['contains'], 'f986e7020b3d1f8c18a4de0c533c49c6b6401f4e')
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-04T17:45:00Z', '2026-11-04T23:45:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertTrue(window['supersedesPhase1Schedule'])
+        current = self.owner_record()
+        self.assertEqual(current['ownerWindowId'], window['id'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        for now in (current['activationEpoch'], current['activationEpoch'] + 1, current['expiresEpoch'] - 420):
+            floor.check_window(current, now, current['expiresEpoch'], 'admit')
+        for now in (current['activationEpoch'] - 1, current['expiresEpoch'] - 419, current['expiresEpoch']):
+            with self.assertRaises(ValueError): floor.check_window(current, now, current['expiresEpoch'], 'admit')
 
     def test_owner_reservation_binds_run_target_cause_and_full_window(self):
         r = self.owner_record(); root = self.repo / 'state'; root.mkdir()
