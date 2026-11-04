@@ -89,3 +89,13 @@
     display: none;
   }
 }
+
+/* The title's arithmetic, or why there is none yet (2026-11-04). Lives under
+   the image so it never ships in the PNG. */
+.sharecard-style-note {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: rgba(200, 224, 245, 0.72);
+  text-align: center;
+}

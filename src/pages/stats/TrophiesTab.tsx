@@ -48,6 +48,7 @@ export default function TrophiesTab({
             }
             hoursAvailable={allTimeStats.contract.quality.metric_availability.hours_played}
             tournaments={allTimeStats.tournaments}
+            variants={allTimeStats.variants}
             lifetimeHands={allTimeStats.lifetime.hands}
             userId={userId}
             scope={scope}

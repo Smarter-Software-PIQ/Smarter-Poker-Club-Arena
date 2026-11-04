@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { aggressionFactorLabel } from '../../pages/stats/format';
 import { compactChips } from '../../utils/format';
 import './AdvancedStatsSummary.css';
 import type { StatsMetricAvailabilityContract } from '../../services/statsContract';
@@ -37,6 +38,8 @@ export interface AdvancedStatsInput {
   showdowns_won?: number;
   showdowns_total?: number;
   aggression_factor?: number;
+  /** 'postflop' once the database counts flop/turn/river only (2026-11-04). */
+  aggression_factor_basis?: 'postflop' | 'all_streets';
   three_bet_percent?: number; // fraction 0..1
   fold_to_three_bet?: number; // fraction 0..1
   cbet_flop?: number; // fraction 0..1
@@ -121,10 +124,13 @@ function buildStats(d: AdvancedStatsInput): AdvancedStat[] {
     {
       id: 'aggression',
       measured: d.metric_availability?.aggression_factor === true,
-      label: 'Aggression Factor',
+      label: aggressionFactorLabel(d.aggression_factor_basis),
       value: n(d.aggression_factor),
       format: (val) => val.toFixed(1),
-      description: 'Bets And Raises Divided By Calls',
+      description:
+        d.aggression_factor_basis === 'postflop'
+          ? 'Bets And Raises Divided By Calls, Flop Through River'
+          : 'Bets And Raises Divided By Calls',
     },
     {
       id: 'threeBet',

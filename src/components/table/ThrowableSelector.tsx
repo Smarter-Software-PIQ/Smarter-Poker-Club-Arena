@@ -37,6 +37,7 @@ import { masterBus } from '../../core/MasterBus';
 import { prepareThrowableArtwork } from '../../throwables/artwork';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { getThrowableFavorites } from '../../services/ThrowableFavoritesService';
+import { NOTE_COLORS, playerNotesService } from '../../services/PlayerNotesService';
 
 interface ThrowableSelectorProps {
   userId: string;
@@ -44,6 +45,14 @@ interface ThrowableSelectorProps {
   onClose: () => void;
   onOpenNotes?: () => void;
   targetName?: string;
+  /**
+   * The tapped opponent (2026-11-04). With it the menu shows the note door as
+   * "Add Note" or "Edit Note", and prints the existing note's colour and tags
+   * under it so the read is available without opening the editor.
+   */
+  targetUserId?: string;
+  /** Whether the viewer already holds a note on this opponent. */
+  hasNote?: boolean;
 }
 
 /** Favorites leads; Party and Emoji share Reactions. Catalog IDs stay unchanged. */
@@ -62,7 +71,32 @@ export function ThrowableSelector({
   onClose,
   onOpenNotes,
   targetName,
+  targetUserId,
+  hasNote = false,
 }: ThrowableSelectorProps) {
+  /* THE NOTE READ, WITHOUT THE EDITOR (2026-11-04): the existing note's colour
+     and tags, from the notes service cache. Never the note text, which is
+     the player's private prose and belongs in the editor. */
+  const [notePreview, setNotePreview] = useState<{ color: string; tags: string[] } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setNotePreview(null);
+    if (!hasNote || !targetUserId || !userId) return;
+    playerNotesService
+      .getNote(userId, targetUserId)
+      .then((note) => {
+        if (cancelled) return;
+        const color = NOTE_COLORS.find((c) => c.hex === note.color)?.name ?? '';
+        setNotePreview({ color: color === 'Default' ? '' : color, tags: note.tags });
+      })
+      .catch(() => {
+        /* a preview that cannot be read simply does not print */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasNote, targetUserId, userId]);
+
   const [throwables, setThrowables] = useState<Record<ThrowableCategory, Throwable[]>>({
     reactions: [],
     throws: [],
@@ -233,9 +267,41 @@ export function ThrowableSelector({
       onClick={(e) => e.stopPropagation()}
     >
       <div className="throwable-selector__header">
+        {/* THE NOTE DOOR (Dan 2026-11-04). Notes had two users in production:
+            the way in was a small "Notes" word in this header. It is now the
+            first thing in the menu, says what it does, carries the post-it,
+            and shows the colour and tags of a note that already exists. */}
         {onOpenNotes && (
-          <button className="throwable-selector__tab" onClick={onOpenNotes} disabled={sending}>
-            Notes
+          <button
+            className={`throwable-selector__tab throwable-selector__note-door${
+              hasNote ? ' throwable-selector__note-door--has-note' : ''
+            }`}
+            onClick={onOpenNotes}
+            disabled={sending}
+            aria-label={hasNote ? 'Edit Your Note On This Player' : 'Add A Note On This Player'}
+          >
+            <svg
+              className="throwable-selector__note-glyph"
+              viewBox="0 0 16 16"
+              width="14"
+              height="14"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                d="M2.2 1.6h11.6c.6 0 1 .4 1 1v8.1L10.7 14.8H2.2c-.6 0-1-.4-1-1V2.6c0-.6.4-1 1-1z"
+                fill="currentColor"
+              />
+              <path d="M14.8 10.7l-4.1 4.1v-3.1c0-.6.4-1 1-1h3.1z" fill="rgba(0,0,0,0.45)" />
+            </svg>
+            <span className="throwable-selector__note-door-label">
+              {hasNote ? 'Edit Note' : 'Add Note'}
+              {notePreview && (notePreview.color || notePreview.tags.length > 0) && (
+                <span className="throwable-selector__note-preview">
+                  {[notePreview.color, ...notePreview.tags].filter(Boolean).join(', ')}
+                </span>
+              )}
+            </span>
           </button>
         )}
         {allowance && allowanceUserId === userId && (

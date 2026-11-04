@@ -13,7 +13,10 @@
  *                    diamonds" and sent nothing.
  *   PlayerNotesPanel 'tag_pack' likewise — a non-VIP could add exactly ONE
  *                    player tag, ever, and was then repeatedly asked to buy
- *                    diamonds for something they owned.
+ *                    diamonds for something they owned. RETIRED 2026-11-04:
+ *                    tags are free (Dan), so the panel no longer buys a tag
+ *                    pack at all; the pin below now holds that no purchase
+ *                    path came back.
  *
  * Both also lacked an in-flight latch, so a double tap issued two charges.
  * These are source-contract pins: the components need a table, a bus and an
@@ -45,8 +48,10 @@ describe('paid pickers treat ownership as permission', () => {
     expect(emoji).toContain('if (result.charged > 0)');
   });
 
-  it('PlayerNotesPanel only opens the top-up sheet when not owned', () => {
-    expect(notes).toContain('if (!result.success && !result.alreadyOwned)');
+  it('PlayerNotesPanel sells nothing: tags are free (2026-11-04)', () => {
+    expect(notes).not.toContain('tag_pack');
+    expect(notes).not.toContain('purchaseFeature');
+    expect(notes).not.toContain('showDiamondTopUp');
   });
 });
 
@@ -56,12 +61,6 @@ describe('every paid tap has an in-flight latch', () => {
     expect(src).toContain('busyRef');
     expect(src).toMatch(/if \(busyRef\.current\) return;/);
     expect(src).toContain('disabled={purchasingForActiveUser}');
-  });
-
-  it('PlayerNotesPanel latches the paid tag purchase', () => {
-    const src = read('components/gameplay/PlayerNotesPanel.tsx');
-    expect(src).toContain('tagPurchaseRef');
-    expect(src).toMatch(/if \(tagPurchaseRef\.current\) return;/);
   });
 
   it('ThrowableSelector latches the send and disables the grid', () => {

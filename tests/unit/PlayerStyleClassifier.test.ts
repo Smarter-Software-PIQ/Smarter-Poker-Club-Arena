@@ -12,7 +12,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { playerStyleClassifier } from '../../src/services/PlayerStyleClassifier';
+import {
+  gameLoosenessFactor,
+  playerStyleClassifier,
+  VARIANT_LOOSENESS,
+} from '../../src/services/PlayerStyleClassifier';
 
 describe('PlayerStyleClassifier', () => {
   // ─────────────────────────────────────────────────────────────────────────
@@ -157,6 +161,169 @@ describe('PlayerStyleClassifier', () => {
       expect(result.style).toBe('tag');
       // Icons moved from emoji to letters 2026-08 (was '🎯'); classification itself unchanged.
       expect(result.icon).toBe('T');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // A RAISER IS NEVER A FISH (2026-11-04)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('a loose player who raises is never titled Fish', () => {
+    it('reads Burls (34.3 / 17.1, AF 1.12 over 1,623 hands) as LAG, not Fish', () => {
+      // The live KINGS CLUB cash figures that produced the "FISH" share card.
+      const hands = 1623;
+      const result = playerStyleClassifier.classify({
+        handsPlayed: hands,
+        vpipCount: Math.round(0.3432 * hands),
+        pfrCount: Math.round(0.1707 * hands),
+        aggressiveActions: Math.round(hands * 1.12),
+        passiveActions: hands,
+      });
+      expect(result.style).toBe('lag');
+    });
+
+    it('never returns Fish for any VPIP when PFR is at least half of VPIP', () => {
+      for (let vpip = 15; vpip <= 70; vpip += 1) {
+        for (const af of [0.5, 1.0, 1.5, 1.9]) {
+          const pfr = Math.ceil(vpip / 2);
+          const result = playerStyleClassifier.classify({
+            handsPlayed: 1000,
+            vpipCount: vpip * 10,
+            pfrCount: pfr * 10,
+            aggressiveActions: Math.round(1000 * af),
+            passiveActions: 1000,
+          });
+          expect(result.style, `vpip=${vpip} pfr=${pfr} af=${af}`).not.toBe('fish');
+          expect(result.style, `vpip=${vpip} pfr=${pfr} af=${af}`).not.toBe('calling_station');
+        }
+      }
+    });
+
+    it('still reads a genuine loose-passive player as Fish', () => {
+      // 38 / 9 with a middling AF: plays a lot, raises almost nothing.
+      const result = playerStyleClassifier.classify({
+        handsPlayed: 500,
+        vpipCount: 190,
+        pfrCount: 45,
+        aggressiveActions: 600,
+        passiveActions: 500, // AF = 1.2
+      });
+      expect(result.style).toBe('fish');
+    });
+
+    it('reads a loose player who raises a third of his hands with low AF as Fish', () => {
+      // 36 / 12 (ratio 0.33): loose and mostly calling.
+      const result = playerStyleClassifier.classify({
+        handsPlayed: 500,
+        vpipCount: 180,
+        pfrCount: 60,
+        aggressiveActions: 400,
+        passiveActions: 500, // AF = 0.8
+      });
+      expect(result.style).toBe('fish');
+    });
+
+    it('lands every (vpip, pfr) pair with pfr <= vpip in exactly one named style', () => {
+      for (let vpip = 0; vpip <= 100; vpip += 5) {
+        for (let pfr = 0; pfr <= vpip; pfr += 5) {
+          const result = playerStyleClassifier.classify({
+            handsPlayed: 1000,
+            vpipCount: vpip * 10,
+            pfrCount: pfr * 10,
+            aggressiveActions: 1200,
+            passiveActions: 1000,
+          });
+          expect(result.style).not.toBe('unknown');
+        }
+      }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GAME-AWARE, EXPLAINED, AND SHAREABLE OR NOT (2026-11-04)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('game-aware ranges', () => {
+    const base = { handsPlayed: 1000, aggressiveActions: 1300, passiveActions: 1000 };
+
+    it("judges a PLO range against PLO: 36/19 in PLO is TAG, in Hold'em it is LAG", () => {
+      const plo = playerStyleClassifier.classify({
+        ...base,
+        vpipCount: 360,
+        pfrCount: 190,
+        variantHands: [{ variant: 'plo', hands: 1000 }],
+      });
+      const nlh = playerStyleClassifier.classify({
+        ...base,
+        vpipCount: 360,
+        pfrCount: 190,
+        variantHands: [{ variant: 'nlh', hands: 1000 }],
+      });
+      expect(plo.style).toBe('tag');
+      expect(nlh.style).toBe('lag');
+    });
+
+    it('weights a mixed game list by hands', () => {
+      expect(
+        gameLoosenessFactor([
+          { variant: 'nlh', hands: 500 },
+          { variant: 'plo', hands: 500 },
+        ])
+      ).toBeCloseTo(1.15, 5);
+      expect(gameLoosenessFactor([{ variant: 'PLO6', hands: 10 }])).toBe(1.5);
+      expect(gameLoosenessFactor([{ variant: 'mystery_game', hands: 10 }])).toBe(1);
+      expect(gameLoosenessFactor(undefined)).toBe(1);
+      expect(gameLoosenessFactor([])).toBe(1);
+    });
+
+    it('never lets a game factor turn a raiser into a Fish', () => {
+      for (const variant of Object.keys(VARIANT_LOOSENESS)) {
+        const result = playerStyleClassifier.classify({
+          ...base,
+          vpipCount: 400,
+          pfrCount: 220,
+          variantHands: [{ variant, hands: 1000 }],
+        });
+        expect(result.style, variant).not.toBe('fish');
+      }
+    });
+  });
+
+  describe('the reason line', () => {
+    it('states the arithmetic in Title Case with no em dash', () => {
+      const hands = 1623;
+      const result = playerStyleClassifier.classify({
+        handsPlayed: hands,
+        vpipCount: Math.round(0.3432 * hands),
+        pfrCount: Math.round(0.1707 * hands),
+        aggressiveActions: Math.round(hands * 1.12),
+        passiveActions: hands,
+      });
+      expect(result.reason).toBe('Plays 34% Of Hands, Raises About Half Of Them');
+      expect(result.reason).not.toContain('\u2014');
+    });
+
+    it('names the game when the range was judged against it', () => {
+      const result = playerStyleClassifier.classify({
+        handsPlayed: 1000,
+        vpipCount: 360,
+        pfrCount: 190,
+        aggressiveActions: 1300,
+        passiveActions: 1000,
+        variantHands: [{ variant: 'plo5', hands: 1000 }],
+      });
+      expect(result.reason).toContain('(Judged Against PLO5 Ranges)');
+    });
+  });
+
+  describe('shareable titles', () => {
+    it('only Shark, TAG and LAG go on the share image', () => {
+      const defs = playerStyleClassifier.getStyleDefinitions();
+      const shareable = Object.entries(defs)
+        .filter(([, d]) => d.shareable)
+        .map(([k]) => k)
+        .sort();
+      expect(shareable).toEqual(['lag', 'shark', 'tag']);
     });
   });
 

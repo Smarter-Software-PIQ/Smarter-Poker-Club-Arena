@@ -470,6 +470,20 @@ export interface SeatSlotProps {
   isHeroReservedSeat?: boolean;
   onAction?: () => void;
   onAvatarClick?: () => void;
+  /**
+   * The viewer holds a private note on this player (Dan 2026-11-04). Paints
+   * the post-it marker on the avatar so the note-taker can see, at a glance,
+   * which opponents they have written up. Private: only ever true for the
+   * signed-in viewer's own notes, never for the hero's own seat.
+   */
+  hasNote?: boolean;
+  /**
+   * The note's colour label (none/red/orange/yellow/green/blue/purple). The
+   * post-it is tinted with it so the colour a player chose for a note is a
+   * read at the table: red says danger before the note is opened. 'none'
+   * (or absent) keeps the brass face.
+   */
+  noteColor?: string;
   /** Bible V8 §11.1: Show/hide player avatar images */
   showAvatar?: boolean;
   /** Bible V8 §11.1: Show/hide VIP/achievement badges */
@@ -929,6 +943,8 @@ export const SeatSlot = memo(
       isHeroReservedSeat = false,
       onAction,
       onAvatarClick,
+      hasNote = false,
+      noteColor,
       showAvatar = true,
       gesturesEnabled = true,
       isCollectingChips = false,
@@ -3393,6 +3409,40 @@ export const SeatSlot = memo(
             {lastAction === 'fold' && <div className="seat__avatar-fold-overlay" />}
           </div>
 
+          {/* THE POST-IT (Dan 2026-11-04): the viewer has a private note on
+              this player. Sits on the avatar's lower-left shoulder, opposite
+              the status dot, so neither the bounty pill (seat top-left) nor
+              the position badge (avatar top-right) can paint over it. It is
+              a marker, not a button: the avatar tap already opens the notes. */}
+          {hasNote && !player.isHero && (
+            <span
+              className={`seat__note-marker${
+                noteColor && noteColor !== 'none' ? ` seat__note-marker--${noteColor}` : ''
+              }`}
+              role="img"
+              aria-label="You Have A Note On This Player"
+              title="You Have A Note On This Player"
+            >
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+                <path
+                  d="M2.2 1.6h11.6c.6 0 1 .4 1 1v8.1L10.7 14.8H2.2c-.6 0-1-.4-1-1V2.6c0-.6.4-1 1-1z"
+                  fill="var(--sp-note-face, #d6ad52)"
+                />
+                <path
+                  d="M14.8 10.7l-4.1 4.1v-3.1c0-.6.4-1 1-1h3.1z"
+                  fill="var(--sp-note-fold, #8a6d2a)"
+                />
+                <path
+                  d="M3.8 5.2h7.4M3.8 7.6h7.4M3.8 10h4.6"
+                  stroke="var(--sp-note-ink, #2a2208)"
+                  strokeWidth="1.1"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+              </svg>
+            </span>
+          )}
+
           {/* Status dot (away/sitting out/disconnected) — Bible V8 §2.3 */}
           {player.status !== 'active' &&
             player.status !== 'folded' &&
@@ -4051,6 +4101,8 @@ export const SeatSlot = memo(
     if (prev.secondsLeft !== next.secondsLeft) return false;
     if (prev.showAvatar !== next.showAvatar) return false;
     if (prev.showBadges !== next.showBadges) return false;
+    if (prev.hasNote !== next.hasNote) return false;
+    if (prev.noteColor !== next.noteColor) return false;
     if (prev.isDealing !== next.isDealing) return false;
     if (prev.dealPending !== next.dealPending) return false;
     // 2026-04-15 §6.1: re-render on new turn so CSS ring restarts.

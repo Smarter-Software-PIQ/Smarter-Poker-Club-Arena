@@ -47,6 +47,9 @@ export const PLAYER_TAGS = [
   'Station',
   'Nit',
   'LAG',
+  'TAG',
+  'Rock',
+  'Maniac',
   'Whale',
   'Gambler',
   'Tricky',
@@ -72,7 +75,7 @@ const HEX_TO_LABEL: Record<string, string> = {
   '#ec4899': 'purple',
   '#6b7280': 'none',
 };
-const LABEL_TO_HEX: Record<string, string> = {
+export const LABEL_TO_HEX: Record<string, string> = {
   red: '#ef4444',
   orange: '#f97316',
   yellow: '#eab308',
@@ -82,8 +85,73 @@ const LABEL_TO_HEX: Record<string, string> = {
   none: '#6b7280',
 };
 
+/**
+ * A change to one of the signed-in player's notes: which opponent, and
+ * whether a note on them now exists. The seat marker (the post-it on the
+ * felt) listens for these, so it updates the moment a note is saved or
+ * deleted, without a second read.
+ */
+export interface PlayerNoteChange {
+  userId: string;
+  targetUserId: string;
+  hasNote: boolean;
+  /** The note's colour label (none/red/...), when it exists. */
+  colorLabel?: string;
+}
+type NoteChangeListener = (change: PlayerNoteChange) => void;
+
 class PlayerNotesServiceClass {
   private cache: Map<string, PlayerNote> = new Map();
+  private listeners: Set<NoteChangeListener> = new Set();
+
+  /**
+   * Subscribe to note saves and deletes made from this device. Returns the
+   * unsubscribe function.
+   */
+  subscribe(listener: NoteChangeListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  /**
+   * Tell every subscriber that a note was written or removed. Called by the
+   * writers (saveNote below, and PlayerNotesPanel) after the database has
+   * confirmed the change, never before.
+   */
+  notifyChanged(change: PlayerNoteChange): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(change);
+      } catch {
+        /* a marker that fails to repaint must never break a save */
+      }
+    }
+  }
+
+  /**
+   * Every opponent the signed-in player holds a note on, with the note's
+   * colour label. One narrow read (ids and labels only) so a table with nine seats costs one query, not
+   * nine. Rows are self-owned under RLS; a failed read reports as an error
+   * rather than as "no notes".
+   */
+  async getNotedTargets(userId: string): Promise<Map<string, string>> {
+    const { data, error } = await supabase
+      .from('player_notes')
+      .select('target_user_id, color_label')
+      .eq('user_id', userId)
+      .not('target_user_id', 'is', null)
+      .limit(5000);
+    if (error) throw error;
+    const targets = new Map<string, string>();
+    for (const row of data ?? []) {
+      if (row.target_user_id) {
+        targets.set(row.target_user_id as string, (row.color_label as string) || 'none');
+      }
+    }
+    return targets;
+  }
 
   /**
    * Get note for a player
@@ -104,9 +172,11 @@ class PlayerNotesServiceClass {
       .eq('target_user_id', targetId)
       .maybeSingle();
 
-    if (error || !row) {
-      return DEFAULT_NOTE;
-    }
+    // A failed read is not "no note" (2026-11-04): the only caller paints a
+    // preview from this, and a default blue painted over a real red note is
+    // a wrong read at the table. Throw, and let the caller print nothing.
+    if (error) throw error;
+    if (!row) return DEFAULT_NOTE;
 
     const note: PlayerNote = {
       note: row.notes || '',
@@ -180,6 +250,22 @@ class PlayerNotesServiceClass {
     const cacheKey = `${userId}:${targetId}`;
     const current = this.cache.get(cacheKey) || DEFAULT_NOTE;
     this.cache.set(cacheKey, { ...current, note, color, tags, lastSeen: new Date() });
+    this.notifyChanged({ userId, targetUserId: targetId, hasNote: true, colorLabel });
+  }
+
+  /**
+   * Remove the signed-in player's note on one opponent. Scoped to the owner
+   * so it can never touch another player's note.
+   */
+  async deleteNote(userId: string, targetId: string): Promise<void> {
+    const { error } = await supabase
+      .from('player_notes')
+      .delete()
+      .eq('user_id', userId)
+      .eq('target_user_id', targetId);
+    if (error) throw error;
+    this.cache.delete(`${userId}:${targetId}`);
+    this.notifyChanged({ userId, targetUserId: targetId, hasNote: false });
   }
 
   /**

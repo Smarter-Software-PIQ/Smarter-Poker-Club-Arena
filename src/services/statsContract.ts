@@ -55,6 +55,14 @@ export interface StatsMetricAvailabilityContract {
 export interface StatsCoverageContract {
   analysis_hand_cap: number;
   analysis_hands_capped: boolean;
+  /**
+   * Which payload sections still read the capped sample (2026-11-04). Since
+   * migration 20261104194608 the position, game and stake breakdowns cover
+   * every hand in the range; only session history (unscoped readers) still
+   * samples. Absent on an older payload, which means "every analysis
+   * section", so the page must word its notice from this list, never assume.
+   */
+  analysis_sampled_sections?: string[];
   lifetime_index_complete: boolean;
   first_hand_at: string | null;
   last_hand_at: string | null;
@@ -310,6 +318,13 @@ export function normalizeStatsContractMetadata(data: unknown): StatsContractMeta
     coverage: {
       analysis_hand_cap: finite(coverage.analysis_hand_cap, 750),
       analysis_hands_capped: coverage.analysis_hands_capped === true,
+      ...(Array.isArray(coverage.analysis_sampled_sections)
+        ? {
+            analysis_sampled_sections: coverage.analysis_sampled_sections.filter(
+              (s: unknown): s is string => typeof s === 'string'
+            ),
+          }
+        : {}),
       lifetime_index_complete: coverage.lifetime_index_complete === true,
       first_hand_at: isoOrNull(coverage.first_hand_at),
       last_hand_at: isoOrNull(coverage.last_hand_at),

@@ -48,7 +48,12 @@ export interface StyleSourceStats {
  */
 export function playerStyleFromStats(
   overall: StyleSourceStats | null | undefined,
-  aggressionAvailable = true
+  aggressionAvailable = true,
+  /**
+   * Hands per game in the same payload (2026-11-04), so a PLO regular is
+   * judged against PLO ranges rather than Hold'em ones. Omitted: Hold'em.
+   */
+  variantHands?: ReadonlyArray<{ variant: string; hands: number }>
 ): PlayerStyleResult | null {
   if (!overall || !aggressionAvailable) return null;
   const hands = overall.total_hands;
@@ -76,6 +81,7 @@ export function playerStyleFromStats(
       pfrCount,
       aggressiveActions,
       passiveActions,
+      variantHands,
     });
   } catch {
     // A cosmetic badge must never take a stats page down.

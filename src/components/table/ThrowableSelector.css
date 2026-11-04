@@ -1174,3 +1174,39 @@
   font-size: 12px;
   white-space: normal;
 }
+
+/* ═══ THE NOTE DOOR (Dan 2026-11-04) ═══
+   "Add Note" / "Edit Note", first in the player menu, with the post-it glyph.
+   Brass once a note exists, so the door and the seat marker agree. */
+.throwable-selector__note-door {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 60%;
+  text-align: left;
+}
+.throwable-selector__note-glyph {
+  flex-shrink: 0;
+  color: #9aa5b3;
+}
+.throwable-selector__note-door--has-note .throwable-selector__note-glyph {
+  color: #d6ad52;
+}
+.throwable-selector.sc .throwable-selector__note-door--has-note {
+  color: #d6ad52 !important;
+}
+.throwable-selector__note-door-label {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+.throwable-selector__note-preview {
+  font-size: 0.68em;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #9aa5b3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

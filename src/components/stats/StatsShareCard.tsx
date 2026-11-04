@@ -17,8 +17,13 @@
  * and inconsistent metrics between machines.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './StatsShareCard.css';
+import {
+  playerStyleFromStats,
+  STYLE_MIN_HANDS,
+  type StyleSourceStats,
+} from './playerStyleFromStats';
 import { IS_NATIVE_BUILD, isNativePlatform } from '../../lib/appBase';
 import { arenaDisplayText } from '../../lib/arenaDisplay/text';
 import { compactChips } from '../../utils/format';
@@ -47,8 +52,20 @@ interface Props {
     pfr: number; // percent
     hoursPlayed: number | null;
   };
-  styleLabel?: string | null;
-  styleColor?: string | null;
+  /**
+   * The figures the title is read from (2026-11-04): the same range the card
+   * prints. The card classifies here, in its own lazy chunk, so the classifier
+   * stays out of the stats page's download budget. ONLY A TITLE THAT READS
+   * WELL GOES ON THE IMAGE: Shark, TAG and LAG print; the rest stay private
+   * on the Trophies tab, where the full honest read (with its reason) lives.
+   * Under the image, never in the PNG, one line says what the title means in
+   * the player's own numbers, or why there is no title yet.
+   */
+  styleSource?: {
+    overall: StyleSourceStats;
+    aggressionAvailable: boolean;
+    variants?: ReadonlyArray<{ variant: string; hands: number }>;
+  } | null;
   /**
    * The analysis window the numbers cover, drawn ON the card. Without it a
    * 7-day slice left the browser as an unlabelled lifetime claim.
@@ -88,13 +105,33 @@ function chamferRect(
 export default function StatsShareCard({
   displayName,
   stats,
-  styleLabel,
-  styleColor,
+  styleSource,
   rangeLabel,
   scopeLabel,
   privacyPresentationMode = false,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const style = useMemo(
+    () =>
+      styleSource
+        ? playerStyleFromStats(
+            styleSource.overall,
+            styleSource.aggressionAvailable,
+            styleSource.variants
+          )
+        : null,
+    [styleSource]
+  );
+  const styleLabel = style?.shareable ? style.label : null;
+  const styleColor = style?.shareable ? style.color : null;
+  const hands = styleSource?.overall.total_hands ?? 0;
+  const styleNote = style
+    ? style.shareable
+      ? `${style.label}: ${style.reason}`
+      : `Your Private Style Read Is On The Trophies Tab. ${style.reason}`
+    : styleSource && hands < STYLE_MIN_HANDS
+      ? `Playing Style Title Unlocks At ${STYLE_MIN_HANDS.toLocaleString()} Hands (${hands.toLocaleString()} So Far)`
+      : null;
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -357,6 +394,7 @@ export default function StatsShareCard({
           }
         />
       </div>
+      {styleNote && !privacyPresentationMode && <p className="sharecard-style-note">{styleNote}</p>}
       <button type="button" className="sharecard-btn" onClick={handleShare} disabled={busy}>
         {busy ? 'Preparing...' : 'Share Or Save Image'}
       </button>
