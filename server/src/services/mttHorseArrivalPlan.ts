@@ -15,12 +15,18 @@ function arrivalUnit(tournamentId: string, purpose: string): number {
 export function mttPlannedField(
   guarantee: number,
   entryAmount: number,
-  tournamentId: string
+  tournamentId: string,
+  attendanceFloor?: number
 ): number {
   // A house-funded pool is not evidence that entrants have arrived.
   const funded = guarantee > 0 && entryAmount > 0 ? Math.ceil(guarantee / entryAmount) : 0;
-  const minimum = Math.max(32, Number.isSafeInteger(funded) ? funded : 0);
-  // The floor is financial coverage, not a round-number registration target.
+  if (
+    attendanceFloor !== undefined &&
+    (!Number.isSafeInteger(attendanceFloor) || attendanceFloor < 0)
+  )
+    throw new Error('Invalid Horse attendance floor');
+  const minimum = Math.max(32, attendanceFloor ?? (Number.isSafeInteger(funded) ? funded : 0));
+  // An explicit attendance floor preserves the original plan without promising prizes.
   const spread = Math.max(16, Math.ceil(minimum * 0.3));
   return minimum + 1 + Math.floor(arrivalUnit(tournamentId, 'field') * spread);
 }

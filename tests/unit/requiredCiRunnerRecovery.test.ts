@@ -55,6 +55,21 @@ const frameCoverSteps = [
   },
 ];
 
+const nov3AttendanceStep = {
+  name: 'November 3 zero guarantees preserve separate Horse attendance',
+  if: 'matrix.shard == 2',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+  run: 'python3 -B scripts/ci/test-nov3-zero-guarantee-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"',
+};
+const normalizeNov3AttendanceAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === nov3AttendanceStep.name);
+  expect(job.steps.filter((step) => step.name === nov3AttendanceStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(nov3AttendanceStep);
+  expect(job.steps[index - 1]?.name).toBe(frameCoverSteps[0].name);
+  expect(job.steps[index + 1]?.name).toBe(frameCoverSteps[1].name);
+  job.steps.splice(index, 1);
+};
+
 const normalizeFrameCoverAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const start = job.steps.findIndex((step) => step.name === frameCoverSteps[0].name);
   for (const step of frameCoverSteps) {
@@ -575,6 +590,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
     normalizeScheduleRequestAddition(normalized.jobs.accounting_postgres);
     normalizeMysteryAwardOrderAddition(normalized.jobs.accounting_postgres);
+    normalizeNov3AttendanceAddition(normalized.jobs.accounting_postgres);
     normalizeFrameCoverAddition(normalized.jobs.accounting_postgres);
     normalizePostpaidQualityAddition(normalized.jobs.accounting_postgres);
     const formerClientRoute = '$' + '{{ ' + trusted + " && 'ca-linux-4core' || 'ubuntu-latest' }}";
@@ -743,11 +759,42 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     ];
     for (const mutate of mutations) {
       const job = structuredClone(ci.jobs.accounting_postgres);
+      normalizeNov3AttendanceAddition(job);
       const start = job.steps.findIndex(
         (step: Record<string, unknown>) => step.name === frameCoverSteps[0].name
       );
       mutate(job.steps, start);
       expect(() => normalizeFrameCoverAddition(job)).toThrow();
+    }
+  });
+  it('rejects missing, duplicate, displaced or weakened dated attendance qualification', () => {
+    const mutations = [
+      (steps: Array<Record<string, unknown>>, index: number) => steps.splice(index, 1),
+      (steps: Array<Record<string, unknown>>, index: number) =>
+        steps.push(structuredClone(steps[index])),
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        [steps[index], steps[index + 1]] = [steps[index + 1], steps[index]];
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].run += ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].env = { PG_BIN: '/wrong' };
+      },
+    ];
+    for (const mutate of mutations) {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const index = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === nov3AttendanceStep.name
+      );
+      mutate(job.steps, index);
+      expect(() => normalizeNov3AttendanceAddition(job)).toThrow();
     }
   });
   it('rejects missing, duplicate, displaced or weakened paid-book qualification', () => {

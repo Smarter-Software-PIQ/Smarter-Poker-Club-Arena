@@ -1,0 +1,9 @@
+{
+  "_comment": "Migration 20261103232526 declares the service-only dated attendance RPC; this is a source promise, not installation proof.",
+  "functions": [
+    "fn_ca_nov3_tournament_attendance",
+    "smarter_private.nov3_without_guarantee_copy",
+    "smarter_private.apply_nov3_zero_guarantee"
+  ],
+  "tables": ["smarter_private.nov3_tournament_attendance"]
+}
