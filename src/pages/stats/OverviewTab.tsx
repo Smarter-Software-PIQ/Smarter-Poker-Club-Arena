@@ -19,7 +19,7 @@ import {
   type playerStyleFromStats,
 } from '../../components/stats/playerStyleFromStats';
 import { StatRow } from './StatRow';
-import { NOT_YET_MEASURED, SCOPE_CASH, ratioOrUnmeasured } from './format';
+import { NOT_YET_MEASURED, SCOPE_CASH, ratioOrUnmeasured, aggressionFactorLabel } from './format';
 import { RANGES, type FullStats, type OverallStats, type HandEvidenceFilter } from './types';
 import type { StatsMetricAvailabilityContract } from '../../services/statsContract';
 
@@ -115,7 +115,7 @@ export default function OverviewTab({
             is "no hands scored", so that is the one that stops printing a
             number here. */}
         <StatRow
-          label="Aggression Factor"
+          label={aggressionFactorLabel(overall.aggression_factor_basis)}
           value={
             clubId && !metricAvailability.aggression_factor
               ? NOT_YET_MEASURED

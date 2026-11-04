@@ -104,6 +104,7 @@ staying on the Trophies tab with its reason; a card under 300 hands says when
 its title unlocks. TAG, Rock and Maniac join `PLAYER_TAGS`.
 
 **Notes (Phase 2).**
+
 - The player menu (tap an opponent) now opens with **Add Note** / **Edit
   Note** carrying the post-it glyph, and prints an existing note's colour and
   tags under it: the read without the editor. Notes had two users in
@@ -129,3 +130,22 @@ history on the unscoped readers; nothing on the club-scoped ones). The page's
 notice (`sampledSectionsNotice`) is worded from that list, and the blanket
 "analysis panels use your most recent 750 hands" line only survives for an
 older payload that does not carry it.
+
+**Aggression factor at the source (Phase 4).** `ca_fact_aggression_counts`
+counted preflop calls in the denominator; every tracker counts flop, turn and
+river only (Burls: 1.12 by the platform's count, 1.50 by the textbook one).
+Migration `20261104195454` adds the cold side table
+`ca_hand_postflop_aggression` (hand_id, user_id, bets, calls; no foreign key
+to a live table), `ca_fact_postflop_aggression_counts` (the same validator
+with the preflop street excluded), fills the table from the existing BEFORE
+INSERT trigger on `ca_hand_facts`, and redefines
+`ca_player_recorded_hand_coverage` to read, per hand, the side-table pair,
+else a postflop recount from the retained hand record, else the legacy pair
+the readers already pass (only a 2026-10-27-to-now fact whose horse-only hand
+record was pruned reaches it). The facts table is not altered and no reader
+changes. The payload carries `aggression_factor_basis: 'postflop'` and every
+stats tab labels the number "Aggression Factor (Postflop)" when it does; an
+older payload keeps the plain label. Behaviour proved on a local Postgres 16
+fixture: trigger writes 2/1 for a limp-call-bet-call-raise hand whose legacy
+pair is 2/2; the three fallback branches return 2.00, 2.00 and 1.00; no
+evidence at all reports the metric unavailable rather than guessing.

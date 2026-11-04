@@ -304,10 +304,10 @@ class PlayerStyleClassifierClass {
    * 2.0. That catch-all was the bug. A Fish is loose AND passive, and the
    * passive half is measured preflop by how rarely a player raises the hands
    * he plays, not by a postflop ratio alone. The platform's aggression factor
-   * also counts preflop calls in its denominator (see
-   * ca_fact_aggression_counts), which pulls every loose player's AF well under
-   * the textbook postflop thresholds this tree was written against, so AF can
-   * only ever be a secondary signal here.
+   * also counted preflop calls in its denominator until migration
+   * 20261104195454 made it postflop-only at the source; an older payload still
+   * carries the deflated number, so AF can only ever be a secondary signal
+   * here.
    *
    * The primary read is therefore VPIP (how many hands) and PFR / VPIP (how
    * many of them were raised). AF breaks ties. Every branch is reachable and

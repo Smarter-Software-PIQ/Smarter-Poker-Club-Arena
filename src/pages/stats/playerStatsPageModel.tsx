@@ -613,6 +613,9 @@ export function normalizeFull(data: any): FullStats {
       fold_to_three_bet: num(o.fold_to_three_bet),
       cbet_flop: num(o.cbet_flop),
       aggression_factor: num(o.aggression_factor),
+      ...(o.aggression_factor_basis === 'postflop'
+        ? { aggression_factor_basis: 'postflop' as const }
+        : {}),
       showdowns_total: num(o.showdowns_total),
       showdowns_won: num(o.showdowns_won),
       wtsd: num(o.wtsd),

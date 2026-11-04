@@ -1,5 +1,5 @@
 import { StatRow } from './StatRow';
-import { ratioOrUnmeasured } from './format';
+import { ratioOrUnmeasured, aggressionFactorLabel } from './format';
 import type { FullStats, OverallStats } from './types';
 
 export default function TournamentPlayingStats({
@@ -77,7 +77,7 @@ export default function TournamentPlayingStats({
             )}
           />
           <StatRow
-            label="Aggression Factor"
+            label={aggressionFactorLabel(overall.aggression_factor_basis)}
             value={ratioOrUnmeasured(
               overall.aggression_factor,
               full?.contract.quality.metric_availability.aggression_factor_denominator ?? 0,
