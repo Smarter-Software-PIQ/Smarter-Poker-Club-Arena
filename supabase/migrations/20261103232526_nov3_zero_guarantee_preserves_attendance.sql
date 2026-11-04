@@ -1,3 +1,5 @@
+-- SUPERSEDED BY 20261104020635
+-- Never installed: original14 include four now-cancelled empty historical offers.
 -- Owner-requested November 3 Chicago no-guarantee tournaments.
 -- Attendance is preserved separately; this never supplies prize money or tickets.
 -- Existing fourteen unstarted offers were read with zero entrants/charges/pools.
