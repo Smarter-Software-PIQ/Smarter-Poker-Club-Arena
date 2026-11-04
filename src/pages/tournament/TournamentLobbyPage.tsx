@@ -1,3 +1,4 @@
+import { isRetiredTournament } from '../../lib/retiredTournamentVisibility';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import type { TournamentEntryWindowRow } from '../../utils/tournamentEntryWindow';
 import {
@@ -14,7 +15,7 @@ import {
  * Central hub for discovering and joining tournaments across all clubs
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { readClubContextParam } from '../../utils/clubScopedPath';
 import { supabase } from '../../lib/supabase';
@@ -133,7 +134,12 @@ function TournamentLobbyBoard() {
   const { clubId: routeClubId } = useParams<{ clubId?: string }>();
   const { user } = useAuthUser();
   const toast = useToast();
-  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [tournamentRows, setTournaments] = useState<Tournament[]>([]);
+  // Filter every presentation read, including cached and realtime rows.
+  const tournaments = useMemo(
+    () => tournamentRows.filter((row) => !isRetiredTournament(row.id)),
+    [tournamentRows]
+  );
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const listAbort = useRef<AbortController | null>(null);

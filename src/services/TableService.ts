@@ -254,7 +254,9 @@ class TableService {
       reportError(error, 'TableService.getTable');
       return null;
     }
-    return data;
+    // TableService is part of the shell; load the cohort only when a table is read.
+    const { isRetiredTournamentTable } = await import('../lib/retiredTournamentVisibility');
+    return isRetiredTournamentTable(data) ? null : data;
   }
 
   /* createTable was DELETED 2026-08-27.
@@ -492,6 +494,8 @@ class TableService {
    * (the normal case) the two answers are identical.
    */
   async resolveTournamentLiveTable(tournamentId: string): Promise<string | null> {
+    const { isRetiredTournament } = await import('../lib/retiredTournamentVisibility');
+    if (isRetiredTournament(tournamentId)) return null;
     const { data, error } = await supabase.rpc('fn_tournament_primary_table', {
       p_tournament_id: tournamentId,
     });

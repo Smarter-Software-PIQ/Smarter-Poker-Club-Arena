@@ -1,3 +1,4 @@
+import { isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { earlyHeroCardsReady, type EarlyHeroCards } from '../utils/earlyHeroCards';
 import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
 import { useTopUpAccounting } from '../hooks/useTopUpAccounting';
@@ -14632,6 +14633,13 @@ function LiveTablePage({
         if (!watch.error && watch.data && typeof watch.data === 'object') {
           table = watch.data as TableBootstrapRow & { union_id?: string | null; arena?: unknown };
         }
+      }
+      // Owner retirement removes this view without releasing or paying any seat.
+      if (isRetiredTournamentTable(table) && isMounted) {
+        setTableLoadFailure('missing');
+        masterBus.emit('TABLE_MENU_ACTION', { tableId, action: 'CLOSE_TABLE_TAB' });
+        deadTableExitRef.current();
+        return;
       }
       /* AUDIT 2026-08-25 — THE DEAD-BOOKMARK HOLE.
          Below this point the code went straight to `if (table && !error)`.

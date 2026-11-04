@@ -1,3 +1,4 @@
+import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
 import { payoutSharePercent } from '../utils/tournamentPrizeFunding';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
 import type { FollowTournamentPlayer } from '../utils/followTournamentPlayer';
@@ -134,8 +135,15 @@ export default function TournamentPage() {
   const toast = useToast();
   const currentUser = user || GUEST_USER;
 
-  const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [selectedTournament, setSelectedTournament] = useState<TournamentWithArena | null>(null);
+  const [tournamentRows, setTournaments] = useState<Tournament[]>([]);
+  const tournaments = useMemo(
+    () => tournamentRows.filter((row) => !isRetiredTournament(row.id)),
+    [tournamentRows]
+  );
+  const [selectedTournamentRow, setSelectedTournament] = useState<TournamentWithArena | null>(null);
+  const selectedTournament = isRetiredTournament(selectedTournamentRow?.id)
+    ? null
+    : selectedTournamentRow;
   // A new visit owns its completions, including A -> B -> A navigation.
   const selectionKey = `${clubId}:${currentUser.id}:${selectedTournament?.id ?? ''}`;
   const selectionRef = useRef({ key: selectionKey, controller: new AbortController() });

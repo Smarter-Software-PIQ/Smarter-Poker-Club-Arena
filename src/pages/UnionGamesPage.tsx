@@ -1,3 +1,4 @@
+import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
 import { fetchAllRows } from '../utils/fetchAllRows';
@@ -86,6 +87,7 @@ interface UnionTournament {
 }
 
 interface UnionTable {
+  tournament_id?: string | null;
   id: string;
   name: string;
   status: string;
@@ -122,13 +124,22 @@ export default function UnionGamesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Tournaments
-  const [tournaments, setTournaments] = useState<UnionTournament[]>([]);
+  const [tournamentRows, setTournaments] = useState<UnionTournament[]>([]);
+  // Filter every presentation read, including cached and realtime rows.
+  const tournaments = useMemo(
+    () => tournamentRows.filter((row) => !isRetiredTournament(row.id)),
+    [tournamentRows]
+  );
   const [tournFilter, setTournFilter] = usePlayerPreference<
     'all' | 'registering' | 'running' | 'completed'
   >('UnionGamesPage:tournFilter', 'all');
 
   // Tables
-  const [tables, setTables] = useState<UnionTable[]>([]);
+  const [tableRows, setTables] = useState<UnionTable[]>([]);
+  const tables = useMemo(
+    () => tableRows.filter((row) => !isRetiredTournamentTable(row)),
+    [tableRows]
+  );
 
   // BBJ
   const [bbjPool, setBbjPool] = useState<BBJPool | null>(null);
