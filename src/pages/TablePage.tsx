@@ -29034,6 +29034,7 @@ function LiveTablePage({
                     displayPlayer.id !== userId &&
                     notedPlayerIds.has(displayPlayer.id)
                   }
+                  noteColor={displayPlayer ? notedPlayerIds.get(displayPlayer.id) : undefined}
                   arrival={lightningRoom ? seatArrivals[seatNumber] : undefined}
                   foldCommitted={
                     lightningRoom != null &&
@@ -30931,6 +30932,9 @@ function LiveTablePage({
         // Player Notes
         showPlayerNotes={showPlayerNotes}
         selectedPlayerForNotes={selectedPlayerForNotes}
+        selectedPlayerHasNote={
+          !!selectedPlayerForNotes && notedPlayerIds.has(selectedPlayerForNotes.id)
+        }
         onClosePlayerNotes={() => setShowPlayerNotes(false)}
         onOpenPlayerNotes={() => {
           setShowThrowableSelector(false);

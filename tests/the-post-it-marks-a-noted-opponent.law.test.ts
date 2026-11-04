@@ -31,7 +31,7 @@ describe('the post-it marks a noted opponent', () => {
   it('SeatSlot paints the marker for a noted villain and never for the hero', () => {
     expect(seat).toMatch(/hasNote\?: boolean/);
     expect(seat).toMatch(/\{hasNote && !player\.isHero && \(/);
-    expect(seat).toContain('className="seat__note-marker"');
+    expect(seat).toContain('className={`seat__note-marker${');
     expect(seat).toContain('aria-label="You Have A Note On This Player"');
   });
 
@@ -55,6 +55,45 @@ describe('the post-it marks a noted opponent', () => {
     );
   });
 
+  it('the post-it is tinted with the note colour the player chose', () => {
+    expect(seat).toContain('seat__note-marker--${noteColor}');
+    expect(seat).toContain('if (prev.noteColor !== next.noteColor) return false;');
+    for (const c of ['red', 'orange', 'yellow', 'green', 'blue', 'purple']) {
+      expect(seatCss).toContain(`.seat__note-marker--${c} {`);
+    }
+    expect(table).toContain(
+      'noteColor={displayPlayer ? notedPlayerIds.get(displayPlayer.id) : undefined}'
+    );
+  });
+
+  it('the player menu opens with Add Note or Edit Note, and shows the note colour and tags', () => {
+    const picker = read('src/components/table/ThrowableSelector.tsx');
+    expect(picker).toContain("{hasNote ? 'Edit Note' : 'Add Note'}");
+    expect(picker).toContain('throwable-selector__note-preview');
+    const modals = read('src/components/table/TableModalsLayer.tsx');
+    expect(modals).toContain('hasNote={selectedPlayerHasNote}');
+    expect(modals).toContain('targetUserId={selectedPlayerForNotes?.id}');
+  });
+
+  it('tags are free: the notes panel neither checks VIP nor sells a tag pack', () => {
+    expect(panel).not.toContain('tag_pack');
+    expect(panel).not.toContain('checkVIPStatus');
+    expect(panel).not.toContain('showDiamondTopUp');
+  });
+
+  it('a note written on another device reaches the open table over realtime', () => {
+    const hook = read('src/hooks/usePlayerNoteMarkers.ts');
+    expect(hook).toContain("table: 'player_notes'");
+    expect(hook).toContain('filter: `user_id=eq.${userId}`');
+    const migration = read(
+      'supabase/migrations/20261104193818_player_notes_realtime_for_the_seat_post_it.sql'
+    );
+    expect(migration).toContain('ALTER TABLE public.player_notes REPLICA IDENTITY FULL;');
+    expect(migration).toContain(
+      'ALTER PUBLICATION supabase_realtime ADD TABLE public.player_notes;'
+    );
+  });
+
   it('the Notes Library has a door: the hero hub opens it with no target', () => {
     const hub = read('src/components/table/HeroHubPanel.tsx');
     expect(hub).toContain(
@@ -67,7 +106,7 @@ describe('the post-it marks a noted opponent', () => {
 
   it('every note writer announces the change through the service', () => {
     expect(service).toContain(
-      'this.notifyChanged({ userId, targetUserId: targetId, hasNote: true });'
+      'this.notifyChanged({ userId, targetUserId: targetId, hasNote: true, colorLabel });'
     );
     expect(service).toContain(
       'this.notifyChanged({ userId, targetUserId: targetId, hasNote: false });'

@@ -477,6 +477,13 @@ export interface SeatSlotProps {
    * signed-in viewer's own notes, never for the hero's own seat.
    */
   hasNote?: boolean;
+  /**
+   * The note's colour label (none/red/orange/yellow/green/blue/purple). The
+   * post-it is tinted with it so the colour a player chose for a note is a
+   * read at the table: red says danger before the note is opened. 'none'
+   * (or absent) keeps the brass face.
+   */
+  noteColor?: string;
   /** Bible V8 §11.1: Show/hide player avatar images */
   showAvatar?: boolean;
   /** Bible V8 §11.1: Show/hide VIP/achievement badges */
@@ -937,6 +944,7 @@ export const SeatSlot = memo(
       onAction,
       onAvatarClick,
       hasNote = false,
+      noteColor,
       showAvatar = true,
       gesturesEnabled = true,
       isCollectingChips = false,
@@ -3408,7 +3416,9 @@ export const SeatSlot = memo(
               a marker, not a button: the avatar tap already opens the notes. */}
           {hasNote && !player.isHero && (
             <span
-              className="seat__note-marker"
+              className={`seat__note-marker${
+                noteColor && noteColor !== 'none' ? ` seat__note-marker--${noteColor}` : ''
+              }`}
               role="img"
               aria-label="You Have A Note On This Player"
               title="You Have A Note On This Player"
@@ -4092,6 +4102,7 @@ export const SeatSlot = memo(
     if (prev.showAvatar !== next.showAvatar) return false;
     if (prev.showBadges !== next.showBadges) return false;
     if (prev.hasNote !== next.hasNote) return false;
+    if (prev.noteColor !== next.noteColor) return false;
     if (prev.isDealing !== next.isDealing) return false;
     if (prev.dealPending !== next.dealPending) return false;
     // 2026-04-15 §6.1: re-render on new turn so CSS ring restarts.

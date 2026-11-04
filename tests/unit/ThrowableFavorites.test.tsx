@@ -58,7 +58,7 @@ it('opens Favorites first, combines Party and Emoji, preserves VIP and opens not
   expect(screen.getByTitle('Confetti')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'VIP' }));
   expect(screen.getByTitle('Bomb')).toBeVisible();
-  fireEvent.click(screen.getByRole('button', { name: 'Notes' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add A Note On This Player' }));
   expect(notes).toHaveBeenCalledOnce();
 });
 it('never shows an old account ranking, and retries failures without blocking Notes', async () => {
@@ -81,7 +81,7 @@ it('never shows an old account ranking, and retries failures without blocking No
   await screen.findByRole('alert');
   await act(async () => resolve([{ id: 'bomb', name: 'Old Favorite' }]));
   expect(screen.queryByTitle('Old Favorite')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Notes' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add A Note On This Player' }));
   expect(notes).toHaveBeenCalledOnce();
   mocks.favorites.mockResolvedValueOnce([{ id: 'heart', name: 'New Favorite' }]);
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));

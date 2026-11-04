@@ -154,6 +154,8 @@ export interface TableModalsLayerProps {
   // Player Notes Modal
   showPlayerNotes: boolean;
   selectedPlayerForNotes: { id: string; name: string } | null;
+  /** The viewer already holds a note on the tapped opponent (2026-11-04). */
+  selectedPlayerHasNote?: boolean;
   onClosePlayerNotes: () => void;
   onOpenPlayerNotes: () => void;
 
@@ -573,6 +575,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
     // Player Notes
     showPlayerNotes,
     selectedPlayerForNotes,
+    selectedPlayerHasNote = false,
     onClosePlayerNotes,
     onOpenPlayerNotes,
     // Hand Replay
@@ -1124,6 +1127,8 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           <ThrowableSelector
             userId={userId}
             targetName={selectedPlayerForNotes?.name}
+            targetUserId={selectedPlayerForNotes?.id}
+            hasNote={selectedPlayerHasNote}
             onOpenNotes={selectedPlayerForNotes ? onOpenPlayerNotes : undefined}
             onSelect={onThrowableSelect}
             onClose={onThrowableClose}

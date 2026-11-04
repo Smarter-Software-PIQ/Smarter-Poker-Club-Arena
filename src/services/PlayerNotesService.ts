@@ -95,6 +95,8 @@ export interface PlayerNoteChange {
   userId: string;
   targetUserId: string;
   hasNote: boolean;
+  /** The note's colour label (none/red/...), when it exists. */
+  colorLabel?: string;
 }
 type NoteChangeListener = (change: PlayerNoteChange) => void;
 
@@ -129,24 +131,26 @@ class PlayerNotesServiceClass {
   }
 
   /**
-   * The ids of every opponent the signed-in player holds a note on. One
-   * narrow read (ids only) so a table with nine seats costs one query, not
+   * Every opponent the signed-in player holds a note on, with the note's
+   * colour label. One narrow read (ids and labels only) so a table with nine seats costs one query, not
    * nine. Rows are self-owned under RLS; a failed read reports as an error
    * rather than as "no notes".
    */
-  async getNotedTargetIds(userId: string): Promise<Set<string>> {
+  async getNotedTargets(userId: string): Promise<Map<string, string>> {
     const { data, error } = await supabase
       .from('player_notes')
-      .select('target_user_id')
+      .select('target_user_id, color_label')
       .eq('user_id', userId)
       .not('target_user_id', 'is', null)
       .limit(5000);
     if (error) throw error;
-    const ids = new Set<string>();
+    const targets = new Map<string, string>();
     for (const row of data ?? []) {
-      if (row.target_user_id) ids.add(row.target_user_id as string);
+      if (row.target_user_id) {
+        targets.set(row.target_user_id as string, (row.color_label as string) || 'none');
+      }
     }
-    return ids;
+    return targets;
   }
 
   /**
@@ -244,7 +248,7 @@ class PlayerNotesServiceClass {
     const cacheKey = `${userId}:${targetId}`;
     const current = this.cache.get(cacheKey) || DEFAULT_NOTE;
     this.cache.set(cacheKey, { ...current, note, color, tags, lastSeen: new Date() });
-    this.notifyChanged({ userId, targetUserId: targetId, hasNote: true });
+    this.notifyChanged({ userId, targetUserId: targetId, hasNote: true, colorLabel });
   }
 
   /**

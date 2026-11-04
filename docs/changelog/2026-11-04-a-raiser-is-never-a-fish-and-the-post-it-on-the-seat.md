@@ -92,3 +92,27 @@ Law: `tests/the-post-it-marks-a-noted-opponent.law.test.ts`
 - `src/components/table/HeroHubPanel.tsx` (Player Notes item)
 - `src/components/gameplay/PlayerNotesPanel.tsx`, `tests/unit/PlayerNotesPanelAccountSwitch.test.tsx`
 - `tests/the-post-it-marks-a-noted-opponent.law.test.ts`, `tests/unit/usePlayerNoteMarkers.test.tsx`, `docs/laws.d/the-post-it-marks-a-noted-opponent.md`
+
+## Follow-up the same day: titles explained, notes made usable
+
+**Titles (Phase 1).** `VARIANT_LOOSENESS` scales VPIP by the games in the
+sample (PLO 1.3, PLO5 1.4, PLO6 1.5, Short Deck 1.35, Hold'em 1) so a PLO
+regular is judged against PLO ranges; every result carries a `reason` in the
+player's own numbers ("Plays 34% Of Hands, Raises About Half Of Them"); only
+Shark, TAG and LAG are `shareable` and print on the share image, the full read
+staying on the Trophies tab with its reason; a card under 300 hands says when
+its title unlocks. TAG, Rock and Maniac join `PLAYER_TAGS`.
+
+**Notes (Phase 2).**
+- The player menu (tap an opponent) now opens with **Add Note** / **Edit
+  Note** carrying the post-it glyph, and prints an existing note's colour and
+  tags under it: the read without the editor. Notes had two users in
+  production; the door was a small word in the header.
+- The seat post-it is tinted with the note's colour label; brass when none.
+- Tags are free. The tag-pack diamond purchase and the VIP status read are
+  removed from the panel (Dan: Club Arena is free to play).
+- A note written on another device reaches every open table over realtime:
+  migration `20261104193818` puts `player_notes` on the realtime publication
+  with `REPLICA IDENTITY FULL` (so a DELETE can be attributed under RLS);
+  `usePlayerNoteMarkers` subscribes to the player's own rows on the shared
+  socket and re-reads once after a rejoin.

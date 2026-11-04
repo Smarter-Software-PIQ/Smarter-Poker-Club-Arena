@@ -7,18 +7,15 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useStaggerAnimation } from '../../hooks/useStaggerAnimation';
 import { useAuthUser } from '../../hooks/useAuthUser';
-import { vipService, FEATURE_PRICING } from '../../services/VIPService';
 import {
   LABEL_TO_HEX,
   NOTE_COLORS,
   PLAYER_TAGS,
   playerNotesService,
 } from '../../services/PlayerNotesService';
-import { showDiamondTopUp } from '../common/DiamondTopUpToast';
 import { useToast } from '../common/Toast';
 import styles from './PlayerNotesPanel.module.css';
 import { SpadeConsole } from '../console/SpadeConsole';
@@ -70,13 +67,8 @@ export default function PlayerNotesPanel({
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
-  /** In-flight latch for the paid tag purchase — see toggleTag. */
-  const tagPurchaseRef = useRef(false);
   const accountRequestRef = useRef(0);
-  const tagPurchaseRequestRef = useRef(0);
   const [searchQuery, setSearchQuery] = usePlayerPreference('playerNotes.search', '', 'global');
-  const [isVIP, setIsVIP] = useState(false);
-  const navigate = useNavigate();
   const toast = useToast();
   const { style: staggerStyle } = useStaggerAnimation(notes.length);
   const activeScope = `${user?.id || 'anonymous'}:${targetUserId || 'library'}`;
@@ -89,8 +81,6 @@ export default function PlayerNotesPanel({
   if (activeScopeRef.current !== activeScope) {
     activeScopeRef.current = activeScope;
     accountRequestRef.current += 1;
-    tagPurchaseRequestRef.current += 1;
-    tagPurchaseRef.current = false;
   }
 
   const stateBelongsToActiveScope = stateScope === activeScope;
@@ -98,7 +88,6 @@ export default function PlayerNotesPanel({
   const visibleCurrentNote = stateBelongsToActiveScope ? currentNote : '';
   const visibleSelectedTags = stateBelongsToActiveScope ? selectedTags : [];
   const visibleSelectedColor = stateBelongsToActiveScope ? selectedColor : 'none';
-  const visibleIsVIP = stateBelongsToActiveScope && isVIP;
   const visibleLoading = !stateBelongsToActiveScope || loading;
   const visibleLoadFailed = stateBelongsToActiveScope && noteLoadFailed;
 
@@ -118,12 +107,10 @@ export default function PlayerNotesPanel({
     setCurrentNote('');
     setSelectedTags([]);
     setSelectedColor('none');
-    setIsVIP(false);
     setSaving(false);
     savingRef.current = false;
     setNoteLoadFailed(false);
     setLoading(!!requestedUserId);
-    tagPurchaseRef.current = false;
 
     if (!requestedUserId) {
       setLoading(false);
@@ -207,17 +194,6 @@ export default function PlayerNotesPanel({
       setNoteLoadFailed(true);
       setLoading(false);
     });
-    void vipService
-      .checkVIPStatus(requestedUserId)
-      .then((status) => {
-        if (isCurrent()) setIsVIP(status.isVIP);
-      })
-      .catch((error) => {
-        if (isCurrent()) {
-          console.warn('[PlayerNotesPanel] Failed To Check VIP Status:', error);
-        }
-      });
-
     return () => {
       mounted = false;
       if (accountRequestRef.current === requestId) accountRequestRef.current += 1;
@@ -281,6 +257,7 @@ export default function PlayerNotesPanel({
         userId: requestedUserId,
         targetUserId,
         hasNote: true,
+        colorLabel: visibleSelectedColor,
       });
       if (isCurrent()) {
         toast.success('Note Saved');
@@ -297,7 +274,7 @@ export default function PlayerNotesPanel({
     }
   };
 
-  const toggleTag = async (tag: string) => {
+  const toggleTag = (tag: string) => {
     if (!stateBelongsToActiveScope || visibleLoading || visibleLoadFailed) return;
     // Removing a tag is always free
     if (visibleSelectedTags.includes(tag)) {
@@ -305,43 +282,11 @@ export default function PlayerNotesPanel({
       return;
     }
 
-    /**
-     * AUDIT 2026-08-28 — A NON-VIP COULD ADD EXACTLY ONE TAG, EVER.
-     *
-     * `tag_pack` is priced `permanent` (VIPService FEATURE_PRICING even notes
-     * it is "advertised per_use, actually written permanent"), so after the
-     * first successful purchase fn_purchase_feature answers `already_owned`
-     * with `success: false`. This site checked only `success`, so every
-     * subsequent tag opened the buy-more-diamonds sheet for something the
-     * player already owned, and `setSelectedTags` was never reached.
-     * Ownership is permission. Also given an in-flight ref, because two taps
-     * inside one commit both passed the `includes` test above (state had not
-     * committed) and both charged.
-     */
-    if (!visibleIsVIP) {
-      const requestedUserId = user?.id;
-      const requestedScope = activeScope;
-      if (!requestedUserId) return;
-      if (tagPurchaseRef.current) return;
-      tagPurchaseRef.current = true;
-      const requestId = ++tagPurchaseRequestRef.current;
-      const isCurrent = () =>
-        activeScopeRef.current === requestedScope && tagPurchaseRequestRef.current === requestId;
-      try {
-        const result = await vipService.purchaseFeature(requestedUserId, 'tag_pack');
-        if (!isCurrent()) return;
-        if (!result.success && !result.alreadyOwned) {
-          showDiamondTopUp(toast, navigate, {
-            feature: 'Player Tag',
-            cost: FEATURE_PRICING.tag_pack.cost,
-          });
-          return;
-        }
-      } finally {
-        if (isCurrent()) tagPurchaseRef.current = false;
-      }
-    }
-
+    /* TAGS ARE FREE (Dan 2026-11-04). Until today a non-VIP player paid a
+       diamond for the tag pack before the first tag would stick, and the
+       feature had two users in production. Club Arena is free to play; a
+       note's tags are part of the note. No status check, no purchase, no
+       top-up sheet. Removing a tag was always free; adding one now is too. */
     if (activeScopeRef.current !== activeScope) return;
     setSelectedTags((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
   };
