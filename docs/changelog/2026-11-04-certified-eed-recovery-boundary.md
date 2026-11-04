@@ -39,3 +39,15 @@ actual deadline deltas, unchanged wallet/stack/roster state, and read-only custo
 proof. The existing required maintenance-native lane invokes this qualification.
 The deployment-door law passed 40 cases. Source qualification is separate from
 protected integration, migration installation and live engine activation.
+
+## Original release reservation and finite owner floor
+
+The activation floor and seal previously assumed every owner recovery ended 420 seconds after announcement. The new fixed owner policy explicitly selects the certified EED profile and requires the whole 900-second cycle inside 2026-11-04 23:00 UTC through 2026-11-05 05:00 UTC. Historical policies and ordinary 120-second notice plus 300-second freeze remain unchanged.
+
+The existing seal now persists the exact certified policy, profile, control revision, predecessor revision and original end time in its original reservation. An unknown acknowledgement returns the same timestamp; mismatches cannot extend or retarget it. Prior-window completion and original announcement retirement use that persisted end time, and certified terminal proof is requested through the existing database reader. Diagnostic bounds accept the 320-second checkpoint and 305-second work allowance only for the fixed EED profile. The raw EED announcement binding remains the original 420-second tuple until the separately certified database boundary is proved.
+
+Focused regression coverage uses isolated real Git repositories, the real locked seal and atomic reservation/audit files, with no host or production calls. It covers exact source authority, whole-cycle admission, immutable replay, mismatched identity, late requests, terminal receipt timing and diagnostic profile bounds. The existing activation-floor law wrapper includes all five added cases and retains all forty existing cases. Source qualification is separate from protected integration, installation and live engine adoption.
+
+A failed registration now has a distinct read-only absence proof, returned only when both the original run key and announcement have no registered policy. Wrong identities still refuse. This lets the existing terminal reader separately prove an ordinary completed thaw after the conservative reservation expiry, without treating transport failure as absence. The installed-contract check pins the new proof definition; thaw and F06 definitions remain unchanged.
+
+Final local evidence: private PostgreSQL17 contract suite passed; all 45 activation-floor native cases passed across their six groups (the last eight were rerun after supplying an actual private GNU coreutils timeout); engine seal law 71 passed; historical daily authority 43 passed; off-cycle law 4 passed; TypeScript passed. No production operation or migration installation was performed by this source workstream.

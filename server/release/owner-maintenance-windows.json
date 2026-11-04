@@ -999,6 +999,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "b6298cb49c7d2e2e33d17678a659e267e8af69ce17e698f0b114daada6f87a62"
       }
+    },
+    {
+      "id": "2026-11-04-tournament-fourfold-certified-recovery",
+      "contains": "fc1733caf68b2220fb56ae81bd3368d09356f02d",
+      "notBefore": "2026-11-04T23:00:00Z",
+      "notAfter": "2026-11-05T05:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "certifiedRecoveryProfile": "eed-240s-certified-release-v1",
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "ef13b64ebce1d7ba3dc965b4a647bba2f13d34677dce38dc383bd8d164364caa"
+      },
+      "ownerOrder": "Owner chat 01a1a01a-7f70-7d62-8da1-8d086594c658, messages 01a1a8d4-9761-7840-94c4-68e3fbf3173f (four-minute native census) and 01a1a8d6-a6b7-74a2-91e9-cda79856cfc8 (connected budgets up to four times as needed), authorizes this new bounded recovery cycle. Exact EED predecessor only; preserve 120-second notice, qualify and install the certified database contract before announcement, register strictly before freeze, and give all 15 clock families credit through the fixed 780-second freeze. The entire 900-second cycle must fit inside this six-hour authority. Preserve original operation identity, custody, rollback and verified release; never extend a prior or expired cycle. No new publisher or scheduled retry."
     }
   ],
   "databaseWindows": [
