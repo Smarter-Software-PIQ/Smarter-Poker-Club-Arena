@@ -12,7 +12,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { playerStyleClassifier } from '../../src/services/PlayerStyleClassifier';
+import {
+  gameLoosenessFactor,
+  playerStyleClassifier,
+  VARIANT_LOOSENESS,
+} from '../../src/services/PlayerStyleClassifier';
 
 describe('PlayerStyleClassifier', () => {
   // ─────────────────────────────────────────────────────────────────────────
@@ -232,6 +236,94 @@ describe('PlayerStyleClassifier', () => {
           expect(result.style).not.toBe('unknown');
         }
       }
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GAME-AWARE, EXPLAINED, AND SHAREABLE OR NOT (2026-11-04)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('game-aware ranges', () => {
+    const base = { handsPlayed: 1000, aggressiveActions: 1300, passiveActions: 1000 };
+
+    it("judges a PLO range against PLO: 36/19 in PLO is TAG, in Hold'em it is LAG", () => {
+      const plo = playerStyleClassifier.classify({
+        ...base,
+        vpipCount: 360,
+        pfrCount: 190,
+        variantHands: [{ variant: 'plo', hands: 1000 }],
+      });
+      const nlh = playerStyleClassifier.classify({
+        ...base,
+        vpipCount: 360,
+        pfrCount: 190,
+        variantHands: [{ variant: 'nlh', hands: 1000 }],
+      });
+      expect(plo.style).toBe('tag');
+      expect(nlh.style).toBe('lag');
+    });
+
+    it('weights a mixed game list by hands', () => {
+      expect(
+        gameLoosenessFactor([
+          { variant: 'nlh', hands: 500 },
+          { variant: 'plo', hands: 500 },
+        ])
+      ).toBeCloseTo(1.15, 5);
+      expect(gameLoosenessFactor([{ variant: 'PLO6', hands: 10 }])).toBe(1.5);
+      expect(gameLoosenessFactor([{ variant: 'mystery_game', hands: 10 }])).toBe(1);
+      expect(gameLoosenessFactor(undefined)).toBe(1);
+      expect(gameLoosenessFactor([])).toBe(1);
+    });
+
+    it('never lets a game factor turn a raiser into a Fish', () => {
+      for (const variant of Object.keys(VARIANT_LOOSENESS)) {
+        const result = playerStyleClassifier.classify({
+          ...base,
+          vpipCount: 400,
+          pfrCount: 220,
+          variantHands: [{ variant, hands: 1000 }],
+        });
+        expect(result.style, variant).not.toBe('fish');
+      }
+    });
+  });
+
+  describe('the reason line', () => {
+    it('states the arithmetic in Title Case with no em dash', () => {
+      const hands = 1623;
+      const result = playerStyleClassifier.classify({
+        handsPlayed: hands,
+        vpipCount: Math.round(0.3432 * hands),
+        pfrCount: Math.round(0.1707 * hands),
+        aggressiveActions: Math.round(hands * 1.12),
+        passiveActions: hands,
+      });
+      expect(result.reason).toBe('Plays 34% Of Hands, Raises About Half Of Them');
+      expect(result.reason).not.toContain('\u2014');
+    });
+
+    it('names the game when the range was judged against it', () => {
+      const result = playerStyleClassifier.classify({
+        handsPlayed: 1000,
+        vpipCount: 360,
+        pfrCount: 190,
+        aggressiveActions: 1300,
+        passiveActions: 1000,
+        variantHands: [{ variant: 'plo5', hands: 1000 }],
+      });
+      expect(result.reason).toContain('(Normal For PLO5)');
+    });
+  });
+
+  describe('shareable titles', () => {
+    it('only Shark, TAG and LAG go on the share image', () => {
+      const defs = playerStyleClassifier.getStyleDefinitions();
+      const shareable = Object.entries(defs)
+        .filter(([, d]) => d.shareable)
+        .map(([k]) => k)
+        .sort();
+      expect(shareable).toEqual(['lag', 'shark', 'tag']);
     });
   });
 

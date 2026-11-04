@@ -1424,9 +1424,10 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
     () =>
       playerStyleFromStats(
         full?.overall,
-        full?.contract.quality.metric_availability.aggression_factor === true
+        full?.contract.quality.metric_availability.aggression_factor === true,
+        full?.variants
       ),
-    [full?.overall]
+    [full?.overall, full?.variants]
   );
   const overall = full?.overall ?? EMPTY_OVERALL;
   const lifetime = full?.lifetime ?? EMPTY_LIFETIME;

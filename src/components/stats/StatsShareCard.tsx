@@ -50,6 +50,12 @@ interface Props {
   styleLabel?: string | null;
   styleColor?: string | null;
   /**
+   * One line, UNDER the image rather than on it (2026-11-04): what the title
+   * means in the player's own numbers, or why there is no title yet. Never
+   * drawn into the PNG.
+   */
+  styleNote?: string | null;
+  /**
    * The analysis window the numbers cover, drawn ON the card. Without it a
    * 7-day slice left the browser as an unlabelled lifetime claim.
    */
@@ -90,6 +96,7 @@ export default function StatsShareCard({
   stats,
   styleLabel,
   styleColor,
+  styleNote,
   rangeLabel,
   scopeLabel,
   privacyPresentationMode = false,
@@ -357,6 +364,7 @@ export default function StatsShareCard({
           }
         />
       </div>
+      {styleNote && !privacyPresentationMode && <p className="sharecard-style-note">{styleNote}</p>}
       <button type="button" className="sharecard-btn" onClick={handleShare} disabled={busy}>
         {busy ? 'Preparing...' : 'Share Or Save Image'}
       </button>

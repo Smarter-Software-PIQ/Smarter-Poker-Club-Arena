@@ -14,7 +14,10 @@ import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/st
 import { playerDisplayName } from '../../utils/playerDisplayName';
 import { compactChips } from '../../utils/format';
 import { enumToTitleCase } from '../../utils/titleCase';
-import type { playerStyleFromStats } from '../../components/stats/playerStyleFromStats';
+import {
+  STYLE_MIN_HANDS,
+  type playerStyleFromStats,
+} from '../../components/stats/playerStyleFromStats';
 import { StatRow } from './StatRow';
 import { NOT_YET_MEASURED, SCOPE_CASH, ratioOrUnmeasured } from './format';
 import { RANGES, type FullStats, type OverallStats, type HandEvidenceFilter } from './types';
@@ -263,8 +266,21 @@ export default function OverviewTab({
         <PanelBoundary name="Share Card" resetKey={panelResetKey}>
           <StatsShareCard
             displayName={playerDisplayName(user)}
-            styleLabel={shareStyle?.label ?? null}
-            styleColor={shareStyle?.color ?? null}
+            /* ONLY A TITLE THAT READS WELL GOES ON THE IMAGE (2026-11-04). The
+               card is made to be posted. Shark, TAG and LAG print; the rest
+               stay private on the Trophies tab, where the full honest read
+               (with its reason) lives. */
+            styleLabel={shareStyle?.shareable ? shareStyle.label : null}
+            styleColor={shareStyle?.shareable ? shareStyle.color : null}
+            styleNote={
+              shareStyle
+                ? shareStyle.shareable
+                  ? `${shareStyle.label}: ${shareStyle.reason}`
+                  : `Your Private Style Read Is On The Trophies Tab. ${shareStyle.reason}`
+                : overall.total_hands < STYLE_MIN_HANDS
+                  ? `Playing Style Title Unlocks At ${STYLE_MIN_HANDS.toLocaleString()} Hands (${overall.total_hands.toLocaleString()} So Far)`
+                  : null
+            }
             stats={{
               hands: overall.total_hands,
               bb100: overall.bb_per_100,
