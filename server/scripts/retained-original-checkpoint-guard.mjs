@@ -521,6 +521,62 @@ export async function retainedOriginalCheckpointGuard(
           m.tableEngines instanceof Map ? new Map(m.tableEngines) : null,
         ])
       );
+      const objects = new Set(discoveredEngines);
+      const methods = new Map();
+      const bindMethods = (target, names, tournamentId, leaseGeneration) => {
+        const symbols = Object.getOwnPropertySymbols(target).filter(
+          (s) => s.description === 'smarter.tournament-data-authority'
+        );
+        if (tournamentId) {
+          need(symbols.length === 1, 'retained_actor_unproven');
+          const d = Object.getOwnPropertyDescriptor(target, symbols[0]),
+            a = d?.value;
+          need(
+            d?.configurable === false &&
+              d.enumerable === false &&
+              d.writable === false &&
+              Object.isFrozen(a) &&
+              a.actor === 'tournament-manager' &&
+              a.tournamentId === tournamentId &&
+              a.leaseGeneration === leaseGeneration,
+            'retained_actor_unproven'
+          );
+          const wrapper = Function.prototype.toString.call(
+            modules.dataActorContext.bindTournamentDataAuthority(a, () => {})
+          );
+          need(
+            names.every(
+              (n) =>
+                typeof target[n] === 'function' &&
+                Function.prototype.toString.call(target[n]) === wrapper
+            ),
+            'retained_method_owner_unproven'
+          );
+        } else
+          need(
+            names.every((n) => target[n] === base.prototype[n]),
+            'retained_method_owner_unproven'
+          );
+        methods.set(target, [
+          ...new Map([...(methods.get(target) ?? []), ...names.map((n) => [n, target[n]])]),
+        ]);
+      };
+      for (const m of discoveredManagers) {
+        need(
+          m instanceof modules.managerBase.TournamentManagerBase &&
+            uuid(m.tournamentId) &&
+            uuid(m.tournamentLeaseGeneration) &&
+            m.tournamentSeatMoveSerialTail instanceof Promise &&
+            Number.isSafeInteger(m.tournamentSeatMoveAuthorityRevision),
+          'retained_manager_census_unproven'
+        );
+        bindMethods(
+          m,
+          ['stop', 'captureDrainedF06Originals', 'seatMoveQuarantineRefusal'],
+          m.tournamentId,
+          m.tournamentLeaseGeneration
+        );
+      }
       const existingRenewal = server.ownershipLeaseRenewalOperation;
       const elapsedOwners = [...beforeManagers.values()].filter(
         (m) =>
@@ -534,6 +590,74 @@ export async function retainedOriginalCheckpointGuard(
           performance.now() >= m.tournamentLeaseProofDeadlineMonotonicMs
       );
       const observeExistingRenewal = elapsedOwners.length > 0 && existingRenewal instanceof Promise;
+      // Drain original serial continuations before publishing the registry witness.
+      // A continuation may already own lease loss and retirement; the guard only
+      // joins it, never starts a stop or renews an expired generation.
+      const capturedRetirements = new Map(
+        [...beforeManagers.values()].map((m) => [
+          m,
+          server.tournamentManagerRetirementOperations?.get(m),
+        ])
+      );
+      const preliminaryIdentities = new Map(
+        discoveredManagers.map((m) => [
+          m,
+          {
+            id: m.tournamentId,
+            generation: m.tournamentLeaseGeneration,
+            children: m.tableEngines,
+          },
+        ])
+      );
+      const checkPreliminaryOwners = (manager = null) => {
+        need(
+          server.lifecycleGeneration === generation &&
+            server.tableEngines === direct &&
+            server.tournamentEngines === managers &&
+            server.maintenanceBreak === maintenance &&
+            Object.entries(initial).every(([k, v]) => maintenance[k] === v) &&
+            modules.freezeState.isMaintenanceFrozen() === true,
+          'retained_retirement_owner_unproven'
+        );
+        need(
+          Math.min(maintenance.remainingMs(), startRemaining - (performance.now() - startClock)) >=
+            reserveMs,
+          'retained_reserve_exhausted'
+        );
+        for (const [m, identity] of manager
+          ? [[manager, preliminaryIdentities.get(manager)]]
+          : preliminaryIdentities) {
+          need(
+            m.tournamentId === identity.id &&
+              m.tournamentLeaseGeneration === identity.generation &&
+              m.tableEngines === identity.children &&
+              methods.get(m).every(([n, f]) => m[n] === f),
+            'retained_retirement_owner_unproven'
+          );
+        }
+      };
+      await all(discoveredManagers, async (m) => {
+        for (;;) {
+          checkPreliminaryOwners(m);
+          const tail = m.tournamentSeatMoveSerialTail,
+            revision = m.tournamentSeatMoveAuthorityRevision;
+          need(
+            tail instanceof Promise && Number.isSafeInteger(revision),
+            'retained_manager_census_unproven'
+          );
+          await tail;
+          checkPreliminaryOwners(m);
+          const originalRetirement = server.tournamentManagerRetirementOperations?.get(m);
+          if (!capturedRetirements.get(m) && originalRetirement instanceof Promise)
+            capturedRetirements.set(m, originalRetirement);
+          if (
+            tail === m.tournamentSeatMoveSerialTail &&
+            revision === m.tournamentSeatMoveAuthorityRevision
+          )
+            break;
+        }
+      });
+      checkPreliminaryOwners();
       // Release one event-loop turn only for an already-owned renewal pass.
       // Never invoke its accessor, renewal, stop, or expiry operation here.
       let observationDeadline = 0,
@@ -566,11 +690,13 @@ export async function retainedOriginalCheckpointGuard(
       const joinedRetirements = new Map(),
         retiringChildren = new Map();
       for (const [id, m] of beforeManagers) {
-        const retirement = server.tournamentManagerRetirementOperations?.get(m);
+        const retirement =
+          capturedRetirements.get(m) ?? server.tournamentManagerRetirementOperations?.get(m);
         if (
           m.tournamentLeaseAuthorityExpired === true &&
           m.stopFenceApplied === true &&
-          m.teardownPromise instanceof Promise &&
+          (m.teardownPromise instanceof Promise ||
+            (capturedRetirements.get(m) === retirement && m.teardownPromise === null)) &&
           retirement instanceof Promise
         ) {
           need(
@@ -641,46 +767,6 @@ export async function retainedOriginalCheckpointGuard(
         liveEntries = [...liveMap];
       const directSnapshot = new Map(directEntries),
         managerSnapshot = new Set(managerEntries.map(([, manager]) => manager));
-      const objects = new Set(discoveredEngines);
-      const methods = new Map();
-      const bindMethods = (target, names, tournamentId, leaseGeneration) => {
-        const symbols = Object.getOwnPropertySymbols(target).filter(
-          (s) => s.description === 'smarter.tournament-data-authority'
-        );
-        if (tournamentId) {
-          need(symbols.length === 1, 'retained_actor_unproven');
-          const d = Object.getOwnPropertyDescriptor(target, symbols[0]),
-            a = d?.value;
-          need(
-            d?.configurable === false &&
-              d.enumerable === false &&
-              d.writable === false &&
-              Object.isFrozen(a) &&
-              a.actor === 'tournament-manager' &&
-              a.tournamentId === tournamentId &&
-              a.leaseGeneration === leaseGeneration,
-            'retained_actor_unproven'
-          );
-          const wrapper = Function.prototype.toString.call(
-            modules.dataActorContext.bindTournamentDataAuthority(a, () => {})
-          );
-          need(
-            names.every(
-              (n) =>
-                typeof target[n] === 'function' &&
-                Function.prototype.toString.call(target[n]) === wrapper
-            ),
-            'retained_method_owner_unproven'
-          );
-        } else
-          need(
-            names.every((n) => target[n] === base.prototype[n]),
-            'retained_method_owner_unproven'
-          );
-        methods.set(target, [
-          ...new Map([...(methods.get(target) ?? []), ...names.map((n) => [n, target[n]])]),
-        ]);
-      };
       const checkMaintenance = (completeOwners = false) => {
         proveLightningAbsent(completeOwners);
         if (completeOwners) proveLightningHosts();
@@ -728,7 +814,7 @@ export async function retainedOriginalCheckpointGuard(
           [...direct].every(([id, e]) => directSnapshot.has(id) && directSnapshot.get(id) === e) &&
             (stage !== 'preflight' || direct.size === directEntries.length) &&
             managers.size === managerEntries.length &&
-            [...managers.values()].every((manager) => managerSnapshot.has(manager)),
+            managerEntries.every(([id, manager]) => managers.get(id) === manager),
           'retained_registry_changed'
         );
         need(
@@ -766,22 +852,6 @@ export async function retainedOriginalCheckpointGuard(
         );
       }
       checkAllOwners();
-      for (const m of discoveredManagers) {
-        need(
-          m instanceof modules.managerBase.TournamentManagerBase &&
-            uuid(m.tournamentId) &&
-            uuid(m.tournamentLeaseGeneration) &&
-            m.tournamentSeatMoveSerialTail instanceof Promise &&
-            Number.isSafeInteger(m.tournamentSeatMoveAuthorityRevision),
-          'retained_manager_census_unproven'
-        );
-        bindMethods(
-          m,
-          ['stop', 'captureDrainedF06Originals', 'seatMoveQuarantineRefusal'],
-          m.tournamentId,
-          m.tournamentLeaseGeneration
-        );
-      }
       const requireManagerLease = (m, site, valid) => {
         if (!valid && observedDetail === null) {
           const deadline = m.tournamentLeaseProofDeadlineMonotonicMs;
@@ -826,7 +896,8 @@ export async function retainedOriginalCheckpointGuard(
           // the one authoritative witness is immutable through the first stop.
         }
       };
-      await all(discoveredManagers, joinCurrentManagerAuthority);
+      // The preliminary drain above owns the only pre-classification await.
+      for (const m of discoveredManagers) proveCurrentManager(m);
       const owned = new Map();
       for (const [id, e] of directEntries) {
         need(uuid(id) && e.tableId === id && objects.has(e), 'retained_direct_owner_missing');
