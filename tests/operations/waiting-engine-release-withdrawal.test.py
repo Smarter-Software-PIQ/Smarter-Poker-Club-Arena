@@ -677,6 +677,178 @@ class AnnouncedCancellation(unittest.TestCase):
             self.assertEqual(control['stopCount'], 0)
             self.assertFalse(any(cmd[:2] == ['systemctl', 'stop'] for cmd in control['commands']))
 
+    def successor_harness(self, folder, patches):
+        request, control, state, entry, reservation, units, path = self.masked_legacy_harness(folder, patches, mixed=True)
+        intent = json.loads(path.read_text())
+        intent['container']['startedAt'] = '2026-11-04T20:00:00Z'
+        stamp = 1793824762499
+        intent['evidence']['thaw'] = {'announcedAtMs': stamp, 'freezeStartedAtMs': stamp + 119999,
+            'releasedThroughMs': stamp + 420000, 'ownershipToken': '12345678-1234-1234-1234-123456789abc', 'generation': 1}
+        reservation.write_text(json.dumps({'runId': request['runKey'], 'sha': request['releaseSha'],
+            'announcedAt': stamp, 'cause': 'urgent'}))
+        intent['evidence']['reservationHash'] = module.digest(reservation.read_bytes())
+        path.write_text(json.dumps(intent))
+        current = request | {'instanceId': '1-5835d418'}
+        control['container'] = intent['container'] | {'startedAt': '2026-11-04T21:47:22.241Z'}
+        patches.enter_context(patch.object(module, 'container_identity', side_effect=lambda _: dict(control['container'])))
+        health = {'releaseSha': request['desiredSha'], 'instanceId': current['instanceId'], 'running': True,
+                  'liveness': 'ok', 'maintenance': {'active': False, 'phase': 'idle'}}
+        control['health'] = health
+        class Response:
+            def __init__(self, url): self.url = url
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def geturl(self): return self.url
+            def read(self, maximum): return json.dumps(health).encode()
+        patches.enter_context(patch.object(module.urllib.request, 'urlopen', side_effect=lambda url, timeout: Response(url)))
+        patches.enter_context(patch.object(module, 'health_pair', side_effect=lambda bound: module.healthy(health, bound)))
+        prior = module.command.side_effect
+        def native(args, timeout=5):
+            if args[:3] == ['docker', 'container', 'inspect']:
+                return json.dumps(control['container'] | {'running': True, 'status': 'running', 'pid': 12345})
+            return prior(args, timeout)
+        patches.enter_context(patch.object(module, 'command', side_effect=native))
+        patches.enter_context(patch.object(module, 'current26_kernel_identity', return_value={'pid': 12345, 'startTicks': 1,
+            'bootTime': 1793820000, 'namespace': 'pid:[4026532000]', 'namespacePids': ['12345', '1'],
+            'cgroup': '/system.slice/docker-' + control['container']['id'] + '.scope'}))
+        patches.enter_context(patch.object(module, 'announcement_evidence', side_effect=lambda *args, **kwargs: intent['evidence']))
+        patches.enter_context(patch.object(module, 'own_thaw', return_value=intent['evidence']['thaw']))
+        generation = module.PARENT / 'engine-control-generations' / request['controlSha']; generation.mkdir(parents=True)
+        seal = generation / 'engine-release-seal.py'; seal.write_text('qualified fixture source')
+        module.OWNER_WINDOW_PROFILE['hashes'] = {seal.name: module.digest(seal.read_bytes())}
+        wrapper = module.PARENT / 'engine-release-unit-wrapper-v1.sh'
+        wrapper.write_bytes(subprocess.check_output(['git', 'show', '9ca87a39e51d0988653ce83c4ba05a7c84929f94:server/scripts/engine-release-unit-wrapper.sh'], cwd=ROOT))
+        patches.enter_context(patch.object(module, 'observe_seal_state', return_value={
+            'pending': None, 'finalization': None, 'committedRuns': {},
+            'desired': {'sha': request['desiredSha'], 'imageId': intent['container']['image']}}))
+        return request, current, control, state, units, path
+
+    def test_unfinished_owner_cancellation_accepts_proved_successor_without_rebinding_or_stop(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            request, current, control, state, units, path = self.successor_harness(folder, patches)
+            original = path.read_bytes()
+            answer = module.cancel_announced(request)
+            self.assertEqual(answer, module.cancel_announced(request))
+            module.validate_cancellation_reply(answer, request)
+            self.assertFalse(answer['servingInstanceUnchanged'])
+            self.assertTrue(answer['servingRuntimeUnchangedDuringCancellation'])
+            self.assertEqual(answer['runtime']['request'], current)
+            self.assertEqual(answer['request'], request)
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(answer['stopDisposition'], 'not-needed-already-quiescent')
+            self.assertEqual(control['stopCount'], 0)
+            self.assertLessEqual(len(json.dumps(answer).encode()), 4096)
+
+    def test_successor_observation_is_native_read_only_and_retains_all_original_bytes(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            request, current, control, state, units, path = self.successor_harness(folder, patches)
+            def files():
+                return {str(file): file.read_bytes() for file in Path(folder).rglob('*') if file.is_file() and not file.is_symlink()}
+            before = files()
+            answer = module.observe_cancellation(request | {'mode': 'observe_expired_announcement'})
+            self.assertEqual(answer['result'], 'predicates_passed_at_read')
+            self.assertEqual(answer['runtime']['request'], current)
+            self.assertFalse(answer['retryAllowed'])
+            self.assertEqual(files(), before)
+            self.assertEqual(control['stopCount'], 0)
+            self.assertFalse(any(cmd[0] == 'systemctl' and cmd[1] in {'stop', 'daemon-reload'} for cmd in control['commands']))
+
+    def test_successor_partial_cleanup_resumes_after_another_restart_and_receipt_replays_current_witness(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            request, current, control, state, units, path = self.successor_harness(folder, patches)
+            original = path.read_bytes(); target = module.ROOT / 'engine-release-requests' / (request['runKey'] + '.request')
+            unlink = Path.unlink
+            def interrupted(file, *args, **kwargs):
+                result = unlink(file, *args, **kwargs)
+                if file == target: raise OSError('interrupted after original unlink')
+                return result
+            with patch.object(Path, 'unlink', interrupted), self.assertRaises(OSError): module.cancel_announced(request)
+            self.assertFalse(target.exists())
+            witnesses = list(path.parent.glob(request['runKey'] + '.runtime-*.json'))
+            self.assertEqual(len(witnesses), 1); old_witness = witnesses[0].read_bytes()
+            control['container']['startedAt'] = '2026-11-04T21:48:22.241Z'
+            control['health']['instanceId'] = '1-12345678'
+            with patch.object(module, 'announcement_evidence', side_effect=AssertionError('Do not reconstruct deleted originals')):
+                answer = module.cancel_announced(request)
+            self.assertEqual(answer['runtime']['request']['instanceId'], '1-12345678')
+            self.assertEqual(witnesses[0].read_bytes(), old_witness)
+            self.assertEqual(len(list(path.parent.glob(request['runKey'] + '.runtime-*.json'))), 2)
+            receipt_path = path.with_name(request['runKey'] + '.receipt.json'); receipt_bytes = receipt_path.read_bytes()
+            control['container']['startedAt'] = '2026-11-04T21:49:22.241Z'
+            control['health']['instanceId'] = '1-87654321'
+            replay = module.cancel_announced(request)
+            self.assertEqual(replay['runtime'], answer['runtime'])
+            self.assertEqual(replay['currentRuntime']['request']['instanceId'], '1-87654321')
+            self.assertLessEqual(len(json.dumps(replay).encode()), 4096)
+            self.assertEqual(module.current26_cancelled_runtime(request, answer), replay['currentRuntime'])
+            self.assertEqual(receipt_path.read_bytes(), receipt_bytes)
+            self.assertEqual(path.read_bytes(), original); self.assertEqual(control['stopCount'], 0)
+
+    def test_successor_refuses_changed_custody_identity_source_and_live_units_before_cleanup(self):
+        for failure in ('container', 'image', 'birth', 'old_health', 'wrong_sha', 'kernel', 'leader',
+                        'seal', 'source', 'live', 'unmasked', 'cutoff', 'foreign_stop', 'foreign_binding'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+                request, current, control, state, units, path = self.successor_harness(folder, patches)
+                intent = json.loads(path.read_text())
+                if failure == 'container': control['container']['id'] = 'b' * 64
+                if failure == 'image': control['container']['image'] = 'sha256:' + 'c' * 64
+                if failure == 'birth': control['container']['startedAt'] = '2026-11-04T20:45:00Z'
+                if failure == 'old_health': control['health']['instanceId'] = request['instanceId']
+                if failure == 'wrong_sha': control['health']['releaseSha'] = request['releaseSha']
+                if failure == 'kernel': module.current26_kernel_identity.side_effect = ValueError('unproved native PID1')
+                if failure == 'leader': module.own_thaw.side_effect = ValueError('foreign fresh leader')
+                if failure == 'seal': module.observe_seal_state.return_value['pending'] = {'runId': 'other'}
+                if failure == 'source': (module.PARENT / 'engine-control-generations' / request['controlSha'] / 'engine-release-seal.py').write_text('changed')
+                if failure == 'unmasked': (module.SYSTEMD / units[0]).unlink()
+                if failure == 'cutoff':
+                    intent['evidence']['thaw']['releasedThroughMs'] += 1; path.write_text(json.dumps(intent))
+                if failure == 'foreign_stop':
+                    path.with_name(request['runKey'] + '.stop-issued.json').write_text(json.dumps({'schema': module.CANCEL_SCHEMA,
+                        'intentHash': module.digest(path.read_bytes()), 'stopDisposition': 'requested'}))
+                if failure == 'foreign_binding':
+                    path.with_name(request['runKey'] + '.unit-cgroups.json').write_text(json.dumps({'schema': 'engine-release-cancellation-cgroup/v1',
+                        'intentHash': '0' * 64, 'unitCgroups': {}}))
+                if failure == 'live': patches.enter_context(patch.object(module, 'quiet_units', side_effect=ValueError('native owner remains')))
+                with self.assertRaises((ValueError, OSError)): module.cancel_announced(request)
+                for relative in intent['evidence']['originals']: self.assertTrue((module.ROOT / relative).exists())
+                self.assertFalse(path.with_name(request['runKey'] + '.receipt.json').exists())
+                self.assertEqual(control['stopCount'], 0)
+
+    def test_successor_changed_during_cleanup_refuses_and_later_stable_execution_resumes(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            request, current, control, state, units, path = self.successor_harness(folder, patches)
+            unlink = Path.unlink; changed = False
+            def restarted(file, *args, **kwargs):
+                nonlocal changed
+                result = unlink(file, *args, **kwargs)
+                if not changed:
+                    changed = True
+                    control['container']['startedAt'] = '2026-11-04T21:48:22.241Z'
+                    control['health']['instanceId'] = '1-12345678'
+                return result
+            with patch.object(Path, 'unlink', restarted), self.assertRaises(ValueError): module.cancel_announced(request)
+            self.assertFalse(path.with_name(request['runKey'] + '.receipt.json').exists())
+            answer = module.cancel_announced(request)
+            self.assertEqual(answer['runtime']['request']['instanceId'], '1-12345678')
+            self.assertEqual(control['stopCount'], 0)
+
+    def test_successor_retained_bindings_still_require_native_empty_release_children_and_control_pid(self):
+        for failure in ('child', 'control_pid'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+                request, current, control, state, units, path = self.successor_harness(folder, patches)
+                module.save_once(path.with_name(request['runKey'] + '.unit-cgroups.json'), {
+                    'schema': 'engine-release-cancellation-cgroup/v1', 'intentHash': module.digest(path.read_bytes()),
+                    'unitCgroups': {unit: module.canonical_service_cgroup(unit)[1] for unit in units[:2]}})
+                original_command = module.command.side_effect
+                def native(args, timeout=5):
+                    if failure == 'child' and 'GetUnitProcesses' in args and args[-1] == units[0]: return 'a(sus) 1 child 42 child'
+                    if failure == 'control_pid' and args[-1] == 'ControlPID': return 'u 42'
+                    return original_command(args, timeout)
+                with patch.object(module, 'command', side_effect=native), self.assertRaises(ValueError): module.cancel_announced(request)
+                self.assertTrue((state / 'engine-release-requests' / (request['runKey'] + '.request')).exists())
+                self.assertFalse(path.with_name(request['runKey'] + '.receipt.json').exists())
+                self.assertEqual(control['stopCount'], 0)
+
     def test_live_intent_masked_recovery_refuses_foreign_source_groups_and_native_owners(self):
         for failure in ['source', 'dropin', 'original_group', 'slice', 'control_pid', 'group', 'manager', 'populated']:
             with self.subTest(failure=failure), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
@@ -841,6 +1013,15 @@ class AnnouncedCancellation(unittest.TestCase):
         def verify(value=row, witness=proof):
             return module.prove_thaw([value], [], stamp, now, request['controlSha'], request, witness)
         self.assertEqual(verify()['freezeStartedAtMs'], stamp + 119999)
+        successor = '1-5835d418'
+        current_proof = proof | {'leader': proof['leader'] | {'instanceId': successor}}
+        self.assertEqual(module.prove_thaw([row], [], stamp, now, request['controlSha'], request,
+            current_proof, successor), verify())
+        with self.assertRaises(ValueError):
+            module.prove_thaw([row], [], stamp, now, request['controlSha'], request, proof, successor)
+        with self.assertRaises(ValueError):
+            module.prove_thaw([row | {'release_target_at': iso(stamp + 420001)}], [], stamp, now,
+                request['controlSha'], request, current_proof, successor)
         self.assertEqual(verify(row | {'freeze_started_at': iso(stamp + 120000), 'frozen_seconds': '300'})['freezeStartedAtMs'], stamp + 120000)
         for change in ({'freeze_started_at': iso(stamp + 119998)}, {'frozen_seconds': '300'},
                        {'frozen_seconds': '300.0011'}, {'release_target_at': iso(stamp + 419999)},
