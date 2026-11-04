@@ -152,6 +152,7 @@ describe('the union cash schedule follows the November 4 owner scope', () => {
     const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
     const rotator = readFileSync(new URL('./HorseSessionRotator.ts', import.meta.url), 'utf8');
     expect(fleet).toContain('playingHumansAtCashTable(tableOccupiedSeats, horseIdSet)');
+    expect(fleet).toContain('stack, club_id, joined_at, is_sitting_out, leave_pending');
     expect(fleet).toContain('club_id, union_id, is_spins, arena:clubs');
     expect(rotator).toContain('game_variant, tournament_id, is_spins, status');
     expect(fleet).toContain('!horseUnionCashTableAllowed(');

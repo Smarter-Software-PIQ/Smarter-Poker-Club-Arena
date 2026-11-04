@@ -111,7 +111,9 @@ describe('WIRING - the two details that would silently disable the gate', () => 
     /* 2026-09-02: the select also carries club_id and joined_at now (the
        seat's wallet, for resolveSeatClub). The pin is on STACK being read,
        not on the column list being exactly these four. */
-    expect(FLEET).toMatch(/\.select\('id, user_id, table_id, seat_number, stack(?:, [a-z_]+)*'\)/);
+    expect(FLEET).toMatch(
+      /\.select\(\s*'id, user_id, table_id, seat_number, stack(?:, [a-z_]+)*'\s*\)/
+    );
     expect(FLEET).toMatch(/stack: number \| null;/);
   });
 
