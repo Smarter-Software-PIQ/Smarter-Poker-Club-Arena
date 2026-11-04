@@ -929,6 +929,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "b2c264bd6f1bc8ff37dab854d7dd049cb9e27d17e00f83d5b08c9887ec0b5d3a"
       }
+    },
+    {
+      "id": "2026-11-04-tournament-creation-qualification-continuation",
+      "ownerOrder": "Dan directly in tournament recovery chat01a1a01a-7f70-7d62-8da1-8d086594c658 ordered continuing to completion through the earliest certified safe window without waiting for :55. This NEW fixed04:30 through07:30UTC November4 continuation follows receiver41773307801 preflight refusal: historical createXMTT fixtures used the runner clock and crossed the maintained Chicago daily admission boundary. At04:35UTC focused correction and normal hooks plus observed38minute CI and27minute receiver leave insufficient predictable admission margin before the prior06:00 expiry. Preserve every prior entry and receipt and all production daily scheduling rules. Before a new qualified operation read original terminal outcomes, protected source and current ownership; never retry failed or unknown operations. Use only the existing stage/receiver earliest-certified transaction with120second notice,300second window, full285second proof/rollback reserve, complete original hand custody, immutable source/seal checks, durable freeze and verified own-window v3thaw. No automatic renewal, timer, second publisher, extended freeze or guard bypass. Fixed expiry ends this authority.",
+      "contains": "0de3e5b9f6ae9b6def3a2603ef69fab5d934977d",
+      "notBefore": "2026-11-04T04:30:00Z",
+      "notAfter": "2026-11-04T07:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "2607a0c8fa9a92ff55c3479e07b3e12aa1af5e741180417a800f33a0503ef166"
+      }
     }
   ],
   "databaseWindows": [
