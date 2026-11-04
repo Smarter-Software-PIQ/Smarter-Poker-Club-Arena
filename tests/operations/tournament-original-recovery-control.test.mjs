@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import test from 'node:test';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { controlOriginalRecovery } from '../../.github/scripts/tournament-original-recovery-control.mjs';
 const input = {
@@ -1158,15 +1160,26 @@ function retirementFixture({
   changedEvent = false,
   wrongOperation = false,
   changedRuntime = false,
+  finalRuntime = {},
+  receiptDrift = false,
+  settledReceipt = {},
+  finalHealthChanged = false,
+  releasedLease = false,
 } = {}) {
   const calls = [];
   let state = initial;
+  let ackCalls = 0;
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
     if (url.includes('/health'))
       return {
         ok: true,
-        json: async () => ({ ...health, ...(changedRuntime ? { instanceId: '1-deadbeef' } : {}) }),
+        json: async () => ({
+          ...health,
+          ...(changedRuntime || (finalHealthChanged && ackCalls > 0)
+            ? { instanceId: '1-deadbeef' }
+            : {}),
+        }),
       };
     if (url.includes('/tournaments?'))
       return {
@@ -1205,11 +1218,23 @@ function retirementFixture({
               state,
               operation_id: wrongOperation ? input.nonce : retirementMember.original_operation_id,
               tournament_id: retirementMember.tournament_id,
-              current_generation: input.generation,
+              current_generation: releasedLease ? null : input.generation,
+              tournament_status: state === 'settled' ? 'CANCELLED' : 'RUNNING',
               current_boundary_valid: state === 'quiesced',
               quiescence_generation: input.generation,
               money_hash: '0'.repeat(32),
-              receipt: state === 'settled' ? { private_field: privateCanary } : null,
+              receipt:
+                state === 'settled'
+                  ? {
+                      fully_settled: true,
+                      operation_id: retirementMember.original_operation_id,
+                      tournament_id: retirementMember.tournament_id,
+                      quiescence: { generation: input.generation },
+                      private_field: privateCanary,
+                      ...(receiptDrift && ackCalls > 0 ? { changed: true } : {}),
+                      ...settledReceipt,
+                    }
+                  : null,
               private_field: privateCanary,
             }),
           };
@@ -1227,12 +1252,21 @@ function retirementFixture({
       };
     }
     if (url.endsWith('/admin/tournament-abort-boundary')) {
-      state = 'quiesced';
+      ackCalls++;
+      if (state !== 'settled') state = 'quiesced';
+      if (timeout) throw Error(privateCanary);
       return {
         ok: true,
         json: async () => ({
           success: true,
-          runtime: { operation_id: retirementMember.original_operation_id },
+          runtime: {
+            operation_id: retirementMember.original_operation_id,
+            tournament_id: retirementMember.tournament_id,
+            state,
+            runtime_retired: state === 'settled',
+            private_field: privateCanary,
+            ...finalRuntime,
+          },
         }),
       };
     }
@@ -1240,6 +1274,7 @@ function retirementFixture({
   };
   return {
     calls,
+    fetchImpl,
     run: (action) =>
       controlOriginalRecovery(
         { ...input, action, tournamentId: retirementMember.tournament_id },
@@ -1376,6 +1411,131 @@ test('owner ACK verifies actual current boundary and read does not actuate', asy
   const read = retirementFixture({ initial: 'stop_requested' });
   assert.equal((await read.run('owner_read')).outcome, 'owner_stop_readback');
   assert.equal(retirementWrites(read).length, 0);
+});
+
+test('settled owner ACK retires the original runtime and preserves its public receipt on repeats', async () => {
+  const f = retirementFixture({ initial: 'settled', releasedLease: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await f.run('owner_ack');
+    assert.equal(r.outcome, 'owner_runtime_retired');
+    assert.deepEqual(r.runtime, {
+      operation_id: retirementMember.original_operation_id,
+      tournament_id: retirementMember.tournament_id,
+      state: 'settled',
+      runtime_retired: true,
+    });
+    assert.equal(r.canonicalBefore.receipt_digest, r.canonicalAfter.receipt_digest);
+    assert.equal(JSON.stringify(r).includes(privateCanary), false);
+  }
+  assert.equal(retirementWrites(f).length, 2);
+  for (const call of retirementWrites(f)) {
+    assert.ok(call.url.endsWith('/admin/tournament-abort-boundary'));
+    assert.deepEqual(JSON.parse(call.options.body), {
+      operationId: retirementMember.original_operation_id,
+      tournamentId: retirementMember.tournament_id,
+    });
+  }
+  assert.equal(
+    f.calls.some((c) => c.url.includes('/tournaments?')),
+    false
+  );
+});
+for (const scene of [
+  { timeout: true },
+  { finalRuntime: { runtime_retired: false } },
+  { finalRuntime: { runtime_retired: undefined } },
+  { finalRuntime: { operation_id: input.nonce } },
+  { finalRuntime: { tournament_id: input.nonce } },
+  { finalRuntime: { state: 'quiesced' } },
+  { receiptDrift: true },
+  { finalHealthChanged: true },
+])
+  test('settled owner ACK requires positive final proof ' + JSON.stringify(scene), async () => {
+    const f = retirementFixture({ initial: 'settled', ...scene });
+    const r = await f.run('owner_ack');
+    assert.equal(r.outcome, 'unknown');
+    assert.equal(retirementWrites(f).length, 1);
+    assert.equal(JSON.stringify(r).includes(privateCanary), false);
+    if (scene.timeout) {
+      assert.equal(r.mutationAcknowledgement, 'unknown');
+      assert.equal(r.canonicalAfter.state, 'settled');
+    }
+  });
+for (const settledReceipt of [
+  { fully_settled: false },
+  { operation_id: input.nonce },
+  { tournament_id: input.nonce },
+  { quiescence: { generation: input.nonce } },
+])
+  test(
+    'settled owner ACK refuses changed original settlement ' + JSON.stringify(settledReceipt),
+    async () => {
+      const f = retirementFixture({ initial: 'settled', settledReceipt });
+      assert.equal((await f.run('owner_ack')).outcome, 'unknown');
+      assert.equal(retirementWrites(f).length, 0);
+    }
+  );
+test('settled owner read preserves disposition without runtime or financial writes', async () => {
+  const f = retirementFixture({ initial: 'settled' });
+  const r = await f.run('owner_read');
+  assert.equal(r.outcome, 'prior_disposition_preserved');
+  assert.equal(retirementWrites(f).length, 0);
+});
+
+test('owner final retirement survives the actual CLI intent and receipt artifact boundary', () => {
+  const scratch = fs.mkdtempSync(path.join(process.cwd(), '.owner-retirement-test-'));
+  try {
+    const preload = path.join(scratch, 'fetch-fixture.mjs');
+    const receipt = path.join(scratch, 'receipt.json');
+    fs.writeFileSync(
+      preload,
+      [
+        `const input = ${JSON.stringify(input)};`,
+        `const health = ${JSON.stringify(health)};`,
+        `const retirementMember = ${JSON.stringify(retirementMember)};`,
+        `const privateCanary = ${JSON.stringify(privateCanary)};`,
+        retirementFixture.toString(),
+        "globalThis.fetch = retirementFixture({ initial: 'settled', releasedLease: true }).fetchImpl;",
+      ].join('\n')
+    );
+    const env = {
+      ...process.env,
+      RECOVERY_ACTION: 'owner_ack',
+      RECOVERY_EVENT: retirementMember.tournament_id,
+      RECOVERY_NONCE: input.nonce,
+      EXPECTED_GENERATION: input.generation,
+      EXPECTED_ENGINE_SHA: input.sha,
+      EXPECTED_INSTANCE: input.instance,
+      RECOVERY_RECEIPT_PATH: receipt,
+      RECOVERY_INTENT_PATH: path.join(scratch, 'intent.json'),
+      SUPABASE_URL: db,
+      SUPABASE_SERVICE_ROLE_KEY: privateCanary,
+    };
+    for (const suffix of [['intent'], []]) {
+      const child = spawnSync(
+        process.execPath,
+        [
+          '--import',
+          preload,
+          '.github/scripts/tournament-original-recovery-control.mjs',
+          ...suffix,
+        ],
+        { env, encoding: 'utf8', timeout: 10000 }
+      );
+      assert.equal(child.status, 0, child.stderr);
+      assert.equal(child.stdout.includes(privateCanary), false);
+    }
+    const artifact = fs.readFileSync(receipt, 'utf8');
+    const r = JSON.parse(artifact);
+    assert.equal(r.request.action, 'owner_ack');
+    assert.equal(r.outcome, 'owner_runtime_retired');
+    assert.equal(r.runtime.runtime_retired, true);
+    assert.equal(r.runtime.operation_id, retirementMember.original_operation_id);
+    assert.equal(r.canonicalBefore.receipt_digest, r.canonicalAfter.receipt_digest);
+    assert.equal(artifact.includes(privateCanary), false);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 const additional = JSON.parse(
