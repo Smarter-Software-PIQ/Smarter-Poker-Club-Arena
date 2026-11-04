@@ -224,6 +224,23 @@ it('saves edited and cleared notes, blocks repeat saves and retains a failed dra
   rendered.unmount();
 });
 
+it('a blank save on a player with no note writes nothing, clears nothing and closes', async () => {
+  mocks.noteReads.set('account-a', Promise.resolve({ data: null, error: null }));
+  const onClose = vi.fn();
+  render(
+    <MemoryRouter>
+      <PlayerNotesPanel targetUserId="opponent" targetName="Opponent" onClose={onClose} />
+    </MemoryRouter>
+  );
+  const save = await screen.findByRole('button', { name: 'Save Note' });
+  await waitFor(() => expect(save).toBeEnabled());
+  fireEvent.click(save);
+  await waitFor(() => expect(onClose).toHaveBeenCalled());
+  expect(mocks.save).not.toHaveBeenCalled();
+  expect(mocks.remove).not.toHaveBeenCalled();
+  expect(mocks.toast.success).not.toHaveBeenCalled();
+});
+
 it('retries an unread note before permitting an edit', async () => {
   mocks.checkVIPStatus.mockResolvedValue({ isVIP: false });
   mocks.noteReads.set('account-a', Promise.reject(new Error('offline')));

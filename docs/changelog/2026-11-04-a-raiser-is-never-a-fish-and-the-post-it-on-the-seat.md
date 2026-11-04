@@ -149,3 +149,15 @@ older payload keeps the plain label. Behaviour proved on a local Postgres 16
 fixture: trigger writes 2/1 for a limp-call-bet-call-raise hand whose legacy
 pair is 2/2; the three fallback branches return 2.00, 2.00 and 1.00; no
 evidence at all reports the metric unavailable rather than guessing.
+
+**Review pass (same day).** Four defects found reviewing the five commits:
+the note-marker feed was per hook, so the multi-table page (several
+TablePages at once) would have subscribed one Supabase channel twice, which
+the client refuses; it is now one reference-counted feed per signed-in
+player. The club-scoped overview readers name their output keys explicitly
+and so dropped `aggression_factor_basis`; the Phase 4 migration now redefines
+those two with the key added. A blank save on an opponent with no note
+deleted nothing and still said "Note Cleared"; it now just closes. And
+`getNote` turned a failed read into the default blue note, which the player
+menu would have painted as a real colour; it throws, and the preview prints
+nothing.

@@ -22,6 +22,14 @@ describe('the aggression factor is postflop only', () => {
     expect(sql).not.toMatch(/REFERENCES\s+public\.(ca_hand_facts|hand_history)/);
     expect(sql).not.toMatch(/ALTER TABLE public\.ca_hand_facts/);
     expect(sql).not.toContain('@install-window');
+    expect(
+      sql.match(/CREATE OR REPLACE FUNCTION public\.ca_player_stats_overview_\w+_by_club/g)?.length
+    ).toBe(2);
+    expect(
+      sql.match(
+        /'aggression_factor_basis', \(SELECT m->>'aggression_factor_basis' FROM recorded_coverage\),/g
+      )?.length
+    ).toBe(2);
   });
 
   it('counts only the flop, turn and river', () => {

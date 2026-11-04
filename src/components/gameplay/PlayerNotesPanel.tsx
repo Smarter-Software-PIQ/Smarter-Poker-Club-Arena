@@ -67,6 +67,8 @@ export default function PlayerNotesPanel({
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  /** Whether a row for this opponent existed when the editor opened. */
+  const existingNoteRef = useRef(false);
   const accountRequestRef = useRef(0);
   const [searchQuery, setSearchQuery] = usePlayerPreference('playerNotes.search', '', 'global');
   const toast = useToast();
@@ -110,6 +112,7 @@ export default function PlayerNotesPanel({
     setSaving(false);
     savingRef.current = false;
     setNoteLoadFailed(false);
+    existingNoteRef.current = false;
     setLoading(!!requestedUserId);
 
     if (!requestedUserId) {
@@ -135,6 +138,7 @@ export default function PlayerNotesPanel({
         toast.error('Your Note On This Player Could Not Be Loaded');
         return;
       }
+      existingNoteRef.current = !!data;
       if (data) {
         setCurrentNote(data.notes || '');
         setSelectedTags(data.tags || []);
@@ -231,11 +235,13 @@ export default function PlayerNotesPanel({
       const isBlank =
         note === '' && visibleSelectedTags.length === 0 && visibleSelectedColor === 'none';
       if (isBlank) {
-        await playerNotesService.deleteNote(requestedUserId, targetUserId);
-        if (isCurrent()) {
-          toast.success('Note Cleared');
-          onClose?.();
+        if (existingNoteRef.current) {
+          await playerNotesService.deleteNote(requestedUserId, targetUserId);
+          existingNoteRef.current = false;
+          if (isCurrent()) toast.success('Note Cleared');
         }
+        // Nothing to write and nothing to clear: just hand the felt back.
+        if (isCurrent()) onClose?.();
         return;
       }
 
@@ -253,6 +259,7 @@ export default function PlayerNotesPanel({
 
       if (error) throw error;
       playerNotesService.clearCache();
+      existingNoteRef.current = true;
       playerNotesService.notifyChanged({
         userId: requestedUserId,
         targetUserId,

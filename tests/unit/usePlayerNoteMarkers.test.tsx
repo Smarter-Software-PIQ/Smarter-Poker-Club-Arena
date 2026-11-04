@@ -183,4 +183,28 @@ describe('usePlayerNoteMarkers', () => {
     });
     await waitFor(() => expect(mocks.reads).toBe(2));
   });
+
+  it('several tables on one screen share one load and one channel', async () => {
+    const a = renderHook(() => usePlayerNoteMarkers('hero'));
+    const b = renderHook(() => usePlayerNoteMarkers('hero'));
+    await waitFor(() => expect(mocks.reads).toBe(1));
+    expect(realtime.handlers).toHaveLength(1);
+    expect(realtime.subscribed).toHaveLength(1);
+
+    act(() => {
+      playerNotesService.notifyChanged({
+        userId: 'hero',
+        targetUserId: 'villain-7',
+        hasNote: true,
+        colorLabel: 'red',
+      });
+    });
+    expect(a.result.current.get('villain-7')).toBe('red');
+    expect(b.result.current.get('villain-7')).toBe('red');
+
+    a.unmount();
+    expect(realtime.released).toEqual([]);
+    b.unmount();
+    expect(realtime.released).toEqual(['player-notes:hero']);
+  });
 });

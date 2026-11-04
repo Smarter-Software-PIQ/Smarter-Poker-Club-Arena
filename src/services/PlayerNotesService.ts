@@ -172,9 +172,11 @@ class PlayerNotesServiceClass {
       .eq('target_user_id', targetId)
       .maybeSingle();
 
-    if (error || !row) {
-      return DEFAULT_NOTE;
-    }
+    // A failed read is not "no note" (2026-11-04): the only caller paints a
+    // preview from this, and a default blue painted over a real red note is
+    // a wrong read at the table. Throw, and let the caller print nothing.
+    if (error) throw error;
+    if (!row) return DEFAULT_NOTE;
 
     const note: PlayerNote = {
       note: row.notes || '',
