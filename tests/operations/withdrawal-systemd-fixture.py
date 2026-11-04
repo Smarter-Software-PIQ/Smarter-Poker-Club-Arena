@@ -84,6 +84,7 @@ def main():
                 assert child['parent'] == main_pid
                 assert m.cancellation_child_class(child['argv'], key, {'originals': {}}) == 'pinned_announcement_recovery'
                 assert m.cancellation_child_class(child['argv'], key, {'originals': {'engine-release-requests/'+key+'.awaiting-certificate':'present'}}) == 'unproven'
+                live_bindings = m.capture_service_cgroups([unit, intake_unit, path_unit], m.unit_snapshot(unit))
                 mask.symlink_to('/dev/null'); m.fsync_directory(mask.parent)
                 run(['systemctl', 'daemon-reload'])
                 assert run(['systemctl', 'show', unit, '-p', 'LoadState', '--value']) == 'masked'
@@ -92,6 +93,11 @@ def main():
                 wait_for(lambda: run(['systemctl', 'show', unit, '-p', 'ActiveState', '--value']) in {'inactive', 'failed'})
                 assert run(['systemctl', 'show', unit, '-p', 'MainPID', '--value']) == '0'
                 assert m.cgroup_empty(group)
+                for other_mask in other_masks: other_mask.symlink_to('/dev/null')
+                run(['systemctl', 'daemon-reload'])
+                m.quiet_units([unit, intake_unit, path_unit], group, native_empty=True, bindings=live_bindings)
+                m.quiet_units([unit, intake_unit, path_unit], group, native_empty=True, bindings=live_bindings)
+                for other_mask in other_masks: other_mask.unlink()
                 # A subsequent start is refused by the persistent instance mask.
                 refused = subprocess.run(['systemctl', 'start', unit], capture_output=True, timeout=5)
                 assert refused.returncode != 0

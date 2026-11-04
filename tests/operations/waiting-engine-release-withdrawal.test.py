@@ -49,6 +49,8 @@ def prepare_history(allow_fetch=False):
     paths = ['server/scripts/' + name for name in module.GENERIC_SOURCE_NAMES] + [
         'server/scripts/engine-release-unit-wrapper.sh',
         'server/scripts/engine-release-intake.sh',
+        'server/scripts/install-engine-supervisor.sh',
+        'server/scripts/install-engine-intake.sh',
         'server/release/activation-floor.json',
         'server/release/owner-maintenance-windows.json',
         'server/src/maintenance/maintenanceSchedulePolicy.json',
@@ -603,10 +605,124 @@ class AnnouncedCancellation(unittest.TestCase):
             self.assertEqual(answer['stopDisposition'], 'requested')
             self.assertTrue(answer['quiescent'])
             self.assertEqual(control['stopCount'], 1)
+            saved = json.loads((state / 'engine-release-cancellations' / (request['runKey'] + '.intent.json')).read_text())
+            self.assertEqual(set(saved['unitCgroups']), set(units[:2]))
+            self.assertEqual(answer['unitCgroups'], saved['unitCgroups'])
             self.assertEqual(module.cancel_announced(request), answer)
             self.assertEqual(control['stopCount'], 1)
             self.assertTrue(entry.exists() and reservation.exists())
 
+    def masked_legacy_harness(self, folder, patches, failure=None, mixed=False):
+        request = self.owner_request() | {'controlSha': '9ca87a39e51d0988653ce83c4ba05a7c84929f94'}
+        request, control, state, entry, reservation, units = self.harness(folder, patches, request)
+        patches.enter_context(patch.object(module, 'OWNER_WINDOW_PROFILE', {'request': request, 'control': request['controlSha']}))
+        intent = module.collect_cancellation_admission(request, units, control['container'])
+        intent.pop('unitCgroups', None)  # Exact historical live-profile shape.
+        if failure == 'original_group': intent['originalUnit']['ControlGroup'] = '/system.slice/foreign/' + units[0]
+        directory = state / 'engine-release-cancellations'; directory.mkdir()
+        path = directory / (request['runKey'] + '.intent.json')
+        module.save_once(path, intent)
+        for unit in units: (module.SYSTEMD / unit).symlink_to('/dev/null')
+        # Install only the literal protected original template bytes in this
+        # disposable fixture, including the installer's one wrapper expansion.
+        for unit, installer, marker in [
+                (units[0], 'install-engine-supervisor.sh', 'cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT\n'),
+                (units[1], 'install-engine-intake.sh', 'cat > "$UNIT_STAGE" <<\'UNIT\'\n')]:
+            raw = subprocess.check_output(['git', 'show', request['controlSha'] + ':server/scripts/' + installer], cwd=ROOT).decode()
+            body = raw.split(marker, 1)[1].split('\nUNIT\n', 1)[0] + '\n'
+            body = body.replace('$UNIT_WRAPPER_V1', str(module.PARENT / 'engine-release-unit-wrapper-v1.sh')).replace('\\$', '$')
+            template = module.SYSTEMD / (unit.split('@', 1)[0] + '@.service')
+            template.write_text(body + ('# foreign\n' if failure == 'source' else ''))
+        if failure == 'dropin': (module.SYSTEMD / 'service.d').mkdir()
+        control['stopped'] = True
+        snapshot = module.unit_snapshot.side_effect
+        def unloaded(unit, service_context=False):
+            row = snapshot(unit, service_context)
+            if unit.endswith('.path'):
+                row.update(unitType='path', MainPID=None, ControlGroup=None, ExecMainCode=None, ExecMainStatus=None)
+            if service_context:
+                row.update(Slice='system-foreign.slice' if failure == 'slice' else 'system.slice' if mixed else '',
+                           ControlPID='42' if failure == 'control_pid' else '0')
+                if failure == 'group': row['ControlGroup'] = '/system.slice/foreign/' + unit
+            return row
+        original_command = module.command.side_effect
+        def native(args, timeout=5):
+            if mixed:
+                if 'GetUnit' in args and args[-1] == units[0]: return 'o /org/freedesktop/systemd1/unit/original'
+                if 'GetUnitProcesses' in args and args[-1] == units[0]: return 'a(sus) 0'
+                if args[-1] == 'Id': return 's ' + units[0]
+                if args[-1] == 'ControlPID': return 'u 0'
+            if 'GetUnit' in args: raise subprocess.CalledProcessError(1, args)
+            if 'ListUnitsByPatterns' in args:
+                return 'a(ssssssouso) 1 foreign' if failure == 'manager' else 'a(ssssssouso) 0'
+            return original_command(args, timeout)
+        patches.enter_context(patch.object(module, 'unit_snapshot', side_effect=unloaded))
+        patches.enter_context(patch.object(module, 'command', side_effect=native))
+        patches.enter_context(patch.object(module, 'REPO', ROOT))
+        patches.enter_context(patch.object(module, 'source_hash', side_effect=lambda file: module.digest(Path(file).read_bytes())))
+        if failure == 'populated': control['cgroupEmpty'] = False
+        return request, control, state, entry, reservation, units, path
+
+    def test_live_intent_masked_unloaded_resume_and_receipt_replay_never_stop(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            request, control, state, entry, reservation, units, path = self.masked_legacy_harness(folder, patches)
+            before = path.read_bytes()
+            answer = module.cancel_announced(request)
+            self.assertEqual(answer, module.cancel_announced(request))
+            self.assertEqual(answer['stopDisposition'], 'not-needed-already-quiescent')
+            self.assertEqual(set(answer['unitCgroups']), set(units[:2]))
+            self.assertTrue(answer['originalTerminalEdgesRetired'])
+            self.assertEqual(path.read_bytes(), before)
+            self.assertTrue(entry.exists()); self.assertTrue(reservation.exists())
+            self.assertEqual(control['stopCount'], 0)
+            self.assertFalse(any(cmd[:2] == ['systemctl', 'stop'] for cmd in control['commands']))
+
+    def test_live_intent_masked_recovery_refuses_foreign_source_groups_and_native_owners(self):
+        for failure in ['source', 'dropin', 'original_group', 'slice', 'control_pid', 'group', 'manager', 'populated']:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+                request, control, state, _, _, _, path = self.masked_legacy_harness(folder, patches, failure)
+                before = path.read_bytes()
+                with self.assertRaises(ValueError): module.cancel_announced(request)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertFalse(path.with_name(request['runKey'] + '.stop-issued.json').exists())
+                self.assertTrue((state / 'engine-release-requests' / (request['runKey'] + '.request')).exists())
+                self.assertEqual(control['stopCount'], 0)
+
+    def test_live_intent_mixed_loaded_failed_release_and_unloaded_intake_finish_without_stop(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            request, control, _, _, _, _, path = self.masked_legacy_harness(folder, patches, mixed=True)
+            before = path.read_bytes()
+            answer = module.cancel_announced(request)
+            self.assertEqual(answer, module.cancel_announced(request))
+            self.assertEqual(answer['stopDisposition'], 'not-needed-already-quiescent')
+            self.assertEqual(control['stopCount'], 0)
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_legacy_binding_survives_partial_terminal_unlink_without_reconstructing_custody(self):
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            request, control, state, _, _, _, path = self.masked_legacy_harness(folder, patches, mixed=True)
+            before = path.read_bytes()
+            target = state / 'engine-release-requests' / (request['runKey'] + '.request')
+            unlink = Path.unlink
+            def interrupted(file, *args, **kwargs):
+                result = unlink(file, *args, **kwargs)
+                if file == target: raise OSError('interrupted after original unlink')
+                return result
+            with patch.object(Path, 'unlink', interrupted), self.assertRaises(OSError):
+                module.cancel_announced(request)
+            self.assertFalse(target.exists())
+            binding_path = path.with_name(request['runKey'] + '.unit-cgroups.json')
+            binding_bytes = binding_path.read_bytes()
+            binding = json.loads(binding_bytes)
+            binding_path.write_text(json.dumps(binding | {'intentHash': '0' * 64}))
+            with self.assertRaises(ValueError): module.cancel_announced(request)
+            binding_path.write_bytes(binding_bytes)
+            with patch.object(module, 'recover_masked_service_cgroups', side_effect=AssertionError('Never reconstruct partially retired custody')):
+                answer = module.cancel_announced(request)
+                self.assertEqual(answer, module.cancel_announced(request))
+            self.assertEqual(answer['stopDisposition'], 'not-needed-already-quiescent')
+            self.assertEqual(control['stopCount'], 0)
+            self.assertEqual(path.read_bytes(), before)
     def test_owner_window_native_announcement_sources_reservation_hold_seal_and_thaw(self):
         request = self.owner_request() | {'controlSha': '9ca87a39e51d0988653ce83c4ba05a7c84929f94'}
         key, control = request['runKey'], request['controlSha']
@@ -1380,7 +1496,9 @@ class AnnouncedCancellation(unittest.TestCase):
                    'controlSha': module.CANCEL_CONTROL, 'desiredSha': 'c' * 40,
                    'instanceId': '1-1234abcd', 'mode': 'cancel_expired_announcement'}
         if selected is not None: request = selected
-        key = request['runKey']; units = module.cancel_units(key); group = '/system.slice/' + units[0]
+        key = request['runKey']; units = module.cancel_units(key)
+        canonical = lambda unit: '/system.slice/system-' + unit.split('@', 1)[0].replace('-', r'\x2d') + '.slice/' + unit
+        group = canonical(units[0])
         original = {'MainPID': '12', 'InvocationID': 'f' * 32, 'ActiveState': 'activating',
                     'SubState': 'start', 'Result': 'success', 'ExecMainCode': '0', 'ExecMainStatus': '0', 'ControlGroup': group}
         ended = original | {'MainPID': '0', 'ActiveState': 'failed', 'SubState': 'failed',
@@ -1411,6 +1529,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 control['stopCount'] += 1
                 if control['unknownStop']: raise subprocess.TimeoutExpired(args, 5)
                 control['stopped'] = True; return ''
+            if '-.slice' in args: return 'ControlGroup=/'
             if args[:2] == ['systemctl', 'show']: return 'masked'
             if args[:3] == ['docker', 'container', 'inspect']: return '14'
             return ''
@@ -1427,7 +1546,12 @@ class AnnouncedCancellation(unittest.TestCase):
         patches.enter_context(patch.object(module, 'health_pair'))
         patches.enter_context(patch.object(module, 'loaded_stop_contract', return_value={'qualified': True}))
         patches.enter_context(patch.object(module, 'process', side_effect=lambda pid: processes[pid]))
-        patches.enter_context(patch.object(module, 'unit_snapshot', side_effect=lambda unit: (ended if control['stopped'] else original).copy() if unit == units[0] else idle.copy()))
+        def snapshot(unit, service_context=False):
+            row = (ended if control['stopped'] else original).copy() if unit == units[0] else idle.copy()
+            if service_context:
+                row.update(Slice='system-' + unit.split('@', 1)[0].replace('-', r'\x2d') + '.slice', ControlPID='0')
+            return row
+        patches.enter_context(patch.object(module, 'unit_snapshot', side_effect=snapshot))
         patches.enter_context(patch.object(module, 'cgroup_empty', side_effect=lambda _: control['cgroupEmpty']))
         patches.enter_context(patch.object(module, 'command', side_effect=command))
         patches.enter_context(patch.object(module.time, 'sleep'))

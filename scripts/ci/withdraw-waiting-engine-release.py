@@ -572,23 +572,99 @@ def manager_unit_absent(unit):
     return values == ['a(ssssssouso)', '0']
 
 
-def configured_service_cgroup(unit, snapshot):
+def canonical_service_cgroup(unit):
     require(unit.endswith('.service') and '@' in unit)
     prefix = unit.split('@', 1)[0]
     require(re.fullmatch(r'[A-Za-z0-9-]+', prefix) is not None)
     expected_slice = 'system-' + prefix.replace('-', r'\x2d') + '.slice'
-    require(snapshot['Slice'] == expected_slice)
-    root = command(['systemctl', 'show', '--all', '-p', 'ControlGroup', '--', '-.slice'])
-    require(root == 'ControlGroup=/')
     # v255 cg_slice_to_path uses literal '-' hierarchy separators; escaped
     # template hyphens remain literal \x2d bytes in a single slice component.
     stem = expected_slice[:-6]
     parts = stem.split('-')
     require(all(parts) and len(parts) == 2 and parts[0] == 'system')
     slice_path = '/'.join('-'.join(parts[:i]) + '.slice' for i in range(1, len(parts)+1))
-    group = '/' + slice_path + '/' + unit
+    return expected_slice, '/' + slice_path + '/' + unit
+
+
+def configured_service_cgroup(unit, snapshot):
+    expected_slice, group = canonical_service_cgroup(unit)
+    require(snapshot['Slice'] == expected_slice)
+    require(command(['systemctl', 'show', '--all', '-p', 'ControlGroup', '--', '-.slice']) == 'ControlGroup=/')
     if snapshot['ControlGroup']: require(snapshot['ControlGroup'] == group)
     return group
+
+
+def capture_service_cgroups(units, original):
+    bindings = {}
+    for service in units[:2]:
+        context = unit_snapshot(service, service_context=True)
+        if service == units[0]:
+            require({key: value for key, value in context.items() if key not in {'Slice', 'ControlPID'}} == original)
+        else:
+            require(context['MainPID'] == '0' and context['ControlPID'] == '0'
+                    and context['ActiveState'] in {'inactive', 'failed'})
+        bindings[service] = configured_service_cgroup(service, context)
+    return bindings
+
+
+def protected_service_template(request, service):
+    """Read the original protected installer's literal v1 template, never execute it."""
+    names = cancel_units(request['runKey'])
+    require(service in names[:2])
+    release = service == names[0]
+    installer = 'install-engine-supervisor.sh' if release else 'install-engine-intake.sh'
+    git = ['git', '-C', str(REPO)]
+    env = {**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_NO_LAZY_FETCH': '1', 'LC_ALL': 'C'}
+    subprocess.run(git + ['merge-base', '--is-ancestor', request['controlSha'], 'refs/remotes/origin/main'],
+                   capture_output=True, timeout=10, check=True, env=env)
+    raw = subprocess.run(git + ['show', request['controlSha'] + ':server/scripts/' + installer],
+                         capture_output=True, timeout=10, check=True, env=env).stdout
+    require(0 < len(raw) < 262144)
+    marker = ('cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT\n' if release
+              else 'cat > "$UNIT_STAGE" <<\'UNIT\'\n')
+    text = raw.decode('utf8'); require(text.count(marker) == 1)
+    body = text.split(marker, 1)[1].split('\nUNIT\n', 1)
+    require(len(body) == 2)
+    body = body[0] + '\n'
+    if release:
+        require(body.count('$UNIT_WRAPPER_V1') == 2)
+        body = body.replace('$UNIT_WRAPPER_V1', str(PARENT / 'engine-release-unit-wrapper-v1.sh')).replace('\\$', '$')
+    # The v1 templates use systemd's default per-template slice. An explicit
+    # override is a different contract and cannot reconstruct an older binding.
+    require(not any(line.lstrip().startswith(('Slice=', 'Delegate=', 'ControlGroup=')) for line in body.splitlines()))
+    return body.encode()
+
+
+def recover_masked_service_cgroups(request, intent, units):
+    """Recover pre-binding live intents from exact source and native empty units.
+
+    Historical intent bytes stay immutable. A mask's empty Slice is never
+    interpreted as the template's configuration or as proof of emptiness.
+    """
+    require(OWNER_WINDOW_PROFILE is not None and request == OWNER_WINDOW_PROFILE['request'])
+    require(masked(units))
+    require(command(['systemctl', 'show', '--all', '-p', 'ControlGroup', '--', '-.slice']) == 'ControlGroup=/')
+    bindings = {unit: canonical_service_cgroup(unit)[1] for unit in units[:2]}
+    require(intent['originalUnit']['ControlGroup'] == bindings[units[0]])
+    for unit in units[:2]:
+        template = unit.split('@', 1)[0] + '@.service'
+        require(source_hash(SYSTEMD / template) == digest(protected_service_template(request, unit)))
+        # Check all applicable per-type, dash-prefix, template and instance
+        # drop-in names in the manager's system unit search directories.
+        prefix = unit.split('@', 1)[0]
+        names = {'service.d', template + '.d', unit + '.d'}
+        names |= {prefix[:i + 1] + '.service.d' for i, char in enumerate(prefix) if char == '-'}
+        for directory in [SYSTEMD, Path('/run/systemd/system'), Path('/usr/local/lib/systemd/system'), Path('/usr/lib/systemd/system')]:
+            require(not any(os.path.lexists(directory / name) for name in names))
+        before = unit_snapshot(unit, service_context=True)
+        require(before['MainPID'] == before['ControlPID'] == '0' and before['ActiveState'] in {'inactive', 'failed'})
+        require(before['Slice'] in {'', 'system.slice', canonical_service_cgroup(unit)[0]}
+                and before['ControlGroup'] in {'', bindings[unit]})
+        require(prove_unit_empty(unit, bindings) ==
+                {key: value for key, value in before.items() if key not in {'Slice', 'ControlPID'}})
+        require(cgroup_empty(bindings[unit]))
+        require(unit_snapshot(unit, service_context=True) == before)
+    return bindings
 
 
 def prove_unloaded_unit_empty(unit, before, bindings=None):
@@ -1005,8 +1081,12 @@ def collect_cancellation_admission(request, units, container, read_only=False):
         require(all((row['MainPID'] == '0' or (row.get('unitType') == 'path' and row['MainPID'] is None)) and row['ActiveState'] in {'inactive', 'failed'} for row in [unit_snapshot(unit) for unit in units[1:]]))
         require(evidence_read() == evidence and container_identity(request) == container)
         health_pair(request); require(unit_snapshot(units[0]) == state and process(parent['pid']) == parent)
+        bindings = capture_service_cgroups(units, state)
+        require(unit_snapshot(units[0]) == state and process(parent['pid']) == parent
+                and process(matches[0]['pid']) == matches[0])
         intent = {'schema': CANCEL_SCHEMA, 'request': request, 'container': container, 'evidence': evidence,
-                  'originalUnit': state, 'originalProcess': parent, 'originalChild': matches[0], 'stopContract': stop_contract}
+                  'originalUnit': state, 'originalProcess': parent, 'originalChild': matches[0], 'stopContract': stop_contract,
+                  'unitCgroups': bindings}
     return intent
 
 
@@ -1044,13 +1124,29 @@ def cancel_announced(request):
         allowed |= {'engine-intake-requests/' + key + '.' + suffix for suffix in ('request', 'intent')}
         empty_admission = intent.get('schema') == EMPTY_CANCEL_SCHEMA
         schema = intent['schema']
-        require(set(intent) == {'schema', 'request', 'container', 'evidence', 'originalUnit', 'originalProcess', 'originalChild', 'stopContract'} | ({'admission', 'unitCgroups'} if empty_admission else set())
+        require(set(intent) == {'schema', 'request', 'container', 'evidence', 'originalUnit', 'originalProcess', 'originalChild', 'stopContract'} | ({'admission', 'unitCgroups'} if empty_admission else ({'unitCgroups'} if 'unitCgroups' in intent else set()))
                 and schema in {CANCEL_SCHEMA, EMPTY_CANCEL_SCHEMA})
         if empty_admission:
             require(intent['admission'] == 'positive-empty-auto-restart' and intent['originalProcess'] is None and intent['originalChild'] is None)
             require(intent['originalUnit']['MainPID'] == '0' and intent['originalUnit']['SubState'] == 'auto-restart')
-        bindings = intent.get('unitCgroups') if empty_admission else None
-        if empty_admission:
+        bindings = intent.get('unitCgroups')
+        if bindings is None and OWNER_WINDOW_PROFILE is not None:
+            binding_path = directory / (key + '.unit-cgroups.json')
+            intent_hash = digest(regular(intent_path, 0o600).encode())
+            if not os.path.lexists(binding_path):
+                unchanged_evidence(announcement_evidence(request, after_stop=True), intent['evidence'], key)
+                recovered = recover_masked_service_cgroups(request, intent, units)
+                # Preserve the recovered native binding before any terminal
+                # unlink, without changing the historical intent or stop hash.
+                save_once(binding_path, {'schema': 'engine-release-cancellation-cgroup/v1',
+                                        'intentHash': intent_hash, 'unitCgroups': recovered})
+            recorded = json.loads(regular(binding_path, 0o600))
+            require(set(recorded) == {'schema', 'intentHash', 'unitCgroups'}
+                    and recorded['schema'] == 'engine-release-cancellation-cgroup/v1'
+                    and recorded['intentHash'] == intent_hash
+                    and recorded['unitCgroups'] == {unit: canonical_service_cgroup(unit)[1] for unit in units[:2]})
+            bindings = recorded['unitCgroups']
+        if bindings is not None:
             require(isinstance(bindings, dict) and set(bindings) == set(units[:2]))
             for service, group in bindings.items():
                 require(isinstance(group, str) and group.startswith('/system.slice/') and group.endswith('/'+service) and '..' not in group.split('/'))
@@ -1184,7 +1280,7 @@ def cancel_announced(request):
                    'servingInstanceUnchanged': True, 'originalTerminalEdgesRetired': True, 'quiescent': True,
                    'container': container, 'originalControlGroup': original_group,
                    'actualUnitStates': quiet['actualUnitStates'], 'stopDisposition': json.loads(regular(issued_path, 0o600))['stopDisposition'], 'observedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}
-        if empty_admission: receipt['unitCgroups'] = bindings
+        if bindings is not None: receipt['unitCgroups'] = bindings
         save_once(receipt_path, receipt)
         return receipt
     finally:
@@ -1341,7 +1437,8 @@ def phase1_cancellation_proof():
 DIAGNOSTIC_SCHEMA = 'withdrawal-predicate-observation/v1'
 DIAGNOSTIC_STAGES = {'selection', 'health_pair', 'container_identity', 'announcement_evidence', 'source_hash',
     'regular', 'observe_seal_state', 'own_thaw', 'prove_thaw', 'loaded_stop_contract', 'unit_snapshot', 'empty_retry_admission',
-    'phase1_runtime_birth', 'configured_service_cgroup', 'prove_unit_empty', 'prove_unloaded_unit_empty', 'manager_unit_absent',
+    'phase1_runtime_birth', 'configured_service_cgroup', 'canonical_service_cgroup', 'capture_service_cgroups',
+    'protected_service_template', 'recover_masked_service_cgroups', 'prove_unit_empty', 'prove_unloaded_unit_empty', 'manager_unit_absent',
     'own_wants_edge', 'collect_cancellation_admission', 'cancel_announced', 'cancellation_directory', 'process',
     'quiet_units', 'masked', 'remote', 'main'}
 DIAGNOSTIC_CODES = {'predicate_refused', 'read_unavailable', 'command_unproved', 'deadline', 'unknown'}
