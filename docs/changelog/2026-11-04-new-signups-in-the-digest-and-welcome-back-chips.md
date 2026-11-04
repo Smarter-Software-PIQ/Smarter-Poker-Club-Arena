@@ -49,3 +49,23 @@ unchanged afterwards.
 
 At the time of writing 28 players qualify (20 of them in KINGS CLUB), so the
 first run costs the promo wallet about 500 chips.
+
+## Same-day follow-up (migration `20261104184347`)
+
+The first live run (17:51 UTC) paid 21 players 525 chips, queued 21 pushes,
+sent 21 emails and 10 texts, and recorded 7 players as waiting for a club. Two
+corrections came out of the bug hunt that followed:
+
+- The run scanned every clubless sign-up on every hour inside the same limit
+  as new sign-ups; as that list grows it would starve newer players. A
+  `no_club` player is now re-examined only once they hold an active Midway
+  Union club membership. Read-only check against production: the old filter
+  rescanned 7 players, the new one 0, with every paid award already sitting in
+  a union club.
+- Two overlapping runs could have paid a player twice (fn_promo_disburse checks its op_id before locking the wallet); the run now takes an advisory lock so runs serialize.
+- A disbursement refused for any reason other than membership (promo wallet empty, a ledger refusal) was returned to the caller and stored nowhere; such players are now recorded as `failed`, retried every run, listed in the digest under "Could Not Be Paid", and the World Hub route answers 503 so the dispatcher pages after three failed hours.
+- KINGS CLUB is recognised by its id as well as its name, so a rename cannot flip every sign-up to "not KINGS CLUB".
+- The digest said "push sent" when the notification was raised. All 21 first
+  pushes were skipped by the dispatcher as `no_subscription` (one player's
+  device subscription had expired), so the digest now reports the real
+  `push_outbox` outcome: sent, no device, failed, queued, or not raised.
