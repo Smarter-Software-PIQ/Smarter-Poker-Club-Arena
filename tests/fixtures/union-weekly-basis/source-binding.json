@@ -99,5 +99,12 @@
   "commission_club_history_20261020": {
     "reason": "Connected actual owner-discharge before/after qualification plus original R2 journal and Cashier regression enforced in maintained parent. Historical bindings unchanged.",
     "changed_active_inputs": ["scripts/dev/test-union-weekly-basis.py"]
+  },
+  "deterministic_club_fixture_20261104": {
+    "reason": "Accounting shard 6 failed on random short-ID collision 69055. Four fixture clubs now supply distinct IDs outside random range; existing regression asserts exact IDs. Full native weekly run passed without financial changes.",
+    "changed_active_inputs": [
+      "tests/fixtures/club-settlement-floor-behaviour/seed.sql",
+      "tests/fixtures/club-settlement-floor-behaviour/regression.sql"
+    ]
   }
 }
