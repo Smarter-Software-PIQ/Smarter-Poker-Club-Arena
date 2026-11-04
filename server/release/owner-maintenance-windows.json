@@ -943,6 +943,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "2607a0c8fa9a92ff55c3479e07b3e12aa1af5e741180417a800f33a0503ef166"
       }
+    },
+    {
+      "id": "2026-11-04-tournament-original-retirement-join",
+      "ownerOrder": "Dan directly in tournament recovery chat01a1a01a-7f70-7d62-8da1-8d086594c658 ordered continuing to completion through the earliest certified safe window without waiting for :55. This NEW fixed07:00 through10:00UTC November4 continuation follows actual41782975311-1 retained_manager_lease_unproven preflight refusal and the narrowly qualified original-owned retirement reconciliation. At07:01UTC the remaining normal hooks, required CI and receiver cannot fit before the prior07:30 expiry. Preserve all prior entries and failed receipts; no replay of failed or unknown operations. Before entry prove original terminal outcomes, cleanup and exclusive current ownership. Only the existing stage/receiver and original transaction may activate an exact protected qualified target. Preserve120second notice,300second window,285second admission/proof/rollback reserve, original custody, immutable source/seal, durable freeze and verified own-window v3thaw. Do not overlap the routine04:00America/Chicago maintenance announcement/cutover; existing overlap admission remains mandatory. No automatic renewal, new timer, second publisher, lease resurrection, deadline extension, forced restart or guard bypass. Fixed expiry ends fresh authority.",
+      "contains": "0de3e5b9f6ae9b6def3a2603ef69fab5d934977d",
+      "notBefore": "2026-11-04T07:00:00Z",
+      "notAfter": "2026-11-04T10:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "41d78070f765bb15c719e3b2e077f6d4669e1a24d4be72ea962aa282cb5df1c6"
+      }
     }
   ],
   "databaseWindows": [
