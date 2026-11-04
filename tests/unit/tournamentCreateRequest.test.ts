@@ -145,8 +145,12 @@ it('retains an uncertain original when its request function temporarily cannot b
 it('replays the saved payload even after its start time passes and the form changes', async () => {
   const db = authority();
   vi.useFakeTimers();
+  // Noon Chicago: this fixture exercises creation/replay, not admission hours.
+  vi.setSystemTime(new Date('2026-11-04T18:00:00Z'));
   const original = { ...config(), startTime: new Date(Date.now() + 120000) };
   await expect(tournamentService.createTournament(club, original)).rejects.toThrow();
+  expect(db.rpc).toHaveBeenCalledTimes(1);
+  expect(db.accepted.size).toBe(1);
   vi.setSystemTime(Date.now() + 600000);
   const event = await tournamentService.createTournament(club, {
     ...original,

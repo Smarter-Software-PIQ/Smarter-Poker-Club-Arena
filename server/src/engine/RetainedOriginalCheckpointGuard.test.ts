@@ -211,6 +211,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
   const events: string[] = [];
   const controls: any = {
     onAttest: null,
+    remainingMs: 300_000,
     parkError: false,
     partialStop: false,
     unknownBank: false,
@@ -326,6 +327,8 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     timeBankMeta: new Map(),
     parkedTimeBanks: {},
     timeBankEngine: {
+      capturePlayerForRecovery: (_tableId: string, playerId: string) =>
+        bankRows[playerId] ? structuredClone(bankRows[playerId]) : null,
       getBanksForTable: () =>
         Object.keys(bankRows).map((playerId) => ({ playerId, isActive: false, armed: false })),
     },
@@ -403,7 +406,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     stopOperation: null,
     releaseBoundaryOnly: false,
     recoveryReadPending: false,
-    remainingMs: () => 300_000,
+    remainingMs: () => controls.remainingMs,
   });
   maintenance.lastDurableState = Object.fromEntries(
     ['phase', 'announcedAt', 'breakStartedAt', 'breakEndsAt', 'reason', 'ownershipToken'].map(
@@ -464,6 +467,7 @@ function fixture({ cash = false, banks = true }: { cash?: boolean; banks?: boole
     manager: { TournamentManager },
     controller: { HandController },
     dataActorContext: {
+      bindToProcessRoot: (callback: (...args: any[]) => any) => bind(null, callback),
       bindTournamentDataAuthority: bind,
       currentTournamentDataAuthority: () => currentActor,
     },
@@ -701,6 +705,53 @@ describe('serialized retained-original guard owner contract', () => {
     expect(await f.run()).toMatchObject({
       ok: false,
       reason: 'retained_manager_children_changed',
+      attemptedTables: 0,
+    });
+    expect(f.events).not.toContain('stop');
+  });
+  it('settles a no-op seat-move redrive enqueued during the freeze and still stops once', async () => {
+    const f = fixture();
+    let bumped = false;
+    f.controls.onAttest = () => {
+      if (bumped) return;
+      bumped = true;
+      f.manager.tournamentSeatMoveAuthorityRevision++;
+      f.manager.tournamentSeatMoveSerialTail = Promise.resolve();
+    };
+    expect(await f.run()).toMatchObject({ ok: true, verifiedTables: 1 });
+    expect(f.events.filter((e: string) => e === 'stop')).toHaveLength(1);
+  });
+  it('refuses continuing seat-move admissions at the owned deadline before any stop', async () => {
+    const f = fixture();
+    let active = true;
+    const churn = () => {
+      if (!active) return;
+      f.controls.remainingMs -= 10_000;
+      f.manager.tournamentSeatMoveAuthorityRevision++;
+      f.manager.tournamentSeatMoveSerialTail = Promise.resolve().then(churn);
+    };
+    f.controls.onAttest = churn;
+    try {
+      expect(await f.run()).toMatchObject({
+        ok: false,
+        reason: 'retained_reserve_exhausted',
+        attemptedTables: 0,
+      });
+      expect(f.events).not.toContain('stop');
+    } finally {
+      active = false;
+      await f.manager.tournamentSeatMoveSerialTail;
+    }
+  });
+  it('refuses a settled serial that left a pending seat-move outcome before any stop', async () => {
+    const f = fixture();
+    f.controls.onAttest = () => {
+      f.manager.tournamentSeatMoveAuthorityRevision++;
+      f.manager.pendingTournamentSeatMoveOutcomes.set('move', {});
+    };
+    expect(await f.run()).toMatchObject({
+      ok: false,
+      reason: 'retained_manager_authority_unproven',
       attemptedTables: 0,
     });
     expect(f.events).not.toContain('stop');

@@ -1,3 +1,7 @@
+import { Worker } from 'node:worker_threads';
+import { fileURLToPath } from 'node:url';
+import { buildSync } from 'esbuild';
+import { EquityWorkerPool } from './equity/EquityWorkerPool.js';
 import { afterEach, expect, it, vi } from 'vitest';
 const { timeBankRpc } = vi.hoisted(() => ({
   timeBankRpc: vi.fn((..._args: unknown[]): any => {
@@ -558,9 +562,10 @@ it.each([
   { held: false, maintenance: false },
   { held: true, maintenance: false },
   { held: true, maintenance: true },
+  { held: true, maintenance: false, equityPressure: true },
 ])(
-  'finishes two started originals before admitting the third prepared original ($held/$maintenance)',
-  async ({ held, maintenance }) => {
+  'finishes two started originals before admitting the third prepared original ($held/$maintenance/$equityPressure)',
+  async ({ held, maintenance, equityPressure = false }) => {
     const manager = new OriginalBarrierHarness(held);
     const entries = [
       fixture(),
@@ -572,7 +577,65 @@ it.each([
     const decks: ReturnType<HandController['getRemainingDeck']>[] = [];
     const parked: Promise<void>[] = [];
     const restored: HandController[] = [];
+    let pressurePool: EquityWorkerPool | undefined;
+    let pressureResult: Promise<PromiseSettledResult<number[]>[]> | undefined;
+    let terminated: Promise<number> | undefined;
+    const workers: Worker[] = [];
+    const equityHands = [
+      [
+        { rank: 'A', suit: 'spades' },
+        { rank: 'A', suit: 'hearts' },
+      ],
+      [
+        { rank: 'K', suit: 'spades' },
+        { rank: 'K', suit: 'hearts' },
+      ],
+    ] as const;
+    const equityBoard = [
+      { rank: 'A', suit: 'clubs' },
+      { rank: '7', suit: 'diamonds' },
+      { rank: '2', suit: 'hearts' },
+      { rank: '9', suit: 'spades' },
+      { rank: '3', suit: 'clubs' },
+    ] as const;
+    const calculate = () =>
+      pressurePool!.estimateEquity(
+        equityHands.map((hand) => [...hand]),
+        [...equityBoard],
+        [],
+        100,
+        { exact: true }
+      );
     try {
+      if (equityPressure) {
+        // Real worker entrypoint, bounded burst, and actual isolate exit. The
+        // controller persistence seam below remains synthetic, not DB proof.
+        const built = buildSync({
+          entryPoints: [fileURLToPath(new URL('./equity/equityWorker.ts', import.meta.url))],
+          bundle: true,
+          platform: 'node',
+          format: 'esm',
+          write: false,
+        });
+        const url = new URL(
+          'data:text/javascript;base64,' +
+            Buffer.from(built.outputFiles[0].contents).toString('base64')
+        );
+        pressurePool = new EquityWorkerPool({
+          size: 1,
+          maxQueuedJobs: 2,
+          workerFactory: () => {
+            const worker = new Worker(url, { workerData: { equityMemoryIndex: workers.length } });
+            workers.push(worker);
+            return worker;
+          },
+          readyTimeoutMs: 5000,
+        });
+        await pressurePool.ready();
+        pressureResult = Promise.allSettled(Array.from({ length: 64 }, calculate));
+        expect(pressurePool.status()).toMatchObject({ busyWorkers: 1, queueDepth: 2 });
+        terminated = workers[0].terminate();
+      }
       for (const [i, { e, roster }] of entries.entries()) {
         const controller: HandController = e.handController;
         if (i < 2) controller.start();
@@ -664,7 +727,30 @@ it.each([
       expect(restored[2].getState().players.map((p) => p.stack)).toEqual(expected[2]);
       expect(third.emitted.filter((x) => x.type === 'HAND_COMPLETE')).toHaveLength(1);
       expect(expected.flat().reduce((a, b) => a + b, 0)).toBe(6000);
+      if (pressurePool) {
+        await terminated;
+        const outcomes = await pressureResult!;
+        expect(
+          outcomes.filter(
+            (result) =>
+              result.status === 'rejected' && result.reason.name === 'EquityWorkerOverloadedError'
+          )
+        ).toHaveLength(61);
+        await vi.waitFor(() => expect(pressurePool!.status().readyWorkers).toBe(1), {
+          timeout: 5000,
+        });
+        expect(workers.length).toBeGreaterThan(1);
+        expect(await calculate()).toEqual([1, 0]);
+        expect(pressurePool.status()).toMatchObject({
+          queueDepth: 0,
+          queuedBytes: 0,
+          busyWorkers: 0,
+          retiringWorkers: 0,
+        });
+        for (const { e } of entries) expect(e.killForRestart).not.toHaveBeenCalled();
+      }
     } finally {
+      await pressurePool?.shutdown();
       for (const { e } of entries) {
         e.running = false;
         e.activeHandWaitRelease?.release('test_cleanup');

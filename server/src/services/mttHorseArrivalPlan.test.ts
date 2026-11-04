@@ -37,6 +37,29 @@ function beforeStart(
 
 describe('varied prestart fields and arrivals throughout late registration', () => {
   it.each([
+    [2500, 50],
+    [500, 10],
+    [1500, 30],
+    [1000, 20],
+    [10000, 35],
+    [750, 20],
+    [2500, 40],
+    [1500, 20],
+    [250, 10],
+  ])(
+    'retains the original UUID plan with zero financial guarantee (%s/%s)',
+    (guarantee, charge) => {
+      const id = '450e6c55-bd7c-4e6d-8f30-864c826f02cc';
+      const original = mttPlannedField(guarantee, charge, id);
+      const retained = mttPlannedField(0, charge, id, Math.ceil(guarantee / charge));
+      expect(retained).toBe(original);
+      expect(mttPrestartPlan(retained, null, id)).toBe(mttPrestartPlan(original, null, id));
+    }
+  );
+  it.each([-1, 1.5, NaN, Infinity])('refuses malformed attendance floor %s', (floor) => {
+    expect(() => mttPlannedField(0, 10, 'event', floor)).toThrow('Invalid Horse attendance floor');
+  });
+  it.each([
     [5000, 36],
     [1000, 6.5],
     [50000, 90],

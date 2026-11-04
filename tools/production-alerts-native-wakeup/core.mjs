@@ -118,6 +118,7 @@ export function createIntake({ load, save, pending, queue, wake, id = randomUUID
           while (requested) {
             requested = false;
             await run();
+            lastError = null;
           }
         })()
           .catch((error) => {

@@ -1,0 +1,5 @@
+# Browser retry keeps its producer artifact
+
+A failed-jobs-only rerun changed the consumer attempt from 1 to 2 while retaining a successful attempt-1 browser build. Consumers reconstructed an attempt-2 artifact name and failed before browser verification. The producer now publishes the exact uploaded name as a job output. Consumers use that original name and explicitly refuse an empty, foreign-run or foreign-SHA output before download. Existing validation-only provenance, Git SHA, file inventory/digests and symlink refusals remain intact.
+
+The focused regression executes the real seal, output and consumer guard scripts with producer attempt 1 and consumer attempts 1/2/3, plus absent/wrong-run/wrong-SHA output and the existing changed/missing/extra/wrong-provenance/symlink byte controls. The historical workflow fingerprint is retained by strictly asserting and reversing only this reviewed identity delta. Current workflow binding pins receive a separate audit; no historical financial qualification is restamped. This is a CI transfer correction, not an engine or financial runtime change.

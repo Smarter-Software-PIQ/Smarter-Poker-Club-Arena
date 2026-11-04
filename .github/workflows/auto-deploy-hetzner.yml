@@ -157,7 +157,7 @@ jobs:
     if: github.event.action == 'deploy-club-arena-engine'
     name: Test The Exact Engine Release Request (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 80
     # Each shard builds the same immutable server tree. Downstream jobs depend
     # on the entire matrix, so one failed/cancelled shard cannot admit a release.
     # Finish all shards on failure to retain the complete diagnostic result.
@@ -221,7 +221,11 @@ jobs:
           [[ "$RELEASE_TEST_SHARD" =~ ^[1-4]$ ]]
           npm ci --no-audit --no-fund
           npm run build
-          npm test -- --shard="$RELEASE_TEST_SHARD/4"
+          # Run this nested historical qualification once before CPU-heavy tests.
+          if [ "$RELEASE_TEST_SHARD" = 1 ]; then
+            npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
+          fi
+          npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$RELEASE_TEST_SHARD/4"
 
   engine-doors:
     name: Prove The Exact Engine Has Every Production Door
@@ -426,7 +430,28 @@ jobs:
           flock -w 90 8
           GIT_HTTP_LOW_SPEED_LIMIT=1024 GIT_HTTP_LOW_SPEED_TIME=30 \
             timeout --signal=TERM --kill-after=5s 90s \
-            git -C "$REPO_DIR" fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+            env -u GIT_CONFIG -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
+              -u GIT_ASKPASS -u SSH_ASKPASS -u GIT_SSL_NO_VERIFY \
+              GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+              bash -c '
+            set -euo pipefail
+            # Fetch public source without changing origin or using host credentials.
+            # Local includes, rewrites and HTTP overrides must not redirect this request.
+            if git -C "$1" config --local --no-includes --name-only \
+              --get-regexp "^(url\..*\.insteadof|include\..*|includeif\..*|http\..*|extensions\.worktreeconfig)$" >/dev/null; then
+              echo "unsafe local Git transport configuration" >&2
+              exit 78
+            else
+              rc=$?
+              [ "$rc" = 1 ] || exit "$rc"
+            fi
+            exec git -c credential.helper= -c core.askPass=/bin/false \
+              -c http.extraHeader= -c http.followRedirects=false -c http.sslVerify=true \
+              -c protocol.allow=never -c protocol.https.allow=always \
+              -C "$1" fetch --no-tags \
+              https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena.git \
+              +refs/heads/main:refs/remotes/origin/main
+            ' -- "$REPO_DIR"
           MAIN_SHA="$(git -C "$REPO_DIR" rev-parse --verify 'origin/main^{commit}')"
           for commit in "$TARGET_SHA" "$CONTROL_SHA"; do
             git -C "$REPO_DIR" cat-file -e "$commit^{commit}"

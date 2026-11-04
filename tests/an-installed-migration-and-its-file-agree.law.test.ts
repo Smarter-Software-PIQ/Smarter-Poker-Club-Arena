@@ -73,6 +73,30 @@ describe('the apply-time alias table', () => {
     }
   });
 
+  it('keeps the refused Diamond house disposition superseded by canonical owner retirement', () => {
+    const old = '20261102150315_the_fifteen_frozen_diamond_events_close_and_their_diamonds_g.sql';
+    const entry = loadAliases(REPO).superseded.get(old);
+    expect(entry?.by).toBe('20261102180105');
+    const historical = fs.readFileSync(path.join(MIGRATIONS, old), 'utf8');
+    const refusal = historical.indexOf(
+      "RAISE EXCEPTION 'owner_house_disposition_superseded_use_verified_kingfish_retirement'"
+    );
+    expect(refusal).toBeGreaterThanOrEqual(0);
+    expect(refusal).toBeLessThan(historical.indexOf('DO $ddl$'));
+    const replacement = fs.readFileSync(
+      path.join(
+        MIGRATIONS,
+        '20261102180105_owner_retirement_transfers_custody_and_closes_exact_events.sql'
+      ),
+      'utf8'
+    );
+    expect(replacement).toContain(
+      'CREATE OR REPLACE FUNCTION public.fn_ca_owner_retire_tournament'
+    );
+    expect(replacement).toContain("kingfish constant uuid:='47965354-0e56-43ef-931c-ddaab82af765'");
+    expect(entry?.reason).toContain('not completed settlements');
+  });
+
   it('refuses a row whose file is not in the tree', () => {
     const dir = fixture({ aliases: [row('20260101000000', '20260101000001_a.sql')] }, []);
     const loaded = loadAliases(dir);

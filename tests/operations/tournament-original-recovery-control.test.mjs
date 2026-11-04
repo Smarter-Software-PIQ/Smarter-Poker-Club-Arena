@@ -1,4 +1,7 @@
+import fs from 'node:fs';
 import test from 'node:test';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { controlOriginalRecovery } from '../../.github/scripts/tournament-original-recovery-control.mjs';
 const input = {
@@ -1157,15 +1160,26 @@ function retirementFixture({
   changedEvent = false,
   wrongOperation = false,
   changedRuntime = false,
+  finalRuntime = {},
+  receiptDrift = false,
+  settledReceipt = {},
+  finalHealthChanged = false,
+  releasedLease = false,
 } = {}) {
   const calls = [];
   let state = initial;
+  let ackCalls = 0;
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
     if (url.includes('/health'))
       return {
         ok: true,
-        json: async () => ({ ...health, ...(changedRuntime ? { instanceId: '1-deadbeef' } : {}) }),
+        json: async () => ({
+          ...health,
+          ...(changedRuntime || (finalHealthChanged && ackCalls > 0)
+            ? { instanceId: '1-deadbeef' }
+            : {}),
+        }),
       };
     if (url.includes('/tournaments?'))
       return {
@@ -1204,11 +1218,23 @@ function retirementFixture({
               state,
               operation_id: wrongOperation ? input.nonce : retirementMember.original_operation_id,
               tournament_id: retirementMember.tournament_id,
-              current_generation: input.generation,
+              current_generation: releasedLease ? null : input.generation,
+              tournament_status: state === 'settled' ? 'CANCELLED' : 'RUNNING',
               current_boundary_valid: state === 'quiesced',
               quiescence_generation: input.generation,
               money_hash: '0'.repeat(32),
-              receipt: state === 'settled' ? { private_field: privateCanary } : null,
+              receipt:
+                state === 'settled'
+                  ? {
+                      fully_settled: true,
+                      operation_id: retirementMember.original_operation_id,
+                      tournament_id: retirementMember.tournament_id,
+                      quiescence: { generation: input.generation },
+                      private_field: privateCanary,
+                      ...(receiptDrift && ackCalls > 0 ? { changed: true } : {}),
+                      ...settledReceipt,
+                    }
+                  : null,
               private_field: privateCanary,
             }),
           };
@@ -1226,12 +1252,21 @@ function retirementFixture({
       };
     }
     if (url.endsWith('/admin/tournament-abort-boundary')) {
-      state = 'quiesced';
+      ackCalls++;
+      if (state !== 'settled') state = 'quiesced';
+      if (timeout) throw Error(privateCanary);
       return {
         ok: true,
         json: async () => ({
           success: true,
-          runtime: { operation_id: retirementMember.original_operation_id },
+          runtime: {
+            operation_id: retirementMember.original_operation_id,
+            tournament_id: retirementMember.tournament_id,
+            state,
+            runtime_retired: state === 'settled',
+            private_field: privateCanary,
+            ...finalRuntime,
+          },
         }),
       };
     }
@@ -1239,6 +1274,7 @@ function retirementFixture({
   };
   return {
     calls,
+    fetchImpl,
     run: (action) =>
       controlOriginalRecovery(
         { ...input, action, tournamentId: retirementMember.tournament_id },
@@ -1256,17 +1292,10 @@ const preservedHumans = [
   '7986217a-0a67-4585-bd43-254356a9cb54',
   'd5decc98-cd0f-417f-aa28-6df009a74c76',
 ];
-test('owner control retains the140-event manifest and excludes later preserved human events, waiting events and money actions', () => {
+test('latest old-event closeout admits all140 original owners but excludes waiting events and unqualified money actions', () => {
   for (const m of retirementManifest.targets) {
     if (preservedHumans.includes(m.tournament_id)) {
-      for (const action of [
-        'owner_request',
-        'owner_read',
-        'owner_ack',
-        'abort_ack',
-        'abort_settle',
-        'equal_settle',
-      ])
+      for (const action of ['abort_ack', 'abort_settle', 'equal_settle'])
         assert.throws(() =>
           originalControlIntent({ ...input, action, tournamentId: m.tournament_id })
         );
@@ -1280,7 +1309,6 @@ test('owner control retains the140-event manifest and excludes later preserved h
             originalControlIntent({ ...input, action, tournamentId: m.tournament_id }).tournamentId,
             m.tournament_id
           );
-      continue;
     }
     const r = originalControlIntent({
       ...input,
@@ -1288,6 +1316,7 @@ test('owner control retains the140-event manifest and excludes later preserved h
       tournamentId: m.tournament_id,
     });
     assert.equal(r.operationId, m.original_operation_id);
+    assert.equal(r.cutoff, retirementManifest.cutoff_utc);
     assert.equal(r.disposition, 'no_financial_action');
     assert.match(r.manifestHash, /^[a-f0-9]{64}$/);
   }
@@ -1302,6 +1331,31 @@ test('owner control retains the140-event manifest and excludes later preserved h
       tournamentId: retirementMember.tournament_id,
     })
   );
+});
+test('latest closeout includes exactly the five additional old started events with separate original operation identities', () => {
+  const extra = JSON.parse(
+    fs.readFileSync(
+      new URL(
+        '../../scripts/ci/fixtures/tournament-abort/owner-closeout-nov3-additional.json',
+        import.meta.url
+      )
+    )
+  );
+  assert.equal(extra.targets.length, 5);
+  const operations = new Set();
+  for (const row of extra.targets) {
+    const intent = originalControlIntent({
+      ...input,
+      action: 'owner_request',
+      tournamentId: row.tournament_id,
+    });
+    assert.equal(intent.operationId, row.original_operation_id);
+    assert.equal(intent.originalStartedAt, row.original_started_at);
+    assert.equal(intent.cutoff, extra.cutoff_utc);
+    assert.equal(intent.disposition, 'no_financial_action');
+    operations.add(intent.operationId);
+  }
+  assert.equal(operations.size, 5);
 });
 test('owner request writes once under original operation then reads durable state', async () => {
   const f = retirementFixture();
@@ -1357,4 +1411,255 @@ test('owner ACK verifies actual current boundary and read does not actuate', asy
   const read = retirementFixture({ initial: 'stop_requested' });
   assert.equal((await read.run('owner_read')).outcome, 'owner_stop_readback');
   assert.equal(retirementWrites(read).length, 0);
+});
+
+test('settled owner ACK retires the original runtime and preserves its public receipt on repeats', async () => {
+  const f = retirementFixture({ initial: 'settled', releasedLease: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await f.run('owner_ack');
+    assert.equal(r.outcome, 'owner_runtime_retired');
+    assert.deepEqual(r.runtime, {
+      operation_id: retirementMember.original_operation_id,
+      tournament_id: retirementMember.tournament_id,
+      state: 'settled',
+      runtime_retired: true,
+    });
+    assert.equal(r.canonicalBefore.receipt_digest, r.canonicalAfter.receipt_digest);
+    assert.equal(JSON.stringify(r).includes(privateCanary), false);
+  }
+  assert.equal(retirementWrites(f).length, 2);
+  for (const call of retirementWrites(f)) {
+    assert.ok(call.url.endsWith('/admin/tournament-abort-boundary'));
+    assert.deepEqual(JSON.parse(call.options.body), {
+      operationId: retirementMember.original_operation_id,
+      tournamentId: retirementMember.tournament_id,
+    });
+  }
+  assert.equal(
+    f.calls.some((c) => c.url.includes('/tournaments?')),
+    false
+  );
+});
+for (const scene of [
+  { timeout: true },
+  { finalRuntime: { runtime_retired: false } },
+  { finalRuntime: { runtime_retired: undefined } },
+  { finalRuntime: { operation_id: input.nonce } },
+  { finalRuntime: { tournament_id: input.nonce } },
+  { finalRuntime: { state: 'quiesced' } },
+  { receiptDrift: true },
+  { finalHealthChanged: true },
+])
+  test('settled owner ACK requires positive final proof ' + JSON.stringify(scene), async () => {
+    const f = retirementFixture({ initial: 'settled', ...scene });
+    const r = await f.run('owner_ack');
+    assert.equal(r.outcome, 'unknown');
+    assert.equal(retirementWrites(f).length, 1);
+    assert.equal(JSON.stringify(r).includes(privateCanary), false);
+    if (scene.timeout) {
+      assert.equal(r.mutationAcknowledgement, 'unknown');
+      assert.equal(r.canonicalAfter.state, 'settled');
+    }
+  });
+for (const settledReceipt of [
+  { fully_settled: false },
+  { operation_id: input.nonce },
+  { tournament_id: input.nonce },
+  { quiescence: { generation: input.nonce } },
+])
+  test(
+    'settled owner ACK refuses changed original settlement ' + JSON.stringify(settledReceipt),
+    async () => {
+      const f = retirementFixture({ initial: 'settled', settledReceipt });
+      assert.equal((await f.run('owner_ack')).outcome, 'unknown');
+      assert.equal(retirementWrites(f).length, 0);
+    }
+  );
+test('settled owner read preserves disposition without runtime or financial writes', async () => {
+  const f = retirementFixture({ initial: 'settled' });
+  const r = await f.run('owner_read');
+  assert.equal(r.outcome, 'prior_disposition_preserved');
+  assert.equal(retirementWrites(f).length, 0);
+});
+
+test('owner final retirement survives the actual CLI intent and receipt artifact boundary', () => {
+  const scratch = fs.mkdtempSync(path.join(process.cwd(), '.owner-retirement-test-'));
+  try {
+    const preload = path.join(scratch, 'fetch-fixture.mjs');
+    const receipt = path.join(scratch, 'receipt.json');
+    fs.writeFileSync(
+      preload,
+      [
+        `const input = ${JSON.stringify(input)};`,
+        `const health = ${JSON.stringify(health)};`,
+        `const retirementMember = ${JSON.stringify(retirementMember)};`,
+        `const privateCanary = ${JSON.stringify(privateCanary)};`,
+        retirementFixture.toString(),
+        "globalThis.fetch = retirementFixture({ initial: 'settled', releasedLease: true }).fetchImpl;",
+      ].join('\n')
+    );
+    const env = {
+      ...process.env,
+      RECOVERY_ACTION: 'owner_ack',
+      RECOVERY_EVENT: retirementMember.tournament_id,
+      RECOVERY_NONCE: input.nonce,
+      EXPECTED_GENERATION: input.generation,
+      EXPECTED_ENGINE_SHA: input.sha,
+      EXPECTED_INSTANCE: input.instance,
+      RECOVERY_RECEIPT_PATH: receipt,
+      RECOVERY_INTENT_PATH: path.join(scratch, 'intent.json'),
+      SUPABASE_URL: db,
+      SUPABASE_SERVICE_ROLE_KEY: privateCanary,
+    };
+    for (const suffix of [['intent'], []]) {
+      const child = spawnSync(
+        process.execPath,
+        [
+          '--import',
+          preload,
+          '.github/scripts/tournament-original-recovery-control.mjs',
+          ...suffix,
+        ],
+        { env, encoding: 'utf8', timeout: 10000 }
+      );
+      assert.equal(child.status, 0, child.stderr);
+      assert.equal(child.stdout.includes(privateCanary), false);
+    }
+    const artifact = fs.readFileSync(receipt, 'utf8');
+    const r = JSON.parse(artifact);
+    assert.equal(r.request.action, 'owner_ack');
+    assert.equal(r.outcome, 'owner_runtime_retired');
+    assert.equal(r.runtime.runtime_retired, true);
+    assert.equal(r.runtime.operation_id, retirementMember.original_operation_id);
+    assert.equal(r.canonicalBefore.receipt_digest, r.canonicalAfter.receipt_digest);
+    assert.equal(artifact.includes(privateCanary), false);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+const additional = JSON.parse(
+  fs.readFileSync(
+    new URL(
+      '../../scripts/ci/fixtures/tournament-abort/owner-closeout-nov3-additional.json',
+      import.meta.url
+    )
+  )
+);
+function additionalFixture(member, options = {}) {
+  const f = abortFixture(options);
+  const prior = f.fetchImpl;
+  f.fetchImpl = async (url, init) => {
+    const response = await prior(url, init);
+    if (!url.endsWith('/fn_ca_tournament_abort_stop_state')) return response;
+    const value = await response.json();
+    value.operation_id = member.original_operation_id;
+    value.tournament_id = member.tournament_id;
+    if (value.receipt)
+      Object.assign(value.receipt, {
+        operation_id: member.original_operation_id,
+        tournament_id: member.tournament_id,
+      });
+    Object.assign(value, options.canonical ?? {});
+    return { ok: true, json: async () => value };
+  };
+  return f;
+}
+for (const member of additional.targets) {
+  test(`additional refund retains original operation and payer: ${member.tournament_id}`, async () => {
+    const f = additionalFixture(member);
+    const request = {
+      ...input,
+      action: 'additional_refund_settle',
+      tournamentId: member.tournament_id,
+      moneyHash: '0'.repeat(32),
+    };
+    const r = await controlOriginalRecovery(request, {
+      ...f,
+      serviceIdentity: 'isolated-key',
+      supabaseUrl: db,
+    });
+    assert.equal(r.outcome, 'original_abort_settled_readback');
+    assert.equal(r.request.action, request.action);
+    assert.equal(r.request.operationId, member.original_operation_id);
+    const writes = f.calls.filter((c) => c.url.endsWith('/fn_ca_settle_tournament_abort'));
+    assert.equal(writes.length, 1);
+    assert.deepEqual(JSON.parse(writes[0].options.body), {
+      p_operation_id: member.original_operation_id,
+      p_tournament_id: member.tournament_id,
+      p_expected_money_hash: request.moneyHash,
+    });
+    assert.equal(
+      f.calls.some((c) =>
+        /owner_retire|bank_refund|equal_share|request_tournament_abort|\/admin\//.test(c.url)
+      ),
+      false
+    );
+  });
+}
+const additionalMember = additional.targets[0];
+const additionalInput = {
+  ...input,
+  tournamentId: additionalMember.tournament_id,
+  action: 'additional_refund_settle',
+  moneyHash: '0'.repeat(32),
+};
+for (const canonical of [
+  { state: 'stop_requested' },
+  { current_boundary_valid: false },
+  { quiescence_generation: input.nonce },
+  { current_generation: input.nonce },
+  { money_hash: '1'.repeat(32) },
+  { operation_id: input.nonce },
+]) {
+  test(`additional refund refuses changed boundary ${JSON.stringify(canonical)}`, async () => {
+    const f = additionalFixture(additionalMember, { canonical });
+    const r = await controlOriginalRecovery(additionalInput, {
+      ...f,
+      serviceIdentity: 'isolated-key',
+      supabaseUrl: db,
+    });
+    assert.equal(r.outcome, 'unknown');
+    assert.equal(f.calls.filter((c) => c.url.endsWith('/fn_ca_settle_tournament_abort')).length, 0);
+  });
+}
+test('additional refund read, already-settled, and lost ACK never repay', async () => {
+  for (const options of [{ read: true }, { initiallySettled: true }, { timeout: true }]) {
+    const f = additionalFixture(additionalMember, options);
+    const r = await controlOriginalRecovery(
+      { ...additionalInput, ...(options.read ? { action: 'additional_refund_read' } : {}) },
+      { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+    );
+    assert.equal(
+      f.calls.filter((c) => c.url.endsWith('/fn_ca_settle_tournament_abort')).length,
+      options.timeout ? 1 : 0
+    );
+    assert.equal(
+      r.outcome,
+      options.timeout
+        ? 'unknown'
+        : options.read
+          ? 'original_abort_readback'
+          : 'original_abort_already_settled'
+    );
+    if (options.timeout) assert.equal(r.canonicalAfter.state, 'settled');
+  }
+});
+test('additional refund cannot enter original140, arbitrary event, legacy mutation, or unreviewed money', async () => {
+  for (const change of [
+    { tournamentId: other },
+    { tournamentId: input.nonce },
+    { action: 'abort_settle' },
+    { moneyHash: undefined },
+    { sha: 'bad' },
+  ]) {
+    const f = additionalFixture(additionalMember);
+    await assert.rejects(
+      controlOriginalRecovery(
+        { ...additionalInput, ...change },
+        { ...f, serviceIdentity: 'isolated-key', supabaseUrl: db }
+      )
+    );
+    assert.equal(f.calls.length, 0);
+  }
 });

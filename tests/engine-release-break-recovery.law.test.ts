@@ -35,7 +35,7 @@ describe('engine release recovery stays inside one honest break boundary', () =>
       transaction.indexOf('health_instance()')
     );
     for (const operation of [
-      "fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'",
+      'env -u GIT_CONFIG -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS',
       "rev-parse --verify 'origin/main^{commit}'",
       'cat-file -e "$SHA^{commit}"',
       'merge-base --is-ancestor "$SHA" "$main_sha"',

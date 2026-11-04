@@ -1,0 +1,9 @@
+# Native alert service lifecycle and terminal channel closure
+
+The receive service previously kept its last channel/queue status after stop, so a loaded gateway method could report stale CLOSED state without saying the journal owner was gone. Supabase Realtime 2.90.1 removes a channel on protocol CLOSED; its normal socket reconnect does not restore that removed channel.
+
+The original service now exposes lifecycle and generation, fences previous callbacks, drains intake before releasing ownership, and distinguishes failed start from active subscription. One terminal close per disconnection episode obtains a replacement private subscription through the existing SDK and reads the same durable batch. Repeated terminal closure before a successful subscription and original pending read reports degraded explicitly. A proven recovery restores one attempt for a later independent disconnection. No timer, polling repair, queue retry, chat wake replay or release action was added. Successful pending reads clear their prior read error.
+
+Focused qualification uses the actual locked SDK and local WebSocket server to send phx_close, observe the second join and original pending read, and assert no duplicate side effects for an accepted wake-uncertain operation. Additional lifecycle cases cover duplicate start, stale callbacks, concurrent stop/start acquisition, unavailable journal and bounded closure exhaustion. Existing real SQLite exclusive-owner/process-death cases remain required.
+
+Production inspection found the gateway process held only the unrelated digest journal, while the old alert status reported CLOSED. Historical logs did not identify the exact stop/reload trigger. This is not a claim that the historical trigger is known or that installation/live delivery has occurred. The parent recovery owner retains installation and live receipt/read/ACK verification; the existing queue must remain intact.

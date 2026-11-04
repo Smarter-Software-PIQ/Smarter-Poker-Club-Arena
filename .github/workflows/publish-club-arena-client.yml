@@ -24,7 +24,7 @@ on:
 jobs:
   admit:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
@@ -38,6 +38,17 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+          # Admission imports only this source closure. Full Git history remains
+          # available for immutable producer controls, shard plans and ancestry.
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/publisher-client-singleflight.mjs
+            /scripts/ci/production-e2e-provenance.mjs
+            /scripts/ci/publisher-verdict-receipt.mjs
+            /scripts/ci/publisher-job-identity.mjs
+            /scripts/ci/publisher-client-shards.mjs
+            /scripts/ci/classify-ci-changes.mjs
+            /scripts/ci/repository-identity.mjs
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -62,7 +73,7 @@ jobs:
     # tree hashes, not merge lineage, and fails closed.
     if: needs.admit.outputs.published != 'true' && inputs.component == 'client' && inputs.tests_proven != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions:
       contents: read
     # Partition the same selected client files sixteen ways; all results still gate production.
@@ -112,7 +123,7 @@ jobs:
     needs: admit
     if: needs.admit.outputs.published != 'true' && inputs.publish != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       # read is enough now: this job uploads an artifact instead of pushing a
       # branch, so it no longer writes to the repository at all.

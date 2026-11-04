@@ -1,0 +1,9 @@
+# Bound repeated classification of shared legacy census suffixes
+
+The legacy census cached each immediate prototype after already checking two links. Many distinct wrapper prototypes sharing a deep tail therefore exhausted the fixed cache and repeated the same tail walk. Cache the remaining suffix at the same depth-two boundary instead. Every lookup has the same relative depth, retaining the 256-link refusal, context/proxy exclusions, detached-owner discovery, bounded output and fixed cache/handle budget.
+
+An instrumented real Node22.23.2/V8 native regression retains 100,000 distinct wrappers and a 200-link shared tail. The predecessor performed 20,434,974 prototype steps; the correction performs fewer than one million, with the same exhaustive visitation and active/detached owners. Saturation and forced-collision fixtures still exercise all 4,096 cache entries/eight probes; the real midpoint deadline fixture preserves its approximately 200,000-object footprint with uncached suffixes. Existing native owner, context, proxy, depth, memory, output and cleanup assertions remain mandatory.
+
+This addresses a demonstrated complexity weakness, not a proven attribution of operation41669483444-1's 59-second timeout. V8's synchronous full GC and traversal remain non-interruptible; no universal duration guarantee is claimed. The original failed checkpoint is not replayed or certified.
+
+The finite owner continuation uses the reviewed 16:35–19:35 UTC source window, containing protected0de3. Previous windows remain immutable. This corrected candidate still requires protected checks, image/native qualification, resolved prior Inspector ownership, full notice, custody and rollback reserves, and the existing exclusive transaction. Tournament entry holds remain until the separate relaunch requirements pass.

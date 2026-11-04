@@ -22,11 +22,13 @@ SET test.clock='2026-09-21T09:20:00Z';
 
 INSERT INTO unions(id,name,slug,owner_id) VALUES
  (fixture.u(160),'Behaviour floored union','club-floor-behaviour-union',fixture.u(900));
-INSERT INTO clubs(id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
- (fixture.u(161),'Behaviour floored standalone',fixture.u(901),0,'chips',false,NULL),
- (fixture.u(162),'Behaviour floorless control',fixture.u(901),0,'chips',false,NULL),
- (fixture.u(163),'Behaviour floored with a fault above the floor',fixture.u(901),0,'chips',false,NULL),
- (fixture.u(164),'Behaviour floored at the current week edge',fixture.u(901),0,'chips',false,NULL);
+-- Stable fixture-only short IDs are outside the captured random 10000..99999 range.
+-- The production default remains unchanged; unrelated fixtures cannot collide.
+INSERT INTO clubs(id,club_id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
+ (fixture.u(161),1000161,'Behaviour floored standalone',fixture.u(901),0,'chips',false,NULL),
+ (fixture.u(162),1000162,'Behaviour floorless control',fixture.u(901),0,'chips',false,NULL),
+ (fixture.u(163),1000163,'Behaviour floored with a fault above the floor',fixture.u(901),0,'chips',false,NULL),
+ (fixture.u(164),1000164,'Behaviour floored at the current week edge',fixture.u(901),0,'chips',false,NULL);
 
 INSERT INTO union_settlement_floor(union_id,earliest_period_start,reason) VALUES
  (fixture.u(160),'2026-09-07 07:00Z',

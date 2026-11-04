@@ -223,6 +223,9 @@ describe('a schedule is written with a zone only once the engine reads zones', (
 
 describe('an acknowledged schedule survives a later one-off failure', () => {
   it('updates the accepted schedule on an explicit form retry instead of creating a second row', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // Noon Chicago: this fixture exercises creation/replay, not admission hours.
+    vi.setSystemTime(new Date('2026-11-04T18:00:00Z'));
     const rpc = mockRpc();
     mocks.create
       .mockReset()

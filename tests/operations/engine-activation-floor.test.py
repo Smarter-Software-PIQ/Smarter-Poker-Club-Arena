@@ -66,14 +66,30 @@ class ActivationFloor(unittest.TestCase):
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
 
-    def owner_record(self, legacy=False):
+    @staticmethod
+    def historical_floor(window_id):
+        # The exact floor bytes a historical window's witness bound: same key
+        # order and formatting as every committed floor.
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        window = next(w for w in windows['windows'] if w['id'] == window_id)
+        doc = {'schema': floor.OWNER_CAPABILITY, 'preparationAt': window['notBefore'],
+               'activationAt': window['notBefore'], 'expiresAt': window['notAfter'],
+               'timeZone': 'America/Chicago', 'ownerWindowId': window_id,
+               'clientPublicationAt': window['notBefore']}
+        return window, (json.dumps(doc, indent=2) + '\n').encode()
+
+    def owner_record(self, legacy=False, window_id=None):
         source = json.loads((ROOT / MANIFEST).read_text())
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
-        window = next(w for w in windows['windows'] if w['id'] == source['ownerWindowId'])
+        if window_id is None:
+            window = next(w for w in windows['windows'] if w['id'] == source['ownerWindowId'])
+            raw = (ROOT / MANIFEST).read_bytes()
+        else:
+            window, raw = self.historical_floor(window_id)
         window['contains'] = self.sha
         if legacy:
             window.pop('supersedesPhase1Schedule', None)
-        (self.repo / MANIFEST).write_bytes((ROOT / MANIFEST).read_bytes())
+        (self.repo / MANIFEST).write_bytes(raw)
         (self.repo / 'server/release/owner-maintenance-windows.json').write_text(json.dumps({'version': 1, 'windows': [window]}))
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
@@ -87,6 +103,7 @@ class ActivationFloor(unittest.TestCase):
         windows = json.loads(path.read_text())
         windows['windows'][0]['supersedesPhase1Schedule'] = True
         windows['windows'][0]['announceAtChicagoMinutes'] = [53]
+        windows['windows'][0].pop('announcementPolicy', None)
         path.write_text(json.dumps(windows))
         for name in ('server/scripts/engine-release-seal.py', 'server/src/maintenance/maintenanceSchedulePolicy.json'):
             target = self.repo / name
@@ -133,6 +150,26 @@ class ActivationFloor(unittest.TestCase):
                 windows['windows'][0]['announceAtChicagoMinutes'] = minutes
                 path.write_text(json.dumps(windows)); self.sha = self.commit()
                 with self.assertRaises(ValueError): floor.policy(str(self.repo), self.sha, self.sha)
+
+    def test_earliest_certified_owner_policy_requires_explicit_unambiguous_authority(self):
+        record = self.owner_record(window_id='2026-11-03-tournament-qualified-capacity-continuation')
+        self.assertTrue(record['supersedesPhase1Schedule'])
+        path = self.repo / 'server/release/owner-maintenance-windows.json'
+        original = json.loads(path.read_text())
+        self.assertEqual(original['windows'][0]['announcementPolicy'], 'earliest-certified')
+        self.assertNotIn('announceAtChicagoMinutes', original['windows'][0])
+        floor.check_window(record, record['activationEpoch'] + 30, record['expiresEpoch'], 'admit')
+        with self.assertRaises(ValueError):
+            floor.check_window(record, record['expiresEpoch'] - 419, record['expiresEpoch'], 'admit')
+        for changes in ({'announcementPolicy': 'immediate'}, {'announcementPolicy': True},
+                        {'announcementPolicy': None}, {'announceAtChicagoMinutes': [53]},
+                        {'announceAtChicagoMinutes': []}, {'supersedesPhase1Schedule': 'true'}):
+            with self.subTest(changes=changes):
+                candidate = json.loads(json.dumps(original))
+                candidate['windows'][0].update(changes)
+                path.write_text(json.dumps(candidate)); self.sha = self.commit()
+                with self.assertRaises(ValueError):
+                    floor.policy(str(self.repo), self.sha, self.sha)
 
     def test_later_owner_transaction_preserves_custody_without_reserving_hourly_cycle(self):
         source = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
@@ -417,6 +454,178 @@ echo CHECKPOINT_MUST_NOT_RUN
         floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
         with self.assertRaises(ValueError):
             floor.check_window(current, current['expiresEpoch']-419, current['expiresEpoch']+1, 'admit')
+
+    def test_census_continuation_keeps_failed_operation_window_immutable(self):
+        import hashlib
+        old = {'schema': floor.OWNER_CAPABILITY, 'preparationAt': '2026-11-03T14:00:00Z',
+               'activationAt': '2026-11-03T14:00:00Z', 'expiresAt': '2026-11-03T17:00:00Z',
+               'timeZone': 'America/Chicago', 'ownerWindowId': '2026-11-03-tournament-recovery-earliest-certified',
+               'clientPublicationAt': '2026-11-03T14:00:00Z'}
+        raw = (json.dumps(old, indent=2)+'\n').encode()
+        doc = json.loads((ROOT/'server/release/owner-maintenance-windows.json').read_text())
+        prior = next(w for w in doc['windows'] if w['id'] == old['ownerWindowId'])
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(prior['notAfter'], old['expiresAt'])
+        latest, latest_raw = self.historical_floor('2026-11-03-tournament-qualified-capacity-continuation')
+        self.assertEqual(latest['contains'], '0de3e5b9f6ae9b6def3a2603ef69fab5d934977d')
+        self.assertEqual(latest['releaseWitness']['sha256'], hashlib.sha256(latest_raw).hexdigest())
+        self.assertEqual((latest['notBefore'], latest['notAfter']), ('2026-11-03T20:30:00Z', '2026-11-03T23:30:00Z'))
+        self.assertEqual(latest['announcementPolicy'], 'earliest-certified')
+        self.assertNotIn('announceAtChicagoMinutes', latest)
+        (self.repo/MANIFEST).write_bytes(raw)
+        (self.repo/'server/release/owner-maintenance-windows.json').write_text(json.dumps({'version':1,'windows':[{**prior,'contains':self.sha}]}))
+        old_sha = self.commit()
+        original = floor.policy(str(self.repo), old_sha, old_sha)
+        current = self.owner_record(window_id='2026-11-03-tournament-qualified-capacity-continuation')
+        after_old = max(original['expiresEpoch'] + 1, current['activationEpoch'])
+        with self.assertRaises(ValueError): floor.check_window(original, after_old, current['expiresEpoch'], 'admit')
+        floor.check_window(current, after_old, current['expiresEpoch'], 'admit')
+        self.assertEqual(floor.policy(str(self.repo), old_sha, old_sha), original)
+        with self.assertRaises(ValueError): floor.policy(str(self.repo), self.sha, old_sha)
+        with self.assertRaises(ValueError): floor.policy(str(self.repo), old_sha, self.sha)
+        with self.assertRaises(ValueError): floor.check_window(current, current['expiresEpoch']-419, current['expiresEpoch'], 'admit')
+
+    def test_bounded_census_delivery_preserves_prior_floor_and_fixed_expiry(self):
+        import hashlib
+        old = {'schema': floor.OWNER_CAPABILITY, 'preparationAt': '2026-11-03T16:35:00Z',
+               'activationAt': '2026-11-03T16:35:00Z', 'expiresAt': '2026-11-03T19:35:00Z',
+               'timeZone': 'America/Chicago', 'ownerWindowId': '2026-11-03-tournament-census-recovery-continuation',
+               'clientPublicationAt': '2026-11-03T16:35:00Z'}
+        doc = json.loads((ROOT/'server/release/owner-maintenance-windows.json').read_text())
+        prior = next(w for w in doc['windows'] if w['id'] == old['ownerWindowId'])
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256((json.dumps(old, indent=2)+'\n').encode()).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), (old['activationAt'], old['expiresAt']))
+        current = self.owner_record(window_id='2026-11-03-tournament-qualified-capacity-continuation')
+        self.assertEqual(current['ownerWindowId'], '2026-11-03-tournament-qualified-capacity-continuation')
+        floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
+        for now in [current['activationEpoch']-1, current['expiresEpoch']-419, current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current, now, current['expiresEpoch'], 'admit')
+
+    def test_qualified_capacity_preserves_previous_floor_and_expiry(self):
+        import hashlib
+        old = {'schema': floor.OWNER_CAPABILITY, 'preparationAt': '2026-11-03T18:30:00Z',
+               'activationAt': '2026-11-03T18:30:00Z', 'expiresAt': '2026-11-03T21:30:00Z',
+               'timeZone': 'America/Chicago', 'ownerWindowId': '2026-11-03-tournament-bounded-census-delivery-continuation',
+               'clientPublicationAt': '2026-11-03T18:30:00Z'}
+        doc = json.loads((ROOT/'server/release/owner-maintenance-windows.json').read_text())
+        prior = next(w for w in doc['windows'] if w['id'] == old['ownerWindowId'])
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256((json.dumps(old, indent=2)+'\n').encode()).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), (old['activationAt'], old['expiresAt']))
+        current = self.owner_record(window_id='2026-11-03-tournament-qualified-capacity-continuation')
+        self.assertEqual(current['ownerWindowId'], '2026-11-03-tournament-qualified-capacity-continuation')
+        floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
+        for now in [current['activationEpoch']-1, current['expiresEpoch']-419, current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current, now, current['expiresEpoch'], 'admit')
+
+    def test_phase1_plo_55_window_preserves_qualified_capacity_floor(self):
+        import hashlib
+        prior, prior_raw = self.historical_floor('2026-11-03-tournament-qualified-capacity-continuation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(prior_raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-03T20:30:00Z', '2026-11-03T23:30:00Z'))
+        doc = json.loads((ROOT/'server/release/owner-maintenance-windows.json').read_text())
+        window, raw = self.historical_floor('2026-11-03-phase1-plo-horse-55-2330z')
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-03T23:30:00Z', '2026-11-04T05:30:00Z'))
+        self.assertEqual(window['announceAtChicagoMinutes'], [53])
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertNotIn('announcementPolicy', window)
+        self.assertEqual(window['contains'], '59b0d5dcc312235ab2f3e7fa9c97adbffabe271f')
+        current = self.owner_record(window_id='2026-11-03-phase1-plo-horse-55-2330z')
+        self.assertEqual(current['ownerWindowId'], '2026-11-03-phase1-plo-horse-55-2330z')
+        self.assertTrue(current['supersedesPhase1Schedule'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+
+    def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):
+        import hashlib
+        old = {'schema': floor.OWNER_CAPABILITY, 'preparationAt': '2026-11-03T20:30:00Z',
+               'activationAt': '2026-11-03T20:30:00Z', 'expiresAt': '2026-11-03T23:30:00Z',
+               'timeZone': 'America/Chicago', 'ownerWindowId': '2026-11-03-tournament-qualified-capacity-continuation',
+               'clientPublicationAt': '2026-11-03T20:30:00Z'}
+        doc = json.loads((ROOT/'server/release/owner-maintenance-windows.json').read_text())
+        prior = next(w for w in doc['windows'] if w['id'] == old['ownerWindowId'])
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256((json.dumps(old, indent=2)+'\n').encode()).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), (old['activationAt'], old['expiresAt']))
+        current = self.owner_record(window_id='2026-11-03-tournament-process-actor-continuation')
+        self.assertEqual(current['ownerWindowId'], '2026-11-03-tournament-process-actor-continuation')
+        floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
+        for now in [current['activationEpoch']-1, current['expiresEpoch']-419, current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current, now, current['expiresEpoch'], 'admit')
+
+
+    def test_manager_serial_continuation_preserves_prior_floor_and_expiry(self):
+        import hashlib
+        prior, raw = self.historical_floor('2026-11-03-tournament-process-actor-continuation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-03T23:00:00Z','2026-11-04T02:00:00Z'))
+        current = self.owner_record(window_id='2026-11-04-tournament-manager-serial-continuation')
+        self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-manager-serial-continuation')
+        self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 10800)
+        floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
+        for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
+
+    def test_census_suffix_continuation_preserves_prior_floor_and_expiry(self):
+        import hashlib
+        prior, raw = self.historical_floor('2026-11-04-tournament-manager-serial-continuation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T01:00:00Z','2026-11-04T04:00:00Z'))
+        current = self.owner_record(window_id='2026-11-04-tournament-census-suffix-continuation')
+        self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-census-suffix-continuation')
+        self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 10800)
+        floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
+        for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
+
+    def test_creation_qualification_continuation_preserves_prior_floor_and_expiry(self):
+        import hashlib
+        prior, raw = self.historical_floor('2026-11-04-tournament-census-suffix-continuation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T03:00:00Z','2026-11-04T06:00:00Z'))
+        current = self.owner_record(window_id='2026-11-04-tournament-creation-qualification-continuation')
+        self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-creation-qualification-continuation')
+        self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 10800)
+        floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
+        for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
+
+    def test_original_retirement_continuation_preserves_prior_floor_and_expiry(self):
+        import hashlib
+        prior, raw = self.historical_floor('2026-11-04-tournament-creation-qualification-continuation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T04:30:00Z','2026-11-04T07:30:00Z'))
+        current = self.owner_record(window_id='2026-11-04-tournament-original-retirement-join')
+        self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-original-retirement-join')
+        self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 10800)
+        floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
+        for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
+
+    def test_owned_renewal_observation_preserves_prior_floor_and_fixed_expiry(self):
+        import hashlib
+        prior, raw = self.historical_floor('2026-11-04-tournament-original-retirement-join')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T07:00:00Z','2026-11-04T10:00:00Z'))
+        current = self.owner_record(window_id='2026-11-04-tournament-owned-renewal-observation')
+        self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-owned-renewal-observation')
+        self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 12600)
+        floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
+        for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
+
+    def test_canonical_source_continuation_preserves_prior_floor_and_fixed_expiry(self):
+        import hashlib
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        window = next(w for w in windows['windows'] if w['id'] == '2026-11-04-tournament-canonical-source-continuation')
+        self.assertEqual(window['contains'], 'ca851a52893d75c2041b85db298b04eeba830c4a')
+        prior, raw = self.historical_floor('2026-11-04-tournament-owned-renewal-observation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T08:30:00Z','2026-11-04T12:00:00Z'))
+        current = self.owner_record()
+        self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-canonical-source-continuation')
+        self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 21600)
+        floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
+        for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
+            with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
 
     def test_owner_reservation_binds_run_target_cause_and_full_window(self):
         r = self.owner_record(); root = self.repo / 'state'; root.mkdir()

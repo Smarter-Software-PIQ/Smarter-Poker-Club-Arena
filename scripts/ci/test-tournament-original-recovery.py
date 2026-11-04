@@ -33,7 +33,7 @@ def main():
    assert subprocess.run(args,capture_output=True,text=True).returncode!=0
   e.report['tool_cases']=['typed-offline-plan-no-auth-spoof','other69-plan-refused','old-predecessor-plan-refused']
   e.run('manual-control-transport-contract',['node','--test',ROOT/'tests/operations/tournament-original-recovery-control.test.mjs'])
-  e.report['manual_control_cases']=13
+  e.report['manual_control_cases']=96
   e.start();db=e.database();install_financial_foundation(e,db,ROOT,a.evidence);install_f06_extension(e,db,ROOT)
   diamond=module(ROOT/'scripts/ci/fixtures/tournament-abort/diamond/diamond_abort_native.py','recovery20_diamond');diamond.install_diamond_extension(e,db,ROOT)
   install_and_reproduce_registry_guard(e,db,ROOT,BASE);e.sql(db,file=BASE,label='existing-started-abort-contract',seconds=120)
@@ -128,6 +128,18 @@ def main():
   _,before,_=e.sql(db,snapshot,label='original-full-before')
   sql_file(e,db,'recovery-rollback',"BEGIN;"+AUTH+"SELECT "+call+";ROLLBACK;")
   _,after,_=e.sql(db,snapshot,label='original-after-rollback');assert before.strip()==after.strip()
+  from tournament_entry_hold_native import qualify as qualify_entry_hold
+  qualify_entry_hold(e,db,ROOT,EVENT,TABLE,AUTH)
+  # Later owner instruction changes admission only. Prove that the exact
+  # forward policy prevents fresh withdrawal without moving original custody.
+  closeout=ROOT/'supabase/migrations/20261103121914_old_event_closeout_supersedes_preservation.sql'
+  closeout_proof=closeout.read_text().splitlines()[0].removeprefix('-- @live-proof: ')
+  closeout_body=closeout.read_text().replace('\nBEGIN;\n','\n',1).removesuffix('COMMIT;\n')
+  closeout_body+="DO $$BEGIN IF NOT ("+closeout_proof+") THEN RAISE EXCEPTION 'closeout installed proof mismatch';END IF;END$$;"
+  sql_file(e,db,'latest-owner-closeout-refuses-new-withdrawal',"BEGIN;"+closeout_body+AUTH+"DO $$DECLARE rejected boolean:=false;BEGIN PERFORM smarter_private.assert_tournament_abort_not_recovered('"+OP+"','"+EVENT+"');BEGIN PERFORM "+call+";EXCEPTION WHEN SQLSTATE '55000' THEN IF SQLERRM<>'original_recovery_superseded_by_old_event_closeout' THEN RAISE;END IF;rejected:=true;END;IF NOT rejected THEN RAISE EXCEPTION 'old event resumed under superseded instruction';END IF;END$$;ROLLBACK;")
+  _,unchanged,_=e.sql(db,snapshot,label='closeout-policy-preserves-original-custody');assert before.strip()==unchanged.strip()
+  e.report['old_closeout_policy_cases']=['new-withdrawal-refused','original-stop-admitted','no-financial-or-custody-write']
+  e.report['source_sha256'][str(closeout.relative_to(ROOT))]=hashlib.sha256(closeout.read_bytes()).hexdigest()
   sql_file(e,db,'recovery-commit',"BEGIN;"+AUTH+"SELECT "+call+";COMMIT;")
   sql_file(e,db,'same-idempotent-replay',"BEGIN;"+AUTH+"DO $$DECLARE r jsonb;BEGIN r:="+call+";IF r->>'already_recorded'<>'true' THEN RAISE EXCEPTION 'repeat not idempotent';END IF;END$$;COMMIT;")
   _,after,_=e.sql(db,snapshot,label='original-after-commit');assert before.strip()==after.strip()
@@ -136,7 +148,7 @@ def main():
   sql_file(e,db,'recovery-disposition-is-immutable',"BEGIN;DO $$DECLARE rejected boolean:=false;BEGIN BEGIN UPDATE smarter_private.tournament_abort_recoveries SET recovery_id=gen_random_uuid() WHERE tournament_id='"+EVENT+"';EXCEPTION WHEN SQLSTATE '55000' THEN rejected:=true;END;IF NOT rejected THEN RAISE EXCEPTION 'recovery audit was mutable';END IF;END$$;ROLLBACK;")
   _,postimages,_=e.sql(db,"SELECT jsonb_object_agg(p.oid::regprocedure::text,jsonb_build_object('md5',md5(pg_get_functiondef(p.oid)),'source_md5',md5(p.prosrc),'acl',p.proacl,'security_definer',p.prosecdef,'config',p.proconfig)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN('public','smarter_private') AND p.proname IN('fn_ca_withdraw_tournament_abort_for_original_recovery','assert_tournament_abort_not_recovered','tournament_abort_recovery_immutable','tournament_recovery_original_custody','fn_f06_begin_hand','fn_ca_operator_floor_state','fn_ca_tournament_abort_stop_state','fn_ca_ack_tournament_abort_boundary','fn_ca_settle_tournament_abort','assert_tournament_abort_quiesced','tournament_abort_ingress');",label='actual-recovery-contract-postimages')
   e.report['postimages']=json.loads(postimages.strip())
-  for path in [Path(__file__),MIGRATION,BASE,ROOT/'scripts/ci/tournament_abort_fixture.py',ROOT/'scripts/ci/tournament_abort_native.py',ROOT/'scripts/ci/test-tournament-cancellation-lane.py',ROOT/'.github/scripts/tournament-original-recovery-control.mjs',ROOT/'.github/scripts/owner-retirement-control.mjs',ROOT/'scripts/ci/fixtures/tournament-abort/owner-retirement-nov2-manifest.json',ROOT/'.github/workflows/tournament-original-recovery-control.yml',ROOT/'tests/operations/tournament-original-recovery-control.test.mjs',tool,*sorted((ROOT/'scripts/ci/fixtures/tournament-recovery20').glob('*.json'))]:
+  for path in [Path(__file__),MIGRATION,BASE,ROOT/'scripts/ci/tournament_abort_fixture.py',ROOT/'scripts/ci/tournament_abort_native.py',ROOT/'scripts/ci/test-tournament-cancellation-lane.py',ROOT/'.github/scripts/tournament-original-recovery-control.mjs',ROOT/'.github/scripts/owner-retirement-control.mjs',ROOT/'scripts/ci/fixtures/tournament-abort/owner-retirement-nov2-manifest.json',ROOT/'scripts/ci/fixtures/tournament-abort/owner-closeout-nov3-additional.json',ROOT/'.github/workflows/tournament-original-recovery-control.yml',ROOT/'tests/operations/tournament-original-recovery-control.test.mjs',tool,*sorted((ROOT/'scripts/ci/fixtures/tournament-recovery20').glob('*.json'))]:
    e.report['source_sha256'][str(path.relative_to(ROOT))]=hashlib.sha256(path.read_bytes()).hexdigest()
   e.report.update(passed=True,status='passed',cases=['exact-install','browser','wrong-cohort','wrong-operation','settled','own-v3-thaw','thaw-owner','live-instance','payload','missing-continuation','rollback','idempotent-replay','immutable-originals','old-abort-refused','identity-reuse','real-refunded-refused','concurrent-original-abort-lane','reserved-original-before-withdrawal','genuine-management-no-jwt-spoof','security-definer-not-authority','accepted-original-consumed-capsule','accepted-missing-history','accepted-incomplete-postcommit','accepted-mismatched-evidence','immutable-recovery-audit','repeatable-snapshot-abort-refusal','actual-install-acl-drift-rollback'])
  finally:

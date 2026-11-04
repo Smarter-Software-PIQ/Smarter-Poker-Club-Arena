@@ -157,6 +157,10 @@ const REQUEST_TERMINAL = sliceMethod(
   TERMINAL_CLIENT,
   'export async function requestTournamentTerminalReceipt('
 );
+const RESOLVE_TERMINAL = sliceMethod(
+  TERMINAL_CLIENT,
+  'async function resolveOriginalTerminalOutcomeWithArgs('
+);
 const RECOGNIZED_PAYOUT_SOURCES = [
   'structure',
   'reconcile',
@@ -880,14 +884,19 @@ describe('a tournament pays every place or none', () => {
     }
     expect(REQUEST_TERMINAL).toContain("terminalAuthority.rpc('fn_complete_tournament_terminal'");
     expect(REQUEST_TERMINAL).toContain('await verifyTerminalReceipt(');
-    expect(REQUEST_TERMINAL).toContain(
-      "terminalAuthority.rpc('fn_resolve_tournament_terminal_outcome'"
-    );
+    expect(REQUEST_TERMINAL).toContain('await prepareDurableTerminalRequest(originalRequest)');
+    expect(REQUEST_TERMINAL).toContain('await executeDurableTerminalRequest(durable)');
+    expect(REQUEST_TERMINAL).toContain('await resolveOriginalTerminalOutcomeWithArgs(');
+    expect(REQUEST_TERMINAL).toContain('await closeDurableTerminalRequest(durable)');
+    expect(RESOLVE_TERMINAL).toContain('await resolveDurableTerminalRequest(durable)');
+    expect(RESOLVE_TERMINAL).toContain('terminalAuthority.rpc(');
+    expect(RESOLVE_TERMINAL).toContain("'fn_resolve_tournament_terminal_outcome'");
+    expect(RESOLVE_TERMINAL).toContain('await verifyTerminalReceipt(');
     expect(REQUEST_TERMINAL).toMatch(
       /if \(receipt && proposalIdentityIsExact\(data\)\) return receipt/
     );
-    expect(REQUEST_TERMINAL).toMatch(
-      /if \(receipt && proposalIdentityIsExact\(outcome\.receipt\)\) return receipt/
+    expect(RESOLVE_TERMINAL).toMatch(
+      /if \(receipt && exactProposal\(outcome\.receipt\)\) return \{ state: 'committed', receipt \}/
     );
   });
 });

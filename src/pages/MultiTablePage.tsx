@@ -1,3 +1,8 @@
+import {
+  isRetiredTableId,
+  isRetiredTournament,
+  isRetiredTournamentTable,
+} from '../lib/retiredTournamentVisibility';
 import PlayerFollowSubscription, {
   type FollowDestination,
 } from '../components/table/PlayerFollowSubscription';
@@ -527,6 +532,10 @@ const isLobbyTab = isLobbyLike;
  * question is asked by name now and the answer covers both.
  */
 const isTableTab = (t: TableInstance): boolean => !isPageTab(t);
+const visibleRetirementTab = (tab: TableInstance) =>
+  !isRetiredTableId(tab.id) &&
+  !isRetiredTournament(tab.lobbyTournamentId) &&
+  !isRetiredTournament(tab.followPlayer?.tournamentId);
 const isHubTab = (t: TableInstance): boolean => t.kind === 'hub';
 
 /** A fresh hub tab on `path`. `Date.now()` in the id, like a lobby tab, so two
@@ -820,11 +829,11 @@ export default function MultiTablePage() {
   // on every page refresh, compounding the rogue-table problem. Tables are now
   // initialized exclusively from the URL param; they are rebuilt naturally when
   // a user sits down (TABLE_SEATED) or follows a /table/:id link.
-  const [tables, setTables] = useState<TableInstance[]>(() => {
+  const [storedTables, setStoredTables] = useState<TableInstance[]>(() => {
     // Clean up any leftover zombie session so old data never re-hydrates
     sessionStorage.removeItem('multi_table_session');
     // Initialize with the table from URL
-    if (routeTableId) {
+    if (routeTableId && !isRetiredTableId(routeTableId)) {
       /* Dan 2026-08-31: this is the FIRST tab of any session that lands
          straight on /table/:id — a deep link, a refresh at the table, the dock
          going back — and it was built with neither `kind` nor `gameCode`,
@@ -851,6 +860,15 @@ export default function MultiTablePage() {
     }
     return [];
   });
+
+  const tables = useMemo(() => storedTables.filter(visibleRetirementTab), [storedTables]);
+  const setTables = useCallback((next: React.SetStateAction<TableInstance[]>) => {
+    setStoredTables((previous) => {
+      const proposed = typeof next === 'function' ? next(previous) : next;
+      const visible = proposed.filter(visibleRetirementTab);
+      return visible.length === proposed.length ? proposed : visible;
+    });
+  }, []);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [swipeOffset, setSwipeOffset] = useState(0);
@@ -1146,11 +1164,15 @@ export default function MultiTablePage() {
             )
             .map((tab) => tab.id)
         );
-        const recovered = await resolveLightningSeatRooms(anchorRows, undefined, keepAnchors);
+        const visibleAnchors = anchorRows.filter((row) => !isRetiredTournamentTable(row));
+        ids = ids.filter((id) => visibleAnchors.some((row) => row.id === id));
+        const recovered = await resolveLightningSeatRooms(visibleAnchors, undefined, keepAnchors);
         if (!isCurrent()) return;
         recovered.rooms.forEach((room) => registerLightningPoolSession(room));
         const tblRows = recovered.rows;
-        const restoredIds = new Map(anchorRows.map((row, index) => [row.id, tblRows[index].id]));
+        const restoredIds = new Map(
+          visibleAnchors.map((row, index) => [row.id, tblRows[index].id])
+        );
         ids = ids.map((id) => restoredIds.get(id) ?? id);
         const previousSeatedIds = tablesRef.current
           .filter((tab) => isTableTab(tab) && tab.seated === true)
@@ -1502,6 +1524,10 @@ export default function MultiTablePage() {
                 return;
               }
               const newRow = rows?.find((r) => r.id === newId);
+              if (isRetiredTournamentTable(newRow)) {
+                requestSeatResync();
+                return;
+              }
               const tourId = newRow?.tournament_id as string | null | undefined;
               const sameEventTabs = tourId
                 ? tablesRef.current.filter(
@@ -1592,7 +1618,7 @@ export default function MultiTablePage() {
 
   useMasterBusSubscription('TABLE_SEATED', (payload: SeatedPayload) => {
     const e = payload;
-    if (!e.tableId) return;
+    if (!e.tableId || isRetiredTableId(e.tableId)) return;
 
     // FIX: Only open a new tab if THIS user is the one being seated.
     // Without this guard, any other player joining any table on the platform
@@ -3885,6 +3911,7 @@ export default function MultiTablePage() {
    */
   const openTournamentTab = useCallback(
     (target: InTabTournamentTarget): boolean => {
+      if (isRetiredTournament(target.tournamentId)) return true;
       const prev = tablesRef.current;
       const lobbyIdx = prev.findIndex(isLobbyTab);
       if (lobbyIdx !== -1) {
@@ -4717,6 +4744,10 @@ export default function MultiTablePage() {
   // when the first table of a session arrived by route; that is gone too.
   useLayoutEffect(() => {
     if (!routeTableId) return;
+    if (isRetiredTableId(routeTableId)) {
+      navigate('/clubs', { replace: true });
+      return;
+    }
     const prev = tablesRef.current;
     /**
      * A BORROWED URL DOES NOT MEAN "FOCUS THAT TABLE" (round 3).
@@ -4841,6 +4872,10 @@ export default function MultiTablePage() {
     const match = matchPath('/tournaments/:tournamentId', location.pathname);
     const tournamentId = match?.params.tournamentId;
     if (!tournamentId) return;
+    if (isRetiredTournament(tournamentId)) {
+      navigate('/clubs', { replace: true });
+      return;
+    }
     const open = tablesRef.current;
     if (open.length === 0) return;
     const returnTo =

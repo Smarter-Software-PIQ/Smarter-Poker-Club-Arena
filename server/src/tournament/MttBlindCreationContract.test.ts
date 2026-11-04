@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
-import { TournamentRecurringService } from '../services/TournamentRecurringService.js';
+import {
+  TournamentRecurringService,
+  MTT_PUBLISH_LEAD_MS,
+} from '../services/TournamentRecurringService.js';
 import { supabase } from '../services/supabase.js';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { tournamentStartAllowed } from '../maintenance/dailyWindow.js';
+
 import { ScheduledTournamentService } from '../services/ScheduledTournamentService.js';
 import { validateMttBlindStructure } from '../domain/tournamentBlindContract.js';
 import { MTT_BLIND_PRESETS, mttLateRegistrationMinutes } from './mttStructurePolicy.js';
@@ -86,7 +91,17 @@ const shapes = JSON.parse(
     'utf8'
   )
 ).existing_shapes as Array<{ blind_structure: string; starting_chips: number }>;
-afterEach(() => vi.restoreAllMocks());
+// Creation assertions exercise the admitted path independently of the runner hour.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-04T18:00:00.000Z'));
+  expect(tournamentStartAllowed(new Date(Date.now() + MTT_PUBLISH_LEAD_MS))).toBe(true);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 it.each(vectors)('shares native validation vector $name', ({ structure, stack, valid }) => {
   if (valid) expect(() => validateMttBlindStructure(structure, stack)).not.toThrow();
   else

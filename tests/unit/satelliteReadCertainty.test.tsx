@@ -1,3 +1,4 @@
+import { RETIRED_TOURNAMENT_IDS } from '../../src/lib/retiredTournamentVisibility';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ from: vi.fn(), report: vi.fn() }));
@@ -16,6 +17,21 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('satellite reads distinguish an empty answer from no answer', () => {
+  it('omits retired satellite cards and registration candidates while preserving current events', async () => {
+    mocks.from.mockImplementation((table) =>
+      query(table === 'tournaments' ? [row, { ...row, id: RETIRED_TOURNAMENT_IDS[0] }] : [])
+    );
+    const { result } = renderHook(() => useSatellites('target', 'viewer'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.cards.map((card) => card.id)).toEqual(['satellite']);
+    expect(result.current.registration).toEqual({ satellite: false });
+  });
+  it('does not query satellites for a retired target', () => {
+    const { result } = renderHook(() => useSatellites(RETIRED_TOURNAMENT_IDS[0], 'viewer'));
+    expect(result.current.cards).toEqual([]);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
   it('reports an unreadable list and accepts an explicit retry with a real empty list', async () => {
     mocks.from.mockReturnValueOnce(query(null)).mockReturnValueOnce(query([]));
     const { result } = renderHook(() => useSatellites('target', 'viewer'));

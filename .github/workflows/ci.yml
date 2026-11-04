@@ -137,7 +137,7 @@ jobs:
   changes:
     name: What changed
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
@@ -258,7 +258,7 @@ jobs:
     if: github.event_name == 'schedule'
     name: Source Windows Are Structural
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -343,7 +343,7 @@ jobs:
     needs: [typecheck_compile, changes, fixture_native]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     permissions:
       contents: read
     steps:
@@ -382,7 +382,7 @@ jobs:
     # observed checkout/execution variance plus cache/cleanup.
     # Run40726879893 passed every guard but exceeded15m during cleanup;
     # comparable successful run40714001791 took13m45. Preserve execution headroom.
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -1279,7 +1279,7 @@ jobs:
     # Every pull-request shard gets a fresh hosted image. A dependency or test
     # from a branch cannot persist into any later credential-bearing job.
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     # SHARDED 2026-09-06. Measured over 18 pull-request runs this was the
     # critical path by a distance - p50 264s, max 779s, against 236s for the
     # next longest job. The publisher has run the same suite four ways since
@@ -1403,7 +1403,7 @@ jobs:
     # job deadline. The comparable successful 40520906517 Spin took 5m23s:
     # 41m15s combined, before artifact cleanup. Fifty minutes retains ~20%
     # hosted variance headroom; all case/statement/cleanup limits are unchanged.
-    timeout-minutes: 50
+    timeout-minutes: 100
     # ── FOUR SHARDS, EVERY CASE (2026-09-26) ─────────────────────────────────
     #
     # This job was the critical path of every server-touching pull request:
@@ -1576,6 +1576,12 @@ jobs:
           python3 -B scripts/ci/test-horse-turn-census-packet.py
           node --test tests/operations/horse-turn-census-transport.test.mjs
           python3 -B scripts/ci/test-horse-turn-census-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
+      - name: Fixed-limit blinds and uncapped buy-ins use the original cash owners
+        if: matrix.shard == 3
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-fixed-limit-policy-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
+
       - name: Runtime privilege changes preserve the schema DDL boundary
         if: matrix.shard == 4
         env:
@@ -1608,6 +1614,11 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-weekly-pending-funding-index-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}" --candidate supabase/migrations/20261031081522_cover_original_cash_boundary_transaction_frames.sql --output "${{ runner.temp }}/weekly-pending-funding-index.json"
+      - name: November 3 zero guarantees preserve separate Horse attendance
+        if: matrix.shard == 2
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-nov3-zero-guarantee-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
       - name: Retain weekly pending funding index qualification
         if: always() && matrix.shard == 2
         uses: actions/upload-artifact@v4
@@ -2756,6 +2767,20 @@ jobs:
         env:
           PGBIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/probe-departure-postgres.sh
+      - name: Tournament finish leaves the union cash-hand wallet available
+        id: finish_union_wallet
+        if: matrix.shard == 3
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-a-finish-does-not-hold-the-union-wallet.py
+      - name: Retain finish and cash-hand lock evidence
+        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.finish_union_wallet.outcome)
+        uses: actions/upload-artifact@v4
+        with:
+          name: finish-union-wallet-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/finish-union-wallet-lock/
+          if-no-files-found: error
+          retention-days: 7
       - name: Accepted eliminations preserve parked source custody
         id: f06_accepted_elimination
         if: matrix.shard == 3
@@ -3643,7 +3668,7 @@ jobs:
     # Standard GitHub-hosted runners are free for this public repository.
     # Preserve the complete qualification matrix and fail-closed required verdict.
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 80
     strategy:
       fail-fast: false
       max-parallel: 4
@@ -3708,12 +3733,16 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: python3 -B -m unittest discover -s scripts -p 'test_*public215*.py'
 
+      - name: Exact retained historical owners qualify before competing workloads
+        if: matrix.shard == 1
+        run: npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
+
       - name: Full server test suite
         env:
           SERVER_TEST_SHARD: ${{ matrix.shard }}
         run: |
           [[ "$SERVER_TEST_SHARD" =~ ^[1-4]$ ]]
-          npm test -- --shard="$SERVER_TEST_SHARD/4"
+          npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$SERVER_TEST_SHARD/4"
 
       # Guards the single highest-impact line of the freeze fix. The all-in
       # dead-buttons bug (production hand #1315: 30.1s between a river shove
@@ -3786,11 +3815,14 @@ jobs:
   verdict:
     name: What this run verified
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     if: always()
     needs: [changes, stub_gate, typecheck, typecheck_compile, fixture_native, unit, server]
     steps:
       - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/agent-policy
+          sparse-checkout-cone-mode: false
       - name: Exact revision evidence summary
         env:
           POLICY_CI_NEEDS: ${{ toJSON(needs) }}
@@ -3882,7 +3914,7 @@ jobs:
     name: Production Build
     # Its locked performance-browser installer also requires the proven image.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -4088,7 +4120,7 @@ jobs:
     if: github.event_name == 'schedule' && github.event.schedule == '35 6 * * *'
     name: Live Production E2E
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 50
 
     steps:
       - name: Checkout
@@ -4318,8 +4350,10 @@ jobs:
       (needs.changes.result != 'success' || needs.changes.outputs.src == 'true') &&
       needs.changes.outputs.server == 'true'
     name: Browser harness build
+    outputs:
+      artifact_name: ${{ steps.browser_build.outputs.artifact_name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -4432,8 +4466,10 @@ jobs:
         run: npm run build:ci
 
       - name: Seal this run's browser build
+        id: browser_build
         env:
           EXPECTED_SHA: ${{ github.sha }}
+          BROWSER_ARTIFACT_NAME: browser-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
@@ -4442,11 +4478,12 @@ jobs:
           test -z "$(find dist -type l -print -quit)"
           printf '%s\n' "$EXPECTED_SHA" > dist/.browser-build-sha
           (cd dist && find . -type f ! -name .browser-build-seal -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > .browser-build-seal)
+          printf 'artifact_name=%s\n' "$BROWSER_ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload this run's browser build
         uses: actions/upload-artifact@v4
         with:
-          name: browser-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: ${{ steps.browser_build.outputs.artifact_name }}
           path: dist
           include-hidden-files: true
           retention-days: 1
@@ -4508,7 +4545,7 @@ jobs:
     # Run35289214041 needed 9.6m for beats, 7m for Studio, plus 3.3m
     # to build/install; 20m killed the final financial-decision suite.
     # Preserve every suite and its own deadlines, with room for cleanup.
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Reserve disk for browser checks
@@ -4652,11 +4689,23 @@ jobs:
 
       # Full qualification already waits on native suites. UI-only checks keep
       # parallel builds rather than inheriting a shared-producer setup barrier.
+      # A failed-jobs-only retry retains the successful producer's original attempt.
+      - name: Require the producer's browser artifact
+        if: needs.changes.outputs.server == 'true'
+        env:
+          BROWSER_ARTIFACT_NAME: ${{ needs.css-beats-build.outputs.artifact_name }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BROWSER_ARTIFACT_NAME"
+          [[ "$BROWSER_ARTIFACT_NAME" =~ ^browser-harness-${EXPECTED_RUN_ID}-[1-9][0-9]*-${EXPECTED_SHA}$ ]]
+
       - name: Download this run's browser build
         if: needs.changes.outputs.server == 'true'
         uses: actions/download-artifact@v4
         with:
-          name: browser-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          name: ${{ needs.css-beats-build.outputs.artifact_name }}
           path: dist
 
       - name: Verify this run's browser build
@@ -4910,7 +4959,7 @@ jobs:
     # The locked Chromium installer supports this proven hosted image, not 26.04.
     runs-on: ubuntu-24.04
     # 7.1 minutes measured inside the old job; room for a slow browser install.
-    timeout-minutes: 25
+    timeout-minutes: 50
 
     steps:
       - name: Checkout

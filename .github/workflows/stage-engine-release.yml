@@ -81,6 +81,14 @@ jobs:
           # cat-file -e, which are all commit-graph work - so those blobs were paid
           # for on every run and never read.
           filter: blob:none
+          # Admission needs only these working-tree files. Historical policy,
+          # source witnesses and server-tree selection still read full Git objects.
+          # Avoid hydrating unrelated client/assets within the three-minute job.
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /server/scripts/engine-release-seal.py
+            /server/release/owner-maintenance-windows.json
+            /server/release/activation-floor.json
 
       # Owner 2026-10-20 explicitly requests daily routine updates. The daily
       # preparation window is 03:30-03:50 America/Chicago (DST aware). The

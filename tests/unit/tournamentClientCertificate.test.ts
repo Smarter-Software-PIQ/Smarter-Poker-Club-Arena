@@ -73,7 +73,9 @@ describe('closed tournament acceptance selection', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-  it('requires exactly seven browser and three natural cases without skips, retries or unrelated extras', () => {
+  it('requires exactly nine browser and three natural cases without skips, retries or unrelated extras', () => {
+    expect(browserCases).toHaveLength(9);
+    expect(liveCases).toHaveLength(3);
     for (const [mode, cases] of [
       ['browser', browserCases],
       ['live', liveCases],

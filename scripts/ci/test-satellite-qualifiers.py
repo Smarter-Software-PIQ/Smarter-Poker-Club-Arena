@@ -34,6 +34,16 @@ def main():
     subprocess.run(['node',str(root/'scripts/ci/test-satellite-seat-context.mjs'),str(output/'seat-context')],check=True,env={**__import__('os').environ,'PG_BIN':str(args.pg_bin)})
     native = module(root/'scripts/ci/test-mtt-unlimited.py', 'satellite_existing_execution')
     manifest = compose(root)
+    slot_inputs = [root/'scripts/ci/test-satellite-open-slots.py',
+                   root/'scripts/ci/fixtures/satellite-open-slots-preimage.json',
+                   root/'supabase/migrations/20261104083238_satellite_horse_slots_use_eligible_admission_hours.sql']
+    manifest['source_sha256'].update({str(p.relative_to(root)):sha(p) for p in slot_inputs})
+    slot_proof = subprocess.run([sys.executable, '-B', str(slot_inputs[0]),
+                                '--pg-bin', str(args.pg_bin),
+                                '--scratch', str(output.parent/(output.name+'-slots'))],
+                               check=True, capture_output=True, text=True)
+    manifest['satellite_open_slots'] = json.loads(slot_proof.stdout)
+    (output/'satellite-open-slots-proof.json').write_text(slot_proof.stdout)
     (output/'foundation.sql').write_text(manifest.pop('sql'))
     (output/'entry-close-dependencies.sql').write_text(manifest.pop('entry_sql'))
     qualifier_probe=root/'scripts/ci/probes/satellite-qualifiers-native.sql'
@@ -231,6 +241,10 @@ def main():
         e.report['cohort_assertions']=len(re.findall('NOTICE:  QUALIFIER PASS:',err))
         if e.report['cohort_assertions'] != 67:
             raise RuntimeError('exact cohort assertion count differs')
+        from ordinary_terminal_transport import qualify as qualify_ordinary_transport
+        manifest['source_sha256'].update(qualify_ordinary_transport(e,root,output))
+        from terminal_original_request_native import qualify as qualify_original_terminal
+        manifest['source_sha256'].update(qualify_original_terminal(e,root,output,db,probe,qualifier_probe))
         from satellite_terminal_transport import qualify as qualify_terminal_transport
         manifest['source_sha256'].update(qualify_terminal_transport(e,root,db,output,probe))
         qualify_concurrency(e,root,native,db,output,qualifier_probe)

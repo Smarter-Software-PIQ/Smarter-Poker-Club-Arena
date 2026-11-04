@@ -3,7 +3,7 @@
  * HORSE PLAY STATS - the one measurement of how a horse plays (2026-09-05)
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Pure. No imports. This is the accumulator HorseSelfTuner has always used to
+ * Pure. This is the accumulator HorseSelfTuner has always used to
  * read VPIP / PFR / 3-bet / fold-to-3-bet / WWSF / postflop AF off a hand's
  * action log. It moved out of the tuner so the SAME code can run at
  * settlement (HorseHandReview.accumulateHorsePlay) and compile
@@ -25,15 +25,22 @@
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface RawAction {
+import {
+  canRaiseForPokerStats,
+  isPokerStatDecision,
+  type StatActionRights,
+} from './pokerStatAction.js';
+
+interface RawAction extends StatActionRights {
   userId?: string;
   action?: string;
   amount?: number;
   stage?: string;
   seat?: number;
-  /** V12.3: persisted as of this version; absent on older rows (see the
-   *  fallback in playFromHand). A short all-in is NOT a raise. */
+  /** A short raise need not reopen betting; an all-in call does not raise. */
   isFullRaise?: boolean;
+  origin?: string;
+  dead?: boolean;
 }
 
 export interface HandRow {
@@ -124,6 +131,7 @@ function accumulateOne(row: HandRow, tracked: Set<string>, into: Map<string, Pla
   const didVpip = new Set<string>();
   const didPfr = new Set<string>();
   const did3Bet = new Set<string>();
+  const had3BetOpportunity = new Set<string>();
   const openedBy = { id: null as string | null };
   const foldedPreflop = new Set<string>();
   const sawPostflop = new Set<string>();
@@ -171,30 +179,25 @@ function accumulateOne(row: HandRow, tracked: Set<string>, into: Map<string, Pla
     if (!id) continue;
     const stage = a.stage || 'preflop';
     const preflop = stage === 'preflop';
-    // V12.3: a SHORT all-in is not aggression — it is a call for less. Every
-    // other consumer in this codebase requires isFullRaise === true, and
-    // treating a forced shove as an open made the next real opener look like a
-    // 3-bettor, corrupting PFR, 3-bet, fold-to-3-bet and the opener attribution
-    // all at once. `isFullRaise` is persisted as of V12.3; when it is absent
-    // (rows written before that), fall back to the street-total test rather
-    // than assuming aggression.
-    const isAggr =
-      a.action === 'bet' ||
-      a.action === 'raise' ||
-      (a.action === 'all_in' &&
-        (a.isFullRaise === true ||
-          (a.isFullRaise === undefined &&
-            typeof a.amount === 'number' &&
-            a.amount > streetLevel + 1e-9)));
-    const amount = typeof a.amount === 'number' && isFinite(a.amount) ? a.amount : 0;
-
+    const decision = isPokerStatDecision(a);
     if (stage !== curStreet) {
       curStreet = stage;
       streetBets = new Map();
       streetLevel = 0;
     }
+    // An all-in call invests voluntarily but is not a raise. A short raise
+    // still increases the wager even when it does not reopen betting.
+    const isAggr =
+      decision &&
+      (a.action === 'bet' ||
+        a.action === 'raise' ||
+        (a.action === 'all_in' &&
+          (a.isFullRaise === true ||
+            (typeof a.amount === 'number' && a.amount > streetLevel + 1e-9))));
+    const amount = typeof a.amount === 'number' && isFinite(a.amount) ? a.amount : 0;
+
     // Contribution replay: calls are increments; bet/raise/all_in are street totals.
-    if (isAggr || a.action === 'call') {
+    if (decision && (isAggr || a.action === 'call' || a.action === 'all_in')) {
       const prev = streetBets.get(id) || 0;
       const inc = a.action === 'call' ? amount : Math.max(0, amount - prev);
       contributed.set(id, (contributed.get(id) || 0) + inc);
@@ -202,8 +205,20 @@ function accumulateOne(row: HandRow, tracked: Set<string>, into: Map<string, Pla
       if (prev + inc > streetLevel) streetLevel = prev + inc;
     }
 
+    if (!decision) continue;
     if (preflop) {
-      const voluntary = isAggr || a.action === 'call';
+      // Evaluate at this player's actual decision, before applying their raise.
+      // A fold before an open, a refund, and a cold response to a 3-bet are
+      // not opportunities to 3-bet.
+      if (
+        preflopRaises === 1 &&
+        !didPfr.has(id) &&
+        !foldedPreflop.has(id) &&
+        canRaiseForPokerStats(a)
+      ) {
+        had3BetOpportunity.add(id);
+      }
+      const voluntary = isAggr || a.action === 'call' || a.action === 'all_in';
       if (voluntary) didVpip.add(id);
       if (isAggr) {
         if (preflopRaises === 0) {
@@ -220,7 +235,7 @@ function accumulateOne(row: HandRow, tracked: Set<string>, into: Map<string, Pla
       sawPostflop.add(id);
       if (tracked.has(id)) {
         if (isAggr) get(id).postAggr++;
-        else if (a.action === 'call') get(id).postPassive++;
+        else if (a.action === 'call' || a.action === 'all_in') get(id).postPassive++;
       }
     }
   }
@@ -232,6 +247,7 @@ function accumulateOne(row: HandRow, tracked: Set<string>, into: Map<string, Pla
     let seen3Bet = false;
     for (const a of actions) {
       if ((a.stage || 'preflop') !== 'preflop') break;
+      if (!isPokerStatDecision(a)) continue;
       const isAggr = a.action === 'bet' || a.action === 'raise' || a.action === 'all_in';
       if (isAggr && a.userId !== openedBy.id && didPfr.has(openedBy.id) && !seen3Bet) {
         // first re-raise after the open
@@ -306,10 +322,9 @@ function accumulateOne(row: HandRow, tracked: Set<string>, into: Map<string, Pla
     if (didVpip.has(id)) s.vpip++;
     if (didPfr.has(id)) s.pfr++;
     if (did3Bet.has(id)) s.threeBets++;
-    // V12.3: the denominator used to exclude everyone in didPfr — which
-    // includes the 3-bettor — so the numerator's own hands were never counted
-    // and a horse that 3-bet every chance showed threeBetOpps = 0.
-    if (preflopRaises >= 1 && (did3Bet.has(id) || !didPfr.has(id))) s.threeBetOpps++;
+    // The opportunity was captured before this player's action, including
+    // successful 3-bets, never inferred from the hand's final raise count.
+    if (had3BetOpportunity.has(id)) s.threeBetOpps++;
     if (openedBy.id === id) {
       s.openRaises++;
       if (opener3BetFaced) {

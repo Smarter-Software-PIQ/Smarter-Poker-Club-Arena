@@ -185,7 +185,12 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     const body = sliceMethod(SEATING, 'public async leaveTable(');
     expect(body).toContain('this.chipContinuity.leaveLock(userId, player.stack)');
     expect(body).toContain("code: 'LEAVE_LOCKED'");
-    expect(body).toContain('leaveLabel(lock.remainingMs)');
+    expect(body).toContain('return this.holdLockedLeave(userId, lock.remainingMs);');
+    const held = sliceMethod(SEATING, 'protected holdLockedLeave(');
+    expect(held).toContain('success: false');
+    expect(held).toContain("code: 'LEAVE_LOCKED'");
+    expect(held).toContain('error: leaveLabel(remainingMs)');
+    expect(held).toContain('this.sitOutLeaver(userId, this.foldLeaverNow(userId))');
     // The lock is checked AFTER the tournament branch returns: tournaments have no stay clock.
     expect(body.indexOf('if (this.isTournamentTable())')).toBeLessThan(
       body.indexOf('chipContinuity.leaveLock')
@@ -208,7 +213,7 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     expect(emitAfter).toBeGreaterThan(voluntary);
     expect(body).toContain("if (res.code === 'LEAVE_LOCKED') {");
     expect(body.slice(body.indexOf("if (res.code === 'LEAVE_LOCKED') {"))).toContain(
-      "code: 'LEAVE_LOCKED',"
+      'return this.holdLockedLeave(userId, res.stayRemainingMs);'
     );
   });
 

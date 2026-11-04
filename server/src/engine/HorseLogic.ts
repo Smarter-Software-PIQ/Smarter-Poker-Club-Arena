@@ -6794,7 +6794,7 @@ export class HorseLogic {
       if (telemetryOn(opts)) noteFire('v70_gto_open');
       return {
         strength: clamp01(mapped + strengthJitter),
-        bar: gtoOpenBar(behind, ante70, dealt70),
+        bar: gtoOpenBar(behind, ante70, dealt70, gs.gameMode === 'cash'),
         sbLimpFloor: gtoSbLimpFloor(ante70, dealt70),
         behind,
       };
@@ -6822,6 +6822,7 @@ export class HorseLogic {
         return undefined;
       const defender = heroBehind === 0 ? 'bb' : heroBehind === 1 ? 'sb' : 'ip';
       const d72 = gtoDefence(player.cards[0], player.cards[1], {
+        dealt: dealt72,
         defender,
         openerBehind,
         defenderBehind: heroBehind,
@@ -6894,6 +6895,7 @@ export class HorseLogic {
       const risk73 = Math.max(0, reRaiser.bet - posted73);
       const potBefore73 = Math.max(0, gs.pot - risk73);
       const r73 = gtoVs3Bet(player.cards[0], player.cards[1], {
+        cash: gs.gameMode === 'cash',
         openerBehind,
         ip: ip73,
         ante: (gs.ante ?? 0) > 0,
@@ -6927,7 +6929,7 @@ export class HorseLogic {
       const dealt77 = dealtHorseTableSize(gs, player.seat);
       if (dealt77 < 2) return undefined;
       if (telemetryOn(opts)) noteFire('v77_seat_jam');
-      return openWidth(ob77, (gs.ante ?? 0) > 0, dealt77);
+      return openWidth(ob77, (gs.ante ?? 0) > 0, dealt77, gs.gameMode === 'cash');
     })();
     const intent = decidePreflopV7({
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),

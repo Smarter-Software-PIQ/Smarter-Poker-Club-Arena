@@ -29,6 +29,13 @@ describe('Cancellation cannot queue an exclusive lane ahead of hand readers', ()
       base + 'admission.sql',
       base + 'preimages.json',
       'scripts/ci/test-tournament-cancellation-lane.py',
+      'scripts/ci/test-tournament-original-recovery.py',
+      'scripts/ci/tournament_entry_hold_native.py',
+      'scripts/ci/fixtures/tournament-recovery20/nov3-seat-acquisition-preimage.json',
+      'scripts/ci/fixtures/tournament-abort/owner-closeout-nov3-additional.json',
+      '.github/scripts/owner-retirement-control.mjs',
+      '.github/scripts/tournament-original-recovery-control.mjs',
+      'tests/operations/tournament-original-recovery-control.test.mjs',
     ]) {
       expect(classifyChangedPaths([input]).server).toBe(true);
       expect(classifyChangedPaths([input]).tests).toBe(true);

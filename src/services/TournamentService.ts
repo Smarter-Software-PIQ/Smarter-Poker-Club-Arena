@@ -1,3 +1,4 @@
+import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
 import { TOURNAMENT_START_HOLD_MESSAGE } from '../config/tournamentStartHold';
 import type { SealedStagePlanBody } from '../utils/multiDaySchedule';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
@@ -168,6 +169,11 @@ const UNREGISTER_REASON_TEXT: Record<string, string> = {
   platform_frozen: PLATFORM_FROZEN_MESSAGE,
 };
 
+export const DAILY_WINDOW_CLOSED_MESSAGE =
+  'Games Are Closed For Daily Maintenance From 4:00 To 6:00 AM Chicago Time. Tournaments Open Again At 6:00 AM.';
+export const SPIN_SNG_CLOSED_MESSAGE =
+  'Spins And Sit & Gos Close At 3:00 AM Chicago Time And Open Again At 6:00 AM.';
+
 const REGISTER_REASON_TEXT: Record<string, string> = {
   tournament_not_found: 'Tournament not found',
   registration_closed: 'Registration is closed',
@@ -186,6 +192,11 @@ const REGISTER_REASON_TEXT: Record<string, string> = {
   table_limit_reached: 'You are already in four games. Leave one to join another.',
   platform_frozen: PLATFORM_FROZEN_MESSAGE,
   operator_floor_parked: TOURNAMENT_START_HOLD_MESSAGE,
+  // The daily window (owner, 2026-11-03; migration
+  // 20261103193545_daily_window_policy_and_tournament_hours): every registration
+  // door answers with these two reasons. No chips move on either.
+  daily_maintenance_window: DAILY_WINDOW_CLOSED_MESSAGE,
+  spin_sng_closed_until_reopen: SPIN_SNG_CLOSED_MESSAGE,
   ticket_not_found: 'That Tournament Ticket no longer exists.',
   ticket_not_owned: 'That Tournament Ticket does not belong to you.',
   ticket_is_wallet_only: 'That ticket can only be redeemed for wallet chips.',
@@ -232,7 +243,7 @@ function unregisterReasonText(reason: string | undefined): string {
  * chip `insufficient` so a Diamond player is not told they lack chips.
  */
 export function seatFirstBuyInReasonIsKnown(reason: string | undefined): boolean {
-  return /seat_taken|insufficient|already_started|game_already_started|tournament_full|not_a_seat_first_game|table_limit_reached|FOUR TABLE LIMIT|diamond_tournaments_not_open|diamond_debt_requires_settlement/.test(
+  return /seat_taken|insufficient|already_started|game_already_started|tournament_full|not_a_seat_first_game|table_limit_reached|FOUR TABLE LIMIT|diamond_tournaments_not_open|diamond_debt_requires_settlement|daily_maintenance_window|spin_sng_closed_until_reopen/.test(
     reason ?? ''
   );
 }
@@ -240,6 +251,8 @@ export function seatFirstBuyInReasonIsKnown(reason: string | undefined): boolean
 export function seatFirstBuyInRefusalText(reason: string | undefined): string {
   const r = reason ?? '';
   if (/seat_taken/.test(r)) return 'That Seat Was Just Taken';
+  if (/daily_maintenance_window/.test(r)) return DAILY_WINDOW_CLOSED_MESSAGE;
+  if (/spin_sng_closed_until_reopen/.test(r)) return SPIN_SNG_CLOSED_MESSAGE;
   if (/insufficient_diamonds/.test(r)) return REGISTER_REASON_TEXT.insufficient_diamonds;
   if (/diamond_tournaments_not_open/.test(r))
     return REGISTER_REASON_TEXT.diamond_tournaments_not_open;
@@ -979,7 +992,7 @@ class TournamentService {
     const seen = new Set<string>();
     const unique: TournamentWithArena[] = [];
     for (const t of all) {
-      if (!seen.has(t.id)) {
+      if (!isRetiredTournament(t.id) && !seen.has(t.id)) {
         seen.add(t.id);
         unique.push(t);
       }
@@ -994,6 +1007,7 @@ class TournamentService {
     tournamentId: string,
     options?: { throwOnError?: boolean; signal?: AbortSignal }
   ): Promise<TournamentWithArena | null> {
+    if (isRetiredTournament(tournamentId)) return null;
     let query = supabase
       .from('tournaments')
       .select(

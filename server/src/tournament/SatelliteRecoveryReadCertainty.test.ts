@@ -16,9 +16,42 @@ const state = vi.hoisted(() => ({
   scanFailure: false,
   failAfterCursor: false,
   fieldCursors: [] as (string | null)[],
+  originalPending: false,
+  originalUnreadable: false,
 }));
 
 vi.mock('../services/supabase.js', () => ({
+  maintenanceSupabase: {
+    rpc: vi.fn(async (name: string, args: any) => {
+      if (name !== 'fn_read_tournament_terminal_request')
+        throw new Error('unexpected terminal request');
+      if (state.originalUnreadable) return { data: null, error: { message: 'original read lost' } };
+      return {
+        error: null,
+        data: {
+          ok: true,
+          tournament_id: args.p_tournament_id,
+          found: state.originalPending,
+          ...(state.originalPending
+            ? {
+                request: {
+                  request_id: '00000000-0000-4000-8000-000000000106',
+                  tournament_id: args.p_tournament_id,
+                  original_generation: '00000000-0000-4000-8000-000000000107',
+                  current_generation: '00000000-0000-4000-8000-000000000107',
+                  phase: 'prepared',
+                  original_request: {
+                    kind: 'satellite',
+                    tournamentId: args.p_tournament_id,
+                    observedWinnerId: WINNER,
+                  },
+                },
+              }
+            : {}),
+        },
+      };
+    }),
+  },
   supabase: {
     from(table: string) {
       const chain: Record<string, any> = {};
@@ -136,8 +169,23 @@ describe('satellite recovery requires readable result authority', () => {
     state.scanFailure = false;
     state.failAfterCursor = false;
     state.fieldCursors = [];
+    state.originalPending = false;
+    state.originalUnreadable = false;
     vi.clearAllMocks();
   });
+
+  it.each(['pending', 'unreadable'])(
+    'never reconstructs over an original request that is %s',
+    async (kind) => {
+      state.originalPending = kind === 'pending';
+      state.originalUnreadable = kind === 'unreadable';
+      await recoverStuckCompletingTournaments('original-request');
+      expect(requestSatelliteSettlementReceipt).not.toHaveBeenCalled();
+      expect(requestTournamentTerminalReceipt).not.toHaveBeenCalled();
+      expect(state.fieldCursors).toEqual([]);
+      expect(state.mutations).toEqual([]);
+    }
+  );
 
   it('does not omit the 1001st completing tournament', async () => {
     state.candidates = 1001;
