@@ -27,9 +27,11 @@ if (
 )
   throw Error('Invalid native composition input');
 const nativeMode = Boolean(nativeImage || nativeAddon);
-// Hosted EED compile measured 66.809s. Preserve the fixture's full 240s
-// allowance plus archive/compile/cleanup headroom inside one finite envelope.
-const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 360000);
+// Keep the owner-authorized bounded qualification allowance after repairing
+// fixture mock retention (the corrected full80 run took114.794s). Preserve
+// every per-case deadline and120s archive/compile/cleanup headroom, including
+// the measured hosted66.809s compile. No production deadline changes.
+const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 480000);
 const CASES = nativeMode
   ? ['RetainedWholeGuard.test.ts']
   : [
@@ -301,20 +303,20 @@ try {
       );
     }
   } else
-    output = run(process.execPath, fixtureArgs, server, nativeMode ? 60000 : 240000, fixtureEnv);
+    output = run(process.execPath, fixtureArgs, server, nativeMode ? 60000 : 360000, fixtureEnv);
   if (!nativeMode) output = readFileSync(reportPath, 'utf8');
   const start = output.indexOf('{');
   need(start >= 0, 'native fixture result unavailable');
   const result = JSON.parse(output.slice(start));
   need(
     result.success === true &&
-      result.numTotalTests === (nativeMode ? 66 : 74) &&
-      result.numPassedTests === (nativeMode ? 2 : 74) &&
-      (!nativeMode || result.numPendingTests === 64) &&
+      result.numTotalTests === (nativeMode ? 72 : 80) &&
+      result.numPassedTests === (nativeMode ? 2 : 80) &&
+      (!nativeMode || result.numPendingTests === 70) &&
       result.numFailedTests === 0,
     nativeMode
       ? 'both actual native census/EED guard cases must pass'
-      : 'all seventy-four exact EED fixture cases must actually pass'
+      : 'all eighty exact EED fixture cases must actually pass'
   );
   need(
     hash(readFileSync(guardPath)) === hash(guardBytes),
