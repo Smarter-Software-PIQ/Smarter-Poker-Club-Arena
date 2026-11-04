@@ -195,6 +195,7 @@ def terminal(request, invocation=None):
 # generation whose original recovery cannot terminalize announcement-only work.
 CANCEL_SCHEMA = 'expired-announcement-cancellation/v1'
 EMPTY_CANCEL_SCHEMA = 'expired-announcement-cancellation/empty-retry-v1'
+SUCCESSOR_CANCEL_SCHEMA = 'expired-announcement-cancellation/successor-v1'
 CANCEL_CONTROL = 'bd11ad35ca27843fd2f4910e5a8fc6a76d8c9d4e'
 CANCEL_HASHES = {
     'engine-release-database-proof.py': '7034aa6f2d42a7a321c1e610fa517acd165367512aa8f3e62aaee719a4703155',
@@ -755,7 +756,7 @@ def time_ms(value):
     return round(parsed.timestamp() * 1000)
 
 
-def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL, owner_request=None, promise=None):
+def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL, owner_request=None, promise=None, serving_instance=None):
     require(isinstance(rows, list) and len(rows) == 1 and active == [])
     row = rows[0]
     starts, ends = stamp + 120000, stamp + 420000
@@ -766,6 +767,7 @@ def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL, owner_request=N
                 and row.get('release_generation') == 1)
         starts, ends = PHASE1_START, PHASE1_END
     owner = owner_request is not None
+    require(serving_instance is None or (owner and isinstance(serving_instance, str) and INSTANCE.fullmatch(serving_instance)))
     if owner:
         require(owner_request['desiredSha'] == EED_SHA and control == owner_request['controlSha'])
         for field in ('announced_at', 'freeze_started_at', 'release_target_at'):
@@ -779,7 +781,7 @@ def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL, owner_request=N
                 and 0 <= now - time_ms(promise.get('observedAt')) <= 10000)
         leader = promise.get('leader')
         require(isinstance(leader, dict) and leader.get('version') == EED_SHA[:8]
-                and leader.get('instanceId') == owner_request['instanceId']
+                and leader.get('instanceId') == (serving_instance or owner_request['instanceId'])
                 and 0 <= now - time_ms(leader.get('heartbeatAt')) <= 15000
                 and row.get('release_generation') == 1 and row.get('thawed_by') == EED_SHA[:8]
                 and Decimal(str(row.get('frozen_seconds'))) == Decimal(ends - raw_start) / 1000)
@@ -805,7 +807,7 @@ def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL, owner_request=N
             **({'thawRecordedAtMs': time_ms(row['thawed_at'])} if control == PHASE1_CONTROL else {})}
 
 
-def own_thaw(stamp, control=CANCEL_CONTROL, owner_request=None):
+def own_thaw(stamp, control=CANCEL_CONTROL, owner_request=None, serving_instance=None):
     # The fixed canonical store is used only inside this protected host helper.
     # Only bounded GETs, no RPC or production write, and redirects are refused.
     require(control in {CANCEL_CONTROL, E9_CONTROL, PHASE1_CONTROL} or
@@ -845,7 +847,7 @@ def own_thaw(stamp, control=CANCEL_CONTROL, owner_request=None):
         require(get('engine_maintenance_thaws', {'select': 'release_target_at', 'contract_version': 'eq.3',
             'release_target_at': 'gt.' + datetime.datetime.now(datetime.timezone.utc).isoformat(), 'limit': '1'}) == [])
     promise = get('rpc/fn_engine_maintenance_promise_proof', {}) if owner_request is not None else None
-    return prove_thaw(rows, active, stamp, round(time.time() * 1000), control, owner_request, promise)
+    return prove_thaw(rows, active, stamp, round(time.time() * 1000), control, owner_request, promise, serving_instance)
 
 
 def observe_seal_state(generation):
@@ -884,11 +886,12 @@ def phase1_seal_evidence(generation):
     return cycle
 
 
-def announcement_evidence(request, after_stop=False, read_only=False):
+def announcement_evidence(request, after_stop=False, read_only=False, serving_instance=None):
     profile = cancellation_profile(request)
     control, target = profile['control'], profile['target']
     key = request['runKey']
     owner = OWNER_WINDOW_PROFILE is not None and key == OWNER_WINDOW_PROFILE['request']['runKey']
+    require(serving_instance is None or owner)
     generation = PARENT / 'engine-control-generations' / control
     require(generation.resolve(strict=True) == generation)
     for name, expected in profile['hashes'].items(): require(source_hash(generation / name) == expected)
@@ -983,7 +986,9 @@ def announcement_evidence(request, after_stop=False, read_only=False):
     require(not os.path.lexists(ROOT / 'engine-release-results' / (key + '.json')))
     return {**({'desiredImageId': state['desired']['imageId']} if owner else {}),
             'originals': originals, 'entryHash': digest(entry_raw.encode()),
-            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()), 'thaw': own_thaw(stamp, control, request) if owner else own_thaw(stamp, control)}
+            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()),
+            'thaw': (own_thaw(stamp, control, request, serving_instance) if serving_instance is not None
+                     else own_thaw(stamp, control, request) if owner else own_thaw(stamp, control))}
 
 
 def unchanged_evidence(actual, expected, key):
@@ -996,10 +1001,23 @@ def unchanged_evidence(actual, expected, key):
 
 
 def validate_cancellation_reply(answer, request):
-    require(isinstance(answer, dict) and answer.get('schema') in {CANCEL_SCHEMA, EMPTY_CANCEL_SCHEMA} and answer.get('request') == request
-            and answer.get('result') == 'cancelled-expired-announcement' and answer.get('servingInstanceUnchanged') is True
+    require(isinstance(answer, dict) and answer.get('schema') in {CANCEL_SCHEMA, EMPTY_CANCEL_SCHEMA, SUCCESSOR_CANCEL_SCHEMA} and answer.get('request') == request
+            and answer.get('result') == 'cancelled-expired-announcement'
             and answer.get('originalTerminalEdgesRetired') is True and answer.get('quiescent') is True
             and answer.get('stopDisposition') in {'requested', 'not-needed-already-quiescent'})
+    if answer['schema'] == SUCCESSOR_CANCEL_SCHEMA:
+        require(answer.get('servingInstanceUnchanged') is False and answer.get('servingRuntimeUnchangedDuringCancellation') is True
+                and answer.get('stopDisposition') == 'not-needed-already-quiescent')
+        validate_successor_runtime(answer.get('runtime'), request)
+        require(answer.get('container') == answer['runtime']['container']
+                and type(answer.get('cutoffMs')) is int
+                and isinstance(answer.get('originalContainer'), dict)
+                and set(answer['originalContainer']) == {'id', 'image', 'startedAt'}
+                and all(answer['originalContainer'][key] == answer['container'][key] for key in ('id', 'image'))
+                and time_ms(answer['originalContainer']['startedAt']) < answer['cutoffMs'] < time_ms(answer['container']['startedAt']))
+        if 'currentRuntime' in answer: validate_successor_runtime(answer['currentRuntime'], request)
+    else:
+        require(answer.get('servingInstanceUnchanged') is True)
     if answer['schema'] == EMPTY_CANCEL_SCHEMA:
         require(answer.get('stopDisposition') == 'not-needed-already-quiescent')
     require(isinstance(answer.get('actualUnitStates'), list) and len(answer['actualUnitStates']) == 3)
@@ -1105,6 +1123,11 @@ def cancel_announced(request):
         intent_path = directory / (key + '.intent.json')
         issued_path = directory / (key + '.stop-issued.json')
         quiet_path = directory / (key + '.quiescent.json')
+        if OWNER_WINDOW_PROFILE is not None and os.path.lexists(intent_path):
+            original = json.loads(regular(intent_path, 0o600))
+            require(original.get('request') == request)
+            if container_identity(request) != original.get('container'):
+                return cancel_quiescent_owner_successor(request, original, units)
         if os.path.lexists(receipt_path):
             receipt = json.loads(regular(receipt_path, 0o600)); validate_cancellation_reply(receipt, request)
             require(masked(units)); quiet_units(units, receipt['originalControlGroup'], receipt['schema'] == EMPTY_CANCEL_SCHEMA, receipt.get('unitCgroups'))
@@ -1321,25 +1344,35 @@ def current26_kernel_identity(pid, container, receipt_ms):
             'namespace': namespace, 'namespacePids': rows[0], 'cgroup': group}
 
 
-def current26_cancelled_runtime(request, receipt):
-    """Revalidate this cancelled original after a natural same-container restart.
+def validate_successor_runtime(runtime, request):
+    require(isinstance(runtime, dict) and set(runtime) == {'request', 'container', 'process'}
+            and isinstance(runtime['request'], dict) and selection(runtime['request']) == runtime['request']
+            and (runtime['request'] | {'instanceId': request['instanceId']}) == request
+            and runtime['request']['instanceId'] != request['instanceId']
+            and isinstance(runtime['container'], dict) and set(runtime['container']) == {'id', 'startedAt', 'image'}
+            and isinstance(runtime['process'], dict) and type(runtime['process'].get('pid')) is int
+            and runtime['process']['pid'] > 1)
+    container, process = runtime['container'], runtime['process']
+    require(re.fullmatch('[0-9a-f]{64}', container['id'])
+            and re.fullmatch('sha256:[0-9a-f]{64}', container['image']) and time_ms(container['startedAt']) > 0
+            and set(process) == {'pid', 'startTicks', 'bootTime', 'namespace', 'namespacePids', 'cgroup'}
+            and type(process['startTicks']) is int and process['startTicks'] > 0
+            and type(process['bootTime']) is int and process['bootTime'] > 0
+            and re.fullmatch(r'pid:\[[1-9][0-9]*\]', process['namespace'])
+            and isinstance(process['namespacePids'], list) and len(process['namespacePids']) >= 2
+            and all(isinstance(value, str) and value.isdigit() for value in process['namespacePids'])
+            and process['namespacePids'][0] == str(process['pid']) and process['namespacePids'][-1] == '1'
+            and process['cgroup'].startswith('/') and '..' not in process['cgroup'].split('/')
+            and ('docker-' + container['id'] + '.scope' in process['cgroup'].split('/')
+                 or process['cgroup'] == '/docker/' + container['id']))
 
-    Historical receipt/intent bytes are untouched. A new live PID1 in the same
-    Docker container's newer incarnation proves the old runtime ended. This is
-    read-only custody evidence, never cancellation replay or restart authority.
-    """
-    # Also the generic later owner: the same proof, with its own receipt image.
-    require(request['runKey'] == CURRENT26_RUN or request['runKey'] not in PINNED_CANCELLATION_RUNS)
+
+def same_container_successor_runtime(request, old, cutoff_ms):
+    """Positive new PID1 after an actual retained boundary, without replacing it."""
     live = container_identity(request)
-    if live == receipt['container']:
-        health_pair(request)
-        return {'request': request, 'container': live, 'process': None}
-    old = receipt['container']
-    observed = time_ms(receipt['observedAt'])
+    require(type(cutoff_ms) is int and 0 < cutoff_ms < time.time() * 1000)
     require(live['id'] == old['id'] and live['image'] == old['image']
-            and (request['runKey'] != CURRENT26_RUN or
-                 old['image'] == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b')
-            and time_ms(old['startedAt']) < observed < time_ms(live['startedAt']) <= time.time() * 1000)
+            and time_ms(old['startedAt']) < cutoff_ms < time_ms(live['startedAt']) <= time.time() * 1000)
     template = ('{"id":{{json .Id}},"startedAt":{{json .State.StartedAt}},'
                 '"running":{{json .State.Running}},"image":{{json .Image}},'
                 '"pid":{{json .State.Pid}},"status":{{json .State.Status}}}')
@@ -1351,7 +1384,7 @@ def current26_cancelled_runtime(request, receipt):
                 and type(value['pid']) is int and value['pid'] > 1)
         return value
     initial = native()
-    process = current26_kernel_identity(initial['pid'], live['id'], observed)
+    process = current26_kernel_identity(initial['pid'], live['id'], cutoff_ms)
     url = 'http://127.0.0.1:8080/health'
     with urllib.request.urlopen(url + '?withdraw=' + str(time.time_ns()), timeout=5) as response:
         require(response.geturl().split('?', 1)[0] == url)
@@ -1361,9 +1394,162 @@ def current26_cancelled_runtime(request, receipt):
     require(isinstance(instance, str) and INSTANCE.fullmatch(instance) and instance != request['instanceId'])
     current = request | {'instanceId': instance}
     healthy(value, current); health_pair(current)
-    require(native() == initial and current26_kernel_identity(initial['pid'], live['id'], observed) == process
+    require(native() == initial and current26_kernel_identity(initial['pid'], live['id'], cutoff_ms) == process
             and container_identity(current) == live)
     return {'request': current, 'container': live, 'process': process}
+
+
+def current26_cancelled_runtime(request, receipt):
+    """Revalidate this cancelled original after a natural same-container restart.
+
+    Historical receipt/intent bytes are untouched. A new live PID1 in the same
+    Docker container's newer incarnation proves the old runtime ended. This is
+    read-only custody evidence, never cancellation replay or restart authority.
+    """
+    # Also the generic later owner: the same proof, with its own receipt image.
+    require(request['runKey'] == CURRENT26_RUN or request['runKey'] not in PINNED_CANCELLATION_RUNS)
+    if receipt.get('schema') == SUCCESSOR_CANCEL_SCHEMA:
+        validate_cancellation_reply(receipt, request)
+        return same_container_successor_runtime(request, receipt['originalContainer'], receipt['cutoffMs'])
+    live = container_identity(request)
+    if live == receipt['container']:
+        health_pair(request)
+        return {'request': request, 'container': live, 'process': None}
+    require(request['runKey'] != CURRENT26_RUN or
+            receipt['container']['image'] == 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b')
+    return same_container_successor_runtime(request, receipt['container'], time_ms(receipt['observedAt']))
+
+
+def cancel_quiescent_owner_successor(request, intent, units, read_only=False):
+    """Continue an existing original only after a natural successor is proved.
+
+    Called under cancel_announced's existing locks for writes. Observation uses
+    identical bookended reads, without locks, directory creation or writes.
+    This path never masks, reloads, stops, signals or rebinds an original.
+    """
+    require(OWNER_WINDOW_PROFILE is not None and cancellation_profile(request) == OWNER_WINDOW_PROFILE)
+    require(intent.get('schema') == CANCEL_SCHEMA and intent.get('request') == request
+            and set(intent) == {'schema', 'request', 'container', 'evidence', 'originalUnit',
+                'originalProcess', 'originalChild', 'stopContract'} | ({'unitCgroups'} if 'unitCgroups' in intent else set()))
+    key = request['runKey']; directory = ROOT / 'engine-release-cancellations'
+    paths = {name: directory / (key + '.' + name + '.json')
+             for name in ('intent', 'unit-cgroups', 'stop-issued', 'quiescent', 'receipt')}
+    original_bytes = regular(paths['intent'], 0o600)
+    require(json.loads(original_bytes) == intent)
+    intent_hash = digest(original_bytes.encode()); evidence = intent['evidence']
+    allowed = {'engine-release-requests/' + key + '.' + suffix for suffix in ('request', 'intent', 'awaiting-certificate')}
+    allowed |= {'engine-release-generation-pins/' + key + '.generation', 'engine-image-leases/' + key + '.lease'}
+    allowed |= {'engine-intake-requests/' + key + '.' + suffix for suffix in ('request', 'intent')}
+    require(set(evidence['originals']) <= allowed and all(re.fullmatch('[0-9a-f]{64}', v) for v in evidence['originals'].values()))
+    retained = {'entryHash': ROOT / 'engine-release-requests' / (key + '.activation-entry'),
+        'reservationHash': ROOT / ('engine-recovery-window-' + key + '.json'),
+        'releasedHoldHash': ROOT / 'engine-release-requests' / (key + '.lightning-hold.json.released')}
+    def historical():
+        require(regular(paths['intent'], 0o600) == original_bytes)
+        for name, path in retained.items(): require(digest(regular(path, 0o600).encode()) == evidence[name])
+        for suffix in ('break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent',
+                       'main-inspector-retirement-receipt', 'lightning-hold.json', 'drill'):
+            require(not os.path.lexists(ROOT / 'engine-release-requests' / (key + '.' + suffix)))
+        require(not os.path.lexists(ROOT / 'engine-release-results' / (key + '.json')))
+    historical()
+    reservation = json.loads(regular(retained['reservationHash'], 0o600))
+    stamp = reservation['announcedAt']; cutoff = evidence['thaw']['releasedThroughMs']
+    require(set(reservation) == {'runId', 'sha', 'announcedAt', 'cause'}
+            and reservation['runId'] == key and reservation['sha'] == request['releaseSha']
+            and reservation['cause'] == 'urgent' and type(stamp) is int and type(cutoff) is int
+            and cutoff == stamp + 420000 and evidence['thaw']['announcedAtMs'] == stamp)
+    generation = PARENT / 'engine-control-generations' / request['controlSha']
+    for name, expected in OWNER_WINDOW_PROFILE['hashes'].items(): require(source_hash(generation / name) == expected)
+    require(source_hash(PARENT / 'engine-release-unit-wrapper-v1.sh') == WRAPPER_HASH)
+    old = intent['container']
+    require(isinstance(old, dict) and set(old) == {'id', 'startedAt', 'image'}
+            and re.fullmatch('[0-9a-f]{64}', old['id']) and re.fullmatch('sha256:[0-9a-f]{64}', old['image'])
+            and old['image'] == evidence['desiredImageId'])
+    def sealed_thaw(runtime):
+        state = observe_seal_state(generation)
+        require(state.get('pending') is None and state.get('finalization') is None
+                and key not in state.get('committedRuns', {}) and state['desired']['sha'] == request['desiredSha']
+                and state['desired']['imageId'] == old['image'])
+        require(own_thaw(stamp, request['controlSha'], request, runtime['request']['instanceId']) == evidence['thaw'])
+    require(masked(units))
+    bindings = intent.get('unitCgroups')
+    if os.path.lexists(paths['unit-cgroups']):
+        recorded = json.loads(regular(paths['unit-cgroups'], 0o600))
+        require(set(recorded) == {'schema', 'intentHash', 'unitCgroups'}
+                and recorded['schema'] == 'engine-release-cancellation-cgroup/v1' and recorded['intentHash'] == intent_hash)
+        bindings = recorded['unitCgroups']
+    if bindings is None: bindings = recover_masked_service_cgroups(request, intent, units)
+    require(bindings == {unit: canonical_service_cgroup(unit)[1] for unit in units[:2]}
+            and intent['originalUnit']['ControlGroup'] == bindings[units[0]])
+    original_group = intent['originalUnit']['ControlGroup']
+    states = quiet_units(units, original_group, native_empty=True, bindings=bindings)
+    runtime = same_container_successor_runtime(request, old, cutoff)
+    validate_successor_runtime(runtime, request); sealed_thaw(runtime)
+    runtime_record = {'schema': 'owner-cancellation-runtime/v1', 'intentHash': intent_hash,
+                      'cutoffMs': cutoff, 'runtime': runtime}
+    def runtime_path(witness):
+        return directory / (key + '.runtime-' + digest(json.dumps(witness, sort_keys=True).encode()) + '.json')
+    issued = {'schema': CANCEL_SCHEMA, 'intentHash': intent_hash, 'stopDisposition': 'not-needed-already-quiescent'}
+    if os.path.lexists(paths['stop-issued']): require(json.loads(regular(paths['stop-issued'], 0o600)) == issued)
+    if not os.path.lexists(paths['quiescent']):
+        unchanged_evidence(announcement_evidence(request, after_stop=True, read_only=True,
+            serving_instance=runtime['request']['instanceId']), evidence, key)
+    def unchanged():
+        historical(); require(masked(units))
+        quiet_units(units, original_group, native_empty=True, bindings=bindings)
+        require(same_container_successor_runtime(request, old, cutoff) == runtime)
+    unchanged()
+    if os.path.lexists(paths['receipt']):
+        receipt = json.loads(regular(paths['receipt'], 0o600)); validate_cancellation_reply(receipt, request)
+        require(receipt['schema'] == SUCCESSOR_CANCEL_SCHEMA
+                and receipt['originalContainer'] == old and receipt['intentHash'] == intent_hash
+                and receipt['unitCgroups'] == bindings and receipt['originalControlGroup'] == original_group
+                and receipt['cutoffMs'] == cutoff
+                and json.loads(regular(runtime_path(receipt['runtime']), 0o600)) ==
+                    (runtime_record | {'runtime': receipt['runtime']})
+                and json.loads(regular(paths['stop-issued'], 0o600)) == issued)
+        quiet = json.loads(regular(paths['quiescent'], 0o600))
+        require(quiet == {'schema': CANCEL_SCHEMA, 'actualUnitStates': receipt['actualUnitStates']})
+        require(all(not os.path.lexists(ROOT / relative) for relative in allowed)
+                and all(not os.path.lexists(own_wants_edge(unit)) for unit in units))
+        unchanged()
+        if read_only: return runtime
+        return receipt if receipt['runtime'] == runtime else receipt | {'currentRuntime': runtime}
+    if read_only:
+        sealed_thaw(runtime); unchanged(); return runtime
+    def save(path, value):
+        unchanged(); save_once(path, value)
+    # Each execution binds its own stable incarnation. Prior immutable witnesses
+    # remain history; a later verified same-container restart may resume cleanup.
+    save(runtime_path(runtime), runtime_record)
+    save(paths['unit-cgroups'], {'schema': 'engine-release-cancellation-cgroup/v1', 'intentHash': intent_hash, 'unitCgroups': bindings})
+    save(paths['stop-issued'], issued)
+    if not os.path.lexists(paths['quiescent']): save(paths['quiescent'], {'schema': CANCEL_SCHEMA, 'actualUnitStates': states})
+    quiet = json.loads(regular(paths['quiescent'], 0o600))
+    require(set(quiet) == {'schema', 'actualUnitStates'} and quiet['schema'] == CANCEL_SCHEMA)
+    require(isinstance(quiet['actualUnitStates'], list) and len(quiet['actualUnitStates']) == 3
+            and all((row.get('MainPID') == '0' or row.get('unitType') == 'path' and row.get('MainPID') is None)
+                    and row.get('ActiveState') in {'inactive', 'failed'} for row in quiet['actualUnitStates']))
+    for relative, expected in evidence['originals'].items():
+        path = ROOT / relative
+        if os.path.lexists(path):
+            unchanged(); require(digest(regular(path, 0o600).encode()) == expected)
+            path.unlink(); fsync_directory(path.parent)
+    for unit in units:
+        edge = own_wants_edge(unit)
+        if os.path.lexists(edge):
+            unchanged(); edge.unlink(); fsync_directory(edge.parent)
+    require(all(not os.path.lexists(ROOT / relative) for relative in allowed))
+    sealed_thaw(runtime); unchanged()
+    receipt = {'schema': SUCCESSOR_CANCEL_SCHEMA, 'request': request, 'result': 'cancelled-expired-announcement',
+        'servingInstanceUnchanged': False, 'servingRuntimeUnchangedDuringCancellation': True,
+        'originalTerminalEdgesRetired': True, 'quiescent': True, 'runtime': runtime, 'intentHash': intent_hash,
+        'originalContainer': old, 'container': runtime['container'], 'cutoffMs': cutoff, 'originalControlGroup': original_group,
+        'unitCgroups': bindings, 'actualUnitStates': quiet['actualUnitStates'],
+        'stopDisposition': 'not-needed-already-quiescent', 'observedAt': datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    validate_cancellation_reply(receipt, request)
+    save(paths['receipt'], receipt); unchanged()
+    return receipt
 
 def phase1_cancellation_proof():
     """Read-only final evidence consumed by the owning sealed transaction.
@@ -1439,6 +1625,7 @@ DIAGNOSTIC_STAGES = {'selection', 'health_pair', 'container_identity', 'announce
     'regular', 'observe_seal_state', 'own_thaw', 'prove_thaw', 'loaded_stop_contract', 'unit_snapshot', 'empty_retry_admission',
     'phase1_runtime_birth', 'configured_service_cgroup', 'canonical_service_cgroup', 'capture_service_cgroups',
     'protected_service_template', 'recover_masked_service_cgroups', 'prove_unit_empty', 'prove_unloaded_unit_empty', 'manager_unit_absent',
+    'cancel_quiescent_owner_successor', 'same_container_successor_runtime', 'current26_kernel_identity', 'validate_successor_runtime',
     'own_wants_edge', 'collect_cancellation_admission', 'cancel_announced', 'cancellation_directory', 'process',
     'quiet_units', 'masked', 'remote', 'main'}
 DIAGNOSTIC_CODES = {'predicate_refused', 'read_unavailable', 'command_unproved', 'deadline', 'unknown'}
@@ -1459,7 +1646,8 @@ def diagnostic_error(error):
 
 
 def validate_diagnostic(value, request):
-    require(isinstance(value, dict) and set(value) == {'schema','request','readOnly','result','retryAllowed','failure'})
+    require(isinstance(value, dict) and set(value) in ({'schema','request','readOnly','result','retryAllowed','failure'},
+        {'schema','request','readOnly','result','retryAllowed','failure','runtime'}))
     require(value['schema'] == DIAGNOSTIC_SCHEMA and value['request'] == request and value['retryAllowed'] is False)
     require(value['readOnly'] is (request.get('mode') == 'observe_expired_announcement'))
     require(value['result'] in {'predicates_passed_at_read','unproved'})
@@ -1469,6 +1657,9 @@ def validate_diagnostic(value, request):
         require(isinstance(error, dict) and set(error) == {'stage','line','code'}
                 and error['stage'] in DIAGNOSTIC_STAGES and error['code'] in DIAGNOSTIC_CODES
                 and (error['line'] is None or type(error['line']) is int and 1 <= error['line'] <= 10000))
+    if 'runtime' in value:
+        require(value['result'] == 'predicates_passed_at_read' and value['readOnly'] is True)
+        validate_successor_runtime(value['runtime'], request | {'mode': 'cancel_expired_announcement'})
     return value
 
 
@@ -1482,6 +1673,13 @@ def observe_cancellation(request):
         canonical = request | {'mode':'cancel_expired_announcement'}
         units = cancel_units(request['runKey'])
         for unit in units: own_wants_edge(unit)
+        intent_path = ROOT / 'engine-release-cancellations' / (request['runKey'] + '.intent.json')
+        if OWNER_WINDOW_PROFILE is not None and os.path.lexists(intent_path):
+            original = json.loads(regular(intent_path, 0o600))
+            if container_identity(canonical) != original.get('container'):
+                answer['runtime'] = cancel_quiescent_owner_successor(canonical, original, units, read_only=True)
+                answer['result'] = 'predicates_passed_at_read'
+                return validate_diagnostic(answer, request)
         health_pair(canonical)
         container = container_identity(canonical)
         collect_cancellation_admission(canonical, units, container, read_only=True)
@@ -1628,7 +1826,7 @@ def main():
             destination = Path('artifacts/engine-withdrawal')
             destination.mkdir(parents=True, exist_ok=True)
             (destination / 'receipt.json').write_text(json.dumps(answer, indent=2) + '\n')
-            print('Exact expired announcement cancelled; serving engine unchanged.')
+            print('Exact expired announcement cancelled; current serving runtime unchanged during cancellation.')
             return
         require(set(answer) == set(request) | {'schema', 'result', 'invocationId',
                 'originalTransactionExitStatus', 'servingInstanceUnchanged', 'originalTerminalEdgesRetired'})
