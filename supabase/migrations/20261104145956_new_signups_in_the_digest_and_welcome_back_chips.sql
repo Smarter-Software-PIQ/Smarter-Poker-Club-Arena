@@ -91,8 +91,10 @@ CREATE TABLE IF NOT EXISTS public.sp_signup_welcome_back_awards (
 CREATE INDEX IF NOT EXISTS sp_signup_welcome_back_awards_awarded_at_idx
   ON public.sp_signup_welcome_back_awards (awarded_at);
 ALTER TABLE public.sp_signup_welcome_back_awards ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.sp_signup_welcome_back_awards FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE ON public.sp_signup_welcome_back_awards TO service_role;
+-- The run and mark functions (SECURITY DEFINER) are the writers; the World Hub
+-- job reads it as service_role to retry channels that never went out.
+REVOKE ALL ON public.sp_signup_welcome_back_awards FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.sp_signup_welcome_back_awards TO service_role;
 COMMENT ON TABLE public.sp_signup_welcome_back_awards IS
   'Welcome-back chips (Dan 2026-11-04): one row per real player who signed up, had not played a hand after 24 hours, and was offered 25 free chips from the Midway Union promo wallet. status awarded = chips landed; no_club = waiting for the player to join a Midway Union club.';
 
