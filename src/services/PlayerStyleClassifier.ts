@@ -276,7 +276,7 @@ class PlayerStyleClassifierClass {
   private describe(vpip: number, pfr: number, af: number, factor: number): string {
     const ratio = vpip > 0 ? pfr / vpip : 0;
     const game = gameWord(factor);
-    const plays = `Plays ${Math.round(vpip)}% Of Hands${game ? ` (Normal For ${game})` : ''}`;
+    const plays = `Plays ${Math.round(vpip)}% Of Hands${game ? ` (Judged Against ${game} Ranges)` : ''}`;
     let raises: string;
     if (pfr < 1) raises = 'Almost Never Raises Before The Flop';
     else if (ratio >= 0.75) raises = 'Raises Almost All Of Them';

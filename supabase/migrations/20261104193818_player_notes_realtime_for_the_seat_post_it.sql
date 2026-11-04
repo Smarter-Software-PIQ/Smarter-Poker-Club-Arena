@@ -11,17 +11,22 @@
 -- the next table open. This puts player_notes on the realtime publication so
 -- a save or delete anywhere reaches every open table of the same player.
 --
--- Privacy: postgres_changes applies the table's RLS (owner-only SELECT) on the
--- authenticated socket, and the client additionally filters user_id=eq.<self>.
--- A DELETE event under RLS carries only the replica identity, and the default
--- identity (the primary key) would leave RLS unable to attribute the row, so
--- the identity is widened to FULL: the table is tiny (notes are hand-written),
--- so the write cost is nil.
+-- Privacy: postgres_changes applies the table's RLS (owner-only SELECT) to
+-- INSERT and UPDATE events on the authenticated socket, and the client
+-- additionally filters user_id=eq.<self> and subscribes to those two events
+-- only. Supabase does NOT apply RLS to DELETE events, and the only way to
+-- filter them is REPLICA IDENTITY FULL, which would broadcast a deleted
+-- note's whole row, its text included, to any signed-in subscriber of the
+-- table. So the replica identity stays DEFAULT (a DELETE carries the primary
+-- key alone, which identifies nothing), and a note deleted on another device
+-- leaves the seat on the next table open or socket rejoin rather than live.
+-- A note written on another device is live; the private text never leaves
+-- its owner's socket.
 --
 -- player_notes is not a hot table: no engine or cron writes it, so this takes
--- its brief locks during play without the maintenance window.
+-- its brief lock during play without the maintenance window.
 --
--- @live-proof: EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='player_notes') AND (SELECT relreplident FROM pg_class WHERE oid='public.player_notes'::regclass)='f'
+-- @live-proof: EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='player_notes') AND (SELECT relreplident FROM pg_class WHERE oid='public.player_notes'::regclass)='d'
 --
 -- Wrap ALL DDL for one change in ONE transaction: every DDL statement fires
 -- Supabase's schema-cache reload, which takes ~28s on this database, and ten
@@ -30,8 +35,6 @@
 BEGIN;
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '10s';
-
-ALTER TABLE public.player_notes REPLICA IDENTITY FULL;
 
 DO $$
 BEGIN

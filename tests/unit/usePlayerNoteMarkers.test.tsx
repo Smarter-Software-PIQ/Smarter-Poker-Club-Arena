@@ -39,13 +39,15 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
    hands out one channel per key; the test drives its handler directly. */
 const realtime = vi.hoisted(() => ({
   handlers: [] as Array<(payload: any) => void>,
+  events: [] as string[],
   released: [] as string[],
   subscribed: [] as Array<(status: string) => void>,
 }));
 vi.mock('../../src/core/MasterBus', () => ({
   masterBus: {
     getOrCreateChannel: () => ({
-      on: (_type: string, _filter: unknown, handler: (payload: any) => void) => {
+      on: (_type: string, filter: { event?: string }, handler: (payload: any) => void) => {
+        realtime.events.push(String(filter?.event));
         realtime.handlers.push(handler);
       },
     }),
@@ -73,6 +75,7 @@ afterEach(() => {
   mocks.error = null;
   mocks.reads = 0;
   realtime.handlers = [];
+  realtime.events = [];
   realtime.released = [];
   realtime.subscribed = [];
 });
@@ -154,7 +157,11 @@ describe('usePlayerNoteMarkers', () => {
   it('a note written on another device arrives over realtime, and a rejoin re-reads once', async () => {
     const hook = renderHook(() => usePlayerNoteMarkers('hero'));
     await waitFor(() => expect(mocks.reads).toBe(1));
-    expect(realtime.handlers).toHaveLength(1);
+    // INSERT and UPDATE only. Never DELETE: Supabase does not apply RLS to
+    // delete events, so subscribing to them would need a replica identity
+    // that broadcasts deleted note text to every subscriber.
+    expect(realtime.events).toEqual(['INSERT', 'UPDATE']);
+    expect(realtime.handlers).toHaveLength(2);
 
     act(() => {
       realtime.handlers[0]({
@@ -165,12 +172,12 @@ describe('usePlayerNoteMarkers', () => {
     expect(hook.result.current.get('villain-9')).toBe('blue');
 
     act(() => {
-      realtime.handlers[0]({
-        eventType: 'DELETE',
-        old: { user_id: 'hero', target_user_id: 'villain-9', color_label: 'blue' },
+      realtime.handlers[1]({
+        eventType: 'UPDATE',
+        new: { user_id: 'hero', target_user_id: 'villain-9', color_label: 'red' },
       });
     });
-    expect(hook.result.current.has('villain-9')).toBe(false);
+    expect(hook.result.current.get('villain-9')).toBe('red');
 
     // First SUBSCRIBED is the initial join (no extra read); the second is a
     // rejoin after a drop, which may have missed changes.
@@ -188,7 +195,7 @@ describe('usePlayerNoteMarkers', () => {
     const a = renderHook(() => usePlayerNoteMarkers('hero'));
     const b = renderHook(() => usePlayerNoteMarkers('hero'));
     await waitFor(() => expect(mocks.reads).toBe(1));
-    expect(realtime.handlers).toHaveLength(1);
+    expect(realtime.handlers).toHaveLength(2);
     expect(realtime.subscribed).toHaveLength(1);
 
     act(() => {

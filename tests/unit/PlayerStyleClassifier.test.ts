@@ -312,7 +312,7 @@ describe('PlayerStyleClassifier', () => {
         passiveActions: 1000,
         variantHands: [{ variant: 'plo5', hands: 1000 }],
       });
-      expect(result.reason).toContain('(Normal For PLO5)');
+      expect(result.reason).toContain('(Judged Against PLO5 Ranges)');
     });
   });
 

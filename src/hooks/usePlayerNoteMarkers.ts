@@ -17,9 +17,10 @@
  *   2. the PlayerNotesService change feed, which every save and delete on
  *      THIS device goes through, so the marker moves the instant the player
  *      presses Save;
- *   3. one realtime subscription on the player's own `player_notes` rows, so a
- *      note written on the phone shows up on the desktop table without a
- *      reload (migration 20261104193818 put the table on the publication).
+ *   3. one realtime subscription on the player's own `player_notes` inserts
+ *      and updates, so a note written on the phone shows up on the desktop
+ *      table without a reload (migration 20261104193818 put the table on the
+ *      publication); deletes are not subscribed, for privacy (see below).
  *
  * Nothing re-reads the whole set because a note was written; it flips the one
  * opponent that changed. Notes are private, so the map is always the
@@ -86,25 +87,25 @@ function openFeed(userId: string): Feed {
   });
 
   // Other devices: the player's own rows, over the shared socket. One channel
-  // per player, subscribed once.
+  // per player, subscribed once. INSERT and UPDATE only: Supabase applies RLS
+  // to those two and not to DELETE, and the only way to filter deletes would
+  // widen the replica identity until a deleted note's text was broadcast to
+  // every subscriber. A note deleted elsewhere leaves the seat on the next
+  // table open or socket rejoin instead (the re-read below).
   const channelKey = `player-notes:${userId}`;
   const admission = new AbortController();
   const channel = masterBus.getOrCreateChannel(channelKey);
-  channel.on(
-    'postgres_changes',
-    { event: '*', schema: 'public', table: 'player_notes', filter: `user_id=eq.${userId}` },
-    (payload) => {
-      if (cancelled) return;
-      const row = (payload?.eventType === 'DELETE' ? payload?.old : payload?.new) as
-        | Record<string, unknown>
-        | null
-        | undefined;
-      const target = row?.target_user_id;
-      if (typeof target !== 'string' || !target) return;
-      const color = typeof row?.color_label === 'string' ? (row.color_label as string) : 'none';
-      apply(target, payload?.eventType !== 'DELETE', color);
-    }
-  );
+  const onRow = (payload: { new?: unknown }) => {
+    if (cancelled) return;
+    const row = payload?.new as Record<string, unknown> | null | undefined;
+    const target = row?.target_user_id;
+    if (typeof target !== 'string' || !target) return;
+    const color = typeof row?.color_label === 'string' ? (row.color_label as string) : 'none';
+    apply(target, true, color);
+  };
+  const scope = { schema: 'public', table: 'player_notes', filter: `user_id=eq.${userId}` };
+  channel.on('postgres_changes', { event: 'INSERT', ...scope }, onRow);
+  channel.on('postgres_changes', { event: 'UPDATE', ...scope }, onRow);
   let subscribedOnce = false;
   void subscribeRealtime(
     channel,

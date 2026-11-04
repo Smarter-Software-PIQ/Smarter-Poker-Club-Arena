@@ -88,10 +88,20 @@ describe('the post-it marks a noted opponent', () => {
     const migration = read(
       'supabase/migrations/20261104193818_player_notes_realtime_for_the_seat_post_it.sql'
     );
-    expect(migration).toContain('ALTER TABLE public.player_notes REPLICA IDENTITY FULL;');
     expect(migration).toContain(
       'ALTER PUBLICATION supabase_realtime ADD TABLE public.player_notes;'
     );
+    /* Never widen the replica identity: Supabase applies no RLS to DELETE
+       events, so FULL would broadcast deleted note text to every subscriber. */
+    const migrationSql = migration
+      .split('\n')
+      .filter((line) => !line.startsWith('--'))
+      .join('\n');
+    expect(migrationSql).not.toMatch(/REPLICA IDENTITY/i);
+    expect(hook).toContain("{ event: 'INSERT', ...scope }");
+    expect(hook).toContain("{ event: 'UPDATE', ...scope }");
+    expect(hook).not.toContain("event: '*'");
+    expect(hook).not.toContain("'DELETE'");
   });
 
   it('the Notes Library has a door: the hero hub opens it with no target', () => {

@@ -1495,6 +1495,7 @@ function SeparatedPlayerStatsPage({ gameMode }: { gameMode: StatsGameMode }) {
       showdowns_won: overall.showdowns_won,
       showdowns_total: overall.showdowns_total,
       aggression_factor: overall.aggression_factor,
+      aggression_factor_basis: overall.aggression_factor_basis,
       three_bet_percent: overall.three_bet_percent,
       fold_to_three_bet: overall.fold_to_three_bet,
       cbet_flop: overall.cbet_flop,

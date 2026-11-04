@@ -931,7 +931,9 @@ test.describe('production routed gameplay customization', () => {
         body: await writer.screenshot(),
         contentType: 'image/png',
       });
-      await tapReady(picker.getByRole('button', { name: 'Notes', exact: true }));
+      await tapReady(
+        picker.getByRole('button', { name: /^(Add A Note|Edit Your Note) On This Player$/ })
+      );
       const notes = writer.getByRole('dialog', { name: 'Player Notes', exact: true });
       const noteInput = notes.getByRole('textbox', { name: 'Notes About This Player' });
       await expect(noteInput).toBeEnabled();
@@ -953,7 +955,9 @@ test.describe('production routed gameplay customization', () => {
       if (privateRead.error) throw privateRead.error;
       expect(privateRead.data).toEqual([]);
       await tapReady(rivalAvatar);
-      await tapReady(picker.getByRole('button', { name: 'Notes', exact: true }));
+      await tapReady(
+        picker.getByRole('button', { name: /^(Add A Note|Edit Your Note) On This Player$/ })
+      );
       await expect(noteInput).toHaveValue('Certification Read: Raises Small With Strong Hands.');
       await test.info().attach('opponent-notes-persisted', {
         body: await writer.screenshot(),
@@ -969,7 +973,9 @@ test.describe('production routed gameplay customization', () => {
         .eq('target_user_id', notesOpponent.id)
         .maybeSingle();
       if (cleared.error) throw cleared.error;
-      expect(cleared.data?.notes).toBe('');
+      // A BLANK SAVE IS A CLEAR (2026-11-04): no text, tags or colour removes
+      // the row rather than leaving an empty note that still counts as one.
+      expect(cleared.data).toBeNull();
       console.log(
         '[player-notes-favorites] opponent menu, ten popular defaults, persisted edit/clear, reopen and private RLS passed'
       );

@@ -113,10 +113,13 @@ its title unlocks. TAG, Rock and Maniac join `PLAYER_TAGS`.
 - Tags are free. The tag-pack diamond purchase and the VIP status read are
   removed from the panel (Dan: Club Arena is free to play).
 - A note written on another device reaches every open table over realtime:
-  migration `20261104193818` puts `player_notes` on the realtime publication
-  with `REPLICA IDENTITY FULL` (so a DELETE can be attributed under RLS);
-  `usePlayerNoteMarkers` subscribes to the player's own rows on the shared
-  socket and re-reads once after a rejoin.
+  migration `20261104193818` puts `player_notes` on the realtime publication;
+  `usePlayerNoteMarkers` subscribes to the player's own INSERT and UPDATE
+  events on the shared socket and re-reads once after a rejoin. DELETE events
+  are deliberately not subscribed: Supabase applies no RLS to them, and the
+  replica identity a delete filter needs (FULL) would broadcast a deleted
+  note's text to every subscriber of the table. A note deleted on another
+  device leaves the seat on the next table open or socket rejoin instead.
 
 **Stats page (Phase 3).** The breakdowns by position, game and stake were
 computed on the most recent 750 hands while the headline totals covered every
@@ -161,3 +164,15 @@ deleted nothing and still said "Note Cleared"; it now just closes. And
 `getNote` turned a failed read into the default blue note, which the player
 menu would have painted as a real colour; it throws, and the preview prints
 nothing.
+
+**Second review pass.** A privacy hole: the realtime migration had widened
+`player_notes` to `REPLICA IDENTITY FULL` so DELETE events could be
+filtered, and Supabase applies no RLS to DELETE events, so a deleted note's
+full row (text included) would have reached any signed-in subscriber of the
+table. The identity stays DEFAULT and the client subscribes to INSERT and
+UPDATE only; a cross-device delete syncs on the next table open or socket
+rejoin. Also carried the aggression-factor basis into the Analysis tab's
+summary (it had its own hardcoded label), updated the gameplay e2e spec to
+the "Add A Note" door and the clear-on-blank rule, and reworded the
+game-range reason from "Normal For PLO" (which read as a verdict) to "Judged
+Against PLO Ranges" (which is what it is).

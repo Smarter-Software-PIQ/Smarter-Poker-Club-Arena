@@ -71,5 +71,10 @@ describe('the aggression factor is postflop only', () => {
       expect(read(f)).toContain('label={aggressionFactorLabel(overall.aggression_factor_basis)}');
       expect(read(f)).not.toContain('label="Aggression Factor"');
     }
+    const summary = read('src/components/stats/AdvancedStatsSummary.tsx');
+    expect(summary).toContain('label: aggressionFactorLabel(d.aggression_factor_basis),');
+    expect(read('src/pages/PlayerStatsPage.tsx')).toContain(
+      'aggression_factor_basis: overall.aggression_factor_basis,'
+    );
   });
 });
