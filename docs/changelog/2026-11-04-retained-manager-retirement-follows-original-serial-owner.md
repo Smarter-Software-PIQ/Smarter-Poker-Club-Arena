@@ -1,0 +1,7 @@
+# Retained manager retirement follows its original serial owner
+
+The historical checkpoint classified manager retirement and captured the registry before awaiting original seat-move serial continuations. An original continuation could begin lease-loss teardown during that await; the guard then judged the now-stopping manager against its earlier live registry snapshot. Actual EED qualification reproduces the resulting retained_manager_lease_unproven refusal.
+
+Preliminary serial continuations now drain before retirement classification and stable registry capture. Exact manager, generation, child-map, actor and method identities are retained across the await. Only an already-owned GameServer retirement promise can supply a retirement result; it must return true and pass the existing registry removal, drained original, lifecycle, bank, move and custody proofs. A captured original promise remains joinable if teardown finishes during the drain. The original bounded lease-renewal observation and strict final serial witness remain intact. No guard-owned stop or lease renewal is introduced.
+
+The registry proof now binds each original key to its exact manager, preventing a duplicate existing value from hiding a replaced manager. Native regressions cover serial-started retirement, completed original retirement, an unauthorized direct stop and that key reassignment. Existing release budgets, floor, maintenance authority and historical runtime pins are unchanged.
