@@ -204,6 +204,12 @@ import {
 import { levelResumeRemainingMs } from './levelClockOutage.js';
 import { unprovedHandNeedsSuccessorGeneration } from './unprovedHandSuccessor.js';
 import { throughCancellationLane } from './cancellationLane.js';
+import {
+  firstDealWaves,
+  tableOpenGate,
+  type TableOpenGate,
+  type TableOpenSlot,
+} from './tableOpenWaves.js';
 
 /**
  * What one ask of the abandoned-generation door came to.
@@ -2656,6 +2662,13 @@ export abstract class TournamentManagerBase {
       // tickets. Read the serialized state before this generation deals.
       this.holdSatelliteQualifierBoundary();
     }
+    // Released when the dealer's start-up reads are done (ready), or when the
+    // start ends without getting there; the gate's horizon bounds both.
+    let openingSlot: TableOpenSlot | null = null;
+    const releaseOpeningSlot = () => {
+      openingSlot?.release();
+      openingSlot = null;
+    };
     const operation = (async () => {
       if (!lifecycle || !tableId || !this.tournamentLeaseGeneration)
         throw new Error('f06_engine_admission_identity_missing');
@@ -2665,6 +2678,19 @@ export abstract class TournamentManagerBase {
         this.tournamentLeaseGeneration === leaseGeneration &&
         this.tableEngines.get(tableId) === engine &&
         this.gameServer.ownsTournamentTableEngine(tableId, engine);
+      if (!current() || !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId))
+        throw new Error('f06_engine_admission_fenced');
+      /* THE OPENING BUDGET (Dan 2026-11-05, fix 4: wave starts for big
+         tournaments). Every dealer start below is a burst of database reads
+         and, soon after, the first hand's lock-sensitive writes. Two 60-table
+         launches in the same minute used to put ~120 of those on the database
+         at once; the reads queued past the 180 s zombie line and 115 tables
+         were rebuilt (2026-10-27 13:33Z). One process-wide gate admits starts
+         in waves (tableOpenWaves.ts) before the first read; every proof and
+         fence below then runs exactly as before, rechecked after the wait. */
+      openingSlot = await this.tableOpenGate().acquire(
+        () => current() && this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId)
+      );
       if (!current() || !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId))
         throw new Error('f06_engine_admission_fenced');
       // Retained originals must finish before the existing unresolved-permit
@@ -3018,6 +3044,7 @@ export abstract class TournamentManagerBase {
       if (!lifecycle || !tableId || !this.lifecycleIsCurrent(lifecycle)) return;
       await this.recoverManagedTableEngine(tableId, engine, lifecycle, 'engine_start_failed', true);
     });
+    void operation.finally(releaseOpeningSlot);
     let runJob!: Promise<void>;
     runJob = operation.finally(() => this.tableEngineRunJobs.delete(runJob));
     this.tableEngineRunJobs.add(runJob);
@@ -3040,6 +3067,7 @@ export abstract class TournamentManagerBase {
         this.tableRestartBackoff.recordReady(tableId);
       }
     });
+    void engine.ready.then(releaseOpeningSlot, releaseOpeningSlot);
     let tableStart!: Promise<void>;
     tableStart = readiness.finally(() => this.tableEngineStartJobs.delete(tableStart));
     this.tableEngineStartJobs.add(tableStart);
@@ -3085,9 +3113,20 @@ export abstract class TournamentManagerBase {
   }
 
   /** The completed launch receipt survives dealer and manager replacement. */
+  /** The process-wide opening budget (tableOpenWaves.ts); one per process. */
+  protected tableOpenGate(): TableOpenGate {
+    return tableOpenGate;
+  }
+
   private holdManagedTableUntilBookedStart(engine: ServerTableEngine): void {
     const bookedStartMs = Date.parse(String(this.tournamentCache?.started_at ?? ''));
-    if (bookedStartMs > Date.now()) engine.holdDealingUntil(bookedStartMs);
+    if (!(bookedStartMs > Date.now())) return;
+    engine.holdDealingUntil(bookedStartMs);
+    // The same first-deal wave the launch gave this table (idempotent per
+    // table), so a resume inside the pre-seat minute keeps the waves too.
+    const tableId = this.tableIdForManagedEngine(engine);
+    const at = tableId ? firstDealWaves.assign(bookedStartMs, [tableId]).get(tableId) : undefined;
+    if (at !== undefined && at > bookedStartMs) engine.holdDealingUntil(at);
   }
 
   /** Bind a delayed manager mutation to the exact lifecycle that scheduled it. */
@@ -7684,6 +7723,27 @@ export abstract class TournamentManagerBase {
       if (this.preStartLeadMs > 0) {
         for (const engine of this.tableEngines.values()) {
           engine.holdDealingUntil(launchStartMs);
+        }
+        /* THE FIRST DEAL GOES IN WAVES (Dan 2026-11-05, fix 4). Every held
+           table used to deal its first hand in the same instant, so the first
+           hands' permit, seat, funding and continuation writes of every event
+           sharing the start all landed together. Wave 0 still deals AT the
+           advertised start; the rest follow FIRST_DEAL_WAVE_GAP_MS apart,
+           continuing the count of any other launch booked for the same
+           instant (tableOpenWaves.ts). holdDealingUntil only ever lengthens a
+           hold, so a longer Spin or add-on hold is never shortened by this,
+           and the level clock still starts at the advertised instant. */
+        const firstDealAt = firstDealWaves.assign(launchStartMs, this.tableEngines.keys());
+        let lastWaveAt = launchStartMs;
+        for (const [waveTableId, at] of firstDealAt) {
+          if (at <= launchStartMs) continue;
+          this.tableEngines.get(waveTableId)?.holdDealingUntil(at);
+          if (at > lastWaveAt) lastWaveAt = at;
+        }
+        if (lastWaveAt > launchStartMs) {
+          console.log(
+            `[Tournament:${this.tournamentId.slice(0, 8)}] First deal in waves: ${this.tableEngines.size} table(s) from ${startedAtIso}, last wave +${lastWaveAt - launchStartMs}ms`
+          );
         }
         console.log(
           `[Tournament:${this.tournamentId.slice(0, 8)}] Pre-seated ${this.tableEngines.size} table(s) - holding the deal ${Math.round(this.preStartLeadMs / 1000)}s until the admitted start ${startedAtIso}`
