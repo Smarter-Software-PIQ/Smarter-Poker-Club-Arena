@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+// Actual transitive sources: engine-release-transaction.sh, legacy-engine-checkpoint.sh
+// and engine-release-window-queue.py; keep the native caller in affected local checks.
 describe('a legacy checkpoint spends one absolute entry clock', () => {
   it('executes the maintained queue, physical predicate and native deadline cases', () => {
     const result = spawnSync(

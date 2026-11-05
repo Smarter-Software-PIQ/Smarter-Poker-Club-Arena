@@ -26,3 +26,15 @@ it('runs the real bounded legacy adapter allocation and transport checks', () =>
   expect(result.status, result.stdout + result.stderr).toBe(0);
   expect(result.stdout).toContain('# pass 8');
 }, 35_000);
+
+// This is also the existing portable allocation step in engine-build-resource-proof.yml.
+// Keep it in the source-selected local wrapper when the transaction changes.
+it('preserves the actual original allocation and rollback arithmetic', () => {
+  const result = spawnSync('python3', ['-B', 'tests/operations/eed-checkpoint-budget.test.py'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.status, result.stdout + result.stderr).toBe(0);
+  expect(result.stderr).toContain('Ran 7 tests');
+}, 35_000);

@@ -21,3 +21,12 @@ No runtime guard, reserve, timeout or assertion was relaxed. Separate local tool
 failures were resolved by using the system SHA utility and an SSD work temporary
 directory outside this ESM checkout, so generated CommonJS adapters retain their
 actual module semantics.
+
+The resource workflow found a fourth extracted caller missing the new certified
+policy constant. Its existing seven allocation cases now read that maintained
+constant, and the existing local contract wrapper invokes the same allocation
+fixture, so transaction edits cannot omit this portable resource prerequisite.
+The existing shared-clock fixture likewise now extracts the complete profile
+conditional, while its direct ordinary predicate cases explicitly select the
+ordinary branch. Its wrapper names its actual transitive source dependencies for
+local selection; all eleven native clock and refusal cases remain unchanged.
