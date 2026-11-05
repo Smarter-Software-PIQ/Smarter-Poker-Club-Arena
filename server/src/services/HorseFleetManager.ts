@@ -2,6 +2,7 @@ import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
   horseUnionCashTableAllowed,
+  lightningGamesWithPlayingHumans,
   playingHumansAtCashTable,
 } from './HorseUnionCashPlan.js';
 /**
@@ -2364,6 +2365,13 @@ export class HorseFleetManager {
         if (list) list.push(s);
         else seatsByTable.set(s.table_id, [s]);
       }
+      /* Lightning games a person is playing in, across all their tables. */
+      const cashPlanLightningHumanGames = lightningGamesWithPlayingHumans(
+        tables,
+        seatsByTable,
+        horseIdSet,
+        cashPlanLightningGames
+      );
       // V8: tables with a short-handed HUMAN seed first (never leave a human
       // stranded); everything else keeps its natural order. Precomputed rather
       // than recomputed inside the comparator - same predicate, same answer.
@@ -2942,7 +2950,8 @@ export class HorseFleetManager {
               playingHumansAtCashTable(tableOccupiedSeats, horseIdSet),
               Date.now(),
               cashPlanPrimaryTables,
-              cashPlanLightningGames
+              cashPlanLightningGames,
+              cashPlanLightningHumanGames
             )
           ) {
             beat.withheldTables++;
@@ -4818,6 +4827,12 @@ export class HorseFleetManager {
         if (seats) seats.push(seat);
         else seatsByTable.set(seat.table_id, [seat]);
       }
+      const cashPlanLightningHumanGames = lightningGamesWithPlayingHumans(
+        tables,
+        seatsByTable,
+        horseIdSet,
+        cashPlanLightningGames
+      );
 
       /* PAGED (2026-09-09), like every other read of this queue in the file.
          A bare `.select()` is capped at db-max-rows (1,000) without erroring;
@@ -4906,7 +4921,8 @@ export class HorseFleetManager {
             playingHumansAtCashTable(seatsByTable.get(table.id) ?? [], horseIdSet),
             Date.now(),
             cashPlanPrimaryTables,
-            cashPlanLightningGames
+            cashPlanLightningGames,
+            cashPlanLightningHumanGames
           )
         )
           continue;

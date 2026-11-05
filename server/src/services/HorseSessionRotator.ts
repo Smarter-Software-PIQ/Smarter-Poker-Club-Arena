@@ -2,6 +2,7 @@ import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
   horseUnionCashTableAllowed,
+  lightningGamesWithPlayingHumans,
   playingHumansAtCashTable,
 } from './HorseUnionCashPlan.js';
 /**
@@ -1015,6 +1016,17 @@ export class HorseSessionRotator {
     const cashPlanPrimaryTables = horseCashPlanPrimaryTables(
       [...byTable.values()].map((tableSeats) => tableSeats[0]?.tables ?? {})
     );
+    /* A person playing anywhere in a Lightning game keeps its horses seated.
+       byTable holds every open cash seat, so each game's answer is whole. */
+    const lightningHumanGames = lightningGamesWithPlayingHumans(
+      [...byTable.entries()].map(([id, tableSeats]) => ({
+        id,
+        cluster_id: (tableSeats[0] as any)?.tables?.cluster_id ?? null,
+      })),
+      byTable as any,
+      horseIds,
+      lightningGameIds
+    );
     for (const [tableId, tableSeats] of byTable) {
       if (!this.lifecycleIsCurrent(generation)) return;
       const t = (tableSeats[0] as any)?.tables;
@@ -1033,7 +1045,8 @@ export class HorseSessionRotator {
           playingHumansAtCashTable(tableSeats, horseIds),
           Date.now(),
           cashPlanPrimaryTables,
-          lightningGameIds
+          lightningGameIds,
+          lightningHumanGames
         );
       for (const seat of tableSeats) {
         const uid = String(seat.user_id ?? '');
