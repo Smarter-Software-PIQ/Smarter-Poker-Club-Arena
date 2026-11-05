@@ -215,6 +215,65 @@ export function nearestOpponentShift(
   return opponentShiftCandidates(parts, obstacles, bounds, side, outwardOnly)[0] ?? null;
 }
 
+/* ═══ THE CHAIRS NEVER CHANGE ORDER (Dan 2026-11-05) ═══════════════════════
+   Mongo, PLO8 Morning Stack Table 1: BigWade sat in seat 5 (left-high, after
+   BUTTONCHAMP) and the engine dealt and acted him there, but the phone drew
+   him in the bottom-left corner, BELOW Cali_Duncan, right next to Mongo. The
+   whole table read a seat order that was not the real one: "he still acts
+   when he should of he was in the other seat".
+
+   The cause was this allocator. Its job is to nudge avatars so broad artwork
+   does not overlap; its candidate shifts include "slide to the edge of the
+   page", and nothing stopped one chair's nudge from carrying it PAST a
+   neighbour. On a dense 9-max phone ring the cheapest legal answer was to
+   drop the left-high chair down the whole side column and park it under the
+   lower-left chair. Nothing about the game changed - only the picture - but
+   the picture is what every player reads the action order from.
+
+   THE RULE. Nudges may move chairs (the 320px ring slides its two top caps
+   ~50-70px sideways together, and that is fine), but the clockwise ORDER of
+   every chair around the table - occupied, empty and the hero's - must be the
+   same after the nudge as on the rail. Passing a neighbour is the only way to
+   misreport who acts next, and it is exactly what this forbids. Enforced
+   twice: the joint solver never returns a layout that reorders the ring, and
+   every applied nudge is re-checked against the real DOM before the frame is
+   kept (holdChairs, in createOpponentAvatarLayout). */
+export type ChairPoint = { x: number; y: number };
+/** Whether `after` lists the same chairs in the same order around `centre`
+ * as `before` (index i is the same chair in both). */
+export function opponentRingOrderKept(
+  before: readonly ChairPoint[],
+  after: readonly ChairPoint[],
+  centre?: ChairPoint
+): boolean {
+  if (before.length !== after.length) return false;
+  if (after.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return false;
+  if (before.length < 3) return true;
+  const c = centre ?? {
+    x: before.reduce((t, p) => t + p.x, 0) / before.length,
+    y: before.reduce((t, p) => t + p.y, 0) / before.length,
+  };
+  const order = (points: readonly ChairPoint[]) => {
+    const ids = points
+      .map((p, i) => ({ i, a: Math.atan2(p.y - c.y, p.x - c.x) }))
+      .sort((x, y) => x.a - y.a)
+      .map((e) => e.i);
+    const start = ids.indexOf(0);
+    return [...ids.slice(start), ...ids.slice(0, start)];
+  };
+  const was = order(before);
+  const now = order(after);
+  return was.every((id, k) => id === now[k]);
+}
+const centreOfParts = (parts: Box[]): ChairPoint | null => {
+  if (!parts.length) return null;
+  const left = Math.min(...parts.map((p) => p.left));
+  const top = Math.min(...parts.map((p) => p.top));
+  const right = Math.max(...parts.map((p) => p.left + p.width));
+  const bottom = Math.max(...parts.map((p) => p.top + p.height));
+  return { x: (left + right) / 2, y: (top + bottom) / 2 };
+};
+
 /** Jointly place only opponent pods. A finite search avoids freezing a first
  * neighbour where it prevents the remaining rail from fitting. */
 export function jointOpponentShifts(
@@ -224,7 +283,10 @@ export function jointOpponentShifts(
   gap = 3,
   closeVerticalChains = false,
   topLaneBottom?: number,
-  lowerLane?: { top: number; bottom: number }
+  lowerLane?: { top: number; bottom: number },
+  /** Every OTHER chair on the ring that is not an item here (hero, empty
+   * seats), in the same coordinates as the parts. See opponentRingOrderKept. */
+  otherChairs: readonly ChairPoint[] = []
 ): Array<[number, number]> | null {
   if (
     items.every((item) =>
@@ -563,6 +625,21 @@ export function jointOpponentShifts(
     i < j
       ? compatibility[i][j]![a * options[j].length + b] === 1
       : compatibility[j][i]![b * options[i].length + a] === 1;
+  const railCentres = items.map((item) => centreOfParts(item.parts));
+  const ringCentre = {
+    x: bounds.left + bounds.width / 2,
+    y: bounds.top + bounds.height / 2,
+  };
+  const keepsRingOrder = (solution: Array<[number, number]>) => {
+    const before: ChairPoint[] = [...otherChairs];
+    const after: ChairPoint[] = [...otherChairs];
+    railCentres.forEach((rail, i) => {
+      if (!rail) return;
+      before.push(rail);
+      after.push({ x: rail.x + solution[i][0], y: rail.y + solution[i][1] });
+    });
+    return opponentRingOrderKept(before, after, ringCentre);
+  };
   const chosen = Array<number>(items.length).fill(-1);
   let best: Array<[number, number]> | null = null;
   let bestCost = Infinity;
@@ -570,7 +647,11 @@ export function jointOpponentShifts(
   const visit = (remaining: number, total: number) => {
     if (--budget < 0 || total >= bestCost) return;
     if (!remaining) {
-      best = chosen.map((option, i) => options[i][option]);
+      const solution = chosen.map((option, i) => options[i][option]);
+      // THE CHAIRS NEVER CHANGE ORDER: a cheaper layout that carries a chair
+      // past a neighbour is not a layout, keep searching.
+      if (!keepsRingOrder(solution)) return;
+      best = solution;
       bestCost = total;
       return;
     }
@@ -957,6 +1038,66 @@ export function createOpponentAvatarLayout(
       (seat) => seat !== anchor && (includeEmpty || !seat.classList.contains('seat--empty'))
     );
   };
+  /* The rail position of every chair that is NOT being spaced (the hero's
+     own and every empty seat), for opponentRingOrderKept. A `.seat` box is
+     its wrapper's layout box, so an unshifted chair's box centre IS its rail
+     position. */
+  const otherChairs = (): ChairPoint[] =>
+    Array.from(scaler.querySelectorAll<HTMLElement>('.seat'))
+      .filter((seat) => seat === anchorSeat() || seat.classList.contains('seat--empty'))
+      .map((seat) => box(seat))
+      .filter((r) => r.width > 0 && r.height > 0)
+      .map((r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 }));
+  /* THE BACKSTOP. Whatever path set a chair's nudge (the joint solver, a
+     wager making room, the observer footer fit), the frame is only kept if the
+     chairs still read in their real order around the table. The rail position
+     comes from each chair's WRAPPER, which a nudge never moves (the translate
+     is on `.seat`), so this reads the truth from the DOM rather than trusting
+     any one solver. If the order is broken every nudge is withdrawn and the
+     chairs sit exactly on their rails: an overlapping avatar is cosmetic, a
+     player drawn in the wrong seat misreports the action order to the whole
+     table. Returns true when it had to withdraw anything. */
+  const holdChairs = (): boolean => {
+    const ratio = tableRenderScale(scaler);
+    const chairs = Array.from(scaler.querySelectorAll<HTMLElement>('.seat'))
+      .map((seat) => {
+        const wrapper = seat.closest<HTMLElement>('.seat-wrapper');
+        const r = wrapper ? box(wrapper) : null;
+        return r && r.width > 0 && r.height > 0
+          ? { seat, rail: { x: r.left + r.width / 2, y: r.top + r.height / 2 } }
+          : null;
+      })
+      .filter((c): c is { seat: HTMLElement; rail: ChairPoint } => c !== null);
+    const nudge = (seat: HTMLElement): [number, number] => [
+      (parseFloat(seat.style.getPropertyValue('--sp-opponent-x')) || 0) * ratio,
+      (parseFloat(seat.style.getPropertyValue('--sp-opponent-y')) || 0) * ratio,
+    ];
+    const frame = box(scaler);
+    const centre =
+      frame.width > 0 && frame.height > 0
+        ? { x: frame.left + frame.width / 2, y: frame.top + frame.height / 2 }
+        : undefined;
+    const kept = opponentRingOrderKept(
+      chairs.map((c) => c.rail),
+      chairs.map(({ seat, rail }) => {
+        const [x, y] = nudge(seat);
+        return { x: rail.x + x, y: rail.y + y };
+      }),
+      centre
+    );
+    if (kept) return false;
+    let reset = false;
+    for (const { seat } of chairs) {
+      const [x, y] = nudge(seat);
+      if (Math.abs(x) < 0.01 && Math.abs(y) < 0.01) continue;
+      seat.style.setProperty('--sp-opponent-x', '0px');
+      seat.style.setProperty('--sp-opponent-y', '0px');
+      delete seat.dataset.opponentLane;
+      if (state.shifts.has(seat)) state.shifts.set(seat, [0, 0]);
+      reset = true;
+    }
+    return reset;
+  };
   const anchorFacts = () =>
     Array.from(
       anchorSeat()?.querySelectorAll(
@@ -1321,6 +1462,8 @@ export function createOpponentAvatarLayout(
         const current = parseFloat(other.style.getPropertyValue('--sp-opponent-y')) || 0;
         other.style.setProperty('--sp-opponent-y', `${current + changes[i] / ratio}px`);
       }
+      // A wager may make room; it may never seat a player in another chair.
+      if (holdChairs()) return false;
       return accept();
     });
   };
@@ -1678,7 +1821,7 @@ export function createOpponentAvatarLayout(
             : Math.sign(box(seat).left + box(seat).width / 2 - pageBox.left - pageBox.width / 2),
         outwardOnly: !seat.closest('.seat-wrapper--cap,.seat-wrapper--top'),
       }));
-    let shifts = jointOpponentShifts(describe(), fixed, bounds);
+    let shifts = jointOpponentShifts(describe(), fixed, bounds, 3, false, undefined, undefined, otherChairs());
     if (!shifts) {
       // Only the compact ring needs this fallback: the same caption fits
       // above its own plate on the lower bust, retaining all existing sizes.
@@ -1691,14 +1834,14 @@ export function createOpponentAvatarLayout(
           action.style.translate = `0px ${(p.top - a.height - 3 - a.top) / ratio}px`;
         }
       }
-      shifts = jointOpponentShifts(describe(), fixed, bounds, 0.5, true);
+      shifts = jointOpponentShifts(describe(), fixed, bounds, 0.5, true, undefined, undefined, otherChairs());
     }
     const board = page.querySelector('.community-area');
     const topLaneBottom = board ? box(board).top : top;
     if (!shifts) {
       // Last compact fit: plates may meet edge to edge. An edge chair can
       // join the top lane only with its whole pod above the unchanged board.
-      shifts = jointOpponentShifts(describe(), fixed, bounds, 0, true, topLaneBottom);
+      shifts = jointOpponentShifts(describe(), fixed, bounds, 0, true, topLaneBottom, undefined, otherChairs());
     }
     let lowerLane: { top: number; bottom: number } | undefined;
     if (!shifts) {
@@ -1707,7 +1850,16 @@ export function createOpponentAvatarLayout(
       // positioning. Hero, cards, table and panel sizes remain unchanged.
       lowerLane = lowerLaneLimits(1 / 32) ?? undefined;
       if (lowerLane)
-        shifts = jointOpponentShifts(describe(), fixed, bounds, 3, true, topLaneBottom, lowerLane);
+        shifts = jointOpponentShifts(
+          describe(),
+          fixed,
+          bounds,
+          3,
+          true,
+          topLaneBottom,
+          lowerLane,
+          otherChairs()
+        );
     }
     if (!shifts) {
       spacingReady = false;
@@ -1752,7 +1904,10 @@ export function createOpponentAvatarLayout(
   };
   return {
     prepare,
-    space,
+    space: () => {
+      const changed = space();
+      return holdChairs() || changed;
+    },
     lock: () => {
       const seats = movableSeats();
       if (spacingReady && state.key && seats.every((seat) => state.shifts.has(seat)))
