@@ -5,10 +5,20 @@
  *
  * A single legacy dial cannot tune two different games. Preserve authored
  * persona and diagnostic counts, but take all four decision dials from the
- * mode's immutable source profile. No database rewrite or nightly repair.
+ * mode's immutable source profile.
+ *
+ * Owner direction (2026-11-05, verbatim): "YOU NEED TO HAVE CHANGED ALL 1000
+ * HORSES TO THE NEW 'HYBRID' STYLE HORSE AND RETIRE ALL OTHER 'STYLES
+ * ASSIGNED TO THOSE HORSES' AND ACTIVATE THE NEW 'HYBRID' TO ALL OF THEM."
+ * Every horse row now carries horse_profile.style = 'hybrid' (the retired
+ * persona is kept under horse_profile.retiredStyle for history), and every
+ * live assignment path writes 'hybrid'. The stored style never picks the
+ * decision profile: the game mode does, exactly as before, so a 'hybrid' row
+ * resolves to the same cash (grinder/pebbles) or tournament (tricky/flint)
+ * dials a legacy row did.
  */
 import { resolveHorseStyle, type HorseProfileMods } from './HorseLogic.js';
-import type { HorseStyle } from '../types.js';
+import { HORSE_ASSIGNED_STYLE, type HorseStyle } from '../types.js';
 
 export type HorseHybridMode = 'cash' | 'tournament';
 export const HORSE_HYBRID_VERSION = 'horse-hybrid-v1-20261104';
@@ -50,6 +60,18 @@ export const HORSE_HYBRID_PROFILES: Readonly<Record<HorseHybridMode, HybridProfi
       }),
     }),
   });
+
+/** The style written to every horse; its decision profile comes from the mode. */
+export const HORSE_HYBRID_STYLE: HorseStyle = HORSE_ASSIGNED_STYLE;
+
+/** The mode profile a stored 'hybrid' style plays. Same answer for every row. */
+export function horseHybridModeStyle(mode: HorseHybridMode): HorseStyle {
+  const selected = Object.hasOwn(HORSE_HYBRID_PROFILES, mode)
+    ? HORSE_HYBRID_PROFILES[mode]
+    : undefined;
+  if (!selected) throw new Error('Horse hybrid requires an explicit cash or tournament mode');
+  return selected.style;
+}
 
 /** Explicit game mode is required; a missing mode must never become cash. */
 export function resolveHorseHybridProfile(

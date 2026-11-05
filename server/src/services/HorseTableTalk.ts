@@ -523,7 +523,21 @@ export function pickCandidate(
  * deterministic fallback included). No extra read.
  */
 export function voiceFor(horseProfile: unknown, horseId: string): TalkVoice {
-  const { style } = resolveHorseStyle(horseProfile, horseId);
+  let { style } = resolveHorseStyle(horseProfile, horseId);
+  // Owner direction (2026-11-05): every horse's style is 'hybrid'. The voice
+  // is a persona, not a decision, so a Hybrid horse keeps the voice of the
+  // persona it retired (horse_profile.retiredStyle); without one it is
+  // friendly. Decisions never read this.
+  if (style === 'hybrid') {
+    const retired =
+      horseProfile && typeof horseProfile === 'object'
+        ? (horseProfile as Record<string, unknown>).retiredStyle
+        : undefined;
+    style =
+      typeof retired === 'string' && retired.toLowerCase() !== 'hybrid'
+        ? resolveHorseStyle(retired, horseId).style
+        : 'balanced';
+  }
   switch (style) {
     case 'grinder':
     case 'tag':
