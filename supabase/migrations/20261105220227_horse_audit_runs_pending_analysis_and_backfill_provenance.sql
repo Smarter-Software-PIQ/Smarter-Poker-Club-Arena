@@ -39,7 +39,9 @@
 --     is a run row, alerts stay one per day and kind, and
 --     fn_horse_daily_audit_watch_status() reports per day missing / failed /
 --     running / pending / recovered / completed for the panel and for the
---     outside check that also covers "database unreachable".
+--     outside check that also covers "database unreachable". The watchdog
+--     and fallback lose the browser EXECUTE grant the first watchdog shipped
+--     with: only the cron and service_role run them.
 --  6. The silence detectors warned every day about short deck, pineapple and
 --     PLO8 layers on days those hand types dealt nothing. A counted stage gate
 --     (fn_horse_audit_stage_gate) turns exactly those into layer_no_stage
@@ -457,6 +459,16 @@ BEGIN
   RETURN v_out;
 END
 $function$;
+
+-- Nobody in a browser runs the watchdog or the fallback. The live watchdog
+-- (20261105172255) was executable by authenticated; only the cron (postgres)
+-- and service_role need them.
+REVOKE ALL ON FUNCTION public.fn_horse_daily_audit_watchdog() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_horse_daily_audit_watchdog() TO service_role;
+REVOKE ALL ON FUNCTION public.fn_horse_daily_audit_fallback() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_horse_daily_audit_fallback() TO service_role;
+REVOKE ALL ON FUNCTION public.fn_horse_audit_attach_pending_analysis() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_horse_daily_audit_raise_alert(date,text,text,text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
 
 -- Per-day state for the panel and the outside check.
 CREATE OR REPLACE FUNCTION public.fn_horse_daily_audit_watch_status(p_days integer DEFAULT 14)
