@@ -1,0 +1,12 @@
+{
+  "_owner": "fix/lobby-favorites-follow-the-game",
+  "_comment": "Lobby favorites keyed by the game, not one table or run (20261105183133).",
+  "tables": ["player_lobby_favorites"],
+  "functions": [
+    "fn_lobby_favorite_key",
+    "fn_my_lobby_favorites",
+    "fn_player_lobby_favorites_guard",
+    "fn_set_lobby_favorite"
+  ],
+  "columns": {}
+}
