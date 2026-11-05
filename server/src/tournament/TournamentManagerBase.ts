@@ -276,6 +276,25 @@ interface TournamentLaunchClaim {
   launchPlayerIds: string[] | null;
 }
 
+/** Bounded re-asks of an explicit, write-free cancellation-lane refusal. */
+export const TOURNAMENT_ABORT_CANCEL_LANE_ATTEMPTS = 40;
+export const TOURNAMENT_ABORT_CANCEL_LANE_RETRY_MS = 250;
+/**
+ * smarter_private.cancellation_lane raises 55P03 CANCELLATION_GLOBAL_LANE_BUSY
+ * or CANCELLATION_BARRIER_BUSY before any cancellation write when another
+ * transaction holds the settlement lock. Only those two named refusals are
+ * re-asked; every other error, and every missing error, is final.
+ */
+export function isCancellationLaneBusyRefusal(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null | undefined;
+  return (
+    !!e &&
+    e.code === '55P03' &&
+    typeof e.message === 'string' &&
+    /^CANCELLATION_(GLOBAL_LANE|BARRIER)_BUSY$/.test(e.message)
+  );
+}
+
 const LAUNCH_COHORT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Absent/NULL -> null (strict legacy proof). Anything malformed -> undefined. */
@@ -10028,15 +10047,36 @@ export abstract class TournamentManagerBase {
         if (request.closureMode === 'equal_share' && table.cancellable_permit_id) {
           if (!table.cancellable_hand_hash || !current())
             throw new Error('tournament_abort_hand_review_unknown');
-          const cancelled = await supabase.rpc('fn_ca_cancel_tournament_abort_unsettled_hand', {
-            p_operation_id: request.operation_id,
-            p_tournament_id: this.tournamentId,
-            p_table_id: tableId,
-            p_generation: request.current_generation,
-            p_permit_id: table.cancellable_permit_id,
-            p_expected_hash: table.cancellable_hand_hash,
-            p_evidence: evidence,
-          });
+          // The cancellation lane only TRY-locks the global settlement and
+          // hand barrier locks (it must never queue ahead of live hands), so on
+          // a busy fleet a single call is usually refused with 55P03 before
+          // any write. That refusal is authoritative and write-free: ask again,
+          // bounded, while this owner is still current. Any other answer,
+          // including an unknown one, is returned unchanged.
+          const cancel = () =>
+            supabase.rpc('fn_ca_cancel_tournament_abort_unsettled_hand', {
+              p_operation_id: request.operation_id,
+              p_tournament_id: this.tournamentId,
+              p_table_id: tableId,
+              p_generation: request.current_generation,
+              p_permit_id: table.cancellable_permit_id,
+              p_expected_hash: table.cancellable_hand_hash,
+              p_evidence: evidence,
+            });
+          let cancelled = await cancel();
+          for (
+            let attempt = 1;
+            attempt < TOURNAMENT_ABORT_CANCEL_LANE_ATTEMPTS &&
+            isCancellationLaneBusyRefusal(cancelled.error) &&
+            current();
+            attempt++
+          ) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, TOURNAMENT_ABORT_CANCEL_LANE_RETRY_MS)
+            );
+            if (!current()) break;
+            cancelled = await cancel();
+          }
           if (
             cancelled.error ||
             cancelled.data?.ok !== true ||

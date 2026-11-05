@@ -3,6 +3,7 @@ const io = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 vi.mock('../services/supabase/client.js', () => ({ supabase: io, maintenanceSupabase: {} }));
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
 import { TournamentManager } from './TournamentManager.js';
+import { isCancellationLaneBusyRefusal } from './TournamentManagerBase.js';
 import { GameServer } from '../GameServer.js';
 const tournament = '00000000-0000-4000-8000-000000009901';
 const operation = '00000000-0000-4000-8000-000000009902';
@@ -137,6 +138,94 @@ describe('abort certificates retain physical source and lease identity', () => {
     manager.tableEngines.clear();
     await manager.stop();
     io.rpc.mockReset();
+  });
+  // Midnight Free Buy (2026-11-05): the cancellation lane try-locks the
+  // settlement locks that live hands hold most of the time, so one call was
+  // refused write-free with 55P03 and the whole operator boundary failed.
+  it('re-asks a write-free cancellation lane refusal within the same boundary', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      let busy = 3;
+      const manager = new TournamentManager(
+        tournament,
+        {} as any,
+        generation,
+        performance.now() + 30_000
+      ) as any;
+      const request = {
+        operation_id: operation,
+        tournament_id: tournament,
+        current_generation: generation,
+        closureMode: 'equal_share',
+        tables: [
+          {
+            table_id: 'original-table',
+            lifecycle: '3',
+            required: true,
+            durable_hand_number: 19,
+            cancellable_permit_id: 'original-permit',
+            cancellable_hand_hash: 'reviewed',
+          },
+        ],
+      };
+      manager.tableEngines.set('original-table', {
+        parkForTournamentAbort: vi.fn(async () => false),
+        prepareTournamentAbortBoundary: vi.fn(),
+        captureParkedTournamentAbortIdentity: vi.fn(() => null),
+        retireTournamentAbortBoundary: vi.fn(async () => {}),
+        captureStoppedTournamentAbortIdentity: vi.fn(() => ({
+          lifecycle: '3',
+          hand_number: 19,
+          engine_id: 'same-original',
+          allocation_epoch: null,
+        })),
+      });
+      io.rpc.mockImplementation(async (name: string) => {
+        if (name === 'fn_ca_tournament_abort_stop_state')
+          return { data: { ok: true, ...request }, error: null };
+        if (name === 'fn_ca_cancel_tournament_abort_unsettled_hand')
+          return busy-- > 0
+            ? {
+                data: null,
+                error: {
+                  code: '55P03',
+                  message: busy % 2 ? 'CANCELLATION_GLOBAL_LANE_BUSY' : 'CANCELLATION_BARRIER_BUSY',
+                },
+              }
+            : { data: { ok: true, outcome: 'aborted_unsettled' }, error: null };
+        return { data: { ok: true }, error: null };
+      });
+      const run = manager.acknowledgeTournamentAbortBoundary(request);
+      await vi.runAllTimersAsync();
+      expect(await run).toMatchObject({ state: 'acknowledged' });
+      expect(
+        io.rpc.mock.calls.filter(
+          ([name]) => name === 'fn_ca_cancel_tournament_abort_unsettled_hand'
+        )
+      ).toHaveLength(4);
+      manager.tableEngines.clear();
+      await manager.stop();
+    } finally {
+      vi.useRealTimers();
+      io.rpc.mockReset();
+    }
+  });
+  it('treats only the two named lane refusals as write-free', () => {
+    expect(
+      isCancellationLaneBusyRefusal({ code: '55P03', message: 'CANCELLATION_GLOBAL_LANE_BUSY' })
+    ).toBe(true);
+    expect(
+      isCancellationLaneBusyRefusal({ code: '55P03', message: 'CANCELLATION_BARRIER_BUSY' })
+    ).toBe(true);
+    for (const error of [
+      null,
+      undefined,
+      { message: 'unknown reply' },
+      { code: '55P03', message: 'lock timeout' },
+      { code: '55000', message: 'CANCELLATION_GLOBAL_AUTHORITY_INCOMPLETE' },
+      { code: 'P0001', message: 'CANCELLATION_GLOBAL_LANE_BUSY' },
+    ])
+      expect(isCancellationLaneBusyRefusal(error)).toBe(false);
   });
   it('joins lifecycle completion, its queued movement and the writer that movement admits', async () => {
     const deferred = () => {
