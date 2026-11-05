@@ -2079,12 +2079,6 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Items21And23'
   ),
   receipt(
-    'opponent_exploit_opportunity_scoped_observed',
-    'HorseMind.observeExploitHand (Item 12)',
-    'one completed hand was folded into the in-process opponent exploit rows under opportunity-scoped decay (a statistic decays only on a hand that offered its spot); the durable SQL profile keeps the per-hand decay until its own contract is written',
-    'Item12'
-  ),
-  receipt(
     'opponent_memory_donor_fresh',
     'HorseMind.blendDurableRead (Item 12)',
     "a thin exact opponent row borrowed the sibling table-size bucket at full donor weight (tapered by the exact sample) because the donor was refreshed on this player's current hand clock",

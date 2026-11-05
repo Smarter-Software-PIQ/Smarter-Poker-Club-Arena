@@ -6,14 +6,14 @@
  * of release 71087373 found three merged layers no live decision ever
  * reached: the Items 21 and 23 plan fingerprint
  * (HorseContinuationPlanInvalidation.computeContinuationContenderFingerprint
- * and evaluateMultiStreetBarrelContinuation), the Item 12 opportunity-scoped
- * exploit decay (HorseOpponentExploit.decayAndAddOpportunityScoped, never
- * selected by HorseMind) and the Item 12 donor staleness blend
- * (HorseOpponentMemory.blendOpponentMemoryWithExpiry and
+ * and evaluateMultiStreetBarrelContinuation) and the Item 12 donor staleness
+ * blend (HorseOpponentMemory.blendOpponentMemoryWithExpiry and
  * computeDonorHandClockStaleness). This law proves each is reached from
- * HorseLogic.decide (or the completed-hand observation the decision reads)
- * on a realistic hand with a pinned decision clock, leaves its receipt, and
- * keeps the public-information and label-neutrality boundaries.
+ * HorseLogic.decide on a realistic hand with a pinned decision clock, leaves
+ * its receipt, and keeps the public-information and label-neutrality
+ * boundaries. The Item 12 opportunity-scoped exploit decay stays off: it
+ * contradicts HorseManiacPressure.law.test.ts (a style change is seen within
+ * 25 hands, both ways), and that is a strategy decision for Dan, not wiring.
  *
  * Horses are the platform's AI players. Never call them anything else.
  */
@@ -23,11 +23,7 @@ import { HorseMind, type HorseMindDecisionEffect } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { horseDecisionEffectsAreValid } from './HorseDecisionEffects.js';
-import {
-  EXPLOIT_DECAY,
-  freshExploitCounters,
-  type ExploitCounters,
-} from './HorseOpponentExploit.js';
+import { freshExploitCounters, type ExploitCounters } from './HorseOpponentExploit.js';
 import { OPPONENT_MEMORY_THIN_HANDS, type DurableOpponentProfile } from './HorseOpponentMemory.js';
 import type { ActionRecord, Card, SeatPlayer } from '../types.js';
 
@@ -338,60 +334,6 @@ describe('Items 21 and 23: a planned barrel records the next-street state it exp
     expect(horseDecisionEffectsAreValid([{ ...ok, contenderIds: [HERO, HERO] }])).toBe(false);
     expect(horseDecisionEffectsAreValid([{ ...ok, potChips: -1 }])).toBe(false);
     expect(horseDecisionEffectsAreValid([{ ...ok, cards: ['Ah'] } as never])).toBe(false);
-  });
-});
-
-describe('Item 12: opportunity-scoped exploit decay runs on every completed hand the mind observes', () => {
-  const SCOPE = 'holdem:hu' as const;
-  const riverHand = (t: number) => [
-    { userId: HERO, action: 'raise', amount: 6, stage: 'preflop', timestamp: t + 1 },
-    { userId: VILLAIN, action: 'call', amount: 6, stage: 'preflop', timestamp: t + 2 },
-    { userId: VILLAIN, action: 'check', amount: 0, stage: 'flop', timestamp: t + 3 },
-    { userId: HERO, action: 'check', amount: 0, stage: 'flop', timestamp: t + 4 },
-    { userId: VILLAIN, action: 'check', amount: 0, stage: 'turn', timestamp: t + 5 },
-    { userId: HERO, action: 'check', amount: 0, stage: 'turn', timestamp: t + 6 },
-    { userId: VILLAIN, action: 'check', amount: 0, stage: 'river', timestamp: t + 7 },
-    { userId: HERO, action: 'bet', amount: 10, stage: 'river', timestamp: t + 8 },
-    { userId: VILLAIN, action: 'call', amount: 10, stage: 'river', timestamp: t + 9 },
-  ];
-  const preflopHand = (t: number) => [
-    { userId: HERO, action: 'raise', amount: 6, stage: 'preflop', timestamp: t + 1 },
-    { userId: VILLAIN, action: 'call', amount: 6, stage: 'preflop', timestamp: t + 2 },
-    { userId: VILLAIN, action: 'check', amount: 0, stage: 'flop', timestamp: t + 3 },
-    { userId: HERO, action: 'bet', amount: 8, stage: 'flop', timestamp: t + 4 },
-    { userId: VILLAIN, action: 'fold', amount: 0, stage: 'flop', timestamp: t + 5 },
-  ];
-
-  it('a river call read survives hands that offered no river call, while the per-hand counters still decay', () => {
-    HorseMind.observeHandComplete('h1', riverHand(T0), 2, null, SCOPE, false);
-    const after1 = { ...HorseMind.getExploitCounters(VILLAIN, SCOPE)! };
-    expect(after1.riverCallOpp).toBe(1);
-    expect(after1.riverCall).toBe(1);
-    for (let i = 2; i <= 30; i++)
-      HorseMind.observeHandComplete(`h${i}`, preflopHand(T0 + i * 100), 2, null, SCOPE, false);
-    const after30 = HorseMind.getExploitCounters(VILLAIN, SCOPE)!;
-    // Opportunity-scoped: the river call sample is untouched by 29 hands with
-    // no river call opportunity ...
-    expect(after30.riverCallOpp).toBe(1);
-    expect(after30.riverCall).toBe(1);
-    // ... while the every-hand counters decayed and accumulated as before.
-    expect(after30.hands).toBeGreaterThan(1);
-    expect(after30.hands).toBeLessThan(30);
-    // Under the retired per-hand rule the sample would have halved.
-    expect(1 * Math.pow(EXPLOIT_DECAY, 29)).toBeLessThan(0.52);
-    expect(fires().get('opponent_exploit_opportunity_scoped_observed')).toBe(30);
-  });
-
-  it('a sandbox hand merged into the live mind follows the same rule', () => {
-    HorseMind.observeHandComplete('h1', riverHand(T0), 2, null, SCOPE, false);
-    const sandbox = HorseMind.createSandbox();
-    HorseMind.runInSandbox(sandbox, () => {
-      HorseMind.observeHandComplete('h2', preflopHand(T0 + 500), 2, null, SCOPE, false);
-    });
-    HorseMind.mergeSandboxExploit(sandbox);
-    const row = HorseMind.getExploitCounters(VILLAIN, SCOPE)!;
-    expect(row.riverCallOpp).toBe(1);
-    expect(row.hands).toBeCloseTo(EXPLOIT_DECAY + 1, 9);
   });
 });
 
