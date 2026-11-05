@@ -34,6 +34,17 @@ FROM (VALUES
   ('hybrid_v1_cash_grinder_decided', 'Hybrid v1 cash grinder'),
   ('hybrid_v1_tournament_tricky_decided', 'Hybrid v1 tournament tricky'),
   ('cash_nlh_three_bet_size', 'cash NLH 3-bet size'),
+  ('plan_fingerprint_recorded', 'Items 21 and 23 plan fingerprint (recorded)'),
+  ('plan_fingerprint_continued_on_blank', 'Items 21 and 23 plan fingerprint (met, blank)'),
+  ('plan_fingerprint_improved_on_good_card', 'Items 21 and 23 plan fingerprint (met, good)'),
+  ('plan_fingerprint_checked_scare_card', 'Items 21 and 23 plan fingerprint (met, scare)'),
+  ('plan_fingerprint_aborted_multiway_contender_shift', 'Items 21 and 23 plan fingerprint (withdrawn: contender)'),
+  ('plan_fingerprint_aborted_stack_exposure_shift', 'Items 21 and 23 plan fingerprint (withdrawn: exposure)'),
+  ('plan_fingerprint_absent', 'Items 21 and 23 plan fingerprint (plan carried none)'),
+  ('opponent_exploit_opportunity_scoped_observed', 'Item 12 opportunity-scoped decay'),
+  ('opponent_memory_donor_fresh', 'Item 12 donor staleness (fresh)'),
+  ('opponent_memory_donor_stale', 'Item 12 donor staleness (stale)'),
+  ('opponent_memory_donor_expired', 'Item 12 donor staleness (expired)'),
   ('v62_river_bettor_polarity', 'V62 (opt-in: expected 0)')
 ) AS x(feature, upgrade)
 LEFT JOIN public.horse_brain_telemetry t ON t.feature = x.feature AND t.day >= :START_DAY::date

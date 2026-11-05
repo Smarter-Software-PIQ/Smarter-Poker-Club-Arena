@@ -103,7 +103,10 @@ describe('P13.3 Phase 13 policy digest', () => {
     // 53: private river board contact is an independently hashed pure source.
     // 54: conditional river position evidence is learned by HorseMind.
     // 55: exact-context river reads add their public parser; joint pot arithmetic was already present.
-    expect(closure).toHaveLength(55);
+    // 56 since 2026-11-05: HorseMind stores the Items 21 and 23 plan fingerprint
+    // (HorseContinuationPlanInvalidation), a registered reference source.
+    expect(closure).toHaveLength(56);
+    expect(closure).toContain('src/engine/HorseContinuationPlanInvalidation.ts');
     expect(closure).toContain('src/engine/HorseMultiwayRiverRead.ts');
     expect(closure).toContain('src/engine/multiway/JointPotDistribution.ts');
     expect(HORSE_PHASE13_POLICY_SOURCE_FILES).toContain('src/engine/HorseMultiwayRiverRead.ts');
