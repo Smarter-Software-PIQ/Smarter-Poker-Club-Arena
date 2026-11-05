@@ -856,6 +856,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V81'
   ),
   flag(
+    'planFingerprint',
+    '2026-11-05 (Decision Readiness Items 21 and 23, activation of the dormant #9351 helpers) a planned multi-street barrel records, through the accepted-wager effect sink, the next-street state it expects (every live contender hero included; effective stack and pot once the wager is matched once; public information only) and the next street compares the state that actually arrived against it (HorseContinuationPlanInvalidation.evaluateMultiStreetBarrelContinuation): a contender the plan never expected, a stack-to-pot exposure more than 65 percent from the planned one, or a scare card under pressure withdraws the plan before it fires and the decision runs the ordinary ladder; the card class is recorded as the causality tag while V39 keeps its measured authority over good, blank and scare cards; explicit off arm keeps the unconditional plan',
+    'Items21And23'
+  ),
+  flag(
     'v80TopPairStrongKicker',
     "2026-11-02 (Phase 2 of the Burls/Dan top-pair program) the V79 0.25 equity cap is extended to hold'em top pair with a T-or-better kicker not pairing the board, in V79 cell A ONLY (turn/river wager >= 0.9 pot, board top Q+, > 60bb effective, not a heads-up table, not a bounty/PKO/mystery-bounty event), where the decision EV of the horses' own calls (net + chips already in, bb; chops at their fractional return; later streets included; hand_history + ca_hand_facts, old engine eed06fe5, CIs clustered by hand) was below zero on two independent days: T-Q kicker -46.02bb [-54.03, -38.01] n 557 pooled (each day and each of T, J, Q below zero alone), K-A kicker -29.82bb [-45.42, -14.22] n 178 pooled (day 2 below zero alone, day 1 straddled); turn calls followed by more river chips -53.12bb and last-commitment turn calls -24.45bb, both below zero; cell B (0.6-0.9 pot) with a T+ kicker is NOT admitted (turn calls straddle, one day only); a measured over-bluffer keeps today; limits: only the horses' calls are observed, ICM not modelled, the price ignores players to act behind; explicit off arm keeps today",
     'V80'
@@ -2025,6 +2030,44 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseMind (opponent exploit)',
     "a statistic past every horse at this table size engaged because the same player's other table size engaged it (2026-10-25)",
     'OPPX'
+  ),
+  receipt(
+    'plan_fingerprint_recorded',
+    'HorseLogic.recordPlanFingerprint (Items 21 and 23)',
+    'a planned flop or turn barrel recorded the next-street contender and exposure fingerprint it expects (effect sink; lands on acceptance)',
+    'Items21And23',
+    'decide',
+    0.0005
+  ),
+  receipt(
+    'plan_fingerprint_*',
+    'HorseLogic (Items 21 and 23)',
+    'the next street met the planned fingerprint: improved_on_good_card / continued_on_blank / checked_scare_card keep the plan with V39 in charge of the card; aborted_multiway_contender_shift / aborted_stack_exposure_shift / aborted_scare_under_pressure withdraw it; absent means the plan carried no fingerprint (recorded before this layer, or by a sandbox without it)',
+    'Items21And23'
+  ),
+  receipt(
+    'opponent_exploit_opportunity_scoped_observed',
+    'HorseMind.observeExploitHand (Item 12)',
+    'one completed hand was folded into the in-process opponent exploit rows under opportunity-scoped decay (a statistic decays only on a hand that offered its spot); the durable SQL profile keeps the per-hand decay until its own contract is written',
+    'Item12'
+  ),
+  receipt(
+    'opponent_memory_donor_fresh',
+    'HorseMind.blendDurableRead (Item 12)',
+    "a thin exact opponent row borrowed the sibling table-size bucket at full donor weight (tapered by the exact sample) because the donor was refreshed on this player's current hand clock",
+    'Item12'
+  ),
+  receipt(
+    'opponent_memory_donor_stale',
+    'HorseMind.blendDurableRead (Item 12)',
+    'a thin exact opponent row borrowed the sibling bucket at a weight decayed by the hands this player has played since that bucket was last refreshed (120-hand half-life)',
+    'Item12'
+  ),
+  receipt(
+    'opponent_memory_donor_expired',
+    'HorseMind.blendDurableRead (Item 12)',
+    'a thin exact opponent row had a sibling bucket available but its decayed weight was below the floor, so the read used the exact row alone',
+    'Item12'
   ),
   receipt(
     'plo_opponent_presumed_aggressive',
