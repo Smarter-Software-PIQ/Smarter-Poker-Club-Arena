@@ -25,7 +25,6 @@ import { ClubWorkspaceProvider } from '../../contexts/ClubWorkspaceContext';
 import NavigationTelemetry from '../navigation/NavigationTelemetry';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
 import { useHoldPromptLane } from '../../lib/promptLane';
-import PlayerNoticeModal, { usePendingPlayerNotice } from '../notices/PlayerNoticeModal';
 
 // The Daily Club Arena Bonus sheet is not first-paint material: the entry
 // chunk stays as it was and the sheet, its service and the club-buttons kit
@@ -36,6 +35,9 @@ const DailyBonusEntry = lazyWithRetry(() => import('../daily-bonus/DailyBonusEnt
 // actually stops, so it loads on that player's demand, not in the entry chunk
 // every player downloads before first paint.
 const CompleteProfileModal = lazyWithRetry(() => import('../modals/CompleteProfileModal'));
+// A platform notice that must be read (ca_player_notices) loads on demand,
+// not in the entry chunk.
+const PlayerNoticeGate = lazyWithRetry(() => import('../notices/PlayerNoticeModal'));
 
 /*
  * THE ROUTE ART IS GONE (2026-08-30).
@@ -82,10 +84,6 @@ function AppLayoutContent() {
   // A platform notice that must be read (ca_player_notices). It waits behind
   // the welcome and the profile gate, then holds the lane itself until OK.
   const noticeSuspended = !isReady || !profileReady || showWelcome || showProfileModal;
-  const { notice: playerNotice, acknowledge: acknowledgePlayerNotice } = usePendingPlayerNotice(
-    user?.id,
-    noticeSuspended
-  );
 
   // Hide global header on table and tournament play pages
   const isTablePage =
@@ -150,8 +148,10 @@ function AppLayoutContent() {
       )}
 
       {/* A notice every player must read once: closes only through OK. */}
-      {!noticeSuspended && (
-        <PlayerNoticeModal notice={playerNotice} onAcknowledge={acknowledgePlayerNotice} />
+      {!noticeSuspended && user?.id && (
+        <Suspense fallback={null}>
+          <PlayerNoticeGate userId={user.id} />
+        </Suspense>
       )}
 
       {/* The Daily Club Arena Bonus sheet, once per day on entry. It waits

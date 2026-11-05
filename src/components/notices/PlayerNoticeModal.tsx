@@ -113,7 +113,7 @@ interface PlayerNoticeModalProps {
   onAcknowledge: () => void;
 }
 
-export default function PlayerNoticeModal({ notice, onAcknowledge }: PlayerNoticeModalProps) {
+export function PlayerNoticeModal({ notice, onAcknowledge }: PlayerNoticeModalProps) {
   const [mounted, setMounted] = useState(false);
   const isOpen = !!notice;
 
@@ -175,4 +175,15 @@ export default function PlayerNoticeModal({ notice, onAcknowledge }: PlayerNotic
     </div>,
     document.body
   );
+}
+
+/**
+ * What the app shell mounts. AppLayout loads this module lazily, so the modal,
+ * its console art and its styles stay out of the entry chunk every player
+ * downloads before first paint; the shell renders it only once the welcome
+ * and profile gates are down.
+ */
+export default function PlayerNoticeGate({ userId }: { userId: string | null | undefined }) {
+  const { notice, acknowledge } = usePendingPlayerNotice(userId, false);
+  return <PlayerNoticeModal notice={notice} onAcknowledge={acknowledge} />;
 }

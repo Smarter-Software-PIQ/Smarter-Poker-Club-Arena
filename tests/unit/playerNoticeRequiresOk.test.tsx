@@ -10,7 +10,8 @@ vi.mock('../../src/lib/supabase', () => ({
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 
-import PlayerNoticeModal, {
+import {
+  PlayerNoticeModal,
   usePendingPlayerNotice,
 } from '../../src/components/notices/PlayerNoticeModal';
 
@@ -69,13 +70,11 @@ describe('a player notice closes only through OK', () => {
       resolve(__dirname, '../../src/components/layouts/AppLayout.tsx'),
       'utf8'
     );
-    expect(layout).toContain('usePendingPlayerNotice(');
+    expect(layout).toContain("lazyWithRetry(() => import('../notices/PlayerNoticeModal'))");
     expect(layout).toMatch(
       /noticeSuspended = !isReady \|\| !profileReady \|\| showWelcome \|\| showProfileModal/
     );
-    expect(layout).toContain(
-      '<PlayerNoticeModal notice={playerNotice} onAcknowledge={acknowledgePlayerNotice} />'
-    );
+    expect(layout).toContain('<PlayerNoticeGate userId={user.id} />');
     const migration = readFileSync(
       resolve(
         __dirname,
