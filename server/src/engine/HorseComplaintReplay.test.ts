@@ -83,7 +83,7 @@ describe('complaint replay library', () => {
     expect(c9.cell).toMatchObject({ family: 'four_bet_fold', key: 'nlh|cash' });
     const c12 = classifySpot(FX, n12);
     expect(c12.preflopRaises).toBe(4); // open, 3-bet, the horse 4-bet, the 5-bet jam
-    expect(c12.label).toContain('after the horse 4-bet');
+    expect(c12.situation).toContain('after the horse 4-bet');
     expect(c12.cell?.family).toBe('four_bet_fold');
   });
 

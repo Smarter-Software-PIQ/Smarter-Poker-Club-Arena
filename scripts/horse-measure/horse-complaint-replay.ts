@@ -30,12 +30,13 @@
  * which profiles can still take it and exits 3 if any can (0 if none).
  *
  * --emit-law writes SLUG.fixture.json (anonymised: seats only, no user ids) and
- * SLUG.law.test.ts from templates/horse-complaint.law.test.ts.tmpl. Kinds:
+ * SLUG.law.test.ts from templates/horse-complaint.law.test.ts.tmpl, plus its
+ * docs/laws.d/ registry file when the law is inside server/src. Kinds:
  * fold, check, call, raise (not all in), jam (an all-in raise). Nothing here
  * touches a database; only --emit-law writes, and only those two files.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   COMPLAINT_SEEDS,
@@ -182,7 +183,7 @@ export function renderText(
   );
   for (const n of nodes) {
     L.push('');
-    L.push(`Decision ${n.ord} (seat ${n.seat}, ${n.street}): ${n.spot.label}.`);
+    L.push(`Decision ${n.ord} (seat ${n.seat}, ${n.street}): ${n.spot.situation}.`);
     L.push(
       `  Recorded: ${n.recorded.action}${n.recorded.amount ? ` ${n.recorded.amount}` : ''} (${n.recorded.kind}).`
     );
@@ -251,6 +252,18 @@ export function main(argv: string[]): number {
     writeFileSync(fixturePath, JSON.stringify(fx, null, 1) + '\n');
     writeFileSync(lawPath, law);
     console.log(`wrote ${fixturePath}\nwrote ${lawPath}`);
+    // tests/law-registry.law.test.ts requires one docs/laws.d/ file per law
+    // test in the repository; a law written outside it (a scratch dir) is not one.
+    const repo = resolve(HERE, '..', '..');
+    const rel = relative(repo, lawPath).split(sep).join('/');
+    if (rel.startsWith('server/src/')) {
+      const reg = join(repo, 'docs', 'laws.d', `horse-complaint-${slug}.md`);
+      writeFileSync(
+        reg,
+        `# ${rel}\n\nHorse complaint law: ${clean(a.title)}. Hand ${fx.handId} is replayed exactly at its recorded horse decisions through today's brain (live hybrid profile and every base style, fixed seeds); no profile takes the forbidden path (${fx.forbidden.map((s) => `${s.kind} at decision ${s.ord}`).join(', then ')}).\n`
+      );
+      console.log(`wrote ${reg}`);
+    }
     return 0;
   }
   if (typeof a.forbid === 'string') {

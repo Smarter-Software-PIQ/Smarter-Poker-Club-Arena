@@ -376,7 +376,7 @@ export interface SpotClass {
   facing: 'unopened' | 'facing_bet';
   /** Preflop: voluntary raises before the node (0 open, 1 vs open, 2 vs 3-bet, 3+ vs 4-bet+). */
   preflopRaises?: number;
-  label: string;
+  situation: string;
   /** The scorecard cell this spot belongs to, if the scorecard measures it. */
   cell: {
     family: 'v79' | 'v81' | 'four_bet_fold' | 'reshove';
@@ -491,12 +491,12 @@ export function classifySpot(
         detail: { effBb: Math.round(effBb * 10) / 10, dealt },
       };
     }
-    return { street, facing, preflopRaises: raises, label, cell };
+    return { street, facing, preflopRaises: raises, situation: label, cell };
   }
   const board = parseBoard(pn.boards?.[0]);
   const label = `${street} ${facing === 'facing_bet' ? 'facing a bet' : 'checked to / first to act'}`;
   if (facing !== 'facing_bet' || !['turn', 'river'].includes(street))
-    return { street, facing, label, cell: null };
+    return { street, facing, situation: label, cell: null };
   const w = wagerFaced(hand, node);
   const pf = w && w.potBefore > 0 ? w.wager / w.potBefore : NaN;
   const bettorRow = w ? pn.seats.find((s) => s[0] === w.bettorSeat) : undefined;
@@ -517,18 +517,20 @@ export function classifySpot(
     return {
       street,
       facing,
-      label,
+      situation: label,
       cell: { family: 'v81', key: `${cls}|${b}|all`, detail: { ...detail, class: cls } },
     };
   }
-  if (variant !== 'nlh' || hole.length !== 2) return { street, facing, label, cell: null };
+  if (variant !== 'nlh' || hole.length !== 2)
+    return { street, facing, situation: label, cell: null };
   const br = board.map((c) => rankValue(c.rank));
   const top = Math.max(...br);
   const [h1, h2] = hole.map((c) => rankValue(c.rank));
   const topOnce = br.filter((x) => x === top).length === 1;
   const holdsTop = (h1 === top) !== (h2 === top);
   const kick = h1 === top ? h2 : h1;
-  if (!topOnce || !holdsTop || br.includes(kick)) return { street, facing, label, cell: null };
+  if (!topOnce || !holdsTop || br.includes(kick))
+    return { street, facing, situation: label, cell: null };
   const kc = kick <= 9 ? 'weak_2_9' : 'strong_T+';
   const huTable = pn.seats.length === 2;
   const bounty = Boolean(
@@ -550,7 +552,7 @@ export function classifySpot(
   return {
     street,
     facing,
-    label: `${label}, top pair ${kc === 'weak_2_9' ? 'weak' : 'strong'} kicker`,
+    situation: `${label}, top pair ${kc === 'weak_2_9' ? 'weak' : 'strong'} kicker`,
     cell: lab
       ? { family: 'v79', key: `${lab}|${kc}`, detail: { ...detail, top, kicker: kick } }
       : null,

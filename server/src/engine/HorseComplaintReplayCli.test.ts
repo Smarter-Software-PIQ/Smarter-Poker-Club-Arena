@@ -120,6 +120,8 @@ describe('complaint replay CLI', () => {
     expect(law).toContain('raise at decision 9, then fold at decision 12');
     expect(law).toContain('QQ’s 4-bet then fold');
     expect(law).not.toContain('folded */');
+    // A law written outside server/src is not registered in docs/laws.d/.
+    expect(r.out).not.toContain('laws.d');
     // A second emit never overwrites an existing law.
     expect(
       cli('--emit-law', 'qq-cli-check', '--forbid', '9:raise', '--title', 't', '--out-dir', out)
