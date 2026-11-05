@@ -40,6 +40,8 @@ const ROOT = resolve(__dirname, '../..');
  * product decision, not a convenience: write the reason.
  */
 const NO_X_BY_DESIGN: Record<string, string> = {
+  'src/components/notices/PlayerNoticeModal.tsx':
+    'Dan 2026-11-04: the tournament relaunch notice "REQUIRES AN OK TO CLOSE"; the OK plate is the only way through',
   'src/components/legal/TOSAcceptanceModal.tsx':
     'terms must be accepted or declined through the plates; a corner dismiss is neither',
   'src/components/modals/CompleteProfileModal.tsx':
