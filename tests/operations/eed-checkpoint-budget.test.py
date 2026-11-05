@@ -29,7 +29,7 @@ class Allocation(unittest.TestCase):
     def profile(self, predecessor):
         # Actual source initial values, with no production script preamble run.
         constants = '\n'.join(re.findall(
-            r'^(?:CHECKPOINT_EED_SHA|BREAK_CUTOVER_PROOF_SECONDS|BREAK_ROLLBACK_RESERVE_SECONDS|BREAK_DEADLINE_SLACK_SECONDS|BREAK_WINDOW_MS)=[^\n]+',
+            r'^(?:CHECKPOINT_EED_SHA|CERTIFIED_RECOVERY_POLICY|BREAK_CUTOVER_PROOF_SECONDS|BREAK_ROLLBACK_RESERVE_SECONDS|BREAK_DEADLINE_SLACK_SECONDS|BREAK_WINDOW_MS)=[^\n]+',
             SOURCE, re.M))
         p = shell(constants + '\nMIN_BREAK_REMAINING_MS=285000\n'
                   'die() { echo "$*" >&2; exit 1; }\n' + function('select_legacy_checkpoint_budget') +

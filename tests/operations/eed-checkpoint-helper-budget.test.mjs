@@ -3,9 +3,24 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
-import { legacyCheckpointAllocation, legacyCensusTimeAdmission, bindLegacyCensusModules, retireLegacyCensusBinding,
+import { legacyCheckpointAllocation, legacyCensusTimeAdmission, certifiedCensusBudgetAvailable, bindLegacyCensusModules, retireLegacyCensusBinding,
   LEGACY_CENSUS_NATIVE_SOURCE_SHA256 } from '../../server/scripts/legacy-engine-checkpoint.mjs';
 const EED='eed06fe51dea622069c661a6213d5b031ff3a9e3';
+const certified={schema:'engine-certified-recovery/v1',policyId:'2026-11-04-tournament-fourfold-certified-recovery',
+ profile:{id:'eed-240s-certified-release-v1',noticeMs:120000,freezeMs:780000,nativeQueryMs:240000,checkpointMs:320000,postReserveMs:205000}};
+test('certified four-minute census retains the205s reserve only under its exact source profile',()=>{
+ const c=legacyCheckpointAllocation(EED,certified);
+ assert.equal(c.censusMs,240000);assert.equal(c.entryMs,320000);assert.equal(c.reserveMs,205000);
+ assert.equal(c.entryMs+c.reserveMs,525000);assert.equal(c.cleanupMs,5000);assert.equal(c.receiptMs,1000);
+ for(const invalid of [{}, {...certified,policyId:'foreign'}, {...certified,profile:{...certified.profile,freezeMs:300000}},
+  {...certified,profile:{...certified.profile,extra:true}}])assert.throws(()=>legacyCheckpointAllocation(EED,invalid));
+ assert.throws(()=>legacyCheckpointAllocation('a'.repeat(40),certified));
+ assert.equal(legacyCensusTimeAdmission(10000000000,240000,c.profile),true);
+ assert.equal(legacyCensusTimeAdmission(10000000000,100000,c.profile),false);
+ assert.equal(legacyCensusTimeAdmission(20000000000,320000,c.profile),false);
+ assert.equal(certifiedCensusBudgetAvailable(254000),true);
+ for(const left of [253999,0,-1,NaN,Infinity,'254000'])assert.equal(certifiedCensusBudgetAvailable(left),false);
+});
 test('EED allocation preserves total admission and rollback while old profiles remain unchanged',()=>{
  const e=legacyCheckpointAllocation(EED);assert.equal(e.entryMs,80000);assert.equal(e.reserveMs,205000);
  assert.equal(e.entryMs+e.reserveMs,285000);assert.equal(e.reserveMs-135000,70000);
@@ -72,6 +87,8 @@ test('real CDP query cap extends only the exact query operation and stays inside
  assert.ok(source.includes('allocation.profile && nativeArtifact ? allocation.censusMs : 35000'));
  for(const [method,operation,cap,deadline,expected] of [
   ['Runtime.evaluate','queryObjects',59000,100000,59000],
+  ['Runtime.evaluate','queryObjects',240000,320000,240000],
+  ['Runtime.evaluate','queryObjects',240000,21000,20000],
   ['Runtime.evaluate','queryObjects',35000,100000,35000],
   ['Runtime.evaluate','queryObjects',59000,21000,20000],
   ['Runtime.getProperties','properties',35000,100000,35000]
@@ -83,7 +100,7 @@ test('real CDP query cap extends only the exact query operation and stays inside
  }
 });
 test('real CDP refuses arbitrary caps and wrong operations without sending or allocating a request timer',async()=>{
- for(const [method,operation,cap] of [['Runtime.evaluate','queryObjects',60000],['Runtime.evaluate','guard',59000],['Runtime.getProperties','queryObjects',59000]]){
+ for(const [method,operation,cap] of [['Runtime.evaluate','queryObjects',60000],['Runtime.evaluate','guard',59000],['Runtime.getProperties','queryObjects',59000],['Runtime.evaluate','guard',240000],['Runtime.getProperties','queryObjects',240000]]){
   const f=transportFixture();await f.connection.opened;
   await assert.rejects(f.connection.request(method,{},100000,operation,cap),/allocation refused/);
   assert.equal(f.sent.length,0);assert.equal(f.timers.size,0);f.connection.close();

@@ -144,7 +144,16 @@ describe('an off-cycle break needs a reason, and the newest release owns it', ()
     // The database-only caller retains its default rolling-hour cadence.
     expect(seal).toContain('return recovery_window_eligibility(run_id, now_ms)[0]');
     expect(seal).toContain('if recent_recovery_window(request["runId"], now_ms):');
-    expect(seal).toContain('now_ms < announced + 420000');
+    expect(seal).toContain('now_ms < recovery_window_ends_at(reservation)');
+    const originalEnd = between(
+      seal,
+      'def recovery_window_ends_at(',
+      '\ndef certified_recovery_request('
+    );
+    expect(originalEnd).toContain("if 'certifiedRecovery' not in value:");
+    expect(originalEnd).toContain('return stamp + 420000');
+    expect(originalEnd).toContain("certified['endsAt'] != stamp + 900000");
+    expect(originalEnd).toContain("certified['policyId'] != CERTIFIED_RECOVERY_POLICY");
     expect(seal).toContain('state.get("pending") or state.get("finalization")');
     const write = reserve.indexOf('write_json_atomic(path, value)');
     expect(reserve.indexOf('with SealLock():')).toBeLessThan(cause);

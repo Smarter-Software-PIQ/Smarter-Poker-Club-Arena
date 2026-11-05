@@ -36,7 +36,9 @@ def embedded_python(function, after):
 
 
 CENSUS_FIT = embedded_python('legacy_census_fits', 'printf')
-CERTIFICATE = embedded_python('maintenance_certificate', 'verdict="$(')
+# Select the ordinary raw-countdown predicate explicitly; the certified-release
+# branch has its own releaseAt consumer and dedicated integrated coverage.
+CERTIFICATE = embedded_python('maintenance_certificate', 'verdict="$(printf')
 
 
 def run_python(program, payload, env):

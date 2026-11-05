@@ -2451,6 +2451,61 @@ RECOVERY_WINDOW_PREFIX = "engine-recovery-window-"
 RECOVERY_CAUSE_RE = re.compile(r"^(urgent|engine-degraded)$")
 
 
+CERTIFIED_RECOVERY_POLICY = "2026-11-04-tournament-fourfold-certified-recovery"
+CERTIFIED_RECOVERY_PROFILE = "eed-240s-certified-release-v1"
+CERTIFIED_RECOVERY_PREDECESSOR = "eed06fe51dea622069c661a6213d5b031ff3a9e3"
+CERTIFIED_RECOVERY_START_MS = 1793833200000
+CERTIFIED_RECOVERY_END_MS = 1793854800000
+
+
+def recovery_window_ends_at(value: dict[str, Any]) -> int:
+    """Read the original duration; malformed certified ownership never falls back."""
+    stamp = value.get('announcedAt')
+    if type(stamp) is not int or stamp <= 0:
+        die('recovery reservation announcement is invalid')
+    if 'certifiedRecovery' not in value:
+        return stamp + 420000
+    certified = value['certifiedRecovery']
+    if (set(value) != {'runId', 'sha', 'announcedAt', 'cause', 'certifiedRecovery'}
+            or not isinstance(certified, dict)
+            or set(certified) != {'policyId', 'profileId', 'controlSha', 'predecessorSha', 'endsAt'}
+            or certified['policyId'] != CERTIFIED_RECOVERY_POLICY
+            or certified['profileId'] != CERTIFIED_RECOVERY_PROFILE
+            or certified['predecessorSha'] != CERTIFIED_RECOVERY_PREDECESSOR
+            or not SHA_RE.fullmatch(str(certified['controlSha']))
+            or not SHA_RE.fullmatch(str(value['sha'])) or not RUN_ID_RE.fullmatch(str(value['runId']))
+            or value['cause'] != 'urgent' or type(certified['endsAt']) is not int
+            or certified['endsAt'] != stamp + 900000
+            or stamp < CERTIFIED_RECOVERY_START_MS or certified['endsAt'] > CERTIFIED_RECOVERY_END_MS):
+        die('certified recovery reservation is invalid')
+    return certified['endsAt']
+
+
+def certified_recovery_request(args: argparse.Namespace, state: dict[str, Any], stamp: int) -> dict[str, Any] | None:
+    policy_id = getattr(args, 'certified_policy', None)
+    predecessor = getattr(args, 'predecessor_sha', None)
+    if policy_id is None:
+        if predecessor is not None:
+            die('certified predecessor has no policy')
+        return None
+    if (policy_id != CERTIFIED_RECOVERY_POLICY or predecessor != CERTIFIED_RECOVERY_PREDECESSOR
+            or state['desired']['sha'] != predecessor or args.cause != 'urgent'
+            or getattr(args, 'scheduled_cycle_start', None) is not None):
+        die('certified recovery scope is invalid')
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('certified_recovery_floor', Path(__file__).with_name('engine-release-activation-floor.py'))
+    floor = importlib.util.module_from_spec(spec); spec.loader.exec_module(floor)
+    record = floor.policy(args.repo, args.sha, args.control_sha)
+    if (record is None or record.get('ownerWindowId') != policy_id
+            or record.get('certifiedRecoveryProfile') != CERTIFIED_RECOVERY_PROFILE
+            or record.get('cycleDurationSeconds') != 900
+            or not record['activationEpoch'] * 1000 <= stamp
+            or stamp + 900000 > record['expiresEpoch'] * 1000):
+        die('certified recovery does not fit its exact immutable floor')
+    return {'policyId': policy_id, 'profileId': CERTIFIED_RECOVERY_PROFILE,
+            'controlSha': args.control_sha, 'predecessorSha': predecessor, 'endsAt': stamp + 900000}
+
+
 def completed_recovery_window(other: str, reservation: Any, now_ms: int) -> bool:
     """A known terminal outcome may remove spacing, never unresolved ownership."""
     if (not isinstance(reservation, dict) or reservation.get('runId') != other
@@ -2459,7 +2514,7 @@ def completed_recovery_window(other: str, reservation: Any, now_ms: int) -> bool
             or type(reservation.get('announcedAt')) is not int):
         return False
     announced = reservation['announcedAt']
-    if announced <= 0 or now_ms < announced + 420000:
+    if announced <= 0 or now_ms < recovery_window_ends_at(reservation):
         return False  # Original notice and full freeze must have ended.
     path = result_path(other)
     if not path.exists():
@@ -2548,6 +2603,13 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
             if not RECOVERY_CAUSE_RE.fullmatch(str(value.get("cause") or "")):
                 print("unavailable")
                 return
+            recovery_window_ends_at(value)
+            if 'certifiedRecovery' in value or getattr(args, 'certified_policy', None) is not None:
+                expected = certified_recovery_request(args, state, value['announcedAt'])
+                if expected is None or value.get('certifiedRecovery') != expected:
+                    die('existing recovery reservation cannot be retargeted or extended')
+            elif getattr(args, 'predecessor_sha', None) is not None:
+                die('certified predecessor has no policy')
             if getattr(args, 'scheduled_cycle_start', None) is not None:
                 # The first HTTP outcome may be unknown. Observe that original
                 # announcement; never resend an old timestamp as a new notice.
@@ -2598,6 +2660,7 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
             else:
                 print("rate-limited")
             return
+        certified = certified_recovery_request(args, state, now_ms)
         announced_at = now_ms
         if scheduled_cycle is not None:
             old = routine_window(cycle)
@@ -2609,6 +2672,9 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
                 write_state(state)
             announced_at=cycle['window']['announcedAt']
         value = {"runId": run_id, "sha": target, "announcedAt": announced_at, "cause": cause}
+        if certified is not None:
+            value['certifiedRecovery'] = certified
+        recovery_window_ends_at(value)
         write_json_atomic(path, value)
         audit_once("recovery_window_reserved", state, f"recovery_window:{run_id}", window=value)
         print(value["announcedAt"])
@@ -2874,7 +2940,9 @@ def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
             failed_routine_require(entry is not None and entry['schema'] == floor.OWNER_CAPABILITY
                 and entry['phase'] == 'announcement' and entry['manifestSha256'] == record['manifestSha256'])
             stamp = floor.reservation(record, STATE_DIR, args.run_id)
-            failed_routine_require(time.time() * 1000 > stamp + 420000 and int(request[5]) * 1000 >= stamp + 420000)
+            reservation = json.loads(failed_routine_bytes(STATE_DIR / (RECOVERY_WINDOW_PREFIX + args.run_id + '.json')))
+            ends_at = recovery_window_ends_at(reservation)
+            failed_routine_require(time.time() * 1000 > ends_at and int(request[5]) * 1000 >= ends_at)
             # A prior terminal cleanup may already have removed its pin/intent.
             # Only the exact durable failed outcome permits that replay edge.
             terminal = None
@@ -2906,22 +2974,31 @@ def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
                 and INVOCATION_ID_RE.fullmatch(unit['InvocationID']) is not None
                 and unit['InvocationID'] == os.environ.get('INVOCATION_ID')
                 and bool(unit['ControlGroup']) and unit['ControlGroup'] in groups)
-            return {'request': request, 'entry': entry, 'announcedAt': stamp, 'unit': unit, 'releasedHold': released}
+            return {'request': request, 'entry': entry, 'announcedAt': stamp, 'unit': unit, 'releasedHold': released,
+                    'endsAt': ends_at, 'certifiedRecovery': reservation.get('certifiedRecovery')}
 
         owner = ownership()
         runtime = failed_routine_runtime(deadline, bounded=True)
         window = {'announcedAt': owner['announcedAt'], 'startsAt': owner['announcedAt'] + 120000,
-                  'endsAt': owner['announcedAt'] + 420000}
+                  'endsAt': owner['endsAt']}
+        certified_args = (['--certified-mode', 'terminal', '--certified-run-id', args.run_id,
+                           '--certified-target-sha', args.sha, '--certified-control-sha', args.control_sha]
+                          if owner['certifiedRecovery'] is not None else [])
         raw = failed_routine_command([str(control / 'engine-release-database-proof.py'), '--env-file',
             os.environ.get('ENV_FILE', args.repo + '/server/.env'), '--sha', FAILED_ROUTINE_DESIRED,
             '--instance-id', runtime['instanceId'], '--terminal-owned-thaw',
             '--window-announced-ms', str(window['announcedAt']), '--window-starts-ms', str(window['startsAt']),
-            '--window-ends-ms', str(window['endsAt']), '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'], deadline)
-        failed_routine_require(json.loads(raw) == {'schema': 'terminal-owned-thaw/v1', 'sha': FAILED_ROUTINE_DESIRED,
-            'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True, **window})
+            '--window-ends-ms', str(window['endsAt']), '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'] + certified_args, deadline)
+        database = json.loads(raw)
+        thawed = {'schema': 'terminal-owned-thaw/v1', 'sha': FAILED_ROUTINE_DESIRED,
+            'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True, **window}
+        refused = {**thawed, 'schema': 'terminal-refused-announcement/v1',
+            'ownedV3Thaw': False, 'announcementRefused': True}
+        failed_routine_require(database == thawed or
+            (owner['certifiedRecovery'] is not None and database == refused))
         failed_routine_require(runtime == failed_routine_runtime(deadline, bounded=True)
             and owner == ownership() and state == load_state() and time.monotonic() < deadline)
-        print('expired-original-announcement-thawed')
+        print('expired-original-announcement-refused' if database == refused else 'expired-original-announcement-thawed')
 
 
 def cmd_record_failure(args: argparse.Namespace) -> None:
@@ -4106,6 +4183,10 @@ def diagnostic_shell_state(raw: dict[str, Any]) -> dict[str, Any]:
               "mutationStarted": 1, "lockHeld": 1, "checkpointBudgetSeconds": 300,
               "checkpointWorkMs": 300000, "certificateExitStatus": 255,
               "breakEndEpoch": 9999999999}
+    if raw.get("checkpointProfile") == CERTIFIED_RECOVERY_PROFILE:
+        if raw.get("predecessorSha") != CERTIFIED_RECOVERY_PREDECESSOR:
+            raise ValueError("certified diagnostic predecessor differs")
+        bounds.update(checkpointBudgetSeconds=320, checkpointWorkMs=260000)
     if set(raw) != set(bounds) | {"checkpointProfile", "predecessorSha"}:
         raise ValueError("invalid diagnostic shell state fields")
     result = {}
@@ -4117,7 +4198,7 @@ def diagnostic_shell_state(raw: dict[str, Any]) -> dict[str, Any]:
             result[key] = int(value)
         else:
             raise ValueError("invalid bounded diagnostic shell state")
-    if raw["checkpointProfile"] not in ("UNKNOWN", "legacy-40s-v1", "eed-80s-v1"):
+    if raw["checkpointProfile"] not in ("UNKNOWN", "legacy-40s-v1", "eed-80s-v1", CERTIFIED_RECOVERY_PROFILE):
         raise ValueError("invalid checkpoint profile")
     if raw["predecessorSha"] != "UNKNOWN" and not SHA_RE.fullmatch(str(raw["predecessorSha"])):
         raise ValueError("invalid diagnostic predecessor")
@@ -4448,6 +4529,8 @@ def parser() -> argparse.ArgumentParser:
     recovery_window.add_argument("--cause")
     recovery_window.add_argument("--scheduled-cycle-start", type=int)
     recovery_window.add_argument("--control-sha")
+    recovery_window.add_argument("--certified-policy")
+    recovery_window.add_argument("--predecessor-sha")
     recovery_window.add_argument("--include-eligibility", action="store_true")
     recovery_window.set_defaults(handler=cmd_reserve_recovery_window)
 

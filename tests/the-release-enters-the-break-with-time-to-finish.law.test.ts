@@ -218,7 +218,7 @@ describe('the release enters the break with time to finish', () => {
 
   it('the physical probe demands the guard reserve plus only the unspent same-entry budget', () => {
     const probe = checkpointShell.slice(
-      checkpointShell.indexOf('INSTANCE="$(checkpoint_entry_read curl'),
+      checkpointShell.indexOf('if [ "$CHECKPOINT_ALLOCATION_MS" = 320000 ]; then'),
       checkpointShell.indexOf('CHECKPOINT_INTENT="$(checkpoint_entry_read python3')
     );
     expect(probe).toContain('reserve=int(sys.argv[5])+remaining_entry');
@@ -340,7 +340,7 @@ printf '%s %s %s %s' "$BREAK_ENTRY_BUDGET_MS" "$BREAK_ENTRY_BUDGET_CEILING_MS" "
     // the reserve plus the boot still to come, and prove it exits 75 having
     // created nothing. This is the exact shape that ended run 35615604946.
     const block = checkpointShell.slice(
-      checkpointShell.indexOf('INSTANCE="$(checkpoint_entry_read curl'),
+      checkpointShell.indexOf('if [ "$CHECKPOINT_ALLOCATION_MS" = 320000 ]; then'),
       checkpointShell.indexOf('# Staging is inside the original one-shot intent')
     );
     const root = mkdtempSync(join(tmpdir(), 'release-window-defer-'));
@@ -384,6 +384,8 @@ REQUEST=(unused unused unused unused aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
 CONTAINER_ID=c63b254ee71b76aa26f4d1394d96189963774310244b046bc91186e219ca3f66
 STARTED_AT=2026-09-18T21:55:50.88305198Z
 HOST_PID=1231816
+IMAGE=sha256:1111111111111111111111111111111111111111111111111111111111111111
+CERTIFIED_RECOVERY=null
 ${block}
 printf '%s' inspector-boundary-reached
 `,
@@ -445,12 +447,15 @@ printf '%s' inspector-boundary-reached
     );
     // the one-shot flag is raised BEFORE the helper runs, so a crash mid-call
     // can never be mistaken for a deferral
-    const raise = transaction.indexOf('LEGACY_CHECKPOINT_ATTEMPTED=1\n    legacy_entry_trace');
+    const trace = transaction.indexOf('    legacy_entry_trace checkpoint verified');
+    const raise = transaction.lastIndexOf('LEGACY_CHECKPOINT_ATTEMPTED=1', trace);
     const invoke = transaction.indexOf(
       '"$LEGACY_CHECKPOINT" "$RUN_ID" "$((ENTRY_STARTED_MS + LEGACY_CHECKPOINT_BUDGET_SECONDS * 1000))" "$LEGACY_ENTRY_BREAK_END_EPOCH" "$SHA" "$TARGET_IMAGE_ID" "$EXPECTED_SERVER_TREE"\n    LEGACY_CHECKPOINT_RC'
     );
+    expect(trace).toBeGreaterThan(0);
     expect(raise).toBeGreaterThan(0);
-    expect(raise).toBeLessThan(invoke);
+    expect(raise).toBeLessThan(trace);
+    expect(trace).toBeLessThan(invoke);
   });
 });
 

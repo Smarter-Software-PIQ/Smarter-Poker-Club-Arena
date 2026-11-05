@@ -42,11 +42,15 @@ history = importlib.util.module_from_spec(history_spec)
 history_spec.loader.exec_module(history)
 hydrate_historical_sources = history.hydrate_historical_sources
 
+E9_HOLD_SOURCE_NAMES = frozenset({'engine-supervisor.sh', 'engine-up.sh',
+    'engine-release-protocol-v1.schema', 'engine-release-seal.py',
+    'verify-recovery-stack.sh', 'engine-release-lightning-hold.py'})
+
 def prepare_history(allow_fetch=False):
     controls = [value for name, value in vars(module).items()
                 if name.endswith('_CONTROL') and isinstance(value, str)]
     controls.append('9ca87a39e51d0988653ce83c4ba05a7c84929f94')
-    paths = ['server/scripts/' + name for name in module.GENERIC_SOURCE_NAMES] + [
+    paths = ['server/scripts/' + name for name in set(module.GENERIC_SOURCE_NAMES) | E9_HOLD_SOURCE_NAMES] + [
         'server/scripts/engine-release-unit-wrapper.sh',
         'server/scripts/engine-release-intake.sh',
         'server/scripts/install-engine-supervisor.sh',
@@ -1362,6 +1366,18 @@ class AnnouncedCancellation(unittest.TestCase):
                    'instanceId':'1-1234abcd','mode':'cancel_expired_announcement'}
         profile = module.cancellation_profile(request)
         self.assertEqual(profile['deadline'], '1793528863')
+        # A full local clone can hide omitted preparation inputs. Require the
+        # actual preparation caller to hydrate every file the original hold
+        # imports before behavioral execution disables lazy Git fetching.
+        with patch(__name__ + '.hydrate_historical_sources') as hydrate:
+            prepare_history()
+        source_root, revisions, paths = hydrate.call_args.args
+        self.assertEqual(source_root, ROOT)
+        self.assertIn(request['controlSha'], revisions)
+        self.assertLessEqual({'server/scripts/' + name for name in (
+            'engine-supervisor.sh', 'engine-up.sh', 'engine-release-protocol-v1.schema',
+            'engine-release-seal.py', 'verify-recovery-stack.sh', 'engine-release-lightning-hold.py')}, set(paths))
+        self.assertEqual(hydrate.call_args.kwargs, {'budget_seconds': 10, 'allow_fetch': False})
         for name, expected in profile['hashes'].items():
             raw = subprocess.check_output(['git','show',request['controlSha']+':server/scripts/'+name],cwd=ROOT)
             self.assertEqual(module.digest(raw), expected, name)
@@ -1423,8 +1439,7 @@ class AnnouncedCancellation(unittest.TestCase):
                     # actual remote cancellation entry (local -B does not propagate).
                     hold_source=subprocess.check_output(['git','show',request['controlSha']+':server/scripts/engine-release-lightning-hold.py'],cwd=ROOT)
                     (generation/'engine-release-lightning-hold.py').write_bytes(hold_source)
-                    manifest={'engine-supervisor.sh','engine-up.sh','engine-release-protocol-v1.schema',
-                              'engine-release-seal.py','verify-recovery-stack.sh','engine-release-lightning-hold.py'}
+                    manifest=E9_HOLD_SOURCE_NAMES
                     for name in manifest-{'engine-release-lightning-hold.py'}:
                         (generation/name).write_bytes(subprocess.check_output(['git','show',request['controlSha']+':server/scripts/'+name],cwd=ROOT))
                     (generation/'generation-files').write_text('\n'.join(sorted(manifest))+'\n')

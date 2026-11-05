@@ -24,7 +24,8 @@ SPEC.loader.exec_module(Q)
 TRANSACTION = Q.SOURCE
 SHELL = (ROOT / 'server/scripts/legacy-engine-checkpoint.sh').read_text()
 COUNTDOWN = TRANSACTION[TRANSACTION.index('legacy_checkpoint_countdown() {'):TRANSACTION.index('\n# This is one optional event')]
-PHYSICAL = SHELL[SHELL.index('INSTANCE="$('):SHELL.index('# Persist intent before opening debugger access.')]
+PHYSICAL = SHELL[SHELL.index('if [ "$CHECKPOINT_ALLOCATION_MS" = 320000 ]; then'):SHELL.index('# Persist intent before opening debugger access.')]
+ORDINARY_PHYSICAL = PHYSICAL[PHYSICAL.index('INSTANCE="$('):]
 NATIVE_RUN = subprocess.run
 
 
@@ -135,7 +136,7 @@ class ClockTests(unittest.TestCase):
         self.assertNotIn('LEGACY_CHECKPOINT', events)
 
     def test_physical_probe_uses_only_the_unspent_same_entry_budget(self):
-        program = PHYSICAL.split("python3 -c '\n", 1)[1].rsplit("' \"$LEGACY_SHA\"", 1)[0]
+        program = ORDINARY_PHYSICAL.split("python3 -c '\n", 1)[1].rsplit("' \"$LEGACY_SHA\"", 1)[0]
         health = {'running': True, 'releaseSha': '8825af51817f379c4261658ca29ecc9d8d81932d',
                   'version': '8825af51', 'instanceId': '1-3846b8bb',
                   'maintenance': {'active': True, 'phase': 'counting_down',

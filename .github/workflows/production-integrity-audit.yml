@@ -72,7 +72,7 @@ jobs:
     # One fixed read of an exact completed release; never selected by schedule.
     if: github.event_name == 'repository_dispatch' && github.event.action == 'audit-production-integrity' && github.event.client_payload.release_recovery_observation != null
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     permissions:
       contents: read
     steps:

@@ -17,6 +17,12 @@ HELPER = 'server/scripts/engine-release-activation-floor.py'
 CAPABILITY = 'engine-release-activation-floor/v1'
 OWNER_CAPABILITY = 'engine-release-activation-floor/v2-owner-window'
 PHASE1_CAPABILITY = 'engine-release-activation-floor/v3-phase1'
+CERTIFIED_POLICY = '2026-11-04-tournament-fourfold-certified-recovery'
+CERTIFIED_PROFILE = 'eed-240s-certified-release-v1'
+CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+CERTIFIED_START = 1793833200
+CERTIFIED_END = 1793854800
+
 
 
 def phase1_policy(repo, target, control):
@@ -82,6 +88,7 @@ def policy(repo, target, control):
     local = activation.astimezone(ZoneInfo(doc['timeZone']))
     owner_id = None
     supersedes_phase1 = False
+    certified = False
     publication = activation
     if owner_mode:
         value = doc['clientPublicationAt']
@@ -113,6 +120,13 @@ def policy(repo, target, control):
                 or not re.fullmatch(r'[0-9a-f]{40}', window.get('contains', ''))
                 or window.get('migrations') != []):
             raise ValueError('owner authorization does not bind the immutable floor')
+        if owner_id == CERTIFIED_POLICY or 'certifiedRecoveryProfile' in window:
+            if (owner_id != CERTIFIED_POLICY or window.get('certifiedRecoveryProfile') != CERTIFIED_PROFILE
+                    or not supersedes_phase1 or window.get('announcementPolicy') != 'earliest-certified'
+                    or int(activation.timestamp()) != CERTIFIED_START or int(expiry.timestamp()) != CERTIFIED_END
+                    or publication != activation):
+                raise ValueError('certified recovery requires its exact finite source authority')
+            certified = True
         if window.get('releaseWitness') != {'path': MANIFEST, 'sha256': hashlib.sha256(raw).hexdigest()}:
             raise ValueError('owner window feature witness differs')
         git(repo, 'merge-base', '--is-ancestor', window['contains'], target)
@@ -140,7 +154,8 @@ def policy(repo, target, control):
         raise ValueError('control runtime entry is not gated')
     if recovery.index('engine-release-activation-floor.py" disposition') > recovery.index('exec 9>"$ENGINE_LOCK"'):
         raise ValueError('control recovery does not classify entry before runtime writes')
-    return {**({'supersedesPhase1Schedule': True} if supersedes_phase1 else {}),
+    return {**({'certifiedRecoveryProfile': CERTIFIED_PROFILE, 'cycleDurationSeconds': 900} if certified else {}),
+            **({'supersedesPhase1Schedule': True} if supersedes_phase1 else {}),
             'schema': doc['schema'], 'ownerWindowId': owner_id, 'targetSha': target, 'controlSha': control,
             'manifestSha256': hashlib.sha256(raw).hexdigest(), 'clientPublicationEpoch': int(publication.timestamp()),
             'preparationEpoch': int(preparation.timestamp()),
@@ -186,7 +201,7 @@ def check_window(record, now, deadline, mode):
     if now >= record['expiresEpoch']:
         raise ValueError('one-time activation window expired')
     if record.get('ownerWindowId'):
-        if mode in ('prepare', 'admit') and min(deadline, record['expiresEpoch']) < now + 420:
+        if mode in ('prepare', 'admit') and min(deadline, record['expiresEpoch']) < now + (900 if record.get('certifiedRecoveryProfile') == CERTIFIED_PROFILE else 420):
             raise ValueError('owner window cannot retain its full announcement and cutover budget')
     elif record['activationEpoch'] + 300 > deadline:
         raise ValueError('absolute deadline cannot contain the full daily window')
@@ -303,9 +318,19 @@ def reservation(record, root, run_id):
                 or cycle['policyDigest'] != record['manifestSha256'] or window['announcedAt'] != stamp):
             raise ValueError('Phase1 reservation does not bind the canonical owned cycle')
         return stamp
+    certified = record.get('certifiedRecoveryProfile') == CERTIFIED_PROFILE
+    if certified:
+        expected = {'policyId': CERTIFIED_POLICY, 'profileId': CERTIFIED_PROFILE,
+                    'controlSha': record['controlSha'], 'predecessorSha': CERTIFIED_PREDECESSOR,
+                    'endsAt': stamp + 900000 if type(stamp) is int else None}
+        if (set(value) != {'runId', 'sha', 'cause', 'announcedAt', 'certifiedRecovery'}
+                or value.get('certifiedRecovery') != expected):
+            raise ValueError('certified reservation does not bind its original policy/source/window')
+    elif 'certifiedRecovery' in value:
+        raise ValueError('ordinary owner cannot consume a certified reservation')
     if (value.get('runId') != run_id or value.get('sha') != record['targetSha'] or value.get('cause') != 'urgent'
             or type(stamp) is not int or stamp < record['activationEpoch'] * 1000
-            or stamp + 420000 > record['expiresEpoch'] * 1000):
+            or stamp + (900000 if certified else 420000) > record['expiresEpoch'] * 1000):
         raise ValueError('owner reservation does not bind target/window')
     return stamp
 
