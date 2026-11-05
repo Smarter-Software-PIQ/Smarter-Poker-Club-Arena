@@ -1,0 +1,9 @@
+{
+  "_owner": "claude/diamond-midnight-scoped-closure",
+  "_comment": "One-use owner exception for bulk closure admission and the cheap owner-retirement hand fingerprint.",
+  "tables": ["smarter_private.bulk_closure_owner_exceptions"],
+  "functions": [
+    "smarter_private.bulk_closure_owner_exception_guard",
+    "smarter_private.hand_history_fingerprint"
+  ]
+}
