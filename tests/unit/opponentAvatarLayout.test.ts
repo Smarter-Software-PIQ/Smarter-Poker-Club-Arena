@@ -14,6 +14,7 @@ import {
   opponentPaintSpansTouch,
   readOpponentAlphaSpans,
   opponentSeatsKept,
+  opponentSeatsCompact,
 } from '../../src/components/table/opponentAvatarLayout';
 
 const bounds = { left: 0, top: 80, width: 400, height: 720 };
@@ -299,6 +300,27 @@ it('fits all eight compact opponents without changing any footprint or covering 
         rails.map((r, i) => ({ x: r.x + oldAnswer[i][0], y: r.y + oldAnswer[i][1] }))
       )
     ).toBe(false);
+    // ...but it is a valid COMPACT answer (order kept, nobody jumps a seat),
+    // which is the rule this ring falls back to when no own-seat layout exists.
+    expect(
+      opponentSeatsCompact(
+        rails,
+        rails.map((r, i) => ({ x: r.x + oldAnswer[i][0], y: r.y + oldAnswer[i][1] }))
+      )
+    ).toBe(true);
+    expect(
+      jointOpponentShifts(
+        scene.items,
+        scene.fixed,
+        scene.bounds,
+        0,
+        true,
+        boardTop,
+        undefined,
+        [],
+        'compact'
+      )
+    ).not.toBeNull();
     expect(JSON.stringify(scene)).toBe(before);
     return;
   }

@@ -285,6 +285,32 @@ export function opponentSeatsKept(
     return rails.every((r, j) => j === i || own < Math.hypot(p.x - r.x, p.y - r.y));
   });
 }
+/** THE SMALLEST PHONES (Dan 2026-11-05). On a 320px nine-seat ring there is
+ * physically no layout in which every chair keeps its own spot and nothing
+ * overlaps: the right-side and top-right chairs have to slide toward each
+ * other to stay readable, and forcing them back onto their rails puts bets on
+ * the wrong player and plates on top of each other (measured by
+ * tests/e2e/table-proportions.spec.ts). Only for a ring where
+ * opponentSeatsKept has no answer, this is the rule: the order around the
+ * table never changes, and no chair travels further than the distance from
+ * its rail to the nearest other chair's rail - so a chair may lean toward a
+ * neighbour but never jump past one. Mongo's frame (seat 5 dropped three
+ * seats down the column) and the 10-seat 253px drop both fail it. */
+export function opponentSeatsCompact(
+  rails: readonly ChairPoint[],
+  shown: readonly ChairPoint[],
+  centre?: ChairPoint
+): boolean {
+  if (!opponentRingOrderKept(rails, shown, centre)) return false;
+  return shown.every((p, i) => {
+    const moved = Math.hypot(p.x - rails[i].x, p.y - rails[i].y);
+    if (moved < 0.01) return true;
+    const gap = Math.min(
+      ...rails.map((r, j) => (j === i ? Infinity : Math.hypot(r.x - rails[i].x, r.y - rails[i].y)))
+    );
+    return moved <= gap * 1.1;
+  });
+}
 const centreOfParts = (parts: Box[]): ChairPoint | null => {
   if (!parts.length) return null;
   const left = Math.min(...parts.map((p) => p.left));
@@ -306,7 +332,10 @@ export function jointOpponentShifts(
   lowerLane?: { top: number; bottom: number },
   /** Every OTHER chair on the ring that is not an item here (hero, empty
    * seats), in the same coordinates as the parts. See opponentRingOrderKept. */
-  otherChairs: readonly ChairPoint[] = []
+  otherChairs: readonly ChairPoint[] = [],
+  /** 'own-seat' (opponentSeatsKept) unless the caller has already learned that
+   * no own-seat layout exists for this ring (opponentSeatsCompact). */
+  seatRule: 'own-seat' | 'compact' = 'own-seat'
 ): Array<[number, number]> | null {
   if (
     items.every((item) =>
@@ -658,7 +687,9 @@ export function jointOpponentShifts(
       before.push(rail);
       after.push({ x: rail.x + solution[i][0], y: rail.y + solution[i][1] });
     });
-    return opponentSeatsKept(before, after, ringCentre);
+    return seatRule === 'compact'
+      ? opponentSeatsCompact(before, after, ringCentre)
+      : opponentSeatsKept(before, after, ringCentre);
   };
   const chosen = Array<number>(items.length).fill(-1);
   let best: Array<[number, number]> | null = null;
@@ -1097,14 +1128,18 @@ export function createOpponentAvatarLayout(
       frame.width > 0 && frame.height > 0
         ? { x: frame.left + frame.width / 2, y: frame.top + frame.height / 2 }
         : undefined;
-    const kept = opponentSeatsKept(
-      chairs.map((c) => c.rail),
-      chairs.map(({ seat, rail }) => {
-        const [x, y] = nudge(seat);
-        return { x: rail.x + x, y: rail.y + y };
-      }),
-      centre
-    );
+    const railPoints = chairs.map((c) => c.rail);
+    const shownPoints = chairs.map(({ seat, rail }) => {
+      const [x, y] = nudge(seat);
+      return { x: rail.x + x, y: rail.y + y };
+    });
+    /* The solver only reaches for the compact rule on a ring with no own-seat
+       layout, so the backstop accepts either; what it refuses is any frame
+       that reorders the ring or carries a chair past a neighbour, whoever
+       wrote it. */
+    const kept =
+      opponentSeatsKept(railPoints, shownPoints, centre) ||
+      opponentSeatsCompact(railPoints, shownPoints, centre);
     if (kept) return false;
     let reset = false;
     for (const { seat } of chairs) {
@@ -1841,72 +1876,91 @@ export function createOpponentAvatarLayout(
             : Math.sign(box(seat).left + box(seat).width / 2 - pageBox.left - pageBox.width / 2),
         outwardOnly: !seat.closest('.seat-wrapper--cap,.seat-wrapper--top'),
       }));
-    let shifts = jointOpponentShifts(
-      describe(),
-      fixed,
-      bounds,
-      3,
-      false,
-      undefined,
-      undefined,
-      otherChairs()
-    );
-    if (!shifts) {
-      // Only the compact ring needs this fallback: the same caption fits
-      // above its own plate on the lower bust, retaining all existing sizes.
-      for (const { seat } of ordered) {
-        const action = seat.querySelector<HTMLElement>(':scope > .seat__action');
-        const info = seat.querySelector<HTMLElement>(':scope > .seat__info');
-        if (action && info) {
-          const a = box(action),
-            p = box(info);
-          action.style.translate = `0px ${(p.top - a.height - 3 - a.top) / ratio}px`;
-        }
-      }
-      shifts = jointOpponentShifts(
-        describe(),
-        fixed,
-        bounds,
-        0.5,
-        true,
-        undefined,
-        undefined,
-        otherChairs()
-      );
-    }
     const board = page.querySelector('.community-area');
     const topLaneBottom = board ? box(board).top : top;
-    if (!shifts) {
-      // Last compact fit: plates may meet edge to edge. An edge chair can
-      // join the top lane only with its whole pod above the unchanged board.
-      shifts = jointOpponentShifts(
+    let lowerLane: { top: number; bottom: number } | undefined;
+    const solve = (rule: 'own-seat' | 'compact') => {
+      let shifts: Array<[number, number]> | null = jointOpponentShifts(
         describe(),
         fixed,
         bounds,
-        0,
-        true,
-        topLaneBottom,
+        3,
+        false,
         undefined,
-        otherChairs()
+        undefined,
+        otherChairs(),
+        rule
       );
-    }
-    let lowerLane: { top: number; bottom: number } | undefined;
-    if (!shifts) {
-      // Broad characters can need the clear lane below the board. Preserve
-      // three pixels at both ends plus two CSS layout quanta for round-trip
-      // positioning. Hero, cards, table and panel sizes remain unchanged.
-      lowerLane = lowerLaneLimits(1 / 32) ?? undefined;
-      if (lowerLane)
+      if (!shifts) {
+        // Only the compact ring needs this fallback: the same caption fits
+        // above its own plate on the lower bust, retaining all existing sizes.
+        for (const { seat } of ordered) {
+          const action = seat.querySelector<HTMLElement>(':scope > .seat__action');
+          const info = seat.querySelector<HTMLElement>(':scope > .seat__info');
+          if (action && info) {
+            const a = box(action),
+              p = box(info);
+            action.style.translate = `0px ${(p.top - a.height - 3 - a.top) / ratio}px`;
+          }
+        }
         shifts = jointOpponentShifts(
           describe(),
           fixed,
           bounds,
-          3,
+          0.5,
+          true,
+          undefined,
+          undefined,
+          otherChairs(),
+          rule
+        );
+      }
+      if (!shifts) {
+        // Last compact fit: plates may meet edge to edge. An edge chair can
+        // join the top lane only with its whole pod above the unchanged board.
+        shifts = jointOpponentShifts(
+          describe(),
+          fixed,
+          bounds,
+          0,
           true,
           topLaneBottom,
-          lowerLane,
-          otherChairs()
+          undefined,
+          otherChairs(),
+          rule
         );
+      }
+      if (!shifts) {
+        // Broad characters can need the clear lane below the board. Preserve
+        // three pixels at both ends plus two CSS layout quanta for round-trip
+        // positioning. Hero, cards, table and panel sizes remain unchanged.
+        lowerLane = lowerLaneLimits(1 / 32) ?? undefined;
+        if (lowerLane)
+          shifts = jointOpponentShifts(
+            describe(),
+            fixed,
+            bounds,
+            3,
+            true,
+            topLaneBottom,
+            lowerLane,
+            otherChairs(),
+            rule
+          );
+      }
+      return shifts;
+    };
+    // Every player in his own seat first; the compact rule only for a ring
+    // that has no such layout (opponentSeatsCompact), each from the original
+    // captions so a failed first search leaves nothing behind.
+    let shifts = solve('own-seat');
+    if (!shifts) {
+      for (const seat of seats)
+        seat
+          .querySelector<HTMLElement>(':scope > .seat__action')
+          ?.style.removeProperty('translate');
+      lowerLane = undefined;
+      shifts = solve('compact');
     }
     if (!shifts) {
       /* NO LAYOUT KEEPS EVERY PLAYER IN HIS OWN SEAT (Dan 2026-11-05). Every

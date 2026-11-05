@@ -22,6 +22,7 @@ import {
   jointOpponentShifts,
   opponentRingOrderKept,
   opponentSeatsKept,
+  opponentSeatsCompact,
   type ChairPoint,
 } from '../src/components/table/opponentAvatarLayout';
 import { rotateSeatsForHero, seatLayoutFor } from '../src/lib/tableSeatGeometry';
@@ -302,5 +303,29 @@ describe('seat-to-screen mapping, independent of any spacing code', () => {
         expect(new Set(rotated.map((r) => r.visualIndex)).size).toBe(size);
       }
     }
+  });
+});
+
+describe('the smallest phones: neighbours may lean, nobody jumps a seat', () => {
+  it("refuses Mongo's frame and a three-seat drop even under the compact rule", () => {
+    const frame = rails.map((p, i) => (names[i] === 'BigWade' ? { x: 46, y: 830 } : p));
+    expect(opponentSeatsCompact(rails, frame, CENTRE)).toBe(false);
+  });
+
+  it('allows two neighbours to lean toward each other in order', () => {
+    const lean = rails.map((p, i) =>
+      names[i] === 'champp'
+        ? { x: p.x - 100, y: p.y }
+        : names[i] === 'raypatel'
+          ? { x: p.x - 20, y: p.y }
+          : p
+    );
+    expect(opponentSeatsKept(rails, lean, CENTRE)).toBe(false);
+    expect(opponentSeatsCompact(rails, lean, CENTRE)).toBe(true);
+  });
+
+  it('refuses any chair travelling further than its nearest neighbour is from it', () => {
+    const far = rails.map((p, i) => (names[i] === 'king_01' ? { x: p.x, y: p.y + 300 } : p));
+    expect(opponentSeatsCompact(rails, far, CENTRE)).toBe(false);
   });
 });
