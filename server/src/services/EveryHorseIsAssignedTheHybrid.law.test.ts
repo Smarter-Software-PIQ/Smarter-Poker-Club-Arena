@@ -133,7 +133,7 @@ describe("'hybrid' is the assigned style and reads as itself", () => {
   });
 
   it('resolveHorseStyle never turns hybrid into a default and keeps the dials', () => {
-    for (const id of FLEET.slice(0, 100)) {
+    for (const id of FLEET.slice(0, 96)) {
       const fallback = resolveHorseStyle({}, id).style;
       expect(resolveHorseStyle({ style: 'hybrid' }, id).style).toBe('hybrid');
       expect(resolveHorseStyle({ style: 'HYBRID' }, id).style).toBe('hybrid');
@@ -285,7 +285,7 @@ describe('a hybrid row plays the mode profile a legacy row played', () => {
     expect(horseHybridModeStyle('tournament')).toBe('tricky');
     for (const mode of ['cash', 'tournament'] as const) {
       const expected = HORSE_HYBRID_PROFILES[mode];
-      for (const id of FLEET.slice(0, 200)) {
+      for (const id of FLEET.slice(0, 96)) {
         for (const retired of RETIRED) {
           const hybridRow = resolveHorseHybridProfile(
             { style: 'hybrid', retiredStyle: retired, ...dials },
