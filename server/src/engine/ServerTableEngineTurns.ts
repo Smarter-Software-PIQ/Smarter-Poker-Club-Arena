@@ -3006,7 +3006,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     if (state.currentPlayerSeat !== seat) return;
 
     const pendingBank = this.timeBankEngine.getPlayerBank(this.tableId, player.user_id);
-    if (pendingBank?.pendingPublication && this.handContinuation) {
+    // Only a bank that is actually allocated can be waiting for publication.
+    // A stale flag on an inactive bank must fall through to the ordinary
+    // clock below, or this seat has no clock and no Horse decision at all
+    // (AFinishedTimeBankLeavesNoPendingPublication.law.test.ts).
+    if (pendingBank?.isActive && pendingBank.pendingPublication && this.handContinuation) {
       // A later control-only capsule can retain the real allocated bank with
       // no activation event in its batch. Do not turn that allocation into a
       // fresh ordinary clock, or publish it while its own bytes are unproven.

@@ -241,7 +241,15 @@ export class TimeBankEngine {
       throw new Error('Recovered Time Bank Is Invalid');
     const key = `${tableId}:${playerId}`;
     this.preciseTimer.cancelTimer(tableId, `timebank:${playerId}`);
-    this.playerBanks.set(key, { ...saved, onExpire: undefined });
+    // An inactive bank has nothing waiting to be published. Captures taken
+    // before 2026-11-05 can carry a stale `pendingPublication` on an inactive
+    // bank (see AFinishedTimeBankLeavesNoPendingPublication.law.test.ts);
+    // restoring that flag would take the next turn's clock away again.
+    this.playerBanks.set(key, {
+      ...saved,
+      ...(saved.isActive ? {} : { pendingPublication: false }),
+      onExpire: undefined,
+    });
     if (saved.isActive) {
       if (!Number.isFinite(saved.activatedAt))
         throw new Error('Recovered Time Bank Clock Is Invalid');
@@ -524,6 +532,11 @@ export class TimeBankEngine {
     bank.isActive = false;
     bank.activatedAt = undefined;
     bank.onExpire = undefined;
+    // A finished bank has nothing left to publish. Leaving this set made the
+    // seat's NEXT turn take the deferred-publication branch in
+    // handleTurnChange, which armed no clock at all (2026-11-05, 119 ~50 s
+    // freezes in one day). AFinishedTimeBankLeavesNoPendingPublication.law.test.ts
+    bank.pendingPublication = false;
 
     this.emitEvent({
       type: 'TIME_BANK_STOPPED',
@@ -719,6 +732,7 @@ export class TimeBankEngine {
     bank.isActive = false;
     bank.activatedAt = undefined;
     bank.armed = false;
+    bank.pendingPublication = false;
 
     const isDepleted =
       !bank.unlimitedActivations && (bank.usesRemaining <= 0 || bank.remainingSeconds <= 0);
