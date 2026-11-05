@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS public.horse_daily_audit_runs (
 CREATE INDEX IF NOT EXISTS horse_daily_audit_runs_day_idx ON public.horse_daily_audit_runs (day, started_at DESC);
 CREATE INDEX IF NOT EXISTS horse_daily_audit_runs_stage_idx ON public.horse_daily_audit_runs (stage, started_at DESC);
 ALTER TABLE public.horse_daily_audit_runs ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.horse_daily_audit_runs FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.horse_daily_audit_runs FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.horse_daily_audit_runs TO service_role;
 
 CREATE TABLE IF NOT EXISTS public.horse_daily_audit_analysis_submissions (
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS public.horse_daily_audit_analysis_submissions (
 CREATE INDEX IF NOT EXISTS horse_daily_audit_analysis_submissions_day_idx
   ON public.horse_daily_audit_analysis_submissions (day, submitted_at DESC);
 ALTER TABLE public.horse_daily_audit_analysis_submissions ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.horse_daily_audit_analysis_submissions FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.horse_daily_audit_analysis_submissions FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.horse_daily_audit_analysis_submissions TO service_role;
 
 -- Findings from a section that reads live state, run after the day closed,
