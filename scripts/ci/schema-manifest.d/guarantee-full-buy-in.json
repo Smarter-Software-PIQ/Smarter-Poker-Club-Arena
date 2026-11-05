@@ -3,7 +3,7 @@
   "_comment": "Migration 20261105220120 (a guarantee counts the full buy-in: prize + bounty + rake).",
   "tables": ["ca_guarantee_funding_variances"],
   "functions": [
-    "fn_ca_place_guarantee",
+    "fn_ca_place_guarantee_gross",
     "fn_ca_guarantee_coverage",
     "fn_ca_guarantee_funding_variance_scan"
   ]

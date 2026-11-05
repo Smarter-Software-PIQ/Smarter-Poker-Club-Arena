@@ -24,7 +24,7 @@ const amount = (value: unknown): number => {
 /**
  * The regular prize pool's floor: the guarantee less what the players already
  * put toward it outside the prize pool (bounty contributions and rake). The
- * database's fn_ca_place_guarantee(guarantee, bounty_pool, total_rake) is the
+ * database's fn_ca_place_guarantee_gross(guarantee, bounty_pool, total_rake) is the
  * same arithmetic; the close-out funds exactly max(0, floor - prize pool),
  * which is max(0, G - C).
  */

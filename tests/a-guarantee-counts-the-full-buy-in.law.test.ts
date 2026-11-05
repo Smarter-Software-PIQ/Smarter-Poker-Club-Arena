@@ -14,7 +14,7 @@ const code = sql.replace(/--[^\n]*/g, ' ');
 describe('a guarantee counts the full buy-in', () => {
   it('subtracts the players bounty AND rake from the guarantee to get the prize floor', () => {
     expect(code).toMatch(
-      /CREATE FUNCTION public\.fn_ca_place_guarantee\(p_guarantee numeric, p_bounty_pool numeric, p_rake numeric\)/
+      /CREATE FUNCTION public\.fn_ca_place_guarantee_gross\(p_guarantee numeric, p_bounty_pool numeric, p_rake numeric\)/
     );
     expect(code).toContain('- greatest(0, round(coalesce(p_rake,0),2))');
   });

@@ -28,7 +28,7 @@ of the change. The event list is in the reconciliation report for this change.
 
 Migration `20261105220120`:
 
-- `fn_ca_place_guarantee(G, bounty_pool, total_rake)` = G - bounty - rake.
+- `fn_ca_place_guarantee_gross(G, bounty_pool, total_rake)` = G - bounty - rake.
   `bounty_pool` is cumulative (an award does not reduce it; awards are in
   `bounty_pool_paid`) and `total_rake` is net of refunds (0 mismatches against
   escrow across 466 guaranteed events), so the close-out pays exactly

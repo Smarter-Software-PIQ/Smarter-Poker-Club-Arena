@@ -33,7 +33,9 @@
 --   floor - prize_pool = G - C.
 --
 -- WHAT IT CHANGES
---  1. fn_ca_place_guarantee(guarantee, bounty_pool, rake): the floor above.
+--  1. fn_ca_place_guarantee_gross(guarantee, bounty_pool, rake): the floor
+--     above. A new name, not an overload: the two-argument floor stays for
+--     its one remaining reader (the back-pay, which no role can call).
 --  2. Every writer and guard that reads the floor passes total_rake, so no
 --     path keeps the old arithmetic: the close-out (fn_apply_prize_guarantee
 --     -> core -> before_atomic_proof), the start trigger (satellite seats
@@ -59,13 +61,13 @@
 -- Nothing in this migration moves a chip or rewrites a settled event.
 -- Native proof: scripts/ci/test-guarantee-counts-the-full-buy-in.py
 --
--- @live-proof: to_regprocedure('public.fn_ca_place_guarantee(numeric,numeric,numeric)') IS NOT NULL AND position('t.total_rake' IN pg_get_functiondef('public.fn_ca_apply_prize_guarantee_core(uuid,text)'::regprocedure))>0 AND position('t.total_rake' IN pg_get_functiondef('public.fn_apply_prize_guarantee_before_atomic_proof(uuid,text)'::regprocedure))>0 AND to_regclass('public.ca_guarantee_funding_variances') IS NOT NULL AND EXISTS(SELECT 1 FROM cron.job WHERE jobname='ca-guarantee-funding-variance-15m')
+-- @live-proof: to_regprocedure('public.fn_ca_place_guarantee_gross(numeric,numeric,numeric)') IS NOT NULL AND position('t.total_rake' IN pg_get_functiondef('public.fn_ca_apply_prize_guarantee_core(uuid,text)'::regprocedure))>0 AND position('t.total_rake' IN pg_get_functiondef('public.fn_apply_prize_guarantee_before_atomic_proof(uuid,text)'::regprocedure))>0 AND to_regclass('public.ca_guarantee_funding_variances') IS NOT NULL AND EXISTS(SELECT 1 FROM cron.job WHERE jobname='ca-guarantee-funding-variance-15m')
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='30s';
 
 -- ── 1. The floor ────────────────────────────────────────────────────────────
-CREATE FUNCTION public.fn_ca_place_guarantee(p_guarantee numeric, p_bounty_pool numeric, p_rake numeric)
+CREATE FUNCTION public.fn_ca_place_guarantee_gross(p_guarantee numeric, p_bounty_pool numeric, p_rake numeric)
  RETURNS numeric
  LANGUAGE sql
  IMMUTABLE PARALLEL SAFE
@@ -78,9 +80,9 @@ AS $function$
                      - greatest(0, round(coalesce(p_bounty_pool,0),2))
                      - greatest(0, round(coalesce(p_rake,0),2)));
 $function$;
-REVOKE ALL ON FUNCTION public.fn_ca_place_guarantee(numeric,numeric,numeric) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_ca_place_guarantee(numeric,numeric,numeric) TO authenticated, service_role;
-COMMENT ON FUNCTION public.fn_ca_place_guarantee(numeric,numeric,numeric) IS
+REVOKE ALL ON FUNCTION public.fn_ca_place_guarantee_gross(numeric,numeric,numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ca_place_guarantee_gross(numeric,numeric,numeric) TO authenticated, service_role;
+COMMENT ON FUNCTION public.fn_ca_place_guarantee_gross(numeric,numeric,numeric) IS
  'Owner rule 2026-11-05: the full buy-in (prize + bounty + rake) counts toward the guarantee. Floor = G - bounty_pool - total_rake; house funding = max(0, floor - prize_pool) = max(0, G - C).';
 
 -- ── 1b. The reconcilable breakdown of one event ─────────────────────────────
@@ -151,14 +153,14 @@ GRANT EXECUTE ON FUNCTION public.fn_ca_guarantee_coverage(uuid) TO service_role;
 DO $patch$
 DECLARE
   v_t  constant text := 'fn_ca_place_guarantee(t.guaranteed_prize, t.bounty_pool)';
-  v_t3 constant text := 'fn_ca_place_guarantee(t.guaranteed_prize, t.bounty_pool, t.total_rake)';
+  v_t3 constant text := 'fn_ca_place_guarantee_gross(t.guaranteed_prize, t.bounty_pool, t.total_rake)';
   v_n  constant text := 'fn_ca_place_guarantee(NEW.guaranteed_prize, NEW.bounty_pool)';
-  v_n3 constant text := 'fn_ca_place_guarantee(NEW.guaranteed_prize, NEW.bounty_pool, NEW.total_rake)';
+  v_n3 constant text := 'fn_ca_place_guarantee_gross(NEW.guaranteed_prize, NEW.bounty_pool, NEW.total_rake)';
   v_v  constant text := 'fn_ca_place_guarantee(v_t.guaranteed_prize, v_t.bounty_pool)';
-  v_v3 constant text := 'fn_ca_place_guarantee(v_t.guaranteed_prize, v_t.bounty_pool, v_t.total_rake)';
+  v_v3 constant text := 'fn_ca_place_guarantee_gross(v_t.guaranteed_prize, v_t.bounty_pool, v_t.total_rake)';
   -- These two read v_t as a record of named columns without total_rake; the
   -- row is already locked FOR UPDATE by the same transaction.
-  v_vq constant text := 'fn_ca_place_guarantee(v_t.guaranteed_prize, v_t.bounty_pool, (SELECT x.total_rake FROM public.tournaments x WHERE x.id = v_t.id))';
+  v_vq constant text := 'fn_ca_place_guarantee_gross(v_t.guaranteed_prize, v_t.bounty_pool, (SELECT x.total_rake FROM public.tournaments x WHERE x.id = v_t.id))';
   r record;
   v_def text;
   v_got int;

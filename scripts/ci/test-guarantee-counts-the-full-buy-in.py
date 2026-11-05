@@ -166,8 +166,8 @@ try:
                 'fn_ca_prize_overpay_unexplained(interval)', 'fn_ca_tournament_settlement_mismatch(interval)',
                 'fn_poker_diamond_tournament_effective_guarantee(uuid)']:
         d = q(f"SELECT pg_get_functiondef('public.{sig}'::regprocedure)")
-        old = re.findall(r'fn_ca_place_guarantee\(([^()]|\([^()]*\))*\)', d)
-        calls = re.findall(r'fn_ca_place_guarantee\((?:[^()]|\([^()]*(?:\([^()]*\))*[^()]*\))*\)', d)
+        assert 'fn_ca_place_guarantee(' not in d, sig
+        calls = re.findall(r'fn_ca_place_guarantee_gross\((?:[^()]|\([^()]*(?:\([^()]*\))*[^()]*\))*\)', d)
         assert calls and all('total_rake' in c for c in calls), (sig, calls)
     print('PASS: every reader of the guarantee floor passes total_rake (13 functions)', flush=True)
 
