@@ -239,7 +239,7 @@ def parse_metrics(text):
 
 def docker_logs(since_s):
     try:
-        p = subprocess.run(["docker", "logs", "--since", f"{int(since_s)}s", CONTAINER],
+        p = subprocess.run(["docker", "logs", "--timestamps", "--since", f"{int(since_s)}s", CONTAINER],
                            capture_output=True, text=True, timeout=40)
         return (p.stdout + "\n" + p.stderr).splitlines(), None
     except Exception as e:
@@ -466,14 +466,19 @@ def run_cycle(prev_state):
     rebuild_hist = prev_state.get("rebuild_history", {})
     rx_rebuild = re.compile(r"zombie_engine_rebuilt\].*Engine for ([0-9a-f\-]{36})")
     rebuilds_this_cycle = {}
+    # Log windows overlap between cycles on purpose; each rebuild is keyed by its own docker
+    # timestamp so the same log line is never counted twice.
     for line in c.log_lines:
         m = rx_rebuild.search(line)
         if m:
-            rebuilds_this_cycle[m.group(1)] = rebuilds_this_cycle.get(m.group(1), 0) + 1
-    cutoff = (now - dt.timedelta(seconds=RECOVERY_LOOP_WINDOW_S)).timestamp()
-    for tid, n in rebuilds_this_cycle.items():
-        rebuild_hist.setdefault(tid, []).extend([now.timestamp()] * n)
-    rebuild_hist = {k: [x for x in v if x >= cutoff] for k, v in rebuild_hist.items()}
+            ts = line.split(" ", 1)[0]
+            seen_ts = rebuild_hist.setdefault(m.group(1), [])
+            if ts not in seen_ts:
+                seen_ts.append(ts)
+                rebuilds_this_cycle[m.group(1)] = rebuilds_this_cycle.get(m.group(1), 0) + 1
+    cutoff = now - dt.timedelta(seconds=RECOVERY_LOOP_WINDOW_S)
+    rebuild_hist = {k: [x for x in v if isinstance(x, str) and (parse_ts(x) or now) >= cutoff]
+                    for k, v in rebuild_hist.items()}
     rebuild_hist = {k: v for k, v in rebuild_hist.items() if v}
 
     by_id = {t["id"]: t for t in running + registering + recent_done + test_events}
