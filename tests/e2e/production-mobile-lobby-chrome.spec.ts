@@ -746,10 +746,13 @@ test.describe('the mobile lobby chrome on production', () => {
       });
       if (mode === 'cash') {
         expect(paint.icon).toBe('lightning');
-        expect(paint.filter).toContain('grayscale(1)');
-        expect(await sampleRow.evaluate((e) => getComputedStyle(e, '::before').filter)).toContain(
-          'grayscale(1)'
-        );
+        // Since #9440 (November 3) cash headings and rows wear the full-color
+        // emblems-v2 card artwork, no longer a grayscaled tournament card.
+        expect(paint.backgrounds[0]).toContain('chrome-arena-emblems-v2/card');
+        expect(paint.filter).toBe('none');
+        expect(
+          await sampleRow.evaluate((e) => getComputedStyle(e, '::before').backgroundImage)
+        ).toContain('chrome-arena-emblems-v2/card');
         await expect
           .poll(() =>
             currentRows.evaluateAll((elements) =>
@@ -938,9 +941,7 @@ test.describe('the mobile lobby chrome on production', () => {
             favorites > 0 &&
             current.slice(0, pins).every((row) => row.pinned) &&
             current.slice(pins, pins + favorites).every((row) => row.favorite) &&
-            current
-              .slice(pins, pins + favorites)
-              .some((row) => row.id === chosen) &&
+            current.slice(pins, pins + favorites).some((row) => row.id === chosen) &&
             current.slice(pins + favorites).every((row) => !row.pinned && !row.favorite)
           );
         })
@@ -1452,13 +1453,7 @@ preferenceLifecycleTest.describe('owned preference lifecycle', () => {
           )?.find?.((c: { field?: string }) => c?.field === 'filters.HOLDEM');
           return (
             change?.value?.seatMin === Number(chosen) &&
-            (await lobbySaveAccepted(
-              response,
-              seatOwner,
-              CLUB_ID,
-              'filters.HOLDEM',
-              change.value
-            ))
+            (await lobbySaveAccepted(response, seatOwner, CLUB_ID, 'filters.HOLDEM', change.value))
           );
         },
         { timeout: 45_000 }
