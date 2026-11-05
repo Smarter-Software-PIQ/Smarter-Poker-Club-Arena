@@ -21,6 +21,27 @@ export function placeGuarantee(guarantee: unknown, bounties: unknown): number {
   return Math.max(0, amount(guarantee) - amount(bounties));
 }
 
+/**
+ * What a guaranteed event's lobby prints as its pool (2026-11-04).
+ *
+ * The guarantee covers places and bounties together, so the number shown
+ * beside "GTD" is the WHOLE pool: max(prize pool + bounty pool, guarantee).
+ * Printing the prize half alone made a 750 guarantee PKO read 380 while 370
+ * sat in bounties. The prize pool itself is kept honest by the database
+ * (fn_ca_trim_live_overlay): it is max(place guarantee, money in), never the
+ * start-time overlay stacked on late entries.
+ */
+export function displayTotalPool(
+  prizePool: unknown,
+  guarantee: unknown,
+  bountyPool: unknown = 0
+): number {
+  const prize = Math.max(amount(prizePool), placeGuarantee(guarantee, bountyPool));
+  const total = prize + amount(bountyPool);
+  const gtd = amount(guarantee);
+  return gtd > 0 ? Math.max(total, gtd) : total;
+}
+
 /** Fixed-bounty copy comes from charged terms, never an old schedule blurb. */
 export function tournamentEntryDescription(
   t: TournamentPrizeTerms,

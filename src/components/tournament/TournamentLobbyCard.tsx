@@ -66,6 +66,7 @@ import {
   type MttStructureDescription,
 } from '../../../server/src/tournament/mttStructureDescription';
 import { compactChips } from '../../utils/format';
+import { displayTotalPool } from '../../utils/tournamentPrizeFunding';
 import { spinCeilingMultiplier } from '../lobby/lobbyEntries';
 import type { TournamentArenaEmbed } from './details/types';
 import { spinMultiplierLabel } from '../../utils/spinReveal';
@@ -83,6 +84,8 @@ interface Tournament extends TournamentEntryWindowRow {
   /** Exact booked price label supplied from the tournament scope. */
   buyInLabel?: string;
   prizePool: number;
+  /** Bounty money held for knockouts; shown inside the guaranteed total. */
+  bountyPool?: number;
   maxPlayers: number | null;
   registeredPlayers: number;
   startsAt?: string;
@@ -826,16 +829,23 @@ function TournamentLobbyCardInner({
 
         <div className={styles.row}>
           <span className="sc-label sc-ink--blue">
-            {spinLabels ? spinLabels.moneyLabel : 'Prize Pool'}
+            {spinLabels
+              ? spinLabels.moneyLabel
+              : (tournament.bountyPool ?? 0) > 0
+                ? 'Total Pool'
+                : 'Prize Pool'}
           </span>
           <span className={`${styles.value} sc-ink--silver`}>
             {spinLabels
               ? (spinLabels.money ?? 'Unavailable')
               : (() => {
-                  const gtd = tournament.guaranteedPrize || 0;
-                  const displayPool =
-                    gtd > 0 ? Math.max(tournament.prizePool, gtd) : tournament.prizePool;
-                  return compactChips(displayPool);
+                  return compactChips(
+                    displayTotalPool(
+                      tournament.prizePool,
+                      tournament.guaranteedPrize,
+                      tournament.bountyPool
+                    )
+                  );
                 })()}
             {/* `guaranteedPrize && ...` printed a literal 0 after the pool
                 ("400" for a 40-chip pool with no guarantee): React renders the
