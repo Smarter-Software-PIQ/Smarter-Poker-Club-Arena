@@ -3044,7 +3044,8 @@ export abstract class TournamentManagerBase {
       if (!lifecycle || !tableId || !this.lifecycleIsCurrent(lifecycle)) return;
       await this.recoverManagedTableEngine(tableId, engine, lifecycle, 'engine_start_failed', true);
     });
-    void operation.finally(releaseOpeningSlot);
+    // runJob below reports a failed recovery; this copy only frees the slot.
+    void operation.finally(releaseOpeningSlot).catch(() => {});
     let runJob!: Promise<void>;
     runJob = operation.finally(() => this.tableEngineRunJobs.delete(runJob));
     this.tableEngineRunJobs.add(runJob);
@@ -3067,7 +3068,7 @@ export abstract class TournamentManagerBase {
         this.tableRestartBackoff.recordReady(tableId);
       }
     });
-    void engine.ready.then(releaseOpeningSlot, releaseOpeningSlot);
+    void engine.ready.finally(releaseOpeningSlot).catch(() => {});
     let tableStart!: Promise<void>;
     tableStart = readiness.finally(() => this.tableEngineStartJobs.delete(tableStart));
     this.tableEngineStartJobs.add(tableStart);
