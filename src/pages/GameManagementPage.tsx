@@ -1,3 +1,4 @@
+import { isFixedLimitVariant } from '../lib/bettingStructure';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import {
   isUnlimitedTournamentFormat,
@@ -364,6 +365,7 @@ export function EditGameDialog({
   const [startTime, setStartTime] = useState(
     game.startTime ? new Date(game.startTime).toISOString().slice(0, 16) : ''
   );
+  const unlimitedCash = game.kind === 'table' && isFixedLimitVariant(game.variant);
   const unlimitedMtt = game.kind === 'tournament' && isUnlimitedTournamentFormat(game);
   const entryCapacityLocked =
     game.kind === 'tournament' && (!isKnownTournamentFormat(game) || unlimitedMtt);
@@ -382,7 +384,7 @@ export function EditGameDialog({
       (smallBlind !== String(game.smallBlind || 1) ||
         bigBlind !== String(game.bigBlind || 2) ||
         minBuyIn !== String(game.minBuyIn || 40) ||
-        maxBuyIn !== String(game.maxBuyIn || 200))) ||
+        (!unlimitedCash && maxBuyIn !== String(game.maxBuyIn || 200)))) ||
     (game.kind === 'tournament' &&
       startTime !== (game.startTime ? new Date(game.startTime).toISOString().slice(0, 16) : ''));
 
@@ -428,7 +430,12 @@ export function EditGameDialog({
       const big = Number(bigBlind);
       const minimum = Number(minBuyIn);
       const maximum = Number(maxBuyIn);
-      if (![small, big, minimum, maximum].every(Number.isFinite) || small <= 0) {
+      if (
+        !(unlimitedCash ? [small, big, minimum] : [small, big, minimum, maximum]).every(
+          Number.isFinite
+        ) ||
+        small <= 0
+      ) {
         setValidationError('Enter positive numeric blinds and buy-in limits.');
         return null;
       }
@@ -436,7 +443,7 @@ export function EditGameDialog({
         setValidationError('The big blind cannot be lower than the small blind.');
         return null;
       }
-      if (maximum < minimum) {
+      if (!unlimitedCash && maximum < minimum) {
         setValidationError('The maximum buy-in cannot be lower than the minimum buy-in.');
         return null;
       }
@@ -447,7 +454,7 @@ export function EditGameDialog({
       patch.smallBlind = small;
       patch.bigBlind = big;
       patch.minBuyIn = minimum;
-      patch.maxBuyIn = maximum;
+      if (!unlimitedCash) patch.maxBuyIn = maximum;
     } else if (startTime) {
       const timestamp = new Date(startTime);
       if (!Number.isFinite(timestamp.getTime())) {
@@ -557,15 +564,19 @@ export function EditGameDialog({
               </label>
               <label>
                 Maximum Buy-In
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={maxBuyIn}
-                  onChange={(e) => setMaxBuyIn(e.target.value)}
-                  disabled={tableStructureLocked}
-                  required
-                />
+                {unlimitedCash ? (
+                  <input type="text" value="No Maximum" readOnly />
+                ) : (
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={maxBuyIn}
+                    onChange={(e) => setMaxBuyIn(e.target.value)}
+                    disabled={tableStructureLocked}
+                    required
+                  />
+                )}
               </label>
             </div>
           ) : (
@@ -1833,7 +1844,9 @@ export default function GameManagementPage({ scope }: { scope: Scope }) {
                             : undefined,
                         buyIn:
                           game.kind === 'table'
-                            ? `${game.minBuyIn}-${game.maxBuyIn}`
+                            ? isFixedLimitVariant(game.variant)
+                              ? `${game.minBuyIn} Min / No Maximum`
+                              : `${game.minBuyIn}-${game.maxBuyIn}`
                             : String(game.buyIn),
                         startTime:
                           game.kind === 'tournament' ? formatTime(game.startTime) : undefined,

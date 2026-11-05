@@ -1,3 +1,4 @@
+import { isFixedLimitVariant } from '../../lib/bettingStructure';
 import { diamondMiniPlateAmount, type DiamondJackpotSnapshot } from '../../lib/diamondJackpotFeed';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -1199,6 +1200,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         onRetryBalance={onRetryAccountBalance}
         maxBuyIn={maxBuyIn}
         maxStack={maxBuyIn}
+        unlimitedStack={!isTournament && isFixedLimitVariant(gameType)}
       />
       <BuyInModal
         /* A Diamond cash seat is felted the same way and re-enters through
