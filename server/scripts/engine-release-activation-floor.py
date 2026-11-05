@@ -380,14 +380,17 @@ def main():
             print('announced' if prior.get('phase') == 'announcement' else 'entered')
             return
     record = policy(args.repo, args.target, args.control)
-    # An explicitly selected owner window cannot become an on-the-hour or
-    # degraded-engine release merely because its bounded order expired. This
-    # applies only to that reviewed opt-in; legacy floor expiry is unchanged.
-    # Existing runtime entries returned above keep their original recovery.
-    if (prior is None and args.mode != 'publish' and record is not None
-            and record.get('supersedesPhase1Schedule') is True
-            and int(time.time()) >= record['expiresEpoch']):
-        raise ValueError('explicit later owner window expired; no alternate reset authorized')
+    # AN EXPIRED OWNER WINDOW RETURNS RELEASES TO THE STANDING SCHEDULE
+    # (Dan, 2026-11-05: "HARD CODE FIX THIS AT ITS ROOT CAUSE SO IT STOPS
+    # HAPPENING"). A later owner window only takes precedence over the standing
+    # schedule while it is open (later_owner below). When it expires it simply
+    # stops applying: fresh admission falls through to the standing schedule
+    # the owner already ordered (the maintained Phase1 policy, or the daily
+    # 04:00 Chicago baseline once Phase1 is recorded complete), exactly like an
+    # expired legacy floor. It used to refuse every fresh release instead, so
+    # each expiry froze engine delivery until someone wrote a new window. An
+    # expired window still never admits anything itself, and existing runtime
+    # entries returned above keep their original custody and recovery.
     if (args.mode not in ('checkpoint-no-action', 'reservation') and prior is None) or (prior is not None and prior['schema'] == PHASE1_CAPABILITY):
         selected = phase1_policy(args.repo, args.target, args.control)
         if prior is not None and selected is None:
