@@ -60,6 +60,14 @@ import { awaitPreferenceSave } from '../../lib/tableSettingIntents';
 import { reportError } from '../../utils/errorReporter';
 import { supabase } from '../../lib/supabase';
 import { readLocalSession } from '../../lib/authUtils';
+import {
+  flushLobby,
+  hasPendingView,
+  noteLobbyRow,
+  pendingViewValues,
+  setViewBaseline,
+  stageViewChanges,
+} from './lobbyPreferenceSync';
 import { useUserStore } from '../../stores/useUserStore';
 
 /**
@@ -301,10 +309,13 @@ export function loadViewPrefs(clubId: string, userId = currentUserId()): LobbyVi
         }
       }
     }
-    if (!raw) return { ...EMPTY_VIEW_PREFS, sortByTab: {} };
-    const parsed: unknown = JSON.parse(raw);
-    rememberStoredView(userId, clubId, parsed);
-    return sanitizeViewPrefs(parsed);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (parsed) rememberStoredView(userId, clubId, parsed);
+    const shown = parsed ? sanitizeViewPrefs(parsed) : { ...EMPTY_VIEW_PREFS, sortByTab: {} };
+    if (userId) adoptLegacyUnsyncedView(clubId, userId, shown);
+    const merged = withPendingView(shown, userId, clubId);
+    setViewBaseline(userId, clubId, merged);
+    return merged;
   } catch {
     // Corrupt JSON, a disabled store, or private-mode Safari throwing on read.
     return { ...EMPTY_VIEW_PREFS, sortByTab: {} };
@@ -327,7 +338,7 @@ export async function fetchRemoteViewPrefs(
   try {
     const { data, error } = await supabase
       .from('user_lobby_filters')
-      .select('view_prefs')
+      .select('view_prefs, revisions')
       .eq('user_id', userId)
       .eq('club_id', clubId)
       .maybeSingle();
@@ -337,9 +348,13 @@ export async function fetchRemoteViewPrefs(
       }
       return null;
     }
+    noteLobbyRow(userId, clubId, (data as { revisions?: unknown } | null)?.revisions);
     if (!data?.view_prefs || typeof data.view_prefs !== 'object') return null;
     rememberStoredView(userId, clubId, data.view_prefs);
-    return sanitizeViewPrefs(data.view_prefs);
+    // A change not yet acknowledged stays on screen over the row.
+    const merged = withPendingView(sanitizeViewPrefs(data.view_prefs), userId, clubId);
+    setViewBaseline(userId, clubId, merged);
+    return merged;
   } catch (e) {
     if (!isAbortedRequest(e)) reportError(e, 'lobbyViewPrefs.fetchRemoteViewPrefs', { clubId });
     return null;
@@ -354,80 +369,59 @@ export async function fetchRemoteViewPrefs(
  * other's column — they are two preferences of one lobby, written
  * independently by two components.
  */
-const pendingViewWrites = new Map<string, Promise<void>>();
 
 export function pushRemoteViewPrefs(
   clubId: string,
   prefs: LobbyViewPrefs,
   userId = currentUserId(),
-  options: { replay?: boolean } = {}
+  _options: { replay?: boolean } = {}
 ): Promise<void> {
   if (!userId || !clubId) return Promise.resolve();
-  const key = `${userId}:${clubId}`;
-  /* THE CHOICE IS OWED TO THE ROW UNTIL THE ROW CONFIRMS IT. Marked before
-     the request leaves, cleared only by the last queued write succeeding. A
-     save the network dropped therefore stays recorded on this device, and the
-     next lobby open finishes that same write instead of letting the older row
-     overwrite the newer choice (see hasUnsyncedViewPrefs). */
-  markUnsynced(unsyncedViewKey(userId, clubId), true, options.replay === true);
-  const changedAt = unsyncedChoiceTime(unsyncedViewKey(userId, clubId));
-  const payload = preserveStoredView(clubId, prefs, userId);
-  // Preserve tap order: a slow earlier save must not land after the last tap.
-  // Each action contributes one bounded write, with no timer or repair loop.
-  const write = async (): Promise<boolean> => {
-    try {
-      const { error } = await awaitPreferenceSave(
-        supabase.from('user_lobby_filters').upsert(
-          {
-            user_id: userId,
-            club_id: clubId,
-            view_prefs: payload,
-            view_prefs_changed_at: changedAt,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id,club_id' }
-        )
-      );
-      if (error) {
-        if (!isAbortedRequest(error)) {
-          reportError(error, 'lobbyViewPrefs.pushRemoteViewPrefs', { clubId });
-        }
-        return false;
-      }
-      return true;
-    } catch (error) {
-      if (!isAbortedRequest(error)) {
-        reportError(error, 'lobbyViewPrefs.pushRemoteViewPrefs', { clubId });
-      }
-      return false;
-    }
-  };
-  const previous = pendingViewWrites.get(key);
-  const pending: Promise<void> = (previous ? previous.then(write) : write()).then((ok) => {
-    // Only the newest queued choice may declare this account+club synced.
-    if (ok && pendingViewWrites.get(key) === pending) {
-      markUnsynced(unsyncedViewKey(userId, clubId), false);
-    }
-  });
-  pendingViewWrites.set(key, pending);
-  trackPreferenceWrite(userId, pending);
-  void pending.then(() => {
-    if (pendingViewWrites.get(key) === pending) pendingViewWrites.delete(key);
-  });
-  return pending;
+  /* ONLY WHAT THE PLAYER CHANGED (2026-11-05): the tab, the chip and each
+     tab's sort are separate fields, staged against the revision this device
+     last saw and applied by the server only if that is still current. A
+     replay of an earlier session's choice is already staged; this sends it. */
+  stageViewChanges(userId, clubId, prefs);
+  const flush = flushLobby(userId, clubId);
+  trackPreferenceWrite(userId, flush);
+  return flush;
 }
 
 /**
- * Does this device hold a choice the database never confirmed?
- *
- * True after a save that failed (offline, a dropped tab, a server error) and
- * until a later save succeeds. The lobby reads it before it lets the row
- * correct the cache: the row is the truth only once it has the latest choice,
- * so an unconfirmed local choice is finished (re-sent) rather than discarded.
+ * Does this device hold a view choice the account has not accepted yet?
+ * Such a choice stays on screen over the row until the account answers.
  */
 export function hasUnsyncedViewPrefs(clubId: string, userId = currentUserId()): boolean {
   if (!userId || !clubId) return false;
-  return isUnsynced(unsyncedViewKey(userId, clubId));
+  return hasPendingView(userId, clubId);
+}
+
+/** Lay a not-yet-acknowledged change over what was loaded, validated. */
+function withPendingView(
+  shown: LobbyViewPrefs,
+  userId: string | null,
+  clubId: string
+): LobbyViewPrefs {
+  const pending = pendingViewValues(userId, clubId);
+  const overlay = sanitizeViewPrefs({
+    tab: pending.tab ?? shown.tab,
+    favoritesOnly: pending.favoritesOnly ?? shown.favoritesOnly,
+    sortByTab: { ...shown.sortByTab, ...pending.sortByTab },
+  });
+  return overlay;
+}
+
+/**
+ * An older build's unconfirmed view choice: which settings changed is not
+ * recorded, so its tab, chip and sorts are staged with no known revision,
+ * which the server applies only where nothing has been saved under revisions.
+ */
+function adoptLegacyUnsyncedView(clubId: string, userId: string, shown: LobbyViewPrefs): void {
+  const marker = unsyncedViewKey(userId, clubId);
+  if (!isUnsynced(marker)) return;
+  markUnsynced(marker, false);
+  setViewBaseline(userId, clubId, { tab: null, favoritesOnly: false, sortByTab: {} });
+  stageViewChanges(userId, clubId, shown);
 }
 
 function unsyncedViewKey(userId: string, clubId: string): string {

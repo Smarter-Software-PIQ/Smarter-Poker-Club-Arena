@@ -28,7 +28,10 @@
  * Pure. No I/O, no clock, no random source.
  */
 
-import { buildInventoryAtUnit, summariseInventory } from '../../server/src/tournament/mysteryBountyPool';
+import {
+  buildInventoryAtUnit,
+  summariseInventory,
+} from '../../server/src/tournament/mysteryBountyPool';
 import {
   mysteryBountyFieldTooSmall,
   mysteryPoolCents,

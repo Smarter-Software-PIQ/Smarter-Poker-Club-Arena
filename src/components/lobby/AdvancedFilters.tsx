@@ -42,7 +42,17 @@ import { reportError } from '../../utils/errorReporter';
 import { supabase } from '../../lib/supabase';
 import { readLocalSession } from '../../lib/authUtils';
 import { useUserStore } from '../../stores/useUserStore';
-import { isAbortedRequest, isUnsynced, markUnsynced, unsyncedChoiceTime } from './lobbyViewPrefs';
+import { isAbortedRequest, isUnsynced, markUnsynced } from './lobbyViewPrefs';
+import {
+  flushLobby,
+  hasPendingFilters,
+  noteLobbyRow,
+  pendingFilterValues,
+  setFilterBaseline,
+  stageFilterChanges,
+} from './lobbyPreferenceSync';
+import { pendingFlush } from '../../lib/preferenceSync';
+import { lobbyScope } from './lobbyPreferenceSync';
 import { usePlatformCapability } from '../../hooks/usePlatformCapability';
 import './AdvancedFilters.css';
 
@@ -251,11 +261,30 @@ export function loadFilters(clubId: string, userId: string | null = currentUserI
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     rememberStoredFilters(userId, clubId, parsed);
-    return sanitizeStore(parsed as FilterStore);
+    const shown = sanitizeStore(parsed as FilterStore);
+    if (userId) adoptLegacyUnsynced(clubId, userId, shown);
+    const merged = { ...shown, ...(pendingFilterValues(userId, clubId) as FilterStore) };
+    setFilterBaseline(userId, clubId, merged);
+    return merged;
   } catch (e) {
     reportError(e, 'AdvancedFilters.loadFilters');
     return {};
   }
+}
+
+/**
+ * A store an older build left marked unconfirmed is still the player's own
+ * unsent choice, but which tabs changed is not recorded. It is staged with no
+ * known revision, which the server applies only to a tab never saved under
+ * revisions; anything already saved since wins and this device shows it.
+ */
+function adoptLegacyUnsynced(clubId: string, userId: string, shown: FilterStore): void {
+  const marker = unsyncedKey(clubId, userId);
+  if (!isUnsynced(marker)) return;
+  markUnsynced(marker, false);
+  setFilterBaseline(userId, clubId, {});
+  stageFilterChanges(userId, clubId, shown);
+  setFilterBaseline(userId, clubId, shown);
 }
 
 /**
@@ -333,7 +362,7 @@ export async function fetchRemoteFilters(
   try {
     const { data, error } = await supabase
       .from('user_lobby_filters')
-      .select('filters')
+      .select('filters, revisions')
       .eq('user_id', userId)
       .eq('club_id', clubId)
       .maybeSingle();
@@ -350,7 +379,15 @@ export async function fetchRemoteFilters(
        that cannot match - an empty lobby with no explanation, which is the
        exact failure loadFilters was hardened against. */
     rememberStoredFilters(userId, clubId, data.filters);
-    return sanitizeStore(data.filters as FilterStore);
+    noteLobbyRow(userId, clubId, (data as { revisions?: unknown }).revisions);
+    // A change this device has not had acknowledged yet stays on screen over
+    // the row; the row is what everything else shows.
+    const merged = {
+      ...sanitizeStore(data.filters as FilterStore),
+      ...(pendingFilterValues(userId, clubId) as FilterStore),
+    };
+    setFilterBaseline(userId, clubId, merged);
+    return merged;
   } catch (e) {
     if (!isAbortedRequest(e)) reportError(e, 'AdvancedFilters.fetchRemoteFilters', { clubId });
     return null;
@@ -358,104 +395,55 @@ export async function fetchRemoteFilters(
 }
 
 /**
- * Mirror the store to the database. Never throws, never blocks the UI.
+ * Send this store's changes to the account. Never throws, never blocks the UI.
  *
- * ORDERED AND CONFIRMED (2026-10-16). Writes for one account+club go out in
- * the order they were made, so a slow earlier save can never land after the
- * last one, and the store stays marked unsynced on this device until the
- * newest write is confirmed. A save the network dropped is then finished by
- * the next lobby open (hasUnsyncedFilters) instead of the older row
- * overwriting the newer choice.
+ * ONLY THE TABS THE PLAYER CHANGED (2026-11-05). This used to upsert the whole
+ * store, so a stale copy overwrote newer tabs and every save rewrote settings
+ * the player had not touched. Now each changed tab is staged as one field,
+ * stated against the revision this device last saw, and the server applies it
+ * only if that is still current (lobbyPreferenceSync, preferenceSync). A
+ * change that loses is reported on screen and the account's value is shown.
  */
-const filterVersions = new Map<string, number>();
-const pendingFilterWrites = new Map<string, Promise<void>>();
-
 export function pushRemoteFilters(
   clubId: string,
   store: FilterStore,
   userId = currentUserId()
 ): Promise<void> {
   if (!userId || !clubId) return Promise.resolve();
-  const key = `${userId}:${clubId}`;
-  const version = filterVersions.get(key) ?? 0;
-  /* The marker already holds when the choice was made (stageFilters sets it
-     on every change); a push, including a replay on the next open, keeps that
-     time so the database can tell an old choice from a new one. */
-  markUnsynced(unsyncedKey(clubId, userId), true, true);
-  const changedAt = unsyncedChoiceTime(unsyncedKey(clubId, userId));
-  const payload = preserveStoredFilters(clubId, store, userId);
-  const write = async (): Promise<boolean> => {
-    try {
-      const { error } = await awaitPreferenceSave(
-        supabase.from('user_lobby_filters').upsert(
-          {
-            user_id: userId,
-            club_id: clubId,
-            filters: payload,
-            filters_changed_at: changedAt,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id,club_id' }
-        )
-      );
-      if (error) {
-        if (!isAbortedRequest(error)) {
-          reportError(error, 'AdvancedFilters.pushRemoteFilters', { clubId });
-        }
-        return false;
-      }
-      return true;
-    } catch (error) {
-      if (!isAbortedRequest(error)) {
-        reportError(error, 'AdvancedFilters.pushRemoteFilters', { clubId });
-      }
-      return false;
-    }
-  };
-  const previous = pendingFilterWrites.get(key);
-  const pending: Promise<void> = (previous ? previous.then(write) : write()).then((ok) => {
-    if (
-      ok &&
-      pendingFilterWrites.get(key) === pending &&
-      (filterVersions.get(key) ?? 0) === version
-    ) {
-      markUnsynced(unsyncedKey(clubId, userId), false);
-    }
-  });
-  pendingFilterWrites.set(key, pending);
-  trackPreferenceWrite(userId, pending);
-  void pending.then(() => {
-    if (pendingFilterWrites.get(key) === pending) pendingFilterWrites.delete(key);
-  });
-  return pending;
+  stageFilterChanges(userId, clubId, store);
+  const flush = flushLobby(userId, clubId);
+  trackPreferenceWrite(userId, flush);
+  return flush;
 }
 
-/** Does this device hold a filter store the database never confirmed? */
+/** Is a filter change on this device still waiting for the account to accept it? */
 export function hasUnsyncedFilters(clubId: string, userId = currentUserId()): boolean {
   if (!userId || !clubId) return false;
-  return isUnsynced(unsyncedKey(clubId, userId));
+  return hasPendingFilters(userId, clubId);
+}
+
+/** The in-flight save for this account and club, if any. */
+export function pendingFilterWrite(
+  clubId: string,
+  userId: string | null
+): Promise<void> | undefined {
+  return userId ? pendingFlush(userId, lobbyScope(clubId)) : undefined;
 }
 
 /**
- * THE LOBBY'S ONE DOOR FOR A FILTER CHANGE. The quick chips under the action
- * bar (stakes, status, variants, styles) wrote only this browser's cache, so
- * they never followed the player to another device even though the sheet
- * beside them did. Each chip is one discrete tap, so it is written at once;
- * pushRemoteFilters keeps the taps in order.
+ * THE LOBBY'S ONE DOOR FOR A FILTER CHANGE. Saves this device's copy at once
+ * and stages exactly the tabs the player changed; pushRemoteFilters sends them.
  */
 export function stageFilters(clubId: string, store: FilterStore, userId = currentUserId()): void {
   saveFilters(clubId, store, userId);
   if (!userId) return;
-  const key = `${userId}:${clubId}`;
-  filterVersions.set(key, (filterVersions.get(key) ?? 0) + 1);
-  // A change: the marker takes this moment as the time of the choice.
-  markUnsynced(unsyncedKey(clubId, userId), true);
+  stageFilterChanges(userId, clubId, store);
 }
 
 export function persistFilters(clubId: string, store: FilterStore): void {
   if (!clubId) return;
   stageFilters(clubId, store);
-  pushRemoteFilters(clubId, store);
+  void pushRemoteFilters(clubId, store);
 }
 
 /** Format a range endpoint: blinds keep decimals, buy-ins do not. */
@@ -567,7 +555,7 @@ export default function AdvancedFilters({
       const pending = pendingRemoteRef.current;
       pendingRemoteRef.current = null;
       if (pending) pushRemoteFilters(clubId, pending, ownerId);
-      return pendingFilterWrites.get(`${ownerId}:${clubId}`);
+      return pendingFilterWrite(clubId, ownerId);
     });
   }, [ownerId, clubId]);
 

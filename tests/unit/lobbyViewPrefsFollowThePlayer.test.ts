@@ -25,14 +25,17 @@ import { sliceEnclosingBlock } from '../helpers/sourceWindow';
 const read = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8');
 
 const maybeSingle = vi.fn();
-const upsert = vi.fn(() => ({ then: (f: (r: { error: null }) => void) => f({ error: null }) }));
+const rpc = vi.fn(async (_fn: string, _args: unknown) => ({
+  data: { ok: true, results: [] },
+  error: null,
+}));
 
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from: () => ({
       select: () => ({ eq: () => ({ eq: () => ({ maybeSingle }) }) }),
-      upsert,
     }),
+    rpc,
   },
 }));
 vi.mock('../../src/lib/authUtils', () => ({
@@ -45,7 +48,7 @@ const CLUB = 'club-1';
 describe('the saved view is read back from the database', () => {
   beforeEach(() => {
     maybeSingle.mockReset();
-    upsert.mockClear();
+    rpc.mockClear();
   });
   afterEach(() => vi.resetModules());
 
@@ -102,21 +105,29 @@ describe('the saved view is read back from the database', () => {
 });
 
 describe('the write shares its row without clobbering the filters beside it', () => {
-  beforeEach(() => upsert.mockClear());
+  beforeEach(() => rpc.mockClear());
   afterEach(() => vi.resetModules());
 
-  it('upserts only view_prefs, on the user+club conflict target', async () => {
-    const { pushRemoteViewPrefs } = await import('../../src/components/lobby/lobbyViewPrefs');
+  /* 2026-11-05: the row is no longer upserted whole. Only the fields the
+     player changed are sent, through fn_save_lobby_preferences, so neither the
+     filters beside the view nor any untouched view setting can be blanked. */
+  it('sends only the view fields that changed, never the filters beside them', async () => {
+    const { useUserStore } = await import('../../src/stores/useUserStore');
+    useUserStore.setState({ user: { id: 'u-1' } as any });
+    const { pushRemoteViewPrefs, loadViewPrefs } =
+      await import('../../src/components/lobby/lobbyViewPrefs');
+    loadViewPrefs(CLUB);
     pushRemoteViewPrefs(CLUB, { tab: 'MTT', sortByTab: {}, favoritesOnly: false });
-    const [payload, opts] = upsert.mock.calls[0] as unknown as [
-      Record<string, unknown>,
-      { onConflict: string },
+    await vi.waitFor(() => expect(rpc).toHaveBeenCalled());
+    const [fn, args] = rpc.mock.calls[0] as unknown as [
+      string,
+      { p_club_id: string; p_changes: any[] },
     ];
-    expect(payload.view_prefs).toEqual({ tab: 'MTT', sortByTab: {}, favoritesOnly: false });
-    // The Advanced Filters sheet owns `filters` on this same row and writes it
-    // independently. Naming it here would blank whatever it last saved.
-    expect(payload).not.toHaveProperty('filters');
-    expect(opts.onConflict).toBe('user_id,club_id');
+    expect(fn).toBe('fn_save_lobby_preferences');
+    expect(args.p_club_id).toBe(CLUB);
+    expect(args.p_changes.map((c) => c.field)).toEqual(['view.tab']);
+    expect(args.p_changes[0].value).toBe('MTT');
+    expect(args.p_changes.some((c) => String(c.field).startsWith('filters.'))).toBe(false);
   });
 });
 

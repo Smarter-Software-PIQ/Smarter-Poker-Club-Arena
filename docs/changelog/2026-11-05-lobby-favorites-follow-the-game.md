@@ -1,80 +1,89 @@
-# Lobby favorites and filters stop forgetting themselves (2026-11-05)
+# Lobby favorites and filters are durable account preferences (2026-11-05)
 
-Dan: "WHEN A USER MARKS HIS FAVORITES FOR TOURNAMENTS OR CASH GAMES, OR SETS
-THEIR FILTERS ... IT SAVES FOR A COUPLE HOURS, OR MAYBE A DAY, BUT THEN THEY
-ALWAYS SEEM TO SILENTLY FAIL OR SILENTLY DEFAULT BACK ... ONCE SET, IT CAN
-NEVER EVER EVER CHANGE UNDER ANY CIRCUMSTANCES UNLESS THE USER PHYSICALLY GOES
-IN AND CHANGES IT."
+Dan: favorites and filters are durable account preferences whose saved values
+change only through the account owner's explicit action or authorized account
+deletion.
 
-## Why every earlier fix regressed
+## Root causes (measured on production)
 
-The saves worked. Each earlier fix hardened the save (ordering, retries,
-cross-device rows) while the thing being saved was attached to something that
-does not last. Three causes, measured on production the same day:
+1. **Tournament stars pointed at one run.** Every scheduled event creates a new
+   tournaments row per run; all 25 stored stars sat on finished runs while 2-31
+   live runs of the same schedule showed unstarred.
+2. **Cash stars pointed at one table** (`favorite_tables`, cascade on delete),
+   and a rebuilt table is a new row.
+3. **Filters were saved under "nobody" once the access token expired**: owner
+   came from the token's freshness, not the signed-in account.
+4. **Every save rewrote the whole snapshot**, so a stale device or a replayed
+   older save overwrote newer choices and settings nobody touched.
+5. **A background reset**: switching to cash games rewrote the saved status
+   filter to All.
 
-1. **Tournament stars were stored against one run.** `lobby-tournament-favorites`
-   held tournament ids, and every scheduled event inserts a new `tournaments`
-   row for each run. All 25 stored stars pointed at a completed, cancelled or
-   about-to-finish run while 2 to 31 live runs of the same schedule showed
-   unstarred. One player had re-starred "Afternoon Free Buy" on four separate
-   days.
-2. **Cash stars were stored against one table.** `favorite_tables.table_id` has
-   `ON DELETE CASCADE` to `tables`. A cash game rebuilt by its owner (new row,
-   same game) left the star on the closed table, and deleting the old row
-   deleted the star.
-3. **Filters were saved under "nobody" once the login token aged out.**
-   `AdvancedFilters` and `lobbyViewPrefs` resolved the owner with
-   `readLocalSession()`, which returns null once the hour-long access token has
-   expired (normal on a phone or a backgrounded tab between refreshes). A filter
-   tapped in that window was written to the signed-out key and never sent to
-   `user_lobby_filters`, so the next fresh load showed the older choice.
-4. **A stale replay could overwrite a newer choice.** A device holding an
-   unconfirmed older change re-sent it on its next open, over whatever the
-   player had chosen since on another device.
-5. **Sanitizing wrote over saved values.** Values this build could not show
-   (a preset or sort from another build) were dropped on load and the
-   sanitized copy was written back on the next save, erasing them.
+## Identity (migration `20261105183133`)
 
-## The fix
+- Scheduled tournament: its `tournament_schedules` id. Every run and every edit
+  of the schedule keeps it; a different schedule with the same name stays
+  separate.
+- Sit N Go / Spin: the engine board, i.e. its catalogue name within the owner
+  club and union. All 388,704 unscheduled SNG/SPIN rows in 30 days came from
+  the engine catalogue (96 boards), which keeps a board by exactly that key.
+  Stack, speed and clock edits keep the board; a buy-in change is a different
+  board (as in the engine). A club's own one-off reusing a board's name does
+  not inherit. A catalogue rename must add `lobby_game_aliases` rows; the law
+  test pins the name templates.
+- Satellite: the recurring event it feeds plus its format, never its name.
+- Cash: the `cash_games` definition. Rebuilt tables keep it; a new definition
+  reusing the old name does not inherit unless an alias says so.
 
-- **Identity, never a name** (migration `20261105183133`):
-  - a scheduled tournament is starred by its schedule, so every run inherits it
-    and renames keep it (measured: schedules produce one tournament type and
-    their names change only by the club editing the event);
-  - a Sit N Go, Spin or unscheduled satellite is starred by its catalogue
-    definition: club, union, type, game, variant, buy-in, fee, field and table
-    size, speed, stack, spin type, format flags, and for a satellite the
-    recurring event it feeds (measured: one live game per definition; the same
-    name appears as up to four games across clubs);
-  - a cash game is starred by its `cash_games` definition, which every live
-    table belongs to and a rebuilt table keeps (measured: a table named
-    "PLO5 1/2 Madness" belongs to the game "PLO5 1.00/2.00 Lightning Games",
-    and a Classic game replaced a Madness game under the same name, so name
-    matching would have starred the wrong game).
-- `player_lobby_favorites` has no foreign key to any game row, so finished
-  runs, closed tables and deleted tables never remove a star; a game with
-  nothing live simply lights nothing until it runs again.
-- **Owner-only, enforced by the database** on favorites, saved filters and page
-  preferences: every insert, update and delete must be the signed-in owner's,
-  except the cascade from deleting the account; TRUNCATE is refused. Measured
-  first: only the player's own browser writes these tables, and their past
-  deletions came with account deletions.
-- **Newer choice wins, enforced by the database.** Every write carries the time
-  the player made the choice, a replay keeps its original time, and an older
-  choice never overwrites a newer one. After a replay the lobby reads the
-  account back so the screen shows the newer choice.
-- **Saved values are preserved.** Writes keep the stored value for anything
-  the player did not change, so a value this build cannot show survives.
-- Filter and view ownership comes from the signed-in account (user store),
-  token only as a pre-load fallback.
-- `src/components/lobby/lobbyFavorites.ts` is the single client door; the lobby
-  and Quick Join read it; a failed read keeps the stars on screen.
+A saved favorite is never removed by a finished run, a closed or deleted table,
+an empty schedule, a filter or a failed read. With nothing live there is just
+no lobby row to light; the saved choice stays selected and lights again.
+
+## Ordering: server revisions, not device clocks
+
+Each saved field (one filter tab, the tab, the Favorites chip, one sort, one
+page preference, one favorite) carries a revision from one database sequence.
+A change states the revision it was made against and applies only if that is
+still current; otherwise it is refused as a conflict, the device shows the
+account's value and reports "Changed On Another Device". The first change
+accepted against a revision wins; a later change made against the same older
+state is refused, never silently applied. Unfavorites are kept with their
+revision, so an older offline star cannot return. A duplicate retry is refused
+with a value equal to what was sent and reads as saved. Only changed fields
+are sent.
+
+## Ownership
+
+Browsers can only read `player_lobby_favorites`, `user_lobby_filters` and
+`user_page_preferences`. Writes go through `fn_set_lobby_favorites`,
+`fn_save_lobby_preferences` and `fn_save_page_preferences`, which act for
+`auth.uid()` only (derived by PostgREST from a verified JWT). A guard refuses
+every other write, including service-role and cleanup paths, and refuses
+TRUNCATE; rows are deleted only by the cascade from deleting the account
+(possible only for the auth admin or a database superuser).
+
+## Application
+
+- `src/lib/preferenceSync.ts`: account-bound queue per owner and scope; sends
+  only while that owner is signed in (store and live session); renews an
+  expired session once before retrying; "Saving" until acknowledged, "Saved"
+  after, "Not Saved / Retry" on failure, nothing pending discarded.
+- Lobby filters, view and favorites use it; page preferences and the roster
+  workspace use `src/lib/pagePreferenceSave.ts`. Pending changes survive
+  logout and are sent only when their account signs back in.
+- `PreferenceSaveStatus` shows the state on the lobby.
+
+## Legacy favorites
+
+`lobby_favorites_migration_report` records every legacy favorite as mapped,
+duplicate or unresolved. Production before migration: 25 tournament entries
+(19 distinct per player and schedule) and 12 cash entries, all resolvable.
+Legacy sources are left untouched. Earlier cash stars deleted by the old
+cascade cannot be recovered: `favorite_tables` recorded 13 deletions with no
+way to tell an unstar from a cascade.
 
 ## Pinned
 
-`tests/lobby-favorites-follow-the-game.law.test.ts` (registered in
-`docs/laws.d/`) and the native proof `scripts/dev/test-lobby-favorites-postgres.sh`
-(27 checks, run in CI by `lobby-favorites-are-durable.yml`): carry-forward,
-renames, no merging across clubs, variants, stakes or schedules, satellites,
-finished runs and deleted tables, owner-only writes, refused server-side
-rewrites and truncates, stale replays, and account deletion.
+`tests/lobby-favorites-follow-the-game.law.test.ts`,
+`tests/unit/preferencePersistenceScenarios.test.ts` (18 application
+scenarios), and the native proof `scripts/dev/test-lobby-favorites-postgres.sh`
+(42 checks, CI workflow `lobby-favorites-are-durable.yml`).

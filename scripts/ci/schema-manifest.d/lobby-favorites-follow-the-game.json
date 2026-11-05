@@ -1,18 +1,23 @@
 {
   "_owner": "fix/lobby-favorites-follow-the-game",
-  "_comment": "20261105183133: favorites keyed by the game (schedule, catalogue definition, cash game), owner-only guard on every preference store, and the time of each choice so a stale replay cannot overwrite a newer one.",
-  "tables": ["player_lobby_favorites"],
+  "_comment": "20261105183133: favorites keyed by the logical game with kept unfavorites and revisions; per-field revision-checked saves for lobby filters, view and page preferences; owner-only guard on every preference store; explicit aliases for recreated games; a report of every legacy favorite.",
+  "tables": ["player_lobby_favorites", "lobby_game_aliases", "lobby_favorites_migration_report"],
   "functions": [
     "fn_lobby_cash_key",
+    "fn_lobby_current_key",
     "fn_lobby_favorite_key",
     "fn_lobby_tournament_key",
     "fn_my_lobby_favorites",
     "fn_player_preference_guard",
-    "fn_set_lobby_favorite"
+    "fn_save_lobby_preferences",
+    "fn_save_page_preferences",
+    "fn_set_lobby_favorites"
   ],
   "columns": {
-    "player_lobby_favorites": ["user_id", "kind", "game_key", "club_id", "label", "created_at"],
-    "user_lobby_filters": ["filters_changed_at", "view_prefs_changed_at"],
-    "user_page_preferences": ["changed_at"]
+    "player_lobby_favorites": ["user_id", "kind", "game_key", "club_id", "label", "active", "revision", "created_at", "updated_at"],
+    "lobby_game_aliases": ["old_key", "new_key", "reason", "created_at"],
+    "lobby_favorites_migration_report": ["id", "user_id", "source", "raw_value", "outcome", "game_key", "detail", "created_at"],
+    "user_lobby_filters": ["revisions"],
+    "user_page_preferences": ["revision"]
   }
 }

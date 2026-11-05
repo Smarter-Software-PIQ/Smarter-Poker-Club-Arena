@@ -10,6 +10,11 @@ import {
   readTableSettingIntent,
   registerPreferenceFlush,
 } from '../lib/tableSettingIntents';
+import {
+  notePagePreferenceRevision,
+  pagePreferenceRevision,
+  savePagePreference,
+} from '../lib/pagePreferenceSave';
 
 const PREFIX = 'ca_player_preference:';
 const CHANGED = 'ca-player-preference-changed';
@@ -81,27 +86,15 @@ async function save(owner: string, name: string, value: unknown, id: string): Pr
       (latest.journaled && held?.id !== id)
     )
       return;
-    /* The time the player made this choice travels with it, including on a
-       replay after a reload, so the database keeps the newer of this and any
-       choice made since on another device (fn_player_preference_guard). */
-    const at = held?.id === id && typeof held.at === 'string' ? held.at : new Date().toISOString();
-    try {
-      const { error } = await awaitPreferenceSave(
-        supabase.from('user_page_preferences').upsert(
-          {
-            user_id: owner,
-            preference_key: name,
-            value,
-            changed_at: at,
-          },
-          { onConflict: 'user_id,preference_key' }
-        )
-      );
-      if (error) throw error;
-      confirmTableSettingIntent(owner, `page:${name}`, id);
-    } catch (error) {
-      reportError(error, 'usePlayerPreference.Save_failed');
-    }
+    /* REVISION-CHECKED (2026-11-05): the server applies this choice only
+       against the revision it was made from, so a stale tab or a replay
+       after a reload cannot overwrite a newer choice from another device.
+       A refused choice is dropped and the account's value is shown. */
+    const outcome = await savePagePreference(owner, name, value, id, () => {
+      const pending = readTableSettingIntent(owner, `page:${name}`);
+      if (pending) void save(owner, name, pending.value, pending.id);
+    });
+    if (outcome.status === 'conflict') cache(owner, name, outcome.value);
   });
 }
 
@@ -209,11 +202,17 @@ export function usePlayerPreference<T>(
         try {
           const { data, error } = await supabase
             .from('user_page_preferences')
-            .select('value')
+            .select('value, revision')
             .eq('user_id', userId)
             .eq('preference_key', scopedName)
             .maybeSingle();
           if (error) throw error;
+          if (data)
+            notePagePreferenceRevision(
+              owner,
+              scopedName,
+              (data as { revision?: unknown }).revision
+            );
           if (
             !active ||
             revisionRef.current !== revision ||
@@ -251,7 +250,12 @@ export function usePlayerPreference<T>(
       revisionRef.current += 1;
       valueRef.current = { scope, value };
       cache(owner, scopedName, value);
-      const id = beginTableSettingIntent(owner, `page:${scopedName}`, value);
+      const id = beginTableSettingIntent(
+        owner,
+        `page:${scopedName}`,
+        value,
+        pagePreferenceRevision(owner, scopedName)
+      );
       latestSelections.set(`${owner}:${scopedName}`, {
         id,
         journaled: readTableSettingIntent(owner, `page:${scopedName}`)?.id === id,

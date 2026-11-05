@@ -3,10 +3,17 @@ import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
 import { prioritizeTournamentFavorites } from '../components/lobby/tournamentFavoriteOrder';
 import {
+  FAVORITES_SCOPE,
+  LOBBY_FAVORITES_CHANGED,
   favoriteKindOf,
   fetchLobbyFavorites,
-  setLobbyFavorite,
+  flushFavorites,
+  pendingFavoriteStates,
+  toggleLobbyFavorite,
 } from '../components/lobby/lobbyFavorites';
+import { LOBBY_PREFERENCE_ADOPT, flushLobby } from '../components/lobby/lobbyPreferenceSync';
+import { onResume, readPending } from '../lib/preferenceSync';
+import { PreferenceSaveStatus } from '../components/common/PreferenceSaveStatus';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { satelliteStartsWhenFull } from '../utils/satelliteQualification';
 import { DiamondJackpotReadout } from '../components/bbj/DiamondJackpotReadout';
@@ -162,6 +169,7 @@ import {
   sortForTab,
   EMPTY_VIEW_PREFS,
   type LobbyViewPrefs,
+  type LobbyTabKey,
 } from '../components/lobby/lobbyViewPrefs';
 import { useUserStore } from '../stores/useUserStore';
 import ClubLobbyCommandTop from '../components/lobby/ClubLobbyCommandTop';
@@ -987,6 +995,8 @@ function ClubHomePageContent({
      MTTs therefore opened onto an empty screen blaming "filters" - every
      single visit. All Games is the landing view of a dense lobby. */
   const [gameType, setGameType] = useState<GameType>(initialGameType ?? 'ALL');
+  const gameTypeRef = useRef(gameType);
+  gameTypeRef.current = gameType;
   // Browsing starts with an explicit choice. A requested landing remains a
   // deliberate navigation and opens its own section without another click.
   const [gameSection, setGameSection] = useState<'cash' | 'tournaments' | null>(
@@ -1044,6 +1054,9 @@ function ClubHomePageContent({
     'ALL',
     clubId
   );
+  /* Cash games know only All and Running. Another saved status is SHOWN as
+     All on the cash side and kept as saved, never rewritten (2026-11-05). */
+  const cashStatusFilter: AllStatusFilter = allStatusFilter === 'RUNNING' ? 'RUNNING' : 'ALL';
   /* `sortOpen` used to live here. It was assigned false in three places,
      never assigned true, and read nowhere - the exact dead wiring the comment
      below says had already been removed once. */
@@ -2394,6 +2407,37 @@ function ClubHomePageContent({
     return () => {
       cancelled = true;
     };
+  }, [resolvedClubId, currentUser?.id]);
+
+  /* THE ACCOUNT KEPT ANOTHER VALUE (2026-11-05). A change of this device was
+     made against an older state than the account now holds (another device
+     saved since, or this one was offline), so the server refused it. Show the
+     account's value: read the row again and put it on screen, without
+     treating that as a new choice of the player's. */
+  useEffect(() => {
+    if (!resolvedClubId) return;
+    const clubForAdopt = resolvedClubId;
+    const adopt = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { owner?: string; clubId?: string }
+        | undefined;
+      if (detail?.owner !== (currentUser?.id ?? null) || detail?.clubId !== clubForAdopt) return;
+      void fetchRemoteFilters(clubForAdopt, currentUser?.id ?? null).then((remote) => {
+        if (!remote) return;
+        saveFilters(clubForAdopt, remote, currentUser?.id ?? null);
+        setAdvFilters((prev) => (JSON.stringify(prev) === JSON.stringify(remote) ? prev : remote));
+      });
+      void fetchRemoteViewPrefs(clubForAdopt, currentUser?.id).then((remote) => {
+        if (!remote || viewPrefsOwner.current !== clubForAdopt) return;
+        saveViewPrefs(clubForAdopt, remote, currentUser?.id);
+        setViewPrefs(remote);
+        if (remote.tab) setGameType(remote.tab as GameType);
+        setSortKey(sortForTab(remote, (remote.tab ?? gameTypeRef.current) as LobbyTabKey));
+        setFavoritesOnly(remote.favoritesOnly);
+      });
+    };
+    window.addEventListener(LOBBY_PREFERENCE_ADOPT, adopt);
+    return () => window.removeEventListener(LOBBY_PREFERENCE_ADOPT, adopt);
   }, [resolvedClubId, currentUser?.id]);
 
   /**
@@ -3751,11 +3795,9 @@ function ClubHomePageContent({
       if (gameType !== 'ALL' && cashKind(table) !== gameType) return false;
       if (!cashVariantVisible(table.game_variant, gameType, includeFixedLimit)) return false;
 
-      if (gameType === 'ALL' && allStatusFilter !== 'ALL') {
+      if (gameType === 'ALL' && cashStatusFilter === 'RUNNING') {
         const status = String(table.status).toUpperCase();
-        if (allStatusFilter !== 'RUNNING' || !['RUNNING', 'IN_PROGRESS'].includes(status)) {
-          return false;
-        }
+        if (!['RUNNING', 'IN_PROGRESS'].includes(status)) return false;
       }
 
       // A shared link's game is exempt from the saved filters (linkedGameId).
@@ -4147,6 +4189,9 @@ function ClubHomePageContent({
      old per-run tournament id list and per-table favorite_tables row were why
      every favorite "forgot itself" within a day. See lobbyFavorites.ts. */
   const [favoriteGameIds, setFavoriteGameIds] = useState<Set<string>>(new Set());
+  /* The revision each visible game's favorite was seen at, so a tap is judged
+     against the account's state the player was looking at (2026-11-05). */
+  const favoriteRevisionsRef = useRef<Record<string, number>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   /* The card closed: apply what was held for it, unless the player has since
@@ -4276,8 +4321,17 @@ function ClubHomePageContent({
         setRegisteredTournamentIds(new Set((regsRes.data || []).map((r) => r.tournament_id)));
       }
       /* A failed read keeps the stars already on screen (stale beats
-         wrong-empty): a network blip must never look like an unfavorite. */
-      if (favsRes.ok) setFavoriteGameIds(new Set(favsRes.ids));
+         wrong-empty): a network blip must never look like an unfavorite.
+         A tap the account has not accepted yet stays shown as tapped. */
+      if (favsRes.ok) {
+        favoriteRevisionsRef.current = favsRes.revisions;
+        const shown = new Set(favsRes.ids);
+        for (const [gameId, on] of Object.entries(pendingFavoriteStates(currentUserId))) {
+          if (on) shown.add(gameId);
+          else shown.delete(gameId);
+        }
+        setFavoriteGameIds(shown);
+      }
     } catch (e) {
       reportError(e, 'ClubHomePage.loadMyGameStates');
     }
@@ -4307,38 +4361,61 @@ function ClubHomePageContent({
   }, [loadMyGameStates]);
 
   /** Star / unstar a game. The star belongs to the game, so every live run or
-   *  table of it lights together, and only this tap can ever take it away. */
+   *  table of it lights together, and only this tap can ever take it away.
+   *  The tap is queued for this account against the revision it was seen at;
+   *  the save status beside the filters says when the account has it. */
   const handleToggleFavorite = useCallback(
-    async (gameId: string, next: boolean, kind?: LobbyEntry['kind']) => {
+    (gameId: string, next: boolean, kind?: LobbyEntry['kind']) => {
       if (!currentUserId) {
         toast.error('Sign In To Save Favorites');
         return;
       }
       haptic.selection();
-      const favKind = favoriteKindOf(kind);
       setFavoriteGameIds((prev) => {
         const s = new Set(prev);
         if (next) s.add(gameId);
         else s.delete(gameId);
         return s;
       });
-      const result = await setLobbyFavorite(favKind, gameId, next);
-      if (!result.ok) {
-        // Roll back the optimistic star; the saved favorite did not change.
-        setFavoriteGameIds((prev) => {
-          const s = new Set(prev);
-          if (next) s.delete(gameId);
-          else s.add(gameId);
-          return s;
-        });
-        toast.error(next ? 'Could Not Save Favorite' : 'Could Not Remove Favorite');
-        return;
-      }
-      // Re-read so every sibling run or table of the same game lights at once.
-      void loadMyGameStates();
+      void toggleLobbyFavorite(
+        currentUserId,
+        favoriteKindOf(kind),
+        gameId,
+        next,
+        favoriteRevisionsRef.current[gameId] ?? 0
+      );
     },
-    [currentUserId, toast, loadMyGameStates]
+    [currentUserId, toast]
   );
+
+  /* The account answered (accepted, or kept another value): show the
+     account's stars, so a refused tap never lingers as if it were saved. */
+  useEffect(() => {
+    const reread = (event: Event) => {
+      if ((event as CustomEvent).detail?.owner === currentUserId) void loadMyGameStates();
+    };
+    window.addEventListener(LOBBY_FAVORITES_CHANGED, reread);
+    return () => window.removeEventListener(LOBBY_FAVORITES_CHANGED, reread);
+  }, [currentUserId, loadMyGameStates]);
+
+  /* Queued changes from an earlier visit, a dropped connection or a phone put
+     away mid-save are sent on open and whenever the device comes back. */
+  useEffect(() => {
+    if (!currentUserId) return;
+    const resume = () => {
+      if (Object.keys(readPending(currentUserId, FAVORITES_SCOPE)).length > 0) {
+        void flushFavorites(currentUserId);
+      }
+      if (
+        resolvedClubId &&
+        Object.keys(readPending(currentUserId, `lobby:${resolvedClubId}`)).length > 0
+      ) {
+        void flushLobby(currentUserId, resolvedClubId);
+      }
+    };
+    resume();
+    return onResume(resume);
+  }, [currentUserId, resolvedClubId]);
 
   /** Row selection — opens the game lobby panel. NEVER joins or spends. */
   /**
@@ -5754,13 +5831,9 @@ function ClubHomePageContent({
                     haptic.selection();
                     setFiltersOpen(false);
                     setGameSection(section);
-                    if (
-                      section === 'cash' &&
-                      allStatusFilter !== 'ALL' &&
-                      allStatusFilter !== 'RUNNING'
-                    ) {
-                      setAllStatusFilter('ALL');
-                    }
+                    /* The saved status filter is left as it is: a status that
+                       does not apply to cash games is shown as All there
+                       (cashStatusFilter) instead of being overwritten. */
                     const matching =
                       section === 'cash'
                         ? gameType === 'ALL' || CASH_TYPES.includes(gameType)
@@ -5829,8 +5902,11 @@ function ClubHomePageContent({
                               <button
                                 key={status.key}
                                 type="button"
-                                className={`quickprefs__chip ${allStatusFilter === status.key ? 'is-on' : ''}`}
-                                aria-pressed={allStatusFilter === status.key}
+                                className={`quickprefs__chip ${(gameSection === 'cash' ? cashStatusFilter : allStatusFilter) === status.key ? 'is-on' : ''}`}
+                                aria-pressed={
+                                  (gameSection === 'cash' ? cashStatusFilter : allStatusFilter) ===
+                                  status.key
+                                }
                                 onClick={() => {
                                   haptic.selection();
                                   setAllStatusFilter(status.key);
@@ -5972,6 +6048,17 @@ function ClubHomePageContent({
             }
           />
 
+          {/* Whether the account has the player's last change (2026-11-05). */}
+          {currentUserId && (
+            <PreferenceSaveStatus
+              floating
+              prefixes={[
+                `${currentUserId}:lobby:${resolvedClubId ?? ''}`,
+                `${currentUserId}:favorites`,
+                `${currentUserId}:page`,
+              ]}
+            />
+          )}
           {gameSection && (
             <StickyLobbyFilters
               gameLabel={GAME_TYPE_TABS.find((tab) => tab.key === gameType)?.label ?? 'Games'}
