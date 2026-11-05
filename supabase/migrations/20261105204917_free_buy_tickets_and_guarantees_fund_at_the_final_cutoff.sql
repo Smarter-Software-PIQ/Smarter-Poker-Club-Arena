@@ -188,10 +188,15 @@ ALTER TABLE public.ca_free_buy_ticket_grants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_free_buy_ticket_redemptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_free_buy_ticket_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_free_buy_cutoff_fundings ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.ca_free_buy_ticket_grants, public.ca_free_buy_ticket_redemptions,
-  public.ca_free_buy_ticket_events, public.ca_free_buy_cutoff_fundings FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON public.ca_free_buy_ticket_grants, public.ca_free_buy_ticket_redemptions,
-  public.ca_free_buy_ticket_events, public.ca_free_buy_cutoff_fundings TO service_role;
+-- Only the owner's functions write these; the engine and the digest read them.
+REVOKE ALL ON public.ca_free_buy_ticket_grants FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_free_buy_ticket_grants TO service_role;
+REVOKE ALL ON public.ca_free_buy_ticket_redemptions FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_free_buy_ticket_redemptions TO service_role;
+REVOKE ALL ON public.ca_free_buy_ticket_events FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_free_buy_ticket_events TO service_role;
+REVOKE ALL ON public.ca_free_buy_cutoff_fundings FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_free_buy_cutoff_fundings TO service_role;
 
 -- ── 2. The tournament day, the ticket parts and the cutoff arithmetic ───────
 CREATE FUNCTION public.fn_ca_free_buy_ticket_day(p_at timestamptz)
