@@ -25,7 +25,11 @@ vi.mock('./client.js', () => ({
     },
   },
 }));
-import { claimLegacyRiverContinuation, retainHandContinuation } from './handContinuation.js';
+import {
+  HAND_CONTINUATION_RETRY_DELAYS_MS,
+  claimLegacyRiverContinuation,
+  retainHandContinuation,
+} from './handContinuation.js';
 import { HandController } from '../../engine/HandController.js';
 import type { HandConfig, SeatPlayer } from '../../types.js';
 const ids = {
@@ -226,35 +230,115 @@ it.each([
   expect(JSON.stringify(failure)).not.toContain('PRIVATE');
   expect(transport).toHaveBeenCalledOnce();
 });
-it.each(['55P03', '40001', '57014', 'PRIVATE_CONTROLLER', '55P03\nsecret', 55, null])(
-  'retains only a well-shaped SQLSTATE from a returned transport error (%s)',
-  async (code) => {
-    const transport = vi.fn(async () => ({
-      data: null,
-      error: {
-        code,
-        message: 'PRIVATE_MESSAGE',
-        details: 'PRIVATE_CARDS',
-        hint: 'PRIVATE_PAYLOAD',
-      },
-    }));
+const noWait = vi.fn(async (_ms: number) => {});
+const okReceipt = (args: Record<string, unknown>) => ({
+  data: {
+    ok: true,
+    table_id: ids.table_id,
+    hand_number: '42',
+    sequence: '1',
+    sha256: args.p_sha256,
+    writer_generation: writer,
+  },
+  error: null,
+});
+const privateError = (code: unknown) => ({
+  data: null,
+  error: { code, message: 'PRIVATE_MESSAGE', details: 'PRIVATE_CARDS', hint: 'PRIVATE_PAYLOAD' },
+});
+it.each([
+  ['55P03', '55P03', 4],
+  ['40001', '40001', 4],
+  ['40P01', '40P01', 4],
+  ['57014', '57014', 4],
+  ['08006', '08006', 4],
+  ['PRIVATE_CONTROLLER', 'unknown', 4],
+  ['55P03\nsecret', 'unknown', 4],
+  [55, 'unknown', 4],
+  [null, 'unknown', 4],
+  ['', 'unknown', 4],
+  ['22023', '22023', 1],
+  ['42501', '42501', 1],
+  ['55000', '55000', 1],
+  ['P0001', 'P0001', 1],
+] as const)(
+  'retains only a well-shaped SQLSTATE from a returned transport error (%s) after a bounded retry',
+  async (code, sqlstate, calls) => {
+    noWait.mockClear();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const transport = vi.fn(async () => privateError(code));
     const failure = await retainHandContinuation(
       ids,
       writer,
       [],
       privateBatch,
       () => true,
-      transport
+      transport,
+      noWait
     ).catch((error: Error) => error);
-    const sqlstate = typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? code : 'unknown';
     expect((failure as Error).message).toBe(
       `Hand Continuation Write Is Unproven [transport_error sqlstate=${sqlstate}]`
     );
     expect(failure).not.toHaveProperty('code');
     expect(failure).not.toHaveProperty('cause');
-    expect(transport).toHaveBeenCalledOnce();
+    expect(transport).toHaveBeenCalledTimes(calls);
+    expect(noWait.mock.calls.map((c) => c[0])).toEqual(
+      HAND_CONTINUATION_RETRY_DELAYS_MS.slice(0, calls - 1)
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('PRIVATE');
+    warn.mockRestore();
   }
 );
+it('retries a lost acknowledgement with the byte-identical call and accepts the same receipt', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  let n = 0;
+  const transport = vi.fn(async (_name: string, args: Record<string, unknown>) =>
+    ++n < 3 ? privateError(n === 1 ? '' : '08006') : okReceipt(args)
+  );
+  await expect(
+    retainHandContinuation(ids, writer, [], privateBatch, () => true, transport, noWait)
+  ).resolves.toBeUndefined();
+  expect(transport).toHaveBeenCalledTimes(3);
+  const [first, ...rest] = transport.mock.calls;
+  expect(first[0]).toBe('fn_f06_retain_hand_continuation');
+  for (const call of rest) {
+    expect(call[0]).toBe(first[0]);
+    expect(call[1]).toEqual(first[1]);
+  }
+  expect(warn.mock.calls.map((c) => c[0])).toEqual([
+    '[HandContinuation] retain retry attempt=2 sqlstate=unknown',
+    '[HandContinuation] retain retry attempt=3 sqlstate=08006',
+  ]);
+  warn.mockRestore();
+});
+it('stops retrying once ownership changes between attempts', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  let current = true;
+  const transport = vi.fn(async () => privateError(''));
+  const wait = vi.fn(async () => {
+    current = false;
+  });
+  await expect(
+    retainHandContinuation(ids, writer, [], privateBatch, () => current, transport, wait)
+  ).rejects.toThrow('[owner_changed]');
+  expect(transport).toHaveBeenCalledOnce();
+  expect(wait).toHaveBeenCalledOnce();
+  warn.mockRestore();
+});
+it('does not retry a receipt that disagrees after a transient retry', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  let n = 0;
+  const transport = vi.fn(async (_name: string, args: Record<string, unknown>) =>
+    ++n === 1
+      ? privateError('40001')
+      : { ...okReceipt(args), data: { ...okReceipt(args).data, sequence: '2' } }
+  );
+  await expect(
+    retainHandContinuation(ids, writer, [], privateBatch, () => true, transport, noWait)
+  ).rejects.toThrow('[receipt_sequence]');
+  expect(transport).toHaveBeenCalledTimes(2);
+  warn.mockRestore();
+});
 it('distinguishes lost ownership and missing receipt, preserving successful identity and raw rejection behavior', async () => {
   const transport = vi.fn(async (_name: string, args: Record<string, unknown>) => ({
     data: {
