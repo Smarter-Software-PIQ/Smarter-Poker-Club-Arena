@@ -2915,6 +2915,17 @@ export class MaintenanceBreak {
   }
 
   /**
+   * True while the last thaw's resume waves are still reaching tables
+   * (2026-11-05). Read by the bulk-closure guard: a closure holding the
+   * cancellation lane while tables come back is what froze ~40 Spins and
+   * Sit & Gos at 04:05 UTC on November 5.
+   */
+  isResuming(): boolean {
+    const waves = this.resumeWaves;
+    return waves !== null && waves.finishedAt === null && this.pendingResumeTables.size > 0;
+  }
+
+  /**
    * Is this break still the authority holding `tableId`? (2026-10-02)
    *
    * True for the whole break - last hand, countdown, and the certified-release

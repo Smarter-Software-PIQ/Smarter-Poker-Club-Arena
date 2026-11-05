@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 const io = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 vi.mock('../services/supabase/client.js', () => ({ supabase: io, maintenanceSupabase: {} }));
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
@@ -273,7 +273,22 @@ describe('abort certificates retain physical source and lease identity', () => {
     expect(manager.tournamentAbortSourcesMatch([['table', original]])).toBe(false);
   });
 
-  function server(state: Record<string, unknown>) {
+  function server(
+    state: Record<string, unknown>,
+    live: { active?: boolean; resuming?: boolean; entrants?: number | null } = {}
+  ) {
+    // A quiet minute (:20 UTC) unless a test says otherwise: the bulk-closure
+    // guard (maintenance/bulkClosureGuard.ts) refuses :53-:07 UTC.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-05T17:20:00Z'));
+    io.from.mockReturnValue({
+      select: () => ({
+        eq: async () =>
+          live.entrants === null
+            ? { count: null, error: { message: 'unreadable' } }
+            : { count: live.entrants ?? 9, error: null },
+      }),
+    });
     const manager = {
       tournamentAbortActuationAllowed: () => true,
       getTournamentLeaseGeneration: () => generation,
@@ -284,6 +299,10 @@ describe('abort certificates retain physical source and lease identity', () => {
     };
     const server = Object.create(GameServer.prototype) as any;
     server.tournamentEngines = new Map([[tournament, manager]]);
+    server.maintenanceBreak = {
+      isActive: () => live.active ?? false,
+      isResuming: () => live.resuming ?? false,
+    };
     server.tournamentManagerPendingLeaseReleases = new Map();
     server.tournamentManagerLeaseReleaseOperations = new Map();
     server.tournamentManagerAdmissionLeaseGenerations = new Map();
@@ -312,6 +331,78 @@ describe('abort certificates retain physical source and lease identity', () => {
     });
     await f.server.acknowledgeTournamentAbortBoundary(operation, tournament);
     expect(f.manager.acknowledgeTournamentAbortBoundary).toHaveBeenCalledTimes(1);
+  });
+  describe('a bulk closure never starts stopping tables during live play', () => {
+    const quiesced = {
+      state: 'quiesced',
+      current_boundary_valid: false,
+      quiescence_generation: 'old-generation',
+    };
+    afterEach(() => vi.useRealTimers());
+    it.each([
+      ['inside the :53-:07 break window', '2026-11-05T17:58:00Z', {}, 'break_window'],
+      ['at the 04:05 UTC resume that froze ~40 Spins', '2026-11-05T04:05:00Z', {}, 'break_window'],
+      [
+        'while a maintenance break is on',
+        '2026-11-05T17:20:00Z',
+        { active: true },
+        'maintenance_active',
+      ],
+      [
+        'while resume waves are still running',
+        '2026-11-05T17:20:00Z',
+        { resuming: true },
+        'resume_settling',
+      ],
+      [
+        'for the 243-entrant Nightly 10K at 05:09 UTC',
+        '2026-11-05T05:09:00Z',
+        { entrants: 243 },
+        'large_outside_quiet_hours',
+      ],
+      [
+        'when the event size is unreadable',
+        '2026-11-05T17:20:00Z',
+        { entrants: null },
+        'size_unknown',
+      ],
+    ] as const)('refuses %s before the manager parks a table', async (_n, at, live, reason) => {
+      const f = server(quiesced, live);
+      vi.setSystemTime(new Date(at));
+      await expect(
+        f.server.acknowledgeTournamentAbortBoundary(operation, tournament)
+      ).rejects.toMatchObject({ name: 'BulkClosureRefusedError', reason });
+      expect(f.manager.acknowledgeTournamentAbortBoundary).not.toHaveBeenCalled();
+    });
+    it('admits a large event inside the 04:00-06:00 Chicago quiet window', async () => {
+      const f = server(quiesced, { entrants: 319 });
+      vi.setSystemTime(new Date('2026-11-05T10:35:00Z'));
+      await f.server.acknowledgeTournamentAbortBoundary(operation, tournament);
+      expect(f.manager.acknowledgeTournamentAbortBoundary).toHaveBeenCalledTimes(1);
+    });
+    it('still lets a settled event finish retiring its runtime at any minute', async () => {
+      // Final retirement moves no money and holds no lane: it is the guarded
+      // closure's own cleanup, and refusing it would strand a settled manager.
+      const f = server(
+        {
+          state: 'settled',
+          tournament_status: 'CANCELLED',
+          current_generation: null,
+          receipt: {
+            fully_settled: true,
+            operation_id: operation,
+            tournament_id: tournament,
+            quiescence: { generation },
+          },
+        },
+        { active: true }
+      );
+      vi.setSystemTime(new Date('2026-11-05T17:58:00Z'));
+      f.server.awaitTournamentManagerLeaseRelease = vi.fn(async () => {});
+      await expect(
+        f.server.acknowledgeTournamentAbortBoundary(operation, tournament)
+      ).resolves.toMatchObject({ runtime_retired: true });
+    });
   });
   it('reads an effective current certificate without dispatching another physical drain', async () => {
     const f = server({
