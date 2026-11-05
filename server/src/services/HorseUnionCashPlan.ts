@@ -71,7 +71,9 @@ export function scheduledHorseCashGames(nowMs: number): ReadonlySet<string> {
     plan.games
       .filter((game) => {
         const [start, end] = windows[game.window][weekend ? 'weekend' : 'regular'];
-        return hour >= start && hour < end;
+        // A window whose start is after its end runs through midnight
+        // (Dan 2026-11-05: Classic 1/2 runs 9 AM to 4 AM). Equal ends never run.
+        return start > end ? hour >= start || hour < end : hour >= start && hour < end;
       })
       .map((game) => game.id)
   );

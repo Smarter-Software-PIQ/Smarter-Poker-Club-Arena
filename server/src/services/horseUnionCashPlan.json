@@ -86,7 +86,7 @@
     {
       "id": "bc1a347f-2b85-49df-b3b3-40a498a6e51b",
       "name": "Classic NLH 1/2",
-      "window": "prime",
+      "window": "nine_to_four",
       "variant": "nlh",
       "smallBlind": 1.0,
       "bigBlind": 2.0
@@ -102,7 +102,7 @@
     {
       "id": "41deafef-6c77-449f-a929-930aa321f3c2",
       "name": "Classic PLO6 1/2",
-      "window": "prime",
+      "window": "nine_to_four",
       "variant": "plo6",
       "smallBlind": 1.0,
       "bigBlind": 2.0
@@ -192,6 +192,10 @@
     "limit_high": {
       "regular": [0, 0],
       "weekend": [21, 24]
+    },
+    "nine_to_four": {
+      "regular": [9, 4],
+      "weekend": [9, 4]
     }
   },
   "lightningHorseSeeded": [
