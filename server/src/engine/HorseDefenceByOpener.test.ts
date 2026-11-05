@@ -180,6 +180,9 @@ function defend(
         {
           mind: false,
           telemetry: false,
+          // Pin the V9 hourly mood: an unpinned clock moved the six-handed big
+          // blind re-steal across its bound by the hour (10.97% at 13Z Nov 5).
+          decisionTimeMs: 1793000000000,
           ...opts,
         } as never
       );
