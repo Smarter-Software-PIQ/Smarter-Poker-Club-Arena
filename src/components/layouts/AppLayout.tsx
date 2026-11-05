@@ -25,6 +25,7 @@ import { ClubWorkspaceProvider } from '../../contexts/ClubWorkspaceContext';
 import NavigationTelemetry from '../navigation/NavigationTelemetry';
 import { lazyWithRetry } from '../../utils/lazyWithRetry';
 import { useHoldPromptLane } from '../../lib/promptLane';
+import PlayerNoticeModal, { usePendingPlayerNotice } from '../notices/PlayerNoticeModal';
 
 // The Daily Club Arena Bonus sheet is not first-paint material: the entry
 // chunk stays as it was and the sheet, its service and the club-buttons kit
@@ -77,6 +78,14 @@ function AppLayoutContent() {
     isReady && !!user && profileReady && !showProfileModal && showWelcome
   );
   useHoldPromptLane('profile', profileReady && showProfileModal);
+
+  // A platform notice that must be read (ca_player_notices). It waits behind
+  // the welcome and the profile gate, then holds the lane itself until OK.
+  const noticeSuspended = !isReady || !profileReady || showWelcome || showProfileModal;
+  const { notice: playerNotice, acknowledge: acknowledgePlayerNotice } = usePendingPlayerNotice(
+    user?.id,
+    noticeSuspended
+  );
 
   // Hide global header on table and tournament play pages
   const isTablePage =
@@ -138,6 +147,11 @@ function AppLayoutContent() {
         <Suspense fallback={null}>
           <CompleteProfileModal isOpen onComplete={finishProfile} />
         </Suspense>
+      )}
+
+      {/* A notice every player must read once: closes only through OK. */}
+      {!noticeSuspended && (
+        <PlayerNoticeModal notice={playerNotice} onAcknowledge={acknowledgePlayerNotice} />
       )}
 
       {/* The Daily Club Arena Bonus sheet, once per day on entry. It waits
