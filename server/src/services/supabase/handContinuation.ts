@@ -109,18 +109,46 @@ type Transport = (
 const rpc: Transport = (name, args) =>
   supabase.rpc(name, args).abortSignal(AbortSignal.timeout(8000));
 
-/** One original write. Unknown acknowledgement retains this same sequence. */
+/**
+ * A returned error whose SQLSTATE is missing or malformed never reached a
+ * database decision (fetch reset, abort, PostgREST gateway). The others are
+ * lock, cancellation, serialization, deadlock and connection classes. Every
+ * other SQLSTATE is a deterministic refusal and is never repeated.
+ */
+export function isTransientHandContinuationSqlstate(sqlstate: string): boolean {
+  return (
+    sqlstate === 'unknown' ||
+    sqlstate === '55P03' ||
+    sqlstate === '57014' ||
+    sqlstate === '40001' ||
+    sqlstate === '40P01' ||
+    sqlstate.startsWith('08')
+  );
+}
+
+/** Delay before attempts 2, 3 and 4. Each attempt keeps its own 8 s abort. */
+export const HAND_CONTINUATION_RETRY_DELAYS_MS: readonly number[] = Object.freeze([250, 750, 1500]);
+type Sleep = (ms: number) => Promise<void>;
+const sleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * One original write. Unknown acknowledgement retains this same sequence: a
+ * transient failure repeats the byte-identical call (same sequence, payload
+ * and sha256), which fn_f06_retain_hand_continuation answers with the same ok
+ * receipt when the earlier attempt already committed.
+ */
 export async function retainHandContinuation(
   original: Readonly<F06HandIdentity>,
   writerGeneration: string,
   seats: readonly ContinuationSeat[],
   batch: HandContinuationBatch,
   current: () => boolean,
-  transport: Transport = rpc
+  transport: Transport = rpc,
+  wait: Sleep = sleep
 ): Promise<void> {
   if (!current()) throw new Error('Hand Continuation Owner Changed');
   const encoded = encodePrivateHandContinuation({ version: 1, original, seats, batch });
-  const result = await transport('fn_f06_retain_hand_continuation', {
+  const args = Object.freeze({
     p_tournament_id: original.tournament_id,
     p_lease_generation: writerGeneration,
     p_table_id: original.table_id,
@@ -129,25 +157,40 @@ export async function retainHandContinuation(
     p_payload: encoded.payload,
     p_sha256: encoded.sha256,
   });
-  const row = result.data as Record<string, unknown> | null;
   // Closed labels and a five-character SQLSTATE only. Never retain the error
   // object/message, receipt values or private capsule as diagnostic context.
   // Keep the original refusal and retry classification: SQLSTATE is text here,
   // not Error.code/cause, which would change the dealer's transient policy.
   const unproven = (reason: string) => new Error(`Hand Continuation Write Is Unproven [${reason}]`);
-  if (!current()) throw unproven('owner_changed');
-  if (result.error) {
-    const code = (result.error as { code?: unknown }).code;
-    const sqlstate = typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? code : 'unknown';
-    throw unproven(`transport_error sqlstate=${sqlstate}`);
+  for (let attempt = 0; ; attempt++) {
+    if (attempt > 0) {
+      await wait(HAND_CONTINUATION_RETRY_DELAYS_MS[attempt - 1]);
+      if (!current()) throw unproven('owner_changed');
+    }
+    const result = await transport('fn_f06_retain_hand_continuation', { ...args });
+    if (!current()) throw unproven('owner_changed');
+    if (result.error) {
+      const code = (result.error as { code?: unknown }).code;
+      const sqlstate = typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? code : 'unknown';
+      if (
+        attempt < HAND_CONTINUATION_RETRY_DELAYS_MS.length &&
+        isTransientHandContinuationSqlstate(sqlstate)
+      ) {
+        console.warn(`[HandContinuation] retain retry attempt=${attempt + 2} sqlstate=${sqlstate}`);
+        continue;
+      }
+      throw unproven(`transport_error sqlstate=${sqlstate}`);
+    }
+    const row = result.data as Record<string, unknown> | null;
+    if (!row) throw unproven('receipt_missing');
+    if (row.ok !== true) throw unproven('receipt_not_ok');
+    if (row.table_id !== original.table_id) throw unproven('receipt_table_id');
+    if (row.hand_number !== original.hand_number) throw unproven('receipt_hand_number');
+    if (row.sequence !== String(batch.sequence)) throw unproven('receipt_sequence');
+    if (row.sha256 !== encoded.sha256) throw unproven('receipt_sha256');
+    if (row.writer_generation !== writerGeneration) throw unproven('receipt_writer_generation');
+    return;
   }
-  if (!row) throw unproven('receipt_missing');
-  if (row.ok !== true) throw unproven('receipt_not_ok');
-  if (row.table_id !== original.table_id) throw unproven('receipt_table_id');
-  if (row.hand_number !== original.hand_number) throw unproven('receipt_hand_number');
-  if (row.sequence !== String(batch.sequence)) throw unproven('receipt_sequence');
-  if (row.sha256 !== encoded.sha256) throw unproven('receipt_sha256');
-  if (row.writer_generation !== writerGeneration) throw unproven('receipt_writer_generation');
 }
 
 export async function claimHandContinuation(
