@@ -717,12 +717,19 @@ test.describe('the mobile lobby chrome on production', () => {
         const overlayDisplay = getComputedStyle(element, '::after').display;
         if (element.matches('.is-featured') && overlayDisplay !== 'none')
           throw new Error('A format rail is covering the featured red perimeter');
+        // Since #9370 (November 2) the Rebuy / Add-On crest is a picture
+        // element inside the icon bay, with no background image of its own.
+        const crestArt = element.querySelector<HTMLImageElement>(
+          '.lt-tournament-icon img.lt-rebuy-addon-art'
+        );
         const backgrounds = [
           getComputedStyle(element, '::before').backgroundImage,
-          getComputedStyle(
-            element.querySelector('.lt-tournament-icon [data-atlas-width]') ||
-              element.querySelector('.lt-tournament-icon,.lt-lightning-icon')!
-          ).backgroundImage,
+          crestArt
+            ? `url("${crestArt.currentSrc || crestArt.src}")`
+            : getComputedStyle(
+                element.querySelector('.lt-tournament-icon [data-atlas-width]') ||
+                  element.querySelector('.lt-tournament-icon,.lt-lightning-icon')!
+              ).backgroundImage,
         ];
         for (const background of backgrounds) {
           const url = /url\(["']?(.*?)["']?\)/.exec(background)?.[1];
@@ -773,7 +780,11 @@ test.describe('the mobile lobby chrome on production', () => {
       }
       if (mode === 'mtt' || mode === 'satellites') {
         expect(paint.backgrounds[1]).toContain(
-          paint.symbol ? '/images/throwables/animated/rocket.webp' : 'chrome-arena-emblems-v2/'
+          paint.symbol
+            ? '/images/throwables/animated/rocket.webp'
+            : paint.icon === 'rebuy'
+              ? 'game-card-icons/rebuy-addon-raised-chip-v1.png'
+              : 'chrome-arena-emblems-v2/'
         );
       }
       const readableCopy = await sampleRow.evaluate((row) =>

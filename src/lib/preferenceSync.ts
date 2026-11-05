@@ -189,9 +189,20 @@ export function useSaveStatus(prefix: string): { scopeKey: string | null; status
 
 // ─── Durable per-account storage ─────────────────────────────────────────────
 
+/* THE SESSION COPY (2026-11-05). When the browser refuses a write (storage
+   full, private mode, blocked site data), the queue's own records live here
+   for the rest of the session. Before this existed the write was dropped
+   silently and the next read returned the OLDER stored copy: on production
+   (verify-lobby-filters run 42121413754) a second sort tap was sent against
+   the revision from before the first tap, so the account refused the
+   player's own newer choice as "Changed On Another Device", and a third tap
+   was never sent at all because its pending record could not be stored. A
+   successful write or a removal retires the session copy for that key. */
+const sessionCopy = new Map<string, string>();
+
 function readJson<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = sessionCopy.has(key) ? sessionCopy.get(key)! : localStorage.getItem(key);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as unknown;
     return parsed && typeof parsed === 'object' ? (parsed as T) : fallback;
@@ -201,14 +212,18 @@ function readJson<T>(key: string, fallback: T): T {
 }
 
 function writeJson(key: string, value: unknown): void {
+  const raw = JSON.stringify(value);
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(key, raw);
+    sessionCopy.delete(key);
   } catch {
-    /* Storage unavailable: the in-memory copy still drives this session. */
+    /* Storage unavailable: the session copy drives this session. */
+    sessionCopy.set(key, raw);
   }
 }
 
 function removeKey(key: string): void {
+  sessionCopy.delete(key);
   try {
     localStorage.removeItem(key);
   } catch {

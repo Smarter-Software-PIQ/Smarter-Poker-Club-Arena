@@ -386,3 +386,45 @@ describe('favorites', () => {
     expect(after.revisions['table-2']).toBeGreaterThan(r1);
   });
 });
+
+describe('a device whose storage refuses writes', () => {
+  /* Production, verify-lobby-filters run 42121413754: the lobby's own caches
+     filled the browser's storage, the queue's records could not be written,
+     a second sort tap went out against the revision from before the first
+     and the account refused the player's own newer choice; the third tap was
+     never sent. The session copy keeps the queue whole for the session. */
+  it('still sends every tap against its own last accepted revision', async () => {
+    const view = loadViewPrefs(CLUB);
+    const original = localStorage.setItem;
+    let refused = 0;
+    const full = () => {
+      refused += 1;
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    };
+    Object.defineProperty(localStorage, 'setItem', { value: full, configurable: true });
+    const setItem = {
+      mockRestore: () =>
+        Object.defineProperty(localStorage, 'setItem', { value: original, configurable: true }),
+    };
+    try {
+      for (const sort of ['stakes_low', 'stakes_high', 'players']) {
+        await pushRemoteViewPrefs(
+          CLUB,
+          { ...view, tab: 'SNG', sortByTab: { ...view.sortByTab, SNG: sort } },
+          'account-a'
+        );
+        expect(readSaveStatus(`account-a:lobby:${CLUB}`).state).toBe('saved');
+      }
+    } finally {
+      setItem.mockRestore();
+    }
+    expect(refused).toBeGreaterThan(0);
+    const sorts = net.calls
+      .filter((c) => c.fn === 'fn_save_lobby_preferences')
+      .flatMap((c) => c.args.p_changes)
+      .filter((c: any) => c.field === 'view.sort.SNG')
+      .map((c: any) => c.value);
+    expect(sorts).toEqual(['stakes_low', 'stakes_high', 'players']);
+    expect(lobbySelect(net.server, 'account-a', CLUB)?.view_prefs.sortByTab.SNG).toBe('players');
+  });
+});
