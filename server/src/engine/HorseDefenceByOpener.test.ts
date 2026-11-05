@@ -180,6 +180,12 @@ function defend(
         {
           mind: false,
           telemetry: false,
+          // V9's hourly mood hashes (horse id, wall-clock hour). It made these
+          // near-bound frequencies pass or fail by the hour the suite ran
+          // (2026-11-05 13:xx UTC: 10.97 < 11, 13.99 < 14) and breaks the
+          // identity-invariance case under any pinned hour. Measure the defence
+          // itself, mood-neutral.
+          v9Mood: false,
           ...opts,
         } as never
       );
