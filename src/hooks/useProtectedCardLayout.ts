@@ -605,6 +605,14 @@ export function useProtectedCardLayout(
         ? Math.max(...chrome.map((box) => box.bottom))
         : pageBox.top + plateHeight;
       if (sixMax || pageBox.width <= 768) {
+        // Each top pod's own placement, computed exactly as before. A second
+        // pass below levels chairs that share one rail line.
+        const placed: {
+          pod: HTMLElement;
+          shift: number;
+          floor: number;
+          plateTop: number;
+        }[] = [];
         for (const pod of topPods()) {
           if (settled.current.pods.has(pod)) continue;
           const avatar = pod.querySelector<HTMLImageElement>('.seat__avatar-img');
@@ -616,7 +624,15 @@ export function useProtectedCardLayout(
             // plate rather than 4px against it.
             const badgeElement = pod.querySelector<HTMLElement>('.seat__position-badge');
             const badge = badgeElement ? restingAvatarBox(badgeElement, scale) : null;
-            const highest = Math.min(image.top, badge && badge.height > 0 ? badge.top : Infinity);
+            const badgeTop = badge && badge.height > 0 ? badge.top : Infinity;
+            const highest = Math.min(image.top, badgeTop);
+            // The same part measured by its painted crown: library canvases
+            // carry up to a third of their height as transparency above the
+            // head (free_penguin 31%). Used only to level the lane below.
+            const paintedHighest = Math.min(
+              avatar ? restingAvatarTop(avatar, scale) : image.top,
+              badgeTop
+            );
             // On the shortest nine-seat phones a board-sized PLO hand needs
             // a full card-height lane between the jackpot and its own plate.
             const largeHand = scaler.querySelector(
@@ -631,37 +647,74 @@ export function useProtectedCardLayout(
               64;
             const plateTop =
               pod.querySelector('.seat__info')?.getBoundingClientRect().top ?? highest;
-            const clearance =
-              largeHand && window.innerHeight > window.innerWidth
-                ? Math.max(8, cardHeight + 9 - (plateTop - highest))
-                : 8;
-            // Dan 2026-10-26: the six-max top-centre villain rises to the
-            // tab/action bar, with only the crown clipped. Corner jackpot
-            // plates do not reserve a band across this centred seat. Anchor
-            // the actual art, not its transparent slot or position badge.
-            const anchorTop = sixMax && avatar ? restingAvatarTop(avatar, scale) : highest;
-            const naturalTarget = sixMax
-              ? pageBox.top - 2 * scale
-              : chromeBottom + clearance * scale;
-            // A revealed top hand needs its full height above its own plate.
-            // Lower the pod as one unit instead of forcing the cards sideways
-            // into a neighbour when the compact crown anchor clips that lane.
-            const target =
-              window.innerWidth <= 768
-                ? Math.max(
-                    naturalTarget,
-                    Math.max(pageBox.top, chromeBottom) +
-                      (cardHeight + 9) * scale -
-                      (plateTop - anchorTop)
-                  )
-                : naturalTarget;
-            const shift = (target - anchorTop) / scale;
-            pod.style.translate = `0px ${shift}px`;
-            // Bets use the scaler's rail coordinates. Moving the top avatar
-            // within its lane must not carry its bet onto the player plate.
-            pod.style.setProperty('--sp-top-seat-shift', `${shift}px`);
-            settled.current.pods.set(pod, String(shift));
+            const shiftFor = (top: number) => {
+              const clearance =
+                largeHand && window.innerHeight > window.innerWidth
+                  ? Math.max(8, cardHeight + 9 - (plateTop - top))
+                  : 8;
+              // Dan 2026-10-26: the six-max top-centre villain rises to the
+              // tab/action bar, with only the crown clipped. Corner jackpot
+              // plates do not reserve a band across this centred seat. Anchor
+              // the actual art, not its transparent slot or position badge.
+              const anchorTop = sixMax && avatar ? restingAvatarTop(avatar, scale) : top;
+              const naturalTarget = sixMax
+                ? pageBox.top - 2 * scale
+                : chromeBottom + clearance * scale;
+              // A revealed top hand needs its full height above its own plate.
+              // Lower the pod as one unit instead of forcing the cards sideways
+              // into a neighbour when the compact crown anchor clips that lane.
+              const target =
+                window.innerWidth <= 768
+                  ? Math.max(
+                      naturalTarget,
+                      Math.max(pageBox.top, chromeBottom) +
+                        (cardHeight + 9) * scale -
+                        (plateTop - anchorTop)
+                    )
+                  : naturalTarget;
+              return (target - anchorTop) / scale;
+            };
+            const shift = shiftFor(highest);
+            placed.push({
+              pod,
+              shift,
+              // The least this pod may move: its painted head (or chip) still
+              // keeps the same air below the jackpot and its card lane.
+              floor: sixMax ? shift : Math.min(shift, shiftFor(paintedHighest)),
+              plateTop,
+            });
           }
+        }
+        // Dan 2026-11-05, live FLH 0.50/1 on a phone: "MAMAPRIYA IS TOO LOW".
+        // Two chairs on one rail line sit level whatever character either
+        // wears. Anchoring each pod by its image box parked a penguin's plate
+        // 51px below a wolf's: the penguin's box carries transparent canvas
+        // above its head. A pod whose plate lands below another plate on its
+        // line rises to it, never past the point where its painted head would
+        // break the jackpot clearance. Same-art lanes are unchanged.
+        const railLine = (pod: HTMLElement) => pod.style.top;
+        const plateNow = (pod: HTMLElement) =>
+          pod.querySelector('.seat__info')?.getBoundingClientRect().top;
+        for (const entry of placed) {
+          if (sixMax) continue;
+          let level = entry.plateTop + entry.shift * scale;
+          for (const other of placed)
+            if (railLine(other.pod) === railLine(entry.pod))
+              level = Math.min(level, other.plateTop + other.shift * scale);
+          for (const pod of topPods()) {
+            if (pod === entry.pod || !settled.current.pods.has(pod)) continue;
+            const top = plateNow(pod);
+            if (railLine(pod) === railLine(entry.pod) && top !== undefined)
+              level = Math.min(level, top);
+          }
+          entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
+        }
+        for (const { pod, shift } of placed) {
+          pod.style.translate = `0px ${shift}px`;
+          // Bets use the scaler's rail coordinates. Moving the top avatar
+          // within its lane must not carry its bet onto the player plate.
+          pod.style.setProperty('--sp-top-seat-shift', `${shift}px`);
+          settled.current.pods.set(pod, String(shift));
         }
       }
       if (artwork.space()) {
