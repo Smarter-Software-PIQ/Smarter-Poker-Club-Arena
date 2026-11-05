@@ -35,7 +35,9 @@ class ActivationFloor(unittest.TestCase):
         # The caller supplies TMPDIR on the external SSD on macOS.
         self.temp = tempfile.TemporaryDirectory(prefix='activation-floor-')
         self.addCleanup(self.temp.cleanup)
-        self.repo = Path(self.temp.name)
+        # Resolved: engine-release-recover.sh names its control dir by pwd -P, and
+        # on macOS the temp root is a /var -> /private/var link (no-op on Linux).
+        self.repo = Path(self.temp.name).resolve()
         self.git('init', '-q')
         self.git('config', 'core.hooksPath', str(self.repo / 'no-hooks'))
         self.git('config', 'user.name', 'Isolated fixture')
