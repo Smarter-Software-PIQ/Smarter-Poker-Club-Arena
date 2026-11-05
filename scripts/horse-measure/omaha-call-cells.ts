@@ -12,10 +12,14 @@
  * evaluator (omahaNutStatus / scoreOmahaHiPartial), not from the final board.
  * Output: one line per cell, mean EV with a 95% CI clustered by hand.
  *
- * Usage (from server/): npx tsx ../scripts/horse-measure/omaha-call-cells.ts FILE...
+ * Usage (from server/): npx tsx ../scripts/horse-measure/omaha-call-cells.ts [--json] FILE...
+ * A FILE may be the raw execute_sql result text (the MCP wrapper is read).
+ * --json prints the cells as one JSON array ({k, n, g, m, lo, hi, verdict}),
+ * the input of `horse-release-verify.py scorecard assemble --omaha-cells`.
  */
 import { readFileSync } from 'node:fs';
 import { omahaCallClass as classify } from '../../server/src/engine/HorseOmahaBigBetCalls.js';
+import { rowsFromResultText } from '../../server/src/engine/HorseComplaintReplay.js';
 import type { Card, CardRank, CardSuit } from '../../server/src/types.js';
 
 type Row = [
@@ -86,8 +90,19 @@ export function cells(rows: Row[], keyOf: (r: Row, cls: string) => string[]) {
 }
 
 if (process.argv[1]?.endsWith('omaha-call-cells.ts')) {
-  const files = process.argv.slice(2);
-  const rows: Row[] = files.flatMap((f) => JSON.parse(readFileSync(f, 'utf8')) as Row[]);
+  const asJson = process.argv.includes('--json');
+  const files = process.argv.slice(2).filter((a) => a !== '--json');
+  // A slice file is either the bare array of rows or an execute_sql result
+  // whose single row holds it in the `rows` column.
+  const rows: Row[] = files.flatMap((f) =>
+    rowsFromResultText(readFileSync(f, 'utf8')).flatMap((r) =>
+      Array.isArray(r)
+        ? [r as Row]
+        : r && typeof r === 'object' && 'rows' in r
+          ? ((typeof r.rows === 'string' ? JSON.parse(r.rows) : r.rows) as Row[])
+          : []
+    )
+  );
   const out = cells(rows, (r, cls) => {
     const [, v, street, tour, , , pf, eff, , nAct, seatsN, bounty] = r;
     if (bounty || seatsN <= 2 || !(eff > 20)) return [];
@@ -101,6 +116,25 @@ if (process.argv[1]?.endsWith('omaha-call-cells.ts')) {
       `${cls}|${b}|${hm}`,
     ];
   });
+  const verdict = (c: (typeof out)[number]) =>
+    c.g < 2 ? 'insufficient' : c.hi < 0 ? 'BELOW' : c.lo > 0 ? 'above' : 'straddles';
+  if (asJson) {
+    const r2 = (x: number) => (Number.isFinite(x) ? Math.round(x * 100) / 100 : null);
+    console.log(
+      JSON.stringify(
+        out.map((c) => ({
+          k: c.k,
+          n: c.n,
+          g: c.g,
+          m: r2(c.m),
+          lo: r2(c.lo),
+          hi: r2(c.hi),
+          verdict: verdict(c),
+        }))
+      )
+    );
+    process.exit(0);
+  }
   console.log('cell|potfrac|slice n hands mean_bb lo hi verdict');
   for (const c of out) {
     const v = c.g < 2 ? 'insufficient' : c.hi < 0 ? 'BELOW' : c.lo > 0 ? 'above' : 'straddles';

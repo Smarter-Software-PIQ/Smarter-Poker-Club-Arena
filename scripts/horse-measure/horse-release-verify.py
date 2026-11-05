@@ -21,6 +21,19 @@ Usage:
   horse-release-verify.py check                                 # read-only self-check
   horse-release-verify.py check-file FILE                       # read-only check of any .sql
 
+Daily scorecard (Phase 5; every statement read-only, run each through
+execute_sql and save its raw result text as DIR/<id>.json):
+  horse-release-verify.py sql scorecard-core DAY                # one day: controls, receipts, cells
+  horse-release-verify.py scorecard ids DAY                     # the day's statement ids and windows
+  horse-release-verify.py scorecard sql DAY ID                  # one statement (core, v79-00, ...)
+  horse-release-verify.py scorecard plan DAY                    # all of them as JSON
+  horse-release-verify.py scorecard assemble DAY DIR [--omaha-cells FILE] [--out PREFIX]
+                                                                # -> PREFIX.json + PREFIX.md
+Complaint pipeline (Phase 5):
+  horse-release-verify.py sql complaint-extract HAND_ID         # one hand, every horse decision
+  horse-release-verify.py sql complaint-extract TABLE_ID AT     # the hand on that table at AT
+  then: cd server && npx tsx ../scripts/horse-measure/horse-complaint-replay.ts --extract FILE
+
 Interpretation rules (do not skip):
   * Only measure windows that start AFTER the serving releaseSha contains the
     candidate and the release receipt is SEALED and the thaw complete.
@@ -28,6 +41,7 @@ Interpretation rules (do not skip):
   * The v79 combiner gives a hand-clustered 95% CI of the call's decision EV;
     "straddles 0" means the data cannot speak, not that a rule is right.
 """
+import json
 import math
 import re
 import sys
@@ -190,6 +204,358 @@ def combine_v79(lines):
     return rows
 
 
+# ── Phase 5: the daily horse scorecard and the complaint extract ─────────────
+
+SCORECARD_CORE = HERE / 'sql' / 'scorecard-core.sql'
+COMPLAINT_EXTRACT = HERE / 'sql' / 'complaint-extract.sql'
+UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+# Slice sizes keep every statement well inside the MCP execute_sql wait
+# (about 60 s). Measured 2026-11-05: core, one day, ~4 s.
+SCORECARD_SLICES = (('v79', 'v79', 6.0), ('reshove', 'reshove', 12.0), ('omaha', 'omaha-calls', 4.0))
+RECEIPT_ROW = re.compile(r"\('([a-z0-9_]+)',\s*'([^']*)'\)")
+
+
+def activation_receipts():
+    """The (feature, upgrade) list of sql/activation.sql: one list for both reports."""
+    sql = SQL['activation'].read_text(encoding='utf-8')
+    m = re.search(r'FROM \(VALUES(.*?)\) AS x\(feature, upgrade\)', sql, re.S | re.I)
+    if not m:
+        raise SystemExit('activation.sql: VALUES list not found')
+    rows = RECEIPT_ROW.findall(m.group(1))
+    if not rows:
+        raise SystemExit('activation.sql: no receipts found')
+    return rows
+
+
+def day_window(day):
+    if not DAY.match(day):
+        raise SystemExit('DAY must be YYYY-MM-DD')
+    try:
+        d = datetime.strptime(day, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise SystemExit(f'not a calendar day: {day!r}')
+    return d.strftime('%Y-%m-%dT%H:%M:%SZ'), (d + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _checked(out, names):
+    if re.search(r':(' + '|'.join(names) + r')\b', out) or not is_read_only(out):
+        raise SystemExit('refusing: unresolved placeholder or non-read-only statement')
+    return out
+
+
+def render_scorecard_core(day):
+    start, end = day_window(day)
+    receipts = ',\n'.join(f"  ('{f}', '{u}')" for f, u in activation_receipts())
+    out = (SCORECARD_CORE.read_text(encoding='utf-8')
+           .replace(':RECEIPTS', receipts).replace(':DAY', f"'{day}'")
+           .replace(':START', f"'{start}'").replace(':END', f"'{end}'"))
+    return _checked(out, ['RECEIPTS', 'DAY', 'START', 'END'])
+
+
+def render_complaint_extract(args):
+    sql = COMPLAINT_EXTRACT.read_text(encoding='utf-8')
+    if len(args) == 1:
+        (hand,) = args
+        if not UUID.match(hand):
+            raise SystemExit('HAND_ID must be a lower-case uuid')
+        ref = f"(select h2.{{}} from public.hand_history h2 where h2.id = '{hand}'::uuid)"
+        pick = f"h.id = '{hand}'::uuid"
+        near = (f"h.table_id = {ref.format('table_id')} and h.created_at >= {ref.format('created_at')} - interval '15 minutes'"
+                f" and h.created_at < {ref.format('created_at')} + interval '15 minutes'")
+        order = f"abs(extract(epoch from (h.created_at - {ref.format('created_at')})))"
+    elif len(args) == 2:
+        table, at = args
+        if not UUID.match(table):
+            raise SystemExit('TABLE_ID must be a lower-case uuid')
+        if not TS.match(at):
+            raise SystemExit(f'not an ISO timestamp with an offset: {at!r}')
+        t = f"'{at}'::timestamptz"
+        pick = near = (f"h.table_id = '{table}'::uuid and h.created_at >= {t} - interval '30 minutes'"
+                       f" and h.created_at < {t} + interval '30 minutes'")
+        order = (f"case when {t} >= coalesce(h.started_at, h.created_at) and {t} <= coalesce(h.ended_at, h.created_at)"
+                 f" then 0 else 1 end, abs(extract(epoch from (h.created_at - {t})))")
+    else:
+        raise SystemExit('complaint-extract takes HAND_ID, or TABLE_ID AT')
+    out = sql.replace(':PICK', pick).replace(':NEAR', near).replace(':ORDER', order)
+    return _checked(out, ['PICK', 'NEAR', 'ORDER'])
+
+
+def _hours(flags):
+    hours = {s: h for s, _, h in SCORECARD_SLICES}
+    for k, v in flags.items():
+        sec = k[:-len('-hours')] if k.endswith('-hours') else None
+        if sec not in hours:
+            raise SystemExit(f'unknown flag --{k}')
+        try:
+            hours[sec] = float(v)
+        except ValueError:
+            raise SystemExit(f'--{k} must be a number')
+    return hours
+
+
+def scorecard_plan(day, flags=None):
+    """Every statement of one day's scorecard, in order: one core statement plus
+    bounded slices of the V79/V80, reshove and V81 Omaha templates."""
+    hours = _hours(flags or {})
+    start, end = day_window(day)
+    plan = [{'id': 'core', 'section': 'core', 'window': [start, end], 'sql': render_scorecard_core(day)}]
+    for section, mode, _ in SCORECARD_SLICES:
+        for i, (a, b) in enumerate(slices(start, end, hours[section])):
+            plan.append({'id': f'{section}-{i:02d}', 'section': section, 'window': [a, b], 'sql': render(mode, [a, b])})
+    return plan
+
+
+def load_rows(text):
+    """Rows from an execute_sql result: a JSON array, or the MCP wrapper text
+    (a {"result": "..."} object whose text holds the array)."""
+    text = text.strip()
+    obj = None
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        pass
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict) and isinstance(obj.get('result'), str):
+        text = obj['result']
+    elif isinstance(obj, dict):
+        return [obj]
+    m = re.search(r'<untrusted-data-[^>]*>(.*?)</untrusted-data-', text, re.S)
+    body = m.group(1) if m else text
+    i, j = body.find('['), body.rfind(']')
+    if i < 0 or j < i:
+        raise ValueError('no JSON rows in the result text')
+    rows = json.loads(body[i:j + 1])
+    if not isinstance(rows, list):
+        raise ValueError('result is not a list of rows')
+    return rows
+
+
+def wilson(k, n, z=1.96):
+    if n <= 0:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return [round(max(0.0, c - h), 4), round(min(1.0, c + h), 4)]
+
+
+def mean_ci(n, s, ss, scale=1.0):
+    """Mean and 95% CI from per-cluster sums (each cluster one hand)."""
+    if n <= 0:
+        return None, None, 'no data'
+    m = s / n
+    if n < 2:
+        return round(m * scale, 2), None, 'insufficient (fewer than 2 hands)'
+    var = max(ss - n * m * m, 0.0) / (n - 1)
+    se = math.sqrt(var / n)
+    lo, hi = (m - 1.96 * se) * scale, (m + 1.96 * se) * scale
+    v = 'below 0' if hi < 0 else ('above 0' if lo > 0 else 'straddles 0')
+    return round(m * scale, 2), [round(lo, 2), round(hi, 2)], v
+
+
+def _num(x):
+    return float(x) if x is not None else 0.0
+
+
+V79_RULE = {('A', 'weak_2_9'): 'V79', ('B', 'weak_2_9'): 'V79', ('A', 'strong_T+'): 'V80'}
+
+
+def assemble(day, folder, omaha_cells=None, flags=None):
+    plan = scorecard_plan(day, flags)
+    folder = Path(folder)
+    present, missing, unreadable, data = [], [], [], {}
+    for item in plan:
+        f = folder / f"{item['id']}.json"
+        if not f.exists():
+            missing.append(item['id'])
+            continue
+        try:
+            data[item['id']] = load_rows(f.read_text(encoding='utf-8'))
+            present.append(item['id'])
+        except (ValueError, json.JSONDecodeError) as e:
+            unreadable.append({'id': item['id'], 'error': str(e)[:200]})
+    report = {
+        'day': day, 'window': list(day_window(day)),
+        'generated_by': 'scripts/horse-measure/horse-release-verify.py scorecard assemble',
+        'coverage': {'planned': [p['id'] for p in plan], 'present': present, 'missing': missing,
+                     'unreadable': unreadable, 'complete': not missing and not unreadable},
+        'notes': [],
+    }
+    # core: controls, activation, variant x format cells
+    core = None
+    if 'core' in data and data['core']:
+        row = data['core'][0]
+        core = row.get('scorecard', row) if isinstance(row, dict) else row
+        if isinstance(core, str):
+            core = json.loads(core)
+    controls = (core or {}).get('controls') or {}
+    alive = _num(controls.get('decide_nlh')) > 0
+    report['controls'] = controls
+    report['liveness'] = 'missing (core not run)' if core is None else (
+        'alive' if alive else 'DEAD: decide_nlh is 0, every other zero below is meaningless')
+    act = []
+    for r in (core or {}).get('activation') or []:
+        fires = int(_num(r.get('fires')))
+        if 'opt-in' in r.get('upgrade', ''):
+            status = 'expected 0' if fires == 0 else 'FIRING (opt-in receipt, unexpected)'
+        elif not alive:
+            status = 'unknown (control silent)'
+        else:
+            status = 'firing' if fires > 0 else 'SILENT'
+        act.append({'feature': r.get('feature'), 'upgrade': r.get('upgrade'), 'fires': fires, 'status': status})
+    report['activation'] = act
+    cells = []
+    for c in (core or {}).get('cells') or []:
+        fb, fbf, hh = int(_num(c.get('four_bet_hands'))), int(_num(c.get('four_bet_then_fold_hands'))), int(_num(c.get('human_hands')))
+        hm, hci, hv = mean_ci(hh, _num(c.get('horse_net_bb')), _num(c.get('horse_net_bb_sq')), 100.0)
+        um, uci, uv = mean_ci(hh, _num(c.get('human_net_bb')), _num(c.get('human_net_bb_sq')), 100.0)
+        cells.append({
+            'variant': c.get('variant'), 'format': c.get('format'), 'hands': int(_num(c.get('hands'))),
+            'horse_seats': int(_num(c.get('horse_seats'))), 'human_seats': int(_num(c.get('human_seats'))),
+            'four_bet_hands': fb, 'four_bet_then_fold_hands': fbf,
+            'four_bet_then_fold_rate': round(fbf / fb, 4) if fb else None, 'four_bet_then_fold_ci': wilson(fbf, fb),
+            'human_hands': hh, 'horse_bb_per_100': hm, 'horse_bb_per_100_ci': hci, 'horse_verdict': hv,
+            'human_bb_per_100': um, 'human_bb_per_100_ci': uci, 'human_verdict': uv,
+        })
+    report['cells'] = cells
+    # V79/V80 cells (hand-clustered decision EV of the call)
+    lines = []
+    for k in data:
+        if k.startswith('v79-'):
+            for row in data[k]:
+                for v in (row.values() if isinstance(row, dict) else [row]):
+                    if isinstance(v, str) and v.count('|') == 10:
+                        lines.append(v)
+    v79 = []
+    for label, kc, n, g, m, lo, hi, ch, verdict in (combine_v79(lines) if lines else []):
+        v79.append({'cell': label, 'kicker': kc, 'n': n, 'hands': g, 'mean_bb': round(m, 2),
+                    'lo': None if math.isnan(lo) else round(lo, 2), 'hi': None if math.isnan(hi) else round(hi, 2),
+                    'chops': ch, 'verdict': verdict, 'rule': V79_RULE.get((label, kc))})
+    report['v79'] = v79
+    # tournament reshoves (one horse reshove per hand, so rows are hands)
+    acc = {}
+    for k in data:
+        if k.startswith('reshove-'):
+            for r in data[k]:
+                key = (r.get('opener_pos'), r.get('tsize'), r.get('depth'))
+                a = acc.setdefault(key, [0, 0, 0.0, 0.0, 0.0])
+                a[0] += int(_num(r.get('n'))); a[1] += int(_num(r.get('n_ev')))
+                a[2] += _num(r.get('sum_ev_bb')); a[3] += _num(r.get('sum_sq_ev_bb')); a[4] += _num(r.get('sum_net_bb'))
+    reshove = []
+    for (pos, ts, dp), (n, nev, s, ss, net) in sorted(acc.items(), key=lambda x: tuple(map(str, x[0]))):
+        m, ci, v = mean_ci(nev, s, ss)
+        reshove.append({'opener_pos': pos, 'tsize': ts, 'depth': dp, 'n': n, 'mean_net_bb': round(net / n, 2) if n else None,
+                        'mean_ev_bb': m, 'lo': ci[0] if ci else None, 'hi': ci[1] if ci else None, 'verdict': v})
+    report['reshove'] = reshove
+    # V81 Omaha cells: classified by the engine's own evaluator (omaha-call-cells.ts --json)
+    omaha_files = sorted(folder / f'{k}.json' for k in data if k.startswith('omaha-'))
+    if omaha_cells:
+        report['v81'] = {'status': 'classified', 'source': str(omaha_cells),
+                         'cells': json.loads(Path(omaha_cells).read_text(encoding='utf-8'))}
+    elif omaha_files:
+        report['v81'] = {'status': 'not classified', 'cells': [],
+                         'next': 'cd server && npx tsx ../scripts/horse-measure/omaha-call-cells.ts --json '
+                                 + ' '.join(str(f) for f in omaha_files) + ' > OMAHA_CELLS.json, then re-run with --omaha-cells OMAHA_CELLS.json'}
+    else:
+        report['v81'] = {'status': 'missing', 'cells': []}
+    if not report['coverage']['complete']:
+        report['notes'].append('PARTIAL: some planned statements are missing or unreadable; sums cover only the slices present.')
+    return report
+
+
+def _ci(ci):
+    return '' if not ci else f'[{ci[0]}, {ci[1]}]'
+
+
+def render_markdown(r):
+    L = [f"# Horse daily scorecard, {r['day']} (UTC)", '',
+         f"Window {r['window'][0]} to {r['window'][1]}. Read-only. Every number is a count or an estimate with its sample size;",
+         'behaviour is not profitability. A confidence interval that straddles 0 means the data cannot speak yet.', '']
+    cov = r['coverage']
+    L.append('## Coverage')
+    L.append(f"{len(cov['present'])} of {len(cov['planned'])} planned statements read"
+             + ('.' if cov['complete'] else f"; missing: {', '.join(cov['missing']) or 'none'}; unreadable: {', '.join(u['id'] for u in cov['unreadable']) or 'none'}."))
+    for n in r['notes']:
+        L.append(f'- {n}')
+    L += ['', '## Telemetry controls', f"Liveness: {r['liveness']}.", '', '| control | fires |', '| --- | ---: |']
+    L += [f'| {k} | {v} |' for k, v in sorted(r['controls'].items())]
+    silent = [a['feature'] for a in r['activation'] if a['status'] == 'SILENT']
+    L += ['', '## Upgrade receipts', f"Silent receipts: {', '.join(silent) if silent else 'none'}.", '',
+          '| receipt | upgrade | fires | status |', '| --- | --- | ---: | --- |']
+    L += [f"| {a['feature']} | {a['upgrade']} | {a['fires']} | {a['status']} |" for a in r['activation']]
+    L += ['', '## By variant and format', '',
+          '| variant | format | hands | 4-bet hands | 4-bet then fold | rate (95% CI) | hands with a person | horse bb/100 (95% CI) | person bb/100 (95% CI) |',
+          '| --- | --- | ---: | ---: | ---: | --- | ---: | --- | --- |']
+    for c in r['cells']:
+        rate = '' if c['four_bet_then_fold_rate'] is None else f"{c['four_bet_then_fold_rate']:.1%} {_ci(c['four_bet_then_fold_ci'])}"
+        L.append(f"| {c['variant']} | {c['format']} | {c['hands']} | {c['four_bet_hands']} | {c['four_bet_then_fold_hands']} | {rate} | "
+                 f"{c['human_hands']} | {'' if c['horse_bb_per_100'] is None else c['horse_bb_per_100']} {_ci(c['horse_bb_per_100_ci'])} | "
+                 f"{'' if c['human_bb_per_100'] is None else c['human_bb_per_100']} {_ci(c['human_bb_per_100_ci'])} |")
+    L += ['', '## V79 / V80 top-pair call cells (decision EV of the call, bb, CI clustered by hand)', '',
+          '| cell | kicker | rule | calls | hands | mean | 95% CI | verdict |', '| --- | --- | --- | ---: | ---: | ---: | --- | --- |']
+    for v in r['v79']:
+        ci = '' if v['lo'] is None else f"[{v['lo']}, {v['hi']}]"
+        L.append(f"| {v['cell']} | {v['kicker']} | {v['rule'] or ''} | {v['n']} | {v['hands']} | {v['mean_bb']} | {ci} | {v['verdict']} |")
+    L += ['', '## V81 Omaha call cells', f"Status: {r['v81']['status']}." + (f" Next: `{r['v81']['next']}`" if r['v81'].get('next') else ''), '']
+    if r['v81']['cells']:
+        L += ['| cell | calls | hands | mean bb | 95% CI | verdict |', '| --- | ---: | ---: | ---: | --- | --- |']
+        for c in r['v81']['cells']:
+            if str(c.get('k', '')).endswith('|all'):
+                L.append(f"| {c.get('k')} | {c.get('n')} | {c.get('g')} | {c.get('m')} | {_ci([c.get('lo'), c.get('hi')]) if c.get('lo') is not None else ''} | {c.get('verdict')} |")
+    L += ['', '## Tournament reshoves over one open, 15-30bb (all-in-adjusted EV, bb; one reshove per hand)', '',
+          '| opener | table | depth | n | mean EV | 95% CI | verdict |', '| --- | --- | --- | ---: | ---: | --- | --- |']
+    for s in r['reshove']:
+        ci = '' if s['lo'] is None else f"[{s['lo']}, {s['hi']}]"
+        L.append(f"| {s['opener_pos']} | {s['tsize']} | {s['depth']} | {s['n']} | {s['mean_ev_bb']} | {ci} | {s['verdict']} |")
+    return '\n'.join(L) + '\n'
+
+
+def scorecard_main(argv):
+    if len(argv) < 2:
+        raise SystemExit('scorecard plan|ids|sql|assemble DAY ...')
+    sub, day, rest = argv[0], argv[1], argv[2:]
+    flags, pos, i = {}, [], 0
+    while i < len(rest):
+        if rest[i].startswith('--'):
+            if i + 1 >= len(rest):
+                raise SystemExit(f'{rest[i]} needs a value')
+            flags[rest[i][2:]] = rest[i + 1]
+            i += 2
+        else:
+            pos.append(rest[i])
+            i += 1
+    if sub in ('plan', 'ids', 'sql'):
+        plan = scorecard_plan(day, flags)
+        if sub == 'plan':
+            print(json.dumps(plan, indent=1))
+        elif sub == 'ids':
+            for p in plan:
+                print(p['id'], p['window'][0], p['window'][1])
+        else:
+            if len(pos) != 1:
+                raise SystemExit('scorecard sql DAY ID')
+            hit = [p for p in plan if p['id'] == pos[0]]
+            if not hit:
+                raise SystemExit(f"unknown statement id {pos[0]!r}; see `scorecard ids {day}`")
+            print(hit[0]['sql'])
+        return 0
+    if sub == 'assemble':
+        if len(pos) != 1:
+            raise SystemExit('scorecard assemble DAY DIR [--omaha-cells FILE] [--out PREFIX]')
+        omaha = flags.pop('omaha-cells', None)
+        prefix = flags.pop('out', None) or str(Path(pos[0]) / f'scorecard-{day}')
+        report = assemble(day, pos[0], omaha, flags)
+        Path(prefix + '.json').write_text(json.dumps(report, indent=1) + '\n', encoding='utf-8')
+        Path(prefix + '.md').write_text(render_markdown(report), encoding='utf-8')
+        cov = report['coverage']
+        print(f"wrote {prefix}.json and {prefix}.md; coverage {len(cov['present'])}/{len(cov['planned'])}"
+              + ('' if cov['complete'] else ' (PARTIAL)') + f"; liveness {report['liveness']}")
+        return 0
+    raise SystemExit(f'unknown scorecard command {sub!r}')
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
@@ -199,10 +565,20 @@ def main(argv):
         if len(argv) < 3:
             print(__doc__)
             return 2
+        if argv[2] == 'scorecard-core':
+            if len(argv) != 4:
+                raise SystemExit('scorecard-core takes DAY')
+            print(render_scorecard_core(argv[3]))
+            return 0
+        if argv[2] == 'complaint-extract':
+            print(render_complaint_extract(argv[3:]))
+            return 0
         want = 1 if argv[2] == 'activation' else 2
         if len(argv) != 3 + want:
             raise SystemExit(f'{argv[2]} takes {want} argument(s)')
         print(render(argv[2], argv[3:]))
+    elif mode == 'scorecard':
+        return scorecard_main(argv[2:])
     elif mode == 'slices':
         if len(argv) != 5:
             raise SystemExit('slices takes START END HOURS')
@@ -218,6 +594,9 @@ def main(argv):
             print(f'{label:34} {kc:9} {n:5d} {g:5d} {m:8.2f} {ci} {ch:5d} {v}')
     elif mode == 'check':
         bad = [k for k, p in SQL.items() if not is_read_only(p.read_text(encoding='utf-8'))]
+        for name, p in (('scorecard-core', SCORECARD_CORE), ('complaint-extract', COMPLAINT_EXTRACT)):
+            if not is_read_only(p.read_text(encoding='utf-8')):
+                bad.append(name)
         if bad:
             print('NOT read-only:', bad)
             return 1
