@@ -5876,6 +5876,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           tableId: table.id,
           engine: this.tableEngines.get(table.id),
         }));
+        const heldPreparedOriginals = new Set<string>();
         for (const { tableId, engine } of owned) {
           if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
             return 'pending';
@@ -5919,12 +5920,15 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             await this.checkDynamicTableExpansion();
             return 'pending';
           }
-          if (
-            !engine?.isRunning() ||
-            this.gameServer.getTableEngine(tableId) !== engine ||
-            !(await engine.parkForTerminalCloseout(0))
-          )
+          if (!engine?.isRunning() || this.gameServer.getTableEngine(tableId) !== engine)
             return 'pending';
+          // A retained original that never started is held at this same gate
+          // and moves no chip until the boundary releases it; waiting for it
+          // to empty was a circular wait (2026-11-05, Satellite 25 fbb86b2a).
+          if (!(await engine.parkForTerminalCloseout(0))) {
+            if (!engine.isPreparedOriginalHeldAtTerminalCloseout()) return 'pending';
+            heldPreparedOriginals.add(tableId);
+          }
         }
         // All accepted writers and in-flight hands are drained now. The
         // second serialized read owns cohort membership for this boundary.
@@ -5944,6 +5948,19 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         )
           return 'pending';
         if (state.state === 'unresolved') return 'pending';
+        // The held original's own players are still owed that hand: only a
+        // continuing field releases it. A qualifying field never settles over
+        // a retained original it would have to close (unchanged behaviour).
+        if (
+          heldPreparedOriginals.size > 0 &&
+          (state.state !== 'continuing' ||
+            owned.some(
+              ({ tableId, engine }) =>
+                heldPreparedOriginals.has(tableId) &&
+                engine?.isPreparedOriginalHeldAtTerminalCloseout() !== true
+            ))
+        )
+          return 'pending';
         if (state.state === 'qualifying') {
           this.tournamentFinished = true;
           try {

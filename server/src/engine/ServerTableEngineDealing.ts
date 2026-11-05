@@ -2164,6 +2164,50 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     return JSON.parse(controller.serializeRecoveryState()).handStarted === false;
   }
 
+  /**
+   * A RETAINED HAND THAT NEVER STARTED IS PARKED, NOT IN THE AIR (2026-11-05).
+   *
+   * Sunday Deep Stack Satellite 25 (fbb86b2a), 18:29Z: table aed78e3f
+   * prepared hand 55430351 and retained its sequence-zero original (no card
+   * dealt, no chip moved) a moment before a bust on another table raised the
+   * satellite qualifier boundary. runOriginalController holds a prepared
+   * original at the pause gate for exactly that boundary - and the boundary
+   * asked parkForTerminalCloseout, which counts only an EMPTY controller as
+   * parked. So the boundary waited for the original and the original waited
+   * for the boundary: all five tables (40 players) dealt nothing, through two
+   * successor generations that each replayed the same original into the same
+   * wait.
+   *
+   * True only for that exact shape, every term proven from this engine:
+   * running and current, physically at the gate under the terminal closeout
+   * hold, the controller IS the retained prepared original, its permit is the
+   * attempted one for this hand, no continuation batch past sequence zero,
+   * the controller reports handStarted === false, and no writer of any kind
+   * is in flight. It certifies nothing for a table closeout (which still
+   * needs isBetweenHands); only the qualifier boundary reads it.
+   */
+  override isPreparedOriginalHeldAtTerminalCloseout(): boolean {
+    const controller = this.handController;
+    if (
+      !this.running ||
+      !this.lifecycleCanMutate() ||
+      !this.isCurrentEngine() ||
+      !this.terminalCloseoutPaused ||
+      !this.isParkedBetweenHands() ||
+      !controller ||
+      this.retainedPreparedOriginalController !== controller ||
+      this.f06CurrentPermit?.recoveryState() !== 'attempted' ||
+      this.f06CurrentPermit.binding.hand_number !== String(this.handCount) ||
+      this.handContinuation !== null ||
+      this.hasSettlementInFlight() ||
+      this.postHandTasksPromise !== null ||
+      this.terminalBoundaryPendingGenerations.size !== 0 ||
+      this.hasWeeklyPayoutMutationInFlight()
+    )
+      return false;
+    return JSON.parse(controller.serializeRecoveryState()).handStarted === false;
+  }
+
   protected async readNextHandInputs(): Promise<SeatedPlayer[]> {
     // Seats and cash rake can be prepared in parallel under the rest.
     // Tournament blinds must wait until that rest ends: a level may advance
