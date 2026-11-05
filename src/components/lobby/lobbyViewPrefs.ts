@@ -60,6 +60,7 @@ import { awaitPreferenceSave } from '../../lib/tableSettingIntents';
 import { reportError } from '../../utils/errorReporter';
 import { supabase } from '../../lib/supabase';
 import { readLocalSession } from '../../lib/authUtils';
+import { useUserStore } from '../../stores/useUserStore';
 
 /**
  * A request the browser abandoned (the page navigated, the tab closed, the
@@ -154,9 +155,25 @@ export const EMPTY_VIEW_PREFS: LobbyViewPrefs = {
   favoritesOnly: false,
 };
 
+/**
+ * WHO THE PREFERENCE BELONGS TO: the signed-in player, not the freshness of
+ * their access token (Dan 2026-11-05). This used to read only the JWT, and
+ * readLocalSession returns null once the hour-long token has expired, which
+ * on a phone or a backgrounded tab is a normal state between refreshes. Every
+ * filter tapped in that window was written to the SIGNED-OUT key and never
+ * sent to the row, so the next fresh load read the account's older choice and
+ * the lobby "silently defaulted back". The account in the user store survives
+ * token expiry; the JWT is only the fallback before the store has loaded.
+ */
 function currentUserId(): string | null {
   try {
-    return readLocalSession()?.userId ?? null;
+    const stored = useUserStore.getState().user?.id;
+    if (typeof stored === 'string' && stored) return stored;
+  } catch {
+    /* fall through to the session cache */
+  }
+  try {
+    return readLocalSession({ allowExpired: true })?.userId ?? null;
   } catch {
     return null;
   }

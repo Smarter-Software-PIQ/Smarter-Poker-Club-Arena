@@ -1,0 +1,3 @@
+# tests/lobby-favorites-follow-the-game.law.test.ts
+
+Dan 2026-11-05: a favorite or a lobby filter, once set, never changes unless the player changes it. Pins the three root causes of favorites and filters "forgetting themselves" within a day: tournament stars stored against one run's id (now keyed by schedule / named series), cash stars on favorite_tables with ON DELETE CASCADE to tables (now player_lobby_favorites with no foreign key to any game row and a guard trigger refusing every removal but the player's own unfavorite or account closure), and filter / view ownership read from the access token, which reads as signed out once it expires (now the signed-in account).

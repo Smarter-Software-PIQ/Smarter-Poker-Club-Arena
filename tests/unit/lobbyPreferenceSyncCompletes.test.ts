@@ -197,8 +197,14 @@ describe('every lobby filter change reaches the row, in order', () => {
       )
     );
     expect(hydrate).toMatch(/hasUnsyncedFilters\(resolvedClubId/);
-    expect(hydrate).toMatch(/pushRemoteFilters\(resolvedClubId, cached\)/);
-    expect(hydrate).toMatch(/void fetchRemoteFilters\(resolvedClubId\)/);
+    // The owner is passed explicitly (2026-11-05): an expired token must never
+    // turn the push or the read into a signed-out no-op.
+    expect(hydrate).toMatch(
+      /pushRemoteFilters\(resolvedClubId, cached, currentUser\?\.id \?\? null\)/
+    );
+    expect(hydrate).toMatch(
+      /void fetchRemoteFilters\(resolvedClubId, currentUser\?\.id \?\? null\)/
+    );
     expect(hydrate).toMatch(/advFiltersTouched\.current/);
   });
 });

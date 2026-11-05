@@ -21,39 +21,19 @@
  * sheet down to the lobby-tab fallback.
  */
 
-import { supabase } from '../../lib/supabase';
-import { reportError } from '../../utils/errorReporter';
+import { fetchLobbyFavorites } from '../lobby/lobbyFavorites';
 
 /**
- * `favorite_tables.table_id` for one user, deduped.
+ * Live cash-table ids of the games this user has starred.
  *
- * Returns [] for a signed-out user, an empty favourites list, or any failure —
- * the caller cannot tell them apart and does not need to.
+ * Reads the same per-game favorites the lobby shows (lobbyFavorites.ts), so a
+ * rebuilt table of a starred game still ranks first in Quick Join. Returns []
+ * for a signed-out user, no favorites, or any failure.
  */
 export async function fetchFavoriteTableIds(userId: string | null | undefined): Promise<string[]> {
   if (!userId) return [];
-  try {
-    /* Multi-row select, so neither .single() nor .maybeSingle() applies: those
-       are for reads that must yield exactly one row. */
-    const { data, error } = await supabase
-      .from('favorite_tables')
-      .select('table_id')
-      .eq('user_id', userId);
-
-    if (error) {
-      reportError(error, 'favoriteTables.fetchFavoriteTableIds');
-      return [];
-    }
-
-    const ids = (data || [])
-      .map((row: { table_id?: string | null }) => row?.table_id)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0);
-
-    return Array.from(new Set(ids));
-  } catch (err) {
-    reportError(err, 'favoriteTables.fetchFavoriteTableIds');
-    return [];
-  }
+  const read = await fetchLobbyFavorites();
+  return read.ok ? read.cashIds : [];
 }
 
 export default fetchFavoriteTableIds;
