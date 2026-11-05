@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/20261102135212_a_stalled_engine_replacement_is_paged.sql
+      - supabase/migrations/20261105181559_the_stall_check_reads_the_alert_uuid.sql
       - scripts/ci/test-a-stalled-engine-replacement-is-paged.py
       - .github/workflows/a-stalled-engine-replacement-is-paged.yml
 
