@@ -1,3 +1,4 @@
+import type { TournamentAbortClosureMode } from './tournament/TournamentAbortBoundary.js';
 import { readDurableTerminalRequest } from './tournament/terminalDurableRequest.js';
 import {
   ORIGINAL_RECOVERY_OPERATION,
@@ -12283,7 +12284,7 @@ export class GameServer {
   async acknowledgeTournamentAbortBoundary(
     operationId: string,
     tournamentId: string,
-    closureMode?: 'equal_share'
+    closureMode?: TournamentAbortClosureMode
   ): Promise<unknown> {
     const { data, error } = await supabase.rpc('fn_ca_tournament_abort_stop_state', {
       p_operation_id: operationId,

@@ -63,6 +63,13 @@ describe('only the exact configured service can ask an original abort owner', ()
     });
     expect(accepted.status).toBe(200);
     expect(accepted.invoke).toHaveBeenCalledWith(operationId, tournamentId, 'equal_share');
+    const owner = await request('isolated-service-key', {
+      operationId,
+      tournamentId,
+      closureMode: 'owner_retirement',
+    });
+    expect(owner.status).toBe(200);
+    expect(owner.invoke).toHaveBeenCalledWith(operationId, tournamentId, 'owner_retirement');
     const refused = await request('isolated-service-key', {
       operationId,
       tournamentId,
