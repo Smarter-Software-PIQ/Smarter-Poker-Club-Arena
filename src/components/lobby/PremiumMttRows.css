@@ -398,6 +398,21 @@
 .has-premium-chassis .lt-mine {
   font-size: clamp(7px, 1.7cqw, 12px);
 }
+/* The title glass keeps its box; the pill shares it with the title, under
+   it and centered, at the chassis' own scale. */
+.has-premium-chassis .lt-tournament-heading__name:has(.lt-mine--heading) {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.6cqw;
+}
+.has-premium-chassis .lt-mine--heading {
+  align-self: center;
+  padding: 0.3cqw 1.4cqw;
+  font-size: clamp(8px, 2cqw, 14px);
+  letter-spacing: 0.06em;
+  text-shadow: none;
+}
 .has-premium-chassis tr.lt-event-gap,
 .has-premium-chassis tr.lt-event-gap > td {
   display: block;
