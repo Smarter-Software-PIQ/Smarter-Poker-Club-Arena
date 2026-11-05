@@ -28,7 +28,8 @@ So the owner-retirement path could never finish these events.
   admit `owner_retirement` only for an event in
   `smarter_private.owner_tournament_deletion_intents` under the owner's chat.
   Every other refusal is unchanged.
-- Control: `owner_cancel_ack` is `owner_ack` asking for that closure.
+- Control: `owner_ack` asks for that closure only while the stop state shows a
+  table still holding a reserved hand; otherwise it is unchanged.
 
 No money moves in the fix. Each event then retires through the existing owner
 retirement (`fn_ca_owner_retire_tournament`), exactly like the 119 before it.

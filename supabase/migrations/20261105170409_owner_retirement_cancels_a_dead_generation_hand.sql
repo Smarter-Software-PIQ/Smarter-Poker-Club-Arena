@@ -36,7 +36,8 @@
 -- refusal in the door is unchanged: nothing durable of the hand may exist (no
 -- submission, dispatch, commit or history), every chair must hold exactly its
 -- registration's chips, the retained original must match the permit, and the
--- money snapshot must not move. The engine sends the mode through owner_cancel_ack.
+-- money snapshot must not move. owner_ack requests the mode only while a table
+-- still holds a reserved hand.
 --
 -- No money moves in this migration.
 --

@@ -17,13 +17,8 @@ const additional = JSON.parse(additionalBytes);
 const targets = [...manifest.targets, ...additional.targets];
 const manifestHash = createHash('sha256').update(bytes).update(additionalBytes).digest('hex');
 const UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
-// owner_cancel_ack is owner_ack for an event whose original hand belongs to a
-// dead generation and can never finish (2026-11-05): it asks the engine for the
-// owner-retirement closure, which cancels that never-started hand through the
-// audited door the equal-share closure uses. The database admits it only for an
-// event the owner recorded for retirement. Everything else is owner_ack.
-export const OWNER_ACTIONS = ['owner_request', 'owner_read', 'owner_ack', 'owner_cancel_ack'];
-const isOwnerAck = (action) => action === 'owner_ack' || action === 'owner_cancel_ack';
+export const OWNER_ACTIONS = ['owner_request', 'owner_read', 'owner_ack'];
+const isOwnerAck = (action) => action === 'owner_ack';
 export function ownerRetirementIntent(input) {
   const member = targets.find((r) => r.tournament_id === input.tournamentId);
   if (
@@ -155,6 +150,11 @@ export async function controlOwnerRetirement(
         ? value.current_generation
         : null,
       current_boundary_valid: value.current_boundary_valid === true,
+      // A table still holding a reserved hand: one from a generation that can
+      // never finish it, since the stop already fenced the event (2026-11-05).
+      dead_hand:
+        Array.isArray(value.tables) &&
+        value.tables.some((table) => typeof table?.cancellable_permit_id === 'string'),
       quiescence_generation: UUID.test(value.quiescence_generation ?? '')
         ? value.quiescence_generation
         : null,
@@ -256,7 +256,11 @@ export async function controlOwnerRetirement(
         const r = await request('https://engine.smarter.poker/admin/tournament-abort-boundary', {
           operationId: intent.operationId,
           tournamentId: intent.tournamentId,
-          ...(input.action === 'owner_cancel_ack' ? { closureMode: 'owner_retirement' } : {}),
+          // OWNER RETIREMENT CANCELS A DEAD GENERATION HAND (2026-11-05). Such a
+          // hand can never park, so ask for the owner-retirement closure, which
+          // cancels it through the audited door; the database admits it only
+          // for an event the owner recorded for retirement.
+          ...(result.canonicalBefore.dead_hand ? { closureMode: 'owner_retirement' } : {}),
         });
         if (r.success !== true || r.runtime?.operation_id !== intent.operationId)
           throw Error('Boundary Acknowledgement Unknown');

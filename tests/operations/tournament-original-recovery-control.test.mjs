@@ -1165,6 +1165,7 @@ function retirementFixture({
   settledReceipt = {},
   finalHealthChanged = false,
   releasedLease = false,
+  deadHand = false,
 } = {}) {
   const calls = [];
   let state = initial;
@@ -1223,6 +1224,12 @@ function retirementFixture({
               current_boundary_valid: state === 'quiesced',
               quiescence_generation: input.generation,
               money_hash: '0'.repeat(32),
+              tables: [
+                {
+                  table_id: retirementMember.tournament_id,
+                  cancellable_permit_id: deadHand ? input.nonce : null,
+                },
+              ],
               receipt:
                 state === 'settled'
                   ? {
@@ -1413,9 +1420,9 @@ test('owner ACK verifies actual current boundary and read does not actuate', asy
   assert.equal(retirementWrites(read).length, 0);
 });
 
-test('owner cancel ACK asks for the owner-retirement closure and is otherwise owner ACK', async () => {
-  const f = retirementFixture({ initial: 'stop_requested' });
-  const r = await f.run('owner_cancel_ack');
+test('owner ACK asks for the owner-retirement closure only while a dead hand is reserved', async () => {
+  const f = retirementFixture({ initial: 'stop_requested', deadHand: true });
+  const r = await f.run('owner_ack');
   assert.equal(r.outcome, 'owner_boundary_verified');
   assert.equal(retirementWrites(f).length, 1);
   assert.deepEqual(JSON.parse(retirementWrites(f)[0].options.body), {

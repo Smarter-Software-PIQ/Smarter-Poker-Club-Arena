@@ -42,11 +42,16 @@ describe('owner retirement cancels a dead generation hand', () => {
     expect(handler).toContain("body.closureMode !== 'owner_retirement'");
   });
 
-  it('is requested explicitly through owner_cancel_ack', () => {
-    expect(control).toContain("'owner_cancel_ack'];");
+  it('is requested by owner_ack only while a dead hand is reserved', () => {
     expect(control).toContain(
-      "input.action === 'owner_cancel_ack' ? { closureMode: 'owner_retirement' } : {}"
+      "export const OWNER_ACTIONS = ['owner_request', 'owner_read', 'owner_ack'];"
     );
-    expect(workflow).toContain('            owner_cancel_ack,');
+    expect(control).toContain(
+      "...(result.canonicalBefore.dead_hand ? { closureMode: 'owner_retirement' } : {})"
+    );
+    expect(control).toContain(
+      "value.tables.some((table) => typeof table?.cancellable_permit_id === 'string')"
+    );
+    expect(workflow).not.toContain('owner_cancel_ack');
   });
 });
