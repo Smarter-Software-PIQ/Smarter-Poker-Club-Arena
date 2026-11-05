@@ -43,21 +43,25 @@ describe('the union cash schedule follows the November 4 owner scope', () => {
   it.each([
     ['2026-11-04T07:59:59-06:00', 3],
     ['2026-11-04T08:00:00-06:00', 9],
-    ['2026-11-04T12:00:00-06:00', 11],
-    ['2026-11-04T17:59:59-06:00', 11],
+    ['2026-11-04T12:00:00-06:00', 13],
+    ['2026-11-04T17:59:59-06:00', 13],
     ['2026-11-04T18:00:00-06:00', 16],
     ['2026-11-04T22:59:59-06:00', 16],
-    ['2026-11-04T23:00:00-06:00', 11],
-    ['2026-11-05T00:00:00-06:00', 3],
+    ['2026-11-04T23:00:00-06:00', 13],
+    ['2026-11-05T00:00:00-06:00', 5],
+    ['2026-11-05T03:59:59-06:00', 5],
+    ['2026-11-05T04:00:00-06:00', 3],
+    ['2026-11-05T08:59:59-06:00', 9],
+    ['2026-11-05T09:00:00-06:00', 11],
     ['2026-11-06T17:00:00-06:00', 16],
     ['2026-11-06T19:00:00-06:00', 16],
     ['2026-11-06T21:00:00-06:00', 16],
     ['2026-11-06T23:59:59-06:00', 16],
-    ['2026-11-07T00:00:00-06:00', 3],
+    ['2026-11-07T00:00:00-06:00', 5],
   ])('has %s bounded to %i scheduled games', (date, count) => {
     expect(scheduledHorseCashGames(at(date)).size).toBe(count);
   });
-  it('budgets 1539 scheduled Classic and Madness table-hours in an ordinary week, with no hour above 16', () => {
+  it('budgets 1727 scheduled Classic and Madness table-hours in an ordinary week, with no hour above 16', () => {
     let tableHours = 0;
     for (let hour = 0; hour < 168; hour++) {
       const scheduled = scheduledHorseCashGames(at('2026-11-09T00:00:00-06:00') + hour * 3600000);
@@ -73,19 +77,39 @@ describe('the union cash schedule follows the November 4 owner scope', () => {
       expect(count).toBeLessThanOrEqual(16);
       tableHours += count;
     }
-    expect(tableHours).toBe(1539);
+    expect(tableHours).toBe(1727);
   });
   it('uses Chicago DST rules rather than a fixed UTC offset', () => {
     expect(scheduledHorseCashGames(at('2027-03-15T13:00:00Z')).size).toBe(9);
     expect(scheduledHorseCashGames(at('2026-11-09T13:00:00Z')).size).toBe(3);
     for (const date of ['2027-11-07T01:30:00-05:00', '2027-11-07T01:30:00-06:00'])
-      expect(scheduledHorseCashGames(at(date)).size).toBe(3);
+      expect(scheduledHorseCashGames(at(date)).size).toBe(5);
   });
-  it('allows higher-stakes Horse-only play in prime time and human-supported play off peak', () => {
+  it('allows Classic NLH 1/2 Horse-only play 9 AM to 4 AM and human-supported play 4-9 AM', () => {
     expect(allowed(high, 0, at('2026-11-04T18:00:00-06:00'))).toBe(true);
-    expect(allowed(high, 0, at('2026-11-04T23:00:00-06:00'))).toBe(false);
-    expect(allowed(high, 1, at('2026-11-04T23:00:00-06:00'))).toBe(true);
+    expect(allowed(high, 0, at('2026-11-04T23:00:00-06:00'))).toBe(true);
+    expect(allowed(high, 0, at('2026-11-05T03:30:00-06:00'))).toBe(true);
+    expect(allowed(high, 0, at('2026-11-05T04:00:00-06:00'))).toBe(false);
     expect(allowed(high, 0, at('2026-11-04T05:00:00-06:00'))).toBe(false);
+    expect(allowed(high, 1, at('2026-11-04T05:00:00-06:00'))).toBe(true);
+  });
+  it('keeps a Classic 1/2 No Limit and a Classic 1/2 PLO game running every hour except 4-9 AM (Dan 2026-11-05)', () => {
+    const classicOneTwo = (now: number, pick: (v: string) => boolean) =>
+      plan.games.some(
+        (game) =>
+          game.name.startsWith('Classic') &&
+          game.smallBlind === 1 &&
+          game.bigBlind === 2 &&
+          pick(game.variant) &&
+          scheduledHorseCashGames(now).has(game.id)
+      );
+    for (let hour = 0; hour < 168; hour++) {
+      const now = at('2026-11-09T00:00:00-06:00') + hour * 3600000 + 30 * 60000;
+      const local = hour % 24;
+      const offPeak = local >= 4 && local < 9;
+      expect(classicOneTwo(now, (v) => v === 'nlh')).toBe(!offPeak);
+      expect(classicOneTwo(now, (v) => v.startsWith('plo'))).toBe(!offPeak);
+    }
   });
   it('does not turn lower-stakes games into human-only games', () => {
     const now = at('2026-11-04T05:00:00-06:00');
