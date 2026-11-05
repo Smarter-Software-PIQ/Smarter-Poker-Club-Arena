@@ -10,6 +10,8 @@
 -- still refuses (23514), and the earlier checks still require the pool to be
 -- finalized, so an unfunded pool while windows are open never pays.
 -- @live-proof: position('jsonb_array_length(v_ladder) = 0 AND v_t.prize_pool <> 0 THEN' in pg_get_functiondef('public.fn_settle_tournament_places(uuid,uuid)'::regprocedure)) > 0
+BEGIN;
+
 DO $migration$
 DECLARE
   v_old text := 'IF jsonb_array_length(v_ladder) = 0 THEN
@@ -30,3 +32,5 @@ BEGIN
   EXECUTE v_out;
 END
 $migration$;
+
+COMMIT;
