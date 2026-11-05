@@ -22,6 +22,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { sliceSqlStatement } from './helpers/sourceWindow';
 import { SPIN_SPEED_LABELS } from '../server/src/config/spinSpec';
 import { HEADS_UP_BUYINS, HEADS_UP_GAME_TYPES } from '../server/src/config/headsUpSpec';
 
@@ -157,8 +158,8 @@ describe('stale state never replaces newer accepted state', () => {
       'fn_save_page_preferences',
       'fn_set_lobby_favorites',
     ]) {
-      const body = sql.slice(sql.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}`));
-      expect(body.slice(0, 7000)).toMatch(
+      const body = sliceSqlStatement(sql, `CREATE OR REPLACE FUNCTION public.${fn}(`);
+      expect(body).toMatch(
         /\(v_base IS NULL AND v_cur > 0\) OR \(v_base IS NOT NULL AND v_base < v_cur\)/
       );
     }
