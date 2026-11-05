@@ -16,6 +16,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261102135212_a_stalled_engine_replacement_is_paged.sql'
+# Applied in order, as production installed them; the latest live proof must hold.
+MIGRATIONS = [MIGRATION, ROOT / 'supabase/migrations/20261105181559_the_stall_check_reads_the_alert_uuid.sql']
 
 
 def pg_bin(name):
@@ -34,7 +36,7 @@ CREATE TABLE public.engine_leader (id int PRIMARY KEY, instance_id text, engine_
   acquired_at timestamptz, heartbeat_at timestamptz);
 CREATE TABLE public.engine_deploy_exit_paths (id bigserial PRIMARY KEY, recorded_at timestamptz NOT NULL DEFAULT now(),
   run_id text, target_sha text, stage text, outcome text, error text, release_result jsonb);
-CREATE TABLE public.financial_alerts (id bigserial PRIMARY KEY, severity text, source text, message text,
+CREATE TABLE public.financial_alerts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), severity text, source text, message text,
   context jsonb, resolved boolean NOT NULL DEFAULT false, resolved_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(), resolved_by text, resolution text);
 CREATE SCHEMA cron;
@@ -69,11 +71,12 @@ def main():
             return r.stdout.strip()
 
         sql(SCHEMA)
-        r = subprocess.run([pg_bin('psql'), '-h', str(sock), '-p', port, '-U', 'postgres', '-d', 'postgres',
-                            '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-f', str(MIGRATION)], capture_output=True, text=True)
-        assert r.returncode == 0, r.stderr
-        proof = re.search(r'^-- @live-proof: (.+)$', MIGRATION.read_text(), re.M).group(1)
-        assert sql(f'SELECT {proof}') == 't', 'live proof must hold after install'
+        for migration in MIGRATIONS[:int(os.environ.get('STALL_PROOF_MIGRATIONS', len(MIGRATIONS)))]:
+            r = subprocess.run([pg_bin('psql'), '-h', str(sock), '-p', port, '-U', 'postgres', '-d', 'postgres',
+                                '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-f', str(migration)], capture_output=True, text=True)
+            assert r.returncode == 0, f'{migration.name}: {r.stderr}'
+            proof = re.search(r'^-- @live-proof: (.+)$', migration.read_text(), re.M).group(1)
+            assert sql(f'SELECT {proof}') == 't', f'{migration.name} live proof must hold after install'
 
         def check():
             return sql("SELECT public.fn_ca_engine_release_stall_check(6, 3)->>'state'")
