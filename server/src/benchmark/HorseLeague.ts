@@ -398,8 +398,12 @@ export function playHand(
   const board = deck.slice(SEATS * holeCount, SEATS * holeCount + 5);
 
   const idx = (seatNo: number) => (seatNo - 1 + SEATS) % SEATS;
-  const sbIdx = idx(dealerSeat + 1);
-  const bbIdx = idx(dealerSeat + 2);
+  // Heads-up the button posts the small blind and acts first preflop, exactly
+  // as the live engine does (engine/headsUpButton.ts) and as every V31 cell
+  // labels it (gtoV31Position: dealer = SB). With 3+ seats the blinds follow
+  // the button clockwise.
+  const sbIdx = SEATS === 2 ? idx(dealerSeat) : idx(dealerSeat + 1);
+  const bbIdx = SEATS === 2 ? idx(dealerSeat + 1) : idx(dealerSeat + 2);
 
   const post = (i: number, amt: number) => {
     const p = seats[i].player;
@@ -668,7 +672,7 @@ export function playHand(
     return sbIdx;
   };
 
-  let endedByFolds = runStreet('preflop', idx(dealerSeat + 3));
+  let endedByFolds = runStreet('preflop', SEATS === 2 ? sbIdx : idx(dealerSeat + 3));
   if (!endedByFolds && canAct().length >= 2) endedByFolds = runStreet('flop', firstPostflop());
   if (!endedByFolds && canAct().length >= 2) endedByFolds = runStreet('turn', firstPostflop());
   if (!endedByFolds && canAct().length >= 2) endedByFolds = runStreet('river', firstPostflop());

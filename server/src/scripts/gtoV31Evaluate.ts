@@ -382,7 +382,13 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((error) => {
-  console.error('[gto-v31-evaluate] failed:', error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+const { channelHub } = await import('../hub/ChannelHub.js');
+// ChannelHub's import-time interval keeps the event loop alive; without this
+// close a failed or finished evaluation never reaches beforeExit, so the
+// finite worker never acknowledges and the job idles to its timeout.
+main()
+  .catch((error) => {
+    console.error('[gto-v31-evaluate] failed:', error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  })
+  .finally(() => channelHub.close());
