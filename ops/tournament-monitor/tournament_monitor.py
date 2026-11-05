@@ -444,21 +444,15 @@ def run_cycle(prev_state):
             for r in supa.get("tournament_escrow", {"select": "tournament_id,prize_balance,bounty_balance,fee_balance,closed_at,enforced",
                                                     "tournament_id": inlist(grp)}):
                 escrows[r["tournament_id"]] = r
-            for r in supa.get("tournament_payouts", {"select": "tournament_id", "tournament_id": inlist(grp),
+            for r in supa.get("tournament_payouts", {"select": "tournament_id,source", "tournament_id": inlist(grp),
                                                      "order": "tournament_id,position"}, max_rows=50000):
                 payouts_n[r["tournament_id"]] = payouts_n.get(r["tournament_id"], 0) + 1
+                if r.get("source") in ("satellite_seat", "satellite_ticket"):
+                    awards_n[r["tournament_id"]] = awards_n.get(r["tournament_id"], 0) + 1
         except Exception as e:
             for i in grp:
                 per_event_err.setdefault(i, f"settlement: {e}")
-    sat_done = [t["id"] for t in recent_done if t["_format"] == "SATELLITE"]
-    for grp in chunks(sat_done, 100):
-        try:
-            for r in supa.get("tournament_satellite_awards", {"select": "tournament_id", "tournament_id": inlist(grp),
-                                                              "order": "tournament_id,place"}):
-                awards_n[r["tournament_id"]] = awards_n.get(r["tournament_id"], 0) + 1
-        except Exception as e:
-            for i in grp:
-                per_event_err.setdefault(i, f"satellite_awards: {e}")
+    # satellite seats / tickets are delivered as payout rows with source satellite_seat / satellite_ticket
 
     lap("settlement")
     # table -> event map (for engine telemetry & logs)
@@ -750,7 +744,8 @@ def run_cycle(prev_state):
         if t["_format"] == "SATELLITE":
             na = t.get("_awards", 0) if t.get("_test") else awards_n.get(eid, 0)
             if na == 0:
-                problems.append(("satellite_tickets_missing", "Satellite finished with no seat/ticket awards", {}))
+                problems.append(("satellite_tickets_missing", "Satellite finished with no seat/ticket award payouts",
+                                 {"satellite_seats": t.get("satellite_seats")}))
         if not problems:
             settled_recent += 1
             continue
