@@ -9,6 +9,7 @@ import {
 } from '../../engine/PrivateHandContinuation.js';
 import type { HandContinuationBatch } from '../../engine/HandContinuationLane.js';
 import type { F06HandIdentity } from '../F06HandPermit.js';
+import { recordDbRpcRetry } from './dbReplyMetrics.js';
 
 /** Transient canonical SQL admission; never serialized into the original capsule. */
 export interface ClaimedContinuationChair {
@@ -162,6 +163,7 @@ export async function retainHandContinuation(
   // Keep the original refusal and retry classification: SQLSTATE is text here,
   // not Error.code/cause, which would change the dealer's transient policy.
   const unproven = (reason: string) => new Error(`Hand Continuation Write Is Unproven [${reason}]`);
+  const RPC = 'fn_f06_retain_hand_continuation';
   for (let attempt = 0; ; attempt++) {
     if (attempt > 0) {
       await wait(HAND_CONTINUATION_RETRY_DELAYS_MS[attempt - 1]);
@@ -172,13 +174,14 @@ export async function retainHandContinuation(
     if (result.error) {
       const code = (result.error as { code?: unknown }).code;
       const sqlstate = typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? code : 'unknown';
-      if (
-        attempt < HAND_CONTINUATION_RETRY_DELAYS_MS.length &&
-        isTransientHandContinuationSqlstate(sqlstate)
-      ) {
+      const transient = isTransientHandContinuationSqlstate(sqlstate);
+      if (attempt < HAND_CONTINUATION_RETRY_DELAYS_MS.length && transient) {
         console.warn(`[HandContinuation] retain retry attempt=${attempt + 2} sqlstate=${sqlstate}`);
+        recordDbRpcRetry(RPC, 'retry');
         continue;
       }
+      // Every allowed attempt lost its answer: DatabaseWriteRetriesExhausted.
+      if (transient) recordDbRpcRetry(RPC, 'exhausted');
       throw unproven(`transport_error sqlstate=${sqlstate}`);
     }
     const row = result.data as Record<string, unknown> | null;
@@ -189,6 +192,8 @@ export async function retainHandContinuation(
     if (row.sequence !== String(batch.sequence)) throw unproven('receipt_sequence');
     if (row.sha256 !== encoded.sha256) throw unproven('receipt_sha256');
     if (row.writer_generation !== writerGeneration) throw unproven('receipt_writer_generation');
+    // The receipt arrived after at least one retry: a warning, never critical.
+    if (attempt > 0) recordDbRpcRetry(RPC, 'recovered');
     return;
   }
 }

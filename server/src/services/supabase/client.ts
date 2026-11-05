@@ -21,6 +21,7 @@ import { stampOwnedDataActorHeaders } from './dataActorContext.js';
 import { bindRealtimeCallbacksToRegistration } from './realtimeCallbackContext.js';
 import { observeFenceInResponse } from './tournamentManagerFence.js';
 import { measureLightningFoldFetch } from '../../lightning/LightningFoldTiming.js';
+import { recordDbAttemptFailure, recordDbResponseStatus } from './dbReplyMetrics.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -260,7 +261,14 @@ function createBoundedServiceClient(
             });
             // Abort is cooperative; reject independently if transport stalls.
             // The race observes late failures without replaying ambiguous writes.
-            return await Promise.race([operation, boundary]);
+            try {
+              return await Promise.race([operation, boundary]);
+            } catch (error) {
+              // A reply that never arrived is counted for DatabaseRepliesLost
+              // (dbReplyMetrics.ts) and rethrown unchanged.
+              recordDbAttemptFailure(error);
+              throw error;
+            }
           } finally {
             clearTimeout(t);
             callerSignal?.removeEventListener('abort', onAbort);
@@ -276,6 +284,7 @@ function createBoundedServiceClient(
           // the fence (tournamentManagerFence.ts). The response itself is
           // still returned so the caller's own error handling runs once.
           if (resp.status === 403 && !replacementSubject) await observeFenceInResponse(resp);
+          recordDbResponseStatus(resp.status);
           if (resp.status !== 503 || attempt >= DELAYS_MS.length) return resp;
           let code: unknown;
           try {

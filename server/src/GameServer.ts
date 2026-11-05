@@ -150,6 +150,7 @@ import { ScheduledTournamentService } from './services/ScheduledTournamentServic
 import { TournamentMetrics } from './services/TournamentMetrics.js';
 import { HorseFleetMetrics } from './services/HorseFleetMetrics.js';
 import { seatFirstPrecheckPrometheusLines } from './services/seatFirstPrecheckMetrics.js';
+import { dbReplyPrometheusLines } from './services/supabase/dbReplyMetrics.js';
 import { SpinMetrics } from './services/SpinMetrics.js';
 import { ReplicationMetrics } from './services/ReplicationMetrics.js';
 import { HandOutboxListener } from './services/supabase/handOutboxListener.js';
@@ -6690,6 +6691,12 @@ export class GameServer {
       // skipped call is time off the hand path. Counted in the process because
       // three services drive the same top-up. See services/seatFirstPrecheckMetrics.ts.
       ...seatFirstPrecheckPrometheusLines(),
+      // ── LOST DATABASE REPLIES (2026-11-05) ───────────────────────────
+      // Supabase attempts that ended with no database answer, and the
+      // self-retrying writes that recovered or ran out of attempts. Read by
+      // DatabaseRepliesLost / DatabaseWriteRetriesExhausted. See
+      // services/supabase/dbReplyMetrics.ts.
+      ...dbReplyPrometheusLines(),
       // ── REPLICATION OBSERVABILITY (2026-09-04) ───────────────────────
       // How far behind the realtime replication slot is, in bytes, per slot.
       // See services/ReplicationMetrics.ts.
