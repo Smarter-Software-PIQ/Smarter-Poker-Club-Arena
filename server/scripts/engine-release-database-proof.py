@@ -456,7 +456,7 @@ def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instan
         raise ValueError('terminal owner leader identity is unproved')
     if get('engine_maintenance_break', {'select': 'id', 'limit': '1'}, 4096) != []:
         raise ValueError('terminal owner database retains a maintenance owner')
-    announced_iso = datetime.fromtimestamp(announced_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
+    announced_iso = epoch_milliseconds_iso(announced_ms)
     rows = get('engine_maintenance_thaws', {'select': 'freeze_started_at,announced_at,thawed_at,frozen_seconds,'
                'contract_version,release_target_at,release_generation,ownership_token,thawed_by,shifted',
                'announced_at': 'eq.' + announced_iso, 'limit': '2'}, 65536)
@@ -549,6 +549,15 @@ def certified_rpc(base_url, service_key, name, parameters=None, *, write=False):
         raw=response.read(32769)
     if len(raw)>32768: raise ValueError('certified recovery proof exceeds bound')
     return json.loads(raw)
+
+
+def epoch_milliseconds_iso(value):
+    """Keep the exact sealed millisecond instant in the database wire format."""
+    if type(value) is not int:
+        raise ValueError('timestamp must be integer milliseconds')
+    seconds,milliseconds=divmod(value,1000)
+    return datetime.fromtimestamp(seconds,timezone.utc).replace(
+        microsecond=milliseconds*1000).isoformat(timespec='milliseconds').replace('+00:00','Z')
 
 
 def certified_epoch(value):
@@ -677,7 +686,7 @@ def verify_terminal_refused_announcement(args,base_url,service_key):
     # leader reads, and require an actually empty own thaw query plus no later
     # release boundary. Missing rows alone never establish this outcome.
     verify_failed_routine_idle(base_url,service_key,args.instance_id,args.max_heartbeat_age_seconds)
-    announced=datetime.fromtimestamp(args.window_announced_ms/1000,timezone.utc).isoformat().replace('+00:00','Z')
+    announced=epoch_milliseconds_iso(args.window_announced_ms)
     for params in ({'select':'announced_at','announced_at':'eq.'+announced,'limit':'1'},
                    {'select':'release_target_at','contract_version':'eq.3','release_target_at':'gt.'+datetime.now(timezone.utc).isoformat(),'limit':'1'}):
         request=Request(f'{base_url}/rest/v1/engine_maintenance_thaws?{urlencode(params)}',
@@ -704,7 +713,7 @@ def operate_certified_terminal(args,base_url,service_key):
     if request is not None and (request.get('runKey')!=args.run_id or request.get('targetSha')!=args.target_sha or
         request.get('controlSha')!=args.control_sha or certified_epoch(request.get('announcedAt'))!=args.window_announced_ms):
         raise ValueError('terminal certified request identity differs')
-    announced=datetime.fromtimestamp(args.window_announced_ms/1000,timezone.utc).isoformat().replace('+00:00','Z')
+    announced=epoch_milliseconds_iso(args.window_announced_ms)
     proof=certified_rpc(base_url,service_key,'fn_engine_certified_recovery_proof',{
         'p_run_key':args.run_id,'p_target_sha':args.target_sha,'p_control_sha':args.control_sha,'p_announced_at':announced})
     if isinstance(proof,dict) and proof.get('schema')=='engine-certified-recovery-absent/v1':
@@ -755,7 +764,7 @@ def operate_certified(args,base_url,service_key):
             raise ValueError('original announcement unavailable')
         token=raw.get('ownership_token')
         if not isinstance(token,str) or str(UUID(token))!=token: raise ValueError('original token unavailable')
-        announced=datetime.fromtimestamp(args.window_announced_ms/1000,timezone.utc).isoformat().replace('+00:00','Z')
+        announced=epoch_milliseconds_iso(args.window_announced_ms)
         request={'runKey':args.run_id,'targetSha':args.target_sha,'controlSha':args.control_sha,
             'predecessorSha':CERTIFIED_PREDECESSOR,'instanceId':args.instance_id,'announcedAt':announced,
             'ownershipToken':token,'policyId':CERTIFIED_POLICY}
