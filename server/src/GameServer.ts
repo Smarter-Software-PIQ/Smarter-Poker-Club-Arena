@@ -743,6 +743,11 @@ export class GameServer {
    * so after a restart the same operator request re-arms it.
    */
   private operatorClosureHolds?: Map<string, string>;
+  private static readonly OPERATOR_CLOSURE_HANDOFF_REASONS: ReadonlySet<string> = new Set([
+    'original_graph_not_ready',
+    'physical_writer_not_drained',
+    'original_table_coverage_incomplete',
+  ]);
   /** Strong original references survive every claim, refusal and successor stop. */
   private drainedF06TournamentCustody = new Map<string, DrainedF06Custody>();
   private durableMixedF06Custody = new Map<string, MixedF06Transfer>();
@@ -12286,10 +12291,15 @@ export class GameServer {
     } catch (error) {
       failure = error;
     }
+    // Only answers a playing generation cannot outgrow: its graph never
+    // quiets, its retired dealers never certify a stopped hand, or its
+    // tables never match the durable roster. Transient tails are retried.
     const notReady =
       failure === null &&
       (runtime as { state?: unknown } | null)?.state === 'pending' &&
-      (runtime as { reason?: unknown } | null)?.reason === 'original_graph_not_ready';
+      GameServer.OPERATOR_CLOSURE_HANDOFF_REASONS.has(
+        String((runtime as { reason?: unknown } | null)?.reason)
+      );
     const handOff =
       notReady ||
       (failure !== null &&

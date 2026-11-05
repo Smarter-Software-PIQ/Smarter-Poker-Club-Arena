@@ -166,6 +166,25 @@ describe('GameServer hands an unclosable playing manager to a closure hold', () 
     expect(f.server.operatorClosureHolds.get(tournament)).toBe(operation);
   });
 
+  it('retires a playing generation whose retired dealer never certifies its stopped hand', async () => {
+    const f = fixture(async () => ({ state: 'pending', reason: 'physical_writer_not_drained' }));
+    expect(
+      await f.server.acknowledgeTournamentAbortBoundary(operation, tournament, 'equal_share')
+    ).toMatchObject({ reason: 'original_manager_retired_for_closure_hold' });
+    const transient = fixture(async () => ({
+      state: 'pending',
+      reason: 'manager_tail_not_drained',
+    }));
+    expect(
+      await transient.server.acknowledgeTournamentAbortBoundary(
+        operation,
+        tournament,
+        'equal_share'
+      )
+    ).toMatchObject({ reason: 'manager_tail_not_drained' });
+    expect(transient.server.stopTournamentManagerIfOwned).not.toHaveBeenCalled();
+  });
+
   it('retires a playing generation whose closure threw (the 503) instead of retrying it forever', async () => {
     const f = fixture(async () => {
       throw new Error('tournament_abort_stopped_hand_changed');
