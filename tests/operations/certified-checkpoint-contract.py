@@ -301,9 +301,11 @@ printf '%s' "$CERTIFIED_AUTOHEAL_FENCED"
             import textwrap
             consumer=compile(textwrap.dedent(seal[start:end]),'<actual-seal-terminal-consumer>','exec')
             def accepts(value,certified=True):
-                def require(ok):
-                    if not ok:raise ValueError('actual seal refused')
-                exec(consumer,{'json':json,'raw':json.dumps(value),'FAILED_ROUTINE_DESIRED':db.CERTIFIED_PREDECESSOR,
+                def require(ok,reason=None):
+                    if not ok:raise ValueError('actual seal refused'+(' ('+reason+')' if reason else ''))
+                # 2026-11-05: the seal's terminal consumer compares against the
+                # sealed desired identity it was handed, not a release constant.
+                exec(consumer,{'json':json,'raw':json.dumps(value),'desired':(db.CERTIFIED_PREDECESSOR,'sha256:'+'0'*64),
                     'runtime':{'instanceId':INSTANCE},'window':dict(announcedAt=ANN,startsAt=ANN+120000,endsAt=ANN+900000),
                     'owner':{'certifiedRecovery':{'profileId':'eed-240s-certified-release-v1'} if certified else None},
                     'failed_routine_require':require})

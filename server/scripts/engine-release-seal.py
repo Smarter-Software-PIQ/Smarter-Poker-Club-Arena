@@ -2914,11 +2914,22 @@ def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
     hold = importlib.util.module_from_spec(hold_spec); hold_spec.loader.exec_module(hold)
     with SealLock():
         state = load_state()
-        failed_routine_require(state.get('pending') is None and state.get('finalization') is None
-            and args.run_id not in state['committedRuns']
-            and state['desired']['sha'] == FAILED_ROUTINE_DESIRED and state['desired']['imageId'] == FAILED_ROUTINE_IMAGE)
+        # 2026-11-05 ROOT CAUSE: this proof used to require the sealed desired
+        # release to be the Oct 29 eed06fe5 image. Once production moved past
+        # it (67bc0e85 on Nov 5), no expired announcement-only owner could ever
+        # be retired, so each one looped in systemd forever and blocked every
+        # newer release ("cannot compete with active runtime owner"). The
+        # invariant that matters is: nothing is pending or finalizing, this run
+        # never committed, and the serving runtime IS the sealed desired
+        # release. That is proved below against the live desired identity.
+        failed_routine_require(state.get('pending') is None and state.get('finalization') is None,
+            'a release is pending or finalizing')
+        failed_routine_require(args.run_id not in state['committedRuns'], 'run already committed')
+        desired = (valid_sha(state['desired']['sha'], 'desired.sha'), str(state['desired']['imageId']))
+        failed_routine_require(desired[1].startswith('sha256:'), 'sealed desired image id is malformed')
         record = floor.policy(args.repo, args.sha, args.control_sha)
-        failed_routine_require(isinstance(record, dict) and record['schema'] == floor.OWNER_CAPABILITY)
+        failed_routine_require(isinstance(record, dict) and record['schema'] in
+            (floor.OWNER_CAPABILITY, floor.PHASE1_CAPABILITY), 'activation floor record is not an owner record')
         # The actual installed control, not just its recorded SHA, must contain
         # the entry-before-checkpoint/prepare and recovery semantics being used.
         for name in ('engine-release-seal.py', 'engine-release-recover.sh', 'engine-release-transaction.sh',
@@ -2937,12 +2948,14 @@ def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
                 and request[5].isdigit() and int(request[5]) > 0
                 and failed_routine_bytes(control / 'control-sha').decode().splitlines() == [args.control_sha])
             entry = floor.existing_entry(request_root, args.run_id, args.sha, args.control_sha)
-            failed_routine_require(entry is not None and entry['schema'] == floor.OWNER_CAPABILITY
-                and entry['phase'] == 'announcement' and entry['manifestSha256'] == record['manifestSha256'])
+            failed_routine_require(entry is not None and entry['schema'] == record['schema']
+                and entry['phase'] == 'announcement' and entry['manifestSha256'] == record['manifestSha256'],
+                'runtime entry is not this run\'s own announcement')
             stamp = floor.reservation(record, STATE_DIR, args.run_id)
             reservation = json.loads(failed_routine_bytes(STATE_DIR / (RECOVERY_WINDOW_PREFIX + args.run_id + '.json')))
             ends_at = recovery_window_ends_at(reservation)
-            failed_routine_require(time.time() * 1000 > ends_at and int(request[5]) * 1000 >= ends_at)
+            failed_routine_require(time.time() * 1000 > ends_at and int(request[5]) * 1000 >= ends_at,
+                'recovery window has not expired')
             # A prior terminal cleanup may already have removed its pin/intent.
             # Only the exact durable failed outcome permits that replay edge.
             terminal = None
@@ -2978,26 +2991,28 @@ def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
                     'endsAt': ends_at, 'certifiedRecovery': reservation.get('certifiedRecovery')}
 
         owner = ownership()
-        runtime = failed_routine_runtime(deadline, bounded=True)
+        runtime = failed_routine_runtime(deadline, bounded=True, desired=desired)
         window = {'announcedAt': owner['announcedAt'], 'startsAt': owner['announcedAt'] + 120000,
                   'endsAt': owner['endsAt']}
         certified_args = (['--certified-mode', 'terminal', '--certified-run-id', args.run_id,
                            '--certified-target-sha', args.sha, '--certified-control-sha', args.control_sha]
                           if owner['certifiedRecovery'] is not None else [])
         raw = failed_routine_command([str(control / 'engine-release-database-proof.py'), '--env-file',
-            os.environ.get('ENV_FILE', args.repo + '/server/.env'), '--sha', FAILED_ROUTINE_DESIRED,
+            os.environ.get('ENV_FILE', args.repo + '/server/.env'), '--sha', desired[0],
             '--instance-id', runtime['instanceId'], '--terminal-owned-thaw',
             '--window-announced-ms', str(window['announcedAt']), '--window-starts-ms', str(window['startsAt']),
             '--window-ends-ms', str(window['endsAt']), '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'] + certified_args, deadline)
         database = json.loads(raw)
-        thawed = {'schema': 'terminal-owned-thaw/v1', 'sha': FAILED_ROUTINE_DESIRED,
+        thawed = {'schema': 'terminal-owned-thaw/v1', 'sha': desired[0],
             'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True, **window}
         refused = {**thawed, 'schema': 'terminal-refused-announcement/v1',
             'ownedV3Thaw': False, 'announcementRefused': True}
         failed_routine_require(database == thawed or
-            (owner['certifiedRecovery'] is not None and database == refused))
-        failed_routine_require(runtime == failed_routine_runtime(deadline, bounded=True)
-            and owner == ownership() and state == load_state() and time.monotonic() < deadline)
+            (owner['certifiedRecovery'] is not None and database == refused),
+            'database thaw proof does not match the serving release')
+        failed_routine_require(runtime == failed_routine_runtime(deadline, bounded=True, desired=desired)
+            and owner == ownership() and state == load_state() and time.monotonic() < deadline,
+            'evidence changed during the proof')
         print('expired-original-announcement-refused' if database == refused else 'expired-original-announcement-thawed')
 
 
@@ -3317,9 +3332,13 @@ def prove_orphan_finalization(args: argparse.Namespace, state: dict[str, Any]) -
             "observedAt": int(time.time()), "result": "already-released"}
 
 
-def failed_routine_require(value: bool) -> None:
+def failed_routine_require(value: bool, reason: str | None = None) -> None:
+    # 2026-11-05: an unnamed refusal cost 2.5 hours of blocked releases (run
+    # 42099609162-1 looped 222 times printing only this line). Every caller that
+    # can say which invariant failed says so; the custody verdict is unchanged.
     if not value:
-        die('exact failed routine custody is unproved; original owner retained')
+        die('exact failed routine custody is unproved; original owner retained'
+            + (f' ({reason})' if reason else ''))
 
 
 def failed_routine_digest(value: Any) -> str:
@@ -3670,12 +3689,23 @@ def failed_routine_current(args: argparse.Namespace, deadline: float) -> dict[st
     return current
 
 
-def failed_routine_runtime(deadline: float, bounded: bool = False) -> dict[str, Any]:
+def failed_routine_runtime(deadline: float, bounded: bool = False,
+                           desired: tuple[str, str] | None = None) -> dict[str, Any]:
+    """Prove the serving container is exactly `desired` (sha, imageId) and idle.
+
+    `desired` defaults to the frozen failed-routine identity of run
+    41349091113-1 for the failed-routine commands that are bound to it. The
+    expired-announcement retirement passes the sealed state's live desired
+    identity instead (2026-11-05): an announcement-only owner that missed its
+    window proves nothing about WHICH release is serving, only that the serving
+    release is still the sealed desired one and was never touched.
+    """
+    desired_sha, desired_image = desired or (FAILED_ROUTINE_DESIRED, FAILED_ROUTINE_IMAGE)
     container = os.environ.get('CONTAINER', 'club-arena-engine')
     if bounded:
         value = terminal_inspect_container(deadline)
         metadata = json.loads(failed_routine_command(['docker','image','inspect','--format','{{json .}}',
-            FAILED_ROUTINE_IMAGE], deadline, 262144))
+            desired_image], deadline, 262144))
         image = metadata.get('Id')
         config = metadata.get('Config') or {}
         source = (config.get('Labels') or {}).get('org.opencontainers.image.revision')
@@ -3686,10 +3716,11 @@ def failed_routine_runtime(deadline: float, bounded: bool = False) -> dict[str, 
         source = source.lower()
     else:
         value = docker_json('container', container)
-        image, source, _ = image_identity(FAILED_ROUTINE_IMAGE, require_label=False)
-    failed_routine_require(image == FAILED_ROUTINE_IMAGE and source == FAILED_ROUTINE_DESIRED and
+        image, source, _ = image_identity(desired_image, require_label=False)
+    failed_routine_require(image == desired_image and source == desired_sha and
         value.get('Image') == image and value.get('State', {}).get('Status') == 'running' and
-        CONTAINER_ID_RE.fullmatch(str(value.get('Id', ''))) is not None)
+        CONTAINER_ID_RE.fullmatch(str(value.get('Id', ''))) is not None,
+        f'serving container is not the desired release {desired_sha[:8]} / {desired_image[:19]}')
     healths = []
     for url in ('http://127.0.0.1:8080/health', os.environ.get('ENGINE_URL', 'https://engine.smarter.poker').rstrip('/') + '/health'):
         try:

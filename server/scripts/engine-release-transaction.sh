@@ -1938,6 +1938,13 @@ newer_release_in_flight() {
     fi
     state="$(systemctl show "club-arena-engine-release-v1@$run.service" \
       -p ActiveState --value 2>/dev/null || true)"
+    # 2026-11-05: a unit whose SubState is auto-restart has no process; it is
+    # systemd waiting RestartSec between two failures. Run 42099609162-1 sat in
+    # that state for 2.5 hours and five newer releases refused to compete with
+    # it. A live owner holds a process (MainPID or ControlPID), nothing else.
+    sub="$(systemctl show "club-arena-engine-release-v1@$run.service" \
+      -p SubState --value 2>/dev/null || true)"
+    [ "$sub" != auto-restart ] || continue
     case "$state" in active|activating|reloading) ;;
       deactivating) [ "$mode" = any ] || continue ;;
       inactive|failed) continue ;;

@@ -82,6 +82,8 @@ jobs:
           persist-credentials: false
       - name: Qualify native exact-run admission and refusal boundaries
         run: python3 -B tests/operations/release-recovery-read.test.py
+      - name: An expired announcement-only owner retires on any serving release
+        run: python3 -B tests/operations/expired-release-owner-retires.test.py
       - name: Read only matching release records and the selected bounded historical evidence
         env:
           HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
