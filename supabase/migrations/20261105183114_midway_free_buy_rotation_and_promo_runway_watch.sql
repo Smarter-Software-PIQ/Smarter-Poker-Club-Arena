@@ -17,7 +17,9 @@
 --   midway_free_buy_wrong_settings the format is right but the guarantee,
 --                                 add-ons, 1-chip rebuy or zero fee is not;
 --   midway_promo_runway_low       the promo wallet covers fewer than 30 days
---                                 at its last-7-day net spend.
+--                                 of its recurring net spend (last 7 days;
+--                                 the self-limiting weekly half-wallet
+--                                 disbursement is reported, not projected).
 -- Each is critical when it needs action today (a slot within 12 hours, or
 -- under 7 days of promo funds), warning otherwise.
 --
@@ -56,10 +58,12 @@ DECLARE
   a jsonb := '[]'::jsonb;
   r record;
   v_balance numeric;
-  v_net7 numeric;
+  v_wallet_id uuid;
+  v_spend7 numeric;
+  v_disbursed7 numeric;
+  v_income7 numeric;
   v_rate numeric;
   v_days numeric;
-  v_top jsonb;
 BEGIN
   -- The five daily slots (owner 2026-11-04), America/Chicago.
   FOR r IN
@@ -145,35 +149,43 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- Promo runway: the wallet against its own last-7-day net spend, every
-  -- promotion included (the Free Buys are only part of what it pays).
-  SELECT promo_wallet INTO v_balance
-    FROM public.union_wallets WHERE union_id = 'fade0000-0000-0000-0000-000000000001'::uuid;
-  SELECT COALESCE(sum(CASE WHEN l.from_label = 'union_wallets.promo_wallet' THEN l.amount ELSE -l.amount END), 0)
-    INTO v_net7
+  -- Promo runway (owner 2026-11-05), one ledger window: the last 7 days.
+  --   Category 'promo' is discretionary: the weekly Union Promo Disbursement,
+  --   which pays out HALF of the wallet each week (20261016132743) and so can
+  --   never empty it, and one-time credits such as the 2026-11-04 relaunch
+  --   25s. It is reported, not projected. Everything else that leaves the
+  --   wallet (Free Buy entries, game prizes, leaderboards) is recurring spend; what comes in (the Bad Beat Jackpot promo share - ledgered with
+  --   no destination label, verified 2026-11-05 to land in this wallet - and
+  --   unplayed Free Buy returns) is recurring income. The wallet is ledgered
+  --   under the union id or its wallet row id.
+  --   Runway = balance / ((recurring spend - recurring income) / 7 days).
+  SELECT w.promo_wallet, w.id INTO v_balance, v_wallet_id
+    FROM public.union_wallets w WHERE w.union_id = 'fade0000-0000-0000-0000-000000000001'::uuid;
+  SELECT COALESCE(sum(CASE WHEN l.from_label = 'union_wallets.promo_wallet' AND l.category <> 'promo' THEN l.amount END), 0),
+         COALESCE(sum(CASE WHEN l.from_label = 'union_wallets.promo_wallet' AND l.category = 'promo' THEN l.amount END), 0),
+         COALESCE(sum(CASE WHEN l.from_label IS DISTINCT FROM 'union_wallets.promo_wallet' THEN l.amount END), 0)
+    INTO v_spend7, v_disbursed7, v_income7
     FROM public.chip_ledger l
    WHERE l.created_at > p_now - interval '7 days' AND l.created_at <= p_now
-     AND ((l.from_entity_id = 'fade0000-0000-0000-0000-000000000001'::uuid AND l.from_label = 'union_wallets.promo_wallet')
-       OR (l.to_entity_id = 'fade0000-0000-0000-0000-000000000001'::uuid AND l.to_label = 'union_wallets.promo_wallet'));
-  v_rate := v_net7 / 7;
+     AND ((l.from_label = 'union_wallets.promo_wallet'
+           AND l.from_entity_id IN ('fade0000-0000-0000-0000-000000000001'::uuid, v_wallet_id))
+       OR (l.to_label = 'union_wallets.promo_wallet'
+           AND l.to_entity_id IN ('fade0000-0000-0000-0000-000000000001'::uuid, v_wallet_id))
+       OR (l.to_label IS NULL AND l.from_type = 'bbj_pool' AND l.to_type = 'union_wallet'
+           AND l.to_entity_id IN ('fade0000-0000-0000-0000-000000000001'::uuid, v_wallet_id)));
+  v_rate := (v_spend7 - v_income7) / 7;
   IF v_balance IS NOT NULL AND v_rate > 0 THEN
     v_days := v_balance / v_rate;
     IF v_days < 30 THEN
-      SELECT COALESCE(jsonb_agg(jsonb_build_object('category', c.category, 'chips', c.chips) ORDER BY c.chips DESC), '[]'::jsonb)
-        INTO v_top
-        FROM (SELECT l.category, round(sum(l.amount), 2) AS chips
-                FROM public.chip_ledger l
-               WHERE l.created_at > p_now - interval '7 days' AND l.created_at <= p_now
-                 AND l.from_entity_id = 'fade0000-0000-0000-0000-000000000001'::uuid
-                 AND l.from_label = 'union_wallets.promo_wallet'
-               GROUP BY l.category ORDER BY sum(l.amount) DESC LIMIT 5) c;
       a := a || jsonb_build_object(
         'rule', 'midway_promo_runway_low',
         'severity', CASE WHEN v_days < 7 THEN 'critical' ELSE 'warning' END,
-        'title', format('Midway promo funds cover about %s days at the last 7 days'' spend (%s chips left, %s a day)',
+        'title', format('Midway promo funds cover about %s days of recurring spend (%s chips left, %s a day net)',
                         round(v_days), to_char(v_balance, 'FM999,999,990'), to_char(v_rate, 'FM999,999,990')),
-        'detail', jsonb_build_object('balance', v_balance, 'net_spend_7d', v_net7, 'per_day', round(v_rate, 2),
-                                     'days_left', round(v_days, 1), 'top_spend_7d', v_top),
+        'detail', jsonb_build_object('balance', v_balance, 'spend_7d', v_spend7, 'income_7d', v_income7,
+                                     'net_per_day', round(v_rate, 2), 'days_left', round(v_days, 1),
+                                     'weekly_disbursement_7d', v_disbursed7,
+                                     'rule', 'balance / ((7-day spend excluding the weekly half-wallet disbursement - 7-day income) / 7); warn under 30 days, page under 7'),
         'key', 'midway_promo_runway:' || (p_now AT TIME ZONE 'America/Chicago')::date::text);
     END IF;
   END IF;
