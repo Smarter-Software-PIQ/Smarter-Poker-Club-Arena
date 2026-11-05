@@ -8,10 +8,12 @@
  * SAME CORRECTIONS NEED TO BE MADE INSIDE OF THE DIAMOND ARENA AS WELL", and
  * "I WANT ALL HARD CODED SCHEDULED EVENTS ONLY".
  *
- * The daily board of the Midway Union and the Diamond Arena: five Free Buys,
- * sixteen lobby MTTs and five union MTTs, each once a day at a fixed
- * America/Chicago time (26 starts Monday to Saturday, 11 on Sunday, when the
- * clubs' Sunday Funday series holds 11 AM to 11 PM). This file IS the schedule. The engine writes
+ * The daily board of the Midway Union and the Diamond Arena: the Free Buys,
+ * the lobby MTTs and the union MTTs, each once a day at a fixed
+ * America/Chicago time (the Sunday Funday series holds 11 AM to 11 PM on
+ * Sunday). The Midway Union runs five Free Buys a day, the last at 12:30 AM
+ * (owner 2026-11-04, the daily window's one carve-out); the Diamond Arena
+ * runs the first four. This file IS the schedule. The engine writes
  * it into tournament_schedules itself (ScheduledTournamentService
  * syncFixedBoard), so the rows a scheduler reads are always the rows the
  * running binary knows how to build: a schedule can no longer exist ahead of
@@ -31,7 +33,7 @@
 
 import {
   MIDWAY_FREE_BUY_UNION_ID,
-  MIDWAY_FREE_BUY_SCHEDULE_POLICY,
+  midwayFreeBuyPolicyFor,
 } from '../tournament/midwayFreeBuyPolicy.js';
 
 export const FIXED_BOARD_TIME_ZONE = 'America/Chicago';
@@ -112,12 +114,25 @@ export interface FixedBoardEvent {
   horses: number;
 }
 
-/** Owner October 20: remove Midway's 11 AM freeroll. Other rooms keep their board. */
+/** The Diamond Arena's club id (FIXED_BOARD_CLUBS). */
+const DIAMOND_ARENA_CLUB_ID = '002c2d27-9584-4e52-835a-bb2be148fc81';
+
+/**
+ * A board event one club does not run. Owner October 20: remove Midway's 11 AM
+ * freeroll; other rooms keep it. Owner 2026-11-04: the 12:30 AM Midnight Free
+ * Buy is restored for the Midway Union only (the daily window's one
+ * carve-out, dailyWindow.ts); the Diamond Arena keeps the 11 PM close and does
+ * not run it.
+ */
 export function isRetiredMidwayBoardEvent(clubId: string | null, name: string): boolean {
   return (
-    clubId === 'fade0000-0000-0000-0000-000000000001' && name === 'Coffee Break Freeroll (PLO4)'
+    (clubId === MIDWAY_FREE_BUY_UNION_ID && name === 'Coffee Break Freeroll (PLO4)') ||
+    (clubId === DIAMOND_ARENA_CLUB_ID && name === MIDWAY_MIDNIGHT_FREE_BUY)
   );
 }
+
+/** The Midway Union's 12:30 AM Free Buy: the one event the daily window lets start after 11 PM. */
+export const MIDWAY_MIDNIGHT_FREE_BUY = 'Midnight Free Buy (NLH)';
 
 /**
  * A REAL ROOM'S DAY (Dan 2026-10-16, BINDING).
@@ -308,8 +323,11 @@ export const FIXED_BOARD: readonly FixedBoardEvent[] = [
     horses: 25,
   },
   // Nothing starts after 11:00 PM or before 6:00 AM Chicago (owner 2026-11-03: the
-  // daily 4 to 6 AM window; last tournament 11 PM). The 11:30 PM, 12:00 AM and
-  // 12:30 AM events were removed; the board sync retires their rows.
+  // daily 4 to 6 AM window; last tournament 11 PM). The 11:30 PM and 12:00 AM
+  // events were removed; the board sync retires their rows. The one carve-out
+  // (owner 2026-11-04): the Midway Union's 12:30 AM Midnight Free Buy, restored
+  // for Midway only (isRetiredMidwayBoardEvent keeps it off the Diamond Arena).
+  { name: MIDWAY_MIDNIGHT_FREE_BUY, times: ['00:30'], previousTimes: ['00:00'], horses: 0 },
 ];
 
 /**
@@ -402,8 +420,9 @@ export function fixedBoardRowFor(club: FixedBoardClub, event: FixedBoardEvent): 
       type: 'fixed_board',
       fixedBoard: event.name,
       horsesToRegister: event.horses,
-      ...(club.clubId === MIDWAY_FREE_BUY_UNION_ID && event.name.includes(' Free Buy (')
-        ? MIDWAY_FREE_BUY_SCHEDULE_POLICY
+      // Each Midway Free Buy slot carries its own format (midwayFreeBuyPolicy.ts).
+      ...(club.clubId === MIDWAY_FREE_BUY_UNION_ID
+        ? (midwayFreeBuyPolicyFor(event.name) ?? {})
         : {}),
       ...(event.previousTimes
         ? {
@@ -474,7 +493,7 @@ export function planFixedBoardSync(
         sameList(anchor.start_times_utc, want.start_times_utc) &&
         anchor.config?.type === want.config.type &&
         (!want.config.midwayFreeBuyFormat ||
-          Object.entries(MIDWAY_FREE_BUY_SCHEDULE_POLICY).every(
+          Object.entries(midwayFreeBuyPolicyFor(event.name) ?? {}).every(
             ([key, value]) => anchor.config?.[key] === value
           )) &&
         anchor.config?.horsesToRegister === want.config.horsesToRegister &&

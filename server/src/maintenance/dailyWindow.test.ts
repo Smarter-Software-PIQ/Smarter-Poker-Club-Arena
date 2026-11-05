@@ -4,6 +4,7 @@ import path from 'path';
 import {
   DAILY_WINDOW,
   chicagoClock,
+  dailyWindowCarveOut,
   spinSngBoardsOpen,
   tournamentStartAllowed,
 } from './dailyWindow.js';
@@ -49,5 +50,38 @@ describe('the engine daily window', () => {
     expect(tournamentStartAllowed(new Date('2026-01-15T10:30:00Z'))).toBe(false);
     expect(tournamentStartAllowed(new Date('2026-07-15T10:30:00Z'))).toBe(false);
     expect(tournamentStartAllowed(new Date('2026-07-15T11:30:00Z'))).toBe(true);
+  });
+  it('carves out only the Midway Union 12:30 AM Midnight Free Buy (owner 2026-11-04)', () => {
+    const at = chicago('2026-11-05T00:30:00-06:00');
+    const midway = 'fade0000-0000-0000-0000-000000000001';
+    expect(tournamentStartAllowed(at)).toBe(false);
+    expect(
+      dailyWindowCarveOut({ clubId: midway, unionId: midway, name: 'Midnight Free Buy (NLH)' }, at)
+    ).toBe(true);
+    expect(
+      dailyWindowCarveOut(
+        { clubId: midway, unionId: midway, name: 'Midnight Free Buy (NLH)' },
+        chicago('2026-07-05T00:30:00-05:00')
+      )
+    ).toBe(true);
+    expect(
+      dailyWindowCarveOut(
+        { clubId: midway, unionId: midway, name: 'Midnight Free Buy (NLH)' },
+        chicago('2026-11-05T00:31:00-06:00')
+      )
+    ).toBe(false);
+    expect(
+      dailyWindowCarveOut({ clubId: midway, unionId: midway, name: 'Midnight Bounty (NLH)' }, at)
+    ).toBe(false);
+    expect(
+      dailyWindowCarveOut(
+        {
+          clubId: '002c2d27-9584-4e52-835a-bb2be148fc81',
+          unionId: null,
+          name: 'Midnight Free Buy (NLH)',
+        },
+        at
+      )
+    ).toBe(false);
   });
 });

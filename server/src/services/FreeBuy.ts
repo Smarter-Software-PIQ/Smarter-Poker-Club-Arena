@@ -22,7 +22,12 @@ import {
   mttPayoutDepthPercent,
 } from '../tournament/mttStructurePolicy.js';
 import { MIDWAY_FREE_BUY_GUARANTEES } from '../tournament/midwayStructurePolicy.js';
-import { withMidwayFreeBuyPolicy } from '../tournament/midwayFreeBuyPolicy.js';
+import {
+  isMidwayFreeBuy,
+  midwayFreeBuyFormatFor,
+  MIDWAY_FREE_BUY_FORMATS,
+  withMidwayFreeBuyPolicy,
+} from '../tournament/midwayFreeBuyPolicy.js';
 
 /* ------------------------------------------------------------------ */
 /* The two tiers                                                       */
@@ -128,9 +133,12 @@ export const FREE_BUY_SLOTS: FreeBuySlot[] = [
   { chicagoHour: 12, tier: 'standard', label: 'Midday Free Buy' },
   { chicagoHour: 16, tier: 'standard', label: 'Afternoon Free Buy' },
   { chicagoHour: 20, tier: 'feature', label: 'Prime Time Free Buy' },
+  { chicagoHour: 0, tier: 'standard', label: 'Midnight Free Buy' },
 ];
 // Owner 2026-11-03 (the daily 4 to 6 AM window): no tournament starts after
-// 11:00 PM, so the 12:30 AM Midnight Free Buy was removed. Four Free Buys a day.
+// 11:00 PM. Owner 2026-11-04 restored the 12:30 AM Midnight Free Buy as that
+// rule's one carve-out, for the Midway Union only (dailyWindow.ts). Five Free
+// Buys a day, each in its own format (midwayFreeBuyPolicy.ts).
 
 /**
  * THE FREE BUYS START ON THE HALF HOUR (Dan 2026-10-16): "MAKE SURE THE FREE
@@ -169,6 +177,12 @@ export const FREE_BUY_PREVIOUS_GUARANTEES: Record<FreeBuyTier, number> = {
   standard: 250,
   feature: 500,
 };
+
+/** The first Midway Free Buy built in the 2026-11-04 rotation: Morning, 5 Nov
+ * 2026, 08:30 Chicago (14:30 UTC). The 00:30 Midnight before it is a PKO in
+ * both shapes. auditFreeBuyRow reads every Midway event from here on against
+ * its slot's own format (midwayFreeBuyPolicy.ts). */
+export const MIDWAY_FREE_BUY_ROTATION_FROM_MS = Date.parse('2026-11-05T14:30:00Z');
 
 /** 'HH:MM' Chicago start of a slot. */
 export function freeBuySlotTime(slot: FreeBuySlot): string {
@@ -209,9 +223,15 @@ export function freeBuyConfigForSlot(slot: FreeBuySlot): FreeBuyConfig {
   };
 }
 
-/** Guarantee exposure per host per day. 2 x 250 + 3 x 500 = 2,000. */
+/** Guarantee exposure per published host per day. The only published host is
+ * the Midway Union, whose guarantees are authored per slot (owner 2026-11-04):
+ * Morning 250 + Afternoon 500 = 750; the PKO and mystery slots guarantee 0. */
 export function dailyGuaranteePerHost(): number {
-  return FREE_BUY_SLOTS.reduce((sum, s) => sum + freeBuyConfigForSlot(s).guarantee, 0);
+  return FREE_BUY_SLOTS.reduce(
+    (sum, s) =>
+      sum + (MIDWAY_FREE_BUY_GUARANTEES[freeBuyBoardName(s)] ?? freeBuyConfigForSlot(s).guarantee),
+    0
+  );
 }
 
 /** A Free Buy's prize pool is fed by rebuys and add-ons, so the house only
@@ -272,10 +292,24 @@ export function rebuysOpen(nowMs: number, startMs: number, cfg: FreeBuyConfig): 
 export const HORSE_ADDON_IMMEDIATE_RATE = 0.35;
 export const HORSE_ADDON_PARTICIPATION_RATE = 0.74;
 
-export function horseTakesAddOn(horseId: string, eventId: string): boolean {
-  return (
-    shHash(horseId, eventId, 'addon-participation') % 1000 < HORSE_ADDON_PARTICIPATION_RATE * 1000
-  );
+/** Owner rule 2026-11-04: in the Midway Union's daily Free Buys that offer an
+ * add-on (Morning 08:30, Prime Time 20:30) horses take it at a 90% clip. Every
+ * other room keeps the 74% rate above. */
+export const MIDWAY_FREE_BUY_HORSE_ADDON_RATE = 0.9;
+
+/** The participation rate for a tournament row (the manager's cached row). */
+export function horseAddOnRateFor(row: Record<string, unknown> | null | undefined): number {
+  return row && isMidwayFreeBuy(row)
+    ? MIDWAY_FREE_BUY_HORSE_ADDON_RATE
+    : HORSE_ADDON_PARTICIPATION_RATE;
+}
+
+export function horseTakesAddOn(
+  horseId: string,
+  eventId: string,
+  rate: number = HORSE_ADDON_PARTICIPATION_RATE
+): boolean {
+  return shHash(horseId, eventId, 'addon-participation') % 1000 < rate * 1000;
 }
 
 export function horseAddsOnImmediately(horseId: string, eventId: string): boolean {
@@ -292,9 +326,10 @@ export type AddOnTiming = 'immediate' | 'at_break' | 'busted_before_break' | 'de
 export function horseAddOnTiming(
   horseId: string,
   eventId: string,
-  aliveAtBreak: boolean
+  aliveAtBreak: boolean,
+  rate: number = HORSE_ADDON_PARTICIPATION_RATE
 ): AddOnTiming {
-  if (!horseTakesAddOn(horseId, eventId)) return 'declined';
+  if (!horseTakesAddOn(horseId, eventId, rate)) return 'declined';
   if (horseAddsOnImmediately(horseId, eventId)) return 'immediate';
   return aliveAtBreak ? 'at_break' : 'busted_before_break';
 }
@@ -304,7 +339,16 @@ export function horseAddOnTiming(
  *  each time the engine asks. */
 export const HORSE_MAX_REBUYS = 5;
 
-export function horseRebuyAllowance(horseId: string, eventId: string): number {
+/** Midway Free Buys (2026-11-04) decide each bust with the 90% draw in
+ * horseChoosesTournamentRebuy; the hashed 0..5 allowance would silently cut
+ * that share (an allowance-0 horse never rebuys), so there it is only the
+ * upper bound of 5. The purchase RPC still applies the event's own max_rebuys. */
+export function horseRebuyAllowance(
+  horseId: string,
+  eventId: string,
+  tournament?: Record<string, unknown> | null
+): number {
+  if (tournament && isMidwayFreeBuy(tournament)) return HORSE_MAX_REBUYS;
   return shHash(horseId, eventId, 'rebuy-allowance') % (HORSE_MAX_REBUYS + 1); // 0..5
 }
 
@@ -316,9 +360,12 @@ export function horseMayRebuy(opts: {
   startMs: number;
   cfg: FreeBuyConfig;
   available: number;
+  tournament?: Record<string, unknown> | null;
 }): boolean {
   if (!rebuysOpen(opts.nowMs, opts.startMs, opts.cfg)) return false;
-  if (opts.rebuysTaken >= horseRebuyAllowance(opts.horseId, opts.eventId)) return false;
+  if (opts.rebuysTaken >= horseRebuyAllowance(opts.horseId, opts.eventId, opts.tournament)) {
+    return false;
+  }
   // Never spend chips a wallet does not have. Free Buy is free to ENTER; a
   // rebuy is real money out of the club wallet like any other.
   return opts.available >= opts.cfg.rebuyCost;
@@ -732,6 +779,9 @@ export function freeBuyTournamentRow(opts: {
  */
 export interface FreeBuyRowUnderAudit {
   is_pko?: unknown;
+  is_bounty?: unknown;
+  is_mystery_bounty?: unknown;
+  all_in_or_fold?: unknown;
   bounty_amount?: unknown;
   blind_structure?: unknown;
   name?: unknown;
@@ -826,9 +876,16 @@ export function auditFreeBuyRow(
       ...cfg,
       guarantee: MIDWAY_FREE_BUY_GUARANTEES[String(row.name)] ?? cfg.guarantee,
     };
-  const bountyOnly =
-    (row.union_id === MIDWAY_UNION_ID || row.club_id === MIDWAY_UNION_ID) && row.is_pko === true;
-  if (bountyOnly) cfg = { ...cfg, guarantee: 0 };
+  // Midway's daily rotation (owner 2026-11-04): from the first rotated event
+  // on, every Midway slot is audited against its own format. Earlier events
+  // keep the contract they were published with (the 2026-11-02 PKO, or the
+  // add-on board before it).
+  const midway = row.union_id === MIDWAY_UNION_ID || row.club_id === MIDWAY_UNION_ID;
+  const rotated = midway && startMs >= MIDWAY_FREE_BUY_ROTATION_FROM_MS;
+  const format = rotated ? midwayFreeBuyFormatFor(row.name) : null;
+  const bountyOnly = format ? format === 'pko' : midway && row.is_pko === true;
+  if (format) cfg = { ...cfg, guarantee: MIDWAY_FREE_BUY_FORMATS[format].guaranteedPrize };
+  else if (bountyOnly) cfg = { ...cfg, guarantee: 0 };
   const say = (ok: boolean, msg: string) => {
     if (!ok) problems.push(msg);
   };
@@ -849,11 +906,37 @@ export function auditFreeBuyRow(
     num(row.rebuy_cost) === cfg.rebuyCost,
     `rebuy ${row.rebuy_cost}, the ${slot.tier} tier is ${cfg.rebuyCost}`
   );
-  if (bountyOnly) {
-    say(num(row.bounty_amount) === 1, 'initial bounty is not one chip');
+  if (format && format !== 'pko') {
+    const p = MIDWAY_FREE_BUY_FORMATS[format];
+    if (row.is_pko !== undefined) say(row.is_pko === false, `the ${format} Free Buy is a PKO`);
+    if (row.is_mystery_bounty !== undefined)
+      say(
+        row.is_mystery_bounty === p.isMysteryBounty,
+        p.isMysteryBounty
+          ? 'the mystery Free Buy is not a mystery bounty'
+          : `the ${format} Free Buy is a mystery bounty`
+      );
+    if (row.is_bounty !== undefined)
+      say(row.is_bounty === p.isBounty, `the ${format} Free Buy bounty flag is wrong`);
+    say(
+      num(row.bounty_amount) === p.bountyAmount,
+      `bounty ${row.bounty_amount}, the ${format} Free Buy is ${p.bountyAmount}`
+    );
+    if (row.all_in_or_fold !== undefined)
+      say(
+        row.all_in_or_fold === p.allInOrFold,
+        p.allInOrFold
+          ? 'the all-in-or-fold Free Buy is not all-in-or-fold'
+          : `the ${format} Free Buy is all-in-or-fold`
+      );
+  }
+  if (bountyOnly || format === 'aiof') {
+    if (bountyOnly) say(num(row.bounty_amount) === 1, 'initial bounty is not one chip');
     say(
       row.add_on_available === false && row.addon_from_start === false,
-      'bounty-only Free Buy allows add-ons'
+      bountyOnly
+        ? 'bounty-only Free Buy allows add-ons'
+        : 'the all-in-or-fold Free Buy allows add-ons'
     );
   } else {
     say(

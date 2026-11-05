@@ -348,3 +348,4 @@ print(str(len(passed))+' groups passed; evidence: '+str(root/'results.json'))
 if "--with-heads-up-payout" in sys.argv:
     env=dict(os.environ,PG_BIN=str(pg))
     subprocess.run([sys.executable,"-B",str(repo/"scripts/ci/test-midway-free-buy-pko.py")],env=env,check=True)
+    subprocess.run([sys.executable,"-B",str(repo/"scripts/ci/test-midway-free-buy-rotation.py")],env=env,check=True)

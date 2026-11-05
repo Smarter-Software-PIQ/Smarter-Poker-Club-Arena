@@ -1,3 +1,3 @@
 # server/src/tournament/midwayFreeBuyPolicy.law.test.ts
 
-Midway Free Buys have promo-funded one-chip progressive bounties, zero rake and fixed guarantee, rebuys only, and no add-ons; other rooms retain their terms.
+The Midway Union runs five daily Free Buys, each in its own format (owner 2026-11-04): 8:30 AM regular (250 guarantee, 1-chip rebuys and add-ons), 12:30 PM and 12:30 AM promo-funded one-chip PKO (no guarantee, rebuys only, no add-ons), 4:30 PM all-in-or-fold (500 guarantee, rebuys only), 8:30 PM mystery bounty (every chip splits 0.50 bounty pool / 0.50 prize pool, rebuys and add-ons). Every entry is free with zero rake; the fixed board writes each slot's own format and its resync corrects drift; other rooms retain their terms and the Diamond Arena never gets the 12:30 AM event.

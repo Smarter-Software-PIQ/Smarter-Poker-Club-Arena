@@ -6,10 +6,16 @@ import { withMidwayFreeBuyPolicy } from './midwayFreeBuyPolicy.js';
 
 export const MIDWAY_UNION_ID = 'fade0000-0000-0000-0000-000000000001';
 export const MIDWAY_STRUCTURE_VERSION = 'midway-25-25-v1';
+/** Owner 2026-11-04 rotation (midwayFreeBuyPolicy.ts): Morning regular 250,
+ * Afternoon all-in-or-fold 500; the PKO (Midday, Midnight) and the Prime Time
+ * mystery bounty carry no guarantee. 0 is a guarantee of nothing, written as
+ * such; only a name absent here keeps the slot's own number. */
 export const MIDWAY_FREE_BUY_GUARANTEES: Readonly<Record<string, number>> = {
   'Morning Free Buy (NLH)': 250,
-  'Prime Time Free Buy (NLH)': 500,
-  'Midnight Free Buy (NLH)': 250,
+  'Midday Free Buy (NLH)': 0,
+  'Afternoon Free Buy (NLH)': 500,
+  'Prime Time Free Buy (NLH)': 0,
+  'Midnight Free Buy (NLH)': 0,
 };
 
 // Explicit opening, then the conventional 100/200, 150/300, 200/400 ladder.

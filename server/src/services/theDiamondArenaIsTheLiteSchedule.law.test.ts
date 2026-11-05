@@ -18,7 +18,7 @@
  * Diamonds a chip fails here by name.
  */
 import { describe, expect, it } from 'vitest';
-import { FIXED_BOARD } from '../config/fixedBoard.js';
+import { FIXED_BOARD as FULL_BOARD, isRetiredMidwayBoardEvent } from '../config/fixedBoard.js';
 import { BUY_IN_LADDER, buyInFor } from '../config/buyIn.js';
 import { fixedBoardRow } from './ScheduledTournamentService.js';
 import {
@@ -29,6 +29,10 @@ import {
 
 const ARENA = '002c2d27-9584-4e52-835a-bb2be148fc81';
 const START = new Date('2026-10-21T00:00:00.000Z'); // 19:00 Chicago, Tuesday 2026-10-20
+
+// Owner 2026-11-04: the 12:30 AM Midnight Free Buy is the Midway Union's
+// alone; the arena's board is every other event.
+const FIXED_BOARD = FULL_BOARD.filter((e) => !isRetiredMidwayBoardEvent(ARENA, e.name));
 
 const arenaSchedule = (name: string) => ({
   id: '22222222-2222-2222-2222-222222222222',
@@ -86,8 +90,16 @@ describe('the Diamond Arena charges ten Diamonds for every Midway chip', () => {
       if (mapped.config.addonCost !== undefined) expect(mapped.config.addonCost, e.name).toBe(100);
     }
     // Four Free Buys and the Coffee Break Freeroll.
-    // owner 2026-11-03 daily window: 6 -> 5, the Midnight Free Buy was removed.
+    // owner 2026-11-03 daily window: 6 -> 5, the Midnight Free Buy was removed;
+    // owner 2026-11-04 restored it for the Midway Union only, so the arena stays at 5.
     expect(free).toBe(5);
+    expect(
+      fixedBoardRow(
+        arenaSchedule('Midnight Free Buy (NLH)'),
+        { fixedBoard: 'Midnight Free Buy (NLH)' },
+        START
+      )
+    ).toBeNull();
   });
 
   it('the Nightly 10K is 35 chips at the Midway and 350 Diamonds in the arena', () => {

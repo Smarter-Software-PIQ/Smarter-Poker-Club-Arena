@@ -1,3 +1,5 @@
+import { isMidwayFreeBuy } from '../tournament/midwayFreeBuyPolicy.js';
+
 /** Owner November 1: reduced guarantees, with the confirmed nightly and 1.5K terms. */
 export const GUARANTEE_REDUCTION_START_MS = Date.parse('2026-11-02T06:00:00Z');
 
@@ -23,10 +25,13 @@ export function reducedGuaranteeCopy(text: unknown, before: number, after: numbe
   return next;
 }
 
-/** Apply once to freshly built schedule terms, before native Diamond conversion. */
+/** Apply once to freshly built schedule terms, before native Diamond conversion.
+ * The Midway Union's daily Free Buys are exempt: their guarantees are authored
+ * per slot by the owner's 2026-11-04 rotation (midwayFreeBuyPolicy.ts). */
 export function withReducedTournamentGuarantee(
   row: Record<string, unknown>
 ): Record<string, unknown> {
+  if (isMidwayFreeBuy(row)) return row;
   const start = Date.parse(String(row.start_time ?? ''));
   const before = Number(row.guaranteed_prize);
   const entry = Number(row.buy_in_amount ?? 0) + Number(row.buy_in_fee ?? 0);

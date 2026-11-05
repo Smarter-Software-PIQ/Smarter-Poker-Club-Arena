@@ -84,7 +84,7 @@ import {
 } from '../tournament/mttStructurePolicy.js';
 import { SPIN_SEATS, SPIN_TIERS, spinBlindsForLevel } from '../config/spinSpec.js';
 import { localDateIn, zonedStartUtc } from './scheduleWallClock.js';
-import { tournamentStartAllowed } from '../maintenance/dailyWindow.js';
+import { dailyWindowCarveOut, tournamentStartAllowed } from '../maintenance/dailyWindow.js';
 import {
   FIXED_BOARD_RESYNC_MS,
   isRetiredMidwayBoardEvent,
@@ -1325,7 +1325,19 @@ export class ScheduledTournamentService {
     // fixed time; this also bounds interval schedules (which respawn five
     // minutes after the last instance ends, at any hour) and any hand-written
     // row. Nothing is claimed, so the occurrence is simply not published.
-    if (!tournamentStartAllowed(startTime)) return;
+    // The one carve-out (owner 2026-11-04): the Midway Union's 12:30 AM
+    // Midnight Free Buy (dailyWindowCarveOut).
+    const carvedOut = dailyWindowCarveOut(
+      {
+        clubId: schedule.club_id,
+        unionId: schedule.union_id,
+        name: typeof cfg.fixedBoard === 'string' ? cfg.fixedBoard : schedule.name,
+      },
+      startTime
+    );
+    if (!carvedOut) {
+      if (!tournamentStartAllowed(startTime)) return;
+    }
     // A spawn the bank refused is asked again only when the answer can have
     // changed (guaranteeRefusalBackoff.ts), not on every 60-second poll.
     if (!(await this.guaranteeBackoff.shouldAttempt(deferralKey, this.readFundingBank))) return;
