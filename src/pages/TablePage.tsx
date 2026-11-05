@@ -1112,7 +1112,7 @@ const RIT_BOUNDARY_ACK_MS = 1500;
  * window is 2250ms on a fold and 2650ms on a showdown and this floor finally
  * fits inside the thing it was written to protect.
  */
-const RABBIT_MIN_VISIBLE_MS = 2000;
+const RABBIT_MIN_VISIBLE_MS = 1800;
 
 /**
  * Where a pot-win fan flies to when the winner has NO SEAT on this client

@@ -235,6 +235,12 @@ export const HAND_COMPLETION = {
    * CLAUDE.md 10.5: a beat that happens sometimes is a tell. It is also why
    * the per-user "hide the button" setting does not shorten it.
    *
+   * ── 2026-11-05: 1800ms, SO THE MEASURED GAP LANDS UNDER TWO SECONDS ──
+   * Dan, verbatim: "AS SOON AS ONE CASH GAME HAND FINISHES AT A TABLE, THE
+   * NEXT HAND NEEDS TO START WITHIN 2 SECONDS". /health nextHandGap at a
+   * 2000ms rest measured p50 2122ms / p90 2160ms (dealHand overhead ~120-160ms
+   * on top of the rest), so the rest is 1800ms and the gap lands near 1.9s.
+   *
    * ── 2026-09-07: THE REST IS THE WHOLE GAP, AND IT IS TWO SECONDS ──
    *
    * Dan, verbatim: "LOTS OF HANDS ARE NOT STARTING THE NEXT HAND 2 SECONDS
@@ -265,8 +271,8 @@ export const HAND_COMPLETION = {
    * pins the rest at or above the client's RABBIT_MIN_VISIBLE_MS floor and
    * above both boardClearMs values, so the clear can never outlive the rest.
    */
-  NEXT_HAND_REST_MS: 2000,
-  RABBIT_HUNT_WINDOW_MS: 2000,
+  NEXT_HAND_REST_MS: 1800,
+  RABBIT_HUNT_WINDOW_MS: 1800,
   /**
    * ── THE DISCARD IS AN ACT, AND IT NEEDS A BEAT (Phase 3, 2026-08-31) ──
    *

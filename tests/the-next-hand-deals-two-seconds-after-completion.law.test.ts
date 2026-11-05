@@ -43,12 +43,12 @@ const TABLES = strip(read('server/src/services/supabase/tables.ts'));
 const GAME_SERVER = strip(read('server/src/GameServer.ts'));
 
 describe('LAW: the next hand deals two seconds after completion (Dan 2026-09-07)', () => {
-  it('the rest is 2000ms, the Rabbit Hunt window is the same number, and the engine mirror agrees', () => {
-    expect(HAND_COMPLETION.NEXT_HAND_REST_MS).toBe(2000);
+  it('the rest is 1800ms so the measured gap lands under two seconds (Dan 2026-11-05), the Rabbit Hunt window is the same number, and the engine mirror agrees', () => {
+    expect(HAND_COMPLETION.NEXT_HAND_REST_MS).toBe(1800);
     expect(HAND_COMPLETION.RABBIT_HUNT_WINDOW_MS).toBe(HAND_COMPLETION.NEXT_HAND_REST_MS);
     const server = read('server/src/config/handCompletionSpec.ts');
-    expect(server).toMatch(/NEXT_HAND_REST_MS: 2000,/);
-    expect(server).toMatch(/RABBIT_HUNT_WINDOW_MS: 2000,/);
+    expect(server).toMatch(/NEXT_HAND_REST_MS: 1800,/);
+    expect(server).toMatch(/RABBIT_HUNT_WINDOW_MS: 1800,/);
   });
 
   it('the rest is longer than either board clear and at least the client button floor', () => {

@@ -485,8 +485,11 @@ describe('the Rabbit Hunt button is clickable in practice', () => {
     expect(MODALS_LAYER).not.toContain('isRabbitAvailable');
   });
 
-  it("guarantees Dan's two full seconds on screen", () => {
-    expect(TABLE_PAGE).toContain('const RABBIT_MIN_VISIBLE_MS = 2000;');
+  // Dan 2026-11-05: the next cash hand starts within two seconds, so the
+  // rest and this floor are 1800ms - still above the 1.75s Dan asked the
+  // Rabbit Hunt to have on 2026-09-05.
+  it("guarantees the button its full rest on screen (at least Dan's 1.75s)", () => {
+    expect(TABLE_PAGE).toContain('const RABBIT_MIN_VISIBLE_MS = 1800;');
     expect(TABLE_PAGE).toContain('rabbitShownAtRef');
     expect(TABLE_PAGE).toContain('shownFor >= RABBIT_MIN_VISIBLE_MS');
   });
