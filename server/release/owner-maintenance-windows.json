@@ -1042,6 +1042,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "9a9f16daf30b77b6c947cabd42b35fb58876da2d052031400539755dcb506c5a"
       }
+    },
+    {
+      "id": "2026-11-05-lightning-always-runs-1945z",
+      "ownerOrder": "Dan, directly in the MAIN horse styles chat (America/Chicago), ordered verbatim on 2026-11-05 12:33: \"no, lightning tables must always run, they are \\\"feeder games\\\" until enough players are playing, then the turn to lightning games ONLY WHEN THERE IS ENOUGH PLAYERS. there should never be a on off timer for these games! ever!!\"; and at 12:35: \"after you fix the glitch you created in the lightning games ... confirm that you will only work on these assigned tasks until your fix is fully pushed and published.\". The November 4 union cash schedule (#9486) switched horse seating off for every Lightning Cluster except one, and Lightning Feeders entirely; the pools emptied from 15:27Z November 5. This NEW window admits one earliest-certified off-cycle activation of a target containing 1e6b597005285a55805242299025648bf8cae422 (main before the Lightning correction), from 19:45Z November 5 to 01:45Z November 6 only. A fresh announcement is made only between :05:30 and :49:00 of an hour; every existing guard is unchanged: hand-boundary drain, durable freeze and certificate, full proof/rollback reserve, one-shot checkpoint intent with strict UNKNOWN/no-retry, SEALED and own healthy v3 thaw. Every earlier entry keeps its order, witness and expiry; nothing is extended, reused or retargeted. No migration, direct restart, second publisher, watcher or timer. Expiry is not an emergency or automatic extension.",
+      "contains": "1e6b597005285a55805242299025648bf8cae422",
+      "notBefore": "2026-11-05T19:45:00Z",
+      "notAfter": "2026-11-06T01:45:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "558ef6cabf9520f9b0c085826d6293ef7d9b6856efaa886a0d02cd39f58f5f11"
+      }
     }
   ],
   "databaseWindows": [

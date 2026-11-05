@@ -148,3 +148,27 @@ paid prizes/obligations and terminal escrow close instead. No recovery row is
 required for an already completed event, and no withdrawal retry, cancellation,
 refund or hand replay is appropriate. Keep that terminal evidence separate from
 an intermediate prepared/withdrawn result and from original incident closure.
+
+### Bulk closures stay out of live play (November 5, 2026)
+
+Every operator closure door now refuses on its own, before any lane, row or
+table is touched, and writes nothing when it does. You no longer need a script
+that waits out the break; a refusal is a definite answer, not an unknown one.
+
+| Refusal (`bulk_closure_<reason>`, SQLSTATE 55P03; engine HTTP 409 `reason`) | When                                                                             | What to do                                                              |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `break_window`                                                              | minute :53 through :07 UTC                                                       | try again at :08 or later                                               |
+| `maintenance_active`                                                        | a break is announced/counting down, or a release boundary is open                | wait for the thaw                                                       |
+| `resume_settling`                                                           | within 180 s of a thaw (database) / resume waves still running (engine)          | wait a few minutes                                                      |
+| `large_outside_quiet_hours`                                                 | more than 50 player rows across the targets, outside 04:00-06:00 America/Chicago | run it in the daily quiet window, when every game is closed             |
+| `unbounded_caller`                                                          | the caller's `statement_timeout` is 0 or above 8 s (database only)               | `SET statement_timeout='8s'` first; PostgREST service calls already are |
+| `cooldown`                                                                  | another settlement committed less than 5 s ago (database only)                   | pause 5 s between settlements                                           |
+| `size_unknown`                                                              | the event's size could not be read (engine only)                                 | retry once the database answers                                         |
+
+Guarded doors: `fn_ca_settle_tournament_abort`, `fn_ca_settle_tournament_abort_equal_share`,
+`fn_ca_owner_retire_tournament`, `fn_ca_operator_cancel_tournament`, `fn_ca_request_tournament_abort`
+(migration `20261105181406_bulk_closure_stays_out_of_live_play.sql`) and the engine's
+`/admin/tournament-abort-boundary` physical stop (`server/src/maintenance/bulkClosureGuard.ts`).
+An admitted closure runs with `lock_timeout` 100 ms, so a held row refuses it
+in about a tenth of a second instead of queueing behind live play. A settled
+event's final runtime retirement (no money, no lane) is not refused.

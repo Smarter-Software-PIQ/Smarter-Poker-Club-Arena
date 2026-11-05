@@ -79,6 +79,38 @@ describe('the explicit abort owner positively joins original writers', () => {
     expect(order).toEqual(['disposition', 'ack']);
   });
 
+  it('owner retirement cancels a dead hand exactly like equal share, without parking it', async () => {
+    // 2026-11-05: six owner-retired Diamond satellites held one reserved hand
+    // each from a dead generation. Parking waits for a hand that can never
+    // finish, and the event can never finish while the hand is pending.
+    const f = fixture();
+    const order: string[] = [];
+    const owner = new TournamentAbortBoundary(
+      { ...f.request, closureMode: 'owner_retirement' },
+      [['table', f.engine]],
+      {
+        ...f.deps,
+        prepareAcknowledgement: async () => {
+          order.push('disposition');
+        },
+        acknowledge: async (_id, _hand, evidence) => {
+          order.push('ack');
+          expect(evidence).toMatchObject({
+            closure_mode: 'owner_retirement',
+            kind: 'tournament_abort_cancelled_boundary_v2',
+            certificate_version: '2',
+            parked_before_retirement: false,
+          });
+          return { ok: true };
+        },
+      }
+    );
+    expect(await owner.run()).toMatchObject({ state: 'acknowledged' });
+    expect(f.engine.parkForTournamentAbort).not.toHaveBeenCalled();
+    expect(f.engine.prepareTournamentAbortBoundary).not.toHaveBeenCalled();
+    expect(order).toEqual(['disposition', 'ack']);
+  });
+
   it('disposes every stopped original before acknowledging any table', async () => {
     const f = fixture();
     const order: string[] = [];

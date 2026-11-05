@@ -126,6 +126,67 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
+# ── THE MAC RUNS THE CHECKS THE WAY CI DOES (2026-11-05) ───────────────────
+#
+# On 2026-11-05 every server push from the Mac Studio was refused by tests
+# that pass in CI and also failed on an untouched origin/main checkout, so an
+# agent could not push an engine change from this machine at all. Three
+# causes, all environment, none content:
+#
+#   1. Node. Homebrew's node on this Mac is 26 (nvm also holds 20, 22, 24);
+#      CI and the engine run 22. Node 26 prints a module.register()
+#      DeprecationWarning that tests asserting a silent stderr read as failure.
+#   2. TMPDIR. macOS points it at /var/folders on the boot drive. The Phase 14
+#      fleet tests refuse anything but an owned external-SSD scratch
+#      directory, and a long TMPDIR makes PostgreSQL's Unix socket name too
+#      long for the money fixtures.
+#   3. The native evaluator (server/native/build/public_hist215_wtl.node) is
+#      built, not committed - CI builds it in `pretest` - so a fresh worktree
+#      has none (handled with the server tests below).
+#
+# So on macOS this hook runs Node 22 when the shell's node is another major,
+# and gives the run its own short TMPDIR on the external SSD. Nothing changes
+# on Linux, and a TMPDIR the caller already placed on /Volumes is kept.
+if [ "$(uname -s)" = Darwin ]; then
+  CA_NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+  if [ "$CA_NODE_MAJOR" != 22 ]; then
+    # The newest nvm 22.x, compared by version number, not by path text.
+    CA_NODE22=""
+    CA_NODE22_RANK=-1
+    for d in "$HOME"/.nvm/versions/node/v22.*/bin; do
+      [ -x "$d/node" ] || continue
+      v=$(basename "$(dirname "$d")")
+      IFS=. read -r _ v_minor v_patch <<EOV
+${v#v}
+EOV
+      rank=$(( ${v_minor:-0} * 100000 + ${v_patch:-0} ))
+      if [ "$rank" -gt "$CA_NODE22_RANK" ]; then CA_NODE22_RANK=$rank; CA_NODE22=$d; fi
+    done
+    for d in $CA_NODE22 /opt/homebrew/opt/node@22/bin; do
+      if [ -x "$d/node" ]; then
+        PATH="$d:$PATH"
+        export PATH
+        echo "[club-arena pre-push] running the checks on Node $("$d/node" -v), the runtime CI uses (this shell had Node $CA_NODE_MAJOR)."
+        break
+      fi
+    done
+  fi
+  case "${TMPDIR:-}" in
+    /Volumes/*) ;;
+    *)
+      CA_PUSH_TMP_ROOT="${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t}"
+      if mkdir -p "$CA_PUSH_TMP_ROOT" 2>/dev/null; then
+        # Runs are a day old at most; nothing else is kept here.
+        find "$CA_PUSH_TMP_ROOT" -mindepth 1 -maxdepth 1 -name 'p.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+        if CA_PUSH_TMP=$(mktemp -d "$CA_PUSH_TMP_ROOT/p.XXXXXX"); then
+          TMPDIR="$CA_PUSH_TMP"
+          export TMPDIR
+        fi
+      fi
+      ;;
+  esac
+fi
+
 # September 17: applicable prechecks must run before submission. Probe this
 # owned checkout read-only; never install into a shared symlink from a hook.
 # Missing dependencies refuse the affected check instead of deferring it to CI.
@@ -925,6 +986,20 @@ if [ -f server/package.json ]; then
     done
   done
   SRV_TESTS=$(printf '%s\n' $SRV_TESTS | sort -u)
+
+  # THE NATIVE EVALUATOR IS BUILT BEFORE THE SERVER TESTS (2026-11-05). It is a
+  # build product, not a committed file; CI builds it in `pretest`. A fresh
+  # worktree has none, and the engine tests that load it fail on the missing
+  # module rather than on anything the push changed. Build it the same way.
+  if [ -n "$SRV_TESTS$SRV_SRC" ] && [ "$SERVER_DEPENDENCY_MODE" = local ] \
+     && [ -f server/scripts/build-public-hist215-native.mjs ] \
+     && [ ! -f server/native/build/public_hist215_wtl.node ]; then
+    echo "[club-arena pre-push] building the native evaluator the server tests load..."
+    if ! ( cd server && node scripts/build-public-hist215-native.mjs >/dev/null ); then
+      echo "[club-arena pre-push] BLOCKED: the native evaluator did not build."
+      FAIL=1
+    fi
+  fi
 
   if [ -n "$SRV_TESTS$SRV_SRC" ] && [ "$SERVER_DEPENDENCY_MODE" != local ]; then
     echo "[club-arena pre-push] BLOCKED: required local server dependencies are incomplete."

@@ -53,18 +53,9 @@ Unchanged:
 
 The first two fail on the previous code (kill / park), the last two pass on both.
 
-## Same release: the operator cancellation re-asks a busy lane
+## Note: the operator cancellation lane
 
-Midnight Free Buy's owner close-out (`equal_ack`) kept answering "unknown"
-after the database fix for its late-seated chair was live. The cancellation
-lane (`smarter_private.cancellation_lane`) deliberately only TRY-locks the
-global settlement lock and the hand barrier so it never queues ahead of live
-hands. Sampled on production, those locks were held (shared, by ordinary
-hand traffic) 74% and 47% of the time, so a single call is usually refused
-with `55P03 CANCELLATION_GLOBAL_LANE_BUSY` / `CANCELLATION_BARRIER_BUSY`
-before any write, and the engine turned that refusal into a failed boundary.
-
-`TournamentManagerBase` now re-asks exactly those two named, write-free
-refusals up to 40 times, 250 ms apart, while the same owner is current. Any
-other error, or an unknown reply, still fails closed as before. Pinned in
-`server/src/tournament/TournamentAbortOwnership.test.ts`.
+Midnight Free Buy's owner close-out also failed on the cancellation lane's
+`55P03 CANCELLATION_GLOBAL_LANE_BUSY` try-lock refusal. That was fixed
+independently in #9557 (`server/src/tournament/cancellationLane.ts`), which
+this branch adopts unchanged.

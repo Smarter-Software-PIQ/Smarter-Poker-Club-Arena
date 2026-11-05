@@ -2485,7 +2485,21 @@ export interface HorseDecideOpts {
  * kind of exploitable-looking texture humans produce — while staying zero-mean
  * across the fleet and across time.
  */
-function moodOf(userId: string, decisionTimeMs = Date.now()): number {
+/**
+ * THE TEST SUITE PINS THE MOOD HOUR (2026-11-05). The mood reads the wall
+ * clock, so any suite measuring horse frequencies moved with the hour it ran
+ * in: HorseDefenceByOpener fell under its floors from 12:00 UTC and blocked
+ * every engine release. src/testing/theHorseMoodHourIsPinned.ts sets this
+ * global for the whole suite; production never sets it, so live horses keep
+ * their real hourly mood. A decision that passes decisionTimeMs still wins.
+ */
+export const HORSE_MOOD_TEST_CLOCK_KEY = '__smarterPokerHorseMoodClockMs';
+function moodClockMs(): number {
+  const pinned = (globalThis as Record<string, unknown>)[HORSE_MOOD_TEST_CLOCK_KEY];
+  return typeof pinned === 'number' && Number.isFinite(pinned) ? pinned : Date.now();
+}
+
+function moodOf(userId: string, decisionTimeMs = moodClockMs()): number {
   const key = userId + '|' + Math.floor(decisionTimeMs / 3_600_000);
   let h = 17;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;

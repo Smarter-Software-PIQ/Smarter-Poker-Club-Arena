@@ -88,11 +88,21 @@ export function playingHumansAtCashTable(
   ).length;
 }
 
+/** LIGHTNING GAMES ALWAYS RUN (Dan 2026-11-05): "lightning tables must always
+ * run, they are feeder games until enough players are playing, then they turn
+ * to lightning games ONLY WHEN THERE IS ENOUGH PLAYERS. there should never be
+ * a on off timer for these games! ever!!" Every table of a Lightning-enabled
+ * Cluster (cash_games.lightning_enabled), Main or Feeder, is outside the
+ * clock schedule. The Cluster controller alone decides feeder versus
+ * Lightning by player count. Forbidden variants and the stake ceiling still
+ * apply; they are not a timer.
+ */
 export function horseUnionCashTableAllowed(
   table: CashPlanTable,
   playingHumans: number,
   nowMs: number,
-  primaryTables: ReadonlySet<string>
+  primaryTables: ReadonlySet<string>,
+  lightningGames: ReadonlySet<string> | null = null
 ): boolean {
   if (table.tournament_id != null || table.is_spins === true) return true;
   if (table.union_id !== plan.unionId && table.club_id !== plan.unionId) return true;
@@ -100,6 +110,7 @@ export function horseUnionCashTableAllowed(
   if (nowMs < HORSE_UNION_CASH_PLAN_START_MS) return true;
   // The human exception never overrides forbidden variants or the stake ceiling.
   if (!horseCashGameAllowed(table, nowMs)) return false;
+  if (lightningGames !== null && lightningGames.has(String(table.cluster_id ?? ''))) return true;
   const higherStakes = Number(table.small_blind) > 0.5 || Number(table.big_blind) > 1;
   if (higherStakes && Number.isFinite(playingHumans) && playingHumans > 0) return true;
   const gameId = String(table.cluster_id ?? '');
