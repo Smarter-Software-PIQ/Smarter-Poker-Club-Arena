@@ -395,6 +395,30 @@
 .table-page .seat:not(.seat--hero) {
   translate: var(--sp-opponent-x, 0px) var(--sp-opponent-y, 0px);
 }
+/* A TAP LANDS ON THE PLAYER WHOSE CHAIR IT IS (Dan 2026-11-05). Character art
+   is scaled past its own slot (`--sp-opponent-art-scale` here, `--sp-bust-scale`
+   on the image), so on a dense phone ring a neighbour's crown or shoulders hang
+   over the plate of the player beside him - and because hit-testing follows
+   transforms, a tap on that plate opened the NEIGHBOUR's player menu. The art
+   still paints exactly as before; it simply stops catching taps. The tap area
+   is this pseudo-element, which undoes the art scale so it covers precisely the
+   unscaled avatar slot, and taps on it dispatch to `.seat__avatar` itself, so
+   the avatar's own click and keyboard handlers are unchanged. Pinned by
+   tests/e2e/css/the-chairs-never-change-order.spec.ts. */
+.table-page .seat .seat__avatar {
+  pointer-events: none;
+}
+.table-page .seat .seat__avatar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  transform-origin: 50% 100%;
+  scale: calc(1 / var(--sp-opponent-art-scale, 1));
+}
+.table-page .seat.seat--hero .seat__avatar::before {
+  scale: 1;
+}
 /* Whole-pod spacing must not carry an already placed contribution with it.
    Preserve the existing bet/collect transforms and every animation. */
 .table-page .seat:not(.seat--hero) .seat__bet-chips {

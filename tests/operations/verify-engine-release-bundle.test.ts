@@ -47,6 +47,10 @@ function createValidBundle() {
       activeSeconds: 905,
       maxHeapUsedMB: 1340,
       maxRssMB: 5620,
+      rssSamples: Array.from({ length: 16 }, (_, i) => ({
+        activeSeconds: i * 60,
+        rssMb: 5600 + Math.min(i, 6) * 3,
+      })),
     },
   };
 }
@@ -73,5 +77,35 @@ describe('verify-engine-release-bundle (Phase 4 certification verifier)', () => 
     expect(res.failures).toContain('canonical_census_missing_game_PLO8');
     expect(res.failures).toContain('resource_window_under_900_active_seconds');
     expect(res.failures).toContain('resource_window_heap_exceeded_2048mb');
+  });
+
+  it('applies the owner 12288 MB RSS ceiling and requires RSS to level off', () => {
+    const at = (rss: number[]) => rss.map((rssMb, i) => ({ activeSeconds: i * 60, rssMb }));
+    const ok = createValidBundle();
+    ok.resourceWindow.maxRssMB = 9200;
+    ok.resourceWindow.rssSamples = at(
+      Array.from({ length: 16 }, (_, i) => 9180 + (i < 8 ? i * 2 : 16))
+    );
+    expect(evaluateEngineReleaseCertificationBundle(ok).failures).toEqual([]);
+
+    const over = createValidBundle();
+    over.resourceWindow.maxRssMB = 12289;
+    expect(evaluateEngineReleaseCertificationBundle(over).failures).toContain(
+      'resource_window_rss_exceeded_12288mb'
+    );
+
+    // The measured 8017564a window: ~17 MB per active minute is still climbing.
+    const climbing = createValidBundle();
+    climbing.resourceWindow.maxRssMB = 8609;
+    climbing.resourceWindow.rssSamples = at(Array.from({ length: 16 }, (_, i) => 8356 + i * 17));
+    expect(evaluateEngineReleaseCertificationBundle(climbing).failures).toContain(
+      'resource_window_rss_not_leveling_off'
+    );
+
+    const thin = createValidBundle();
+    thin.resourceWindow.rssSamples = at([5600, 5601, 5602]);
+    expect(evaluateEngineReleaseCertificationBundle(thin).failures).toContain(
+      'resource_window_rss_level_off_unproven'
+    );
   });
 });

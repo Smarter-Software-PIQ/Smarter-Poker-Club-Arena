@@ -9,6 +9,12 @@ export const HORSE_UNION_CASH_PLAN = plan;
 export const HORSE_UNION_CASH_PLAN_START_MS = Date.parse('2026-11-04T06:00:00Z');
 const windows = plan.windows as Record<string, { regular: number[]; weekend: number[] }>;
 const games = new Map(plan.games.map((game) => [game.id, game]));
+/** Lightning games horses start on their own (Dan 2026-11-05). */
+export const LIGHTNING_HORSE_SEEDED: ReadonlySet<string> = new Set(
+  (plan as { lightningHorseSeeded?: Array<{ id: string }> }).lightningHorseSeeded?.map(
+    (game) => game.id
+  ) ?? []
+);
 const chicagoClock = new Intl.DateTimeFormat('en-US', {
   timeZone: plan.timeZone,
   weekday: 'short',
@@ -102,7 +108,8 @@ export function horseUnionCashTableAllowed(
   playingHumans: number,
   nowMs: number,
   primaryTables: ReadonlySet<string>,
-  lightningGames: ReadonlySet<string> | null = null
+  lightningGames: ReadonlySet<string> | null = null,
+  lightningHumanGames: ReadonlySet<string> | null = null
 ): boolean {
   if (table.tournament_id != null || table.is_spins === true) return true;
   if (table.union_id !== plan.unionId && table.club_id !== plan.unionId) return true;
@@ -110,7 +117,20 @@ export function horseUnionCashTableAllowed(
   if (nowMs < HORSE_UNION_CASH_PLAN_START_MS) return true;
   // The human exception never overrides forbidden variants or the stake ceiling.
   if (!horseCashGameAllowed(table, nowMs)) return false;
-  if (lightningGames !== null && lightningGames.has(String(table.cluster_id ?? ''))) return true;
+  // LIGHTNING (Dan 2026-11-05): "THERE IS NO CAP OR CLOCK THAT SHOULD BE
+  // WATCHING THIS, JUST HAVE AND LAUNCH FEWER LIGHTNING GAMES ... NO
+  // LIGHTNING GAMES GET STARTED BY HORSES IN A FEW GAMES STAKES, UNLESS HUMANS
+  // SIT DOWN, IF A HUMAN SITS DOWN, THEN MORE HORSES CAN SIT AS WELL". Every
+  // Lightning game stays enabled and open to people. Horses START only the
+  // plan's `lightningHorseSeeded` games, at any hour and on any table. Every
+  // other Lightning game is started by a person: while one is playing at any
+  // of its tables, horses may sit at any of them; when none is, horses do not
+  // seed it. No per-game cap and no clock.
+  if (lightningGames !== null && lightningGames.has(String(table.cluster_id ?? ''))) {
+    const gameId = String(table.cluster_id ?? '');
+    if (LIGHTNING_HORSE_SEEDED.has(gameId)) return true;
+    return lightningHumanGames !== null && lightningHumanGames.has(gameId);
+  }
   const higherStakes = Number(table.small_blind) > 0.5 || Number(table.big_blind) > 1;
   if (higherStakes && Number.isFinite(playingHumans) && playingHumans > 0) return true;
   const gameId = String(table.cluster_id ?? '');
@@ -127,4 +147,28 @@ export function horseUnionCashTableAllowed(
     primaryTables.has(String(table.id ?? '')) &&
     scheduledHorseCashGames(nowMs).has(gameId)
   );
+}
+
+/** The Lightning games in which a person is playing right now, at any of
+ * their tables (a seat is the Lightning pool's anchor, so a pooled person is
+ * counted here too). Sitting-out and departing chairs do not start a game.
+ * Every table of a game must be in `tables` for its answer to be complete. */
+export function lightningGamesWithPlayingHumans(
+  tables: ReadonlyArray<{ id?: unknown; cluster_id?: unknown }>,
+  seatsByTable: ReadonlyMap<
+    string,
+    ReadonlyArray<{ user_id: string; is_sitting_out?: unknown; leave_pending?: unknown }>
+  >,
+  horseIds: ReadonlySet<string>,
+  lightningGames: ReadonlySet<string> | null
+): ReadonlySet<string> | null {
+  if (lightningGames === null) return null;
+  const started = new Set<string>();
+  for (const table of tables) {
+    const gameId = String(table.cluster_id ?? '');
+    if (!gameId || !lightningGames.has(gameId) || started.has(gameId)) continue;
+    const seats = seatsByTable.get(String(table.id ?? '')) ?? [];
+    if (playingHumansAtCashTable(seats, horseIds) > 0) started.add(gameId);
+  }
+  return started;
 }

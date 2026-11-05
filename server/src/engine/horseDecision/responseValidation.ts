@@ -28,6 +28,7 @@ import { horsePhase13ContinuationVersion } from '../HorsePhase13Authority.js';
 import { PLO_PAIRED_BOARD_VARIANTS } from '../HorsePloPairedBoardFold.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
+import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
 type RecordValue = Record<string, unknown>;
@@ -891,22 +892,42 @@ function policyGraphIsValid(
     // is made to fold. A sized re-raise over a 3-bet with a hand below QQ+/AK
     // becomes a call, and a fold after the horse's own 4-bet was re-raised
     // becomes a call. When the request is known, only in those two spots.
+    // The same node first runs the tournament shove discipline (Dan
+    // 2026-10-25), which rewrites a deep or covering preflop jam into a sized
+    // raise; rule 4 then makes that raise a call, so the node's one recorded
+    // transition is jam -> call. That form is admitted only with the request,
+    // only facing a 3-bet, and only when the shove discipline re-run on that
+    // request really turns the jam into a raise (2026-11-05: 41 live refusals
+    // on release 71087373, every one this chain).
+    const fourBetSpot =
+      context === undefined
+        ? null
+        : holdemFourBetSpot({
+            gameVariant: context.gameState.gameVariant,
+            bettingStructure: context.gameState.bettingStructure,
+            stage: context.gameState.stage,
+            hero: context.player,
+            currentBet: context.gameState.currentBet,
+            bigBlind: context.gameState.bigBlind,
+            actionHistory: context.gameState.actionHistory,
+          });
     const noFourBetFold =
       transition.node === 'wager_rules' &&
       variant === 'nlh' &&
       transition.after.action === 'call' &&
       previous !== null &&
-      (previous.action === 'fold' || previous.action === 'raise') &&
-      (context === undefined ||
-        holdemFourBetSpot({
-          gameVariant: context.gameState.gameVariant,
-          bettingStructure: context.gameState.bettingStructure,
-          stage: context.gameState.stage,
-          hero: context.player,
-          currentBet: context.gameState.currentBet,
-          bigBlind: context.gameState.bigBlind,
-          actionHistory: context.gameState.actionHistory,
-        }) === (previous.action === 'fold' ? 'reraised_four_bet' : 'facing_three_bet'));
+      (previous.action === 'all_in'
+        ? context !== undefined &&
+          fourBetSpot === 'facing_three_bet' &&
+          tournamentShoveDiscipline(
+            { action: 'all_in', thinkTime: 0 },
+            context.player,
+            context.gameState
+          ).action === 'raise'
+        : (previous.action === 'fold' || previous.action === 'raise') &&
+          (context === undefined ||
+            fourBetSpot ===
+              (previous.action === 'fold' ? 'reraised_four_bet' : 'facing_three_bet')));
     const plo6RiverRaiseToCall =
       transition.node === 'wager_rules' &&
       variant === 'plo6' &&
