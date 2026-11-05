@@ -735,7 +735,9 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
       tournament.bubble_protection === true,
       Number(tournament.buy_in_amount) || 0,
       panelIsSatellite,
-      tournament.bounty_pool
+      tournament.bounty_pool,
+      tournament.total_rake,
+      tournament.prize_pool_finalized === true
     );
   }, [panelIsSatellite, panelPayouts, tournament, tournamentFieldSize]);
 
@@ -1074,7 +1076,9 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                       effectivePrizePool(
                         tournament.prize_pool,
                         tournament.guaranteed_prize,
-                        tournament.bounty_pool
+                        tournament.bounty_pool,
+                        tournament.total_rake,
+                        tournament.prize_pool_finalized === true
                       ) > 0 && (
                         <div>
                           <dt>Prize Pool</dt>
@@ -1083,7 +1087,9 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                               effectivePrizePool(
                                 tournament.prize_pool,
                                 tournament.guaranteed_prize,
-                                tournament.bounty_pool
+                                tournament.bounty_pool,
+                                tournament.total_rake,
+                                tournament.prize_pool_finalized === true
                               )
                             ).toLocaleString()}
                           </dd>
