@@ -669,6 +669,25 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertTrue(current['supersedesPhase1Schedule'])
         self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
+    def test_midway_rotation_55_window_binds_its_own_floor_and_the_rotation_merge(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-05-midway-free-buy-rotation-55-1545z')
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-05T15:45:00Z', '2026-11-05T21:45:00Z'))
+        self.assertEqual(window['announceAtChicagoMinutes'], [53])
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertNotIn('announcementPolicy', window)
+        self.assertNotIn('certifiedRecoveryProfile', window)
+        self.assertEqual(window['migrations'], [])
+        self.assertEqual(window['contains'], 'ab33e47489f7f053070a04378f521a63a5c8e954')
+        hybrid, hybrid_raw = self.historical_floor('2026-11-05-hybrid-and-phase1-55-0645z')
+        self.assertEqual(hybrid['releaseWitness']['sha256'], hashlib.sha256(hybrid_raw).hexdigest())
+        self.assertEqual(hybrid['notAfter'], '2026-11-05T12:45:00Z')
+        current = self.owner_record(window_id='2026-11-05-midway-free-buy-rotation-55-1545z')
+        self.assertEqual(current['ownerWindowId'], '2026-11-05-midway-free-buy-rotation-55-1545z')
+        self.assertTrue(current['supersedesPhase1Schedule'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+
     def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):
         import hashlib
         old = {'schema': floor.OWNER_CAPABILITY, 'preparationAt': '2026-11-03T20:30:00Z',

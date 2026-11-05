@@ -1,0 +1,5 @@
+# The Midway Free Buy Rotation Gets Its Own :55 Window
+
+The engine release gate admitted activations only inside the owner window `2026-11-05-hybrid-and-phase1-55-0645z`, which expired at 12:45Z on 2026-11-05 before any receiver could activate. The receivers for the Midway Free Buy rotation (#9515, merge `ab33e474`) were refused by a competing runtime owner and then by an hour-dependent horse defence test (fixed in #9529); receiver 42042810328 for `69a61c3a` then passed every test and was refused with "explicit later owner window expired".
+
+A new fixed window, `2026-11-05-midway-free-buy-rotation-55-1545z`, admits one certified activation of a target containing that merge from 15:45Z to 21:45Z on 2026-11-05, at Chicago minute 53 notice and minute 55 activation only, under Dan's order to finish the rotation live, his 2026-11-05 approval to re-send the engine release, and his standing :55-break order. Every guard is unchanged; no migration is added (the rotation migration is already installed); earlier windows keep their witnesses and expiries.

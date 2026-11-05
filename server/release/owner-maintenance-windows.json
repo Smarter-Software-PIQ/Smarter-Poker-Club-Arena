@@ -1028,6 +1028,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "f0a7f2e37b779ec34f07ff1511778cfdb97046ec9b152b319927fadded5b6d60"
       }
+    },
+    {
+      "id": "2026-11-05-midway-free-buy-rotation-55-1545z",
+      "ownerOrder": "Dan, directly in the Midway Free Buy rotation chat (America/Chicago), ordered the alternating daily Free Buy rotation finished fully: pushed, published and live, and \"do not claim success until you have verified that everything is 100% accomplished\"; on 2026-11-05 06:51 he ordered verbatim: \"Approved: re-send the engine release for current main now.\"; and in MAIN Horse Brain PLO on 2026-11-01 14:43: \"AS SOON AS YOU ARE READY YOU CAN DO AN ENGINE RESET AT ANY OF THE :55 BREAKS AS NEEDED TO GET THIS FULLY PUBLISHED UPDATED AND VERIFIED. BUT ONLY AT THE :55 BREAK, BUT YOU CAN DO IT EVERY HOUR IF YOU NEED TOO\". The restoration release 67bc0e85ef143f0ed1c6da60bf3f45e053f9609a is still serving. 2026-11-05-hybrid-and-phase1-55-0645z expired 12:45Z before any receiver could activate (receivers for ab33e474 and 87159223 were refused by a competing runtime owner, then by an hour-dependent horse defence test fixed in #9529), and receiver 42042810328 for 69a61c3a refused at 14:3xZ with explicit later owner window expired. This NEW fixed window admits one certified :55 activation of a target containing the Midway Free Buy rotation merge ab33e47489f7f053070a04378f521a63a5c8e954 (#9515), from 15:45Z to 21:45Z November 5 only, Chicago minute 53 notice and minute 55 activation, at most once per hour, every existing guard unchanged: hand-boundary drain, durable freeze and certificate, full proof/rollback reserve, one-shot checkpoint intent with strict UNKNOWN/no-retry, SEALED and own healthy v3 thaw. Its migration is already installed; this window names none. Every earlier entry keeps its order, witness and expiry; nothing is extended, reused or retargeted. No direct restart, second publisher, watcher or timer. Expiry is not an emergency or automatic extension.",
+      "contains": "ab33e47489f7f053070a04378f521a63a5c8e954",
+      "notBefore": "2026-11-05T15:45:00Z",
+      "notAfter": "2026-11-05T21:45:00Z",
+      "announceAtChicagoMinutes": [53],
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "e28dfe03ca0c762d9436a4765531de5cf229fc40d9ea59d7361e6945824d16a4"
+      }
     }
   ],
   "databaseWindows": [
