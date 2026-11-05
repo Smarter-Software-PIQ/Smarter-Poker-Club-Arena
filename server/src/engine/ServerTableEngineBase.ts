@@ -8148,6 +8148,34 @@ export abstract class ServerTableEngineBase {
     );
   }
 
+  /**
+   * A retained unstarted original may still start while the ONLY next-hand
+   * owner is an unclaimed tournament move probe (2026-11-05, Sunday Deep
+   * Stack Satellite 25). The probe can claim only at a between-hands boundary,
+   * and a table carrying a retained original reaches that boundary only by
+   * playing the original. Fencing the original for that probe killed the
+   * table, the successor reclaimed the same original, the balancer probed
+   * again, and the table never dealt. Every other owner, and any CLAIMED move
+   * (whose seats may already be moving), still refuses the start.
+   */
+  protected isNextHandPausedOnlyByUnclaimedTournamentMove(): boolean {
+    return (
+      this.tournamentMovePauseOwners.size > 0 &&
+      this.claimedTournamentMovePauseOwners.size === 0 &&
+      !(
+        this.adminPauseLock ||
+        this.operatorFloorPaused ||
+        this.maintenanceLock ||
+        this.dealingHaltLock ||
+        this.weeklyPayoutPauseOwners.size > 0 ||
+        this.maintenancePaused ||
+        this.finalTableDealPaused ||
+        this.terminalCloseoutPaused ||
+        (this.handForHandPaused && this.holdBeforeNextHand)
+      )
+    );
+  }
+
   /** Drop an unstarted controller without a table, seat, stack or wallet write. */
   protected discardPreparedHandForPause(): boolean {
     if (!this.isNextHandPaused()) return false;

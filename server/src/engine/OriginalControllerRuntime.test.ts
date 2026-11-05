@@ -137,7 +137,10 @@ function fixture(tableId = config.tableId) {
   }
   return { e, emitted, roster };
 }
-async function originalPermit(e: any): Promise<F06HandPermit> {
+async function originalPermit(
+  e: any,
+  startAllowed: () => boolean = () => !e.isNextHandPaused()
+): Promise<F06HandPermit> {
   const permit = new F06HandPermit(
     binding,
     async () => ({
@@ -155,7 +158,7 @@ async function originalPermit(e: any): Promise<F06HandPermit> {
       error: null,
     }),
     () => true,
-    () => !e.isNextHandPaused()
+    startAllowed
   );
   await permit.reserve();
   e.f06CurrentPermit = permit;
@@ -533,6 +536,129 @@ it.each([false, true])(
     expect(e.f06CurrentPermit.recoveryState()).toBe('attempted');
   }
 );
+
+// Sunday Deep Stack Satellite 25 (2026-11-05): the balancer's move probe
+// armed between the original's private retention and its start. The probe can
+// claim only at a between-hands boundary, which a table holding a retained
+// original reaches only by playing it, so fencing the original for the probe
+// killed the table, the successor reclaimed the same original, and the table
+// never dealt again. An UNCLAIMED move owner alone now lets the original play;
+// the move claims after it completes.
+it('starts a retained original when the only owner is an unclaimed tournament move', async () => {
+  const { e, emitted, roster } = fixture();
+  const controller: HandController = e.handController;
+  // Production's fresh tournament permit authorizes start on lease currency
+  // alone (TournamentManagerBase); the engine's own owner checks decide pauses.
+  await originalPermit(e, () => true);
+  e.retainOriginalBatch = async (_original: unknown, _seats: unknown, batch: any) => {
+    if (batch.sequence === 0) {
+      e.tournamentMovePauseOwners.add('move-owner');
+      e.holdBeforeNextHand = true;
+    }
+  };
+  const attempt = { started: false, cause: null };
+  const run = e.runOriginalController(roster, controller, 42, Date.now(), attempt);
+  await vi.waitFor(() => expect(emitted.some((event) => event.type === 'CARDS_DEALT')).toBe(true));
+  expect(e.killForRestart).not.toHaveBeenCalled();
+  expect(attempt.started).toBe(true);
+  expect(e.isBetweenHands()).toBe(false);
+  const state = controller.getState();
+  expect(controller.performAction(state.currentPlayerSeat, 'fold')).toBe(true);
+  await run;
+  await e.handContinuation.join();
+  expect(emitted.filter((event) => event.type === 'HAND_START')).toHaveLength(1);
+  expect(emitted.filter((event) => event.type === 'HAND_COMPLETE')).toHaveLength(1);
+  expect(e.tournamentMovePauseOwners.has('move-owner')).toBe(true);
+});
+
+it('resumes a reclaimed unstarted original while an unclaimed move waits', async () => {
+  const { e, emitted, roster } = fixture();
+  const controller: HandController = e.handController;
+  // Successor custody exactly as TournamentManagerBase installs it.
+  e.f06CurrentPermit = new F06HandPermit(
+    binding,
+    async () => {
+      throw Error('Unexpected Recovered RPC');
+    },
+    () => true,
+    () => false,
+    binding.lease_generation
+  );
+  e.engineLeaseAuthorityIsCurrent = () => true;
+  e.pendingOriginalContinuation = {
+    version: 1,
+    original: binding,
+    seats: roster.map((player) => ({
+      user_id: player.user_id,
+      seat_id: player.seat_id,
+      seat_joined_at: player.seat_joined_at,
+      stack_before: player.stack,
+    })),
+    batch: {
+      version: 1,
+      sequence: 0,
+      controller: controller.serializeRecoveryState(),
+      events: [],
+      engine: { fields: {} },
+    },
+  };
+  e.retainOriginalBatch = async () => {};
+  e.tournamentMovePauseOwners.add('move-owner');
+  e.holdBeforeNextHand = true;
+  const attempt = { started: false, cause: null };
+  void e.runOriginalController(roster, controller, 42, Date.now(), attempt);
+  await vi.waitFor(() => expect(attempt.started).toBe(true));
+  expect(attempt.cause).toBeNull();
+  expect(e.killForRestart).not.toHaveBeenCalled();
+  expect(e.handForHandResolve).toBeNull();
+  expect(e.pendingOriginalContinuation).toBeNull();
+});
+
+it('still fences a retained original when an admin pause sits beside the move', async () => {
+  const { e, emitted, roster } = fixture();
+  const controller: HandController = e.handController;
+  await originalPermit(e);
+  e.retainOriginalBatch = async (_original: unknown, _seats: unknown, batch: any) => {
+    if (batch.sequence === 0) {
+      e.tournamentMovePauseOwners.add('move-owner');
+      e.holdBeforeNextHand = true;
+      e.adminPauseLock = true;
+    }
+  };
+  const run = e.runOriginalController(roster, controller, 42, Date.now(), {
+    started: false,
+    cause: null,
+  });
+  // The move alone no longer parks the original; the admin owner still fences it.
+  await vi.waitFor(() => expect(e.handForHandResolve).not.toBeNull());
+  e.tournamentMovePauseOwners.clear();
+  e.releasePauseGate();
+  await run;
+  expect(e.killForRestart).toHaveBeenCalledWith('retained_original_start_unproven');
+  expect(emitted).toEqual([]);
+  expect(JSON.parse(controller.serializeRecoveryState()).handStarted).toBe(false);
+});
+
+it('keeps a retained original parked while a move has claimed its boundary', async () => {
+  const { e, emitted, roster } = fixture();
+  const controller: HandController = e.handController;
+  await originalPermit(e);
+  e.retainOriginalBatch = async (_original: unknown, _seats: unknown, batch: any) => {
+    if (batch.sequence === 0) {
+      e.tournamentMovePauseOwners.add('move-owner');
+      e.claimedTournamentMovePauseOwners.add('move-owner');
+      e.holdBeforeNextHand = true;
+    }
+  };
+  void e.runOriginalController(roster, controller, 42, Date.now(), {
+    started: false,
+    cause: null,
+  });
+  await vi.waitFor(() => expect(e.handForHandResolve).not.toBeNull());
+  expect(e.killForRestart).not.toHaveBeenCalled();
+  expect(emitted).toEqual([]);
+  expect(JSON.parse(controller.serializeRecoveryState()).handStarted).toBe(false);
+});
 
 class OriginalBarrierHarness extends TournamentManagerBase {
   constructor(held: boolean) {
