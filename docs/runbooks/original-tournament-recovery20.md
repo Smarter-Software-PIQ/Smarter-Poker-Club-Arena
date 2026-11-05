@@ -170,5 +170,9 @@ Guarded doors: `fn_ca_settle_tournament_abort`, `fn_ca_settle_tournament_abort_e
 (migration `20261105181406_bulk_closure_stays_out_of_live_play.sql`) and the engine's
 `/admin/tournament-abort-boundary` physical stop (`server/src/maintenance/bulkClosureGuard.ts`).
 An admitted closure runs with `lock_timeout` 100 ms, so a held row refuses it
-in about a tenth of a second instead of queueing behind live play. A settled
+in about a tenth of a second instead of queueing behind live play. During play
+it may hold the hand-settlement barrier (which every hand commit shares) for at
+most 2 s, well under a hand's own 8 s ceiling: that hold is what froze the
+tables at 04:05 and 05:09 UTC on November 5. A closure that overruns is
+cancelled, rolls back with nothing written, and is safe to repeat. A settled
 event's final runtime retirement (no money, no lane) is not refused.

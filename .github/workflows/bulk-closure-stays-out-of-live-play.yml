@@ -8,13 +8,18 @@ name: Bulk closure stays out of live play
 # break, within 180 s of a thaw, for a large event outside 04:00-06:00 Chicago,
 # for an unbounded caller and inside the 5 s cooldown, writing nothing; and
 # must reach their unchanged original bodies when admitted, with every later
-# lock wait bounded to 100 ms. No timer (CLAUDE.md 10.85): pull_request only,
+# lock wait bounded to 100 ms. With the hold-bound migration (20261105200238)
+# it reproduces the 04:05 lock chain (real lane helpers: a closure holding the
+# hand barrier makes waiting hand commits fail) and proves that after it every
+# hand alongside a closure commits, and that refused, cancelled and replayed
+# settlements credit exactly once. No timer (CLAUDE.md 10.85): pull_request only,
 # scoped to the paths it proves.
 on:
   pull_request:
     branches: [main]
     paths:
       - supabase/migrations/20261105181406_bulk_closure_stays_out_of_live_play.sql
+      - supabase/migrations/20261105200238_bulk_closure_never_holds_the_hand_barrier_past_two_seconds.sql
       - scripts/ci/fixtures/bulk-closure-guard/**
       - scripts/ci/test-bulk-closure-stays-out-of-live-play.py
       - .github/workflows/bulk-closure-stays-out-of-live-play.yml

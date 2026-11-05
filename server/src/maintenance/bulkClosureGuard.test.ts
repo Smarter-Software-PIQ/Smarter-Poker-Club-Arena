@@ -91,6 +91,37 @@ describe('a bulk closure stays out of live play', () => {
     expect(MIGRATION).toContain('v_local >= p.window_start AND v_local < p.window_end');
   });
 
+  it('never lets a closure hold the hand barrier past 2 s while games run', () => {
+    // 04:05 and 05:09 UTC: the closure held the barrier every hand commit
+    // shares until its own 8 s ceiling, and the hands waiting behind it died
+    // at theirs. During play the database now admits only a 2 s ceiling.
+    const HOLD = fs.readFileSync(
+      path.join(
+        root,
+        'supabase/migrations/20261105200238_bulk_closure_never_holds_the_hand_barrier_past_two_seconds.sql'
+      ),
+      'utf8'
+    );
+    expect(HOLD).toContain('c_live_max_statement_timeout_ms CONSTANT bigint := 2000;');
+    expect(HOLD).toContain("RETURN 'hold_exceeds_live_bound';");
+    // The hold bound must be well under a hand commit's own 8 s ceiling.
+    expect(2000).toBeLessThan(8000 / 2);
+    // It keeps every rule of the first migration, including the same constants.
+    for (const rule of [
+      `c_break_opens_minute CONSTANT integer := ${BULK_CLOSURE_POLICY.breakOpensMinute};`,
+      `c_break_closes_minute CONSTANT integer := ${BULK_CLOSURE_POLICY.breakClosesMinute};`,
+      `c_large_entrants CONSTANT bigint := ${BULK_CLOSURE_POLICY.largeEntrants};`,
+      "RETURN 'break_window'",
+      "RETURN 'maintenance_active'",
+      "RETURN 'resume_settling'",
+      "RETURN 'large_outside_quiet_hours'",
+      "RETURN 'unbounded_caller'",
+      "RETURN 'cooldown'",
+      "PERFORM set_config('lock_timeout','100ms',true);",
+    ])
+      expect(HOLD, rule).toContain(rule);
+  });
+
   it('wires the admission into every operator bulk closure door', () => {
     for (const [sig, kind] of [
       ['public.fn_ca_settle_tournament_abort(uuid,uuid,text)', 'settle_refund'],
