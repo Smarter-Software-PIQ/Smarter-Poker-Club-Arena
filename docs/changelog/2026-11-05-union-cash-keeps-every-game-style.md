@@ -24,3 +24,9 @@ Lightning PLO4 1/2 (about 1,000 rake an hour, the most expensive single table) l
 Using the same measured mean rake per table-hour as #9486 (`rates-seven-days.json`, October 28-November 4), the ordinary week forecasts **164,604** in scheduled cash rake, 1,936 table-hours. Human-containing cash tables generated 19,288.66 in the same seven days (overlapping the schedule), so the expected weekly average stays under 200,000. This is a forecast, not a hard cap on human-generated rake.
 
 No dealing speed, timer, fee, wallet, tournament or human-access behaviour changes. No migration.
+
+## The next hand starts within two seconds
+
+Owner order, November 5, 2026: "AS SOON AS ONE CASH GAME HAND FINISHES AT A TABLE, THE NEXT HAND NEEDS TO START WITHIN 2 SECONDS, ANYTHING LESS IS UNACCEPTABLE"
+
+The engine's own `/health` `nextHandGap` measurement (2,000 samples, rest 2000ms) read p50 2122ms, p90 2160ms, max 3558ms, 11 over 2.5s: the deal itself adds about 120-160ms on top of the rest. `HAND_COMPLETION.NEXT_HAND_REST_MS` (engine and client mirror) is now 1800ms, and the Rabbit Hunt window and the client's minimum button time follow it as the existing laws require, so the measured gap lands near 1.9s. The rare multi-second outliers come from the post-hand settlement wait running past the rest; that is unchanged here and stays visible as `over` on `/health`.
