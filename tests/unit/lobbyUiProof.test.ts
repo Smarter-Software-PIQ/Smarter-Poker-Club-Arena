@@ -375,13 +375,16 @@ describe('closed tournament favorite priority proof', () => {
       browser.indexOf("test('the footer frame")
     );
     for (const contract of [
-      "'lobby-tournament-favorites:global'",
+      // The account's own favorite records, read and saved as the owner.
+      'favoritesRead(',
+      'favoriteSaveAccepted(response, owner, chosen, enabled)',
+      "expect(unstarred.find((row) => row.game_id === chosen)?.active).toBe(false)",
       "'Add To Favorites'",
       "'Remove From Favorites'",
       "chooseSort('Most Players')",
       "chooseSort('Stakes: High To Low')",
       'await page.reload',
-      'await (await readback).json()',
+      'const persistedResponse = await readback',
       'expect(participation).toEqual([])',
       "route.abort('blockedbyclient')",
     ])

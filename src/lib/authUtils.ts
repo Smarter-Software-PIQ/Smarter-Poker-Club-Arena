@@ -95,7 +95,11 @@ export interface LocalSession {
  * Returns full session info if a non-expired JWT exists, or null.
  * This is the SINGLE canonical implementation — all auth code should use this.
  */
-export function readLocalSession(): LocalSession | null {
+/**
+ * `allowExpired` is for IDENTITY ONLY (whose saved preference is this?), never
+ * for authorization: an expired token still names the account that owns it.
+ */
+export function readLocalSession(options?: { allowExpired?: boolean }): LocalSession | null {
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
@@ -108,6 +112,7 @@ export function readLocalSession(): LocalSession | null {
 
     // Check expiry (with buffer for clock skew)
     if (
+      !options?.allowExpired &&
       typeof payload.exp === 'number' &&
       (payload.exp as number) * 1000 < Date.now() - EXPIRY_BUFFER_MS
     ) {

@@ -8,6 +8,7 @@ import {
   type GameFilterSpec,
 } from '../../src/components/lobby/advancedFilterSpec';
 import { readLobbyPreferenceOwner } from './support/lobbyPreferenceProof';
+import { accountAccepted, preferenceCall, requestOwner } from './support/preferenceSaveProof';
 import { prepareCashLobbyActions } from './support/cashLobbyOverlays';
 import { diamondEntryRead, settleDiamondSpinsOffer } from './support/diamondInvitationOffer';
 import {
@@ -1463,8 +1464,39 @@ async function setup(page: Page) {
         );
         return;
       }
-      if (url.pathname.endsWith('/user_lobby_filters') && response.request().method() === 'POST') {
-        saves.push(object(response.request().postDataJSON()));
+      // Every lobby change is a call to the owner-only save function
+      // (migration 20261105183133). Record, in the row shape the checks
+      // below read, only the categories the account now holds.
+      if (
+        url.pathname.endsWith('/rpc/fn_save_lobby_preferences') &&
+        response.request().method() === 'POST'
+      ) {
+        const call = preferenceCall(response.request(), 'fn_save_lobby_preferences');
+        if (!call) return;
+        observe(
+          url.pathname,
+          (async () => {
+            const userId = await requestOwner(response.request());
+            if (!userId) return;
+            const filters: Record<string, unknown> = {};
+            for (const change of call.changes) {
+              const field = typeof change.field === 'string' ? change.field : '';
+              if (!field.startsWith('filters.')) continue;
+              if (
+                await accountAccepted(
+                  response,
+                  'fn_save_lobby_preferences',
+                  userId,
+                  field,
+                  change.value
+                )
+              )
+                filters[field.slice(8)] = change.value;
+            }
+            if (Object.keys(filters).length)
+              saves.push({ user_id: userId, club_id: call.clubId, filters });
+          })()
+        );
         return;
       }
       if (response.request().method() !== 'GET' && !url.pathname.endsWith('/get_club_home')) return;

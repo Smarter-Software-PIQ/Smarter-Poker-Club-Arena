@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { VIPActivityHistory } from '../../src/components/vip/VIPActivityHistory';
 import { useUserStore } from '../../src/stores/useUserStore';
 
-const remote = vi.hoisted(() => ({ rows: new Map<string, unknown>() }));
+const remote = vi.hoisted(() => ({ rows: new Map<string, unknown>(), revision: 0 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
@@ -24,11 +24,24 @@ vi.mock('../../src/lib/supabase', () => ({
         };
         return query;
       },
-      upsert: async (row: { user_id: string; preference_key: string; value: unknown }) => {
-        remote.rows.set(`${row.user_id}:${row.preference_key}`, row.value);
-        return { error: null };
-      },
     }),
+    /* fn_save_page_preferences (2026-11-05): every write goes through the
+       owner-only, revision-checked function, acting for the signed-in player. */
+    rpc: async (fn: string, args: any) => {
+      const { useUserStore } = await import('../../src/stores/useUserStore');
+      const user = useUserStore.getState().user?.id;
+      if (fn !== 'fn_save_page_preferences' || !user) return { data: null, error: { message: fn } };
+      const c = args.p_changes[0];
+      remote.rows.set(`${user}:${c.field}`, c.value);
+      remote.revision += 1;
+      return {
+        data: {
+          ok: true,
+          results: [{ field: c.field, status: 'applied', revision: remote.revision, value: c.value }],
+        },
+        error: null,
+      };
+    },
   },
 }));
 const activity = [

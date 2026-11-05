@@ -22,16 +22,22 @@ function exchange({
   status = 200,
   body = { view_prefs: { tab } } as unknown,
   saveBody = undefined as unknown,
+  saveReply = undefined as unknown,
 } = {}) {
+  // The account is the request's bearer token, as in production.
+  const token = `h.${Buffer.from(JSON.stringify({ sub: ownerId })).toString('base64url')}.s`;
   const request = {
     isNavigationRequest: () => false,
     method: () => method,
     url: () =>
-      `https://example.test/rest/v1/user_lobby_filters?user_id=eq.${ownerId}&club_id=eq.${clubId}&select=${projection}`,
+      method === 'POST'
+        ? 'https://example.test/rest/v1/rpc/fn_save_lobby_preferences'
+        : `https://example.test/rest/v1/user_lobby_filters?user_id=eq.${ownerId}&club_id=eq.${clubId}&select=${projection}`,
     postDataJSON: () =>
       saveBody === undefined
-        ? { user_id: ownerId, club_id: clubId, view_prefs: { tab } }
+        ? { p_club_id: clubId, p_changes: [{ field: 'view.tab', value: tab, base: null }] }
         : saveBody,
+    allHeaders: async () => ({ authorization: `Bearer ${token}` }),
     response: async () => response,
   } as unknown as Request;
   const response = {
@@ -39,7 +45,13 @@ function exchange({
     url: () => request.url(),
     ok: () => status >= 200 && status < 300,
     status: () => status,
-    json: async () => body,
+    json: async () =>
+      method === 'POST'
+        ? (saveReply ?? {
+            ok: true,
+            results: [{ field: 'view.tab', status: 'applied', revision: 101, value: tab }],
+          })
+        : body,
   } as unknown as Response;
   return { request, response };
 }
@@ -145,21 +157,52 @@ function fixture({
 }
 
 describe('cold-return preference proof', () => {
-  it('acknowledges only the exact owner, club and tab', () => {
-    expect(isLobbySelectionSave(exchange().response, club, 'PLO', owner)).toBe(true);
+  it('acknowledges only the exact owner, club and tab, once the account holds it', async () => {
+    expect(await isLobbySelectionSave(exchange().response, club, 'PLO', owner)).toBe(true);
+    expect(
+      await isLobbySelectionSave(exchange({ ownerId: 'another-owner' }).response, club, 'PLO', owner)
+    ).toBe(false);
+    // The account kept another tab: that is not this tab's acknowledgement.
+    expect(
+      await isLobbySelectionSave(
+        exchange({
+          saveReply: {
+            ok: true,
+            results: [{ field: 'view.tab', status: 'conflict', revision: 200, value: 'HOLDEM' }],
+          },
+        }).response,
+        club,
+        'PLO',
+        owner
+      )
+    ).toBe(false);
+    // A retried duplicate the account already holds is saved.
+    expect(
+      await isLobbySelectionSave(
+        exchange({
+          saveReply: {
+            ok: true,
+            results: [{ field: 'view.tab', status: 'conflict', revision: 200, value: 'OMAHA' }],
+          },
+        }).response,
+        club,
+        'PLO',
+        owner
+      )
+    ).toBe(true);
     for (const options of [
-      { ownerId: 'another-owner' },
       { clubId: 'another-club' },
       { tab: 'HOLDEM' },
       { method: 'GET' },
       { saveBody: null },
       { saveBody: [] },
       { saveBody: { filters: {} } },
+      { saveBody: { p_club_id: club, p_changes: [{ field: 'filters.OMAHA', value: {} }] } },
     ])
       expect(isLobbySelectionRequest(exchange(options).request, club, 'PLO', owner)).toBe(false);
-    expect(isLobbySelectionSave(exchange({ status: 500 }).response, club, 'PLO', owner)).toBe(
-      false
-    );
+    expect(
+      await isLobbySelectionSave(exchange({ status: 500 }).response, club, 'PLO', owner)
+    ).toBe(false);
     expect(() => isLobbySelectionRequest(exchange().request, club, 'unknown', owner)).toThrow(
       'Unknown lobby tab'
     );
