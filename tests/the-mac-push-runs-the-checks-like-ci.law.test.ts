@@ -50,7 +50,7 @@ describe('the Mac runs the push checks the way CI does', () => {
       fakeNode(join(root, 'home/.nvm/versions/node/v22.23.3/bin'), 'v22.23.3');
       const tmpRoot = join(root, 'ssd-tmp');
       const out = runBlock(
-        { HOME: join(root, 'home'), TMPDIR: '/var/folders/xx/T/', CA_PUSH_TMP_ROOT: tmpRoot },
+        { HOME: join(root, 'home'), TMPDIR: 'boot-drive/T', CA_PUSH_TMP_ROOT: tmpRoot },
         root
       );
       expect(out.status, out.stderr).toBe(0);
