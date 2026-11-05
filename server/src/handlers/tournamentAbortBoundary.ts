@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readBody } from '../http/body.js';
 import { sendJSON } from '../http/respond.js';
+import { BulkClosureRefusedError } from '../maintenance/bulkClosureGuard.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -76,7 +77,14 @@ export async function handleTournamentAbortBoundary(
       }),
     ]);
     return sendJSON(res, 200, { success: true, runtime });
-  } catch {
+  } catch (err) {
+    // Refused before any table was touched: a definite answer, not unknown.
+    if (err instanceof BulkClosureRefusedError)
+      return sendJSON(res, 409, {
+        success: false,
+        error: 'Bulk Closure Refused During Live Play',
+        reason: err.reason,
+      });
     return sendJSON(res, 503, {
       success: false,
       error: 'Outcome Unknown. Read The Same Operation Before Retrying',

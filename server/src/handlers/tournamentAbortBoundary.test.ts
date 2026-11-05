@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { handleTournamentAbortBoundary } from './tournamentAbortBoundary.js';
+import { BulkClosureRefusedError } from '../maintenance/bulkClosureGuard.js';
 const operationId = '11111111-1111-4111-8111-111111111111';
 const tournamentId = '22222222-2222-4222-8222-222222222222';
 afterEach(() => {
@@ -77,6 +78,18 @@ describe('only the exact configured service can ask an original abort owner', ()
     });
     expect(refused.status).toBe(400);
     expect(refused.invoke).not.toHaveBeenCalled();
+  });
+  it('answers a definite 409 with the reason when a bulk closure is refused in live play', async () => {
+    const invoke = vi.fn(async () => {
+      throw new BulkClosureRefusedError('large_outside_quiet_hours');
+    });
+    const r = await request('isolated-service-key', { operationId, tournamentId }, invoke);
+    expect(r.status).toBe(409);
+    expect(JSON.parse(r.body)).toMatchObject({
+      success: false,
+      reason: 'large_outside_quiet_hours',
+    });
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
   it('reports an unknown original outcome without retrying', async () => {
     const invoke = vi.fn(async () => {

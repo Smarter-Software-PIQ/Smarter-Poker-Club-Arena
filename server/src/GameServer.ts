@@ -20,6 +20,7 @@ import {
 import { LightningObserverProjection } from './lightning/LightningObserverProjection.js';
 import { nearbyMaintenanceWindows } from './maintenance/maintenanceSchedule.js';
 import { spinSngBoardsOpen } from './maintenance/dailyWindow.js';
+import { BulkClosureRefusedError, bulkClosureRefusal } from './maintenance/bulkClosureGuard.js';
 import { horseRiverValueAlarmSnapshot } from './engine/HorseRiverValueAudit.js';
 import { readPendingOperatorCashClose } from './services/operatorCashClose.js';
 import { type OperatorCommand, acknowledgeMaintenance } from './maintenance/OperatorCommands.js';
@@ -12364,6 +12365,13 @@ export class GameServer {
         tournament_id: tournamentId,
         reason: 'current_original_manager_unavailable',
       };
+    // BULK CLOSURE STAYS OUT OF LIVE PLAY (2026-11-05). Everything below is
+    // physical: the manager parks, fences and retires the event's tables
+    // while holding the cancellation lane, or the closure-hold handoff stops
+    // the playing manager. Refuse it inside the break window, during
+    // maintenance or its resume, and for a large event outside the daily
+    // quiet hours. Read-only above this line; nothing to undo.
+    await this.assertBulkClosureAdmitted(tournamentId);
     if (closureMode !== 'equal_share' || manager.heldForOperatorClosure?.())
       return manager.acknowledgeTournamentAbortBoundary({ ...data, closureMode });
     /* A PLAYING MANAGER THAT CANNOT CLOSE HANDS THE EVENT TO A CLOSURE HOLD
@@ -12417,6 +12425,29 @@ export class GameServer {
     }
     if (failure !== null) throw failure;
     return runtime;
+  }
+
+  /** See maintenance/bulkClosureGuard.ts. Throws BulkClosureRefusedError. */
+  private async assertBulkClosureAdmitted(tournamentId: string): Promise<void> {
+    const state = {
+      maintenanceActive: isMaintenanceFrozen() || this.maintenanceBreak.isActive(),
+      resuming: this.maintenanceBreak.isResuming(),
+      entrants: null as number | null,
+    };
+    // The clock and maintenance rules need no read; refuse before one.
+    const early = bulkClosureRefusal(new Date(), { ...state, entrants: 0 });
+    if (early) throw new BulkClosureRefusedError(early);
+    const { count, error } = await supabase
+      .from('tournament_players')
+      .select('id', { count: 'exact', head: true })
+      .eq('tournament_id', tournamentId);
+    state.entrants = error || typeof count !== 'number' ? null : count;
+    const refusal = bulkClosureRefusal(new Date(), {
+      ...state,
+      maintenanceActive: isMaintenanceFrozen() || this.maintenanceBreak.isActive(),
+      resuming: this.maintenanceBreak.isResuming(),
+    });
+    if (refusal) throw new BulkClosureRefusedError(refusal);
   }
 
   private async repairOrphanedTournamentSeats(): Promise<void> {
