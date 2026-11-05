@@ -76,8 +76,8 @@ CREATE TABLE IF NOT EXISTS public.ca_player_notice_acks (
 
 ALTER TABLE public.ca_player_notices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_player_notice_acks ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.ca_player_notices FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON public.ca_player_notice_acks FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.ca_player_notices FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON public.ca_player_notice_acks FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.ca_player_notices TO service_role;
 GRANT SELECT ON public.ca_player_notice_acks TO service_role;
 
