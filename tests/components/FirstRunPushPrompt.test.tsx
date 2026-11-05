@@ -5,14 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import FirstRunPushPrompt from '../../src/components/notifications/FirstRunPushPrompt';
 import { requestPushNudge } from '../../src/lib/pushNudgePolicy';
 
-const auth = vi.hoisted(() => ({ id: 'player-1', phoneVerified: true }));
+const auth = vi.hoisted(() => ({ id: 'player-1', phoneVerified: true, createdAt: new Date().toISOString() }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from: () => {
       const q: any = {
         select: () => q,
         eq: () => q,
-        maybeSingle: async () => ({ data: { phone_verified: auth.phoneVerified }, error: null }),
+        maybeSingle: async () => ({ data: { phone_verified: auth.phoneVerified, created_at: auth.createdAt }, error: null }),
       };
       return q;
     },
@@ -47,6 +47,8 @@ describe('FirstRunPushPrompt', () => {
     pushMocks.isOptedOut.mockReset().mockReturnValue(false);
     auth.id = 'player-1';
     auth.phoneVerified = true;
+    auth.createdAt = new Date().toISOString();
+    sessionStorage.clear();
     // happy-dom reports navigator.webdriver = true, i.e. an automated browser,
     // which the prompt never asks. These tests model a person's browser.
     Object.defineProperty(window.navigator, 'webdriver', { configurable: true, get: () => false });
@@ -66,6 +68,26 @@ describe('FirstRunPushPrompt', () => {
     expect(localStorage.getItem('sp_firstrun_notif_v2_player-1')).toBeNull();
     auth.phoneVerified = true;
     act(() => window.dispatchEvent(new Event('profile-updated')));
+    await settle(0);
+    await settle(0);
+    await settle(20_000);
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it('asks a player who skipped phone verification once the account is past its first day', async () => {
+    auth.phoneVerified = false;
+    auth.createdAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    renderPrompt('/clubs/club-1');
+    await settle(0);
+    await settle(0);
+    await settle(20_000);
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it('asks a brand-new player who tapped Skip on the phone step', async () => {
+    auth.phoneVerified = false;
+    sessionStorage.setItem('phone_prompt_skipped', '1');
+    renderPrompt('/clubs/club-1');
     await settle(0);
     await settle(0);
     await settle(20_000);

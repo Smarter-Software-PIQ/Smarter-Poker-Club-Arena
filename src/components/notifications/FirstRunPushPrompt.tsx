@@ -73,6 +73,7 @@ import {
 } from '../../lib/pushNudgePolicy';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { usePromptTurn } from '../../lib/promptLane';
+import { phonePromptSkipped, pushAskMaySettle } from '../../lib/pushAskGate';
 import { SpadeConsole } from '../console/SpadeConsole';
 import './FirstRunPushPrompt.css';
 
@@ -179,12 +180,16 @@ export default function FirstRunPushPrompt() {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('phone_verified')
+          .select('phone_verified, created_at')
           .eq('id', user.id)
           .maybeSingle();
         if (error) reportError(error, 'FirstRunPushPrompt.phone');
+        // The phone step is settled (verified, skipped, or past day one): the
+        // ask may run. See src/lib/pushAskGate.ts.
         if (live && request === version)
-          setVerifiedOwner(!error && data?.phone_verified === true ? user.id : null);
+          setVerifiedOwner(
+            !error && pushAskMaySettle(data, { skipped: phonePromptSkipped() }) ? user.id : null
+          );
       } catch (error) {
         reportError(error, 'FirstRunPushPrompt.phone');
         if (live && request === version) setVerifiedOwner(null);
