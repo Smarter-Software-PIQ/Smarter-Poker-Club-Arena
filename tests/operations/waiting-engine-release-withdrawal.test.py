@@ -50,6 +50,8 @@ def prepare_history(allow_fetch=False):
     controls = [value for name, value in vars(module).items()
                 if name.endswith('_CONTROL') and isinstance(value, str)]
     controls.append('9ca87a39e51d0988653ce83c4ba05a7c84929f94')
+    # The unfrozen minute 53 owner's own immutable control (41995246530-1).
+    controls.append('a02e6f8040b1c8c71c90e96022486c0d7fe2fe66')
     paths = ['server/scripts/' + name for name in set(module.GENERIC_SOURCE_NAMES) | E9_HOLD_SOURCE_NAMES] + [
         'server/scripts/engine-release-unit-wrapper.sh',
         'server/scripts/engine-release-intake.sh',
