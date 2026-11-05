@@ -15,6 +15,10 @@ import { hasPhysicalImpliedDraw } from './HorseOmahaImpliedDraw.js';
 import { horsePlanHandKey } from './HorseDecisionEffects.js';
 import { headsUpCashCommitment } from './HorseHeadsUpCommitment.js';
 import {
+  computeContinuationContenderFingerprint,
+  evaluateMultiStreetBarrelContinuation,
+} from './HorseContinuationPlanInvalidation.js';
+import {
   observePhase6Lookup,
   createPhase6Attribution,
   type Phase6ReferenceObservation,
@@ -2460,6 +2464,13 @@ export interface HorseDecideOpts {
    *  turn dominated flushes and paired-board straights. Default on;
    *  explicit false keeps today. */
   v81OmahaBigBetCalls?: boolean;
+  /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
+   *  contender set and stack-to-pot exposure it expects, and the next street
+   *  withdraws the plan when a contender the plan never expected is still in
+   *  or the exposure moved far from the planned one
+   *  (HorseContinuationPlanInvalidation). Default on; explicit false keeps
+   *  the plan unconditional as before. */
+  planFingerprint?: boolean;
   /** Phase 7 Round 1: final action-specific tournament utility arbiter.
    *  Complete schema-v1 tournament decisions evaluate every legal action
    *  family after all legacy strategy layers; no global style multiplier can
@@ -3420,6 +3431,14 @@ function phase7OutcomeBudget(playersLeft: number | undefined): number {
  *  HorseMind so the SAME street's raise gets the answer the bet chose.
  *  Module-level is safe for the same reason difficultyHint is. */
 let pendingRaisePlan: import('./HorseMind.js').RaiseResponsePlan | null = null;
+
+/** Items 21 and 23 (2026-11-05): set by planBarrel when a multi-street line
+ *  was just planned, consumed by betSize/raiseTo once the wager is known, so
+ *  the fingerprint describes the next-street state THIS wager expects. Same
+ *  module-level discipline as pendingRaisePlan. */
+let pendingPlanFingerprint = false;
+/** Whether the decision that set pendingPlanFingerprint opted into telemetry. */
+let pendingPlanFingerprintTelemetry = false;
 
 /** V9 SIZING — human bet-size families. Continuous uniform sizing is a subtle
  *  tell: real players think in pot fractions (third, half, two-thirds,
@@ -8858,6 +8877,47 @@ export class HorseLogic {
     if (useBarrels && prevStreet39 && newCard39)
       planReadCapture?.note('outlook', handKey, player.user_id, prevStreet39, outlook39);
     if (tele15 && outlook39) noteFire(`v39_outlook_${outlook39}`);
+    /**
+     * ═══ ITEMS 21 AND 23: THE PLAN MEETS THE STREET IT PLANNED FOR (2026-11-05) ═══
+     * The wager that planned this line recorded the next-street state it
+     * expected: who would still be contending and the stack-to-pot exposure
+     * once that wager was matched once. The street that actually arrived is
+     * compared against it (evaluateMultiStreetBarrelContinuation). A
+     * contender the plan never expected, or an exposure far from the planned
+     * one, withdraws the plan before it can fire: the decision then runs the
+     * ordinary ladder with no planned barrel. The card class the evaluator
+     * reports is recorded as the branch's causality tag, while V39 keeps its
+     * measured authority over good, blank and scare cards (a blocked scare
+     * card is still the bluff it was born for). Public information only.
+     */
+    let planWithdrawn21 = false;
+    if (
+      useBarrels &&
+      barrelPlan === true &&
+      prevStreet39 &&
+      newCard39 &&
+      (opts.planFingerprint ?? true) !== false
+    ) {
+      const planned21 = HorseMind.planFingerprintOf(handKey, player.user_id, prevStreet39);
+      if (planned21) {
+        const outlookCards21 = HorseMind.outlookCards(handKey, player.user_id, prevStreet39);
+        const verdict21 = evaluateMultiStreetBarrelContinuation({
+          plannedFingerprint: planned21,
+          currentFingerprint: computeContinuationContenderFingerprint(
+            [player.user_id, ...opponents.map((o) => o.user_id)],
+            commitmentStack,
+            pot,
+            gs.bigBlind > 0 ? gs.bigBlind : 1
+          ),
+          cardKey: `${newCard39.rank}${newCard39.suit[0]}`,
+          goodCards: outlookCards21?.good ?? [],
+          scareCards: outlookCards21?.scare ?? [],
+          facingBetChips: toCall,
+        });
+        if (tele15) noteFire(`plan_fingerprint_${verdict21.winningBranchReason}`);
+        planWithdrawn21 = verdict21.winningBranchReason.startsWith('aborted_');
+      } else if (tele15) noteFire('plan_fingerprint_absent');
+    }
     // ═══ TOURNAMENT AGGRESSION (Dan 2026-10-25) ═══════════════════════════
     // Real players called the tournament horses passive and scared. In 48
     // hours of human-seated NLH tournament hands, a horse that bet the flop
@@ -8880,6 +8940,7 @@ export class HorseLogic {
         /* the outlook is best-effort */
       }
     };
+    pendingPlanFingerprint = false;
     const planBarrel = (equityNow: number): void => {
       if (!useBarrels || isRiver) return;
       // Only bluffs/semi-bluffs need a plan — value hands bet themselves.
@@ -8887,7 +8948,11 @@ export class HorseLogic {
       // bluffs into a pool that calls; 0.40 keeps the coherent-story benefit
       // without torching chips on over-frequent second barrels.
       if (equityNow < 0.55) {
-        HorseMind.notePlan(handKey, player.user_id, fastRandom() < (tourneyAggro ? 0.5 : 0.35));
+        const intent = fastRandom() < (tourneyAggro ? 0.5 : 0.35);
+        HorseMind.notePlan(handKey, player.user_id, intent);
+        // Items 21 and 23: a planned line records what it expects to meet.
+        pendingPlanFingerprint = intent && (opts.planFingerprint ?? true) !== false;
+        pendingPlanFingerprintTelemetry = tele15;
         // V39: and what the next card would mean, decided now.
         recordBarrelOutlook();
       }
@@ -10137,6 +10202,7 @@ export class HorseLogic {
         useBarrels &&
         initiative === 'hero' &&
         barrelPlan !== undefined &&
+        !planWithdrawn21 &&
         street !== 'flop' &&
         equity < 0.62
       ) {
@@ -12199,12 +12265,60 @@ export class HorseLogic {
       HorseMind.noteRaisePlan(planHandKey, player.user_id, gs.stage, pendingRaisePlan);
       pendingRaisePlan = null;
     }
-    return this.legalize(
+    const decision = this.legalize(
       { action: 'bet', amount: pot * frac * params.sizingMultiplier, thinkTime: 0 },
       player,
       gs,
       vi
     );
+    this.recordPlanFingerprint(planHandKey, player, gs, decision);
+    return decision;
+  }
+
+  /**
+   * Items 21 and 23 (2026-11-05): once the planned wager is known, record the
+   * next-street state it expects: every live contender (hero included), and
+   * the effective stack and pot after the single expected caller matches it.
+   * Flop and turn only (a river wager has no next street), and only for a
+   * wager that still has chips behind. Lands through the effect sink for the
+   * accepted wager only, like the barrel plan it belongs to.
+   */
+  private static recordPlanFingerprint(
+    planHandKey: string | null,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    decision: HorseDecision
+  ): void {
+    if (!pendingPlanFingerprint) return;
+    pendingPlanFingerprint = false;
+    if (gs.stage !== 'flop' && gs.stage !== 'turn') return;
+    if (decision.action !== 'bet' && decision.action !== 'raise') return;
+    const to = Number.isFinite(decision.amount) ? Math.max(0, decision.amount as number) : 0;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet) : 0;
+    const heroStack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const currentBet = Number.isFinite(gs.currentBet) ? Math.max(0, gs.currentBet) : 0;
+    const heroAdds = Math.min(heroStack, Math.max(0, to - heroBet));
+    const live = gs.players.filter(
+      (p) => !p.is_folded && p.seat !== player.seat && (!p.is_sitting_out || p.is_all_in)
+    );
+    let cover = 0;
+    for (const o of live) {
+      if (o.is_all_in) continue;
+      const total =
+        (Number.isFinite(o.stack) ? Math.max(0, o.stack) : 0) +
+        (Number.isFinite(o.bet) ? Math.max(0, o.bet) : 0);
+      if (total > cover) cover = total;
+    }
+    const matched = Math.min(to, cover);
+    const callerAdds = Math.max(0, matched - currentBet);
+    const potNow = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+    HorseMind.notePlanFingerprint(planHandKey, player.user_id, gs.stage, {
+      contenderIds: [player.user_id, ...live.map((o) => o.user_id)],
+      effectiveStackChips: Math.max(0, Math.min(heroStack - heroAdds, cover - matched)),
+      potChips: potNow + heroAdds + callerAdds,
+      bigBlindChips: gs.bigBlind > 0 ? gs.bigBlind : 1,
+    });
+    if (pendingPlanFingerprintTelemetry) noteFire('plan_fingerprint_recorded');
   }
 
   /**
@@ -12238,7 +12352,9 @@ export class HorseLogic {
       HorseMind.noteRaisePlan(planHandKey, player.user_id, gs.stage, pendingRaisePlan);
       pendingRaisePlan = null;
     }
-    return this.legalize({ action, amount: target, thinkTime: 0 }, player, gs, vi);
+    const decision = this.legalize({ action, amount: target, thinkTime: 0 }, player, gs, vi);
+    this.recordPlanFingerprint(planHandKey, player, gs, decision);
+    return decision;
   }
 
   /**

@@ -38,6 +38,19 @@ function exact(value: Record<string, unknown>, keys: string[]): boolean {
 function identifier(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 256;
 }
+/** Items 21 and 23: at most a full table of contender identities, hero included. */
+function contenders(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length >= 1 &&
+    value.length <= 10 &&
+    value.every(identifier) &&
+    new Set(value).size === value.length
+  );
+}
+function chips(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
 function cards(value: unknown): boolean {
   return (
     Array.isArray(value) &&
@@ -80,6 +93,24 @@ export function horseDecisionEffectsAreValid(value: unknown): value is HorseMind
         );
       }
       if (typeof effect.street !== 'string' || !STREETS.has(effect.street)) return false;
+      if (effect.type === 'plan_fingerprint') {
+        return (
+          exact(effect, [
+            'type',
+            'handKey',
+            'userId',
+            'street',
+            'contenderIds',
+            'effectiveStackChips',
+            'potChips',
+            'bigBlindChips',
+          ]) &&
+          contenders(effect.contenderIds) &&
+          chips(effect.effectiveStackChips) &&
+          chips(effect.potChips) &&
+          chips(effect.bigBlindChips)
+        );
+      }
       if (effect.type === 'raise_plan') {
         return (
           exact(effect, ['type', 'handKey', 'userId', 'street', 'plan']) &&
@@ -133,7 +164,18 @@ export function horseDecisionEffectsKey(value: unknown): string | null {
         ? [effect.type, effect.handKey, effect.userId, effect.barrelIntent]
         : effect.type === 'raise_plan'
           ? [effect.type, effect.handKey, effect.userId, effect.street, effect.plan]
-          : [effect.type, effect.handKey, effect.userId, effect.street, effect.good, effect.scare]
+          : effect.type === 'plan_fingerprint'
+            ? [
+                effect.type,
+                effect.handKey,
+                effect.userId,
+                effect.street,
+                effect.contenderIds,
+                effect.effectiveStackChips,
+                effect.potChips,
+                effect.bigBlindChips,
+              ]
+            : [effect.type, effect.handKey, effect.userId, effect.street, effect.good, effect.scare]
     )
   );
 }
