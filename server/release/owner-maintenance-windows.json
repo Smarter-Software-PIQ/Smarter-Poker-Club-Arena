@@ -1014,6 +1014,20 @@
         "sha256": "ef13b64ebce1d7ba3dc965b4a647bba2f13d34677dce38dc383bd8d164364caa"
       },
       "ownerOrder": "Owner chat 01a1a01a-7f70-7d62-8da1-8d086594c658, messages 01a1a8d4-9761-7840-94c4-68e3fbf3173f (four-minute native census) and 01a1a8d6-a6b7-74a2-91e9-cda79856cfc8 (connected budgets up to four times as needed), authorizes this new bounded recovery cycle. Exact EED predecessor only; preserve 120-second notice, qualify and install the certified database contract before announcement, register strictly before freeze, and give all 15 clock families credit through the fixed 780-second freeze. The entire 900-second cycle must fit inside this six-hour authority. Preserve original operation identity, custody, rollback and verified release; never extend a prior or expired cycle. No new publisher or scheduled retry."
+    },
+    {
+      "id": "2026-11-05-union-cash-schedule-release",
+      "contains": "a943bb3a7634bb21c635575e7ed52c291f8bacbf",
+      "notBefore": "2026-11-05T07:00:00Z",
+      "notAfter": "2026-11-05T13:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "036effd44e481768b4e1a61d3707be7e35f342d4ac78213b51c97f20aada17be"
+      },
+      "ownerOrder": "Dan in the union cash schedule chat (Claude session session_01BbZPDgRrUn1BZ7J4cUYAPg), November 4 10:54 CST: 'Finish PR #9486, get the combined changes deployed, and verify the cash schedule, horse restrictions, and guarantees are live. Tournament horse play must stay unchanged. Don't stop until it's done.' and November 4 21:42 CST: 'complete the task in full ... FINISH ANY AND ALL TASKS USING THE FASTEST, MOST EFFICIENT ROUTE.' PR #9486 merged at a943bb3a; the preceding 2026-11-04-tournament-fourfold-certified-recovery window expired at 05:00 UTC and its later-owner supersession refuses every fresh admission after expiry, so release 41977933257 was refused at admission. This NEW fixed November 5 07:00-13:00 UTC (01:00-07:00 America/Chicago, lowest traffic) earliest-certified window admits only a protected-main target containing a943bb3a through the existing stage/receiver and sealed transaction. Preserve every prior entry, witness, intent and failed or unknown outcome; the 120-second notice, 300-second freeze, admission/proof/rollback reserve, original custody, immutable source and verified thaw. No migration, certified recovery profile, new admission or tournament-start hold, timer, second publisher, deadline extension, force restart, retry of unknown effects or guard bypass. Fixed expiry ends fresh authority."
     }
   ],
   "databaseWindows": [
