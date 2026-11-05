@@ -669,6 +669,26 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertTrue(current['supersedesPhase1Schedule'])
         self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
+    def test_hybrid_earliest_safe_window_binds_the_live_floor_and_keeps_the_expired_minute53_entry(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-05-hybrid-earliest-safe-1345z')
+        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-05T13:45:00Z', '2026-11-05T19:45:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertNotIn('announceAtChicagoMinutes', window)
+        self.assertNotIn('certifiedRecoveryProfile', window)
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        self.assertEqual(window['contains'], 'a936a6b6a6fad00a645208c82686b4e6b05cadd6')
+        expired, expired_raw = self.historical_floor('2026-11-05-hybrid-and-phase1-55-0645z')
+        self.assertEqual(expired['releaseWitness']['sha256'], hashlib.sha256(expired_raw).hexdigest())
+        self.assertEqual(expired['notAfter'], '2026-11-05T12:45:00Z')
+        current = self.owner_record(window_id='2026-11-05-hybrid-earliest-safe-1345z')
+        self.assertEqual(current['ownerWindowId'], '2026-11-05-hybrid-earliest-safe-1345z')
+        self.assertTrue(current['supersedesPhase1Schedule'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+
     def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):
         import hashlib
         old = {'schema': floor.OWNER_CAPABILITY, 'preparationAt': '2026-11-03T20:30:00Z',

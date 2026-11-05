@@ -992,6 +992,139 @@ class AnnouncedCancellation(unittest.TestCase):
             with self.assertRaises(ValueError): module.announcement_evidence(request, read_only=True)
             self.assertFalse((generation / '__pycache__').exists())
 
+    def unfrozen_owner_request(self):
+        return {'runKey': '41995246530-1', 'releaseSha': 'a02e6f8040b1c8c71c90e96022486c0d7fe2fe66',
+                'controlSha': 'a02e6f8040b1c8c71c90e96022486c0d7fe2fe66',
+                'desiredSha': '67bc0e85ef143f0ed1c6da60bf3f45e053f9609a',
+                'instanceId': '1-01acd8b5', 'mode': 'cancel_expired_announcement'}
+
+    def test_unfrozen_owner_is_retired_only_by_the_absence_of_its_own_freeze(self):
+        # 41995246530-1 announced at 09:53:05Z over sealed 67bc0e85, the seal
+        # answered use_hourly and its reservation expired before any freeze.
+        request = self.unfrozen_owner_request()
+        key, control = request['runKey'], request['controlSha']
+        stamp = 1793872385255
+        iso = lambda value: module.datetime.datetime.fromtimestamp(value / 1000, module.datetime.timezone.utc).isoformat()
+        now = round(time.time() * 1000)
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
+            root = Path(folder); state = root / 'state'; state.mkdir(); parent = root / 'parent'; parent.mkdir()
+            generation = parent / 'engine-control-generations' / control; generation.mkdir(parents=True)
+            for name in module.GENERIC_SOURCE_NAMES:
+                (generation / name).write_bytes(subprocess.check_output(['git', 'show', control + ':server/scripts/' + name], cwd=ROOT))
+            (parent / 'engine-release-unit-wrapper-v1.sh').write_bytes(subprocess.check_output(['git', 'show', control + ':server/scripts/engine-release-unit-wrapper.sh'], cwd=ROOT))
+            reqroot = state / 'engine-release-requests'; reqroot.mkdir()
+            request_path = reqroot / (key + '.request')
+            lines = '\n'.join([request['releaseSha'], 'url', 'actor', str(generation), control, '1793880335']) + '\n'
+            for suffix in ('request', 'intent'): (reqroot / (key + '.' + suffix)).write_text(lines)
+            manifest = subprocess.check_output(['git', 'show', control + ':server/release/activation-floor.json'], cwd=ROOT)
+            entry = {'schema': 'engine-release-activation-floor/v2-owner-window', 'runId': key,
+                     'targetSha': request['releaseSha'], 'controlSha': control, 'manifestSha256': module.digest(manifest), 'phase': 'announcement'}
+            (reqroot / (key + '.activation-entry')).write_text(json.dumps(entry))
+            reservation = state / ('engine-recovery-window-' + key + '.json')
+            reservation.write_text(json.dumps({'runId': key, 'sha': request['releaseSha'], 'announcedAt': stamp, 'cause': 'urgent'}))
+            pins = state / 'engine-release-generation-pins'; pins.mkdir()
+            (pins / (key + '.generation')).write_text(str(generation) + '\n' + control + '\n')
+            seal = {'schema': 1, 'generation': 400, 'highWaterSha': request['desiredSha'],
+                    'desired': {'sha': request['desiredSha'], 'imageId': 'sha256:' + 'b' * 64},
+                    'pending': None, 'finalization': None, 'committedRuns': {}, 'routineMaintenanceCycles': {}}
+            seal_path = state / 'engine-release-seal.json'; seal_path.write_text(json.dumps(seal))
+            for path in [*reqroot.iterdir(), reservation, seal_path, *pins.iterdir()]: path.chmod(0o600)
+            fixture = {'rows': [], 'active': [], 'future': [],
+                       'promise': {'schema': 'maintenance-promise-floor/v1', 'thawDefinitionMd5': 'e2530d18c33dd11f10d5e40bed4bd2e1',
+                                   'maintenance': None, 'observedAt': iso(now),
+                                   'leader': {'version': '67bc0e85', 'instanceId': request['instanceId'], 'heartbeatAt': iso(now)}}}
+            calls = []; reads = []
+            def command(args, timeout=5):
+                calls.append(args)
+                self.assertEqual(args[:2], ['python3', '-B'])
+                return subprocess.check_output([str(ROOT) if value == '/opt/club-arena' else value for value in args],
+                                               timeout=timeout, text=True).strip()
+            def open_response(req, timeout):
+                reads.append(req.full_url)
+                if 'rpc/fn_engine_maintenance_promise_proof' in req.full_url: value = fixture['promise']
+                elif 'engine_maintenance_break?' in req.full_url: value = fixture['active']
+                elif 'release_target_at=gt.' in req.full_url: value = fixture['future']
+                else: value = fixture['rows']
+                return io.BytesIO(json.dumps(value).encode())
+            real_read = Path.read_text
+            def read_text(path, *args, **kwargs):
+                if str(path) == '/opt/club-arena/server/.env':
+                    return 'SUPABASE_URL=https://kuklfnapbkmacvwxktbh.supabase.co\nSUPABASE_SERVICE_ROLE_KEY=fixture-only\n'
+                return real_read(path, *args, **kwargs)
+            for name, value in [('ROOT', state), ('PARENT', parent), ('REPO', ROOT)]: patches.enter_context(patch.object(module, name, value))
+            patches.enter_context(patch.dict(module.__dict__, clear=False))
+            patches.enter_context(patch.object(module, 'MARKERLESS_ORIGINALS', {}))
+            patches.enter_context(patch.object(module, 'regular', side_effect=lambda path, mode=None: path.read_text()))
+            patches.enter_context(patch.object(module, 'canonical_seal_bytes', side_effect=lambda path: path.read_text()))
+            patches.enter_context(patch.object(module, 'source_hash', side_effect=lambda path: module.digest(path.read_bytes())))
+            patches.enter_context(patch.object(module, 'command', side_effect=command))
+            patches.enter_context(patch.object(Path, 'read_text', read_text))
+            patches.enter_context(patch.object(module.urllib.request, 'build_opener', return_value=type('FixtureOpener', (), {'open': staticmethod(open_response)})()))
+            module.select_profile(request)
+            self.assertIs(module.OWNER_WINDOW_PROFILE.get('unfrozen'), True)
+            self.assertEqual(module.OWNER_WINDOW_PROFILE['deadline'], '1793880335')
+            self.assertEqual(module.MARKERLESS_ORIGINALS[key], '1793880335')
+            result = module.announcement_evidence(request, read_only=True)
+            self.assertEqual(result['desiredImageId'], seal['desired']['imageId'])
+            self.assertIsNone(result['releasedHoldHash'])
+            self.assertEqual(result['thaw'], {'schema': 'unfrozen-owner-announcement/v1', 'announcedAtMs': stamp,
+                                              'ownFreeze': None, 'leaderVersion': '67bc0e85', 'leaderInstance': request['instanceId']})
+            self.assertTrue(any('disposition' in args for args in calls) and any('reservation' in args for args in calls))
+            self.assertTrue(any('fn_engine_maintenance_promise_proof' in url for url in reads))
+            self.assertEqual(module.announcement_evidence(request, read_only=True), result)
+            own_row = {'contract_version': 3, 'announced_at': iso(stamp), 'freeze_started_at': iso(stamp + 120000),
+                       'release_target_at': iso(stamp + 420000), 'thawed_at': iso(stamp + 340000),
+                       'ownership_token': '2c2aeba2-0cf2-46ca-bcbc-ee11a5b1d9fc', 'release_generation': 1,
+                       'frozen_seconds': '300', 'thawed_by': '67bc0e85', 'shifted': {}}
+            leader = fixture['promise']['leader']
+            for name, field, changed in [
+                    ('own freeze recorded', 'rows', [own_row]),
+                    ('maintenance owner', 'active', [{'id': True}]),
+                    ('later boundary', 'future', [{'release_target_at': iso(now + 60000)}]),
+                    ('maintenance in progress', 'promise', fixture['promise'] | {'maintenance': {'phase': 'last_hand'}}),
+                    ('EED leader', 'promise', fixture['promise'] | {'leader': leader | {'version': 'eed06fe5'}}),
+                    ('foreign instance', 'promise', fixture['promise'] | {'leader': leader | {'instanceId': '1-00000000'}}),
+                    ('stale heartbeat', 'promise', fixture['promise'] | {'leader': leader | {'heartbeatAt': iso(now - 60000)}})]:
+                old = fixture[field]; fixture[field] = changed
+                try:
+                    with self.subTest(name=name), self.assertRaises((ValueError, subprocess.CalledProcessError, SystemExit)):
+                        module.announcement_evidence(request, read_only=True)
+                finally: fixture[field] = old
+            released = reqroot / (key + '.lightning-hold.json.released'); released.write_text('{}'); released.chmod(0o600)
+            try:
+                with self.assertRaises(ValueError): module.announcement_evidence(request, read_only=True)
+            finally: released.unlink()
+            for name, path, changed in [('committed', seal_path, json.dumps(seal | {'committedRuns': {key: {}}})),
+                                        ('other desired', seal_path, json.dumps(seal | {'desired': {'sha': 'f' * 40, 'imageId': 'sha256:' + 'b' * 64}})),
+                                        ('runtime entry', reqroot / (key + '.activation-entry'), json.dumps(entry | {'phase': 'runtime'}))]:
+                old = path.read_bytes(); path.write_text(changed)
+                try:
+                    with self.subTest(name=name), self.assertRaises((ValueError, subprocess.CalledProcessError, SystemExit)):
+                        module.announcement_evidence(request, read_only=True)
+                finally: path.write_bytes(old)
+            future_lines = lines.replace('1793880335', str(int(time.time()) + 3600))
+            for suffix in ('request', 'intent'): (reqroot / (key + '.' + suffix)).write_text(future_lines)
+            module.select_profile(request)
+            with self.assertRaises((ValueError, subprocess.CalledProcessError, SystemExit)):
+                module.announcement_evidence(request, read_only=True)
+
+    def test_unfrozen_announcement_proof_requires_its_own_profile_and_expiry(self):
+        request = self.unfrozen_owner_request(); stamp = 1793872385255; now = stamp + 420001
+        iso = lambda value: module.datetime.datetime.fromtimestamp(value / 1000, module.datetime.timezone.utc).isoformat()
+        promise = {'schema': 'maintenance-promise-floor/v1', 'maintenance': None, 'observedAt': iso(now),
+                   'leader': {'version': '67bc0e85', 'instanceId': request['instanceId'], 'heartbeatAt': iso(now)}}
+        with patch.object(module, 'OWNER_WINDOW_PROFILE', None):
+            with self.assertRaises(ValueError): module.prove_unfrozen_announcement([], [], stamp, now, request, promise)
+        with patch.object(module, 'OWNER_WINDOW_PROFILE', {'request': request, 'unfrozen': True}):
+            self.assertEqual(module.prove_unfrozen_announcement([], [], stamp, now, request, promise)['ownFreeze'], None)
+            with self.assertRaises(ValueError): module.prove_unfrozen_announcement([], [], stamp, stamp + 420000, request, promise)
+            with self.assertRaises(ValueError):
+                module.prove_unfrozen_announcement([], [], stamp, now, request | {'desiredSha': module.EED_SHA}, promise)
+            self.assertEqual(module.prove_unfrozen_announcement([], [], stamp, now, request,
+                promise | {'leader': promise['leader'] | {'instanceId': '1-aaaaaaaa'}}, '1-aaaaaaaa')['leaderInstance'], '1-aaaaaaaa')
+        with patch.object(module, 'OWNER_WINDOW_PROFILE', {'request': request}):
+            with self.assertRaises(ValueError): module.prove_unfrozen_announcement([], [], stamp, now, request, promise)
+
     def test_owner_window_foreign_image_cannot_mask_or_stop(self):
         request = self.owner_request()
         with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:

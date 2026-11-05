@@ -22,6 +22,9 @@ SOURCE = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
 EED_SOURCE_BINDING = next(line for line in SOURCE.splitlines() if line.startswith('CHECKPOINT_EED_SHA='))
 PRIOR = int(dt.datetime.fromisoformat('2026-10-29T23:53:05.705+00:00').timestamp() * 1000)
 FIRST = int(dt.datetime.fromisoformat('2026-10-30T00:53:00+00:00').timestamp() * 1000)
+# A fresh owner-window request now waits for :05:30-:49:00 of an epoch hour,
+# so the owner-floor fixtures use a minute the hourly schedule cannot refuse.
+FLOOR_FIRST = int(dt.datetime.fromisoformat('2026-10-30T01:20:00+00:00').timestamp() * 1000)
 TARGET = 'b' * 40
 
 
@@ -37,7 +40,7 @@ def fixture(priors=None, *, malformed=False, unknown=False, floor=False):
             p = state_dir / f'engine-recovery-window-{899-i}-1.json'
             p.write_text('{' if malformed else json.dumps({'runId': f'{899-i}-1', 'sha': 'a' * 40, 'announcedAt': stamp, 'cause': 'urgent'}))
             os.utime(p, ns=(stamp * 1_000_000, stamp * 1_000_000))
-        windows = {'version': 1, 'windows': [{'id': 'offline-exact-minute', 'contains': TARGET, 'ownerOrder': 'Offline fixture known eligible owner order', 'notBefore': '2026-10-30T00:00:00Z', 'notAfter': '2026-10-30T03:00:00Z', 'announceAtChicagoMinutes': [53]}]}
+        windows = {'version': 1, 'windows': [{'id': 'offline-exact-minute', 'contains': TARGET, 'ownerOrder': 'Offline fixture known eligible owner order', 'notBefore': '2026-10-30T00:00:00Z', 'notAfter': '2026-10-30T03:00:00Z', 'announceAtChicagoMinutes': [20 if floor else 53]}]}
         (root / 'windows.json').write_text(json.dumps(windows))
         wrapper = root / 'seal-wrapper.py'
         wrapper.write_text(f'''#!/usr/bin/env python3
@@ -158,11 +161,11 @@ class RollingEligibility(unittest.TestCase):
         self.assertEqual(receipt['announcedAt'], FIRST + 6000)
 
     def test_floor_epoch_refusal_retires_only_its_unannounced_entry(self):
-        with fixture(floor=True) as (root, env, script, _):
+        with fixture([FLOOR_FIRST - 600_000], floor=True) as (root, env, script, _):
             foreign = root / 'requests/foreign.activation-entry'
             foreign.parent.mkdir(exist_ok=True)
             foreign.write_text('foreign-owner')
-            result = subprocess.run(['bash', '-c', script + f'export NOW_MS={FIRST}\nrequest_recovery_window\n'], env=env, text=True, capture_output=True, timeout=5)
+            result = subprocess.run(['bash', '-c', script + f'export NOW_MS={FLOOR_FIRST}\nrequest_recovery_window\n'], env=env, text=True, capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse((root / 'requests/900-2.activation-entry').exists())
             self.assertEqual(foreign.read_text(), 'foreign-owner')
@@ -172,11 +175,31 @@ class RollingEligibility(unittest.TestCase):
     def test_floor_unknown_reservation_keeps_its_entry(self):
         with fixture(floor=True) as (root, env, script, _):
             (root / 'seal-wrapper.py').write_text('#!/usr/bin/env python3\nraise SystemExit(75)\n')
-            result = subprocess.run(['bash', '-c', script + f'export NOW_MS={FIRST}\nrequest_recovery_window\n'], env=env, text=True, capture_output=True, timeout=5)
+            result = subprocess.run(['bash', '-c', script + f'export NOW_MS={FLOOR_FIRST}\nrequest_recovery_window\n'], env=env, text=True, capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((root / 'requests/900-2.activation-entry').is_file())
             self.assertFalse((root / 'state/engine-recovery-window-900-2.json').exists())
             self.assertNotIn('ANNOUNCE:', (root / 'events').read_text())
+
+    def test_fresh_owner_window_never_reserves_where_the_hourly_break_would_refuse_it(self):
+        for minute, second, expected in ((53, 0, FLOOR_FIRST // 1000 - 20 * 60 + 3600 + 330),
+                                         (0, 0, FLOOR_FIRST // 1000 - 20 * 60 + 3600 + 330),
+                                         (5, 29, FLOOR_FIRST // 1000 - 20 * 60 + 3600 + 330)):
+            hour = FLOOR_FIRST - 20 * 60_000 + (3_600_000 if minute < 30 else 0)
+            now = hour + minute * 60_000 + second * 1000
+            if minute >= 30:
+                expected = (hour + 3_600_000) // 1000 + 330
+            with fixture(floor=True) as (root, env, script, _):
+                (root / 'windows.json').write_text((root / 'windows.json').read_text().replace('[20]', f'[{minute}]'))
+                result = subprocess.run(['bash', '-c', script + f'export NOW_MS={now}\nrequest_recovery_window\nprintf "STATE next=%s requested=%s lock=%s\\n" "$RECOVERY_NEXT_EVALUATION" "$RECOVERY_REQUESTED" "$LOCK_HELD"\n'], env=env, text=True, capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f'next={expected} requested=0 lock=0', result.stdout)
+                self.assertIn('would overlap the hourly break; nothing reserved', result.stdout)
+                events = (root / 'events').read_text()
+                self.assertNotIn('SEAL:', events)
+                self.assertNotIn('ANNOUNCE:', events)
+                self.assertFalse((root / 'requests/900-2.activation-entry').exists())
+                self.assertFalse((root / 'state/engine-recovery-window-900-2.json').exists())
 
     def test_corrupt_future_eligibility_cannot_authorize_an_announcement(self):
         with fixture() as (root, env, script, _):
