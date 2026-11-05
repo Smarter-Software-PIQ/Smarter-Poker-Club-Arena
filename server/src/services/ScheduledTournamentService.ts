@@ -58,6 +58,7 @@ import {
 } from './diamondScheduledSpawn.js';
 import { mttBountyAmount } from '../tournament/mttBountyAllocation.js';
 import { withMidwayStructure } from '../tournament/midwayStructurePolicy.js';
+import { ORPHAN_SPAWN_SWEEP_MS, sweepOrphanSpawnClaims } from './orphanSpawnClaims.js';
 import { withBountyRebuyUntilRegistrationCloses } from '../tournament/bountyRebuyPolicy.js';
 import { withMysteryBountyTerms } from '../tournament/mysteryBountyTerms.js';
 import { withLockedLevelClock } from '../tournament/lockedLevelClock.js';
@@ -762,6 +763,9 @@ export class ScheduledTournamentService {
    * edited or switched off after boot cannot stay wrong until the next release.
    */
   private fixedBoardSyncedAt = 0;
+  private orphanClaimsSweptAt = 0;
+  /** Orphaned spawn claims by first sighting (orphanSpawnClaims.ts). */
+  private readonly orphanClaimsSeen = new Map<string, number>();
   private isRunning = false;
   /** Re-entrancy guard: a slow poll must never overlap the next tick. */
   private polling = false;
@@ -972,6 +976,24 @@ export class ScheduledTournamentService {
             );
           }
         }
+      }
+
+      // A STUCK SPAWN CLAIM REPAIRS ITSELF (owner 2026-11-05,
+      // orphanSpawnClaims.ts): a claim a dead spawn left with no tournament
+      // is linked or released, so the occurrence is never silently skipped.
+      if (Date.now() - this.orphanClaimsSweptAt >= ORPHAN_SPAWN_SWEEP_MS) {
+        this.orphanClaimsSweptAt = Date.now();
+        try {
+          await sweepOrphanSpawnClaims(supabase, new Date(), reportError, this.orphanClaimsSeen);
+        } catch (err: unknown) {
+          reportError(
+            new Error(
+              `[ScheduledTournaments] orphan spawn claim sweep failed: ${(err as Error)?.message ?? err}`
+            ),
+            'ScheduledTournaments.orphan_claim_sweep_failed'
+          );
+        }
+        if (!this.lifecycleIsCurrent(generation)) return;
       }
 
       try {
