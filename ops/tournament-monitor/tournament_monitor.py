@@ -408,12 +408,12 @@ def run_cycle(prev_state):
 
     def q_last_event(eid):
         r = supa.get("hand_history", {"select": "created_at,table_id,hand_number", "tournament_id": f"eq.{eid}",
-                                      "order": "created_at.desc"}, page=1)
+                                      "order": "created_at.desc"}, page=1, max_rows=1)
         return eid, (r[0] if r else None)
 
     def q_last_table(tid):
         r = supa.get("hand_history", {"select": "created_at,hand_number", "table_id": f"eq.{tid}",
-                                      "order": "hand_number.desc"}, page=1)
+                                      "order": "hand_number.desc"}, page=1, max_rows=1)
         return tid, (r[0] if r else None)
 
     multi_tables = set()
