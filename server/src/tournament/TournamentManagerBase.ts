@@ -203,6 +203,7 @@ import {
 } from './abandonedGenerationDoor.js';
 import { levelResumeRemainingMs } from './levelClockOutage.js';
 import { unprovedHandNeedsSuccessorGeneration } from './unprovedHandSuccessor.js';
+import { throughCancellationLane } from './cancellationLane.js';
 
 /**
  * What one ask of the abandoned-generation door came to.
@@ -9975,15 +9976,17 @@ export abstract class TournamentManagerBase {
         if (table.cancellable_permit_id) {
           if (!table.cancellable_hand_hash || !current())
             throw new Error('tournament_abort_hand_review_unknown');
-          const cancelled = await supabase.rpc('fn_ca_cancel_tournament_abort_unsettled_hand', {
-            p_operation_id: request.operation_id,
-            p_tournament_id: this.tournamentId,
-            p_table_id: tableId,
-            p_generation: request.current_generation,
-            p_permit_id: table.cancellable_permit_id,
-            p_expected_hash: table.cancellable_hand_hash,
-            p_evidence: evidence,
-          });
+          const cancelled = await throughCancellationLane(() =>
+            supabase.rpc('fn_ca_cancel_tournament_abort_unsettled_hand', {
+              p_operation_id: request.operation_id,
+              p_tournament_id: this.tournamentId,
+              p_table_id: tableId,
+              p_generation: request.current_generation,
+              p_permit_id: table.cancellable_permit_id,
+              p_expected_hash: table.cancellable_hand_hash,
+              p_evidence: evidence,
+            })
+          );
           if (
             cancelled.error ||
             cancelled.data?.ok !== true ||
@@ -9994,14 +9997,16 @@ export abstract class TournamentManagerBase {
         }
       },
       acknowledge: async (tableId, handNumber, evidence) => {
-        const { data, error } = await supabase.rpc('fn_ca_ack_tournament_abort_boundary', {
-          p_operation_id: request.operation_id,
-          p_tournament_id: this.tournamentId,
-          p_table_id: tableId,
-          p_lease_generation: request.current_generation,
-          p_hand_number: handNumber,
-          p_evidence: evidence,
-        });
+        const { data, error } = await throughCancellationLane(() =>
+          supabase.rpc('fn_ca_ack_tournament_abort_boundary', {
+            p_operation_id: request.operation_id,
+            p_tournament_id: this.tournamentId,
+            p_table_id: tableId,
+            p_lease_generation: request.current_generation,
+            p_hand_number: handNumber,
+            p_evidence: evidence,
+          })
+        );
         if (error || data?.ok !== true) throw new Error('tournament_abort_ack_unknown_or_refused');
         return data;
       },
