@@ -251,6 +251,27 @@ const normalizeFinishUnionAddition = (job: { steps: Array<Record<string, unknown
   job.steps.splice(start, 2);
 };
 
+const freeBuyTicketsStep = {
+  name: 'Free Buy tickets and final-cutoff guarantee funding',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-free-buy-tickets.py',
+};
+const normalizeFreeBuyTicketsAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === freeBuyTicketsStep.name);
+  expect(job.steps.filter((step) => step.name === freeBuyTicketsStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(
+    'Midway daily bounty freezeout preserves the owner contract'
+  );
+  expect(job.steps[index]).toStrictEqual(freeBuyTicketsStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (owner's Free Buy ticket and cutoff
+  // funding rules, 2026-11-05), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -371,6 +392,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     chicagoSteps.splice(chicagoIndex, 1);
 
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
+    normalizeFreeBuyTicketsAddition(normalized.jobs.accounting_postgres);
     // Review the added tournament gate exactly, then retain every existing job pin.
     for (const tournamentStep of [
       {
