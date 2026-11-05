@@ -383,7 +383,7 @@ def run_cycle(prev_state):
     per_event_err = {}
 
     def fetch_players(ids):
-        return supa.get("tournament_players", {"select": "tournament_id,table_id,status,chips,seat_number",
+        return supa.get("tournament_players", {"select": "tournament_id,table_id,status,chips,seat_number,rebuy_prompt_until",
                                                "tournament_id": inlist(ids), "status": "neq.eliminated",
                                                "order": "tournament_id,user_id"})
     for grp in chunks(run_ids, 40):
@@ -663,9 +663,12 @@ def run_cycle(prev_state):
                 c.add("seat_collision", "critical", f"{n} players share seat {seat}", t, table_id=tid,
                       details={"seat": seat, "players": n})
         # --- eliminations
-        zero = [p for p in playing if (p.get("chips") or 0) <= 0]
+        # 0 chips while a rebuy offer is still open (rebuy_prompt_until in the future) is legitimate
+        zero = [p for p in playing if (p.get("chips") or 0) <= 0
+                and not ((parse_ts(p.get("rebuy_prompt_until")) or now) > now)]
         if zero:
-            c.add("elimination_pending", "warning", f"{len(zero)} player(s) marked playing with 0 chips", t,
+            c.add("elimination_pending", "warning",
+                  f"{len(zero)} player(s) marked playing with 0 chips and no open rebuy offer", t,
                   details={"count": len(zero)})
         # --- balancing / final table
         size = t.get("table_size") or 9
