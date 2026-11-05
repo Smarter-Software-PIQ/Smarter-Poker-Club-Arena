@@ -18551,6 +18551,18 @@ function LiveTablePage({
        */
       case 'SEAT_MOVED': {
         setClusterRefreshKey((k) => k + 1);
+        /* Dan 2026-11-04: "WHEN A PLAYER IS 'SITTING OUT' THEY SHOULDN'T GET
+           THE 'SIT OUT' POP UP AGAIN, IF THEY ARE TABLE CHANGED. IT SHOULD
+           JUST STAY WITH THE ORIGINAL 'SITTING OUT'." The sit-out itself
+           travels on the seat row (is_sitting_out / sit_out_at follow the
+           player through both movers) and the footer bar reads it from the
+           new chair with the original clock. The modal is a one-time notice
+           for the tap that started it, so it closes here and is not shown
+           again at the destination. Nothing about the sit-out state changes. */
+        {
+          const d = evt.data as { user_id?: string };
+          if (d?.user_id === userId) setShowSitOut(false);
+        }
         // useSeatMoveNavigation retains the handoff until account hydration.
         break;
       }
