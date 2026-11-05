@@ -58,3 +58,12 @@ plates actually differ, so same-art lanes cannot drift.
 
 Client presentation only. Engine, seat assignment, action order, balances and
 hand history are untouched.
+
+## Phase 2: The Rule Is A Law
+
+`tests/two-top-chairs-sit-level.law.test.tsx` (registry
+`docs/laws.d/two-top-chairs-sit-level.md`) replaces the single unit case. It
+runs every library character beside a crown-free neighbour (free_business) and
+a deep-crown neighbour (vip_vigilante), on both sides: plates level within 2px
+and no painted head inside the jackpot clearance. A same-art lane must keep its
+exact legacy placement. Against the pre-#9587 code 101 of 102 cases fail.
