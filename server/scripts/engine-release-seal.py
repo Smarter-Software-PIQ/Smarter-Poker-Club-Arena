@@ -4186,7 +4186,7 @@ def diagnostic_shell_state(raw: dict[str, Any]) -> dict[str, Any]:
     if raw.get("checkpointProfile") == CERTIFIED_RECOVERY_PROFILE:
         if raw.get("predecessorSha") != CERTIFIED_RECOVERY_PREDECESSOR:
             raise ValueError("certified diagnostic predecessor differs")
-        bounds.update(checkpointBudgetSeconds=320, checkpointWorkMs=305000)
+        bounds.update(checkpointBudgetSeconds=320, checkpointWorkMs=260000)
     if set(raw) != set(bounds) | {"checkpointProfile", "predecessorSha"}:
         raise ValueError("invalid diagnostic shell state fields")
     result = {}
