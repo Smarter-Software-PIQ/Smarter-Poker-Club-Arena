@@ -1,0 +1,11 @@
+{
+  "_owner": "claude/free-buy-daily-tickets",
+  "_comment": "Five daily Free Buy tickets per player: allotment, redemptions and the player read.",
+  "tables": ["smarter_private.free_buy_ticket_days", "smarter_private.free_buy_ticket_redemptions"],
+  "functions": [
+    "smarter_private.free_buy_gaming_day",
+    "smarter_private.free_buy_ticket_redeem",
+    "smarter_private.free_buy_ticket_restore",
+    "fn_ca_free_buy_tickets"
+  ]
+}
