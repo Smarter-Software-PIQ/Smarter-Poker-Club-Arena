@@ -1028,6 +1028,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "f0a7f2e37b779ec34f07ff1511778cfdb97046ec9b152b319927fadded5b6d60"
       }
+    },
+    {
+      "id": "2026-11-05-hybrid-earliest-safe-1345z",
+      "ownerOrder": "Dan, directly in the MAIN horse styles chat (America/Chicago), ordered verbatim on 2026-11-05: \"YOU OWN THE HYBRID RELEASE: RETIRE THE STUCK RELEASE, OPEN AN EARLIEST-SAFE WINDOW, SHIP IT AND VERIFY IT LIVE\"; on 2026-11-04 06:44: \"CONTINUE. FIX THE CI FAILURES AND GET THE HYBRID DEPLOYED AND VERIFIED IN THE NEXT ENGINE RELEASE. KEEP IT OUT OF THE CURRENT RELEASE, AND LET ME KNOW WHEN IT'S FULLY COMPLETE\"; and on 2026-11-04 21:42: \"Please pick up where you left off, complete the task in full and do not claim success until you have verified that everything is 100% accomplished for this task.\". The fixed minute 53 window 2026-11-05-hybrid-and-phase1-55-0645z expired 12:45Z after its only announcement (run 41995246530-1, release a02e6f80) drew use_hourly from the Phase 1 hourly schedule and stranded an announced owner with no freeze; that owner is retired by the reviewed unfrozen-owner withdrawal profile, never by a direct host write. The current restoration release 67bc0e85ef143f0ed1c6da60bf3f45e053f9609a keeps serving. This NEW window admits one earliest-certified off-cycle activation of a target containing the Hybrid merge a936a6b6a6fad00a645208c82686b4e6b05cadd6 (#9488), from 13:45Z to 19:45Z November 5 only. A fresh announcement is made only between :05:30 and :49:00 of an hour, so the whole 7 minute window ends before the next :58 hourly notice; every existing guard is unchanged: hand-boundary drain, durable freeze and certificate, full proof/rollback reserve, one-shot checkpoint intent with strict UNKNOWN/no-retry, SEALED and own healthy v3 thaw. Every earlier entry keeps its order, witness and expiry; nothing is extended, reused or retargeted. No migration, direct restart, second publisher, watcher or timer. Expiry is not an emergency or automatic extension.",
+      "contains": "a936a6b6a6fad00a645208c82686b4e6b05cadd6",
+      "notBefore": "2026-11-05T13:45:00Z",
+      "notAfter": "2026-11-05T19:45:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "9a9f16daf30b77b6c947cabd42b35fb58876da2d052031400539755dcb506c5a"
+      }
     }
   ],
   "databaseWindows": [

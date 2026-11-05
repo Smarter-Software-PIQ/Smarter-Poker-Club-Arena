@@ -31,6 +31,9 @@ import tempfile
 import time
 import urllib.request
 
+# The protected control sources a withdrawal hashes. 256 KiB held until the
+# seal grew to 274 KiB (2026-11-05); the seal itself reads them under 1 MiB.
+SOURCE_BOUND = 1048576
 SHA = re.compile(r'[0-9a-f]{40}')
 RUN = re.compile(r'[1-9][0-9]{0,19}-[1-9][0-9]{0,3}')
 INSTANCE = re.compile(r'[1-9][0-9]*-[0-9a-f]{8}')
@@ -302,7 +305,7 @@ def protected_sources(control):
     for name in GENERIC_SOURCE_NAMES:
         raw = subprocess.run(git + ['show', control + ':server/scripts/' + name], capture_output=True,
                              timeout=10, check=True, env=env).stdout
-        require(0 < len(raw) < 262144)
+        require(0 < len(raw) < SOURCE_BOUND)
         hashes[name] = digest(raw)
     return hashes
 
@@ -349,10 +352,20 @@ EED_SHA = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 
 
 def select_owner_window_profile(request, entry):
-    """Bind a later v2 owner to its own protected source, never a historical profile."""
+    """Bind a later v2 owner to its own protected source, never a historical profile.
+
+    UNFROZEN OWNER (2026-11-05). An owner announced over a later sealed runtime
+    (not the EED predecessor) can expire without any freeze: release
+    41995246530-1 announced at 09:53:05Z, the seal answered use_hourly, and its
+    reservation expired at the 10:00 hourly break before any freeze of its own.
+    Its proof is the ABSENCE of its own freeze, never a borrowed thaw: no thaw
+    row for its exact announcement, no maintenance owner, no later boundary,
+    the sealed runtime as fresh leader, no Lightning hold ever taken, and its
+    own expired request deadline."""
     global OWNER_WINDOW_PROFILE
     key, control = request['runKey'], request['controlSha']
-    require(key not in PINNED_CANCELLATION_RUNS and request['desiredSha'] == EED_SHA)
+    unfrozen = request['desiredSha'] != EED_SHA
+    require(key not in PINNED_CANCELLATION_RUNS)
     hashes = protected_sources(control)
     raw = subprocess.run(['git', '-C', str(REPO), 'show', control + ':server/release/activation-floor.json'],
         capture_output=True, check=True, timeout=10,
@@ -365,8 +378,17 @@ def select_owner_window_profile(request, entry):
             and entry['schema'] == manifest['schema'] and entry['runId'] == key
             and entry['targetSha'] == request['releaseSha'] and entry['controlSha'] == control
             and entry['manifestSha256'] == digest(raw) and entry['phase'] == 'announcement')
+    deadline = None
+    if unfrozen:
+        lines = regular(ROOT / 'engine-release-requests' / (key + '.request'), 0o600).splitlines()
+        require(len(lines) == 6 and re.fullmatch(r'[1-9][0-9]{9}', lines[5]) is not None
+                and lines[0] == request['releaseSha'] and lines[4] == control)
+        deadline = lines[5]
+        MARKERLESS_ORIGINALS[key] = deadline
     OWNER_WINDOW_PROFILE = {'request': request | {'mode': 'cancel_expired_announcement'}, 'control': control, 'target': request['releaseSha'],
-        'hashes': hashes, 'wrapper': WRAPPER_HASH, 'manifest': digest(raw), 'deadline': None}
+        'hashes': hashes, 'wrapper': WRAPPER_HASH, 'manifest': digest(raw), 'deadline': deadline}
+    if unfrozen:
+        OWNER_WINDOW_PROFILE['unfrozen'] = True
 
 
 def select_profile(request):
@@ -447,8 +469,8 @@ def source_hash(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         before = os.fstat(fd)
-        require(stat.S_ISREG(before.st_mode) and before.st_uid == 0 and before.st_size < 262144)
-        raw = os.read(fd, 262144)
+        require(stat.S_ISREG(before.st_mode) and before.st_uid == 0 and before.st_size < SOURCE_BOUND)
+        raw = os.read(fd, SOURCE_BOUND)
         after = os.fstat(fd)
         identity = lambda row: (row.st_dev, row.st_ino, row.st_mode, row.st_uid, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
         require(identity(after) == identity(before) and len(raw) == before.st_size)
@@ -807,6 +829,27 @@ def prove_thaw(rows, active, stamp, now, control=CANCEL_CONTROL, owner_request=N
             **({'thawRecordedAtMs': time_ms(row['thawed_at'])} if control == PHASE1_CONTROL else {})}
 
 
+def unfrozen_owner():
+    return OWNER_WINDOW_PROFILE is not None and OWNER_WINDOW_PROFILE.get('unfrozen') is True
+
+
+def prove_unfrozen_announcement(rows, active, stamp, now, owner_request, promise, serving_instance=None):
+    """The expired owner never froze: no thaw for its exact announcement, no
+    maintenance owner, and its sealed runtime is the fresh idle leader."""
+    require(unfrozen_owner() and owner_request is not None and owner_request['desiredSha'] != EED_SHA)
+    require(rows == [] and active == [] and type(stamp) is int and stamp + 420000 < now)
+    require(isinstance(promise, dict) and promise.get('schema') == 'maintenance-promise-floor/v1'
+            and promise.get('maintenance', {}) is None
+            and 0 <= now - time_ms(promise.get('observedAt')) <= 10000)
+    instance = serving_instance or owner_request['instanceId']
+    leader = promise.get('leader')
+    require(isinstance(leader, dict) and leader.get('version') == owner_request['desiredSha'][:8]
+            and leader.get('instanceId') == instance
+            and 0 <= now - time_ms(leader.get('heartbeatAt')) <= 15000)
+    return {'schema': 'unfrozen-owner-announcement/v1', 'announcedAtMs': stamp, 'ownFreeze': None,
+            'leaderVersion': owner_request['desiredSha'][:8], 'leaderInstance': instance}
+
+
 def own_thaw(stamp, control=CANCEL_CONTROL, owner_request=None, serving_instance=None):
     # The fixed canonical store is used only inside this protected host helper.
     # Only bounded GETs, no RPC or production write, and redirects are refused.
@@ -847,6 +890,8 @@ def own_thaw(stamp, control=CANCEL_CONTROL, owner_request=None, serving_instance
         require(get('engine_maintenance_thaws', {'select': 'release_target_at', 'contract_version': 'eq.3',
             'release_target_at': 'gt.' + datetime.datetime.now(datetime.timezone.utc).isoformat(), 'limit': '1'}) == [])
     promise = get('rpc/fn_engine_maintenance_promise_proof', {}) if owner_request is not None else None
+    if owner_request is not None and unfrozen_owner():
+        return prove_unfrozen_announcement(rows, active, stamp, round(time.time() * 1000), owner_request, promise, serving_instance)
     return prove_thaw(rows, active, stamp, round(time.time() * 1000), control, owner_request, promise, serving_instance)
 
 
@@ -950,17 +995,22 @@ def announcement_evidence(request, after_stop=False, read_only=False, serving_in
     for suffix in ['break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json'] + (['main-inspector-retirement-receipt', 'drill'] if owner else []):
         require(not os.path.lexists(reqroot / (key + '.' + suffix)))
     released_path = reqroot / (key + '.lightning-hold.json.released')
-    released_raw = regular(released_path, 0o600)
-    spec = importlib.util.spec_from_file_location('qualified_withdrawal_hold_reader', generation / 'engine-release-lightning-hold.py')
-    helper = importlib.util.module_from_spec(spec)
-    original_bytecode = sys.dont_write_bytecode
-    sys.dont_write_bytecode = True
-    try:
-        spec.loader.exec_module(helper)
-    finally:
-        sys.dont_write_bytecode = original_bytecode
-    released = helper.own_record(released_path, key)
-    require(released is not None and released['phase'] == 'released')
+    if owner and unfrozen_owner():
+        # An owner that never froze never paused Lightning: no hold, released or not.
+        require(not os.path.lexists(released_path))
+        released_raw = None
+    else:
+        released_raw = regular(released_path, 0o600)
+        spec = importlib.util.spec_from_file_location('qualified_withdrawal_hold_reader', generation / 'engine-release-lightning-hold.py')
+        helper = importlib.util.module_from_spec(spec)
+        original_bytecode = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
+        try:
+            spec.loader.exec_module(helper)
+        finally:
+            sys.dont_write_bytecode = original_bytecode
+        released = helper.own_record(released_path, key)
+        require(released is not None and released['phase'] == 'released')
     seal = generation / 'engine-release-seal.py'
     if key == PHASE1_RUN:
         phase1_seal_evidence(generation)
@@ -986,7 +1036,7 @@ def announcement_evidence(request, after_stop=False, read_only=False, serving_in
     require(not os.path.lexists(ROOT / 'engine-release-results' / (key + '.json')))
     return {**({'desiredImageId': state['desired']['imageId']} if owner else {}),
             'originals': originals, 'entryHash': digest(entry_raw.encode()),
-            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()),
+            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': (None if released_raw is None else digest(released_raw.encode())),
             'thaw': (own_thaw(stamp, control, request, serving_instance) if serving_instance is not None
                      else own_thaw(stamp, control, request) if owner else own_thaw(stamp, control))}
 
@@ -1127,6 +1177,9 @@ def cancel_announced(request):
             original = json.loads(regular(intent_path, 0o600))
             require(original.get('request') == request)
             if container_identity(request) != original.get('container'):
+                # The successor proof is the EED owner's own thaw. An unfrozen
+                # owner has none, so a changed runtime refuses; nothing is signalled.
+                require(not unfrozen_owner())
                 return cancel_quiescent_owner_successor(request, original, units)
         if os.path.lexists(receipt_path):
             receipt = json.loads(regular(receipt_path, 0o600)); validate_cancellation_reply(receipt, request)
@@ -1283,7 +1336,11 @@ def cancel_announced(request):
         # partial unlink. Historical window and announcement entry never change.
         require(digest(regular(ROOT / 'engine-release-requests' / (key + '.activation-entry'), 0o600).encode()) == intent['evidence']['entryHash'])
         require(digest(regular(ROOT / ('engine-recovery-window-' + key + '.json'), 0o600).encode()) == intent['evidence']['reservationHash'])
-        require(digest(regular(ROOT / 'engine-release-requests' / (key + '.lightning-hold.json.released'), 0o600).encode()) == intent['evidence']['releasedHoldHash'])
+        if intent['evidence']['releasedHoldHash'] is None:
+            require(unfrozen_owner() and not os.path.lexists(ROOT / 'engine-release-requests' / (key + '.lightning-hold.json.released'))
+                    and not os.path.lexists(ROOT / 'engine-release-requests' / (key + '.lightning-hold.json')))
+        else:
+            require(digest(regular(ROOT / 'engine-release-requests' / (key + '.lightning-hold.json.released'), 0o600).encode()) == intent['evidence']['releasedHoldHash'])
         for relative, expected in intent['evidence']['originals'].items():
             path = ROOT / relative
             if os.path.lexists(path):

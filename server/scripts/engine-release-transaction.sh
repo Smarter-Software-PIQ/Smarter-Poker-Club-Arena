@@ -2163,6 +2163,30 @@ print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
       --instance-id "$promise_instance" "${promise_mode[@]}" >/dev/null \
       || die 'original maintenance promise contract is unproved; no recovery announcement requested'
   fi
+  # EARLIEST SAFE OWNER ANNOUNCEMENT (2026-11-05). Under the Phase 1 hourly
+  # schedule the engine answers use_hourly to any recovery window that starts
+  # inside :58-:05 or whose 7m10.5s whole window would reach the next :58
+  # announcement, and assert_owner_recovery_window_live then strands the run
+  # 420 s later as an announced owner with no freeze (41995246530-1 at :53).
+  # A FRESH owner-window request therefore waits, before any reservation or
+  # runtime entry, until :05:30-:49:00 of an epoch hour. Resumed reservations,
+  # Phase 1 cycles and the certified profile are unchanged.
+  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] && [ "${PHASE1_CYCLE_START:-0}" = 0 ] \
+      && [ "${LEGACY_CHECKPOINT_PROFILE:-}" != eed-240s-certified-release-v1 ] \
+      && [ "$FLOOR_DISPOSITION" = never-entered ]; then
+    local into_hour
+    into_hour=$(( $(date +%s) % 3600 ))
+    if [ "$into_hour" -lt 330 ] || [ "$into_hour" -gt 2940 ]; then
+      release_engine_lock
+      if [ "$into_hour" -gt 2940 ]; then
+        RECOVERY_NEXT_EVALUATION=$(( $(date +%s) - into_hour + 3600 + 330 ))
+      else
+        RECOVERY_NEXT_EVALUATION=$(( $(date +%s) - into_hour + 330 ))
+      fi
+      echo "[engine-release-transaction] owner window announcement would overlap the hourly break; nothing reserved, re-evaluate at $RECOVERY_NEXT_EVALUATION"
+      return 0
+    fi
+  fi
   FLOOR_RESERVATION_FRESH=0
   if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || [ "${PHASE1_CYCLE_START:-0}" -gt 0 ]; then
     [ "$FLOOR_DISPOSITION" != never-entered ] || FLOOR_RESERVATION_FRESH=1
