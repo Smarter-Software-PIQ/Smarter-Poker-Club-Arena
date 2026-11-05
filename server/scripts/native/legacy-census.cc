@@ -208,8 +208,11 @@ void Collect(const v8::FunctionCallbackInfo<v8::Value>& args) {
   const bool eed_profile = args.Length() == 4 && args[3]->IsString() &&
       args[3].As<v8::String>()->StringEquals(
           v8::String::NewFromUtf8Literal(isolate, "eed-80s-v1"));
+  const bool certified_profile = args.Length() == 4 && args[3]->IsString() &&
+      args[3].As<v8::String>()->StringEquals(
+          v8::String::NewFromUtf8Literal(isolate, "eed-240s-certified-release-v1"));
   if (std::strcmp(v8::V8::GetVersion(), kV8) != 0 ||
-      (args.Length() != 3 && !eed_profile) ||
+      (args.Length() != 3 && !eed_profile && !certified_profile) ||
       !args[0]->IsObject() || args[0]->IsProxy() || !args[1]->IsNumber() ||
       !args[2]->IsNumber()) {
     Refuse(isolate, "native census ABI or arguments refused"); return;
@@ -218,7 +221,7 @@ void Collect(const v8::FunctionCallbackInfo<v8::Value>& args) {
   const double process_available = args[2].As<v8::Number>()->Value();
   const int64_t now = Now();
   if (!std::isfinite(deadline_value) || std::floor(deadline_value) != deadline_value ||
-      deadline_value <= now || deadline_value > now + (eed_profile ? 59000 : 40000) ||
+      deadline_value <= now || deadline_value > now + (certified_profile ? 240000 : eed_profile ? 59000 : 40000) ||
       !std::isfinite(process_available) || process_available <= 0 ||
       std::floor(process_available) != process_available ||
       process_available > 9007199254740991.0) {
@@ -237,7 +240,7 @@ void Collect(const v8::FunctionCallbackInfo<v8::Value>& args) {
   // same QueryObjects algorithm, so an earlier publisher read cannot admit a
   // heap that grew before native entry. One extra MB preserves ceil(MB)+1
   // conservatism without rounding a fractional MB down.
-  if (eed_profile) {
+  if (eed_profile || certified_profile) {
     const double estimated_ms = std::ceil((before.used_heap_size() / 1000000.0 + 1) * 12);
     if (estimated_ms > deadline - Now()) {
       Refuse(isolate, "native census EED heap time admission refused"); return;

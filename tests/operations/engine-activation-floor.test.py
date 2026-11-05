@@ -78,7 +78,7 @@ class ActivationFloor(unittest.TestCase):
                'clientPublicationAt': window['notBefore']}
         return window, (json.dumps(doc, indent=2) + '\n').encode()
 
-    def owner_record(self, legacy=False, window_id=None):
+    def owner_record(self, legacy=False, window_id='2026-11-04-tournament-immediate-relaunch-continuation'):
         source = json.loads((ROOT / MANIFEST).read_text())
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
         if window_id is None:
@@ -394,6 +394,121 @@ echo CHECKPOINT_MUST_NOT_RUN
                 self.assertFalse(launched.exists(), 'expired entry launched the helper Git read')
                 self.assertEqual(marker.read_bytes(), original)
 
+    def certified_seal(self):
+        import argparse
+        control = self.repo / 'server/scripts/engine-release-seal.py'
+        control.write_bytes((ROOT / 'server/scripts/engine-release-seal.py').read_bytes())
+        record = self.owner_record(window_id=None)
+        spec = importlib.util.spec_from_file_location('certified_fixture_seal', control)
+        seal = importlib.util.module_from_spec(spec); spec.loader.exec_module(seal)
+        seal.STATE_DIR = self.repo / 'state'; seal.STATE_DIR.mkdir()
+        seal.STATE_FILE = seal.STATE_DIR / 'seal.json'
+        seal.RESULT_DIR = seal.STATE_DIR / 'results'
+        seal.AUDIT_FILE = seal.STATE_DIR / 'audit.jsonl'
+        seal.LOCK_FILE = seal.STATE_DIR / 'lock'
+        state = {'schema': 1, 'desired': {'sha': floor.CERTIFIED_PREDECESSOR, 'imageId': 'sha256:'+'a'*64},
+                 'highWaterSha': self.sha, 'generation': 1, 'pending': None, 'finalization': None, 'committedRuns': {}}
+        seal.STATE_FILE.write_text(json.dumps(state))
+        args = argparse.Namespace(repo=str(self.repo), sha=self.sha, run_id='800-1', cause='urgent',
+            control_sha=self.sha, certified_policy=floor.CERTIFIED_POLICY, predecessor_sha=floor.CERTIFIED_PREDECESSOR,
+            scheduled_cycle_start=None, missed_window=False, include_eligibility=False)
+        return seal, record, args
+
+    def test_certified_owner_requires_exact_profile_and_entire_900_second_cycle(self):
+        r = self.owner_record(window_id=None)
+        self.assertEqual(r['ownerWindowId'], floor.CERTIFIED_POLICY)
+        self.assertEqual(r['certifiedRecoveryProfile'], 'eed-240s-certified-release-v1')
+        self.assertEqual(r['cycleDurationSeconds'], 900)
+        self.assertEqual((r['activationEpoch'], r['expiresEpoch']), (1793833200, 1793854800))
+        floor.check_window(r, r['expiresEpoch']-900, r['expiresEpoch'], 'admit')
+        for now, deadline in [(r['expiresEpoch']-899,r['expiresEpoch']), (r['activationEpoch'],r['activationEpoch']+899)]:
+            with self.assertRaises(ValueError): floor.check_window(r,now,deadline,'admit')
+        path = self.repo / 'server/release/owner-maintenance-windows.json'
+        original = json.loads(path.read_text())
+        for changed in [{'certifiedRecoveryProfile':'eed-80s-v1'}, {'supersedesPhase1Schedule':False},
+                        {'announcementPolicy':'immediate'}, {'notAfter':'2026-11-05T06:00:00Z'}]:
+            candidate=json.loads(json.dumps(original)); candidate['windows'][0].update(changed)
+            path.write_text(json.dumps(candidate)); self.sha=self.commit()
+            with self.assertRaises(ValueError): floor.policy(str(self.repo),self.sha,self.sha)
+
+    def test_certified_reservation_is_durable_exact_and_never_reannounced(self):
+        import contextlib, io
+        seal,r,args = self.certified_seal()
+        stamp = r['activationEpoch']*1000+123
+        original_seal = seal.STATE_FILE.read_bytes()
+        def reserve(at):
+            output=io.StringIO()
+            with patch.object(seal.time,'time',return_value=at/1000),contextlib.redirect_stdout(output):
+                seal.cmd_reserve_recovery_window(args)
+            return output.getvalue()
+        self.assertEqual(reserve(stamp),str(stamp)+'\n')
+        path=seal.STATE_DIR/'engine-recovery-window-800-1.json'; raw=path.read_bytes(); value=json.loads(raw)
+        self.assertEqual(value['certifiedRecovery'],{'policyId':floor.CERTIFIED_POLICY,'profileId':floor.CERTIFIED_PROFILE,
+            'controlSha':self.sha,'predecessorSha':floor.CERTIFIED_PREDECESSOR,'endsAt':stamp+900000})
+        self.assertEqual(floor.reservation(r,str(seal.STATE_DIR),'800-1'),stamp)
+        self.assertEqual(seal.recovery_window_ends_at(value),stamp+900000)
+        # An unknown transport acknowledgement observes the original, even after expiry.
+        self.assertEqual(reserve(stamp+901000),str(stamp)+'\n'); self.assertEqual(path.read_bytes(),raw)
+        self.assertEqual(seal.STATE_FILE.read_bytes(),original_seal)
+        self.assertEqual(len(seal.AUDIT_FILE.read_text().splitlines()),1)
+        args.certified_policy=None; args.predecessor_sha=None
+        with self.assertRaises(SystemExit): reserve(stamp+1)
+        self.assertEqual(path.read_bytes(),raw)
+        # The ordinary path remains exactly four fields and420 seconds.
+        path.unlink(); args.run_id='801-1'
+        self.assertEqual(reserve(stamp),str(stamp)+'\n')
+        ordinary=json.loads((seal.STATE_DIR/'engine-recovery-window-801-1.json').read_text())
+        self.assertEqual(set(ordinary),{'runId','sha','cause','announcedAt'})
+        self.assertEqual(seal.recovery_window_ends_at(ordinary),stamp+420000)
+
+    def test_certified_reservation_refuses_mismatch_and_late_new_cycle_without_writes(self):
+        seal,r,args=self.certified_seal(); base=dict(vars(args))
+        for changes,stamp in [({'predecessor_sha':'f'*40},r['activationEpoch']*1000),
+                              ({'certified_policy':'other'},r['activationEpoch']*1000),
+                              ({'cause':'engine-degraded'},r['activationEpoch']*1000),
+                              ({},r['expiresEpoch']*1000-899999), ({},r['activationEpoch']*1000-1)]:
+            vars(args).clear(); vars(args).update({**base,**changes})
+            with patch.object(seal.time,'time',return_value=stamp/1000),self.assertRaises((SystemExit,ValueError)):
+                seal.cmd_reserve_recovery_window(args)
+            self.assertEqual(list(seal.STATE_DIR.glob('engine-recovery-window-*.json')),[])
+        vars(args).clear();vars(args).update(base)
+        with patch.object(seal.time,'time',return_value=r['activationEpoch']): seal.cmd_reserve_recovery_window(args)
+        path=seal.STATE_DIR/'engine-recovery-window-800-1.json'; original=json.loads(path.read_text())
+        for changes in [{'endsAt':original['announcedAt']+420000},{'controlSha':'b'*40},
+                        {'predecessorSha':'c'*40},{'profileId':'eed-80s-v1'},{'extra':True}]:
+            value=json.loads(json.dumps(original));value['certifiedRecovery'].update(changes);path.write_text(json.dumps(value))
+            with self.assertRaises(ValueError): floor.reservation(r,str(seal.STATE_DIR),'800-1')
+        # Missing original metadata cannot silently become a 900-second owner.
+        value=dict(original);value.pop('certifiedRecovery');path.write_text(json.dumps(value))
+        with self.assertRaises(ValueError): floor.reservation(r,str(seal.STATE_DIR),'800-1')
+
+    def test_certified_completion_waits_for_900_seconds_and_original_terminal_receipt(self):
+        seal,r,args=self.certified_seal(); stamp=r['activationEpoch']*1000
+        with patch.object(seal.time,'time',return_value=stamp/1000): seal.cmd_reserve_recovery_window(args)
+        value=json.loads((seal.STATE_DIR/'engine-recovery-window-800-1.json').read_text())
+        self.assertFalse(seal.completed_recovery_window(args.run_id,value,stamp+900000))
+        failure={'schema':1,'runId':args.run_id,'sha':self.sha,'controlSha':self.sha,'result':'failed',
+                 'invocationId':'e'*32,'transactionExitStatus':1,'recoveredDesiredSha':floor.CERTIFIED_PREDECESSOR,
+                 'recoveredDesiredImageId':'sha256:'+'a'*64,'completedAt':stamp//1000+421}
+        seal.result_path(args.run_id).write_text(json.dumps(failure))
+        self.assertFalse(seal.completed_recovery_window(args.run_id,value,stamp+420000))
+        self.assertFalse(seal.completed_recovery_window(args.run_id,value,stamp+899999))
+        self.assertTrue(seal.completed_recovery_window(args.run_id,value,stamp+900000))
+        value['certifiedRecovery']['endsAt']=stamp+420000
+        with self.assertRaises(SystemExit): seal.completed_recovery_window(args.run_id,value,stamp+900000)
+
+    def test_certified_diagnostic_bounds_are_profile_and_predecessor_scoped(self):
+        seal,_,_=self.certified_seal()
+        raw={'checkpointRequired':1,'drainedCutover':0,'prepared':0,'mutationStarted':0,'lockHeld':1,
+             'checkpointBudgetSeconds':320,'checkpointWorkMs':305000,'certificateExitStatus':0,
+             'breakEndEpoch':1793854800,'checkpointProfile':floor.CERTIFIED_PROFILE,'predecessorSha':floor.CERTIFIED_PREDECESSOR}
+        self.assertEqual(seal.diagnostic_shell_state(raw),raw)
+        for changes in [{'checkpointProfile':'eed-80s-v1'},{'predecessorSha':'a'*40},
+                        {'checkpointBudgetSeconds':321},{'checkpointWorkMs':305001}]:
+            with self.assertRaises(ValueError): seal.diagnostic_shell_state({**raw,**changes})
+        ordinary={**raw,'checkpointProfile':'eed-80s-v1','checkpointBudgetSeconds':80,'checkpointWorkMs':68750}
+        self.assertEqual(seal.diagnostic_shell_state(ordinary),ordinary)
+
     def test_owner_window_is_exact_bounded_and_needs_full_lead(self):
         r = self.owner_record()
         self.assertEqual(r['schema'], floor.OWNER_CAPABILITY)
@@ -424,7 +539,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         (self.repo/'server/release/owner-maintenance-windows.json').write_text(json.dumps({'version':1,'windows':[window]}))
         old_sha = self.commit()
         previous = floor.policy(str(self.repo), old_sha, old_sha)
-        current = self.owner_record()
+        current = self.owner_record(window_id=None)
         self.assertNotEqual(current['ownerWindowId'], previous['ownerWindowId'])
         # A current carrier can belong to a later finite owner. Historical
         # target dates stay immutable rather than forcing future restamps.
@@ -451,9 +566,9 @@ echo CHECKPOINT_MUST_NOT_RUN
         with self.assertRaises(ValueError): floor.policy(str(self.repo), old_sha, self.sha)
         # Pinned old source is unchanged by the newer authorization.
         self.assertEqual(floor.policy(str(self.repo), old_sha, old_sha), previous)
-        floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
+        floor.check_window(current, current['expiresEpoch']-current.get('cycleDurationSeconds',420), current['expiresEpoch'], 'admit')
         with self.assertRaises(ValueError):
-            floor.check_window(current, current['expiresEpoch']-419, current['expiresEpoch']+1, 'admit')
+            floor.check_window(current, current['expiresEpoch']-current.get('cycleDurationSeconds',420)+1, current['expiresEpoch']+1, 'admit')
 
     def test_census_continuation_keeps_failed_operation_window_immutable(self):
         import hashlib
