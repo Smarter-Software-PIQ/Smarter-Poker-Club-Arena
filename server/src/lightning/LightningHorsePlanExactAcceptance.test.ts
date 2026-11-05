@@ -36,6 +36,7 @@ const kit = await import('../testing/lightningHostTestKit.js');
 const { createHorseExecutionWitness, onHorseExecutionFinalized } =
   await import('../engine/HorseExecutionWitness.js');
 const { buildHost, formedHand, flush } = kit;
+const { Deck } = await import('../engine/PokerEngine.js');
 
 afterEach(() => {
   vi.useRealTimers();
@@ -643,12 +644,19 @@ describe('Lightning commits a horse plan only for the exact accepted wager', () 
   ] as Array<[string, Decide]>)(
     'the gate changes no chip, pot or action: %s plays the same with and without a plan',
     async (_name, scenario) => {
+      // Both hands are dealt the same cards. A shuffled deal made the two
+      // independent hands differ whenever one horse held the river nuts: the
+      // exact-nuts value rule (#9488, the same rule classic tables apply at
+      // acceptance) then bets in one hand and checks in the other, about one
+      // run in three. The plan gate, not the deal, is what this case compares.
+      const shuffle = vi.spyOn(Deck.prototype, 'shuffle').mockImplementation(() => {});
       const withPlan = await playHand(onFirstFlopDecision(scenario), { base: 3300 });
       const withoutPlan = await playHand(onFirstFlopDecision(scenario), {
         base: 3300,
         issue: false,
       });
       expect(withoutPlan.plan.raw.commitDecisionEffects).not.toHaveBeenCalled();
+      shuffle.mockRestore();
       expect(withPlan.actions).toEqual(withoutPlan.actions);
       expect(withPlan.contributed).toEqual(withoutPlan.contributed);
     }
