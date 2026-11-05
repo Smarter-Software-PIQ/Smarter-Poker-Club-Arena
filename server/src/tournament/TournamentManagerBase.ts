@@ -2662,13 +2662,10 @@ export abstract class TournamentManagerBase {
       // tickets. Read the serialized state before this generation deals.
       this.holdSatelliteQualifierBoundary();
     }
-    // Released when the dealer's start-up reads are done (ready), or when the
-    // start ends without getting there; the gate's horizon bounds both.
-    let openingSlot: TableOpenSlot | null = null;
-    const releaseOpeningSlot = () => {
-      openingSlot?.release();
-      openingSlot = null;
-    };
+    // The opening slot is released when the dealer's start-up reads are done
+    // (ready), or when the start ends without getting there; the gate's
+    // horizon bounds both (awaitTableOpeningWave).
+    const releaseOpeningSlot = () => this.releaseTableOpeningSlot(engine);
     const operation = (async () => {
       if (!lifecycle || !tableId || !this.tournamentLeaseGeneration)
         throw new Error('f06_engine_admission_identity_missing');
@@ -2688,9 +2685,7 @@ export abstract class TournamentManagerBase {
          were rebuilt (2026-10-27 13:33Z). One process-wide gate admits starts
          in waves (tableOpenWaves.ts) before the first read; every proof and
          fence below then runs exactly as before, rechecked after the wait. */
-      openingSlot = await this.tableOpenGate().acquire(
-        () => current() && this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId)
-      );
+      await this.awaitTableOpeningWave(engine, tableId, current);
       if (!current() || !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId))
         throw new Error('f06_engine_admission_fenced');
       // Retained originals must finish before the existing unresolved-permit
@@ -3117,6 +3112,38 @@ export abstract class TournamentManagerBase {
   /** The process-wide opening budget (tableOpenWaves.ts); one per process. */
   protected tableOpenGate(): TableOpenGate {
     return tableOpenGate;
+  }
+
+  /** Opening slots held by dealers of this manager still inside their start-up reads. */
+  // Created on first use (`??=`): harnesses build managers from the
+  // prototype, where field initializers never run.
+  private tableOpeningSlots?: WeakMap<ServerTableEngine, TableOpenSlot>;
+
+  /**
+   * Wait for this dealer's turn in the process-wide opening wave
+   * (tableOpenWaves.ts). A dealer whose manager, lease or registry slot has
+   * gone by the time its turn comes is let go without spending the wave, and
+   * the caller's own fence then refuses it exactly as before.
+   */
+  protected async awaitTableOpeningWave(
+    engine: ServerTableEngine,
+    tableId: string,
+    current: () => boolean
+  ): Promise<void> {
+    const slot = await this.tableOpenGate().acquire(
+      () => current() && this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId)
+    );
+    const slots = (this.tableOpeningSlots ??= new WeakMap());
+    slots.get(engine)?.release();
+    slots.set(engine, slot);
+  }
+
+  /** Idempotent: give this dealer's opening slot back to the wave. */
+  private releaseTableOpeningSlot(engine: ServerTableEngine): void {
+    const slot = this.tableOpeningSlots?.get(engine);
+    if (!slot) return;
+    this.tableOpeningSlots?.delete(engine);
+    slot.release();
   }
 
   private holdManagedTableUntilBookedStart(engine: ServerTableEngine): void {

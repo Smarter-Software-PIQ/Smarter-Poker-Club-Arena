@@ -45,6 +45,9 @@ function fixture(data: unknown) {
     tournamentId,
     tournamentLeaseGeneration: leaseGeneration,
     lifecycleIsCurrent: () => valid,
+    // The opening wave (tableOpenWaves.ts) is its own tested unit; here the
+    // slot is granted at once so the admission body runs as before.
+    awaitTableOpeningWave: async () => {},
     tableEngines: new Map([[tableId, engine]]),
     gameServer: {
       ownsTournamentTableEngine: () => true,

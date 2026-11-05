@@ -329,7 +329,7 @@ describe('the first deal of a held launch goes in waves', () => {
     expect(waves).toBeGreaterThan(hold);
     expect(blind).toBeGreaterThan(waves);
     // The gate sits after the admission fence and before the first database read.
-    const fence = src.indexOf('openingSlot = await this.tableOpenGate().acquire(');
+    const fence = src.indexOf('await this.awaitTableOpeningWave(engine, tableId, current);');
     const firstRead = src.indexOf('await resumeRetainedHandSubmission(tableId, INSTANCE_ID');
     expect(fence).toBeGreaterThan(-1);
     expect(firstRead).toBeGreaterThan(fence);
