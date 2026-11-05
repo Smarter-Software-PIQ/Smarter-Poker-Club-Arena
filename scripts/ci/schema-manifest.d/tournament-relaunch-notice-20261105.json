@@ -1,0 +1,5 @@
+{
+  "_owner": "Migration 20261105033238 (tournament relaunch notice). Installed by Apply Merged Migration after merge; the daily manifest job folds it into the base snapshot.",
+  "tables": ["ca_player_notices", "ca_player_notice_acks"],
+  "functions": ["fn_ca_pending_player_notice", "fn_ca_ack_player_notice"]
+}
