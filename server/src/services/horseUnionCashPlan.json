@@ -156,52 +156,12 @@
       "bigBlind": 10.0
     },
     {
-      "id": "b3c63129-9377-4c61-9f62-089893a20c66",
-      "name": "Lightning NLH .25/.50",
-      "window": "always",
-      "variant": "nlh",
-      "smallBlind": 0.25,
-      "bigBlind": 0.5
-    },
-    {
-      "id": "705270cd-03c2-40d9-8749-038f741a295c",
-      "name": "Lightning PLO4 .25/.50",
-      "window": "day",
-      "variant": "plo4",
-      "smallBlind": 0.25,
-      "bigBlind": 0.5
-    },
-    {
       "id": "0bc9bdf3-7fa6-43ed-855a-9be01b5a6073",
       "name": "Madness FLO8 .25/.50 blinds",
       "window": "day",
       "variant": "flo8",
       "smallBlind": 0.25,
       "bigBlind": 0.5
-    },
-    {
-      "id": "4ce1449e-4dc5-4d24-ab43-cc3154707c0e",
-      "name": "Lightning PLO5 .25/.50",
-      "window": "prime",
-      "variant": "plo5",
-      "smallBlind": 0.25,
-      "bigBlind": 0.5
-    },
-    {
-      "id": "b0464144-e406-47b3-adf3-8543555e6d25",
-      "name": "Lightning PLO6 .25/.50",
-      "window": "prime",
-      "variant": "plo6",
-      "smallBlind": 0.25,
-      "bigBlind": 0.5
-    },
-    {
-      "id": "57ca90e4-815e-4081-a5d2-1f10522d95c7",
-      "name": "Lightning NLH .50/1",
-      "window": "prime",
-      "variant": "nlh",
-      "smallBlind": 0.5,
-      "bigBlind": 1.0
     }
   ],
   "windows": {

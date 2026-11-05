@@ -110,7 +110,21 @@ export function horseUnionCashTableAllowed(
   if (nowMs < HORSE_UNION_CASH_PLAN_START_MS) return true;
   // The human exception never overrides forbidden variants or the stake ceiling.
   if (!horseCashGameAllowed(table, nowMs)) return false;
-  if (lightningGames !== null && lightningGames.has(String(table.cluster_id ?? ''))) return true;
+  // LIGHTNING ALWAYS ON, ONE HORSE TABLE PER GAME (Dan 2026-11-05: "LIGHTNING
+  // MUST ALWAYS BE ON-24 HOURS A DAY, EVERY DAY" and "'Lightning always on'
+  // does not automatically mean every one of the 11 tables must be filled with
+  // horses around the clock"). Availability and horse footprint are separate:
+  // the game stays enabled and in Lightning mode for everyone (always_on), and
+  // horses anchor only at its stable Main 1 at every hour - no clock, no
+  // timer. A seat is the pool anchor, so the horse pool is at most one
+  // six-seat table: one hand in flight, continuously. Feeders and further
+  // Mains are not horse-funded capacity; real players use every table.
+  if (lightningGames !== null && lightningGames.has(String(table.cluster_id ?? '')))
+    return (
+      table.role === 'main' &&
+      Number(table.main_index) === 1 &&
+      primaryTables.has(String(table.id ?? ''))
+    );
   const higherStakes = Number(table.small_blind) > 0.5 || Number(table.big_blind) > 1;
   if (higherStakes && Number.isFinite(playingHumans) && playingHumans > 0) return true;
   const gameId = String(table.cluster_id ?? '');
