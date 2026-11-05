@@ -145,7 +145,7 @@ describe('browser qualification parallel delivery', () => {
     expect(browser.name).toContain('${{ matrix.partition }}');
     expect(beats.run).not.toContain('--pass-with-no-tests');
     expect(beats.run.trim()).toMatch(/--shard=\$\{\{ matrix\.shard \}\}\/10$/);
-    expect((beats.run.match(/tests\/e2e\//g) || []).length).toBe(26);
+    expect((beats.run.match(/tests\/e2e\//g) || []).length).toBe(27);
     for (const value of browser.steps) expect(value['continue-on-error']).toBeUndefined();
     const evidence = step('Preserve failed CSS beat browser evidence');
     expect(evidence.if).toContain("steps.css-beats.outcome == 'failure'");
