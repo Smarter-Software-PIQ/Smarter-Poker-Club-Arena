@@ -1,0 +1,13 @@
+[Unit]
+Description=Run the Club Arena tournament monitor every 180 seconds
+
+[Timer]
+OnActiveSec=5s
+OnBootSec=60s
+OnUnitActiveSec=180s
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit=tournament-monitor.service
+
+[Install]
+WantedBy=timers.target
