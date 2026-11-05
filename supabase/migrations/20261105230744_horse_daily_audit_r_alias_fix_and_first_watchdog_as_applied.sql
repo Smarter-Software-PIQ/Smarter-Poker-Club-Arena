@@ -1,3 +1,12 @@
+-- SUPERSEDED BY 20261105220227
+--
+-- THIS FILE NEVER RUNS. It is the SQL production applied directly as
+-- 20261105172255 (horse_daily_audit_fix_r_alias_and_independent_watchdog) during the 2026-11-05 horse daily audit outage,
+-- unchanged except for this header and its BEGIN/COMMIT envelope. That SQL
+-- carried no transaction of its own, so a byte-exact copy would not be a
+-- migration the applier takes; scripts/ci/applied-migration-aliases.json maps
+-- 20261105172255 to this file. Every object it touches is replaced by 20261105220227.
+BEGIN;
 do $mig$
 declare
   src text := pg_get_functiondef('public.fn_run_horse_daily_audit(date)'::regprocedure);
@@ -102,3 +111,4 @@ end
 $function$;
 
 select cron.schedule('horse-daily-audit-watchdog', '45 8,14,20 * * *', 'select public.fn_horse_daily_audit_watchdog()');
+COMMIT;

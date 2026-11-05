@@ -2137,30 +2137,6 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9408",
       "refusedBy": [],
       "liveVerdict": "Active paid Spin outage: 64 games / 192 paid seats could not launch because an invoker trigger called a postgres-only conversion predicate (42501). Owner PUBLISHING.md active-outage exception used for the exact native-qualified source. Installed source keeps fn_guard_managed_game_lifecycle SECURITY INVOKER and nests the conversion predicate behind current_user=postgres. No new grants, money, redraws or game-state edits. Readback confirms service_role and authenticated still cannot execute the predicate; exact SQL md5 e7f385192355699caab792c71e75c74a. Original source submission cb69852 required live-proof metadata correction, now qualified by 26 law cases and native runtime/funding/412-entry financial tests. Protected recording and required CI continue in PR9408; installation is not completion."
-    },
-    {
-      "version": "20261105172255",
-      "name": "horse_daily_audit_fix_r_alias_and_independent_watchdog",
-      "file": "supabase/migrations/20261105172255_horse_daily_audit_fix_r_alias_and_independent_watchdog.sql",
-      "md5": "cf50f09a2090f85fb09d0fc98a423f79",
-      "appliedToProductionAt": "2026-11-05T17:22:55Z",
-      "recoveredOn": "2026-11-05",
-      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
-      "issue": "horse daily audit outage 2026-11-01..04",
-      "refusedBy": [],
-      "liveVerdict": "Active outage: fn_run_horse_daily_audit raised record \"r\" is not assigned yet on every run since 2026-11-01 (cron job 373 failed 11-02..11-05 07:30Z with that context). Reproduced on a scratch Postgres 17 with the exact pre-fix source. Live definition reads the hrr alias; Nov 1-4 rows were regenerated at 17:23:07Z. Function grants unchanged (postgres, service_role). Superseded in part by 20261105220227."
-    },
-    {
-      "version": "20261105202216",
-      "name": "horse_audit_watchdog_also_watches_lost_analysis_and_stale_claims",
-      "file": "supabase/migrations/20261105202216_horse_audit_watchdog_also_watches_lost_analysis_and_stale_claims.sql",
-      "md5": "6b932c312f64d320b3d2414f3b01d4fe",
-      "appliedToProductionAt": "2026-11-05T20:22:16Z",
-      "recoveredOn": "2026-11-05",
-      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
-      "issue": "horse daily audit outage 2026-11-01..04",
-      "refusedBy": [],
-      "liveVerdict": "Watchdog cron 550 ran 20:45Z, released the stale claude_daily_analysis claims for 2026-11-01..03 and raised one warning per day. fn_horse_daily_audit_watchdog is replaced in full by 20261105220227, which keeps this behaviour and adds run records and a retry budget."
     }
   ]
 }

@@ -9,7 +9,9 @@ setter dropped the Nov 1-3 analyses because their audit rows did not exist.
 
 **Recorded here.** `20261105172255` (alias fix, first watchdog) and
 `20261105202216` (watchdog for lost analysis) were applied directly during
-the outage; both are now on main byte-exact.
+the outage with no transaction. Their exact SQL is on main inside a
+BEGIN/COMMIT envelope as `20261105230744` and `20261105230750`, marked
+SUPERSEDED BY `20261105220227` and mapped by `applied-migration-aliases.json`.
 
 **Changed by `20261105220227`.**
 

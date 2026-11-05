@@ -7,8 +7,9 @@
 -- from 2026-11-01 raised `record "r" is not assigned yet` (cron job 373
 -- failed 11-02..11-05 07:30Z with exactly that context). 20261105172255 fixed
 -- the alias and added a watchdog; 20261105202216 taught it lost analysis.
--- Those two were applied directly during the outage and are recorded
--- byte-exact beside this file.
+-- Both were applied directly during the outage without a transaction; their
+-- exact SQL is kept, wrapped and marked SUPERSEDED BY this file, as
+-- 20261105230744 and 20261105230750 (see applied-migration-aliases.json).
 --
 -- What was still wrong, and what this changes:
 --  1. A failed attempt left no record of its own. horse_daily_audit_runs now

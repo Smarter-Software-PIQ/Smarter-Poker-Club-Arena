@@ -1,3 +1,12 @@
+-- SUPERSEDED BY 20261105220227
+--
+-- THIS FILE NEVER RUNS. It is the SQL production applied directly as
+-- 20261105202216 (horse_audit_watchdog_also_watches_lost_analysis_and_stale_claims) during the 2026-11-05 horse daily audit outage,
+-- unchanged except for this header and its BEGIN/COMMIT envelope. That SQL
+-- carried no transaction of its own, so a byte-exact copy would not be a
+-- migration the applier takes; scripts/ci/applied-migration-aliases.json maps
+-- 20261105202216 to this file. Every object it touches is replaced by 20261105220227.
+BEGIN;
 -- The independent watchdog (horse_daily_audit_fix_r_alias_and_independent_watchdog)
 -- re-ran a missing audit but could not see the other way a day goes quietly
 -- unfinished: Nov 1-3 2026 each have an audit, and a claude_daily_analysis claim
@@ -67,3 +76,4 @@ begin
   return v_out;
 end
 $function$;
+COMMIT;
