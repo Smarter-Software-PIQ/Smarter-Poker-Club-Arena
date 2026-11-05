@@ -1,4 +1,4 @@
--- 20261105221247_diamond_midnight_retirement_admitted_once_with_cheap_hand_proof
+-- 20261105221247_diamond_midnight_retirement_admitted_once_cheap_hand_proof
 --
 -- Reserved by scripts/reserve-migration-version.sh on 2026-11-05 22:12:47 UTC.
 --
