@@ -154,6 +154,37 @@ describe('the database boundary excludes accepted-hand rows', () => {
     expect(resolver).toContain('public.resolve_pending_addon(v_addon.id, p_max_buy_in)');
   });
 
+  it('treats a NULL max buy-in as uncapped instead of refusing the sweep', () => {
+    /* PR #9450 made getMaxBuyIn() NULL for fixed-limit variants. The original
+       guard above answered invalid_request to NULL, the engine read that as an
+       unreachable resolver and killed every fixed-limit cash table in a loop
+       (pending_addon_exact_refused, 2026-11-05 02:02 UTC). The replacement
+       keeps every other line and only lets NULL through, the way
+       resolve_pending_addon's DEFAULT NULL already does. */
+    const replacement = readFileSync(
+      join(
+        process.cwd(),
+        '..',
+        'supabase',
+        'migrations',
+        '20261105020906_a_null_max_buy_in_is_uncapped_in_the_pending_addon_resolver.sql'
+      ),
+      'utf8'
+    );
+    const body = replacement.slice(
+      replacement.indexOf('CREATE OR REPLACE FUNCTION public.fn_ca_resolve_unbound_pending_addons'),
+      replacement.indexOf('$function$;')
+    );
+    expect(body).toContain('OR (p_max_buy_in IS NOT NULL AND p_max_buy_in <= 0)');
+    expect(body).not.toContain('OR p_max_buy_in IS NULL');
+    expect(body).toContain("hashtextextended('hand-post-commit:' || p_table_id::text, 0)");
+    expect(body).toContain('v_generation IS DISTINCT FROM p_lease_generation');
+    expect(body).toContain("c.post_commit_payload #> '{pending_addons,ids}'");
+    expect(body).toContain('public.resolve_pending_addon(v_addon.id, p_max_buy_in)');
+    expect(body).toContain('SECURITY DEFINER');
+    expect(replacement).toMatch(/^-- @live-proof: /m);
+  });
+
   it('sweeps before a quiet table decides it still lacks players', () => {
     const waitLoop = base.slice(
       base.indexOf("this.setLoopPhase('start_wait_for_players')"),
