@@ -42,7 +42,8 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
       'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20260910T000000Z trixie-security main' \
       > /etc/apt/sources.list \
     && printf '%s\n' \
-      'Acquire::Retries "3";' \
+      'Acquire::Retries "5";' \
+      'Acquire::Retries::Delay "false";' \
       'Acquire::https::Timeout "30";' \
       'Acquire::http::Timeout "30";' \
       > /etc/apt/apt.conf.d/80fixture-transport \
