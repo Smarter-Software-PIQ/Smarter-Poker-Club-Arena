@@ -229,7 +229,8 @@ it.each([481, 606, 1024])(
     const initialCrown = paintedAvatarTop(head);
     if (width <= 768) {
       const mini = h.container.querySelector('.bbj-mini-plate')!.getBoundingClientRect();
-      expect(head.getBoundingClientRect().top).toBeCloseTo(mini.bottom + 9);
+      // The lane is measured from the painted crown, not the image box.
+      expect(initialCrown).toBeCloseTo(mini.bottom + 9);
     } else {
       expect(initialCrown).toBeCloseTo(-2);
       expect(head.getBoundingClientRect().top).toBeLessThan(-2);
@@ -267,7 +268,10 @@ it.each([320, 375, 393, 430, 480])(
         avatarSource="/avatars/table/vip_wolf@2x.webp"
       />
     );
-    expect(h.container.querySelector('.seat__avatar-img')!.getBoundingClientRect().top).toBe(42);
+    // The painted crown, not the transparent image box, keeps 8px of air.
+    expect(
+      paintedAvatarTop(h.container.querySelector<HTMLImageElement>('.seat__avatar-img')!)
+    ).toBeCloseTo(42);
   }
 );
 
@@ -359,4 +363,58 @@ it('a seat that leaves the top lane drops its shift (Dan 2026-11-02, jam_degen o
   );
   await waitFor(() => expect(pod().style.getPropertyValue('--sp-top-seat-shift')).toBe(''));
   expect(pod().style.translate).toBe('');
+});
+
+// Dan 2026-11-05, live FLH 0.50/1 on a phone: "MAMAPRIYA IS TOO LOW". Both
+// top chairs share one rail line. Library art carries transparent canvas above
+// the head (free_penguin 31%, vip_wolf 4%), and the table normalizes figure
+// size, so the two image boxes differ while the painted figures match. The
+// lane is measured from the painted crown, so the two plates sit level; the
+// old image-box anchor parked the penguin's plate ~51px below the wolf's.
+it('two top chairs on one rail line sit level whatever character each wears', () => {
+  stubGeometry();
+  function TwoTopChairs() {
+    const ref = useRef<HTMLDivElement>(null);
+    useProtectedCardLayout(ref, 'level');
+    return (
+      <div className="table-page" data-seats={9} data-box="0,0,393,852">
+        <div className="bbj-mini-plate" data-box="130,20,140,14" />
+        <div className="table-scaler" data-box="0,0,393,600" ref={ref}>
+          <div className="community-area" data-box="60,420,280,90" />
+          <div className="seat-wrapper--top" data-chair="penguin">
+            <img
+              className="seat__avatar-img"
+              src="/avatars/table/free_penguin@2x.webp"
+              data-box="0,100,174,174"
+              alt=""
+            />
+            <div className="seat__info" data-box="40,270,96,37" />
+          </div>
+          <div className="seat-wrapper--top" data-chair="wolf">
+            <img
+              className="seat__avatar-img"
+              src="/avatars/table/vip_wolf@2x.webp"
+              data-box="200,100,123,123"
+              alt=""
+            />
+            <div className="seat__info" data-box="214,219,96,37" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  const h = render(<TwoTopChairs />);
+  const plate = (chair: string) =>
+    h.container
+      .querySelector(`[data-chair="${chair}"] .seat__info`)!
+      .getBoundingClientRect().top;
+  expect(Math.abs(plate('penguin') - plate('wolf'))).toBeLessThanOrEqual(2);
+  // Each painted head still keeps its 8px of air below the jackpot plate.
+  const mini = h.container.querySelector('.bbj-mini-plate')!.getBoundingClientRect();
+  for (const chair of ['penguin', 'wolf'])
+    expect(
+      paintedAvatarTop(
+        h.container.querySelector<HTMLImageElement>(`[data-chair="${chair}"] .seat__avatar-img`)!
+      )
+    ).toBeCloseTo(mini.bottom + 8);
 });

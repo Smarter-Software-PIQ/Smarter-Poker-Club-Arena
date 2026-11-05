@@ -614,9 +614,17 @@ export function useProtectedCardLayout(
             // scrunched up." The pod's highest painted part (the art, or the
             // position chip on its corner) keeps 8px of air below the jackpot
             // plate rather than 4px against it.
+            //
+            // Dan 2026-11-05: "MAMAPRIYA IS TOO LOW". Measure the art by its
+            // painted crown, never by the image box: library canvases carry up
+            // to a third of their height as transparency above the head
+            // (free_penguin 31%), so anchoring the box parked that player about
+            // 54px below the other top chair. Two chairs on one rail line sit
+            // level whatever character either player wears.
             const badgeElement = pod.querySelector<HTMLElement>('.seat__position-badge');
             const badge = badgeElement ? restingAvatarBox(badgeElement, scale) : null;
-            const highest = Math.min(image.top, badge && badge.height > 0 ? badge.top : Infinity);
+            const crown = avatar ? restingAvatarTop(avatar, scale) : image.top;
+            const highest = Math.min(crown, badge && badge.height > 0 ? badge.top : Infinity);
             // On the shortest nine-seat phones a board-sized PLO hand needs
             // a full card-height lane between the jackpot and its own plate.
             const largeHand = scaler.querySelector(
