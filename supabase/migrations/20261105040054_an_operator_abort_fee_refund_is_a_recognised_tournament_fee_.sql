@@ -198,4 +198,33 @@ BEGIN
   END IF;
 END $post$;
 
+-- THE WEEKLY GATE IS RE-DERIVED, NOT CHANGED
+--
+-- Since 20260925205938 public.fn_accounting_tournament_week_quality proves an
+-- event in one set pass without calling net_plan only when that event has no
+-- negative rake row (event.negative_rows=0); every event with a refund
+-- reversal takes its slow path, which calls net_plan. This change only admits
+-- one more NEGATIVE (reversal) source, so the fast path's equivalence with
+-- net_plan is untouched and the slow path picks the change up by calling it.
+-- Pin the gate body that argument was made against (md5
+-- c9e08ef6460bc1b9d27af7339f3c42cc) and its two load-bearing facts, and
+-- restate its ACL, so a drifted gate aborts this file instead of silently
+-- disagreeing (tests/unit/weekGateFastPathFollowsNetPlan.test.ts).
+DO $gate$
+DECLARE v_gate text;
+BEGIN
+  SELECT pg_get_functiondef(p.oid) INTO v_gate FROM pg_proc p
+   WHERE p.oid = 'public.fn_accounting_tournament_week_quality(uuid,timestamptz,timestamptz)'::regprocedure
+     AND md5(pg_get_functiondef(p.oid)) = 'c9e08ef6460bc1b9d27af7339f3c42cc'
+     AND p.proowner = 'postgres'::regrole
+     AND p.proacl::text = '{postgres=X/postgres}';
+  IF v_gate IS NULL
+     OR position('IF event.negative_rows=0 AND event.invalid_rows=0' in v_gate) = 0
+     OR position('BEGIN proof:=public.fn_accounting_tournament_fee_net_plan(event.tournament_id);' in v_gate) = 0 THEN
+    RAISE EXCEPTION 'TOURNAMENT_WEEK_GATE_PREIMAGE_DRIFT';
+  END IF;
+END $gate$;
+
+REVOKE ALL ON FUNCTION public.fn_accounting_tournament_week_quality(uuid,timestamptz,timestamptz) FROM PUBLIC, anon, authenticated, service_role;
+
 COMMIT;
