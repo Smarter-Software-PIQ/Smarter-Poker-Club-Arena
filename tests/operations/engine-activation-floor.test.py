@@ -500,11 +500,11 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_certified_diagnostic_bounds_are_profile_and_predecessor_scoped(self):
         seal,_,_=self.certified_seal()
         raw={'checkpointRequired':1,'drainedCutover':0,'prepared':0,'mutationStarted':0,'lockHeld':1,
-             'checkpointBudgetSeconds':320,'checkpointWorkMs':305000,'certificateExitStatus':0,
+             'checkpointBudgetSeconds':320,'checkpointWorkMs':260000,'certificateExitStatus':0,
              'breakEndEpoch':1793854800,'checkpointProfile':floor.CERTIFIED_PROFILE,'predecessorSha':floor.CERTIFIED_PREDECESSOR}
         self.assertEqual(seal.diagnostic_shell_state(raw),raw)
         for changes in [{'checkpointProfile':'eed-80s-v1'},{'predecessorSha':'a'*40},
-                        {'checkpointBudgetSeconds':321},{'checkpointWorkMs':305001}]:
+                        {'checkpointBudgetSeconds':321},{'checkpointWorkMs':260001}]:
             with self.assertRaises(ValueError): seal.diagnostic_shell_state({**raw,**changes})
         ordinary={**raw,'checkpointProfile':'eed-80s-v1','checkpointBudgetSeconds':80,'checkpointWorkMs':68750}
         self.assertEqual(seal.diagnostic_shell_state(ordinary),ordinary)
