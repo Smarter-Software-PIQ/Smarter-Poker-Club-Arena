@@ -1,4 +1,4 @@
--- 20261105220946_owner_closes_the_midnight_free_buy_after_the_hold_bound_rewrite
+-- 20261105220946_owner_closes_midnight_free_buy_after_hold_bound_rewrite
 --
 -- Reserved by scripts/reserve-migration-version.sh on 2026-11-05 22:09:46 UTC.
 --
