@@ -289,6 +289,34 @@ export class HorseSessionRotator {
     }
   }
 
+  /** Lightning-enabled Clusters among these tables. Null = unread; the caller
+   * then walks nobody out of a table for the cash schedule this pass, because
+   * it cannot tell a Lightning table (never scheduled) from a Classic one. */
+  private async readLightningGameIds(
+    byTable: ReadonlyMap<string, ReadonlyArray<unknown>>
+  ): Promise<Set<string> | null> {
+    const clusterIds = new Set<string>();
+    for (const tableSeats of byTable.values()) {
+      const cid = (tableSeats[0] as { tables?: { cluster_id?: string | null } } | undefined)?.tables
+        ?.cluster_id;
+      if (cid) clusterIds.add(String(cid));
+    }
+    if (clusterIds.size === 0) return new Set();
+    try {
+      const read = await selectInChunks<{ id: string }>(
+        [...clusterIds],
+        (batch) =>
+          supabase.from('cash_games').select('id').in('id', batch).eq('lightning_enabled', true),
+        'HorseSessionRotator.lightningGames'
+      );
+      if (!read.complete) return null;
+      return new Set(read.rows.map((r) => String(r.id)));
+    } catch (err) {
+      reportError(err, 'HorseSessionRotator.lightningGamesRead');
+      return null;
+    }
+  }
+
   private noteLeaveResult(tableId: string, userId: string, result: RotatorLeaveResult): void {
     const key = HorseSessionRotator.breakKey(tableId, userId);
     if (result.success) {
@@ -981,6 +1009,7 @@ export class HorseSessionRotator {
        is never left alone by this pass. An unread set walks nobody out
        (fails open, as the fleet's own read does). */
     const disabledGameIds = await this.readDisabledGameIds(byTable);
+    const lightningGameIds = await this.readLightningGameIds(byTable);
     if (!this.lifecycleIsCurrent(generation)) return;
     let rosterLeaves = 0;
     const cashPlanPrimaryTables = horseCashPlanPrimaryTables(
@@ -997,12 +1026,15 @@ export class HorseSessionRotator {
         horseIds,
         disabledGameIds
       );
-      const outsideCashPlan = !horseUnionCashTableAllowed(
-        t ?? {},
-        playingHumansAtCashTable(tableSeats, horseIds),
-        Date.now(),
-        cashPlanPrimaryTables
-      );
+      const outsideCashPlan =
+        lightningGameIds !== null &&
+        !horseUnionCashTableAllowed(
+          t ?? {},
+          playingHumansAtCashTable(tableSeats, horseIds),
+          Date.now(),
+          cashPlanPrimaryTables,
+          lightningGameIds
+        );
       for (const seat of tableSeats) {
         const uid = String(seat.user_id ?? '');
         if (!uid || !horseIds.has(uid)) continue;
