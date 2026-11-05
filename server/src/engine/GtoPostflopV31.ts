@@ -197,6 +197,16 @@ const makeStore = (): Store => ({
 // A candidate can only be selected by its immutable checksum and can never be
 // swapped into the live action path by loading order or shared map mutation.
 const activeStore: Store = makeStore();
+/**
+ * Evaluation stores are bounded (2026-11-05). Each sealed candidate is a
+ * full cell map, and before this bound every checksum ever benchmarked stayed
+ * resident for the life of the process: the only unbounded horse cache in the
+ * engine. The map keeps the GTO_V31_EVALUATION_STORE_MAX most recently loaded
+ * datasets, in insertion order; loading a fifth evicts the least recently
+ * loaded one, and re-loading an existing checksum moves it to most recent.
+ * The active store is a separate object and is never touched by eviction.
+ */
+export const GTO_V31_EVALUATION_STORE_MAX = 4;
 const evaluationStores = new Map<string, Store>();
 const HEX40 = /^[0-9a-f]{40}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -891,7 +901,14 @@ export function replaceGtoPostflopV31Evaluation(rows: GtoV31RuntimeRow[]): numbe
   if (!next.datasetChecksum || !next.datasetId || next.cells.size === 0) {
     throw new Error('v31_evaluation_dataset_empty');
   }
+  // Delete first so a re-insert moves to the most recent position.
+  evaluationStores.delete(next.datasetChecksum);
   evaluationStores.set(next.datasetChecksum, next);
+  while (evaluationStores.size > GTO_V31_EVALUATION_STORE_MAX) {
+    const oldest = evaluationStores.keys().next().value;
+    if (oldest === undefined) break;
+    evaluationStores.delete(oldest);
+  }
   return next.cells.size;
 }
 

@@ -2496,22 +2496,40 @@ groups:
       # hourly RSS maximum was 4.85-6.82 GiB, typically 5.2-6.2 GiB, flat within
       # each uptime, with ~52 GiB of the host still available. The 2026-10-02
       # line (4 GiB, set for 1.7-2.9 GiB on the 16 GiB host) sat
-      # below every ordinary hour and fired continuously on nothing. 8 GiB sits
-      # 1.2 GiB above the 52 h peak, so a firing means growth again. Re-measure
-      # whenever the host or poker_equity_worker_pool_configured_workers changes.
+      # below every ordinary hour and fired continuously on nothing, and the
+      # 8 GiB line that replaced it did the same once the eight horse decision
+      # workers' bounded observer memory was in the process.
+      #
+      # RE-SET 2026-11-05 to the owner ceiling. Dan (2026-11-05 14:44 Chicago,
+      # scripts/ci/verify-engine-release-bundle.mjs): the Phase 1 RSS ceiling
+      # is 12288 MB and RSS must level off. The measured steady state on the
+      # current engine is 8.85-10.3 GB whole-process RSS. That figure already
+      # includes the eight horse decision workers, the equity workers and the
+      # journal writers: they are worker_threads inside the one engine
+      # process, so poker_engine_process_rss_bytes counts them and the
+      # ceiling is per process, not per isolate. 12 GiB sits about 1.7 GiB
+      # above the measured band, so a firing means growth again, and it is
+      # the same line the engine's memory governor falls back to
+      # (server/src/observability/memoryGovernor.ts), so the live alarm and
+      # the release gate agree. Re-measure whenever the host, the horse
+      # decision worker count or poker_equity_worker_pool_configured_workers
+      # changes.
       - alert: EngineProcessMemoryHigh
         expr: |
-          poker_engine_process_rss_bytes > 8589934592
+          poker_engine_process_rss_bytes > 12884901888
         for: 15m
         labels:
           severity: warning
           component: engine
         annotations:
-          summary: 'Engine process RSS {{ $value | humanize1024 }}B - above the 8 GiB process-memory warning'
+          summary: 'Engine process RSS {{ $value | humanize1024 }}B - above the 12 GiB owner ceiling (12288 MB, 2026-11-05)'
           description: |
-            Engine process RSS has exceeded 8 GiB for fifteen minutes - above
-            the 4.85-6.82 GiB hourly-maximum band measured 2026-10-17/19 on the
-            61 GiB, 14-equity-worker host.
+            Engine process RSS has exceeded 12 GiB for fifteen minutes - above
+            the 12288 MB Phase 1 ceiling set by the owner on 2026-11-05 and
+            above the 8.85-10.3 GB whole-process steady state measured on the
+            current engine (the horse decision workers, equity workers and
+            journal writers are worker_threads inside this process and are
+            already counted in that figure).
             Compare whole-process RSS, main-isolate V8 usage, worker activity,
             external memory and threads. poker_engine_native_main_arena_bytes
             is current [heap] virtual extent, not RSS or allocation ownership.

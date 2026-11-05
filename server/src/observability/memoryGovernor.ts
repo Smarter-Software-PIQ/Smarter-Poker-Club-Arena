@@ -25,19 +25,33 @@
  * Ceilings:
  *  - MEMORY_LIMIT_MB set (the container/host budget for this process):
  *    soft = 80% of it, hard = 95% of it.
- *  - unset: soft = 6144 MB, hard = 8192 MB (the EngineProcessMemoryHigh
- *    warning line, which sits above the 4.85-6.82 GiB hourly band measured
- *    2026-10-17/19, so "a firing means growth again").
+ *  - unset: soft = 9830 MB (80% of the hard line), hard = 12288 MB. The hard
+ *    line is the Phase 1 RSS ceiling from the owner decision (Dan,
+ *    2026-11-05 14:44 Chicago, recorded in
+ *    scripts/ci/verify-engine-release-bundle.mjs): 12288 MB, and RSS must
+ *    level off. It is also the EngineProcessMemoryHigh warning line in
+ *    infra/monitoring/alert-rules.yml, so the live alarm and the release gate
+ *    agree. RSS here is WHOLE-PROCESS RSS: the eight horse decision workers,
+ *    the equity workers and the journal writers are worker_threads inside
+ *    this one process, so their memory is already counted in the figure the
+ *    governor samples; the ceiling is not per isolate. The measured steady
+ *    state on the current engine is 8.85-10.3 GB whole-process RSS, which
+ *    sits below the 12288 MB line, so "a firing means growth again". The old
+ *    6144 / 8192 MB pair was set for the 4.85-6.82 GiB band measured
+ *    2026-10-17/19, before the horse decision workers' bounded observer
+ *    memory existed, and could not be met at any uptime.
  *  MEMORY_SOFT_CEILING_MB / MEMORY_HARD_CEILING_MB override either directly.
  *
  * MODE (2026-10-31 safety review, before first deploy). Production RSS was
- * 8.85-9.49 GB in steady state on eed06fe5, i.e. ABOVE the 8192 MB fallback
- * hard line, and there is one engine instance: a "hand-off" there is a
- * process exit that the supervisor answers with a cold boot (~72 s to dealer
- * ready, every table re-adopted), not a warm standby taking over. Enforcing
- * on first deploy would therefore turn steady-state memory into a restart
- * loop, and the soft hold would also refuse to re-adopt seated tables after
- * each boot. So nothing acts until an operator opts in:
+ * 8.85-9.49 GB in steady state on eed06fe5, which was ABOVE the 8192 MB
+ * fallback hard line of the time (the line is 12288 MB since 2026-11-05, so
+ * steady state now sits below it), and there is one engine instance: a
+ * "hand-off" there is a process exit that the supervisor answers with a cold
+ * boot (~72 s to dealer ready, every table re-adopted), not a warm standby
+ * taking over. Enforcing on first deploy would therefore have turned
+ * steady-state memory into a restart loop, and the soft hold would also
+ * refuse to re-adopt seated tables after each boot. So nothing acts until an
+ * operator opts in:
  *
  *  - MEMORY_GOVERNOR_MODE=observe (DEFAULT, and any unrecognised value):
  *    sample, classify, publish on /health and report the first hard crossing
@@ -54,8 +68,8 @@
  * dispatches.
  */
 
-export const MEMORY_GOVERNOR_FALLBACK_SOFT_MB = 6144;
-export const MEMORY_GOVERNOR_FALLBACK_HARD_MB = 8192;
+export const MEMORY_GOVERNOR_FALLBACK_SOFT_MB = 9830;
+export const MEMORY_GOVERNOR_FALLBACK_HARD_MB = 12288;
 export const MEMORY_GOVERNOR_SOFT_RATIO = 0.8;
 export const MEMORY_GOVERNOR_HARD_RATIO = 0.95;
 /** Soft pressure lifts only once RSS is below this share of the soft ceiling. */
