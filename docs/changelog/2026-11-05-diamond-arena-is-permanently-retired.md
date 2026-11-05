@@ -1,0 +1,5 @@
+# 2026-11-05 - Diamond Arena Is Permanently Retired
+
+Owner, 2026-11-05 15:04 Chicago: "OVERRIDE THE 4 AM RULE FOR THE MIDNIGHT FREE BUY AND RETIRE DIAMOND ARENA NOW".
+
+Migration 20261105224533 retires club 002c2d27 (Diamond Arena) through fn_retire_settled_club_core_20260906 as its owner identity, after asserting every one of its 1,109 tournaments is COMPLETED or CANCELLED and the Midnight Free Buy 6429087f carries its one owner-retirement transfer. The door re-reads balances and obligations and flips lifecycle_status to retired. From then on the existing fn_guard_retired_club_mutation trigger refuses inserts, updates and deletes on tournaments, tables, seats, entrants, escrow, schedules, spawns, tickets, cash games and club wallets for this club from every caller (service role included), after a key-share lock on the club row so a racing writer waits and is refused; fn_guard_club_lifecycle_write refuses un-retiring it; fn_diamond_arena_club() stops resolving it. History stays readable.
