@@ -39,6 +39,9 @@ PARENT = Path('/usr/local/lib/club-arena')
 PROC = Path('/proc')
 ENGINE_LOCK = Path('/var/lock/club-arena-engine-up.lock')
 SCHEMA = 'waiting-engine-release-withdrawal/v1'
+# The pinned seal outgrew 256 KiB (274,014 bytes at a02e6f80). Match the seal's
+# own 1 MiB bound for the same exact source reads.
+SOURCE_LIMIT = 1048576
 
 
 def require(condition):
@@ -302,7 +305,7 @@ def protected_sources(control):
     for name in GENERIC_SOURCE_NAMES:
         raw = subprocess.run(git + ['show', control + ':server/scripts/' + name], capture_output=True,
                              timeout=10, check=True, env=env).stdout
-        require(0 < len(raw) < 262144)
+        require(0 < len(raw) < SOURCE_LIMIT)
         hashes[name] = digest(raw)
     return hashes
 
@@ -352,7 +355,13 @@ def select_owner_window_profile(request, entry):
     """Bind a later v2 owner to its own protected source, never a historical profile."""
     global OWNER_WINDOW_PROFILE
     key, control = request['runKey'], request['controlSha']
-    require(key not in PINNED_CANCELLATION_RUNS and request['desiredSha'] == EED_SHA)
+    require(key not in PINNED_CANCELLATION_RUNS and SHA.fullmatch(request['desiredSha']) is not None)
+    # REFUSED OWNER ANNOUNCEMENT (2026-11-05). A later owner whose predecessor is
+    # not EED can retain its owner only because the engine answered use_hourly:
+    # no break row, Lightning hold or freeze ever existed for its stamp. Its
+    # pinned seal hard-codes the EED predecessor, so it can never terminalize
+    # itself. EED owners keep their exact thawed route unchanged.
+    refused = request['desiredSha'] != EED_SHA
     hashes = protected_sources(control)
     raw = subprocess.run(['git', '-C', str(REPO), 'show', control + ':server/release/activation-floor.json'],
         capture_output=True, check=True, timeout=10,
@@ -365,8 +374,15 @@ def select_owner_window_profile(request, entry):
             and entry['schema'] == manifest['schema'] and entry['runId'] == key
             and entry['targetSha'] == request['releaseSha'] and entry['controlSha'] == control
             and entry['manifestSha256'] == digest(raw) and entry['phase'] == 'announcement')
+    deadline = None
+    if refused:
+        lines = regular(ROOT / 'engine-release-requests' / (key + '.request'), 0o600).splitlines()
+        require(len(lines) == 6 and re.fullmatch(r'[1-9][0-9]{9}', lines[5]) is not None
+                and time.time() > int(lines[5]))
+        deadline = lines[5]
+        MARKERLESS_ORIGINALS[key] = deadline
     OWNER_WINDOW_PROFILE = {'request': request | {'mode': 'cancel_expired_announcement'}, 'control': control, 'target': request['releaseSha'],
-        'hashes': hashes, 'wrapper': WRAPPER_HASH, 'manifest': digest(raw), 'deadline': None}
+        'hashes': hashes, 'wrapper': WRAPPER_HASH, 'manifest': digest(raw), 'deadline': deadline, 'refused': refused}
 
 
 def select_profile(request):
@@ -447,8 +463,8 @@ def source_hash(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         before = os.fstat(fd)
-        require(stat.S_ISREG(before.st_mode) and before.st_uid == 0 and before.st_size < 262144)
-        raw = os.read(fd, 262144)
+        require(stat.S_ISREG(before.st_mode) and before.st_uid == 0 and before.st_size < SOURCE_LIMIT)
+        raw = os.read(fd, SOURCE_LIMIT)
         after = os.fstat(fd)
         identity = lambda row: (row.st_dev, row.st_ino, row.st_mode, row.st_uid, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
         require(identity(after) == identity(before) and len(raw) == before.st_size)
@@ -846,6 +862,11 @@ def own_thaw(stamp, control=CANCEL_CONTROL, owner_request=None, serving_instance
     if owner_request is not None:
         require(get('engine_maintenance_thaws', {'select': 'release_target_at', 'contract_version': 'eq.3',
             'release_target_at': 'gt.' + datetime.datetime.now(datetime.timezone.utc).isoformat(), 'limit': '1'}) == [])
+    if owner_request is not None and cancellation_profile(owner_request).get('refused') is True:
+        # The engine refused this stamp (use_hourly): positive absence of any
+        # thaw for it and of an active break is the whole database witness.
+        require(rows == [] and active == [])
+        return {'announcedAtMs': stamp, 'refused': True}
     promise = get('rpc/fn_engine_maintenance_promise_proof', {}) if owner_request is not None else None
     return prove_thaw(rows, active, stamp, round(time.time() * 1000), control, owner_request, promise, serving_instance)
 
@@ -950,7 +971,10 @@ def announcement_evidence(request, after_stop=False, read_only=False, serving_in
     for suffix in ['break-deadline', 'legacy-checkpoint-intent', 'main-inspector-retirement-intent', 'lightning-hold.json'] + (['main-inspector-retirement-receipt', 'drill'] if owner else []):
         require(not os.path.lexists(reqroot / (key + '.' + suffix)))
     released_path = reqroot / (key + '.lightning-hold.json.released')
-    released_raw = regular(released_path, 0o600)
+    refused = bool(owner and OWNER_WINDOW_PROFILE.get('refused'))
+    if refused:
+        require(not os.path.lexists(released_path))
+    released_raw = None if refused else regular(released_path, 0o600)
     spec = importlib.util.spec_from_file_location('qualified_withdrawal_hold_reader', generation / 'engine-release-lightning-hold.py')
     helper = importlib.util.module_from_spec(spec)
     original_bytecode = sys.dont_write_bytecode
@@ -960,7 +984,7 @@ def announcement_evidence(request, after_stop=False, read_only=False, serving_in
     finally:
         sys.dont_write_bytecode = original_bytecode
     released = helper.own_record(released_path, key)
-    require(released is not None and released['phase'] == 'released')
+    require(released is None if refused else (released is not None and released['phase'] == 'released'))
     seal = generation / 'engine-release-seal.py'
     if key == PHASE1_RUN:
         phase1_seal_evidence(generation)
@@ -986,7 +1010,7 @@ def announcement_evidence(request, after_stop=False, read_only=False, serving_in
     require(not os.path.lexists(ROOT / 'engine-release-results' / (key + '.json')))
     return {**({'desiredImageId': state['desired']['imageId']} if owner else {}),
             'originals': originals, 'entryHash': digest(entry_raw.encode()),
-            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': digest(released_raw.encode()),
+            'reservationHash': digest(reservation_raw.encode()), 'releasedHoldHash': None if refused else digest(released_raw.encode()),
             'thaw': (own_thaw(stamp, control, request, serving_instance) if serving_instance is not None
                      else own_thaw(stamp, control, request) if owner else own_thaw(stamp, control))}
 
@@ -1283,7 +1307,12 @@ def cancel_announced(request):
         # partial unlink. Historical window and announcement entry never change.
         require(digest(regular(ROOT / 'engine-release-requests' / (key + '.activation-entry'), 0o600).encode()) == intent['evidence']['entryHash'])
         require(digest(regular(ROOT / ('engine-recovery-window-' + key + '.json'), 0o600).encode()) == intent['evidence']['reservationHash'])
-        require(digest(regular(ROOT / 'engine-release-requests' / (key + '.lightning-hold.json.released'), 0o600).encode()) == intent['evidence']['releasedHoldHash'])
+        released_path = ROOT / 'engine-release-requests' / (key + '.lightning-hold.json.released')
+        if intent['evidence']['releasedHoldHash'] is None:
+            require(OWNER_WINDOW_PROFILE is not None and OWNER_WINDOW_PROFILE.get('refused') is True
+                    and not os.path.lexists(released_path))
+        else:
+            require(digest(regular(released_path, 0o600).encode()) == intent['evidence']['releasedHoldHash'])
         for relative, expected in intent['evidence']['originals'].items():
             path = ROOT / relative
             if os.path.lexists(path):

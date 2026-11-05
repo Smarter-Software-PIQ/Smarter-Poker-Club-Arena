@@ -1,0 +1,13 @@
+# A refused owner announcement can be withdrawn, and owner windows wait for clear time
+
+Release 41995246530-1 (target a02e6f80, carrying #9486) ran under the fixed-minute owner window `2026-11-05-hybrid-and-phase1-55-0645z`. It announced its off-cycle break at 03:53:05 CST. The engine answered `use_hourly` because a 2 minute notice plus 5 minute freeze would reach the :58 hourly announcement (`MaintenanceBreak.ts`, recovery-window evaluation). The owner recovery clock still started at the release's own stamp, so `assert_owner_recovery_window_live` expired at 04:00:05, before the hourly freeze could finish. No break row, Lightning hold or freeze was ever created for that stamp.
+
+Its pinned a02e6f80 seal hard-codes the EED predecessor in `prove-expired-recovery-announcement`, and the serving predecessor is now 67bc0e85, so the original owner can never terminalize itself. Its unit restarts every 30 seconds with exit 75 and keeps the host runtime owner. Every later release was refused with "fresh scheduled release cannot compete with active runtime owner 41995246530-1".
+
+Changes:
+
+- `scripts/ci/withdraw-waiting-engine-release.py`: the existing v2 owner-window cancellation admits a non-EED predecessor only as a refused announcement. That requires the expired request deadline, no Lightning hold or released record, no thaw row for the stamp, no active break and no future release target. Every other predicate is unchanged: pinned control hashes, wrapper hash, seal state, unit and cgroup emptiness, reservation, disposition, serving identity and receipt. EED owners keep their exact thawed route. The exact-source size bound rises from 256 KiB to the seal's own 1 MiB, because the a02e6f80 seal is 274,014 bytes and the generic owner route could not read it. A read-only `observe_expired_announcement` run of this exact source against the host returned `predicates_passed_at_read` for 41995246530-1.
+- `server/scripts/engine-release-transaction.sh`: an owner-window release does not request an off-cycle window while its whole window plus one minute would reach the next scheduled announcement. It re-evaluates on the existing 60-second deferral instead of announcing into `use_hourly`. An unreadable schedule keeps the previous behaviour. Fixed-minute `[53]` windows are therefore not used. The new window is earliest-certified.
+- `server/release/*`: one fixed earliest-certified owner window, 14:00-20:00 UTC, containing a943bb3a (#9486), selected in `activation-floor.json`. No migration and no certified recovery profile.
+
+Delivery: protected merge, then the protected withdrawal workflow for 41995246530-1 (observe, then cancel), then the existing stage/receiver release and live verification.

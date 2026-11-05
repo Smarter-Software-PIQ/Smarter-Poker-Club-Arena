@@ -1028,6 +1028,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "f0a7f2e37b779ec34f07ff1511778cfdb97046ec9b152b319927fadded5b6d60"
       }
+    },
+    {
+      "id": "2026-11-05-union-cash-release-repair",
+      "contains": "a943bb3a7634bb21c635575e7ed52c291f8bacbf",
+      "notBefore": "2026-11-05T14:00:00Z",
+      "notAfter": "2026-11-05T20:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "68b30d0906c46855f80f574a7e86c1bc2ab78ade9d81ee810e12e489630aae30"
+      },
+      "ownerOrder": "Dan directly in the union cash schedule chat (Claude session session_01BbZPDgRrUn1BZ7J4cUYAPg), November 5 06:48 CST, verbatim: \"TAKE OVER THE ENGINE RELEASE REPAIR: CLEAR THE STUCK 41995246530-1 RELEASE, FIX THE SWITCH TIMING, OPEN A NEW WINDOW, SHIP #9486 AND VERIFY IT LIVE.\" Release 41995246530-1 under 2026-11-05-hybrid-and-phase1-55-0645z announced at :53, received use_hourly against the :58 hourly announcement, and its owner clock expired at :00:05 before the hourly freeze; its pinned seal cannot terminalize a non-EED predecessor, so it retains the host owner. This NEW fixed November 5 14:00-20:00 UTC earliest-certified window admits only a protected-main target containing a943bb3a (#9486) through the existing stage/receiver and sealed transaction, after the stuck owner is withdrawn through the protected withdrawal workflow. Preserve every prior entry, witness, intent and failed or unknown outcome; the 120-second notice, 300-second freeze, admission/proof/rollback reserve, original custody, immutable source and verified thaw. No migration, certified recovery profile, new admission or tournament-start hold, timer, second publisher, deadline extension, force restart, retry of unknown effects or guard bypass. Fixed expiry ends fresh authority."
     }
   ],
   "databaseWindows": [

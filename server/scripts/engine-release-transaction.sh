@@ -2037,6 +2037,27 @@ import json,sys
 d=json.load(sys.stdin); m=d.get("maintenance") or {}
 raise SystemExit(0 if d.get("running") is True and m.get("active") is False and m.get("recoveryWindowReady") is True and m.get("recoveryWindowProtocol")=="engine-recovery-window-v1" else 1)
 ' || return 0
+  # AN OWNER WINDOW NEVER ANNOUNCES INTO THE HOURLY BREAK (2026-11-05). The
+  # engine answers use_hourly when an off-cycle window (2 minute notice + 5
+  # minute freeze) would reach the next scheduled announcement, but an owner
+  # window's recovery clock still starts at its own stamp and expires before
+  # the hourly freeze can finish. Run 41995246530-1 announced at :53, got
+  # use_hourly against the :58 announcement, expired at :00:05 and stranded the
+  # host owner. Wait until the whole window plus a minute clears the next
+  # announcement. An unreadable schedule keeps the previous behaviour.
+  if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] && ! printf '%s' "$health" | python3 -c '
+import json,sys,time
+s=((json.load(sys.stdin).get("maintenance") or {}).get("schedule") or {})
+n=s.get("nextAnnouncementAt")
+raise SystemExit(0 if not isinstance(n,int) or isinstance(n,bool) or time.time()*1000+480000 < n else 1)
+'; then
+    RECOVERY_NEXT_EVALUATION=$(( now + RECOVERY_DEFER_SECONDS ))
+    if [ "${RECOVERY_DEFERRED_HOURLY:-0}" = 0 ]; then
+      RECOVERY_DEFERRED_HOURLY=1
+      echo "[engine-release-transaction] the next scheduled announcement is inside this owner window's off-cycle break; waiting for clear time instead of announcing into use_hourly"
+    fi
+    return 0
+  fi
   # A WINDOW THE CERTIFICATE WILL REFUSE BUYS NOTHING (2026-09-26). The
   # certificate refuses stopped_bank_custody_stuck in every break, by design
   # and with no serving-release exception (#5288). While the engine reports
