@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278363,
-      "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
+      "bytes": 278614,
+      "sha256": "ea6fa02822a958fd75947fbfa10b0e8247917f335ad3b77c88200badf34a86aa"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -2510,8 +2510,8 @@
           "sha256": "33771ddbf5430ec79224dfbb312e2524cb2ff0af569e7e67eb12469e6b0ff6cf"
         },
         "current": {
-          "bytes": 278363,
-          "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
+          "bytes": 278614,
+          "sha256": "ea6fa02822a958fd75947fbfa10b0e8247917f335ad3b77c88200badf34a86aa"
         }
       }
     ]

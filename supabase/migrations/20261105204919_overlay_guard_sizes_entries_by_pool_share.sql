@@ -73,6 +73,13 @@ AS $function$
   order by t.start_time asc;
 $function$;
 
+-- Operator telemetry (the digest reads it as service_role). Production already
+-- holds exactly these grants; CREATE OR REPLACE keeps them, and naming them
+-- here keeps the migration's own surface explicit: no pre-login role can run
+-- a SECURITY DEFINER reader of every guaranteed event's pools.
+REVOKE ALL ON FUNCTION public.fn_overlay_at_risk(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_overlay_at_risk(uuid) TO service_role;
+
 DO $$ BEGIN
   IF position('funding.prize + funding.bounty' IN pg_get_functiondef('public.fn_overlay_at_risk(uuid)'::regprocedure))=0 THEN
     RAISE EXCEPTION 'fn_overlay_at_risk did not take the pool-share sizing';
