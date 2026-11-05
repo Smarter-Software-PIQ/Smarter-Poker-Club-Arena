@@ -3,6 +3,8 @@
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.
 --
+-- @live-proof: position('A GUARANTEE MOVES NO CHIPS UNTIL REGISTRATION CLOSES' in pg_get_functiondef('public.fn_ca_fund_overlay_on_lock()'::regprocedure)) > 0
+--
 -- A GUARANTEE MOVES NO CHIPS UNTIL REGISTRATION CLOSES (Dan, 2026-11-04)
 --
 --   "YOU JUST DISPLAY THE 1500 YOU DON'T ACTUALLY ADD ANY CHIPS FOR THE
