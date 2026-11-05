@@ -1,4 +1,9 @@
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
+import {
+  horseCashPlanPrimaryTables,
+  horseUnionCashTableAllowed,
+  playingHumansAtCashTable,
+} from './HorseUnionCashPlan.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE FLEET MANAGER — Server-Side Cash Table Seeding
@@ -1143,6 +1148,7 @@ export class HorseFleetManager {
         big_blind: number;
         game_variant: string;
         club_id: string;
+        is_spins: boolean | null;
         min_buy_in: number | null;
         max_buy_in: number | null;
         current_players: number | null;
@@ -1162,7 +1168,7 @@ export class HorseFleetManager {
           let q = supabase
             .from('tables')
             .select(
-              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min'
+              'id, name, max_players, small_blind, big_blind, game_variant, club_id, union_id, is_spins, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), min_buy_in, max_buy_in, current_players, created_at, settings, cluster_id, lifecycle, role, main_index, bomb_pot_enabled, big_blind_ante_enabled, nit_game, maintain_percent_min'
             )
             .is('tournament_id', null)
             .in('status', ['waiting', 'running'])
@@ -1190,6 +1196,7 @@ export class HorseFleetManager {
         return;
       }
       const tables = tablePage.rows.filter(isChipFleetTable);
+      const cashPlanPrimaryTables = horseCashPlanPrimaryTables(tables);
 
       /* ── THE DIAMOND ARENA (Dan 2026-10-06) ─────────────────────────────
          Deep Stack Society's horses play the arena's cash games too, through
@@ -1314,6 +1321,8 @@ export class HorseFleetManager {
         stack: number | null;
         club_id: string | null;
         joined_at: string | null;
+        is_sitting_out: boolean | null;
+        leave_pending: boolean | null;
       }>(
         (cursor, want) => {
           // KEYSET, not OFFSET. `.range()` paging re-reads the table under a
@@ -1324,7 +1333,9 @@ export class HorseFleetManager {
           // constantly in a live room. `id > cursor` has no such window.
           let q = supabase
             .from('table_seats')
-            .select('id, user_id, table_id, seat_number, stack, club_id, joined_at')
+            .select(
+              'id, user_id, table_id, seat_number, stack, club_id, joined_at, is_sitting_out, leave_pending'
+            )
             .is('left_at', null)
             .order('id', { ascending: true })
             .limit(want);
@@ -2923,6 +2934,18 @@ export class HorseFleetManager {
              the number. `humanAtTable` is the same boolean it always was. */
           const humansAtTable = tableOccupiedSeats.filter((x) => !horseIdSet.has(x.user_id)).length;
           const humanAtTable = humansAtTable > 0;
+          if (
+            !horseUnionCashTableAllowed(
+              table,
+              playingHumansAtCashTable(tableOccupiedSeats, horseIdSet),
+              Date.now(),
+              cashPlanPrimaryTables
+            )
+          ) {
+            beat.withheldTables++;
+            if (diag) diag.withheld = 'owner_union_cash_schedule';
+            continue;
+          }
           /* THE ONE THING THAT OPENS A SEAT (Dan 2026-09-02). Humans on this
              table's waiting list, counted from the same map for every table so
              the seeding loop stays one query deep. Horses are excluded by id:
@@ -4756,7 +4779,13 @@ export class HorseFleetManager {
    */
   private async claimOfferedSeats(
     tables: any[],
-    allActiveSeats: Array<{ user_id: string; table_id: string; seat_number: number }>,
+    allActiveSeats: Array<{
+      user_id: string;
+      table_id: string;
+      seat_number: number;
+      is_sitting_out?: boolean | null;
+      leave_pending?: boolean | null;
+    }>,
     bankrolls: Map<string, number>,
     bankrollsLoaded: boolean,
     horseIdSet: Set<string>,
@@ -4777,6 +4806,13 @@ export class HorseFleetManager {
     let claimed = 0;
     try {
       const tableById = new Map<string, any>(tables.map((t: any) => [t.id as string, t]));
+      const cashPlanPrimaryTables = horseCashPlanPrimaryTables(tables);
+      const seatsByTable = new Map<string, typeof allActiveSeats>();
+      for (const seat of allActiveSeats) {
+        const seats = seatsByTable.get(seat.table_id);
+        if (seats) seats.push(seat);
+        else seatsByTable.set(seat.table_id, [seat]);
+      }
 
       /* PAGED (2026-09-09), like every other read of this queue in the file.
          A bare `.select()` is capped at db-max-rows (1,000) without erroring;
@@ -4856,6 +4892,18 @@ export class HorseFleetManager {
            now that a horse can genuinely answer an offer, the rule has to be
            written down rather than depended on as an accident. */
         if (table.lifecycle === 'breaking' || table.lifecycle === 'closed') continue;
+
+        // An existing offer does not authorize another game outside the
+        // cash schedule. Ask before sizing or purchasing its buy-in.
+        if (
+          !horseUnionCashTableAllowed(
+            table,
+            playingHumansAtCashTable(seatsByTable.get(table.id) ?? [], horseIdSet),
+            Date.now(),
+            cashPlanPrimaryTables
+          )
+        )
+          continue;
 
         const expiresAt = offer.hold_expires_at
           ? Date.parse(offer.hold_expires_at)

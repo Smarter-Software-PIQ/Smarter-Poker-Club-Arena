@@ -346,8 +346,14 @@ def streamed_build(process, timeout, lines):
             sys.stderr.flush()
     reader = threading.Thread(target=forward, daemon=True)
     reader.start()
+    started = time.monotonic()
     process.wait(timeout=timeout)
-    reader.join(timeout=10)
+    # The build has finished only when its output reaches EOF inside the same
+    # allowance. A detached descendant still holding the pipe after the leader
+    # exits is an unfinished command, never a successful build.
+    reader.join(timeout=max(0.0, timeout - (time.monotonic() - started)))
+    if reader.is_alive():
+        raise subprocess.TimeoutExpired(process.args, timeout)
     return ''.join(lines), ''
 
 
@@ -365,6 +371,7 @@ def command(args, cwd, env, timeout=120):
             stdout, stderr = process.communicate(timeout=timeout)
     except BaseException:
         # Stop the entire locally spawned command group, then clean exact Docker resources.
+        process.poll()  # Reap an exited leader before addressing its process group.
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -378,9 +385,23 @@ def command(args, cwd, env, timeout=120):
             raise
         try:
             stdout, stderr = process.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate()
+        except subprocess.TimeoutExpired as drain_timeout:
+            # A detached descendant may retain either pipe after this group
+            # exits. Never wait for its EOF: retain only output already read,
+            # close our readers and reap the direct child with a finite bound.
+            stdout = (drain_timeout.output or b'').decode(process.encoding, errors='replace')
+            stderr = (drain_timeout.stderr or b'').decode(process.encoding, errors='replace')
+            process.poll()
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.stdout.close()
+            process.stderr.close()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass  # Preserve the original failure; cleanup never grants success.
         raise
     finally:
         # Only the reviewed image build is eligible. Its allowlisted context has
@@ -646,8 +667,24 @@ def service_preimage(output, path):
     return proof, raw
 
 
+def before_deadline(run, deadline):
+    def bounded(args, cwd, env, timeout=120):
+        # command() can spend another 20 seconds stopping a process group.
+        # Keep that time inside this shared phase budget, not after it.
+        remaining = deadline - time.monotonic() - 20
+        if remaining <= 0:
+            raise TimeoutError('native fixture phase budget exhausted')
+        return run(args, cwd, env, timeout=min(timeout, remaining))
+    return bounded
+
+
 def execute(repo, output, expected, run=command, connected=None):
-    work_deadline = time.monotonic() + 100 * 60
+    raw_run = run
+    started = time.monotonic()
+    # Without a recorded job start, reserve ten minutes of the 55-minute hosted
+    # job for checkout, compilation and prerequisite checks already spent.
+    job_deadline = started + (120 if connected is not None else 45) * 60
+    work_deadline = min(started + 100 * 60, job_deadline - 10 * 60)
     receipt = {'version': 1, 'scope': 'pull-request-native-service-smoke',
                'product_certificate': False, 'status': 'failed',
                'stage': 'source', 'cleanup': {'container_absent': False, 'peer_absent': False, 'preimage_absent': False,
@@ -670,6 +707,14 @@ def execute(repo, output, expected, run=command, connected=None):
     failed = False
     connected_result = None
     try:
+        # The first workflow step records the job's original deadline, so
+        # checkout, compilation and prerequisite tests consume this same budget.
+        recorded = os.environ.get('FIXTURE_NATIVE_JOB_DEADLINE_EPOCH_SECONDS')
+        if recorded is not None:
+            require(re.fullmatch('[0-9]{10}', recorded))
+            job_deadline = min(job_deadline, started + int(recorded) - time.time())
+            work_deadline = min(work_deadline, job_deadline - 10 * 60)
+        run = before_deadline(raw_run, work_deadline)
         require(re.fullmatch('[0-9a-f]{40}', expected))
         revision = run(['git', 'rev-parse', 'HEAD'], repo, env).strip()
         require(revision == expected)
@@ -713,6 +758,9 @@ def execute(repo, output, expected, run=command, connected=None):
                 receipt['native_command_exit_code'] = error.exit_code
         failed = True
     finally:
+        # Cleanup has one five-minute reserve across every Docker command.
+        # The final five minutes belong to receipt retention and workflow cleanup.
+        run = before_deadline(raw_run, min(time.monotonic() + 5 * 60, job_deadline - 5 * 60))
         try:
             # Exact caller-owned names, never a broad prune. Remove containers
             # before their network, including when the peer check fails early.

@@ -1,0 +1,197 @@
+{
+  "unionId": "fade0000-0000-0000-0000-000000000001",
+  "timeZone": "America/Chicago",
+  "weeklyRakeTarget": 200000,
+  "games": [
+    {
+      "id": "830603f7-ed8e-4e25-8572-ce7aa45a5469",
+      "name": "Classic NLH .10/.25",
+      "window": "always",
+      "variant": "nlh",
+      "smallBlind": 0.1,
+      "bigBlind": 0.25
+    },
+    {
+      "id": "042cfa8e-0167-49f0-97fb-9d068af3cb46",
+      "name": "Classic NLH .25/.50",
+      "window": "always",
+      "variant": "nlh",
+      "smallBlind": 0.25,
+      "bigBlind": 0.5
+    },
+    {
+      "id": "2ba1c0a6-5b5e-4d0d-bf0b-effebd63b1c5",
+      "name": "Classic PLO4 .10/.25",
+      "window": "always",
+      "variant": "plo4",
+      "smallBlind": 0.1,
+      "bigBlind": 0.25
+    },
+    {
+      "id": "7b9fb0be-3c08-42cf-9961-74eb6d774ee2",
+      "name": "Classic PLO4 .25/.50",
+      "window": "day",
+      "variant": "plo4",
+      "smallBlind": 0.25,
+      "bigBlind": 0.5
+    },
+    {
+      "id": "67e5ad65-fe26-4b32-8f9e-86ff4f226aa4",
+      "name": "Classic PLO5 .10/.25",
+      "window": "day",
+      "variant": "plo5",
+      "smallBlind": 0.1,
+      "bigBlind": 0.25
+    },
+    {
+      "id": "2c67b57b-1bb2-41b5-a1c6-00615d85c160",
+      "name": "Classic PLO6 .10/.25",
+      "window": "day",
+      "variant": "plo6",
+      "smallBlind": 0.1,
+      "bigBlind": 0.25
+    },
+    {
+      "id": "3f294ec3-8a4e-41f4-a11e-35e50618da3e",
+      "name": "Classic FLH .25/.50 blinds",
+      "window": "day",
+      "variant": "flh",
+      "smallBlind": 0.25,
+      "bigBlind": 0.5
+    },
+    {
+      "id": "38f4bb9b-e287-462f-99ef-eb20c7d2ee4a",
+      "name": "Classic FLO8 .25/.50 blinds",
+      "window": "day",
+      "variant": "flo8",
+      "smallBlind": 0.25,
+      "bigBlind": 0.5
+    },
+    {
+      "id": "95beda17-1629-4866-b888-cc1c920d4a91",
+      "name": "Classic NLH .50/1",
+      "window": "afternoon",
+      "variant": "nlh",
+      "smallBlind": 0.5,
+      "bigBlind": 1.0
+    },
+    {
+      "id": "bda665c1-ddd9-4576-91d1-63e579678172",
+      "name": "Classic PLO4 .50/1",
+      "window": "afternoon",
+      "variant": "plo4",
+      "smallBlind": 0.5,
+      "bigBlind": 1.0
+    },
+    {
+      "id": "bc1a347f-2b85-49df-b3b3-40a498a6e51b",
+      "name": "Classic NLH 1/2",
+      "window": "prime",
+      "variant": "nlh",
+      "smallBlind": 1.0,
+      "bigBlind": 2.0
+    },
+    {
+      "id": "c79d8ec2-2281-411d-b4e1-42b5610849e2",
+      "name": "Lightning PLO4 1/2",
+      "window": "prime",
+      "variant": "plo4",
+      "smallBlind": 1.0,
+      "bigBlind": 2.0
+    },
+    {
+      "id": "050f0735-1eac-45b3-90f8-3e50ab72dc04",
+      "name": "Classic PLO5 1/2",
+      "window": "prime",
+      "variant": "plo5",
+      "smallBlind": 1.0,
+      "bigBlind": 2.0
+    },
+    {
+      "id": "41deafef-6c77-449f-a929-930aa321f3c2",
+      "name": "Classic PLO6 1/2",
+      "window": "prime",
+      "variant": "plo6",
+      "smallBlind": 1.0,
+      "bigBlind": 2.0
+    },
+    {
+      "id": "b52239dc-a29a-4959-a27e-6972a6d05584",
+      "name": "Classic FLH 1/2 blinds",
+      "window": "limit_low",
+      "variant": "flh",
+      "smallBlind": 1.0,
+      "bigBlind": 2.0
+    },
+    {
+      "id": "a24ff583-304a-442d-b8f1-639b7b5a0887",
+      "name": "Classic FLO8 1/2 blinds",
+      "window": "limit_low",
+      "variant": "flo8",
+      "smallBlind": 1.0,
+      "bigBlind": 2.0
+    },
+    {
+      "id": "eaa16dec-30b2-45f2-8567-ee581183ac60",
+      "name": "Classic FLH 2/5 blinds",
+      "window": "limit_mid",
+      "variant": "flh",
+      "smallBlind": 2.0,
+      "bigBlind": 5.0
+    },
+    {
+      "id": "27485559-e68e-4b3d-b5ed-4048b8e90973",
+      "name": "Classic FLO8 2/5 blinds",
+      "window": "limit_mid",
+      "variant": "flo8",
+      "smallBlind": 2.0,
+      "bigBlind": 5.0
+    },
+    {
+      "id": "580989b9-f245-45b8-9e82-e035b10b85cb",
+      "name": "Classic FLH 5/10 blinds",
+      "window": "limit_high",
+      "variant": "flh",
+      "smallBlind": 5.0,
+      "bigBlind": 10.0
+    },
+    {
+      "id": "0736e5db-79fe-48cf-a316-c887b5667634",
+      "name": "Classic FLO8 5/10 blinds",
+      "window": "limit_high",
+      "variant": "flo8",
+      "smallBlind": 5.0,
+      "bigBlind": 10.0
+    }
+  ],
+  "windows": {
+    "always": {
+      "regular": [0, 24],
+      "weekend": [0, 24]
+    },
+    "day": {
+      "regular": [8, 24],
+      "weekend": [8, 24]
+    },
+    "afternoon": {
+      "regular": [12, 24],
+      "weekend": [12, 24]
+    },
+    "prime": {
+      "regular": [18, 23],
+      "weekend": [17, 24]
+    },
+    "limit_low": {
+      "regular": [18, 23],
+      "weekend": [17, 19]
+    },
+    "limit_mid": {
+      "regular": [0, 0],
+      "weekend": [19, 21]
+    },
+    "limit_high": {
+      "regular": [0, 0],
+      "weekend": [21, 24]
+    }
+  }
+}
