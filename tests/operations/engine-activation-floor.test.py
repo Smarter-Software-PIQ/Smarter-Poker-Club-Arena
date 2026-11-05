@@ -1359,6 +1359,17 @@ docker() { echo docker >> "$FIXTURE_EVENTS"; }
 
 
     def test_expired_original_announcement_finishes_only_through_its_failed_receipt(self):
+        self._expired_original_announcement_case('eed06fe51dea622069c661a6213d5b031ff3a9e3',
+            'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b')
+
+    def test_expired_original_announcement_over_any_sealed_runtime_retires_itself(self):
+        # 2026-11-05: run 42099609162-1 announced over sealed runtime 71087373, froze,
+        # was thawed by that serving engine, and could never retire because the proof
+        # only accepted the historical eed06fe5 runtime; 222 restarts blocked releases.
+        self._expired_original_announcement_case('71087373d6ce7d1354146dbfe3963731c9b00597',
+            'sha256:0720c28248b7e5221df6808c047fe67e765a9602d5f9f1920913aa19850dcdd1')
+
+    def _expired_original_announcement_case(self, desired, image):
         import shlex
         import sys
         control = self.repo / 'server/scripts'
@@ -1374,8 +1385,6 @@ docker() { echo docker >> "$FIXTURE_EVENTS"; }
         results = state_root / 'results'; results.mkdir()
         run, invocation = '41904788070-1', 'e' * 32
         stamp = 1793824762499  # Original20:39:22.499, not an invented later window.
-        desired = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
-        image = 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
         base = {'schema': 1, 'desired': {'sha': desired, 'imageId': image, 'legacyUnlabelled': False},
                 'highWaterSha': desired, 'generation': 1, 'updatedAt': 1793824800,
                 'pending': None, 'finalization': None, 'committedRuns': {}}
@@ -1409,7 +1418,8 @@ mode=os.environ.get('FIXTURE_CASE','positive')
 def command(args,deadline,limit=32768,**kwargs):
     if '--terminal-owned-thaw' not in args: return original(args,deadline,limit,**kwargs)
     if mode=='thaw': m.die('fixture incomplete own thaw')
-    return json.dumps({'schema':'terminal-owned-thaw/v1','sha':m.FAILED_ROUTINE_DESIRED,'instanceId':'1-9349c742',
+    if args[args.index('--sha')+1]!=os.environ['FIXTURE_DESIRED']: m.die('fixture thaw proof for another runtime')
+    return json.dumps({'schema':'terminal-owned-thaw/v1','sha':os.environ['FIXTURE_DESIRED'],'instanceId':'1-9349c742',
         'databaseIdle':True,'freshLeader':True,'ownedV3Thaw':True,
         **{k:int(args[args.index(flag)+1]) for k,flag in [('announcedAt','--window-announced-ms'),('startsAt','--window-starts-ms'),('endsAt','--window-ends-ms')]}})
 calls=0
@@ -1432,8 +1442,8 @@ with patch.object(m.os,'geteuid',return_value=0),patch.object(m,'require_engine_
         'InvocationID':('f'*32 if mode=='foreign-unit' else os.environ['INVOCATION_ID']),'ControlGroup':'/original-owner'}),\
      patch.object(Path,'read_text',read),patch.object(Path,'lstat',stat),patch.object(os,'fstat',fstat),\
      patch.object(m,'failed_routine_runtime',side_effect=runtime),patch.object(m,'failed_routine_command',side_effect=command),\
-     patch.object(m,'container_identity',return_value=('running',m.FAILED_ROUTINE_IMAGE)),\
-     patch.object(m,'image_identity',return_value=(m.FAILED_ROUTINE_IMAGE,m.FAILED_ROUTINE_DESIRED,False)),\
+     patch.object(m,'container_identity',return_value=('running',os.environ['FIXTURE_IMAGE'])),\
+     patch.object(m,'image_identity',return_value=(os.environ['FIXTURE_IMAGE'],os.environ['FIXTURE_DESIRED'],False)),\
      patch.object(m.time,'time',return_value=1793825200):
     sys.argv=sys.argv[1:];m.main()
 """)
@@ -1458,7 +1468,8 @@ with patch.object(m.os,'geteuid',return_value=0),patch.object(m,'require_engine_
             'ENGINE_RELEASE_LOCK_FILE':str(state_root/'seal.lock'),'ENGINE_RELEASE_AUDIT_FILE':str(state_root/'audit.jsonl'),
             'ENGINE_RELEASE_RESULT_DIR':str(results),'ENGINE_RELEASE_REQUEST_ROOT':str(requests),'ENGINE_RELEASE_PIN_ROOT':str(pins),
             'ENGINE_RELEASE_IMAGE_LEASE_ROOT':str(leases),'ENGINE_LOCK_FILE':str(self.repo/'engine.lock'),
-            'REPO_DIR':str(self.repo),'INVOCATION_ID':invocation,'FIXTURE_ROOT':str(self.repo),'FIXTURE_CASE':'positive'}
+            'REPO_DIR':str(self.repo),'INVOCATION_ID':invocation,'FIXTURE_ROOT':str(self.repo),'FIXTURE_CASE':'positive',
+            'FIXTURE_DESIRED':desired,'FIXTURE_IMAGE':image}
         recover = [BASH, str(control/'engine-release-recover.sh'),'--run-id',run,'--mode','retryable']
         original = request.read_bytes()
         for bad in ('thaw','changed-runtime','foreign-unit'):

@@ -303,7 +303,7 @@ printf '%s' "$CERTIFIED_AUTOHEAL_FENCED"
             def accepts(value,certified=True):
                 def require(ok):
                     if not ok:raise ValueError('actual seal refused')
-                exec(consumer,{'json':json,'raw':json.dumps(value),'FAILED_ROUTINE_DESIRED':db.CERTIFIED_PREDECESSOR,
+                exec(consumer,{'json':json,'raw':json.dumps(value),'desired_sha':db.CERTIFIED_PREDECESSOR,
                     'runtime':{'instanceId':INSTANCE},'window':dict(announcedAt=ANN,startsAt=ANN+120000,endsAt=ANN+900000),
                     'owner':{'certifiedRecovery':{'profileId':'eed-240s-certified-release-v1'} if certified else None},
                     'failed_routine_require':require})
