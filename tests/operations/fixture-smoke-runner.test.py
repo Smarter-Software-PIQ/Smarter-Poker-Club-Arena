@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('fixture_smoke', ROOT / 'operations/release/ci/fixture-smoke.py')
@@ -257,12 +258,18 @@ else:
                 (fixture / 'Dockerfile').unlink()
                 (fixture / 'Dockerfile').symlink_to(fixture / 'package.json')
             calls = []
+            clock = [1000.0]
             present = set()
             network_present = False
             def run(args, cwd, env, timeout=120):
                 nonlocal network_present
                 calls.append(args)
                 self.assertNotIn('GH_TOKEN', env)
+                if args[:2] == ['bash', m.PREFIX + 'build-image.sh'] and fault == 'build-budget':
+                    # A slow build consumes its entire bounded allowance.
+                    clock[0] += timeout
+                if fault == 'cleanup-budget' and args[:2] == ['docker', 'container']:
+                    clock[0] += timeout
                 if args[:3] == ['git', 'rev-parse', 'HEAD']:
                     return 'c' * 40 if fault == 'revision' else SHA
                 if args[:3] == ['docker', 'image', 'inspect']:
@@ -270,7 +277,7 @@ else:
                     if fault == 'labels': labels['com.smarter-poker.control-revision'] = 'd' * 40
                     return json.dumps([{'Id': IMAGE, 'Os': 'linux', 'Architecture': 'amd64', 'Config': {'Labels': labels}}])
                 if args[:2] == ['bash', m.PREFIX + 'smoke-image.sh']:
-                    if fault == 'timeout':
+                    if fault in ('timeout', 'cleanup-budget'):
                         present.update((env['FIXTURE_SMOKE_CONTAINER'], env['FIXTURE_SMOKE_CONTAINER'] + '-peer', env['FIXTURE_SMOKE_CONTAINER'] + '-preimage'))
                         network_present = True
                         raise TimeoutError('PRIVATE TOKEN MUST NOT LEAK')
@@ -306,7 +313,10 @@ else:
                 if args[:3] == ['docker', 'network', 'rm']:
                     network_present = False
                 return ''
-            code = m.execute(root, root / 'evidence', SHA, run)
+            deadline_env = ({'FIXTURE_NATIVE_JOB_DEADLINE_EPOCH_SECONDS': str(int(m.time.time()) + 9 * 60)}
+                            if fault == 'spent-prerequisites' else {})
+            with patch.object(m.time, 'monotonic', lambda: clock[0]), patch.dict(m.os.environ, deadline_env):
+                code = m.execute(root, root / 'evidence', SHA, run)
             text = (root / 'evidence/native-smoke-receipt.json').read_text()
             self.assertNotIn('PRIVATE TOKEN', text)
             self.assertFalse(list(root.glob('.ca-fixture-smoke-*-preimage.json')))
@@ -316,6 +326,26 @@ else:
             if code == 0:
                 self.assertEqual(artifact.read_bytes(), preimage_material()[0])
             return code, json.loads(text), calls
+
+    def test_work_budget_exhaustion_preserves_cleanup_and_failure_receipt(self):
+        code, receipt, calls = self.exercise('build-budget')
+        self.assertEqual(code, 1)
+        self.assertEqual(receipt['stage'], 'build')
+        self.assertTrue(all(receipt['cleanup'].values()))
+        self.assertFalse(any(c[:3] == ['docker', 'image', 'inspect'] for c in calls))
+
+    def test_cleanup_commands_share_one_reserve_instead_of_restarting_each_timeout(self):
+        code, receipt, calls = self.exercise('cleanup-budget')
+        self.assertEqual(code, 1)
+        self.assertFalse(all(receipt['cleanup'].values()))
+        self.assertLess(len([c for c in calls if c[:2] == ['docker', 'container']]), 9)
+
+    def test_prerequisites_cannot_restart_the_job_budget_at_native_entry(self):
+        code, receipt, calls = self.exercise('spent-prerequisites')
+        self.assertEqual(code, 1)
+        self.assertEqual(receipt['stage'], 'source')
+        self.assertTrue(all(receipt['cleanup'].values()))
+        self.assertFalse(any(c[0] in ('git', 'bash') for c in calls))
 
     def test_complete_native_result(self):
         code, receipt, _ = self.exercise()

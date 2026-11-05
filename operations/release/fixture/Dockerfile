@@ -35,9 +35,9 @@ RUN node -e "const fs=require('node:fs'); const roots=require('node:tls').rootCe
 
 # A dated, signed Debian snapshot fixes transitive packages as well as PostgreSQL.
 # Expiry is disabled only for this immutable historical snapshot; signatures stay on.
-# The snapshot mirror intermittently answers 503/504. Each bounded retry keeps
-# already-fetched archives and installs the same pinned versions; a sixth
-# failure still fails the build.
+# The snapshot mirror intermittently answers 503/504. Each of four bounded
+# attempts keeps already-fetched archives and installs the same pinned versions;
+# the fourth failure still fails the build inside its 40-minute budget.
 RUN test "$(dpkg --print-architecture)" = amd64 \
     && rm -f /etc/apt/sources.list /etc/apt/sources.list.d/* \
     && printf '%s\n' \
@@ -45,7 +45,7 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
       'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20260910T000000Z trixie-security main' \
       > /etc/apt/sources.list \
     && printf '%s\n' \
-      'Acquire::Retries "10";' \
+      'Acquire::Retries "3";' \
       'Acquire::https::Timeout "30";' \
       'Acquire::http::Timeout "30";' \
       > /etc/apt/apt.conf.d/80fixture-transport \
@@ -53,7 +53,7 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
     && chmod 0755 /usr/sbin/policy-rc.d \
     && mkdir -p /etc/postgresql-common \
     && printf 'create_main_cluster = false\n' > /etc/postgresql-common/createcluster.conf \
-    && for attempt in 1 2 3 4 5 6; do \
+    && for attempt in 1 2 3 4; do \
          apt-get update -o APT::Update::Error-Mode=any \
          && apt-get install -y --no-install-recommends \
            postgresql-17=17.11-0+deb13u1 postgresql-client-17=17.11-0+deb13u1 \
@@ -62,8 +62,8 @@ RUN test "$(dpkg --print-architecture)" = amd64 \
            ca-certificates openssl unzip zip libatomic1 \
          && node /opt/qualification/node_modules/playwright/cli.js install --with-deps chromium \
          && break; \
-         test "$attempt" -lt 6 || exit 100; \
-         sleep $((attempt * 30)); \
+         test "$attempt" -lt 4 || exit 100; \
+         sleep $((attempt * 20)); \
        done \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /app/.pgdelta-cache \
