@@ -24,7 +24,13 @@
 --
 -- The club goes through the original retained-record authority,
 -- fn_retire_settled_club_core_20260906, as its owner identity (the same
--- shape used for the Lightning Internal Pilot, 20261031184340). That door
+-- shape used for the Lightning Internal Pilot, 20261031184340), carried as
+-- platform operations (role service_role): the arena's owner is the system
+-- account, and fn_poker_guard_arena_structure refuses a write to a Diamond
+-- club from a plain signed-in identity ("Diamond Arena Requires Platform
+-- Operations"). The first apply (run 42128783812) was refused there and
+-- committed nothing; a rolled-back probe with this identity retired the club
+-- in 1.2 s and left fn_diamond_arena_club() NULL. That door
 -- re-reads every balance and obligation and refuses unless all are zero,
 -- flips lifecycle_status to 'retired', hides the card, writes the audit trail.
 -- From then on fn_guard_retired_club_mutation (BEFORE INSERT/UPDATE/DELETE on
@@ -69,7 +75,7 @@ BEGIN
   RAISE EXCEPTION 'DIAMOND_RETIREMENT_MIDNIGHT_NOT_SETTLED';
  END IF;
  PERFORM set_config('request.jwt.claims',
-  jsonb_build_object('sub', v_club.owner_id, 'role', 'authenticated')::text, true);
+  jsonb_build_object('sub', v_club.owner_id, 'role', 'service_role')::text, true);
  PERFORM set_config('request.jwt.claim.sub', v_club.owner_id::text, true);
  v_impact := public.fn_club_retirement_impact(c);
  v_result := public.fn_retire_settled_club_core_20260906(c, v_club.name, c_reason);

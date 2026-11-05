@@ -15,6 +15,11 @@ describe('Diamond Arena is permanently retired', () => {
     expect(sql).toContain('public.fn_retire_settled_club_core_20260906(c, v_club.name, c_reason)');
   });
 
+  it('acts as platform operations, the only identity the Diamond arena guard admits', () => {
+    expect(sql).toContain("jsonb_build_object('sub', v_club.owner_id, 'role', 'service_role')");
+    expect(sql).not.toContain("'role', 'authenticated'");
+  });
+
   it('refuses while an event is open or the Midnight Free Buy is unsettled', () => {
     expect(sql).toContain('DIAMOND_RETIREMENT_EVENT_STILL_OPEN');
     expect(sql).toContain('DIAMOND_RETIREMENT_MIDNIGHT_NOT_SETTLED');
