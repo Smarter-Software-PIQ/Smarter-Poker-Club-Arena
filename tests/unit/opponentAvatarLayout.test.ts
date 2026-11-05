@@ -13,6 +13,7 @@ import {
   opponentShiftTransaction,
   opponentPaintSpansTouch,
   readOpponentAlphaSpans,
+  opponentSeatsKept,
 } from '../../src/components/table/opponentAvatarLayout';
 
 const bounds = { left: 0, top: 80, width: 400, height: 720 };
@@ -265,7 +266,42 @@ it('fits all eight compact opponents without changing any footprint or covering 
   const before = JSON.stringify(scene);
   const boardTop = scene.fixed[3].top;
   const shifts = jointOpponentShifts(scene.items, scene.fixed, scene.bounds, 0, true, boardTop);
-  expect(shifts).not.toBeNull();
+  /* Dan 2026-11-05 ("THE PLAYER IS IN HIS OWN SEAT"): this pass used to answer
+     by sliding the right-high chair ~70px up-left into the top-right cap's
+     spot and pushing that cap player toward the middle - every chair in order,
+     two of them shown in each other's seats. That answer is now refused
+     (tests/the-chairs-never-change-order.law.test.ts). The pass may report "no
+     fit", in which case the allocator puts every chair on its own rail; when
+     it does answer, the answer still meets every fit rule below. */
+  if (shifts === null) {
+    const centre = (parts: Array<(typeof scene.fixed)[number]>) => ({
+      x:
+        (Math.min(...parts.map((p) => p.left)) + Math.max(...parts.map((p) => p.left + p.width))) /
+        2,
+      y:
+        (Math.min(...parts.map((p) => p.top)) + Math.max(...parts.map((p) => p.top + p.height))) /
+        2,
+    });
+    const rails = scene.items.map((item) => centre(item.parts));
+    const oldAnswer: Array<[number, number]> = [
+      [0, -6.847564181268353],
+      [-52, -47.34756418126836],
+      [-4, 0],
+      [-47.984375, 0],
+      [0, 14.523621637463293],
+      [0, -27.074310818731647],
+      [0, 35.89480745619494],
+      [0, -5.703125],
+    ];
+    expect(
+      opponentSeatsKept(
+        rails,
+        rails.map((r, i) => ({ x: r.x + oldAnswer[i][0], y: r.y + oldAnswer[i][1] }))
+      )
+    ).toBe(false);
+    expect(JSON.stringify(scene)).toBe(before);
+    return;
+  }
   const overlap = (a: (typeof scene.fixed)[number], b: (typeof scene.fixed)[number]) =>
     a.left < b.left + b.width &&
     a.left + a.width > b.left &&

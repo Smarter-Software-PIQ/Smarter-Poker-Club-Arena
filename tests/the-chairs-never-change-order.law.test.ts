@@ -21,8 +21,10 @@ import {
   createOpponentAvatarLayout,
   jointOpponentShifts,
   opponentRingOrderKept,
+  opponentSeatsKept,
   type ChairPoint,
 } from '../src/components/table/opponentAvatarLayout';
+import { rotateSeatsForHero, seatLayoutFor } from '../src/lib/tableSeatGeometry';
 
 type Box = { left: number; top: number; width: number; height: number };
 const centreOf = (parts: Box[]): ChairPoint => {
@@ -63,9 +65,7 @@ describe('opponentRingOrderKept', () => {
   });
 
   it('refuses any single chair carried past its neighbour', () => {
-    const swapped = rails.map((p, i) =>
-      names[i] === 'BigWade' ? { x: 40, y: 520 } : p
-    ); // now below BUTTONCHAMP (470)
+    const swapped = rails.map((p, i) => (names[i] === 'BigWade' ? { x: 40, y: 520 } : p)); // now below BUTTONCHAMP (470)
     expect(opponentRingOrderKept(rails, swapped, CENTRE)).toBe(false);
   });
 
@@ -175,7 +175,16 @@ describe('the DOM backstop withdraws a nudge that reorders the table', () => {
     const scaler = document.createElement('div');
     scaler.className = 'table-scaler';
     scaler.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, width: 375, height: 860, right: 375, bottom: 860, x: 0, y: 0 }) as DOMRect;
+      ({
+        left: 0,
+        top: 0,
+        width: 375,
+        height: 860,
+        right: 375,
+        bottom: 860,
+        x: 0,
+        y: 0,
+      }) as DOMRect;
     page.append(scaler);
     document.body.append(page);
     const seatOf = new Map<string, HTMLElement>();
@@ -240,6 +249,58 @@ describe('the DOM backstop withdraws a nudge that reorders the table', () => {
     } finally {
       layout.stop();
       page.remove();
+    }
+  });
+});
+
+describe("Dan's second ruling: order is not enough, every player is in his own seat", () => {
+  it('refuses a whole column sliding one chair along, even though it reads in order', () => {
+    // BigWade -> BUTTONCHAMP's spot, BUTTONCHAMP -> Cali's, Cali -> beside the hero.
+    const slid = rails.map((p, i) =>
+      names[i] === 'BigWade'
+        ? RING.BUTTONCHAMP
+        : names[i] === 'BUTTONCHAMP'
+          ? RING.Cali_Duncan
+          : names[i] === 'Cali_Duncan'
+            ? { x: 90, y: 760 }
+            : p
+    );
+    expect(opponentRingOrderKept(rails, slid, CENTRE)).toBe(true);
+    expect(opponentSeatsKept(rails, slid, CENTRE)).toBe(false);
+  });
+
+  it('refuses the 320px answer that put the right-high player in the top-right spot', () => {
+    const shown = rails.map((p, i) =>
+      names[i] === 'king_01' ? { x: RING.champp.x - 2, y: RING.champp.y + 30 } : p
+    );
+    expect(opponentSeatsKept(rails, shown, CENTRE)).toBe(false);
+  });
+
+  it('accepts the rail and ordinary nudges', () => {
+    expect(opponentSeatsKept(rails, rails, CENTRE)).toBe(true);
+    const nudged = rails.map((p, i) => ({ x: p.x + (i % 2 ? 5 : -5), y: p.y + 18 }));
+    expect(opponentSeatsKept(rails, nudged, CENTRE)).toBe(true);
+  });
+});
+
+describe('seat-to-screen mapping, independent of any spacing code', () => {
+  it('every table size and viewer seat: viewer at the bottom, seats in order, wrapping to seat 1', () => {
+    for (let size = 2; size <= 10; size++) {
+      const ring = seatLayoutFor(size);
+      for (let hero = 1; hero <= size; hero++) {
+        const rotated = rotateSeatsForHero(ring, hero);
+        // The viewer's own chair is the bottom-centre slot.
+        expect(rotated[hero - 1].pos, `${size}-max seat ${hero}`).toEqual(ring[0]);
+        // The k-th seat after the viewer (wrapping past the last seat to seat 1)
+        // takes the k-th slot of the ring.
+        for (let k = 0; k < size; k++) {
+          const seat = ((hero - 1 + k) % size) + 1;
+          expect(rotated[seat - 1].pos, `${size}-max seat ${hero}, +${k}`).toEqual(ring[k]);
+          expect(rotated[seat - 1].visualIndex).toBe(k);
+        }
+        // One player per slot.
+        expect(new Set(rotated.map((r) => r.visualIndex)).size).toBe(size);
+      }
     }
   });
 });

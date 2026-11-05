@@ -265,6 +265,26 @@ export function opponentRingOrderKept(
   const now = order(after);
   return was.every((id, k) => id === now[k]);
 }
+/** THE PLAYER IS IN HIS OWN SEAT (Dan 2026-11-05, second ruling: "preserving
+ * circular order alone is insufficient if players can still shift together
+ * into the wrong seat positions"). Order is necessary but not sufficient: a
+ * whole column could slide one chair along and still read in order. So every
+ * shown chair must also sit nearer its OWN rail position than any other
+ * chair's rail position - hero and empty chairs included - which is the same
+ * ownership law the dealer button and bet chips already obey. Index i is the
+ * same chair in both lists. */
+export function opponentSeatsKept(
+  rails: readonly ChairPoint[],
+  shown: readonly ChairPoint[],
+  centre?: ChairPoint
+): boolean {
+  if (!opponentRingOrderKept(rails, shown, centre)) return false;
+  return shown.every((p, i) => {
+    const own = Math.hypot(p.x - rails[i].x, p.y - rails[i].y);
+    if (own < 0.01) return true;
+    return rails.every((r, j) => j === i || own < Math.hypot(p.x - r.x, p.y - r.y));
+  });
+}
 const centreOfParts = (parts: Box[]): ChairPoint | null => {
   if (!parts.length) return null;
   const left = Math.min(...parts.map((p) => p.left));
@@ -638,7 +658,7 @@ export function jointOpponentShifts(
       before.push(rail);
       after.push({ x: rail.x + solution[i][0], y: rail.y + solution[i][1] });
     });
-    return opponentRingOrderKept(before, after, ringCentre);
+    return opponentSeatsKept(before, after, ringCentre);
   };
   const chosen = Array<number>(items.length).fill(-1);
   let best: Array<[number, number]> | null = null;
@@ -1077,7 +1097,7 @@ export function createOpponentAvatarLayout(
       frame.width > 0 && frame.height > 0
         ? { x: frame.left + frame.width / 2, y: frame.top + frame.height / 2 }
         : undefined;
-    const kept = opponentRingOrderKept(
+    const kept = opponentSeatsKept(
       chairs.map((c) => c.rail),
       chairs.map(({ seat, rail }) => {
         const [x, y] = nudge(seat);
@@ -1821,7 +1841,16 @@ export function createOpponentAvatarLayout(
             : Math.sign(box(seat).left + box(seat).width / 2 - pageBox.left - pageBox.width / 2),
         outwardOnly: !seat.closest('.seat-wrapper--cap,.seat-wrapper--top'),
       }));
-    let shifts = jointOpponentShifts(describe(), fixed, bounds, 3, false, undefined, undefined, otherChairs());
+    let shifts = jointOpponentShifts(
+      describe(),
+      fixed,
+      bounds,
+      3,
+      false,
+      undefined,
+      undefined,
+      otherChairs()
+    );
     if (!shifts) {
       // Only the compact ring needs this fallback: the same caption fits
       // above its own plate on the lower bust, retaining all existing sizes.
@@ -1834,14 +1863,32 @@ export function createOpponentAvatarLayout(
           action.style.translate = `0px ${(p.top - a.height - 3 - a.top) / ratio}px`;
         }
       }
-      shifts = jointOpponentShifts(describe(), fixed, bounds, 0.5, true, undefined, undefined, otherChairs());
+      shifts = jointOpponentShifts(
+        describe(),
+        fixed,
+        bounds,
+        0.5,
+        true,
+        undefined,
+        undefined,
+        otherChairs()
+      );
     }
     const board = page.querySelector('.community-area');
     const topLaneBottom = board ? box(board).top : top;
     if (!shifts) {
       // Last compact fit: plates may meet edge to edge. An edge chair can
       // join the top lane only with its whole pod above the unchanged board.
-      shifts = jointOpponentShifts(describe(), fixed, bounds, 0, true, topLaneBottom, undefined, otherChairs());
+      shifts = jointOpponentShifts(
+        describe(),
+        fixed,
+        bounds,
+        0,
+        true,
+        topLaneBottom,
+        undefined,
+        otherChairs()
+      );
     }
     let lowerLane: { top: number; bottom: number } | undefined;
     if (!shifts) {
@@ -1862,8 +1909,14 @@ export function createOpponentAvatarLayout(
         );
     }
     if (!shifts) {
-      spacingReady = false;
-      return false;
+      /* NO LAYOUT KEEPS EVERY PLAYER IN HIS OWN SEAT (Dan 2026-11-05). Every
+         chair then sits exactly on its rail. This used to leave the ring
+         "not ready", which also held back every bet, button and tag placement
+         behind it until the next full re-measure; a table that cannot be
+         spaced must still be complete and stable. Recording the rail as this
+         ring's answer means the next pass short-circuits instead of
+         re-searching, so it cannot oscillate between attempts. */
+      shifts = ordered.map((): [number, number] => [0, 0]);
     }
     const descriptions = describe();
     for (let i = 0; i < ordered.length; i++) {
