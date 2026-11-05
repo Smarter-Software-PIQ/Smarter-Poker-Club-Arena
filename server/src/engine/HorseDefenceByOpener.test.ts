@@ -27,6 +27,7 @@ const SUITS = ['spades', 'hearts', 'diamonds', 'clubs'] as const;
 const RANKS = 'AKQJT98765432'.split('');
 const BB = 2;
 const SEEDS = 8;
+const DEFENCE_CLOCK_MS = Date.UTC(2026, 10, 5, 11, 0, 0);
 
 type Ctx = {
   seats: number;
@@ -180,6 +181,9 @@ function defend(
         {
           mind: false,
           telemetry: false,
+          // Pin the clock: the V9 hourly mood hashes the current hour, so an
+          // unpinned measurement moves with the wall clock.
+          decisionTimeMs: DEFENCE_CLOCK_MS,
           ...opts,
         } as never
       );
