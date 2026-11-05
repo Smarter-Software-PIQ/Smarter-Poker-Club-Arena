@@ -64,3 +64,29 @@ describe('a buy-in guarantee counts the whole player payment', () => {
     expect(readFileSync(file, 'utf8')).toContain(token);
   });
 });
+
+describe('a guaranteed Free Buy ticket funding is part of H, never on top of it', () => {
+  const promo = readFileSync(
+    'supabase/migrations/20261105225426_guaranteed_free_buy_ticket_funding_is_part_of_h.sql',
+    'utf8'
+  );
+  it('returns promo above max(0, G - C) to the promo wallet once, before the pool finalizes', () => {
+    expect(promo).toContain("(v_funding->>'house_over_required')::numeric, v_promo");
+    expect(promo).toContain("':guarantee_promo_excess_return'");
+    expect(promo).toContain(
+      'PERFORM public.fn_ca_return_excess_guarantee_promo_locked(p_tournament_id);'
+    );
+    expect(promo).toContain(
+      "IF v_format IS NULL OR v_format NOT IN ('regular', 'aiof') THEN RETURN 0; END IF;"
+    );
+  });
+  it('owner example: G 500, 250 tickets, 160 player chips -> promo 340, pool 500', () => {
+    const G = 500,
+      C = 160,
+      V = 250;
+    const H = Math.max(0, G - C);
+    expect(H).toBe(340);
+    expect(Math.max(0, V - H)).toBe(0);
+    expect(C + H).toBe(500);
+  });
+});

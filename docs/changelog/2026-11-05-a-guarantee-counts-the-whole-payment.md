@@ -201,3 +201,7 @@ At the moment of the screenshot the correct figures were: gross credited 41 x 30
 | 2026-11-02 | 98e38de4 | Midday Turbo (NLH)                         | 250.00  | 260.00  | 0       | 15.00   |
 
 No completed event since 2026-11-02 carries excess house funding: #9518 (2026-11-04) stopped the start-time overlay. The net-basis close-out this migration replaces was the remaining source.
+
+## Guaranteed Free Buy Ticket Funding Is Part Of H
+
+Migration `20261105225426_guaranteed_free_buy_ticket_funding_is_part_of_h.sql`: a guaranteed regular or all-in-or-fold Midway Free Buy posts one promo chip per first entry at registration. At finalization `fn_apply_prize_guarantee` now returns any promo above H = max(0, G - C) to the Midway promo wallet (one keyed reversal leg, escrow and pool in the finalization subtransaction), so total ticket and house funding equals H and is never a one-chip-per-ticket transfer on top of it. Owner example: G 500, 250 tickets, 160 player chips: promo 340, pool 500. A Free Buy without a guarantee keeps its voucher funding V.
