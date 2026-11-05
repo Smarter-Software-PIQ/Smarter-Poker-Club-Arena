@@ -52,6 +52,7 @@ import AppLayout from './components/layouts/AppLayout';
 import LegacyClubToolRedirect from './components/navigation/LegacyClubToolRedirect';
 import { ToastProvider } from './components/common/Toast';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import MaintenanceClockSync from './components/common/MaintenanceClockSync';
 import RouteErrorBoundary from './components/common/RouteErrorBoundary';
 import { PageErrorBoundary } from './components/common/PageErrorBoundary';
 import { LoadingState } from './components/common/EmptyState';
@@ -630,6 +631,8 @@ function FullApp() {
           <MessengerDockHost />
         </Suspense>
         <GlobalBalanceSync />
+        {/* Dan 2026-11-05: a maintenance break stops every tournament clock. */}
+        <MaintenanceClockSync />
         <HeaderAppearanceSync />
         <ProfileAccountSync />
         {/* The signed-in player's presence heartbeat, mounted once: without it a
