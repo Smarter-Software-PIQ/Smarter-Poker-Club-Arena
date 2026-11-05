@@ -398,7 +398,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         import argparse
         control = self.repo / 'server/scripts/engine-release-seal.py'
         control.write_bytes((ROOT / 'server/scripts/engine-release-seal.py').read_bytes())
-        record = self.owner_record(window_id=None)
+        record = self.owner_record(window_id=floor.CERTIFIED_POLICY)
         spec = importlib.util.spec_from_file_location('certified_fixture_seal', control)
         seal = importlib.util.module_from_spec(spec); spec.loader.exec_module(seal)
         seal.STATE_DIR = self.repo / 'state'; seal.STATE_DIR.mkdir()
@@ -415,7 +415,9 @@ echo CHECKPOINT_MUST_NOT_RUN
         return seal, record, args
 
     def test_certified_owner_requires_exact_profile_and_entire_900_second_cycle(self):
-        r = self.owner_record(window_id=None)
+        # The certified profile is a fixed historical window, not whichever
+        # finite owner window protected main currently selects.
+        r = self.owner_record(window_id=floor.CERTIFIED_POLICY)
         self.assertEqual(r['ownerWindowId'], floor.CERTIFIED_POLICY)
         self.assertEqual(r['certifiedRecoveryProfile'], 'eed-240s-certified-release-v1')
         self.assertEqual(r['cycleDurationSeconds'], 900)
