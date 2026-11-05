@@ -332,18 +332,50 @@ def require(value):
         raise RuntimeError('native_fixture_smoke_requirement_failed')
 
 
+def streamed_build(process, timeout, lines):
+    # The reviewed image build is the only command whose output may reach the
+    # job log. It is forwarded line by line as it runs, so a hosted runner that
+    # is lost mid-build still leaves the stage it reached in the retained log.
+    import threading
+    def forward():
+        for line in process.stdout:
+            lines.append(line)
+            if len(lines) > 4096:
+                del lines[:1024]
+            sys.stderr.write('[fixture-image-build] ' + line)
+            sys.stderr.flush()
+    reader = threading.Thread(target=forward, daemon=True)
+    reader.start()
+    process.wait(timeout=timeout)
+    reader.join(timeout=10)
+    return ''.join(lines), ''
+
+
 def command(args, cwd, env, timeout=120):
+    build = args[:2] == ['bash', PREFIX + 'build-image.sh']
     process = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True, start_new_session=True)
+                               stderr=subprocess.STDOUT if build else subprocess.PIPE,
+                               text=True, start_new_session=True)
     stdout = stderr = ''
+    captured = []
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
+        if build:
+            stdout, stderr = streamed_build(process, timeout, captured)
+        else:
+            stdout, stderr = process.communicate(timeout=timeout)
     except BaseException:
         # Stop the entire locally spawned command group, then clean exact Docker resources.
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
+        if build:
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+            raise
         try:
             stdout, stderr = process.communicate(timeout=10)
         except subprocess.TimeoutExpired:
@@ -354,7 +386,8 @@ def command(args, cwd, env, timeout=120):
         # Only the reviewed image build is eligible. Its allowlisted context has
         # no credentials or application data; synthetic secrets are generated
         # later during native-smoke and that command's output stays private.
-        if args[:2] == ['bash', PREFIX + 'build-image.sh'] and env.get('FIXTURE_SMOKE_BUILD_LOG'):
+        if build and env.get('FIXTURE_SMOKE_BUILD_LOG'):
+            stdout = stdout or ''.join(captured)
             build_log = Path(env['FIXTURE_SMOKE_BUILD_LOG'])
             fd = os.open(build_log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, 'w') as log:
