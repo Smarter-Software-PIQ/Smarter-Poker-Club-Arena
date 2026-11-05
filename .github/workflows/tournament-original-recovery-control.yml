@@ -9,6 +9,7 @@ on:
             owner_request,
             owner_read,
             owner_ack,
+            owner_cancel_ack,
             additional_refund_read,
             additional_refund_settle,
             prepare,

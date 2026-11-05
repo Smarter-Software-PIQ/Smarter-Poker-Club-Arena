@@ -9946,7 +9946,7 @@ export abstract class TournamentManagerBase {
         this.lifecycleIntervals.size === 0 &&
         this.seatMoveQuarantineRefusal() === null,
       prepareAcknowledgement: async (tableId, handNumber, evidence) => {
-        if (request.closureMode !== 'equal_share') return;
+        if (request.closureMode === undefined) return;
         const stopped = await supabase.rpc('fn_ca_tournament_abort_stop_state', {
           p_operation_id: request.operation_id,
           p_tournament_id: this.tournamentId,
@@ -9972,7 +9972,7 @@ export abstract class TournamentManagerBase {
           table.durable_hand_number !== handNumber
         )
           throw new Error('tournament_abort_stopped_hand_changed');
-        if (request.closureMode === 'equal_share' && table.cancellable_permit_id) {
+        if (table.cancellable_permit_id) {
           if (!table.cancellable_hand_hash || !current())
             throw new Error('tournament_abort_hand_review_unknown');
           const cancelled = await supabase.rpc('fn_ca_cancel_tournament_abort_unsettled_hand', {

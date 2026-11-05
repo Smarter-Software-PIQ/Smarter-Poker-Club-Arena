@@ -21,7 +21,7 @@ export async function handleTournamentAbortBoundary(
       acknowledgeTournamentAbortBoundary?: (
         operationId: string,
         tournamentId: string,
-        closureMode?: 'equal_share'
+        closureMode?: 'equal_share' | 'owner_retirement'
       ) => Promise<unknown>;
     };
   }
@@ -40,7 +40,9 @@ export async function handleTournamentAbortBoundary(
       Array.isArray(body) ||
       !UUID.test(body.operationId || '') ||
       !UUID.test(body.tournamentId || '') ||
-      (body.closureMode !== undefined && body.closureMode !== 'equal_share') ||
+      (body.closureMode !== undefined &&
+        body.closureMode !== 'equal_share' &&
+        body.closureMode !== 'owner_retirement') ||
       Object.keys(body).some((key) => !['operationId', 'tournamentId', 'closureMode'].includes(key))
     )
       return sendJSON(res, 400, {

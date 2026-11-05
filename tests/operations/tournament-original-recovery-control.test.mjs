@@ -1413,6 +1413,18 @@ test('owner ACK verifies actual current boundary and read does not actuate', asy
   assert.equal(retirementWrites(read).length, 0);
 });
 
+test('owner cancel ACK asks for the owner-retirement closure and is otherwise owner ACK', async () => {
+  const f = retirementFixture({ initial: 'stop_requested' });
+  const r = await f.run('owner_cancel_ack');
+  assert.equal(r.outcome, 'owner_boundary_verified');
+  assert.equal(retirementWrites(f).length, 1);
+  assert.deepEqual(JSON.parse(retirementWrites(f)[0].options.body), {
+    operationId: retirementMember.original_operation_id,
+    tournamentId: retirementMember.tournament_id,
+    closureMode: 'owner_retirement',
+  });
+});
+
 test('settled owner ACK retires the original runtime and preserves its public receipt on repeats', async () => {
   const f = retirementFixture({ initial: 'settled', releasedLease: true });
   for (let attempt = 0; attempt < 2; attempt++) {
