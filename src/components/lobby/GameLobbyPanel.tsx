@@ -42,6 +42,7 @@ import { useAppNavigate, useInTabLobby } from '../../context/InTabLobbyContext';
 import type { Tournament, BlindLevel } from '../../types/database.types';
 import {
   effectivePlaceLadderPool,
+  effectivePrizePool,
   placePrize,
   resolvePayoutStructure,
   tournamentRowUnitCents,
@@ -1065,11 +1066,34 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                         <dd className="glp__mono">{entry.guaranteeValue.toLocaleString()}</dd>
                       </div>
                     )}
-                    {tournament && Number(tournament.prize_pool) > 0 && (
+                    {/* The prize pool is floored by the guarantee's place share
+                        (the guarantee covers places and bounties together);
+                        bounty money is its own row so the two add up to the
+                        guarantee instead of reading short of it (2026-11-04). */}
+                    {tournament &&
+                      effectivePrizePool(
+                        tournament.prize_pool,
+                        tournament.guaranteed_prize,
+                        tournament.bounty_pool
+                      ) > 0 && (
+                        <div>
+                          <dt>Prize Pool</dt>
+                          <dd className="glp__mono">
+                            {Math.round(
+                              effectivePrizePool(
+                                tournament.prize_pool,
+                                tournament.guaranteed_prize,
+                                tournament.bounty_pool
+                              )
+                            ).toLocaleString()}
+                          </dd>
+                        </div>
+                      )}
+                    {tournament && Number(tournament.bounty_pool) > 0 && (
                       <div>
-                        <dt>Prize Pool</dt>
+                        <dt>Bounty Pool</dt>
                         <dd className="glp__mono">
-                          {Number(tournament.prize_pool).toLocaleString()}
+                          {Math.round(Number(tournament.bounty_pool)).toLocaleString()}
                         </dd>
                       </div>
                     )}
