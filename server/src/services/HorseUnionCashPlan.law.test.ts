@@ -30,34 +30,34 @@ const high = {
 };
 
 describe('the union cash schedule follows the November 4 owner scope', () => {
-  it('runs three lower-stakes tables without humans throughout 4-8am, every day', () => {
+  it('runs four lower-stakes tables, one of them Lightning, without humans throughout 4-8am, every day', () => {
     for (let day = 9; day <= 15; day++)
       for (let hour = 4; hour < 8; hour++) {
         const now = Date.UTC(2026, 10, day, hour + 6, 30);
-        expect(scheduledHorseCashGames(now).size).toBe(3);
+        expect(scheduledHorseCashGames(now).size).toBe(4);
         expect(allowed(low, 0, now)).toBe(true);
         expect(allowed(high, 0, now)).toBe(false);
         expect(allowed(high, 1, now)).toBe(true);
       }
   });
   it.each([
-    ['2026-11-04T07:59:59-06:00', 3],
-    ['2026-11-04T08:00:00-06:00', 8],
-    ['2026-11-04T12:00:00-06:00', 10],
-    ['2026-11-04T17:59:59-06:00', 10],
-    ['2026-11-04T18:00:00-06:00', 16],
-    ['2026-11-04T22:59:59-06:00', 16],
-    ['2026-11-04T23:00:00-06:00', 10],
-    ['2026-11-05T00:00:00-06:00', 3],
-    ['2026-11-06T17:00:00-06:00', 16],
-    ['2026-11-06T19:00:00-06:00', 16],
-    ['2026-11-06T21:00:00-06:00', 16],
-    ['2026-11-06T23:59:59-06:00', 16],
-    ['2026-11-07T00:00:00-06:00', 3],
+    ['2026-11-04T07:59:59-06:00', 4],
+    ['2026-11-04T08:00:00-06:00', 11],
+    ['2026-11-04T12:00:00-06:00', 13],
+    ['2026-11-04T17:59:59-06:00', 13],
+    ['2026-11-04T18:00:00-06:00', 21],
+    ['2026-11-04T22:59:59-06:00', 21],
+    ['2026-11-04T23:00:00-06:00', 13],
+    ['2026-11-05T00:00:00-06:00', 4],
+    ['2026-11-06T17:00:00-06:00', 21],
+    ['2026-11-06T19:00:00-06:00', 21],
+    ['2026-11-06T21:00:00-06:00', 21],
+    ['2026-11-06T23:59:59-06:00', 21],
+    ['2026-11-07T00:00:00-06:00', 4],
   ])('has %s bounded to %i scheduled games', (date, count) => {
     expect(scheduledHorseCashGames(at(date)).size).toBe(count);
   });
-  it('budgets 1466 scheduled table-hours in an ordinary week, with no hour above 16', () => {
+  it('budgets 1936 scheduled table-hours in an ordinary week, with no hour above 21 and Lightning every hour', () => {
     let tableHours = 0;
     for (let hour = 0; hour < 168; hour++) {
       const scheduled = scheduledHorseCashGames(at('2026-11-09T00:00:00-06:00') + hour * 3600000);
@@ -67,16 +67,21 @@ describe('the union cash schedule follows the November 4 owner scope', () => {
         .map((game) => game.variant);
       expect(variants).toContain('nlh');
       expect(variants.some((variant) => variant.startsWith('plo'))).toBe(true);
-      expect(count).toBeLessThanOrEqual(16);
+      // November 5 owner ruling: fewer tables, never slower games. A fast
+      // Lightning game is on the schedule every hour of the week.
+      expect(
+        plan.games.some((game) => scheduled.has(game.id) && game.name.startsWith('Lightning'))
+      ).toBe(true);
+      expect(count).toBeLessThanOrEqual(21);
       tableHours += count;
     }
-    expect(tableHours).toBe(1466);
+    expect(tableHours).toBe(1936);
   });
   it('uses Chicago DST rules rather than a fixed UTC offset', () => {
-    expect(scheduledHorseCashGames(at('2027-03-15T13:00:00Z')).size).toBe(8);
-    expect(scheduledHorseCashGames(at('2026-11-09T13:00:00Z')).size).toBe(3);
+    expect(scheduledHorseCashGames(at('2027-03-15T13:00:00Z')).size).toBe(11);
+    expect(scheduledHorseCashGames(at('2026-11-09T13:00:00Z')).size).toBe(4);
     for (const date of ['2027-11-07T01:30:00-05:00', '2027-11-07T01:30:00-06:00'])
-      expect(scheduledHorseCashGames(at(date)).size).toBe(3);
+      expect(scheduledHorseCashGames(at(date)).size).toBe(4);
   });
   it('allows higher-stakes Horse-only play in prime time and human-supported play off peak', () => {
     expect(allowed(high, 0, at('2026-11-04T18:00:00-06:00'))).toBe(true);
