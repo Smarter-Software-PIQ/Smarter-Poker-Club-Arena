@@ -365,11 +365,52 @@ retire_outgoing_in_background ${LEFTOVER_OUTGOING[@]+"${LEFTOVER_OUTGOING[@]}"}
 
 OUTGOING_CONTAINER=''
 HAD_OUTGOING_CONTAINER=0
+CERTIFIED_OUTGOING_ID=''
+# This recovery is permitted to replace only the original process whose native
+# checkpoint retained every owner. A newer restart is not that process. Keep
+# the check beside the actual stop, after potentially slow preparation.
+if [ -n "${ENGINE_UP_CERTIFIED_RETIREMENT:-}" ]; then
+  [ "$AUTHORIZED_CLASS" = desired ] \
+    || { log 'FATAL: certified original recovery must use the sealed desired image'; exit 1; }
+  CERTIFIED_OUTGOING_BEFORE="$(timeout --signal=TERM --kill-after=1s 5s docker container inspect -f \
+    '{"containerId":{{json .Id}},"containerImageId":{{json .Image}},"containerStartedAt":{{json .State.StartedAt}},"hostPid":{{json .State.Pid}},"running":{{json .State.Running}}}' "$CONTAINER")" \
+    || { log 'FATAL: certified outgoing incarnation is unreadable'; exit 1; }
+  CERTIFIED_OUTGOING_ID="$(python3 - "$ENGINE_UP_CERTIFIED_RETIREMENT" "$CERTIFIED_OUTGOING_BEFORE" "$AUTHORIZED_SHA" "$AUTHORIZED_IMAGE_ID" <<'CERTIFIED_STOP_IDENTITY'
+import json, re, sys
+expected, current = map(json.loads, sys.argv[1:3])
+if not (expected.get('profile') == 'eed-240s-certified-release-v1'
+    and expected.get('sourceSha') == sys.argv[3] == 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+    and expected.get('containerImageId') == sys.argv[4]
+    and re.fullmatch('[0-9a-f]{64}', str(expected.get('containerId')))
+    and re.fullmatch('[1-9][0-9]*', str(expected.get('nativeStartTicks')))
+    and current.get('running') is True
+    and all(current.get(k) == expected[k] for k in ('containerId','containerImageId','containerStartedAt','hostPid'))):
+    raise SystemExit('certified outgoing incarnation changed before stop')
+print(expected['containerId'])
+CERTIFIED_STOP_IDENTITY
+  )" || { log 'FATAL: certified outgoing incarnation changed; no stop sent'; exit 1; }
+  timeout --signal=TERM --kill-after=1s 5s docker exec "$CERTIFIED_OUTGOING_ID" \
+    env -u NODE_OPTIONS -u NODE_PATH node --no-inspect -e '
+const fs=require("node:fs"),e=JSON.parse(process.argv[1]),p=fs.readFileSync("/proc/1/stat","utf8");
+const ticks=p.slice(p.lastIndexOf(")")+2).trim().split(/\s+/)[19];
+if(ticks!==e.nativeStartTicks)throw Error("certified native PID1 changed before stop");
+' "$ENGINE_UP_CERTIFIED_RETIREMENT" \
+    || { log 'FATAL: certified native PID1 changed; no stop sent'; exit 1; }
+  CERTIFIED_OUTGOING_AFTER="$(timeout --signal=TERM --kill-after=1s 5s docker container inspect -f \
+    '{"containerId":{{json .Id}},"containerImageId":{{json .Image}},"containerStartedAt":{{json .State.StartedAt}},"hostPid":{{json .State.Pid}},"running":{{json .State.Running}}}' "$CONTAINER")" \
+    || { log 'FATAL: certified outgoing bookend unreadable; no stop sent'; exit 1; }
+  [ "$CERTIFIED_OUTGOING_BEFORE" = "$CERTIFIED_OUTGOING_AFTER" ] \
+    || { log 'FATAL: certified outgoing bookend changed; no stop sent'; exit 1; }
+fi
 if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
   HAD_OUTGOING_CONTAINER=1
   log "stopping $CONTAINER (SIGTERM, 45s grace for snapshot flush)"
   phase stop-start
-  ( docker stop -t 45 "$CONTAINER" >/dev/null 2>&1 || true
+  ( if [ -n "$CERTIFIED_OUTGOING_ID" ]; then
+      docker stop -t 45 "$CERTIFIED_OUTGOING_ID" >/dev/null 2>&1 || true
+    else
+      docker stop -t 45 "$CONTAINER" >/dev/null 2>&1 || true
+    fi
     phase stop-returned
   ) &
   STOP_OPERATION_PID=$!

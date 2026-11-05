@@ -5,7 +5,7 @@
  *
  * Tests player notes constants, cache behavior, and default fallbacks:
  * - NOTE_COLORS: 7 colors with unique IDs, valid hex values
- * - PLAYER_TAGS: 15 player tags
+ * - PLAYER_TAGS: 18 player tags (every classifier archetype is among them)
  * - getNote: cache hit, cache miss → default, saveNote → cache update
  * - clearCache: empties the internal map
  */
@@ -95,8 +95,14 @@ describe('PlayerNotesService', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('PLAYER_TAGS', () => {
-    it('should contain exactly 15 tags', () => {
-      expect(PLAYER_TAGS.length).toBe(15);
+    it('should contain exactly 18 tags', () => {
+      // 2026-11-04: TAG, Rock and Maniac added so every title the style
+      // classifier can give a player is also a tag a player can give an
+      // opponent. One vocabulary, two directions.
+      expect(PLAYER_TAGS.length).toBe(18);
+      for (const archetype of ['Shark', 'Fish', 'Rock', 'Maniac', 'TAG', 'LAG', 'Nit', 'Station']) {
+        expect(PLAYER_TAGS).toContain(archetype);
+      }
     });
 
     it('should include "Fish" tag', () => {

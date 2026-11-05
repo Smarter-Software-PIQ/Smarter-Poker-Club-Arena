@@ -171,8 +171,10 @@ let mttDepthTarget = false;
 let continuationTarget = false;
 let retainedCheckpointTarget = false;
 const RETAINED_CHECKPOINT_GUARD = 'server/scripts/retained-original-checkpoint-guard.mjs';
-const FROZEN_ATTESTATION_MIGRATION =
-  '20261029093051_attest_frozen_original_hand_continuation_custody.sql';
+const FROZEN_ATTESTATION_MIGRATIONS = [
+  '20261029093051_attest_frozen_original_hand_continuation_custody.sql',
+  '20261104232431_certify_scoped_eed_recovery_before_the_original_thaw.sql',
+];
 const FROZEN_ATTESTATION_CONTRACTS = [
   {
     schema_name: 'public',
@@ -184,7 +186,7 @@ const FROZEN_ATTESTATION_CONTRACTS = [
   {
     schema_name: 'smarter_private',
     proname: 'attest_frozen_hand_continuation',
-    body_md5: '7e5ebd0b8f622ba6daa596c2d2e45db0',
+    body_md5: '0d7f4b77102e39b35bac63a58f8e01b2',
     acl: '{postgres=X/postgres}',
     service_execute: false,
   },
@@ -194,7 +196,7 @@ function continuationRequirements() {
   const files = [
     ...(continuationTarget ? CONTINUATION_MIGRATIONS : []),
     ...(mttDepthTarget ? MTT_DEPTH_MIGRATIONS : []),
-    ...(retainedCheckpointTarget ? [FROZEN_ATTESTATION_MIGRATION] : []),
+    ...(retainedCheckpointTarget ? FROZEN_ATTESTATION_MIGRATIONS : []),
   ];
   return files.map((file) => ({
     version: file.slice(0, 14),

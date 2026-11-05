@@ -57,7 +57,7 @@ export function ownerRetirementIntent(input) {
   };
 }
 // This adapter only drives the existing physical-stop protocol. It has no
-// settlement action, wallet path, replay loop, or release capability.
+// settlement action, wallet path, replay loop, or engine-release capability.
 export async function controlOwnerRetirement(
   input,
   { fetchImpl = fetch, serviceIdentity, supabaseUrl } = {}
@@ -130,6 +130,17 @@ export async function controlOwnerRetirement(
     // Never advance a disposition already committed under any mode.
     if (value.state !== 'settled' && value.current_generation !== intent.generation)
       throw Error('Generation Changed');
+    if (value.state === 'settled' && input.action === 'owner_ack') {
+      if (
+        value.tournament_status !== 'CANCELLED' ||
+        value.receipt?.fully_settled !== true ||
+        value.receipt.operation_id !== intent.operationId ||
+        value.receipt.tournament_id !== intent.tournamentId ||
+        value.receipt.quiescence?.generation !== intent.generation ||
+        (value.current_generation !== null && value.current_generation !== intent.generation)
+      )
+        throw Error('Original Settlement Identity Changed');
+    }
     return {
       state: value.state,
       operation_id: value.operation_id,
@@ -151,8 +162,45 @@ export async function controlOwnerRetirement(
     result.before = await health();
     result.canonicalBefore = await read();
     if (result.canonicalBefore.state === 'settled') {
+      if (input.action !== 'owner_ack') {
+        result.after = await health();
+        result.outcome = 'prior_disposition_preserved';
+        return result;
+      }
+      // Settlement preserves the abort fence until this same original operation
+      // joins final manager/lease retirement. Never re-enter a financial path.
+      try {
+        const r = await request('https://engine.smarter.poker/admin/tournament-abort-boundary', {
+          operationId: intent.operationId,
+          tournamentId: intent.tournamentId,
+        });
+        if (
+          r.success !== true ||
+          r.runtime?.operation_id !== intent.operationId ||
+          r.runtime?.tournament_id !== intent.tournamentId ||
+          r.runtime?.state !== 'settled' ||
+          r.runtime?.runtime_retired !== true
+        )
+          throw Error('Final Retirement Acknowledgement Unknown');
+        // Owner actions return directly to the CLI receipt writer, so expose
+        // only this public tuple, never the engine's nested financial receipt.
+        result.runtime = {
+          operation_id: intent.operationId,
+          tournament_id: intent.tournamentId,
+          state: 'settled',
+          runtime_retired: true,
+        };
+      } catch {
+        result.mutationAcknowledgement = 'unknown';
+      }
+      result.canonicalAfter = await read();
       result.after = await health();
-      result.outcome = 'prior_disposition_preserved';
+      if (
+        !result.mutationAcknowledgement &&
+        result.canonicalAfter.state === 'settled' &&
+        result.canonicalAfter.receipt_digest === result.canonicalBefore.receipt_digest
+      )
+        result.outcome = 'owner_runtime_retired';
       return result;
     }
     const events = await request(

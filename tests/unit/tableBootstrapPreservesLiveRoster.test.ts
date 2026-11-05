@@ -1,3 +1,8 @@
+import { cashAutoTopUpTarget } from '../../src/lib/cashBuyIn';
+import {
+  isRetiredTournamentTable,
+  RETIRED_TOURNAMENT_IDS,
+} from '../../src/lib/retiredTournamentVisibility';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
@@ -33,6 +38,9 @@ function bootstrapHarness() {
   const query: any = { select: () => query, eq: () => query, maybeSingle: () => response };
   const env = {
     tableId: 'table-a',
+    isRetiredTournamentTable,
+    masterBus: { emit: vi.fn() },
+    deadTableExitRef: { current: vi.fn() },
     lightningRoomRef: { current: null },
     engineSnapshotRef,
     tableStateRef,
@@ -45,6 +53,7 @@ function bootstrapHarness() {
     reportError: vi.fn(),
     parseTableArenaIdentity: () => ({ asset: 'chips', id: 'club-a' }),
     cashBuyInRange: () => ({ min: 10, max: 100 }),
+    cashAutoTopUpTarget,
     formatGameTitle: (name: string) => name,
     formatBlindPair: (small: number, big: number) => `${small}/${big}`,
     createEmptySeats: (width: number) => Array(width).fill(null),
@@ -53,6 +62,7 @@ function bootstrapHarness() {
   const controller = new Function(...Object.keys(env), script)(...Object.values(env));
   return {
     ...controller,
+    env,
     read: () => state,
     installLive: () => {
       engineSnapshotRef.current = { players: [{ seat: 1 }, { seat: 2 }] };
@@ -71,14 +81,14 @@ function bootstrapHarness() {
       };
       return state;
     },
-    answer: () =>
+    answer: (tournamentId = 'tournament-a') =>
       answer({
         data: {
           id: 'table-a',
           name: 'Heads Up',
           max_players: 2,
           game_type: 'tournament',
-          tournament_id: 'tournament-a',
+          tournament_id: tournamentId,
           small_blind: 15,
           big_blind: 30,
         },
@@ -88,6 +98,21 @@ function bootstrapHarness() {
 }
 
 describe('late table bootstrap cannot erase a live engine roster', () => {
+  it('closes a retired tournament before metadata commit without changing a live roster', async () => {
+    const h = bootstrapHarness();
+    const loading = h.run();
+    const live = h.installLive();
+    h.answer(RETIRED_TOURNAMENT_IDS[0]);
+    await loading;
+    expect(h.read()).toBe(live);
+    expect(h.env.setTableLoadFailure).toHaveBeenCalledWith('missing');
+    expect(h.env.masterBus.emit).toHaveBeenCalledWith('TABLE_MENU_ACTION', {
+      tableId: 'table-a',
+      action: 'CLOSE_TABLE_TAB',
+    });
+    expect(h.env.deadTableExitRef.current).toHaveBeenCalledOnce();
+  });
+
   it('preserves the hand when metadata resolves after the engine snapshot', async () => {
     const h = bootstrapHarness();
     const loading = h.run();

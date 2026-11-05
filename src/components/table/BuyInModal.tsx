@@ -10,6 +10,7 @@
  * - Account balance display
  */
 
+import { isFixedLimitVariant } from '../../lib/bettingStructure';
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { haptic, soundService } from '../../services/SoundService';
 import {
@@ -130,7 +131,13 @@ export function BuyInModal({
 }: BuyInModalProps) {
   const rebuyDialogRef = useFocusTrap(isOpen && purchaseKind === 'rebuy', '#buy-in-modal-title');
   // State
-  const maxBuyIn = Math.max(tableMaxBuyIn, cashoutRestriction ?? 0);
+  const unlimitedBuyIn = isFixedLimitVariant(gameType);
+  const minimumKnown = Number.isFinite(minBuyIn) && minBuyIn > 0;
+  // The wallet bounds this input, never the fixed-limit table's permitted stack.
+  // An unknown balance keeps confirmation closed and the minimum visible.
+  const maxBuyIn = unlimitedBuyIn
+    ? Math.max(minBuyIn, cashoutRestriction ?? 0, accountBalance ?? 0)
+    : Math.max(tableMaxBuyIn, cashoutRestriction ?? 0);
   const wholeDiamonds = currency === 'diamonds';
   const gameTypeName = gameTypeLongName(gameType);
   const balanceKnown = accountBalance !== null;
@@ -212,7 +219,8 @@ export function BuyInModal({
   // Check if user has enough balance. Unknown is not enough - and not "insufficient".
   const hasEnoughBalance = balanceKnown && accountBalance >= clampedBuyIn;
   const canConfirm =
-    (!!recovery || hasEnoughBalance) && (!wholeDiamonds || Number.isSafeInteger(clampedBuyIn));
+    (!!recovery || (hasEnoughBalance && (!unlimitedBuyIn || minimumKnown))) &&
+    (!wholeDiamonds || Number.isSafeInteger(clampedBuyIn));
 
   // Animate amount counter when buyInAmount changes
   useEffect(() => {
@@ -348,13 +356,15 @@ export function BuyInModal({
     ? 'Joining'
     : recovery
       ? 'Retry Original Buy-In'
-      : hasEnoughBalance
-        ? wholeDiamonds
-          ? 'Buy In With Diamonds'
-          : 'Buy Chips'
-        : balanceKnown
-          ? 'Insufficient Balance'
-          : 'Balance Unavailable';
+      : unlimitedBuyIn && !minimumKnown
+        ? 'Buy-In Unavailable'
+        : hasEnoughBalance
+          ? wholeDiamonds
+            ? 'Buy In With Diamonds'
+            : 'Buy Chips'
+          : balanceKnown
+            ? 'Insufficient Balance'
+            : 'Balance Unavailable';
 
   if (purchaseKind === 'rebuy') {
     const unit = wholeDiamonds ? 'Diamonds' : 'Chips';
@@ -402,7 +412,13 @@ export function BuyInModal({
               <React.Fragment key="range">
                 <span>Allowed Range</span>
                 <strong>
-                  <PurchaseText>{`${formatAmount(effectiveMinBuyIn, currency)} - ${formatAmount(maxBuyIn, currency)}`}</PurchaseText>
+                  <PurchaseText>
+                    {unlimitedBuyIn && !minimumKnown
+                      ? '-'
+                      : unlimitedBuyIn
+                        ? `${formatAmount(effectiveMinBuyIn, currency)} Min / No Maximum`
+                        : `${formatAmount(effectiveMinBuyIn, currency)} - ${formatAmount(maxBuyIn, currency)}`}
+                  </PurchaseText>
                 </strong>
               </React.Fragment>,
               <React.Fragment key="balance">
@@ -651,11 +667,16 @@ export function BuyInModal({
           <div className="buy-in-modal__deck">
             <BayLabel zone={BUY_IN_ZONES.bays[0].label} text="Min" />
             <BayLabel zone={BUY_IN_ZONES.bays[1].label} text="BB" />
-            <BayLabel zone={BUY_IN_ZONES.bays[2].label} text="Max" />
+            <BayLabel
+              zone={BUY_IN_ZONES.bays[2].label}
+              text={unlimitedBuyIn ? 'Available' : 'Max'}
+            />
             <BayLabel zone={BUY_IN_ZONES.bays[3].label} text="Balance" />
             <BayButton
               zone={BUY_IN_ZONES.bays[0].value}
-              text={formatAmount(effectiveMinBuyIn, currency)}
+              text={
+                unlimitedBuyIn && !minimumKnown ? '-' : formatAmount(effectiveMinBuyIn, currency)
+              }
               ink={minPressed ? 'white' : 'silver'}
               label="Buy In For The Minimum"
               pressed={minPressed}

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   readUnit: vi.fn(),
   registerPlayer: vi.fn(),
   reportError: vi.fn(),
+  rpc: vi.fn(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
   toastSuccess: vi.fn(),
@@ -54,11 +55,15 @@ vi.mock('../../src/core/MasterBus', () => ({
   masterBus: { emit: mocks.emit },
 }));
 
-vi.mock('../../src/lib/supabase', () => ({ supabase: { from: vi.fn() } }));
+vi.mock('../../src/lib/supabase', () => ({ supabase: { from: vi.fn(), rpc: mocks.rpc } }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: mocks.reportError }));
 
 import { SignUpHost } from '../../src/components/tournament/signUpDialog';
 import { useTournamentRegistration } from '../../src/hooks/useTournamentRegistration';
+import {
+  resetTournamentStartHoldCacheForTests,
+  useTournamentStartHold,
+} from '../../src/hooks/useTournamentStartHold';
 
 const tournament = {
   id: 'tournament-1',
@@ -73,10 +78,38 @@ const tournament = {
 describe('human tournament registration with entry-only tickets', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetTournamentStartHoldCacheForTests();
+    mocks.rpc.mockResolvedValue({ data: { blocked: false }, error: null });
     mocks.findTicket.mockResolvedValue(null);
     mocks.readUnit.mockResolvedValue(1);
     mocks.readBalance.mockResolvedValue({ balance: 500 });
     mocks.registerPlayer.mockResolvedValue({ id: 'registration-1', table_id: 'table-1' });
+  });
+
+  it('refreshes an already mounted hold on entry and opens confirmation after release', async () => {
+    mocks.rpc.mockResolvedValue({ data: { blocked: true }, error: null });
+    render(<SignUpHost />);
+    const onHold = vi.fn();
+    const hook = renderHook(() => ({
+      registration: useTournamentRegistration(onHold),
+      hold: useTournamentStartHold(),
+    }));
+    await waitFor(() => expect(hook.result.current.hold.blocked).toBe(true));
+    await act(async () => hook.result.current.registration.register(tournament));
+    expect(onHold).toHaveBeenCalledTimes(1);
+    expect(mocks.findTicket).not.toHaveBeenCalled();
+
+    mocks.rpc.mockResolvedValue({ data: { blocked: false }, error: null });
+    let registration!: Promise<void>;
+    act(() => {
+      registration = hook.result.current.registration.register(tournament);
+    });
+    await screen.findByRole('dialog');
+    expect(hook.result.current.hold.blocked).toBe(false);
+    expect(onHold).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Sign Up' }));
+    await act(async () => registration);
+    expect(mocks.registerPlayer).not.toHaveBeenCalled();
   });
 
   it.each([true, false])(

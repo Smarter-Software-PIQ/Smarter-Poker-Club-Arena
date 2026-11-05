@@ -78,7 +78,7 @@ class ActivationFloor(unittest.TestCase):
                'clientPublicationAt': window['notBefore']}
         return window, (json.dumps(doc, indent=2) + '\n').encode()
 
-    def owner_record(self, legacy=False, window_id=None):
+    def owner_record(self, legacy=False, window_id='2026-11-04-tournament-immediate-relaunch-continuation'):
         source = json.loads((ROOT / MANIFEST).read_text())
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
         if window_id is None:
@@ -394,6 +394,121 @@ echo CHECKPOINT_MUST_NOT_RUN
                 self.assertFalse(launched.exists(), 'expired entry launched the helper Git read')
                 self.assertEqual(marker.read_bytes(), original)
 
+    def certified_seal(self):
+        import argparse
+        control = self.repo / 'server/scripts/engine-release-seal.py'
+        control.write_bytes((ROOT / 'server/scripts/engine-release-seal.py').read_bytes())
+        record = self.owner_record(window_id=None)
+        spec = importlib.util.spec_from_file_location('certified_fixture_seal', control)
+        seal = importlib.util.module_from_spec(spec); spec.loader.exec_module(seal)
+        seal.STATE_DIR = self.repo / 'state'; seal.STATE_DIR.mkdir()
+        seal.STATE_FILE = seal.STATE_DIR / 'seal.json'
+        seal.RESULT_DIR = seal.STATE_DIR / 'results'
+        seal.AUDIT_FILE = seal.STATE_DIR / 'audit.jsonl'
+        seal.LOCK_FILE = seal.STATE_DIR / 'lock'
+        state = {'schema': 1, 'desired': {'sha': floor.CERTIFIED_PREDECESSOR, 'imageId': 'sha256:'+'a'*64},
+                 'highWaterSha': self.sha, 'generation': 1, 'pending': None, 'finalization': None, 'committedRuns': {}}
+        seal.STATE_FILE.write_text(json.dumps(state))
+        args = argparse.Namespace(repo=str(self.repo), sha=self.sha, run_id='800-1', cause='urgent',
+            control_sha=self.sha, certified_policy=floor.CERTIFIED_POLICY, predecessor_sha=floor.CERTIFIED_PREDECESSOR,
+            scheduled_cycle_start=None, missed_window=False, include_eligibility=False)
+        return seal, record, args
+
+    def test_certified_owner_requires_exact_profile_and_entire_900_second_cycle(self):
+        r = self.owner_record(window_id=None)
+        self.assertEqual(r['ownerWindowId'], floor.CERTIFIED_POLICY)
+        self.assertEqual(r['certifiedRecoveryProfile'], 'eed-240s-certified-release-v1')
+        self.assertEqual(r['cycleDurationSeconds'], 900)
+        self.assertEqual((r['activationEpoch'], r['expiresEpoch']), (1793833200, 1793854800))
+        floor.check_window(r, r['expiresEpoch']-900, r['expiresEpoch'], 'admit')
+        for now, deadline in [(r['expiresEpoch']-899,r['expiresEpoch']), (r['activationEpoch'],r['activationEpoch']+899)]:
+            with self.assertRaises(ValueError): floor.check_window(r,now,deadline,'admit')
+        path = self.repo / 'server/release/owner-maintenance-windows.json'
+        original = json.loads(path.read_text())
+        for changed in [{'certifiedRecoveryProfile':'eed-80s-v1'}, {'supersedesPhase1Schedule':False},
+                        {'announcementPolicy':'immediate'}, {'notAfter':'2026-11-05T06:00:00Z'}]:
+            candidate=json.loads(json.dumps(original)); candidate['windows'][0].update(changed)
+            path.write_text(json.dumps(candidate)); self.sha=self.commit()
+            with self.assertRaises(ValueError): floor.policy(str(self.repo),self.sha,self.sha)
+
+    def test_certified_reservation_is_durable_exact_and_never_reannounced(self):
+        import contextlib, io
+        seal,r,args = self.certified_seal()
+        stamp = r['activationEpoch']*1000+123
+        original_seal = seal.STATE_FILE.read_bytes()
+        def reserve(at):
+            output=io.StringIO()
+            with patch.object(seal.time,'time',return_value=at/1000),contextlib.redirect_stdout(output):
+                seal.cmd_reserve_recovery_window(args)
+            return output.getvalue()
+        self.assertEqual(reserve(stamp),str(stamp)+'\n')
+        path=seal.STATE_DIR/'engine-recovery-window-800-1.json'; raw=path.read_bytes(); value=json.loads(raw)
+        self.assertEqual(value['certifiedRecovery'],{'policyId':floor.CERTIFIED_POLICY,'profileId':floor.CERTIFIED_PROFILE,
+            'controlSha':self.sha,'predecessorSha':floor.CERTIFIED_PREDECESSOR,'endsAt':stamp+900000})
+        self.assertEqual(floor.reservation(r,str(seal.STATE_DIR),'800-1'),stamp)
+        self.assertEqual(seal.recovery_window_ends_at(value),stamp+900000)
+        # An unknown transport acknowledgement observes the original, even after expiry.
+        self.assertEqual(reserve(stamp+901000),str(stamp)+'\n'); self.assertEqual(path.read_bytes(),raw)
+        self.assertEqual(seal.STATE_FILE.read_bytes(),original_seal)
+        self.assertEqual(len(seal.AUDIT_FILE.read_text().splitlines()),1)
+        args.certified_policy=None; args.predecessor_sha=None
+        with self.assertRaises(SystemExit): reserve(stamp+1)
+        self.assertEqual(path.read_bytes(),raw)
+        # The ordinary path remains exactly four fields and420 seconds.
+        path.unlink(); args.run_id='801-1'
+        self.assertEqual(reserve(stamp),str(stamp)+'\n')
+        ordinary=json.loads((seal.STATE_DIR/'engine-recovery-window-801-1.json').read_text())
+        self.assertEqual(set(ordinary),{'runId','sha','cause','announcedAt'})
+        self.assertEqual(seal.recovery_window_ends_at(ordinary),stamp+420000)
+
+    def test_certified_reservation_refuses_mismatch_and_late_new_cycle_without_writes(self):
+        seal,r,args=self.certified_seal(); base=dict(vars(args))
+        for changes,stamp in [({'predecessor_sha':'f'*40},r['activationEpoch']*1000),
+                              ({'certified_policy':'other'},r['activationEpoch']*1000),
+                              ({'cause':'engine-degraded'},r['activationEpoch']*1000),
+                              ({},r['expiresEpoch']*1000-899999), ({},r['activationEpoch']*1000-1)]:
+            vars(args).clear(); vars(args).update({**base,**changes})
+            with patch.object(seal.time,'time',return_value=stamp/1000),self.assertRaises((SystemExit,ValueError)):
+                seal.cmd_reserve_recovery_window(args)
+            self.assertEqual(list(seal.STATE_DIR.glob('engine-recovery-window-*.json')),[])
+        vars(args).clear();vars(args).update(base)
+        with patch.object(seal.time,'time',return_value=r['activationEpoch']): seal.cmd_reserve_recovery_window(args)
+        path=seal.STATE_DIR/'engine-recovery-window-800-1.json'; original=json.loads(path.read_text())
+        for changes in [{'endsAt':original['announcedAt']+420000},{'controlSha':'b'*40},
+                        {'predecessorSha':'c'*40},{'profileId':'eed-80s-v1'},{'extra':True}]:
+            value=json.loads(json.dumps(original));value['certifiedRecovery'].update(changes);path.write_text(json.dumps(value))
+            with self.assertRaises(ValueError): floor.reservation(r,str(seal.STATE_DIR),'800-1')
+        # Missing original metadata cannot silently become a 900-second owner.
+        value=dict(original);value.pop('certifiedRecovery');path.write_text(json.dumps(value))
+        with self.assertRaises(ValueError): floor.reservation(r,str(seal.STATE_DIR),'800-1')
+
+    def test_certified_completion_waits_for_900_seconds_and_original_terminal_receipt(self):
+        seal,r,args=self.certified_seal(); stamp=r['activationEpoch']*1000
+        with patch.object(seal.time,'time',return_value=stamp/1000): seal.cmd_reserve_recovery_window(args)
+        value=json.loads((seal.STATE_DIR/'engine-recovery-window-800-1.json').read_text())
+        self.assertFalse(seal.completed_recovery_window(args.run_id,value,stamp+900000))
+        failure={'schema':1,'runId':args.run_id,'sha':self.sha,'controlSha':self.sha,'result':'failed',
+                 'invocationId':'e'*32,'transactionExitStatus':1,'recoveredDesiredSha':floor.CERTIFIED_PREDECESSOR,
+                 'recoveredDesiredImageId':'sha256:'+'a'*64,'completedAt':stamp//1000+421}
+        seal.result_path(args.run_id).write_text(json.dumps(failure))
+        self.assertFalse(seal.completed_recovery_window(args.run_id,value,stamp+420000))
+        self.assertFalse(seal.completed_recovery_window(args.run_id,value,stamp+899999))
+        self.assertTrue(seal.completed_recovery_window(args.run_id,value,stamp+900000))
+        value['certifiedRecovery']['endsAt']=stamp+420000
+        with self.assertRaises(SystemExit): seal.completed_recovery_window(args.run_id,value,stamp+900000)
+
+    def test_certified_diagnostic_bounds_are_profile_and_predecessor_scoped(self):
+        seal,_,_=self.certified_seal()
+        raw={'checkpointRequired':1,'drainedCutover':0,'prepared':0,'mutationStarted':0,'lockHeld':1,
+             'checkpointBudgetSeconds':320,'checkpointWorkMs':260000,'certificateExitStatus':0,
+             'breakEndEpoch':1793854800,'checkpointProfile':floor.CERTIFIED_PROFILE,'predecessorSha':floor.CERTIFIED_PREDECESSOR}
+        self.assertEqual(seal.diagnostic_shell_state(raw),raw)
+        for changes in [{'checkpointProfile':'eed-80s-v1'},{'predecessorSha':'a'*40},
+                        {'checkpointBudgetSeconds':321},{'checkpointWorkMs':260001}]:
+            with self.assertRaises(ValueError): seal.diagnostic_shell_state({**raw,**changes})
+        ordinary={**raw,'checkpointProfile':'eed-80s-v1','checkpointBudgetSeconds':80,'checkpointWorkMs':68750}
+        self.assertEqual(seal.diagnostic_shell_state(ordinary),ordinary)
+
     def test_owner_window_is_exact_bounded_and_needs_full_lead(self):
         r = self.owner_record()
         self.assertEqual(r['schema'], floor.OWNER_CAPABILITY)
@@ -424,7 +539,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         (self.repo/'server/release/owner-maintenance-windows.json').write_text(json.dumps({'version':1,'windows':[window]}))
         old_sha = self.commit()
         previous = floor.policy(str(self.repo), old_sha, old_sha)
-        current = self.owner_record()
+        current = self.owner_record(window_id=None)
         self.assertNotEqual(current['ownerWindowId'], previous['ownerWindowId'])
         # A current carrier can belong to a later finite owner. Historical
         # target dates stay immutable rather than forcing future restamps.
@@ -451,9 +566,9 @@ echo CHECKPOINT_MUST_NOT_RUN
         with self.assertRaises(ValueError): floor.policy(str(self.repo), old_sha, self.sha)
         # Pinned old source is unchanged by the newer authorization.
         self.assertEqual(floor.policy(str(self.repo), old_sha, old_sha), previous)
-        floor.check_window(current, current['expiresEpoch']-420, current['expiresEpoch'], 'admit')
+        floor.check_window(current, current['expiresEpoch']-current.get('cycleDurationSeconds',420), current['expiresEpoch'], 'admit')
         with self.assertRaises(ValueError):
-            floor.check_window(current, current['expiresEpoch']-419, current['expiresEpoch']+1, 'admit')
+            floor.check_window(current, current['expiresEpoch']-current.get('cycleDurationSeconds',420)+1, current['expiresEpoch']+1, 'admit')
 
     def test_census_continuation_keeps_failed_operation_window_immutable(self):
         import hashlib
@@ -620,12 +735,31 @@ echo CHECKPOINT_MUST_NOT_RUN
         prior, raw = self.historical_floor('2026-11-04-tournament-owned-renewal-observation')
         self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T08:30:00Z','2026-11-04T12:00:00Z'))
-        current = self.owner_record()
+        current = self.owner_record(window_id='2026-11-04-tournament-canonical-source-continuation')
         self.assertEqual(current['ownerWindowId'], '2026-11-04-tournament-canonical-source-continuation')
         self.assertEqual(current['expiresEpoch']-current['activationEpoch'], 21600)
         floor.check_window(current,current['expiresEpoch']-420,current['expiresEpoch'],'admit')
         for now in [current['activationEpoch']-1,current['expiresEpoch']-419,current['expiresEpoch']]:
             with self.assertRaises(ValueError): floor.check_window(current,now,current['expiresEpoch'],'admit')
+
+    def test_immediate_relaunch_continuation_preserves_history_and_full_reserves(self):
+        import hashlib
+        prior, raw = self.historical_floor('2026-11-04-tournament-canonical-source-continuation')
+        self.assertEqual(prior['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((prior['notBefore'], prior['notAfter']), ('2026-11-04T12:00:00Z', '2026-11-04T18:00:00Z'))
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        window = next(w for w in windows['windows'] if w['id'] == '2026-11-04-tournament-immediate-relaunch-continuation')
+        self.assertEqual(window['contains'], 'f986e7020b3d1f8c18a4de0c533c49c6b6401f4e')
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-04T17:45:00Z', '2026-11-04T23:45:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertTrue(window['supersedesPhase1Schedule'])
+        current = self.owner_record()
+        self.assertEqual(current['ownerWindowId'], window['id'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+        for now in (current['activationEpoch'], current['activationEpoch'] + 1, current['expiresEpoch'] - 420):
+            floor.check_window(current, now, current['expiresEpoch'], 'admit')
+        for now in (current['activationEpoch'] - 1, current['expiresEpoch'] - 419, current['expiresEpoch']):
+            with self.assertRaises(ValueError): floor.check_window(current, now, current['expiresEpoch'], 'admit')
 
     def test_owner_reservation_binds_run_target_cause_and_full_window(self):
         r = self.owner_record(); root = self.repo / 'state'; root.mkdir()
@@ -1082,7 +1216,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         events = self.repo / 'runtime-events'
         for file in ('engine-release-seal.py', 'engine-supervisor.sh'):
             path = control / file
-            path.write_text('#!/usr/bin/env bash\necho runtime >> "$FIXTURE_EVENTS"\n')
+            path.write_text('#!/usr/bin/env bash\n[ "${1:-}" != prove-expired-recovery-announcement ] || exit 1\necho runtime >> "$FIXTURE_EVENTS"\n')
             path.chmod(0o755)
         (control / 'control-sha').write_text(self.sha + '\n')
         request = root / '123-1.request'
@@ -1140,9 +1274,158 @@ docker() { echo docker >> "$FIXTURE_EVENTS"; }
         floor.entry_state(r,str(root),'123-1',True,r['activationEpoch'],r['expiresEpoch']+100,True)
         result = subprocess.run([BASH, '-c', prefix + fragment], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode,75,result.stderr)
-        self.assertFalse(events.exists())
+        self.assertEqual(events.read_text().splitlines(), ['lock'])
         self.assertTrue(request.exists())
 
+
+    def test_expired_original_announcement_finishes_only_through_its_failed_receipt(self):
+        import shlex
+        import sys
+        control = self.repo / 'server/scripts'
+        for name in ('engine-release-seal.py', 'engine-release-database-proof.py', 'engine-release-lightning-hold.py'):
+            path = control / name
+            path.write_bytes((ROOT / 'server/scripts' / name).read_bytes()); path.chmod(0o755)
+        record = self.owner_record()
+        for name in ('engine-release-recover.sh',): (control / name).chmod(0o755)
+        state_root = self.repo / 'state'; state_root.mkdir()
+        requests = self.repo / 'requests'; requests.mkdir()
+        pins = self.repo / 'pins'; pins.mkdir()
+        leases = self.repo / 'leases'; leases.mkdir()
+        results = state_root / 'results'; results.mkdir()
+        run, invocation = '41904788070-1', 'e' * 32
+        stamp = 1793824762499  # Original20:39:22.499, not an invented later window.
+        desired = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+        image = 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b'
+        base = {'schema': 1, 'desired': {'sha': desired, 'imageId': image, 'legacyUnlabelled': False},
+                'highWaterSha': desired, 'generation': 1, 'updatedAt': 1793824800,
+                'pending': None, 'finalization': None, 'committedRuns': {}}
+        (control / 'control-sha').write_text(self.sha + '\n')
+        lines = [self.sha, 'https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/actions/runs/41904788070',
+                 'fixture', str(control), self.sha, str(record['expiresEpoch'] + 100)]
+        request = requests / (run + '.request')
+        def reset():
+            (state_root / 'seal.json').write_text(json.dumps(base))
+            for path in list(requests.iterdir()) + list(results.iterdir()) + list(pins.iterdir()): path.unlink()
+            request.write_text('\n'.join(lines) + '\n'); request.chmod(0o600)
+            (requests / (run + '.intent')).write_bytes(request.read_bytes())
+            (pins / (run + '.generation')).write_text(str(control) + '\n' + self.sha + '\n')
+            (leases / (run + '.lease')).write_text('fixture')
+            floor.entry_state(record, str(requests), run, True, record['activationEpoch'], record['expiresEpoch']+100, True)
+            reservation = state_root / ('engine-recovery-window-' + run + '.json')
+            reservation.write_text(json.dumps({'runId': run, 'sha': self.sha, 'cause': 'urgent', 'announcedAt': stamp}))
+            reservation.chmod(0o600)
+        reset()
+        # Real source parser, seal state, immutable failure/audit, actual wrapper
+        # failure branch and full recovery/cleanup. Only native host interfaces
+        # (root metadata, systemd, Docker, cgroup, DB/health) are supplied locally.
+        driver = self.repo / 'native-host-fixture.py'
+        driver.write_text(r"""
+import importlib.util,json,os,sys
+from pathlib import Path
+from unittest.mock import patch
+spec=importlib.util.spec_from_file_location('owned_seal',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+original=m.failed_routine_command
+mode=os.environ.get('FIXTURE_CASE','positive')
+def command(args,deadline,limit=32768,**kwargs):
+    if '--terminal-owned-thaw' not in args: return original(args,deadline,limit,**kwargs)
+    if mode=='thaw': m.die('fixture incomplete own thaw')
+    return json.dumps({'schema':'terminal-owned-thaw/v1','sha':m.FAILED_ROUTINE_DESIRED,'instanceId':'1-9349c742',
+        'databaseIdle':True,'freshLeader':True,'ownedV3Thaw':True,
+        **{k:int(args[args.index(flag)+1]) for k,flag in [('announcedAt','--window-announced-ms'),('startsAt','--window-starts-ms'),('endsAt','--window-ends-ms')]}})
+calls=0
+def runtime(*args,**kwargs):
+    global calls
+    calls+=1
+    return {'containerId':'d'*64,'startedAt':'2026-11-04T19:58:58Z','instanceId':'1-9349c742' if mode!='changed-runtime' or calls==1 else '1-ffffffff'}
+original_read=Path.read_text
+original_stat=Path.lstat
+original_fstat=os.fstat
+def fstat(fd):
+    value=list(original_fstat(fd));value[4]=0;return os.stat_result(value)
+def read(path,*args,**kwargs):
+    return '0::/original-owner\n' if str(path)=='/proc/self/cgroup' else original_read(path,*args,**kwargs)
+def stat(path,*args,**kwargs):
+    value=list(original_stat(path,*args,**kwargs));value[4]=0;return os.stat_result(value)
+with patch.object(m.os,'geteuid',return_value=0),patch.object(m,'require_engine_lock'),\
+     patch.object(m,'failed_routine_bytes',side_effect=lambda path,limit=65536:Path(path).read_bytes()),\
+     patch.object(m,'native_unit',return_value={'LoadState':'loaded','ActiveState':'activating','SubState':'start','MainPID':'12','ControlPID':'0',
+        'InvocationID':('f'*32 if mode=='foreign-unit' else os.environ['INVOCATION_ID']),'ControlGroup':'/original-owner'}),\
+     patch.object(Path,'read_text',read),patch.object(Path,'lstat',stat),patch.object(os,'fstat',fstat),\
+     patch.object(m,'failed_routine_runtime',side_effect=runtime),patch.object(m,'failed_routine_command',side_effect=command),\
+     patch.object(m,'container_identity',return_value=('running',m.FAILED_ROUTINE_IMAGE)),\
+     patch.object(m,'image_identity',return_value=(m.FAILED_ROUTINE_IMAGE,m.FAILED_ROUTINE_DESIRED,False)),\
+     patch.object(m.time,'time',return_value=1793825200):
+    sys.argv=sys.argv[1:];m.main()
+""")
+        bin_dir = self.repo / 'bin'; bin_dir.mkdir()
+        python = bin_dir / 'python3'
+        python.write_text('#!/usr/bin/env bash\n' +
+            'if [[ "${1:-}" == */engine-release-seal.py ]]; then exec ' + shlex.quote(sys.executable) + ' ' + shlex.quote(str(driver)) + ' "$@"; fi\n' +
+            'if [ "${1:-}" = - ] && [ "${2:-}" = /etc/systemd/system/multi-user.target.wants ]; then set -- - "$FIXTURE_ROOT"; fi\n' +
+            'exec ' + shlex.quote(sys.executable) + ' "$@"\n'); python.chmod(0o755)
+        for name, body in {'id':'echo 0', 'stat':'echo 0:600', 'flock':'exit 0',
+                           'systemctl':'[ "$1" = disable ]',
+                           'docker':'echo forbidden-runtime-command >&2; exit 91'}.items():
+            path = bin_dir / name; path.write_text('#!/usr/bin/env bash\n' + body + '\n'); path.chmod(0o755)
+        (control / 'retain-engine-images.sh').write_text('#!' + BASH + '\nexit 0\n')
+        (control / 'retain-engine-images.sh').chmod(0o755)
+        import ast
+        adapter_tree = ast.parse((ROOT / 'tests/operations/engine-drill-admission.py').read_text())
+        adapter = next(ast.literal_eval(n.value) for n in adapter_tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'PORTABLE_ROOT' for t in n.targets))
+        bash_env = self.repo / 'bash-env'; bash_env.write_text(adapter[adapter.index('if ! help mapfile'):])
+        env = {**os.environ,'BASH_ENV':str(bash_env),'PATH':str(bin_dir)+os.pathsep+os.environ['PATH'],'PYTHONDONTWRITEBYTECODE':'1',
+            'ENGINE_RELEASE_STATE_DIR':str(state_root),'ENGINE_RELEASE_STATE_FILE':str(state_root/'seal.json'),
+            'ENGINE_RELEASE_LOCK_FILE':str(state_root/'seal.lock'),'ENGINE_RELEASE_AUDIT_FILE':str(state_root/'audit.jsonl'),
+            'ENGINE_RELEASE_RESULT_DIR':str(results),'ENGINE_RELEASE_REQUEST_ROOT':str(requests),'ENGINE_RELEASE_PIN_ROOT':str(pins),
+            'ENGINE_RELEASE_IMAGE_LEASE_ROOT':str(leases),'ENGINE_LOCK_FILE':str(self.repo/'engine.lock'),
+            'REPO_DIR':str(self.repo),'INVOCATION_ID':invocation,'FIXTURE_ROOT':str(self.repo),'FIXTURE_CASE':'positive'}
+        recover = [BASH, str(control/'engine-release-recover.sh'),'--run-id',run,'--mode','retryable']
+        original = request.read_bytes()
+        for bad in ('thaw','changed-runtime','foreign-unit'):
+            result = subprocess.run(recover,env={**env,'FIXTURE_CASE':bad},capture_output=True,text=True,timeout=20)
+            self.assertEqual(result.returncode,75,result.stdout+result.stderr)
+            self.assertEqual(request.read_bytes(),original)
+            self.assertFalse(list(results.iterdir()))
+        for suffix in ('legacy-checkpoint-intent','break-deadline','main-inspector-retirement-intent','lightning-hold.json'):
+            path=requests/(run+'.'+suffix);path.write_text('unknown')
+            result=subprocess.run(recover,env=env,capture_output=True,text=True,timeout=20)
+            self.assertNotEqual(result.returncode,0,result.stdout+result.stderr);path.unlink()
+            self.assertEqual(request.read_bytes(),original)
+        # A missing original reservation/entry is not no-entry success.
+        reservation=state_root/('engine-recovery-window-'+run+'.json');saved=reservation.read_bytes();reservation.unlink()
+        result=subprocess.run(recover,env=env,capture_output=True,text=True,timeout=20)
+        self.assertEqual(result.returncode,75,result.stdout+result.stderr)
+        reservation.write_bytes(saved);reservation.chmod(0o600)
+        # Run the ACTUAL wrapper failure branch, including both real recoveries,
+        # record-failure and attest-failure, ending in its permanent exit1.
+        wrapper=(ROOT/'server/scripts/engine-release-unit-wrapper.sh').read_text()
+        start=wrapper.index('  # A permanent proof/application failure first restores')
+        end=wrapper.index('\nfi\n\nRECOVERY_MODE=retryable',start)
+        prefix='set -euo pipefail\nTRANSACTION_RC=1\nRUN_KEY='+shlex.quote(run)+'\nGENERATION='+shlex.quote(str(control))+'\nREQUEST_CONTROL_SHA='+self.sha+'\nCONTAINER=fixture\nREQUEST_LINES=('+shlex.quote(self.sha)+')\n'
+        result=subprocess.run([BASH,'-c',prefix+wrapper[start:end]],env=env,capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,1,result.stdout+result.stderr)
+        self.assertIn('expired-original-announcement-thawed',result.stdout)
+        self.assertFalse(request.exists());self.assertFalse((requests/(run+'.activation-entry')).exists())
+        self.assertFalse((pins/(run+'.generation')).exists());self.assertFalse((leases/(run+'.lease')).exists())
+        failure=json.loads((results/(run+'.json')).read_text())
+        self.assertEqual((failure['result'],failure['sha'],failure['controlSha'],failure['invocationId']),('failed',self.sha,self.sha,invocation))
+        self.assertEqual(json.loads((state_root/'seal.json').read_text()),base)
+        self.assertEqual(reservation.read_bytes(),saved)  # Immutable original reservation is never rewritten.
+        audit=(state_root/'audit.jsonl').read_text();self.assertIn('failure_recorded',audit)
+        # Resume the same terminal cleanup after its first pin/intent deletions.
+        # Its actual immutable failure permits only these already-completed edges.
+        saved_failure=(results/(run+'.json')).read_bytes()
+        reset();(results/(run+'.json')).write_bytes(saved_failure)
+        (pins/(run+'.generation')).unlink();(requests/(run+'.intent')).unlink()
+        released=requests/(run+'.lightning-hold.json.released')
+        receipt={'schema':'engine-release-lightning-hold/v2','run_id':run,'generation':1,'phase':'released',
+            **{key:[] for key in ('candidates','held','already','unknown','resume_pending','released')},
+            'refused':{},'resume_refused':{}}
+        released.write_text(json.dumps(receipt));released.chmod(0o600)
+        result=subprocess.run(recover[:-1]+['terminal'],env=env,capture_output=True,text=True,timeout=20)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertFalse(request.exists());self.assertEqual(reservation.read_bytes(),saved)
+        self.assertEqual((results/(run+'.json')).read_bytes(),saved_failure)
 
     def test_fresh_prework_cannot_restore_live_engine_and_entry_is_after_certificate(self):
         source = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()

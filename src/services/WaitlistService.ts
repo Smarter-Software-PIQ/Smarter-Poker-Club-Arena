@@ -96,7 +96,7 @@ export interface WaitlistTableRow {
   small_blind: number;
   big_blind: number;
   min_buy_in: number;
-  max_buy_in: number;
+  max_buy_in: number | null;
   current_players: number;
   max_players: number;
   status: string;

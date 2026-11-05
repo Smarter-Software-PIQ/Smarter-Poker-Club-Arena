@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { TableRouteBoundary } from '../../src/components/table/TableRouteBoundary';
+import { RETIRED_TABLE_IDS } from '../../src/lib/retiredTournamentVisibility';
 
 const routeId = 'a1234567-89ab-cdef-0123-456789abcdef';
 const embeddedId = 'b1234567-89ab-cdef-0123-456789abcdef';
@@ -34,6 +35,34 @@ function entry(path: string, start: () => void, stop: () => void, embeddedTableI
 }
 
 describe('table entry boundary', () => {
+  it('rejects every retired embedded table before live effects can start', () => {
+    const start = vi.fn();
+    const stop = vi.fn();
+    const page = render(entry('/table/' + routeId, start, stop, RETIRED_TABLE_IDS[0]));
+    for (const id of RETIRED_TABLE_IDS) {
+      page.rerender(entry('/table/' + routeId, start, stop, id));
+      expect(screen.queryByTestId('active-table')).toBeNull();
+    }
+    expect(start).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it('returns a retired bookmark to the lobby without opening a table', () => {
+    const start = vi.fn();
+    render(entry('/table/' + RETIRED_TABLE_IDS[0].toUpperCase(), start, vi.fn()));
+    expect(screen.getByText('Lobby Home')).toBeTruthy();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('unmounts a live entry when it changes to a retired table', () => {
+    const start = vi.fn();
+    const stop = vi.fn();
+    const page = render(entry('/table/' + routeId, start, stop, embeddedId));
+    page.rerender(entry('/table/' + routeId, start, stop, RETIRED_TABLE_IDS[0]));
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('active-table')).toBeNull();
+    expect(start).toHaveBeenCalledTimes(1);
+  });
   it.each(['demo', 'nonexistent-table-id', '12345', 'null', routeId + 'x', ''])(
     'rejects %s before live table effects start',
     (id) => {

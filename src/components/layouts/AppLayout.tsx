@@ -35,6 +35,9 @@ const DailyBonusEntry = lazyWithRetry(() => import('../daily-bonus/DailyBonusEnt
 // actually stops, so it loads on that player's demand, not in the entry chunk
 // every player downloads before first paint.
 const CompleteProfileModal = lazyWithRetry(() => import('../modals/CompleteProfileModal'));
+// A platform notice that must be read (ca_player_notices) loads on demand,
+// not in the entry chunk.
+const PlayerNoticeGate = lazyWithRetry(() => import('../notices/PlayerNoticeModal'));
 
 /*
  * THE ROUTE ART IS GONE (2026-08-30).
@@ -77,6 +80,10 @@ function AppLayoutContent() {
     isReady && !!user && profileReady && !showProfileModal && showWelcome
   );
   useHoldPromptLane('profile', profileReady && showProfileModal);
+
+  // A platform notice that must be read (ca_player_notices). It waits behind
+  // the welcome and the profile gate, then holds the lane itself until OK.
+  const noticeSuspended = !isReady || !profileReady || showWelcome || showProfileModal;
 
   // Hide global header on table and tournament play pages
   const isTablePage =
@@ -137,6 +144,13 @@ function AppLayoutContent() {
       {profileReady && showProfileModal && (
         <Suspense fallback={null}>
           <CompleteProfileModal isOpen onComplete={finishProfile} />
+        </Suspense>
+      )}
+
+      {/* A notice every player must read once: closes only through OK. */}
+      {!noticeSuspended && user?.id && (
+        <Suspense fallback={null}>
+          <PlayerNoticeGate userId={user.id} />
         </Suspense>
       )}
 

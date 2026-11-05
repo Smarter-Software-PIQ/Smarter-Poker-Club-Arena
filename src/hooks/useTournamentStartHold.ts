@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { supabase } from '../lib/supabase';
 import { reportError } from '../utils/errorReporter';
 import { TOURNAMENT_START_HOLD_MESSAGE } from '../config/tournamentStartHold';
@@ -20,15 +20,42 @@ const DEFAULT_HOLD_STATUS: TournamentStartHoldStatus = {
 };
 
 let cachedStatus: TournamentStartHoldStatus | null = null;
-let cachedAtMs = 0;
+let cachedAtMs: number | null = null;
 let inFlightPromise: Promise<TournamentStartHoldStatus> | null = null;
 
 const CACHE_TTL_MS = 10_000;
+const listeners = new Set<() => void>();
 
-function normalizeHoldRow(raw: unknown): TournamentStartHoldStatus {
-  if (!raw || typeof raw !== 'object') return DEFAULT_HOLD_STATUS;
+function refresh() {
+  return readTournamentStartHoldStatus({ force: true });
+}
+
+function subscribe(listener: () => void) {
+  if (listeners.size === 0 && typeof window !== 'undefined') {
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0 && typeof window !== 'undefined') {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
+    }
+  };
+}
+
+const subscribeDisabled = () => () => {};
+
+function getSnapshot() {
+  return cachedStatus;
+}
+
+function normalizeHoldRow(raw: unknown): TournamentStartHoldStatus | null {
+  if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
-  const blocked = record.blocked === true;
+  if (typeof record.blocked !== 'boolean') return null;
+  const blocked = record.blocked;
   const reason = typeof record.reason === 'string' && record.reason.trim() ? record.reason : null;
   const requestedAt =
     typeof record.requested_at === 'string' && record.requested_at.trim()
@@ -51,38 +78,41 @@ export async function readTournamentStartHoldStatus(options?: {
   force?: boolean;
 }): Promise<TournamentStartHoldStatus> {
   const force = options?.force === true;
-  const now = Date.now();
-  if (!force && cachedStatus && now - cachedAtMs < CACHE_TTL_MS) {
+  if (!force && inFlightPromise) return inFlightPromise;
+  if (!force && cachedStatus && cachedAtMs !== null && Date.now() - cachedAtMs < CACHE_TTL_MS) {
     return cachedStatus;
   }
-  if (!force && inFlightPromise) {
-    return inFlightPromise;
-  }
+  if (typeof supabase?.rpc !== 'function') return cachedStatus ?? DEFAULT_HOLD_STATUS;
 
-  let request: Promise<TournamentStartHoldStatus> | null = null;
-  request = (async (): Promise<TournamentStartHoldStatus> => {
+  const request = Promise.resolve().then(async (): Promise<TournamentStartHoldStatus> => {
+    let next: TournamentStartHoldStatus | null = null;
     try {
-      if (typeof supabase?.rpc !== 'function') {
-        return cachedStatus ?? DEFAULT_HOLD_STATUS;
-      }
       const { data, error } = await supabase.rpc('fn_get_tournament_start_hold_status');
       if (error) {
         reportError(error, 'useTournamentStartHold.readTournamentStartHoldStatus');
-        return cachedStatus ?? DEFAULT_HOLD_STATUS;
+      } else {
+        next = normalizeHoldRow(data);
       }
-      const next = normalizeHoldRow(data);
-      cachedStatus = next;
-      cachedAtMs = Date.now();
-      return next;
     } catch (err) {
       reportError(err, 'useTournamentStartHold.readTournamentStartHoldStatus_exception');
-      return cachedStatus ?? DEFAULT_HOLD_STATUS;
-    } finally {
-      if (inFlightPromise === request) {
-        inFlightPromise = null;
-      }
     }
-  })();
+
+    // A focus or entry refresh can supersede a read that started before it.
+    // Superseded callers use the winning result too, so they cannot admit an
+    // entry based on an older open response.
+    if (inFlightPromise !== request) {
+      return inFlightPromise ?? cachedStatus ?? DEFAULT_HOLD_STATUS;
+    }
+
+    inFlightPromise = null;
+    if (next) {
+      cachedStatus = next;
+      cachedAtMs = Date.now();
+    }
+    cachedStatus ??= DEFAULT_HOLD_STATUS;
+    listeners.forEach((listener) => listener());
+    return cachedStatus;
+  });
 
   inFlightPromise = request;
   return request;
@@ -90,7 +120,7 @@ export async function readTournamentStartHoldStatus(options?: {
 
 export function resetTournamentStartHoldCacheForTests(): void {
   cachedStatus = null;
-  cachedAtMs = 0;
+  cachedAtMs = null;
   inFlightPromise = null;
 }
 
@@ -98,37 +128,19 @@ export function useTournamentStartHold(enabled = true): TournamentStartHoldStatu
   loading: boolean;
   refresh: () => Promise<TournamentStartHoldStatus>;
 } {
-  const [status, setStatus] = useState<TournamentStartHoldStatus>(
-    () => cachedStatus ?? DEFAULT_HOLD_STATUS
+  const status = useSyncExternalStore(
+    enabled ? subscribe : subscribeDisabled,
+    getSnapshot,
+    getSnapshot
   );
-  const [loading, setLoading] = useState<boolean>(() => enabled && cachedStatus === null);
-
-  const refresh = useCallback(async () => {
-    const next = await readTournamentStartHoldStatus({ force: true });
-    setStatus(next);
-    setLoading(false);
-    return next;
-  }, []);
 
   useEffect(() => {
-    if (!enabled) {
-      setLoading(false);
-      return;
-    }
-    let alive = true;
-    void readTournamentStartHoldStatus().then((next) => {
-      if (!alive) return;
-      setStatus(next);
-      setLoading(false);
-    });
-    return () => {
-      alive = false;
-    };
+    if (enabled) void readTournamentStartHoldStatus();
   }, [enabled]);
 
   return {
-    ...status,
-    loading,
+    ...(status ?? DEFAULT_HOLD_STATUS),
+    loading: enabled && status === null,
     refresh,
   };
 }

@@ -15,6 +15,8 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
+import stat
 from pathlib import Path
 import re
 import ssl
@@ -423,11 +425,14 @@ TERMINAL_THAW_TARGETS = frozenset({
 
 
 def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instance_id: str, max_age: int,
-                               announced_ms: int, starts_ms: int, ends_ms: int) -> dict:
+                               announced_ms: int, starts_ms: int, ends_ms: int, certified=None, expected_token=None) -> dict:
     """Read-only: the failed owner's own break ended in one complete v3 thaw,
     the serving instance is the fresh leader, no maintenance row remains and no
     later v3 release boundary is authoritative. Never invokes or edits a thaw."""
     from decimal import Decimal
+    freeze_ms = 780000 if certified is not None else 300000
+    if starts_ms != announced_ms + 120000 or ends_ms != starts_ms + freeze_ms:
+        raise ValueError('terminal owner promised120/300second window differs')
     def get(table: str, params: dict, limit_bytes: int):
         request = Request(f'{base_url}/rest/v1/{table}?{urlencode(params)}',
             headers={'apikey': service_key, 'authorization': f'Bearer {service_key}',
@@ -451,15 +456,47 @@ def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instan
         raise ValueError('terminal owner leader identity is unproved')
     if get('engine_maintenance_break', {'select': 'id', 'limit': '1'}, 4096) != []:
         raise ValueError('terminal owner database retains a maintenance owner')
-    starts_iso = datetime.fromtimestamp(starts_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
+    announced_iso = datetime.fromtimestamp(announced_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
     rows = get('engine_maintenance_thaws', {'select': 'freeze_started_at,announced_at,thawed_at,frozen_seconds,'
                'contract_version,release_target_at,release_generation,ownership_token,thawed_by,shifted',
-               'freeze_started_at': 'eq.' + starts_iso, 'limit': '2'}, 65536)
+               'announced_at': 'eq.' + announced_iso, 'limit': '2'}, 65536)
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         raise ValueError('terminal owner thaw receipt is not unique')
     row, now_ms = rows[0], int(time.time() * 1000)
+    raw_start = millis(row.get('freeze_started_at'))
+    expected_seconds = Decimal(freeze_ms) / Decimal(1000)
+    if certified is not None:
+        raw = certified['rawMaintenance']
+        if (sha != CERTIFIED_PREDECESSOR or millis(raw['break_started_at']) != raw_start or
+                raw_start not in (starts_ms, starts_ms - 1) or
+                millis(raw['break_ends_at']) != raw_start + 300000 or
+                row.get('ownership_token') != certified['request']['ownershipToken'] or
+                row.get('shifted') != certified['thaw']['shifted'] or
+                millis(certified['releaseAt']) != ends_ms):
+            raise ValueError('terminal certified original custody differs')
+        expected_seconds = Decimal(ends_ms - raw_start) / Decimal(1000)
+    elif raw_start != starts_ms:
+        # The pinned EED timer can enter exactly1ms early. The installed thaw
+        # credits that actual millisecond and still releases at the ORIGINAL
+        # announcement+420s. This is exact contract arithmetic, not tolerance.
+        if sha != 'eed06fe51dea622069c661a6213d5b031ff3a9e3' or raw_start != starts_ms - 1:
+            raise ValueError('terminal owner raw freeze differs from qualified predecessor')
+        proof = read_maintenance_promise(base_url, service_key)
+        proof_now_ms = int(time.time() * 1000)
+        if (not isinstance(proof, dict) or proof.get('schema') != 'maintenance-promise-floor/v1'
+                or not maintenance_promise_contract_valid(proof, base_url, service_key)
+                or proof.get('maintenance', {}) is not None
+                or not 0 <= proof_now_ms - millis(proof.get('observedAt')) <= 10000
+                or not isinstance(proof.get('leader'), dict)
+                or proof['leader'].get('version') != sha[:8]
+                or proof['leader'].get('instanceId') != instance_id
+                or not 0 <= proof_now_ms - millis(proof['leader'].get('heartbeatAt')) <= max_age * 1000):
+            raise ValueError('terminal owner original promise contract is unproved')
+        expected_seconds = Decimal(ends_ms - raw_start) / Decimal(1000)
     shifted = row.get('shifted')
     token = row.get('ownership_token')
+    if expected_token is not None and token != expected_token:
+        raise ValueError('terminal owner original registration token differs')
     try:
         token_ok = isinstance(token, str) and str(UUID(token)).lower() == token.lower()
     except ValueError:
@@ -472,11 +509,11 @@ def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instan
                 set(counts) == TERMINAL_THAW_TARGETS and shifted.get('_targets_snapshotted') is True and
                 all(type(shifted[k]) is int and type(counts[k]) is int and shifted[k] >= 0 and counts[k] == shifted[k]
                     for k in TERMINAL_THAW_TARGETS))
-    if (millis(row.get('announced_at')) != announced_ms or millis(row.get('freeze_started_at')) != starts_ms or
+    if (millis(row.get('announced_at')) != announced_ms or
             millis(row.get('release_target_at')) != ends_ms or row.get('contract_version') != 3 or
-            row.get('release_generation') != 1 or Decimal(str(row.get('frozen_seconds'))) != Decimal(300) or
+            row.get('release_generation') != 1 or Decimal(str(row.get('frozen_seconds'))) != expected_seconds or
             row.get('thawed_by') != sha[:8] or not token_ok or not shape_ok or shifted.get('complete') is not True or
-            not starts_ms <= millis(row.get('thawed_at')) <= now_ms or now_ms <= ends_ms):
+            not raw_start <= millis(row.get('thawed_at')) <= now_ms or now_ms <= ends_ms):
         raise ValueError('terminal owner owned v3 thaw is unproved')
     future = get('engine_maintenance_thaws', {'select': 'release_target_at', 'contract_version': 'eq.3',
                  'release_target_at': 'gt.' + datetime.now(timezone.utc).isoformat(), 'limit': '1'}, 4096)
@@ -492,6 +529,257 @@ def verify_terminal_owned_thaw(base_url: str, service_key: str, sha: str, instan
             'endsAt': ends_ms}
 
 
+CERTIFIED_POLICY = '2026-11-04-tournament-fourfold-certified-recovery'
+CERTIFIED_PROFILE = {'id':'eed-240s-certified-release-v1','noticeMs':120000,
+    'freezeMs':780000,'nativeQueryMs':240000,'checkpointMs':320000,'postReserveMs':205000}
+CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+CERTIFIED_THAW_MD5 = 'e2530d18c33dd11f10d5e40bed4bd2e1'
+
+
+def certified_rpc(base_url, service_key, name, parameters=None, *, write=False):
+    """One bounded request. Only explicit registration uses POST; no retry."""
+    query = '' if write or not parameters else '?' + urlencode(parameters)
+    request = Request(f'{base_url}/rest/v1/rpc/{name}{query}',
+        data=json.dumps(parameters,separators=(',',':')).encode() if write else None,
+        headers={'apikey':service_key,'authorization':f'Bearer {service_key}',
+                 'accept':'application/json','content-type':'application/json',
+                 'cache-control':'no-cache, no-store'}, method='POST' if write else 'GET')
+    opener = build_opener(HTTPSHandler(context=ssl.create_default_context()),RefuseRedirects())
+    with opener.open(request,timeout=8 if write else 3) as response:
+        raw=response.read(32769)
+    if len(raw)>32768: raise ValueError('certified recovery proof exceeds bound')
+    return json.loads(raw)
+
+
+def certified_epoch(value):
+    if not isinstance(value,str): raise ValueError('invalid certified timestamp')
+    parsed=datetime.fromisoformat(value.replace('Z','+00:00'))
+    if parsed.tzinfo is None: raise ValueError('certified timestamp has no zone')
+    return int(parsed.timestamp()*1000)
+
+
+def validate_certified_contract(proof):
+    expected={'schema':'engine-certified-recovery-contract/v1','policyId':CERTIFIED_POLICY,
+        'profile':CERTIFIED_PROFILE,'thawDefinitionMd5':CERTIFIED_THAW_MD5,
+        'notBefore':'2026-11-04T23:00:00Z','notAfter':'2026-11-05T05:00:00Z'}
+    if proof != expected: raise ValueError('certified recovery contract is not installed')
+    return proof
+
+
+def maintenance_promise_contract_valid(proof, base_url, service_key):
+    digest = proof.get('thawDefinitionMd5')
+    if digest == 'cb733d7201725719813ffd1b1e099b1b':
+        return True
+    if digest != CERTIFIED_THAW_MD5:
+        return False
+    validate_certified_contract(certified_rpc(base_url, service_key, 'fn_engine_certified_recovery_contract'))
+    return True
+
+
+def certified_shifted(shifted):
+    if not isinstance(shifted,dict) or set(shifted)!=TERMINAL_THAW_TARGETS|{'complete','_targets_snapshotted','_target_counts'}:
+        return False
+    counts=shifted.get('_target_counts')
+    return (isinstance(counts,dict) and set(counts)==TERMINAL_THAW_TARGETS and
+        shifted.get('complete') is True and shifted.get('_targets_snapshotted') is True and
+        all(type(shifted[k]) is int and type(counts[k]) is int and shifted[k]>=0 and shifted[k]==counts[k] for k in TERMINAL_THAW_TARGETS))
+
+
+def validate_certified_proof(proof,request,*,complete=False,minimum_ms=0,health=None,terminal_instance=None):
+    now=int(time.time()*1000)
+    if (not isinstance(request,dict) or set(request)!={'runKey','targetSha','controlSha','predecessorSha','instanceId','announcedAt','ownershipToken','policyId'} or
+        request.get('predecessorSha')!=CERTIFIED_PREDECESSOR or request.get('policyId')!=CERTIFIED_POLICY):
+        raise ValueError('invalid certified request')
+    if not isinstance(proof,dict) or proof.get('schema')!='engine-certified-recovery/v1':
+        raise ValueError('invalid certified recovery proof')
+    if proof.get('policyId')!=CERTIFIED_POLICY or proof.get('profile')!=CERTIFIED_PROFILE or proof.get('request')!=request:
+        raise ValueError('certified recovery ownership differs')
+    announced=certified_epoch(request['announcedAt']); release=certified_epoch(proof.get('releaseAt'))
+    if release!=announced+900000 or abs(now-certified_epoch(proof.get('observedAt')))>5000:
+        raise ValueError('certified recovery boundary or observation differs')
+    if not certified_epoch('2026-11-04T23:00:00Z')<=announced<release<=certified_epoch('2026-11-05T05:00:00Z'):
+        raise ValueError('certified recovery outside owner interval')
+    leader=proof.get('leader') or {}
+    if leader.get('version')!=CERTIFIED_PREDECESSOR or leader.get('instanceId')!=(terminal_instance or request['instanceId']) or not -5000<=now-certified_epoch(leader.get('heartbeatAt'))<=30000:
+        raise ValueError('certified recovery leader differs or is stale')
+    raw=proof.get('rawMaintenance')
+    if not isinstance(raw,dict) or set(raw)!={'id','phase','announced_at','break_started_at','break_ends_at','reason','ownership_token','enforce_freeze','declared_by'} or raw.get('phase') not in ('last_hand','counting_down') or raw.get('ownership_token')!=request['ownershipToken'] or raw.get('reason')!='Deployment Recovery' or raw.get('enforce_freeze') is not True or certified_epoch(raw.get('announced_at'))!=announced:
+        raise ValueError('certified recovery original maintenance differs')
+    if complete:
+        from decimal import Decimal
+        thaw=proof.get('thaw') or {}; targets=proof.get('targets') or {}; shifted=thaw.get('shifted')
+        raw_start=certified_epoch(raw['break_started_at'])
+        expected_frozen=terminal_instance is None
+        if raw['phase']!='counting_down' or raw_start not in (announced+119999,announced+120000) or certified_epoch(raw['break_ends_at'])!=raw_start+300000 or not certified_shifted(shifted) or thaw.get('contract_version')!=3 or thaw.get('release_generation')!=1 or thaw.get('ownership_token')!=request['ownershipToken'] or certified_epoch(thaw.get('announced_at'))!=announced or certified_epoch(thaw.get('freeze_started_at'))!=raw_start or certified_epoch(thaw.get('release_target_at'))!=release or Decimal(str(thaw.get('frozen_seconds')))!=Decimal(release-raw_start)/Decimal(1000) or targets!={'familyCount':15,'allCredited':True,'complete':True} or proof.get('platformFrozen') is not expected_frozen or proof.get('entryPurchasesFrozen') is not expected_frozen:
+            raise ValueError('certified recovery thaw or freeze unproved')
+        if terminal_instance is not None:
+            if now<=release: raise ValueError('certified release is still authoritative')
+        elif release-now<minimum_ms: raise ValueError('certified recovery reserve exhausted')
+    if health is not None:
+        m=health.get('maintenance') or {}; presentation=m.get('presentation') or {}
+        if health.get('running') is not True or health.get('releaseSha')!=CERTIFIED_PREDECESSOR or health.get('instanceId')!=request['instanceId'] or m.get('active') is not True or m.get('phase')!='counting_down' or m.get('durableConfirmed') is not True or m.get('reason')!='Deployment Recovery' or m.get('breakEndsAt')!=certified_epoch(raw['break_ends_at']) or presentation.get('break_id')!=announced or presentation.get('break_ends_at')!=release or health.get('weeklyPayout') is not None:
+            raise ValueError('certified recovery live owner differs')
+    return proof
+
+
+def certified_request_file(root,run_id):
+    if not re.fullmatch(r'[1-9][0-9]*(-[1-9][0-9]*)?',run_id or ''): raise ValueError('invalid certified run')
+    path=Path(root)/f'{run_id}.certified-recovery-request'
+    return path
+
+
+def read_certified_request(path):
+    st=path.lstat()
+    if not stat.S_ISREG(st.st_mode) or st.st_uid!=0 or stat.S_IMODE(st.st_mode)!=0o600 or st.st_size>8192:
+        raise ValueError('unsafe certified request')
+    return json.loads(path.read_text())
+
+
+def certified_refusal_file(args):
+    path=certified_request_file(args.certified_request_root,args.run_id)
+    return path.with_name(args.run_id+'.certified-announcement-refusal')
+
+
+def record_certified_refusal(args):
+    # EED unavailable may FOLLOW announceBreak. Only these three responses are
+    # returned before its first mutation. Lost/unknown responses write nothing.
+    now=int(time.time()*1000)
+    if args.certified_refusal_status not in ('busy','expired','use_hourly') or not args.window_announced_ms<=now<=args.window_announced_ms+120000:
+        raise ValueError('announcement refusal is not a definitive original response')
+    if os.path.lexists(certified_request_file(args.certified_request_root,args.run_id)):
+        raise ValueError('announcement already reached registration')
+    value={'schema':'certified-announcement-refusal/v1','policyId':CERTIFIED_POLICY,
+        'runKey':args.run_id,'targetSha':args.target_sha,'controlSha':args.control_sha,
+        'predecessorSha':CERTIFIED_PREDECESSOR,'instanceId':args.instance_id,
+        'announcedAt':args.window_announced_ms,'observedAt':now,'status':args.certified_refusal_status}
+    path=certified_refusal_file(args)
+    fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    try:
+        os.write(fd,(json.dumps(value,sort_keys=True)+'\n').encode());os.fsync(fd)
+    finally:os.close(fd)
+    fd=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY)
+    try:os.fsync(fd)
+    finally:os.close(fd)
+    return value
+
+
+def verify_terminal_refused_announcement(args,base_url,service_key):
+    value=read_certified_request(certified_refusal_file(args))
+    if (not isinstance(value,dict) or set(value)!={'schema','policyId','runKey','targetSha','controlSha','predecessorSha','instanceId','announcedAt','observedAt','status'} or
+        value.get('schema')!='certified-announcement-refusal/v1' or value.get('policyId')!=CERTIFIED_POLICY or
+        value.get('runKey')!=args.run_id or value.get('targetSha')!=args.target_sha or value.get('controlSha')!=args.control_sha or
+        value.get('predecessorSha')!=CERTIFIED_PREDECESSOR or value.get('announcedAt')!=args.window_announced_ms or
+        not re.fullmatch(r'[1-9][0-9]*-[0-9a-f]{8}',str(value.get('instanceId',''))) or
+        value.get('status') not in ('busy','expired','use_hourly') or type(value.get('observedAt')) is not int or
+        not args.window_announced_ms<=value['observedAt']<=args.window_announced_ms+120000):
+        raise ValueError('original definitive refusal witness differs')
+    # The typed ABSENT registration has already been checked. Bookend idle and
+    # leader reads, and require an actually empty own thaw query plus no later
+    # release boundary. Missing rows alone never establish this outcome.
+    verify_failed_routine_idle(base_url,service_key,args.instance_id,args.max_heartbeat_age_seconds)
+    announced=datetime.fromtimestamp(args.window_announced_ms/1000,timezone.utc).isoformat().replace('+00:00','Z')
+    for params in ({'select':'announced_at','announced_at':'eq.'+announced,'limit':'1'},
+                   {'select':'release_target_at','contract_version':'eq.3','release_target_at':'gt.'+datetime.now(timezone.utc).isoformat(),'limit':'1'}):
+        request=Request(f'{base_url}/rest/v1/engine_maintenance_thaws?{urlencode(params)}',
+            headers={'apikey':service_key,'authorization':f'Bearer {service_key}',
+                'accept':'application/json','cache-control':'no-cache, no-store'},method='GET')
+        opener=build_opener(HTTPSHandler(context=ssl.create_default_context()),RefuseRedirects())
+        with opener.open(request,timeout=1.5) as response:raw=response.read(4097)
+        if len(raw)>4096 or json.loads(raw)!=[]:
+            raise ValueError('refused announcement has a thaw or authoritative boundary')
+    verify_failed_routine_idle(base_url,service_key,args.instance_id,args.max_heartbeat_age_seconds)
+    return {'schema':'terminal-refused-announcement/v1','sha':args.sha,'instanceId':args.instance_id,
+        'databaseIdle':True,'freshLeader':True,'ownedV3Thaw':False,'announcementRefused':True,
+        'announcedAt':args.window_announced_ms,'startsAt':args.window_starts_ms,'endsAt':args.window_ends_ms}
+
+
+def operate_certified_terminal(args,base_url,service_key):
+    now=int(time.time()*1000)
+    if (args.window_starts_ms!=args.window_announced_ms+120000 or
+            args.window_ends_ms!=args.window_announced_ms+900000 or now<=args.window_ends_ms):
+        raise ValueError('certified terminal reservation is not expired')
+    validate_certified_contract(certified_rpc(base_url,service_key,'fn_engine_certified_recovery_contract'))
+    path=certified_request_file(args.certified_request_root,args.run_id)
+    request=read_certified_request(path) if path.exists() or path.is_symlink() else None
+    if request is not None and (request.get('runKey')!=args.run_id or request.get('targetSha')!=args.target_sha or
+        request.get('controlSha')!=args.control_sha or certified_epoch(request.get('announcedAt'))!=args.window_announced_ms):
+        raise ValueError('terminal certified request identity differs')
+    announced=datetime.fromtimestamp(args.window_announced_ms/1000,timezone.utc).isoformat().replace('+00:00','Z')
+    proof=certified_rpc(base_url,service_key,'fn_engine_certified_recovery_proof',{
+        'p_run_key':args.run_id,'p_target_sha':args.target_sha,'p_control_sha':args.control_sha,'p_announced_at':announced})
+    if isinstance(proof,dict) and proof.get('schema')=='engine-certified-recovery-absent/v1':
+        # Registration is possible only before freeze. After the full sealed900s
+        # reservation, this exact authoritative absence cannot race a new write.
+        if (set(proof)!={'schema','policyId','runKey','targetSha','controlSha','announcedAt','observedAt','platformFrozen','entryPurchasesFrozen'} or
+            proof.get('policyId')!=CERTIFIED_POLICY or proof.get('runKey')!=args.run_id or
+            proof.get('targetSha')!=args.target_sha or proof.get('controlSha')!=args.control_sha or
+            certified_epoch(proof.get('announcedAt'))!=args.window_announced_ms or
+            abs(now-certified_epoch(proof.get('observedAt')))>5000 or
+            proof.get('platformFrozen') is not False or proof.get('entryPurchasesFrozen') is not False):
+            raise ValueError('certified registration absence is unproved')
+        refusal=certified_refusal_file(args)
+        if os.path.lexists(refusal):
+            if request is not None:raise ValueError('refused announcement has a registration request')
+            return verify_terminal_refused_announcement(args,base_url,service_key)
+        result=verify_terminal_owned_thaw(base_url,service_key,args.sha,args.instance_id,args.max_heartbeat_age_seconds,
+            args.window_announced_ms,args.window_starts_ms,args.window_announced_ms+420000,
+            expected_token=request.get('ownershipToken') if request else None)
+        return {**result,'endsAt':args.window_ends_ms}
+    if request is None:
+        raise ValueError('registered certified request file is absent')
+    validate_certified_proof(proof,request,complete=True,terminal_instance=args.instance_id)
+    return verify_terminal_owned_thaw(base_url,service_key,args.sha,args.instance_id,args.max_heartbeat_age_seconds,
+        args.window_announced_ms,args.window_starts_ms,args.window_ends_ms,certified=proof)
+
+
+def operate_certified(args,base_url,service_key):
+    if args.sha!=CERTIFIED_PREDECESSOR: raise ValueError('certified profile predecessor differs')
+    if args.certified_mode=='contract':
+        return validate_certified_contract(certified_rpc(base_url,service_key,'fn_engine_certified_recovery_contract'))
+    if not SHA_RE.fullmatch(args.target_sha or '') or not SHA_RE.fullmatch(args.control_sha or '') or not args.window_announced_ms:
+        raise ValueError('certified request identity unavailable')
+    if args.certified_mode=='refused':
+        return record_certified_refusal(args)
+    if args.certified_mode=='terminal':
+        return operate_certified_terminal(args,base_url,service_key)
+    path=certified_request_file(args.certified_request_root,args.run_id)
+    if args.certified_mode=='register' and not path.exists():
+        contract=certified_rpc(base_url,service_key,'fn_engine_certified_recovery_contract')
+        validate_certified_contract(contract)
+        promise=read_maintenance_promise(base_url,service_key)
+        raw=promise.get('maintenance') or {}
+        # The maintained promise's native row is data, never a default token.
+        if (not isinstance(raw,dict) or raw.get('phase')!='last_hand' or raw.get('enforce_freeze') is not True or
+            raw.get('reason')!='Deployment Recovery' or certified_epoch(raw.get('announced_at'))!=args.window_announced_ms or
+            int(time.time()*1000)>=args.window_announced_ms+120000):
+            raise ValueError('original announcement unavailable')
+        token=raw.get('ownership_token')
+        if not isinstance(token,str) or str(UUID(token))!=token: raise ValueError('original token unavailable')
+        announced=datetime.fromtimestamp(args.window_announced_ms/1000,timezone.utc).isoformat().replace('+00:00','Z')
+        request={'runKey':args.run_id,'targetSha':args.target_sha,'controlSha':args.control_sha,
+            'predecessorSha':CERTIFIED_PREDECESSOR,'instanceId':args.instance_id,'announcedAt':announced,
+            'ownershipToken':token,'policyId':CERTIFIED_POLICY}
+        fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        try:
+            os.write(fd,(json.dumps(request,sort_keys=True)+'\n').encode());os.fsync(fd)
+        finally:os.close(fd)
+        fd=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+        # A lost POST is unknown. Retain exact identity and read its receipt;
+        # never send another registration or allocate another announcement.
+        try: certified_rpc(base_url,service_key,'fn_register_engine_certified_recovery',{'p_request':request},write=True)
+        except (HTTPError,URLError,TimeoutError,OSError,ValueError): pass
+    request=read_certified_request(path)
+    if request.get('runKey')!=args.run_id or request.get('targetSha')!=args.target_sha or request.get('controlSha')!=args.control_sha or request.get('instanceId')!=args.instance_id or certified_epoch(request.get('announcedAt'))!=args.window_announced_ms:
+        raise ValueError('durable certified request differs')
+    proof=certified_rpc(base_url,service_key,'fn_engine_certified_recovery_proof',{
+        'p_run_key':args.run_id,'p_target_sha':args.target_sha,'p_control_sha':args.control_sha,
+        'p_announced_at':request['announcedAt']})
+    health=json.load(sys.stdin) if args.certified_health_stdin else None
+    return validate_certified_proof(proof,request,complete=args.certified_mode=='read',minimum_ms=args.minimum_ms,health=health)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", required=True)
@@ -501,6 +789,14 @@ def main() -> None:
     parser.add_argument("--failed-routine-idle", action="store_true")
     parser.add_argument("--terminal-owned-thaw", action="store_true")
     parser.add_argument("--maintenance-promise", action="store_true")
+    parser.add_argument('--certified-mode',choices=('contract','register','read','terminal','refused'))
+    parser.add_argument('--certified-refusal-status',choices=('busy','expired','use_hourly'))
+    parser.add_argument('--certified-request-root',default='/var/lib/club-arena/engine-release-requests')
+    parser.add_argument('--certified-health-stdin',action='store_true')
+    parser.add_argument('--run-id','--certified-run-id',dest='run_id')
+    parser.add_argument('--target-sha','--certified-target-sha',dest='target_sha')
+    parser.add_argument('--control-sha','--certified-control-sha',dest='control_sha')
+    parser.add_argument('--minimum-ms',type=int,default=0)
     parser.add_argument("--window-announced-ms", type=int)
     parser.add_argument("--window-starts-ms", type=int)
     parser.add_argument("--window-ends-ms", type=int)
@@ -537,6 +833,14 @@ def main() -> None:
     if not service_key:
         die("SUPABASE_SERVICE_ROLE_KEY is absent from the fixed engine environment")
 
+    if args.certified_mode:
+        if args.maintenance_promise or args.failed_routine_idle or args.mixed_custody_contract or args.terminal_owned_thaw!=(args.certified_mode=='terminal'):
+            die('certified mode cannot mix proof contracts')
+        try: proof=operate_certified(args,base_url,service_key)
+        except (HTTPError,URLError,TimeoutError,OSError,ValueError,TypeError,KeyError,AttributeError,ArithmeticError):
+            die('certified recovery operation unconfirmed; exact request retained')
+        print(json.dumps(proof,sort_keys=True)); return
+
     if args.maintenance_promise:
         if (target_sha != 'eed06fe51dea622069c661a6213d5b031ff3a9e3' or
                 args.terminal_owned_thaw or args.failed_routine_idle or args.mixed_custody_contract):
@@ -545,7 +849,7 @@ def main() -> None:
             proof = read_maintenance_promise(base_url, service_key)
             leader = proof.get('leader') or {}
             if (proof.get('schema') != 'maintenance-promise-floor/v1' or
-                    proof.get('thawDefinitionMd5') != 'cb733d7201725719813ffd1b1e099b1b'):
+                    not maintenance_promise_contract_valid(proof,base_url,service_key)):
                 raise ValueError('maintenance promise contract is not installed')
             if (leader.get('version') != target_sha[:8] or leader.get('instanceId') != instance_id or
                     not 0 <= heartbeat_age_seconds(leader.get('heartbeatAt')) <= args.max_heartbeat_age_seconds):

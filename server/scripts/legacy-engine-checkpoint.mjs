@@ -1,4 +1,4 @@
-export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = 'ff995c8955cfa3de5e70871b3139bd246c9f76e89b848e48ba052149b434c4dc';
+export const LEGACY_CENSUS_NATIVE_SOURCE_SHA256 = '26b6b0243a5e7f142ee337bd145d62acdcb4d7d32fc9c67bcbb45fb081f76d68';
 // Concatenated after the exact guard by the owning release transaction.
 // Importing this module only exposes the isolated fixture seam.
 import { setTimeout as checkpointDelay } from 'node:timers/promises';
@@ -184,6 +184,7 @@ function checkpointSummary(value) {
     // sealed, so this run transferred nothing for them (2026-09-25). A count,
     // validated like every other count; absent from a guard that predates it.
     'sealedManagers',
+    'maintenanceStopAttempted',
   ];
   const result = {};
   for (const key of keys) {
@@ -196,7 +197,7 @@ function checkpointSummary(value) {
             item.length <= 128 &&
             /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(item)
           : key === 'stage'
-            ? ['preflight', 'mixed_custody', 'checkpoint', 'readback', 'complete'].includes(item)
+            ? ['preflight', 'mixed_custody', 'checkpoint', 'readback', 'maintenance_retirement', 'complete'].includes(item)
             : key === 'checkpointOutcome'
               ? ['not_started', 'unconfirmed', 'verified_at_observation'].includes(item)
               : key === 'paidAccountingQualification'
@@ -207,7 +208,7 @@ function checkpointSummary(value) {
                   ].includes(item)
                 : key === 'restartAuthorized'
                   ? item === false
-                  : ['ok', 'readyForRestart'].includes(key)
+                  : ['ok', 'readyForRestart', 'maintenanceStopAttempted'].includes(key)
                     ? typeof item === 'boolean'
                     : key === 'remainingMs'
                       ? typeof item === 'number' && Number.isFinite(item) && item >= 0
@@ -377,7 +378,7 @@ function connectInspector(endpoint, deadline, createWebSocket) {
     opened,
     closed,
     request(method, params, requestDeadline, operation = method, requestLimitMs = 35000) {
-      if (requestLimitMs !== 35000 && !(requestLimitMs === 59000 &&
+      if (requestLimitMs !== 35000 && !([59000, 240000].includes(requestLimitMs) &&
           method === 'Runtime.evaluate' && operation === 'queryObjects'))
         return Promise.reject(refused('inspector request allocation refused'));
       if (ended || socket.readyState !== WebSocket.OPEN)
@@ -494,6 +495,12 @@ export function deferrableCheckpointRefusal(outcome) {
   if (!isRecord(outcome) || outcome.ok !== false || outcome.retryAllowed !== false) return false;
   // A retained debugger session is an unknown process state, never a deferral.
   if (outcome.inspectorClosed !== true || outcome.cleanupConnections !== 0) return false;
+  if (outcome.certifiedPreGuardNoAction === true) {
+    return outcome.checkpointInvoked === false && outcome.cleanupAcknowledged === true &&
+      outcome.profile === 'eed-240s-certified-release-v1' &&
+      outcome.checkpoint === undefined && outcome.progress === undefined &&
+      typeof outcome.reason === 'string' && outcome.reason.length > 0;
+  }
   // A cleanup failure carries its OWN outer reason and must not be deferred
   // behind the guard's inner one; requiring the two to agree seals that.
   const checkpoint = isRecord(outcome.checkpoint) ? outcome.checkpoint : outcome;
@@ -641,35 +648,51 @@ export function legacyCensusRoot() {
   return Object.prototype;
 }
 
-// Fixed allocation inside the original 285s transaction; never an environment override.
-export function legacyCheckpointAllocation(releaseSha) {
+// Fixed source profiles. The extended allocation needs the new owned certificate.
+export function legacyCheckpointAllocation(releaseSha, certifiedRecovery = null) {
   const eed = releaseSha === 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
+  const profile = {id:'eed-240s-certified-release-v1',noticeMs:120000,freezeMs:780000,
+    nativeQueryMs:240000,checkpointMs:320000,postReserveMs:205000};
+  const certified = eed && certifiedRecovery?.schema === 'engine-certified-recovery/v1' &&
+    certifiedRecovery?.policyId === '2026-11-04-tournament-fourfold-certified-recovery' &&
+    certifiedRecovery?.profile && Object.keys(certifiedRecovery.profile).length === Object.keys(profile).length &&
+    Object.entries(profile).every(([key,value]) => certifiedRecovery.profile[key] === value);
+  if (certifiedRecovery !== null && !certified) throw refused('certified checkpoint allocation refused');
+  if (certified) return Object.freeze({entryMs: 320000, cleanupMs: 5000, receiptMs: 1000,
+    reserveMs: 205000, censusMs: 240000, profile: 'eed-240s-certified-release-v1'});
   return Object.freeze({ entryMs: eed ? 80000 : 40000, cleanupMs: 5000,
     receiptMs: 1000, reserveMs: eed ? 205000 : 245000,
     censusMs: eed ? 59000 : 30300, profile: eed ? 'eed-80s-v1' : null });
 }
 
 // Same decimal-MB estimator as transaction admission, bounded by actual time left.
-export function legacyCensusTimeAdmission(usedHeapBytes, remainingMs) {
+export function legacyCensusTimeAdmission(usedHeapBytes, remainingMs, profile = null) {
   if (!Number.isSafeInteger(usedHeapBytes) || usedHeapBytes <= 0 ||
       !Number.isFinite(remainingMs) || remainingMs <= 0) return false;
-  return Math.ceil((usedHeapBytes / 1000000 + 1) * 12) <= Math.min(59000, remainingMs);
+  return Math.ceil((usedHeapBytes / 1000000 + 1) * 12) <= Math.min(profile === 'eed-240s-certified-release-v1' ? 240000 : 59000, remainingMs);
+}
+
+export function certifiedCensusBudgetAvailable(remainingMs) {
+  // The deadline excludes cleanup/receipt already. Entry must leave the full
+  // requested native240s and the remaining14s guard allocation available.
+  return Number.isFinite(remainingMs) && remainingMs >= 254000;
 }
 
 // Bind only cached modules before the synchronous census. No application
 // prototype changes cross an Inspector request or an async boundary.
 export function bindLegacyCensusModules(holderKey, workDeadlineMs, nativeCensus = null, profile = null) {
-  const extended = profile === 'eed-80s-v1';
+  const certified = profile === 'eed-240s-certified-release-v1';
+  const extended = profile === 'eed-80s-v1' || certified;
   if (profile !== null && (!extended ||
       process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3' ||
-      nativeCensus?.sourceSHA256 !== 'ff995c8955cfa3de5e70871b3139bd246c9f76e89b848e48ba052149b434c4dc'))
+      nativeCensus?.sourceSHA256 !== '26b6b0243a5e7f142ee337bd145d62acdcb4d7d32fc9c67bcbb45fb081f76d68'))
     throw new Error('native census allocation profile refused');
   if (
     typeof holderKey !== 'string' ||
     !/^__legacyEngineCensus_[0-9a-f]{32}$/.test(holderKey) ||
     !Number.isSafeInteger(workDeadlineMs) ||
     workDeadlineMs <= Date.now() ||
-    workDeadlineMs > Date.now() + (extended ? 80000 : 40000) ||
+    workDeadlineMs > Date.now() + (certified ? 320000 : extended ? 80000 : 40000) ||
     Object.getOwnPropertyDescriptor(globalThis, holderKey)
   )
     throw new Error('native census binding refused');
@@ -727,12 +750,12 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
   )
     throw new Error('native census binding refused');
   const profile = getOwnPropertyDescriptor(holder, 'profile')?.value ?? null;
-  if (profile !== null && (profile !== 'eed-80s-v1' ||
+  if (profile !== null && (!['eed-80s-v1', 'eed-240s-certified-release-v1'].includes(profile) ||
       process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3'))
     throw new Error('native census allocation profile refused');
   let session;
   try {
-    if (workDeadlineMs <= Date.now() || workDeadlineMs > Date.now() + (profile ? 80000 : 40000))
+    if (workDeadlineMs <= Date.now() || workDeadlineMs > Date.now() + (profile === 'eed-240s-certified-release-v1' ? 320000 : profile ? 80000 : 40000))
       throw new Error('native census deadline exhausted');
     const modules = getOwnPropertyDescriptor(holder, 'modules')?.value;
     const eventEmitterRoot = process.getBuiltinModule('node:events')?.EventEmitter?.prototype ?? null;
@@ -799,7 +822,7 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
       // queued remote cleanup and application callbacks cannot observe a marker.
       if (native) {
         nativeObjects = profile
-          ? native.collect(marker, Math.min(workDeadlineMs, Date.now() + 59000), process.availableMemory(), profile)
+          ? native.collect(marker, Math.min(workDeadlineMs, Date.now() + (profile === 'eed-240s-certified-release-v1' ? 240000 : 59000)), process.availableMemory(), profile)
           : native.collect(marker, workDeadlineMs, process.availableMemory());
       } else {
         census = post('Runtime.queryObjects', {
@@ -846,7 +869,7 @@ export function collectMarkedLegacyCensus(holderKey, workDeadlineMs) {
 export function projectLegacyCensus(modules, workDeadlineMs, profile = null) {
   if (
     profile !== null &&
-    (profile !== 'eed-80s-v1' ||
+    (!['eed-80s-v1', 'eed-240s-certified-release-v1'].includes(profile) ||
       process.env.GIT_COMMIT_SHA !== 'eed06fe51dea622069c661a6213d5b031ff3a9e3')
   )
     throw new Error('native census allocation profile refused');
@@ -854,7 +877,7 @@ export function projectLegacyCensus(modules, workDeadlineMs, profile = null) {
   if (
     !Number.isSafeInteger(workDeadlineMs) ||
     workDeadlineMs <= startedAt ||
-    workDeadlineMs > startedAt + (profile ? 80000 : 40000)
+    workDeadlineMs > startedAt + (profile === 'eed-240s-certified-release-v1' ? 320000 : profile ? 80000 : 40000)
   )
     throw new Error('native census projection deadline refused');
   const roots = [
@@ -982,7 +1005,7 @@ export async function runLegacyEngineCheckpoint({
   createWebSocket = (endpoint) => new WebSocket(endpoint),
 }) {
   const startedAt = Date.now();
-  const allocation = legacyCheckpointAllocation(releaseSha);
+  const allocation = legacyCheckpointAllocation(releaseSha, custodyIntent?.certifiedRecovery);
   // The outer client is killed at the supplied absolute deadline. Reserve
   // one second INSIDE it to serialize/flush its bounded receipt and exit;
   // cleanup may still use at most its original five-second ceiling.
@@ -1030,6 +1053,7 @@ export async function runLegacyEngineCheckpoint({
   let censusBinding = null;
   let checkpointInvoked = false,
     inspectorClosed = false,
+    cleanupAcknowledged = false,
     cleanupConnections = 0,
     progress = null,
     transportDetail = null;
@@ -1171,7 +1195,10 @@ export async function runLegacyEngineCheckpoint({
           expression: `(${readLegacyCensusMemory.toString()})()`, returnByValue: true,
         }, deadline, 'censusBudgetAdmission'));
         const bytes = latest?.value?.usedHeapBytes;
-        if (!legacyCensusTimeAdmission(bytes, deadline - Date.now()))
+        if (allocation.profile === 'eed-240s-certified-release-v1' &&
+            !certifiedCensusBudgetAvailable(deadline - Date.now()))
+          throw refused('certified census entry exhausted its allocation');
+        if (!legacyCensusTimeAdmission(bytes, deadline - Date.now(), allocation.profile))
           throw refused('native census remaining budget refused');
       }
       operation = 'queryObjects';
@@ -1495,8 +1522,10 @@ export async function runLegacyEngineCheckpoint({
             cleanupDeadline,
             operation
           );
+          cleanupAcknowledged = true;
         }
       } catch (error) {
+        cleanupAcknowledged = false;
         failure = 'inspector cleanup outcome unknown';
         // The work phase's own loss, when there was one, is the fact that
         // decides the next fix; a cleanup loss never overwrites it.
@@ -1515,6 +1544,7 @@ export async function runLegacyEngineCheckpoint({
               }),
             ]);
           } catch {
+            cleanupAcknowledged = false;
             // Do not introduce a competing close frame even on a deadline.
             // The stdin caller exits only its own helper after this bounded
             // cleanup attempt; the original operation remains nonretryable.
@@ -1553,6 +1583,11 @@ export async function runLegacyEngineCheckpoint({
       ...(censusMemory ? { censusMemory } : {}),
       ...(nativeCensusCounts ? { nativeCensusCounts } : {}),
       retryAllowed: false,
+      profile: allocation.profile,
+      cleanupAcknowledged,
+      certifiedPreGuardNoAction: allocation.profile === 'eed-240s-certified-release-v1' &&
+        checkpointInvoked === false && cleanupAcknowledged && inspectorClosed &&
+        cleanupConnections === 0 && result === undefined && progress === null,
       checkpointInvoked,
       inspectorClosed,
       cleanupConnections,

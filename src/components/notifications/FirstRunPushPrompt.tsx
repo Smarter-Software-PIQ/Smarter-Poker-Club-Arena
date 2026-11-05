@@ -145,6 +145,10 @@ const COPY: Record<NudgeMoment, { title: string; body: string }> = {
     title: 'Get Your Messages On This Device',
     body: 'Turn On Notifications And We Will Tell You The Moment Someone Messages You, Even When Club Arena Is Closed. You Can Change This Any Time In Settings.',
   },
+  welcome_chips: {
+    title: 'Never Miss Free Chips Again',
+    body: 'Turn On Notifications And We Will Tell You The Moment Chips Land In Your Wallet, A Seat Opens, Or A Tournament You Registered For Starts. You Can Change This Any Time In Settings.',
+  },
   invoice_workspace: {
     title: 'Get Invoice Updates On This Device',
     body: 'Turn On Notifications And We Will Tell You When A New Invoice Or Club Statement Arrives. You Can Change This Any Time In Settings.',

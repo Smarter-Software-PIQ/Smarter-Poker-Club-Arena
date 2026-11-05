@@ -32,18 +32,22 @@
  */
 
 /** The standard band the table's BuyInModal offers, in big blinds. */
+import { isFixedLimitVariant } from './bettingStructure';
 import { isPlatformFrozenError, PLATFORM_FROZEN_MESSAGE } from '../utils/platformFrozen';
 
 export const CASH_MIN_BB = 40;
 export const CASH_MAX_BB = 200;
 
 export interface CashBuyInSource {
+  game_variant?: string | null;
   big_blind?: number | null;
   min_buy_in?: number | null;
   max_buy_in?: number | null;
 }
 
 export interface CashBuyInRange {
+  /** No table cap; max is zero and never used as a purchase amount. */
+  unlimited?: boolean;
   min: number;
   max: number;
   /** The row carries no blinds and no buy-in columns: nothing can be said. */
@@ -62,6 +66,10 @@ export function cashBuyInRange(row: CashBuyInSource): CashBuyInRange {
 
   const rowMin = positive(row.min_buy_in);
   const rowMax = positive(row.max_buy_in);
+  if (isFixedLimitVariant(row.game_variant)) {
+    if (!(rowMin || bandMin)) return { min: 0, max: 0, unknown: true };
+    return { min: rowMin || bandMin, max: 0, unlimited: true };
+  }
 
   if (bb <= 0) {
     if (!rowMin && !rowMax) return { min: 0, max: 0, unknown: true };
@@ -76,7 +84,8 @@ export function cashBuyInRange(row: CashBuyInSource): CashBuyInRange {
 
 /** "1,000 - 2,500", or a single figure when the range has collapsed. */
 export function cashBuyInLabel(row: CashBuyInSource): string {
-  const { min, max, unknown } = cashBuyInRange(row);
+  const { min, max, unknown, unlimited } = cashBuyInRange(row);
+  if (unlimited) return `${min.toLocaleString()} Min / No Maximum`;
   /* A dash, not a zero. "0" is a statement that the table is free. */
   if (unknown) return '-';
   if (max <= min) return min.toLocaleString();
@@ -244,4 +253,14 @@ export function cashBuyInRefusalText(raw: unknown): string | null {
     return 'Your Club Wallet Does Not Have Enough Chips For This Buy In';
   if (/No club wallet resolves/i.test(m)) return 'No Club Wallet Was Found For You At This Table';
   return null;
+}
+
+/** A voluntary refill target, independent of an unlimited table's admission cap.
+ * Enabling Auto Top Up retains the existing 200 actual-BB target for limit.
+ */
+export function cashAutoTopUpTarget(row: CashBuyInSource): number {
+  const range = cashBuyInRange(row);
+  if (!range.unlimited) return range.max;
+  const bb = positive(row.big_blind);
+  return bb > 0 ? Math.max(range.min, Math.round(bb * CASH_MAX_BB * 100) / 100) : 0;
 }

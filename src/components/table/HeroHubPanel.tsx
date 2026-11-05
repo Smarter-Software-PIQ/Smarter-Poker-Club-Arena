@@ -119,6 +119,13 @@ export interface HeroHubPanelProps {
   onOpenProfileView: () => void;
   onOpenAvatarPicker: () => void;
   onOpenIdentity: () => void;
+  /**
+   * Opens the Notes Library (every private note the player holds on other
+   * players: list, search, delete). Added 2026-11-04: the library was built
+   * and had no door. Notes are written from an opponent's avatar; this is
+   * where they are read back.
+   */
+  onOpenNotesLibrary?: () => void;
   /** Identity header — who this hub belongs to. */
   heroName?: string;
   heroAvatarUrl?: string;
@@ -203,6 +210,7 @@ export function HeroHubPanel({
   onOpenProfileView,
   onOpenAvatarPicker,
   onOpenIdentity,
+  onOpenNotesLibrary,
   heroName,
   stats,
   isHeroTurn = false,
@@ -441,6 +449,8 @@ export function HeroHubPanel({
               {item('View Profile', 'Your Table Identity And Session', onOpenProfileView)}
               {item('Change Avatar', 'Pick A New Table Avatar', onOpenAvatarPicker)}
               {item('Display Name', 'Real Name Or Alias At The Table', onOpenIdentity)}
+              {onOpenNotesLibrary &&
+                item('Player Notes', 'Your Private Notes On Other Players', onOpenNotesLibrary)}
             </div>
           )}
 

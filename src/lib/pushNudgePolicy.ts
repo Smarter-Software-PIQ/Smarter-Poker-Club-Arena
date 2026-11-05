@@ -34,6 +34,9 @@ export const NUDGE_MOMENTS = [
   'rakeback_receipt',
   'invoice_workspace',
   'message_received',
+  // Dan 2026-11-04: a player arriving from the welcome-back chips email or text
+  // (/?welcome=chips). None of the first 21 paid players had a device enrolled.
+  'welcome_chips',
 ] as const;
 export type NudgeMoment = (typeof NUDGE_MOMENTS)[number];
 const RECEIPT_MOMENTS = new Set<string>(['rakeback_receipt', 'invoice_workspace']);

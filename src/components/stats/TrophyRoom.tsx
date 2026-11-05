@@ -71,6 +71,8 @@ interface Props {
   /** The ALL-TIME overall block. Never the range-windowed one. */
   overall?: OverallLike | null;
   tournaments?: TournLike | null;
+  /** Hands per game in the same payload, for the game-aware style read. */
+  variants?: ReadonlyArray<{ variant: string; hands: number }>;
   /**
    * Lifetime hand count from the player -> hand index. `overall.total_hands`
    * is capped at the 750-hand analysis window, so a hand-count milestone that
@@ -285,6 +287,7 @@ function buildMilestones(o: OverallLike, t: TournLike | null, lifetimeHands: num
 export default function TrophyRoom({
   overall,
   tournaments,
+  variants,
   lifetimeHands = 0,
   aggressionAvailable = true,
   hoursAvailable = true,
@@ -306,8 +309,8 @@ export default function TrophyRoom({
   // Shared with the share card on PlayerStatsPage, so the two surfaces can
   // never disagree about a player's style. Returns null below STYLE_MIN_HANDS.
   const style = useMemo(
-    () => playerStyleFromStats(overall, aggressionAvailable),
-    [overall, aggressionAvailable]
+    () => playerStyleFromStats(overall, aggressionAvailable, variants),
+    [overall, aggressionAvailable, variants]
   );
 
   const milestones = useMemo(
@@ -396,6 +399,7 @@ export default function TrophyRoom({
                 {style.label}
               </span>
               <p className="trophy-style-note">{style.tooltip}</p>
+              <p className="trophy-style-note trophy-style-reason">{style.reason}</p>
             </div>
           </div>
         ) : (

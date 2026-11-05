@@ -34,7 +34,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 
-export type PromptGate = 'terms' | 'age' | 'welcome' | 'profile';
+export type PromptGate = 'terms' | 'age' | 'welcome' | 'profile' | 'notice';
 
 /** The order soft asks are shown in when more than one is waiting. */
 export const SOFT_ASK_ORDER = ['daily-bonus', 'analytics-consent', 'push'] as const;

@@ -31,6 +31,8 @@ export const browserCases = [
     'a tournament felt shows the lobby button in the right corner',
     'chromium',
   ],
+  ['tournament-watch.spec.ts', 'table bookmark cannot reopen the retired game', 'chromium'],
+  ['tournament-watch.spec.ts', 'event bookmark cannot reopen the retired game', 'chromium'],
 ];
 export const liveCases = ['MTT', 'SPIN', 'SNG'].map((format) => [
   'production-live-table-realtime.spec.ts',

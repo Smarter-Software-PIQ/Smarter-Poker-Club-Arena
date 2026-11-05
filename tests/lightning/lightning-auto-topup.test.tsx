@@ -242,6 +242,10 @@ function database(rawPatch = {}, seatPatch = {}, tablePatch = {}) {
   });
 }
 describe('a settled event still reads the actual legal funding boundary', () => {
+  it('retains a finite voluntary 200 actual-BB target at uncapped fixed-limit tables', async () => {
+    database({}, {}, { game_variant: 'flh', big_blind: 2, min_buy_in: 80, max_buy_in: null });
+    expect(await readLightningTopUp(cluster, pool, user)).toEqual({ stack: 1.37, maximum: 400 });
+  });
   it('reads the real physical table ceiling and own stack', async () => {
     database({}, {}, { max_buy_in: 3 });
     expect(await readLightningTopUp(cluster, pool, user)).toEqual({ stack: 1.37, maximum: 3 });

@@ -1,3 +1,4 @@
+import { isRetiredTournament } from '../../lib/retiredTournamentVisibility';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import type { TournamentEntryWindowRow } from '../../utils/tournamentEntryWindow';
 import {
@@ -14,7 +15,7 @@ import {
  * Central hub for discovering and joining tournaments across all clubs
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { readClubContextParam } from '../../utils/clubScopedPath';
 import { supabase } from '../../lib/supabase';
@@ -41,7 +42,7 @@ import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { reportError } from '../../utils/errorReporter';
 // Whole-number tournament money (Dan 2026-08-20).
 import { totalBuyIn, formatBuyInShort } from '../../utils/buyIn';
-import { useTournamentRegistration, isLateStatus } from '../../hooks/useTournamentRegistration';
+import { useTournamentRegistration } from '../../hooks/useTournamentRegistration';
 import { useTournamentStartHold } from '../../hooks/useTournamentStartHold';
 import MidwayMttServerUpdateModal from '../../components/tournament/MidwayMttServerUpdateModal';
 import CasinoSurfaceHeader from '../../components/rewards/RewardsSurfaceHeader';
@@ -119,9 +120,11 @@ function TournamentLobbyBoard() {
      never read - each card owns the busy state for its own plate, because the
      board shows many and one shared flag would grey out every Take A Seat on
      the page while one of them worked. */
-  const { register: registerMtt } = useTournamentRegistration();
   const mttStartHold = useTournamentStartHold();
   const [showMttUpdateModal, setShowMttUpdateModal] = useState(false);
+  const { register: registerMtt } = useTournamentRegistration(
+    useCallback(() => setShowMttUpdateModal(true), [])
+  );
   const autoShownMttHoldRef = useRef(false);
   useEffect(() => {
     if (mttStartHold.blocked && !autoShownMttHoldRef.current) {
@@ -133,7 +136,12 @@ function TournamentLobbyBoard() {
   const { clubId: routeClubId } = useParams<{ clubId?: string }>();
   const { user } = useAuthUser();
   const toast = useToast();
-  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [tournamentRows, setTournaments] = useState<Tournament[]>([]);
+  // Filter every presentation read, including cached and realtime rows.
+  const tournaments = useMemo(
+    () => tournamentRows.filter((row) => !isRetiredTournament(row.id)),
+    [tournamentRows]
+  );
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const listAbort = useRef<AbortController | null>(null);
@@ -661,10 +669,6 @@ function TournamentLobbyBoard() {
     }
     if (isTournamentEntryUnavailable(t, t.currentPlayers)) {
       toast.error('Tournament entry is unavailable');
-      return;
-    }
-    if (mttStartHold.blocked && !isLateStatus(t.status)) {
-      setShowMttUpdateModal(true);
       return;
     }
     await registerMtt(

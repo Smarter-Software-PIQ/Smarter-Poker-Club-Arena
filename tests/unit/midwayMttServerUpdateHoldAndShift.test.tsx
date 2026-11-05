@@ -140,6 +140,51 @@ describe('Midway Union MTT server-update popup & +3h 30m schedule shift', () => 
     expect(rpcMock).toHaveBeenCalledTimes(2);
   });
 
+  it('broadcasts focus and reconnect results while retaining the hold on failed or invalid reads', async () => {
+    rpcMock.mockResolvedValueOnce({ data: { blocked: true }, error: null });
+    const first = renderHook(() => useTournamentStartHold());
+    const second = renderHook(() => useTournamentStartHold());
+    await waitFor(() => expect(second.result.current.blocked).toBe(true));
+
+    rpcMock.mockResolvedValueOnce({ data: null, error: new Error('offline') });
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(first.result.current.blocked).toBe(true);
+
+    rpcMock.mockResolvedValueOnce({ data: {}, error: null });
+    await act(async () => window.dispatchEvent(new Event('online')));
+    expect(second.result.current.blocked).toBe(true);
+
+    rpcMock.mockResolvedValueOnce({ data: { blocked: false }, error: null });
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(first.result.current.blocked).toBe(false);
+    expect(second.result.current.blocked).toBe(false);
+    expect(rpcMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('makes an older open response use the newer active hold', async () => {
+    type Response = { data: { blocked: boolean }; error: null };
+    let resolveOlder!: (response: Response) => void;
+    let resolveNewer!: (response: Response) => void;
+    rpcMock
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          resolveOlder = resolve;
+        })
+      )
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          resolveNewer = resolve;
+        })
+      );
+    const older = readTournamentStartHoldStatus({ force: true });
+    const newer = readTournamentStartHoldStatus({ force: true });
+    resolveOlder({ data: { blocked: false }, error: null });
+    resolveNewer({ data: { blocked: true }, error: null });
+    expect((await older).blocked).toBe(true);
+    expect((await newer).blocked).toBe(true);
+    expect((await readTournamentStartHoldStatus()).blocked).toBe(true);
+  });
+
   it('wires MidwayMttServerUpdateModal into ClubHomePage, TournamentLobbyPage, TournamentDetails, and useTournamentRegistration', () => {
     const clubHome = read('src/pages/ClubHomePage.tsx');
     const lobbyPage = read('src/pages/tournament/TournamentLobbyPage.tsx');

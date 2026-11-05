@@ -27,8 +27,9 @@ const mocks = vi.hoisted(() => ({
   checkVIPStatus: vi.fn(),
   purchaseFeature: vi.fn(),
   showDiamondTopUp: vi.fn(),
-  toast: { error: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn() },
   save: vi.fn().mockResolvedValue({ error: null }),
+  remove: vi.fn().mockResolvedValue({ error: null }),
 }));
 
 vi.mock('../../src/hooks/useAuthUser', () => ({
@@ -46,7 +47,12 @@ vi.mock('../../src/services/VIPService', () => ({
 vi.mock('../../src/services/PlayerNotesService', () => ({
   NOTE_COLORS: [{ name: 'None', value: 'none', hex: 'transparent' }],
   PLAYER_TAGS: ['Aggressive'],
-  playerNotesService: { clearCache: vi.fn() },
+  LABEL_TO_HEX: { none: '#6b7280' },
+  playerNotesService: {
+    clearCache: vi.fn(),
+    notifyChanged: vi.fn(),
+    deleteNote: (...args: unknown[]) => mocks.remove(...args),
+  },
 }));
 
 vi.mock('../../src/hooks/useStaggerAnimation', () => ({
@@ -104,33 +110,22 @@ afterEach(() => {
 });
 
 describe('Player Notes Account Isolation', () => {
-  it('ignores late account A Lifetime status and note data after account B becomes active', async () => {
-    const accountAStatus = deferred<{ isVIP: boolean }>();
-    const accountBStatus = deferred<{ isVIP: boolean }>();
+  it('ignores late account A note data after account B becomes active', async () => {
     const accountANote = deferred<NoteRead>();
     const accountBNote = deferred<NoteRead>();
     mocks.noteReads.set('account-a', accountANote.promise);
     mocks.noteReads.set('account-b', accountBNote.promise);
-    mocks.checkVIPStatus.mockImplementation((userId: string) =>
-      userId === 'account-a' ? accountAStatus.promise : accountBStatus.promise
-    );
-    mocks.purchaseFeature.mockResolvedValue({ success: true, charged: 1 });
 
     const rendered = render(view());
-    await waitFor(() => expect(mocks.checkVIPStatus).toHaveBeenCalledWith('account-a'));
-
     mocks.currentUser = { id: 'account-b' };
     rendered.rerender(view());
-    await waitFor(() => expect(mocks.checkVIPStatus).toHaveBeenCalledWith('account-b'));
 
     await act(async () => {
-      accountBStatus.resolve({ isVIP: false });
       accountBNote.resolve({ data: null, error: null });
-      await Promise.all([accountBStatus.promise, accountBNote.promise]);
+      await accountBNote.promise;
     });
 
     await act(async () => {
-      accountAStatus.resolve({ isVIP: true });
       accountANote.resolve({
         data: {
           id: 'note-a',
@@ -140,7 +135,7 @@ describe('Player Notes Account Isolation', () => {
         },
         error: null,
       });
-      await Promise.all([accountAStatus.promise, accountANote.promise]);
+      await accountANote.promise;
     });
 
     expect(screen.getByPlaceholderText('Add Notes About This Player...')).toHaveValue('');
@@ -148,79 +143,22 @@ describe('Player Notes Account Isolation', () => {
       'aria-pressed',
       'false'
     );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Aggressive' }));
-    await waitFor(() =>
-      expect(mocks.purchaseFeature).toHaveBeenCalledWith('account-b', 'tag_pack')
-    );
-    expect(mocks.purchaseFeature).not.toHaveBeenCalledWith('account-a', 'tag_pack');
   });
 
-  it('lets account B start immediately and ignores account A purchase completion', async () => {
-    const accountANote = deferred<NoteRead>();
-    const accountAPurchase = deferred<{
-      success: boolean;
-      charged: number;
-      alreadyOwned?: boolean;
-    }>();
-    const accountBPurchase = deferred<{
-      success: boolean;
-      charged: number;
-      alreadyOwned?: boolean;
-    }>();
-    mocks.noteReads.set('account-a', accountANote.promise);
-    mocks.noteReads.set('account-b', Promise.resolve({ data: null, error: null }));
-    mocks.checkVIPStatus.mockResolvedValue({ isVIP: false });
-    mocks.purchaseFeature.mockImplementation((userId: string) =>
-      userId === 'account-a' ? accountAPurchase.promise : accountBPurchase.promise
-    );
-
-    const rendered = render(view());
-    await waitFor(() => expect(mocks.checkVIPStatus).toHaveBeenCalledWith('account-a'));
-    // A status request starting does not mean the note read has completed.
-    // Keep that boundary explicit, then purchase through the enabled control.
-    expect(screen.getByRole('button', { name: 'Aggressive' })).toBeDisabled();
+  it('tags are free: a tap selects the tag with no status check and no purchase', async () => {
+    /* TAGS ARE FREE (Dan 2026-11-04). The tag pack purchase and the VIP status
+       read are gone from this panel; a tag toggles on and off like a switch. */
+    mocks.noteReads.set('account-a', Promise.resolve({ data: null, error: null }));
+    render(view());
+    const tag = await screen.findByRole('button', { name: 'Aggressive' });
+    await waitFor(() => expect(tag).toBeEnabled());
+    fireEvent.click(tag);
+    expect(tag).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(tag);
+    expect(tag).toHaveAttribute('aria-pressed', 'false');
+    expect(mocks.checkVIPStatus).not.toHaveBeenCalled();
     expect(mocks.purchaseFeature).not.toHaveBeenCalled();
-    await act(async () => {
-      accountANote.resolve({ data: null, error: null });
-      await accountANote.promise;
-    });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Aggressive' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Aggressive' }));
-    await waitFor(() =>
-      expect(mocks.purchaseFeature).toHaveBeenCalledWith('account-a', 'tag_pack')
-    );
-
-    mocks.currentUser = { id: 'account-b' };
-    rendered.rerender(view());
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Aggressive' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Aggressive' }));
-    await waitFor(() =>
-      expect(mocks.purchaseFeature).toHaveBeenCalledWith('account-b', 'tag_pack')
-    );
-
-    await act(async () => {
-      accountAPurchase.resolve({ success: true, charged: 1 });
-      await accountAPurchase.promise;
-    });
-
-    expect(screen.getByRole('button', { name: 'Aggressive' })).toHaveAttribute(
-      'aria-pressed',
-      'false'
-    );
     expect(mocks.showDiamondTopUp).not.toHaveBeenCalled();
-
-    await act(async () => {
-      accountBPurchase.resolve({ success: true, charged: 1 });
-      await accountBPurchase.promise;
-    });
-
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Aggressive' })).toHaveAttribute(
-        'aria-pressed',
-        'true'
-      )
-    );
   });
 
   it('fails closed instead of overwriting a note after its read fails', async () => {
@@ -274,12 +212,33 @@ it('saves edited and cleared notes, blocks repeat saves and retains a failed dra
   );
   expect(input).toHaveValue('Keep My Draft');
   expect(input).not.toBeDisabled();
-  mocks.save.mockResolvedValueOnce({ error: null });
+  /* A BLANK SAVE IS A CLEAR (2026-11-04): no text, no tags and no colour
+     removes the row instead of writing an empty note that would still count
+     as a note (in the library, and as a post-it on the seat). */
   fireEvent.change(input, { target: { value: '' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save Note' }));
-  await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(3));
-  expect(mocks.save.mock.calls[2][0]).toMatchObject({ notes: '' });
+  await waitFor(() => expect(mocks.remove).toHaveBeenCalledTimes(1));
+  expect(mocks.remove).toHaveBeenCalledWith('account-a', 'opponent');
+  expect(mocks.save).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(mocks.toast.success).toHaveBeenCalledWith('Note Cleared'));
   rendered.unmount();
+});
+
+it('a blank save on a player with no note writes nothing, clears nothing and closes', async () => {
+  mocks.noteReads.set('account-a', Promise.resolve({ data: null, error: null }));
+  const onClose = vi.fn();
+  render(
+    <MemoryRouter>
+      <PlayerNotesPanel targetUserId="opponent" targetName="Opponent" onClose={onClose} />
+    </MemoryRouter>
+  );
+  const save = await screen.findByRole('button', { name: 'Save Note' });
+  await waitFor(() => expect(save).toBeEnabled());
+  fireEvent.click(save);
+  await waitFor(() => expect(onClose).toHaveBeenCalled());
+  expect(mocks.save).not.toHaveBeenCalled();
+  expect(mocks.remove).not.toHaveBeenCalled();
+  expect(mocks.toast.success).not.toHaveBeenCalled();
 });
 
 it('retries an unread note before permitting an edit', async () => {

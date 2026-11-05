@@ -93,6 +93,7 @@ import {
   type UpcomingTournament,
 } from './tickerMessages';
 import { dismissItem, readDismissed } from './tickerDismissals';
+import { isRetiredTournament } from '../../lib/retiredTournamentVisibility';
 import { useTopChromeOffset } from './useTopChromeOffset';
 import { useRailSilence } from './useRailSilence';
 import { TickerRail } from './TickerRail';
@@ -728,10 +729,11 @@ function TickerHost() {
 
             // A failed source keeps its last confirmed announcements only until
             // their existing deadlines. A successful empty result still clears it.
-            setItems((previous) => [
-              ...next,
-              ...previous.filter((entry) => failedKinds.has(entry.kind)),
-            ]);
+            setItems((previous) =>
+              [...next, ...previous.filter((entry) => failedKinds.has(entry.kind))].filter(
+                (entry) => !isRetiredTournament(entry.tournamentId)
+              )
+            );
           },
           { signal: controller.signal }
         );

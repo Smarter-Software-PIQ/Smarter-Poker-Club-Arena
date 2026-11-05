@@ -45,11 +45,11 @@ it('doubles only the declared qualification envelopes and preserves production o
     'server/scripts/qualification/retained-original-checkpoint/qualify.mjs',
     'utf8'
   );
-  expect(driver).toContain('nativeMode ? 180000 : 240000');
+  expect(driver).toContain('nativeMode ? 180000 : 480000');
   const wrapper = readFileSync(
     'server/src/engine/RetainedHistoricalCheckpointQualification.test.ts',
     'utf8'
   );
-  expect(wrapper).toContain('timeout: 270_000');
-  expect(wrapper).toContain('}, 300_000)');
+  expect(wrapper).toContain('timeout: 510_000');
+  expect(wrapper).toContain('}, 540_000)');
 });

@@ -992,7 +992,7 @@ jobs:
 
       - name: Verify the reported bounty guarantee and charged entry breakdown
         id: bounty_guarantee
-        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success'
+        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

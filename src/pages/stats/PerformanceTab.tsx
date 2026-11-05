@@ -12,7 +12,7 @@ import { Suspense, lazy } from 'react';
 import PanelBoundary from '../../components/stats/PanelBoundary';
 import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/statsScope';
 import { StatRow } from './StatRow';
-import { NOT_YET_MEASURED, SCOPE_CASH, ratioOrUnmeasured } from './format';
+import { NOT_YET_MEASURED, SCOPE_CASH, ratioOrUnmeasured, aggressionFactorLabel } from './format';
 import type { OverallStats } from './types';
 import type { StatsMetricAvailabilityContract } from '../../services/statsContract';
 import { formatRateEvidence, formatSampleEvidence } from './binomialConfidence';
@@ -213,7 +213,7 @@ export default function PerformanceTab({
           />
           {/* See the Overview tab: the provable empty sample is "no hands". */}
           <StatRow
-            label="Aggression Factor"
+            label={aggressionFactorLabel(overall.aggression_factor_basis)}
             value={
               metricAvailability?.aggression_factor !== true
                 ? NOT_YET_MEASURED

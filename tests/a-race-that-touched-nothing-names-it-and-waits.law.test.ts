@@ -182,6 +182,40 @@ describe('LAW: a race that touched nothing names it and waits', () => {
   });
 
   describe('the deferrable predicate reads the receipt and never infers', () => {
+    it('retains an unknown certified census unless every preguard cleanup acknowledgment is proved', () => {
+      const clean = {
+        ok: false,
+        reason: 'target checkpoint evaluation refused',
+        retryAllowed: false,
+        profile: 'eed-240s-certified-release-v1',
+        checkpointInvoked: false,
+        inspectorClosed: true,
+        cleanupConnections: 0,
+        cleanupAcknowledged: true,
+        certifiedPreGuardNoAction: true,
+      };
+      expect(deferrableCheckpointRefusal(clean)).toBe(true);
+      for (const patch of [
+        { checkpointInvoked: true },
+        { inspectorClosed: false },
+        { cleanupConnections: 1 },
+        { cleanupAcknowledged: false },
+        { certifiedPreGuardNoAction: false },
+        { profile: 'eed-80s-v1' },
+        { checkpoint: RECEIPT.checkpoint },
+        { progress: { stage: 'preflight' } },
+        { reason: '' },
+      ]) {
+        expect(deferrableCheckpointRefusal({ ...clean, ...patch }), JSON.stringify(patch)).toBe(
+          false
+        );
+      }
+      for (const key of Object.keys(clean)) {
+        const missing: Record<string, unknown> = { ...clean };
+        delete missing[key];
+        expect(deferrableCheckpointRefusal(missing), key).toBe(false);
+      }
+    });
     it('defers the exact receipt that ended run 35623804237', () => {
       expect(deferrableCheckpointRefusal(RECEIPT)).toBe(true);
     });

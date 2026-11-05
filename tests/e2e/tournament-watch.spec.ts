@@ -31,6 +31,9 @@ const url = (path: string) => path.replace(/^\//, '');
 
 async function requireSignedIn(page: Page) {
   if (/\/auth\b/.test(page.url())) {
+    if (process.env.E2E_REQUIRE_AUTH === '1') {
+      throw new Error('Authenticated tournament verification redirected to sign-in');
+    }
     test.skip(true, 'signed out — set SP_EMAIL / SP_PASS for this spec to run');
   }
 }
@@ -261,4 +264,88 @@ test.describe('Watching a running tournament', () => {
     await lobby.getByRole('button', { name: 'Close Tournament Lobby' }).click();
     await expect(lobby).toBeHidden({ timeout: 10_000 });
   });
+});
+
+// Exact owner-retired bookmarks. These checks only navigate/read; no seating,
+// registration, financial call, fixture insertion or history mutation.
+const retiredEvent = '7986217a-0a67-4585-bd43-254356a9cb54';
+const retiredTable = '6476c549-17b4-4a2a-b46f-6079bbf98013';
+
+test.describe('Owner-retired tournament bookmarks', () => {
+  test.setTimeout(90_000);
+
+  for (const bookmark of [
+    { kind: 'table', path: `table/${retiredTable}`, id: retiredTable },
+    { kind: 'event', path: `tournaments/${retiredEvent}?watch=1`, id: retiredEvent },
+  ]) {
+    test(`${bookmark.kind} bookmark cannot reopen the retired game`, async ({ page }) => {
+      const retiredEngineConnections: string[] = [];
+      // Observe both legacy per-table sockets and multiplexed subscribe frames.
+      // Retain only labels, never tokens or complete URLs/frame payloads.
+      page.on('websocket', (socket) => {
+        const target = new URL(socket.url());
+        if (target.hostname !== 'engine.smarter.poker') return;
+        // Do not retain query strings, credentials, or arbitrary path segments.
+        const path =
+          target.pathname === '/ws/multi'
+            ? '/ws/multi'
+            : target.pathname.startsWith('/ws/table/')
+              ? '/ws/table/:tableId'
+              : '/[engine-socket]';
+        const label = `${target.protocol}//${target.host}${path}`;
+        if (socket.url().includes(retiredTable)) {
+          retiredEngineConnections.push(`table socket ${label}`);
+        }
+        socket.on('framesent', (frame) => {
+          if (String(frame.payload).includes(retiredTable)) {
+            retiredEngineConnections.push(`table subscription ${label}`);
+          }
+        });
+      });
+      page.on('request', (request) => {
+        const target = new URL(request.url());
+        if (
+          target.hostname === 'engine.smarter.poker' &&
+          (target.href.includes(retiredTable) || (request.postData() ?? '').includes(retiredTable))
+        ) {
+          retiredEngineConnections.push('table engine request');
+        }
+      });
+
+      await page.goto(url(bookmark.path), { waitUntil: 'domcontentloaded' });
+      await requireSignedIn(page);
+      // MultiTablePage redirects retired events to /clubs; a standalone details
+      // mount returns its existing not-found state. Both must deny all actions.
+      await expect
+        .poll(
+          async () => {
+            if (/\/auth\b/.test(page.url())) return 'signed-out';
+            if (!new URL(page.url()).pathname.includes(bookmark.id)) return 'redirected';
+            if (
+              bookmark.kind === 'event' &&
+              (await page
+                .getByRole('heading', { name: 'Tournament Not Found', exact: true })
+                .isVisible())
+            ) {
+              return 'not-found';
+            }
+            return 'pending';
+          },
+          { timeout: 30_000 }
+        )
+        .toMatch(/^(redirected|not-found)$/);
+      await requireSignedIn(page);
+      const details = page.locator('.tournament-details');
+      await expect(
+        details.getByRole('button', {
+          name: /^\s*(Watch|Open Tournament|Register|Late Register|Take Seat)\b/i,
+        })
+      ).toHaveCount(0);
+      await expect(details.locator('a[href*="' + retiredTable + '"]')).toHaveCount(0);
+      expect(
+        retiredEngineConnections,
+        'retired route must be denied before engine connection'
+      ).toEqual([]);
+    });
+  }
 });

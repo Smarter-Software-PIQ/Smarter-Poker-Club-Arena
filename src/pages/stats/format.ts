@@ -63,3 +63,14 @@ export function ratioOrUnmeasured(
 export const SCOPE_CASH = 'Cash';
 /** Compatibility for external tab consumers; new code names the cash scope directly. */
 export const SCOPE_ALL_GAMES = SCOPE_CASH;
+
+/**
+ * The aggression factor's label names its basis (2026-11-04). Until migration
+ * 20261104195454 the platform counted preflop calls against the player, which
+ * no tracker does; a payload from the corrected database says so and the
+ * label reads "Aggression Factor (Postflop)". An older payload keeps the
+ * plain label rather than claiming a basis it does not have.
+ */
+export function aggressionFactorLabel(basis: 'postflop' | 'all_streets' | undefined): string {
+  return basis === 'postflop' ? 'Aggression Factor (Postflop)' : 'Aggression Factor';
+}

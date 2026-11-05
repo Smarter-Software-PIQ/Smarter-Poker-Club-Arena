@@ -282,7 +282,7 @@ describe('legacy native heap census projection', () => {
     let engineBaseProtoDuringCollect: object | null = null;
     let managerBaseProtoDuringCollect: object | null = null;
     const nativeStub = {
-      sourceSHA256: 'ff995c8955cfa3de5e70871b3139bd246c9f76e89b848e48ba052149b434c4dc',
+      sourceSHA256: '26b6b0243a5e7f142ee337bd145d62acdcb4d7d32fc9c67bcbb45fb081f76d68',
       collect(marker: object) {
         markerDuringCollect = marker;
         emitterProtoDuringCollect = Object.getPrototypeOf(EventEmitter.prototype);

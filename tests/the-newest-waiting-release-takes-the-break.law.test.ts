@@ -45,6 +45,8 @@ const slice = (from: string, to: string) => {
 const reader = () =>
   slice('newer_release_awaiting_certificate() {', '\nrequest_recovery_window() {');
 const helpers = () => slice('remaining_seconds() {', 'validate_actor() {');
+const ownerWindowLiveness = () =>
+  slice('assert_owner_recovery_window_live() {', 'maintenance_certificate() {');
 const queue = () => {
   const start = transaction.indexOf(
     'while :; do',
@@ -260,6 +262,7 @@ maintenance_certificate() { event "CERTIFICATE:$LOCK_HELD:$1"; printf '297000\\n
 ${stubs()}
 ${helpers()}
 ${reader()}
+${ownerWindowLiveness()}
 ${queue()}
   event "PREPARE_ALLOWED:$BREAK_REMAINING_MS"
   break

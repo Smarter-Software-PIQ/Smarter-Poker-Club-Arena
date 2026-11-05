@@ -285,6 +285,29 @@ for protected_change in [
     # Strip only transaction delimiters to exercise the exact body inside rollback.
     body = final_census_sql.replace("\nBEGIN;\n", "\n").replace("\nCOMMIT;", "")
     final_census_qualification += "BEGIN;"+reset+protected_change+snapshot+body+final_census_after+protected_proof+"ROLLBACK;"
+# Final finite census: independently test every commitment guard against every row.
+pre_adoption_sql = (ROOT / "supabase/migrations/20261102190727_complete_pre_adoption_guarantee_terms.sql").read_text()
+pre_adoption_setup = (delayed_fixture / "pre-adoption-guarantees.sql").read_text()
+pre_adoption_proof = (delayed_fixture / "pre-adoption-guarantee-proof.sql").read_text()
+pre_adoption_live_proof = next(line.removeprefix("-- @live-proof: ") for line in pre_adoption_sql.splitlines() if line.startswith("-- @live-proof: "))
+pre_adoption_before = "DO $proof$ BEGIN IF (" + pre_adoption_live_proof + ") IS DISTINCT FROM false THEN RAISE EXCEPTION 'uninstalled final census proof must fail'; END IF; END $proof$;"
+pre_adoption_after = "DO $proof$ BEGIN IF (" + pre_adoption_live_proof + ") IS DISTINCT FROM true THEN RAISE EXCEPTION 'installed final census proof must pass'; END IF; END $proof$;"
+pre_adoption_qualification = pre_adoption_setup+pre_adoption_before+pre_adoption_sql+pre_adoption_after+pre_adoption_proof+pre_adoption_sql+pre_adoption_after+pre_adoption_proof
+for protected_change in [
+    "INSERT INTO tournament_players SELECT id FROM pre_adoption_expected;",
+    "UPDATE tournaments SET entry_contract_locked=true WHERE id IN (SELECT id FROM pre_adoption_expected);",
+    "UPDATE tournaments SET prize_pool_finalized=true WHERE id IN (SELECT id FROM pre_adoption_expected);",
+    "UPDATE tournaments SET status='RUNNING' WHERE id IN (SELECT id FROM pre_adoption_expected);",
+    "UPDATE tournaments SET start_time='2026-11-02 05:59:59+00' WHERE id IN (SELECT id FROM pre_adoption_expected);",
+    "UPDATE tournaments SET created_at='2026-11-02 05:59:59+00' WHERE id IN (SELECT id FROM pre_adoption_expected);",
+    "UPDATE tournaments SET schedule_id=NULL WHERE id IN (SELECT id FROM pre_adoption_expected);",
+]:
+    reset = "UPDATE tournaments t SET guaranteed_prize=b.before FROM pre_adoption_expected b WHERE t.id=b.id;"
+    snapshot = "CREATE TEMP TABLE pre_adoption_protected_before AS SELECT * FROM tournaments;"
+    protected_proof = "DO $proof$ BEGIN IF EXISTS(SELECT 1 FROM pre_adoption_protected_before b FULL JOIN tournaments t USING(id) WHERE to_jsonb(t) IS DISTINCT FROM to_jsonb(b)) THEN RAISE EXCEPTION 'final census changed a protected or unrelated row'; END IF; END $proof$;"
+    # Strip only transaction delimiters to exercise the exact body inside rollback.
+    body = pre_adoption_sql.replace("\nBEGIN;\n", "\n").replace("\nCOMMIT;", "")
+    pre_adoption_qualification += "BEGIN;"+reset+protected_change+snapshot+body+pre_adoption_after+protected_proof+"ROLLBACK;"
 work = Path(os.environ.get("RUNNER_TEMP", str(ROOT / "work")))
 work.mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
@@ -294,7 +317,7 @@ with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
     subprocess.run([str(bindir/"initdb"), "-D", str(d/"data"), "-A", "trust", "--no-locale"], check=True, stdout=subprocess.DEVNULL)
     subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "-l", str(d/"postgres.log"), "-o", f"-k {d} -p 55439 -c listen_addresses='' -c fsync=off", "start"], check=True, stdout=subprocess.DEVNULL)
     try:
-        subprocess.run([str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1"], input=bootstrap+definition("fn_ca_horse_roster_refresh")+definition("fn_ca_horse_roster_seat_guard")+scope_sql+definition("fn_cash_cluster_tick")+capacity_proof+assertions+november_setup+cluster_before+november_sql+november_assertions+future_helper+november_guard_proof+november_capacity_proof+all_cash_qualification+guarantee_setup+guarantee_before+guarantee_sql+guarantee_after+guarantee_proof+guarantee_sql+guarantee_after+guarantee_proof+transition_setup+transition_before+transition_sql+transition_after+transition_proof+transition_sql+transition_after+transition_proof+transition_protected+transition_sql+transition_protected_proof+transition_after+guarantee_proof+cutover_qualification+delayed_qualification+final_census_qualification, text=True, env=env, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run([str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1"], input=bootstrap+definition("fn_ca_horse_roster_refresh")+definition("fn_ca_horse_roster_seat_guard")+scope_sql+definition("fn_cash_cluster_tick")+capacity_proof+assertions+november_setup+cluster_before+november_sql+november_assertions+future_helper+november_guard_proof+november_capacity_proof+all_cash_qualification+guarantee_setup+guarantee_before+guarantee_sql+guarantee_after+guarantee_proof+guarantee_sql+guarantee_after+guarantee_proof+transition_setup+transition_before+transition_sql+transition_after+transition_proof+transition_sql+transition_after+transition_proof+transition_protected+transition_sql+transition_protected_proof+transition_after+guarantee_proof+cutover_qualification+delayed_qualification+final_census_qualification+pre_adoption_qualification, text=True, env=env, check=True, stdout=subprocess.DEVNULL)
         print("PASS: Delayed-engine exact-instance closure, labels, repeat, registered/locked/finalized/running/cutoff/schedule mismatch and unchanged-board preservation; Final nightly 10K and 1.5K owner terms with unchanged-row proof, repeated installation; transition guarantees and repeat application with entered/locked/running preservation; guarantee reduction and repeat application, entered/running/locked/finalized preservation, accurate labels; November midnight policy, every prohibited variant, all-cash horse ceiling and unchanged human tables, tournament/human/owned-move/settlement preservation, both dated capacity branches; native ranking/sample/disabled/retired, idempotency, bench/restore, truthful PLO metrics, Club cash denial, Diamond off-roster admission, malformed Diamond/disabled/retired refusal, tournament admission, existing-seat update/exit")
     finally:
         subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "stop", "-m", "fast"], check=True, stdout=subprocess.DEVNULL)

@@ -561,7 +561,7 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
         class Reply(io.BytesIO):
             def __enter__(self): return self
             def __exit__(self, *_): return False
-        def run(row, breaks=(b'[]', b'[]')):
+        def run(row, breaks=(b'[]', b'[]'), promise=None):
             replies = list(breaks)
             class Opener:
                 def open(self, request, timeout):
@@ -570,7 +570,8 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                         return Reply(replies.pop(0))
                     return Reply(b'[]' if 'release_target_at=gt' in url else json.dumps([row]).encode())
             with patch.object(db, 'build_opener', lambda *_: Opener()), \
-                    patch.object(db, 'read_leader', lambda *_: (A_SHA[:8], INSTANCE, 1)):
+                    patch.object(db, 'read_leader', lambda *_: (A_SHA[:8], INSTANCE, 1)), \
+                    patch.object(db, 'read_maintenance_promise', return_value=promise):
                 return db.verify_terminal_owned_thaw('https://db.invalid', 'k', A_SHA, INSTANCE, 15,
                                                      *(self.window[k] for k in ('announcedAt', 'startsAt', 'endsAt')))
         self.assertTrue(run(good)['ownedV3Thaw'])
@@ -593,6 +594,36 @@ class TerminalFailedRoutineOwner(unittest.TestCase):
                 row = copy.deepcopy(good); mutate(row); run(row)
         with self.subTest('maintenance row at the closing bookend'), self.assertRaises(ValueError):
             run(good, breaks=(b'[]', b'[{"id":1}]'))
+
+        # Exact419047 early original timer: all15 targets must still be complete,
+        # and the installed contract must credit300.001 while keeping420s promise.
+        original_window=self.window
+        self.window={'announcedAt':1793824762499,'startsAt':1793824882499,'endsAt':1793825182499}
+        early=copy.deepcopy(good)
+        early.update(announced_at='2026-11-04T20:39:22.499Z',freeze_started_at='2026-11-04T20:41:22.498Z',
+                     release_target_at='2026-11-04T20:46:22.499Z',thawed_at='2026-11-04T20:45:02Z',frozen_seconds=300.001)
+        promise={'schema':'maintenance-promise-floor/v1','thawDefinitionMd5':'cb733d7201725719813ffd1b1e099b1b',
+                 'observedAt':'2026-11-04T20:46:24Z','maintenance':None,
+                 'leader':{'version':A_SHA[:8],'instanceId':INSTANCE,'heartbeatAt':'2026-11-04T20:46:24Z'}}
+        try:
+            with patch.object(db.time,'time',return_value=1793825184):
+                self.assertTrue(run(early,promise=promise)['ownedV3Thaw'])
+                for key,value in [('frozen_seconds',300),('frozen_seconds',300.002),
+                        ('freeze_started_at','2026-11-04T20:41:22.497Z'),
+                        ('release_target_at','2026-11-04T20:46:22.498Z'),('ownership_token',None)]:
+                    with self.subTest(key=key,value=value),self.assertRaises(ValueError):
+                        run({**early,key:value},promise=promise)
+                for part,key,value in [(None,'thawDefinitionMd5','0'*32),(None,'maintenance',{}),
+                        (None,'observedAt','2026-11-04T20:46:00Z'),('leader','instanceId','1-foreign'),
+                        ('leader','heartbeatAt','2026-11-04T20:46:00Z')]:
+                    bad=copy.deepcopy(promise); (bad[part] if part else bad)[key]=value
+                    with self.subTest(part=part,key=key),self.assertRaises(ValueError):run(early,promise=bad)
+                with self.assertRaises(ValueError):run(early)
+                bad=copy.deepcopy(early);bad['shifted']['complete']=False
+                with self.assertRaises(ValueError):run(bad,promise=promise)
+                bad=copy.deepcopy(early);bad['shifted']['_target_counts'][first]+=1
+                with self.assertRaises(ValueError):run(bad,promise=promise)
+        finally:self.window=original_window
 
     def test_a_recorded_resolution_needs_its_identical_receipt(self):
         self.assertEqual(self.resolve(), DEAD_RUN)

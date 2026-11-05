@@ -27,6 +27,10 @@
 SET request.jwt.claims='{"role":"service_role","sub":"00000000-0000-0000-0000-000000000900"}';
 SET test.clock='2026-09-21T09:20:00Z';
 
+SELECT fixture.assert((SELECT count(*)=4 FROM clubs WHERE (id,club_id) IN
+ ((fixture.u(161),1000161),(fixture.u(162),1000162),(fixture.u(163),1000163),(fixture.u(164),1000164))),
+ 'fixture club short IDs are deterministic and cannot collide with the captured random default');
+
 CREATE TEMP TABLE floor_before AS
  SELECT scope_kind,scope_id,period_start,period_end,status,attempts,started_at,finished_at,result
    FROM union_accounting_runs

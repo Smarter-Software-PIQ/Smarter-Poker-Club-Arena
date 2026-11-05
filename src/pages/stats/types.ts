@@ -20,6 +20,12 @@ export interface OverallStats {
   fold_to_three_bet: number;
   cbet_flop: number;
   aggression_factor: number;
+  /**
+   * 'postflop' once the database counts bets + raises over calls on the flop,
+   * turn and river only (migration 20261104195454); absent from an older
+   * payload, whose number also counted preflop calls. The label says which.
+   */
+  aggression_factor_basis?: 'postflop' | 'all_streets';
   showdowns_total: number;
   showdowns_won: number;
   wtsd: number;

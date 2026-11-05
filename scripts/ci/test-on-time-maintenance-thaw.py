@@ -192,3 +192,6 @@ if __name__=='__main__':
 
     # Old engine bootstrap preserves its raw identity and original promise.
     subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/ci/test-maintenance-promise-floor.py')], check=True)
+
+    # The extended EED owner keeps the same v3 clock-credit authority.
+    subprocess.run([sys.executable, "-B", str(ROOT / "scripts/ci/test-engine-certified-recovery.py")], check=True)

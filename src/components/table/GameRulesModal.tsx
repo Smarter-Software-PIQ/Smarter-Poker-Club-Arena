@@ -1,3 +1,4 @@
+import { isFixedLimitVariant } from '../../lib/bettingStructure';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  GAME RULES MODAL - Table Rules, Limits and Hand Rankings, on the spade console
@@ -514,8 +515,9 @@ export function GameRulesModal({
                     <div className="rules-modal__item">
                       <span className="rules-modal__label">Max Buy-In</span>
                       <span className="rules-modal__value">
-                        {currency}
-                        {maxBuyIn.toLocaleString()}
+                        {isCashTable && isFixedLimitVariant(variant)
+                          ? 'No Maximum'
+                          : `${currency}${maxBuyIn.toLocaleString()}`}
                       </span>
                     </div>
                     <div className="rules-modal__item">
