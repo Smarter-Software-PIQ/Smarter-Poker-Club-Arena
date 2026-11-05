@@ -400,14 +400,23 @@
 }
 /* The title glass keeps its box; the pill shares it with the title, under
    it and centered, at the chassis' own scale. */
+/* Dan 2026-11-05: "YOU ARE REGISTERED" SHOULD ALWAYS BE CENTERED UNDER THE
+   TITLE. One shrink-to-title column: the track is as wide as the title (never
+   wider than the glass), so the pill centers on the title's own midline, not
+   on the middle of the empty glass. The box keeps its width, so the title
+   fitter's room is unchanged. */
 .has-premium-chassis .lt-tournament-heading__name:has(.lt-mine--heading) {
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 0.6cqw;
+  /* A title long enough to wrap centers its lines on the same midline. */
+  text-align: center;
+  display: grid;
+  grid-template-columns: minmax(0, max-content);
+  justify-content: start;
+  justify-items: center;
+  align-content: center;
+  row-gap: 0.6cqw;
 }
 .has-premium-chassis .lt-mine--heading {
-  align-self: center;
+  justify-self: center;
   padding: 0.3cqw 1.4cqw;
   font-size: clamp(8px, 2cqw, 14px);
   letter-spacing: 0.06em;
