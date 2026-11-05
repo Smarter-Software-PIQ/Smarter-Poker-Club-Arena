@@ -1580,6 +1580,11 @@ export abstract class ServerTableEngineBase {
     return false;
   }
 
+  /** See ServerTableEngineDealing: a retained, never-started original held at the closeout gate. */
+  isPreparedOriginalHeldAtTerminalCloseout(): boolean {
+    return false;
+  }
+
   /** Read-time fence catches an event loop that resumes before its timer runs. */
   hasCurrentEngineLeaseAuthority(): boolean {
     if (this.engineLeaseAuthorityIsCurrent()) return true;
