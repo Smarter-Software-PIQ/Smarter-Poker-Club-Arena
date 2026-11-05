@@ -157,7 +157,9 @@ it.each(['validated', 'rejected'] as const)(
           () => HorseMind.getStats(opponentId)?.folds ?? 0
         )
       ).toBe(0);
-      expect(HorseMind.getStats(opponentId)).toBeUndefined();
+      // The process-wide mind is the long-term memory HorseMindPersistence saves
+      // (2026-11-05); no decision reads it. Each horse's reads stay its own.
+      expect(HorseMind.getStats(opponentId)?.hands).toBe(1);
     } finally {
       await pool.stop();
       HorseMind.reset();

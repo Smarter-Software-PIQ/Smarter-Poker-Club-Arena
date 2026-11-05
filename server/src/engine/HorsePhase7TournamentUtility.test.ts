@@ -2269,6 +2269,9 @@ describe('Phase 7 live action-clock wiring', () => {
             journalExecution: (witness) => executions.push(structuredClone(witness)),
             journalAcceptedHand: undefined,
             journalLifecycle: undefined,
+            // This test drives the process-wide long-term memory itself
+            // (defaults.observeCompletedHand), around a simulated restart.
+            learnPersistedMemory: undefined,
             journalDiscard: undefined,
             journalDiscardExecution: undefined,
             noteDecision: () => undefined,

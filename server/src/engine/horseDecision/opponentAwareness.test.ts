@@ -113,7 +113,9 @@ it.each(['open', 'limp_reraise'] as const)(
       await worker.drain();
       expect(messages.at(-1)).toMatchObject({ type: 'ACK', operation: 'OBSERVE_COMPLETED_HAND' });
     }
-    expect(HorseMind.getStats(opponent)).toBeUndefined();
+    // The process-wide mind is the long-term memory HorseMindPersistence saves
+    // (2026-11-05); no decision reads it. Each horse's reads stay its own.
+    expect(HorseMind.getStats(opponent)).toMatchObject({ hands: 30, vpip: 30, pfr: 30 });
     inspectObserverReads(worker, admitted!, () => {
       expect(HorseMind.getStats(opponent)).toMatchObject({
         hands: 30,
@@ -418,7 +420,9 @@ it.each([
     worker.receive(request);
     worker.receive({ ...request, requestId: 301 });
     await worker.drain();
-    expect(HorseMind.getStats(opponent)).toBeUndefined();
+    // The process-wide mind is the long-term memory HorseMindPersistence saves
+    // (2026-11-05); no decision reads it. Each horse's reads stay its own.
+    expect(HorseMind.getStats(opponent)?.hands).toBe(1);
     inspectObserverReads(worker, admitted, () => {
       expect(HorseMind.getStats(opponent)?.f3bOpps).toBe(opportunities);
       expect(HorseMind.getStats(hero)?.pfr).toBe(opportunities);

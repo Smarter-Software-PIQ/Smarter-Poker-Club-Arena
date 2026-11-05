@@ -111,7 +111,7 @@ import {
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
-import { type HorseMindMirrorOutcome } from './mindMirror.js';
+import { HorseMindMirror, type HorseMindMirrorOutcome } from './mindMirror.js';
 import { readReturnedRosterTransport } from '../../services/horseAcceptedRoster/schema.js';
 import {
   horseMindHandFromDecision,
@@ -322,6 +322,25 @@ export interface HorseDecisionWorkerDependencies {
   /** Legacy diagnostic injection, retained for caller compatibility. Live
    * independent observations never invoke a pooled mirror learner. */
   learnMirroredHand?(request: ObserveCompletedHandRequest): HorseMindMirrorOutcome;
+  /**
+   * THE LONG-TERM MEMORY LEARNS AGAIN (2026-11-05). Each horse decides from
+   * its own private observer sandbox (observerReads.ts), and since 2026-10-26
+   * completed hands were learned ONLY there. The process-wide HorseMind that
+   * HorseMindPersistence flushes to horse_mind_stats / horse_mind_pairs /
+   * horse_mind_stats_scoped never learned a live hand again, so after the
+   * boot replay's first flush those tables stopped receiving writes and every
+   * restart reloaded only what was replayed at boot.
+   *
+   * This feeds that persisted memory (never a decision: no live decision
+   * reads the process-wide mind, see 'does not expose process-wide opponent
+   * history to a FAST horse'). `owned` is whether this shard owns the hand's
+   * table. The owner observes it directly, which marks its players dirty for
+   * the flush, exactly as before 2026-10-26; another shard adds the hand's
+   * contribution through HorseMindMirror without marking anything dirty, so
+   * the owner's flushed row stays the floor's and no row is written twice.
+   * Absent in an injected test runtime: nothing is persisted.
+   */
+  learnPersistedMemory?(request: ObserveCompletedHandRequest, owned: boolean): void;
   noteDecision(scope: string, ms: number): void;
   noteFeature(feature: string): void;
   now(): number;
@@ -540,6 +559,53 @@ async function stopOwnedServices(): Promise<void> {
   await Promise.all([stopBrainTelemetryFlush(), stopHorseMindPersistence()]);
 }
 
+/** The worker's completed-hand learner: whichever HorseMind state is current
+ * (a horse's private sandbox, or the process-wide persisted memory). */
+function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void {
+  // Complete the action stream after the last Horse decision. Forced posts
+  // must not shift observe()'s controller sequence positions.
+  const completed = completedHandActionsForMind(request.actions, request.scope);
+  const identity = horseMindHandFromCompletion(request);
+  if (completed && identity) {
+    const previousScope = HorseMind.currentScope();
+    HorseMind.setDecisionScope(completed.scope);
+    try {
+      HorseMind.observe(completed.actions, [], identity);
+    } finally {
+      HorseMind.setDecisionScope(previousScope);
+    }
+  }
+  HorseMind.observeHandComplete(
+    request.handKey,
+    request.actions,
+    request.bigBlind,
+    request.showdown,
+    request.scope,
+    request.durableOpponentProfiles !== undefined,
+    request.riverCallContext,
+    request.retainedRiverCalls
+  );
+}
+
+/** Whether a decision's observer receipt says this horse's own public history
+ * loaded. A pooled receipt is version 3 even when it did; its individual half
+ * then says version 2 (observerReads.ts). Exported for tests. */
+export function ownPublicHistoryLoaded(receipt: HorseObserverReadReceipt | null): boolean {
+  return receipt?.version === 2 || receipt?.individualVersion === 2;
+}
+
+/** Bounded dedupe for hands another shard owns (mindMirror.ts). */
+const persistedMemoryMirror = new HorseMindMirror();
+
+/** See HorseDecisionWorkerDependencies.learnPersistedMemory. */
+export function learnCompletedHandInPersistedMemory(
+  request: ObserveCompletedHandRequest,
+  owned: boolean
+): void {
+  if (owned) observeCompletedHandInMind(request);
+  else persistedMemoryMirror.learn(request, observeCompletedHandInMind);
+}
+
 export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependencies = {
   journalEnabled: horseDecisionJournalConfigured,
   journalDecision: journalHorseDecision,
@@ -593,31 +659,8 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
     solverPolicyArtifact: solverPolicyArtifactStatus(),
     governor: equityGovernor.snapshot(),
   }),
-  observeCompletedHand: (request) => {
-    // Complete the action stream after the last Horse decision. Forced posts
-    // must not shift observe()'s controller sequence positions.
-    const completed = completedHandActionsForMind(request.actions, request.scope);
-    const identity = horseMindHandFromCompletion(request);
-    if (completed && identity) {
-      const previousScope = HorseMind.currentScope();
-      HorseMind.setDecisionScope(completed.scope);
-      try {
-        HorseMind.observe(completed.actions, [], identity);
-      } finally {
-        HorseMind.setDecisionScope(previousScope);
-      }
-    }
-    HorseMind.observeHandComplete(
-      request.handKey,
-      request.actions,
-      request.bigBlind,
-      request.showdown,
-      request.scope,
-      request.durableOpponentProfiles !== undefined,
-      request.riverCallContext,
-      request.retainedRiverCalls
-    );
-  },
+  observeCompletedHand: observeCompletedHandInMind,
+  learnPersistedMemory: learnCompletedHandInPersistedMemory,
   noteDecision: noteDecisionMs,
   noteFeature: noteFire,
   now: () => performance.now(),
@@ -2579,7 +2622,7 @@ export class HorseDecisionWorkerRuntime {
     const observerReceipt = this.observerReads.receipt(request);
     if (request.ownPublicHistory)
       this.deps.noteFeature(
-        observerReceipt?.version === 2
+        ownPublicHistoryLoaded(observerReceipt)
           ? 'horse_observer_history_loaded'
           : 'horse_observer_history_refused'
       );
@@ -3099,7 +3142,17 @@ export class HorseDecisionWorkerRuntime {
     this.deps.noteFeature(
       learned ? 'horse_observer_completion_learned' : 'horse_observer_completion_unavailable'
     );
-    if (this.deps.ownsCompletedHand && !this.deps.ownsCompletedHand(request)) {
+    const owned = !this.deps.ownsCompletedHand || this.deps.ownsCompletedHand(request);
+    if (this.deps.learnPersistedMemory) {
+      try {
+        // After the private observers, outside every sandbox: the long-term
+        // memory HorseMindPersistence flushes (learnPersistedMemory).
+        this.deps.learnPersistedMemory(request, owned);
+      } catch {
+        this.deps.noteFeature('horse_observer_persisted_memory_unavailable');
+      }
+    }
+    if (!owned) {
       this.send({
         type: 'ACK',
         requestId: request.requestId,

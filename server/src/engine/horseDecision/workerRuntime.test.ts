@@ -118,8 +118,14 @@ import { HORSE_REVIEW_SIGNAL_KEYS } from '../HorseReviewSignals.js';
 import {
   HorseDecisionWorkerRuntime,
   acceptedRosterBindsToHand,
+  defaultHorseDecisionWorkerDependencies,
+  learnCompletedHandInPersistedMemory,
+  ownPublicHistoryLoaded,
   type HorseDecisionWorkerDependencies,
 } from './workerRuntime.js';
+import { supabase } from '../../services/supabase.js';
+import type { HorseObserverReadReceipt } from './observerReads.js';
+import { flushHorseMind, flushHorseMindPairs } from '../../services/HorseMindPersistence.js';
 import { doorRosterTransport } from '../../services/horseAcceptedRoster/fixture.test-support.js';
 import {
   buildTournamentMState,
@@ -5802,4 +5808,218 @@ it('samples isolate memory only on the existing STATUS boundary', async () => {
   expect(sample).toHaveBeenCalledTimes(1);
   h.runtime.receive({ type: 'SHUTDOWN' });
   await h.runtime.drain();
+});
+
+describe('completed hands reach the long-term memory the persistence flush writes', () => {
+  // 2026-11-05 live defect: horse_mind_stats / horse_mind_pairs stopped
+  // receiving writes minutes after engine start, because completed hands were
+  // learned only inside each horse's private observer sandbox and the
+  // process-wide memory HorseMindPersistence flushes never learned one.
+  const lease = '9';
+  type Rpc = { name: string; rows: Array<Record<string, unknown>> };
+  function captureRpc(): Rpc[] {
+    const calls: Rpc[] = [];
+    const spy = vi.spyOn(supabase, 'rpc').mockImplementation((async (
+      name: string,
+      params: { rows: Array<Record<string, unknown>> }
+    ) => {
+      calls.push({ name, rows: params.rows });
+      return { data: params.rows.length, error: null };
+    }) as never);
+    onTestFinished(() => spy.mockRestore());
+    return calls;
+  }
+  function realLearner(h: ReturnType<typeof harness>) {
+    h.deps.observeCompletedHand = defaultHorseDecisionWorkerDependencies.observeCompletedHand;
+    h.deps.learnPersistedMemory = learnCompletedHandInPersistedMemory;
+  }
+  function hand(
+    table: string,
+    handNumber: number,
+    committed: string,
+    fast: FastHorseDecisionRequest
+  ): ObserveCompletedHandRequest {
+    const hero = fast.player;
+    const villain = fast.gameState.players.find((p) => p.user_id !== hero.user_id)!;
+    return {
+      type: 'OBSERVE_COMPLETED_HAND',
+      requestId: 2,
+      generation: handNumber,
+      fence: `${table}:${handNumber}:${lease}:observe`,
+      handKey: `${table}:${handNumber}`,
+      committedHandId: committed,
+      bigBlind: 2,
+      actions: [
+        {
+          seat: hero.seat,
+          userId: hero.user_id,
+          action: 'raise',
+          amount: 6,
+          stage: 'preflop',
+          timestamp: 1,
+        },
+        {
+          seat: villain.seat,
+          userId: villain.user_id,
+          action: 'raise',
+          amount: 18,
+          stage: 'preflop',
+          timestamp: 2,
+        },
+        {
+          seat: hero.seat,
+          userId: hero.user_id,
+          action: 'fold',
+          amount: 0,
+          stage: 'preflop',
+          timestamp: 3,
+        },
+      ],
+      results: [{ user_id: villain.user_id, net: 6 }],
+    } as ObserveCompletedHandRequest;
+  }
+
+  it('flushes the stats and pair rows of an owned hand learned through the real sandbox path', async () => {
+    HorseMind.reset();
+    onTestFinished(() => HorseMind.reset());
+    const table = '10000000-0000-4000-8000-0000000000d1';
+    const h = harness();
+    realLearner(h);
+    const fast = independentFastForHand(table, 1_000_031, lease);
+    h.runtime.receive(fast);
+    await h.runtime.drain();
+    expect(h.messages.at(-1)?.type).toBe('FAST_RESULT');
+    h.runtime.receive(hand(table, 1_000_031, '30000000-0000-4000-8000-0000000000d1', fast));
+    await h.runtime.drain();
+    // The horse's private sandbox learned it (the real observer path) ...
+    expect(h.features).toContain('horse_observer_completion_learned');
+    expect(h.features).not.toContain('horse_observer_persisted_memory_unavailable');
+    // ... and so did the memory the five-minute flush writes.
+    const calls = captureRpc();
+    expect(await flushHorseMind()).toEqual({ flushed: 2, failed: 0 });
+    expect(await flushHorseMindPairs()).toEqual({ flushed: 1, failed: 0 });
+    const hero = fast.player.user_id;
+    const villain = fast.gameState.players.find((p) => p.user_id !== hero)!.user_id;
+    const stats = calls.find((c) => c.name === 'upsert_horse_mind_stats')!.rows;
+    expect(stats.find((r) => r.user_id === hero)).toMatchObject({ hands: 1, pfr: 1, folds: 1 });
+    expect(stats.find((r) => r.user_id === villain)).toMatchObject({
+      hands: 1,
+      pfr: 1,
+      three_bet: 1,
+    });
+    const pairs = calls.find((c) => c.name === 'upsert_horse_mind_pairs')!.rows;
+    expect(pairs).toEqual([
+      expect.objectContaining({ attacker_id: villain, victim_id: hero, n3: 1, opp3: 1 }),
+    ]);
+    // A second flush has nothing new to write.
+    expect(await flushHorseMind()).toEqual({ flushed: 0, failed: 0 });
+  });
+
+  it('writes nothing when the persisted-memory learner is absent (the defect)', async () => {
+    HorseMind.reset();
+    onTestFinished(() => HorseMind.reset());
+    const table = '10000000-0000-4000-8000-0000000000d2';
+    const h = harness();
+    h.deps.observeCompletedHand = defaultHorseDecisionWorkerDependencies.observeCompletedHand;
+    const fast = independentFastForHand(table, 1_000_032, lease);
+    h.runtime.receive(fast);
+    await h.runtime.drain();
+    h.runtime.receive(hand(table, 1_000_032, '30000000-0000-4000-8000-0000000000d2', fast));
+    await h.runtime.drain();
+    expect(h.features).toContain('horse_observer_completion_learned');
+    captureRpc();
+    expect(await flushHorseMind()).toEqual({ flushed: 0, failed: 0 });
+    expect(await flushHorseMindPairs()).toEqual({ flushed: 0, failed: 0 });
+  });
+
+  it("adds another shard's hand without flushing it, and the owner flushes the floor total", async () => {
+    HorseMind.reset();
+    onTestFinished(() => HorseMind.reset());
+    const mirrored = '10000000-0000-4000-8000-0000000000d3';
+    const owned = '10000000-0000-4000-8000-0000000000d4';
+    const h = harness();
+    realLearner(h);
+    h.deps.ownsCompletedHand = (r) => r.fence.startsWith(owned);
+    const first = independentFastForHand(mirrored, 1_000_033, lease);
+    h.runtime.receive(first);
+    await h.runtime.drain();
+    h.runtime.receive(hand(mirrored, 1_000_033, '30000000-0000-4000-8000-0000000000d3', first));
+    await h.runtime.drain();
+    const villain = first.gameState.players.find((p) => p.user_id !== first.player.user_id)!;
+    expect(HorseMind.getStats(villain.user_id)?.hands).toBe(1);
+    expect(HorseMind.dirtyCount()).toBe(0);
+    expect(HorseMind.dirtyPairsCount()).toBe(0);
+    // The same opponents' next hand on a table this shard owns.
+    h.runtime.receive(hand(owned, 1_000_034, '30000000-0000-4000-8000-0000000000d4', first));
+    await h.runtime.drain();
+    const calls = captureRpc();
+    await flushHorseMind();
+    await flushHorseMindPairs();
+    const stats = calls.find((c) => c.name === 'upsert_horse_mind_stats')!.rows;
+    expect(stats.find((r) => r.user_id === villain.user_id)).toMatchObject({
+      hands: 2,
+      three_bet: 2,
+    });
+    const pairs = calls.find((c) => c.name === 'upsert_horse_mind_pairs')!.rows;
+    expect(pairs).toEqual([
+      expect.objectContaining({ victim_id: first.player.user_id, n3: 2, opp3: 2 }),
+    ]);
+  });
+
+  it('never lets a live decision read the persisted memory', async () => {
+    HorseMind.reset();
+    onTestFinished(() => HorseMind.reset());
+    const table = '10000000-0000-4000-8000-0000000000d5';
+    const h = harness();
+    realLearner(h);
+    const fast = independentFastForHand(table, 1_000_035, lease);
+    h.runtime.receive(fast);
+    await h.runtime.drain();
+    h.runtime.receive(hand(table, 1_000_035, '30000000-0000-4000-8000-0000000000d5', fast));
+    await h.runtime.drain();
+    const villain = fast.gameState.players.find((p) => p.user_id !== fast.player.user_id)!;
+    expect(HorseMind.getStats(villain.user_id)?.hands).toBe(1);
+    const seen: unknown[] = [];
+    h.deps.decide = (() => {
+      seen.push(HorseMind.getStats(villain.user_id));
+      return { action: 'call', amount: 4, thinkTime: 2500 };
+    }) as never;
+    // A fresh table: this horse has no private observation of the villain.
+    h.runtime.receive(
+      independentFastForHand('10000000-0000-4000-8000-0000000000d6', 1_000_036, lease)
+    );
+    await h.runtime.drain();
+    expect(seen).toEqual([undefined]);
+  });
+});
+
+describe('own public-history load counter', () => {
+  it.each([
+    [{ version: 2 }, true],
+    [{ version: 3, individualVersion: 2 }, true],
+    [{ version: 3, individualVersion: 1 }, false],
+    [{ version: 3 }, false],
+    [{ version: 1 }, false],
+    [null, false],
+  ] as const)('reads receipt %j as loaded=%s', (receipt, loaded) => {
+    expect(ownPublicHistoryLoaded(receipt as HorseObserverReadReceipt | null)).toBe(loaded);
+  });
+
+  it('counts a pooled receipt whose own history loaded as loaded', () => {
+    // The live mislabel: 13 loaded vs 134 refused in 4.6 minutes, because the
+    // counter accepted only version 2 and every pooled read is version 3.
+    const pooled = {
+      version: 3,
+      individualVersion: 2,
+      disposition: 'pooled_public',
+      context: null,
+      cutoffMs: 0,
+      learnedThroughMs: 0,
+      history: 'own_public_window',
+    } as HorseObserverReadReceipt;
+    expect(ownPublicHistoryLoaded(pooled)).toBe(true);
+    expect(
+      ownPublicHistoryLoaded({ ...pooled, individualVersion: 1, history: 'volatile_only' })
+    ).toBe(false);
+  });
 });
