@@ -398,7 +398,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         import argparse
         control = self.repo / 'server/scripts/engine-release-seal.py'
         control.write_bytes((ROOT / 'server/scripts/engine-release-seal.py').read_bytes())
-        record = self.owner_record(window_id=None)
+        record = self.owner_record(window_id='2026-11-04-tournament-fourfold-certified-recovery')
         spec = importlib.util.spec_from_file_location('certified_fixture_seal', control)
         seal = importlib.util.module_from_spec(spec); spec.loader.exec_module(seal)
         seal.STATE_DIR = self.repo / 'state'; seal.STATE_DIR.mkdir()
@@ -415,7 +415,7 @@ echo CHECKPOINT_MUST_NOT_RUN
         return seal, record, args
 
     def test_certified_owner_requires_exact_profile_and_entire_900_second_cycle(self):
-        r = self.owner_record(window_id=None)
+        r = self.owner_record(window_id='2026-11-04-tournament-fourfold-certified-recovery')
         self.assertEqual(r['ownerWindowId'], floor.CERTIFIED_POLICY)
         self.assertEqual(r['certifiedRecoveryProfile'], 'eed-240s-certified-release-v1')
         self.assertEqual(r['cycleDurationSeconds'], 900)
@@ -647,6 +647,25 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(window['contains'], '59b0d5dcc312235ab2f3e7fa9c97adbffabe271f')
         current = self.owner_record(window_id='2026-11-03-phase1-plo-horse-55-2330z')
         self.assertEqual(current['ownerWindowId'], '2026-11-03-phase1-plo-horse-55-2330z')
+        self.assertTrue(current['supersedesPhase1Schedule'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+
+    def test_hybrid_phase1_55_window_binds_its_own_floor_and_the_hybrid_merge(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-05-hybrid-and-phase1-55-0645z')
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-05T06:45:00Z', '2026-11-05T12:45:00Z'))
+        self.assertEqual(window['announceAtChicagoMinutes'], [53])
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertNotIn('announcementPolicy', window)
+        self.assertNotIn('certifiedRecoveryProfile', window)
+        self.assertEqual(window['migrations'], [])
+        self.assertEqual(window['contains'], 'a936a6b6a6fad00a645208c82686b4e6b05cadd6')
+        fourfold, fourfold_raw = self.historical_floor('2026-11-04-tournament-fourfold-certified-recovery')
+        self.assertEqual(fourfold['releaseWitness']['sha256'], hashlib.sha256(fourfold_raw).hexdigest())
+        self.assertEqual(fourfold['notAfter'], '2026-11-05T05:00:00Z')
+        current = self.owner_record(window_id='2026-11-05-hybrid-and-phase1-55-0645z')
+        self.assertEqual(current['ownerWindowId'], '2026-11-05-hybrid-and-phase1-55-0645z')
         self.assertTrue(current['supersedesPhase1Schedule'])
         self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 

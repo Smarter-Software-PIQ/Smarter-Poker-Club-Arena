@@ -1014,6 +1014,20 @@
         "sha256": "ef13b64ebce1d7ba3dc965b4a647bba2f13d34677dce38dc383bd8d164364caa"
       },
       "ownerOrder": "Owner chat 01a1a01a-7f70-7d62-8da1-8d086594c658, messages 01a1a8d4-9761-7840-94c4-68e3fbf3173f (four-minute native census) and 01a1a8d6-a6b7-74a2-91e9-cda79856cfc8 (connected budgets up to four times as needed), authorizes this new bounded recovery cycle. Exact EED predecessor only; preserve 120-second notice, qualify and install the certified database contract before announcement, register strictly before freeze, and give all 15 clock families credit through the fixed 780-second freeze. The entire 900-second cycle must fit inside this six-hour authority. Preserve original operation identity, custody, rollback and verified release; never extend a prior or expired cycle. No new publisher or scheduled retry."
+    },
+    {
+      "id": "2026-11-05-hybrid-and-phase1-55-0645z",
+      "ownerOrder": "Dan, directly in the MAIN horse styles chat (America/Chicago), ordered verbatim on 2026-11-04 06:44: \"CONTINUE. FIX THE CI FAILURES AND GET THE HYBRID DEPLOYED AND VERIFIED IN THE NEXT ENGINE RELEASE. KEEP IT OUT OF THE CURRENT RELEASE, AND LET ME KNOW WHEN IT'S FULLY COMPLETE\"; on 2026-11-04 21:42: \"Please pick up where you left off, complete the task in full and do not claim success until you have verified that everything is 100% accomplished for this task.\"; and in MAIN Horse Brain PLO on 2026-11-01 14:43: \"AS SOON AS YOU ARE READY YOU CAN DO AN ENGINE RESET AT ANY OF THE :55 BREAKS AS NEEDED TO GET THIS FULLY PUBLISHED UPDATED AND VERIFIED. BUT ONLY AT THE :55 BREAK, BUT YOU CAN DO IT EVERY HOUR IF YOU NEED TOO\". The current restoration release 67bc0e85ef143f0ed1c6da60bf3f45e053f9609a is serving since 2026-11-05T02:39Z with no routine owner, live release unit or unresolved cycle. 2026-11-04-tournament-fourfold-certified-recovery expired 05:00Z, and receiver 41977933257 for the Hybrid merge a936a6b6a6fad00a645208c82686b4e6b05cadd6 (#9488, after the native fixture repair #9512) refused at 06:27Z with explicit later owner window expired. This NEW fixed window admits one certified :55 activation of a target containing a936a6b6a6fad00a645208c82686b4e6b05cadd6, from 06:45Z to 12:45Z November 5 only, Chicago minute 53 notice and minute 55 activation, at most once per hour, every existing guard unchanged: hand-boundary drain, durable freeze and certificate, full proof/rollback reserve, one-shot checkpoint intent with strict UNKNOWN/no-retry, SEALED and own healthy v3 thaw. Every earlier entry keeps its order, witness and expiry; nothing is extended, reused or retargeted. No migration, direct restart, second publisher, watcher or timer. Expiry is not an emergency or automatic extension.",
+      "contains": "a936a6b6a6fad00a645208c82686b4e6b05cadd6",
+      "notBefore": "2026-11-05T06:45:00Z",
+      "notAfter": "2026-11-05T12:45:00Z",
+      "announceAtChicagoMinutes": [53],
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "f0a7f2e37b779ec34f07ff1511778cfdb97046ec9b152b319927fadded5b6d60"
+      }
     }
   ],
   "databaseWindows": [
