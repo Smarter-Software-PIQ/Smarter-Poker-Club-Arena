@@ -3,9 +3,11 @@
  * DatabaseWriteRetriesExhausted (infra/monitoring/alert-rules.yml) can see
  * them. See dbReplyMetrics.ts for the 2026-11-05 incidents this answers.
  */
+import { createServer } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import './client.js';
 
+const nativeFetch = globalThis.fetch;
 const captured = vi.hoisted(() => {
   // handContinuation.js imports client.js below, so the deadline must be set
   // before any import runs.
@@ -235,5 +237,46 @@ describe('the hand-continuation write tells recovered from exhausted', () => {
       )
     ).rejects.toThrow('sqlstate=42501');
     expect(dbReplyTotals().retries[RPC]).toEqual({ retry: 0, recovered: 0, exhausted: 0 });
+  });
+});
+
+describe('a real supabase-js .rpc() through the engine wrapper is counted end to end', () => {
+  it('a gateway answer, a dropped socket and a stalled reply each count once, and a database refusal counts nothing', async () => {
+    vi.useRealTimers();
+    vi.stubGlobal('fetch', nativeFetch);
+    const server = createServer((request, response) => {
+      const name = (request.url ?? '').split('/').pop();
+      if (name === 'gateway') {
+        response.writeHead(504, { 'content-type': 'text/plain' });
+        response.end('gateway timeout');
+      } else if (name === 'reset') {
+        request.socket.destroy();
+      } else if (name === 'stall') {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.write('['); // never finishes: the 100 ms client deadline fires
+      } else {
+        response.writeHead(400, { 'content-type': 'application/json' });
+        response.end('{"code":"P0001","message":"refused"}');
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as { port: number };
+      const actual =
+        await vi.importActual<typeof import('@supabase/supabase-js')>('@supabase/supabase-js');
+      const client = actual.createClient(`http://127.0.0.1:${port}`, 'test-key', {
+        auth: { autoRefreshToken: false, persistSession: false },
+        global: { fetch: boundedFetch() },
+      });
+      for (const name of ['gateway', 'reset', 'stall', 'refused']) {
+        const { error } = await client.rpc(name, {});
+        expect(error).not.toBeNull();
+      }
+      expect(dbReplyTotals().lost).toEqual({ deadline: 1, network: 1, gateway: 1 });
+      expect(dbReplyPrometheusLines()).toContain('poker_db_lost_replies_total{kind="gateway"} 1');
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
