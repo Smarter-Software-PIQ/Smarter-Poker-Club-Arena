@@ -866,6 +866,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V78'
   ),
   flag(
+    'v70FacingOpenZone',
+    "2026-11-05 two- and three-handed no-limit hold'em facing action (an open, a limp-raise, any wager) plays jam-or-fold only inside the short-handed V70 zone (<= 15bb, 12bb without the M layer) instead of the table-size-scaled M zone (red M <= 22bb), which had left every 20bb spin and heads-up stack jam-or-fold facing a raise (3-handed 20bb league, mind on, 100,000 hands: big blind vs a button min-raise off folded 18,490, jammed 2,847, called 112; on folded 5,122, called 12,764, jammed 3,032, 3-bet 1,093), so almost no button-vs-big-blind single-raised pot reached a flop; measured on minus off +6.34 +/- 0.59 bb/100 spin 20bb, +6.35 +/- 0.56 spin 18bb, +5.02 +/- 0.80 heads-up 20bb, inert at spin 25bb (+0.08 +/- 0.11); the open (V70), the <= 15bb zone, four or more dealt, short deck, fixed limit and Omaha unchanged; league measurement in docs/changelog/2026-11-05-v31-spin-facing-open-and-satellite-scenario.md; explicit off arm keeps the jam-or-fold answer",
+    'V82'
+  ),
+  flag(
     'v77SeatAwareJams',
     "2026-11-02 (Burls via Dan: \"JAMMING ALL IN TOO MUCH, THEY AREN'T CONSIDERING THE UTG OR EARLY POSITION OPENERS\") the no-limit hold'em push/fold jam over exactly one open is tightened by the OPENER'S V70 per-seat open width (dealt-census indexed, ante-aware, HorseGtoVs3BetRanges.openWidth): the bar rises by 0.3 per unit of width the opener's seat does not open against the 40% late reference, capped at +0.10 (an under-the-gun ~12% width lands the 12-15bb bar at ~0.80, the same early bar the Phase 6 reshove node uses at 20bb); measured before (24 h to 2026-11-02 00:21 UTC, 439,087 facing-one-open spots): tournament jam rate 6.82% over an early open vs 8.11% over a late one at <=15bb, 3.53% vs 7.14% at 15-25bb; tighten-only (a 40%+ button or blind width keeps today's bar exactly); first-in jams (V71/V27), the facing-3-bet bar, the HorseTournamentShoveDiscipline caps and Omaha untouched; explicit off arm keeps the seat-blind bar",
     'V77'

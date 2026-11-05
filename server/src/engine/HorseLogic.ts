@@ -2275,6 +2275,13 @@ export interface HorseDecideOpts {
    *  shove caps, raises >= 2 and Omaha untouched. Default on; explicit
    *  false keeps today's seat-blind bar. */
   v77SeatAwareJams?: boolean;
+  /** V82 (2026-11-05): two- and three-handed no-limit hold'em facing an
+   *  open (or any action) plays jam-or-fold only inside the short-handed V70
+   *  zone (<= 15bb, 12bb without the M layer) instead of the table-scaled M
+   *  zone that put every 20bb spin and heads-up stack into jam-or-fold, so a
+   *  20bb big blind can flat a min-raise. Short deck, fixed limit and Omaha
+   *  unchanged. Default on; explicit false keeps the jam-or-fold answer. */
+  v70FacingOpenZone?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -7139,6 +7146,7 @@ export class HorseLogic {
         maniacBehindWidth !== null ? maniacBehindOpenBar(maniacBehindWidth, vi.isOmaha) : undefined,
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,
       retireFourBetBluffBand: opts.v76RetireFourBetBluffBand === false ? undefined : true,
+      facingOpenShortHandedZone: opts.v70FacingOpenZone === false ? undefined : true,
       // V18 STRADDLE: the shape the fallback above detected - hand the
       // truth to the preflop engine so its unopened branch owns the pot.
       // V28: the single source of truth computed above — unopened for EVERY

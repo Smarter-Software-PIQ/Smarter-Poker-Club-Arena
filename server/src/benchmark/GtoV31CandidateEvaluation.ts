@@ -171,9 +171,12 @@ export function buildGtoV31EvaluationScenarios(
   }> = [
     {
       key: 'satellite',
+      // Twelve left for six seats, not nine: three busts from the seats with
+      // every stack ranked inside them locks every seat (satelliteRead), and a
+      // locked seat folds every pot, so no flop is ever dealt to measure.
       tournament: {
         ...base,
-        playersLeft: 9,
+        playersLeft: 12,
         spotsPaid: 6,
         satellite: true,
         satelliteSeats: 6,
