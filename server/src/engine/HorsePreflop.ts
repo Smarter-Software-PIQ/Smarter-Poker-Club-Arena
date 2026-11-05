@@ -164,6 +164,11 @@ export interface PreflopCtx {
    *  stands as the fail-safe for every other path. Explicit false restores
    *  the band (historical corpora only). */
   retireFourBetBluffBand?: boolean;
+  /** V82 (2026-11-05): two- and three-handed no-limit hold'em facing action
+   *  reads the short-handed V70 jam-or-fold zone (<= 15bb) instead of the
+   *  table-scaled M zone. True on every live decision; absent keeps the
+   *  legacy jam-or-fold gate (the off arm). */
+  facingOpenShortHandedZone?: boolean;
   /** V77 (2026-11-02): the V70 open width (percent of 1,326 combos) of the
    *  seat that made the ONLY raise hero faces, dealt-census indexed and
    *  ante-aware. Supplied by HorseLogic for no-limit hold'em facing exactly
@@ -1093,7 +1098,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     : legacyPushFold || legacyOrangeJam;
   const v70Open =
     ctx.gtoOpen !== undefined && !ctx.isOmaha && unopened && limpers === 0 && !v70JamZone;
-  const pushFoldNlh = legacyPushFold && !v70Open;
+  // V82 facing action too: two- and three-handed no-limit hold'em, the
+  // jam-or-fold zone is the short-handed one above, not the table-scaled M
+  // read, so a 20bb spin or heads-up stack can flat an open instead of only
+  // jamming or folding. Short deck and fixed limit keep the legacy gate, as
+  // they keep it for the open (V70 answers no-limit hold'em only).
+  const v70HoldemShortHanded =
+    ctx.facingOpenShortHandedZone === true &&
+    v70ShortHanded &&
+    !ctx.isOmaha &&
+    ctx.isShortDeck !== true &&
+    ctx.isFixedLimit !== true;
+  const pushFoldNlh = (v70HoldemShortHanded ? v70JamZone : legacyPushFold) && !v70Open;
   // V25: the old Omaha gate (<=8bb / M<4) is superseded by the commitment
   // zone above, which triggers on the pot-limit arithmetic rather than a bb
   // count. It stays for the ablation path (ploTourney off).
