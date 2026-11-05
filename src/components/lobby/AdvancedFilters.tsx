@@ -42,7 +42,7 @@ import { reportError } from '../../utils/errorReporter';
 import { supabase } from '../../lib/supabase';
 import { readLocalSession } from '../../lib/authUtils';
 import { useUserStore } from '../../stores/useUserStore';
-import { isAbortedRequest, isUnsynced, markUnsynced } from './lobbyViewPrefs';
+import { isAbortedRequest, isUnsynced, markUnsynced, unsyncedChoiceTime } from './lobbyViewPrefs';
 import { usePlatformCapability } from '../../hooks/usePlatformCapability';
 import './AdvancedFilters.css';
 
@@ -205,12 +205,53 @@ export function sanitizeStore(parsed: FilterStore | null | undefined): FilterSto
   return clean;
 }
 
+/**
+ * WHAT WAS ACTUALLY STORED, per account+club (2026-11-05). sanitizeStore drops
+ * or clamps anything this build cannot honour, which is right for the screen
+ * and wrong for the row: writing the sanitized copy back erased saved values
+ * the player never touched (a spec change silently "reset" their filters).
+ * Every write keeps the stored original for each game type the player did
+ * not change, so only the player's own change replaces a saved value. A Reset
+ * writes that tab's empty value, so it still clears exactly that tab.
+ */
+const storedFilters = new Map<string, FilterStore>();
+
+function rememberStoredFilters(userId: string | null, clubId: string, raw: unknown): void {
+  if (!userId || !raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+  storedFilters.set(`${userId}:${clubId}`, raw as FilterStore);
+}
+
+export function preserveStoredFilters(
+  clubId: string,
+  store: FilterStore,
+  userId: string | null = currentUserId()
+): FilterStore {
+  const stored = userId ? storedFilters.get(`${userId}:${clubId}`) : undefined;
+  if (!stored) return store;
+  const out: FilterStore = { ...store };
+  for (const [type, storedValue] of Object.entries(stored) as [FilterGameType, unknown][]) {
+    if (!(type in store)) {
+      // A type this build dropped (unknown or unreadable): the player never removed it.
+      (out as Record<string, unknown>)[type] = storedValue;
+      continue;
+    }
+    const shown = sanitizeStore({ [type]: storedValue } as FilterStore)[type];
+    if (shown && JSON.stringify(shown) === JSON.stringify(store[type])) {
+      // Unchanged by the player since it was read: keep the exact saved value.
+      (out as Record<string, unknown>)[type] = storedValue;
+    }
+  }
+  return out;
+}
+
 /** Read saved filters from this device's cache, validated. */
 export function loadFilters(clubId: string, userId: string | null = currentUserId()): FilterStore {
   try {
     const raw = readCachedFilters(clubId, userId);
     if (!raw) return {};
-    return sanitizeStore(JSON.parse(raw) as FilterStore);
+    const parsed: unknown = JSON.parse(raw);
+    rememberStoredFilters(userId, clubId, parsed);
+    return sanitizeStore(parsed as FilterStore);
   } catch (e) {
     reportError(e, 'AdvancedFilters.loadFilters');
     return {};
@@ -230,7 +271,10 @@ export function saveFilters(
   userId: string | null = currentUserId()
 ) {
   try {
-    localStorage.setItem(storageKey(clubId, userId), JSON.stringify(store));
+    localStorage.setItem(
+      storageKey(clubId, userId),
+      JSON.stringify(preserveStoredFilters(clubId, store, userId))
+    );
   } catch (e) {
     // Quota or private mode. The filters still apply for this session; only
     // the memory of them is lost, which is not worth an error in the player's face.
@@ -305,6 +349,7 @@ export async function fetchRemoteFilters(
        defines, and an unvalidated remote blob would then filter on something
        that cannot match - an empty lobby with no explanation, which is the
        exact failure loadFilters was hardened against. */
+    rememberStoredFilters(userId, clubId, data.filters);
     return sanitizeStore(data.filters as FilterStore);
   } catch (e) {
     if (!isAbortedRequest(e)) reportError(e, 'AdvancedFilters.fetchRemoteFilters', { clubId });
@@ -329,11 +374,16 @@ export function pushRemoteFilters(
   clubId: string,
   store: FilterStore,
   userId = currentUserId()
-): void {
-  if (!userId || !clubId) return;
+): Promise<void> {
+  if (!userId || !clubId) return Promise.resolve();
   const key = `${userId}:${clubId}`;
   const version = filterVersions.get(key) ?? 0;
-  markUnsynced(unsyncedKey(clubId, userId), true);
+  /* The marker already holds when the choice was made (stageFilters sets it
+     on every change); a push, including a replay on the next open, keeps that
+     time so the database can tell an old choice from a new one. */
+  markUnsynced(unsyncedKey(clubId, userId), true, true);
+  const changedAt = unsyncedChoiceTime(unsyncedKey(clubId, userId));
+  const payload = preserveStoredFilters(clubId, store, userId);
   const write = async (): Promise<boolean> => {
     try {
       const { error } = await awaitPreferenceSave(
@@ -341,7 +391,8 @@ export function pushRemoteFilters(
           {
             user_id: userId,
             club_id: clubId,
-            filters: store,
+            filters: payload,
+            filters_changed_at: changedAt,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'user_id,club_id' }
@@ -376,6 +427,7 @@ export function pushRemoteFilters(
   void pending.then(() => {
     if (pendingFilterWrites.get(key) === pending) pendingFilterWrites.delete(key);
   });
+  return pending;
 }
 
 /** Does this device hold a filter store the database never confirmed? */
@@ -396,6 +448,7 @@ export function stageFilters(clubId: string, store: FilterStore, userId = curren
   if (!userId) return;
   const key = `${userId}:${clubId}`;
   filterVersions.set(key, (filterVersions.get(key) ?? 0) + 1);
+  // A change: the marker takes this moment as the time of the choice.
   markUnsynced(unsyncedKey(clubId, userId), true);
 }
 

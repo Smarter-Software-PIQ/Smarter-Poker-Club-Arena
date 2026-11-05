@@ -2242,21 +2242,29 @@ function ClubHomePageContent({
        refusals as the tab/sort hydration: a newer unconfirmed choice on this
        device is finished rather than overwritten, a reply for a club already
        left is dropped, and a chip tapped during the round trip wins. */
-    if (hasUnsyncedFilters(resolvedClubId, currentUser?.id ?? null)) {
-      pushRemoteFilters(resolvedClubId, cached, currentUser?.id ?? null);
-      return;
-    }
+    /* An unconfirmed choice is finished first, carrying the time it was made.
+       The database keeps whichever choice is newer (2026-11-05), so the row is
+       read back afterwards: if another device chose more recently, that newer
+       choice is what this screen shows, instead of this device's older one. */
     let cancelled = false;
-    void fetchRemoteFilters(resolvedClubId, currentUser?.id ?? null).then((remote) => {
+    const replay = hasUnsyncedFilters(resolvedClubId, currentUser?.id ?? null)
+      ? pushRemoteFilters(resolvedClubId, cached, currentUser?.id ?? null)
+      : Promise.resolve();
+    void replay.then(() => {
+      if (cancelled || hasUnsyncedFilters(resolvedClubId, currentUser?.id ?? null)) return;
+      return fetchRemoteFilters(resolvedClubId, currentUser?.id ?? null).then(adoptRemoteFilters);
+    });
+    const filtersClubId = resolvedClubId;
+    function adoptRemoteFilters(remote: FilterStore | null) {
       if (cancelled || !remote || advFiltersTouched.current) return;
       // The cache always moves forward; only the screen waits for the card.
-      saveFilters(resolvedClubId, remote, currentUser?.id ?? null);
+      saveFilters(filtersClubId, remote, currentUser?.id ?? null);
       if (cardOpenRef.current) {
         heldFilters.current = remote;
         return;
       }
       setAdvFilters((prev) => (JSON.stringify(prev) === JSON.stringify(remote) ? prev : remote));
-    });
+    }
     return () => {
       cancelled = true;
     };
@@ -2356,25 +2364,33 @@ function ClubHomePageContent({
        last save failed, the row still holds the choice before it, and letting
        it "correct" the cache would quietly undo the player's newer pick. Finish
        that same write instead; the row is the truth again once it lands. */
-    if (hasUnsyncedViewPrefs(resolvedClubId, currentUser?.id)) {
-      pushRemoteViewPrefs(resolvedClubId, saved, currentUser?.id);
-      return;
-    }
+    /* Finish it with the time it was made, then read the row back: the
+       database keeps whichever choice is newer (2026-11-05), so a choice made
+       since on another device is what this screen ends up showing. */
     let cancelled = false;
-    void fetchRemoteViewPrefs(resolvedClubId, currentUser?.id).then((remote) => {
-      if (cancelled || !remote) return;
-      if (viewPrefsOwner.current !== resolvedClubId) return;
-      if (viewPrefsTouched.current) return;
-      // The prefs in hand and this browser's cache always move forward, so a
-      // later tap merges into (and pushes) the newer row, never a stale one.
-      setViewPrefs(remote);
-      // Bring this browser's cache forward so the next cold open is already
-      // right, instead of flashing the stale tab on every visit.
-      saveViewPrefs(resolvedClubId, remote, currentUser?.id);
-      // Only the visible tab, sort and Favorites wait for an open card.
-      if (cardOpenRef.current) heldViewApply.current = () => applyView(remote);
-      else applyView(remote);
-    });
+    const replay = hasUnsyncedViewPrefs(resolvedClubId, currentUser?.id)
+      ? pushRemoteViewPrefs(resolvedClubId, saved, currentUser?.id, { replay: true })
+      : Promise.resolve();
+    void replay
+      .then(() =>
+        cancelled || hasUnsyncedViewPrefs(resolvedClubId, currentUser?.id)
+          ? null
+          : fetchRemoteViewPrefs(resolvedClubId, currentUser?.id)
+      )
+      .then((remote) => {
+        if (cancelled || !remote) return;
+        if (viewPrefsOwner.current !== resolvedClubId) return;
+        if (viewPrefsTouched.current) return;
+        // The prefs in hand and this browser's cache always move forward, so a
+        // later tap merges into (and pushes) the newer row, never a stale one.
+        setViewPrefs(remote);
+        // Bring this browser's cache forward so the next cold open is already
+        // right, instead of flashing the stale tab on every visit.
+        saveViewPrefs(resolvedClubId, remote, currentUser?.id);
+        // Only the visible tab, sort and Favorites wait for an open card.
+        if (cardOpenRef.current) heldViewApply.current = () => applyView(remote);
+        else applyView(remote);
+      });
     return () => {
       cancelled = true;
     };

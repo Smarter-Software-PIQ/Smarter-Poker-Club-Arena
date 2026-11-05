@@ -1,12 +1,18 @@
 {
   "_owner": "fix/lobby-favorites-follow-the-game",
-  "_comment": "Lobby favorites keyed by the game, not one table or run (20261105183133).",
+  "_comment": "20261105183133: favorites keyed by the game (schedule, catalogue definition, cash game), owner-only guard on every preference store, and the time of each choice so a stale replay cannot overwrite a newer one.",
   "tables": ["player_lobby_favorites"],
   "functions": [
+    "fn_lobby_cash_key",
     "fn_lobby_favorite_key",
+    "fn_lobby_tournament_key",
     "fn_my_lobby_favorites",
-    "fn_player_lobby_favorites_guard",
+    "fn_player_preference_guard",
     "fn_set_lobby_favorite"
   ],
-  "columns": {}
+  "columns": {
+    "player_lobby_favorites": ["user_id", "kind", "game_key", "club_id", "label", "created_at"],
+    "user_lobby_filters": ["filters_changed_at", "view_prefs_changed_at"],
+    "user_page_preferences": ["changed_at"]
+  }
 }

@@ -81,34 +81,113 @@ describe('a favorite belongs to the game, not one table or run', () => {
     expect(page).toMatch(/if \(favsRes\.ok\) setFavoriteGameIds\(new Set\(favsRes\.ids\)\)/);
   });
 
-  it('the store has no foreign key to tables or tournaments and refuses any removal but the player', () => {
+  it('the store has no foreign key to any game row and only its owner changes it', () => {
     const sql = favoritesMigration();
     const table = sql.slice(
       sql.indexOf('CREATE TABLE IF NOT EXISTS public.player_lobby_favorites'),
       sql.indexOf(');', sql.indexOf('CREATE TABLE IF NOT EXISTS public.player_lobby_favorites'))
     );
-    expect(table).not.toMatch(/REFERENCES\s+public\.(tables|tournaments)/i);
-    expect(sql).toMatch(/BEFORE UPDATE OR DELETE ON public\.player_lobby_favorites/);
-    expect(sql).toMatch(/BEFORE TRUNCATE ON public\.player_lobby_favorites/);
-    expect(sql).toMatch(/removed only by the player''s own unfavorite/);
-    // Authenticated users cannot write the table directly; only the RPC can.
+    expect(table).not.toMatch(/REFERENCES\s+public\.(tables|tournaments|cash_games)/i);
     expect(sql).toMatch(
       /REVOKE ALL ON public\.player_lobby_favorites FROM PUBLIC, anon, authenticated, service_role;/
     );
     expect(sql).not.toMatch(/GRANT (INSERT|UPDATE|DELETE)[^;]*player_lobby_favorites/i);
   });
 
-  it('a scheduled tournament is starred by its schedule, so every run inherits it', () => {
+  it('identity never comes from a display name', () => {
     const sql = favoritesMigration();
-    expect(sql).toMatch(/'schedule:' \|\| t\.schedule_id::text/);
-    expect(sql).toMatch(/t\.schedule_id = substr\(f\.game_key, 10\)::uuid/);
-    expect(sql).toMatch(/'cash:' \|\| coalesce\(tb\.club_id::text, ''\)/);
+    const keyFns = sql.slice(
+      sql.indexOf('CREATE OR REPLACE FUNCTION public.fn_lobby_tournament_key'),
+      sql.indexOf('REVOKE ALL ON FUNCTION public.fn_lobby_tournament_key')
+    );
+    expect(keyFns).not.toMatch(/\.name\b/);
+    expect(keyFns).toMatch(/'schedule:' \|\| t\.schedule_id::text/);
+    expect(keyFns).toMatch(/'cash_game:' \|\| tb\.cluster_id::text/);
+    // The catalogue definition is scoped by club, union, variant and stakes.
+    for (const column of [
+      'club_id',
+      'union_id',
+      'variant',
+      'buy_in_amount',
+      'buy_in_fee',
+      'max_players',
+    ]) {
+      expect(keyFns).toContain(`t.${column}`);
+    }
+    // A satellite follows the recurring event it feeds.
+    expect(keyFns).toMatch(/satellite_target_id/);
+    const resolver = sql.slice(
+      sql.indexOf('CREATE OR REPLACE FUNCTION public.fn_my_lobby_favorites')
+    );
+    expect(resolver.slice(0, resolver.indexOf('LIMIT 2000'))).not.toMatch(/\.name\b/);
+  });
+
+  it('every preference store is locked to its owner and keeps the newer choice', () => {
+    const sql = favoritesMigration();
+    for (const table of ['player_lobby_favorites', 'user_lobby_filters', 'user_page_preferences']) {
+      expect(sql).toMatch(
+        new RegExp(
+          `BEFORE INSERT OR UPDATE OR DELETE ON public\\.${table}\\s+FOR EACH ROW EXECUTE FUNCTION public\\.fn_player_preference_guard\\(\\)`
+        )
+      );
+      expect(sql).toMatch(new RegExp(`BEFORE TRUNCATE ON public\\.${table}`));
+    }
+    expect(sql).toMatch(/IS written only by its owner|is written only by its owner/);
+    expect(sql).toMatch(/NOT EXISTS \(SELECT 1 FROM auth\.users u WHERE u\.id = OLD\.user_id\)/);
+    expect(sql).toMatch(/NEW\.filters_changed_at < OLD\.filters_changed_at/);
+    expect(sql).toMatch(/NEW\.view_prefs_changed_at < OLD\.view_prefs_changed_at/);
+    expect(sql).toMatch(/NEW\.changed_at < OLD\.changed_at/);
+  });
+
+  it('a native database proof of every guarantee ships and runs in CI', () => {
+    const script = read('scripts/dev/test-lobby-favorites-postgres.sh');
+    for (const claim of [
+      'renaming the tournament and the cash game keeps both stars',
+      'the same-named Sit N Go in another club is not starred',
+      'the same-named Sit N Go at other stakes is not starred',
+      'a different schedule with the same name is not starred',
+      'same-named cash tables of other games or clubs are not starred',
+      'every saved star survives runs ending and tables closing',
+      'a server-side rewrite of saved filters is refused',
+      'a late replay of an older filter choice keeps the newer one',
+      'deleting the account removes its favorites and preferences',
+    ]) {
+      expect(script).toContain(claim);
+    }
+    expect(read('.github/workflows/lobby-favorites-are-durable.yml')).toContain(
+      'bash scripts/dev/test-lobby-favorites-postgres.sh'
+    );
   });
 
   it('every existing star is carried forward', () => {
     const sql = favoritesMigration();
     expect(sql).toMatch(/FROM public\.favorite_tables ft/);
     expect(sql).toMatch(/preference_key LIKE 'lobby-tournament-favorites%'/);
+  });
+});
+
+describe('a saved value changes only by the player', () => {
+  it('every write carries when the choice was made, and a replay keeps that time', () => {
+    const filters = read('src/components/lobby/AdvancedFilters.tsx');
+    const view = read('src/components/lobby/lobbyViewPrefs.ts');
+    const page = read('src/hooks/usePlayerPreference.ts');
+    expect(filters).toMatch(/filters_changed_at: changedAt/);
+    expect(view).toMatch(/view_prefs_changed_at: changedAt/);
+    expect(page).toMatch(/changed_at: at/);
+    expect(filters).toMatch(/markUnsynced\(unsyncedKey\(clubId, userId\), true, true\)/);
+    expect(read('src/pages/ClubHomePage.tsx')).toMatch(/\{ replay: true \}/);
+  });
+
+  it('a value this build cannot show is kept, not written back sanitized', () => {
+    expect(read('src/components/lobby/AdvancedFilters.tsx')).toMatch(
+      /JSON\.stringify\(preserveStoredFilters\(clubId, store, userId\)\)/
+    );
+    expect(read('src/components/lobby/AdvancedFilters.tsx')).toMatch(
+      /const payload = preserveStoredFilters\(clubId, store, userId\)/
+    );
+    expect(read('src/components/lobby/lobbyViewPrefs.ts')).toMatch(
+      /const payload = preserveStoredView\(clubId, prefs, userId\)/
+    );
   });
 });
 
@@ -133,6 +212,36 @@ describe('a filter belongs to the signed-in player even after the token expires'
     pushRemoteViewPrefs('club-y', { tab: 'OMAHA', sortByTab: {}, favoritesOnly: true });
     await settle();
     expect(state.writes.some((w) => w.payload?.user_id === 'account-a')).toBe(true);
+  });
+
+  it('a saved value this build cannot show survives a save; a Reset still clears', async () => {
+    const stored = {
+      HOLDEM: { ...emptyFilterValue(FILTER_SPECS.HOLDEM), seatMax: 6 },
+      OMAHA: {
+        ...emptyFilterValue(FILTER_SPECS.OMAHA),
+        selectedRanges: ['a-preset-from-a-later-build'],
+      },
+      FUTURE_GAME: { anything: true },
+    };
+    localStorage.setItem('ca_advanced_filters_account-a:club-z', JSON.stringify(stored));
+    const shown = loadFilters('club-z');
+    expect(shown.OMAHA?.selectedRanges).toEqual([]);
+    // The player changes Hold'em only.
+    persistFilters('club-z', { ...shown, HOLDEM: { ...shown.HOLDEM!, seatMax: 9 } });
+    await settle();
+    const written = state.writes.at(-1)!.payload.filters;
+    expect(written.HOLDEM.seatMax).toBe(9);
+    expect(written.OMAHA.selectedRanges).toEqual(['a-preset-from-a-later-build']);
+    expect(written.FUTURE_GAME).toEqual({ anything: true });
+    expect(state.writes.at(-1)!.payload.filters_changed_at).toEqual(expect.any(String));
+    // The player resets Omaha: that clear is theirs, and it is written.
+    persistFilters('club-z', {
+      ...shown,
+      OMAHA: emptyFilterValue(FILTER_SPECS.OMAHA),
+      HOLDEM: { ...shown.HOLDEM!, seatMax: 9 },
+    });
+    await settle();
+    expect(state.writes.at(-1)!.payload.filters.HOLDEM.seatMax).toBe(9);
   });
 
   it('owner resolution prefers the signed-in account over the token', () => {

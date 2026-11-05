@@ -81,6 +81,10 @@ async function save(owner: string, name: string, value: unknown, id: string): Pr
       (latest.journaled && held?.id !== id)
     )
       return;
+    /* The time the player made this choice travels with it, including on a
+       replay after a reload, so the database keeps the newer of this and any
+       choice made since on another device (fn_player_preference_guard). */
+    const at = held?.id === id && typeof held.at === 'string' ? held.at : new Date().toISOString();
     try {
       const { error } = await awaitPreferenceSave(
         supabase.from('user_page_preferences').upsert(
@@ -88,6 +92,7 @@ async function save(owner: string, name: string, value: unknown, id: string): Pr
             user_id: owner,
             preference_key: name,
             value,
+            changed_at: at,
           },
           { onConflict: 'user_id,preference_key' }
         )
@@ -195,10 +200,12 @@ export function usePlayerPreference<T>(
     let active = true;
     const revision = revisionRef.current;
     const pending = readTableSettingIntent(owner, `page:${scopedName}`);
-    if (pending) {
-      void save(owner, scopedName, pending.value, pending.id);
-    } else if (userId) {
-      void (async () => {
+    /* A replayed choice is finished first, then the row is read back: the
+       database keeps whichever choice is newer, so a choice made since on
+       another device is what this screen ends up showing (2026-11-05). */
+    const replay = pending ? save(owner, scopedName, pending.value, pending.id) : Promise.resolve();
+    if (userId) {
+      void replay.then(async () => {
         try {
           const { data, error } = await supabase
             .from('user_page_preferences')
@@ -220,7 +227,7 @@ export function usePlayerPreference<T>(
         } catch (error) {
           reportError(error, 'usePlayerPreference.Load_failed');
         }
-      })();
+      });
     }
     return () => {
       active = false;

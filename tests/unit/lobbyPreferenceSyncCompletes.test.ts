@@ -98,14 +98,24 @@ describe('an unconfirmed tab/sort choice is never overwritten by the older row',
     expect(hasUnsyncedViewPrefs(club, 'account-b')).toBe(false);
   });
 
-  it('the lobby finishes the unconfirmed write instead of applying the row', () => {
+  // 2026-11-05: the unconfirmed write is finished FIRST, keeping the time it
+  // was made, and only then is the row read back (the database keeps the newer
+  // choice, so a newer pick from another device is what the screen shows). A
+  // replay that failed leaves the choice unconfirmed and the row unread.
+  it('the lobby finishes the unconfirmed write, then reads the row back', () => {
     const page = readFileSync(join(__dirname, '..', '..', 'src/pages/ClubHomePage.tsx'), 'utf8');
     const hydrate = page.slice(
-      page.indexOf('if (hasUnsyncedViewPrefs(resolvedClubId'),
-      page.indexOf('void fetchRemoteViewPrefs(resolvedClubId')
+      page.indexOf('const replay = hasUnsyncedViewPrefs(resolvedClubId'),
+      page.indexOf(
+        '.then((remote) => {',
+        page.indexOf('const replay = hasUnsyncedViewPrefs(resolvedClubId')
+      )
     );
     expect(hydrate).toMatch(
-      /pushRemoteViewPrefs\(resolvedClubId, saved, currentUser\?\.id\);\s*return;/
+      /pushRemoteViewPrefs\(resolvedClubId, saved, currentUser\?\.id, \{ replay: true \}\)/
+    );
+    expect(hydrate).toMatch(
+      /cancelled \|\| hasUnsyncedViewPrefs\(resolvedClubId, currentUser\?\.id\)\s*\?\s*null\s*:\s*fetchRemoteViewPrefs\(resolvedClubId, currentUser\?\.id\)/
     );
   });
 });
@@ -203,8 +213,10 @@ describe('every lobby filter change reaches the row, in order', () => {
       /pushRemoteFilters\(resolvedClubId, cached, currentUser\?\.id \?\? null\)/
     );
     expect(hydrate).toMatch(
-      /void fetchRemoteFilters\(resolvedClubId, currentUser\?\.id \?\? null\)/
+      /return fetchRemoteFilters\(resolvedClubId, currentUser\?\.id \?\? null\)/
     );
+    // No read while the replayed choice is still unconfirmed.
+    expect(hydrate).toMatch(/cancelled \|\| hasUnsyncedFilters\(resolvedClubId/);
     expect(hydrate).toMatch(/advFiltersTouched\.current/);
   });
 });

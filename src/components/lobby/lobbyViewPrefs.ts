@@ -78,11 +78,23 @@ export function isAbortedRequest(error: unknown): boolean {
   return /AbortError|The operation was aborted|signal is aborted/i.test(text);
 }
 
-/** Storage-safe marker helpers shared by every lobby preference writer. */
-export function markUnsynced(key: string, unsynced: boolean): void {
+/**
+ * Storage-safe marker helpers shared by every lobby preference writer.
+ *
+ * THE MARKER IS THE TIME OF THE CHOICE (2026-11-05). It used to be a bare '1',
+ * so a choice that sat unconfirmed on one device was replayed on its next open
+ * as if it were new and overwrote whatever the player had chosen since on
+ * another device. The marker now holds when the player made the choice, every
+ * write sends that time, and the database keeps whichever choice is newer
+ * (fn_player_preference_guard). A replay keeps the original time
+ * (`keepTime`), so an old choice can never pass itself off as a new one.
+ */
+export function markUnsynced(key: string, unsynced: boolean, keepTime = false): void {
   try {
-    if (unsynced) localStorage.setItem(key, '1');
-    else localStorage.removeItem(key);
+    if (!unsynced) localStorage.removeItem(key);
+    else if (!(keepTime && localStorage.getItem(key))) {
+      localStorage.setItem(key, new Date().toISOString());
+    }
   } catch {
     /* storage unavailable: the in-session write order still holds */
   }
@@ -90,10 +102,21 @@ export function markUnsynced(key: string, unsynced: boolean): void {
 
 export function isUnsynced(key: string): boolean {
   try {
-    return localStorage.getItem(key) === '1';
+    return Boolean(localStorage.getItem(key));
   } catch {
     return false;
   }
+}
+
+/** When the unconfirmed choice was made, or now for a pre-2026-11-05 marker. */
+export function unsyncedChoiceTime(key: string): string {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw && raw !== '1' && !Number.isNaN(Date.parse(raw))) return new Date(raw).toISOString();
+  } catch {
+    /* fall through */
+  }
+  return new Date().toISOString();
 }
 
 export type LobbyTabKey =
@@ -212,6 +235,49 @@ function sanitizeViewPrefs(parsed: unknown): LobbyViewPrefs {
   return { tab, sortByTab, favoritesOnly: src.favoritesOnly === true };
 }
 
+/**
+ * WHAT WAS ACTUALLY STORED, per account+club (2026-11-05). sanitizeViewPrefs
+ * drops a tab or sort this build does not know, which is right for the screen
+ * and wrong for the row: writing the sanitized copy back erased a saved value
+ * the player never touched. Every write merges the player's current view over
+ * the stored original, so only the player's own change replaces a value.
+ */
+const storedViews = new Map<string, Record<string, unknown>>();
+
+function rememberStoredView(userId: string | null, clubId: string, raw: unknown): void {
+  if (!userId || !raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+  storedViews.set(`${userId}:${clubId}`, raw as Record<string, unknown>);
+}
+
+export function preserveStoredView(
+  clubId: string,
+  prefs: LobbyViewPrefs,
+  userId: string | null = currentUserId()
+): Record<string, unknown> {
+  const stored = userId ? storedViews.get(`${userId}:${clubId}`) : undefined;
+  if (!stored) return { ...prefs };
+  const storedSorts =
+    stored.sortByTab && typeof stored.sortByTab === 'object' && !Array.isArray(stored.sortByTab)
+      ? (stored.sortByTab as Record<string, unknown>)
+      : {};
+  // A sort shown normalized but never changed by the player keeps its saved value.
+  const sortByTab: Record<string, unknown> = { ...storedSorts };
+  for (const [tab, sort] of Object.entries(prefs.sortByTab)) {
+    const saved = storedSorts[tab];
+    const unchanged =
+      typeof saved === 'string' &&
+      VALID_SORTS.has(saved) &&
+      validSortForTab(tab as LobbyTabKey, saved as LobbySortKey) === sort;
+    if (!unchanged) sortByTab[tab] = sort;
+  }
+  return {
+    ...stored,
+    ...prefs,
+    tab: prefs.tab ?? stored.tab ?? null,
+    sortByTab,
+  };
+}
+
 export function loadViewPrefs(clubId: string, userId = currentUserId()): LobbyViewPrefs {
   if (!clubId) return { ...EMPTY_VIEW_PREFS, sortByTab: {} };
   try {
@@ -236,7 +302,9 @@ export function loadViewPrefs(clubId: string, userId = currentUserId()): LobbyVi
       }
     }
     if (!raw) return { ...EMPTY_VIEW_PREFS, sortByTab: {} };
-    return sanitizeViewPrefs(JSON.parse(raw));
+    const parsed: unknown = JSON.parse(raw);
+    rememberStoredView(userId, clubId, parsed);
+    return sanitizeViewPrefs(parsed);
   } catch {
     // Corrupt JSON, a disabled store, or private-mode Safari throwing on read.
     return { ...EMPTY_VIEW_PREFS, sortByTab: {} };
@@ -270,6 +338,7 @@ export async function fetchRemoteViewPrefs(
       return null;
     }
     if (!data?.view_prefs || typeof data.view_prefs !== 'object') return null;
+    rememberStoredView(userId, clubId, data.view_prefs);
     return sanitizeViewPrefs(data.view_prefs);
   } catch (e) {
     if (!isAbortedRequest(e)) reportError(e, 'lobbyViewPrefs.fetchRemoteViewPrefs', { clubId });
@@ -290,16 +359,19 @@ const pendingViewWrites = new Map<string, Promise<void>>();
 export function pushRemoteViewPrefs(
   clubId: string,
   prefs: LobbyViewPrefs,
-  userId = currentUserId()
-): void {
-  if (!userId || !clubId) return;
+  userId = currentUserId(),
+  options: { replay?: boolean } = {}
+): Promise<void> {
+  if (!userId || !clubId) return Promise.resolve();
   const key = `${userId}:${clubId}`;
   /* THE CHOICE IS OWED TO THE ROW UNTIL THE ROW CONFIRMS IT. Marked before
      the request leaves, cleared only by the last queued write succeeding. A
      save the network dropped therefore stays recorded on this device, and the
      next lobby open finishes that same write instead of letting the older row
      overwrite the newer choice (see hasUnsyncedViewPrefs). */
-  markUnsynced(unsyncedViewKey(userId, clubId), true);
+  markUnsynced(unsyncedViewKey(userId, clubId), true, options.replay === true);
+  const changedAt = unsyncedChoiceTime(unsyncedViewKey(userId, clubId));
+  const payload = preserveStoredView(clubId, prefs, userId);
   // Preserve tap order: a slow earlier save must not land after the last tap.
   // Each action contributes one bounded write, with no timer or repair loop.
   const write = async (): Promise<boolean> => {
@@ -309,7 +381,8 @@ export function pushRemoteViewPrefs(
           {
             user_id: userId,
             club_id: clubId,
-            view_prefs: prefs,
+            view_prefs: payload,
+            view_prefs_changed_at: changedAt,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'user_id,club_id' }
@@ -341,6 +414,7 @@ export function pushRemoteViewPrefs(
   void pending.then(() => {
     if (pendingViewWrites.get(key) === pending) pendingViewWrites.delete(key);
   });
+  return pending;
 }
 
 /**
@@ -372,7 +446,7 @@ export function saveViewPrefs(
   if (!clubId) return;
   try {
     const key = userId ? `${KEY_PREFIX}${userId}:${clubId}` : `${KEY_PREFIX}${clubId}`;
-    localStorage.setItem(key, JSON.stringify(prefs));
+    localStorage.setItem(key, JSON.stringify(preserveStoredView(clubId, prefs, userId)));
   } catch {
     /* storage unavailable or full — the session keeps working in memory */
   }

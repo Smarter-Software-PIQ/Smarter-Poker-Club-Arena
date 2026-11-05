@@ -129,7 +129,13 @@ it('flushes the selected value before logout instead of losing the debounce wind
     await flushPreferencesBeforeLogout('preference-a');
   });
   expect(state.writes).toEqual([
-    { user_id: 'preference-a', preference_key: 'instant:logout:global', value: 'mine' },
+    {
+      user_id: 'preference-a',
+      preference_key: 'instant:logout:global',
+      value: 'mine',
+      // The time of the choice travels with it (2026-11-05).
+      changed_at: expect.any(String),
+    },
   ]);
   expect(readTableSettingIntent('preference-a', 'page:instant:logout:global')).toBeNull();
   view.unmount();
@@ -211,7 +217,12 @@ it('keeps an offline notification gesture pending and saves that same intent onc
     window.dispatchEvent(new Event('online'));
   });
   expect(state.writes).toEqual([
-    { user_id: 'preference-a', preference_key: 'NotificationsPage:filter:global', value: 'all' },
+    {
+      user_id: 'preference-a',
+      preference_key: 'NotificationsPage:filter:global',
+      value: 'all',
+      changed_at: expect.any(String),
+    },
   ]);
   expect(readTableSettingIntent('preference-a', 'page:NotificationsPage:filter:global')).toBeNull();
   view.unmount();
@@ -244,7 +255,12 @@ it('resumes a remounted offline notification intent only for its current account
   act(() => useUserStore.setState({ user: { id: 'preference-a' } as any }));
   await act(async () => {});
   expect(state.writes).toEqual([
-    { user_id: 'preference-a', preference_key: 'NotificationsPage:filter:global', value: 'all' },
+    {
+      user_id: 'preference-a',
+      preference_key: 'NotificationsPage:filter:global',
+      value: 'all',
+      changed_at: expect.any(String),
+    },
   ]);
   next.unmount();
   online.mockRestore();

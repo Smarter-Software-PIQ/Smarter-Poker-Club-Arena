@@ -139,7 +139,7 @@ describe('the page wires both halves in the right order', () => {
     // callback whose guards are the point of this test.
     const block = sliceEnclosingBlock(
       PAGE,
-      'void fetchRemoteViewPrefs(resolvedClubId, currentUser?.id)'
+      'const replay = hasUnsyncedViewPrefs(resolvedClubId, currentUser?.id)'
     );
     expect(block).toContain('if (cancelled || !remote) return;');
     expect(block).toContain('if (viewPrefsOwner.current !== resolvedClubId) return;');

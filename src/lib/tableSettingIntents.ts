@@ -1,7 +1,8 @@
 /** Unconfirmed choices survive a remount or reload; only their own save retires them. */
 import { createMutationId } from './mutationId';
 
-type Intent = { id: string; value: unknown };
+/** `at` is when the player made the choice (2026-11-05); absent on older journals. */
+type Intent = { id: string; value: unknown; at?: string };
 const PREFIX = 'ca_table_setting_intent:';
 const tails = new Map<string, Promise<unknown>>();
 const revisions = new Map<string, number>();
@@ -28,7 +29,10 @@ export function beginTableSettingIntent(userId: string, column: string, value: u
   const id = createMutationId();
   revisions.set(userId, tableSettingRevision(userId) + 1);
   try {
-    localStorage.setItem(key(userId, column), JSON.stringify({ id, value }));
+    localStorage.setItem(
+      key(userId, column),
+      JSON.stringify({ id, value, at: new Date().toISOString() })
+    );
   } catch {
     // Existing stores keep the in-memory selection when storage is unavailable.
   }
