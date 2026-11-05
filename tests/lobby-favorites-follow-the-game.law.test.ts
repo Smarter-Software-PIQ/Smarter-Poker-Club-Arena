@@ -92,7 +92,9 @@ describe('a favorite belongs to the game, not one table or run', () => {
     expect(sql).toMatch(/BEFORE TRUNCATE ON public\.player_lobby_favorites/);
     expect(sql).toMatch(/removed only by the player''s own unfavorite/);
     // Authenticated users cannot write the table directly; only the RPC can.
-    expect(sql).toMatch(/REVOKE ALL ON public\.player_lobby_favorites FROM anon, authenticated;/);
+    expect(sql).toMatch(
+      /REVOKE ALL ON public\.player_lobby_favorites FROM PUBLIC, anon, authenticated, service_role;/
+    );
     expect(sql).not.toMatch(/GRANT (INSERT|UPDATE|DELETE)[^;]*player_lobby_favorites/i);
   });
 

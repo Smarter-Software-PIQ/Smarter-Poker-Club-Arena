@@ -58,7 +58,7 @@ DROP POLICY IF EXISTS player_lobby_favorites_select_own ON public.player_lobby_f
 CREATE POLICY player_lobby_favorites_select_own ON public.player_lobby_favorites
   FOR SELECT TO authenticated USING (auth.uid() = user_id);
 
-REVOKE ALL ON public.player_lobby_favorites FROM anon, authenticated;
+REVOKE ALL ON public.player_lobby_favorites FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.player_lobby_favorites TO authenticated;
 
 -- ── The one definition of "which game is this" ──────────────────────────────
