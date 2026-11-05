@@ -1127,6 +1127,42 @@ class AnnouncedCancellation(unittest.TestCase):
         with patch.object(module, 'OWNER_WINDOW_PROFILE', {'request': request}):
             with self.assertRaises(ValueError): module.prove_unfrozen_announcement([], [], stamp, now, request, promise)
 
+    def test_owner_window_frozen_owner_retires_only_on_the_serving_engines_own_complete_thaw(self):
+        # Run 42099609162-1: announced 20:27:32.359Z, froze 20:29:32.359Z, its
+        # restart certificate stayed shut on one in-flight hand, and the
+        # still-serving 71087373 thawed its exact window at 20:33:10.950Z.
+        request = self.unfrozen_owner_request() | {'desiredSha': '71087373d6ce7d1354146dbfe3963731c9b00597'}
+        stamp = 1793910452359; now = stamp + 3_600_000
+        iso = lambda value: module.datetime.datetime.fromtimestamp(value / 1000, module.datetime.timezone.utc).isoformat()
+        row = {'contract_version': 3, 'announced_at': iso(stamp), 'freeze_started_at': iso(stamp + 120000),
+               'release_target_at': iso(stamp + 420000), 'thawed_at': iso(stamp + 338591),
+               'ownership_token': '0b4cbb1c-6f3e-4a51-9a52-2f0b2ad7c3f1', 'release_generation': 1,
+               'frozen_seconds': '300', 'thawed_by': '71087373',
+               'shifted': dict.fromkeys(module.THAW_STEPS, 0) | {'complete': True, '_targets_snapshotted': True,
+                   '_target_counts': dict.fromkeys(module.THAW_STEPS, 0)}}
+        promise = {'schema': 'maintenance-promise-floor/v1', 'maintenance': None, 'observedAt': iso(now),
+                   'leader': {'version': '71087373', 'instanceId': request['instanceId'], 'heartbeatAt': iso(now)}}
+        prove = lambda rows, active=[], at=now, witness=promise: module.prove_unfrozen_announcement(rows, active, stamp, at, request, witness)
+        with patch.object(module, 'OWNER_WINDOW_PROFILE', {'request': request, 'unfrozen': True}):
+            proof = prove([row])
+            self.assertEqual(proof['schema'], 'thawed-owner-announcement/v1')
+            self.assertEqual(proof['ownFreeze']['freezeStartedAtMs'], stamp + 120000)
+            self.assertEqual(prove([])['ownFreeze'], None)
+            for bad in ({'thawed_by': 'eed06fe5'}, {'thawed_by': '8017564a'}, {'contract_version': 2},
+                        {'announced_at': iso(stamp + 1)}, {'freeze_started_at': iso(stamp + 120001)},
+                        {'release_target_at': iso(stamp + 420001)}, {'thawed_at': iso(now + 1)},
+                        {'shifted': row['shifted'] | {'complete': False}},
+                        {'shifted': row['shifted'] | {'_target_counts': dict.fromkeys(module.THAW_STEPS, 1)}}):
+                with self.assertRaises(ValueError): prove([row | bad])
+            with self.assertRaises(ValueError): prove([row, row])
+            with self.assertRaises(ValueError): prove([row], active=[{'id': True}])
+            with self.assertRaises(ValueError): prove([row], at=stamp + 420000)
+            with self.assertRaises(ValueError):
+                prove([row], witness=promise | {'leader': promise['leader'] | {'version': '8017564a'}})
+            with self.assertRaises(ValueError): prove([row], witness=promise | {'maintenance': {'active': True}})
+        with patch.object(module, 'OWNER_WINDOW_PROFILE', {'request': request}):
+            with self.assertRaises(ValueError): prove([row])
+
     def test_owner_window_foreign_image_cannot_mask_or_stop(self):
         request = self.owner_request()
         with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder, ExitStack() as patches:
