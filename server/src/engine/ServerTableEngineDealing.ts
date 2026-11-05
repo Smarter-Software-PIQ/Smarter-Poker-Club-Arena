@@ -4090,7 +4090,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           if (this.weeklyHandPause.held()) continue;
           if (
             !resumesStartedOriginal &&
-            (this.isHandForHandReleaseBlocked() || this.handForHandPaused)
+            (this.isHandForHandReleaseBlocked() || this.handForHandPaused) &&
+            // An unclaimed move can never claim this table while the retained
+            // original occupies it (it needs a between-hands boundary), so
+            // parking here for it alone is a deadlock. Play the original; the
+            // move claims at the boundary the hand produces.
+            !this.isNextHandPausedOnlyByUnclaimedTournamentMove()
           ) {
             // Keep the retained prepared controller at the same existing
             // physical owner gate. Polled floor/admin/Cluster locks are not
@@ -4122,7 +4127,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       if (
         original &&
         JSON.parse(preparedController.serializeRecoveryState()).handStarted === false &&
-        this.isNextHandPaused()
+        this.isNextHandPaused() &&
+        !this.isNextHandPausedOnlyByUnclaimedTournamentMove()
       ) {
         // Polled holds keep their existing read/wait owner. A prepared
         // retained original (fresh or claimed) cannot bypass them or become
