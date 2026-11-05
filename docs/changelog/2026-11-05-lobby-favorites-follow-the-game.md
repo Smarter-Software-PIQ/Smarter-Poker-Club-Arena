@@ -98,3 +98,17 @@ the tab proof, the seat-count and filter audit saves, the Notifications
 filter, and the tournament favorite journey. The favorite journey now also
 expects every live run of the chosen event's schedule to be starred with it,
 and after the unfavorite and a reload, the game is kept as unstarred.
+
+## Follow-up: the save queue survives a full browser storage
+
+Production proof verify-lobby-filters (run 42121413754) showed "Changed On
+Another Device" after quick sort taps. The gateway log for that run had every
+save answered 200, yet the second tap went out against the revision from
+before the first and the third tap was never sent. The queue kept its pending
+choices and acknowledged revisions only in localStorage; when the browser
+refused a write (storage full), the write was dropped and the next read
+returned the older stored copy. preferenceSync now keeps a session copy of any
+record the browser refuses, so the queue stays correct for the session; a
+successful write or a removal retires it. Pinned by "a device whose storage
+refuses writes" in tests/unit/preferencePersistenceScenarios.test.ts, which
+fails on the previous code (nothing was sent at all).
