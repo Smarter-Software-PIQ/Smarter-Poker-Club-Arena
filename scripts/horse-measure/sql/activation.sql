@@ -34,7 +34,13 @@ FROM (VALUES
   ('hybrid_v1_cash_grinder_decided', 'Hybrid v1 cash grinder'),
   ('hybrid_v1_tournament_tricky_decided', 'Hybrid v1 tournament tricky'),
   ('cash_nlh_three_bet_size', 'cash NLH 3-bet size'),
-  ('v62_river_bettor_polarity', 'V62 (opt-in: expected 0)')
+  ('v62_river_bettor_polarity', 'V62 (opt-in: expected 0)'),
+  ('horse_turn_resolved_without_decision', 'clock-forced horse turn (expected 0)'),
+  ('horse_turn_resolved_without_decision_brain_pending', 'clock-forced horse turn, brain decision was in flight (expected 0)'),
+  ('horse_turn_resolved_without_decision_timebank_expired', 'clock-forced horse turn, bank countdown (expected 0)'),
+  ('horse_turn_resolved_without_decision_timer_expired', 'clock-forced horse turn, action clock (expected 0)'),
+  ('stale_turn_clock_expiry_ignored', 'clock outlived its turn, ignored (guard)'),
+  ('time_bank_activation_retired_turn_ended', 'deferred bank activation retired, turn ended (guard)')
 ) AS x(feature, upgrade)
 LEFT JOIN public.horse_brain_telemetry t ON t.feature = x.feature AND t.day >= :START_DAY::date
 GROUP BY x.feature, x.upgrade
