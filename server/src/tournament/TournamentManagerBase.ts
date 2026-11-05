@@ -10079,6 +10079,17 @@ export abstract class TournamentManagerBase {
     return this.applyManagerMutationFence(true);
   }
 
+  /**
+   * The stop fence is applied and no teardown of this generation is still
+   * running: the last stop settled (and, when the manager is still registered,
+   * it rejected). Every engine stop it awaited has settled with it. The
+   * repeated-failure self-repair reads this so it never evicts a manager whose
+   * writers might still be joining (TournamentManagerOwnership).
+   */
+  hasSettledStop(): boolean {
+    return this.stopFenceApplied && this.teardownPromise === null;
+  }
+
   stop(): Promise<void> {
     if (this.teardownPromise) return this.teardownPromise;
 
