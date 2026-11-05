@@ -24,6 +24,7 @@ import { TournamentHourVpip } from './TournamentHourVpip';
 import { readCommittedTournamentBlinds } from '../../utils/committedTournamentBlinds';
 import { parseJsonCached } from '../../utils/parseJsonCached';
 import { compactChips } from '../../utils/format';
+import { effectivePrizePool } from '../tournament/details/types';
 import { titleCase } from '../../utils/titleCase';
 import { publicOrigin, IS_NATIVE_BUILD, isNativePlatform } from '../../lib/appBase';
 import './TournamentBreakScreen.css';
@@ -255,7 +256,7 @@ export function TournamentBreakScreen({
               supabase
                 .from('tournaments')
                 .select(
-                  'current_level, blind_level_state, blind_structure, prize_pool, current_players, max_players'
+                  'current_level, blind_level_state, blind_structure, prize_pool, guaranteed_prize, bounty_pool, current_players, max_players'
                 )
                 .eq('id', tournamentId)
                 .abortSignal(signal)
@@ -280,6 +281,8 @@ export function TournamentBreakScreen({
           blind_level_state?: unknown;
           blind_structure?: unknown;
           prize_pool?: number | string | null;
+          guaranteed_prize?: number | string | null;
+          bounty_pool?: number | string | null;
           current_players?: number | null;
           max_players?: number | null;
         };
@@ -341,7 +344,14 @@ export function TournamentBreakScreen({
           scope: factsScope,
           currentLevel: index,
           blinds,
-          prizePool: Number(t.prize_pool) || 0,
+          // A guarantee moves no chips until registration closes (Dan,
+          // 2026-11-04), so a break during late registration shows the
+          // guarantee as the floor rather than the money collected so far.
+          prizePool: effectivePrizePool(
+            Number(t.prize_pool) || 0,
+            Number(t.guaranteed_prize) || 0,
+            Number(t.bounty_pool) || 0
+          ),
           playersRemaining: active.length,
           totalPlayers: pRes.data.length,
           averageStack: active.length ? Math.trunc(totalChips / active.length) : 0,
