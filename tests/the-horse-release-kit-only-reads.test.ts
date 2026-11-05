@@ -63,7 +63,6 @@ describe('horse release verification kit', () => {
       'v81_omaha_big_bet_call_fold',
       'plan_fingerprint_recorded',
       'plan_fingerprint_aborted_stack_exposure_shift',
-      'opponent_exploit_opportunity_scoped_observed',
       'opponent_memory_donor_stale',
       'v62_river_bettor_polarity',
       'hybrid_v1_cash_grinder_decided',

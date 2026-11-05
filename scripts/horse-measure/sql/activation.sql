@@ -41,7 +41,6 @@ FROM (VALUES
   ('plan_fingerprint_aborted_multiway_contender_shift', 'Items 21 and 23 plan fingerprint (withdrawn: contender)'),
   ('plan_fingerprint_aborted_stack_exposure_shift', 'Items 21 and 23 plan fingerprint (withdrawn: exposure)'),
   ('plan_fingerprint_absent', 'Items 21 and 23 plan fingerprint (plan carried none)'),
-  ('opponent_exploit_opportunity_scoped_observed', 'Item 12 opportunity-scoped decay'),
   ('opponent_memory_donor_fresh', 'Item 12 donor staleness (fresh)'),
   ('opponent_memory_donor_stale', 'Item 12 donor staleness (stale)'),
   ('opponent_memory_donor_expired', 'Item 12 donor staleness (expired)'),

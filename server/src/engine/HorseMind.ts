@@ -911,23 +911,17 @@ export class HorseMind {
     }>,
     scope: ReadScope
   ): void {
-    // Item 12 (2026-11-05): opportunity-scoped decay. A statistic such as
-    // riverCall or foldTo3Bet decays only on a hand that offered that spot,
-    // so a rare read is not erased by hands in which it never came up.
-    // Every path into this store (live observation, the sandbox merge and
-    // the boot replay) uses the same rule, so a replay rebuilds the same row.
-    let observed = 0;
-    for (const [userId, increments] of exploitHandIncrements(actions)) {
-      observeExploitRow(
-        this.exploitCounters,
-        `${scope}|${userId}`,
-        increments,
-        EXPLOIT_ROW_CAP,
-        true
-      );
-      observed++;
-    }
-    if (observed > 0) noteFire('opponent_exploit_opportunity_scoped_observed');
+    // Item 12 opportunity-scoped decay (decayAndAddOpportunityScoped) stays
+    // OFF here on purpose (2026-11-05): it freezes a player's postflop
+    // statistics on every hand that offers no such spot, so a maniac who
+    // turns into a nit (folding preflop, no postflop opportunities) stayed
+    // read as a maniac indefinitely. That contradicts the registered law
+    // HorseManiacPressure.law.test.ts (a style change is seen within 25
+    // hands, both ways). Reconciling the two is a strategy decision the
+    // Item 12 design never settled; see
+    // docs/changelog/2026-11-05-dormant-decision-readiness-layers-activated.md.
+    for (const [userId, increments] of exploitHandIncrements(actions))
+      observeExploitRow(this.exploitCounters, `${scope}|${userId}`, increments, EXPLOIT_ROW_CAP);
   }
 
   /** The decayed exploit counters for (scope, player), for tests and the read frame. */
@@ -956,7 +950,7 @@ export class HorseMind {
     if (this.sandboxDepth > 0) throw new Error('HorseMind.mergeSandboxExploit: inside a sandbox');
     if (this.decisionEffectSink)
       throw new Error('HorseMind.mergeSandboxExploit: inside an effect capture');
-    mergeExploitRows(this.exploitCounters, this.sandboxExploitRows(sandbox), EXPLOIT_ROW_CAP, true);
+    mergeExploitRows(this.exploitCounters, this.sandboxExploitRows(sandbox), EXPLOIT_ROW_CAP);
   }
 
   /**
