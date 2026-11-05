@@ -486,6 +486,57 @@ groups:
           description: 'The engine reaches Postgres only through PostgREST. A sustained error rate here is seats, hands and settlements failing to write.'
           runbook: 'docs/changelog/2026-09-11-fifteen-rules-were-watching-thirteen-metrics-that-did-not-exist.md'
 
+      # ── LOST DATABASE REPLIES (2026-11-05) ────────────────────────────
+      # At 12:21, 14:29 and 14:43 UTC on 2026-11-05 the engine stopped getting
+      # answers from PostgREST (`Hand Continuation Write Is Unproven
+      # [transport_error sqlstate=unknown]`) and nine or ten tables froze each
+      # time before anybody noticed. These two read counters the engine's
+      # shared Supabase fetch wrapper and the self-retrying writes keep
+      # (server/src/services/supabase/dbReplyMetrics.ts), seeded at zero so a
+      # cold engine has a series.
+      #
+      # Thresholds: on the live engine 2026-11-05 15:10-16:50 UTC (after the
+      # incidents) the engine log held 16 lines naming a lost reply
+      # (supabase_timeout, TimeoutError, fetch failed, UND_ERR_*) in 100
+      # minutes, mostly horse-path reads; five in one minute is a link going
+      # bad, not that background. Retries exhausted means a table stops dealing on that hand, so
+      # one is critical. keep_firing_for holds a choppy link as ONE episode
+      # (no fire/resolve flapping) and resolves it after ten quiet minutes.
+      # Not break-guarded: a lost reply is never something the break schedules.
+      - alert: DatabaseRepliesLost
+        expr: |
+          sum(increase(poker_db_lost_replies_total[1m])) >= 5
+        for: 0m
+        keep_firing_for: 10m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: 'The game server is losing database replies ({{ $value | printf "%.0f" }} in one minute)'
+          description: |
+            Calls from the game server to the database ended with no answer
+            (timed out, connection dropped, or the gateway answered instead of
+            the database). Writes that retry themselves have so far recovered.
+            If this keeps up, tables can stop dealing. Read
+            poker_db_lost_replies_total by kind to see which.
+          runbook: 'docs/runbooks/database-replies-lost.md'
+
+      - alert: DatabaseWriteRetriesExhausted
+        expr: |
+          sum by (rpc) (increase(poker_db_rpc_retries_total{outcome="exhausted"}[1m])) > 0
+        for: 0m
+        keep_firing_for: 10m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: 'A table could not save its hand: every retry of {{ $labels.rpc }} lost its database reply'
+          description: |
+            The game server tried a hand write four times and never got an
+            answer from the database. The table that made it stops dealing on
+            that hand. More tables usually follow while the link is bad.
+          runbook: 'docs/runbooks/database-replies-lost.md'
+
   # ── vercel-health: DELETED 2026-09-04, deliberately ───────────────────
   # This group existed with no rules in it. Filling it honestly is not
   # possible from this stack: every rule it would want reads
