@@ -32,10 +32,7 @@
 --
 --   5. The relaunch notice row itself, active, audience real_humans, shown
 --      only to a player whose relaunch chips have landed.
---
---   6. fn_ca_relaunch_chips_catchup() on a ten-minute pg_cron: pays the
---      relaunch chips to an account that had no club seat on send day as
---      soon as it joins a Midway Union club.
+
 --
 -- No hot table is touched (CLAUDE.md DDL policy rule 9): two new tables and
 -- two new functions, 1 s lock_timeout, 5 s statements.
@@ -43,7 +40,6 @@
 -- @live-proof: (SELECT to_regclass('public.ca_player_notices') IS NOT NULL AND to_regclass('public.ca_player_notice_acks') IS NOT NULL)
 -- @live-proof: (SELECT count(*) = 2 FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('fn_ca_pending_player_notice', 'fn_ca_ack_player_notice'))
 -- @live-proof: (SELECT EXISTS (SELECT 1 FROM public.ca_player_notices WHERE slug = 'tournament-arena-relaunch-2026-11-05' AND active))
--- @live-proof: (SELECT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'ca-relaunch-chips-catchup'))
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
@@ -148,79 +144,5 @@ VALUES (
 )
 ON CONFLICT (slug) DO NOTHING;
 
--- ---------------------------------------------------------------------------
--- 6. The relaunch chips for players who had no club seat on send day.
---
--- The 25 chips land in club_members.chip_balance (fn_promo_disburse), so a
--- player with no seat in a Midway Union club had no wallet to receive them on
--- 2026-11-05. Every account that existed before 04:00 UTC that day is owed the
--- chips; this sweep pays each one the moment they hold a union seat, with the
--- same per-player op_id (md5('relaunch-2026-11-05:' || user_id)) the send day
--- batch used, so fn_promo_disburse replays rather than pays twice. It raises
--- the in-app/push notification and then the OK notice above appears for them.
--- pg_cron runs it every ten minutes; it stops paying after 2026-12-05.
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_ca_relaunch_chips_catchup()
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public', 'pg_temp'
- SET statement_timeout TO '60s'
-AS $function$
-DECLARE
-  v_union uuid := 'fade0000-0000-0000-0000-000000000001';
-  c record; v_op uuid; v_res jsonb; v_paid int := 0; v_err text;
-BEGIN
-  IF NOT public.fn_caller_is_engine() THEN
-    RAISE EXCEPTION 'fn_ca_relaunch_chips_catchup is service_role only' USING ERRCODE = '42501';
-  END IF;
-  IF now() >= timestamptz '2026-12-05 00:00:00+00' THEN
-    RETURN jsonb_build_object('paid', 0, 'ended', true);
-  END IF;
-  IF NOT pg_try_advisory_xact_lock(hashtext('fn_ca_relaunch_chips_catchup')) THEN
-    RETURN jsonb_build_object('paid', 0, 'already_running', true);
-  END IF;
-  FOR c IN
-    SELECT h.id
-      FROM smarter_private.sp_real_humans h
-     WHERE h.created_at < timestamptz '2026-11-05 04:00:00+00'
-       AND NOT EXISTS (SELECT 1 FROM public.chip_transactions ct
-                        WHERE (ct.metadata ->> 'op_id') = md5('relaunch-2026-11-05:' || h.id::text)::uuid::text
-                          AND ct.transaction_type = 'promo_disbursement')
-       AND EXISTS (SELECT 1 FROM public.club_members m
-                    WHERE m.user_id = h.id
-                      AND COALESCE(m.status, 'active') IN ('active', 'approved')
-                      AND (m.club_id = v_union
-                           OR EXISTS (SELECT 1 FROM public.union_clubs uc WHERE uc.union_id = v_union AND uc.club_id = m.club_id)))
-     LIMIT 100
-  LOOP
-    v_op := md5('relaunch-2026-11-05:' || c.id::text)::uuid;
-    BEGIN
-      v_res := public.fn_promo_disburse('union', v_union, 'player', c.id, 25,
-                 'Tournament Arena Relaunch - 25 chips from the Midway Union for the delay', NULL, v_op);
-    EXCEPTION WHEN OTHERS THEN
-      GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
-      v_res := jsonb_build_object('success', false, 'error', v_err);
-    END;
-    IF COALESCE((v_res->>'success')::boolean, false) AND NOT COALESCE((v_res->>'replayed')::boolean, false) THEN
-      v_paid := v_paid + 1;
-      BEGIN
-        PERFORM public.fn_raise_notification(c.id, 'tournament_relaunch',
-          'Your 25 Chips Are In Your Wallet',
-          'Thank You For Your Patience While We Updated The Tournament Arena. MTTs, Spins, Sit & Gos And Satellites Are Back Open, And We Added 25 Chips To Your Wallet For The Delay. Good Luck Out There!',
-          '/hub/club-arena/',
-          jsonb_build_object('amount', 25, 'op_id', v_op, 'promotion', 'tournament_relaunch_2026_11_05'));
-      EXCEPTION WHEN OTHERS THEN NULL;
-      END;
-    END IF;
-  END LOOP;
-  RETURN jsonb_build_object('paid', v_paid, 'ran_at', now());
-END
-$function$;
-
-REVOKE ALL ON FUNCTION public.fn_ca_relaunch_chips_catchup() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_ca_relaunch_chips_catchup() TO service_role;
-
-SELECT cron.schedule('ca-relaunch-chips-catchup', '*/10 * * * *', 'SELECT public.fn_ca_relaunch_chips_catchup()');
 
 COMMIT;
