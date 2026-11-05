@@ -1,4 +1,5 @@
 -- SUPERSEDED BY 20261105220227
+-- periodic-work: horse-daily-audit-watchdog is the audit's only detector that does not run inside the producer it watches; a lost day must be found by something other than the function that failed, which is monitoring, not compensation for a defect (the defect, the r alias, is fixed in this same SQL).
 --
 -- THIS FILE NEVER RUNS. It is the SQL production applied directly as
 -- 20261105172255 (horse_daily_audit_fix_r_alias_and_independent_watchdog) during the 2026-11-05 horse daily audit outage,
