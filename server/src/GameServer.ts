@@ -266,6 +266,7 @@ import {
   admitOwnedTableEngine,
   replaceOwnedTableEngine,
   stopOwnedTournamentManager,
+  evictManagerAfterRepeatedStopFailure,
   unregisterOwnedTournamentTableEngine,
 } from './tournament/TournamentManagerOwnership.js';
 // Phase 1.1 PR-2: native WebSocket transport for authoritative state
@@ -327,7 +328,10 @@ import {
   selectOrphanClaims,
   selectRunningResumes,
 } from './tournamentResumeBudget.js';
-import { QuarantinedTournamentManagers } from './tournament/quarantinedTournamentManagers.js';
+import {
+  QuarantinedTournamentManagers,
+  QUARANTINE_SELF_REPAIR_ATTEMPT,
+} from './tournament/quarantinedTournamentManagers.js';
 
 /** Error context for a re-offered stop of a manager that could not be stopped. */
 const QUARANTINED_MANAGER_STOP_RETRY = 'GameServer.quarantined_tournament_manager_stop_retry';
@@ -2645,9 +2649,21 @@ export class GameServer {
           manager,
           (error) => reportError(error, errorContext)
         );
+        let transferFailure: { error: unknown } | null = null;
         if (!stopped && releaseLease && this.tournamentEngines.get(tournamentId) === manager) {
-          stopped = await this.transferDrainedF06Custody(tournamentId, manager);
+          try {
+            stopped = await this.transferDrainedF06Custody(tournamentId, manager);
+          } catch (error) {
+            transferFailure = { error };
+          }
         }
+        if (
+          !stopped &&
+          this.quarantinedStopIsDueForSelfRepair(tournamentId, manager, errorContext, releaseLease)
+        ) {
+          stopped = await this.selfRepairQuarantinedTournamentManager(tournamentId, manager);
+        }
+        if (!stopped && transferFailure) throw transferFailure.error;
         if (stopped && leaseGeneration) {
           this.tournamentManagerPendingLeaseReleases.set(tournamentId, leaseGeneration);
           const release = await releaseTournaments([{ tournamentId, leaseGeneration }]);
@@ -2733,6 +2749,70 @@ export class GameServer {
     })();
     this.tournamentManagerRetirementOperations.set(manager, operation);
     return operation;
+  }
+
+  /**
+   * SELF-REPAIR OF A STOP THAT KEEPS FAILING (2026-11-05).
+   *
+   * Only the quarantine's own retry asks, only for the exact manager it holds,
+   * and only once that quarantine has been charged
+   * QUARANTINE_SELF_REPAIR_ATTEMPT attempts (the first failure plus three
+   * re-offered stops, ~70 s). Every later retry - at most one a minute - may
+   * ask again, so a refused self-repair is bounded by the quarantine's backoff.
+   */
+  private quarantinedStopIsDueForSelfRepair(
+    tournamentId: string,
+    manager: TournamentManager,
+    errorContext: string,
+    releaseLease: boolean
+  ): boolean {
+    if (!releaseLease || errorContext !== QUARANTINED_MANAGER_STOP_RETRY) return false;
+    if (this.tournamentEngines.get(tournamentId) !== manager) return false;
+    const quarantine = this.tournamentManagerQuarantine;
+    if (!quarantine || quarantine.heldBy(tournamentId) !== manager) return false;
+    if (quarantine.attemptsOf(tournamentId, manager) < QUARANTINE_SELF_REPAIR_ATTEMPT) return false;
+    // Custody this process holds in memory is not on disk; a rebuild from
+    // durable state would not see it.
+    if (manager.isF06RecoveryOwner?.() || manager.retainsTournamentAbortBoundary()) return false;
+    if (this.drainedF06TournamentCustody?.has(tournamentId)) return false;
+    if (this.durableMixedF06Custody?.has(tournamentId)) return false;
+    return true;
+  }
+
+  /**
+   * Abandon one quarantined manager's in-memory table engines through the
+   * same fenced, identity-exact eviction a stranded stop uses
+   * (TournamentManagerOwnership.evictManagerAfterRepeatedStopFailure). True
+   * only when the slot was freed; the caller then releases this manager's
+   * EXACT lease generation and the RUNNING lane re-adopts the event under a
+   * new generation through the resume path a fresh boot uses. Never touches
+   * another tournament. A refusal leaves the quarantine exactly as it was and
+   * is reported under its own context so it can be alerted on.
+   */
+  private async selfRepairQuarantinedTournamentManager(
+    tournamentId: string,
+    manager: TournamentManager
+  ): Promise<boolean> {
+    const attempts = this.tournamentManagerQuarantine?.attemptsOf(tournamentId, manager) ?? 0;
+    const notes: unknown[] = [];
+    let evicted = false;
+    try {
+      evicted = await evictManagerAfterRepeatedStopFailure(
+        this.tournamentEngines,
+        tournamentId,
+        manager,
+        (note) => notes.push(note)
+      );
+    } catch (error) {
+      notes.push(error);
+    }
+    const context = evicted
+      ? 'GameServer.quarantined_tournament_manager_self_repaired'
+      : 'GameServer.quarantined_tournament_manager_self_repair_refused';
+    for (const note of notes) reportError(note, context, { tournamentId, attempts });
+    if (!evicted) return false;
+    this.tournamentCustodyRefusals?.delete(manager);
+    return this.tournamentEngines.get(tournamentId) !== manager;
   }
 
   /**

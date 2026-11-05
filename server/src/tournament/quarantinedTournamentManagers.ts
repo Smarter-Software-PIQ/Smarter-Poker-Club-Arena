@@ -64,6 +64,15 @@ export const QUARANTINE_FIRST_RETRY_MS = 10_000;
 /** No quarantine retry is further away than this, however long the streak. */
 export const QUARANTINE_RETRY_CAP_MS = 60_000;
 
+/**
+ * The quarantine attempt at which a stop that keeps failing is self-repaired
+ * (2026-11-05, TournamentManagerOwnership.evictManagerAfterRepeatedStopFailure):
+ * the original failure plus three re-offered stops, about 70 s at the backoff
+ * above. Every later retry (at most one a minute) may ask again, so a refused
+ * self-repair is bounded by the same schedule and never loops tightly.
+ */
+export const QUARANTINE_SELF_REPAIR_ATTEMPT = 4;
+
 /** The delay before the Nth retry of a quarantined stop. */
 export function quarantineRetryDelayMs(attempts: number): number {
   // '|| 0': a NaN streak reads as the first step, never as a NaN deadline.
@@ -191,6 +200,12 @@ export class QuarantinedTournamentManagers {
     if (entry === undefined || entry.owner !== owner) return false;
     if (custodyRefusal !== undefined) entry.custodyRefusal = custodyRefusal;
     return true;
+  }
+
+  /** How many attempts this exact owner's quarantine has been charged; 0 if not held by it. */
+  attemptsOf(tournamentId: string, owner: unknown): number {
+    const entry = this.held.get(tournamentId);
+    return entry !== undefined && entry.owner === owner ? entry.attempts : 0;
   }
 
   /** The manager this quarantine is held by, for an identity-exact settle. */

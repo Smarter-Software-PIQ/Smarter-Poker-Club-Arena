@@ -95,6 +95,12 @@ export function strandedTournamentManagerEvictions(): number {
   return strandedManagerEvictions;
 }
 
+/** Managers rebuilt after a stop that kept failing (self-repair), since boot. */
+let selfRepairManagerEvictions = 0;
+export function selfRepairedTournamentManagerEvictions(): number {
+  return selfRepairManagerEvictions;
+}
+
 /**
  * Retire exactly the generation currently stored under `tournamentId`.
  *
@@ -154,6 +160,8 @@ export async function stopOwnedTournamentManager<T extends AsyncTournamentManage
 /** The slice of a TournamentManagerBase the eviction reads (structural). */
 type StrandedManagerView = {
   isF06RecoveryOwner?: () => boolean;
+  seatMoveQuarantineRefusal?: () => string | null;
+  hasSettledStop?: () => boolean;
   fenceForTournamentLeaseLoss?: () => void;
   hasCurrentTournamentLeaseAuthority?: () => boolean;
   tableEngines?: Map<string, StrandedEngineView>;
@@ -166,6 +174,7 @@ type StrandedEngineView = {
   hasClaimedTournamentMoveBoundary(): boolean;
   hasUnretiredStoppedTimeBankCustody?: () => boolean;
   persistStoppedTimeBankCustody?: () => Promise<void>;
+  hasSettlementInFlight?: () => boolean;
 };
 
 /** One bounded attempt to put a stopped table's time banks on disk. */
@@ -201,15 +210,19 @@ async function evictStrandedManager<T>(
   managers: Map<string, T>,
   tournamentId: string,
   expected: T,
-  onStopError?: (error: unknown) => void
+  onStopError?: (error: unknown) => void,
+  cause: 'stranded' | 'repeated_failure' = 'stranded'
 ): Promise<boolean> {
   if (managers.get(tournamentId) !== expected) return false;
   const manager = expected as unknown as StrandedManagerView;
   const refuse = (reason: string): false => {
     onStopError?.(
       new Error(
-        `Tournament ${tournamentId} manager stop has not settled in ` +
-          `${STRANDED_TOURNAMENT_MANAGER_STOP_MS} ms and was not evicted: ${reason}`
+        cause === 'stranded'
+          ? `Tournament ${tournamentId} manager stop has not settled in ` +
+              `${STRANDED_TOURNAMENT_MANAGER_STOP_MS} ms and was not evicted: ${reason}`
+          : `Tournament ${tournamentId} self-repair refused after repeated failed stops; ` +
+              `the manager stays quarantined: ${reason}`
       )
     );
     return false;
@@ -221,12 +234,29 @@ async function evictStrandedManager<T>(
     return refuse('not_a_fenceable_manager');
   }
   if (manager.isF06RecoveryOwner?.()) return refuse('f06_recovery_owner');
+  if (cause === 'repeated_failure') {
+    // Only a teardown that has SETTLED (rejected) - never one still joining a
+    // writer; that is the stranded case and keeps its own bound.
+    if (manager.hasSettledStop?.() !== true) return refuse('stop_not_settled');
+    // A stop that refused its seat-move release certificate may hold a move
+    // whose outcome only this generation can replay. Never self-repair that.
+    let seatMoveRefusal: string | null = 'unreadable';
+    try {
+      seatMoveRefusal = manager.seatMoveQuarantineRefusal?.() ?? null;
+    } catch {
+      /* unreadable is a refusal */
+    }
+    if (seatMoveRefusal !== null) return refuse(`seat_move_certificate:${seatMoveRefusal}`);
+  }
   manager.fenceForTournamentLeaseLoss();
   if (manager.hasCurrentTournamentLeaseAuthority()) return refuse('lease_authority_current');
   const engines = [...(manager.tableEngines ?? new Map<string, StrandedEngineView>())];
   for (const [tableId, engine] of engines) {
     if (engine.isRunning()) return refuse(`table_running:${tableId}`);
     if (engine.hasClaimedTournamentMoveBoundary()) return refuse(`seat_move_boundary:${tableId}`);
+    // A settled (rejected) teardown has joined every writer. Prove it anyway.
+    if (cause === 'repeated_failure' && engine.hasSettlementInFlight?.() !== false)
+      return refuse(`settlement_in_flight:${tableId}`);
   }
   for (const [tableId, engine] of engines) {
     if (!surrenderProcessOwnershipOfStrandedTeardown(engine as never)) {
@@ -259,14 +289,55 @@ async function evictStrandedManager<T>(
     manager.gameServer?.unregisterTournamentTableEngine?.(tableId, engine as never);
   }
   managers.delete(tournamentId);
-  strandedManagerEvictions++;
+  if (cause === 'stranded') strandedManagerEvictions++;
+  else selfRepairManagerEvictions++;
   onStopError?.(
     new Error(
-      `Tournament ${tournamentId} manager stop had not settled after ` +
-        `${STRANDED_TOURNAMENT_MANAGER_STOP_MS} ms; evicted the fenced manager and ` +
-        `${engines.length} terminal table engine(s) so its exact lease is released ` +
-        `and the event re-adopted`
+      cause === 'stranded'
+        ? `Tournament ${tournamentId} manager stop had not settled after ` +
+            `${STRANDED_TOURNAMENT_MANAGER_STOP_MS} ms; evicted the fenced manager and ` +
+            `${engines.length} terminal table engine(s) so its exact lease is released ` +
+            `and the event re-adopted`
+        : `Tournament ${tournamentId} self-repair: its stop kept failing, so the fenced ` +
+            `manager and ${engines.length} terminal table engine(s) were evicted; its exact ` +
+            `lease is released and the event is rebuilt from its durable state`
     )
   );
   return true;
+}
+
+/**
+ * A STOP THAT KEEPS FAILING DOES NOT KEEP THE EVENT EITHER (2026-11-05).
+ *
+ * 13:57Z on 2026-11-05: a hand-continuation write on PLO4 Spin 312a52c3 lost
+ * its reply. The table engine's stop threw "retains unproven original hand
+ * custody" BEFORE it released its process-wide table slot, so the manager's
+ * stop failed "retained time-bank custody" on every retry: the one write that
+ * clears it (persistStoppedTimeBankCustody) refuses while a live engine still
+ * holds the table's slot - and the only engine holding it was that dead one.
+ * The quarantine re-offered the same stop for sixteen minutes, until the whole
+ * container was restarted by hand (14:13Z and again 14:36Z, ~7 minutes of
+ * every table paused each time). The restart recovered all of them, from
+ * durable rows, which is the proof that nothing this process held was needed.
+ *
+ * So after the quarantine has re-offered the stop a bounded number of times
+ * (see QUARANTINE_SELF_REPAIR_ATTEMPT), GameServer asks for the same fenced
+ * eviction a stranded stop gets, with every guard it has: the manager is
+ * fenced, no table is running, no table holds a claimed seat-move boundary,
+ * each terminal engine gives its slot back, the stopped time banks are
+ * written to disk (now that nothing holds the slot) and the registry still
+ * refuses a table whose banks are not on disk. The teardown already settled
+ * (it rejected), so unlike the stranded case no writer of the old generation
+ * can still be running. The caller then releases the EXACT lease generation
+ * and the event is re-adopted by the same resume path a fresh boot uses,
+ * under a new generation, which the database fences against the old one.
+ * A refusal changes nothing and is named; the quarantine keeps its backoff.
+ */
+export async function evictManagerAfterRepeatedStopFailure<T>(
+  managers: Map<string, T>,
+  tournamentId: string,
+  expected: T,
+  onStopError?: (error: unknown) => void
+): Promise<boolean> {
+  return evictStrandedManager(managers, tournamentId, expected, onStopError, 'repeated_failure');
 }
