@@ -88,6 +88,7 @@ import {
 } from '../services/supabase/lightningAnchor.js';
 import { reportLightningEngineInputDeviceLive } from '../lightning/LightningEngineInputDevice.js';
 import { nextHandGap } from './nextHandGapRecorder.js';
+import { cashDealGap } from './CashDealGap.js';
 import { PostHandStageTiming, type CompletionHoldStamp } from './PostHandStageTiming.js';
 import { jitteredBackoffMs } from '../services/horseEntryRefusalBackoff.js';
 import { currentTournamentDataAuthority } from '../services/supabase/dataActorContext.js';
@@ -1779,6 +1780,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         at: now,
       });
     }
+    // Cash next-hand start (Dan 2026-11-05): the clock keeps running through
+    // dealHand's own awaits and stops at the controller start. Recomputed on
+    // every pass, so a loop that goes round again leaves no stale anchor.
+    this.cashDealGapAnchorMs =
+      this.lastCompletionAtMs !== null &&
+      !this.gapSawIdle &&
+      !this.gapHadRebuyPause &&
+      !this.isTournamentTable()
+        ? this.lastCompletionAtMs
+        : null;
     // A table that idled between the two hands (short-handed, parked, held
     // for a spin reveal) is not a sample of the rest; it waited on people.
     this.lastCompletionAtMs = null;
@@ -1853,6 +1864,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   private gapPhaseName = '';
   private gapPhaseSinceMs = 0;
   private gapHadRebuyPause = false;
+  private cashDealGapAnchorMs: number | null = null;
   private gapSawIdle = false;
 
   /**
@@ -3721,6 +3733,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
       const attempt = { started: false, cause: null as string | null };
       const preparedPermit = this.f06CurrentPermit;
+      const cashDealGapAnchor = this.cashDealGapAnchorMs;
+      this.cashDealGapAnchorMs = null;
+      if (cashDealGapAnchor !== null) {
+        const startAtMs = Date.now();
+        cashDealGap.record({
+          tableId: this.tableId,
+          gapMs: startAtMs - cashDealGapAnchor,
+          at: startAtMs,
+        });
+      }
       try {
         await this.runOriginalController(
           players,

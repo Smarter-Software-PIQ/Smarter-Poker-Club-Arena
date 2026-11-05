@@ -103,6 +103,7 @@ import {
   stopEquityWorkerPool,
 } from './engine/equity/EquityWorkerPool.js';
 import { nextHandGap } from './engine/nextHandGapRecorder.js';
+import { cashDealGap } from './engine/CashDealGap.js';
 import { EngineTelemetry } from './engine/EngineTelemetry.js';
 import { evaluateEngineLiveness } from './engine/EngineLivenessVerdict.js';
 import {
@@ -6229,6 +6230,7 @@ export class GameServer {
       // last ten minutes. `over` is the number that means the bookkeeping did
       // not fit inside the rest. See engine/NextHandGap.ts.
       nextHandGap: nextHandGap.snapshot(),
+      cashNextHandStart: cashDealGap.snapshot(),
       // Deploy drain gate reads this. A restart voids in-flight hands, so a
       // routine server/ push waits (or is explicitly forced) while real people
       // are seated. Horses are excluded — they do not care.

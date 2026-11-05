@@ -1,59 +1,138 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   HORSE_UNION_CASH_PLAN as plan,
+  LIGHTNING_HORSE_SEEDED,
   horseCashPlanPrimaryTables,
   horseUnionCashTableAllowed,
+  lightningGamesWithPlayingHumans,
   type CashPlanTable,
 } from './HorseUnionCashPlan.js';
 
 /**
- * LIGHTNING GAMES ALWAYS RUN (Dan 2026-11-05): "lightning tables must always
- * run, they are feeder games until enough players are playing, then they turn
- * to lightning games ONLY WHEN THERE IS ENOUGH PLAYERS. there should never be
+ * LIGHTNING (Dan 2026-11-05, 12:33): "lightning tables must always run, they
+ * are feeder games until enough players are playing ... there should never be
  * a on off timer for these games! ever!!"
+ *
+ * Dan 2026-11-05, 14:32: "THERE IS NO CAP OR CLOCK THAT SHOULD BE WATCHING
+ * THIS, JUST HAVE AND LAUNCH FEWER LIGHTNING GAMES, TO OFF SET THE TOTAL RAKE
+ * COLLECTED... LIKE NO LIGHTNING GAMES GET STARTED BY HORSES IN A FEW GAMES
+ * STAKES, UNLESS HUMANS SIT DOWN, IF A HUMAN SITS DOWN, THEN MORE HORSES CAN
+ * SIT AS WELL... FIGURE OUT THE RIGHT ALGO TO INSURE THAT THE GAMES STILL RUN,
+ * BUT NOT ALL THE TIME, AND WE STAY UNDER THE 200K MARK."
  */
-const LIGHTNING_GAME = '705270cd-03c2-40d9-8749-038f741a295c'; // PLO4 0.25/0.50 Lightning Games
-const lightningGames = new Set([LIGHTNING_GAME]);
-const base: CashPlanTable = {
-  union_id: plan.unionId,
-  cluster_id: LIGHTNING_GAME,
-  game_variant: 'plo4',
-  small_blind: 0.25,
-  big_blind: 0.5,
-  lifecycle: 'live',
+const SEEDED = '705270cd-03c2-40d9-8749-038f741a295c'; // PLO4 0.25/0.50 Lightning Games
+const STARTED_BY_PEOPLE = 'c79d8ec2-2281-411d-b4e1-42b5610849e2'; // PLO4 1/2 Lightning Games
+const lightningGames = new Set([SEEDED, STARTED_BY_PEOPLE]);
+const tablesOf = (game: string, variant: string, sb: number, bb: number) => {
+  const base: CashPlanTable = {
+    union_id: plan.unionId,
+    cluster_id: game,
+    game_variant: variant,
+    small_blind: sb,
+    big_blind: bb,
+    lifecycle: 'live',
+  };
+  return [
+    { ...base, id: game + '-main-1', role: 'main', main_index: 1 },
+    { ...base, id: game + '-main-2', role: 'main', main_index: 2 },
+    { ...base, id: game + '-feeder', role: 'feeder', main_index: null },
+  ];
 };
-const main1 = { ...base, id: 'lightning-main-1', role: 'main', main_index: 1 };
-const main2 = { ...base, id: 'lightning-main-2', role: 'main', main_index: 2 };
-const feeder = { ...base, id: 'lightning-feeder', role: 'feeder', main_index: null };
-const primary = horseCashPlanPrimaryTables([main1, main2, feeder]);
+const seeded = tablesOf(SEEDED, 'plo4', 0.25, 0.5);
+const byPeople = tablesOf(STARTED_BY_PEOPLE, 'plo4', 1, 2);
+const primary = horseCashPlanPrimaryTables([...seeded, ...byPeople]);
+const everyHour = (fn: (now: number) => void) => {
+  for (let hourOfWeek = 0; hourOfWeek < 7 * 24; hourOfWeek++)
+    fn(Date.UTC(2026, 10, 9, 6) + hourOfWeek * 3_600_000 + 17 * 60_000);
+};
 
-describe('Lightning games are never switched off by a clock', () => {
-  it('allows every Lightning Main and Feeder at every hour of a whole week, with no humans', () => {
-    for (let hourOfWeek = 0; hourOfWeek < 7 * 24; hourOfWeek++) {
-      const now = Date.UTC(2026, 10, 9, 6) + hourOfWeek * 3_600_000 + 17 * 60_000;
-      for (const table of [main1, main2, feeder])
-        expect(horseUnionCashTableAllowed(table, 0, now, primary, lightningGames)).toBe(true);
-    }
+describe('Lightning: no cap and no clock; horses start only a few games, people start the rest', () => {
+  it('names exactly the horse-started Lightning games in the plan', () => {
+    expect([...LIGHTNING_HORSE_SEEDED].sort()).toEqual(
+      ['705270cd-03c2-40d9-8749-038f741a295c', 'b3c63129-9377-4c61-9f62-089893a20c66'].sort()
+    );
+  });
+
+  it('horses run a horse-started game on every table at every hour, with nobody else there', () => {
+    everyHour((now) => {
+      for (const table of seeded)
+        expect(horseUnionCashTableAllowed(table, 0, now, primary, lightningGames, new Set())).toBe(
+          true
+        );
+    });
+  });
+
+  it('horses never start any other Lightning game on their own, at any hour', () => {
+    everyHour((now) => {
+      for (const table of byPeople)
+        expect(horseUnionCashTableAllowed(table, 0, now, primary, lightningGames, new Set())).toBe(
+          false
+        );
+    });
+  });
+
+  it('a person sitting down at ANY table of that game lets horses sit at all of its tables, at any hour', () => {
+    const seats = new Map([[byPeople[2].id, [{ user_id: 'person', is_sitting_out: false }]]]);
+    const started = lightningGamesWithPlayingHumans(
+      byPeople,
+      seats,
+      new Set(['horse']),
+      lightningGames
+    );
+    expect([...started!]).toEqual([STARTED_BY_PEOPLE]);
+    everyHour((now) => {
+      for (const table of byPeople)
+        expect(horseUnionCashTableAllowed(table, 0, now, primary, lightningGames, started)).toBe(
+          true
+        );
+    });
+  });
+
+  it('a horse, a sitting-out person or a departing person does not start a game', () => {
+    const seats = new Map([
+      [
+        byPeople[0].id,
+        [
+          { user_id: 'horse' },
+          { user_id: 'away', is_sitting_out: true },
+          { user_id: 'going', leave_pending: true },
+        ],
+      ],
+    ]);
+    expect([
+      ...lightningGamesWithPlayingHumans(byPeople, seats, new Set(['horse']), lightningGames)!,
+    ]).toEqual([]);
+  });
+
+  it('an unread Lightning list or person read seats no horse in a person-started game', () => {
+    const now = Date.UTC(2026, 10, 9, 15);
+    expect(lightningGamesWithPlayingHumans(byPeople, new Map(), new Set(), null)).toBeNull();
+    expect(horseUnionCashTableAllowed(byPeople[0], 0, now, primary, lightningGames, null)).toBe(
+      false
+    );
   });
 
   it('still keeps forbidden variants and the stake ceiling, which are not timers', () => {
     const now = Date.UTC(2026, 10, 9, 15);
     expect(
       horseUnionCashTableAllowed(
-        { ...feeder, game_variant: 'plo8' },
+        { ...seeded[2], game_variant: 'plo8' },
         0,
         now,
         primary,
-        lightningGames
+        lightningGames,
+        new Set()
       )
     ).toBe(false);
     expect(
       horseUnionCashTableAllowed(
-        { ...main1, small_blind: 5, big_blind: 10 },
+        { ...seeded[0], small_blind: 5, big_blind: 10 },
         0,
         now,
         primary,
-        lightningGames
+        lightningGames,
+        new Set()
       )
     ).toBe(false);
   });
@@ -69,19 +148,19 @@ describe('Lightning games are never switched off by a clock', () => {
       small_blind: 0.1,
       big_blind: 0.25,
     };
-    const feederOfClassic = { ...classic, id: 'classic-feeder', role: 'feeder', main_index: null };
     const now = Date.UTC(2026, 10, 9, 15);
     const p = horseCashPlanPrimaryTables([classic]);
-    expect(horseUnionCashTableAllowed(classic, 0, now, p, lightningGames)).toBe(
+    expect(horseUnionCashTableAllowed(classic, 0, now, p, lightningGames, new Set())).toBe(
       horseUnionCashTableAllowed(classic, 0, now, p)
     );
-    expect(horseUnionCashTableAllowed(feederOfClassic, 0, now, p, lightningGames)).toBe(false);
   });
 
-  it('an unread Lightning list changes nothing (fails to the previous rule)', () => {
-    const now = Date.UTC(2026, 10, 9, 15);
-    expect(horseUnionCashTableAllowed(feeder, 0, now, primary, null)).toBe(
-      horseUnionCashTableAllowed(feeder, 0, now, primary)
-    );
+  it('seating, existing offers and the walk-out pass all use the same person read', () => {
+    const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
+    const rotator = readFileSync(new URL('./HorseSessionRotator.ts', import.meta.url), 'utf8');
+    expect(fleet.split('cashPlanLightningHumanGames\n').length - 1).toBeGreaterThanOrEqual(2);
+    expect(fleet.split('lightningGamesWithPlayingHumans(').length - 1).toBe(2);
+    expect(rotator).toContain('lightningGamesWithPlayingHumans(');
+    expect(rotator).toContain('lightningHumanGames\n        );');
   });
 });
