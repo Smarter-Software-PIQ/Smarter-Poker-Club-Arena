@@ -1,6 +1,6 @@
-# Owner Closes The Midnight Free Buy After The Hold Bound Rewrite (Draft)
+# Owner Closes The Midnight Free Buy After The Hold Bound Rewrite
 
-Status: draft, awaiting Dan. Not merged, not installed.
+Status: approved by Dan 2026-11-05 16:14 Chicago: "APPROVE A 6 SECOND PAUSE TO CLOSE THE MIDNIGHT FREE BUY NOW".
 
 ## What Happened
 

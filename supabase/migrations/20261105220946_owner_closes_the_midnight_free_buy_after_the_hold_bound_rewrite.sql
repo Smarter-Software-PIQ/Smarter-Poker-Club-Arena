@@ -26,11 +26,9 @@
 -- 6429087f-a9d1-49a3-b7cf-85e1ee283ac9), same kind ('owner_retire'), same
 -- expiry (2026-11-06 10:00 UTC = 04:00 Chicago) as 20261105210545.
 --
--- STATUS: DRAFT, AWAITING THE OWNER. Do not merge or install until Dan sends
--- "APPROVE A 6 SECOND PAUSE TO CLOSE THE MIDNIGHT FREE BUY NOW". If he
--- chooses the 04:00 Chicago quiet window instead, this file is not needed
--- (the size rule and the 2 s rule do not apply in that window) and the
--- branch is closed unmerged.
+-- OWNER APPROVAL (Dan, 2026-11-05 16:14 America/Chicago, verbatim, in this
+-- session after being told the measured 4.3 s need and the 6 s bound):
+-- "APPROVE A 6 SECOND PAUSE TO CLOSE THE MIDNIGHT FREE BUY NOW"
 --
 -- WHY 2 s IS NOT ENOUGH FOR THIS EVENT (measured 2026-11-05 ~22:15 UTC,
 -- read-only, rolled back): fn_ca_owner_retire_tournament md5s the event's
