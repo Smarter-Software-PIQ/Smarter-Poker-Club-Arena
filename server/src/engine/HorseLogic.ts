@@ -485,6 +485,21 @@ const STYLE_PARAMS: Record<HorseStyle, StyleParams> = {
     sizingMultiplier: 0.88,
     thinkRange: [1200, 3800],
   },
+  // Owner direction (2026-11-05): 'hybrid' is the style every horse carries.
+  // The live table and Lightning paths never bring 'hybrid' here: they resolve
+  // it through resolveHorseHybridProfile, which replaces the style with the
+  // mode's source profile (cash: grinder, tournament: tricky) before decide()
+  // runs. This row is the cash source table so a direct caller without a mode
+  // plays the same base a Hybrid horse plays at a cash table.
+  hybrid: {
+    tightness: 1.12,
+    bluffFreq: 0.09,
+    aggression: 0.95,
+    slowplayFreq: 0.12,
+    checkRaiseFreq: 0.09,
+    sizingMultiplier: 0.88,
+    thinkRange: [1200, 3800],
+  },
 };
 
 /** Optional per-horse modifiers stored in profiles.horse_profile (jsonb). */
@@ -657,6 +672,9 @@ export function resolveHorseStyle(
     balanced: 'balanced',
     tricky: 'tricky',
     grinder: 'grinder',
+    // Owner direction (2026-11-05): the assigned style of every horse. It is
+    // read as itself, never as a default; the game mode picks its profile.
+    hybrid: 'hybrid',
     reg: 'tag',
     fish: 'balanced',
     nit: 'grinder',

@@ -44,6 +44,7 @@
 import { supabase } from './supabase.js';
 import { reportError } from './errorReporter.js';
 import { styledAlias, usernameFromAlias } from './horseAliasStyles.js';
+import { HORSE_ASSIGNED_STYLE } from '../types.js';
 
 /**
  * The auth mailbox a new horse is registered under. It receives nothing:
@@ -210,21 +211,32 @@ export function identityFor(horseId: string, existingName?: string | null): Hors
 
 /**
  * The brain dials. A horse whose `horse_profile` is `{}` or a bare style
- * string plays the stock style with NO per-horse jitter until the nightly
- * self-tuner accumulates enough hands to move it — and if the column is empty
- * the style itself is picked by hashing the id, so nobody chose it. This gives
- * every horse an authored starting personality straight away.
+ * string plays with NO per-horse jitter until the nightly self-tuner
+ * accumulates enough hands to move it. This gives every horse an authored
+ * starting personality straight away.
+ *
+ * Owner direction (2026-11-05): the style is always 'hybrid'. The five legacy
+ * styles are retired from assignment; a profile that still names one keeps
+ * it under `retiredStyle` for history and plays the Hybrid like every other
+ * horse. The id hash no longer picks a style for anybody.
  */
 export function brainFor(horseId: string, existing: unknown): Record<string, unknown> {
   const cur = existing && typeof existing === 'object' ? (existing as Record<string, unknown>) : {};
   const styleFromString = typeof existing === 'string' ? existing : undefined;
   const h = hash(`${horseId}:brain`);
-  const styles = ['tag', 'lag', 'balanced', 'tricky', 'grinder'];
   const jitter = (salt: number, lo: number, hi: number) =>
     Math.round((lo + (((h >>> salt) % 1000) / 1000) * (hi - lo)) * 100) / 100;
+  const priorStyle = typeof cur.style === 'string' ? cur.style : styleFromString;
+  const retiredStyle =
+    typeof cur.retiredStyle === 'string'
+      ? cur.retiredStyle
+      : priorStyle && priorStyle.toLowerCase() !== HORSE_ASSIGNED_STYLE
+        ? priorStyle
+        : undefined;
   return {
     ...cur,
-    style: (cur.style as string) ?? styleFromString ?? styles[h % styles.length],
+    ...(retiredStyle !== undefined ? { retiredStyle } : {}),
+    style: HORSE_ASSIGNED_STYLE,
     tightness: (cur.tightness as number) ?? jitter(3, 0.9, 1.12),
     aggression: (cur.aggression as number) ?? jitter(7, 0.88, 1.15),
     bluffFreq: (cur.bluffFreq as number) ?? jitter(11, 0.85, 1.15),
@@ -305,9 +317,25 @@ export async function ensureHorseComplete(
     row.horse_profile &&
     typeof row.horse_profile === 'object' &&
     'aggression' in (row.horse_profile as object);
+  // Owner direction (2026-11-05): a horse still carrying one of the retired
+  // styles is moved to the Hybrid here as well. Only the style moves: the
+  // dials it learned stay exactly as they are, and the old persona is kept
+  // under retiredStyle for history. A brain with dials and no style at all is
+  // not an assigned style and is left alone, as it always was.
+  const storedStyle = hasDials ? (row.horse_profile as Record<string, unknown>).style : undefined;
+  const retiredStyleAssigned =
+    typeof storedStyle === 'string' && storedStyle.toLowerCase() !== HORSE_ASSIGNED_STYLE;
   if (!hasDials) {
     patch.horse_profile = brain;
     fixed.push('brain');
+  } else if (retiredStyleAssigned) {
+    const profile = row.horse_profile as Record<string, unknown>;
+    patch.horse_profile = {
+      ...profile,
+      retiredStyle: typeof profile.retiredStyle === 'string' ? profile.retiredStyle : storedStyle,
+      style: HORSE_ASSIGNED_STYLE,
+    };
+    fixed.push('hybrid-style');
   }
   if (Object.keys(patch).length > 0) {
     if (!shouldContinue()) return fixed;

@@ -315,6 +315,18 @@ describe('the voice is the dial the seat already carries', () => {
     expect(voiceFor(style, HORSE_A)).toBe(voice);
   });
 
+  it('a Hybrid horse keeps the voice of the persona it retired', () => {
+    // Owner direction (2026-11-05): every horse's style is 'hybrid'. The voice
+    // is persona, not decision, so it follows horse_profile.retiredStyle.
+    expect(voiceFor({ style: 'hybrid', retiredStyle: 'grinder' }, HORSE_A)).toBe('quiet');
+    expect(voiceFor({ style: 'hybrid', retiredStyle: 'tag' }, HORSE_A)).toBe('quiet');
+    expect(voiceFor({ style: 'hybrid', retiredStyle: 'lag' }, HORSE_A)).toBe('needler');
+    expect(voiceFor({ style: 'hybrid', retiredStyle: 'tricky' }, HORSE_A)).toBe('needler');
+    expect(voiceFor({ style: 'hybrid', retiredStyle: 'balanced' }, HORSE_A)).toBe('friendly');
+    expect(voiceFor({ style: 'hybrid' }, HORSE_A)).toBe('friendly');
+    expect(voiceFor('hybrid', HORSE_B)).toBe('friendly');
+  });
+
   it('an empty profile still has a voice, the same one every time', () => {
     expect(voiceFor({}, HORSE_A)).toBe(voiceFor(null, HORSE_A));
     expect(['quiet', 'needler', 'friendly']).toContain(voiceFor(undefined, HORSE_B));
