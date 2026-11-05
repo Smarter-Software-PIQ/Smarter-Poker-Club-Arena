@@ -81,6 +81,65 @@ echo ARITHMETIC_OK
         self.assertIn(LATEST + ': unbound variable', r.stderr)
         self.assertNotIn('ARITHMETIC_OK', r.stdout)
 
+    def test_owner_binding_reuses_fetched_main_and_propagates_source_refusal(self):
+        stamp=1793824762499; end=stamp+420000
+        health=json.dumps({'maintenance':{'active':True,'phase':'counting_down','reason':'Deployment Recovery',
+            'presentation':{'break_id':stamp,'break_ends_at':end-1,'scheduled_ends_at':end-1}}})
+        # The actual seal behavior is exercised by engine-hourly-maintenance;
+        # this native shell case proves owner routing, source mode and capture.
+        self.shim.write_text('#!/usr/bin/env bash\ncase "$1" in\nbind-recovery-window) cat >/dev/null; '
+            'echo \'{"window":{"startsAt":%d,"endsAt":%d}}\';;\n*) exit 98;;\nesac\n' % (stamp+120000,end))
+        for source_status,held in ((0,1),(23,1),(0,0),(23,0)):
+            script='set -eo pipefail\n'+function(SOURCE,'bind_phase1_window')+f"""
+PHASE1_CYCLE_START=0; LOCK_HELD={held}; RUN_ID=41904788070-1; REPO_DIR=/nonexistent
+SHA={'a'*40}; CONTROL_SHA={'b'*40}; ACTIVATION_FLOOR_OWNER_WINDOW=original-owner
+RELEASE_SEAL={shlex.quote(str(self.shim))}; DATABASE_PROOF=promise; ENV_FILE=/unused
+legacy_entry_read() {{ "$@"; }}
+timeout() {{ shift 3; "$@"; }}
+floor_reservation_stamp() {{ echo {stamp}; }}
+promise() {{ echo PROMISE_READ >&2; echo '{{}}'; }}
+acquire_engine_lock() {{ LOCK_HELD=1; echo LOCK_ACQUIRED >&2; }}
+release_engine_lock() {{ LOCK_HELD=0; echo LOCK_RELEASED >&2; }}
+source_target_is_current() {{ test "$1" = local-main || return 91; echo SOURCE_LOCAL_MAIN >&2; return {source_status}; }}
+countdown() {{ bind_phase1_window {shlex.quote(health)} || return $?; echo "$PHASE1_OBSERVED_WINDOW_END"; }}
+END="$(countdown)"
+echo "CAPTURED<$END>"
+"""
+            result=subprocess.run([BASH,'-c',script],capture_output=True,text=True,timeout=10)
+            self.assertIn('SOURCE_LOCAL_MAIN',result.stderr)
+            self.assertEqual(result.returncode,source_status,result.stderr)
+            self.assertEqual('LOCK_RELEASED' in result.stderr,held==0)
+            if source_status==0:
+                self.assertEqual(result.stdout.strip(),f'CAPTURED<{end-1}>')
+                self.assertLess(result.stderr.index('SOURCE_LOCAL_MAIN'),result.stderr.index('PROMISE_READ'))
+            else:
+                self.assertNotIn('CAPTURED<',result.stdout)
+                self.assertNotIn('PROMISE_READ',result.stderr)
+        announcement=function(SOURCE,'request_recovery_window')
+        self.assertLess(announcement.index('source_target_is_current\n'),announcement.index('reserve-recovery-window'))
+        locked=SOURCE[SOURCE.index("  acquire_engine_lock 'maintenance cutover'"):]
+        self.assertLess(locked.index('source_target_is_current\n'),locked.index('legacy_checkpoint_countdown'))
+
+    def test_owner_wait_ends_at_original_promise_without_reannouncement(self):
+        stamp=1793824762499
+        for disposition,now,reservation_status,expected in [
+                ('never-entered',stamp+999999,91,0),('announced',stamp+419999,0,0),
+                ('announced',stamp+420000,0,47),('announced',stamp+420001,0,47),
+                ('announced',stamp+1000,91,47)]:
+            script='set -euo pipefail\n'+function(SOURCE,'assert_owner_recovery_window_live')+f"""
+ACTIVATION_FLOOR_OWNER_WINDOW=original-owner; FLOOR_DISPOSITION={disposition}
+floor_reservation_stamp() {{ echo {stamp}; return {reservation_status}; }}
+date() {{ echo {now}; }}
+die() {{ echo "$*" >&2; exit 47; }}
+assert_owner_recovery_window_live
+echo ORIGINAL_WAIT_CONTINUES
+"""
+            result=subprocess.run([BASH,'-c',script],capture_output=True,text=True,timeout=5)
+            self.assertEqual(result.returncode,expected,(disposition,now,result.stderr))
+            self.assertEqual('ORIGINAL_WAIT_CONTINUES' in result.stdout,expected==0)
+            if disposition=='announced' and now>=stamp+420000:self.assertIn('original owner recovery window expired',result.stderr)
+        self.assertIn('while :; do\n  assert_owner_recovery_window_live\n',SOURCE)
+
     def guard(self, value):
         begin = SOURCE.index('    # Only a bare epoch is a break end; anything else refuses before mutation.')
         end = SOURCE.index('    LEGACY_ENTRY_BREAK_END_EPOCH="$LEGACY_COUNTDOWN_END"', begin)

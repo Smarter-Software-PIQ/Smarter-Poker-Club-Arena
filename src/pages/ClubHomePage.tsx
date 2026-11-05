@@ -1,3 +1,4 @@
+import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
 import { prioritizeTournamentFavorites } from '../components/lobby/tournamentFavoriteOrder';
@@ -190,7 +191,7 @@ import { cashBoardVisible, cashVariantVisible } from '../components/lobby/cashBo
 import { orderForHeading } from '../components/lobby/lobbySortBridge';
 import { IconShareLink, IconSort } from '../components/icons/LobbyIcons';
 import { CLUB_HOME_CACHE_PREFIX } from '../utils/clearUserCaches';
-import { useTournamentRegistration, isLateStatus } from '../hooks/useTournamentRegistration';
+import { useTournamentRegistration } from '../hooks/useTournamentRegistration';
 import { useTournamentStartHold } from '../hooks/useTournamentStartHold';
 import MidwayMttServerUpdateModal from '../components/tournament/MidwayMttServerUpdateModal';
 import { preloadRoute } from '../utils/ChunkPreloader';
@@ -326,6 +327,7 @@ interface ClubData {
 }
 
 interface TableData {
+  tournament_id?: string | null;
   id: string;
   club_id?: string | null;
   union_id?: string | null;
@@ -779,9 +781,11 @@ function ClubHomePageContent({
   initialGameType,
   onInitialGameTypeConsumed,
 }: ClubHomePageProps = {}) {
-  const { register: registerMtt, isRegistering: isRegisteringMtt } = useTournamentRegistration();
   const mttStartHold = useTournamentStartHold();
   const [showMttUpdateModal, setShowMttUpdateModal] = useState(false);
+  const { register: registerMtt, isRegistering: isRegisteringMtt } = useTournamentRegistration(
+    useCallback(() => setShowMttUpdateModal(true), [])
+  );
   const autoShownMttHoldRef = useRef(false);
 
   const { clubId: routeClubId } = useParams<{ clubId: string }>();
@@ -922,8 +926,17 @@ function ClubHomePageContent({
   const bootCache = useState(() => (clubId ? getClubHomeCache(clubId) : null))[0];
   const [club, setClub] = useState<ClubData | null>(bootCache?.club ?? null);
   usePageTitle(club?.name ?? null);
-  const [tables, setTables] = useState<TableData[]>(bootCache?.tables ?? []);
-  const [tournaments, setTournaments] = useState<TournamentData[]>([]);
+  const [tableRows, setTables] = useState<TableData[]>(bootCache?.tables ?? []);
+  const tables = useMemo(
+    () => tableRows.filter((row) => !isRetiredTournamentTable(row)),
+    [tableRows]
+  );
+  const [tournamentRows, setTournaments] = useState<TournamentData[]>([]);
+  // Filter every presentation read, including cached and realtime rows.
+  const tournaments = useMemo(
+    () => tournamentRows.filter((row) => !isRetiredTournament(row.id)),
+    [tournamentRows]
+  );
   const [jackpotAmount, setJackpotAmount] = useState(0);
   // Tapping the lobby jackpot opens the SAME view as tapping it at a table:
   // last 5 hits, qualifying hands per game, payout % per stakes (Dan 2026-08-18).
@@ -1642,7 +1655,7 @@ function ClubHomePageContent({
       };
 
       const belongsInTournamentList = (row: any): boolean => {
-        if (!row) return false;
+        if (!row || isRetiredTournament(row.id)) return false;
         // Same array the fetch uses — see LOBBY_TOURNAMENT_STATUSES.
         if (!LOBBY_TOURNAMENT_STATUSES.includes(String(row.status))) return false;
         return inClubScope(row, rtScope);
@@ -4608,10 +4621,6 @@ function ClubHomePageContent({
         );
         return;
       }
-      if (mttStartHold.blocked && !isLateStatus((t as any).status ?? null)) {
-        setShowMttUpdateModal(true);
-        return;
-      }
       registerMtt(
         {
           id: t.id,
@@ -4647,7 +4656,7 @@ function ClubHomePageContent({
       );
     },
     // `navigate` is not used in this callback; `openTournamentLobby` is.
-    [registerMtt, openTournamentLobby, spinQuickJoin, mttStartHold.blocked]
+    [registerMtt, openTournamentLobby, spinQuickJoin]
   );
 
   const handleUnregister = useCallback(

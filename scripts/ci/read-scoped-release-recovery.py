@@ -1730,9 +1730,9 @@ def original_announcement_remote(request, root_fd):
 
 
 RETAINED_REFUSAL_GENERATIONS = Path('/usr/local/lib/club-arena/engine-control-generations')
-RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': '6d9486c9a2878d35a34b6e85486f0de98c316eef7fe435e7c6b187762654722a', 'engine-release-transaction.sh': '8fd8b95c6a7f82c13188d8f5a138232311a63877d2dc7926b46697c80ba007a8'}
+RETAINED_REFUSAL_SOURCES = {'engine-release-seal.py': '3d274baa02daf0f712adb58fd07e6af5c2b20c95935f6d5267bbe96cd51d5fc9', 'engine-release-transaction.sh': 'b45578d56e64f88ef049fa67ae42a991f99f3fc2fc57ac1ea118964900c413f2'}
 # Earlier exact producer pairs whose generations may still hold retained receipts.
-RETAINED_REFUSAL_PRIOR_SOURCES = ({'engine-release-seal.py': '6d9486c9a2878d35a34b6e85486f0de98c316eef7fe435e7c6b187762654722a', 'engine-release-transaction.sh': 'ea68ac095c770b6b68bc1497b671aa2a07d6758a8600cbbe6cfd6b2afdcf68d8'}, {'engine-release-seal.py': '6d9486c9a2878d35a34b6e85486f0de98c316eef7fe435e7c6b187762654722a', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': 'f0b2eccc5d959775c6e7a31f343e34784b19dd226403f077f69a6ce7742b0dca', 'engine-release-transaction.sh': 'ea68ac095c770b6b68bc1497b671aa2a07d6758a8600cbbe6cfd6b2afdcf68d8'}, {'engine-release-seal.py': 'f0b2eccc5d959775c6e7a31f343e34784b19dd226403f077f69a6ce7742b0dca', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '2e554293f754a6ccfe25d3837eb3126300cfe3b02813fd8b853cf6ee24bd4a3d'}, {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'},)
+RETAINED_REFUSAL_PRIOR_SOURCES = ({'engine-release-seal.py': '6d9486c9a2878d35a34b6e85486f0de98c316eef7fe435e7c6b187762654722a', 'engine-release-transaction.sh': 'ea68ac095c770b6b68bc1497b671aa2a07d6758a8600cbbe6cfd6b2afdcf68d8'}, {'engine-release-seal.py': '6d9486c9a2878d35a34b6e85486f0de98c316eef7fe435e7c6b187762654722a', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': 'f0b2eccc5d959775c6e7a31f343e34784b19dd226403f077f69a6ce7742b0dca', 'engine-release-transaction.sh': 'ea68ac095c770b6b68bc1497b671aa2a07d6758a8600cbbe6cfd6b2afdcf68d8'}, {'engine-release-seal.py': 'f0b2eccc5d959775c6e7a31f343e34784b19dd226403f077f69a6ce7742b0dca', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '6f8f97ec738ec390a1dfe43d3259f7eba372f45a94c4c1f7c6e10bac7441a8ff'}, {'engine-release-seal.py': '9549707d94830466e5692195dc5fb13bc8ce6bc74cd907def05b4ce56de352a0', 'engine-release-transaction.sh': '2e554293f754a6ccfe25d3837eb3126300cfe3b02813fd8b853cf6ee24bd4a3d'}, {'engine-release-seal.py': 'ce0c52cd371fbdcaf5a4cf517c842785a2c2c510219eb41768b3cd20f96a0629', 'engine-release-transaction.sh': 'ae99d03b5a5a49dbfc2752b83a888b9023426bcabd17953a5513a61b7cb574b3'}, {'engine-release-seal.py': '6d9486c9a2878d35a34b6e85486f0de98c316eef7fe435e7c6b187762654722a', 'engine-release-transaction.sh': '8fd8b95c6a7f82c13188d8f5a138232311a63877d2dc7926b46697c80ba007a8'}, {'engine-release-seal.py': 'cb4ed66a84137a27d2bc60c881cd93c2d66a2e1d0fe8e1418f5e85444a5aad8d', 'engine-release-transaction.sh': 'd37a9841525cec1988776d7fd58a8a0e202cf2169c5dc5bdba54247a28fcbe54'}, {'engine-release-seal.py': 'ce5adc8a00d88fa7bfe9c920fa159d856b167cb5970bf87894c9343bc47026df', 'engine-release-transaction.sh': '62db8761bc19e02679a0e9ff5ed0f7546a1ef6b7dc0a25c1fe265676a8d0c55f'})
 RETAINED_REFUSAL_SCHEMA = 'retained-first-refusal-observation/v1'
 
 
@@ -1788,6 +1788,10 @@ def diagnostic_shell_state(raw: dict[str, Any]) -> dict[str, Any]:
               "mutationStarted": 1, "lockHeld": 1, "checkpointBudgetSeconds": 300,
               "checkpointWorkMs": 300000, "certificateExitStatus": 255,
               "breakEndEpoch": 9999999999}
+    if raw.get("checkpointProfile") == "eed-240s-certified-release-v1":
+        if raw.get("predecessorSha") != EED:
+            raise ValueError("certified diagnostic predecessor differs")
+        bounds.update(checkpointBudgetSeconds=320, checkpointWorkMs=260000)
     if set(raw) != set(bounds) | {"checkpointProfile", "predecessorSha"}:
         raise ValueError("invalid diagnostic shell state fields")
     result = {}
@@ -1799,7 +1803,7 @@ def diagnostic_shell_state(raw: dict[str, Any]) -> dict[str, Any]:
             result[key] = int(value)
         else:
             raise ValueError("invalid bounded diagnostic shell state")
-    if raw["checkpointProfile"] not in ("UNKNOWN", "legacy-40s-v1", "eed-80s-v1"):
+    if raw["checkpointProfile"] not in ("UNKNOWN", "legacy-40s-v1", "eed-80s-v1", "eed-240s-certified-release-v1"):
         raise ValueError("invalid checkpoint profile")
     if raw["predecessorSha"] != "UNKNOWN" and not SHA.fullmatch(str(raw["predecessorSha"])):
         raise ValueError("invalid diagnostic predecessor")
@@ -3598,7 +3602,10 @@ def inspector_memory(value):
 
 
 def inspector_remote(request, root_fd):
-    deadline = time.monotonic() + 18
+    # The original endpoint history read exhausted the former 18s envelope
+    # (41931755859). The owner's scoped fourfold allowance covers this one
+    # read and its identity bookends, without widening other observer modes.
+    deadline = time.monotonic() + 72
     answer = {'schema': INSPECTOR_SCHEMA, 'readOnly': True, **request,
               'status': 'unproved', 'reason': 'evidence_unavailable', 'controlSha': None,
               'originalSourceSha': None, 'instanceId': None, 'endpointSha256': None,
@@ -4845,7 +4852,8 @@ def main():
                 '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
                 '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'ConnectTimeout=10',
                 'root@' + host, "python3 - --remote '" + encoded + "'"]
-        reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=30)
+        transport_seconds = 120 if request.get('mode') == 'legacy_checkpoint_inspector' else 30
+        reply = subprocess.run(args, input=Path(__file__).read_bytes(), capture_output=True, timeout=transport_seconds)
         if len(reply.stdout) > (32768 if request.get('mode') in {'active_control_inventory', 'canonical_routine_owner', 'failed_routine_custody'} else 8192 if request.get('mode') in {'native_scale_records','native_scale_composition_records','original_announcement_cause','retained_first_refusal'} else 4096):
             raise ValueError('Scoped evidence transport unavailable')
         if reply.returncode:

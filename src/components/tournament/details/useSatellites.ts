@@ -1,3 +1,4 @@
+import { isRetiredTournament } from '../../../lib/retiredTournamentVisibility';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  SATELLITES — one loader, one mapper, one registration query
@@ -238,7 +239,7 @@ export function useSatellites(
     setLoadedScope(scopeKey);
     setRows([]);
     setRegistration(null);
-    if (!tournamentId) {
+    if (!tournamentId || isRetiredTournament(tournamentId)) {
       setRows([]);
       setRegistration(null);
       setLoading(false);
@@ -271,7 +272,9 @@ export function useSatellites(
         if (!Array.isArray(data)) throw new Error('Satellite list response is unavailable');
         if (cancelled || request !== liveRequest.current) return;
 
-        const sats = data as unknown as SatelliteRow[];
+        const sats = (data as unknown as SatelliteRow[]).filter(
+          (row) => !isRetiredTournament(row.id)
+        );
         setRows(sats);
 
         /* ONE registration query for the whole list, replacing one per card.

@@ -92,11 +92,17 @@ FLOOR_DISPOSITION="$(python3 "$CONTROL_DIR/engine-release-activation-floor.py" d
 case "$FLOOR_DISPOSITION" in
   never-entered) ABORT_RC=0 ;;
   announced)
-    # No checkpoint/prepare was entered. Preserve this exact request and fixed
-    # announcement after an unknown acknowledgment; never restart healthy play
-    # or certify completion from an announcement-only failure.
-    echo '[engine-release-recover] announcement-only owner retained; no runtime restoration or terminal certification' >&2
-    exit 75
+    # An unknown/live announcement retains ownership. Only its own expired,
+    # fully thawed, source-bound no-entry proof can let the wrapper record its
+    # permanent failure and then run the existing attested terminal cleanup.
+    # This branch never aborts, restores or restarts the untouched engine.
+    exec 9>"$ENGINE_LOCK"
+    flock -w 5 9 || { echo '[engine-release-recover] announcement owner lock unavailable; retained' >&2; exit 75; }
+    bounded_recovery_command 50 "$CONTROL_DIR/engine-release-seal.py" prove-expired-recovery-announcement \
+      --repo "${REPO_DIR:-/opt/club-arena}" --run-id "$RUN_ID" \
+      --sha "${FLOOR_REQUEST[0]}" --control-sha "${FLOOR_REQUEST[4]}" --engine-lock-fd 9 \
+      || { echo '[engine-release-recover] announcement-only owner retained; no runtime restoration or terminal certification' >&2; exit 75; }
+    ABORT_RC=0
     ;;
   entered|legacy)
 exec 9>"$ENGINE_LOCK"
@@ -125,6 +131,7 @@ bounded_recovery_command "$SUPERVISOR_BUDGET" env \
   ENGINE_SUPERVISOR_LOCK_HELD=1 ENGINE_SUPERVISOR_FORCE_DESIRED=1 \
   ENGINE_SUPERVISOR_REQUIRE_EXACT_HEALTH=1 \
   ENGINE_RECOVERY_DEADLINE_EPOCH="$RECOVERY_DEADLINE_EPOCH" \
+  ENGINE_CHECKPOINT_RECOVERY_RUN_ID="$RUN_ID" \
   ENGINE_CONTROL_DIR="$CONTROL_DIR" CONTAINER="$CONTAINER" ENGINE_URL="$PUBLIC_URL" \
   "$CONTROL_DIR/engine-supervisor.sh" \
   || { echo '[engine-release-recover] FATAL: exact desired local and public health recovery failed' >&2; exit 1; }

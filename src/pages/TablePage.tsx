@@ -1,3 +1,4 @@
+import { isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import { earlyHeroCardsReady, type EarlyHeroCards } from '../utils/earlyHeroCards';
 import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
 import { useTopUpAccounting } from '../hooks/useTopUpAccounting';
@@ -221,7 +222,12 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
 import { useButtonImage } from '../hooks/useButtonImage';
 
-import { cashBuyInRange, cashBuyInRefusalText, cashBuyInSeatConflictText } from '../lib/cashBuyIn';
+import {
+  cashAutoTopUpTarget,
+  cashBuyInRange,
+  cashBuyInRefusalText,
+  cashBuyInSeatConflictText,
+} from '../lib/cashBuyIn';
 import {
   cashBuyInJournal,
   executeCashBuyIn,
@@ -273,7 +279,7 @@ import {
 } from '../lib/chipContinuity';
 import { useSeatedProfileSync, type SeatedProfileChange } from '../hooks/useSeatedProfileSync';
 import { createSeatIdentityOverrides } from '../lib/seatIdentityOverrides';
-import { bettingStructureFor } from '../lib/bettingStructure';
+import { bettingStructureFor, isFixedLimitVariant } from '../lib/bettingStructure';
 import {
   heroAwaitsADecision,
   isPreActionHonorable,
@@ -281,6 +287,7 @@ import {
   PRE_ACTION_GAP_BRIDGE_MS,
 } from '../lib/preActionPanelGate';
 import { seatTapTarget } from '../lib/heroSeatTap';
+import { usePlayerNoteMarkers } from '../hooks/usePlayerNoteMarkers';
 import { MAX_SUPPORTED_SEATS } from '../lib/heroSeatReconcile';
 import { useEngineHeroSeatInvariant } from '../hooks/useEngineHeroSeatInvariant';
 import {
@@ -764,6 +771,8 @@ interface TableState {
   blinds: string;
   minBuyIn: number;
   maxBuyIn: number;
+  autoTopUpTarget?: number;
+  autoTopUpTargetTableId?: string;
   /**
    * SEATS AT THIS TABLE. A PLAIN NUMBER, because that is what it is
    * (Dan 2026-08-31, phase 1 of the seat-truth contract).
@@ -4882,6 +4891,10 @@ function LiveTablePage({
   // bustPromptFiredRef provided by useTableSession hook
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const [showPlayerNotes, setShowPlayerNotes] = useState(false);
+  /* THE POST-IT (Dan 2026-11-04): the ids of every opponent the hero holds a
+     private note on, kept current by the notes service as notes are saved and
+     deleted. Each villain seat reads one bit from it. */
+  const notedPlayerIds = usePlayerNoteMarkers(userId);
   const [selectedPlayerForNotes, setSelectedPlayerForNotes] = useState<{
     id: string;
     name: string;
@@ -14633,6 +14646,13 @@ function LiveTablePage({
           table = watch.data as TableBootstrapRow & { union_id?: string | null; arena?: unknown };
         }
       }
+      // Owner retirement removes this view without releasing or paying any seat.
+      if (isRetiredTournamentTable(table) && isMounted) {
+        setTableLoadFailure('missing');
+        masterBus.emit('TABLE_MENU_ACTION', { tableId, action: 'CLOSE_TABLE_TAB' });
+        deadTableExitRef.current();
+        return;
+      }
       /* AUDIT 2026-08-25 — THE DEAD-BOOKMARK HOLE.
          Below this point the code went straight to `if (table && !error)`.
          Follow the two failing paths out of the retry loop:
@@ -14711,11 +14731,20 @@ function LiveTablePage({
             isTournament: table.game_type === 'tournament' || !!table.tournament_id,
             tournamentId: table.tournament_id || undefined,
             minBuyIn: cashBuyInRange({
+              game_variant: table.game_variant,
               big_blind: table.big_blind,
               min_buy_in: table.min_buy_in,
               max_buy_in: table.max_buy_in,
             }).min,
+            autoTopUpTargetTableId: table.id,
+            autoTopUpTarget: cashAutoTopUpTarget({
+              game_variant: table.game_variant,
+              big_blind: table.big_blind,
+              min_buy_in: table.min_buy_in,
+              max_buy_in: table.max_buy_in,
+            }),
             maxBuyIn: cashBuyInRange({
+              game_variant: table.game_variant,
               big_blind: table.big_blind,
               min_buy_in: table.min_buy_in,
               max_buy_in: table.max_buy_in,
@@ -26604,7 +26633,10 @@ function LiveTablePage({
         !tableState.isTournament &&
         !autoTopUpInFlightRef.current
       ) {
-        const maxBuyIn = tableState.maxBuyIn;
+        const maxBuyIn =
+          isFixedLimitVariant(tableState.gameType) && tableState.autoTopUpTargetTableId === tableId
+            ? (tableState.autoTopUpTarget ?? tableState.maxBuyIn)
+            : tableState.maxBuyIn;
         const currentStack = Number(heroSeatData.stack);
 
         /* An unknown balance never auto-tops-up: spending on a number we
@@ -26718,6 +26750,8 @@ function LiveTablePage({
     tableState.arenaAsset,
     tableState.handNumber,
     tableState.maxBuyIn,
+    tableState.autoTopUpTarget,
+    tableState.autoTopUpTargetTableId,
     tableGameLightningState?.clusterMode,
     accountBalance,
     tableId,
@@ -29015,6 +29049,13 @@ function LiveTablePage({
                 <SeatSlot
                   seatNumber={seatNumber}
                   player={displayPlayer}
+                  hasNote={
+                    !!displayPlayer &&
+                    !displayPlayer.isHero &&
+                    displayPlayer.id !== userId &&
+                    notedPlayerIds.has(displayPlayer.id)
+                  }
+                  noteColor={displayPlayer ? notedPlayerIds.get(displayPlayer.id) : undefined}
                   arrival={lightningRoom ? seatArrivals[seatNumber] : undefined}
                   foldCommitted={
                     lightningRoom != null &&
@@ -30912,6 +30953,9 @@ function LiveTablePage({
         // Player Notes
         showPlayerNotes={showPlayerNotes}
         selectedPlayerForNotes={selectedPlayerForNotes}
+        selectedPlayerHasNote={
+          !!selectedPlayerForNotes && notedPlayerIds.has(selectedPlayerForNotes.id)
+        }
         onClosePlayerNotes={() => setShowPlayerNotes(false)}
         onOpenPlayerNotes={() => {
           setShowThrowableSelector(false);
@@ -31799,6 +31843,12 @@ function LiveTablePage({
           onOpenProfileView={() => setShowProfileModal(true)}
           onOpenAvatarPicker={() => avatarService.openAvatarSelector()}
           onOpenIdentity={() => setShowIdentityModal(true)}
+          /* THE NOTES LIBRARY DOOR (2026-11-04): no target means the dialog
+             opens in library mode, every private note this player holds. */
+          onOpenNotesLibrary={() => {
+            setSelectedPlayerForNotes(null);
+            setShowPlayerNotes(true);
+          }}
           /* 2026-08-29: the hub knows who it belongs to, shows the figures
              inline instead of one tap away, and hands the felt back the
              moment the turn arrives (a menu must never time out a hand). */

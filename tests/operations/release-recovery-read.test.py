@@ -94,10 +94,10 @@ class RetainedFirstRefusalTests(unittest.TestCase):
 
     def test_retained_previous_generation_remains_readable_after_control_upgrade(self):
         # Immutable protected predecessor; later transport edits cannot rewrite history.
-        path = self.generation / 'engine-release-transaction.sh'
-        path.write_bytes((ROOT/'tests/fixtures/release-recovery-prior-control'/path.name).read_bytes())
-        self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
-                         R.RETAINED_REFUSAL_PRIOR_SOURCES[0][path.name])
+        for name, digest in R.RETAINED_REFUSAL_PRIOR_SOURCES[0].items():
+            path = self.generation / name
+            path.write_bytes((ROOT/'tests/fixtures/release-recovery-prior-control'/name).read_bytes())
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
         with patch.object(R, 'RETAINED_REFUSAL_SOURCES', R.RETAINED_REFUSAL_PRIOR_SOURCES[0]):
             self.produce()
         answer = self.read()
@@ -149,6 +149,54 @@ class RetainedFirstRefusalTests(unittest.TestCase):
         answer=self.read()
         for key,value in [('exitCode',0),('stage','raw secret text'),('extra','/secret'),('signal','SIGKILL')]:
             with self.assertRaises(ValueError):R.validate_reply({**answer,key:value},self.request)
+
+    def certified_state(self):
+        return {**{key:'UNKNOWN' for key in ('checkpointRequired','drainedCutover','prepared',
+            'mutationStarted','lockHeld','certificateExitStatus','breakEndEpoch')},
+            'checkpointProfile':'eed-240s-certified-release-v1','predecessorSha':R.EED,
+            'checkpointBudgetSeconds':320,'checkpointWorkMs':260000}
+
+    def test_certified_retained_read_and_export_preserve_exact_bounded_profile(self):
+        self.produce()
+        value=json.loads(self.record.read_text())
+        value['shellState']=self.certified_state()
+        value['predecessor']['selectedSha']=R.EED
+        self.record.write_text(json.dumps(value))
+        before=self.record.read_bytes()
+        answer=self.read()
+        self.assertEqual(answer['shellState'],value['shellState'])
+        self.assertEqual(answer['predecessor']['selectedSha'],R.EED)
+        self.assertEqual(R.validate_reply(answer,self.request),answer)
+        self.assertEqual(self.record.read_bytes(),before)
+        # Missing values remain explicit UNKNOWN diagnostics, never zero or authority.
+        state={**self.certified_state(),'checkpointBudgetSeconds':'UNKNOWN','checkpointWorkMs':'UNKNOWN'}
+        self.assertEqual(R.diagnostic_shell_state(state),state)
+
+    def test_certified_diagnostic_rejects_missing_or_foreign_predecessor(self):
+        for source in ('UNKNOWN','a'*40,R.EED[:8],None):
+            with self.subTest(source=source),self.assertRaises(ValueError):
+                R.diagnostic_shell_state({**self.certified_state(),'predecessorSha':source})
+
+    def test_certified_diagnostic_rejects_excess_or_malformed_allocations(self):
+        for key,value in [('checkpointBudgetSeconds',321),('checkpointWorkMs',260001),
+                          ('checkpointWorkMs',305000),('checkpointBudgetSeconds',True),
+                          ('checkpointWorkMs',-1),('checkpointWorkMs',260000.0),
+                          ('checkpointWorkMs','260000ms'),('checkpointRequired',2),('extra',1)]:
+            with self.subTest(key=key,value=value),self.assertRaises(ValueError):
+                R.diagnostic_shell_state({**self.certified_state(),key:value})
+
+    def test_certified_allowance_does_not_expand_ordinary_or_unknown_profiles(self):
+        for profile,budget,work in [('legacy-40s-v1',40,25000),('eed-80s-v1',80,65000),
+                                    ('UNKNOWN',300,300000)]:
+            state={**self.certified_state(),'checkpointProfile':profile,
+                   'checkpointBudgetSeconds':budget,'checkpointWorkMs':work}
+            self.assertEqual(R.diagnostic_shell_state(state),state)
+            with self.assertRaises(ValueError):
+                R.diagnostic_shell_state({**state,'checkpointBudgetSeconds':320})
+            with self.assertRaises(ValueError):
+                R.diagnostic_shell_state({**state,'checkpointWorkMs':300001})
+        with self.assertRaises(ValueError):
+            R.diagnostic_shell_state({**self.certified_state(),'checkpointProfile':'eed-240s-v1'})
 
     def test_retained_exact_original_attempt_is_required(self):
         self.produce()
@@ -1050,6 +1098,7 @@ class ReaderTests(unittest.TestCase):
             encoded = args[-1].split("'")[1]
             self.assertEqual(json.loads(R.base64.b64decode(encoded)), REQUEST)
             self.assertEqual(kwargs['input'], Path(R.__file__).read_bytes())
+            self.assertEqual(kwargs['timeout'], 30)
             return types.SimpleNamespace(returncode=0, stdout=json.dumps(answer).encode())
 
         environment = {'GITHUB_EVENT_NAME': 'repository_dispatch', 'GITHUB_EVENT_PATH': str(event),
@@ -1348,6 +1397,50 @@ class InspectorTests(unittest.TestCase):
             if text=='1234':continue
             self.assertNotIn(text,json.dumps(v))
         self.assertEqual(v['readiness'],'unknown_not_certified_by_metadata')
+    def test_original_inspector_history_and_bookends_share_owner_fourfold_allowance(self):
+        deadlines=[]
+        def command(args,deadline,**kwargs):
+            deadlines.append(deadline)
+            return self.command(args,deadline,**kwargs)
+        with patch.object(R.time,'monotonic',return_value=1000), \
+             patch.object(R,'inspector_command',side_effect=command), \
+             patch.object(R,'inspector_probe',side_effect=[
+                 {'state':'open','endpointSha256':self.digest},
+                 {'state':'owned','endpointSha256':self.digest,'native':self.native}]) as probe:
+            value=R.remote(self.request)
+        self.assertEqual(value['status'],'owned')
+        self.assertEqual(deadlines,[1072,1072])
+        self.assertEqual([call.args[1] for call in probe.call_args_list],[1072,1072])
+        for observer in (R.inspector_identity,R.inspector_health):
+            self.assertEqual([call.args[0] for call in observer.call_args_list],[1072,1072])
+
+    def test_only_original_inspector_transport_receives_120_seconds(self):
+        value,_=self.run_probe([{'state':'closed','endpointSha256':None}])
+        event=self.root/'event.json'
+        event.write_text(json.dumps({'action':'audit-production-integrity',
+            'client_payload':{'release_recovery_observation':self.request}}))
+        def execute(args,**kwargs):
+            if args[0]=='ssh-keygen':return types.SimpleNamespace(returncode=0)
+            self.assertEqual(args[0],'ssh')
+            self.assertEqual(kwargs['timeout'],120)
+            self.assertIn('StrictHostKeyChecking=yes',args)
+            return types.SimpleNamespace(returncode=0,stdout=json.dumps(value).encode())
+        environment={'GITHUB_EVENT_NAME':'repository_dispatch','GITHUB_EVENT_PATH':str(event),
+            'HETZNER_HOST':'configured.example','HETZNER_SSH_PRIVATE_KEY':'opaque-test-key',
+            'HETZNER_HOST_KEY':'opaque-test-pin','RUNNER_TEMP':str(self.root)}
+        old=Path.cwd()
+        try:
+            os.chdir(self.root)
+            with patch.dict(os.environ,environment),patch.object(R.subprocess,'run',execute), \
+                 patch.object(R.sys,'argv',['reader']):R.main()
+            exported=(self.root/'artifacts/release-recovery-observation/observation.json').read_text()
+            self.assertEqual(json.loads(exported)['status'],'closed')
+            self.assertNotIn('opaque-test',exported)
+            self.assertEqual(list(self.root.glob('release-recovery-read-*')),[])
+        finally:os.chdir(old)
+        workflow=(ROOT/'.github/workflows/production-integrity-audit.yml').read_text()
+        job=workflow.split('\n  scoped_release_recovery:',1)[1].split('\n  scoped_operator_hold_image:',1)[0]
+        self.assertIn('timeout-minutes: 4',job)
     def test_foreign_endpoint_never_attaches(self):
         v,p=self.run_probe([{'state':'open','endpointSha256':'e'*64}]);self.assertEqual(v['status'],'foreign');self.assertEqual(p.call_count,1)
     def test_foreign_client_never_exports_memory(self):

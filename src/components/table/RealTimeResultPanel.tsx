@@ -1,3 +1,4 @@
+import { isFixedLimitVariant } from '../../lib/bettingStructure';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  REAL TIME RESULT — the in-game stats card (2026-08-20)
@@ -340,7 +341,11 @@ export default function RealTimeResultPanel({
     // "20-Aug 50↓200↑ 7MAX"
     const gameName = [
       created ? dayMon(created) : dayMon(now),
-      meta && (meta.minBuyIn || meta.maxBuyIn) ? `${meta.minBuyIn}↓${meta.maxBuyIn}↑` : null,
+      meta && (meta.minBuyIn || meta.maxBuyIn)
+        ? isFixedLimitVariant(meta.variant)
+          ? `${meta.minBuyIn} Min / No Maximum`
+          : `${meta.minBuyIn}↓${meta.maxBuyIn}↑`
+        : null,
       meta?.maxPlayers ? `${meta.maxPlayers}MAX` : null,
     ]
       .filter(Boolean)

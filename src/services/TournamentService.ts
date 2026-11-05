@@ -1,3 +1,4 @@
+import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
 import { TOURNAMENT_START_HOLD_MESSAGE } from '../config/tournamentStartHold';
 import type { SealedStagePlanBody } from '../utils/multiDaySchedule';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
@@ -991,7 +992,7 @@ class TournamentService {
     const seen = new Set<string>();
     const unique: TournamentWithArena[] = [];
     for (const t of all) {
-      if (!seen.has(t.id)) {
+      if (!isRetiredTournament(t.id) && !seen.has(t.id)) {
         seen.add(t.id);
         unique.push(t);
       }
@@ -1006,6 +1007,7 @@ class TournamentService {
     tournamentId: string,
     options?: { throwOnError?: boolean; signal?: AbortSignal }
   ): Promise<TournamentWithArena | null> {
+    if (isRetiredTournament(tournamentId)) return null;
     let query = supabase
       .from('tournaments')
       .select(

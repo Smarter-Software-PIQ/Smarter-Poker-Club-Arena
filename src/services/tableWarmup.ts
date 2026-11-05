@@ -47,6 +47,7 @@
  * stale roster is never painted over a live table; TablePage's own read and
  * the engine snapshot remain the authorities that follow.
  */
+import { isRetiredTableId } from '../lib/retiredTournamentVisibility';
 import { getFreshAccessToken } from '../lib/authToken';
 import { NATIVE_RESUME_EVENT } from '../lib/nativeResume';
 import { engineSocketMux, isMuxEnabled, type MuxTableSocket } from './EngineSocketMux';
@@ -161,7 +162,7 @@ async function warmSocket(tableId: string, entry: WarmEntry): Promise<void> {
  * already warming (or already live) is left alone; a stale one restarts.
  */
 export function warmTable(tableId: string | null | undefined): void {
-  if (!tableId) return;
+  if (!tableId || isRetiredTableId(tableId)) return;
   preloadRoute(`/table/${tableId}`);
   const existing = entries.get(tableId);
   if (existing && !existing.seatsFailed && Date.now() - existing.startedAt < SEATS_FRESH_MS) {

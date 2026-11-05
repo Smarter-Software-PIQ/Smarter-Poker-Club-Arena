@@ -850,7 +850,9 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                       {/* cashMoney honours cashBuyInRange's `unknown` flag the
                           way the card's buyInLabel does — 0/0 was "a claim
                           about money that is not merely unknown but wrong". */}
-                      {cashMoney(minBuy)} - {cashMoney(maxBuy)}
+                      {cashRange?.unlimited
+                        ? `${cashMoney(minBuy)} Min / No Maximum`
+                        : `${cashMoney(minBuy)} - ${cashMoney(maxBuy)}`}
                     </dd>
                   </div>
                   {entry.game ? (

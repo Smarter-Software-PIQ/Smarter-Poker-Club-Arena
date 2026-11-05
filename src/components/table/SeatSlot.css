@@ -595,6 +595,67 @@
   z-index: 3;
 }
 
+/* ═══ THE POST-IT (Dan 2026-11-04) ═══
+   A note the viewer wrote on this opponent. Brass face (#d6ad52, the one
+   sanctioned warm accent) with a darker folded corner and three ink lines,
+   so it reads as a sticky note at 16px without a word. Lower-left shoulder
+   of the avatar, mirroring the status dot on the lower-right; the bounty
+   pill owns the seat's top-left and the position badge the avatar's
+   top-right, so nothing shares its corner. Never interactive: the avatar
+   tap is the way into the note. */
+.seat__note-marker {
+  position: absolute;
+  bottom: 1px;
+  left: -2px;
+  width: 16px;
+  height: 16px;
+  display: block;
+  line-height: 0;
+  z-index: 4;
+  pointer-events: none;
+  transform: rotate(-8deg);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+.seat__note-marker svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* The colour the player chose for the note (PlayerNotesService NOTE_COLORS),
+   so a red post-it is a warning before the note is opened. User-chosen data,
+   not chrome: the brass face stays the default for an uncoloured note. */
+.seat__note-marker--red {
+  --sp-note-face: #ef4444;
+  --sp-note-fold: #7f1d1d;
+  --sp-note-ink: #fff1f1;
+}
+.seat__note-marker--orange {
+  --sp-note-face: #f97316;
+  --sp-note-fold: #7c2d12;
+  --sp-note-ink: #2a1205;
+}
+.seat__note-marker--yellow {
+  --sp-note-face: #eab308;
+  --sp-note-fold: #713f12;
+  --sp-note-ink: #2a2208;
+}
+.seat__note-marker--green {
+  /* The house green and its dark step (tests/gameplay-wears-the-house-colours):
+     the note picker's green and the seat marker's green are the same read. */
+  --sp-note-face: #3fb950;
+  --sp-note-fold: #2ea043;
+  --sp-note-ink: #052e16;
+}
+.seat__note-marker--blue {
+  --sp-note-face: #3b82f6;
+  --sp-note-fold: #1e3a8a;
+  --sp-note-ink: #eff6ff;
+}
+.seat__note-marker--purple {
+  --sp-note-face: #a855f7;
+  --sp-note-fold: #581c87;
+  --sp-note-ink: #faf5ff;
+}
 .seat__status-dot--away {
   background: #f59e0b;
 }

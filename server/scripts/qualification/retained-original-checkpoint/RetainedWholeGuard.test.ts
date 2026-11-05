@@ -12,6 +12,8 @@ const wire = vi.hoisted(() => ({
   calls: [] as any[],
   clock: {} as any,
   onAttest: null as null | (() => void),
+  failedRelease: null as null | string,
+  certifiedProof: null as null | ((parameters: any) => any),
   readActor: () => null as any,
 }));
 vi.mock('../services/supabase/client.js', () => {
@@ -49,7 +51,12 @@ vi.mock('../services/supabase/client.js', () => {
   };
   const rpc = async (name: string, p: any) => {
     wire.calls.push({ name, p: structuredClone(p), authority: wire.readActor() });
-    if (name === 'release_tournament_leases_v2') return { data: 1, error: null };
+    if (name === 'fn_engine_certified_recovery_proof')
+      return { data: wire.certifiedProof!(p), error: null };
+    if (name === 'release_tournament_leases_v2')
+      return p.p_claims.some((claim: any) => claim.tournament_id === wire.failedRelease)
+        ? { data: null, error: { message: 'isolated original release refused' } }
+        : { data: 1, error: null };
     if (name.startsWith('heartbeat_'))
       return { data: null, error: { message: 'isolated uncertain heartbeat' } };
     if (name === 'save_hand_state_snapshot') return { data: null, error: null };
@@ -138,16 +145,23 @@ import * as tableLease from '../services/tableLease.js';
 import * as releaseIdentity from '../releaseIdentity.js';
 import * as client from '../services/supabase/client.js';
 const held: any[] = [];
+const ownedFixtureCleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
-  for (const e of held.splice(0)) await e.stop();
-  freezeState.setMaintenanceFrozen(false);
-  wire.calls.length = 0;
-  wire.originals.clear();
-  wire.parked.clear();
-  wire.committed.clear();
-  vi.useRealTimers();
-  wire.onAttest = null;
-  (lightningFormation.lightningFormationGate as any).entries.clear();
+  try {
+    for (const cleanup of ownedFixtureCleanups.splice(0)) await cleanup();
+  } finally {
+    for (const e of held.splice(0)) await e.stop();
+    freezeState.setMaintenanceFrozen(false);
+    wire.calls.length = 0;
+    wire.originals.clear();
+    wire.parked.clear();
+    wire.committed.clear();
+    vi.useRealTimers();
+    wire.onAttest = null;
+    wire.failedRelease = null;
+    wire.certifiedProof = null;
+    (lightningFormation.lightningFormationGate as any).entries.clear();
+  }
 });
 const id = (n: number) => `c0ffee00-0000-4000-8000-${String(n).padStart(12, '0')}`;
 function chairs(n: number) {
@@ -179,6 +193,12 @@ function banks(e: any, seats: any[]) {
 }
 const wholeCases = [
   'positive',
+  'certified-positive',
+  'certified-foreign-request',
+  'certified-partial-thaw',
+  'certified-stale-leader',
+  'certified-lifecycle-changed',
+  'certified-marker-write-failed',
   'manager-context',
   'manager-serial-initial-noop',
   'manager-serial-late-noop',
@@ -198,6 +218,11 @@ const wholeCases = [
   'manager-retirement-completed-during-serial',
   'manager-retirement-replaced',
   'manager-renewal-joined',
+  'manager-renewal-queued-joined',
+  'manager-renewal-queued-staggered',
+  'manager-renewal-queued-completed',
+  'manager-renewal-queued-release-failed',
+  'manager-renewal-queued-replaced',
   'manager-renewal-pending',
   'manager-renewal-replaced',
   'manager-renewal-absent',
@@ -241,6 +266,7 @@ const wholeCases = [
   'skew-await-host',
 ];
 it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) => {
+  const certifiedCase = scenario.startsWith('certified-');
   wire.readActor = actor.currentTournamentDataAuthority;
   const sha = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
   expect(releaseIdentity.ENGINE_RELEASE_IDENTITY.releaseSha).toBe(sha);
@@ -282,14 +308,58 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
   );
   m.running = true;
   server.tournamentEngines.set(id(1), m);
-  const now = Date.now(),
-    maintenance: any = new maintenanceModule.MaintenanceBreak({ now: () => Date.now() } as any);
+  const now = Date.now();
+  let originalEndReturned = false;
+  const releaseAt = now + 570000;
+  // Plain bounded call records avoid Vitest's process-wide mock registry
+  // retaining the large original-owner census from every parameterized case.
+  const thawCalls: any[] = [];
+  let releaseBoundaryReads = 0;
+  const thaw = async (request: any, signal: AbortSignal) => {
+    thawCalls.push(request);
+    expect(signal.aborted).toBe(false);
+    expect(Object.isFrozen(request)).toBe(true);
+    return {
+      announcedAt: request.announcedAt,
+      freezeStartedAt: request.freezeStartedAt,
+      ownershipToken: request.ownershipToken,
+      creditedThroughAt: releaseAt,
+      effectiveFrozenSeconds: 780,
+    };
+  };
+  const loadReleaseBoundary = async () => {
+    releaseBoundaryReads++;
+    throw Error('The original future boundary must be cancelled by its own stop');
+  };
+  const maintenance: any = new maintenanceModule.MaintenanceBreak({
+    now: () => Date.now(),
+    ...(certifiedCase
+      ? {
+          thaw,
+          store: { loadReleaseBoundary },
+          engines: () => server.tableEngines,
+          emit: () => {},
+          isRunning: () => server.running,
+        }
+      : {}),
+  } as any);
   Object.assign(maintenance, {
     phase: 'counting_down',
     announcedAt: now - 120000,
     breakStartedAt: now,
     breakEndsAt: now + 300000,
     durableConfirmed: true,
+    ...(certifiedCase
+      ? {
+          announcedAt: now - 330000,
+          breakStartedAt: now - 210000,
+          breakEndsAt: now + 90000,
+          reason: 'Deployment Recovery',
+          started: true,
+          acceptingLifecycleWork: true,
+          lifecycleGeneration: 1,
+        }
+      : {}),
   });
   maintenance.lastDurableState = {
     phase: maintenance.phase,
@@ -306,6 +376,156 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     hash: (value: string) => crypto.createHash('sha256').update(value).digest('hex'),
   };
   freezeState.setMaintenanceFrozen(true);
+  let certifiedIntent: any = null;
+  let certifiedMarker: any = null;
+  const markerCalls: string[] = [];
+  let certifiedJobs: Promise<unknown>[] = [];
+  const certifiedGeneration = maintenance.lifecycleGeneration;
+  const certifiedResumeToken = maintenance.resumeToken;
+  if (certifiedCase) {
+    // Adopted-state setup is isolated. These are the exact EED end, lifecycle
+    // registration, future release wait and stop/join methods, never substitutes.
+    const end = maintenance.end();
+    end.then(() => {
+      originalEndReturned = true;
+    });
+    maintenance.launchLifecycleJob(end, 'isolated certified fixture');
+    ownedFixtureCleanups.push(async () => {
+      await maintenance.stop();
+    });
+    await vi.waitFor(() => expect(maintenance.certifiedResumeAt).toBe(releaseAt));
+    certifiedJobs = [...maintenance.lifecycleJobs];
+    expect(certifiedJobs).toHaveLength(1);
+    expect(originalEndReturned).toBe(false);
+    expect(maintenance.ending).toBe(true);
+    expect(maintenance.stop).toBe(maintenanceModule.MaintenanceBreak.prototype.stop);
+    const request = {
+      runKey: '41927652583-1',
+      targetSha: 'a'.repeat(40),
+      controlSha: 'b'.repeat(40),
+      predecessorSha: sha,
+      instanceId: tableLease.INSTANCE_ID,
+      announcedAt: new Date(maintenance.announcedAt).toISOString(),
+      ownershipToken: maintenance.ownershipToken,
+      policyId: '2026-11-04-tournament-fourfold-certified-recovery',
+    };
+    const targetNames = [
+      'sit_out_at',
+      'hold_expires_at',
+      'addon_period_ends_at',
+      'reversible_until',
+      'reveal_deadline_at',
+      'rebuy_prompt_until',
+      'bomb_pot_next_due_at',
+      'cash_stay_last_tick_at',
+      'cash_rejoin_expires_at',
+      'level_started_at',
+      'cluster_break_eligible_since',
+      'cluster_move_expires_at',
+      'reconnect_presence',
+      'reconnect_snapshots',
+      'lightning_drain_deadline_at',
+    ];
+    const targetCounts = Object.fromEntries(targetNames.map((key) => [key, 1]));
+    const proof = {
+      schema: 'engine-certified-recovery/v1',
+      policyId: request.policyId,
+      request,
+      profile: {
+        id: 'eed-240s-certified-release-v1',
+        noticeMs: 120000,
+        freezeMs: 780000,
+        nativeQueryMs: 240000,
+        checkpointMs: 320000,
+        postReserveMs: 205000,
+      },
+      releaseAt: new Date(releaseAt).toISOString(),
+      rawMaintenance: {
+        id: true,
+        phase: 'counting_down',
+        announced_at: request.announcedAt,
+        break_started_at: new Date(maintenance.breakStartedAt).toISOString(),
+        break_ends_at: new Date(maintenance.breakEndsAt).toISOString(),
+        reason: maintenance.reason,
+        ownership_token: maintenance.ownershipToken,
+        enforce_freeze: true,
+        declared_by: tableLease.INSTANCE_ID,
+      },
+      thaw: {
+        contract_version: 3,
+        ownership_token: maintenance.ownershipToken,
+        announced_at: request.announcedAt,
+        freeze_started_at: new Date(maintenance.breakStartedAt).toISOString(),
+        release_target_at: new Date(releaseAt).toISOString(),
+        release_generation: 1,
+        shifted: {
+          ...targetCounts,
+          complete: true,
+          _targets_snapshotted: true,
+          _target_counts: targetCounts,
+        },
+      },
+      targets: { familyCount: 15, allCredited: true, complete: true },
+      platformFrozen: true,
+      entryPurchasesFrozen: true,
+    };
+    certifiedIntent = {
+      source: sha,
+      runId: request.runKey,
+      controlSha: request.controlSha,
+      container: 'c'.repeat(64),
+      containerImageId: 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b',
+      startedAt: new Date(now - 3600000).toISOString(),
+      hostPid: 54321,
+      instance: tableLease.INSTANCE_ID,
+      nativeCensus: { candidateSHA: request.targetSha },
+      certifiedRecovery: structuredClone(proof),
+    };
+    wire.certifiedProof = (parameters) => {
+      expect(parameters).toEqual({
+        p_run_key: request.runKey,
+        p_target_sha: request.targetSha,
+        p_control_sha: request.controlSha,
+        p_announced_at: request.announcedAt,
+      });
+      const current = structuredClone(proof);
+      if (scenario === 'certified-partial-thaw') current.thaw.shifted.complete = false;
+      return {
+        ...current,
+        observedAt: new Date().toISOString(),
+        leader: {
+          version: sha,
+          instanceId: tableLease.INSTANCE_ID,
+          heartbeatAt: new Date(
+            Date.now() - (scenario === 'certified-stale-leader' ? 31000 : 0)
+          ).toISOString(),
+        },
+      };
+    };
+    if (scenario === 'certified-foreign-request')
+      certifiedIntent.certifiedRecovery.request.ownershipToken = id(999);
+    if (scenario === 'certified-lifecycle-changed') {
+      let release!: () => void;
+      const changedJob = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // Release this fixture-owned job before afterEach joins the genuine stop.
+      ownedFixtureCleanups.unshift(async () => {
+        release();
+      });
+      wire.onAttest = () => {
+        wire.onAttest = null;
+        maintenance.launchLifecycleJob(changedJob, 'isolated changed lifecycle');
+      };
+    }
+    // The OS/container boundary alone is isolated: no production path or PID is
+    // written. Restore the original descriptor even when a guard assertion fails.
+    const pidDescriptor = Object.getOwnPropertyDescriptor(process, 'pid')!;
+    Object.defineProperty(process, 'pid', { ...pidDescriptor, value: 1 });
+    ownedFixtureCleanups.push(async () => {
+      Object.defineProperty(process, 'pid', pidDescriptor);
+    });
+  }
   const objects: any[] = [],
     originals: any[] = [];
   const retiredManagers: any[] = [];
@@ -567,7 +787,56 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     permit: { F06HandPermit },
     crypto,
     fs: {
+      ...(certifiedCase
+        ? {
+            constants: { O_WRONLY: 1, O_CREAT: 64, O_EXCL: 128, O_NOFOLLOW: 256, O_RDONLY: 0 },
+            lstatSync: (path: string) => {
+              expect(path).toBe('/app');
+              return {
+                isDirectory: () => true,
+                isSymbolicLink: () => false,
+                uid: 0,
+                mode: 0o40755,
+              };
+            },
+            openSync: (path: string, flags: number, mode?: number) => {
+              markerCalls.push(path === '/app' ? 'open_directory' : 'open_marker');
+              expect(originalEndReturned).toBe(false);
+              expect(maintenance.stopOperation).toBeNull();
+              expect(base.ServerTableEngineBase.liveEngines.size).toBe(0);
+              if (path === '/app') {
+                expect(flags).toBe(0);
+                return 11;
+              }
+              expect(path).toBe('/app/.legacy-certified-retirement-41927652583-1.json');
+              expect(flags).toBe(1 | 64 | 128 | 256);
+              expect(mode).toBe(0o600);
+              return 10;
+            },
+            writeFileSync: (fd: number, value: string) => {
+              expect(fd).toBe(10);
+              markerCalls.push('write_marker');
+              if (scenario === 'certified-marker-write-failed')
+                throw Error('isolated marker write failure');
+              certifiedMarker = JSON.parse(value);
+              expect(certifiedMarker).toMatchObject({
+                attemptedTables: 3,
+                verifiedTables: 3,
+                finalCensusZero: true,
+                stage: 'custody_complete_stop_entering',
+              });
+            },
+            fsyncSync: (fd: number) => {
+              markerCalls.push(fd === 10 ? 'sync_marker' : 'sync_directory');
+            },
+            closeSync: (fd: number) => {
+              markerCalls.push(fd === 10 ? 'close_marker' : 'close_directory');
+            },
+          }
+        : {}),
       readFileSync: (path: string) => {
+        if (certifiedCase && path === '/proc/1/stat')
+          return '1 (node) ' + ['S', ...Array(18).fill('0'), '12345', '0'].join(' ');
         expect(path).toMatch(/^\/app\/dist\/[A-Za-z0-9/]+\.js$/);
         return readFileSync(
           join(process.env.RETAINED_CHECKPOINT_DIST_ROOT!, path.slice('/app/dist/'.length))
@@ -966,11 +1235,13 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       retired.tournamentSeatMoveSerialTail = Promise.resolve().then(startOriginalRetirement);
     } else startOriginalRetirement();
   }
-  let finishRenewalFixture: (() => Promise<void>) | null = null;
+  let finishRenewalFixture: ((guardResult: unknown) => Promise<void>) | null = null;
+  let runQueuedGuard: ((invoke: () => Promise<any>) => Promise<any>) | null = null;
   if (scenario.startsWith('manager-renewal-')) {
+    const queued = scenario.startsWith('manager-renewal-queued-');
     const retired: any = actor.bindTournamentDataAuthorityMethods(
       { tournamentId: id(970), leaseGeneration: id(971) },
-      new TournamentManager(id(970), server, id(971), performance.now() + 20)
+      new TournamentManager(id(970), server, id(971), performance.now() + 600000)
     );
     retired.running = true;
     server.tournamentEngines.set(retired.tournamentId, retired);
@@ -996,23 +1267,256 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       tournamentManagerLeaseReleaseOperations: new Map(),
       tournamentManagerPendingLeaseReleases: new Map(),
       tournamentDiagnosticRetirements: new Map(),
+      tournamentManagerAdmissionOperations: new Map(),
+      tournamentManagerAdmissionLeaseGenerations: new Map(),
+      tournamentManagerAdmissionRetryTimers: new Map(),
+      drainedF06TournamentCustody: new Map(),
+      durableMixedF06Custody: new Map(),
+      mixedF06AdmissionContinuations: new Map(),
+      completedF06TournamentCustody: new Map(),
       directAdmissionIsCurrent: () => true,
       tournamentResumeDistress: 0,
     });
-    const renewal =
-      scenario === 'manager-renewal-absent'
+    const staggered = scenario === 'manager-renewal-queued-staggered';
+    const completed = scenario === 'manager-renewal-queued-completed';
+    const releaseFailed = scenario === 'manager-renewal-queued-release-failed';
+    const mixed = staggered || completed || releaseFailed;
+    let staggeredFirstReceipt: Promise<boolean> | null = null;
+    let staggeredRelease: Promise<void> | null = null;
+    let observedSecondRetirement = 0;
+    let firstRetirementCompleted = false;
+    let secondReleasedAfterFirst = false;
+    let second: any;
+    let releaseSecond!: () => void;
+    if (mixed) {
+      second = actor.bindTournamentDataAuthorityMethods(
+        { tournamentId: id(975), leaseGeneration: id(976) },
+        new TournamentManager(id(975), server, id(976), performance.now() + 600000)
+      );
+      second.running = true;
+      server.tournamentEngines.set(second.tournamentId, second);
+      managers.push(second);
+      const secondJob = new Promise<void>((resolve) => {
+        releaseSecond = resolve;
+      });
+      second.lifecycleJobs.add(secondJob);
+      secondJob.then(() => second.lifecycleJobs.delete(secondJob));
+    }
+    let loopCurrent = true;
+    let queuedLoop: Promise<void> | null = null;
+    let renewal: Promise<void> | null = null;
+    let cleanup: Promise<void> | null = null;
+    const cleanupRenewalFixture = () =>
+      (cleanup ??= (async () => {
+        loopCurrent = false;
+        releaseJob();
+        releaseSecond?.();
+        await renewal;
+        await queuedLoop;
+        await Promise.allSettled([m.tournamentSeatMoveSerialTail]);
+        await Promise.allSettled([...server.tournamentManagerRetirementOperations.values()]);
+        for (const owner of [retired, second].filter(Boolean)) {
+          if (!owner.tournamentLeaseAuthorityExpired) owner.fenceForTournamentLeaseLoss();
+          await owner.stop();
+        }
+      })());
+    // Register before any setup await/assertion can fail. Native renewal and
+    // retirement jobs must not escape into the following qualification case.
+    ownedFixtureCleanups.push(cleanupRenewalFixture);
+    let sleepMs = 0;
+    if (queued) {
+      let originalQueuedSleep!: Promise<void>;
+      let scheduled!: () => void;
+      const sleeping = new Promise<void>((resolve) => {
+        scheduled = resolve;
+      });
+      const originalSleep = server.sleep;
+      let originalSleepResolved = false;
+      let invokeAtWake: (() => Promise<any>) | null = null;
+      server.sleep = function (ms: number) {
+        sleepMs = ms;
+        const pending = originalSleep.call(this, ms);
+        if (!originalQueuedSleep) {
+          originalQueuedSleep = pending;
+          if (!mixed || staggered) {
+            // Register before the real loop awaits this original sleep. Its
+            // timer resolves normally; guard entry precedes only the queued
+            // loop continuation, never a synthetic renewal or retirement.
+            const entry = pending.then(() => {
+              originalSleepResolved = true;
+              expect(invokeAtWake, 'guard entry registered before original wake').toBeTypeOf(
+                'function'
+              );
+              return invokeAtWake!();
+            });
+            void entry.catch(() => undefined);
+            runQueuedGuard = (invoke) => {
+              expect(originalSleepResolved, 'original wake still queued during collection').toBe(
+                false
+              );
+              invokeAtWake = () => {
+                expect(originalSleepResolved, 'original native sleep resolved').toBe(true);
+                expect(
+                  server.ownershipLeaseRenewalOperation,
+                  'renewal continuation queued'
+                ).toBeNull();
+                expect(retired.tournamentLeaseAuthorityExpired, 'owner live at guard entry').toBe(
+                  false
+                );
+                expect(retired.teardownPromise, 'owner not stopping at guard entry').toBeNull();
+                if (staggered) {
+                  expect(second.tournamentLeaseAuthorityExpired, 'second owner live at entry').toBe(
+                    false
+                  );
+                  expect(second.teardownPromise, 'second owner not stopping at entry').toBeNull();
+                }
+                const result = invoke();
+                if (staggered) {
+                  // Guard capture runs synchronously before its first await.
+                  // This original cleanup starts first; the already-queued
+                  // native loop continuation starts the second retirement.
+                  const originalStop = server.stopTournamentManagerIfOwned(
+                    retired.tournamentId,
+                    retired,
+                    'qualification.original_staggered_retirement'
+                  );
+                  void originalStop.catch(() => undefined);
+                  staggeredFirstReceipt = Map.prototype.get.call(
+                    server.tournamentManagerRetirementOperations,
+                    retired
+                  );
+                  expect(
+                    staggeredFirstReceipt,
+                    'first original retirement published'
+                  ).toBeInstanceOf(Promise);
+                  expect(
+                    Map.prototype.has.call(server.tournamentManagerRetirementOperations, second),
+                    'second retirement still belongs to queued native continuation'
+                  ).toBe(false);
+                }
+                return result;
+              };
+              return entry;
+            };
+          }
+        }
+        scheduled();
+        return pending;
+      };
+      server.directAdmissionIsCurrent = () => loopCurrent;
+      queuedLoop = (gameServer.GameServer.prototype as any).runOwnershipLeaseRenewalLoop.call(
+        server,
+        1
+      );
+      await sleeping;
+      expect(server.ownershipLeaseRenewalOperation, 'initial native pass settled').toBeNull();
+      retired.tournamentLeaseProofDeadlineMonotonicMs = performance.now() + 20;
+      if (mixed) {
+        second.tournamentLeaseProofDeadlineMonotonicMs = performance.now() + 20;
+        if (!staggered) second.armTournamentLeaseExpiryTimer();
+        if (!staggered) releaseSecond();
+        if (releaseFailed) wire.failedRelease = second.tournamentId;
+        // Existing owner cleanup and renewal can publish their receipts in
+        // different turns. Neither callback is invoked by the guard.
+        if (!staggered)
+          setTimeout(() => {
+            void server.stopTournamentManagerIfOwned(
+              retired.tournamentId,
+              retired,
+              'qualification.original_staggered_retirement'
+            );
+            setTimeout(releaseJob, 100);
+            setTimeout(releaseSecond, 120);
+          }, 0);
+        if (completed || releaseFailed) {
+          // The original loop registered its continuation on this real sleep
+          // before the fixture did. Join its next native pass and the second
+          // owner's actual retirement, without holding or replacing a receipt.
+          // Another captured serial tail keeps the guard's post-join observation
+          // after that completion; the guard never initiates the retirement.
+          m.tournamentSeatMoveSerialTail = originalQueuedSleep.then(async () => {
+            const originalPass = server.ownershipLeaseRenewalOperation;
+            expect(originalPass, 'queued native renewal pass exists').toBeInstanceOf(Promise);
+            await originalPass;
+            const originalRetirement = server.tournamentManagerRetirementOperations.get(second);
+            if (originalRetirement) await Promise.allSettled([originalRetirement]);
+          });
+          // The test/guard still awaits the original tail; observe rejection
+          // even if a preceding setup assertion transfers control to cleanup.
+          void m.tournamentSeatMoveSerialTail.catch(() => undefined);
+        }
+      }
+    } else retired.tournamentLeaseProofDeadlineMonotonicMs = performance.now() + 20;
+    renewal =
+      queued ||
+      scenario === 'manager-renewal-absent' ||
+      scenario === 'manager-renewal-queued-release-failed'
         ? null
         : (gameServer.GameServer.prototype as any).renewOwnedEngineLeaseProofs.call(server);
     // Stand in only for elapsed synchronous collection, without invoking expiry.
-    const until = performance.now() + 25;
+    const until = performance.now() + (queued ? sleepMs + 25 : 25);
     while (performance.now() < until) {}
-    expect(retired.tournamentLeaseAuthorityExpired).toBe(false);
-    expect(retired.teardownPromise).toBeNull();
+    expect(retired.tournamentLeaseAuthorityExpired, 'owner live before guard').toBe(false);
+    expect(retired.teardownPromise, 'owner not stopping before guard').toBeNull();
+    let observedOriginalRetirement = 0;
+    if (queued && (!mixed || staggered)) {
+      const retirements = server.tournamentManagerRetirementOperations;
+      const originalGet = retirements.get;
+      retirements.get = function (owner: unknown) {
+        const retirement = originalGet.call(this, owner);
+        if (
+          owner === retired &&
+          retirement instanceof Promise &&
+          observedOriginalRetirement === 0
+        ) {
+          observedOriginalRetirement++;
+          if (scenario === 'manager-renewal-queued-replaced')
+            retirement.then(() => server.tournamentEngines.set(retired.tournamentId, m));
+          // Return the real original receipt before releasing the fixture job.
+          // No timer duration can make retirement disappear ahead of its reader.
+          if (!staggered) queueMicrotask(releaseJob);
+        }
+        if (
+          staggered &&
+          owner === second &&
+          retirement instanceof Promise &&
+          observedSecondRetirement === 0
+        ) {
+          expect(observedOriginalRetirement, 'first receipt observed before second').toBe(1);
+          expect(originalGet.call(this, retired), 'first physical retirement still held').toBe(
+            staggeredFirstReceipt
+          );
+          expect(retired.teardownPromise, 'first physical stop remains pending').toBeInstanceOf(
+            Promise
+          );
+          observedSecondRetirement++;
+          queueMicrotask(() => {
+            releaseJob();
+            staggeredRelease = staggeredFirstReceipt!.then((confirmed) => {
+              expect(confirmed, 'first original retirement confirmed').toBe(true);
+              firstRetirementCompleted = true;
+              return new Promise<void>((resolve) => {
+                setImmediate(() => {
+                  secondReleasedAfterFirst = firstRetirementCompleted;
+                  releaseSecond();
+                  resolve();
+                });
+              });
+            });
+            void staggeredRelease.catch(() => undefined);
+          });
+        }
+        return retirement;
+      };
+    }
     if (scenario === 'manager-renewal-joined' || scenario === 'manager-renewal-replaced')
       setImmediate(() =>
         setImmediate(() => {
           const retirement = server.tournamentManagerRetirementOperations.get(retired);
-          if (scenario === 'manager-renewal-replaced')
+          if (
+            scenario === 'manager-renewal-replaced' ||
+            scenario === 'manager-renewal-queued-replaced'
+          )
             retirement?.then(() => server.tournamentEngines.set(retired.tournamentId, m));
           releaseJob();
         })
@@ -1021,13 +1525,45 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
       maintenance.breakEndsAt = Date.now() + 204999;
       maintenance.lastDurableState.breakEndsAt = maintenance.breakEndsAt;
     }
-    finishRenewalFixture = async () => {
-      releaseJob();
-      await renewal;
-      await Promise.allSettled([...server.tournamentManagerRetirementOperations.values()]);
-      if (!retired.tournamentLeaseAuthorityExpired) retired.fenceForTournamentLeaseLoss();
-      await retired.stop();
+    finishRenewalFixture = async (guardResult) => {
+      try {
+        if (completed || releaseFailed) {
+          expect(server.tournamentEngines.has(second.tournamentId), 'second registry retired').toBe(
+            false
+          );
+          expect(
+            server.tournamentManagerRetirementOperations.has(second),
+            'second retirement settled'
+          ).toBe(false);
+          expect(
+            server.tournamentManagerLeaseReleaseOperations.has(second.tournamentId),
+            'second release settled'
+          ).toBe(false);
+          expect(server.tournamentManagerPendingLeaseReleases.has(second.tournamentId)).toBe(
+            releaseFailed
+          );
+          expect(second.running).toBe(false);
+          expect(second.teardownPromise).toBeNull();
+        }
+        if (queued && (!mixed || staggered))
+          expect(observedOriginalRetirement, JSON.stringify(guardResult)).toBe(1);
+        if (staggered) {
+          await staggeredRelease;
+          expect(observedSecondRetirement, JSON.stringify(guardResult)).toBe(1);
+          expect(firstRetirementCompleted, 'first actual receipt completed').toBe(true);
+          expect(secondReleasedAfterFirst, 'second physical release followed first receipt').toBe(
+            true
+          );
+        }
+      } finally {
+        await cleanupRenewalFixture();
+      }
     };
+  }
+  if (scenario.startsWith('manager-renewal-queued-')) {
+    // Model setup delayed beyond the former fixture release timer.
+    const delayedSetup = performance.now() + 25;
+    while (performance.now() < delayedSetup) {}
   }
   const guardStarted = performance.now();
   const invoke = () =>
@@ -1037,6 +1573,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
         expectedReleaseSha: sha,
         expectedPid: process.pid,
         expectedInstanceId: tableLease.INSTANCE_ID,
+        ...(certifiedCase ? { custodyIntent: certifiedIntent } : {}),
         workDeadlineMs:
           Date.now() +
           (scenario === 'manager-renewal-expired-deadline'
@@ -1061,17 +1598,105 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
           expect(actor.currentTournamentDataAuthority()).toEqual(foreignAuthority);
           return observed;
         })
-      : await invoke();
+      : runQueuedGuard
+        ? await runQueuedGuard(invoke)
+        : await invoke();
+  const guardElapsedMs = performance.now() - guardStarted;
   expect(actor.currentTournamentDataAuthority()).toBeNull();
+  if (certifiedCase) {
+    expect(thawCalls).toHaveLength(1);
+    expect(thawCalls[0]).toMatchObject({
+      frozenSeconds: 300,
+      announcedAt: now - 330000,
+      freezeStartedAt: now - 210000,
+    });
+    expect(releaseBoundaryReads).toBe(0);
+    if (scenario !== 'certified-positive') {
+      const markerFailure = scenario === 'certified-marker-write-failed';
+      expect(result, JSON.stringify(result)).toMatchObject({
+        ok: false,
+        restartAuthorized: false,
+        readyForRestart: false,
+        maintenanceStopAttempted: false,
+        attemptedTables: markerFailure ? 3 : 0,
+        checkpointOutcome: markerFailure ? 'unconfirmed' : 'not_started',
+        reason:
+          scenario === 'certified-foreign-request'
+            ? 'retained_certified_request_unproven'
+            : scenario === 'certified-partial-thaw' || scenario === 'certified-stale-leader'
+              ? 'retained_certified_release_unproven'
+              : scenario === 'certified-lifecycle-changed'
+                ? 'retained_certified_lifecycle_changed'
+                : 'retained_checkpoint_unconfirmed',
+      });
+      expect(maintenance.stopOperation).toBeNull();
+      expect(maintenance.lifecycleAbort.signal.aborted).toBe(false);
+      expect(originalEndReturned).toBe(false);
+      expect(certifiedMarker).toBeNull();
+      expect(markerCalls).toEqual(
+        markerFailure ? ['open_marker', 'write_marker', 'close_marker'] : []
+      );
+      for (const original of originals) expect(original.e.terminal).toBe(markerFailure);
+      expect(cash.terminal).toBe(markerFailure);
+      if (markerFailure) expect(result.verifiedTables).toBe(3);
+      return;
+    }
+    expect(result, JSON.stringify(result)).toMatchObject({ maintenanceStopAttempted: true });
+    expect(originalEndReturned).toBe(true);
+    await Promise.all(certifiedJobs);
+    expect(maintenance.stopOperation).toBeInstanceOf(Promise);
+    expect(maintenance.started).toBe(false);
+    expect(maintenance.acceptingLifecycleWork).toBe(false);
+    expect(maintenance.lifecycleAbort.signal.aborted).toBe(true);
+    expect(maintenance.lifecycleGeneration).toBe(certifiedGeneration + 1);
+    expect(maintenance.resumeToken).toBe(certifiedResumeToken + 1);
+    expect(maintenance.ending).toBe(false);
+    expect(maintenance.lifecycleJobs.size).toBe(0);
+    expect(maintenance.resumeWaveTimers.size).toBe(0);
+    expect(maintenance.pendingResumeTables.size).toBe(0);
+    expect(freezeState.isMaintenanceFrozen()).toBe(true);
+    expect(maintenance.lastDurableState).toMatchObject({
+      announcedAt: now - 330000,
+      breakStartedAt: now - 210000,
+      breakEndsAt: now + 90000,
+    });
+    expect(markerCalls).toEqual([
+      'open_marker',
+      'write_marker',
+      'sync_marker',
+      'close_marker',
+      'open_directory',
+      'sync_directory',
+      'close_directory',
+    ]);
+    expect(certifiedMarker).toMatchObject({
+      sourceSha: sha,
+      instanceId: tableLease.INSTANCE_ID,
+      nativeStartTicks: '12345',
+      pid: 1,
+      maintenanceGeneration: certifiedGeneration,
+      resumeToken: certifiedResumeToken,
+      releaseAt,
+      announcedAt: now - 330000,
+    });
+  }
   if (scenario.startsWith('manager-renewal-')) {
-    if (scenario !== 'manager-renewal-joined') {
+    if (scenario.startsWith('manager-renewal-queued-')) await finishRenewalFixture!(result);
+    if (
+      scenario !== 'manager-renewal-joined' &&
+      scenario !== 'manager-renewal-queued-joined' &&
+      scenario !== 'manager-renewal-queued-staggered' &&
+      scenario !== 'manager-renewal-queued-completed'
+    ) {
       expect(result).toMatchObject({ ok: false, attemptedTables: 0, restartAuthorized: false });
       expect(cash.terminal).toBe(false);
-      expect(performance.now() - guardStarted).toBeLessThan(1500);
+      expect(guardElapsedMs).toBeLessThan(1500);
       expect(result.reason).toBe(
-        scenario === 'manager-renewal-absent'
+        scenario === 'manager-renewal-absent' ||
+          scenario === 'manager-renewal-queued-release-failed'
           ? 'retained_manager_lease_unproven'
-          : scenario === 'manager-renewal-replaced'
+          : scenario === 'manager-renewal-replaced' ||
+              scenario === 'manager-renewal-queued-replaced'
             ? 'retained_retirement_registry_unproven'
             : scenario === 'manager-renewal-reserve'
               ? 'retained_reserve_exhausted'
@@ -1080,8 +1705,14 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
                 : 'retained_renewal_observation_expired'
       );
     }
-    await finishRenewalFixture!();
-    if (scenario !== 'manager-renewal-joined') return;
+    if (!scenario.startsWith('manager-renewal-queued-')) await finishRenewalFixture!(result);
+    if (
+      scenario !== 'manager-renewal-joined' &&
+      scenario !== 'manager-renewal-queued-joined' &&
+      scenario !== 'manager-renewal-queued-staggered' &&
+      scenario !== 'manager-renewal-queued-completed'
+    )
+      return;
   }
   if (scenario.startsWith('skew-')) expect(performance.now() - guardStarted).toBeLessThan(20000);
   if (releaseFrontLease) {
@@ -1217,11 +1848,16 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
   if (
     ![
       'positive',
+      'certified-positive',
       'manager-context',
       'manager-retirement-joined',
       'manager-retirement-during-serial',
       'manager-retirement-completed-during-serial',
       'manager-renewal-joined',
+      'manager-renewal-queued-joined',
+      'manager-renewal-queued-staggered',
+      'manager-renewal-queued-completed',
+      'manager-renewal-queued-replaced',
       'manager-serial-initial-noop',
       'manager-serial-late-noop',
       'detached-drained',
@@ -1257,7 +1893,7 @@ it.each(wholeCases)('whole guard uses actual EED owners: %s', async (scenario) =
     return;
   }
 
-  expect(result, result.reason ?? 'whole guard positive').toMatchObject({
+  expect(result, JSON.stringify(result)).toMatchObject({
     ok: true,
     stage: 'complete',
     verifiedTables: 3,

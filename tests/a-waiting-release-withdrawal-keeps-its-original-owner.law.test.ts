@@ -24,56 +24,52 @@ beforeAll(() => {
   expect(prepared.status, prepared.stdout + prepared.stderr).toBe(0);
 }, 100000);
 
-it(
-  'qualifies exact waiting attempt admission and its original terminal signal boundary',
-  () => {
-    const sentinel = mkdtempSync(join(tmpdir(), 'withdrawal-git-owner-'));
-    const cleanEnv = Object.fromEntries(
-      Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'))
+it('qualifies exact waiting attempt admission and its original terminal signal boundary', () => {
+  const sentinel = mkdtempSync(join(tmpdir(), 'withdrawal-git-owner-'));
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_'))
+  );
+  try {
+    const initialized = spawnSync('git', ['init', '--bare', '--template=', '-q', sentinel], {
+      env: cleanEnv,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    expect(initialized.status, initialized.stderr).toBe(0);
+    const originalHead = readFileSync(join(sentinel, 'HEAD'), 'utf8');
+    const result = spawnSync(
+      'python3',
+      ['-B', 'tests/operations/waiting-engine-release-withdrawal.test.py'],
+      {
+        cwd: resolve(import.meta.dirname, '..'),
+        env: {
+          ...process.env,
+          GIT_DIR: sentinel,
+          GIT_WORK_TREE: sentinel,
+          PYTHONDONTWRITEBYTECODE: '1',
+        },
+        encoding: 'utf8',
+        // Local Mac transport needs headroom, and so does hosted Linux: CI
+        // checks out with `filter: blob:none`, so every `git show <sha>:...`
+        // of a historical source is a lazy blob fetch (60 s was exceeded on
+        // busy runners with the cases themselves passing).
+        timeout: 120000,
+      }
     );
-    try {
-      const initialized = spawnSync('git', ['init', '--bare', '--template=', '-q', sentinel], {
-        env: cleanEnv,
-        encoding: 'utf8',
-        timeout: 10000,
-      });
-      expect(initialized.status, initialized.stderr).toBe(0);
-      const originalHead = readFileSync(join(sentinel, 'HEAD'), 'utf8');
-      const result = spawnSync(
-        'python3',
-        ['-B', 'tests/operations/waiting-engine-release-withdrawal.test.py'],
-        {
-          cwd: resolve(import.meta.dirname, '..'),
-          env: {
-            ...process.env,
-            GIT_DIR: sentinel,
-            GIT_WORK_TREE: sentinel,
-            PYTHONDONTWRITEBYTECODE: '1',
-          },
-          encoding: 'utf8',
-          // Local Mac transport needs headroom, and so does hosted Linux: CI
-          // checks out with `filter: blob:none`, so every `git show <sha>:...`
-          // of a historical source is a lazy blob fetch (60 s was exceeded on
-          // busy runners with the cases themselves passing).
-          timeout: 120000,
-        }
-      );
-      expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(result.stderr).toContain('Ran 65 tests');
-      expect(readFileSync(join(sentinel, 'HEAD'), 'utf8')).toBe(originalHead);
-      const refs = spawnSync('git', ['--git-dir', sentinel, 'for-each-ref'], {
-        env: cleanEnv,
-        encoding: 'utf8',
-        timeout: 10000,
-      });
-      expect(refs.status, refs.stderr).toBe(0);
-      expect(refs.stdout).toBe('');
-    } finally {
-      rmSync(sentinel, { recursive: true, force: true });
-    }
-  },
-  135000
-);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toContain('Ran 80 tests');
+    expect(readFileSync(join(sentinel, 'HEAD'), 'utf8')).toBe(originalHead);
+    const refs = spawnSync('git', ['--git-dir', sentinel, 'for-each-ref'], {
+      env: cleanEnv,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    expect(refs.status, refs.stderr).toBe(0);
+    expect(refs.stdout).toBe('');
+  } finally {
+    rmSync(sentinel, { recursive: true, force: true });
+  }
+}, 135000);
 
 it('keeps the revoked off-cycle owner order closed', () => {
   const windows = JSON.parse(

@@ -1,3 +1,4 @@
+import { cashBuyInLabel } from '../lib/cashBuyIn';
 /**
  * LIGHTNING PHASE 6: /lightning/:clusterId, THE ONE DOOR TO A LIGHTNING CLUSTER.
  *
@@ -444,8 +445,13 @@ export default function LightningEntryPage() {
         stakes={meta ? `${meta.smallBlind}/${meta.bigBlind}` : ''}
         players={poolHealth?.players}
         buyIn={
-          meta?.minBuyIn != null && meta.maxBuyIn != null
-            ? `${meta.minBuyIn.toLocaleString()} - ${meta.maxBuyIn.toLocaleString()}`
+          meta
+            ? cashBuyInLabel({
+                game_variant: meta.variant,
+                big_blind: meta.bigBlind,
+                min_buy_in: meta.minBuyIn,
+                max_buy_in: meta.maxBuyIn,
+              })
             : undefined
         }
         status={

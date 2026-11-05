@@ -117,10 +117,137 @@ recreate() {
   bounded_recovery_command "$budget" env \
     ENGINE_UP_LOCK_HELD=1 \
     ENGINE_CONTROL_DIR="$CONTROL_DIR" \
+    ENGINE_UP_CERTIFIED_RETIREMENT="${CERTIFIED_RETIREMENT_JSON:-}" \
     CONTAINER="$CONTAINER" IMAGE="$DESIRED_IMAGE_ID" PORT="$PORT" \
     "$UP_SCRIPT" \
     || return 1
   ensure_autoheal_running
+}
+
+# A completed original-custody checkpoint can retire MaintenanceBreak while
+# its process still answers health. Only its durable, incarnation-bound native
+# marker permits reconstruction of that otherwise healthy sealed process.
+# The earlier one-shot intent alone never proves that custody was retained.
+certified_retirement_witness() {
+  local run="${ENGINE_CHECKPOINT_RECOVERY_RUN_ID:-}" current expectation
+  [ -n "$run" ] || { printf 'none\n'; return; }
+  [[ "$run" =~ ^[1-9][0-9]*(-[1-9][0-9]*)?$ ]] || return 1
+  expectation="$(bounded_recovery_command 5 python3 - "$run" \
+    "${ENGINE_RELEASE_REQUEST_ROOT:-/var/lib/club-arena/engine-release-requests}" \
+    "$CONTROL_DIR" <<'CERTIFIED_EXPECTATION'
+import datetime, json, os, re, stat, sys
+run, root, control = sys.argv[1:]
+def read_private(path, private=True):
+    if os.path.realpath(path) != os.path.abspath(path):
+        raise ValueError('retirement source path is indirect')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        s = os.fstat(fd)
+        if not stat.S_ISREG(s.st_mode) or s.st_uid != 0 or s.st_nlink != 1 or s.st_size > 131072 or s.st_mode & (0o077 if private else 0o022):
+            raise ValueError('retirement source file is unsafe')
+        return os.read(fd, 131073).decode()
+    finally:
+        os.close(fd)
+def require(value):
+    if not value: raise ValueError('certified retirement binding refused')
+def millis(value):
+    require(isinstance(value, str))
+    parsed = datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    require(parsed.tzinfo is not None)
+    return round(parsed.timestamp() * 1000)
+request = read_private(os.path.join(root, run + '.request')).splitlines()
+require(len(request) == 6 and request[3] == control and re.fullmatch('[0-9a-f]{40}', request[0])
+        and re.fullmatch('[0-9a-f]{40}', request[4])
+        and read_private(os.path.join(control, 'control-sha'), False).strip() == request[4])
+try:
+    intent = json.loads(read_private(os.path.join(root, run + '.legacy-checkpoint-intent')))
+except FileNotFoundError:
+    print('none'); sys.exit(0)
+proof = intent.get('certifiedRecovery')
+if proof is None:
+    print('none'); sys.exit(0)
+profile = {'id': 'eed-240s-certified-release-v1', 'noticeMs': 120000, 'freezeMs': 780000,
+           'nativeQueryMs': 240000, 'checkpointMs': 320000, 'postReserveMs': 205000}
+require(isinstance(proof, dict) and proof.get('schema') == 'engine-certified-recovery/v1'
+        and proof.get('profile') == profile
+        and proof.get('policyId') == '2026-11-04-tournament-fourfold-certified-recovery')
+p = proof.get('request')
+require(isinstance(p, dict) and p.get('runKey') == run and p.get('targetSha') == request[0]
+        and p.get('controlSha') == request[4] and p.get('policyId') == proof['policyId']
+        and p.get('predecessorSha') == intent.get('source') == 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
+        and p.get('instanceId') == intent.get('instance')
+        and intent.get('runId') == run and intent.get('controlSha') == request[4]
+        and intent.get('nativeCensus', {}).get('candidateSHA') == request[0]
+        and re.fullmatch('[0-9a-f]{64}', str(intent.get('container')))
+        and re.fullmatch('sha256:[0-9a-f]{64}', str(intent.get('containerImageId')))
+        and type(intent.get('hostPid')) is int and intent['hostPid'] > 1
+        and re.fullmatch('[1-9][0-9]*-[0-9a-f]{8}', str(intent.get('instance')))
+        and re.fullmatch('[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}', str(p.get('ownershipToken'))))
+announced, release = millis(p.get('announcedAt')), millis(proof.get('releaseAt'))
+require(release == announced + 900000 and millis(intent.get('startedAt')) < announced)
+print(json.dumps({'profile': profile['id'], 'runId': run, 'controlSha': request[4],
+ 'targetSha': request[0], 'sourceSha': intent['source'], 'instanceId': intent['instance'],
+ 'containerId': intent['container'], 'containerImageId': intent['containerImageId'], 'containerStartedAt': intent['startedAt'],
+ 'hostPid': intent['hostPid'], 'pid': 1, 'announcedAt': announced,
+ 'ownershipToken': p['ownershipToken'], 'releaseAt': release}, separators=(',', ':')))
+CERTIFIED_EXPECTATION
+  )" || return 1
+  [ "$expectation" != none ] || { printf 'none\n'; return; }
+  if ! current="$(bounded_recovery_command 5 docker container inspect -f \
+    '{"containerId":{{json .Id}},"containerImageId":{{json .Image}},"containerStartedAt":{{json .State.StartedAt}},"hostPid":{{json .State.Pid}},"running":{{json .State.Running}}}' "$CONTAINER")"; then
+    # An inspect error alone is not absence. A successful exact-name census
+    # can establish that ordinary sealed-image recovery must create it anew.
+    local named
+    named="$(bounded_recovery_command 5 docker container ls -a --no-trunc \
+      --filter "name=^/${CONTAINER}$" --format '{{.ID}}')" || return 1
+    [ -z "$named" ] || return 1
+    printf 'successor\n'; return
+  fi
+  local disposition
+  disposition="$(bounded_recovery_command 5 python3 - "$expectation" "$current" "$DESIRED_SHA" "$DESIRED_IMAGE_ID" <<'CERTIFIED_INCARNATION'
+import datetime, json, re, sys
+expected, current = map(json.loads, sys.argv[1:3])
+if not (isinstance(current, dict) and set(current) == {'containerId','containerImageId','containerStartedAt','hostPid','running'}
+    and re.fullmatch('[0-9a-f]{64}', str(current.get('containerId')))
+    and re.fullmatch('sha256:[0-9a-f]{64}', str(current.get('containerImageId')))
+    and isinstance(current.get('containerStartedAt'), str)
+    and datetime.datetime.fromisoformat(current['containerStartedAt'].replace('Z', '+00:00')).tzinfo is not None
+    and type(current.get('hostPid')) is int and current['hostPid'] >= 0
+    and type(current.get('running')) is bool):
+    raise SystemExit('certified current incarnation is unreadable')
+if any(current.get(k) != expected[k] for k in ('containerId', 'containerStartedAt', 'hostPid')):
+    print('successor')
+elif current.get('running') is True and current.get('containerImageId') == expected['containerImageId'] == sys.argv[4] and expected['sourceSha'] == sys.argv[3]:
+    print('original')
+else:
+    raise SystemExit('certified original runtime identity refused')
+CERTIFIED_INCARNATION
+  )" || return 1
+  [ "$disposition" = original ] || { printf 'successor\n'; return; }
+  bounded_recovery_command 8 docker exec "$CONTAINER" env -u NODE_OPTIONS -u NODE_PATH node --no-inspect -e '
+const fs=require("node:fs"), expected=JSON.parse(process.argv[1]);
+const fail=()=>{throw Error("certified retirement native witness refused")};
+if(!/^[1-9][0-9]*(-[1-9][0-9]*)?$/.test(expected.runId))fail();
+const path="/app/.legacy-certified-retirement-"+expected.runId+".json";
+const fd=fs.openSync(path,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+let marker;
+try {
+ const s=fs.fstatSync(fd);
+ if(!s.isFile()||s.uid!==0||s.nlink!==1||(s.mode&0o777)!==0o600||s.size>16384)fail();
+ marker=JSON.parse(fs.readFileSync(fd,"utf8"));
+} finally {fs.closeSync(fd)}
+const keys=[...Object.keys(expected),"schema","nativeStartTicks","stage","attemptedTables","verifiedTables","finalCensusZero","maintenanceGeneration","resumeToken"].sort();
+if(!marker||JSON.stringify(Object.keys(marker).sort())!==JSON.stringify(keys))fail();
+for(const [k,v] of Object.entries(expected))if(marker[k]!==v)fail();
+if(marker.schema!=="legacy-certified-retirement/v1"||marker.stage!=="custody_complete_stop_entering"||marker.finalCensusZero!==true)fail();
+for(const k of ["attemptedTables","verifiedTables","maintenanceGeneration","resumeToken"])
+ if(!Number.isSafeInteger(marker[k])||marker[k]<0)fail();
+if(marker.attemptedTables!==marker.verifiedTables||!/^[1-9][0-9]*$/.test(marker.nativeStartTicks))fail();
+const proc=fs.readFileSync("/proc/1/stat","utf8");
+const ticks=proc.slice(proc.lastIndexOf(")")+2).trim().split(/\s+/)[19];
+if(ticks!==marker.nativeStartTicks)fail();
+process.stdout.write(JSON.stringify({...expected,nativeStartTicks:ticks}));
+' "$expectation"
 }
 
 recreate_or_die() {
@@ -248,7 +375,14 @@ RUNNING_AUTOHEAL_LABEL="$(bounded_recovery_command 5 docker container inspect \
 RUNNING_ROLE_LABEL="$(bounded_recovery_command 5 docker container inspect \
   -f '{{index .Config.Labels "sp.role"}}' "$CONTAINER" 2>/dev/null || true)"
 
-if [ "$RUNNING_IMAGE_ID" != "$DESIRED_IMAGE_ID" ] \
+CERTIFIED_RETIREMENT_JSON="$(certified_retirement_witness)" \
+  || die 'certified original custody or retirement incarnation is unknown; preserving the process'
+case "$CERTIFIED_RETIREMENT_JSON" in none|successor) CERTIFIED_RETIREMENT_JSON='' ;; esac
+
+if [ -n "$CERTIFIED_RETIREMENT_JSON" ]; then
+  log 'reconstructing the exact original incarnation after its durable certified custody checkpoint'
+  recreate_or_die
+elif [ "$RUNNING_IMAGE_ID" != "$DESIRED_IMAGE_ID" ] \
   || [ "$RUNNING_AUTOHEAL_LABEL" != true ] \
   || [ "$RUNNING_ROLE_LABEL" != engine ] \
   || { [ "$RUNNING_RELEASE" != "$DESIRED_SHA" ] \

@@ -86,7 +86,7 @@ export interface RegisterTournamentParams {
   union_id?: string | null;
 }
 
-export function useTournamentRegistration() {
+export function useTournamentRegistration(onHold?: () => void) {
   const [isRegistering, setIsRegistering] = useState(false);
   const navigate = useAppNavigate();
   const inTab = useInTabLobby();
@@ -123,9 +123,12 @@ export function useTournamentRegistration() {
 
       const isLateReg = t.is_late_registration ?? isLateStatus(t.status);
       if (!isLateReg) {
-        const holdStatus = await readTournamentStartHoldStatus();
-        if (holdStatus.blocked) {
-          toast.warning(holdStatus.popupMessage ?? MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE);
+        const holdStatus = await readTournamentStartHoldStatus({ force: true });
+        if (!aliveRef.current || holdStatus.blocked) {
+          if (aliveRef.current) {
+            if (onHold) onHold();
+            else toast.warning(holdStatus.popupMessage ?? MIDWAY_MTT_SERVER_UPDATE_POPUP_MESSAGE);
+          }
           registeringRef.current = false;
           return;
         }
@@ -374,7 +377,7 @@ export function useTournamentRegistration() {
         if (aliveRef.current) setIsRegistering(false);
       }
     },
-    [currentUserId, username, navigate, toast, inTab]
+    [currentUserId, username, navigate, toast, inTab, onHold]
   );
 
   return { register, isRegistering };

@@ -1,0 +1,12 @@
+{
+  "_owner": "fix/db-eed-extended-owner-01a1a01a",
+  "_comment": "Exact owner-scoped new EED recovery registration and read-only certified boundary; no client access or release publisher.",
+  "functions": [
+    "fn_engine_certified_recovery_contract",
+    "fn_register_engine_certified_recovery",
+    "fn_engine_certified_recovery_proof",
+    "smarter_private.engine_certified_recovery_targets",
+    "smarter_private.engine_certified_recovery_frozen_original"
+  ],
+  "tables": ["smarter_private.engine_certified_recoveries"]
+}

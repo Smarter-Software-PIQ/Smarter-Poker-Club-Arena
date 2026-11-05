@@ -8,6 +8,16 @@ const suite = 'tests/operations/engine-activation-floor.test.py';
 // the original child/case deadlines rather than increasing either deadline.
 const groups = [
   {
+    name: 'certified owner duration and durable reservation',
+    cases: [
+      'test_certified_owner_requires_exact_profile_and_entire_900_second_cycle',
+      'test_certified_reservation_is_durable_exact_and_never_reannounced',
+      'test_certified_reservation_refuses_mismatch_and_late_new_cycle_without_writes',
+      'test_certified_completion_waits_for_900_seconds_and_original_terminal_receipt',
+      'test_certified_diagnostic_bounds_are_profile_and_predecessor_scoped',
+    ],
+  },
+  {
     name: 'Phase1 admission and prior-owner preservation',
     cases: [
       'test_phase1_policy_owns_fresh_admission_without_retargeting_prior_owner',
@@ -43,6 +53,7 @@ const groups = [
       'test_original_retirement_continuation_preserves_prior_floor_and_expiry',
       'test_owned_renewal_observation_preserves_prior_floor_and_fixed_expiry',
       'test_canonical_source_continuation_preserves_prior_floor_and_fixed_expiry',
+      'test_immediate_relaunch_continuation_preserves_history_and_full_reserves',
       'test_owner_reservation_binds_run_target_cause_and_full_window',
       'test_actual_owner_certificate_binds_existing_window_and_refuses_shortcut',
       'test_actual_reservation_entry_survives_unknown_ack_and_checkpoint_no_action',
@@ -66,6 +77,7 @@ const groups = [
       'test_receiver_gate_precedes_all_control_installation_and_failure_cleanup',
       'test_installed_v1_templates_accept_current_per_run_entrypoint',
       'test_actual_recovery_skips_runtime_only_for_proved_never_entered',
+      'test_expired_original_announcement_finishes_only_through_its_failed_receipt',
       'test_fresh_prework_cannot_restore_live_engine_and_entry_is_after_certificate',
       'test_actual_confirmed_checkpoint_no_action_retires_only_fresh_entry',
     ],
@@ -92,7 +104,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(38);
+  expect(selected).toHaveLength(45);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);

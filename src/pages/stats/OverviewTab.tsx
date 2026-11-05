@@ -14,9 +14,8 @@ import { CHIP_STATS, type StatsClubId, type StatsScope } from '../../services/st
 import { playerDisplayName } from '../../utils/playerDisplayName';
 import { compactChips } from '../../utils/format';
 import { enumToTitleCase } from '../../utils/titleCase';
-import type { playerStyleFromStats } from '../../components/stats/playerStyleFromStats';
 import { StatRow } from './StatRow';
-import { NOT_YET_MEASURED, SCOPE_CASH, ratioOrUnmeasured } from './format';
+import { NOT_YET_MEASURED, SCOPE_CASH, ratioOrUnmeasured, aggressionFactorLabel } from './format';
 import { RANGES, type FullStats, type OverallStats, type HandEvidenceFilter } from './types';
 import type { StatsMetricAvailabilityContract } from '../../services/statsContract';
 
@@ -42,7 +41,6 @@ export interface OverviewTabProps {
   targetUserId: string | undefined;
   windowDays: number | null;
   user: Parameters<typeof playerDisplayName>[0];
-  shareStyle: ReturnType<typeof playerStyleFromStats>;
   printing: boolean;
   printDossier: () => void;
   openHandEvidence: (filter?: HandEvidenceFilter) => void;
@@ -65,7 +63,6 @@ export default function OverviewTab({
   targetUserId,
   windowDays,
   user,
-  shareStyle,
   printing,
   printDossier,
   openHandEvidence,
@@ -112,7 +109,7 @@ export default function OverviewTab({
             is "no hands scored", so that is the one that stops printing a
             number here. */}
         <StatRow
-          label="Aggression Factor"
+          label={aggressionFactorLabel(overall.aggression_factor_basis)}
           value={
             clubId && !metricAvailability.aggression_factor
               ? NOT_YET_MEASURED
@@ -263,8 +260,16 @@ export default function OverviewTab({
         <PanelBoundary name="Share Card" resetKey={panelResetKey}>
           <StatsShareCard
             displayName={playerDisplayName(user)}
-            styleLabel={shareStyle?.label ?? null}
-            styleColor={shareStyle?.color ?? null}
+            /* The title and its reason are computed INSIDE the share card
+               (2026-11-04), which is its own lazy chunk: the classifier and
+               its reason strings stay out of the stats page's download budget
+               (scripts/ci/check-stats-performance-budgets.mjs). The card reads
+               the SAME range it prints, never lifetime. */
+            styleSource={{
+              overall,
+              aggressionAvailable: metricAvailability?.aggression_factor === true,
+              variants: full?.variants,
+            }}
             stats={{
               hands: overall.total_hands,
               bb100: overall.bb_per_100,

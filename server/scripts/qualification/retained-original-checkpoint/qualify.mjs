@@ -27,7 +27,11 @@ if (
 )
   throw Error('Invalid native composition input');
 const nativeMode = Boolean(nativeImage || nativeAddon);
-const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 240000);
+// Keep the owner-authorized bounded qualification allowance after repairing
+// fixture mock retention (the corrected full80 run took114.794s). Preserve
+// every per-case deadline and120s archive/compile/cleanup headroom, including
+// the measured hosted66.809s compile. No production deadline changes.
+const qualificationDeadline = performance.now() + (nativeMode ? 180000 : 480000);
 const CASES = nativeMode
   ? ['RetainedWholeGuard.test.ts']
   : [
@@ -142,8 +146,8 @@ need(pinText, 'fixed deployed pin census unavailable');
 // decoded value is still restricted to the fixed ASCII path/hash schema below.
 const pins = JSON.parse(pinText[1].replace(/'/g, '"').replace(/,\s*]/g, ']'));
 need(
-  pins.length === 29 &&
-    new Set(pins.map(([path]) => path)).size === 29 &&
+  pins.length === 31 &&
+    new Set(pins.map(([path]) => path)).size === 31 &&
     pins.every(
       ([path, sha]) => /^\/app\/dist\/[A-Za-z0-9/]+\.js$/.test(path) && /^[a-f0-9]{64}$/.test(sha)
     ),
@@ -299,20 +303,20 @@ try {
       );
     }
   } else
-    output = run(process.execPath, fixtureArgs, server, nativeMode ? 60000 : 240000, fixtureEnv);
+    output = run(process.execPath, fixtureArgs, server, nativeMode ? 60000 : 360000, fixtureEnv);
   if (!nativeMode) output = readFileSync(reportPath, 'utf8');
   const start = output.indexOf('{');
   need(start >= 0, 'native fixture result unavailable');
   const result = JSON.parse(output.slice(start));
   need(
     result.success === true &&
-      result.numTotalTests === (nativeMode ? 61 : 69) &&
-      result.numPassedTests === (nativeMode ? 2 : 69) &&
-      (!nativeMode || result.numPendingTests === 59) &&
+      result.numTotalTests === (nativeMode ? 72 : 80) &&
+      result.numPassedTests === (nativeMode ? 2 : 80) &&
+      (!nativeMode || result.numPendingTests === 70) &&
       result.numFailedTests === 0,
     nativeMode
       ? 'both actual native census/EED guard cases must pass'
-      : 'all sixty-five exact EED fixture cases must actually pass'
+      : 'all eighty exact EED fixture cases must actually pass'
   );
   need(
     hash(readFileSync(guardPath)) === hash(guardBytes),

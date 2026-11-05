@@ -54,11 +54,12 @@ test('historical capacity preserves all cases and distinct cleanup headroom', as
     ),
     'utf8'
   );
-  assert.match(driver, /nativeMode \? 180000 : 240000/);
+  assert.match(driver, /nativeMode \? 180000 : 480000/);
   assert.match(driver, /runOwnedCommand\(program, args/);
-  assert.match(driver, /result\.numTotalTests === \(nativeMode \? 61 : 69\)/);
-  assert.match(driver, /result\.numPassedTests === \(nativeMode \? 2 : 69\)/);
+  assert.match(driver, /nativeMode \? 60000 : 360000/);
+  assert.match(driver, /result\.numTotalTests === \(nativeMode \? 72 : 80\)/);
+  assert.match(driver, /result\.numPassedTests === \(nativeMode \? 2 : 80\)/);
   assert.match(driver, /result\.numFailedTests === 0/);
-  assert.match(wrapper, /timeout: 270_000/);
-  assert.match(wrapper, /}, 300_000\)/);
+  assert.match(wrapper, /timeout: 510_000/);
+  assert.match(wrapper, /}, 540_000\)/);
 });

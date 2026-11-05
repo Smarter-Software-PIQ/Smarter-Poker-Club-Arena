@@ -7,13 +7,15 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useStaggerAnimation } from '../../hooks/useStaggerAnimation';
 import { useAuthUser } from '../../hooks/useAuthUser';
-import { vipService, FEATURE_PRICING } from '../../services/VIPService';
-import { NOTE_COLORS, PLAYER_TAGS, playerNotesService } from '../../services/PlayerNotesService';
-import { showDiamondTopUp } from '../common/DiamondTopUpToast';
+import {
+  LABEL_TO_HEX,
+  NOTE_COLORS,
+  PLAYER_TAGS,
+  playerNotesService,
+} from '../../services/PlayerNotesService';
 import { useToast } from '../common/Toast';
 import styles from './PlayerNotesPanel.module.css';
 import { SpadeConsole } from '../console/SpadeConsole';
@@ -65,13 +67,10 @@ export default function PlayerNotesPanel({
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
-  /** In-flight latch for the paid tag purchase — see toggleTag. */
-  const tagPurchaseRef = useRef(false);
+  /** Whether a row for this opponent existed when the editor opened. */
+  const existingNoteRef = useRef(false);
   const accountRequestRef = useRef(0);
-  const tagPurchaseRequestRef = useRef(0);
   const [searchQuery, setSearchQuery] = usePlayerPreference('playerNotes.search', '', 'global');
-  const [isVIP, setIsVIP] = useState(false);
-  const navigate = useNavigate();
   const toast = useToast();
   const { style: staggerStyle } = useStaggerAnimation(notes.length);
   const activeScope = `${user?.id || 'anonymous'}:${targetUserId || 'library'}`;
@@ -84,8 +83,6 @@ export default function PlayerNotesPanel({
   if (activeScopeRef.current !== activeScope) {
     activeScopeRef.current = activeScope;
     accountRequestRef.current += 1;
-    tagPurchaseRequestRef.current += 1;
-    tagPurchaseRef.current = false;
   }
 
   const stateBelongsToActiveScope = stateScope === activeScope;
@@ -93,7 +90,6 @@ export default function PlayerNotesPanel({
   const visibleCurrentNote = stateBelongsToActiveScope ? currentNote : '';
   const visibleSelectedTags = stateBelongsToActiveScope ? selectedTags : [];
   const visibleSelectedColor = stateBelongsToActiveScope ? selectedColor : 'none';
-  const visibleIsVIP = stateBelongsToActiveScope && isVIP;
   const visibleLoading = !stateBelongsToActiveScope || loading;
   const visibleLoadFailed = stateBelongsToActiveScope && noteLoadFailed;
 
@@ -113,12 +109,11 @@ export default function PlayerNotesPanel({
     setCurrentNote('');
     setSelectedTags([]);
     setSelectedColor('none');
-    setIsVIP(false);
     setSaving(false);
     savingRef.current = false;
     setNoteLoadFailed(false);
+    existingNoteRef.current = false;
     setLoading(!!requestedUserId);
-    tagPurchaseRef.current = false;
 
     if (!requestedUserId) {
       setLoading(false);
@@ -143,6 +138,7 @@ export default function PlayerNotesPanel({
         toast.error('Your Note On This Player Could Not Be Loaded');
         return;
       }
+      existingNoteRef.current = !!data;
       if (data) {
         setCurrentNote(data.notes || '');
         setSelectedTags(data.tags || []);
@@ -188,7 +184,7 @@ export default function PlayerNotesPanel({
           targetAvatar: pMap[note.target_user_id]?.avatar_url,
           note: note.notes,
           tags: note.tags || [],
-          color: note.color_label || '#6b7280',
+          color: LABEL_TO_HEX[note.color_label as string] || LABEL_TO_HEX.none,
           lastUpdated: note.updated_at,
         }));
         if (isCurrent()) setNotes(mapped);
@@ -202,17 +198,6 @@ export default function PlayerNotesPanel({
       setNoteLoadFailed(true);
       setLoading(false);
     });
-    void vipService
-      .checkVIPStatus(requestedUserId)
-      .then((status) => {
-        if (isCurrent()) setIsVIP(status.isVIP);
-      })
-      .catch((error) => {
-        if (isCurrent()) {
-          console.warn('[PlayerNotesPanel] Failed To Check VIP Status:', error);
-        }
-      });
-
     return () => {
       mounted = false;
       if (accountRequestRef.current === requestId) accountRequestRef.current += 1;
@@ -242,6 +227,24 @@ export default function PlayerNotesPanel({
     setSaving(true);
 
     try {
+      /* A BLANK SAVE IS A CLEAR (2026-11-04). Saving with no text, no tags
+         and no colour used to write an empty row, which then counted as "a
+         note on this player" everywhere a note is counted: the Notes Library
+         listed a blank card and the seat would wear the post-it for nothing.
+         Clearing every field and saving now removes the row instead. */
+      const isBlank =
+        note === '' && visibleSelectedTags.length === 0 && visibleSelectedColor === 'none';
+      if (isBlank) {
+        if (existingNoteRef.current) {
+          await playerNotesService.deleteNote(requestedUserId, targetUserId);
+          existingNoteRef.current = false;
+          if (isCurrent()) toast.success('Note Cleared');
+        }
+        // Nothing to write and nothing to clear: just hand the felt back.
+        if (isCurrent()) onClose?.();
+        return;
+      }
+
       const { error } = await supabase.from('player_notes').upsert(
         {
           user_id: requestedUserId,
@@ -256,7 +259,17 @@ export default function PlayerNotesPanel({
 
       if (error) throw error;
       playerNotesService.clearCache();
-      if (isCurrent()) onClose?.();
+      existingNoteRef.current = true;
+      playerNotesService.notifyChanged({
+        userId: requestedUserId,
+        targetUserId,
+        hasNote: true,
+        colorLabel: visibleSelectedColor,
+      });
+      if (isCurrent()) {
+        toast.success('Note Saved');
+        onClose?.();
+      }
     } catch (error) {
       reportError(error, 'PlayerNotesPanel.Save');
       if (isCurrent()) toast.error('Failed To Save Note. Your Draft Is Still Here.');
@@ -268,7 +281,7 @@ export default function PlayerNotesPanel({
     }
   };
 
-  const toggleTag = async (tag: string) => {
+  const toggleTag = (tag: string) => {
     if (!stateBelongsToActiveScope || visibleLoading || visibleLoadFailed) return;
     // Removing a tag is always free
     if (visibleSelectedTags.includes(tag)) {
@@ -276,43 +289,11 @@ export default function PlayerNotesPanel({
       return;
     }
 
-    /**
-     * AUDIT 2026-08-28 — A NON-VIP COULD ADD EXACTLY ONE TAG, EVER.
-     *
-     * `tag_pack` is priced `permanent` (VIPService FEATURE_PRICING even notes
-     * it is "advertised per_use, actually written permanent"), so after the
-     * first successful purchase fn_purchase_feature answers `already_owned`
-     * with `success: false`. This site checked only `success`, so every
-     * subsequent tag opened the buy-more-diamonds sheet for something the
-     * player already owned, and `setSelectedTags` was never reached.
-     * Ownership is permission. Also given an in-flight ref, because two taps
-     * inside one commit both passed the `includes` test above (state had not
-     * committed) and both charged.
-     */
-    if (!visibleIsVIP) {
-      const requestedUserId = user?.id;
-      const requestedScope = activeScope;
-      if (!requestedUserId) return;
-      if (tagPurchaseRef.current) return;
-      tagPurchaseRef.current = true;
-      const requestId = ++tagPurchaseRequestRef.current;
-      const isCurrent = () =>
-        activeScopeRef.current === requestedScope && tagPurchaseRequestRef.current === requestId;
-      try {
-        const result = await vipService.purchaseFeature(requestedUserId, 'tag_pack');
-        if (!isCurrent()) return;
-        if (!result.success && !result.alreadyOwned) {
-          showDiamondTopUp(toast, navigate, {
-            feature: 'Player Tag',
-            cost: FEATURE_PRICING.tag_pack.cost,
-          });
-          return;
-        }
-      } finally {
-        if (isCurrent()) tagPurchaseRef.current = false;
-      }
-    }
-
+    /* TAGS ARE FREE (Dan 2026-11-04). Until today a non-VIP player paid a
+       diamond for the tag pack before the first tag would stick, and the
+       feature had two users in production. Club Arena is free to play; a
+       note's tags are part of the note. No status check, no purchase, no
+       top-up sheet. Removing a tag was always free; adding one now is too. */
     if (activeScopeRef.current !== activeScope) return;
     setSelectedTags((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
   };
@@ -322,6 +303,7 @@ export default function PlayerNotesPanel({
     const requestedScope = activeScope;
     if (!requestedUserId || !stateBelongsToActiveScope) return;
     const requestId = ++accountRequestRef.current;
+    const removed = visibleNotes.find((n) => n.id === noteId);
     // SECURITY: Scope to current user to prevent deleting other users' notes
     const { error } = await supabase
       .from('player_notes')
@@ -333,6 +315,14 @@ export default function PlayerNotesPanel({
     if (error) {
       toast.error('Failed To Delete Note');
       return;
+    }
+    playerNotesService.clearCache();
+    if (removed?.targetUserId) {
+      playerNotesService.notifyChanged({
+        userId: requestedUserId,
+        targetUserId: removed.targetUserId,
+        hasNote: false,
+      });
     }
     setNotes((prev) => prev.filter((n) => n.id !== noteId));
   };

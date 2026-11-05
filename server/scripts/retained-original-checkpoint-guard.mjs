@@ -35,6 +35,14 @@ export async function retainedOriginalCheckpointGuard(
     ],
     ['/app/dist/GameServer.js', '813adcb6c6344f3307e80db966ba5eb4ffb4a651d9f3260f1df5db6544044845'],
     [
+      '/app/dist/services/tournamentLease.js',
+      'db7c6a9e5dc8d49ddac05b0cac7603be056caf2684178c19542b8d8b8924200f',
+    ],
+    [
+      '/app/dist/tournament/TournamentManagerOwnership.js',
+      '64a04336cc1199f65f36378bf76a0d77b11fec043016f6bbef67def727bc35b1',
+    ],
+    [
       '/app/dist/engine/ServerTableEngineBase.js',
       '36b670ff53d6e79c35dd515a5a7441431949c9caec7be8d22da557fa69753506',
     ],
@@ -130,6 +138,7 @@ export async function retainedOriginalCheckpointGuard(
   const release = 'eed06fe51dea622069c661a6213d5b031ff3a9e3';
   // Exact EED80 profile: 285s strict entry minus80s checkpoint; rollback stays135s.
   const reserveMs = 205000;
+  let certifiedReleaseAt = 0, maintenanceStopAttempted = false;
   let stage = 'preflight',
     attemptedTables = 0,
     completedCalls = 0,
@@ -492,7 +501,98 @@ export async function retainedOriginalCheckpointGuard(
           record(maintenance.lastDurableState),
         'retained_break_identity_unproven'
       );
-      const startRemaining = maintenance.remainingMs(),
+      const certified = options.custodyIntent?.certifiedRecovery ?? null;
+      const certifiedProfile = {
+        id: 'eed-240s-certified-release-v1', noticeMs: 120000, freezeMs: 780000,
+        nativeQueryMs: 240000, checkpointMs: 320000, postReserveMs: 205000,
+      };
+      const certifiedTargets = ['sit_out_at','hold_expires_at','addon_period_ends_at','reversible_until','reveal_deadline_at','rebuy_prompt_until','bomb_pot_next_due_at','cash_stay_last_tick_at','cash_rejoin_expires_at','level_started_at','cluster_break_eligible_since','cluster_move_expires_at','reconnect_presence','reconnect_snapshots','lightning_drain_deadline_at'];
+      let certifiedJobs = null, certifiedThawRequest = null;
+      const proveCertifiedRelease = async (requireFreshLeader = true) => {
+        if (!certified) return;
+        const request = certified.request;
+        need(record(request) && equal(Object.keys(request).sort(), [
+          'runKey', 'targetSha', 'controlSha', 'predecessorSha', 'instanceId',
+          'announcedAt', 'ownershipToken', 'policyId',
+        ].sort()) &&
+          request.runKey === options.custodyIntent.runId &&
+          /^[1-9][0-9]*(-[1-9][0-9]*)?$/.test(request.runKey) &&
+          request.targetSha === options.custodyIntent.nativeCensus?.candidateSHA &&
+          /^[0-9a-f]{40}$/.test(request.targetSha) &&
+          request.controlSha === options.custodyIntent.controlSha &&
+          /^[0-9a-f]{40}$/.test(request.controlSha) &&
+          request.predecessorSha === release && request.instanceId === options.expectedInstanceId &&
+          request.policyId === '2026-11-04-tournament-fourfold-certified-recovery' &&
+          Date.parse(request.announcedAt) === initial.announcedAt &&
+          request.ownershipToken === initial.ownershipToken,
+          'retained_certified_request_unproven');
+        const response = await modules.client.supabase.rpc('fn_engine_certified_recovery_proof', {
+          p_run_key: request.runKey, p_target_sha: request.targetSha,
+          p_control_sha: request.controlSha, p_announced_at: request.announcedAt,
+        });
+        const proof = response?.data, raw = proof?.rawMaintenance, thaw = proof?.thaw;
+        need(!response?.error && record(proof) &&
+          proof.schema === 'engine-certified-recovery/v1' &&
+          proof.policyId === request.policyId && equal(proof.request, request) &&
+          equal(proof.profile, certifiedProfile) &&
+          Date.parse(proof.releaseAt) === initial.announcedAt + 900000 &&
+          Date.parse(proof.releaseAt) === Date.parse(certified.releaseAt) &&
+          Math.abs(Date.now() - Date.parse(proof.observedAt)) <= 5000 &&
+          proof.leader?.version === release && proof.leader?.instanceId === options.expectedInstanceId &&
+          (Number.isFinite(Date.parse(proof.leader.heartbeatAt)) && (!requireFreshLeader ||
+            (Date.now() - Date.parse(proof.leader.heartbeatAt) >= -5000 &&
+             Date.now() - Date.parse(proof.leader.heartbeatAt) <= 30000))) &&
+          record(raw) && equal(Object.keys(raw).sort(), [
+            'id','phase','announced_at','break_started_at','break_ends_at','reason',
+            'ownership_token','enforce_freeze','declared_by',
+          ].sort()) && raw.phase === 'counting_down' && raw.enforce_freeze === true &&
+          raw.reason === initial.reason && raw.reason === 'Deployment Recovery' &&
+          raw.ownership_token === initial.ownershipToken &&
+          Date.parse(raw.announced_at) === initial.announcedAt &&
+          Date.parse(raw.break_started_at) === initial.breakStartedAt &&
+          Date.parse(raw.break_ends_at) === initial.breakEndsAt &&
+          record(thaw) && thaw.contract_version === 3 &&
+          thaw.ownership_token === initial.ownershipToken &&
+          Date.parse(thaw.announced_at) === initial.announcedAt &&
+          Date.parse(thaw.freeze_started_at) === initial.breakStartedAt &&
+          Date.parse(thaw.release_target_at) === Date.parse(proof.releaseAt) &&
+          thaw.release_generation === 1 &&
+          proof.targets?.familyCount === 15 && proof.targets.allCredited === true &&
+          proof.targets.complete === true && record(thaw.shifted) &&
+          equal(Object.keys(thaw.shifted).sort(), [...certifiedTargets, 'complete', '_targets_snapshotted', '_target_counts'].sort()) &&
+          thaw.shifted.complete === true && thaw.shifted._targets_snapshotted === true &&
+          record(thaw.shifted._target_counts) && equal(Object.keys(thaw.shifted._target_counts).sort(), [...certifiedTargets].sort()) &&
+          certifiedTargets.every((key) => Number.isSafeInteger(thaw.shifted[key]) && thaw.shifted[key] >= 0 && thaw.shifted._target_counts[key] === thaw.shifted[key]) &&
+          proof.platformFrozen === true && proof.entryPurchasesFrozen === true,
+          'retained_certified_release_unproven');
+        certifiedReleaseAt = Date.parse(proof.releaseAt);
+      };
+      if (certified) {
+        // Native enumeration blocks the JS loop. Identity is checked now; the
+        // same leader must be fresh after original renewal work joins below,
+        // before the first original stop. No stale heartbeat authorizes mutation.
+        await proveCertifiedRelease(false);
+        need(maintenance.started === true && maintenance.acceptingLifecycleWork === true &&
+          maintenance.lifecycleAbort?.signal?.aborted === false && maintenance.ending === true &&
+          maintenance.certifiedResumeAt === certifiedReleaseAt && maintenance.stopOperation === null &&
+          maintenance.releaseBoundaryOnly === false && maintenance.endTimer === null &&
+          maintenance.lifecycleJobs instanceof Set && maintenance.lifecycleJobs.size > 0 &&
+          [...maintenance.lifecycleJobs].every((job) => job instanceof Promise) &&
+          maintenance.resumeWaveTimers instanceof Set && maintenance.resumeWaveTimers.size === 0 &&
+          maintenance.pendingResumeTables instanceof Set && maintenance.pendingResumeTables.size === 0 &&
+          Object.isFrozen(maintenance.thawRequest) &&
+          maintenance.thawRequest.announcedAt === initial.announcedAt &&
+          maintenance.thawRequest.freezeStartedAt === initial.breakStartedAt &&
+          maintenance.thawRequest.ownershipToken === initial.ownershipToken &&
+          maintenance.stop === modules.maintenance.MaintenanceBreak.prototype.stop,
+          'retained_certified_lifecycle_unproven');
+        certifiedJobs = new Set(maintenance.lifecycleJobs);
+        certifiedThawRequest = maintenance.thawRequest;
+      }
+      const remainingMaintenance = () => certified
+        ? Math.min(certifiedReleaseAt - Date.now(), maintenance.certifiedResumeAt - Date.now())
+        : maintenance.remainingMs();
+      const startRemaining = remainingMaintenance(),
         startClock = performance.now();
       const generation = server.lifecycleGeneration;
       need(
@@ -589,7 +689,16 @@ export async function retainedOriginalCheckpointGuard(
           Number.isFinite(m.tournamentLeaseProofDeadlineMonotonicMs) &&
           performance.now() >= m.tournamentLeaseProofDeadlineMonotonicMs
       );
-      const observeExistingRenewal = elapsedOwners.length > 0 && existingRenewal instanceof Promise;
+      const elapsedOwnerProofs = new Map(
+        elapsedOwners.map((m) => [
+          m,
+          {
+            deadline: m.tournamentLeaseProofDeadlineMonotonicMs,
+            timer: m.tournamentLeaseExpiryTimer,
+          },
+        ])
+      );
+      const observeExistingRenewal = elapsedOwners.length > 0;
       // Drain original serial continuations before publishing the registry witness.
       // A continuation may already own lease loss and retirement; the guard only
       // joins it, never starts a stop or renews an expired generation.
@@ -599,6 +708,26 @@ export async function retainedOriginalCheckpointGuard(
           server.tournamentManagerRetirementOperations?.get(m),
         ])
       );
+      const retirementOperationOwner = server.tournamentManagerRetirementOperations;
+      const retirementStateMaps = new Map(
+        [
+          'tournamentManagerLeaseReleaseOperations',
+          'tournamentManagerPendingLeaseReleases',
+          'tournamentManagerAdmissionOperations',
+          'tournamentManagerAdmissionLeaseGenerations',
+          'tournamentManagerAdmissionRetryTimers',
+          'drainedF06TournamentCustody',
+          'durableMixedF06Custody',
+          'mixedF06AdmissionContinuations',
+          'completedF06TournamentCustody',
+        ].map((key) => [key, server[key]])
+      );
+      const retirementMethods = [
+        'stopTournamentManagerIfOwned',
+        'transferDrainedF06Custody',
+        'awaitTournamentManagerLeaseRelease',
+      ].map((key) => [key, server[key]]);
+      const completedOriginalRetirements = new Set();
       const preliminaryIdentities = new Map(
         discoveredManagers.map((m) => [
           m,
@@ -620,7 +749,7 @@ export async function retainedOriginalCheckpointGuard(
           'retained_retirement_owner_unproven'
         );
         need(
-          Math.min(maintenance.remainingMs(), startRemaining - (performance.now() - startClock)) >=
+          Math.min(remainingMaintenance(), startRemaining - (performance.now() - startClock)) >=
             reserveMs,
           'retained_reserve_exhausted'
         );
@@ -635,6 +764,52 @@ export async function retainedOriginalCheckpointGuard(
             'retained_retirement_owner_unproven'
           );
         }
+      };
+      const proveCompletedOriginalRetirement = (m) => {
+        checkPreliminaryOwners(m);
+        const id = preliminaryIdentities.get(m).id;
+        const valid =
+          elapsedOwnerProofs.has(m) &&
+          server.running === true &&
+          server.teardownPromise === null &&
+          server.shutdownOwnershipLeaseRenewalActive !== true &&
+          m.tournamentLeaseAuthorityExpired === true &&
+          m.tournamentLeaseProofDeadlineMonotonicMs === elapsedOwnerProofs.get(m).deadline &&
+          m.tournamentLeaseExpiryTimer === null &&
+          !managers.has(id) &&
+          server.tournamentManagerRetirementOperations === retirementOperationOwner &&
+          (retirementOperationOwner instanceof WeakMap ||
+            retirementOperationOwner instanceof Map) &&
+          !(retirementOperationOwner instanceof WeakMap
+            ? WeakMap.prototype.has.call(retirementOperationOwner, m)
+            : Map.prototype.has.call(retirementOperationOwner, m)) &&
+          retirementMethods.every(
+            ([key, fn]) =>
+              typeof fn === 'function' &&
+              server[key] === fn &&
+              fn === modules.gameServer.GameServer.prototype[key]
+          ) &&
+          [...retirementStateMaps].every(
+            ([key, map]) =>
+              map instanceof Map && server[key] === map && !Map.prototype.has.call(map, id)
+          );
+        if (!valid && observedDetail === null)
+          observedDetail = `phase=${managerProofPhase}, site=completed_original, managerHash=${digest(id).slice(0, 16)}, pendingRelease=${server.tournamentManagerPendingLeaseReleases instanceof Map && Map.prototype.has.call(server.tournamentManagerPendingLeaseReleases, id)}, registryPresent=${managers.has(id)}`;
+        need(valid, 'retained_manager_lease_unproven');
+        // Exact pinned EED: a live-server retirement removes its registry slot
+        // only after physical stop, then records the generation before release.
+        // Only a confirmed original release clears that pending entry. Its
+        // finally also clears the Promise, so a missing Promise alone proves
+        // nothing. Keep the original maps, native methods, no successor/custody,
+        // and all physical/serial/bank witnesses as one conjunctive proof.
+        proveRetiredManager(m);
+        const originals = originalChildren.get(m);
+        need(
+          originals instanceof Map &&
+            m.drainedF06Originals.length === originals.size &&
+            m.drainedF06Originals.every(([tableId, e]) => originals.get(tableId) === e),
+          'retained_retirement_originals_changed'
+        );
       };
       await all(discoveredManagers, async (m) => {
         for (;;) {
@@ -658,8 +833,10 @@ export async function retainedOriginalCheckpointGuard(
         }
       });
       checkPreliminaryOwners();
-      // Release one event-loop turn only for an already-owned renewal pass.
-      // Never invoke its accessor, renewal, stop, or expiry operation here.
+      // Yield one event-loop turn for original ownership work delayed by the census.
+      // A scheduled timer may not have created its renewal Promise yet. Never
+      // invoke a renewal, timer, stop, or expiry operation, or accept renewed
+      // authority: every captured expired owner must prove original retirement.
       let observationDeadline = 0,
         observationStarted = 0,
         observationBudget = 0;
@@ -671,16 +848,33 @@ export async function retainedOriginalCheckpointGuard(
         observationStarted = performance.now();
         observationBudget = Math.min(
           options.workDeadlineMs - Date.now(),
-          maintenance.remainingMs() - reserveMs,
+          remainingMaintenance() - reserveMs,
           1000
         );
         need(observationBudget > 0, 'retained_renewal_observation_expired');
         observationDeadline = Date.now() + observationBudget;
-        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise((resolve) => {
+          if (existingRenewal instanceof Promise) setImmediate(resolve);
+          else setTimeout(resolve, 0);
+        });
+        checkPreliminaryOwners();
+        need(
+          elapsedOwners.every((m) => {
+            const proof = elapsedOwnerProofs.get(m);
+            const valid =
+              m.tournamentLeaseProofDeadlineMonotonicMs === proof.deadline &&
+              (m.tournamentLeaseExpiryTimer === proof.timer ||
+                m.tournamentLeaseExpiryTimer === null);
+            if (!valid && observedDetail === null)
+              observedDetail = `phase=${managerProofPhase}, site=elapsed_owner_proof, managerHash=${digest(m.tournamentId).slice(0, 16)}, deadlineUnchanged=${m.tournamentLeaseProofDeadlineMonotonicMs === proof.deadline}, timerUnchanged=${m.tournamentLeaseExpiryTimer === proof.timer}, timerCleared=${m.tournamentLeaseExpiryTimer === null}`;
+            return valid;
+          }),
+          'retained_manager_lease_unproven'
+        );
         need(
           Date.now() < observationDeadline &&
             performance.now() - observationStarted < observationBudget &&
-            maintenance.remainingMs() >= reserveMs &&
+            remainingMaintenance() >= reserveMs &&
             server.lifecycleGeneration === generation &&
             Object.entries(initial).every(([k, v]) => maintenance[k] === v) &&
             modules.freezeState.isMaintenanceFrozen() === true,
@@ -707,15 +901,35 @@ export async function retainedOriginalCheckpointGuard(
           need(originals instanceof Map, 'retained_retirement_owner_unproven');
           for (const [tableId, engine] of originals) retiringChildren.set(engine, tableId);
           joinedRetirements.set(m, { id, originals, retirement });
+        } else if (elapsedOwnerProofs.has(m) && !managers.has(id) && !retirement) {
+          proveCompletedOriginalRetirement(m);
+          completedOriginalRetirements.add(m);
+          const originals = originalChildren.get(m);
+          for (const [tableId, engine] of originals) retiringChildren.set(engine, tableId);
+          joinedRetirements.set(m, { id, originals, retirement: null });
         }
       }
-      if (observeExistingRenewal)
+      if (
+        observeExistingRenewal &&
+        (existingRenewal instanceof Promise || joinedRetirements.size > 0)
+      )
         need(
-          elapsedOwners.every((m) => joinedRetirements.has(m)),
-          'retained_renewal_retirement_unavailable'
+          elapsedOwners.every((m) => {
+            const joined = joinedRetirements.has(m);
+            if (!joined && observedDetail === null)
+              observedDetail = `phase=${managerProofPhase}, site=original_retirement_join, managerHash=${digest(m.tournamentId).slice(0, 16)}, elapsedOwners=${elapsedOwners.length}, joinedRetirements=${joinedRetirements.size}, registryPresent=${managers.has(m.tournamentId)}, capturedReceipt=${capturedRetirements.get(m) instanceof Promise}, currentReceipt=${server.tournamentManagerRetirementOperations?.get(m) instanceof Promise}`;
+            return joined;
+          }),
+          existingRenewal instanceof Promise
+            ? 'retained_renewal_retirement_unavailable'
+            : 'retained_manager_lease_unproven'
         );
       if (joinedRetirements.size)
         await all([...joinedRetirements], async ([m, witness]) => {
+          if (completedOriginalRetirements.has(m)) {
+            proveCompletedOriginalRetirement(m);
+            return;
+          }
           let confirmed;
           if (observeExistingRenewal) {
             let timer;
@@ -742,7 +956,7 @@ export async function retainedOriginalCheckpointGuard(
               confirmed !== null &&
                 Date.now() < observationDeadline &&
                 performance.now() - observationStarted < observationBudget &&
-                maintenance.remainingMs() >= reserveMs,
+                remainingMaintenance() >= reserveMs,
               'retained_renewal_observation_expired'
             );
           } else confirmed = await witness.retirement;
@@ -787,12 +1001,23 @@ export async function retainedOriginalCheckpointGuard(
           modules.freezeState.isMaintenanceFrozen() === true &&
             maintenance.phase === 'counting_down' &&
             maintenance.durableConfirmed === true &&
-            maintenance.ending === false &&
+            maintenance.ending === (certified !== null) &&
             maintenance.stopOperation === null &&
             maintenance.releaseBoundaryOnly === false &&
             maintenance.recoveryReadPending === false,
           'retained_durable_freeze_unproven'
         );
+        if (certified) need(
+          maintenance.certifiedResumeAt === certifiedReleaseAt &&
+          maintenance.thawRequest === certifiedThawRequest &&
+          maintenance.lifecycleAbort.signal.aborted === false &&
+          maintenance.started === true && maintenance.acceptingLifecycleWork === true &&
+          maintenance.lifecycleJobs.size === certifiedJobs.size &&
+          [...certifiedJobs].every((job) => maintenance.lifecycleJobs.has(job)) &&
+          maintenance.endTimer === null && maintenance.resumeWaveTimers.size === 0 &&
+          maintenance.pendingResumeTables.size === 0 &&
+          maintenance.stop === modules.maintenance.MaintenanceBreak.prototype.stop,
+          'retained_certified_lifecycle_changed');
         need(
           Object.entries(initial).every(([k, v]) => maintenance[k] === v) &&
             [
@@ -806,7 +1031,7 @@ export async function retainedOriginalCheckpointGuard(
           'retained_break_changed'
         );
         need(
-          Math.min(maintenance.remainingMs(), startRemaining - (performance.now() - startClock)) >=
+          Math.min(remainingMaintenance(), startRemaining - (performance.now() - startClock)) >=
             reserveMs,
           'retained_reserve_exhausted'
         );
@@ -842,6 +1067,7 @@ export async function retainedOriginalCheckpointGuard(
         checkMaintenance(true);
         for (const target of methods.keys()) checkMethods(target);
         for (const [m] of managerWitnesses) proveRetiredManager(m);
+        for (const m of completedOriginalRetirements) proveCompletedOriginalRetirement(m);
       };
       for (const [m, witness] of joinedRetirements) {
         proveRetiredManager(m);
@@ -1513,6 +1739,7 @@ export async function retainedOriginalCheckpointGuard(
         );
       }
       for (const m of discoveredManagers) proveManagerAuthorities(m);
+      if (certified) await proveCertifiedRelease();
       checkAllOwners();
       stage = 'checkpoint';
       attemptedTables = captures.length;
@@ -1592,6 +1819,67 @@ export async function retainedOriginalCheckpointGuard(
           }),
         'retained_final_census_unproven'
       );
+      if (certified) {
+        await proveCertifiedRelease();
+        checkAllOwners();
+        // Every original is already durably owned and physically stopped. Persist
+        // that fact before retiring the irreversible original maintenance owner.
+        // Recovery reads this exact incarnation marker; healthy same-image state
+        // cannot pretend this stopped lifecycle remains resumable.
+        stage = 'maintenance_retirement';
+        const intent = options.custodyIntent;
+        need(/^[0-9a-f]{64}$/.test(intent.container) &&
+          intent.containerImageId === 'sha256:2eb1c5a7279032240c5fff8a6b3ecf5dc6af735cc1227a51430d50dcae1b065b' &&
+          Number.isSafeInteger(intent.hostPid) && intent.hostPid > 0 &&
+          Number.isFinite(Date.parse(intent.startedAt)) && process.pid === 1,
+          'retained_retirement_identity_unproven');
+        const stat = modules.fs.readFileSync('/proc/1/stat', 'utf8');
+        const ticks = stat.slice(stat.lastIndexOf(') ') + 2).trim().split(/\s+/)[19];
+        need(/^[1-9][0-9]*$/.test(ticks), 'retained_retirement_identity_unproven');
+        const marker = {
+          schema: 'legacy-certified-retirement/v1', profile: certifiedProfile.id,
+          runId: intent.runId, controlSha: intent.controlSha,
+          targetSha: intent.nativeCensus.candidateSHA, sourceSha: release,
+          instanceId: options.expectedInstanceId, containerId: intent.container,
+          containerImageId: intent.containerImageId, containerStartedAt: intent.startedAt,
+          hostPid: intent.hostPid, pid: 1, nativeStartTicks: ticks,
+          announcedAt: initial.announcedAt, ownershipToken: initial.ownershipToken,
+          releaseAt: certifiedReleaseAt, stage: 'custody_complete_stop_entering',
+          attemptedTables, verifiedTables, finalCensusZero: true,
+          maintenanceGeneration: initial.lifecycleGeneration, resumeToken: initial.resumeToken,
+        };
+        const path = `/app/.legacy-certified-retirement-${intent.runId}.json`;
+        const directory = modules.fs.lstatSync('/app');
+        need(directory.isDirectory() && !directory.isSymbolicLink() && directory.uid === 0 &&
+          (directory.mode & 0o022) === 0, 'retained_retirement_path_unproven');
+        const fd = modules.fs.openSync(path, modules.fs.constants.O_WRONLY |
+          modules.fs.constants.O_CREAT | modules.fs.constants.O_EXCL |
+          modules.fs.constants.O_NOFOLLOW, 0o600);
+        try {
+          modules.fs.writeFileSync(fd, JSON.stringify(marker) + '\n');
+          modules.fs.fsyncSync(fd);
+        } finally { modules.fs.closeSync(fd); }
+        const dir = modules.fs.openSync('/app', modules.fs.constants.O_RDONLY);
+        try { modules.fs.fsyncSync(dir); } finally { modules.fs.closeSync(dir); }
+        maintenanceStopAttempted = true;
+        const stop = maintenance.stop();
+        need(stop instanceof Promise && maintenance.stopOperation === stop,
+          'retained_maintenance_stop_unproven');
+        await stop;
+        await Promise.allSettled([...certifiedJobs]);
+        need(maintenance.stopOperation === stop && maintenance.started === false &&
+          maintenance.acceptingLifecycleWork === false && maintenance.lifecycleAbort.signal.aborted === true &&
+          maintenance.lifecycleGeneration === initial.lifecycleGeneration + 1 &&
+          maintenance.resumeToken === initial.resumeToken + 1 && maintenance.ending === false &&
+          maintenance.lifecycleJobs.size === 0 && maintenance.resumeWaveTimers.size === 0 &&
+          maintenance.pendingResumeTables.size === 0 && maintenance.announceTimer === null &&
+          maintenance.countdownTimer === null && maintenance.endTimer === null &&
+          maintenance.thawRequest === certifiedThawRequest &&
+          Object.entries(initial).filter(([key]) => !['lifecycleGeneration','resumeToken'].includes(key))
+            .every(([key,value]) => maintenance[key] === value) &&
+          modules.freezeState.isMaintenanceFrozen() === true && remainingMaintenance() >= reserveMs,
+          'retained_maintenance_stop_unproven');
+      }
       stage = 'complete';
     })();
   } catch (e) {
@@ -1612,11 +1900,12 @@ export async function retainedOriginalCheckpointGuard(
     verifiedTables,
     bankCount,
     uninitializedSeats: 0,
-    remainingMs: this.maintenanceBreak?.remainingMs?.() ?? 0,
+    maintenanceStopAttempted,
+    remainingMs: certifiedReleaseAt ? certifiedReleaseAt - Date.now() : this.maintenanceBreak?.remainingMs?.() ?? 0,
     readyForRestart: ok,
     checkpointOutcome: ok
       ? 'verified_at_observation'
-      : attemptedTables
+      : attemptedTables || maintenanceStopAttempted
         ? 'unconfirmed'
         : 'not_started',
     paidAccountingQualification: ok

@@ -1,0 +1,5 @@
+{
+  "_owner": "20261104195454_aggression_factor_is_postflop_only.sql: PENDING protected-main installation (Apply Merged Migration after merge), NOT INSTALLED at submission. Cold side table of postflop (bets+raises, calls) per player-hand and the postflop count function the coverage reader prefers. Delivery owner verifies installed/live readback after the dispatch.",
+  "tables": ["ca_hand_postflop_aggression"],
+  "functions": ["ca_fact_postflop_aggression_counts"]
+}

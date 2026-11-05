@@ -20,6 +20,32 @@ interface Props {
   servingCache: boolean;
 }
 
+const SAMPLED_SECTION_NAMES: Record<string, string> = {
+  sessions: 'Session History',
+  positions: 'Position Breakdown',
+  variants: 'Game Mix',
+  stakes: 'Stakes Breakdown',
+};
+
+/** One true sentence about what the cap still applies to, or null when nothing. */
+export function sampledSectionsNotice(coverage: {
+  analysis_hand_cap: number;
+  analysis_sampled_sections?: string[];
+}): string | null {
+  const cap = coverage.analysis_hand_cap.toLocaleString();
+  const sections = coverage.analysis_sampled_sections;
+  if (sections === undefined) {
+    return `Analysis Panels Use Your Most Recent ${cap} Hands. Headline Totals Still Include Every Hand In This Range.`;
+  }
+  if (sections.length === 0) return null;
+  const names = sections.map((s) => SAMPLED_SECTION_NAMES[s] ?? s);
+  const list =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(', ')} And ${names[names.length - 1]}`;
+  return `${list} Uses Your Most Recent ${cap} Hands. Every Other Figure On This Page Includes Every Hand In This Range.`;
+}
+
 export default function StatsHeadlineDeck(props: Props) {
   const {
     refreshing,
@@ -142,13 +168,16 @@ export default function StatsHeadlineDeck(props: Props) {
       {/* Analysis-window and staleness notices: never present a truncated or
       stale figure as though it were a current lifetime total. */}
       <div className="stats-notice-deck" aria-live="polite">
-        {hasData && statsContract.coverage.analysis_hands_capped && (
-          <div className="stats-notice">
-            Analysis Panels Use Your Most Recent{' '}
-            {statsContract.coverage.analysis_hand_cap.toLocaleString()} Hands. Headline Totals Still
-            Include Every Hand In This Range.
-          </div>
-        )}
+        {/* WHAT IS SAMPLED, EXACTLY (2026-11-04). Since the breakdowns by
+            position, game and stake cover every hand in the range, the old
+            blanket "analysis panels use your most recent 750 hands" was
+            wrong for most of the page. The payload names what still samples;
+            an older payload (no list) still gets the blanket wording. */}
+        {hasData &&
+          statsContract.coverage.analysis_hands_capped &&
+          sampledSectionsNotice(statsContract.coverage) && (
+            <div className="stats-notice">{sampledSectionsNotice(statsContract.coverage)}</div>
+          )}
         {hasData && overall.hands_capped && (
           <div className="stats-notice">
             Based On Your Most Recent {overall.hand_cap.toLocaleString()} Hands

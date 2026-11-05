@@ -178,3 +178,22 @@ describe('Table Management dialogs', () => {
     expect(onSchedule).toHaveBeenCalledWith(new Date('2026-09-03T14:30').toISOString());
   });
 });
+
+it('edits a fixed-limit cash minimum without imposing a maximum', () => {
+  const onSave = vi.fn();
+  render(
+    <EditGameDialog
+      game={{ ...game, variant: 'flh', smallBlind: 5, bigBlind: 10, minBuyIn: 400, maxBuyIn: 0 }}
+      busy={false}
+      onClose={() => {}}
+      onSave={onSave}
+    />
+  );
+  expect(screen.getByLabelText('Maximum Buy-In')).toHaveValue('No Maximum');
+  expect(screen.getByLabelText('Maximum Buy-In')).toHaveAttribute('readonly');
+  fireEvent.change(screen.getByLabelText('Game Name'), { target: { value: 'Limit Session' } });
+  fireEvent.submit(screen.getByRole('dialog'));
+  expect(onSave).toHaveBeenCalledTimes(1);
+  expect(onSave.mock.calls[0][0]).toMatchObject({ name: 'Limit Session', minBuyIn: 400 });
+  expect(onSave.mock.calls[0][0]).not.toHaveProperty('maxBuyIn');
+});

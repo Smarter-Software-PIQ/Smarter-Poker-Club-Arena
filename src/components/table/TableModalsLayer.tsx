@@ -1,3 +1,4 @@
+import { isFixedLimitVariant } from '../../lib/bettingStructure';
 import { diamondMiniPlateAmount, type DiamondJackpotSnapshot } from '../../lib/diamondJackpotFeed';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -154,6 +155,8 @@ export interface TableModalsLayerProps {
   // Player Notes Modal
   showPlayerNotes: boolean;
   selectedPlayerForNotes: { id: string; name: string } | null;
+  /** The viewer already holds a note on the tapped opponent (2026-11-04). */
+  selectedPlayerHasNote?: boolean;
   onClosePlayerNotes: () => void;
   onOpenPlayerNotes: () => void;
 
@@ -573,6 +576,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
     // Player Notes
     showPlayerNotes,
     selectedPlayerForNotes,
+    selectedPlayerHasNote = false,
     onClosePlayerNotes,
     onOpenPlayerNotes,
     // Hand Replay
@@ -1124,6 +1128,8 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           <ThrowableSelector
             userId={userId}
             targetName={selectedPlayerForNotes?.name}
+            targetUserId={selectedPlayerForNotes?.id}
+            hasNote={selectedPlayerHasNote}
             onOpenNotes={selectedPlayerForNotes ? onOpenPlayerNotes : undefined}
             onSelect={onThrowableSelect}
             onClose={onThrowableClose}
@@ -1194,6 +1200,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         onRetryBalance={onRetryAccountBalance}
         maxBuyIn={maxBuyIn}
         maxStack={maxBuyIn}
+        unlimitedStack={!isTournament && isFixedLimitVariant(gameType)}
       />
       <BuyInModal
         /* A Diamond cash seat is felted the same way and re-enters through
