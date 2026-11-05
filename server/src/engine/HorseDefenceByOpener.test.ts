@@ -157,6 +157,9 @@ function stateFor(
 
 type Mix = { call: number; threeBet: number; total: number; byClass: Map<string, number> };
 
+/** A fixed decision time: 2026-11-05 10:30 UTC. */
+const DECISION_TIME_MS = 1793874600000;
+
 function defend(
   ctx: Ctx,
   heroSeat: number,
@@ -180,6 +183,9 @@ function defend(
         {
           mind: false,
           telemetry: false,
+          // The hourly mood (moodOf) keys on the wall clock; pin it so these
+          // thresholds read the defence policy, not the hour CI happens to run.
+          decisionTimeMs: DECISION_TIME_MS,
           ...opts,
         } as never
       );

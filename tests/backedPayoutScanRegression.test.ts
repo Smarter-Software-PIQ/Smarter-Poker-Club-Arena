@@ -62,6 +62,13 @@ const spinPins = JSON.parse(
   read('scripts/ci/fixtures/backed-payout-scan/spin-reserve-replacement.json')
 );
 const spinBefore = read('scripts/ci/fixtures/backed-payout-scan/spin-reserve-scalar-before.sql');
+// The owner-transfer and ticket-redemption terms (2026-11-05) patch the scalar
+// and the set function in place with anchored swaps, and leave this batch
+// untouched: its post-payment refusal reads the scalar, so the corrected
+// reading can only refuse more. Pinned by
+// tests/the-conservation-books-read-where-money-actually-went.law.test.ts.
+const ownerTicketPath =
+  'supabase/migrations/20261105130850_the_conservation_books_read_owner_transfers_and_where_a_tick.sql';
 // The migration's own anchored swaps, in order: [target, anchor, replacement, what].
 const diamondSwaps = [
   ...diamondMigration.matchAll(
@@ -393,6 +400,7 @@ describe('backed payout discovery is the same accounting question in a batch', (
           conservationPath,
           diamondPath,
           spinPath,
+          ownerTicketPath,
         ].some((path) => file === path.split('/').at(-1)) &&
         /pg_get_functiondef[\s\S]{0,180}fn_tournament_conservation_delta/.test(sql) &&
         /\bEXECUTE\b/i.test(stripComments(sql))
