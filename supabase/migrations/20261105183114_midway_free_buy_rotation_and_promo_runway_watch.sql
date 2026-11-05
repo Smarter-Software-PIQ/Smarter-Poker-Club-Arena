@@ -7,10 +7,15 @@
 --      faster than the Free Buys alone suggest (other promotions draw on it).
 --
 -- fn_sp_midway_free_buy_watch() returns attention items in the digest's own
--- shape {rule, severity, title, detail, key}:
+-- shape {rule, severity, title, detail, key}. It reads every rotation slot of
+-- the next 72 hours; the board is spawned about three days ahead, so a slot
+-- within 48 hours that is not on it is missing, and a later one is checked
+-- once it exists:
 --   midway_free_buy_missing       a rotation slot starting in the next 48
 --                                 hours has no live event on the board;
 --   midway_free_buy_wrong_format  the event is there in the wrong format;
+--   midway_free_buy_wrong_settings the format is right but the guarantee,
+--                                 add-ons, 1-chip rebuy or zero fee is not;
 --   midway_promo_runway_low       the promo wallet covers fewer than 30 days
 --                                 at its last-7-day net spend.
 -- Each is critical when it needs action today (a slot within 12 hours, or
@@ -58,24 +63,25 @@ DECLARE
 BEGIN
   -- The five daily slots (owner 2026-11-04), America/Chicago.
   FOR r IN
-    WITH slots(name, local_time, fmt) AS (
-      VALUES ('Morning Free Buy (NLH)',    time '08:30', 'regular'),
-             ('Midday Free Buy (NLH)',     time '12:30', 'pko'),
-             ('Afternoon Free Buy (NLH)',  time '16:30', 'aiof'),
-             ('Prime Time Free Buy (NLH)', time '20:30', 'mystery'),
-             ('Midnight Free Buy (NLH)',   time '00:30', 'pko')
+    WITH slots(name, local_time, fmt, guarantee, addon) AS (
+      VALUES ('Morning Free Buy (NLH)',    time '08:30', 'regular', 250::numeric, true),
+             ('Midday Free Buy (NLH)',     time '12:30', 'pko',     0::numeric,   false),
+             ('Afternoon Free Buy (NLH)',  time '16:30', 'aiof',    500::numeric, false),
+             ('Prime Time Free Buy (NLH)', time '20:30', 'mystery', 0::numeric,   true),
+             ('Midnight Free Buy (NLH)',   time '00:30', 'pko',     0::numeric,   false)
     ), days AS (
       SELECT (p_now AT TIME ZONE 'America/Chicago')::date + g AS d FROM generate_series(0, 3) g
     ), due AS (
-      SELECT s.name, s.fmt, ((dd.d + s.local_time) AT TIME ZONE 'America/Chicago') AS starts
+      SELECT s.name, s.fmt, s.guarantee, s.addon, ((dd.d + s.local_time) AT TIME ZONE 'America/Chicago') AS starts
         FROM slots s CROSS JOIN days dd
     )
-    SELECT due.name, due.fmt, due.starts, ev.id, ev.created_at,
+    SELECT due.name, due.fmt, due.guarantee, due.addon, due.starts, ev.id, ev.guaranteed_prize, ev.add_on_available,
+           ev.is_rebuy, ev.rebuy_cost, ev.buy_in_fee,
            CASE WHEN ev.id IS NULL THEN NULL ELSE public.fn_ca_midway_free_buy_format(ev.id) END AS got,
            COALESCE(ev.players, 0) AS players
       FROM due
       LEFT JOIN LATERAL (
-        SELECT t.id, t.created_at,
+        SELECT t.id, t.guaranteed_prize, t.add_on_available, t.is_rebuy, t.rebuy_cost, t.buy_in_fee,
                (SELECT count(*) FROM public.tournament_players tp WHERE tp.tournament_id = t.id) AS players
           FROM public.tournaments t
          WHERE t.union_id = 'fade0000-0000-0000-0000-000000000001'::uuid
@@ -86,10 +92,14 @@ BEGIN
          LIMIT 1
       ) ev ON true
      WHERE due.starts > p_now + interval '1 hour'
-       AND due.starts <= p_now + interval '48 hours'
+       AND due.starts <= p_now + interval '72 hours'
      ORDER BY due.starts
   LOOP
-    IF r.id IS NULL THEN
+    -- Slots 48-72 hours out may not be spawned yet; only their format and
+    -- settings are checked once they exist.
+    IF r.id IS NULL AND r.starts > p_now + interval '48 hours' THEN
+      NULL;
+    ELSIF r.id IS NULL THEN
       a := a || jsonb_build_object(
         'rule', 'midway_free_buy_missing',
         'severity', CASE WHEN r.starts <= p_now + interval '12 hours' THEN 'critical' ELSE 'warning' END,
@@ -97,9 +107,15 @@ BEGIN
                         to_char(r.starts AT TIME ZONE 'America/Chicago', 'Dy Mon DD HH12:MI AM')),
         'detail', jsonb_build_object('name', r.name, 'starts', r.starts, 'expected_format', r.fmt),
         'key', r.name || '@' || r.starts::text);
-    -- An event created before the rotation went live (2026-11-05 10:06 UTC)
-    -- keeps the PKO terms its players joined under, by design.
-    ELSIF r.got IS DISTINCT FROM r.fmt AND r.created_at >= timestamptz '2026-11-05 10:06:00+00' THEN
+    -- The approved exceptions (owner 2026-11-05): the three Nov 5 events that
+    -- already had entries when the rotation went live keep the PKO terms their
+    -- players joined under. They are named exactly, so the exception ends
+    -- with them; no other event is ever exempt.
+    ELSIF r.id IN ('930eee14-faaf-43cf-8f4a-bd8a92c48fd6'::uuid,   -- Thu Nov 5 08:30 Morning
+                   '74ba8130-3ec5-48c2-b94b-409b7fb14a6b'::uuid,   -- Thu Nov 5 16:30 Afternoon
+                   '1d115ff4-d0d5-48cc-8a3e-03ae3348d442'::uuid) THEN -- Thu Nov 5 20:30 Prime Time
+      NULL;
+    ELSIF r.got IS DISTINCT FROM r.fmt THEN
       a := a || jsonb_build_object(
         'rule', 'midway_free_buy_wrong_format',
         -- With no entries it can still be reshaped, so it is urgent near the
@@ -111,6 +127,21 @@ BEGIN
         'detail', jsonb_build_object('tournament_id', r.id, 'name', r.name, 'starts', r.starts,
                                      'expected_format', r.fmt, 'format', r.got, 'players', r.players),
         'key', r.id::text);
+    -- The format is right; its material money settings must be too.
+    ELSIF r.guaranteed_prize IS DISTINCT FROM r.guarantee OR r.add_on_available IS DISTINCT FROM r.addon
+       OR r.is_rebuy IS DISTINCT FROM true OR r.rebuy_cost IS DISTINCT FROM 1 OR COALESCE(r.buy_in_fee, 0) <> 0 THEN
+      a := a || jsonb_build_object(
+        'rule', 'midway_free_buy_wrong_settings',
+        'severity', CASE WHEN r.players = 0 AND r.starts <= p_now + interval '12 hours' THEN 'critical' ELSE 'warning' END,
+        'title', format('Midway %s for %s has the wrong settings (guarantee %s, add-ons %s, rebuy %s at %s, fee %s)', r.name,
+                        to_char(r.starts AT TIME ZONE 'America/Chicago', 'Dy Mon DD HH12:MI AM'),
+                        r.guaranteed_prize, r.add_on_available, r.is_rebuy, r.rebuy_cost, r.buy_in_fee),
+        'detail', jsonb_build_object('tournament_id', r.id, 'name', r.name, 'starts', r.starts,
+                                     'guarantee', r.guaranteed_prize, 'expected_guarantee', r.guarantee,
+                                     'add_ons', r.add_on_available, 'expected_add_ons', r.addon,
+                                     'rebuy', r.is_rebuy, 'rebuy_cost', r.rebuy_cost, 'fee', r.buy_in_fee,
+                                     'players', r.players),
+        'key', r.id::text || ':settings');
     END IF;
   END LOOP;
 
