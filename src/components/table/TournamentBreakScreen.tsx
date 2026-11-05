@@ -256,7 +256,7 @@ export function TournamentBreakScreen({
               supabase
                 .from('tournaments')
                 .select(
-                  'current_level, blind_level_state, blind_structure, prize_pool, guaranteed_prize, bounty_pool, current_players, max_players'
+                  'current_level, blind_level_state, blind_structure, prize_pool, guaranteed_prize, bounty_pool, total_rake, prize_pool_finalized, current_players, max_players'
                 )
                 .eq('id', tournamentId)
                 .abortSignal(signal)
@@ -283,6 +283,8 @@ export function TournamentBreakScreen({
           prize_pool?: number | string | null;
           guaranteed_prize?: number | string | null;
           bounty_pool?: number | string | null;
+          total_rake?: number | string | null;
+          prize_pool_finalized?: boolean | null;
           current_players?: number | null;
           max_players?: number | null;
         };
@@ -350,7 +352,9 @@ export function TournamentBreakScreen({
           prizePool: effectivePrizePool(
             Number(t.prize_pool) || 0,
             Number(t.guaranteed_prize) || 0,
-            Number(t.bounty_pool) || 0
+            Number(t.bounty_pool) || 0,
+            Number(t.total_rake) || 0,
+            t.prize_pool_finalized === true
           ),
           playersRemaining: active.length,
           totalPlayers: pRes.data.length,

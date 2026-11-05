@@ -269,6 +269,7 @@ interface RewardColumns {
   bounty_amount?: number | null;
   bounty_pool?: number | null;
   bounty_pool_paid?: number | null;
+  total_rake?: number | null;
   status?: string | null;
   current_players?: number | null;
   bubble_protection?: boolean | null;
@@ -304,6 +305,12 @@ export default function RewardsTab({
     key: string;
     collected: number;
     overlay: number;
+    /** Gross player payments credited toward the buy-in guarantee. */
+    grossCoverage: number | null;
+    /** H = max(0, guarantee - gross): the house's whole obligation. */
+    houseRequired: number | null;
+    /** House / promo funding already posted, net of returns. */
+    housePosted: number | null;
   } | null>(null);
   useEffect(() => {
     if (!tournamentId || !(Number(t.guaranteed_prize) > 0)) return;
@@ -334,10 +341,15 @@ export default function RewardsTab({
           setFunding(null);
           return;
         }
+        const optional = (v: unknown) =>
+          v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v);
         setFunding({
           key: fundingKey,
           collected: Number(data.collected),
           overlay: Number(data.overlay),
+          grossCoverage: optional(data.gross_coverage),
+          houseRequired: optional(data.house_required),
+          housePosted: optional(data.house_posted),
         });
       } catch (error) {
         if (!cancelled && !controller.signal.aborted) {
@@ -507,15 +519,34 @@ export default function RewardsTab({
 
   /* ── THE POOL ─────────────────────────────────────────────────────────── */
 
-  const collectedPool = currentFunding?.collected ?? null;
+  /* A BUY-IN GUARANTEE COUNTS THE WHOLE PAYMENT (Dan, 2026-11-05): what is
+     credited toward the guarantee is every player payment before bounty and
+     rake allocation. Older servers without the gross terms fall back to the
+     prize contribution they report. */
+  const collectedPool = currentFunding
+    ? (currentFunding.grossCoverage ?? currentFunding.collected)
+    : null;
   const guarantee = num(t.guaranteed_prize);
   const hasGuarantee = guarantee > 0;
   /* Stored places already include funded overlay. The combined guarantee
      floors places only after subtracting bounties; escrow independently
      distinguishes entry contributions from house funding. */
-  const effectivePool = effectivePrizePool(t.prize_pool, t.guaranteed_prize, t.bounty_pool);
+  const effectivePool = effectivePrizePool(
+    t.prize_pool,
+    t.guaranteed_prize,
+    t.bounty_pool,
+    t.total_rake,
+    t.prize_pool_finalized === true
+  );
+  /* The house share is H = max(0, guarantee - gross), one total: once
+     finalized, what was posted; before that, what will be owed if the field
+     closes now. Never the guarantee minus the prize half. */
   const overlay = currentFunding
-    ? Math.max(currentFunding.overlay, hasGuarantee ? guarantee - currentFunding.collected : 0)
+    ? currentFunding.houseRequired !== null
+      ? t.prize_pool_finalized === true && currentFunding.housePosted !== null
+        ? Math.max(0, currentFunding.housePosted)
+        : currentFunding.houseRequired
+      : Math.max(currentFunding.overlay, hasGuarantee ? guarantee - currentFunding.collected : 0)
     : 0;
   const guaranteeMet = hasGuarantee && collectedPool !== null && collectedPool >= guarantee;
 
@@ -938,7 +969,7 @@ export default function RewardsTab({
         {hasGuarantee && currentFunding && !guaranteeMet && effectivePool > 0 && (
           <div className="rw-gtd">
             <div className="rw-gtd__row">
-              <span className="rw-gtd__label">Collected Against The Guarantee</span>
+              <span className="rw-gtd__label">Credited Toward The Guarantee</span>
               <span className="rw-gtd__figure">
                 {chips(collectedPool)} Of {chips(guarantee)}
               </span>

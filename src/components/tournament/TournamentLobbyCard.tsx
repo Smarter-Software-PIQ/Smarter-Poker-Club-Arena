@@ -86,6 +86,8 @@ interface Tournament extends TournamentEntryWindowRow {
   prizePool: number;
   /** Bounty money held for knockouts; shown inside the guaranteed total. */
   bountyPool?: number;
+  /** Rake taken from entries so far; it counts toward a buy-in guarantee. */
+  totalRake?: number;
   maxPlayers: number | null;
   registeredPlayers: number;
   startsAt?: string;
@@ -843,7 +845,9 @@ function TournamentLobbyCardInner({
                     displayTotalPool(
                       tournament.prizePool,
                       tournament.guaranteedPrize,
-                      tournament.bountyPool
+                      tournament.bountyPool,
+                      tournament.totalRake,
+                      tournament.prize_pool_finalized === true
                     )
                   );
                 })()}
