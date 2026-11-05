@@ -335,6 +335,14 @@ def run_cycle(prev_state):
     lease_owner = ((h.get("tournamentLease") or {}).get("instanceId")
                    or (h.get("leadership") or {}).get("holder"))
 
+    timings = {}
+    mark = [time.monotonic()]
+
+    def lap(name):
+        t1 = time.monotonic()
+        timings[name] = round(t1 - mark[0], 2)
+        mark[0] = t1
+    lap("engine_sources")
     # ---- discovery
     supa = Supa()
     cols = ("id,name,status,tournament_type,satellite_target_id,satellite_target,start_time,started_at,ended_at,"
@@ -342,17 +350,18 @@ def run_cycle(prev_state):
             "guaranteed_prize,on_break,break_started_at,break_ends_at,action_time_seconds,late_reg_mins,"
             "current_level,updated_at,satellite_seats,created_at")
     horizon = iso(now + dt.timedelta(hours=1))
-    running = supa.get("tournaments", {"select": cols, "status": "eq.RUNNING", "order": "id"})
+    running = supa.get("tournaments", {"select": cols, "status": "eq.RUNNING", "order": "start_time,id"})
     registering = supa.get("tournaments", {"select": cols, "status": "eq.REGISTERING",
-                                           "start_time": f"lte.{horizon}", "order": "id"})
+                                           "start_time": f"lte.{horizon}", "order": "start_time,id"})
     recent_done = supa.get("tournaments", {"select": cols, "status": "eq.COMPLETED",
                                            "ended_at": f"gte.{iso(now - dt.timedelta(minutes=SETTLE_LOOKBACK_MIN))}",
-                                           "order": "id"})
+                                           "order": "ended_at.desc,id"})
     other_status = supa.get("tournaments", {"select": "id,status", "status": "not.in.(RUNNING,REGISTERING,COMPLETED,CANCELLED)",
-                                            "order": "id"}, max_rows=5000)
+                                            "order": "start_time,id"}, max_rows=5000)
     if other_status:
         running += supa.get("tournaments", {"select": cols, "id": inlist([r["id"] for r in other_status[:200]])})
 
+    lap("discovery")
     # synthetic test events (never production data)
     test_events = []
     if os.path.exists(TEST_INPUT):
@@ -376,7 +385,7 @@ def run_cycle(prev_state):
     def fetch_players(ids):
         return supa.get("tournament_players", {"select": "tournament_id,table_id,status,chips,seat_number",
                                                "tournament_id": inlist(ids), "status": "neq.eliminated",
-                                               "order": "id"})
+                                               "order": "tournament_id,user_id"})
     for grp in chunks(run_ids, 40):
         try:
             for p in fetch_players(grp):
@@ -393,6 +402,7 @@ def run_cycle(prev_state):
             for i in grp:
                 per_event_err.setdefault(i, f"leases: {e}")
 
+    lap("players_leases")
     # last hand per event + per table (multi-table events)
     last_hand_event, last_hand_table = {}, {}
 
@@ -425,6 +435,7 @@ def run_cycle(prev_state):
                 else:
                     c.source_errors.append(f"hand_history table {key[:8]}: {type(e).__name__}")
 
+    lap("hand_history")
     # settlement data for recently completed
     done_ids = [t["id"] for t in recent_done]
     payouts_n, awards_n = {}, {}
@@ -433,7 +444,8 @@ def run_cycle(prev_state):
             for r in supa.get("tournament_escrow", {"select": "tournament_id,prize_balance,bounty_balance,fee_balance,closed_at,enforced",
                                                     "tournament_id": inlist(grp)}):
                 escrows[r["tournament_id"]] = r
-            for r in supa.get("tournament_payouts", {"select": "tournament_id", "tournament_id": inlist(grp)}, max_rows=50000):
+            for r in supa.get("tournament_payouts", {"select": "tournament_id", "tournament_id": inlist(grp),
+                                                     "order": "tournament_id,position"}, max_rows=50000):
                 payouts_n[r["tournament_id"]] = payouts_n.get(r["tournament_id"], 0) + 1
         except Exception as e:
             for i in grp:
@@ -441,12 +453,14 @@ def run_cycle(prev_state):
     sat_done = [t["id"] for t in recent_done if t["_format"] == "SATELLITE"]
     for grp in chunks(sat_done, 100):
         try:
-            for r in supa.get("tournament_satellite_awards", {"select": "tournament_id", "tournament_id": inlist(grp)}):
+            for r in supa.get("tournament_satellite_awards", {"select": "tournament_id", "tournament_id": inlist(grp),
+                                                              "order": "tournament_id,place"}):
                 awards_n[r["tournament_id"]] = awards_n.get(r["tournament_id"], 0) + 1
         except Exception as e:
             for i in grp:
                 per_event_err.setdefault(i, f"satellite_awards: {e}")
 
+    lap("settlement")
     # table -> event map (for engine telemetry & logs)
     table_event = {}
     for eid, ps in players.items():
@@ -818,7 +832,7 @@ def run_cycle(prev_state):
     extra = {"maint_active": maint_active, "recovery_active": recovery_active, "last_maint_end": last_maint_end,
              "rebuild_hist": rebuild_hist, "rebuilds_this_cycle": rebuilds_this_cycle, "settled_recent": settled_recent,
              "recent_done": len(recent_done), "supabase_requests": supa.requests, "test_events": len(test_events),
-             "maint": maint, "lease_owner": lease_owner}
+             "maint": maint, "lease_owner": lease_owner, "timings": timings}
     return c, extra
 
 
@@ -998,6 +1012,7 @@ def main():
         "started_utc": iso(start), "started_chicago": chi(start),
         "ended_utc": iso(end), "ended_chicago": chi(end),
         "duration_s": round((end - start).total_seconds(), 1),
+        "stage_timings_s": extra["timings"],
         "window": window,
         "engine": {"releaseSha": c.release_sha, "health_ok": c.health is not None,
                    "telemetry_ok": c.metrics is not None,
