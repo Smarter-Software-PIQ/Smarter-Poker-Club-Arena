@@ -17,6 +17,8 @@ export interface XmttTournament {
   start_time?: string;
   created_at: string;
   prize_pool?: number;
+  guaranteed_prize?: number;
+  bounty_pool?: number;
   club_id?: string;
 }
 const FILTERS = ['registering', 'running', 'completed'] as const;

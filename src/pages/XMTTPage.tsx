@@ -36,6 +36,7 @@ import styles from './XMTTPage.module.css';
 
 import { useIsMounted } from '../hooks/useIsMounted';
 import { compactChips, fmtChips } from '../utils/format';
+import { effectivePrizePool } from '../components/tournament/details/types';
 // Whole-number tournament money (Dan 2026-08-20).
 import { formatBuyIn, money, totalBuyIn } from '../utils/buyIn';
 import { reportError } from '../utils/errorReporter';
@@ -150,7 +151,7 @@ export default function XMTTPage() {
           supabase
             .from('tournaments')
             .select(
-              'format_contract, id, name, status, type:tournament_type, tournament_type, variant, min_players, table_size, satellite_seats, satellite_target_id, satellite_target, buy_in:buy_in_amount, buy_in_fee, max_players, registered_count:current_players, start_time, created_at, prize_pool, is_bounty, bounty_amount, is_pko, is_mystery_bounty'
+              'format_contract, id, name, status, type:tournament_type, tournament_type, variant, min_players, table_size, satellite_seats, satellite_target_id, satellite_target, buy_in:buy_in_amount, buy_in_fee, max_players, registered_count:current_players, start_time, created_at, prize_pool, guaranteed_prize, bounty_pool, is_bounty, bounty_amount, is_pko, is_mystery_bounty'
             )
             .eq('id', tournamentId)
             .maybeSingle(),
@@ -648,7 +649,13 @@ export default function XMTTPage() {
                 <div className={styles.row}>
                   <span className="sc-label sc-ink--blue">Prize Pool</span>
                   <span className={`${styles.value} sc-ink--gold`}>
-                    {compactChips(detail.tournament?.prize_pool || 0)}
+                    {compactChips(
+                      effectivePrizePool(
+                        detail.tournament?.prize_pool,
+                        detail.tournament?.guaranteed_prize,
+                        detail.tournament?.bounty_pool
+                      )
+                    )}
                   </span>
                 </div>
                 <div className={styles.row}>
