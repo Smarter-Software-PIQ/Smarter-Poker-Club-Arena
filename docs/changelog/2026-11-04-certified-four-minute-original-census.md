@@ -11,3 +11,13 @@ Terminal recovery distinguishes a completed certified thaw, a registration that 
 Qualification retains all 74 original historical cases and adds six real EED lifecycle cases. All 80 passed with 31 pinned runtime hashes. The historical harness's new mock-retention defect was fixed with bounded plain call records; no production guard or per-case budget was relaxed. The owner's scoped allowance also provides 360/480/510/540-second fixture/total/process/wrapper envelopes. The existing compiled-native resource cases now exercise both the old EED profile and the new certified profile, including deadline, memory and malformed-profile refusals. The connected publisher regressions cover complete clock credit, token/instance/expiry mismatches, one-shot lost-response registration, watchdog ownership and terminal refusal cleanup.
 
 These are source and qualification results. Protected merge, exact migration installation, hosted native/resource checks, served engine identity, live owning thaw, cash continuity, old-event settlement and tournament reopening remain separate deployment evidence.
+
+The required local push exposed three older extracted callers that no longer
+represented the maintained shell boundary. Their fixtures now supply the original
+image and absent certified-profile inputs, select the ordinary certificate
+predicate explicitly, and extract the complete profile conditional. The one-shot
+ordering assertion still proves the flag precedes the checkpoint trace and call.
+No runtime guard, reserve, timeout or assertion was relaxed. Separate local tool
+failures were resolved by using the system SHA utility and an SSD work temporary
+directory outside this ESM checkout, so generated CommonJS adapters retain their
+actual module semantics.
