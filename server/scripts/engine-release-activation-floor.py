@@ -380,14 +380,23 @@ def main():
             print('announced' if prior.get('phase') == 'announcement' else 'entered')
             return
     record = policy(args.repo, args.target, args.control)
-    # An explicitly selected owner window cannot become an on-the-hour or
-    # degraded-engine release merely because its bounded order expired. This
-    # applies only to that reviewed opt-in; legacy floor expiry is unchanged.
-    # Existing runtime entries returned above keep their original recovery.
+    # AN EXPIRED LATER OWNER WINDOW HANDS BACK TO THE ROUTINE CYCLE (2026-11-05).
+    # Until today an expired owner window that superseded the Phase1 schedule
+    # refused every fresh release ("explicit later owner window expired; no
+    # alternate reset authorized") until a human merged a new dated window into
+    # activation-floor.json. Nothing renews those windows, so every lapse
+    # stranded protected main (Nov 3, Nov 5 twice) and releases went out by hand.
+    # The owner order only ever selected an EARLIER bounded window ahead of the
+    # routine schedule; once it lapses, fresh work falls through to the
+    # canonical Phase1 cycle selected below, whose own sealed :53/:55 window,
+    # announcement and seal checks still apply in full (or, with no Phase1
+    # policy in the target, to the "expired floor is no floor" rule). Entries
+    # already owned inside the window returned above with their exact record.
     if (prior is None and args.mode != 'publish' and record is not None
             and record.get('supersedesPhase1Schedule') is True
             and int(time.time()) >= record['expiresEpoch']):
-        raise ValueError('explicit later owner window expired; no alternate reset authorized')
+        print('activation floor owner window %s expired at epoch %d; the routine Phase1 cycle applies'
+              % (record.get('ownerWindowId'), record['expiresEpoch']), file=sys.stderr)
     if (args.mode not in ('checkpoint-no-action', 'reservation') and prior is None) or (prior is not None and prior['schema'] == PHASE1_CAPABILITY):
         selected = phase1_policy(args.repo, args.target, args.control)
         if prior is not None and selected is None:

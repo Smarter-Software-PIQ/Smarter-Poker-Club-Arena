@@ -117,13 +117,19 @@ class ActivationFloor(unittest.TestCase):
         args = ['floor', 'admit', '--repo', str(self.repo), '--target', self.sha,
                 '--control', self.sha, '--deadline', str(deadline),
                 '--request-root', str(requests), '--run-id', '123-1']
-        def admit(at):
+        def admit(at, until=None):
             out = io.StringIO()
-            with patch.object(sys, 'argv', args), patch.object(floor.time, 'time', return_value=at), contextlib.redirect_stdout(out):
+            argv = args if until is None else [*args[:-5], str(until), *args[-4:]]
+            with patch.object(sys, 'argv', argv), patch.object(floor.time, 'time', return_value=at), contextlib.redirect_stdout(out):
                 floor.main()
             return json.loads(out.getvalue())
-        with self.assertRaisesRegex(ValueError, 'no alternate reset authorized'):
-            admit(record['expiresEpoch'])
+        # An expired later owner window no longer strands protected main: a
+        # fresh admission falls through to the canonical Phase1 routine cycle
+        # (whose own sealed window still governs) instead of refusing until a
+        # human merges a new dated window. It creates no owner entry.
+        lapsed = admit(record['expiresEpoch'], until=record['expiresEpoch'] + 3600)
+        self.assertEqual(lapsed['schema'], floor.PHASE1_CAPABILITY)
+        self.assertIsNone(lapsed['ownerWindowId'])
         self.assertFalse((requests / '123-1.activation-entry').exists())
         selected = admit(now)
         self.assertEqual(selected['schema'], floor.OWNER_CAPABILITY)
