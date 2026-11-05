@@ -1192,6 +1192,11 @@ export abstract class TournamentManagerBase {
    * deal within seconds of adoption.
    */
   protected lastObservedHandCompletedAtMs = 0;
+
+  /** When this manager last saw any of its tables complete a hand; 0 if never. */
+  lastHandCompletedAtMs(): number {
+    return this.lastObservedHandCompletedAtMs;
+  }
   /** One line per held level, not one per recheck. */
   private readonly stalledLevelHoldAnnouncedFor = new Set<number>();
   /** One line per level held for a table with no dealer, not one per recheck. */

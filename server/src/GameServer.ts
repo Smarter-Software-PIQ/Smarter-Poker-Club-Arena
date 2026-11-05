@@ -324,6 +324,11 @@ import { BootPhaseTimeline } from './engine/bootPhases.js';
 import { decisionPipelineDistress } from './decisionPipelinePressure.js';
 import { isFleetWideStall, zombieProgressAge } from './fleetWideZombieVerdict.js';
 import {
+  REPEATED_RECOVERY_WINDOW_MS,
+  RepeatedRecoveryLedger,
+  stallSignature,
+} from './tournament/repeatedRecoveryLedger.js';
+import {
   RunningResumeCooldowns,
   awaitsFirstDeal,
   resumesHoldingASlot,
@@ -3889,6 +3894,83 @@ export class GameServer {
   private lastDarkTournamentSweepAt = 0;
   /** When each dark tournament's manager was last retired for a rebuild. */
   private readonly darkTournamentRebuiltAtMs = new Map<string, number>();
+  /**
+   * The stall each tournament's last rebuild was curing, shared by every
+   * rebuild path, so a rebuild that recreated the same stall is answered by
+   * an incident instead of another identical rebuild (2026-11-05,
+   * tournament/repeatedRecoveryLedger.ts).
+   */
+  private repeatedTournamentRecoveries?: RepeatedRecoveryLedger;
+  private repeatedTournamentRecoveryAlertedAt?: Map<string, number>;
+
+  /** The stall a tournament's tables say they are in right now (see stallSignature). */
+  private tournamentStallSignature(manager: TournamentManager): string {
+    const stalls: Array<{ tableId: string; stalledAt: string }> = [];
+    for (const tableId of manager.getTableIds?.() ?? []) {
+      const engine = this.tableEngines.get(tableId);
+      let stalledAt = 'no_engine';
+      if (engine) {
+        try {
+          stalledAt = engine.describeStallForRecovery?.() ?? 'unknown';
+        } catch {
+          // A diagnostic read must never block or alter a recovery decision.
+          stalledAt = 'unknown';
+        }
+      }
+      stalls.push({ tableId, stalledAt });
+    }
+    return stallSignature(stalls);
+  }
+
+  /**
+   * Ask whether rebuilding this tournament may cure its stall. False means a
+   * previous rebuild already returned to the very same stall: the caller does
+   * NOT rebuild, and this raises one critical incident per window naming both
+   * rebuilds, so the event is escalated instead of re-adopted into the same
+   * wait. The event, its tables and every chip stay exactly as they are.
+   */
+  private mayRebuildTournamentForStall(
+    tournamentId: string,
+    signature: string,
+    by: string,
+    nowMs: number,
+    lastProgressAtMs = 0
+  ): boolean {
+    const ledger = (this.repeatedTournamentRecoveries ??= new RepeatedRecoveryLedger());
+    ledger.prune(nowMs);
+    const decision = ledger.decide(tournamentId, signature, by, nowMs, lastProgressAtMs);
+    if (decision.kind === 'rebuild') return true;
+    const alerted = (this.repeatedTournamentRecoveryAlertedAt ??= new Map());
+    const message =
+      `Tournament ${tournamentId} was rebuilt by ${decision.previousBy} at ` +
+      `${new Date(decision.previousAtMs).toISOString()} and is back in exactly the same stall ` +
+      `(${signature}); ${by} will not rebuild it again into the same wait`;
+    const last = alerted.get(tournamentId);
+    // Named once per window, like the page: a refusal repeated on every sweep
+    // is the same fact, and a line per pass is how the one that changed is buried.
+    if (last === undefined || nowMs - last >= REPEATED_RECOVERY_WINDOW_MS) {
+      alerted.set(tournamentId, nowMs);
+      reportError(new Error(message), 'GameServer.tournament_repeated_recovery_refused', {
+        tournamentId,
+        signature,
+        previousBy: decision.previousBy,
+        repeats: decision.repeats,
+      });
+      void raiseFinancialAlert(
+        'critical',
+        'GameServer.tournament_repeated_recovery_refused',
+        message,
+        { tournament_id: tournamentId, signature, previous_by: decision.previousBy },
+        `tournament-repeated-recovery:${tournamentId}`,
+        tournamentId
+      ).catch((alertError) =>
+        reportError(alertError, 'GameServer.tournament_repeated_recovery_alert_failed', {
+          tournamentId,
+        })
+      );
+    }
+    return false;
+  }
   /**
    * When this sweep first read each event as dark, kept while it stays a
    * candidate (2026-10-15). A manager the resume lane re-admits inside the
@@ -8721,7 +8803,40 @@ export class GameServer {
             'GameServer.fleet_wide_zombie_refusal'
           );
         } else {
+          // A tournament's tables are judged as one stall: when the event's
+          // previous rebuild returned to exactly this stall, none of its
+          // tables is rebuilt again (repeatedRecoveryLedger.ts).
+          const refusedTournaments = new Set<string>();
+          const askedTournaments = new Set<string>();
+          const sweepNow = Date.now();
           for (const [id, engine] of zombieVerdicts) {
+            if (!this.tournamentOwnedTables.has(id)) continue;
+            const authority = engine.getEngineLeaseAuthority();
+            const tournamentId = authority?.scope === 'tournament' ? authority.tournamentId : null;
+            if (!tournamentId || askedTournaments.has(tournamentId)) continue;
+            askedTournaments.add(tournamentId);
+            const manager = this.tournamentEngines.get(tournamentId);
+            if (!manager) continue;
+            if (
+              !this.mayRebuildTournamentForStall(
+                tournamentId,
+                this.tournamentStallSignature(manager),
+                'GameServer.zombie_engine_rebuilt',
+                sweepNow,
+                manager.lastHandCompletedAtMs?.() ?? 0
+              )
+            )
+              refusedTournaments.add(tournamentId);
+          }
+          for (const [id, engine] of zombieVerdicts) {
+            if (refusedTournaments.size > 0 && this.tournamentOwnedTables.has(id)) {
+              const authority = engine.getEngineLeaseAuthority();
+              if (
+                authority?.scope === 'tournament' &&
+                refusedTournaments.has(authority.tournamentId)
+              )
+                continue;
+            }
             reportError(
               new Error(
                 'Engine for ' +
@@ -12796,6 +12911,16 @@ export class GameServer {
           }
         }
       }
+      if (
+        !this.mayRebuildTournamentForStall(
+          tournamentId,
+          this.tournamentStallSignature(manager),
+          'GameServer.dark_tournament_manager_rebuild',
+          now,
+          manager.lastHandCompletedAtMs?.() ?? 0
+        )
+      )
+        continue;
       this.darkTournamentRebuiltAtMs.set(tournamentId, now);
       const message =
         `[GameServer] RUNNING ${name} (${tournamentId.slice(0, 8)}) has ${String(
