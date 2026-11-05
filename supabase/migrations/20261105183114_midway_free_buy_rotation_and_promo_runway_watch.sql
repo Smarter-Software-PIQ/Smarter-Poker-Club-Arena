@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261105204918 (never installed; it exempted three events by id, which the owner forbids)
 -- MIDWAY FREE BUY ROTATION AND PROMO RUNWAY WATCH (owner 2026-11-05)
 --
 -- Two things went unseen on 2026-11-05 until someone happened to look:

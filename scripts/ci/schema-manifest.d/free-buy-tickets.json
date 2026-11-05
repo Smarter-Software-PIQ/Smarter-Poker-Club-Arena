@@ -1,0 +1,23 @@
+{
+  "_owner": "fix/free-buy-tickets-and-cutoff-funding",
+  "_comment": "Migrations 20261105204917 (Free Buy tickets and final-cutoff funding) and 20261105204918 (Midway Free Buy watch from the schedule).",
+  "tables": [
+    "ca_free_buy_ticket_grants",
+    "ca_free_buy_ticket_redemptions",
+    "ca_free_buy_ticket_events",
+    "ca_free_buy_cutoff_fundings"
+  ],
+  "functions": [
+    "fn_ca_free_buy_history_is_append_only",
+    "fn_ca_free_buy_ticket_day",
+    "fn_ca_free_buy_ticket_parts",
+    "fn_ca_free_buy_cutoff_terms",
+    "fn_ca_grant_daily_free_buy_tickets",
+    "fn_ca_free_buy_ticket_redeem",
+    "fn_ca_free_buy_ticket_restore",
+    "fn_my_free_buy_tickets",
+    "fn_ca_free_buy_fund_at_cutoff",
+    "fn_ca_midway_free_buy_slot_format",
+    "fn_sp_midway_free_buy_watch"
+  ]
+}
