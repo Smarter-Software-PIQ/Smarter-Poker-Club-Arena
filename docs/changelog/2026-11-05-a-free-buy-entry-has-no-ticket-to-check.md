@@ -1,0 +1,3 @@
+# 2026-11-05 - A Free Buy entry has no ticket to check
+
+Every Midway Free Buy from 2026-11-03 06:30 UTC to 2026-11-05 ran with zero entries and was cancelled. Cause: 20261102154336 made Free Buys a 0-chip entry with a 1-chip promo bounty; fn_tournament_entry_split returns prize -1 for that shape and both entry-ticket lookups raised "no finite ticket contract" before their own no-ticket exit. Rolled-back probe: the lookup raised; the registration core admitted the horse at cost 0 with a 1-chip promo bounty. Fix: migration 20261105073723 makes both lookups answer "no ticket" for a free_buy event whose entry charges nothing. Pinned by tests/a-free-buy-entry-has-no-ticket-to-check.law.test.ts.
