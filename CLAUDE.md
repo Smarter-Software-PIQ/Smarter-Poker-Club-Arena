@@ -146,6 +146,8 @@ Inspect the current tracked workflows for their actual runner, install, build an
 
 Follow `PUBLISHING.md`. The authorized agent finds or creates its PR, handles required checks, completes protected squash merge, and verifies the selected client/engine component. Do not depend on disabled proposal/merge helpers. A newer containing revision can satisfy delivery; an open PR or push cannot.
 
+**Push with `bash scripts/agent-push.sh` from your own worktree (2026-11-05).** Two failures cost agents a session: over SSH the minutes-long `.husky/pre-push` hook leaves the connection idle and git then exits 141 (SIGPIPE) after the hook passes, with no ref pushed and no error text; and pushing to a bare HTTPS URL is refused by the hook with `[push baseline] UNKNOWN: Push destination tracking main is unavailable`. The helper keeps the remote name `origin`, fetches `origin main`, pushes over HTTPS with `gh` credentials and stdin closed, returns git's real exit code, then compares `git ls-remote origin refs/heads/<branch>` with HEAD and exits 3 if the ref did not land. It refuses the shared clone, `main` and a detached HEAD, and never forces or skips hooks.
+
 ### 1.3 Never Do
 
 - Never run `vercel deploy` or `vercel --prod` in the Club Arena directory
@@ -865,6 +867,14 @@ Do not use retired autopilot, a timer, watcher or repair loop to complete a rele
 normal route and retain necessary evidence. A historical pruning script is not
 authority to delete, move or reset another task's checkout. Verify ownership,
 uncommitted files and retained commits before any explicitly authorized cleanup.
+
+**5. CROSS-LANE ASKS WITHOUT GITHUB COMMENTS (2026-11-05).** When you cannot post
+a GitHub comment to another lane's owner, append an entry to
+`/Volumes/SmarterArchives/agent-evidence/COORDINATION-INBOX.md`. It is
+append-only and its header states the entry format; never edit or delete
+existing entries. Lane owners check that file at session start and before each
+release or merge, and acknowledge with an `ACK <UTC> <agent id>:` line directly
+under the entry.
 
 ---
 
