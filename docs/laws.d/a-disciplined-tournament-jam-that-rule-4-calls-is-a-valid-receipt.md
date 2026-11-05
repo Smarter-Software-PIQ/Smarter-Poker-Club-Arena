@@ -1,0 +1,3 @@
+# server/src/engine/horseDecision/TournamentJamDisciplinedThenCalledReceipt.law.test.ts
+
+A no-limit hold'em tournament jam facing a 3-bet or more that the tournament shove discipline (Dan 2026-10-25) rewrites into a sized or covering raise, and that hold'em rule 4 (Dan 2026-10-31) then turns into a call, is one jam -> call transition in the policy graph's `wager_rules` node. The law replays three real receipts the live decision worker refused on 2026-11-05 ("invalid policy receipt: policy_graph", the table then folded for the horse) and pins that each validates against its own request, while the same receipt is still refused with no request, in a cash game, or where the discipline keeps the jam (an all-in-or-fold table).
