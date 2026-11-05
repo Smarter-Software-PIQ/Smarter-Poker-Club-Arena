@@ -185,6 +185,54 @@ describe('the database boundary excludes accepted-hand rows', () => {
     expect(replacement).toMatch(/^-- @live-proof: /m);
   });
 
+  it('accepts a NULL max buy-in at the accepted-hand door and in the post-commit consumer', () => {
+    /* PR #9450 also puts getMaxBuyIn()'s NULL into the durable envelope as
+       pending_addons.max_buy_in. fn_ca_commit_hand_settlement's add-on guard
+       demanded a JSON number > 0 and refused every fixed-limit hand
+       (invalid_post_commit_addons, 2026-11-05 03:06 UTC, nine tables), and
+       fn_ca_process_hand_post_commit_obligations would have refused the same
+       envelope on the way to resolve_pending_addon, which already reads NULL
+       as uncapped. The replacement keeps every other line: null passes, a
+       missing key, a non-number, zero and a negative number are still refused. */
+    const replacement = readFileSync(
+      join(
+        process.cwd(),
+        '..',
+        'supabase',
+        'migrations',
+        '20261105032543_a_null_max_buy_in_is_uncapped_in_the_accepted_hand_settlemen.sql'
+      ),
+      'utf8'
+    );
+    const body = replacement.slice(
+      replacement.indexOf('CREATE OR REPLACE FUNCTION public.fn_ca_commit_hand_settlement'),
+      replacement.indexOf('$function$;')
+    );
+    const addons = body.slice(
+      body.indexOf("IF jsonb_typeof(p_post_commit_obligations->'pending_addons') = 'object'"),
+      body.indexOf("'atomic hand commit refused (invalid_post_commit_addons)'")
+    );
+    expect(addons).toContain("'missing'\n          ) NOT IN ('number', 'null')");
+    expect(addons).toContain(
+      "jsonb_typeof(p_post_commit_obligations->'pending_addons'->'max_buy_in') = 'number'"
+    );
+    expect(addons).toContain("->>'max_buy_in')::numeric <= 0");
+    expect(addons).not.toContain("IS DISTINCT FROM 'number'");
+    expect(addons).toContain("p_post_commit_obligations->'pending_addons' ? 'ids'");
+    expect(body).toContain('fn_ca_commit_hand_settlement_exact_before_obligations(');
+    expect(body).toContain('SECURITY DEFINER');
+    /* The post-commit consumer is patched by exact anchor substitution. */
+    expect(replacement).toContain("OR NULLIF(v_pending->>'max_buy_in', '') IS NULL");
+    expect(replacement).toContain(
+      "OR COALESCE(jsonb_typeof(v_pending->'max_buy_in'), 'missing') NOT IN ('number', 'null')"
+    );
+    expect(replacement).toContain(
+      "md5(replace(v_after, v_new, v_old)) <> 'b831f02b0180e5e3df4da5f15d8cd338'"
+    );
+    expect(replacement).toContain("= '3e9be2b005fafa4e0caabe5fcaa0ce70'");
+    expect(replacement).toMatch(/^-- @live-proof: /m);
+  });
+
   it('sweeps before a quiet table decides it still lacks players', () => {
     const waitLoop = base.slice(
       base.indexOf("this.setLoopPhase('start_wait_for_players')"),

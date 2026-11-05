@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/fl-stranded-null-cap-hands",
+  "_comment": "Migration 20261105041928: source-correction proof for the 8 fixed-limit cash hands refused invalid_post_commit_addons by the JSON-null max_buy_in guard, installed through apply-merged-migration after merge.",
+  "functions": ["smarter_private.fl_null_cap_source_correction_proof"]
+}

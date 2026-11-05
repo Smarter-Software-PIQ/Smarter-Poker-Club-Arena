@@ -632,11 +632,21 @@ function TournamentRowSignals({
   );
 }
 
-function PlayerStateChip({ entry, ctx }: { entry: LobbyEntry; ctx: LobbyRowContext }) {
-  const state = playerStateOf(entry, ctx);
+function PlayerStateChip(
+  props:
+    | { entry: LobbyEntry; ctx: LobbyRowContext; heading?: false }
+    | { state: PlayerState; heading: true }
+) {
+  const state = props.heading ? props.state : playerStateOf(props.entry, props.ctx);
   if (!state) return null;
+  /* A tournament's pill lives in its heading row (TournamentHeadingRow), so
+     the body row prints none. Cash rows have no heading row and keep theirs. */
+  if (!props.heading && props.entry.kind !== 'cash') return null;
   return (
-    <span className={`lt-mine lt-mine--${state}`}>
+    <span
+      className={`lt-mine lt-mine--${state}${props.heading ? ' lt-mine--heading' : ''}`}
+      data-motion="keep"
+    >
       <i className="lt-mine__dot" aria-hidden="true" />
       {PLAYER_STATE_LABEL[state]}
     </span>
@@ -865,12 +875,17 @@ function TournamentHeadingRow({
   entry,
   colSpan,
   compact = false,
+  playerState = null,
   onSelect,
   onActivate,
 }: {
   entry: LobbyEntry;
   colSpan: number;
   compact?: boolean;
+  /* Dan 2026-11-04: "IF YOU ARE SEATED IN A TOURNAMENT, IT SHOULDN'T SAY IT
+     UNDER THE COUNT DOWN CLOCK. PUT THAT UNDER THE TITLE CENTERED." The
+     tournament heading owns the pill; the body row below prints none. */
+  playerState?: PlayerState;
   onSelect: (entry: LobbyEntry) => void;
   onActivate: (entry: LobbyEntry) => void;
 }) {
@@ -953,6 +968,7 @@ function TournamentHeadingRow({
             <span ref={titleRef} className="premium-lobby-title-fit">
               {heading}
             </span>
+            {playerState && <PlayerStateChip state={playerState} heading />}
           </span>
           <strong className="lt-tournament-heading__guarantee">
             {entry.kind === 'spin' ? (
@@ -1713,6 +1729,7 @@ const LobbyRow = memo(function LobbyRow({
       <TournamentHeadingRow
         entry={entry}
         colSpan={visibleColumnCount}
+        playerState={mine}
         onSelect={onSelect}
         onActivate={onActivate}
       />
@@ -2471,6 +2488,7 @@ export default function LobbyTable({
                   entry={entry}
                   colSpan={4}
                   compact
+                  playerState={playerStateOf(entry, rowCtx)}
                   onSelect={onSelect}
                   onActivate={onActivate}
                 />

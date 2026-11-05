@@ -33,16 +33,19 @@ COPY --from=dependencies /opt/qualification /opt/qualification
 # signed ca-certificates package. TLS and repository signature checks stay on.
 RUN node -e "const fs=require('node:fs'); const roots=require('node:tls').rootCertificates; if(roots.length<100) throw Error('Missing pinned TLS roots'); fs.mkdirSync('/etc/ssl/certs',{recursive:true}); fs.writeFileSync('/etc/ssl/certs/ca-certificates.crt',roots.join('\\n')+'\\n',{mode:0o644});"
 
-# A dated, signed Debian snapshot fixes transitive packages as well as PostgreSQL.
-# Expiry is disabled only for this immutable historical snapshot; signatures stay on.
+# Signed official Debian archives; PostgreSQL and its extensions stay pinned to
+# exact versions. snapshot.debian.org was dropped on 2026-11-05: it answered
+# hosted runners with 504s and ~10 s per package, failing every native build.
+# Retries are immediate: apt before 3.1.3 can loop forever on a delayed retry.
 RUN test "$(dpkg --print-architecture)" = amd64 \
     && rm -f /etc/apt/sources.list /etc/apt/sources.list.d/* \
     && printf '%s\n' \
-      'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260910T000000Z trixie main' \
-      'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20260910T000000Z trixie-security main' \
+      'deb https://deb.debian.org/debian trixie main' \
+      'deb https://deb.debian.org/debian-security trixie-security main' \
       > /etc/apt/sources.list \
     && printf '%s\n' \
-      'Acquire::Retries "3";' \
+      'Acquire::Retries "5";' \
+      'Acquire::Retries::Delay "false";' \
       'Acquire::https::Timeout "30";' \
       'Acquire::http::Timeout "30";' \
       > /etc/apt/apt.conf.d/80fixture-transport \
@@ -131,7 +134,7 @@ RUN mkdir /tmp/safeupdate \
     && test -s /tmp/safeupdate/safeupdate.so
 
 # Genuine single-version providers, no application SQL or service activation.
-# This stage inherits the exact dated Debian snapshot and PostgreSQL17.11 ABI.
+# This stage inherits the same signed Debian sources and PostgreSQL17.11 ABI.
 FROM supautils-builder AS genuine-providers-builder
 USER root
 RUN apt-get update -o APT::Update::Error-Mode=any \
