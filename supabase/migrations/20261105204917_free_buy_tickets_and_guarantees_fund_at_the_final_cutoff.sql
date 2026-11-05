@@ -676,6 +676,9 @@ END
 $cutoff$;
 
 -- ── 7. Privileges ───────────────────────────────────────────────────────────
+-- The promo head is called only from inside the registration and cancel
+-- functions (owner-only); production holds no browser or service grant on it.
+REVOKE ALL ON FUNCTION public.fn_ca_midway_free_buy_promo_head(uuid,uuid,boolean) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_ca_free_buy_history_is_append_only() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_free_buy_ticket_day(timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_free_buy_ticket_parts(uuid) FROM PUBLIC, anon, authenticated;
