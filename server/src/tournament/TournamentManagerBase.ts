@@ -3849,6 +3849,7 @@ export abstract class TournamentManagerBase {
    * resolves in seconds; fifteen minutes of one is the wedge).
    */
   deliberateDealingHold(nowMs: number): string | null {
+    if (this.heldForOperatorClosure()) return 'operator_closure_hold';
     // Whole-event rebuilds must observe the same positive policy as the
     // per-table successor path. A mixed or unknown field still needs recovery.
     if (this.tableAdmissionPolicyClosure?.size) {
@@ -9651,6 +9652,53 @@ export abstract class TournamentManagerBase {
   }
 
   private tournamentAbortBoundary: TournamentAbortBoundary | null = null;
+
+  /**
+   * AN OPERATOR CLOSURE IS SERVED BY A MANAGER THAT DEALS NOTHING (2026-11-05).
+   *
+   * Nine events the owner ordered closed sat RUNNING for days because every
+   * generation that adopted them rebuilt them as playing events: it replayed
+   * an unfinished original hand that the stop request no longer lets finish,
+   * asked the abandoned-generation door (refused, HAND_CONTINUATION_UNSETTLED),
+   * retried admission on a backoff, was watchdog-killed after ten minutes and
+   * handed the event to the next generation - and a closed Diamond arena
+   * retired its tables outright. A manager in that loop never shows the
+   * quiet, fully matched graph acknowledgeTournamentAbortBoundary insists on,
+   * so the closure answered original_graph_not_ready (or threw, 503) forever.
+   *
+   * GameServer adopts such an event here instead of through resume(): no
+   * dealer, timer, sweep, break or seat move is ever started, and the manager
+   * is born behind the same shutdown-drain fence the closure applies, so it
+   * keeps its heartbeated lease while every required table is certified
+   * absent from durable state and the unfinished hand is cancelled through
+   * the existing equal-share door. It is entered only on the operator's own
+   * explicit closure request, never by a sweep.
+   */
+  private operatorClosureHoldOperation: string | null = null;
+
+  holdForOperatorClosure(operationId: string): void {
+    if (
+      !operationId ||
+      this.running ||
+      this.lifecycleOperation !== null ||
+      this.tableEngines.size !== 0 ||
+      this.teardownPromise ||
+      this.stopFenceApplied ||
+      this.shutdownDrainFenceApplied ||
+      this.f06RecoveryOwnership ||
+      this.tournamentAbortBoundary !== null ||
+      !this.tournamentLeaseAuthorityIsCurrent()
+    )
+      throw new Error('operator_closure_hold_refused');
+    this.operatorClosureHoldOperation = operationId;
+    this.armTournamentLeaseExpiryTimer();
+    this.beginServerShutdownDrain();
+  }
+
+  /** The explicit closure operation this generation was adopted to serve, or null. */
+  heldForOperatorClosure(): string | null {
+    return this.teardownPromise ? null : this.operatorClosureHoldOperation;
+  }
   private tournamentAbortRetirementReleased = false;
   private tournamentOriginalRecoveryPreparation: {
     operationId: string;
@@ -9872,26 +9920,31 @@ export abstract class TournamentManagerBase {
     // No physical side effect or original-roster capture precedes a complete
     // graph. An accepted table move/start may still publish its original
     // outcome; the same durable request can observe that outcome afterward.
-    if (
-      this.lifecycleOperation !== null ||
-      this.tableEngineStartJobs.size !== 0 ||
-      !this.tournamentAbortBusinessTailsDrained() ||
-      !this.tournamentAbortSourcesMatch(originals, absent) ||
-      required.length === 0 ||
-      required.length !== originals.length + absent.size ||
-      originals.some(([id]) => !required.some((table) => table.table_id === id)) ||
-      !absenceCurrent() ||
+    // Every refusing condition is named, so an operator reading a pending
+    // answer is told which part of the graph is not ready.
+    const blockedBy = [
+      this.lifecycleOperation !== null && 'lifecycle_operation',
+      this.tableEngineStartJobs.size !== 0 && 'table_start_jobs',
+      !this.tournamentAbortBusinessTailsDrained() && 'business_tails',
+      !this.tournamentAbortSourcesMatch(originals, absent) && 'source_registries',
+      required.length === 0 && 'no_required_tables',
+      (required.length !== originals.length + absent.size ||
+        originals.some(([id]) => !required.some((table) => table.table_id === id))) &&
+        'table_coverage',
+      !absenceCurrent() && 'absence_uncertified',
       required.some(
         (table) =>
           absent.has(table.table_id) &&
           (!Number.isSafeInteger(table.durable_hand_number) || table.durable_hand_number! < 0)
-      )
-    )
+      ) && 'absent_hand_number',
+    ].filter((reason): reason is string => typeof reason === 'string');
+    if (blockedBy.length > 0)
       return Promise.resolve({
         state: 'pending',
         operation_id: request.operation_id,
         tournament_id: this.tournamentId,
         reason: 'original_graph_not_ready',
+        blocked_by: blockedBy,
       });
     const current = () =>
       this.hasCurrentTournamentLeaseAuthority() &&

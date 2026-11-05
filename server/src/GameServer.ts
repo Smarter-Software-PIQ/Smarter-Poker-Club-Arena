@@ -735,6 +735,14 @@ export class GameServer {
   >();
   /** Read index only: lifetime is exactly the already-owned retirement operation. */
   private tournamentDiagnosticRetirements = new Map<string, Set<TournamentManager>>();
+  /**
+   * Events whose explicit equal-share closure met a playing manager that could
+   * not present its original graph (or threw). Their next adoption is a
+   * closure hold (TournamentManagerBase.holdForOperatorClosure), never a
+   * resume. Written only by acknowledgeTournamentAbortBoundary; process-local,
+   * so after a restart the same operator request re-arms it.
+   */
+  private operatorClosureHolds?: Map<string, string>;
   /** Strong original references survive every claim, refusal and successor stop. */
   private drainedF06TournamentCustody = new Map<string, DrainedF06Custody>();
   private durableMixedF06Custody = new Map<string, MixedF06Transfer>();
@@ -3099,6 +3107,7 @@ export class GameServer {
     if (
       manager.isF06RecoveryOwner?.() ||
       manager.retainsTournamentAbortBoundary() ||
+      manager.heldForOperatorClosure?.() ||
       this.tournamentManagerRetirementOperations.has(manager)
     )
       return;
@@ -3566,6 +3575,18 @@ export class GameServer {
         return;
       }
       this.tournamentManagersReadyForCapacityWake?.delete(manager);
+      const closureHold =
+        mode === 'resume' ? this.operatorClosureHolds?.get(tournamentId) : undefined;
+      if (closureHold !== undefined) {
+        // No dealer, door, timer or sweep: the closure certifies every table
+        // absent from durable state and cancels the unfinished hand itself.
+        manager.holdForOperatorClosure(closureHold);
+        console.warn(
+          `[GameServer] tournament ${tournamentId.slice(0, 8)} is adopted as a closure hold for ` +
+            `operator operation ${closureHold.slice(0, 8)} - no dealer is built`
+        );
+        return;
+      }
       if (mode === 'resume') await manager.resume();
       else if (mode === 'stage_resume') await manager.resumeStage();
       else await manager.start();
@@ -12185,8 +12206,18 @@ export class GameServer {
     )
       throw new Error('tournament_abort_original_request_unproven');
     const manager = this.tournamentEngines.get(tournamentId);
-    if (data.state === 'recovery' || (manager && !manager.tournamentAbortActuationAllowed()))
+    if (data.state === 'recovery' || (manager && !manager.tournamentAbortActuationAllowed())) {
+      // A withdrawn closure returns the event to ordinary play: a held
+      // generation is retired so the RUNNING resume rebuilds it.
+      if (data.state === 'recovery' && this.operatorClosureHolds?.delete(tournamentId) && manager)
+        if (manager.heldForOperatorClosure?.())
+          await this.stopTournamentManagerIfOwned(
+            tournamentId,
+            manager,
+            'GameServer.operator_closure_hold_withdrawn_stop_failed'
+          );
       throw new Error('operator_abort_withdrawn_for_original_recovery');
+    }
     if (data.state === 'settled') {
       if (
         data.receipt?.fully_settled !== true ||
@@ -12219,6 +12250,7 @@ export class GameServer {
       await this.awaitTournamentManagerLeaseRelease(tournamentId, originalGeneration);
       if (this.tournamentEngines.has(tournamentId))
         throw new Error('tournament_abort_runtime_slot_retained');
+      this.operatorClosureHolds?.delete(tournamentId);
       return { ...data, runtime_retired: true };
     }
     if (
@@ -12239,7 +12271,54 @@ export class GameServer {
         tournament_id: tournamentId,
         reason: 'current_original_manager_unavailable',
       };
-    return manager.acknowledgeTournamentAbortBoundary({ ...data, closureMode });
+    if (closureMode !== 'equal_share' || manager.heldForOperatorClosure?.())
+      return manager.acknowledgeTournamentAbortBoundary({ ...data, closureMode });
+    /* A PLAYING MANAGER THAT CANNOT CLOSE HANDS THE EVENT TO A CLOSURE HOLD
+       (2026-11-05). See TournamentManagerBase.holdForOperatorClosure. A
+       ready graph closes exactly as before. One that is not ready, or a
+       closure that throws inside a playing generation, retires that
+       generation; its successor is adopted as a hold, and this same durable
+       request, repeated, closes it from database-certified absence. */
+    let runtime: unknown;
+    let failure: unknown = null;
+    try {
+      runtime = await manager.acknowledgeTournamentAbortBoundary({ ...data, closureMode });
+    } catch (error) {
+      failure = error;
+    }
+    const notReady =
+      failure === null &&
+      (runtime as { state?: unknown } | null)?.state === 'pending' &&
+      (runtime as { reason?: unknown } | null)?.reason === 'original_graph_not_ready';
+    const handOff =
+      notReady ||
+      (failure !== null &&
+        !/operator_abort_withdrawn_for_original_recovery|tournament_abort_operation_already_owned/.test(
+          String((failure as { message?: unknown } | null)?.message ?? failure)
+        ));
+    if (
+      handOff &&
+      (data.state === 'stop_requested' || data.state === 'quiesced') &&
+      !manager.isF06RecoveryOwner?.() &&
+      manager.tournamentAbortActuationAllowed() &&
+      this.tournamentEngines.get(tournamentId) === manager
+    ) {
+      (this.operatorClosureHolds ??= new Map()).set(tournamentId, operationId);
+      const retired = await this.stopTournamentManagerIfOwned(
+        tournamentId,
+        manager,
+        'GameServer.operator_closure_handoff_stop_failed'
+      );
+      if (retired)
+        return {
+          state: 'pending',
+          operation_id: operationId,
+          tournament_id: tournamentId,
+          reason: 'original_manager_retired_for_closure_hold',
+        };
+    }
+    if (failure !== null) throw failure;
+    return runtime;
   }
 
   private async repairOrphanedTournamentSeats(): Promise<void> {
