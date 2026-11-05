@@ -1197,6 +1197,8 @@ export class HorseFleetManager {
       }
       const tables = tablePage.rows.filter(isChipFleetTable);
       const cashPlanPrimaryTables = horseCashPlanPrimaryTables(tables);
+      /* Lightning Clusters run without the clock schedule (Dan 2026-11-05). */
+      const cashPlanLightningGames = await this.lightningClusterIds();
 
       /* ── THE DIAMOND ARENA (Dan 2026-10-06) ─────────────────────────────
          Deep Stack Society's horses play the arena's cash games too, through
@@ -2939,7 +2941,8 @@ export class HorseFleetManager {
               table,
               playingHumansAtCashTable(tableOccupiedSeats, horseIdSet),
               Date.now(),
-              cashPlanPrimaryTables
+              cashPlanPrimaryTables,
+              cashPlanLightningGames
             )
           ) {
             beat.withheldTables++;
@@ -4807,6 +4810,8 @@ export class HorseFleetManager {
     try {
       const tableById = new Map<string, any>(tables.map((t: any) => [t.id as string, t]));
       const cashPlanPrimaryTables = horseCashPlanPrimaryTables(tables);
+      /* Lightning Clusters run without the clock schedule (Dan 2026-11-05). */
+      const cashPlanLightningGames = await this.lightningClusterIds();
       const seatsByTable = new Map<string, typeof allActiveSeats>();
       for (const seat of allActiveSeats) {
         const seats = seatsByTable.get(seat.table_id);
@@ -4900,7 +4905,8 @@ export class HorseFleetManager {
             table,
             playingHumansAtCashTable(seatsByTable.get(table.id) ?? [], horseIdSet),
             Date.now(),
-            cashPlanPrimaryTables
+            cashPlanPrimaryTables,
+            cashPlanLightningGames
           )
         )
           continue;
