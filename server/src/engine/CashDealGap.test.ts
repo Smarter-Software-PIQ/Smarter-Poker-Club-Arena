@@ -23,9 +23,11 @@ describe('the cash next-hand start is measured to the actual start (Dan 2026-11-
     const src = readFileSync(new URL('./ServerTableEngineDealing.ts', import.meta.url), 'utf8');
     const anchor = src.indexOf('this.cashDealGapAnchorMs =');
     expect(anchor).toBeGreaterThan(-1);
-    expect(src.slice(anchor, anchor + 400)).toContain('!this.isTournamentTable()');
-    expect(src.slice(anchor, anchor + 400)).toContain('!this.gapSawIdle');
-    expect(src.slice(anchor, anchor + 400)).toContain('!this.gapHadRebuyPause');
+    // The whole assignment statement, up to its terminating semicolon.
+    const statement = src.slice(anchor, src.indexOf(';', anchor));
+    expect(statement).toContain('!this.isTournamentTable()');
+    expect(statement).toContain('!this.gapSawIdle');
+    expect(statement).toContain('!this.gapHadRebuyPause');
     const rec = src.indexOf('cashDealGap.record(');
     const start = src.indexOf('await this.runOriginalController(');
     expect(rec).toBeGreaterThan(-1);
