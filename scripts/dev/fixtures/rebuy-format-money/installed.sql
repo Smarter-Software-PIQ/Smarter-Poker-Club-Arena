@@ -72,16 +72,40 @@ AS $function$
  ELSE public.fn_ca_tournament_fee_ratio(p_buy_in,p_buy_in_fee) END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_pko(p_tournament_id uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
- SELECT EXISTS(SELECT 1 FROM public.tournaments t WHERE t.id=p_tournament_id
+CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_format(p_tournament_id uuid)
+ RETURNS text
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+ SELECT CASE
+   WHEN t.is_pko AND NOT coalesce(t.is_mystery_bounty,false)
+        AND t.bounty_amount=1 AND t.guaranteed_prize=0 THEN 'pko'
+   WHEN coalesce(t.is_mystery_bounty,false) AND NOT coalesce(t.is_pko,false)
+        AND t.bounty_amount=0.50 THEN 'mystery'
+   WHEN NOT coalesce(t.is_bounty,false) AND NOT coalesce(t.is_pko,false)
+        AND NOT coalesce(t.is_mystery_bounty,false)
+        AND coalesce(t.all_in_or_fold,false) THEN 'aiof'
+   WHEN NOT coalesce(t.is_bounty,false) AND NOT coalesce(t.is_pko,false)
+        AND NOT coalesce(t.is_mystery_bounty,false)
+        AND NOT coalesce(t.all_in_or_fold,false) THEN 'regular'
+   END
+ FROM public.tournaments t WHERE t.id=p_tournament_id
   AND (t.union_id='fade0000-0000-0000-0000-000000000001'::uuid
        OR t.club_id='fade0000-0000-0000-0000-000000000001'::uuid)
-  AND t.free_buy AND t.is_pko AND NOT coalesce(t.is_mystery_bounty,false)
+  AND t.free_buy
   AND upper(t.tournament_type)='MTT' AND t.buy_in_amount=0 AND t.buy_in_fee=0
-  AND t.bounty_amount=1 AND t.guaranteed_prize=0
-  AND t.satellite_target_id IS NULL AND lower(coalesce(t.variant,''))<>'satellite');
-$$;
+  AND t.satellite_target_id IS NULL AND lower(coalesce(t.variant,''))<>'satellite';
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_pko(p_tournament_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+ SELECT coalesce(public.fn_ca_midway_free_buy_format(p_tournament_id)='pko',false);
+$function$;
 
 CREATE OR REPLACE FUNCTION public.fn_ca_process_tournament_chip_purchase_money_v1(p_tournament_id uuid, p_user_id uuid, p_rebuy_type text, p_cost numeric, p_chips numeric, p_current_level integer, p_client_token text DEFAULT NULL::text)
  RETURNS jsonb
@@ -235,7 +259,7 @@ BEGIN
 
   v_fee_ratio:=public.fn_ca_tournament_purchase_fee_ratio(
     v_t.buy_in_amount,v_t.buy_in_fee,v_unit);
-  IF public.fn_ca_midway_free_buy_pko(p_tournament_id) THEN v_fee_ratio:=0; END IF;
+  IF public.fn_ca_midway_free_buy_format(p_tournament_id) IS NOT NULL THEN v_fee_ratio:=0; END IF;
   v_ratio:=CASE WHEN p_rebuy_type='addon' THEN 0 ELSE v_fee_ratio END;
   v_total:=round(v_base::numeric);
   v_fee:=CASE WHEN v_ratio>0 AND v_total>0
@@ -247,7 +271,8 @@ BEGIN
   v_is_bounty:=COALESCE(v_t.is_bounty,false)
     OR COALESCE(v_t.is_pko,false)
     OR COALESCE(v_t.is_mystery_bounty,false);
-  IF v_is_bounty AND p_rebuy_type<>'addon' THEN
+  IF v_is_bounty AND (p_rebuy_type<>'addon'
+     OR public.fn_ca_midway_free_buy_format(p_tournament_id)='mystery') THEN
     v_bounty_head:=public.fn_ca_unit_floor_cents(
       round(LEAST(GREATEST(0,round(COALESCE(v_t.bounty_amount,0),2)),
                   v_base)*100)::bigint,

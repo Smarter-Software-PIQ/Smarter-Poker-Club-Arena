@@ -42,6 +42,31 @@ export function tournamentStartAllowed(at: Date): boolean {
   return t >= DAILY_WINDOW.firstTournamentStart && t <= DAILY_WINDOW.lastTournamentStart;
 }
 
+/**
+ * THE ONE CARVE-OUT (owner 2026-11-04): the Midway Union's 12:30 AM Chicago
+ * Midnight Free Buy starts after 11:00 PM, every day. Nothing else does, and
+ * no other room's event of the same name: the Diamond Arena keeps the close.
+ * The database policy holds the same single exception.
+ */
+export const DAILY_WINDOW_CARVE_OUT = {
+  unionId: 'fade0000-0000-0000-0000-000000000001',
+  name: 'Midnight Free Buy (NLH)',
+  start: '00:30',
+} as const;
+
+/** True only for the Midway Union's Midnight Free Buy starting at 00:30 Chicago. */
+export function dailyWindowCarveOut(
+  event: { clubId?: string | null; unionId?: string | null; name?: unknown },
+  at: Date
+): boolean {
+  const c = DAILY_WINDOW_CARVE_OUT;
+  return (
+    (event.unionId === c.unionId || event.clubId === c.unionId) &&
+    String(event.name ?? '').trim() === c.name &&
+    chicagoClock(at) === c.start
+  );
+}
+
 /** False from 3:00 AM until 6:00 AM Chicago: no new Spin or Sit & Go board opens. */
 export function spinSngBoardsOpen(at: Date): boolean {
   const t = chicagoClock(at);

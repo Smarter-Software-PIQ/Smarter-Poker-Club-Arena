@@ -23,6 +23,7 @@ CREATE TABLE public.tournaments (
   status text NOT NULL DEFAULT 'RUNNING',
   variant text,
   tournament_type text NOT NULL DEFAULT 'MTT',
+  all_in_or_fold boolean DEFAULT false,
   buy_in_amount numeric,
   buy_in_fee numeric,
   starting_chips integer,

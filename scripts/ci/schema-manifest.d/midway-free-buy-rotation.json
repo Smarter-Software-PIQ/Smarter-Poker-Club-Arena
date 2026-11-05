@@ -1,0 +1,5 @@
+{
+  "_owner": "codex/midway-free-buy-rotation-20261104",
+  "_comment": "Migration 20261105035220: Midway Free Buy format predicate (pko/mystery/aiof/regular) and the one daily-window start carve-out (Midway Midnight Free Buy at 00:30 Chicago).",
+  "functions": ["fn_ca_midway_free_buy_format", "smarter_private.daily_window_start_carveout"]
+}

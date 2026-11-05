@@ -9,6 +9,8 @@ export interface HorseRebuyDecisionDiagnostic {
   userId: string;
   handNumber: number;
   choice: boolean;
+  /** The share the choice was drawn against; defaults to the ordinary share. */
+  choiceShare?: number;
   phase:
     | 'choice'
     | 'deferred'
@@ -41,14 +43,14 @@ export function horseRebuyFailureClass(error: unknown): string {
 }
 export function reportHorseRebuyDecision(input: HorseRebuyDecisionDiagnostic): void {
   try {
-    const { error, ...identity } = input;
+    const { error, choiceShare, ...identity } = input;
     const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : null;
     const observedAtMs = Date.now();
     console.info(
       '[Tournament.horse_rebuy_decision] ' +
         JSON.stringify({
           schema: 'horse-rebuy-decision/v1',
-          choiceShare: HORSE_TOURNAMENT_REBUY_SHARE,
+          choiceShare: choiceShare ?? HORSE_TOURNAMENT_REBUY_SHARE,
           ...identity,
           observedAtMs,
           remainingMs: input.promptUntilMs === null ? null : input.promptUntilMs - observedAtMs,

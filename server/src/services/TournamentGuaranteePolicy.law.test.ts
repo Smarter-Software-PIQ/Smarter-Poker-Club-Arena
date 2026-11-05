@@ -59,6 +59,22 @@ describe('November midnight tournament guarantee reduction', () => {
     ).toBe(125);
     expect(apply({ ...base, guaranteed_prize: 0 }).guaranteed_prize).toBe(0);
   });
+  it('leaves the Midway daily Free Buy guarantees as the owner authored them (2026-11-04)', () => {
+    const midway = 'fade0000-0000-0000-0000-000000000001';
+    const freeBuy = {
+      ...base,
+      name: 'Afternoon Free Buy (NLH)',
+      club_id: midway,
+      union_id: midway,
+      tournament_type: 'MTT',
+      free_buy: true,
+      buy_in_amount: 0,
+      buy_in_fee: 0,
+      guaranteed_prize: 500,
+    };
+    expect(apply(freeBuy)).toBe(freeBuy);
+    expect(apply({ ...freeBuy, union_id: null, club_id: 'arena' }).guaranteed_prize).toBe(250);
+  });
   it('updates guarantee labels without changing entry prices or stack amounts', () => {
     const result = apply({
       ...base,

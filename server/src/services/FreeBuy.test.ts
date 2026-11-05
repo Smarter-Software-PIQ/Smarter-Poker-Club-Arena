@@ -22,8 +22,19 @@ import {
   horseMayRebuy,
   HORSE_ADDON_IMMEDIATE_RATE,
   HORSE_MAX_REBUYS,
+  MIDWAY_FREE_BUY_HORSE_ADDON_RATE,
+  horseAddOnRateFor,
   projectedCollected,
 } from './FreeBuy.js';
+import { MIDWAY_FREE_BUY_UNION_ID } from '../tournament/midwayFreeBuyPolicy.js';
+
+const midwayFreeBuyRow = {
+  union_id: MIDWAY_FREE_BUY_UNION_ID,
+  tournament_type: 'MTT',
+  free_buy: true,
+  buy_in_amount: 0,
+  buy_in_fee: 0,
+};
 
 const std = FREE_BUY_TIERS.standard;
 const feat = FREE_BUY_TIERS.feature;
@@ -68,34 +79,35 @@ describe('the Free Buy tiers carry the current owner guarantees', () => {
 });
 
 describe('the daily schedule', () => {
-  it('runs four events every four hours from 08:30 to 20:30 Chicago, on the half hour (owner 2026-11-03)', () => {
-    // owner 2026-11-03 daily window: the 12:30 AM slot was removed, five slots -> four.
-    expect(FREE_BUY_SLOTS.map((s) => s.chicagoHour)).toEqual([8, 12, 16, 20]);
-    expect(FREE_BUY_SLOTS).toHaveLength(4);
+  it('runs five events every four hours from 08:30 Chicago, on the half hour (Dan 2026-10-16)', () => {
+    expect(FREE_BUY_SLOTS.map((s) => s.chicagoHour)).toEqual([8, 12, 16, 20, 0]);
+    expect(FREE_BUY_SLOTS).toHaveLength(5);
     expect(FREE_BUY_SLOT_MINUTE).toBe(30);
-    expect(FREE_BUY_SLOTS.map(freeBuySlotTime)).toEqual(['08:30', '12:30', '16:30', '20:30']);
+    expect(FREE_BUY_SLOTS.map(freeBuySlotTime)).toEqual([
+      '08:30',
+      '12:30',
+      '16:30',
+      '20:30',
+      '00:30',
+    ]);
   });
   it('makes 20:00 the feature and every other slot standard', () => {
     expect(slotForChicagoHour(20)?.tier).toBe('feature');
-    // owner 2026-11-03 daily window: hour 0 is no longer a slot.
-    [8, 12, 16].forEach((h) => expect(slotForChicagoHour(h)?.tier).toBe('standard'));
-    expect(slotForChicagoHour(0)).toBeNull();
+    [8, 12, 16, 0].forEach((h) => expect(slotForChicagoHour(h)?.tier).toBe('standard'));
     expect(slotForChicagoHour(9)).toBeNull();
   });
-  it('guarantees 1,750 per host per day', () => {
-    // owner 2026-11-03 daily window: 250 + 500 + 500 + 500 = 1,750 (was 2,000 with the 250 Midnight slot).
-    expect(dailyGuaranteePerHost()).toBe(1750);
+  it('guarantees 750 per published host per day (owner 2026-11-04 rotation)', () => {
+    // Midway: Morning 250 + Afternoon 500; Midday, Prime Time and Midnight 0.
+    expect(dailyGuaranteePerHost()).toBe(750);
   });
-  it('and 3,500 across both hosts - the number worth saying out loud', () => {
-    // owner 2026-11-03 daily window: 2 x 1,750 (was 4,000).
-    expect(dailyGuaranteePerHost() * 2).toBe(3500);
+  it('and 1,500 across both hosts - the number worth saying out loud', () => {
+    expect(dailyGuaranteePerHost() * 2).toBe(1500);
   });
-  it('runs four-hourly from 08:30 to 20:30, then leaves the night dark', () => {
+  it('runs four-hourly from 08:30 to 00:30, then leaves the night dark', () => {
     const hours = FREE_BUY_SLOTS.map((s) => s.chicagoHour);
-    // owner 2026-11-03 daily window: nothing starts after 11 PM, so the last slot is 20:30.
-    const inOrder = [8, 12, 16, 20];
-    expect(inOrder.slice(1).map((h, i) => h - inOrder[i])).toEqual([4, 4, 4]);
-    expect(hours).toEqual([8, 12, 16, 20]);
+    const inOrder = [8, 12, 16, 20, 24];
+    expect(inOrder.slice(1).map((h, i) => h - inOrder[i])).toEqual([4, 4, 4, 4]);
+    expect(hours).toEqual([8, 12, 16, 20, 0]);
   });
 });
 
@@ -350,14 +362,13 @@ describe('the full next day of Free Buys is visible for preregistration', () => 
   it('publishes a full day ahead', () => {
     expect(FREE_BUY_PUBLISH_LEAD_MS).toBe(24 * HOUR);
   });
-  it('has all four distinct future slots throughout an ordinary day', () => {
+  it('has all five distinct future slots throughout an ordinary day', () => {
     const day = Date.UTC(2026, 6, 15, 0, 0, 0);
     for (let m = 0; m < 24 * 60; m += 5) {
       const now = day + m * 60_000;
       const due = freeBuySlotsDue(now);
-      // owner 2026-11-03 daily window: four slots a day (was five).
-      expect(due).toHaveLength(4);
-      expect(new Set(due.map((d) => d.startMs)).size).toBe(4);
+      expect(due).toHaveLength(5);
+      expect(new Set(due.map((d) => d.startMs)).size).toBe(5);
       expect(due.every((d) => d.startMs > now && d.startMs <= now + 24 * HOUR)).toBe(true);
     }
   });
@@ -377,9 +388,9 @@ describe('freeBuySlotsDue', () => {
   it('keeps the intermediate Chicago day across spring forward', () => {
     const now = Date.parse('2026-03-08T05:30:00Z'); // Mar 7, 23:30 Chicago
     const due = freeBuySlotsDue(now);
-    // owner 2026-11-03 daily window: the 00:30 slots on Mar 8 and Mar 9 are gone (6 -> 4, 5 -> 4).
-    expect(due).toHaveLength(4);
-    expect(due.filter((d) => d.dayKey === '2026-03-08')).toHaveLength(4);
+    expect(due).toHaveLength(6);
+    expect(due.filter((d) => d.dayKey === '2026-03-08')).toHaveLength(5);
+    expect(due.some((d) => d.dayKey === '2026-03-09' && d.slot.chicagoHour === 0)).toBe(true);
     expect(due.every((d) => d.startMs > now && d.startMs <= now + 24 * HOUR)).toBe(true);
   });
 
@@ -389,16 +400,15 @@ describe('freeBuySlotsDue', () => {
     expect(due.map((d) => d.startMs)).not.toContain(start);
   });
 
-  it('sees TOMORROW 8:30 AM from the evening before, and no slot after 11 PM', () => {
-    // 22:00 Chicago on the 15th: the 08:30 slot belongs to the 16th and is
-    // ten and a half hours away. Reading only "today" would never find it.
-    // owner 2026-11-03 daily window: the 00:30 slot this test used was removed.
-    const evening = freeBuySlotsDue(chicagoWallClockToUtcMs('2026-07-15', 22));
-    expect(evening.filter((d) => d.slot.chicagoHour === 0)).toHaveLength(0);
-    const due = evening.filter((d) => d.slot.chicagoHour === 8);
+  it('sees TOMORROW 12:30 AM from the evening before', () => {
+    // 22:00 Chicago on the 15th: the 00:30 slot belongs to the 16th and is
+    // two and a half hours away. Reading only "today" would never find it.
+    const due = freeBuySlotsDue(chicagoWallClockToUtcMs('2026-07-15', 22)).filter(
+      (d) => d.slot.chicagoHour === 0
+    );
     expect(due).toHaveLength(1);
     expect(due[0].dayKey).toBe('2026-07-16');
-    expect(due[0].slot.chicagoHour).toBe(8);
+    expect(due[0].slot.chicagoHour).toBe(0);
   });
 
   it('carries the tier the slot was declared with', () => {
@@ -409,7 +419,7 @@ describe('freeBuySlotsDue', () => {
     expect(std8[0].slot.tier).toBe('standard');
   });
 
-  it('produces exactly four starts per host per Chicago day', () => {
+  it('produces exactly five starts per host per Chicago day', () => {
     // Start sampling at 21:00 the evening BEFORE, so a slot that comes due
     // ahead of itself on the previous date is still seen.
     const dayStart = chicagoWallClockToUtcMs('2026-07-14', 21);
@@ -419,10 +429,9 @@ describe('freeBuySlotsDue', () => {
         if (chicagoDayKey(d.startMs) === '2026-07-15') seen.add(d.startMs);
       }
     }
-    // owner 2026-11-03 daily window: four starts, no hour 0 (was five).
-    expect(seen.size).toBe(4);
+    expect(seen.size).toBe(5);
     expect([...seen].map((ms) => chicagoParts(ms).hour).sort((a, b) => a - b)).toEqual([
-      8, 12, 16, 20,
+      0, 8, 12, 16, 20,
     ]);
   });
 });
@@ -540,21 +549,59 @@ describe('the row a Free Buy is created as', () => {
     expect(row.free_buy).toBe(true);
   });
 
-  it('funds the standard Midway head with no fixed guarantee or add-on', () => {
-    const row = rowFor(0, 8);
-    expect(row.guaranteed_prize).toBe(0);
-    expect(row.starting_chips).toBe(3000);
-    expect(row.rebuy_cost).toBe(1);
-    expect(row.addon_cost).toBeNull();
-    expect(row.addon_chips).toBeNull();
+  it('funds the Midday and Midnight PKO head with no fixed guarantee or add-on', () => {
+    for (const hour of [12, 0]) {
+      const row = rowFor(0, hour);
+      expect(row.guaranteed_prize).toBe(0);
+      expect(row.starting_chips).toBe(3000);
+      expect(row.rebuy_cost).toBe(1);
+      expect(row.addon_cost).toBeNull();
+      expect(row.addon_chips).toBeNull();
+    }
   });
 
-  it('uses the same bounty-only rules for the feature slot', () => {
-    const row = rowFor(0, 20);
-    expect(row.guaranteed_prize).toBe(0);
-    expect(row.rebuy_cost).toBe(1);
-    expect(row.addon_cost).toBeNull();
-    expect(row.addon_chips).toBeNull();
+  it('runs the Morning regular at 250 with 1-chip rebuys and add-ons from sit-down', () => {
+    const row = rowFor(0, 8);
+    expect(row).toMatchObject({
+      guaranteed_prize: 250,
+      is_bounty: false,
+      is_pko: false,
+      is_mystery_bounty: false,
+      bounty_amount: 0,
+      rebuy_cost: 1,
+      add_on_available: true,
+      addon_from_start: true,
+      addon_cost: 1,
+      addon_chips: 3000,
+      addon_levels: 1,
+      all_in_or_fold: false,
+    });
+  });
+
+  it('runs the Afternoon all-in-or-fold at 500 with rebuys only', () => {
+    expect(rowFor(0, 16)).toMatchObject({
+      guaranteed_prize: 500,
+      is_bounty: false,
+      all_in_or_fold: true,
+      add_on_available: false,
+      addon_cost: null,
+    });
+  });
+
+  it('runs the Prime Time mystery bounty with half of every chip in the bounty pool', () => {
+    expect(rowFor(0, 20)).toMatchObject({
+      guaranteed_prize: 0,
+      is_bounty: true,
+      is_pko: false,
+      is_mystery_bounty: true,
+      variant: 'mystery_bounty',
+      bounty_amount: 0.5,
+      mystery_bounty_min: 0.25,
+      mystery_bounty_max: 5,
+      rebuy_cost: 1,
+      add_on_available: true,
+      addon_cost: 1,
+    });
   });
 
   it('sets free_buy AND a positive rebuy_cost together, or the trigger reprices it to 1.00', () => {
@@ -565,8 +612,8 @@ describe('the row a Free Buy is created as', () => {
     expect(Number(row.rebuy_cost)).toBeGreaterThan(0);
   });
 
-  it('disables add-ons throughout the event', () => {
-    const row = rowFor(0, 8);
+  it('disables add-ons throughout the PKO', () => {
+    const row = rowFor(0, 12);
     expect(row.add_on_available).toBe(false);
     expect(row.addon_from_start).toBe(false);
   });
@@ -610,8 +657,8 @@ describe('the row a Free Buy is created as', () => {
     expect(rowFor(0, 8).club_id).not.toBe(rowFor(1, 8).club_id);
   });
 
-  it('carries a one-chip progressive bounty', () => {
-    const row = rowFor(0, 8);
+  it('carries a one-chip progressive bounty in the PKO', () => {
+    const row = rowFor(0, 12);
     expect(row.is_bounty).toBe(true);
     expect(row.bounty_amount).toBe(1);
     expect(row.is_pko).toBe(true);
@@ -748,7 +795,7 @@ describe('auditFreeBuyRow', () => {
   });
 
   it('reads an event that started before the board moved against the board it ran on', () => {
-    // The last slots of the old board ran at the top of the hour on 2026-10-16
+    // The last four of the old board ran at the top of the hour on 2026-10-16
     // and 10-17, and the audit reads 24 hours back.
     const at = (hour: number, day: string, minute: number) =>
       new Date(chicagoWallClockToUtcMs(day, hour, minute)).toISOString();
@@ -756,7 +803,7 @@ describe('auditFreeBuyRow', () => {
       [12, '2026-10-16', 250],
       [16, '2026-10-16', 250],
       [20, '2026-10-16', 500],
-      // owner 2026-11-03 daily window: the Midnight Free Buy case was removed (no hour-0 slot).
+      [0, '2026-10-17', 250],
     ] as const) {
       const name = FREE_BUY_SLOTS.find((s) => s.chicagoHour === hour)!.label + ' (NLH)';
       expect(
@@ -932,5 +979,93 @@ describe('auditFreeBuyBoard', () => {
 
   it('reports the count it actually checked', () => {
     expect(auditFreeBuyBoard([row(8)], now).checked).toBe(1);
+  });
+});
+
+// Owner rule 2026-11-04: Midway Union Free Buys only.
+describe('Midway Free Buy horses add on at 90 percent and are not cut by the hashed allowance', () => {
+  it('pins 90 percent for Midway Free Buys and keeps 74 percent everywhere else', () => {
+    expect(MIDWAY_FREE_BUY_HORSE_ADDON_RATE).toBe(0.9);
+    expect(horseAddOnRateFor(midwayFreeBuyRow)).toBe(0.9);
+    expect(horseAddOnRateFor({ ...midwayFreeBuyRow, union_id: 'other' })).toBe(0.74);
+    expect(horseAddOnRateFor({ ...midwayFreeBuyRow, free_buy: false })).toBe(0.74);
+    expect(horseAddOnRateFor(null)).toBe(0.74);
+  });
+
+  it('accepts exactly 900 of the 1000 participation buckets at the Midway rate, same hash', () => {
+    const buckets = new Map<number, string>();
+    for (let i = 0; buckets.size < 1000 && i < 20000; i++) {
+      const id = `boundary-horse-${i}`;
+      buckets.set(shHash(id, 'event', 'addon-participation') % 1000, id);
+    }
+    expect(buckets.size).toBe(1000);
+    for (const [bucket, id] of buckets) {
+      expect(horseTakesAddOn(id, 'event', 0.9)).toBe(bucket < 900);
+      if (horseTakesAddOn(id, 'event')) expect(horseTakesAddOn(id, 'event', 0.9)).toBe(true);
+      expect(horseAddOnTiming(id, 'event', true, 0.9) !== 'declined').toBe(bucket < 900);
+    }
+  });
+
+  it('gives every Midway Free Buy horse the full upper bound of five, never zero', () => {
+    for (let i = 0; i < 500; i++) {
+      expect(horseRebuyAllowance(`h-${i}`, 'e', midwayFreeBuyRow)).toBe(HORSE_MAX_REBUYS);
+    }
+    const base = { horseId: 'h-1', eventId: 'e', nowMs: 0, startMs: 0, cfg: std, available: 100 };
+    expect(horseMayRebuy({ ...base, rebuysTaken: 4, tournament: midwayFreeBuyRow })).toBe(true);
+    expect(horseMayRebuy({ ...base, rebuysTaken: 5, tournament: midwayFreeBuyRow })).toBe(false);
+    // Other rooms keep the hashed 0..5 allowance.
+    const other = { ...midwayFreeBuyRow, union_id: 'other' };
+    for (let i = 0; i < 500; i++) {
+      expect(horseRebuyAllowance(`h-${i}`, 'e', other)).toBe(horseRebuyAllowance(`h-${i}`, 'e'));
+    }
+  });
+});
+
+import { withMidwayFreeBuyPolicy as rotate } from '../tournament/midwayFreeBuyPolicy.js';
+
+describe('the watch audits each Midway slot against its own format (owner 2026-11-04)', () => {
+  const at = (hour: number) =>
+    new Date(
+      chicagoWallClockToUtcMs(hour === 0 ? '2026-11-07' : '2026-11-06', hour, FREE_BUY_SLOT_MINUTE)
+    ).toISOString();
+  const built = (hour: number) =>
+    rotate({
+      name: FREE_BUY_SLOTS.find((s) => s.chicagoHour === hour)!.label + ' (NLH)',
+      club_id: FREE_BUY_HOSTS[0].clubId,
+      union_id: FREE_BUY_HOSTS[0].unionId,
+      tournament_type: 'MTT',
+      variant: 'freezeout',
+      free_buy: true,
+      start_time: at(hour),
+      buy_in_amount: 0,
+      buy_in_fee: 0,
+      starting_chips: 3000,
+      max_rebuys: null,
+      late_reg_mins: 60,
+      late_reg_levels: 12,
+      rebuy_levels: 12,
+    });
+
+  it('passes every slot as built', () => {
+    for (const hour of [8, 12, 16, 20, 0])
+      expect(auditFreeBuyRow(built(hour)), `${hour}`).toEqual([]);
+  });
+
+  it('flags a rotated slot still in the old PKO shape', () => {
+    const stale = { ...built(12), name: 'Morning Free Buy (NLH)', start_time: at(8) };
+    expect(auditFreeBuyRow(stale).length).toBeGreaterThan(0);
+    const aiof = { ...built(16), all_in_or_fold: false };
+    expect(auditFreeBuyRow(aiof)).toContain('the all-in-or-fold Free Buy is not all-in-or-fold');
+    const mystery = { ...built(20), bounty_amount: 1 };
+    expect(auditFreeBuyRow(mystery).some((p) => p.includes('bounty 1'))).toBe(true);
+  });
+
+  it('keeps reading an event before the rotation against the PKO it was published as', () => {
+    const before = {
+      ...built(12),
+      name: 'Morning Free Buy (NLH)',
+      start_time: new Date(chicagoWallClockToUtcMs('2026-11-04', 8, 30)).toISOString(),
+    };
+    expect(auditFreeBuyRow(before)).toEqual([]);
   });
 });

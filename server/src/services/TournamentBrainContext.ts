@@ -1700,7 +1700,7 @@ async function refresh(
         supabase
           .from('tournaments')
           .select(
-            'payout_club:clubs!tournaments_club_id_fkey(asset, is_platform, union_id), bubble_protection, format_contract, tournament_type, status, game_type, variant, free_buy, max_players, table_size, payout_structure, spin_multiplier, prize_pool, prize_pool_finalized, bounty_pool, buy_in_amount, buy_in_fee, starting_chips, rebuy_cost, rebuy_chips, bounty_amount, is_pko, is_bounty, is_mystery_bounty, mystery_bounty_stage, blind_structure, current_level, level_started_at, started_at, late_reg_mins, late_reg_levels, is_reentry, max_reentries, is_rebuy, rebuy_levels, max_rebuys, add_on_available, addon_cost, addon_chips, addon_levels, addon_period_triggered, addon_period_started_at, addon_period_ends_at, on_break, break_started_at, break_ends_at, accelerated_mtt, big_blind_ante, authorized_to_register, satellite_seats, satellite_target_id, satellite_target'
+            'payout_club:clubs!tournaments_club_id_fkey(asset, is_platform, union_id), club_id, union_id, bubble_protection, format_contract, tournament_type, status, game_type, variant, free_buy, max_players, table_size, payout_structure, spin_multiplier, prize_pool, prize_pool_finalized, bounty_pool, buy_in_amount, buy_in_fee, starting_chips, rebuy_cost, rebuy_chips, bounty_amount, is_pko, is_bounty, is_mystery_bounty, mystery_bounty_stage, blind_structure, current_level, level_started_at, started_at, late_reg_mins, late_reg_levels, is_reentry, max_reentries, is_rebuy, rebuy_levels, max_rebuys, add_on_available, addon_cost, addon_chips, addon_levels, addon_period_triggered, addon_period_started_at, addon_period_ends_at, on_break, break_started_at, break_ends_at, accelerated_mtt, big_blind_ante, authorized_to_register, satellite_seats, satellite_target_id, satellite_target'
           )
           .eq('id', tournamentId)
           .maybeSingle(),
@@ -1808,7 +1808,11 @@ async function refresh(
       if (typeof row.user_id === 'string' && row.user_id) {
         reloadsByUser[row.user_id] = Math.max(0, Math.floor(Number(row.rebuys) || 0));
         if (tournament.free_buy === true) {
-          const policyCap = horseRebuyAllowance(row.user_id, tournamentId);
+          const policyCap = horseRebuyAllowance(
+            row.user_id,
+            tournamentId,
+            tournament as unknown as Record<string, unknown>
+          );
           const configuredCap = tournament.is_rebuy
             ? tournament.max_rebuys
             : tournament.max_reentries;

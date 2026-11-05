@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isMidwayFreeBuy } from './midwayFreeBuyPolicy.js';
 
 /** Share of eligible tournament busts on which a horse buys back in.
  *
@@ -7,20 +8,37 @@ import { createHash } from 'node:crypto';
  */
 export const HORSE_TOURNAMENT_REBUY_SHARE = 0.7;
 
+/** Owner rule, 2026-11-04: in the Midway Union's daily Free Buys horses rebuy
+ * on 90% of eligible busts inside the window. Every other tournament keeps
+ * the 2026-10-29 share above. */
+export const MIDWAY_FREE_BUY_HORSE_REBUY_SHARE = 0.9;
+
+/** The share that applies to a tournament row (the manager's cached row). */
+export function horseTournamentRebuyShareFor(
+  row: Record<string, unknown> | null | undefined
+): number {
+  return row && isMidwayFreeBuy(row)
+    ? MIDWAY_FREE_BUY_HORSE_REBUY_SHARE
+    : HORSE_TOURNAMENT_REBUY_SHARE;
+}
+
 /** Bind the draw to the accepted busting hand, not a sweep, clock or process.
  * A retry/restart must preserve a decline. A later bust gets a fresh draw.
  * This is only the input choice; the normal purchase transaction still owns
  * eligibility, caps, pricing, funding and duplicate-effect protection.
+ * The draw itself never depends on the share: only the threshold does, so a
+ * horse that would rebuy at 70% also rebuys at 90%.
  */
 export function horseChoosesTournamentRebuy(
   tournamentId: string,
   userId: string,
-  bustHandNumber: number | null | undefined
+  bustHandNumber: number | null | undefined,
+  share: number = HORSE_TOURNAMENT_REBUY_SHARE
 ): boolean {
   if (!Number.isSafeInteger(bustHandNumber) || Number(bustHandNumber) <= 0) return false;
   const draw = createHash('sha256')
     .update(JSON.stringify(['horse-tournament-rebuy-v1', tournamentId, userId, bustHandNumber]))
     .digest()
     .readUInt32BE(0);
-  return draw / 0x1_0000_0000 < HORSE_TOURNAMENT_REBUY_SHARE;
+  return draw / 0x1_0000_0000 < share;
 }

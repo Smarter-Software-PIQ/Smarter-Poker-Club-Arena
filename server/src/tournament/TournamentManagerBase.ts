@@ -181,7 +181,7 @@ import {
   type StageFirstLevel,
   type StageRpcOutcome,
 } from './multiDayStages.js';
-import { horseTakesAddOn } from '../services/FreeBuy.js';
+import { horseAddOnRateFor, horseTakesAddOn } from '../services/FreeBuy.js';
 import { refreshTournamentBrainContextAfterClockCommit } from '../services/TournamentBrainContext.js';
 import { tournamentLeaseMonotonicNow } from '../services/tournamentLease.js';
 import { registerTournamentManagerFenceHandler } from '../services/supabase/tournamentManagerFence.js';
@@ -12757,8 +12757,10 @@ export abstract class TournamentManagerBase {
         this.requestUrgentEliminationSweepAfter(TournamentManagerBase.ADD_ON_RETRY_MS);
         return;
       }
+      // Midway Free Buys take the add-on at 90% (2026-11-04); other rooms at 74%.
+      const addOnRate = horseAddOnRateFor(this.tournamentCache);
       const eligibleHorseRows = horseRead.rows.filter((horse) =>
-        horseTakesAddOn(horse.id, this.tournamentId)
+        horseTakesAddOn(horse.id, this.tournamentId, addOnRate)
       );
       // The same final minute serves every player. A historical long Free Buy
       // window is recoverable, but never authorizes an early purchase.

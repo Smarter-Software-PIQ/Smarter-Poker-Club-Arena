@@ -74,7 +74,10 @@ import {
   SatelliteSettlementRefusedError,
 } from './satelliteSettlementRpc.js';
 import { horseRebuyAllowance } from '../services/FreeBuy.js';
-import { horseChoosesTournamentRebuy } from './horseTournamentRebuyChoice.js';
+import {
+  horseChoosesTournamentRebuy,
+  horseTournamentRebuyShareFor,
+} from './horseTournamentRebuyChoice.js';
 import { reportHorseRebuyDecision } from './horseTournamentRebuyDiagnostic.js';
 import {
   horseRebuyAnswerDueAtMs,
@@ -2621,10 +2624,14 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       }
       // A human's click is their own; only a horse that chose to rebuy, is
       // due, and was not answered yet is worth asking again.
+      // Midway Free Buys draw at 90% (2026-11-04); every other event at 70%.
+      const rebuyShare = horseTournamentRebuyShareFor(this.tournamentCache);
       for (const userId of batch) {
         if (!horses.has(userId) || answered.has(userId) || deferredUntil.has(userId)) continue;
         const hand = handNumbers.get(userId);
-        if (horseChoosesTournamentRebuy(this.tournamentId, userId, hand)) stillOpen = true;
+        if (horseChoosesTournamentRebuy(this.tournamentId, userId, hand, rebuyShare)) {
+          stillOpen = true;
+        }
       }
     }
     this.horseRebuyInputNextDueAtMs = nextDueAtMs;
@@ -2796,7 +2803,14 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
           return;
         }
-        const choice = horseChoosesTournamentRebuy(this.tournamentId, h.id, bustHandNumber);
+        // Midway Free Buys draw at 90% (2026-11-04); every other event at 70%.
+        const choiceShare = horseTournamentRebuyShareFor(t);
+        const choice = horseChoosesTournamentRebuy(
+          this.tournamentId,
+          h.id,
+          bustHandNumber,
+          choiceShare
+        );
         const timing = offerTimings.get(h.id);
         let dueAtMs: number | null = null;
         const diagnostic = (
@@ -2809,6 +2823,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             userId: h.id,
             handNumber: Number(bustHandNumber),
             choice,
+            choiceShare,
             phase,
             bustAtMs: timing?.bustAtMs ?? null,
             promptUntilMs: timing?.promptUntilMs ?? null,
@@ -2828,7 +2843,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
             return;
           }
-          if (used >= horseRebuyAllowance(h.id, this.tournamentId)) {
+          // Midway Free Buys (2026-11-04): the 90% per-bust draw above is the
+          // whole decision; the hashed 0..5 allowance would silently cut it
+          // (an allowance-0 horse would never rebuy). Keep only the 5 upper
+          // bound there when the event sets no max_rebuys, to bound drain.
+          if (used >= horseRebuyAllowance(h.id, this.tournamentId, t)) {
             await this.declineHorseRebuyOffer(h.id, mayMutate);
             answered.add(h.id);
             return;

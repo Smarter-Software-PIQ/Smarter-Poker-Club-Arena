@@ -33,6 +33,7 @@ import {
   recurringMttRow,
 } from './TournamentRecurringService.js';
 import { FREE_BUY_SLOTS, freeBuyBoardName, freeBuySlotTime } from './FreeBuy.js';
+import { midwayFreeBuyPolicyFor } from '../tournament/midwayFreeBuyPolicy.js';
 import { DIAMOND_FREEROLL_REBUY_DIAMONDS, diamondSpawnConfig } from './diamondScheduledSpawn.js';
 import { withMidwayStructure } from '../tournament/midwayStructurePolicy.js';
 import {
@@ -143,11 +144,13 @@ describe('every scheduled name builds the event the timer used to make', () => {
     expect(row).toEqual(withMidwayStructure({ ...board, schedule_id: sched.id }));
     expect(row.free_buy).toBe(true);
     expect(row.buy_in_amount).toBe(0);
-    // Owner November 2: Midway promo funds one bounty per entrant.
+    // Owner 2026-11-04: Prime Time is the 50/50 mystery bounty, no guarantee.
     expect(row.guaranteed_prize).toBe(0);
+    expect(row.is_mystery_bounty).toBe(true);
+    expect(row.bounty_amount).toBe(0.5);
     // Dan 2026-10-16: "ALL REBUY ADD ON'S FOR MIDWAY UNION ARE 1 CHIP".
     expect(row.rebuy_cost).toBe(1);
-    expect(row.addon_cost).toBeNull();
+    expect(row.addon_cost).toBe(1);
     expect(row.starting_chips).toBe(3000);
   });
 
@@ -241,14 +244,16 @@ describe('the Diamond Arena prices a fixed-board occurrence at its real total', 
 });
 
 describe('the board is hard coded in the engine, so it can never run ahead of its code', () => {
-  it('carries 23 events, each once a day (8 on Sunday, the Sunday Funday day), for both clubs', () => {
+  it('carries 24 events, each once a day (9 on Sunday, the Sunday Funday day), for both clubs', () => {
     // owner 2026-11-03 daily window: 26 -> 23 (Late Night Turbo, Midnight Bounty, Midnight Free Buy removed).
-    expect(FIXED_BOARD.length).toBe(23);
+    // owner 2026-11-04: 23 -> 24, the Midnight Free Buy restored (Midway Union only).
+    expect(FIXED_BOARD.length).toBe(24);
     expect(FIXED_BOARD.every((e) => e.times.length === 1)).toBe(true);
     const onDay = (d: number) => FIXED_BOARD.filter((e) => !e.days || e.days.includes(d)).length;
     // owner 2026-11-03 daily window: Sunday 11 -> 8, Monday to Saturday 26 -> 23.
-    expect(onDay(0)).toBe(8);
-    for (const d of [1, 2, 3, 4, 5, 6]) expect(onDay(d)).toBe(23);
+    // owner 2026-11-04: the Midnight Free Buy back, Sunday 9, Monday to Saturday 24.
+    expect(onDay(0)).toBe(9);
+    for (const d of [1, 2, 3, 4, 5, 6]) expect(onDay(d)).toBe(24);
     expect(FIXED_BOARD_CLUBS.map((c) => c.clubId)).toEqual([MIDWAY, ARENA]);
   });
 
@@ -291,10 +296,13 @@ describe('the board is hard coded in the engine, so it can never run ahead of it
     };
   };
 
-  it('an empty table gets 45 rows after the Midway 11 AM removal and the 11 PM close', () => {
+  it('an empty table gets 46 rows after the Midway 11 AM removal and the 11 PM close', () => {
     const plan = planFixedBoardSync([]);
     // owner 2026-11-03 daily window: 51 -> 45 (three events removed, two clubs each).
-    expect(plan.inserts).toHaveLength(45);
+    // owner 2026-11-04: 45 -> 46, the Midway Union's Midnight Free Buy (not the arena's).
+    expect(plan.inserts).toHaveLength(46);
+    const midnight = plan.inserts.filter((r) => r.name === 'Midnight Free Buy (NLH)');
+    expect(midnight.map((r) => r.club_id)).toEqual([MIDWAY]);
     expect(plan.updates).toEqual([]);
     expect(plan.deactivate).toEqual([]);
   });
@@ -403,9 +411,13 @@ describe('the board is hard coded in the engine, so it can never run ahead of it
  */
 describe("a real room's day: a real tournament every half hour from 8 AM to 11 PM, nothing after 11 PM", () => {
   const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+  // The daily window's one carve-out (owner 2026-11-04): the Midway Union's
+  // 12:30 AM Midnight Free Buy. Asserted on its own below; the rest of the
+  // day is the 8 AM to 11 PM room.
+  const CARVE_OUT = 'Midnight Free Buy (NLH)';
   const startsOn = (day: number) => [
-    ...FIXED_BOARD.filter((e) => !e.days || e.days.includes(day)).flatMap((e) =>
-      e.times.map((t) => ({ t, who: e.name }))
+    ...FIXED_BOARD.filter((e) => e.name !== CARVE_OUT && (!e.days || e.days.includes(day))).flatMap(
+      (e) => e.times.map((t) => ({ t, who: e.name }))
     ),
     ...WEEKLY_EVENT_SLOTS.filter((t) => WEEKLY_EVENT_DAYS[t].includes(day)).map((t) => ({
       t,
@@ -444,6 +456,12 @@ describe("a real room's day: a real tournament every half hour from 8 AM to 11 P
         const m = toMin(s.t);
         expect(m > 23 * 60 || m < 8 * 60, `${s.who} at ${s.t}`).toBe(false);
       }
+    const carve = FIXED_BOARD.filter((e) => e.times.some((t) => t > '23:00' || t < '08:00'));
+    expect(carve.map((e) => [e.name, e.times, e.days])).toEqual([
+      [CARVE_OUT, ['00:30'], undefined],
+    ]);
+    expect(isRetiredMidwayBoardEvent(ARENA, CARVE_OUT)).toBe(true);
+    expect(isRetiredMidwayBoardEvent(MIDWAY, CARVE_OUT)).toBe(false);
   });
 
   it('satellites start only on the :15 and the :45', () => {
@@ -508,9 +526,10 @@ describe("a real room's day: a real tournament every half hour from 8 AM to 11 P
       expect(targets.has(t), t).toBe(true);
   });
 
-  it('the four Free Buys run every day at 8:30 AM, 12:30 PM, 4:30 PM and 8:30 PM', () => {
-    // owner 2026-11-03 daily window: the 12:30 AM Midnight Free Buy was removed.
+  it('the five Free Buys run every day at 8:30 AM, 12:30 PM, 4:30 PM, 8:30 PM and 12:30 AM', () => {
+    // owner 2026-11-04: the 12:30 AM Midnight Free Buy restored (Midway Union only).
     expect(FREE_BUY_SLOTS.map(freeBuySlotTime).sort()).toEqual([
+      '00:30',
       '08:30',
       '12:30',
       '16:30',
@@ -703,7 +722,8 @@ describe('daily Free Buy guarantees in both live schedule creators', () => {
         [12, 'Midday', 500],
         [16, 'Afternoon', 500],
         [20, 'Prime Time', 500],
-        // owner 2026-11-03 daily window: the 12:30 AM Midnight Free Buy cases were removed.
+        // owner 2026-11-04: the Midnight Free Buy runs at the Midway Union only.
+        [0, 'Midnight', 250],
       ].map(([hour, label, guarantee]) => ({
         day,
         hour: Number(hour),
@@ -717,12 +737,21 @@ describe('daily Free Buy guarantees in both live schedule creators', () => {
     ({ day, hour, guarantee, schedule }) => {
       const start = new Date(Date.UTC(2026, 9, 25 + day, hour + 5, 30));
       const row = fixedBoardRow(schedule, { fixedBoard: schedule.name }, start);
+      if (hour === 0 && schedule.club_id === ARENA) {
+        expect(row).toBeNull();
+        return;
+      }
       expect(row).not.toBeNull();
-      expect(row!.guaranteed_prize).toBe(schedule.club_id === MIDWAY ? 0 : guarantee);
+      // Owner 2026-11-04: each Midway slot carries its own format's guarantee.
+      const policy = midwayFreeBuyPolicyFor(schedule.name)!;
+      expect(row!.guaranteed_prize).toBe(
+        schedule.club_id === MIDWAY ? policy.guaranteedPrize : guarantee
+      );
       if (schedule.club_id === MIDWAY) {
-        expect(row!.bounty_amount).toBe(1);
-        expect(row!.is_pko).toBe(true);
-        expect(row!.add_on_available).toBe(false);
+        expect(row!.bounty_amount).toBe(policy.bountyAmount);
+        expect(row!.is_pko).toBe(policy.isPko);
+        expect(row!.is_mystery_bounty).toBe(policy.isMysteryBounty);
+        expect(row!.add_on_available).toBe(policy.addOnAvailable);
       }
       expect(row!.buy_in_amount).toBe(0);
       expect(row!.buy_in_fee).toBe(0);
