@@ -142,11 +142,14 @@ including for superusers. Both fixture startup paths set it to
 plugin only. The unused `test_decoding` default is excluded. The native smoke
 asserts this exact live setting before creating, inspecting and dropping its
 temporary wal2json slot. No privilege increase or plugin-check bypass is used.
-Both APT sources are frozen at `20260910T000000Z` in the official
-[Debian snapshot archive](https://snapshot.debian.org/). The exact versions were
-verified in its `trixie` and `trixie-security` amd64 package indexes. Package
-signature verification stays enabled; only the historical Release expiry check
-is disabled. PostgreSQL's package supplies the required contrib extensions;
+Both APT sources are the signed official Debian archives (`deb.debian.org`
+`trixie` and `trixie-security`). PostgreSQL 17.11, libpq5, pgvector 0.8.0-1 and
+wal2json 2.6-2+b1 stay pinned to exact versions, verified in those amd64 package
+indexes on 2026-11-05; other packages follow Debian stable updates. Package
+signature and Release expiry checks stay enabled. The dated snapshot archive was
+dropped on 2026-11-05 after it answered hosted runners with 504 Gateway Timeout
+and roughly ten seconds per package. Retries are immediate, because apt before
+3.1.3 can loop forever on a delayed retry. PostgreSQL's package supplies the required contrib extensions;
 the image build checks for dblink, pg_stat_statements, pg_trgm, pgcrypto,
 uuid-ossp, and vector control files, and the native smoke creates all six.
 
