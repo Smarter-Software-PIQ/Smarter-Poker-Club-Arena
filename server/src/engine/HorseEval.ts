@@ -527,6 +527,10 @@ export interface NextCardOutlook {
   scare: string[];
   /** hero's made category now */
   madeNow: number;
+  /** Receipt only (#9351): the PLO8 low-draw and counterfeit outlook graded
+   *  this read (hi-lo, hero can make a low) and how many cards it classified. */
+  plo8LowRead?: boolean;
+  plo8LowCards?: number;
 }
 
 export function nextCardOutlook(
@@ -571,6 +575,10 @@ export function nextCardOutlook(
     }
   }
   const heroCanMakeLow = heroLowRanks.size >= 2;
+  if (quality && vi.isOmaha && vi.isHiLo && heroCanMakeLow) {
+    out.plo8LowRead = true;
+    out.plo8LowCards = 0;
+  }
   const boardLowPossibleBefore =
     quality && vi.isOmaha && vi.isHiLo ? boardNutLowPartial(board) < Infinity : false;
   const heroHasNutLowBefore =
@@ -622,6 +630,7 @@ export function nextCardOutlook(
           heroLowDrawCounterfeitedOnComplete(next))
       ) {
         out.scare.push(k);
+        out.plo8LowCards = (out.plo8LowCards ?? 0) + 1;
         continue;
       }
       out.good.push(k);
@@ -633,10 +642,12 @@ export function nextCardOutlook(
         heroLowDrawCounterfeitedOnComplete(next)
       ) {
         out.scare.push(k);
+        out.plo8LowCards = (out.plo8LowCards ?? 0) + 1;
         continue;
       }
       if (!heroHasNutLowBefore && heroHasNutLowAfter(next)) {
         out.good.push(k);
+        out.plo8LowCards = (out.plo8LowCards ?? 0) + 1;
         continue;
       }
     }
@@ -849,6 +860,9 @@ export interface OmahaDrawInfo {
   nutLowDraw: boolean;
   /** Nut flush/low draw, or 9+ usable nut-straight completions. */
   nutty: boolean;
+  /** Receipt only (#8220): the nut flush draw was read against a board that
+   *  holds the suit's ace, so a lower suited rank is the live nut draw. */
+  boardBlockedNutFlushDraw?: boolean;
 }
 
 const NO_DRAW_INFO: OmahaDrawInfo = {
@@ -859,6 +873,7 @@ const NO_DRAW_INFO: OmahaDrawInfo = {
   bigWrap: false,
   nutLowDraw: false,
   nutty: false,
+  boardBlockedNutFlushDraw: false,
 };
 
 /**
@@ -886,6 +901,7 @@ export function omahaDrawQuality(
     for (const c of board) suitOnBoard.set(c.suit, (suitOnBoard.get(c.suit) || 0) + 1);
     let nutFlushDraw = false;
     let dominatedFlushDraw = false;
+    let boardBlockedNutFlushDraw = false;
     for (const [suit, n] of suitOnBoard) {
       if (n !== 2) continue;
       const heroSuited = hole.filter((c) => c.suit === suit);
@@ -894,8 +910,10 @@ export function omahaDrawQuality(
         // is the nut draw on A-K of the suit, just as K-high is on A-x.
         const boardRanks = new Set(board.filter((c) => c.suit === suit).map((c) => c.rank));
         const highestLive = [...RANKS].reverse().find((rank) => !boardRanks.has(rank));
-        if (heroSuited.some((c) => c.rank === highestLive)) nutFlushDraw = true;
-        else dominatedFlushDraw = true;
+        if (heroSuited.some((c) => c.rank === highestLive)) {
+          nutFlushDraw = true;
+          if (highestLive !== 'A') boardBlockedNutFlushDraw = true;
+        } else dominatedFlushDraw = true;
       }
     }
 
@@ -960,6 +978,7 @@ export function omahaDrawQuality(
       bigWrap,
       nutLowDraw,
       nutty: nutFlushDraw || nutStraightOuts >= 9 || nutLowDraw,
+      boardBlockedNutFlushDraw,
     };
   } catch {
     return NO_DRAW_INFO;

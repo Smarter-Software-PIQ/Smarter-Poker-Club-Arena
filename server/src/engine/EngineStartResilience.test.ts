@@ -21,6 +21,7 @@
  * path that survives one.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { DiamondCashPolicyClosedError } from '../services/cashTablePlayEligibility.js';
 
 const loadSeatedPlayers = vi.fn();
@@ -176,7 +177,16 @@ describe(
       expect(loadTable).toHaveBeenCalledTimes(2);
       expect(killed).toEqual([]);
       expect(engine.tableInfo).toMatchObject({ id: TABLE });
+      enableBrainTelemetry();
+      drainFires();
       await engine.stop();
+      // Layer receipt (2026-11-05): the terminally closed table released its
+      // per-hand memory exactly once, and the receipt counted it.
+      expect(engine.terminalTeardownComplete).toBe(true);
+      expect(engine.releaseClosedTableHandMemory()).toBe(true);
+      expect(
+        drainFires().find((r) => r.feature === 'closed_table_hand_memory_released')?.fires
+      ).toBeGreaterThanOrEqual(1);
     });
 
     it('keeps the original read owner across a pool outage longer than five short attempts', async () => {

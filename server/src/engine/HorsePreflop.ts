@@ -55,6 +55,12 @@ export interface PreflopIntent {
   receipt?: 'v74_nlh_open_size' | 'v76_retired_four_bet_bluff' | 'cash_nlh_three_bet_size';
 }
 
+/** Layers that report through PreflopCtx.noteLayer (receipt only). */
+export type PreflopLayerReceipt =
+  | 'v60_cash_pressure_facing_open'
+  | 'v60_cash_pressure_facing_open_superseded'
+  | 'v60_cash_pressure_opener_vs_three_bet';
+
 export interface PreflopCtx {
   /** Phase 6 total tournament atlas cell and exact M snapshot. */
   phase6?: { policy: TournamentPreflopPolicy; m: TournamentMState };
@@ -242,6 +248,9 @@ export interface PreflopCtx {
   nlhOpenSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
+  /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
+   *  named here when that layer moves a bar. This module has no telemetry. */
+  noteLayer?: (layer: PreflopLayerReceipt) => void;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
   isShortDeck?: boolean;
   /** League calibration arm (2026-10-30): added to the tournament call bar
@@ -1612,11 +1621,23 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
               : null;
       // The V12 hunter discount still applies below the cash bar.
       // V74: as in the tournament layer, the per-seat base owns the width.
+      // Receipt (#8694): applied when the V60 bar moved the 3-bet width;
+      // superseded when the V74 base or an earlier lower bar kept it.
       if (def72) {
         /* the V74 base owns the 3-bet width */
-      } else if (cashBar !== null)
+        ctx.noteLayer?.('v60_cash_pressure_facing_open_superseded');
+      } else if (cashBar !== null) {
+        const beforeV60 = threeBetThresh;
         threeBetThresh = Math.min(threeBetThresh, t(cashBar) - 0.05 * hunted);
-      else threeBetThresh -= 0.03;
+        ctx.noteLayer?.(
+          threeBetThresh !== beforeV60
+            ? 'v60_cash_pressure_facing_open'
+            : 'v60_cash_pressure_facing_open_superseded'
+        );
+      } else {
+        threeBetThresh -= 0.03;
+        ctx.noteLayer?.('v60_cash_pressure_facing_open');
+      }
     }
     threeBetThresh = phase6CapBar(threeBetThresh);
     callThresh = phase6CapBar(callThresh);
@@ -1970,6 +1991,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // discipline still rules, and a credible re-raiser read still wins.
     const cash3 = cAggro && (ctx.effectiveStackBB ?? stackBB) <= 100;
     if (cash3) {
+      ctx.noteLayer?.('v60_cash_pressure_opener_vs_three_bet');
       // V73: the per-seat continue width already owns the call.
       if (!v73) callThresh = phase6CapBar(Math.min(callThresh, t53(ip ? 0.66 : 0.72, 'call')));
       fourBetThresh = phase6CapBar(fourBetThresh - 0.015);

@@ -2161,6 +2161,217 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-10-25'
   ),
   receipt(
+    'lightning_phase15_plan_accepted_exact',
+    'LightningHandHost (Phase 15 plan acceptance)',
+    'a Lightning horse wager was accepted exactly as its issued plan and its effects committed',
+    '2026-10-28'
+  ),
+  receipt(
+    'lightning_phase15_plan_retired_inexact',
+    'LightningHandHost (Phase 15 plan acceptance)',
+    'a Lightning horse plan was retired because the accepted wager differed from the issued plan',
+    '2026-10-28'
+  ),
+  // LAYER RECEIPTS (2026-11-05): every live decision layer carries a receipt.
+  receipt(
+    'river_nuts_wager',
+    'HorseLogic wager_rules (river nuts #7780, #7788)',
+    'the exact river nuts raised, bet or sized up to the full target (fires when the rule changed the decision)',
+    '2026-11-05'
+  ),
+  receipt(
+    'near_pot_wager_full_pot',
+    'HorseLogic wager_rules (#7780)',
+    'a 90 to 100 percent pot bet or raise was rounded up to the full pot',
+    '2026-11-05'
+  ),
+  receipt(
+    'river_nuts_wager_already_full',
+    'HorseLogic wager_rules (river nuts #7780, #7788)',
+    'valid no-change: the exact river nuts were already bet or raised to the full target',
+    '2026-11-05'
+  ),
+  receipt(
+    'river_nuts_wager_superseded',
+    'HorseLogic wager_rules (river nuts #7780, #7788)',
+    'precedence: the PLO6 river nut discipline replaced the nut wager the rule had set',
+    '2026-11-05'
+  ),
+  receipt(
+    'omaha_implied_credit_draw',
+    'HorseLogic call pricing (#7876)',
+    'Omaha flop or turn call paid the implied allowance to a physical flush, straight or low draw',
+    '2026-11-05'
+  ),
+  receipt(
+    'omaha_implied_credit_withheld',
+    'HorseLogic call pricing (#7876)',
+    'Omaha flop or turn call denied the implied allowance because there was no physical draw',
+    '2026-11-05'
+  ),
+  receipt(
+    'omaha_board_blocked_nut_draw',
+    'HorseLogic drawInfo40 via HorseEval (#8220)',
+    'the nut flush draw was read past an ace the board holds (a lower suited rank is the live nut draw)',
+    '2026-11-05'
+  ),
+  receipt(
+    'plo8_low_outlook_read',
+    'HorseLogic recordBarrelOutlook via HorseEval (#9351)',
+    'the PLO8 low-draw and counterfeit outlook classified at least one next card',
+    '2026-11-05'
+  ),
+  receipt(
+    'plo8_low_outlook_considered',
+    'HorseLogic recordBarrelOutlook via HorseEval (#9351)',
+    'the PLO8 low-draw and counterfeit outlook graded the read and classified no card',
+    '2026-11-05'
+  ),
+  receipt(
+    'closed_table_hand_memory_released',
+    'ServerTableEngineBase (#9351)',
+    'a terminally closed table released its per-hand memory',
+    '2026-11-05'
+  ),
+  receipt(
+    'exploit_hydrator_boot_replayed',
+    'HorseExploitHydrator at worker boot (#7734)',
+    'the exploit counters were rebuilt from recent human hands before the worker was READY',
+    '2026-11-05'
+  ),
+  receipt(
+    'exploit_hydrator_boot_replayed_empty',
+    'HorseExploitHydrator (#7734)',
+    'valid no-change: the worker boot replay found no human-dealt hand in the window',
+    '2026-11-05'
+  ),
+  receipt(
+    'exploit_hydrator_boot_replay_read_stopped',
+    'HorseExploitHydrator (#7734)',
+    'the boot replay stopped reading on a query or page error and replayed only what it had read',
+    '2026-11-05'
+  ),
+  receipt(
+    'wager_bound_opponent_read',
+    'HorseLogic opponent read (#8847)',
+    'the opponent and tempo reads were bound to the wager that set this street price',
+    '2026-11-05'
+  ),
+  receipt(
+    'wager_bound_opponent_read_past_short_all_in',
+    'HorseLogic opponent read (#8847)',
+    'the bound read skipped a later short all-in caller an unbound read would have targeted',
+    '2026-11-05'
+  ),
+  receipt(
+    'wager_bound_pressure_read',
+    'HorseLogic V40 pressure read (#8847)',
+    'the V40 barrel-count pressure read targeted the real bettor of this street (facing a wager, every variant)',
+    '2026-11-05'
+  ),
+  receipt(
+    'lightning_horse_fast_fold',
+    'LightningHandHost (#7958, #7993)',
+    'an already-folding horse pressed Lightning Fold at a person look-and-press time',
+    '2026-11-05'
+  ),
+  receipt(
+    'lightning_horse_fast_fold_considered',
+    'LightningHandHost (#7958, #7993)',
+    'an early look was priced and the horse was not already folding',
+    '2026-11-05'
+  ),
+  receipt(
+    'river_call_showdown_learned',
+    'HorseMind.observeCompletedHand (#8160, #8214)',
+    'a shown river call taught the caller read (riverCallSD)',
+    '2026-11-05'
+  ),
+  receipt(
+    'river_call_light_read_considered',
+    'HorseLogic river read (#8160, #8214)',
+    'the river caller showdown read was consulted and had no qualified sample',
+    '2026-11-05'
+  ),
+  receipt(
+    'river_last_to_act_counted',
+    'HorseMind.observeCompletedHand (#8386)',
+    'a last-to-act river opportunity was counted for one opponent',
+    '2026-11-05'
+  ),
+  receipt(
+    'range_read_big_bet_counted',
+    'HorseMind.bandFor (#8563)',
+    'the public range read counted a priced big wager on the newest street',
+    '2026-11-05'
+  ),
+  receipt(
+    'range_read_capped_all_in_not_big_bet',
+    'HorseMind.bandFor (#8563)',
+    'the public range read refused to count a capped all-in call as a big bet',
+    '2026-11-05'
+  ),
+  receipt(
+    'hu_cash_matched_commitment',
+    'HorseLogic postflop (#8464)',
+    'heads-up cash SPR and commitment read the exposure the opponent can match',
+    '2026-11-05'
+  ),
+  receipt(
+    'hu_cash_matched_commitment_covered',
+    'HorseLogic SPR (#8464)',
+    'valid no-change: heads-up cash, the opponent covers so the matched exposure equals the stack',
+    '2026-11-05'
+  ),
+  receipt(
+    'hu_cash_matched_commitment_wager',
+    'HorseLogic postflop (#8464)',
+    'the committed branch returned the matched-commitment wager instead of the whole stack',
+    '2026-11-05'
+  ),
+  receipt(
+    'lightning_original_hand_bound',
+    'LightningHorse snapshot (#8065)',
+    'a Lightning decision carried its original hand and lease coordinate',
+    '2026-11-05'
+  ),
+  receipt(
+    'lightning_original_hand_unbound',
+    'LightningHorse snapshot (#8065)',
+    'a Lightning decision arrived without its original hand and lease coordinate',
+    '2026-11-05'
+  ),
+  receipt(
+    'horse_history_cache_entry_bound_evicted',
+    'horseDecision/ownPublicHistory (#9387 family)',
+    'the bounded own-history cache evicted its oldest entry at the entry bound',
+    '2026-11-05'
+  ),
+  receipt(
+    'horse_history_retention_refused',
+    'horseDecision/ownPublicHistory (#9387 family)',
+    'the retention budget refused a history load',
+    '2026-11-05'
+  ),
+  receipt(
+    'v60_cash_pressure_facing_open',
+    'HorsePreflop via HorseLogic (V60 #8694)',
+    'NLH cash facing one open: the V60 value 3-bet bar and re-steal volume were applied',
+    '2026-11-05'
+  ),
+  receipt(
+    'v60_cash_pressure_facing_open_superseded',
+    'HorsePreflop via HorseLogic (V60 #8694)',
+    'precedence: facing one open, the V74 base or an earlier lower bar kept the 3-bet width',
+    '2026-11-05'
+  ),
+  receipt(
+    'v60_cash_pressure_opener_vs_three_bet',
+    'HorsePreflop via HorseLogic (V60 #8694)',
+    'NLH cash opener facing a 3-bet up to 100bb: the V60 continue and 4-bet bars were applied',
+    '2026-11-05'
+  ),
+  receipt(
     'v23_plan_callonce',
     'HorseLogic (V23)',
     'raise plan: call once honored',
