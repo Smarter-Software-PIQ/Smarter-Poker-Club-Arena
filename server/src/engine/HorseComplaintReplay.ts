@@ -74,7 +74,21 @@ export interface ComplaintAction {
   origin?: string;
   isFullRaise?: boolean;
   dead?: boolean;
+  /** Set on a persisted history event that is not a decision (the uncalled bet returned). */
+  historyEvent?: string;
   publicNode?: ComplaintPublicNode;
+}
+
+/**
+ * The records the live brain saw in `actionHistory`: accepted player
+ * decisions only. The persisted hand adds the forced posts (`origin:
+ * 'forced'`: sb, bb, ante) and the uncalled-bet return (`historyEvent`),
+ * which HandController never pushes. Replaying them as the hero's own acts
+ * made a blind opener look like it had acted twice before the 3-bet, so the
+ * V73 continue read never fired for a small-blind or big-blind opener.
+ */
+export function isDecisionRecord(a: Pick<ComplaintAction, 'origin' | 'historyEvent'>): boolean {
+  return a.origin !== 'forced' && a.historyEvent === undefined;
 }
 
 export interface ComplaintPlayer {
@@ -268,9 +282,14 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
     chipUnit: pn.chipUnit,
     heroSeat,
     currentPlayerSeat: heroSeat,
+    // The dealt census, as the live engine publishes it on every turn: every
+    // seat in the snapshot was dealt in, folded or not. Without it the brain
+    // reads position from who is still live, so every fold before the hero
+    // promoted it to a later seat (the V13 ring compression).
+    dealtSeatIds: pn.seats.map((s) => s[0]).sort((a, b) => a - b),
     ...(humans.length ? { humanUserIds: humans } : {}),
     actionHistory: hand.actions
-      .filter((a) => a.ord < node.ord)
+      .filter((a) => a.ord < node.ord && isDecisionRecord(a))
       .map((a) => ({
         stage: a.stage,
         seat: a.seat,
