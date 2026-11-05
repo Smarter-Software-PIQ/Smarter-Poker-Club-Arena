@@ -30,3 +30,4 @@ The existing shared-clock fixture likewise now extracts the complete profile
 conditional, while its direct ordinary predicate cases explicitly select the
 ordinary branch. Its wrapper names its actual transitive source dependencies for
 local selection; all eleven native clock and refusal cases remain unchanged.
+The existing withdrawal qualification's E9 hold reader also consumes four historical generation files outside its generic source-hash list. A filtered hosted checkout exposed that incomplete preparation closure: the network-free behavioral case could not read `engine-up.sh`. Preparation and the original hold fixture now share the complete six-file generation manifest. The existing source-profile case independently requires those preparation inputs, while all 80 behavioral cases and their deadlines remain unchanged. This is a fixture correction only; production source and historical bytes are unchanged.
