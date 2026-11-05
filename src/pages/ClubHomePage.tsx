@@ -1,7 +1,10 @@
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
 import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
-import { prioritizeTournamentFavorites } from '../components/lobby/tournamentFavoriteOrder';
+import {
+  prioritizeTournamentFavorites,
+  withoutFavoritesBeyondHorizon,
+} from '../components/lobby/tournamentFavoriteOrder';
 import {
   FAVORITES_SCOPE,
   LOBBY_FAVORITES_CHANGED,
@@ -4878,8 +4881,13 @@ function ClubHomePageContent({
       const isLateRegOrStarting = (e: LobbyEntry) =>
         e.status === 'registering' || e.status === 'late_reg' || e.status === 'starting_soon';
 
-      const candidates = tourns.filter((t) => isMtt(t) && isLateRegOrStarting(t));
-      // Rank before the cap so a saved favorite cannot disappear beyond row ten.
+      // Dan 2026-11-05: a starred MTT more than 18 hours out never takes one of
+      // the ten places, and a star never lifts an MTT above a sooner one.
+      const candidates = withoutFavoritesBeyondHorizon(
+        tourns.filter((t) => isMtt(t) && isLateRegOrStarting(t)),
+        favoriteGameIds
+      );
+      // Rank before the cap so today's host pins cannot disappear beyond row ten.
       const prioritized = prioritizeTournamentFavorites(candidates, favoriteGameIds);
       const selectedTourns = prioritized.slice(0, ALL_TAB_MTT_CAP);
 
