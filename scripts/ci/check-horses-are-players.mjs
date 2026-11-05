@@ -85,6 +85,13 @@ const PRESUME_ROSTER =
   'humanUserIds (Dan 2026-10-25, "TAG THEM ALL FROM THE START, UNLESS OTHERWISE PROVEN DIFFERENTLY", PLO only) hands the horse brain the roster of seats a person plays, so presumedAggressorRead can read each PERSON as an aggressive raiser until their own hands prove otherwise. It is IDENTIFICATION passed as data to the brain\'s opponent read: no horse is denied, paid, timed or treated differently by it, and it is recorded as the owner exception in CLAUDE.md 10.5. See docs/changelog/2026-10-25-plo-every-person-is-an-aggressive-raiser-until-proven-otherwise.md.';
 
 const REGISTER = {
+  'server/src/engine/HorseComplaintReplay.ts': {
+    allowed: 1,
+    kind: 'IDENTIFICATION',
+    why:
+      PRESUME_ROSTER +
+      ' The Phase 5 complaint replay rebuilds a recorded hand offline and passes the same roster the live decision received, so the replayed brain sees the table it saw. It decides nothing about any horse: it only replays and reports.',
+  },
   'server/src/benchmark/Plo4PolicyLeague.ts': {
     allowed: 1,
     kind: 'IDENTIFICATION',

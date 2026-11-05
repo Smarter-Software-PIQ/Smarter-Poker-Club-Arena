@@ -9,6 +9,9 @@
 -- n >= 5 above zero, including over UTG openers 9-handed (+2.1bb, n 49) and
 -- 4-6 handed (+3.2bb, n 13, 15-20bb), so the Phase 6 reshove node was left
 -- unchanged. Watch these cells after V77.
+-- n_ev / sum_ev_bb / sum_sq_ev_bb / sum_net_bb are additive, so the daily
+-- scorecard combines slices exactly (one horse reshove per hand: a row is a
+-- hand, so the interval is hand-clustered).
 -- Windowed [:START, :END), keep <= ~1 day per call. Read-only (one SELECT).
 with f as (
   select f.hand_id, f.user_id::text uid, f.net, f.big_blind bb, f.effective_stack_bb_at_deal eff,
@@ -39,6 +42,8 @@ select coalesce(cf.position, '?') opener_pos,
   case when spot.dealt <= 3 then 'd<=3' when spot.dealt <= 6 then 'd4-6' else 'd7+' end tsize,
   case when spot.eff <= 20 then '15-20' when spot.eff <= 25 then '20-25' else '25-30' end depth,
   count(*) n, round(avg(spot.net / spot.bb), 1) mean_net_bb, round(avg(spot.ev_net / spot.bb), 1) mean_ev_bb,
-  round((stddev(spot.ev_net / spot.bb) / sqrt(count(*)))::numeric, 1) se_ev
+  round((stddev(spot.ev_net / spot.bb) / sqrt(count(*)))::numeric, 1) se_ev,
+  count(spot.ev_net) n_ev, round(sum(spot.ev_net / spot.bb), 3) sum_ev_bb,
+  round(sum((spot.ev_net / spot.bb) ^ 2), 3) sum_sq_ev_bb, round(sum(spot.net / spot.bb), 3) sum_net_bb
 from spot left join public.ca_hand_facts cf on cf.hand_id = spot.hand_id and cf.user_id::text = spot.opener
 group by 1, 2, 3 order by 2, 3, 1;

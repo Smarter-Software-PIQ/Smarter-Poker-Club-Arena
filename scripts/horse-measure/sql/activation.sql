@@ -31,6 +31,9 @@ FROM (VALUES
   ('holdem_no_four_bet_bluff', 'rule 4a'),
   ('holdem_premium_flat_deep_three_bet', 'rule 4a'),
   ('holdem_four_bettor_continues', 'rule 4b'),
+  ('hybrid_v1_cash_grinder_decided', 'Hybrid v1 cash grinder'),
+  ('hybrid_v1_tournament_tricky_decided', 'Hybrid v1 tournament tricky'),
+  ('cash_nlh_three_bet_size', 'cash NLH 3-bet size'),
   ('v62_river_bettor_polarity', 'V62 (opt-in: expected 0)')
 ) AS x(feature, upgrade)
 LEFT JOIN public.horse_brain_telemetry t ON t.feature = x.feature AND t.day >= :START_DAY::date
