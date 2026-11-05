@@ -764,6 +764,8 @@ export class ScheduledTournamentService {
    */
   private fixedBoardSyncedAt = 0;
   private orphanClaimsSweptAt = 0;
+  /** Orphaned spawn claims by first sighting (orphanSpawnClaims.ts). */
+  private readonly orphanClaimsSeen = new Map<string, number>();
   private isRunning = false;
   /** Re-entrancy guard: a slow poll must never overlap the next tick. */
   private polling = false;
@@ -982,7 +984,7 @@ export class ScheduledTournamentService {
       if (Date.now() - this.orphanClaimsSweptAt >= ORPHAN_SPAWN_SWEEP_MS) {
         this.orphanClaimsSweptAt = Date.now();
         try {
-          await sweepOrphanSpawnClaims(supabase, new Date(), reportError);
+          await sweepOrphanSpawnClaims(supabase, new Date(), reportError, this.orphanClaimsSeen);
         } catch (err: unknown) {
           reportError(
             new Error(
