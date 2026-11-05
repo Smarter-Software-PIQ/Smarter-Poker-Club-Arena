@@ -60,7 +60,7 @@ def hydrate_historical_sources(root, revisions, paths, budget_seconds=10, allow_
         for oid, row in zip(ordered, rows):
             fields = row.split()
             if fields == [oid, 'missing']: absent.append(oid)
-            elif len(fields) != 3 or fields[:2] != [oid, 'blob'] or not fields[2].isdigit() or not 0 < int(fields[2]) < 262144:
+            elif len(fields) != 3 or fields[:2] != [oid, 'blob'] or not fields[2].isdigit() or not 0 < int(fields[2]) < 1048576:
                 raise ValueError('Historical fixture blob identity refused')
         return absent
     absent = missing()
