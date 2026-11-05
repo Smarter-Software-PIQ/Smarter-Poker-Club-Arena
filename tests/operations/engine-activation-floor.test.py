@@ -117,13 +117,16 @@ class ActivationFloor(unittest.TestCase):
         args = ['floor', 'admit', '--repo', str(self.repo), '--target', self.sha,
                 '--control', self.sha, '--deadline', str(deadline),
                 '--request-root', str(requests), '--run-id', '123-1']
-        def admit(at):
+        def admit(at, until=None):
+            argv = args if until is None else args[:-4] + ['--deadline', str(until)] + args[-4:]
             out = io.StringIO()
-            with patch.object(sys, 'argv', args), patch.object(floor.time, 'time', return_value=at), contextlib.redirect_stdout(out):
+            with patch.object(sys, 'argv', argv), patch.object(floor.time, 'time', return_value=at), contextlib.redirect_stdout(out):
                 floor.main()
             return json.loads(out.getvalue())
-        with self.assertRaisesRegex(ValueError, 'no alternate reset authorized'):
-            admit(record['expiresEpoch'])
+        # An expired later owner window stops applying: fresh admission returns
+        # to the standing Phase1 schedule instead of refusing every release.
+        self.assertEqual(admit(record['expiresEpoch'], record['expiresEpoch'] + 3600)['schema'],
+                         floor.PHASE1_CAPABILITY)
         self.assertFalse((requests / '123-1.activation-entry').exists())
         selected = admit(now)
         self.assertEqual(selected['schema'], floor.OWNER_CAPABILITY)
