@@ -40,6 +40,6 @@ it('bounds an interrupted logout save without clearing its durable pending inten
   const logout = flushPreferencesBeforeLogout('logout-c');
   await vi.advanceTimersByTimeAsync(25_000);
   await logout;
-  expect(readTableSettingIntent('logout-c', 'page:filter')).toEqual({ id, value: 'mine' });
+  expect(readTableSettingIntent('logout-c', 'page:filter')).toEqual({ id, value: 'mine', at: expect.any(String) });
   stop();
 });
