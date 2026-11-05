@@ -43,12 +43,8 @@ import type {
   ActionRecord,
 } from '../types.js';
 
-import {
-  HorseLogic,
-  holdemPremiumAggression,
-  resolveHorseStyle,
-  type HorseGameStateV2,
-} from './HorseLogic.js';
+import { HorseLogic, holdemPremiumAggression, type HorseGameStateV2 } from './HorseLogic.js';
+import { resolveHorseHybridProfile } from './HorseHybridProfile.js';
 import { riverNutsRaise, fullPotNearPotWager } from './HorseRiverNuts.js';
 import { tournamentShoveDiscipline } from './HorseTournamentShoveDiscipline.js';
 import { shortAllInCallFloor } from './HorseShortAllInCallFloor.js';
@@ -3859,14 +3855,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       return;
     }
 
-    // AUDIT V2 (2026-07-23): horse_profile is a jsonb column — in production it
-    // was {} for every horse, so the old styleMap[object] lookup ALWAYS fell
-    // back to 'balanced' and all 574 horses played the identical style.
-    // resolveHorseStyle handles strings, jsonb objects, and hashes the horse id
-    // as a deterministic fallback so the fleet stays diverse no matter what.
-    const { style: horseStyle, mods: horseMods } = resolveHorseStyle(
+    // Hybrid v1 separates cash and tournament settings at the common live
+    // snapshot boundary, including early looks. Legacy dials cannot leak
+    // from one mode into the other; the authored persona is preserved.
+    const { style: horseStyle, mods: horseMods } = resolveHorseHybridProfile(
       player.horse_profile,
-      player.user_id
+      player.user_id,
+      tournamentHand ? 'tournament' : 'cash'
     );
 
     const activeVariant = this.activeHandVariant() || 'nlh';

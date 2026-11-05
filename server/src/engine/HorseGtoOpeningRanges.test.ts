@@ -8,7 +8,8 @@
  * docs/changelog/2026-10-31-v70-gto-opening-ranges.md for the audit.
  */
 import { describe, expect, it } from 'vitest';
-import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { HorseLogic, type HorseGameStateV2, type HorseProfileMods } from './HorseLogic.js';
+import { resolveHorseHybridProfile } from './HorseHybridProfile.js';
 import { seedFastRandom } from './HorseEval.js';
 import {
   GTO_OPEN_CHARTS,
@@ -32,6 +33,7 @@ type Ctx = {
   mode: 'cash' | 'tournament';
   ante: boolean;
   format?: 'mtt' | 'spin' | 'hu_sng';
+  vpipFloor?: number;
 };
 
 function holeFor(cls: string, s: number): Card[] {
@@ -47,7 +49,8 @@ function decideOpen(
   cls: string,
   seed: number,
   style: HorseStyle,
-  opts: Record<string, unknown>
+  opts: Record<string, unknown>,
+  mods: HorseProfileMods = {}
 ) {
   const n = ctx.seats;
   // Heads-up the dealer (seat 2) posts the small blind.
@@ -108,6 +111,7 @@ function decideOpen(
     gameMode: ctx.mode,
     ante,
     bigBlindAnte: ctx.ante,
+    vpipFloor: ctx.vpipFloor,
     format: ctx.mode === 'cash' ? 'cash' : (ctx.format ?? 'mtt'),
     ...(ctx.mode === 'tournament'
       ? {
@@ -138,7 +142,7 @@ function decideOpen(
       : {}),
   } as unknown as HorseGameStateV2;
   seedFastRandom(seed * 7919 + posIdx * 104729 + cls.charCodeAt(0) * 31 + cls.length);
-  const d = HorseLogic.decide(players[heroSeat - 1], gs, style, {}, {
+  const d = HorseLogic.decide(players[heroSeat - 1], gs, style, mods, {
     mind: false,
     telemetry: false,
     ...opts,
@@ -152,9 +156,10 @@ function seatCells(
   ctx: Ctx,
   posIdx: number,
   style: HorseStyle = 'balanced',
-  opts: Record<string, unknown> = {}
+  opts: Record<string, unknown> = {},
+  mods: HorseProfileMods = {}
 ) {
-  const key = JSON.stringify([ctx, posIdx, style, opts]);
+  const key = JSON.stringify([ctx, posIdx, style, opts, mods]);
   const hit = cache.get(key);
   if (hit) return hit;
   const out = new Map<string, { raise: number; jam: number; size: number }>();
@@ -163,7 +168,7 @@ function seatCells(
     let j = 0;
     let sz = 0;
     for (let s = 0; s < SEEDS; s++) {
-      const d = decideOpen(ctx, posIdx, h.cls, s + 1, style, opts);
+      const d = decideOpen(ctx, posIdx, h.cls, s + 1, style, opts, mods);
       if (d.raise) {
         r++;
         sz += d.size;
@@ -190,6 +195,80 @@ const MTT8: Ctx = { seats: 8, stackBB: 50, mode: 'tournament', ante: true };
 const HU25: Ctx = { seats: 2, stackBB: 25, mode: 'tournament', ante: true, format: 'hu_sng' };
 const SPIN18: Ctx = { seats: 3, stackBB: 18, mode: 'tournament', ante: false, format: 'spin' };
 const OFF = { v70GtoOpeningRanges: false };
+
+describe('the game-specific hybrid preserves the maintained opening ranges', () => {
+  it.each([CASH6, CASH9])(
+    'Grinder keeps every $seats-handed cash position inside its range',
+    (ctx) => {
+      const hybrid = resolveHorseHybridProfile(null, 'hybrid-range', 'cash');
+      const bands =
+        ctx.seats === 6
+          ? [
+              [14, 18.5],
+              [19, 23],
+              [24.5, 30],
+              [40, 48],
+              [39, 48],
+            ]
+          : [
+              [9.5, 13.5],
+              [11, 14.5],
+              [12.5, 16],
+              [14, 18.5],
+              [19, 23],
+              [24.5, 30],
+              [40, 48],
+              [39, 48],
+            ];
+      for (const [position, [lo, hi]] of bands.entries()) {
+        const actual = rfi(seatCells(ctx, position, hybrid.style, {}, hybrid.mods));
+        expect(actual, `dealt=${ctx.seats} position=${position}`).toBeGreaterThanOrEqual(lo);
+        expect(actual, `dealt=${ctx.seats} position=${position}`).toBeLessThanOrEqual(hi);
+      }
+    }
+  );
+
+  it.each([{ ...CASH6, ante: true }, { ...CASH9, ante: true }, { ...MTT9, seats: 6 }, MTT9])(
+    '$mode dealt=$seats ante=$ante preserves the reference opening width at every seat',
+    (ctx) => {
+      const hybrid = resolveHorseHybridProfile(null, 'hybrid-range', ctx.mode);
+      // Independent reference arm: identical donor dials except a neutral
+      // combined style multiplier, matching the maintained charts' calibration.
+      const neutral = {
+        ...hybrid.mods,
+        referenceNlhOpenings: undefined,
+        tightness: ctx.mode === 'cash' ? 1 / 1.12 : 1,
+      };
+      for (let position = 0; position < ctx.seats - 1; position++) {
+        const actual = rfi(seatCells(ctx, position, hybrid.style, {}, hybrid.mods));
+        const reference = rfi(seatCells(ctx, position, hybrid.style, {}, neutral));
+        expect(actual, `position=${position}`).toBeCloseTo(reference, 1);
+      }
+    }
+  );
+
+  it('retains the configured VPIP floor without imposing an overall VPIP quota', () => {
+    const hybrid = resolveHorseHybridProfile(null, 'floor', 'cash');
+    const ordinary = rfi(seatCells(CASH6, 0, hybrid.style, {}, hybrid.mods));
+    const floored = rfi(seatCells({ ...CASH6, vpipFloor: 50 }, 0, hybrid.style, {}, hybrid.mods));
+    expect(floored).toBeGreaterThan(ordinary);
+  });
+
+  it('keeps short-stack tournament decisions with their existing owner', () => {
+    const hybrid = resolveHorseHybridProfile(null, 'short', 'tournament');
+    for (const position of [0, 6, 7]) {
+      const on = seatCells(MTT9_20, position, hybrid.style, {}, hybrid.mods);
+      const off = seatCells(
+        MTT9_20,
+        position,
+        hybrid.style,
+        {},
+        { ...hybrid.mods, referenceNlhOpenings: undefined }
+      );
+      expect(on).toEqual(off);
+    }
+  });
+});
 
 function share(cells: Map<string, { raise: number; jam: number }>, key: 'raise' | 'jam'): number {
   let w = 0;

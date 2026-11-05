@@ -306,6 +306,7 @@ import { evaluateTournamentPostflop, type Phase8Mode } from './HorseTournamentPo
 import { liveHorsePhase8Safety } from './HorsePhase8Safety.js';
 import { performance } from 'node:perf_hooks';
 import { chipStepFor, nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
+import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
  * A high-only blocker cannot establish scoop pressure when a low can qualify.
@@ -415,6 +416,8 @@ const snapBetSize = (amount: number, min: number, max: number, step: number): nu
 interface StyleParams {
   /** <1 = looser preflop, >1 = tighter preflop */
   tightness: number;
+  /** Opening-only multiplier transported to the preflop decision owner. */
+  nlhOpeningTightness?: number;
   /** scales bluff / semi-bluff frequencies */
   bluffFreq: number;
   /** scales 3-bet / raise aggression */
@@ -490,6 +493,10 @@ export interface HorseProfileMods {
   tightness?: number;
   bluffFreq?: number;
   sizingMultiplier?: number;
+  /** Source-assigned hybrid: use the maintained NLH opening widths. This
+   * replaces only the static style multiplier for RFI and its derived
+   * vs-3-bet continuation width, preserving floor, variant and ICM inputs. */
+  referenceNlhOpenings?: true;
   /** Historical review counts; diagnostic only, never causal policy authority. */
   leaks?: Record<string, number>;
   /** V40: reviewed hands the leak counts were taken over (the denominator). */
@@ -3910,6 +3917,18 @@ export function holdemPremiumAggression(
       dominatedFold: opts.holdemDominatedFold !== false,
       tournament: isTournamentMode(gs),
       openRaiseTo: () => holdemPremiumOpenRaiseTo(player, gs, opts),
+      threeBetRaiseTo: (callers) => {
+        const spot = cashThreeBetSizingSpot(player, gs);
+        return spot
+          ? cashNlhThreeBetRaiseTo({
+              ...spot,
+              callers,
+              openTo: gs.currentBet,
+              bigBlind: gs.bigBlind,
+              rand: fastRandom,
+            })
+          : null;
+      },
       raiserIsManiac: (seatNo) => {
         const raiser = (gs.players ?? []).find((p) => p.seat === seatNo);
         if (!raiser) return false;
@@ -3996,6 +4015,47 @@ function holdemPremiumOpenRaiseTo(
     sizingMultiplier: 1,
     rand: fastRandom,
   });
+}
+
+/** Public seat order and stacks of the opener/callers, never opponent cards
+ * or human/horse identity. An early/middle cold 3-bettor is IP on an earlier
+ * opener; the BB is OOP on the button even at a genuinely heads-up table. */
+function cashThreeBetSizingSpot(
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): { inPosition: boolean; depthBB: number } | undefined {
+  if (
+    gs.gameMode !== 'cash' ||
+    gs.stage !== 'preflop' ||
+    gs.gameVariant !== 'nlh' ||
+    (gs.bettingStructure && gs.bettingStructure !== 'no_limit') ||
+    gs.bombPot ||
+    !(gs.bigBlind > 0)
+  )
+    return undefined;
+  const dealt =
+    gs.dealtSeatIds === undefined
+      ? gs.players
+      : horsePolicyDealtPlayers(gs.players, player.seat, gs.dealtSeatIds);
+  const order = dealtSeatOrder(player.seat, gs.dealerSeat, dealt, true, true);
+  if (!order || !order.includes(player.seat)) return undefined;
+  const opponents = gs.players.filter(
+    (p) =>
+      p.seat !== player.seat &&
+      !p.is_folded &&
+      (!p.is_sitting_out || p.is_all_in) &&
+      p.bet >= gs.currentBet - 0.005
+  );
+  if (opponents.length === 0 || opponents.some((p) => !order.includes(p.seat))) return undefined;
+  const heroIndex = order.indexOf(player.seat);
+  return {
+    inPosition: opponents
+      .filter((p) => !p.is_all_in)
+      .every((p) => order.indexOf(p.seat) < heroIndex),
+    depthBB:
+      Math.min(player.stack + player.bet, Math.max(...opponents.map((p) => p.stack + p.bet))) /
+      gs.bigBlind,
+  };
 }
 
 /** The outer safety net for the hold'em premium rule (#8122), as below. */
@@ -4793,6 +4853,9 @@ export class HorseLogic {
       aggression: base.aggression * (mods.aggression ?? 1),
       sizingMultiplier: base.sizingMultiplier * (mods.sizingMultiplier ?? 1),
     };
+    // The hybrid's donor/style tightness still owns other decision families.
+    // Applying it again to calibrated RFI widths silently undoes those ranges.
+    params.nlhOpeningTightness = mods.referenceNlhOpenings === true ? 1 : params.tightness;
     // Observational reports remain visible, without changing prices, gates or RNG.
     if (opts.v41Leaks !== false && telemetryOn(opts) && hasHorseReviewSignals(mods)) {
       noteFire('phase14_review_signal_ignored');
@@ -4847,6 +4910,7 @@ export class HorseLogic {
       params.slowplayFreq *= vpost.slowplayMul;
       params.checkRaiseFreq *= vpost.checkRaiseMul;
       params.tightness *= vpost.tightnessMul;
+      params.nlhOpeningTightness *= vpost.tightnessMul;
       params.callRespect = vpost.callRespect;
       if (styleName === 'balanced') {
         params.slowplayFreq = Math.min(params.slowplayFreq, 0.14);
@@ -4869,6 +4933,7 @@ export class HorseLogic {
     {
       const vfMul = vpipFloorMul(gs);
       params.tightness *= vfMul;
+      params.nlhOpeningTightness *= vfMul;
       if (telemetryOn(opts) && Number(gs.vpipFloor ?? 0) > 0) {
         noteFire('vpip_floor');
         const own = gs.ownVpip;
@@ -6795,6 +6860,7 @@ export class HorseLogic {
       return {
         strength: clamp01(mapped + strengthJitter),
         bar: gtoOpenBar(behind, ante70, dealt70, gs.gameMode === 'cash'),
+        tightness: params.nlhOpeningTightness ?? params.tightness,
         sbLimpFloor: gtoSbLimpFloor(ante70, dealt70),
         behind,
       };
@@ -6905,7 +6971,8 @@ export class HorseLogic {
         reRaiseRiskBB: risk73 / bb,
         effectiveBB: effBB,
         deepDiscipline: (opts.v21Deep ?? true) !== false,
-        tightness: params.tightness,
+        // V73/V75 derive their continuation width from the range we opened.
+        tightness: params.nlhOpeningTightness ?? params.tightness,
         ...(squeeze75 ? { liveCallersBehind: callersOfPreviousRaise } : {}),
       });
       if (!r73) return undefined;
@@ -6940,6 +7007,7 @@ export class HorseLogic {
       strength,
       position,
       raiserPosition,
+      cashThreeBetSizing: cashThreeBetSizingSpot(player, gs),
       raises,
       limpers,
       callers,
@@ -7189,6 +7257,7 @@ export class HorseLogic {
     // V74 / V76 receipts reported by the preflop engine (no action change).
     if (telemetryOn(opts)) {
       if (intent.receipt === 'v74_nlh_open_size') noteFire('v74_nlh_open_size');
+      else if (intent.receipt === 'cash_nlh_three_bet_size') noteFire('cash_nlh_three_bet_size');
       else if (intent.receipt === 'v76_retired_four_bet_bluff')
         noteFire('v76_retired_four_bet_bluff');
     }

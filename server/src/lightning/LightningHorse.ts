@@ -23,7 +23,9 @@
  * The think time is mapped exactly as the physical engine maps it, including
  * the time-bank burn for a "tank" decision when the horse's bank is usable.
  */
-import { HorseLogic, resolveHorseStyle, type HorseGameStateV2 } from '../engine/HorseLogic.js';
+import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
+import { riverNutsRaise } from '../engine/HorseRiverNuts.js';
+import { resolveHorseHybridProfile } from '../engine/HorseHybridProfile.js';
 import { horseVariantRulesFor } from '../engine/VariantRules.js';
 import {
   captureHorseHandJournalContext,
@@ -38,7 +40,7 @@ import {
 } from '../engine/horseDecision/index.js';
 import { horseDecisionDeadlineMs } from '../engine/horseDecision/decisionDeadline.js';
 import type { HandController } from '../engine/HandController.js';
-import type { ActionType, SeatPlayer } from '../types.js';
+import type { ActionType, HorseDecision, SeatPlayer } from '../types.js';
 
 /**
  * The physical engine's ceiling on how far a horse's "tank" runs into its
@@ -111,7 +113,7 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     minRaiseTo = null;
     maxRaiseTo = null;
   }
-  const { style, mods } = resolveHorseStyle(turn.horseProfile as never, turn.userId);
+  const { style, mods } = resolveHorseHybridProfile(turn.horseProfile, turn.userId, 'cash');
   const decisionPlayer: SeatPlayer = { ...me, cards: [...me.cards], knownDeadCards: [] };
   const publicPlayers: SeatPlayer[] = state.players.map((candidate) => {
     const { knownDeadCards: _private, ...pub } = candidate;
@@ -293,6 +295,33 @@ export function shapeLightningHorseAction(
   if (action === 'fold' && toCall === 0) action = 'check';
   if (action === 'raise' && state.currentBet === 0) action = 'bet';
   if (action === 'bet' && state.currentBet > 0) action = 'raise';
+  // Acceptance-time authority withdrawal can restore a check/call from before
+  // the worker's final wager rules. Classic tables reapply the exact-nuts rule
+  // at this boundary; Lightning must use the same rule and fresh legal menu.
+  // This does not reinstate a withdrawn strategy or its plan effects.
+  if (me && auth?.canAct && state.stage === 'river') {
+    const nutState = {
+      ...state,
+      ...hc.getBlindSnapshot(),
+      stateSchemaVersion: 1,
+      gameVariant: hc.getGameVariant(),
+      boardCount: hc.getActiveBoardCount(),
+      legalActions: [...auth.legalActions],
+      toCall: auth.toCall,
+      minRaiseTo: auth.minRaiseTo,
+      maxRaiseTo: auth.maxRaiseTo,
+      bettingStructure: auth.structure,
+      fixedBetSize: auth.fixedBetSize,
+      wagersCapped: auth.wagersCapped,
+    } as HorseGameStateV2;
+    const value = riverNutsRaise(
+      { action: action as HorseDecision['action'], amount, thinkTime: 0 },
+      me,
+      nutState
+    );
+    action = value.action;
+    amount = value.amount;
+  }
   const fixed = auth?.structure === 'fixed_limit';
   if (me && action === 'bet' && amount !== undefined) {
     amount = fixed ? (auth?.minRaiseTo ?? amount) : Math.max(state.minRaise, amount);

@@ -55,6 +55,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the Phase 6 tournament preflop atlas the bars shift by',
     'src/engine/HorseNlhOpenSize.ts':
       "the no-limit hold'em raise-first-in open size bands and the shared chip grid (Dan 2026-10-31)",
+    'src/engine/HorseCashThreeBetSize.ts':
+      'the cash NLH card-blind 3-bet and squeeze sizes, position and depth bands, and small-open floors consumed by the reference preflop decision',
     'src/engine/AnteMath.ts': 'the ante orbit cost behind the M-zones',
     'src/engine/OmahaFlushBlocker.ts':
       'physical two-hole three-board nut-flush and straight-flush blockers consumed by the reference decision',

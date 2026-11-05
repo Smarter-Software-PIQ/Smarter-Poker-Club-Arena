@@ -187,6 +187,8 @@ export interface HoldemPremiumInput {
    * (a fixed 3bb would mark the hand). Null or absent keeps 3bb + 1 per limper.
    */
   openRaiseTo?: () => number | null;
+  /** Same card-blind cash sizing as the ordinary 3-bet and squeeze paths. */
+  threeBetRaiseTo?: (callers: number) => number | null;
 }
 
 export interface HoldemPremiumVerdict<D extends HoldemPremiumDecision = HoldemPremiumDecision> {
@@ -620,7 +622,11 @@ function premiumRaise(
         ? drawn
         : 3 * bb + read.callersSinceLastRaise * bb;
   } else if (read.raises === 1) {
-    to = 3 * read.level + read.callersSinceLastRaise * read.level;
+    const drawn = i.threeBetRaiseTo?.(read.callersSinceLastRaise);
+    to =
+      typeof drawn === 'number' && Number.isFinite(drawn) && drawn > 0
+        ? drawn
+        : 3 * read.level + read.callersSinceLastRaise * read.level;
   } else if (read.raises === 2) {
     to = FOUR_BET_MULTIPLE * read.level + read.callersSinceLastRaise * read.level;
     // Rule 4: QQ/AK too deep to call the jam this 4-bet invites flat instead.

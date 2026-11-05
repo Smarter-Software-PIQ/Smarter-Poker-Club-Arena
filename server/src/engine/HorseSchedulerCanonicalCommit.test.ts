@@ -1,4 +1,29 @@
 import { horsePlanBatchBindingFromRequest } from './HorsePlanHandIdentity.js';
+describe('the real table scheduler routes the Hybrid by game mode', () => {
+  it.each(['cash', 'tournament'] as const)(
+    '%s sends its distinct inputs to the worker',
+    async (mode) => {
+      const h = harness('flh', 'free');
+      h.player.horse_profile = { style: 'lag', aggression: 1.5, tightness: 0.6 };
+      h.engine.isTournamentTable = () => mode === 'tournament';
+      h.engine.horseTournamentContext = () => ({ format: mode === 'cash' ? 'cash' : 'mtt' });
+      answer({ action: 'check', thinkTime: 1 });
+      h.engine.scheduleHorseAction(h.player, h.seat, h.enginePlayer, h.state);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(worker.decideFast).toHaveBeenCalledOnce();
+      const snapshot = worker.decideFast.mock.calls[0][0];
+      expect(snapshot.gameState.gameMode).toBe(mode);
+      expect(snapshot.style).toBe(mode === 'cash' ? 'grinder' : 'tricky');
+      expect(snapshot.mods.referenceNlhOpenings).toBe(true);
+      expect(snapshot.mods).toMatchObject(
+        mode === 'cash'
+          ? { tightness: 0.98, aggression: 1.18, bluffFreq: 0.91, sizingMultiplier: 0.94 }
+          : { tightness: 1.02, aggression: 1.04, bluffFreq: 1.055, sizingMultiplier: 0.94 }
+      );
+      expect(h.origins).toEqual(['horse_policy']);
+    }
+  );
+});
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HandConfig, HorseDecision, SeatPlayer } from '../types.js';
 import type { FastHorseDecisionResult } from './horseDecision/protocol.js';

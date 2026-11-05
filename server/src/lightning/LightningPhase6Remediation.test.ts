@@ -562,7 +562,7 @@ describe('7. the time bank across concurrent hands and restarts', () => {
 // ─── 8. HORSES DECIDE IN THE LIVE LANE ───────────────────────────────────────
 
 describe('8. a Lightning horse decides in the physical tables’ lane, as itself', () => {
-  it('the lane gets the horse’s own style and mods, its own cards, and nobody else’s', async () => {
+  it('the lane gets the cash hybrid, its own cards, and nobody else’s', async () => {
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
     });
@@ -584,8 +584,13 @@ describe('8. a Lightning horse decides in the physical tables’ lane, as itself
     expect(t.host.lifecycle).toBe('complete');
     expect(t.horseLane.calls.length).toBeGreaterThan(0);
     for (const snap of t.horseLane.calls) {
-      expect(snap.style).toBe('lag');
-      expect(snap.mods).toMatchObject({ aggression: 1.2, tightness: 0.9 });
+      expect(snap.style).toBe('grinder');
+      expect(snap.mods).toMatchObject({
+        aggression: 1.18,
+        tightness: 0.98,
+        bluffFreq: 0.91,
+        sizingMultiplier: 0.94,
+      });
       expect(snap.player.cards.length).toBe(2);
       for (const p of snap.gameState.players as any[]) expect(p.cards).toEqual([]);
       expect(snap.decisionKey).toBeTruthy();

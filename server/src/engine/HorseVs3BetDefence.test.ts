@@ -20,6 +20,7 @@ import {
   type Vs3BetSpot,
 } from './HorseGtoVs3BetRanges.js';
 import { vs3, type Vs3Ctx } from './HorseVs3BetDefence.test-support.js';
+import { resolveHorseHybridProfile } from './HorseHybridProfile.js';
 
 const CASH6: Vs3Ctx = {
   seats: 6,
@@ -39,6 +40,28 @@ const MTT9: Vs3Ctx = {
   threeBetX: 4,
 };
 const OFF = { v73Vs3BetDefence: false };
+
+describe('Hybrid opening and re-raise defense stay connected', () => {
+  it.each([CASH6, { ...CASH6, seats: 9 }, { ...MTT9, seats: 6 }, MTT9])(
+    '$mode dealt=$seats defends its measured opening range without offsuit spew',
+    (ctx) => {
+      const h = resolveHorseHybridProfile(null, 'hybrid-defense', ctx.mode);
+      const button = vs3(ctx, ctx.seats, 2, {}, 6, h.style, false, h.mods);
+      const early = vs3(ctx, 3, 2, {}, 6, h.style, false, h.mods);
+      expect(button.openWidth).toBeGreaterThan(40);
+      expect(early.openWidth).toBeLessThan(button.openWidth);
+      expect(button.fold).toBeGreaterThan(46);
+      expect(button.fold).toBeLessThan(62);
+      expect(early.fold).toBeGreaterThan(28);
+      expect(early.fold).toBeLessThan(52);
+      expect(button.call + button.fourBet + button.fold).toBeCloseTo(100, 8);
+      for (const cls of ['KQo', 'AJo', 'KJo', 'QJo', 'ATo', 'JTo']) {
+        expect(button.byClass.get(cls) ?? 0).toBe(0);
+        expect(early.byClass.get(cls) ?? 0).toBe(0);
+      }
+    }
+  );
+});
 
 // 6-max seats: UTG 3, HJ 4, CO 5, BTN 6, SB 1, BB 2.
 describe('V73 reference base (module)', () => {

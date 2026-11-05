@@ -8,7 +8,7 @@
  * answer is weighted by how often the class opened. Seats: SB 1, BB 2, first
  * to act 3, ..., button = seats.
  */
-import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { HorseLogic, type HorseGameStateV2, type HorseProfileMods } from './HorseLogic.js';
 import { seedFastRandom } from './HorseEval.js';
 import { HAND_CLASSES } from './HorseGtoOpeningRanges.js';
 import type { ActionRecord, Card, HorseStyle, SeatPlayer } from '../types.js';
@@ -204,9 +204,19 @@ export function openFreq(
   ctx: Vs3Ctx,
   seat: number,
   seeds: number,
-  style: HorseStyle = 'balanced'
+  style: HorseStyle = 'balanced',
+  mods: HorseProfileMods = {}
 ): Map<string, number> {
-  const key = JSON.stringify([ctx.seats, ctx.stackBB, ctx.mode, ctx.ante, seat, seeds, style]);
+  const key = JSON.stringify([
+    ctx.seats,
+    ctx.stackBB,
+    ctx.mode,
+    ctx.ante,
+    seat,
+    seeds,
+    style,
+    mods,
+  ]);
   const hit = OPEN_CACHE.get(key);
   if (hit) return hit;
   const out = new Map<string, number>();
@@ -215,16 +225,10 @@ export function openFreq(
     for (let s = 0; s < seeds; s++) {
       const { hero, gs } = stateFor(ctx, seat, -1, holeFor(h.cls, s));
       seedFastRandom((s + 1) * 6151 + seat * 9973 + h.cls.charCodeAt(0) * 31);
-      const d = HorseLogic.decide(
-        hero,
-        gs,
-        style,
-        {} as never,
-        {
-          mind: false,
-          telemetry: false,
-        } as never
-      );
+      const d = HorseLogic.decide(hero, gs, style, mods, {
+        mind: false,
+        telemetry: false,
+      } as never);
       if (isRaise(d.action)) r++;
     }
     out.set(h.cls, r / seeds);
@@ -241,9 +245,10 @@ export function vs3(
   opts: Record<string, unknown> = {},
   seeds = 6,
   style: HorseStyle = 'balanced',
-  flipLabels = false
+  flipLabels = false,
+  mods: HorseProfileMods = {}
 ): Vs3Mix {
-  const open = openFreq(ctx, heroSeat, seeds, style);
+  const open = openFreq(ctx, heroSeat, seeds, style, mods);
   let fold = 0;
   let call = 0;
   let four = 0;
@@ -257,17 +262,11 @@ export function vs3(
     for (let s = 0; s < seeds; s++) {
       const { hero, gs } = stateFor(ctx, heroSeat, threeSeat, holeFor(h.cls, s), flipLabels);
       seedFastRandom((s + 1) * 7919 + heroSeat * 104729 + threeSeat * 7 + h.cls.charCodeAt(0));
-      const d = HorseLogic.decide(
-        hero,
-        gs,
-        style,
-        {} as never,
-        {
-          mind: false,
-          telemetry: false,
-          ...opts,
-        } as never
-      );
+      const d = HorseLogic.decide(hero, gs, style, mods, {
+        mind: false,
+        telemetry: false,
+        ...opts,
+      } as never);
       if (d.action === 'call') {
         call += w / seeds;
         c++;

@@ -10,7 +10,10 @@
  * barrel that was flatted, a blocker and a capped non-station opponent. Most
  * heads-up checked-to rivers still hold showdown value, and horses rarely
  * barrel the turn with air. Measured on this card build: the Hold'em card
- * diverges in 1 of 600 pairs at seed 4242 (and 1 of 600 at seed 20261024);
+ * diverged in 1 of 600 pairs at seed 4242 (and 1 of 600 at seed 20261024).
+ * The November 4 cash sizing policy produced 0 of those 600 pairs. Hold'em
+ * now uses the full declared 6,000-pair card at the same development seed,
+ * retaining the requirement for actual different poker in the two arms.
  * Historical PLO6 in1of300 at seed4242; current protected-source recovery
  * produced0of300, so its connected non-inertness check uses the original full
  * declared6,000-pair card at the SAME development seed, without reseeding or
@@ -60,7 +63,7 @@ describe('V54 river bluff is measured in every variant', { timeout: 2_400_000 },
   });
 
   it.each([
-    ['v54_river_bluff', 600],
+    ['v54_river_bluff', 6000],
     ['plo6_v54_river_bluff', 6000],
   ] as const)('%s: the two arms do not play identical poker', async (name, pairs) => {
     const card = LEAGUE_MATCHUPS.find((m) => m.name === name)!;
