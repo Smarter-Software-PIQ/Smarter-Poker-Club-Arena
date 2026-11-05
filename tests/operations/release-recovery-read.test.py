@@ -150,6 +150,54 @@ class RetainedFirstRefusalTests(unittest.TestCase):
         for key,value in [('exitCode',0),('stage','raw secret text'),('extra','/secret'),('signal','SIGKILL')]:
             with self.assertRaises(ValueError):R.validate_reply({**answer,key:value},self.request)
 
+    def certified_state(self):
+        return {**{key:'UNKNOWN' for key in ('checkpointRequired','drainedCutover','prepared',
+            'mutationStarted','lockHeld','certificateExitStatus','breakEndEpoch')},
+            'checkpointProfile':'eed-240s-certified-release-v1','predecessorSha':R.EED,
+            'checkpointBudgetSeconds':320,'checkpointWorkMs':260000}
+
+    def test_certified_retained_read_and_export_preserve_exact_bounded_profile(self):
+        self.produce()
+        value=json.loads(self.record.read_text())
+        value['shellState']=self.certified_state()
+        value['predecessor']['selectedSha']=R.EED
+        self.record.write_text(json.dumps(value))
+        before=self.record.read_bytes()
+        answer=self.read()
+        self.assertEqual(answer['shellState'],value['shellState'])
+        self.assertEqual(answer['predecessor']['selectedSha'],R.EED)
+        self.assertEqual(R.validate_reply(answer,self.request),answer)
+        self.assertEqual(self.record.read_bytes(),before)
+        # Missing values remain explicit UNKNOWN diagnostics, never zero or authority.
+        state={**self.certified_state(),'checkpointBudgetSeconds':'UNKNOWN','checkpointWorkMs':'UNKNOWN'}
+        self.assertEqual(R.diagnostic_shell_state(state),state)
+
+    def test_certified_diagnostic_rejects_missing_or_foreign_predecessor(self):
+        for source in ('UNKNOWN','a'*40,R.EED[:8],None):
+            with self.subTest(source=source),self.assertRaises(ValueError):
+                R.diagnostic_shell_state({**self.certified_state(),'predecessorSha':source})
+
+    def test_certified_diagnostic_rejects_excess_or_malformed_allocations(self):
+        for key,value in [('checkpointBudgetSeconds',321),('checkpointWorkMs',260001),
+                          ('checkpointWorkMs',305000),('checkpointBudgetSeconds',True),
+                          ('checkpointWorkMs',-1),('checkpointWorkMs',260000.0),
+                          ('checkpointWorkMs','260000ms'),('checkpointRequired',2),('extra',1)]:
+            with self.subTest(key=key,value=value),self.assertRaises(ValueError):
+                R.diagnostic_shell_state({**self.certified_state(),key:value})
+
+    def test_certified_allowance_does_not_expand_ordinary_or_unknown_profiles(self):
+        for profile,budget,work in [('legacy-40s-v1',40,25000),('eed-80s-v1',80,65000),
+                                    ('UNKNOWN',300,300000)]:
+            state={**self.certified_state(),'checkpointProfile':profile,
+                   'checkpointBudgetSeconds':budget,'checkpointWorkMs':work}
+            self.assertEqual(R.diagnostic_shell_state(state),state)
+            with self.assertRaises(ValueError):
+                R.diagnostic_shell_state({**state,'checkpointBudgetSeconds':320})
+            with self.assertRaises(ValueError):
+                R.diagnostic_shell_state({**state,'checkpointWorkMs':300001})
+        with self.assertRaises(ValueError):
+            R.diagnostic_shell_state({**self.certified_state(),'checkpointProfile':'eed-240s-v1'})
+
     def test_retained_exact_original_attempt_is_required(self):
         self.produce()
         (self.record.parent/('123-1.attempt-'+'c'*32+'.json')).unlink()
