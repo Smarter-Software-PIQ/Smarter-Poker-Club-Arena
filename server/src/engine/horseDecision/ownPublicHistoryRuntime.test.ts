@@ -255,7 +255,9 @@ it.each([
           .filter((m) => m.type === 'DECIDE_FAST')
           .map((m) => (m as any).ownPublicHistory !== undefined)
       ).toEqual(failed ? [false, false, false, true, false] : [false, true, false]);
-      expect(HorseMind.getStats(opponentId)).toBeUndefined();
+      // The process-wide mind is the long-term memory HorseMindPersistence saves
+      // (2026-11-05); no decision reads it. Each horse's reads stay its own.
+      expect(HorseMind.getStats(opponentId)?.hands).toBe(1);
     } finally {
       await client.stop();
       await worker.h.close();
