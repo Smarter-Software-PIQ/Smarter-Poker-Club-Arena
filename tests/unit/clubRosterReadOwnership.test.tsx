@@ -63,6 +63,9 @@ beforeEach(() => {
   f.page.mockReset();
   f.summary.mockReset();
   sessionStorage.clear();
+  // Each case is a fresh device: an unsent roster choice kept on this device
+  // (src/lib/preferenceSync.ts) must not carry into the next case.
+  localStorage.clear();
   f.summary.mockResolvedValue({
     viewer_role: 'player',
     capabilities: {

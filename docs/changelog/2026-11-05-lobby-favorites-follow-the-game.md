@@ -87,3 +87,14 @@ way to tell an unstar from a cascade.
 `tests/unit/preferencePersistenceScenarios.test.ts` (18 application
 scenarios), and the native proof `scripts/dev/test-lobby-favorites-postgres.sh`
 (42 checks, CI workflow `lobby-favorites-are-durable.yml`).
+
+## Production proofs follow the new save path
+
+The production browser proofs used to wait for a direct row write to
+`user_page_preferences` / `user_lobby_filters`, which no longer exists. They
+now accept a change only when the owner's own call to the save function
+answers that the account holds it (`tests/e2e/support/preferenceSaveProof.ts`):
+the tab proof, the seat-count and filter audit saves, the Notifications
+filter, and the tournament favorite journey. The favorite journey now also
+expects every live run of the chosen event's schedule to be starred with it,
+and after the unfavorite and a reload, the game is kept as unstarred.
