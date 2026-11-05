@@ -1,0 +1,9 @@
+Smarter.Poker Club Arena temporary tournament monitor (authorized by Dan Bekavac 2026-11-05 13:59 CT)
+
+Detects and records only. No corrective action, no engine changes, no database writes, no money movement, no email.
+Units:   tournament-monitor.service (oneshot, one cycle) + tournament-monitor.timer (every 180 s)
+Code:    /opt/tournament-monitor/tournament_monitor.py
+State:   /opt/tournament-monitor/state/{latest.json,cycles.jsonl,findings.jsonl,findings_state.json,heartbeat,monitor.log}
+Window:  /opt/tournament-monitor/window.json (24 h from the first cycle; persisted; extends while findings are open)
+Test:    drop a synthetic /opt/tournament-monitor/test-input.json ({"events":[...]}) to exercise the rules; remove it after.
+Lock:    /opt/tournament-monitor/run.lock (overlapping runs exit and log a skipped cycle)

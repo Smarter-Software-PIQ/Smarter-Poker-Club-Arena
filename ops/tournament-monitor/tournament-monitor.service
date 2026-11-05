@@ -1,0 +1,26 @@
+[Unit]
+Description=Smarter.Poker Club Arena temporary tournament monitor (read-only checker, one cycle)
+Documentation=file:///opt/tournament-monitor/README
+After=network-online.target docker.service
+Wants=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=6
+
+[Service]
+Type=oneshot
+# Detect and record only: HTTP GETs to Supabase REST, engine /health and /metrics,
+# and read-only `docker logs`. No engine changes, no DB writes, no email.
+ExecStart=/usr/bin/python3 -I /opt/tournament-monitor/tournament_monitor.py
+WorkingDirectory=/opt/tournament-monitor
+Environment=PYTHONUNBUFFERED=1
+TimeoutStartSec=150s
+Restart=on-failure
+RestartSec=30s
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=50%
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
