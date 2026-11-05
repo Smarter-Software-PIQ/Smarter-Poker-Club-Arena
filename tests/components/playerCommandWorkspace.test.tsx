@@ -45,6 +45,8 @@ vi.mock('../../src/lib/export', () => ({ exportToCSV: f.csv }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: f.report }));
 import ClubMembersPage from '../../src/pages/ClubMembersPage';
 import { rosterSearchKey } from '../../src/lib/rosterCache';
+import { supabase } from '../../src/lib/supabase';
+import { useUserStore } from '../../src/stores/useUserStore';
 
 const clubA = '00000000-0000-0000-0000-000000000043';
 const rows = Array.from({ length: 80 }, (_, index) => ({
@@ -458,6 +460,21 @@ it.each([
 });
 
 it('keeps private roster search out of durable storage and URLs', async () => {
+  // The viewer is signed in to the app and the account accepts the save
+  // (fn_save_page_preferences, 2026-11-05), so nothing stays queued on the device.
+  useUserStore.setState({ user: { id: 'viewer-a' } as any });
+  vi.mocked(supabase.rpc).mockImplementation((async (_fn: string, args: any) => ({
+    data: {
+      ok: true,
+      results: (args?.p_changes ?? []).map((c: { field: string; value: unknown }) => ({
+        field: c.field,
+        status: 'applied',
+        revision: 1,
+        value: c.value,
+      })),
+    },
+    error: null,
+  })) as any);
   render(tree());
   await settle();
   fireEvent.change(search(), { target: { value: 'Private Alias 761' } });
@@ -467,6 +484,8 @@ it('keeps private roster search out of durable storage and URLs', async () => {
   ).join('');
   expect(durable).not.toContain('Private Alias 761');
   expect(screen.getByTestId('location').textContent).not.toContain('Private');
+  vi.mocked(supabase.rpc).mockImplementation((() => Promise.resolve({ data: null, error: null })) as any);
+  useUserStore.setState({ user: null });
 });
 
 it('resets a restored position after the operator changes the query', async () => {
