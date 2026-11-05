@@ -30,17 +30,29 @@ painted crown (`restingAvatarTop`); the nine-seat lane did not.
 
 ## Fix
 
-`highest` now uses `restingAvatarTop(avatar, scale)` (the painted crown, through
-the same static bust transform and opponent art scale) instead of the image
-box top. Unknown or uploaded art has crown 0 and keeps its box boundary.
+Each top pod is still placed exactly as before (image box anchor). A second
+pass then levels pods that share one rail line: a pod whose plate lands below
+another plate on its line rises to that plate, but never past the point where
+its PAINTED crown (or position chip) would break the jackpot clearance or its
+card lane (`restingAvatarTop`). Lanes where every chair wears the same art are
+pixel-identical to before. Six-max is untouched.
+
+### Why Not Simply Anchor The Crown
+
+The first version of this PR anchored every pod by its painted crown. On the
+CI harness (every chair a vip_wolf, crown 3.8%) that moved the two top chairs
+up by under half a pixel, which flipped the bet placement into a layout where
+the top chairs' bets covered their plates (`table-proportions.spec.ts`, 320px
+normal mini and 375px main revealed). Levelling only changes a lane whose
+plates actually differ, so same-art lanes cannot drift.
 
 ## Tests
 
 - `tests/unit/protectedCardLayout.test.tsx`: new "two top chairs on one rail
   line sit level whatever character each wears" (penguin + wolf, live
   proportions). Fails on the old line with the plates 51px apart.
-- The two existing pins that asserted the wolf's image box top at the 8px/9px
-  line now assert its painted crown there, which is the rule they protected.
+- Existing pins are unchanged; single chairs keep their exact placement.
+- `table-proportions.spec.ts` 320px 9-seat normal mini and 375px 9-seat pass.
 
 ## Scope
 

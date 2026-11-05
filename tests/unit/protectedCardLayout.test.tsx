@@ -229,8 +229,7 @@ it.each([481, 606, 1024])(
     const initialCrown = paintedAvatarTop(head);
     if (width <= 768) {
       const mini = h.container.querySelector('.bbj-mini-plate')!.getBoundingClientRect();
-      // The lane is measured from the painted crown, not the image box.
-      expect(initialCrown).toBeCloseTo(mini.bottom + 9);
+      expect(head.getBoundingClientRect().top).toBeCloseTo(mini.bottom + 9);
     } else {
       expect(initialCrown).toBeCloseTo(-2);
       expect(head.getBoundingClientRect().top).toBeLessThan(-2);
@@ -268,10 +267,7 @@ it.each([320, 375, 393, 430, 480])(
         avatarSource="/avatars/table/vip_wolf@2x.webp"
       />
     );
-    // The painted crown, not the transparent image box, keeps 8px of air.
-    expect(
-      paintedAvatarTop(h.container.querySelector<HTMLImageElement>('.seat__avatar-img')!)
-    ).toBeCloseTo(42);
+    expect(h.container.querySelector('.seat__avatar-img')!.getBoundingClientRect().top).toBe(42);
   }
 );
 
@@ -409,12 +405,13 @@ it('two top chairs on one rail line sit level whatever character each wears', ()
       .querySelector(`[data-chair="${chair}"] .seat__info`)!
       .getBoundingClientRect().top;
   expect(Math.abs(plate('penguin') - plate('wolf'))).toBeLessThanOrEqual(2);
-  // Each painted head still keeps its 8px of air below the jackpot plate.
+  // The wolf keeps its existing placement; the penguin rises to it, and its
+  // painted head still keeps at least 8px of air below the jackpot plate.
   const mini = h.container.querySelector('.bbj-mini-plate')!.getBoundingClientRect();
-  for (const chair of ['penguin', 'wolf'])
-    expect(
-      paintedAvatarTop(
-        h.container.querySelector<HTMLImageElement>(`[data-chair="${chair}"] .seat__avatar-img`)!
-      )
-    ).toBeCloseTo(mini.bottom + 8);
+  const wolf = h.container.querySelector('[data-chair="wolf"] .seat__avatar-img')!;
+  expect(wolf.getBoundingClientRect().top).toBeCloseTo(mini.bottom + 8);
+  const penguin = h.container.querySelector<HTMLImageElement>(
+    '[data-chair="penguin"] .seat__avatar-img'
+  )!;
+  expect(paintedAvatarTop(penguin)).toBeGreaterThanOrEqual(mini.bottom + 8 - 0.01);
 });
