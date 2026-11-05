@@ -60,12 +60,12 @@ BEGIN
   IF (length(v_def) - length(replace(v_def, v_anchor, ''))) / length(v_anchor) <> 1 THEN
     RAISE EXCEPTION 'fn_ca_fund_overlay_on_lock anchor not found exactly once; refusing to patch';
   END IF;
-  v_new := replace(v_def, v_anchor, v_anchor ||
-    E'  /* A GUARANTEE MOVES NO CHIPS UNTIL REGISTRATION CLOSES (Dan, 2026-11-04).\n'
-    E'     The close-out (fn_ca_apply_prize_guarantee_core) pays only the real\n'
-    E'     shortfall when the pool finalizes. Only a satellite''s guaranteed seats,\n'
-    E'     which the close-out does not cover, are still funded here. */\n'
-    E'  IF COALESCE(v_seat_guarantee, 0) <= 0 THEN RETURN NEW; END IF;\n');
+  v_new := replace(v_def, v_anchor, v_anchor
+    || E'  /* A GUARANTEE MOVES NO CHIPS UNTIL REGISTRATION CLOSES (Dan, 2026-11-04).\n'
+    || E'     The close-out (fn_ca_apply_prize_guarantee_core) pays only the real\n'
+    || E'     shortfall when the pool finalizes. Only a satellite''s guaranteed seats,\n'
+    || E'     which the close-out does not cover, are still funded here. */\n'
+    || E'  IF COALESCE(v_seat_guarantee, 0) <= 0 THEN RETURN NEW; END IF;\n');
   EXECUTE v_new;
 END
 $migration$;
