@@ -1745,6 +1745,12 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-midway-bounty-freezeout.py
+      - name: Guarantee funding is watched both ways on production's definitions
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-guarantee-funding-watch.py
       - name: Owner alerts preserve the actual finding through the real PostgreSQL trigger
         if: matrix.shard == 1
         env:

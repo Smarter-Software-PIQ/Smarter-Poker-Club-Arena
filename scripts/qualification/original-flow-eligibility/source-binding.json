@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278363,
-      "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
+      "bytes": 278636,
+      "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
     },
     "scripts/qualification/original-flow-eligibility/README.md": {
       "bytes": 2608,
@@ -2566,5 +2566,24 @@
         }
       }
     ]
+  },
+  "guaranteeFundingWatchNativeEnforcement20261105": {
+    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the Midway bounty freezeout step: run the guarantee funding watch proof (scripts/ci/test-guarantee-funding-watch.py) on native PostgreSQL 17 over production definitions. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
+    "changes": [
+      {
+        "section": "files",
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278363,
+          "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
+        },
+        "current": {
+          "bytes": 278636,
+          "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }
