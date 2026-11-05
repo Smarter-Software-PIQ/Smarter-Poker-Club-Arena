@@ -194,6 +194,9 @@ No artwork or visual design changed. Art scale, positions on the rail, fonts and
 - Post-deploy run 42109683262 (6e684dbef) was **cancelled** (superseded), not failed.
 - Outgoing container git status: clean on `fix/chairs-never-change-order` (already merged; nothing unpushed).
 
+
+**Update 21:50 UTC: after-publish results for the live build.** Both post-deploy runs on 32be41e18 (42110790843 and 42111267968) failed one test: "320px live mobile table containment" reported "Six-Max Crown Does Not Meet The Top Bar" (`tests/e2e/support/mobileLiveTableLayout.ts` ~line 662, from `production-live-table-realtime.spec.ts:2565`). **This is not caused by #9546.** The same failure, with the same message, happened BEFORE the fix existed, on d505ec5bc (run 42094502522), 5e2d6a233 (42093085472) and ac00b6426 (42084140655). It passed on 2b98f67c4 and 2433d2cb7, so it comes and goes. The other three live-table tests passed. "Client browser verification" was cancelled (superseded) on both runs. Next agent: watch the post-deploy run for ef412e45f or later. If you take on the crown failure, treat it as a separate defect: the six-max top seat's avatar art does not reach the top bar (allowed gap is -12 to +2 scaled px, and it only applies when the table is wider than 480px).
+
 ## 11. Changed-File Ledger (all committed and merged in #9546)
 
 | File | Status | Purpose | Verified |
