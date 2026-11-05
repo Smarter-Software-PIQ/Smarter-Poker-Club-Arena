@@ -20,8 +20,10 @@ wallet pays 1 chip into the prize pool at signup" (#9515, migration
   daily window's operating day (`smarter_private.daily_window_policy`), which
   turns over at 04:00 Chicago. The Friday 12:30 AM Midnight Free Buy is
   Thursday's fifth Free Buy and uses a Thursday ticket.
-- **Guaranteed Free Buy.** P = max(G, C), U = max(0, G - C). Tickets add no
-  chip.
+- **Guaranteed Free Buy.** C is the players' full wallet payments (rebuys and
+  add-ons) before any bounty or rake share is set aside. U = max(0, G - C),
+  P = (prize share of C) + U. With no bounty or rake that is P = max(G, C).
+  Tickets add no chip.
 - **Non-guaranteed Free Buy.** V = 1 chip per valid first-entry ticket,
   P = V + C, U = V. A Mystery ticket splits its chip 0.50 bounty / 0.50 prize;
   a PKO ticket is all bounty.
@@ -42,9 +44,10 @@ wallet pays 1 chip into the prize pool at signup" (#9515, migration
 - **Rollout.** Every registration standing in an unfinalized Free Buy when the
   migration installs gets a `rollout_compat` record: free entry kept, no
   charge, no refusal, and it does not use one of the user's five tickets.
-- **Other guaranteed tournaments** are unchanged: the close-out core already
-  pays max(guarantee, collected) at the same cutoff from their own source
-  (union bank, club treasury fallback); paid entries count as collected.
+- **Other guaranteed tournaments** are funded by the close-out core at the same
+  cutoff from their own source (union bank, club treasury fallback). Migration
+  `20261105220120` makes that close-out count the full buy-in, bounty and rake
+  included (see `2026-11-05-a-guarantee-counts-the-full-buy-in.md`).
 
 ## Files
 
@@ -52,8 +55,12 @@ wallet pays 1 chip into the prize pool at signup" (#9515, migration
 - `supabase/migrations/20261105204918_midway_free_buy_watch_reads_the_schedule_not_event_ids.sql`
   (replaces never-installed `20261105183114`, now `SUPERSEDED BY`, which
   exempted three events by id)
-- `supabase/migrations/20261105204919_overlay_guard_sizes_entries_by_pool_share.sql`
-  (#9566 carried over unchanged)
+- `supabase/migrations/20261105220120_a_guarantee_counts_the_full_buy_in.sql`
+  (every guaranteed event: C counts bounty and rake; see its own changelog).
+  The earlier carry-over of #9566 (overlay guard sizes horse attendance by
+  prize + bounty only) was dropped: under the full-buy-in rule rake counts
+  toward the guarantee, so the existing guard's buy-in + fee sizing is the
+  correct one.
 - Native proof: `scripts/ci/test-free-buy-tickets.py` (CI shard 1);
   law: `tests/free-buy-tickets-fund-at-the-final-cutoff.law.test.ts`.
 

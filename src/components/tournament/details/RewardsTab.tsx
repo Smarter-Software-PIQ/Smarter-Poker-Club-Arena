@@ -268,6 +268,7 @@ interface RewardColumns {
   mystery_bounty_regular_pool_percent?: number | string | null;
   bounty_amount?: number | null;
   bounty_pool?: number | null;
+  total_rake?: number | null;
   bounty_pool_paid?: number | null;
   status?: string | null;
   current_players?: number | null;
@@ -303,6 +304,8 @@ export default function RewardsTab({
   const [funding, setFunding] = useState<{
     key: string;
     collected: number;
+    /** C: the players' full payments (prize + bounty + rake) toward the guarantee. */
+    gross: number;
     overlay: number;
   } | null>(null);
   useEffect(() => {
@@ -334,9 +337,15 @@ export default function RewardsTab({
           setFunding(null);
           return;
         }
+        /* A GUARANTEE COUNTS THE FULL BUY-IN (owner 2026-11-05): bounty and
+           rake shares count toward it, so the meter reads gross_collected. */
+        const gross = Number(data.gross_collected);
         setFunding({
           key: fundingKey,
           collected: Number(data.collected),
+          gross: Number.isFinite(gross)
+            ? gross
+            : Number(data.collected) + (Number(t.total_rake) || 0),
           overlay: Number(data.overlay),
         });
       } catch (error) {
@@ -353,7 +362,7 @@ export default function RewardsTab({
       active?.abort();
       unsubscribe();
     };
-  }, [tournamentId, fundingKey, t.guaranteed_prize]);
+  }, [tournamentId, fundingKey, t.guaranteed_prize, t.total_rake]);
   const currentFunding = funding?.key === fundingKey ? funding : null;
 
   const isPko = !!t.is_pko;
@@ -507,15 +516,20 @@ export default function RewardsTab({
 
   /* ── THE POOL ─────────────────────────────────────────────────────────── */
 
-  const collectedPool = currentFunding?.collected ?? null;
+  const collectedPool = currentFunding?.gross ?? null;
   const guarantee = num(t.guaranteed_prize);
   const hasGuarantee = guarantee > 0;
   /* Stored places already include funded overlay. The combined guarantee
      floors places only after subtracting bounties; escrow independently
      distinguishes entry contributions from house funding. */
-  const effectivePool = effectivePrizePool(t.prize_pool, t.guaranteed_prize, t.bounty_pool);
+  const effectivePool = effectivePrizePool(
+    t.prize_pool,
+    t.guaranteed_prize,
+    t.bounty_pool,
+    t.total_rake
+  );
   const overlay = currentFunding
-    ? Math.max(currentFunding.overlay, hasGuarantee ? guarantee - currentFunding.collected : 0)
+    ? Math.max(currentFunding.overlay, hasGuarantee ? guarantee - currentFunding.gross : 0)
     : 0;
   const guaranteeMet = hasGuarantee && collectedPool !== null && collectedPool >= guarantee;
 
@@ -679,7 +693,8 @@ export default function RewardsTab({
     t.bubble_protection === true,
     num(t.buy_in_amount),
     isSatellite,
-    t.bounty_pool
+    t.bounty_pool,
+    t.total_rake
   );
   const bubbleProtectionReserve =
     placeLadderPool === null ? 0 : Math.max(0, effectivePool - placeLadderPool);

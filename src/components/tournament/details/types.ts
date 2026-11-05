@@ -499,10 +499,12 @@ export function tournamentRowUnitCents(row: TournamentArenaEmbed | null | undefi
 export function effectivePrizePool(
   poolValue: number | null | undefined,
   guaranteeValue: number | null | undefined,
-  bountyPool: number | null | undefined = 0
+  bountyPool: number | null | undefined = 0,
+  /** Player rake: a guarantee counts the full buy-in (owner 2026-11-05). */
+  rake: number | null | undefined = 0
 ): number {
   const pool = finite(poolValue);
-  const guarantee = placeGuarantee(guaranteeValue, bountyPool);
+  const guarantee = placeGuarantee(guaranteeValue, bountyPool, rake);
   return guarantee > 0 ? Math.max(pool, guarantee) : pool;
 }
 
@@ -519,9 +521,10 @@ export function effectivePlaceLadderPool(
   bubbleProtection: boolean,
   buyInAmount: number,
   isSatellite: boolean,
-  bountyPool: number | null | undefined = 0
+  bountyPool: number | null | undefined = 0,
+  rake: number | null | undefined = 0
 ): number | null {
-  const pool = effectivePrizePool(poolValue, guaranteeValue, bountyPool);
+  const pool = effectivePrizePool(poolValue, guaranteeValue, bountyPool, rake);
   const structure = parsePayoutStructure(structureValue) ?? [];
   return prizePoolAvailableToPlaces(
     pool,

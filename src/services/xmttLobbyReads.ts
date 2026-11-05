@@ -19,6 +19,7 @@ export interface XmttTournament {
   prize_pool?: number;
   guaranteed_prize?: number;
   bounty_pool?: number;
+  total_rake?: number;
   club_id?: string;
 }
 const FILTERS = ['registering', 'running', 'completed'] as const;

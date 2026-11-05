@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278614,
-      "sha256": "ea6fa02822a958fd75947fbfa10b0e8247917f335ad3b77c88200badf34a86aa"
+      "bytes": 278895,
+      "sha256": "c325788de0101d0692ebdcbc162b08532f60616ee2aeaa8b7219b726136f0833"
     },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
@@ -2535,5 +2535,24 @@
         }
       }
     ]
+  },
+  "guaranteeFullBuyInNativeEnforcement20261105": {
+    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the Free Buy tickets step: run the full-buy-in guarantee proof (scripts/ci/test-guarantee-counts-the-full-buy-in.py) on native PostgreSQL 17 over production close-out definitions. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
+    "changes": [
+      {
+        "section": "files",
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278614,
+          "sha256": "ea6fa02822a958fd75947fbfa10b0e8247917f335ad3b77c88200badf34a86aa"
+        },
+        "current": {
+          "bytes": 278895,
+          "sha256": "c325788de0101d0692ebdcbc162b08532f60616ee2aeaa8b7219b726136f0833"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

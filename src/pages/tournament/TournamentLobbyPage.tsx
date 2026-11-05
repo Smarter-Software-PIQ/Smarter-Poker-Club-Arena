@@ -76,6 +76,7 @@ interface Tournament extends TournamentEntryWindowRow {
   prizePool: number;
   /** Bounty money held for knockouts; the guarantee covers it too. */
   bountyPool: number;
+  totalRake: number;
   guaranteedPrize: number;
   startTime: string;
   status: 'ANNOUNCED' | 'REGISTERING' | 'RUNNING' | 'BAGGED' | 'COMPLETED' | 'CANCELLED';
@@ -350,6 +351,7 @@ function TournamentLobbyBoard() {
                     buy_in_fee,
                     prize_pool,
                     bounty_pool,
+                    total_rake,
                     guaranteed_prize,
                     start_time,
                     status,
@@ -584,6 +586,7 @@ function TournamentLobbyBoard() {
           buyInFee: Number(t.buy_in_fee) || 0,
           prizePool: Math.round(Number(t.prize_pool) || 0),
           bountyPool: Number(t.bounty_pool) || 0,
+          totalRake: Number(t.total_rake) || 0,
           startTime: t.start_time,
           status: t.status,
           currentPlayers: t.current_players || 0,
@@ -1030,6 +1033,7 @@ function TournamentLobbyBoard() {
                       ),
                       prizePool: tournament.prizePool,
                       bountyPool: tournament.bountyPool,
+                      totalRake: tournament.totalRake,
                       maxPlayers: tournament.maxPlayers,
                       registeredPlayers: tournament.currentPlayers,
                       startsAt: tournament.startTime,

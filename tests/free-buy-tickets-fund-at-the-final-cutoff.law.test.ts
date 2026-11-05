@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 // Owner ruling 2026-11-05 14:24 CT: five Free Buy tickets per user per day;
 // a ticket covers the first entry; rebuys and add-ons are paid from the
 // wallet; nothing is credited to a prize pool until every window has closed;
-// guaranteed P = max(G, C), U = max(0, G - C); otherwise P = V + C, U = V;
+// guaranteed U = max(0, G - C) with C the players' FULL payments (bounty and
+// rake shares included), P = c + U; otherwise P = V + c, U = V;
 // U comes from the Midway promo wallet at the cutoff; no tournament-ID
 // exceptions. The money paths are executed in
 // scripts/ci/test-free-buy-tickets.py; this pins the shape that test proves.
@@ -19,10 +20,14 @@ describe('Free Buy tickets fund at the final cutoff', () => {
   it('grants five tickets per user per tournament day, exactly once, moving no chips', () => {
     expect(code).toContain('tickets smallint NOT NULL DEFAULT 5 CHECK (tickets = 5)');
     expect(code).toContain('PRIMARY KEY (user_id, ticket_day)');
-    expect(code).toMatch(/FROM public\.profiles p\s+ON CONFLICT \(user_id, ticket_day\) DO NOTHING/);
+    expect(code).toMatch(
+      /FROM public\.profiles p\s+ON CONFLICT \(user_id, ticket_day\) DO NOTHING/
+    );
     expect(code).toContain("cron.schedule('free-buy-daily-tickets'");
     const grant = code.slice(code.indexOf('fn_ca_grant_daily_free_buy_tickets(p_day date'));
-    expect(grant.slice(0, grant.indexOf('$f$;'))).not.toMatch(/chip_balance|promo_wallet|chip_ledger/);
+    expect(grant.slice(0, grant.indexOf('$f$;'))).not.toMatch(
+      /chip_balance|promo_wallet|chip_ledger/
+    );
   });
 
   it('puts the 12:30 AM Free Buy on the previous day through the daily window policy', () => {
@@ -40,18 +45,29 @@ describe('Free Buy tickets fund at the final cutoff', () => {
 
   it('books no prize chip at the till and only the bounty share of a ticket entry', () => {
     expect(code).toContain('v_split.charge:=0; v_split.rake:=0; v_split.prize:=0;');
-    expect(code).toContain("v_prize:=0;                                        ");
-    expect(sql).toContain("CASE WHEN f.g THEN 0 WHEN f.fmt='pko' THEN 1 WHEN f.fmt='mystery' THEN 0.50 ELSE 0 END");
+    expect(code).toContain('v_prize:=0;                                        ');
+    expect(sql).toContain(
+      "CASE WHEN f.g THEN 0 WHEN f.fmt='pko' THEN 1 WHEN f.fmt='mystery' THEN 0.50 ELSE 0 END"
+    );
   });
 
   it('computes the owner formulas in one place', () => {
-    expect(code).toContain('prize_pool := GREATEST(g, c);');
-    expect(code).toContain('promo_support := GREATEST(0, g - c);');
+    // Guaranteed: U = max(0, G - C) on the players' FULL payments (prize,
+    // bounty and rake shares), P = c + U; G is the advertised guarantee itself.
+    expect(code).toContain('promo_support := GREATEST(0, g - cg);');
+    expect(code).toContain('prize_pool := c + promo_support;');
+    expect(code).toContain('v_g := round(GREATEST(COALESCE(t.guaranteed_prize,0),0),2);');
+    expect(code).toMatch(
+      /v_gross := round\(v_c \+ GREATEST\(0, COALESCE\(t\.bounty_pool,0\) - v_promo_bounty\)\s+\+ GREATEST\(0, COALESCE\(t\.total_rake,0\)\),2\);/
+    );
+    // Not guaranteed: P = V + c, U = V.
     expect(code).toContain('prize_pool := promo_support + c;');
   });
 
   it('funds at the cutoff inside fn_apply_prize_guarantee, before the core, from the promo wallet only', () => {
-    expect(code).toContain("v_anchor constant text := E'    v_result:=public.fn_ca_apply_prize_guarantee_core(\\n'");
+    expect(code).toContain(
+      "v_anchor constant text := E'    v_result:=public.fn_ca_apply_prize_guarantee_core(\\n'"
+    );
     expect(code).toContain('PERFORM public.fn_ca_free_buy_fund_at_cutoff(p_tournament_id);');
     const fund = code.slice(code.indexOf('CREATE FUNCTION public.fn_ca_free_buy_fund_at_cutoff'));
     const body = fund.slice(0, fund.indexOf('$f$;'));
@@ -77,7 +93,9 @@ describe('Free Buy tickets fund at the final cutoff', () => {
   });
 
   it('retires the id-exempting watch file instead of installing it', () => {
-    expect(readFileSync(OLD_WATCH, 'utf8').split('\n')[0]).toMatch(/^-- SUPERSEDED BY 20261105204918\b/);
+    expect(readFileSync(OLD_WATCH, 'utf8').split('\n')[0]).toMatch(
+      /^-- SUPERSEDED BY 20261105204918\b/
+    );
     expect(readdirSync(DIR).some((f) => f.startsWith('20261105204918_'))).toBe(true);
   });
 });

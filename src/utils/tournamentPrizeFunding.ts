@@ -1,6 +1,10 @@
 import { formatPrizeAtUnit, moneyWordAtUnit } from './format';
 import { CHIP_UNIT_CENTS } from '../../server/src/tournament/tournamentUnit';
-/** Guarantees cover places and bounties together; fees never fund prizes. */
+/**
+ * A guarantee counts the FULL buy-in (owner rule 2026-11-05): what the players
+ * paid toward it is prize + bounty + rake, before any of those allocations.
+ * Fees never fund prizes, but they do count toward meeting the guarantee.
+ */
 export interface TournamentPrizeTerms {
   buy_in_amount?: number | null;
   buy_in_fee?: number | null;
@@ -17,29 +21,60 @@ const amount = (value: unknown): number => {
   return Number.isFinite(n) ? Math.max(0, n) : 0;
 };
 
-export function placeGuarantee(guarantee: unknown, bounties: unknown): number {
-  return Math.max(0, amount(guarantee) - amount(bounties));
+/**
+ * The regular prize pool's floor: the guarantee less what the players already
+ * put toward it outside the prize pool (bounty contributions and rake). The
+ * database's fn_ca_place_guarantee(guarantee, bounty_pool, total_rake) is the
+ * same arithmetic; the close-out funds exactly max(0, floor - prize pool),
+ * which is max(0, G - C).
+ */
+export function placeGuarantee(guarantee: unknown, bounties: unknown, rake: unknown = 0): number {
+  return Math.max(0, amount(guarantee) - amount(bounties) - amount(rake));
+}
+
+/** C: the players' gross payments toward the guarantee (prize + bounty + rake). */
+export function guaranteeCollected(prizePool: unknown, bountyPool: unknown, rake: unknown): number {
+  return amount(prizePool) + amount(bountyPool) + amount(rake);
 }
 
 /**
- * What a guaranteed event's lobby prints as its pool (2026-11-04).
+ * True while the lobby's pool figure is the advertised guarantee rather than
+ * money in the pools: the players' gross payments (C) have not reached it yet.
+ * A guarantee is displayed from the start but moves no chips until the last
+ * contribution window closes.
+ */
+export function displayPoolIsGuarantee(
+  prizePool: unknown,
+  guarantee: unknown,
+  bountyPool: unknown = 0,
+  rake: unknown = 0
+): boolean {
+  const gtd = amount(guarantee);
+  return gtd > 0 && guaranteeCollected(prizePool, bountyPool, rake) + 0.005 < gtd;
+}
+
+/**
+ * What a guaranteed event's lobby prints as its pool.
  *
- * The guarantee covers places and bounties together, so the number shown
- * beside "GTD" is the WHOLE pool: max(prize pool + bounty pool, guarantee).
- * Printing the prize half alone made a 750 guarantee PKO read 380 while 370
- * sat in bounties. The prize pool itself is kept honest by the database
- * (fn_ca_trim_live_overlay): it is max(place guarantee, money in), never the
- * start-time overlay stacked on late entries.
+ * 2026-11-04: the guarantee is shown as the floor while it is not yet met, and
+ * the whole pool (prize + bounty) is shown once it is, so a 750 guarantee PKO
+ * never reads 380 while 370 sits in bounties.
+ * 2026-11-05 (owner rule): a guarantee counts the FULL buy-in, rake included.
+ * So the guarantee is shown while the players' gross payments are below it
+ * (displayPoolIsGuarantee: label it as the guarantee), and once they reach it
+ * the figure is the money actually in the prize and bounty pools. That can be
+ * below the guarantee by the rake: meeting a 500 buy-in guarantee with 13 x 40
+ * (26 prize / 10 bounty / 4 rake) leaves 338 + 130 in the pools and 52 rake.
  */
 export function displayTotalPool(
   prizePool: unknown,
   guarantee: unknown,
-  bountyPool: unknown = 0
+  bountyPool: unknown = 0,
+  rake: unknown = 0
 ): number {
-  const prize = Math.max(amount(prizePool), placeGuarantee(guarantee, bountyPool));
-  const total = prize + amount(bountyPool);
-  const gtd = amount(guarantee);
-  return gtd > 0 ? Math.max(total, gtd) : total;
+  if (displayPoolIsGuarantee(prizePool, guarantee, bountyPool, rake)) return amount(guarantee);
+  const prize = Math.max(amount(prizePool), placeGuarantee(guarantee, bountyPool, rake));
+  return prize + amount(bountyPool);
 }
 
 /** Fixed-bounty copy comes from charged terms, never an old schedule blurb. */

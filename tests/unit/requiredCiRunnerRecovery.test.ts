@@ -257,19 +257,28 @@ const freeBuyTicketsStep = {
   env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
   run: 'python3 -B scripts/ci/test-free-buy-tickets.py',
 };
+const fullBuyInGuaranteeStep = {
+  name: "A guarantee counts the full buy-in on production's close-out code",
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-guarantee-counts-the-full-buy-in.py',
+};
 const normalizeFreeBuyTicketsAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === freeBuyTicketsStep.name);
   expect(job.steps.filter((step) => step.name === freeBuyTicketsStep.name)).toHaveLength(1);
+  expect(job.steps.filter((step) => step.name === fullBuyInGuaranteeStep.name)).toHaveLength(1);
   expect(job.steps[index - 1]?.name).toBe(
     'Midway daily bounty freezeout preserves the owner contract'
   );
   expect(job.steps[index]).toStrictEqual(freeBuyTicketsStep);
-  expect(job.steps[index + 1]?.name).toBe(
+  expect(job.steps[index + 1]).toStrictEqual(fullBuyInGuaranteeStep);
+  expect(job.steps[index + 2]?.name).toBe(
     'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
   );
-  // Enforce the exact added native gate (owner's Free Buy ticket and cutoff
-  // funding rules, 2026-11-05), preserving every historical job fingerprint.
-  job.steps.splice(index, 1);
+  // Enforce the exact added native gates (owner's Free Buy ticket and cutoff
+  // funding rules, and the full-buy-in guarantee rule, 2026-11-05),
+  // preserving every historical job fingerprint.
+  job.steps.splice(index, 2);
 };
 
 describe('required CI uses a closed standard hosted capacity recovery', () => {

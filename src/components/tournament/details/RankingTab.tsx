@@ -974,7 +974,8 @@ function RankingTabForTournament({
   const finishedPool = effectivePrizePool(
     tournament.prize_pool,
     tournament.guaranteed_prize,
-    tournament.bounty_pool
+    tournament.bounty_pool,
+    tournament.total_rake
   );
   const finishedPaid =
     finished.paid > 0 ? finished.paid : (resolvePayoutStructure(tournament) ?? []).length;

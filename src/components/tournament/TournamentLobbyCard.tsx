@@ -66,7 +66,7 @@ import {
   type MttStructureDescription,
 } from '../../../server/src/tournament/mttStructureDescription';
 import { compactChips } from '../../utils/format';
-import { displayTotalPool } from '../../utils/tournamentPrizeFunding';
+import { displayPoolIsGuarantee, displayTotalPool } from '../../utils/tournamentPrizeFunding';
 import { spinCeilingMultiplier } from '../lobby/lobbyEntries';
 import type { TournamentArenaEmbed } from './details/types';
 import { spinMultiplierLabel } from '../../utils/spinReveal';
@@ -86,6 +86,8 @@ interface Tournament extends TournamentEntryWindowRow {
   prizePool: number;
   /** Bounty money held for knockouts; shown inside the guaranteed total. */
   bountyPool?: number;
+  /** Player rake: a guarantee counts the full buy-in (owner 2026-11-05). */
+  totalRake?: number;
   maxPlayers: number | null;
   registeredPlayers: number;
   startsAt?: string;
@@ -831,9 +833,16 @@ function TournamentLobbyCardInner({
           <span className="sc-label sc-ink--blue">
             {spinLabels
               ? spinLabels.moneyLabel
-              : (tournament.bountyPool ?? 0) > 0
-                ? 'Total Pool'
-                : 'Prize Pool'}
+              : displayPoolIsGuarantee(
+                    tournament.prizePool,
+                    tournament.guaranteedPrize,
+                    tournament.bountyPool,
+                    tournament.totalRake
+                  )
+                ? 'Guarantee'
+                : (tournament.bountyPool ?? 0) > 0
+                  ? 'Total Pool'
+                  : 'Prize Pool'}
           </span>
           <span className={`${styles.value} sc-ink--silver`}>
             {spinLabels
@@ -843,7 +852,8 @@ function TournamentLobbyCardInner({
                     displayTotalPool(
                       tournament.prizePool,
                       tournament.guaranteedPrize,
-                      tournament.bountyPool
+                      tournament.bountyPool,
+                      tournament.totalRake
                     )
                   );
                 })()}

@@ -38,9 +38,13 @@
 --  which runs only when the prize pool finalizes; the existing finalization
 --  window guard refuses that until registration AND every rebuy and add-on
 --  window has closed).
---   G = guarantee (place guarantee, fn_ca_place_guarantee),
---   C = finalized net prize-eligible chips paid from player wallets.
---   Guaranteed Free Buy:      P = max(G, C), U = max(0, G - C). Tickets add 0.
+--   G = the advertised buy-in guarantee (tournaments.guaranteed_prize),
+--   C = the FULL qualifying player-wallet payments (entries, rebuys, add-ons)
+--       BEFORE any bounty or rake allocation (owner 2026-11-05: a 40-chip
+--       payment split 26 prize / 10 bounty / 4 rake counts 40), net of
+--       refunds; c = the prize-pool share of those payments.
+--   Guaranteed Free Buy:      U = max(0, G - C), P = c + U. Tickets add 0.
+--                             (No bounty or rake: P = max(G, C).)
 --   Non-guaranteed Free Buy:  V = 1 chip x valid first-entry redemptions,
 --                             P = V + C, U = V.
 --   U comes from the Midway Union promo wallet, never earlier. At the cutoff:
@@ -59,9 +63,10 @@
 --  share (owner: entries, rebuys and add-ons split 50/50). A bounty head is
 --  live from the first hand and is paid at each knockout, so that share is
 --  booked from the promo wallet when the head is created; only the
---  PRIZE-POOL share waits for the cutoff. The guarantee keeps covering only
---  what fn_ca_place_guarantee says it covers; nothing is counted twice and no
---  bounty money is ever moved into the prize pool.
+--  PRIZE-POOL share waits for the cutoff. The players' bounty and rake
+--  payments count toward the guarantee (C) but stay in their own pools;
+--  nothing is counted twice and no bounty money is ever moved into the prize
+--  pool. Promo-funded heads are the house's money and never count in C.
 --
 --  Rollout compatibility. Every registration already standing in an
 --  unfinalized Free Buy when this installs gets an auditable
@@ -110,7 +115,7 @@ END $pre$;
 
 -- Private money owners are registered before their CREATE statements.
 INSERT INTO public.ca_money_rpc_registry(proname,status,notes) VALUES
- ('fn_ca_free_buy_fund_at_cutoff','approved','Private Free Buy cutoff funding: under the settlement lane and event row lock computes P and U (guaranteed P=max(G,C), U=max(0,G-C); otherwise P=V+C, U=V), subtracts promo chips already recorded, moves only the remainder between the Midway promo wallet and prize escrow with one journaled leg, records one funding row; idempotent.')
+ ('fn_ca_free_buy_fund_at_cutoff','approved','Private Free Buy cutoff funding: under the settlement lane and event row lock computes P and U (guaranteed U=max(0,G-C) on the full player payments C incl. bounty and rake, P=c+U; otherwise P=V+c, U=V), subtracts promo chips already recorded, moves only the remainder between the Midway promo wallet and prize escrow with one journaled leg, records one funding row; idempotent.')
 ON CONFLICT(proname) DO NOTHING;
 
 -- ── 1. Tables ───────────────────────────────────────────────────────────────
@@ -159,6 +164,7 @@ CREATE TABLE public.ca_free_buy_cutoff_fundings(
   guaranteed boolean NOT NULL,
   guarantee numeric(18,2) NOT NULL,
   wallet_chips numeric(18,2) NOT NULL,
+  wallet_gross numeric(18,2) NOT NULL,
   valid_tickets integer NOT NULL,
   ticket_prize_part numeric(6,2) NOT NULL,
   prize_pool numeric(18,2) NOT NULL,
@@ -227,22 +233,27 @@ AS $f$
 $f$;
 
 CREATE FUNCTION public.fn_ca_free_buy_cutoff_terms(p_guarantee numeric, p_wallet_chips numeric,
-  p_valid_tickets integer, p_ticket_prize_part numeric DEFAULT 1,
+  p_valid_tickets integer, p_ticket_prize_part numeric DEFAULT 1, p_wallet_gross numeric DEFAULT NULL,
   OUT prize_pool numeric, OUT promo_support numeric)
  LANGUAGE plpgsql IMMUTABLE SET search_path TO 'public','pg_temp'
 AS $f$
 DECLARE
   g numeric := round(COALESCE(p_guarantee,0),2);
   c numeric := round(COALESCE(p_wallet_chips,0),2);
+  -- C: the full player payments (prize + bounty + rake shares) count toward
+  -- the guarantee. With no bounty or rake it equals c.
+  cg numeric := round(COALESCE(p_wallet_gross, p_wallet_chips, 0),2);
 BEGIN
-  IF g < 0 OR c < 0 OR COALESCE(p_valid_tickets,0) < 0 OR COALESCE(p_ticket_prize_part,0) < 0
+  IF cg < c OR g < 0 OR c < 0 OR COALESCE(p_valid_tickets,0) < 0 OR COALESCE(p_ticket_prize_part,0) < 0
      OR g::text IN ('NaN','Infinity') OR c::text IN ('NaN','Infinity') THEN
     RAISE EXCEPTION 'Free Buy cutoff terms need finite non-negative inputs' USING ERRCODE='22023';
   END IF;
   IF g > 0 THEN
-    -- Guaranteed: P = max(G, C), U = max(0, G - C). Tickets add nothing.
-    prize_pool := GREATEST(g, c);
-    promo_support := GREATEST(0, g - c);
+    -- Guaranteed: U = max(0, G - C) on the gross C; P = c + U. Once the
+    -- players' full payments reach G the sponsor adds nothing. Tickets add
+    -- nothing.
+    promo_support := GREATEST(0, g - cg);
+    prize_pool := c + promo_support;
   ELSE
     -- Not guaranteed: V = one chip (its prize share) per valid first entry.
     promo_support := round(COALESCE(p_valid_tickets,0) * COALESCE(p_ticket_prize_part,0), 2);
@@ -542,6 +553,8 @@ DECLARE
   v_pool numeric;
   v_recorded numeric;
   v_c numeric;
+  v_promo_bounty numeric;
+  v_gross numeric;
   v_tickets integer;
   v_move numeric;
   v_key text;
@@ -560,7 +573,9 @@ BEGIN
     RETURN jsonb_build_object('applies',true,'already_finalized',true);
   END IF;
 
-  v_g := public.fn_ca_place_guarantee(t.guaranteed_prize, t.bounty_pool);
+  -- The advertised buy-in guarantee itself: bounties and rake are counted on
+  -- the collected side (C), never subtracted from G.
+  v_g := round(GREATEST(COALESCE(t.guaranteed_prize,0),0),2);
   v_pool := round(COALESCE(t.prize_pool,0),2);
   -- Already recorded toward the prize pool by the promo wallet: the prize
   -- share of pre-ticket 1-chip entries (net of their returns) and any earlier
@@ -579,6 +594,17 @@ BEGIN
     RAISE EXCEPTION 'Free Buy % pool % is below the promo chips recorded in it (%)',
       p_tournament_id, v_pool, v_recorded USING ERRCODE='23514';
   END IF;
+  -- C: the players' full payments. Bounty money they paid is the bounty pool
+  -- less the promo-funded heads; rake is what they paid in fees.
+  SELECT round(COALESCE(sum(CASE WHEN l.category='promo_send' THEN 1 ELSE -1 END
+           *COALESCE((l.metadata->>'bounty_part')::numeric,l.amount)),0),2)
+    INTO v_promo_bounty
+    FROM public.chip_ledger l
+   WHERE l.tournament_id=p_tournament_id
+     AND l.metadata->>'kind'='midway_free_buy_promo_head'
+     AND l.category IN ('promo_send','reversal');
+  v_gross := round(v_c + GREATEST(0, COALESCE(t.bounty_pool,0) - v_promo_bounty)
+                       + GREATEST(0, COALESCE(t.total_rake,0)),2);
   -- V: valid first entries (a ticket or a rollout record whose registration stands).
   SELECT count(*)::integer INTO v_tickets
     FROM public.ca_free_buy_ticket_redemptions r
@@ -586,7 +612,7 @@ BEGIN
    WHERE r.tournament_id=p_tournament_id AND r.status='redeemed';
 
   SELECT * INTO v_terms FROM public.fn_ca_free_buy_cutoff_terms(
-    CASE WHEN v_parts.guaranteed THEN v_g ELSE 0 END, v_c, v_tickets, v_parts.prize_part);
+    CASE WHEN v_parts.guaranteed THEN v_g ELSE 0 END, v_c, v_tickets, v_parts.prize_part, v_gross);
   v_move := round(v_terms.promo_support - v_recorded,2);
 
   SELECT * INTO v_done FROM public.ca_free_buy_cutoff_fundings WHERE tournament_id=p_tournament_id;
@@ -621,7 +647,7 @@ BEGIN
         CASE WHEN v_parts.guaranteed THEN 'Midway Promo Funds Free Buy Guarantee Support'
              ELSE 'Midway Promo Funds Free Buy Ticket Prize Chips' END,
         jsonb_build_object('kind','free_buy_cutoff_sponsor','guaranteed',v_parts.guaranteed,
-          'guarantee',v_g,'wallet_chips',v_c,'valid_tickets',v_tickets,'ticket_prize_part',v_parts.prize_part,
+          'guarantee',v_g,'wallet_chips',v_c,'wallet_gross',v_gross,'valid_tickets',v_tickets,'ticket_prize_part',v_parts.prize_part,
           'prize_pool',v_terms.prize_pool,'promo_support',v_terms.promo_support,'recorded_before',v_recorded));
     ELSE
       -- Pre-ticket promo chips beyond U go back before anything is paid: a
@@ -634,7 +660,7 @@ BEGIN
         -v_move,'reversal',t.club_id,p_tournament_id,v_key,
         'Free Buy Promo Chips Beyond The Guarantee Returned To Midway Promo Funds',
         jsonb_build_object('kind','midway_free_buy_promo_head','cutoff_return',true,
-          'bounty_part',0,'prize_part',-v_move,'guarantee',v_g,'wallet_chips',v_c,
+          'bounty_part',0,'prize_part',-v_move,'guarantee',v_g,'wallet_chips',v_c,'wallet_gross',v_gross,
           'valid_tickets',v_tickets,'prize_pool',v_terms.prize_pool,
           'promo_support',v_terms.promo_support,'recorded_before',v_recorded));
       PERFORM public.fn_ca_escrow_apply(p_tournament_id,'Free Buy cutoff return',p_gross_in=>v_move);
@@ -645,9 +671,9 @@ BEGIN
     IF n<>1 THEN RAISE EXCEPTION 'Free Buy % prize pool could not take its cutoff funding', p_tournament_id; END IF;
   END IF;
 
-  INSERT INTO public.ca_free_buy_cutoff_fundings(tournament_id,guaranteed,guarantee,wallet_chips,valid_tickets,
+  INSERT INTO public.ca_free_buy_cutoff_fundings(tournament_id,guaranteed,guarantee,wallet_chips,wallet_gross,valid_tickets,
     ticket_prize_part,prize_pool,promo_support,recorded_before,moved,ledger_idempotency_key)
-  VALUES (p_tournament_id,v_parts.guaranteed,v_g,v_c,v_tickets,v_parts.prize_part,
+  VALUES (p_tournament_id,v_parts.guaranteed,v_g,v_c,v_gross,v_tickets,v_parts.prize_part,
     v_terms.prize_pool,v_terms.promo_support,v_recorded,v_move,v_key)
   RETURNING * INTO v_done;
   IF round(v_pool+v_move,2) <> v_terms.prize_pool THEN
@@ -682,7 +708,7 @@ REVOKE ALL ON FUNCTION public.fn_ca_midway_free_buy_promo_head(uuid,uuid,boolean
 REVOKE ALL ON FUNCTION public.fn_ca_free_buy_history_is_append_only() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_free_buy_ticket_day(timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_free_buy_ticket_parts(uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.fn_ca_free_buy_cutoff_terms(numeric,numeric,integer,numeric) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_ca_free_buy_cutoff_terms(numeric,numeric,integer,numeric,numeric) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_grant_daily_free_buy_tickets(date) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_ca_free_buy_ticket_redeem(uuid,uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_ca_free_buy_ticket_restore(uuid,uuid,uuid,text) FROM PUBLIC, anon, authenticated, service_role;
@@ -690,7 +716,7 @@ REVOKE ALL ON FUNCTION public.fn_ca_free_buy_fund_at_cutoff(uuid) FROM PUBLIC, a
 REVOKE ALL ON FUNCTION public.fn_my_free_buy_tickets() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_ca_free_buy_ticket_day(timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_ca_free_buy_ticket_parts(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.fn_ca_free_buy_cutoff_terms(numeric,numeric,integer,numeric) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_ca_free_buy_cutoff_terms(numeric,numeric,integer,numeric,numeric) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_ca_grant_daily_free_buy_tickets(date) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_my_free_buy_tickets() TO authenticated, service_role;
 

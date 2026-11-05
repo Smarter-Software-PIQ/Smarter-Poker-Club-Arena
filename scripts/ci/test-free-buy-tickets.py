@@ -19,7 +19,6 @@ MIGS = ROOT / 'supabase/migrations'
 ROTATION = MIGS / '20261105035220_midway_free_buy_rotation_formats_and_promo_funded_entries.sql'
 CANDIDATE = MIGS / '20261105204917_free_buy_tickets_and_guarantees_fund_at_the_final_cutoff.sql'
 WATCH = MIGS / '20261105204918_midway_free_buy_watch_reads_the_schedule_not_event_ids.sql'
-OVERLAY = MIGS / '20261105204919_overlay_guard_sizes_entries_by_pool_share.sql'
 PG = Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 work = Path(tempfile.mkdtemp(prefix='free-buy-tickets-', dir=os.environ.get('TMPDIR')))
 sock = Path(tempfile.mkdtemp(prefix='s-', dir=os.environ.get('CA_PG_SOCKET_ROOT', os.environ.get('TMPDIR'))))
@@ -127,6 +126,20 @@ try:
     print('PASS: exact candidate migration installed in %.2fs' % took, flush=True)
 
     print(query(db, (FIX / 'cases.sql').read_text(), timeout=300), flush=True)
+
+    # A guaranteed Free Buy counts the players' FULL payments toward G (owner
+    # 2026-11-05): bounty and rake shares count in C, only the prize share is
+    # in the pool. 160 paid = 120 prize + 30 bounty + 10 rake against 500:
+    # U = 340 (not 380), P = 120 + 340 = 460; at C >= G the sponsor adds 0.
+    got = query(db, """SELECT string_agg(prize_pool||'/'||promo_support, ' ' ORDER BY k) FROM (
+      SELECT 1 k, * FROM fn_ca_free_buy_cutoff_terms(500, 120, 250, 1, 160)
+      UNION ALL SELECT 2, * FROM fn_ca_free_buy_cutoff_terms(500, 390, 250, 1, 520)
+      UNION ALL SELECT 3, * FROM fn_ca_free_buy_cutoff_terms(500, 160, 250, 1, NULL)
+      UNION ALL SELECT 4, * FROM fn_ca_free_buy_cutoff_terms(0, 120, 250, 1, 160)) x""").strip()
+    assert got == '460.00/340.00 390.00/0 500.00/340.00 370.00/250.00', got
+    must_fail(db, "SELECT * FROM fn_ca_free_buy_cutoff_terms(500, 200, 0, 1, 150)", 'finite non-negative')
+    print('PASS: guaranteed Free Buy: C is the full payment (160 = 120 prize + 30 bounty + 10 rake -> U 340, P 460; 520 -> U 0); '
+          'non-guaranteed still P = V + c, U = V', flush=True)
 
     # ── concurrency: real separate sessions ────────────────────────────────────
     def session(sql, out, key):
