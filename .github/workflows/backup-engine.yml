@@ -91,6 +91,8 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             scripts/dr
+            scripts/verification-harness/leaderboard-native-function-batch.mjs
+            scripts/ci/test_native_supabase_export.py
             server/standby
             supabase/migrations
       - name: Decide whether the production copy is due
@@ -136,7 +138,7 @@ jobs:
           # A held snapshot over five minutes is cancelled by production's guard,
           # and must never happen anyway: bounded at 270 s.
           PGOPTIONS='-c default_transaction_read_only=on' LD_LIBRARY_PATH="$PG_LIB" timeout 270 "$PG_DUMP" "$DATABASE_URL" \
-            --schema-only --no-owner --no-privileges --lock-wait-timeout=2000 -Fc \
+            --schema-only --no-owner --lock-wait-timeout=2000 -Fc \
             -n public -n ca_archive -n discovery_private -n operational_source_intake -n ops -n ops_rollback -n smarter_private -n zz_archive \
             -f "$RUNNER_TEMP/out/schema.dump"
           SEED_DATABASE_URL="$DATABASE_URL" python3 server/standby/seed-extract.py "$RUNNER_TEMP/out/seed"
@@ -154,7 +156,10 @@ jobs:
 
   certify:
     needs: [plan, refresh]
-    if: always() && needs.plan.outputs.sha != '' && needs.refresh.result == 'success'
+    # A failed refresh never blocks certification: the existing copy is still
+    # the full production structure, and a missing new migration can only make
+    # a certificate fail, never pass.
+    if: always() && needs.plan.outputs.sha != '' && needs.refresh.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
