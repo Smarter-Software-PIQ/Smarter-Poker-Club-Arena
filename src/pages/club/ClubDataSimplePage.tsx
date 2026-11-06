@@ -210,16 +210,33 @@ export default function ClubDataSimplePage() {
   usePageTitle('Club Data');
   const navigate = useNavigate();
   const params = useParams<{ clubId?: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, isHydrating } = useAuthUser();
   const userId = user?.id ?? null;
   const clubParam = params.clubId || searchParams.get('club') || '';
 
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
   const [preset, setPreset] = usePlayerPreference<Preset>('club/ClubDataSimplePage:preset', 1);
-  const [endDate, setEndDate] = useState<string>(() => clubDataToday());
-  const observedDayRef = useRef(endDate);
-  const [customStart, setCustomStart] = useState<string | null>(null);
+  const [currentDay, setCurrentDay] = useState(() => clubDataToday());
+  // Access hydration can unmount this page. Public date filters belong to the
+  // route so refreshes and browser history retain the requested reporting window.
+  const requestedEnd = searchParams.get('dataEnd') ?? '';
+  const requestedStart = searchParams.get('dataStart');
+  const validRange = !clubDataRangeError(
+    requestedStart ?? requestedEnd,
+    requestedEnd,
+    clubDataToday()
+  );
+  const endDate = validRange ? requestedEnd : currentDay;
+  const customStart = validRange ? requestedStart : null;
+  const selectDates = (start: string | null, end: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (start !== null) next.set('dataStart', start);
+    else next.delete('dataStart');
+    if (start !== null || end !== clubDataToday()) next.set('dataEnd', end);
+    else next.delete('dataEnd');
+    setSearchParams(next);
+  };
   const [editingDates, setEditingDates] = useState(false);
   const [draftStart, setDraftStart] = useState('');
   const [draftEnd, setDraftEnd] = useState('');
@@ -470,13 +487,7 @@ export default function ClubDataSimplePage() {
   useEffect(() => {
     const followDay = () => {
       const now = clubDataToday();
-      const previousDay = observedDayRef.current;
-      observedDayRef.current = now;
-      // A refresh may render after midnight before this callback runs. Keep
-      // the last observed day instead of relying on render-derived isToday.
-      // Comparing dates also handles a tab suspended for more than one day.
-      if (customStart === null)
-        setEndDate((prev) => (prev === previousDay || prev > now ? now : prev));
+      setCurrentDay(now);
     };
     const onVisible = () => {
       if (document.visibilityState === 'visible') followDay();
@@ -487,7 +498,7 @@ export default function ClubDataSimplePage() {
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [customStart]);
+  }, []);
 
   // Search waits for the typing to stop.
   useEffect(() => {
@@ -498,8 +509,7 @@ export default function ClubDataSimplePage() {
   const shift = (dir: -1 | 1) => {
     const next = addDays(endDate, dir * rangeDays);
     const end = next > today ? today : next;
-    if (customStart !== null) setCustomStart(addDays(end, -(rangeDays - 1)));
-    setEndDate(end);
+    selectDates(customStart !== null ? addDays(end, -(rangeDays - 1)) : null, end);
   };
 
   const summary = visibleSnapshot?.summary ?? null;
@@ -601,8 +611,7 @@ export default function ClubDataSimplePage() {
             const problem = clubDataRangeError(draftStart, draftEnd, today);
             setRangeError(problem);
             if (problem) return;
-            setCustomStart(draftStart);
-            setEndDate(draftEnd);
+            selectDates(draftStart, draftEnd);
             setEditingDates(false);
           }}
         >
@@ -647,7 +656,7 @@ export default function ClubDataSimplePage() {
             aria-pressed={customStart === null && preset === p}
             className={`${styles.segmentButton} ${customStart === null && preset === p ? styles.segmentActive : ''}`}
             onClick={() => {
-              setCustomStart(null);
+              selectDates(null, endDate);
               setPreset(p);
               setEditingDates(false);
             }}
