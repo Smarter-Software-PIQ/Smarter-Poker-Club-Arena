@@ -22,6 +22,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { resolve } from 'path';
 import { pathToFileURL } from 'url';
+import { classifyMigration } from '../scripts/ci/recording-only.mjs';
 
 const ROOT = resolve(__dirname, '..');
 const ALLOWLIST_PATH = resolve(ROOT, 'scripts/ci/band-aid.allowlist.json');
@@ -131,6 +132,13 @@ describe('a new migration may not schedule periodic work in silence', () => {
     const bad = readdirSync(dir)
       .filter((f) => f.endsWith('.sql'))
       .sort()
+      // Match the maintained CLI's recording boundary. Historical SQL cannot
+      // gain a justification comment without losing its installed byte identity.
+      // Legacy comments, unknown results and edited recordings stay strict.
+      .filter(
+        (f) =>
+          classifyMigration(`supabase/migrations/${f}`, { repo: ROOT }).manifestMatched !== true
+      )
       .filter((f) => unjustifiedPeriodicWork(f, readFileSync(resolve(dir, f), 'utf8')));
     expect(
       bad,
