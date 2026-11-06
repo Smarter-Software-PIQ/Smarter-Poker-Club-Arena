@@ -2,7 +2,7 @@
   "migration": "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql",
   "repository_files": {
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689",
+    "scripts/qualification/ci-accounting-inputs.json": "5ff34dbc80fb4789aed500df4a11c4d1677ae9b5d976cf1b2377f57e60309df2",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "tests/fixtures/earlybird-fee-custody/setup.sql": "ac34d5f9432bd6c4ede4072439e66a6f93c7ffc0f5df53ca5a42d6d72c01e573",
     "tests/fixtures/earlybird-fee-custody/funding-scope.json": "342424a2012da6b9f987e5265d772e59f610dac74c4b5c89d1a718c8ec13e8ff",
@@ -776,5 +776,22 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "backupSequenceOwnerNativeSourceAudit20261106": {
+    "source": "scripts/qualification/ci-accounting-inputs.json",
+    "reason": "Reviewed additive accounting shard 4 execution of the isolated PostgreSQL standalone sequence ownership regression; existing qualification commands and financial inputs unchanged. Regenerated with qualification-input-projections.py --write.",
+    "updatedCurrentBindings": [
+      {
+        "section": "repository_files",
+        "previous": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+      }
+    ],
+    "current": {
+      "sha256": "5ff34dbc80fb4789aed500df4a11c4d1677ae9b5d976cf1b2377f57e60309df2",
+      "bytes": 143092
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "qualification": "Current execution-input identity only; no historical financial, installation or live qualification is claimed."
   }
 }

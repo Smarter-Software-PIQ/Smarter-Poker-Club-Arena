@@ -326,8 +326,8 @@
       "sha256": "aef92500e63a4e1cd6632b8616ec1c1d138f2ff09f464368baeef185ca93fb1b"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 142840,
-      "sha256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+      "bytes": 143092,
+      "sha256": "5ff34dbc80fb4789aed500df4a11c4d1677ae9b5d976cf1b2377f57e60309df2"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2695,5 +2695,25 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "backupSequenceOwnerNativeSourceAudit20261106": {
+    "source": "scripts/qualification/ci-accounting-inputs.json",
+    "reason": "Reviewed additive accounting shard 4 execution of the isolated PostgreSQL standalone sequence ownership regression; existing qualification commands and financial inputs unchanged. Regenerated with qualification-input-projections.py --write.",
+    "updatedCurrentBindings": [
+      {
+        "section": "files",
+        "previous": {
+          "bytes": 142840,
+          "sha256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+        }
+      }
+    ],
+    "current": {
+      "sha256": "5ff34dbc80fb4789aed500df4a11c4d1677ae9b5d976cf1b2377f57e60309df2",
+      "bytes": 143092
+    },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false,
+    "qualification": "Current execution-input identity only; no historical financial, installation or live qualification is claimed."
   }
 }

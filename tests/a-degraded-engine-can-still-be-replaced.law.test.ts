@@ -321,6 +321,10 @@ for argument in "$@"; do
   esac
   url="$argument"
 done
+if [[ "$url" == https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/commits/*/statuses?per_page=100 ]]; then
+  printf '%s' '[{"context":"backup-engine/certified","state":"success"}]'
+  exit 0
+fi
 [ "$has_write" = true ] || exit 23
 printf '503 %s\\n' "$url" >> '${curlLog}'
 if [ "$has_cache" = true ]; then

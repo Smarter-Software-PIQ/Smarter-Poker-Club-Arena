@@ -21,6 +21,14 @@ const preflight = workflow.jobs.preflight;
 const steps: Array<Record<string, any>> = preflight.steps;
 const gate = steps.find((s) => s.id === 'backup_certificate')!;
 const SHA = 'a'.repeat(40);
+const transaction = readFileSync(
+  resolve(__dirname, '../server/scripts/engine-release-transaction.sh'),
+  'utf8'
+);
+const hostGate = transaction.slice(
+  transaction.indexOf('require_backup_certificate() {'),
+  transaction.indexOf('\ndaily_cutover_clock() {')
+);
 
 const scratch: string[] = [];
 afterEach(() => {
@@ -57,6 +65,87 @@ function runGate(ghBehaviour: string, sha = SHA) {
   }
   return { ...result, output: readFileSync(output, 'utf8'), calls };
 }
+
+function runHostGate(body: string, rc = 0, sha = SHA) {
+  const dir = mkdtempSync(join(tmpdir(), 'backup-host-cert-'));
+  scratch.push(dir);
+  writeFileSync(join(dir, 'body'), body);
+  writeFileSync(
+    join(dir, 'curl'),
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > '${dir}/calls'\ncat '${dir}/body'\nexit ${rc}\n`
+  );
+  chmodSync(join(dir, 'curl'), 0o755);
+  const result = spawnSync('bash', ['-c', `${hostGate}\nrequire_backup_certificate`], {
+    encoding: 'utf8',
+    env: { PATH: `${dir}:${process.env.PATH}`, SHA: sha },
+  });
+  let calls = '';
+  try {
+    calls = readFileSync(join(dir, 'calls'), 'utf8');
+  } catch {
+    /* SHA rejected before HTTP */
+  }
+  return { ...result, calls };
+}
+
+describe('host revalidates the exact Backup certificate before new ownership and mutation', () => {
+  it('checks before reservation, prepare and the final clock/mutation boundary', () => {
+    expect(transaction).toMatch(/require_backup_certificate[^\n]+\ninitialise_phase1_cycle/);
+    expect(transaction).toMatch(
+      /require_backup_certificate[^\n]+\n {2}record_floor_runtime_entry\n {2}set \+e\n {2}PREPARE_OUTPUT=/
+    );
+    expect(transaction).toMatch(
+      /PREPARED=1\nrequire_backup_certificate[^\n]+\ndaily_cutover_clock[^\n]+\nMUTATION_STARTED=1/
+    );
+  });
+
+  it('admits success from the fixed bounded HTTPS endpoint without redirects', () => {
+    const result = runHostGate(
+      JSON.stringify([{ context: 'backup-engine/certified', state: 'success' }])
+    );
+    expect(result.status).toBe(0);
+    expect(result.calls).toContain(
+      `https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/commits/${SHA}/statuses?per_page=100`
+    );
+    expect(result.calls).toContain('--max-time\n8');
+    expect(result.calls).toContain('--disable');
+    expect(result.calls).not.toMatch(/--location|\n-L\n/);
+  });
+
+  it.each(['pending', 'failure', 'error'])(
+    'rejects newer %s instead of reusing old success',
+    (state) => {
+      expect(
+        runHostGate(
+          JSON.stringify([
+            { context: 'unrelated', state: 'success' },
+            { context: 'backup-engine/certified', state },
+            { context: 'backup-engine/certified', state: 'success' },
+          ])
+        ).status
+      ).not.toBe(0);
+    }
+  );
+
+  it.each(['[]', '{}', 'not json', '[null]', '[{"context":"backup-engine/certified"}]'])(
+    'rejects missing or malformed evidence: %s',
+    (body) => {
+      expect(runHostGate(body).status).not.toBe(0);
+    }
+  );
+
+  it('rejects HTTP failure even if the response contains success', () => {
+    expect(
+      runHostGate('[{"context":"backup-engine/certified","state":"success"}]', 22).status
+    ).not.toBe(0);
+  });
+
+  it('rejects a nonexact SHA without an HTTP request', () => {
+    const result = runHostGate('[]', 0, 'HEAD');
+    expect(result.status).not.toBe(0);
+    expect(result.calls).toBe('');
+  });
+});
 
 describe('auto-deploy-hetzner.yml requires the Backup Engine certificate', () => {
   it('gates every deploy request in the first job that resolves the exact SHA', () => {
