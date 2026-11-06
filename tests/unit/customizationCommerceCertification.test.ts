@@ -105,6 +105,18 @@ describe('customization commerce certification', () => {
     expect(spec).toContain('await Promise.allSettled(');
   });
 
+  it('keeps the acknowledged preference writer while the other device proves live appearance', () => {
+    const spec = source('tests/e2e/production-customization-commerce.spec.ts');
+    const appearance = spec.slice(spec.indexOf('await expectNoLockedAssets(secondStudio)'));
+    expect(appearance).toContain("await applyAsset(secondStudio, 'Scenes', 'Las Vegas')");
+    expect(appearance).not.toContain('await applyAsset(firstStudio,');
+    expect(appearance).toContain('await expectAppearance(firstStudio, {');
+    expect(appearance).toContain('await expectAppearance(firstStudio, FINAL_APPEARANCE)');
+    expect(spec).toContain('pageSaveAccepted(response, ownerId, key, value)');
+    expect(spec).toContain('await saved;');
+    expect(spec).toContain("'tableStudio.backgroundGroup:global'");
+  });
+
   /**
    * Post-Deploy E2E run 35794208383 printed one line for a teardown failure -
    * `AggregateError: Customization Commerce Certification Cleanup Failed.` -
