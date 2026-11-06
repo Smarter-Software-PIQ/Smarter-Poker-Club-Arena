@@ -417,11 +417,7 @@ exit 91
         [join(generation, 'engine-release-transaction.sh'), '--run-id', runKey],
         {
           encoding: 'utf8',
-          // SSD-backed macOS measured 25.8s alone and exceeded the old 30s
-          // child ceiling in the required parallel suite (2026-11-06).
-          // Keep headroom inside this file's 90s test budget; production
-          // transaction deadlines and every proof assertion stay unchanged.
-          timeout: 75_000,
+          timeout: 30_000,
           killSignal: 'SIGKILL',
           env: {
             ...process.env,
