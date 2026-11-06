@@ -94,7 +94,7 @@ vi.mock('../../src/stores/useUserStore', () => ({
 vi.mock('../../src/components/common/Toast', () => ({
   useToast: () => ({ error: vi.fn(), success: vi.fn(), info: vi.fn() }),
 }));
-vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
+vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn(), reportWarning: vi.fn() }));
 vi.mock('../../src/components/lobby/lobbyViewPrefs', async (original) => ({
   ...(await original<any>()),
   fetchRemoteViewPrefs: async () => null,
