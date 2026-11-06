@@ -12,3 +12,11 @@ old diagnostics and the new appendix before the correction and passes after.
 No retained v9 river decision contains that combined flag, so its existing
 appendix facts remain reusable; future batches use the corrected rule. The
 maintained wrapper passes all84Python cases and144independent Omaha deals.
+
+Hosted verification exposed a connected selection gap: Python-only study edits
+skipped the client unit shards that own the Python discovery wrapper. The
+existing classifier now admits that same unit route for Horse study and Omaha
+reference Python sources/tests. A regression proves those inputs select tests
+without adding engine/browser jobs, while documentation remains unchanged.
+The candidate changes the classifier itself, so its normal broader protection
+checks remain required; no gate is bypassed.
