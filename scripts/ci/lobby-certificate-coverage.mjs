@@ -6,7 +6,7 @@ export const requiredLobbyCases = [
   'the result count matches the number of rows on screen',
   'switching game type re-filters the list and the count stays honest',
   'selecting a row opens the game lobby panel without joining',
-  'selecting a tournament reviews its card, then Details opens that event',
+  'selecting a tournament opens its own lobby directly without joining',
   'a clustered cash game reviews its game-level door without joining',
   'advanced filters open and close',
   'the bottom nav is pinned to the bottom of the viewport',
