@@ -266,8 +266,8 @@
       "sha256": "30fd68f61b145e0a636df8c4574042e8f320bc05b1559b6e45fe9a6340aa8c7c"
     },
     ".github/workflows/ci.yml": {
-      "bytes": 278363,
-      "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
+      "bytes": 278626,
+      "sha256": "766bcc04a8f64f09699288bb85fd74a27220d61aac7ef00e879a93e0a156ecea"
     },
     "scripts/qualification/original-flow-eligibility/current-source40.json": {
       "bytes": 238578,
@@ -2563,5 +2563,16 @@
         }
       }
     ]
+  },
+  "mttSngOpeningBlindsSourceAudit20261105": {
+    "reason": "Add the isolated PostgreSQL MTT/SNG 25/50 opening regression to existing required accounting shard 4. Preserve all existing commands, assertions, budgets, historical receipts and financial qualification. Source identity only; no live or financial certification.",
+    "previousCiPin": {
+      "bytes": 278363,
+      "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
+    },
+    "currentCiPin": {
+      "bytes": 278626,
+      "sha256": "766bcc04a8f64f09699288bb85fd74a27220d61aac7ef00e879a93e0a156ecea"
+    }
   }
 }
