@@ -266,6 +266,9 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
   const ts = pn.tournamentStage ?? undefined;
   const humans = hand.players.filter((p) => !p.isHorse).map((p) => `p${p.seat}`);
   const gs = {
+    // The live engine stamps every decision state (ServerTableEngineTurns);
+    // the final wager rules (riverNutsRaise, omahaCurrentNutsRaise) read it.
+    stateSchemaVersion: 1,
     players,
     communityCards: parseBoard(pn.boards?.[0]),
     pot: pn.pot,

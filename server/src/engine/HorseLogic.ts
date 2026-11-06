@@ -22,6 +22,7 @@ import {
 } from './HorsePhase6Attribution.js';
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { riverNutsRaise, fullPotNearPotWager } from './HorseRiverNuts.js';
+import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -2219,6 +2220,10 @@ export interface HorseDecideOpts {
   v55OmahaRiverTripsFlat?: boolean;
   /** Qualification-only small-pot near-nut river value candidate; default off. */
   smallPotNearNutRiverValue?: boolean;
+  /** Omaha current nuts facing a flop/turn bet raise instead of flat
+   * (HorseOmahaCurrentNuts.ts). Default on; false only for the complaint
+   * law's non-vacuity control. */
+  omahaCurrentNutsRaise?: boolean;
   /** V56: direct public pressure sampling for vulnerable river sets/trips
    * facing tier-three pressure on one Omaha-high cash board. Default on
    * after fixed-clock/full-precision400bb cash qualification; explicit false
@@ -5832,7 +5837,12 @@ export class HorseLogic {
       const wagered = fullPotNearPotWager(
         // V58/V59: PLO6 river nut discipline, after every strategy owner.
         plo6RiverNutDiscipline(
-          riverNutsRaise(tournamentShoveDiscipline(decision, player, gs), player, gs),
+          omahaCurrentNutsRaise(
+            riverNutsRaise(tournamentShoveDiscipline(decision, player, gs), player, gs),
+            player,
+            gs,
+            opts
+          ),
           player,
           gs,
           opts,
