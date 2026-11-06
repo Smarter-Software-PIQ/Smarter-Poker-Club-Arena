@@ -3023,6 +3023,36 @@ record_floor_runtime_entry() {
 
 # Duplicate certification and interrupted recovery retain their original owner.
 acquire_engine_lock 'duplicate certification'
+# A committed run pinned to supervisor bytes that cannot read its own
+# hard-linked request parks failed while it still owns finalization and its
+# routine cycle. Its original unit is the only finalizer: give it back the
+# identical request on its own inode, restart it, and retry after it seals.
+PARKED_COMMITTED_OWNER="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 60s \
+  "$RELEASE_SEAL" restart-parked-committed-owner --engine-lock-fd 9 --run-id "$RUN_ID")" \
+  || die 'a parked committed release owner could not be restarted'
+case "$PARKED_COMMITTED_OWNER" in
+  not-needed) ;;
+  'restarted '*)
+    PARKED_OWNER_RUN="${PARKED_COMMITTED_OWNER#restarted }"
+    [[ "$PARKED_OWNER_RUN" =~ ^[1-9][0-9]*(-[1-9][0-9]*)?$ ]] \
+      || die 'parked committed release owner identity is invalid'
+    echo "[engine-release-transaction] restarted parked committed release owner $PARKED_OWNER_RUN; waiting for it to record its own sealed result"
+    # The owner needs the engine lock to finish. The ordinary owner check
+    # below still decides; this wait only gives the owner its turn.
+    release_engine_lock
+    PARKED_OWNER_WAIT_END=$(( $(date +%s) + 300 ))
+    while [ "$(date +%s)" -lt "$PARKED_OWNER_WAIT_END" ]; do
+      sleep 5
+      case "$(timeout --signal=TERM --kill-after=1s 10s systemctl show -p ActiveState --value \
+        "club-arena-engine-release-v1@$PARKED_OWNER_RUN.service" 2>/dev/null || echo unknown)" in
+        activating|active|deactivating|reloading|unknown) ;;
+        *) break ;;
+      esac
+    done
+    acquire_engine_lock 'duplicate certification'
+    ;;
+  *) die 'parked committed release owner disposition is invalid' ;;
+esac
 # One pinned historical permanent refusal may release its global custody only
 # after fresh source/native/runtime/database proof under this actual lock.
 # Its failed receipt and consumed cycle remain immutable; this does not retry it.
