@@ -127,15 +127,9 @@
     "supabase/migrations/20260918213339_review_bounded_legacy_fee_custody_settlement_lane_callers.sql": "61ffaf5bf15ed33970efed36677fac4341d66f3fdf403fde79efff8744c24e08",
     "tests/fixtures/sep8-spin-custody/qualify-clock-comparison.py": "6e72595bd5ec5f56dbd00a10621e72d5050a7d5d9da98bc48827479e0c1aaa97",
     "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
-    "scripts/qualification/ci-admission-inputs.json": {
-      "bytes": 77125,
-      "sha256": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb"
-    },
+    "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 140043,
-      "sha256": "0e86381eb722804e6262cb2ba60745c946963583d28741847d0b4d855301a31e"
-    }
+    "scripts/qualification/ci-accounting-inputs.json": "0e86381eb722804e6262cb2ba60745c946963583d28741847d0b4d855301a31e"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
