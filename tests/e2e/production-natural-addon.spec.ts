@@ -260,7 +260,7 @@ test('every captured natural add-on table renders its public minute', async ({
     });
     if (phase === 'opened')
       await info.attach(`${tableId}-${phase}`, {
-        body: await dialog.screenshot(),
+        body: await page.screenshot({ timeout: 5000 }),
         contentType: 'image/png',
       });
     return seconds;
@@ -348,7 +348,7 @@ test('every captured natural add-on table renders its public minute', async ({
         )
       );
       await info.attach(`${id}-live-count`, {
-        body: await pages.get(id)!.locator('.break-screen').screenshot(),
+        body: await pages.get(id)!.screenshot({ timeout: 5000 }),
         contentType: 'image/png',
       });
     }
