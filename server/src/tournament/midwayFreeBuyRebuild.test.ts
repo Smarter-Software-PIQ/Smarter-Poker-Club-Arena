@@ -41,7 +41,7 @@ describe('a built Midway Free Buy matches its schedule', () => {
       'Prime Time Free Buy (NLH)',
       'Midnight Free Buy (NLH)',
     ]) {
-      const row = withMidwayFreeBuyPolicy({
+      const row = withMidwayFreeBuyPolicy<Record<string, unknown>>({
         name,
         union_id: 'fade0000-0000-0000-0000-000000000001',
         club_id: 'fade0000-0000-0000-0000-000000000001',
