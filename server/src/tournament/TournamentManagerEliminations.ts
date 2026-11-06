@@ -7223,6 +7223,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               winner_id: winnerId,
               outcome_unknown: outcomeUnknown,
               proven_refusal: provenRefusal,
+              error: (satErr instanceof Error ? satErr.message : String(satErr)).slice(0, 2048),
+              error_name: satErr instanceof Error ? satErr.name.slice(0, 128) : 'NonError',
             }
           );
         } catch (alertErr) {
@@ -7295,6 +7297,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             winner_id: winnerId,
             outcome_unknown: outcomeUnknown,
             proven_refusal: provenRefusal,
+            error: (settlementErr instanceof Error
+              ? settlementErr.message
+              : String(settlementErr)
+            ).slice(0, 2048),
+            error_name:
+              settlementErr instanceof Error ? settlementErr.name.slice(0, 128) : 'NonError',
           }
         );
       } catch (alertErr) {
