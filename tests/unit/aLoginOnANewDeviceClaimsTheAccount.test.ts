@@ -269,6 +269,63 @@ describe('owned disposable fixture browser continuity', () => {
       { name: 'ca_device_id', value: device.browserId },
     ]);
   });
+  it('assignment contexts and the later global setup share one normally enrolled fixture device', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const assignmentBrowserState = (
+      account: unknown,
+      session: unknown,
+      clubId: string,
+      baseURL: string
+    ) =>
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            '--input-type=module',
+            '-e',
+            `import {assignmentBrowserState} from './scripts/ci/qualify-agent-assignment-browser.mjs';
+         const args=JSON.parse(process.argv[1]); console.log(JSON.stringify(await assignmentBrowserState(...args)));`,
+            JSON.stringify([account, session, clubId, baseURL]),
+          ],
+          { encoding: 'utf8' }
+        )
+      );
+    deviceDoor();
+    for (const sid of [SID_A, SID_A, SID_B]) {
+      const session = {
+        user: fixture,
+        access_token: tokenWith(sid),
+        refresh_token: 'fixture-refresh',
+      };
+      const { device, storageState } = await assignmentBrowserState(
+        fixture,
+        session,
+        'a41434bb-8d0c-400a-8f0d-e8b3d65afed4',
+        location.origin
+      );
+      expect(device).toEqual(identity());
+      expect(
+        storageState.origins[0].localStorage.some(
+          (item: { name: string }) => item.name === ENROLLED_DEVICE_STORAGE_KEY
+        )
+      ).toBe(false);
+      freshBrowser();
+      for (const item of storageState.origins[0].localStorage)
+        localStorage.setItem(item.name, item.value);
+      expect(fixtureEnrollmentObserved(device)).toBe(false);
+      await enrollDevice(session.access_token);
+      await settle();
+      expect(fixtureEnrollmentObserved(device)).toBe(true);
+      expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    }
+    // The next certificate's global setup must claim the same browser too.
+    const device = identity();
+    freshBrowser(device);
+    localStorage.setItem('smarter-poker-auth', JSON.stringify({ user: fixture }));
+    await enrollDevice(tokenWith(SID_B));
+    await settle();
+    expect(fixtureEnrollmentObserved(device)).toBe(true);
+  });
   it('normalizes paths to the exact origin but isolates another origin and account', () => {
     expect(identity('https://smarter.poker/hub/club-arena/')).toEqual(
       identity('https://smarter.poker:443/another-path')
