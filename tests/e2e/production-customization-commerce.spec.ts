@@ -247,7 +247,6 @@ async function signInTemporaryAccount(
   );
   expect(await signedInUser.jsonValue()).toBe(account.id);
   await signedInUser.dispose();
-  await enrollCustomizationBrowser(page, account, approvingPage);
 
   await page.evaluate(() => localStorage.setItem('club_arena_welcome_accepted', 'true'));
   // The canonical lobby is intentionally a standalone full-bleed route. It
@@ -262,6 +261,9 @@ async function signInTemporaryAccount(
   if (page.url().includes('/auth')) {
     throw new Error(`Temporary customization account ${account.id} did not remain signed in.`);
   }
+  // Sign-in may finish on the shared site's landing route. Enrollment belongs
+  // to the Club Arena boot, so observe it only after entering this layout.
+  await enrollCustomizationBrowser(page, account, approvingPage);
   await ensureAcceptedTerms(page);
   await ensurePlayableProfile(page);
   await expect(page.getByRole('button', { name: 'Open Menu' }).first()).toBeVisible({

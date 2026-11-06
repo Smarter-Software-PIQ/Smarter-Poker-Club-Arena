@@ -71,6 +71,12 @@ describe('customization commerce certification', () => {
     const commerce = source('tests/e2e/production-customization-commerce.spec.ts');
     for (const spec of [realtime, commerce]) {
       expect(spec).toContain('await enrollCustomizationBrowser(page, account, approvingPage)');
+      expect(spec.indexOf('await enrollCustomizationBrowser')).toBeGreaterThan(
+        spec.indexOf(
+          'await page.goto(protectedURL, {',
+          spec.indexOf('await signedInUser.dispose()')
+        )
+      );
       expect(spec.indexOf('await enrollCustomizationBrowser')).toBeLessThan(
         spec.indexOf('await ensureAcceptedTerms')
       );
