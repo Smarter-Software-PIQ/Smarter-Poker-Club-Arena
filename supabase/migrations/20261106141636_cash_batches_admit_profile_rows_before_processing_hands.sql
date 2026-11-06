@@ -232,6 +232,9 @@ BEGIN
   RAISE EXCEPTION 'cash profile admission source mutation authority changed';
  END IF;
  EXECUTE new_text;
+ -- Restate the verified existing ACL for static authorization checks.
+ REVOKE ALL ON FUNCTION public.fn_credit_agent_commissions_batch(jsonb) FROM PUBLIC,anon,authenticated;
+ GRANT EXECUTE ON FUNCTION public.fn_credit_agent_commissions_batch(jsonb) TO service_role;
  IF pg_get_functiondef(sig)<>new_text OR md5(pg_get_functiondef(sig))<>'7d3bbd947914c70ef909a085c8fb5dfc' THEN
   RAISE EXCEPTION 'cash profile admission postimage differs';
  END IF;
