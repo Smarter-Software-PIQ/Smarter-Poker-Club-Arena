@@ -57,6 +57,7 @@ test('every captured natural add-on table renders its public minute', async ({
     rosterReads: [],
     observations: [],
     counterChanges: [],
+    purchaseSignals: [],
     admissionReads: [],
   };
   async function readBoard() {
@@ -158,6 +159,19 @@ test('every captured natural add-on table renders its public minute', async ({
         const engine = new URL(client.url()).hostname === 'engine.smarter.poker';
         const server = client.connectToServer();
         server.onMessage((message) => {
+          if (!engine) {
+            try {
+              const frame = JSON.parse(String(message));
+              if (
+                frame.event === 'broadcast' &&
+                frame.payload?.event === 'purchase_committed' &&
+                frame.topic === `realtime:tournament-purchases:${tournamentId}`
+              )
+                evidence.purchaseSignals.push({ tableId, at: Date.now() });
+            } catch {
+              /* Retain only the named signal time, never raw frames. */
+            }
+          }
           if (engine) {
             try {
               const frame = JSON.parse(String(message));
@@ -260,7 +274,7 @@ test('every captured natural add-on table renders its public minute', async ({
     });
     if (phase === 'opened')
       await info.attach(`${tableId}-${phase}`, {
-        body: await dialog.screenshot(),
+        body: await page.screenshot({ timeout: 5000 }),
         contentType: 'image/png',
       });
     return seconds;
@@ -313,7 +327,12 @@ test('every captured natural add-on table renders its public minute', async ({
           ids.some((id) => {
             const samples = evidence.counterChanges.filter((sample: any) => sample.tableId === id);
             return samples.some(
-              (sample: any, index: number) => index > 0 && sample.count > samples[index - 1].count
+              (sample: any, index: number) =>
+                index > 0 &&
+                sample.count > samples[index - 1].count &&
+                evidence.purchaseSignals.some(
+                  (signal: any) => signal.tableId === id && signal.at <= sample.at
+                )
             );
           }),
         { timeout: 15000, message: 'No natural add-on increment reached an unchanged live page' }
@@ -348,7 +367,7 @@ test('every captured natural add-on table renders its public minute', async ({
         )
       );
       await info.attach(`${id}-live-count`, {
-        body: await pages.get(id)!.locator('.break-screen').screenshot(),
+        body: await pages.get(id)!.screenshot({ timeout: 5000 }),
         contentType: 'image/png',
       });
     }
