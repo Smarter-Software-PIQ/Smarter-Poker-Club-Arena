@@ -52,7 +52,7 @@ def main():
             return r.stdout.strip()
 
         def snapshot():
-            return sql("SELECT jsonb_build_object('events',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM tournaments t),'schedules',(SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM tournament_schedules s));")
+            return sql("SELECT jsonb_build_object('events',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM tournaments t),'schedules',(SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM tournament_schedules s),'tables',(SELECT jsonb_agg(to_jsonb(tb) ORDER BY id) FROM tables tb));")
 
         ladder = [dict(level=1, smallBlind=25, bigBlind=25, ante=0, durationMinutes=8),
                   dict(level=2, smallBlind=25, bigBlind=50, ante=0, durationMinutes=8),
@@ -69,10 +69,11 @@ def main():
 CREATE TABLE clubs(id uuid PRIMARY KEY, lifecycle_status text);
 CREATE TABLE tournaments(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, club_id uuid,
  tournament_type text, variant text, status text, started_at timestamptz, current_level int DEFAULT 0,
- blind_structure text, buy_in_amount numeric DEFAULT 10, buy_in_fee numeric DEFAULT 0,
+ blind_level_state jsonb, blind_structure text, buy_in_amount numeric DEFAULT 10, buy_in_fee numeric DEFAULT 0,
  name text DEFAULT 'Regular', is_bounty boolean DEFAULT false, is_pko boolean DEFAULT false,
  is_mystery_bounty boolean DEFAULT false, bounty_amount numeric DEFAULT 0, is_pinned boolean DEFAULT false,
  late_reg_levels int DEFAULT 2, late_reg_mins int DEFAULT 16, rebuy_levels int DEFAULT 2);
+CREATE TABLE tables(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tournament_id bigint, small_blind numeric, big_blind numeric, ante numeric DEFAULT 0, stakes text, hands_dealt int DEFAULT 0);
 CREATE TABLE tournament_schedules(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  club_id uuid, active boolean DEFAULT true, config jsonb);
 GRANT INSERT, SELECT, UPDATE ON tournaments,tournament_schedules TO authenticated,service_role;
@@ -83,13 +84,16 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated,service_r
             sql('''CREATE TRIGGER tournaments_lock_level_clock BEFORE INSERT OR UPDATE OF blind_structure
  ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_lock_level_clock();
 CREATE TRIGGER tournament_schedule_level_clock_floor BEFORE INSERT OR UPDATE OF config
- ON tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_ca_schedule_level_clock_floor();''')
+ ON tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_ca_schedule_level_clock_floor();
+CREATE TRIGGER tournament_table_inherits_committed_blinds BEFORE INSERT ON tables
+ FOR EACH ROW EXECUTE FUNCTION fn_tournament_table_inherits_committed_blinds();''')
             affected = [add('MTT', v) for v in ['freezeout', 'bounty', 'progressive_bounty', 'mystery_bounty', 'satellite', 'rebuy']]
             affected += [add('SNG', 'sng', structure=spin), add('SATELLITE', 'satellite')]
             untouched = [add('SPIN', 'spin', structure=spin), add('MTT', 'spin', structure=spin),
                          add('MTT', 'freezeout', 'RUNNING', started=True), add('SNG', 'sng', 'COMPLETED', started=True),
                          add('SNG', 'sng', started=True)]
             sql(f"INSERT INTO tournament_schedules(config) VALUES({literal({'type':'mtt','blindStructure':ladder})}::jsonb),({literal({'type':'sng','blindStructure':ladder})}::jsonb),({literal({'type':'spin','blindPreset':'TURBO','blindStructure':spin})}::jsonb);")
+            sql("INSERT INTO tables(tournament_id,small_blind,big_blind) SELECT id,(blind_structure::jsonb->0->>'smallBlind')::numeric,(blind_structure::jsonb->0->>'bigBlind')::numeric FROM tournaments;")
             before=json.loads(snapshot())
             assert all(json.loads(t['blind_structure'])[0]['bigBlind'] in (20,25) for t in before['events'])
             print('PASS preimage reproduces 25/25 MTTs and 10/20 SNGs', flush=True)
@@ -103,6 +107,11 @@ CREATE TRIGGER tournament_schedule_level_clock_floor BEFORE INSERT OR UPDATE OF 
                     rows=json.loads(new['blind_structure'])
                     assert (rows[0]['smallBlind'],rows[0]['bigBlind'])==(25,50)
                     assert len(rows)==len(json.loads(old['blind_structure']))
+            for old,new in zip(before['tables'],after['tables']):
+                if str(old['tournament_id']) in untouched:
+                    assert old==new,(old,new)
+                else:
+                    assert new==dict(old,small_blind=25,big_blind=50,stakes='25/50'),(old,new)
             assert after['schedules'][2]==before['schedules'][2]
             for row in after['schedules'][:2]:
                 assert row['config']['blindStructure']==expected
@@ -114,8 +123,11 @@ CREATE TRIGGER tournament_schedule_level_clock_floor BEFORE INSERT OR UPDATE OF 
             for kind,variant in [('MTT','freezeout'),('SNG','sng'),('SATELLITE','satellite')]:
                 event=add(kind,variant)
                 assert json.loads(sql(f"SELECT blind_structure FROM tournaments WHERE id={event};"))==expected
+                assert sql(f"INSERT INTO tables(tournament_id,small_blind,big_blind) VALUES({event},10,20) RETURNING stakes;")=='25/50'
             event=add('SPIN','spin',structure=spin)
             assert json.loads(sql(f"SELECT blind_structure FROM tournaments WHERE id={event};"))==spin
+            assert sql(f"INSERT INTO tables(tournament_id,small_blind,big_blind) VALUES({event},10,20) RETURNING stakes;")=='10/20'
+            assert sql("INSERT INTO tables(small_blind,big_blind,stakes) VALUES(1,2,'1/2') RETURNING stakes;")=='1/2'
             print('PASS real insert trigger enforces new MTT/SNG openings and leaves new Spins alone',flush=True)
             event=affected[0]
             sql(f"SET ROLE authenticated; UPDATE tournaments SET blind_structure={literal(ladder)} WHERE id={event};")

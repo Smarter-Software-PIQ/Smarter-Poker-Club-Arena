@@ -3,7 +3,9 @@
 Owner November 5: opening blinds are 25/50 for MTTs and Sit & Gos. Spins keep
 their separate rules. The existing tournament and schedule storage triggers
 enforce the opening at creation and while an event has not started. The finite
-migration updates advertised, unstarted events and active saved schedules.
+migration updates advertised, unstarted events, their never-played prepared tables,
+and active saved schedules. The existing table insertion trigger enforces the
+same opening for new prepared tables, including callers with legacy defaults.
 
 The same rule is used by client presets and authoring. The database remains
 authoritative for existing clients, recurring/scheduled engine writers and
