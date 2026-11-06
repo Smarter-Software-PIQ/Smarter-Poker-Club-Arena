@@ -273,6 +273,51 @@ try:
     assert q("SELECT count(*) FROM cron.job WHERE jobname='ca-free-buy-funding-watch-15m'").strip() == '1'
     must_fail(FB_MIG.read_text(), 'already installed')
     print('PASS: players cannot run or read the watch; it is scheduled; a second install is refused', flush=True)
+
+    # ── 20261106205705: the pre-ticket entries are a record, not a clock. ──
+    # A Free Buy with 906 entries registered before tickets went live, each
+    # with its legacy one-chip head and no ticket (35 inside the install gap),
+    # one pre-install entry with NO head (a door that skipped the promo
+    # writer: the clock exempted it), and one ticketless entry registered
+    # after tickets went live.
+    RO = '40000000-0000-0000-0000-000000000011'
+    q(f"""INSERT INTO tournaments(id,name,status,guaranteed_prize,prize_pool,prize_pool_finalized,start_time,
+            variant,tournament_type,union_id,club_id,free_buy,buy_in_amount,buy_in_fee,is_pko,bounty_amount)
+          VALUES('{RO}','Rollout Free Buy','RUNNING',0,0,false,now(),'freezeout','MTT','{U}','{U}',true,0,0,true,1);
+          INSERT INTO tournament_players(id,tournament_id,user_id,status,registered_at)
+          SELECT ('40000000-0000-0000-0011-'||lpad(i::text,12,'0'))::uuid,'{RO}',
+                 ('c0000000-0000-0000-0011-'||lpad(i::text,12,'0'))::uuid,'registered',
+                 CASE WHEN i <= 35 THEN '2026-11-05 23:00:00+00'::timestamptz ELSE '2026-11-05 21:00:00+00' END
+            FROM generate_series(1,906) i;
+          INSERT INTO chip_ledger(performed_by,from_type,from_entity_id,from_label,to_type,to_entity_id,to_label,
+                                  amount,category,tournament_id,idempotency_key)
+          SELECT '{ACTOR}','union_wallet','{U}','union_wallets.promo_wallet','prize_liability','{RO}',
+                 'tournament_escrow.bounty_balance',1,'promo_send','{RO}','tourney:{RO}:promo_head:'||p.id
+            FROM tournament_players p WHERE p.tournament_id='{RO}';
+          INSERT INTO tournament_players(id,tournament_id,user_id,status,registered_at) VALUES
+           ('40000000-0000-0000-0011-00000000a0a0','{RO}','c0000000-0000-0000-0011-00000000a0a0','registered','2026-11-05 23:05:00+00'),
+           ('40000000-0000-0000-0011-00000000b0b0','{RO}','c0000000-0000-0000-0011-00000000b0b0','registered','2026-11-05 23:30:00+00');""")
+    q("SELECT fn_ca_free_buy_funding_watch()")
+    before = sorted(q(f"SELECT right(subject,4) FROM ca_free_buy_watch_findings WHERE kind='entry_without_ticket' AND tournament_id='{RO}' AND cleared_at IS NULL").split())
+    assert before == ['b0b0'], before
+    print('PASS: reproduced: the clock exempted a pre-install entry with no promo head (a0a0); only b0b0 was reported', flush=True)
+
+    RO_MIG = ROOT / 'supabase/migrations/20261106205705_free_buy_rollout_entries_are_recorded_and_exempt_from_ticket.sql'
+    q(RO_MIG.read_text())
+    rec = q("SELECT count(*)||':'||count(*) FILTER (WHERE in_install_gap) FROM smarter_private.free_buy_rollout_entries").strip()
+    assert rec == '906:35', rec
+    assert q("SELECT count(*) FROM smarter_private.free_buy_rollout_entries WHERE right(registration_id::text,4) IN ('a0a0','b0b0')").strip() == '0'
+    q("SELECT fn_ca_free_buy_funding_watch()")
+    after = sorted(q(f"SELECT right(subject,4) FROM ca_free_buy_watch_findings WHERE kind='entry_without_ticket' AND tournament_id='{RO}' AND cleared_at IS NULL").split())
+    assert after == ['a0a0', 'b0b0'], after
+    still = sorted(q("SELECT right(subject,4) FROM ca_free_buy_watch_findings WHERE kind='entry_without_ticket' AND tournament_id='30000000-0000-0000-0000-00000000e0e0' AND cleared_at IS NULL").split())
+    assert still == ['0001', '0002'], still
+    print('PASS: 906 rollout entries recorded (35 in the install gap) and exempt; a0a0 and b0b0 and the earlier bypass entries are reported', flush=True)
+
+    must_fail("SET ROLE service_role; DELETE FROM smarter_private.free_buy_rollout_entries", 'permission denied')
+    must_fail("SET ROLE service_role; UPDATE smarter_private.free_buy_rollout_entries SET in_install_gap=false", 'permission denied')
+    must_fail(RO_MIG.read_text(), 'Inspected definition changed')
+    print('PASS: the record is append-only for every role; a second install is refused', flush=True)
 finally:
     if started:
         run([PG / 'pg_ctl', '-D', work / 'data', '-m', 'immediate', '-w', 'stop'])

@@ -1,0 +1,6 @@
+{
+  "_owner": "fix/free-buy-rollout-entries-are-recorded",
+  "_comment": "Migration 20261106205705 (the Free Buy entries made before tickets went live are recorded and exempt from the ticket check; fn_ca_free_buy_funding_watch changed by one asserted substitution).",
+  "tables": ["smarter_private.free_buy_rollout_entries"],
+  "functions": ["fn_ca_free_buy_funding_watch"]
+}
