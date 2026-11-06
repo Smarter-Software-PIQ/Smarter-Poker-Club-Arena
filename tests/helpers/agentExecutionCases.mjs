@@ -56,7 +56,9 @@ test('unknown acknowledgement always requires readback; measurement remains unkn
   assert.equal(summarizeMetrics([{ type: 'build' }]).tokens, null);
 });
 test('preview preserves legacy gates and reports clean/dirty independently', () => temporary(root => {
-  execFileSync('git', ['init', '-q', root]);
+  execFileSync('git', ['init', '-q', root], {
+    env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+  });
   const plan = executionPlan({ root, classification: { complete: true, flags: { server: true }, paths: ['supabase/migrations/a.sql'] } });
   assert.equal(plan.mode, 'shadow');
   assert.equal(executionPlan({ root, classification: { complete: false, flags: { server: true } } }).engineActivationRequired, null);
