@@ -89,6 +89,49 @@ afterEach(() => {
 });
 
 describe('a tournament manager never hangs coming out of a break', () => {
+  it('a continuing stream of park edges cannot starve an already owed sweep', async () => {
+    const { m } = manager();
+    let finish!: () => void;
+    m.balanceParkedGapSources = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+    );
+    m.claimGapBalanceAtBoundary(SOURCE);
+    await m.runEliminationSweep(new AbortController().signal);
+    expect(m.boundaryBalanceOwesSweep).toBe(true);
+    m.claimGapBalanceAtBoundary(SOURCE);
+    finish();
+    await flush();
+    expect(m.balanceParkedGapSources).toHaveBeenCalledTimes(1);
+    expect(m.boundaryBalanceInFlight).toBe(false);
+    expect(m.boundaryBalanceRequested).toBe(true);
+    expect(m.requestEliminationSweep).toHaveBeenCalledWith('boundary_balance_settled');
+    // New edges before scheduler admission must not take the manager back.
+    m.claimGapBalanceAtBoundary(SOURCE);
+    expect(m.balanceParkedGapSources).toHaveBeenCalledTimes(1);
+    // Exercise the real sweep admission/finally, with its first business
+    // stage held, so the pending balance cannot run beside it.
+    let finishSweep!: () => void;
+    m.resumeCommittedTerminalCleanup = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishSweep = () => resolve(true);
+        })
+    );
+    const sweep = m.runEliminationSweep(new AbortController().signal);
+    expect(m.isProcessingEliminations).toBe(true);
+    m.claimGapBalanceAtBoundary(SOURCE);
+    expect(m.balanceParkedGapSources).toHaveBeenCalledTimes(1);
+    finishSweep();
+    await sweep;
+    expect(m.balanceParkedGapSources).toHaveBeenCalledTimes(2);
+    finish();
+    await flush();
+    expect(m.boundaryBalanceInFlight).toBe(false);
+  });
+
   it('1. the level clock stays paused through the break and the whole maintenance overlap', async () => {
     const { m, engine } = manager();
     m.onBreak = true;
