@@ -1,6 +1,15 @@
 /** Isolated paired adapter through the unmodified actual worker and its
  * original independent observer view, issue owner and accepted-effect path.
  * No authority injection, database loader, persistence, journal or timer. */
+import {
+  horsePlanReadsAreValid,
+  type HorsePlanReadReceipt,
+} from '../engine/HorsePlanReadReceipt.js';
+import type { HorseDecisionReadFrame } from '../engine/HorseDecisionReadFrame.js';
+import {
+  horsePlanContextFromDecision,
+  horsePlanContextKey,
+} from '../engine/HorsePlanHandIdentity.js';
 import { HORSE_POLICY_ORDER } from '../engine/HorsePolicyGraph.js';
 import type { ActionRecord, HorseDecision, HorseStyle } from '../types.js';
 import { drainFires, restoreFires } from '../engine/BrainTelemetry.js';
@@ -35,6 +44,52 @@ import {
 } from './FeatureAblationAcceptance.js';
 import type { HorseObserverReadReceipt } from '../engine/horseDecision/observerReads.js';
 import type { Plo4AblationBrain } from './Plo4PolicyLeague.js';
+/** Optional offline diagnostics only. Never returns a request, board or opposing holding. */
+export interface FeatureAblationPlanTrace {
+  event: 'issued' | 'accepted' | 'resolved';
+  decisionKey: string;
+  actorSeat: number;
+  street: string;
+  flag: boolean | null;
+  reads?: HorsePlanReadReceipt;
+  effects?: FastHorseDecisionResult['effects'];
+  action?: { action: HorseDecision['action']; amount: number | null };
+  records?: { seat: number; action: string; amount: number; stage: string }[];
+  operation?: string;
+  disposition?: string;
+}
+/** Fail closed on cross-actor/context effects; explicitly reconstruct the allowed shape. */
+export function ownFeaturePlanEffects(
+  request: FastHorseDecisionRequest,
+  effects: FastHorseDecisionResult['effects']
+) {
+  const key = horsePlanContextKey(horsePlanContextFromDecision(request));
+  if (effects.length > 16) throw Error('Offline plan trace effect bound');
+  return effects.map((e) => {
+    if (!key || e.handKey !== key || e.userId !== request.player.user_id)
+      throw Error('Offline plan trace foreign effect');
+    const identity = { handKey: e.handKey, userId: e.userId };
+    if (e.type === 'plan') return { type: e.type, ...identity, barrelIntent: e.barrelIntent };
+    if (e.type === 'raise_plan')
+      return { type: e.type, ...identity, street: e.street, plan: e.plan };
+    if (e.type === 'outlook' && e.good.length <= 52 && e.scare.length <= 52)
+      return {
+        type: e.type,
+        ...identity,
+        street: e.street,
+        good: [...e.good],
+        scare: [...e.scare],
+      };
+    throw Error('Offline plan trace unsupported effect');
+  });
+}
+export function boundedFeaturePlanTraceSink(rows: FeatureAblationPlanTrace[]) {
+  return (row: FeatureAblationPlanTrace) => {
+    if (rows.length >= 256 || Buffer.byteLength(JSON.stringify(row)) > 16384)
+      throw Error('Offline plan trace bound exceeded');
+    rows.push(structuredClone(row));
+  };
+}
 export interface FeatureAblationWorkerReceipt {
   acceptance: { appliedAuthorityChecks: number; phase14Rechecked: boolean };
   observerReads: HorseObserverReadReceipt | null;
@@ -233,7 +288,10 @@ export function createFeatureAblationWorker(
   onReceipt: (r: FeatureAblationWorkerReceipt) => void = () => {},
   onPlanResolved: (disposition: string, effects: number) => void = () => {},
   collectEvaluationFires = false,
-  historyForRequest?: (request: FastHorseDecisionRequest) => HorseOwnPublicHistoryPacket | undefined
+  historyForRequest?: (
+    request: FastHorseDecisionRequest
+  ) => HorseOwnPublicHistoryPacket | undefined,
+  onPlanTrace?: (row: FeatureAblationPlanTrace) => void
 ): Plo4AblationBrain {
   let runtime: HorseDecisionWorkerRuntime | undefined,
     active = false,
@@ -248,6 +306,19 @@ export function createFeatureAblationWorker(
   let observationClockMs = 0;
   let lastFast: FastHorseDecisionResult | undefined;
   let observedReads: HorseObserverReadReceipt | null = null;
+  let observedPlanReads: HorsePlanReadReceipt | undefined;
+  let traceRequest: FastHorseDecisionRequest | undefined;
+  const trace = (
+    request: FastHorseDecisionRequest,
+    row: Omit<FeatureAblationPlanTrace, 'decisionKey' | 'actorSeat' | 'street' | 'flag'>
+  ) =>
+    onPlanTrace?.({
+      ...row,
+      decisionKey: request.decisionKey,
+      actorSeat: request.player.seat,
+      street: request.gameState.stage,
+      flag: request.opts?.barrelContinuationOutlook ?? null,
+    });
   let planDispositions: Record<string, number> = {};
   const loadedHistories = new Set<string>();
   let pendingCoverage:
@@ -329,6 +400,7 @@ export function createFeatureAblationWorker(
       }
       planDispositions[disposition] = (planDispositions[disposition] ?? 0) + result.effects.length;
       onPlanResolved(disposition, result.effects.length);
+      trace(request, { event: 'resolved', operation, disposition });
     } finally {
       pending = undefined;
     }
@@ -366,6 +438,18 @@ export function createFeatureAblationWorker(
           // every durable writer/service remains absent.
           journalEnabled: () => true,
           journalDecision: (_request, capture) => {
+            if (onPlanTrace && capture && typeof capture === 'object') {
+              const original = capture as {
+                planReads?: unknown;
+                readFrame?: HorseDecisionReadFrame | null;
+              };
+              if (
+                traceRequest &&
+                traceRequest.requestId === _request.requestId &&
+                horsePlanReadsAreValid(original.planReads, traceRequest, original.readFrame ?? null)
+              )
+                observedPlanReads = structuredClone(original.planReads);
+            }
             if (capture && typeof capture === 'object' && 'observerReads' in capture)
               observedReads =
                 (capture as { observerReads?: HorseObserverReadReceipt | null }).observerReads ??
@@ -411,6 +495,7 @@ export function createFeatureAblationWorker(
       const parked = collectEvaluationFires ? drainFires() : [];
       messages = [];
       observedReads = null;
+      observedPlanReads = undefined;
       try {
         const { decisionTimeMs = 0, telemetry: _telemetry, ...liveOpts } = opts;
         const generation = gameState.actionHistory?.length ?? 0;
@@ -436,6 +521,7 @@ export function createFeatureAblationWorker(
         request.decisionKey = buildHorseDecisionKey(request);
         observationClockMs = request.decisionTimeMs;
         armed = true;
+        if (onPlanTrace) traceRequest = request;
         runtime.receive(request);
         await runtime.drain();
         armed = false;
@@ -491,6 +577,17 @@ export function createFeatureAblationWorker(
                 })
             );
           loadedHistories.add(history.digest);
+        }
+        if (onPlanTrace) {
+          if (!observedPlanReads)
+            throw Error('Offline plan trace missing original validated reads');
+          traceRequest = request;
+          trace(request, {
+            event: 'issued',
+            reads: observedPlanReads,
+            effects: ownFeaturePlanEffects(request, result.effects),
+            action: { action: result.decision.action, amount: result.decision.amount ?? null },
+          });
         }
         lastFast = result;
         const acceptance = mirrorFeatureAblationAcceptance(result);
@@ -571,6 +668,25 @@ export function createFeatureAblationWorker(
       }
     },
     async accepted(decision, records) {
+      if (onPlanTrace && traceRequest) {
+        const request = traceRequest;
+        traceRequest = undefined;
+        if (
+          records.length > 8 ||
+          records.some((r) => r.seat !== request.player.seat || r.userId !== request.player.user_id)
+        )
+          throw Error('Offline plan trace foreign accepted action');
+        trace(request, {
+          event: 'accepted',
+          action: { action: decision.action, amount: decision.amount ?? null },
+          records: records.map((r) => ({
+            seat: r.seat,
+            action: r.action,
+            amount: r.amount,
+            stage: r.stage,
+          })),
+        });
+      }
       const coverage = pendingCoverage;
       pendingCoverage = undefined; // Consume once, including a refused/throwing terminal.
       await terminal(true, decision, records);
@@ -597,6 +713,7 @@ export function createFeatureAblationWorker(
         runtime = undefined;
         pending = undefined;
         pendingCoverage = undefined;
+        traceRequest = undefined;
         messages = [];
       }
     },

@@ -1,7 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import { wager } from '../testing/horseRegression/plan/fixture.js';
 import {
   createFeatureAblationWorker,
+  boundedFeaturePlanTraceSink,
+  ownFeaturePlanEffects,
+  type FeatureAblationPlanTrace,
   validateFeatureAblationPlanAck,
   type FeatureAblationWorkerReceipt,
 } from './FeatureAblationWorker.js';
@@ -46,11 +50,13 @@ function workerProfile(brain: Plo4AblationBrain, flag: boolean): Plo4LeagueProfi
 describe('offline actual current worker adapter', () => {
   it('keeps real admissions and controlled initial stream distinct from natural keys', async () => {
     const receipts: FeatureAblationWorkerReceipt[] = [];
+    const planTrace: FeatureAblationPlanTrace[] = [];
     const brain = createFeatureAblationWorker(
       (r) => receipts.push(r),
       () => {},
       false,
-      emptyHistory
+      emptyHistory,
+      boundedFeaturePlanTraceSink(planTrace)
     );
     const full = getFullRakeConfig(1, 2, 'plo6');
     seedFastRandom(393923);
@@ -64,9 +70,40 @@ describe('offline actual current worker adapter', () => {
       () => true,
       true
     );
+    const untraced = await playPlo4PolicyHand(
+      workerProfile(
+        createFeatureAblationWorker(
+          () => {},
+          () => {},
+          false,
+          emptyHistory
+        ),
+        false
+      ),
+      393923,
+      2,
+      1,
+      'off',
+      () => true,
+      true
+    );
+    expect(untraced.checks?.trace).toEqual(hand.checks?.trace);
+    expect(untraced.net).toEqual(hand.net);
     expect(hand.complete).toBe(true);
     expect(hand.illegalActions).toBe(0);
     expect(receipts.length).toBeGreaterThan(0);
+    expect(planTrace.filter((r) => r.event === 'issued').length).toBe(receipts.length);
+    expect(planTrace.some((r) => r.event === 'accepted')).toBe(true);
+    expect(
+      planTrace
+        .filter((r) => r.event === 'issued')
+        .every((r) => r.reads?.version === 'horse-plan-read-v1')
+    ).toBe(true);
+    expect(JSON.stringify(planTrace)).not.toMatch(
+      /"(?:cards|snapshot|gameState|readFrame|communityCards)":/
+    );
+    for (const r of planTrace.filter((r) => r.event === 'accepted'))
+      expect(r.records?.every((a) => a.seat === r.actorSeat)).toBe(true);
     expect(saveFastRandom()).toBe(before);
     expect(receipts.every((r) => r.restoredCanonical && r.controlledRngBefore > 0)).toBe(true);
     expect(receipts.every((r) => r.phase11Authority?.plo6)).toBe(true);
@@ -106,6 +143,7 @@ describe('offline actual current worker adapter', () => {
 
 it('commits only the actual controller-accepted issued effects in the same private read view', async () => {
   const resolved: string[] = [];
+  const trace: FeatureAblationPlanTrace[] = [];
   let applied = 0;
   const originalApply = defaultHorseDecisionWorkerDependencies.applyDecisionEffects;
   const decide = vi
@@ -139,7 +177,10 @@ it('commits only the actual controller-accepted issued effects in the same priva
     const full = getFullRakeConfig(1, 2, 'plo6');
     const brain = createFeatureAblationWorker(
       () => {},
-      (d) => resolved.push(d)
+      (d) => resolved.push(d),
+      false,
+      undefined,
+      boundedFeaturePlanTraceSink(trace)
     );
     const hand = await playPlo4PolicyHand(
       {
@@ -168,6 +209,14 @@ it('commits only the actual controller-accepted issued effects in the same priva
     expect(applied).toBeGreaterThan(0);
     expect(resolved.length).toBe(applied);
     expect(resolved.every((d) => d === 'applied_volatile')).toBe(true);
+    expect(trace.filter((r) => r.event === 'resolved').length).toBe(resolved.length);
+    expect(
+      trace
+        .filter((r) => r.event === 'resolved')
+        .every(
+          (r) => r.operation === 'COMMIT_DECISION_EFFECTS' && r.disposition === 'applied_volatile'
+        )
+    ).toBe(true);
   } finally {
     decide.mockRestore();
     apply.mockRestore();
@@ -410,3 +459,56 @@ it('records the actual requested hero style and preserves opponent style through
   expect(receipts.every((r) => r.inputFlags.v54RiverBluff === undefined)).toBe(true);
   expect(new Set(receipts.filter((r) => r.actorSeat !== 1).map((r) => r.inputStyle)).size).toBe(1);
 });
+
+it('bounds optional diagnostics and detaches captured records from later mutation', () => {
+  const rows: FeatureAblationPlanTrace[] = [];
+  const sink = boundedFeaturePlanTraceSink(rows);
+  const row: FeatureAblationPlanTrace = {
+    event: 'accepted',
+    decisionKey: 'original',
+    actorSeat: 1,
+    street: 'flop',
+    flag: true,
+    records: [{ seat: 1, action: 'bet', amount: 2, stage: 'flop' }],
+  };
+  sink(row);
+  row.records![0].amount = 99;
+  expect(rows[0].records![0].amount).toBe(2);
+  for (let i = 1; i < 256; i++) sink(row);
+  expect(() => sink(row)).toThrow('bound');
+  expect(() => boundedFeaturePlanTraceSink([])({ ...row, decisionKey: 'x'.repeat(16384) })).toThrow(
+    'bound'
+  );
+});
+it('refuses effects whose actor or hand cannot bind to the original request', () => {
+  expect(() =>
+    ownFeaturePlanEffects({ player: { user_id: 'hero' }, gameState: {} } as never, [
+      { type: 'plan', handKey: 'invented', userId: 'opponent', barrelIntent: true },
+    ])
+  ).toThrow();
+});
+
+it.each(['--pairs=2', '--inspect=true'])(
+  'the maintained CLI refuses nonfinite or inspection plan tracing: %s',
+  (argument) => {
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          'src/scripts/featureAblationDevelop.ts',
+          '--experiment=barrel_continuation_outlook',
+          '--variant=plo6',
+          '--profile=barrel_continuation_outlook-plo6-6max-2dealt-100bb',
+          '--seed=27401101',
+          ...(argument.startsWith('--pairs') ? [argument] : ['--pairs=1', argument]),
+          '--trace-plans=true',
+          '--output=unused-refused-plan-trace',
+        ],
+        { stdio: 'pipe', env: { ...process.env, TSX_DISABLE_CACHE: '1' } }
+      )
+    ).toThrow(/Plan diagnostics require exactly one/);
+  },
+  30000
+);
