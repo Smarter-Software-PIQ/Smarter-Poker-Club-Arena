@@ -3354,9 +3354,25 @@ export abstract class ServerTableEngineBase {
     return !!seat && this.chipContinuity.leaveLock(userId, seat.stack).locked;
   }
 
-  /** Dealt in even while sat out: every tournament seat, and a blinded-off cash seat. */
+  /**
+   * Dealt in even while sat out: every tournament seat, and a blinded-off cash
+   * seat while at least one seat that is actually playing is there to be dealt
+   * with it (blinded-off seats never deal a hand among themselves). The deal,
+   * the blind and button predictions, dealableCount and the watchdog all read
+   * this one predicate, so they cannot disagree about who is in the hand.
+   */
   protected dealsInWhileSittingOut(userId: string): boolean {
-    return this.isTournamentTable() || this.isBlindedOff(userId);
+    return this.isTournamentTable() || (this.isBlindedOff(userId) && this.hasPlayingSeat());
+  }
+
+  /** A funded cash seat that is neither sat out nor a held leave. */
+  protected hasPlayingSeat(): boolean {
+    return this.seatedPlayers.some(
+      (p) =>
+        p.stack > 0 &&
+        !this.leaveHeldByClock.has(p.user_id) &&
+        !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)
+    );
   }
   /** CHIP CONTINUITY: mid-hand leaves that are system exits (admin kick). */
   protected disconnectEngine: DisconnectEngine;
@@ -7558,8 +7574,8 @@ export abstract class ServerTableEngineBase {
     return this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
-        (this.isTournamentTable() ||
-          !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)) &&
+        (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+          this.dealsInWhileSittingOut(p.user_id)) &&
         !this.waitingForBB.has(p.user_id) &&
         !this.heldForSwap.has(p.user_id)
     ).length;
@@ -10648,7 +10664,8 @@ export abstract class ServerTableEngineBase {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
-        (this.isTournamentTable() || !this.disconnectEngine.isSittingOut(this.tableId, p.user_id))
+        (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+          this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
     return this.predictBlindSeats(roster)?.smallBlindSeat ?? -1;
@@ -10778,7 +10795,8 @@ export abstract class ServerTableEngineBase {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
-        (this.isTournamentTable() || !this.disconnectEngine.isSittingOut(this.tableId, p.user_id))
+        (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+          this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
     return this.predictButtonSeat(roster);
@@ -10793,7 +10811,8 @@ export abstract class ServerTableEngineBase {
         p.stack > 0 &&
         // Tournament sit-outs stay in the blind rotation — they are dealt in
         // and blinded off, so the button/blinds must be able to reach them.
-        (this.isTournamentTable() || !this.disconnectEngine.isSittingOut(this.tableId, p.user_id))
+        (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+          this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
     return this.predictBlindSeats(roster)?.bigBlind ?? -1;

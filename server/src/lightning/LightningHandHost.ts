@@ -732,7 +732,7 @@ export class LightningHandHost {
       // HIT AND RUN: who of these is being blinded off. Read beside the deal,
       // never awaited by it: a seat whose answer has not landed by its turn
       // simply plays its ordinary clock this hand.
-      this.loadBlindOff(participants.filter((p) => !p.isHorse).map((p) => p.poolSessionId));
+      this.loadBlindOff(participants.map((p) => p.poolSessionId));
       this.rules = await rulesP;
       timing.mark('rules');
       const variantRefusal = this.checkVariant(this.rules);
