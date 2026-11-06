@@ -2225,6 +2225,9 @@ function LiveTablePage({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableId]);
+  /* The tournament channel's rejoin (below) restores the chests through this. */
+  const restoreMysteryBountyStateRef = useRef(restoreMysteryBountyState);
+  restoreMysteryBountyStateRef.current = restoreMysteryBountyState;
 
   // Listen for that tap. Every client subscribes, including the winner's —
   // runOpen() is idempotent, so the echo of their own broadcast is harmless.
@@ -17197,6 +17200,16 @@ function LiveTablePage({
               if (status === 'SUBSCRIBED') {
                 if (isMounted) void refreshTournamentBreakRef.current();
                 void verifyDurableCompletion();
+                /* EVERY REJOIN RE-READS WHAT THE DROP HID (2026-11-05). This
+                   callback runs on the first join AND on every rejoin after a
+                   socket loss (realtime-js reuses the join push). A broadcast
+                   sent while the socket was dead is never resent, so the
+                   heads and any open chest are re-read from the server here,
+                   beside the break and level above. */
+                if (isMounted) {
+                  void bountyMapRefreshRef.current?.();
+                  restoreMysteryBountyStateRef.current();
+                }
               }
               if (status === 'CHANNEL_ERROR') {
                 console.debug('[TablePage] Realtime channel error:', err?.message || err);
