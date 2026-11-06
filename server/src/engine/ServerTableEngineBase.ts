@@ -1585,6 +1585,11 @@ export abstract class ServerTableEngineBase {
     return false;
   }
 
+  /** See ServerTableEngineDealing: a retained, never-started original held by the maintenance break. */
+  isPreparedOriginalHeldForMaintenance(): boolean {
+    return false;
+  }
+
   /** Read-time fence catches an event loop that resumes before its timer runs. */
   hasCurrentEngineLeaseAuthority(): boolean {
     if (this.engineLeaseAuthorityIsCurrent()) return true;
@@ -7594,7 +7599,12 @@ export abstract class ServerTableEngineBase {
       // awaiting its gate. Capture that already parked boundary here. Later
       // maintenance fan-outs must not replace a final snapshot with an
       // announcement; readiness still waits for this serialized write.
-      const alreadyParked = this.handForHandResolve !== null && this.isBetweenHands();
+      // A retained never-started original held at the gate is parked too
+      // (2026-11-05): its loop is already inside the gate and will not pass
+      // the checkpoint again, so the parked write has to be taken here.
+      const alreadyParked =
+        this.handForHandResolve !== null &&
+        (this.isBetweenHands() || this.isPreparedOriginalHeldForMaintenance());
       void this.persistPresenceForRestart(alreadyParked ? 'parked' : 'announced');
     }
     if (maxWaitMs > 0) {
