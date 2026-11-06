@@ -24,6 +24,7 @@
  */
 
 import * as EngineMetrics from '../observability/engineInstruments.js';
+import { reportError } from '../services/errorReporter.js';
 import { ServerTableEngineHandEvents } from './ServerTableEngineHandEvents.js';
 import {
   bettingStructureFor,
@@ -44,6 +45,37 @@ import {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export class ServerTableEngine extends ServerTableEngineHandEvents {
+  /*
+   * THE HEAD ON EVERY SEAT (Dan 2026-11-05: "the number on the screen above
+   * their head didn't update"). In a bounty event each seat's bounty used to
+   * reach the felt only through a separate realtime channel, which dropped
+   * six times for one player in one evening. The heads now ride the same
+   * table state as the chips. One writer: the tournament manager, which reads
+   * them from tournament_players.current_bounty after every knockout and every
+   * hand. A user with no ledger head publishes no field, never a guess.
+   */
+  private seatBounties: ReadonlyMap<string, number> | null = null;
+
+  /** The tournament manager's ledger heads for this event, or null off a bounty event. */
+  public setSeatBounties(heads: ReadonlyMap<string, number> | null): void {
+    const previous = this.seatBounties;
+    this.seatBounties = heads;
+    if (!this.tableInfo) return;
+    const changed = (this.seatedPlayers ?? []).some(
+      (seated) => previous?.get(seated.user_id) !== heads?.get(seated.user_id)
+    );
+    if (!changed) return;
+    this.broadcastCurrentState().catch((err) =>
+      reportError(err, 'ServerTableEngine.' + this.tableId + '.seat_bounty_broadcast_failed')
+    );
+  }
+
+  /** `{ bounty }` from the ledger heads, or nothing when this seat has none. */
+  protected seatBountyFields(userId: string): { bounty?: number } {
+    const head = this.seatBounties?.get(userId);
+    return typeof head === 'number' && Number.isFinite(head) && head >= 0 ? { bounty: head } : {};
+  }
+
   // ═════════════════════════════════════════════════════════════════════════════
   // Bible V8 §6.15: OBSERVER PERMISSIONS
   // ═════════════════════════════════════════════════════════════════════════════
@@ -71,6 +103,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
         seat: p.seat,
         user_id: p.user_id,
         ...this.seatIdentity(p),
+        ...this.seatBountyFields(p.user_id),
         stack: p.stack,
         bet: p.bet,
         is_folded: p.is_folded,
@@ -380,6 +413,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
       is_anonymous: this.tableInfo?.is_anonymous === true,
       seats: {
         seatIdentity: (p) => ({ ...this.seatIdentity(p) }),
+        seatBounty: (p) => this.seatBountyFields(p.user_id),
         /* THE ENGINE, NOT THE ROSTER (2026-08-28): the hand roster's copy of
            is_sitting_out is deliberately always false. */
         seatPresence: (p) => ({
@@ -499,6 +533,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
         showdownResults: this.currentHandShowdownResults,
         seats: {
           seatIdentity: (p) => ({ ...this.seatIdentity(p) }),
+          seatBounty: (p) => this.seatBountyFields(p.user_id),
           /* THE ENGINE, NOT THE ROSTER (2026-08-28): the hand roster's copy of
              is_sitting_out is deliberately always false. */
           seatPresence: (p) => ({
@@ -610,6 +645,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
         seat: p.seat_number,
         user_id: p.user_id,
         ...this.seatIdentity(p),
+        ...this.seatBountyFields(p.user_id),
         stack: p.stack,
         bet: 0,
         totalInvested: 0,

@@ -54,6 +54,12 @@ export interface HandSeatContext {
   };
   /** The stay clock's fields for this seat (ChipContinuityTracker.seatFields). */
   seatContinuity(p: SeatPlayer): Record<string, unknown>;
+  /**
+   * The bounty on this seat's head, from the tournament ledger, in a bounty
+   * event: `{ bounty }`. Empty off a bounty event or before the head is known,
+   * so the field drops off the wire and the client keeps its own read.
+   */
+  seatBounty?(p: SeatPlayer): { bounty?: number };
 }
 
 /** The facts every reveal gate asks. */
@@ -375,6 +381,7 @@ export function projectLiveHandState(
           ...ctx.seats.seatPresence(p), // Bible V8 §2.3
           position: positionLabels.get(p.seat) ?? '', // Bible V8 §2.3, Appendix B
           ...ctx.seats.seatContinuity(p),
+          ...(ctx.seats.seatBounty?.(p) ?? {}),
           is_waiting_for_bb: ctx.waitingForBB.has(p.user_id),
           is_mucked: state.stage === 'showdown' && !p.is_folded && muckedHere,
           hand_name: showCards ? (showdownHandNameByUser?.get(p.user_id) ?? '') : '',
@@ -472,6 +479,7 @@ export function projectResyncHandState(
           time_bank_uses_remaining: presence.time_bank_uses_remaining,
           position: positionLabels.get(p.seat) ?? '',
           ...ctx.seats.seatContinuity(p),
+          ...(ctx.seats.seatBounty?.(p) ?? {}),
         };
       });
     })(),
