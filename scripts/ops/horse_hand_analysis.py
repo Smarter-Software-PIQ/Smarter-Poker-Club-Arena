@@ -49,7 +49,14 @@ def stage_context(node, tournament):
         phase = 'near_bubble'
     else:
         phase = 'pre_money'
+    # One regular paid place with two remaining players is a different
+    # field geometry from a multi-place bubble. This does not establish a
+    # winner-take-all utility: bounties, satellites and registration may matter.
+    geometry = ('heads_up_one_regular_paid_place' if left == 2 and paid == 1
+                else 'multi_regular_paid_place_bubble' if phase == 'stone_bubble'
+                else 'not_stone_bubble')
     return {'phase':phase,'status':'captured','playersLeft':left,'spotsPaid':paid,
+            'paidPlaceGeometry':geometry,
             'distanceToMoney':left-paid if paid else None,
             'playersPerPaidPlace':left/paid if paid else None,
             'format':context.get('format'), 'finalTable':context.get('finalTable'),
@@ -179,7 +186,7 @@ def analyze_decision(hand, action, ordinal, hero, cards, card_source=None):
     # raw actions or retrospective outcomes into the decision information set.
     observed = {k:node[k] for k in ('pot','toCall','currentBet','minRaiseTo','maxRaiseTo',
                 'boards','seats','dealerSeat','bigBlind','smallBlind','ante','anteType',
-                'deductions','chipUnit','boardCount','bombPot','allInOrFold','wagersCapped') if captured and k in node}
+                'deductions','asset','chipUnit','fixedBetSize','boardCount','bombPot','allInOrFold','wagersCapped') if captured and k in node}
     # Earlier public actions are necessary to distinguish a check-raise from
     # a lead or a multi-barrel line. Never copy later actions or nested payloads.
     prior=[]
