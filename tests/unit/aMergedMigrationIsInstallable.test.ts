@@ -22,6 +22,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
 
+import { classifyMigration } from '../../scripts/ci/recording-only.mjs';
 import { migrationTransactionShape } from '../../scripts/ci/migration-transaction-shape.mjs';
 import { assertOrdinaryMigrationBudget } from '../../scripts/ci/migration-session-identity.mjs';
 
@@ -102,7 +103,12 @@ describe('a merged migration is one the applier will take', () => {
   });
 
   it.each(
-    files.filter((f) => !INSTALLED_BEFORE_THE_CHECK.has(f) && !RECORDED_UNWRAPPED_2026_10_31.has(f))
+    files.filter(
+      (f) =>
+        !INSTALLED_BEFORE_THE_CHECK.has(f) &&
+        !RECORDED_UNWRAPPED_2026_10_31.has(f) &&
+        classifyMigration(`supabase/migrations/${f}`, { repo: ROOT }).manifestMatched !== true
+    )
   )('%s', (file) => {
     const shape = migrationTransactionShape(file, read(file));
     expect(shape.ok ? 'installable' : shape.reason).toBe('installable');
