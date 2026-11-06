@@ -309,6 +309,8 @@ function sellsRebuys(row: Tournament): boolean {
  */
 function lateRegBanner(row: Tournament, nowMs: number): string | null {
   if (!tournamentEntryWindowOpen(row, nowMs)) return null;
+  if (row.add_on_available === true)
+    return addOnWindowOpen(row, nowMs) ? null : 'Late Reg Open Through Add-On';
   const entry = tournamentEntryWindow(row);
   if (entry.mode === 'levels') {
     if (entry.current < entry.cap - 1) return `Late Reg Through Level ${entry.cap}`;
