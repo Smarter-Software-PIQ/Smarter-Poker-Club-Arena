@@ -60,6 +60,7 @@ export interface CashierModalProps {
    * forward but closing.
    */
   onRetryBalance?: () => void;
+  minBuyIn?: number;
   maxBuyIn: number;
   maxStack: number; // Max stack allowed at table
   unlimitedStack?: boolean;
@@ -131,6 +132,7 @@ export function CashierModal({
   currentStackPending = false,
   accountBalance,
   onRetryBalance,
+  minBuyIn = 0,
   maxBuyIn,
   maxStack,
   unlimitedStack = false,
@@ -191,6 +193,8 @@ export function CashierModal({
   }, [currentStack, currentStackPending, maxStack, accountBalance, maxBuyIn, unlimitedStack]);
 
   const activeMax = canAddAmount;
+  // A felted seat is buying back in, even through the add-chips control.
+  const requiredMinimum = currentStack === 0 ? minBuyIn : 0;
 
   // Quick amount options
   const quickAmounts = useMemo(() => {
@@ -226,7 +230,15 @@ export function CashierModal({
   const handleConfirm = useCallback(async () => {
     // busyRef, not the `busy` state: two taps inside one React batch both read
     // the stale state value and both would go through.
-    if (currentStackPending || amount <= 0 || isProcessing || busyRef.current) return;
+    if (
+      currentStackPending ||
+      amount <= 0 ||
+      amount < requiredMinimum ||
+      amount > canAddAmount ||
+      isProcessing ||
+      busyRef.current
+    )
+      return;
     busyRef.current = true;
     setBusy(true);
     setSubmitError(null);
@@ -271,13 +283,22 @@ export function CashierModal({
       busyRef.current = false;
       setBusy(false);
     }
-  }, [currentStackPending, amount, isProcessing, onAddChips, onClose, setAmount]);
+  }, [
+    currentStackPending,
+    amount,
+    requiredMinimum,
+    canAddAmount,
+    isProcessing,
+    onAddChips,
+    onClose,
+    setAmount,
+  ]);
 
   // Validate amount
   const isValidAmount = useMemo(() => {
-    if (!spelledOk || amount <= 0) return false;
+    if (!spelledOk || amount <= 0 || amount < requiredMinimum) return false;
     return amount <= canAddAmount;
-  }, [amount, canAddAmount, spelledOk]);
+  }, [amount, canAddAmount, spelledOk, requiredMinimum]);
 
   /* Leaving the field clamps what was typed to the ceiling and says so; the
      next keystroke clears the sentence. */
@@ -390,6 +411,11 @@ export function CashierModal({
     <span role="status">Stack Unavailable</span>
   ) : !balanceKnown ? (
     <span role="status">Balance Unavailable</span>
+  ) : requiredMinimum > 0 && (canAddAmount < requiredMinimum || amount < requiredMinimum) ? (
+    <span role="alert">
+      {canAddAmount < requiredMinimum ? 'Insufficient Chips. ' : ''}
+      Minimum Rebuy: {formatAmount(requiredMinimum)} {unit}
+    </span>
   ) : atTableMax ? (
     <span role="status">Your Stack Is At The Table Maximum, So There Is Nothing To Add.</span>
   ) : (

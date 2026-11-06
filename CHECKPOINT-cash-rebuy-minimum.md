@@ -1,0 +1,19 @@
+# Cash rebuy minimum, owner request November 5, 2026
+
+Owner: Codex chat 01a1af23. Scope: a cash player at zero must fund the full table minimum (40BB, 80 chips at 1/2); deny short rebuys with a clear insufficient-chips/minimum message. Trace manual/automatic purchase, transaction, and consumer; preserve legitimate existing-stack top-ups, receipts, concurrency and accounting. No financial adjustment to Mikey or other players authorized/needed by this rule correction.
+
+Checkout: SSD2 cash-rebuy-minimum-01a1af23, branch fix/cash-rebuy-minimum-01a1af23, base 3b5132171b5. No prior checkpoint/PR exists for this assignment.
+
+Read canonical policy reader output 2026-11-06T04:35:38Z (full operating law reread separately after output truncation), version 2.9, manifest 7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52; owner 73c17bed0bc531031283fa33c0b45d4546869166beef9d714bcfe76cfcdb9fdb, law a8bc3c04dce3354ebdd51a89c0b7d715af3344edcc794d33f6b3ad64506961d5, hardening d5fc451ce5caf6d6b5e64597a13883e1246581678fe53c962339d0a66136993e, index adce89c3f838f2f373cd504a00329d53906404d1dd42a647f672af6c16f95555. Read storage guide and repository AGENTS, CLAUDE, AGENT-PLAYBOOK, PUBLISHING, deploy paths. No nested AGENTS/CLAUDE found in server/src/supabase. SSD2 own disks verified with available space. GitHub authenticated and Supabase read access verified.
+
+Root cause confirmed in production function definition: atomic_table_addon inner transaction locks the seat and checks only maximum, never minimum for a zero stack. Engine addChipsDecided likewise only caps maximum. Client uses the add-chips path for seated busted players. Exact Mikey purchase has not yet been identified.
+
+Acceptance: regression fails before/pass after; minimum denied atomically before debit with unchanged receipt semantics; relevant local checks/required CI; protected merge; exact migration installation/readback; affected live behavior safely proved with rollback only; client/engine publication as applicable. No live player chips spent for testing.
+
+Secondary owner request: add Mikey to WooWoo's existing 50/50 earned-rake reporting split with KingFish; both keep half of new earned cash rake, KingFish receives the other half. Confirmed canonical identities and existing service-only standing rule in production. Preserve WooWoo's historical VIP redemption/declared prior split. Mikey rule covers full recorded history. No wallet or settled accounting mutation.
+
+Evidence: Mikey 41.88 addon at 2026-11-06 04:13:18Z, PLO5 1/2 Madness table 8aea2cc5-e05a-4aa2-9404-ffa34a9fb33e, queued (apply_to_seat=false), configured min_buy_in=200.00. Native tests reproduce the old under-minimum rebuy/addon and pass after checks in original locked purchase transactions plus queued delivery. Native fee/statistics harness passes: both keep 50 of a new 100, KingFish receives both other halves, repeated reads do not duplicate. Initial native test startup needed shorter socket path/TCP; fixture setup was corrected without changing product scope.
+
+Delivery classification: client + database only. No engine code/contract changes or engine activation prerequisite. Existing resolver performs the delivery-boundary minimum check and original idempotent refund; no repair worker or one-off financial adjustment. Required CI extended in existing native cash-receipt step to execute regression. Existing fee harness extended in place for the reporting configuration.
+
+Local check selection: client focused behavioral/regression tests, existing fee-share law, native transaction and fee-reader qualification, compiler, ordinary pre-push requirements. Canonical policy check matches v2.9. Typecheck passed before final toast copy adjustment; final focused/source checks ongoing. Provider checks/publication/installation/live proof pending.
