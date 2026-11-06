@@ -272,6 +272,35 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
     visible
   );
   const violations: string[] = [];
+  // EVERY PLAYER IN HIS OWN CHAIR (Dan 2026-11-05: Mongo's BigWade drawn below
+  // Cali_Duncan; Danimal's right-hand chairs drawn on top of the left-hand
+  // ones). Seat numbers run clockwise round the ring and rotating for the hero
+  // never changes that, so the chairs as DRAWN (nudges included) must run
+  // clockwise in seat order from wherever the ring starts, and no two chairs
+  // may be drawn on one spot. Empty chairs and the hero's count.
+  const chairs = Array.from(table.querySelectorAll<HTMLElement>('.seat[data-seat-num]'))
+    .filter(visible)
+    .map((seat) => {
+      const r = box(seat);
+      return { n: Number(seat.dataset.seatNum), x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })
+    .filter((chair) => Number.isFinite(chair.n));
+  const ring = table.querySelector('.table-scaler');
+  if (ring && chairs.length >= 3) {
+    const r = box(ring);
+    const cx = r.left + r.width / 2,
+      cy = r.top + r.height / 2;
+    const order = [...chairs]
+      .sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx))
+      .map((chair) => chair.n);
+    const descents = order.filter((n, i) => n < order[(i + order.length - 1) % order.length]);
+    if (descents.length !== 1)
+      violations.push(`Chairs Drawn Out Of Seat Order ${JSON.stringify(order)}`);
+    for (const a of chairs)
+      for (const b of chairs)
+        if (a.n < b.n && Math.hypot(a.x - b.x, a.y - b.y) < 24)
+          violations.push(`Chairs ${a.n} And ${b.n} Drawn On One Spot`);
+  }
   for (const plate of plates) {
     const rect = box(plate);
     if (rect.width > innerWidth * 0.3 || rect.left < -1 || rect.right > innerWidth + 1)

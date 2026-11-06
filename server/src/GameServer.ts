@@ -752,8 +752,12 @@ export class GameServer {
    * Events whose explicit equal-share closure met a playing manager that could
    * not present its original graph (or threw). Their next adoption is a
    * closure hold (TournamentManagerBase.holdForOperatorClosure), never a
-   * resume. Written only by acknowledgeTournamentAbortBoundary; process-local,
-   * so after a restart the same operator request re-arms it.
+   * resume. Written only by acknowledgeTournamentAbortBoundary. The same
+   * handoff is recorded on the event's abort target row
+   * (fn_ca_record_tournament_closure_hold), and a resume adoption with no
+   * entry here reads it back (fn_ca_read_tournament_closure_hold), so the
+   * daily 04:00 restart no longer costs a held event one more playing
+   * generation before the hold is re-armed (2026-11-05).
    */
   private operatorClosureHolds?: Map<string, string>;
   private static readonly OPERATOR_CLOSURE_HANDOFF_REASONS: ReadonlySet<string> = new Set([
@@ -3669,8 +3673,24 @@ export class GameServer {
         return;
       }
       this.tournamentManagersReadyForCapacityWake?.delete(manager);
-      const closureHold =
+      let closureHold =
         mode === 'resume' ? this.operatorClosureHolds?.get(tournamentId) : undefined;
+      if (closureHold === undefined && mode === 'resume') {
+        // A fresh process has an empty Map. The durable record of the last
+        // handoff, if its operation is still open, arms it exactly as the
+        // in-memory path does. The same guards as that path still apply.
+        const durable = await this.readDurableOperatorClosureHold(tournamentId);
+        if (
+          durable !== null &&
+          this.directAdmissionIsCurrent(generation) &&
+          this.tournamentEngines.get(tournamentId) === manager &&
+          !manager.isF06RecoveryOwner?.() &&
+          manager.hasCurrentTournamentLeaseAuthority()
+        ) {
+          (this.operatorClosureHolds ??= new Map()).set(tournamentId, durable);
+          closureHold = durable;
+        }
+      }
       if (closureHold !== undefined) {
         // No dealer, door, timer or sweep: the closure certifies every table
         // absent from durable state and cancels the unfinished hand itself.
@@ -12420,13 +12440,16 @@ export class GameServer {
     if (data.state === 'recovery' || (manager && !manager.tournamentAbortActuationAllowed())) {
       // A withdrawn closure returns the event to ordinary play: a held
       // generation is retired so the RUNNING resume rebuilds it.
-      if (data.state === 'recovery' && this.operatorClosureHolds?.delete(tournamentId) && manager)
-        if (manager.heldForOperatorClosure?.())
+      if (data.state === 'recovery') {
+        const held = this.operatorClosureHolds?.delete(tournamentId) ?? false;
+        await this.clearDurableOperatorClosureHold(operationId, tournamentId);
+        if (held && manager && manager.heldForOperatorClosure?.())
           await this.stopTournamentManagerIfOwned(
             tournamentId,
             manager,
             'GameServer.operator_closure_hold_withdrawn_stop_failed'
           );
+      }
       throw new Error('operator_abort_withdrawn_for_original_recovery');
     }
     if (data.state === 'settled') {
@@ -12462,6 +12485,7 @@ export class GameServer {
       if (this.tournamentEngines.has(tournamentId))
         throw new Error('tournament_abort_runtime_slot_retained');
       this.operatorClosureHolds?.delete(tournamentId);
+      await this.clearDurableOperatorClosureHold(operationId, tournamentId);
       return { ...data, runtime_retired: true };
     }
     if (
@@ -12527,6 +12551,14 @@ export class GameServer {
       this.tournamentEngines.get(tournamentId) === manager
     ) {
       (this.operatorClosureHolds ??= new Map()).set(tournamentId, operationId);
+      await this.recordDurableOperatorClosureHold(
+        operationId,
+        tournamentId,
+        notReady
+          ? String((runtime as { reason?: unknown }).reason)
+          : String((failure as { message?: unknown } | null)?.message ?? failure),
+        data.current_generation
+      );
       const retired = await this.stopTournamentManagerIfOwned(
         tournamentId,
         manager,
@@ -12542,6 +12574,83 @@ export class GameServer {
     }
     if (failure !== null) throw failure;
     return runtime;
+  }
+
+  /**
+   * THE HOLD IS RECORDED WHERE A RESTART CAN FIND IT (2026-11-05). The three
+   * methods below are the durable twin of operatorClosureHolds. None of them
+   * throws: the in-memory hold is the behaviour, the record is what lets the
+   * next process repeat it without first resuming a playing copy. A refused
+   * or failed write is logged once and the in-memory path carries on.
+   */
+  private async recordDurableOperatorClosureHold(
+    operationId: string,
+    tournamentId: string,
+    reason: string,
+    retiredGeneration: unknown
+  ): Promise<void> {
+    try {
+      const { data, error } = await supabase.rpc('fn_ca_record_tournament_closure_hold', {
+        p_operation_id: operationId,
+        p_tournament_id: tournamentId,
+        p_reason: reason,
+        p_generation: typeof retiredGeneration === 'string' ? retiredGeneration : null,
+      });
+      if (error || data?.ok !== true)
+        console.warn(
+          `[GameServer] tournament ${tournamentId.slice(0, 8)}: closure hold for operation ` +
+            `${operationId.slice(0, 8)} is armed in memory only - durable record refused ` +
+            `(${error ? error.message : String(data?.reason ?? 'unknown')})`
+        );
+    } catch (error) {
+      reportError(error, 'GameServer.operator_closure_hold_record_failed', {
+        tournamentId,
+        operationId,
+      });
+    }
+  }
+
+  private async clearDurableOperatorClosureHold(
+    operationId: string,
+    tournamentId: string
+  ): Promise<void> {
+    try {
+      const { error } = await supabase.rpc('fn_ca_clear_tournament_closure_hold', {
+        p_operation_id: operationId,
+        p_tournament_id: tournamentId,
+      });
+      if (error)
+        console.warn(
+          `[GameServer] tournament ${tournamentId.slice(0, 8)}: durable closure hold for ` +
+            `operation ${operationId.slice(0, 8)} not cleared (${error.message}); the reader ` +
+            `ignores it once the target leaves stop_requested/quiesced`
+        );
+    } catch (error) {
+      reportError(error, 'GameServer.operator_closure_hold_clear_failed', {
+        tournamentId,
+        operationId,
+      });
+    }
+  }
+
+  /** The open hold's operation id for this event, or null. Never throws. */
+  private async readDurableOperatorClosureHold(tournamentId: string): Promise<string | null> {
+    try {
+      const { data, error } = await supabase.rpc('fn_ca_read_tournament_closure_hold', {
+        p_tournament_id: tournamentId,
+      });
+      if (error || data?.ok !== true || data.tournament_id !== tournamentId) return null;
+      const hold = data.closure_hold as { operation_id?: unknown } | null | undefined;
+      const operationId = hold?.operation_id;
+      if (typeof operationId !== 'string' || !operationId) return null;
+      // Only a hold that names the target's own live operation is honoured.
+      if (data.operation_id !== operationId) return null;
+      if (data.state !== 'stop_requested' && data.state !== 'quiesced') return null;
+      return operationId;
+    } catch (error) {
+      reportError(error, 'GameServer.operator_closure_hold_read_failed', { tournamentId });
+      return null;
+    }
   }
 
   /** See maintenance/bulkClosureGuard.ts. Throws BulkClosureRefusedError. */

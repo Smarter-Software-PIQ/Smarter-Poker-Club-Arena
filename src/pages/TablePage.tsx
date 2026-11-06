@@ -411,6 +411,7 @@ import {
   POT_ANCHOR_PCT,
   seatPodPx,
   fitSeatToViewport,
+  scalerLayoutLeftPx,
   portraitTableTransform,
   portraitBoardWidthOfFeltPct,
   boardCardWidthPx,
@@ -22414,8 +22415,12 @@ function LiveTablePage({
         avatarUrl: heroAvatarUrl,
       })
     : null;
+  // Layout, never paint: see scalerLayoutLeftPx (Danimal's collapsed ring,
+  // 2026-11-05). Rounded so sub-pixel noise does not re-fit the ring.
+  const scalerLayoutLeft = scalerLayoutLeftPx(tableScalerRef.current);
+  const canvasLeftPx = scalerLayoutLeft === undefined ? undefined : Math.round(scalerLayoutLeft);
   const seatPositions = useMemo(() => {
-    const canvasLeft = tableScalerRef.current?.getBoundingClientRect().left;
+    const canvasLeft = canvasLeftPx;
     return seatRotationMap.map(({ pos }) =>
       fitSeatToViewport(
         pos,
@@ -22429,7 +22434,7 @@ function LiveTablePage({
         seatRotationMap.length
       )
     );
-  }, [seatRotationMap, scalerSize, seatViewportWidth, tablePerspectiveTaper]);
+  }, [seatRotationMap, scalerSize, seatViewportWidth, tablePerspectiveTaper, canvasLeftPx]);
   // Published for the deferred chip flights; the ref is declared far above
   // (see seatPositionsRef) so the event handlers can read it.
   seatPositionsRef.current = seatPositions;

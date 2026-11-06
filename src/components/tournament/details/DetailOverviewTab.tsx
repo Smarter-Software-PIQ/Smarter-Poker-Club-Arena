@@ -411,7 +411,9 @@ export default function DetailOverviewTab({
       effective: effectivePrizePool(
         tournament?.prize_pool,
         tournament?.guaranteed_prize,
-        tournament?.bounty_pool
+        tournament?.bounty_pool,
+        tournament?.total_rake,
+        tournament?.prize_pool_finalized === true
       ),
       ladder: effectivePlaceLadderPool(
         tournament?.prize_pool,
@@ -421,7 +423,9 @@ export default function DetailOverviewTab({
         tournament?.bubble_protection === true,
         Number(tournament?.buy_in_amount) || 0,
         isSatellite,
-        tournament?.bounty_pool
+        tournament?.bounty_pool,
+        tournament?.total_rake,
+        tournament?.prize_pool_finalized === true
       ),
       guarantee: Number(tournament?.guaranteed_prize) || 0,
     };

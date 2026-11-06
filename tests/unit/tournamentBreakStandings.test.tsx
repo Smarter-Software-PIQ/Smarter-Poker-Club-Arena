@@ -20,12 +20,23 @@ const state = vi.hoisted(() => ({
   hold: null as Promise<void> | null,
   metadataHold: null as Promise<void> | null,
   listeners: new Map<string, () => void>(),
+  subscribers: new Map<string, Set<() => void>>(),
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/services/tournamentStandingsUpdates', () => ({
+  // Several readers share one event feed (the card and its VPIP row), so the
+  // fake fans each event out to every subscriber exactly like the real one.
   subscribeTournamentStandings: (id: string, listener: () => void) => {
-    state.listeners.set(id, listener);
-    return () => state.listeners.delete(id);
+    const subscribers = (state.subscribers.get(id) ?? new Set<() => void>()).add(listener);
+    state.subscribers.set(id, subscribers);
+    state.listeners.set(id, () => subscribers.forEach((fn) => fn()));
+    return () => {
+      subscribers.delete(listener);
+      if (subscribers.size === 0) {
+        state.subscribers.delete(id);
+        state.listeners.delete(id);
+      }
+    };
   },
 }));
 vi.mock('../../src/lib/supabase', () => ({
@@ -109,6 +120,7 @@ beforeEach(() => {
   state.metadataHold = null;
   state.queries = 0;
   state.listeners.clear();
+  state.subscribers.clear();
   state.rows = Array.from({ length: 73 }, (_, i) => ({
     id: String(i).padStart(4, '0'),
     user_id: String(i),
@@ -119,6 +131,19 @@ beforeEach(() => {
 });
 
 describe('live break standings', () => {
+  it('shows Your VPIP only to an entrant of this event, never to a rail watcher', async () => {
+    const view = render(<TournamentBreakScreen {...props} heroUserId="spectator" />);
+    await flush();
+    expect(players()).toBe('73');
+    expect(screen.queryByLabelText('Your VPIP (Last Hour)')).toBeNull();
+    view.rerender(<TournamentBreakScreen {...props} />);
+    await flush();
+    expect(screen.getByLabelText('Your VPIP (Last Hour)')).toBeTruthy();
+    state.rows = state.rows.map((r) => (r.user_id === '72' ? { ...r, status: 'moving' } : r));
+    await act(async () => state.listeners.get('event')!());
+    expect(screen.getByLabelText('Your VPIP (Last Hour)')).toBeTruthy();
+  });
+
   it('updates 73 to 72 during the open break, including rank, average and leaders', async () => {
     render(<TournamentBreakScreen {...props} />);
     await flush();

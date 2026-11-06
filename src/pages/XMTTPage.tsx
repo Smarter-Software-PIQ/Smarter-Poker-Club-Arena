@@ -151,7 +151,7 @@ export default function XMTTPage() {
           supabase
             .from('tournaments')
             .select(
-              'format_contract, id, name, status, type:tournament_type, tournament_type, variant, min_players, table_size, satellite_seats, satellite_target_id, satellite_target, buy_in:buy_in_amount, buy_in_fee, max_players, registered_count:current_players, start_time, created_at, prize_pool, guaranteed_prize, bounty_pool, is_bounty, bounty_amount, is_pko, is_mystery_bounty'
+              'format_contract, id, name, status, type:tournament_type, tournament_type, variant, min_players, table_size, satellite_seats, satellite_target_id, satellite_target, buy_in:buy_in_amount, buy_in_fee, max_players, registered_count:current_players, start_time, created_at, prize_pool, guaranteed_prize, bounty_pool, total_rake, prize_pool_finalized, is_bounty, bounty_amount, is_pko, is_mystery_bounty'
             )
             .eq('id', tournamentId)
             .maybeSingle(),
@@ -653,7 +653,9 @@ export default function XMTTPage() {
                       effectivePrizePool(
                         detail.tournament?.prize_pool,
                         detail.tournament?.guaranteed_prize,
-                        detail.tournament?.bounty_pool
+                        detail.tournament?.bounty_pool,
+                        detail.tournament?.total_rake,
+                        detail.tournament?.prize_pool_finalized === true
                       )
                     )}
                   </span>

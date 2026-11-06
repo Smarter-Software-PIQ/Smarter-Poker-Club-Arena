@@ -1,0 +1,9 @@
+{
+  "_owner": "fix/closure-hold-survives-restart",
+  "_comment": "Migration 20261105222134: an operator closure hold is recorded on the abort target row so a resume adoption after the daily restart re-arms it without first resuming a playing copy.",
+  "functions": [
+    "fn_ca_record_tournament_closure_hold",
+    "fn_ca_clear_tournament_closure_hold",
+    "fn_ca_read_tournament_closure_hold"
+  ]
+}

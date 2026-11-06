@@ -21,7 +21,7 @@ const tournament = {
 };
 
 describe('owner-directed game-specific Horse Hybrid v1', () => {
-  it.each(['tag', 'lag', 'balanced', 'tricky', 'grinder', 'maniac', null])(
+  it.each(['hybrid', 'tag', 'lag', 'balanced', 'tricky', 'grinder', 'maniac', null])(
     'routes every legacy %s profile to both distinct modes',
     (style) => {
       const profile = {

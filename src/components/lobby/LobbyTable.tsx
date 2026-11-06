@@ -61,7 +61,12 @@ import {
 } from './lobbyCardContext';
 export type { LobbyRowContext } from './lobbyCardContext';
 import { featuredNow, startsOnDay } from '../../lib/featuredOnItsDay';
-import { prioritizeTournamentFavorites } from './tournamentFavoriteOrder';
+import {
+  isRegistrationClosedMtt,
+  prioritizeTournamentFavorites,
+  runningLast,
+  withoutFavoritesBeyondHorizon,
+} from './tournamentFavoriteOrder';
 import { variantRank, UNLISTED_VARIANT_RANK } from './variantRank';
 import { lobbyLedAttributes } from './lobbyLedSchema';
 import { headingForOrder } from './lobbySortBridge';
@@ -833,26 +838,22 @@ function LobbyFlagChips({ entry }: { entry: LobbyEntry }) {
 function dateSection(
   entry: LobbyEntry,
   previous: LobbyEntry | undefined,
-  favorites: ReadonlySet<string>,
   now: number
 ): string | null {
   const group = (row: LobbyEntry | undefined) => {
     if (!row || row.kind !== 'mtt' || !row.startTime) return null;
+    // The registration-closed block at the bottom heads once, as Running, so a
+    // second "Today" never appears below Tomorrow's events.
+    if (isRegistrationClosedMtt(row)) return { key: 'running', day: null };
     const day = new Date(row.startTime);
     if (!Number.isFinite(day.getTime())) return null;
-    const tier = favorites.has(row.id) && !row.featured ? 'favorite' : 'schedule';
-    return {
-      key:
-        tier === 'favorite'
-          ? tier
-          : `${tier}:${day.getFullYear()}:${day.getMonth()}:${day.getDate()}`,
-      day,
-      tier,
-    };
+    // A starred MTT keeps its place on the clock (Dan 2026-11-05), so there is
+    // no separate Favorites tier: every MTT heads under its own day.
+    return { key: `schedule:${day.getFullYear()}:${day.getMonth()}:${day.getDate()}`, day };
   };
   const current = group(entry);
   if (!current || current.key === group(previous)?.key) return null;
-  if (current.tier === 'favorite') return 'Favorites';
+  if (!current.day) return 'Running';
   const today = new Date(now);
   if (startsOnDay(current.day.toISOString(), today)) return 'Today';
   const tomorrow = new Date(today);
@@ -1986,16 +1987,23 @@ export default function LobbyTable({
 }: LobbyTableProps) {
   const boardEntries = useMttLobbyEntryCounts(suppliedEntries, tournamentSnapshot);
   const boardNow = useSharedSecondTick(boardEntries.some((e) => e.kind === 'mtt'));
+  /* Dan 2026-11-05: a starred MTT starting more than 18 hours out is not
+     displayed (tournamentFavoriteOrder.ts). Judged on the same ticking clock
+     as the countdowns, so an edition appears the moment it comes inside 18h. */
   const liveEntries = useMemo(
     () =>
-      boardEntries.map((e) => {
-        if (e.kind !== 'mtt' || e.status === 'closed' || e.status === 'completed') return e;
-        const status = tournamentStatus(e.raw as LobbyTournamentRow, boardNow);
-        return status.key === e.status && status.label === e.statusLabel
-          ? e
-          : { ...e, status: status.key, statusLabel: status.label };
-      }),
-    [boardEntries, boardNow]
+      withoutFavoritesBeyondHorizon(
+        boardEntries.map((e) => {
+          if (e.kind !== 'mtt' || e.status === 'closed' || e.status === 'completed') return e;
+          const status = tournamentStatus(e.raw as LobbyTournamentRow, boardNow);
+          return status.key === e.status && status.label === e.statusLabel
+            ? e
+            : { ...e, status: status.key, statusLabel: status.label };
+        }),
+        ctx.favoriteIds,
+        boardNow
+      ),
+    [boardEntries, boardNow, ctx.favoriteIds]
   );
   /* Owner update October 31: only today's top events float above the schedule.
      Future nightly and weekly editions remain ordinary rows. Rows that lose the pin
@@ -2154,8 +2162,10 @@ export default function LobbyTable({
         pinned.length === 0 && gone.length === 0 && empty.length === 0
           ? rows
           : pinned.concat(open, empty, gone);
-      // Dan 2026-10-31: tournament favorites always sit below the host's
-      // current pins, even when a heading or sheet sort is selected. Apply
+      // Dan 2026-10-31: seat-first tournament favorites sit below the host's
+      // current pins, even when a heading or sheet sort is selected. Dan
+      // 2026-11-05: a scheduled MTT favorite never leaves its place on the
+      // clock (tournamentFavoriteOrder.ts). Apply
       // these stable tiers after the existing order so each tier retains its
       // chosen sort and seat-first availability order. Cash favorites do not
       // change the cash game's ordering.
@@ -2259,10 +2269,12 @@ export default function LobbyTable({
               Record<LobbyStatusKey, number>
             >
           )[e.status] ?? 4;
-        return sink([...entries].sort((a, b) => rank(a) - rank(b) || a.startValue - b.startValue));
+        return runningLast(
+          sink([...entries].sort((a, b) => rank(a) - rank(b) || a.startValue - b.startValue))
+        );
       }
-      if (!sv) return sink(entries);
-      return sink([...entries].sort(compare));
+      if (!sv) return runningLast(sink(entries));
+      return runningLast(sink([...entries].sort(compare)));
     }
     /* Sink only inside a variant run, also bounded by stake when stakes
        leads. An empty game must not cross either selected grouping. */
@@ -2290,7 +2302,7 @@ export default function LobbyTable({
       run.push(e);
     }
     if (run.length) out.push(...sink(run));
-    return out;
+    return runningLast(out);
   }, [entries, sort, columns, sink, category, preferPageOrder]);
 
   const handleHeaderClick = (col: ColumnDef) => {
@@ -2476,7 +2488,7 @@ export default function LobbyTable({
             {sorted.map((entry, index) => (
               <Fragment key={entry.id}>
                 <DateHeadingRow
-                  label={dateSection(entry, sorted[index - 1], rowCtx.favoriteIds, boardNow)}
+                  label={dateSection(entry, sorted[index - 1], boardNow)}
                   colSpan={4}
                 />
                 {hasTournamentHeadings && (
@@ -2705,7 +2717,7 @@ export default function LobbyTable({
             {sorted.map((entry, index) => (
               <Fragment key={entry.id}>
                 <DateHeadingRow
-                  label={dateSection(entry, sorted[index - 1], rowCtx.favoriteIds, boardNow)}
+                  label={dateSection(entry, sorted[index - 1], boardNow)}
                   colSpan={visibleColumnCount}
                 />
                 {hasTournamentHeadings && index > 0 && (

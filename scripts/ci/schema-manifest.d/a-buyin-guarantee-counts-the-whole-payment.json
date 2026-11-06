@@ -1,0 +1,9 @@
+{
+  "_owner": "claude/gross-guarantee",
+  "_comment": "Gross buy-in guarantee coverage and the place floor every guarantee guard reads.",
+  "functions": [
+    "fn_ca_guarantee_funding",
+    "fn_ca_guarantee_place_floor",
+    "fn_ca_return_excess_guarantee_promo_locked"
+  ]
+}

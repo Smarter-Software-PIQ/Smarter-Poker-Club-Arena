@@ -99,19 +99,30 @@ describe('brain wiring', () => {
     }
   });
 
-  it('preserves an authored style, including the bare-string legacy shape', () => {
-    // Several seed paths wrote horse_profile as a bare string. Collapsing that
-    // would erase a chosen personality permanently.
-    expect(brainFor('x', 'maniac').style).toBe('maniac');
-    expect(brainFor('x', { style: 'nit', aggression: 1.05 }).style).toBe('nit');
+  it('assigns the Hybrid and keeps a retired persona for history, bare-string shape included', () => {
+    // Owner direction (2026-11-05): every horse plays the Hybrid. Several seed
+    // paths wrote horse_profile as a bare string; the chosen personality is
+    // kept under retiredStyle, never erased, and never played again.
+    expect(brainFor('x', 'maniac').style).toBe('hybrid');
+    expect(brainFor('x', 'maniac').retiredStyle).toBe('maniac');
+    expect(brainFor('x', { style: 'nit', aggression: 1.05 }).style).toBe('hybrid');
+    expect(brainFor('x', { style: 'nit', aggression: 1.05 }).retiredStyle).toBe('nit');
     expect(brainFor('x', { style: 'nit', aggression: 1.05 }).aggression).toBe(1.05);
+    // A row already on the Hybrid keeps the persona it retired earlier.
+    const again = brainFor('x', { style: 'hybrid', retiredStyle: 'tag', aggression: 1.05 });
+    expect(again.style).toBe('hybrid');
+    expect(again.retiredStyle).toBe('tag');
+    // A fresh horse has no retired persona at all.
+    expect(brainFor('x', null).retiredStyle).toBeUndefined();
+    expect(brainFor('x', { style: 'hybrid' }).retiredStyle).toBeUndefined();
   });
 
   it('never leaves the style to the id-hash fallback', () => {
     // An empty horse_profile makes resolveHorseStyle pick a style by hashing
-    // the id — a personality nobody chose. Onboarding must always author one.
+    // the id — a personality nobody chose. Onboarding always authors the Hybrid.
     for (const id of ids.slice(0, 40)) {
-      expect(brainFor(id, {}).style).toBeTruthy();
+      expect(brainFor(id, {}).style).toBe('hybrid');
+      expect(brainFor(id, null).style).toBe('hybrid');
     }
   });
 
