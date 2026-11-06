@@ -414,6 +414,7 @@ function Felt({
   prev,
   motion,
   heroId,
+  privateOwnerTag,
 }: {
   model: ReplayModel;
   frame: ReplayFrame;
@@ -421,6 +422,8 @@ function Felt({
   prev: ReplayFrame | null;
   motion: FrameMotion;
   heroId: string | null;
+  /** The tag on the hero's unshown cards: "Yours", or the sender's name on a shared replay. */
+  privateOwnerTag: string;
 }) {
   const money = moneyForHand(model);
   const seats = useMemo(() => frameSeats(model), [model]);
@@ -557,7 +560,7 @@ function Felt({
               {isFolded && !isActive && (
                 <span className="hr-seat__act hr-seat__act--fold">Fold</span>
               )}
-              {showPrivate && <span className="hr-seat__private">Yours</span>}
+              {showPrivate && <span className="hr-seat__private">{privateOwnerTag}</span>}
               {isFacing && facing && (
                 <span className="hr-facing" aria-label="What This Seat Was Facing">
                   <span className="hr-facing__call">To Call {money(facing.toCall)}</span>
@@ -763,6 +766,15 @@ export default function HandReplay({
   /* The seat this replay is read FROM. The signed-in viewer on their own
      hand; the sharer on a hand that arrived in a link. */
   const heroId = source?.viewerId ?? null;
+  /*
+   * WHOSE CARDS THOSE ARE (2026-11-06). On a hand the viewer fetched, the hero
+   * IS the viewer, so their unshown cards say "Yours". A supplied `source` is a
+   * share link or a clip: the hero is the SENDER and whoever is watching is
+   * somebody else (or signed out), so "Yours" told Art that Mongo's folded
+   * King-Four was his. Name the sender instead.
+   */
+  const heroName = model?.players.find((p) => p.userId === heroId)?.username?.trim() || '';
+  const privateOwnerTag = propSource && heroName ? `${heroName}'s` : 'Yours';
   const frames = useMemo(() => (model ? buildReplayFrames(model) : []), [model]);
   const jumps = useMemo(() => streetJumps(frames), [frames]);
   const winnerSeats = useMemo(() => (model ? winnerSeatsOf(model) : []), [model]);
@@ -1103,6 +1115,7 @@ export default function HandReplay({
             currentUserId={heroId}
             badge={variant}
             viewerFacts={source.viewerFacts}
+            privateOwnerTag={privateOwnerTag}
           />
         </div>
       ) : (
@@ -1113,7 +1126,14 @@ export default function HandReplay({
           aria-labelledby="hr-tab-replay"
         >
           {frame && motion && (
-            <Felt model={model} frame={frame} prev={prevFrame} motion={motion} heroId={heroId} />
+            <Felt
+              model={model}
+              frame={frame}
+              prev={prevFrame}
+              motion={motion}
+              heroId={heroId}
+              privateOwnerTag={privateOwnerTag}
+            />
           )}
 
           <div className="hand-replay__caption" aria-live="polite">
