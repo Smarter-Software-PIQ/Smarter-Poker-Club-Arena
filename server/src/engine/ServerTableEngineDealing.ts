@@ -3894,7 +3894,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       } catch (err) {
         reportError(err, 'ServerTableEngine.' + this.tableId + '.disconnect_autoaction_threw');
       }
-      if (!applied) applied = this.forceResolveSeat(dcPlayer.seat, true);
+      if (!applied) applied = this.forceResolveSeat(dcPlayer.seat, true, 'disconnect_auto_action');
       if (applied) {
         this.markProgress();
         console.log(

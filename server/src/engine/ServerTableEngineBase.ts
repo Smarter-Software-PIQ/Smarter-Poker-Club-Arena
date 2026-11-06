@@ -3150,6 +3150,20 @@ export abstract class ServerTableEngineBase {
   protected playerTurnDuration: number = 0;
   protected timeBankActivatedThisTurn: boolean = false;
   /**
+   * WHICH TURN THE ARMED CLOCK BELONGS TO (2026-11-05).
+   *
+   * `street:actions:seat` of the controller state at the moment the clock was
+   * armed (startTurnTimer). A clock expiry, and a deferred time-bank
+   * activation born from one, may only touch the turn they were armed for.
+   * Seat identity alone is not enough: the same seat is first to act on the
+   * next street, and on 2026-11-05 two horse bank burns landed in the same
+   * tick as their clock expiry, so the expiry's automatic bank was published
+   * onto the NEXT street's turn, nothing released it, and its countdown fired
+   * 20 s later over the brain's decision on a third turn (hands 039c0140 and
+   * 8d98aeb8, docs/changelog/2026-11-05-a-clock-expiry-belongs-to-its-turn.md).
+   */
+  protected turnClockIdentity: string | null = null;
+  /**
    * Set when the player whose turn it is drops out of reconnect grace.
    *
    * A time bank is a use-it-or-lose-it asset the player PAYS for. Auto-
@@ -3381,6 +3395,9 @@ export abstract class ServerTableEngineBase {
                   seat: this.handController
                     ?.getState()
                     .players.find((p) => p.user_id === event.playerId)?.seat,
+                  // The turn whose clock spent this bank. Publication is
+                  // refused for any other turn (resumeContinuationTimeBankActivation).
+                  turnIdentity: this.turnClockIdentity,
                 }
               : event,
         });
