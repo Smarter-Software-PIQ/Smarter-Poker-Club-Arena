@@ -184,3 +184,79 @@ export function withMidwayFreeBuyPolicy<T extends Record<string, unknown>>(row: 
     short_description: MIDWAY_FREE_BUY_DESCRIPTIONS[key],
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* A BUILT EVENT MATCHES ITS SCHEDULE (owner 2026-11-05)               */
+/* ------------------------------------------------------------------ */
+
+/** The format key a schedule's config names (config.midwayFreeBuyFormat), or
+ * null for a schedule that is not a Midway rotation slot. Mirrors
+ * fn_ca_midway_free_buy_slot_format. */
+export function midwayFreeBuySlotFormatOf(
+  cfg: Record<string, unknown> | null | undefined
+): MidwayFreeBuyFormatKey | null {
+  const v = cfg?.midwayFreeBuyFormat;
+  for (const key of Object.keys(MIDWAY_FREE_BUY_FORMATS) as MidwayFreeBuyFormatKey[]) {
+    if (MIDWAY_FREE_BUY_FORMATS[key].midwayFreeBuyFormat === v) return key;
+  }
+  return null;
+}
+
+/** The columns that decide a built Free Buy's format. */
+export interface MidwayFreeBuyShapeRow {
+  is_pko?: unknown;
+  is_bounty?: unknown;
+  is_mystery_bounty?: unknown;
+  all_in_or_fold?: unknown;
+  bounty_amount?: unknown;
+  guaranteed_prize?: unknown;
+}
+
+/** PURE. The format a built row actually has, or null when it is none of the
+ * four. Mirrors fn_ca_midway_free_buy_format, which the database guard
+ * (zzzzzzzzzzz_a_built_midway_free_buy_matches_its_schedule) and the rebuild
+ * RPC treat as the authority; this copy only spares the engine an RPC per
+ * correct event. */
+export function midwayFreeBuyRowFormat(row: MidwayFreeBuyShapeRow): MidwayFreeBuyFormatKey | null {
+  const pko = row.is_pko === true;
+  const mystery = row.is_mystery_bounty === true;
+  const bounty = row.is_bounty === true;
+  const aiof = row.all_in_or_fold === true;
+  if (pko && !mystery && Number(row.bounty_amount) === 1 && Number(row.guaranteed_prize) === 0)
+    return 'pko';
+  if (mystery && !pko && Number(row.bounty_amount) === 0.5) return 'mystery';
+  if (!bounty && !pko && !mystery && aiof) return 'aiof';
+  if (!bounty && !pko && !mystery && !aiof) return 'regular';
+  return null;
+}
+
+/** An occurrence closer to its start than this is left to run as built. */
+export const MIDWAY_FREE_BUY_REBUILD_MIN_LEAD_MS = 20 * 60_000;
+
+export interface MidwayOccurrenceUnderReview extends MidwayFreeBuyShapeRow {
+  status?: unknown;
+  start_time?: unknown;
+  started_at?: unknown;
+  prize_pool_finalized?: unknown;
+}
+
+/** PURE. Whether the scheduler should ask the database to rebuild this
+ * claimed occurrence to its schedule: its schedule names a format, the built
+ * row has a different one, and it has not started and is more than
+ * MIDWAY_FREE_BUY_REBUILD_MIN_LEAD_MS from its start. Who is registered is the
+ * database's question (fn_ca_rebuild_midway_free_buy_to_its_schedule rebuilds
+ * only a horse-only field, and refunds every horse through
+ * atomic_cancel_tournament exactly as it would a human). */
+export function shouldRebuildMidwayOccurrence(
+  cfg: Record<string, unknown> | null | undefined,
+  row: MidwayOccurrenceUnderReview,
+  nowMs: number
+): boolean {
+  const slot = midwayFreeBuySlotFormatOf(cfg);
+  if (!slot) return false;
+  if (midwayFreeBuyRowFormat(row) === slot) return false;
+  if (!['ANNOUNCED', 'REGISTERING'].includes(String(row.status ?? '').toUpperCase())) return false;
+  if (row.started_at != null || row.prize_pool_finalized === true) return false;
+  const startMs = Date.parse(String(row.start_time ?? ''));
+  return Number.isFinite(startMs) && startMs - nowMs > MIDWAY_FREE_BUY_REBUILD_MIN_LEAD_MS;
+}
