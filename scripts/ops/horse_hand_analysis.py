@@ -136,12 +136,13 @@ def analyze_decision(hand, action, ordinal, hero, cards, card_source=None):
     if variant == 'pineapple':
         prior_discard = any(isinstance(previous, dict)
             and previous.get('action') == 'discard'
-            and previous.get('stage') == 'pineapple_discard'
-            and actor_id(previous) == hero
+            and (actor_id(previous) == hero or (actor_id(previous) is None
+                 and previous.get('seat') == action.get('seat')))
             for previous in (hand.get('actions') or [])[:ordinal])
         if street == 'preflop':
             if prior_discard or not isinstance(cards, list) or len(cards) != 3:
-                cards = original_hero_cards(hand, hero, pineapple_preflop=True) if not prior_discard else None
+                cards = (original_hero_cards(hand, hero, pineapple_preflop=True)
+                         if not prior_discard and not (card_source or '').startswith('hand_state_snapshots.') else None)
                 card_source = 'hand_history.hole_cards' if cards else None
             if not cards:
                 gaps.append('pineapple_original_three_cards_unavailable')
@@ -209,7 +210,7 @@ def analyze_decision(hand, action, ordinal, hero, cards, card_source=None):
     return result
 
 
-def analyze_hand(hand, profiles, facts=None, accepted_roster=None, excluded_ids=()):
+def analyze_hand(hand, profiles, facts=None, accepted_roster=None, excluded_ids=(), snapshot_rows=None, discard_rows=None):
     roles,gaps = classify_participants(hand,profiles,accepted_roster)
     humans = [uid for uid,r in roles.items() if r['horse'] is False and uid not in excluded_ids]
     horses = [uid for uid,r in roles.items() if r['horse'] is True]
@@ -226,12 +227,49 @@ def analyze_hand(hand, profiles, facts=None, accepted_roster=None, excluded_ids=
             if not cards:
                 cards = original_hero_cards(hand, hero)
                 if cards is not None: card_source = 'hand_history.hole_cards'
+            existing_cards, existing_card_source = cards, card_source
+            recovery = None
+            needs_original_three = hand.get('game_variant') == 'pineapple' and (not isinstance(cards,list) or len(cards)!=3)
+            if (not cards or needs_original_three) and snapshot_rows and hero in snapshot_rows:
+                from horse_snapshot_cards import recover_own_cards
+                if hand.get('game_variant') == 'pineapple':
+                    from horse_snapshot_cards import recover_pineapple_original_three
+                    recovery = recover_pineapple_original_three(hand, hero, snapshot_rows[hero],
+                        (discard_rows or {}).get(hero, []))
+                else:
+                    recovery = recover_own_cards(hand, hero, snapshot_rows[hero])
+                cards = recovery['cards']
+                if cards: card_source = recovery['provenance']['source']
             own=[]
             for i,a in enumerate(actions):
                 if not isinstance(a,dict) or not decision(a): continue
                 uid=actor_id(a)
                 if uid is None and a.get('seat')==players[hero].get('seat'): uid=hero
-                if uid==hero: own.append(analyze_decision(hand,a,i,hero,cards,card_source))
+                if uid==hero:
+                    decision_recovery = recovery
+                    if hand.get('game_variant') == 'pineapple' and (a.get('stage') or a.get('street')) != 'preflop':
+                        decision_recovery = None
+                    decision_cards = cards if decision_recovery is not None else existing_cards
+                    decision_source = card_source if decision_recovery is not None else existing_card_source
+                    snapshot_seat_conflict = (decision_recovery is not None and
+                        a.get('seat') != decision_recovery['provenance']['identity']['seat'])
+                    pineapple_scope_conflict = (decision_recovery is not None and
+                        decision_recovery['provenance'].get('permittedDecisionScope') is not None and
+                        ((a.get('stage') or a.get('street')) != 'preflop' or any(
+                            isinstance(prior,dict) and prior.get('action')=='discard' and
+                            (actor_id(prior)==hero or (actor_id(prior) is None and
+                             prior.get('seat')==decision_recovery['provenance']['identity']['seat']))
+                            for prior in actions[:i])))
+                    if snapshot_seat_conflict or pineapple_scope_conflict: decision_cards = None
+                    item = analyze_decision(hand,a,i,hero,decision_cards,decision_source)
+                    if decision_recovery is not None:
+                        item['snapshotOwnCardRecovery'] = {**decision_recovery['provenance'],
+                            'accepted': decision_recovery['cards'] is not None and item['informationSet'].get('heroCards') is not None,
+                            'gaps': decision_recovery['gaps']}
+                        item['gaps'] = sorted(set(item['gaps'] + decision_recovery['gaps'] +
+                            (['snapshot_decision_seat_mismatch'] if snapshot_seat_conflict else []) +
+                            (['pineapple_snapshot_outside_original_preflop_scope'] if pineapple_scope_conflict else [])))
+                    own.append(item)
             decisions.extend(own)
             horse_reports.append({'horseId':hero,'classificationBasis':roles[hero]['basis'],
                 'streets':{s:{'decisions':[d['decisionId'] for d in own if d['street']==s],
