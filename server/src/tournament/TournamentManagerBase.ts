@@ -5477,10 +5477,21 @@ export abstract class TournamentManagerBase {
     }
   }
 
-  /** True only when NO table in this event has a hand in progress. */
+  /**
+   * True only when NO table in this event has a hand in progress.
+   *
+   * A table whose only controller is a retained original that never started,
+   * held at the pause gate by the activation boundary itself, has no hand in
+   * progress: no card is dealt and no decision made, and it starts after the
+   * activation like any later hand. Counting it as a live hand made the
+   * boundary wait for the hand and the hand wait for the boundary - the
+   * circular wait that froze Satellites 25 and 30 on 2026-11-05, here on the
+   * mystery activation boundary (isPreparedOriginalHeldAtPauseGate).
+   */
   protected allTablesBetweenHands(): boolean {
     for (const engine of this.tableEngines.values()) {
       try {
+        if (engine.isPreparedOriginalHeldAtPauseGate?.() === true) continue;
         if (!engine.isBetweenHands()) return false;
       } catch {
         // An engine that cannot answer is an engine we cannot vouch for.

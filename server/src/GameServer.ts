@@ -7643,7 +7643,10 @@ export class GameServer {
      * resumeFromBreak waits for the maintenance thaw before it takes a running
      * tournament off its break. See the comment there.
      */
-    const maintenanceEndsAt = this.maintenanceBreak.endsAt();
+    // One break, never a partial overlap (MaintenanceBreak.tournamentBreakEndsAt).
+    const maintenanceEndsAt = this.maintenanceBreak.tournamentBreakEndsAt(
+      TournamentManager.LAST_HAND_GRACE_MS + GameServer.BREAK_DURATION_MS
+    );
 
     /**
      * The break window opens NOW, at :55. A tournament that begins during the
@@ -7859,7 +7862,10 @@ export class GameServer {
     // Epoch hours are UTC hours, the same boundary the :55 cadence uses.
     const topOfHour = Math.ceil((now + 1) / 3_600_000) * 3_600_000;
     if (topOfHour - now <= 1000) return;
-    const maintenanceEndsAt = this.maintenanceBreak.endsAt();
+    // One break, never a partial overlap (MaintenanceBreak.tournamentBreakEndsAt).
+    const maintenanceEndsAt = this.maintenanceBreak.tournamentBreakEndsAt(
+      TournamentManager.LAST_HAND_GRACE_MS + GameServer.BREAK_DURATION_MS
+    );
     this.synchronizedBreakGeneration++;
     const breakGeneration = this.synchronizedBreakGeneration;
     this.clearTournamentBreakResumeTimers();
