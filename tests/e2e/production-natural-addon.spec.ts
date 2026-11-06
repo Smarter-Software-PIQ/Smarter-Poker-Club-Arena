@@ -7,6 +7,7 @@ import {
   completeAddOnRoster,
   addOnWindow,
   readAddOnCountdown,
+  hasNaturalAddOnIncrement,
   forbiddenAddOnParticipation,
   suppressedObserverReward,
   type AddOnTable,
@@ -338,24 +339,9 @@ test('every captured natural add-on table renders its public minute', async ({
     );
     second.forEach((seconds, index) => expect(seconds).toBeLessThan(first[index]));
     await admission(true, 'progressing');
-    await expect
-      .poll(
-        () =>
-          ids.some((id) => {
-            const samples = evidence.counterChanges.filter((sample: any) => sample.tableId === id);
-            return samples.some(
-              (sample: any, index: number) =>
-                index > 0 &&
-                sample.count > samples[index - 1].count &&
-                evidence.purchaseSignals.some(
-                  (signal: any) => signal.tableId === id && signal.at <= sample.at
-                )
-            );
-          }),
-        { timeout: 15000, message: 'No natural add-on increment reached an unchanged live page' }
-      )
-      .toBe(true);
-    evidence.naturalCounterIncrementBeforeReload = true;
+    // Observe the whole minute before deciding whether a natural incremental
+    // purchase occurred. Its absence must not erase independent window proof.
+    const originalPageEnds: Record<string, number> = {};
     const committedCount = await completeAddOnCount();
     const renderedCounts: number[] = [];
     for (const id of ids) {
@@ -392,9 +378,12 @@ test('every captured natural add-on table renders its public minute', async ({
     const committedAfterRenders = await completeAddOnCount();
     for (const count of renderedCounts) expect(count).toBeLessThanOrEqual(committedAfterRenders);
     evidence.counterReadBounds = { committedCount, renderedCounts, committedAfterRenders };
+    evidence.counterConsistencyProof = 'passed';
     // Reopen one existing table only after closing its context: never exceed
     // eight live observers. This is a late-open consumer, not a ninth connection.
     const lateId = ids[0];
+    originalPageEnds[lateId] = Date.now();
+    evidence.originalPageEnds = originalPageEnds;
     await pages.get(lateId)!.context().close();
     received.delete(lateId);
     const late = await openTable(lateId);
@@ -406,18 +395,46 @@ test('every captured natural add-on table renders its public minute', async ({
       .poll(() => received.get(lateId)?.has('SNAPSHOT') ?? false, { timeout: 10_000 })
       .toBe(true);
     await rendered(lateId, late, window, 'reconnected');
+    const readReconnectedCount = async () =>
+      Number(
+        (await late.getByLabel('Players Who Took Add-On', { exact: true }).innerText()).replaceAll(
+          ',',
+          ''
+        )
+      );
+    await expect
+      .poll(readReconnectedCount, { timeout: 5000 })
+      .toBeGreaterThanOrEqual(committedCount);
+    const reconnectedCount = await readReconnectedCount();
+    const committedAfterReconnect = await completeAddOnCount();
+    expect(reconnectedCount).toBeGreaterThanOrEqual(committedCount);
+    expect(reconnectedCount).toBeLessThanOrEqual(committedAfterReconnect);
+    evidence.reconnectCountBounds = { committedCount, reconnectedCount, committedAfterReconnect };
+    evidence.reconnectProof = 'passed';
     const remaining = window.end - Date.now();
     if (remaining <= 0) throw new Error('UNKNOWN: reconnect exhausted the natural add-on window');
     if (remaining < 5000)
       throw new Error('UNKNOWN: no time remains to observe the end of the minute');
-    while (Date.now() < window.end - 3000) {
+    // Brunch 42260827276 needed about eight seconds for the full-roster DOM
+    // checks. Start them with headroom, then keep sampling admission to expiry.
+    const beforeCloseRenderReserveMs = 15_000;
+    while (Date.now() < window.end - beforeCloseRenderReserveMs) {
       await admission(true, 'during-addon');
       await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(1000, Math.max(0, window!.end - Date.now() - 3000)))
+        setTimeout(
+          resolve,
+          Math.min(1000, Math.max(0, window!.end - Date.now() - beforeCloseRenderReserveMs))
+        )
       );
     }
     await Promise.all(ids.map((id) => rendered(id, pages.get(id)!, window!, 'before-close')));
     await admission(true, 'before-close');
+    while (Date.now() < window.end - 1000) {
+      await admission(true, 'during-addon');
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(1000, Math.max(0, window!.end - Date.now() - 1000)))
+      );
+    }
     await new Promise((resolve) =>
       setTimeout(resolve, Math.max(0, window!.end - Date.now() - 1000))
     );
@@ -426,6 +443,7 @@ test('every captured natural add-on table renders its public minute', async ({
       setTimeout(resolve, Math.max(0, window!.end - Date.now()) + 1000)
     );
     await admission(false, 'closed');
+    evidence.admissionWindowProof = 'passed';
     evidence.finalCommittedAddOnCount = await completeAddOnCount();
     await Promise.all(
       ids.map(async (id) => {
@@ -435,6 +453,7 @@ test('every captured natural add-on table renders its public minute', async ({
         evidence.observations.push({ tableId: id, phase: 'closed', at: Date.now() });
       })
     );
+    evidence.dialogClosureProof = 'passed';
     const final = await readBoard();
     evidence.finalRoster = final.roster;
     expect(
@@ -444,6 +463,17 @@ test('every captured natural add-on table renders its public minute', async ({
     evidence.engineAfter = await engineIdentity();
     expect(evidence.engineAfter).toEqual(evidence.engineBefore);
     expect(blocked, 'Served spectator attempted a forbidden participation request').toEqual([]);
+    evidence.identityAndReadOnlyProof = 'passed';
+    evidence.naturalCounterIncrementBeforeReload = hasNaturalAddOnIncrement(
+      ids,
+      evidence.counterChanges,
+      evidence.purchaseSignals,
+      originalPageEnds
+    );
+    expect(
+      evidence.naturalCounterIncrementBeforeReload,
+      'No natural add-on increment reached an unchanged live page'
+    ).toBe(true);
     evidence.consumerProof = 'passed';
   } finally {
     evidence.blockedParticipation = blocked;

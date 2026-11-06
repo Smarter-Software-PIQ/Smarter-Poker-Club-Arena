@@ -139,3 +139,23 @@ export function forbiddenAddOnParticipation(
     path
   );
 }
+
+/** A reload's first value is not evidence of an update on the original page. */
+export function hasNaturalAddOnIncrement(
+  tableIds: string[],
+  changes: { tableId: string; at: number; count: number }[],
+  signals: { tableId: string; at: number }[],
+  originalPageEnds: Record<string, number>
+): boolean {
+  return tableIds.some((id) => {
+    const samples = changes.filter(
+      (sample) => sample.tableId === id && sample.at < (originalPageEnds[id] ?? Infinity)
+    );
+    return samples.some(
+      (sample, index) =>
+        index > 0 &&
+        sample.count > samples[index - 1].count &&
+        signals.some((signal) => signal.tableId === id && signal.at <= sample.at)
+    );
+  });
+}
