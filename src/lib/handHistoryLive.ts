@@ -85,9 +85,30 @@ export function prependHand<T extends HandLike>(
   return next.slice(0, cap);
 }
 
-/** The archive URL that opens on one hand (Phase 1 deep link). */
+/**
+ * The archive URL that opens on one hand (Phase 1 deep link).
+ *
+ * FOR THE PEOPLE WHO PLAYED THE HAND ONLY. The archive reads `hand_history`
+ * under RLS, which returns a hand to the players dealt into it and to nobody
+ * else. Sent to anyone else, this address opens THEIR OWN archive with a
+ * "not in your record" note - which is exactly what players reported on
+ * 2026-11-06 (Chris -> Art, Mongo -> Burls: "it shows mine"). A link meant
+ * for another person is `handShareLink`, never this.
+ */
 /** The router's basename (main.tsx `<BrowserRouter basename>`), not Vite's BASE_URL, which is '/' under test. */
 const APP_BASE = '/hub/club-arena';
+
+/**
+ * The link a player SENDS: `/replay?h=<payload>`, the hand carried inside the
+ * address, exactly what the Share sheet copies. It needs no database read, so
+ * it opens the sender's hand for whoever taps it, signed in or not, and can
+ * never fall back to the recipient's own records. `encoded` is
+ * `encodeHand(...)` of the hand as the sender sees it.
+ */
+export function handShareLink(encoded: string, origin?: string): string {
+  const o = origin ?? publicOrigin();
+  return `${o}${APP_BASE}/replay?h=${encoded}`;
+}
 
 export function handDeepLink(handId: string, origin?: string): string {
   const base = APP_BASE;

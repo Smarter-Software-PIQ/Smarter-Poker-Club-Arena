@@ -75,7 +75,10 @@ import {
   potShareLabels,
   stamp,
 } from '../../utils/handFormat';
-import { handDeepLink } from '../../lib/handHistoryLive';
+import { handShareLink } from '../../lib/handHistoryLive';
+import { panelHandToShareable } from '../../lib/handHistoryAdapter';
+import { encodeHand } from './ShareHand';
+import { reportError } from '../../utils/errorReporter';
 import {
   fetchReplayRabbitStatus,
   type ReplayRabbitStatus,
@@ -725,6 +728,23 @@ export function HandDetailModal({
    * itself, so the modal needs no toast layer of its own.
    */
   const [copied, setCopied] = useState<'number' | 'link' | null>(null);
+  /*
+   * SHARED HAND LINKS OPEN THE SENDER'S HAND (2026-11-06). This button used to
+   * copy the archive deep link (`/hand-history?hand=<id>`). A player pastes it
+   * to a friend, and the friend - who was not dealt into the hand, so RLS
+   * gives him nothing - lands on HIS OWN hand history. The copied link is now
+   * the self-contained replay the Share sheet sends, built from the same
+   * record, so it opens this hand for anyone. If the record cannot be encoded
+   * the copy is refused rather than quietly handing out the archive link.
+   */
+  const sendableHandLink = (h: HandRecord): string | null => {
+    try {
+      return handShareLink(encodeHand(panelHandToShareable(h, h.tableName || 'Club Arena')));
+    } catch (error) {
+      reportError(error, 'HandDetailModal.sendableHandLink');
+      return null;
+    }
+  };
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyText = useCallback(async (kind: 'number' | 'link', text: string) => {
     try {
@@ -1107,7 +1127,10 @@ export function HandDetailModal({
             <button
               type="button"
               aria-label="Copy Link To This Hand"
-              onClick={() => void copyText('link', handDeepLink(hand.id))}
+              onClick={() => {
+                const link = sendableHandLink(hand);
+                if (link) void copyText('link', link);
+              }}
             >
               {copied === 'link' ? 'Copied' : 'Link'}
             </button>

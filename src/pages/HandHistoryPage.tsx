@@ -998,10 +998,11 @@ export default function HandHistoryPage() {
       {linkedHandId && linkedState === 'missing' && (
         <div className="hh-stats-drilldown" role="status">
           <span>
-            That Hand Is Not In Your Record. Hands Are Readable By The Players Dealt Into Them.
+            That Hand Belongs To Another Player, So It Cannot Open Here. Ask Them To Send It With
+            The Share Button, Which Opens Their Hand For Anyone.
           </span>
           <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
-            Show All Hands
+            Show My Hands
           </button>
         </div>
       )}
@@ -1096,176 +1097,184 @@ export default function HandHistoryPage() {
         </div>
       )}
 
-      <div className="hands-list" aria-busy={loading}>
-        {loading ? (
-          <PageSkeleton variant="list" />
-        ) : loadFailed && hands.length === 0 ? null : hands.length === 0 ? (
-          <div className="hh-empty">
-            <span className="hh-empty__suits" aria-hidden="true">
-              ♠♥♦♣
-            </span>
-            {/* SAY WHICH ONE NARROWED IT. A player who typed a search and is
+      {/* A link to someone else's hand opens on the note above and NOTHING else:
+          listing the viewer's own hands under it is what made players think the
+          link had opened the wrong person's history (2026-11-06). Show My Hands
+          drops the link and brings the list back. */}
+      {linkedHandId && linkedState === 'missing' ? null : (
+        <div className="hands-list" aria-busy={loading}>
+          {loading ? (
+            <PageSkeleton variant="list" />
+          ) : loadFailed && hands.length === 0 ? null : hands.length === 0 ? (
+            <div className="hh-empty">
+              <span className="hh-empty__suits" aria-hidden="true">
+                ♠♥♦♣
+              </span>
+              {/* SAY WHICH ONE NARROWED IT. A player who typed a search and is
                 told to "choose another filter" looks at the chips, which are
                 not what hid their hand. */}
-            <p className="hh-empty__title">
-              {rows.length === 0
-                ? 'No Hands Recorded Yet'
-                : search
-                  ? 'No Loaded Hands Match That Search'
-                  : variant || from || to
-                    ? 'No Loaded Hands Match Those Dates Or That Game'
-                    : 'No Loaded Hands Match This Filter'}
-            </p>
-            <p className="hh-empty__body">
-              {rows.length === 0
-                ? 'Play Some Poker And Your Hand History Will Appear Here.'
-                : search
-                  ? 'Load More Hands, Or Try A Different Hand Number, Opponent Or Tag.'
-                  : 'Load More Hands Or Widen The Filter.'}
-            </p>
-          </div>
-        ) : (
-          hands.map((hand, index) => {
-            const me = hand.replay.players.find((p) => p.userId === userId);
-            const net = me?.net ?? 0;
-            const amountPrecision = hand.arenaAsset === 'diamonds' ? 0 : 2;
-            const expanded = expandedId === hand.id;
-            const variant = gameTypeLabel(hand.replay.gameVariant) || hand.gameType;
-            const runs = hand.replay.boards.length;
-            /* Past the first hundred, a card that is off screen need not be
+              <p className="hh-empty__title">
+                {rows.length === 0
+                  ? 'No Hands Recorded Yet'
+                  : search
+                    ? 'No Loaded Hands Match That Search'
+                    : variant || from || to
+                      ? 'No Loaded Hands Match Those Dates Or That Game'
+                      : 'No Loaded Hands Match This Filter'}
+              </p>
+              <p className="hh-empty__body">
+                {rows.length === 0
+                  ? 'Play Some Poker And Your Hand History Will Appear Here.'
+                  : search
+                    ? 'Load More Hands, Or Try A Different Hand Number, Opponent Or Tag.'
+                    : 'Load More Hands Or Widen The Filter.'}
+              </p>
+            </div>
+          ) : (
+            hands.map((hand, index) => {
+              const me = hand.replay.players.find((p) => p.userId === userId);
+              const net = me?.net ?? 0;
+              const amountPrecision = hand.arenaAsset === 'diamonds' ? 0 : 2;
+              const expanded = expandedId === hand.id;
+              const variant = gameTypeLabel(hand.replay.gameVariant) || hand.gameType;
+              const runs = hand.replay.boards.length;
+              /* Past the first hundred, a card that is off screen need not be
                laid out or painted. An EXPANDED card never defers - it holds
                the rundown the player is reading, and its height is nothing
                like the intrinsic guess. */
-            const deferred = index >= DEFER_OFFSCREEN_AFTER && !expanded;
-            return (
-              <article
-                key={hand.id}
-                id={`hand-${hand.id}`}
-                className={`hand-card${expanded ? ' hand-card--expanded' : ''}${visible[hand.id] ? ' hand-card--in' : ''}${
-                  hand.id === linkedHandId ? ' hand-card--linked' : ''
-                }${deferred ? ' hand-card--deferred' : ''}`}
-              >
-                <button
-                  type="button"
-                  className="hand-card__summary"
-                  aria-expanded={expanded}
-                  onClick={() => setExpandedId(expanded ? null : hand.id)}
+              const deferred = index >= DEFER_OFFSCREEN_AFTER && !expanded;
+              return (
+                <article
+                  key={hand.id}
+                  id={`hand-${hand.id}`}
+                  className={`hand-card${expanded ? ' hand-card--expanded' : ''}${visible[hand.id] ? ' hand-card--in' : ''}${
+                    hand.id === linkedHandId ? ' hand-card--linked' : ''
+                  }${deferred ? ' hand-card--deferred' : ''}`}
                 >
-                  <div className="hand-header">
-                    <span className="table-name">{hand.tableName || 'Table'}</span>
-                    <span className="hand-num">#{hand.handNumber}</span>
-                    <span className="hand-date">{formatDate(hand.timestamp)}</span>
-                  </div>
-                  <div className="hand-body">
-                    <div className="pot-info">
-                      <span className="pot-label">Pot</span>
-                      <span className="pot-value">
-                        {money(hand.replay.potTotal, amountPrecision)}
+                  <button
+                    type="button"
+                    className="hand-card__summary"
+                    aria-expanded={expanded}
+                    onClick={() => setExpandedId(expanded ? null : hand.id)}
+                  >
+                    <div className="hand-header">
+                      <span className="table-name">{hand.tableName || 'Table'}</span>
+                      <span className="hand-num">#{hand.handNumber}</span>
+                      <span className="hand-date">{formatDate(hand.timestamp)}</span>
+                    </div>
+                    <div className="hand-body">
+                      <div className="pot-info">
+                        <span className="pot-label">Pot</span>
+                        <span className="pot-value">
+                          {money(hand.replay.potTotal, amountPrecision)}
+                        </span>
+                      </div>
+                      <div className="hand-tags">
+                        <span className="hand-tag">{variant}</span>
+                        {runs > 1 && (
+                          <span className="hand-tag">
+                            {hand.bombPot ? 'Bomb Pot' : runs >= 3 ? 'Run 3x' : 'Run 2x'}
+                          </span>
+                        )}
+                        {hand.replay.hiLo && <span className="hand-tag">Hi-Lo</span>}
+                        {!hand.wentToShowdown && (
+                          <span className="hand-tag hand-tag--quiet">No Showdown</span>
+                        )}
+                      </div>
+                      <div
+                        className={`result-badge ${net > 0 ? 'win' : net < 0 ? 'loss' : 'flat'}`}
+                      >
+                        {signed(net, amountPrecision)}
+                      </div>
+                    </div>
+                    <div className="hand-footer">
+                      <span className="stakes">
+                        {hand.blinds}
+                        {hand.arenaAsset === 'diamonds' ? ' Diamonds' : ''}
+                      </span>
+                      <span className="players">{hand.players.length} Players</span>
+                      <span className="hand-card__chevron" aria-hidden="true">
+                        {expanded ? '▴' : '▾'}
                       </span>
                     </div>
-                    <div className="hand-tags">
-                      <span className="hand-tag">{variant}</span>
-                      {runs > 1 && (
-                        <span className="hand-tag">
-                          {hand.bombPot ? 'Bomb Pot' : runs >= 3 ? 'Run 3x' : 'Run 2x'}
-                        </span>
-                      )}
-                      {hand.replay.hiLo && <span className="hand-tag">Hi-Lo</span>}
-                      {!hand.wentToShowdown && (
-                        <span className="hand-tag hand-tag--quiet">No Showdown</span>
-                      )}
-                    </div>
-                    <div className={`result-badge ${net > 0 ? 'win' : net < 0 ? 'loss' : 'flat'}`}>
-                      {signed(net, amountPrecision)}
-                    </div>
-                  </div>
-                  <div className="hand-footer">
-                    <span className="stakes">
-                      {hand.blinds}
-                      {hand.arenaAsset === 'diamonds' ? ' Diamonds' : ''}
-                    </span>
-                    <span className="players">{hand.players.length} Players</span>
-                    <span className="hand-card__chevron" aria-hidden="true">
-                      {expanded ? '▴' : '▾'}
-                    </span>
-                  </div>
-                </button>
+                  </button>
 
-                {expanded && (
-                  <div className="hand-card__detail">
-                    <HandDetailView
-                      model={hand.replay}
-                      currentUserId={heroId}
-                      badge={variant}
-                      viewerFacts={hand.heroFacts}
-                    />
-                    <HandFlagControl
-                      handId={hand.id}
-                      flag={flags.get(hand.id) ?? null}
-                      flagKnown={flagsKnown}
-                      onFiled={(handId, filed) =>
-                        setFlags((prev) => {
-                          const next = new Map(prev);
-                          if (filed) next.set(handId, filed);
-                          else next.delete(handId);
-                          return next;
-                        })
-                      }
-                    />
-                    <HandNoteEditor
-                      handId={hand.id}
-                      note={notes.get(hand.id) ?? null}
-                      noteKnown={notesKnown}
-                      onSaved={(handId, saved) =>
-                        setNotes((prev) => {
-                          const next = new Map(prev);
-                          if (saved) next.set(handId, saved);
-                          else next.delete(handId);
-                          return next;
-                        })
-                      }
-                    />
-                    <div className="hand-card__actions">
-                      <button
-                        type="button"
-                        className="replay-btn"
-                        onClick={() => setDetailSelection({ scope: archiveScope, hand })}
-                      >
-                        Open Hand Detail
-                      </button>
-                      <button
-                        type="button"
-                        className="analyze-btn"
-                        onClick={() => analyzeWithJarvis(hand)}
-                      >
-                        Analyze
-                      </button>
-                      <button
-                        type="button"
-                        className="share-btn"
-                        onClick={() =>
-                          setShareHand(panelHandToShareable(hand, hand.tableName || 'Club Arena'))
+                  {expanded && (
+                    <div className="hand-card__detail">
+                      <HandDetailView
+                        model={hand.replay}
+                        currentUserId={heroId}
+                        badge={variant}
+                        viewerFacts={hand.heroFacts}
+                      />
+                      <HandFlagControl
+                        handId={hand.id}
+                        flag={flags.get(hand.id) ?? null}
+                        flagKnown={flagsKnown}
+                        onFiled={(handId, filed) =>
+                          setFlags((prev) => {
+                            const next = new Map(prev);
+                            if (filed) next.set(handId, filed);
+                            else next.delete(handId);
+                            return next;
+                          })
                         }
-                      >
-                        Share
-                      </button>
-                      <button
-                        type="button"
-                        className="replay-btn"
-                        onClick={() => setReplayId(hand.id)}
-                      >
-                        Replay
-                      </button>
+                      />
+                      <HandNoteEditor
+                        handId={hand.id}
+                        note={notes.get(hand.id) ?? null}
+                        noteKnown={notesKnown}
+                        onSaved={(handId, saved) =>
+                          setNotes((prev) => {
+                            const next = new Map(prev);
+                            if (saved) next.set(handId, saved);
+                            else next.delete(handId);
+                            return next;
+                          })
+                        }
+                      />
+                      <div className="hand-card__actions">
+                        <button
+                          type="button"
+                          className="replay-btn"
+                          onClick={() => setDetailSelection({ scope: archiveScope, hand })}
+                        >
+                          Open Hand Detail
+                        </button>
+                        <button
+                          type="button"
+                          className="analyze-btn"
+                          onClick={() => analyzeWithJarvis(hand)}
+                        >
+                          Analyze
+                        </button>
+                        <button
+                          type="button"
+                          className="share-btn"
+                          onClick={() =>
+                            setShareHand(panelHandToShareable(hand, hand.tableName || 'Club Arena'))
+                          }
+                        >
+                          Share
+                        </button>
+                        <button
+                          type="button"
+                          className="replay-btn"
+                          onClick={() => setReplayId(hand.id)}
+                        >
+                          Replay
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </article>
-            );
-          })
-        )}
-      </div>
+                  )}
+                </article>
+              );
+            })
+          )}
+        </div>
+      )}
 
-      {!loading && hasMore && rows.length > 0 && (
+      {!loading && hasMore && rows.length > 0 && !(linkedHandId && linkedState === 'missing') && (
         <button
           type="button"
           className="load-more-btn"
