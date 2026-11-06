@@ -25,6 +25,7 @@
  * holder keeps its refresh semantics.
  */
 import { createHash } from 'node:crypto';
+import { noteFire } from './BrainTelemetry.js';
 import type {
   HorseAuthorityAdmission,
   HorseQualifiedAuthority,
@@ -87,11 +88,44 @@ export interface HorseOwnerForcedAuthorityFields {
   readonly keyExtras?: Readonly<Record<string, unknown>>;
 }
 
+/** The telemetry receipt every null-digest refusal of this order fires (plus a per-phase one). */
+export const HORSE_OWNER_FORCED_DIGEST_UNAVAILABLE_FIRE =
+  'horse_owner_forced_authority_digest_unavailable';
+const digestUnavailableLogged = new Set<string>();
+
+/**
+ * A null policy digest can never be invisible again (2026-11-05). From the
+ * first release carrying #8605 (67bc0e85, Nov 5 01:57Z) the engine image did
+ * not carry two hashed reference sources, every phase digest was null, this
+ * function returned null for every phase and phases 8, 10, 11, 12, 13 and 14
+ * sat in shadow for three releases while every receipt read "unselected".
+ * Now every such refusal fires `horse_owner_forced_authority_digest_unavailable`
+ * (and `..._<phase>`) into horse_brain_telemetry and logs once per phase and
+ * variant per process. `HorsePolicySourceManifest.ts` names the unreadable
+ * file at boot and the image build refuses to ship it.
+ */
+export function noteHorseOwnerForcedDigestUnavailable(phase: string, variant?: string): void {
+  noteFire(HORSE_OWNER_FORCED_DIGEST_UNAVAILABLE_FIRE);
+  noteFire(`${HORSE_OWNER_FORCED_DIGEST_UNAVAILABLE_FIRE}_${phase}`);
+  const key = variant === undefined ? phase : `${phase}/${variant}`;
+  if (digestUnavailableLogged.has(key)) return;
+  digestUnavailableLogged.add(key);
+  console.error(
+    `[HorseOwnerForcedActivation] ${key}: the running code's policy digest is null, so the ` +
+      `owner's order "${HORSE_OWNER_FORCED_ACTIVATION.order}" cannot issue an authority and ` +
+      'this phase falls to shadow. A hashed policy source is missing from the engine image or ' +
+      'unreadable; see HorsePolicySourceManifest.ts and the boot log for the exact path.'
+  );
+}
+
 /** The authority this order issues for the running code, or null when its digest is unknown. */
 export function horseOwnerForcedAuthority(
   f: HorseOwnerForcedAuthorityFields
 ): HorseQualifiedAuthority | null {
-  if (typeof f.policyDigest !== 'string' || !HEX64.test(f.policyDigest)) return null;
+  if (typeof f.policyDigest !== 'string' || !HEX64.test(f.policyDigest)) {
+    noteHorseOwnerForcedDigestUnavailable(f.phase, f.variant);
+    return null;
+  }
   const identity: Record<string, unknown> = {
     schema: 'horse-qualified-authority-v1',
     phase: f.phase,
