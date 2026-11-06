@@ -162,6 +162,27 @@ afterEach(() => {
 });
 
 describe('Club Financials default snapshot reuse', () => {
+  it('renders a refund day and retains its signed fee in the verified snapshot', async () => {
+    const payload = financialPayload();
+    payload.daily[0].tournament_fees = -16.44;
+    payload.totals.tournament_fees = -16.44;
+    payload.totals.net_revenue = 683.56;
+    m.rpc.mockResolvedValue({ data: payload, error: null });
+    render(<ClubFinancialsPage />);
+    expect(await screen.findByText('Dashboard Embed Ready')).toBeInTheDocument();
+    expect(screen.queryByText('Financials Unavailable')).not.toBeInTheDocument();
+    expect(m.reportError).not.toHaveBeenCalled();
+    expect(m.dashboardProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        initialSnapshot: expect.objectContaining({
+          financials: expect.objectContaining({
+            totals: expect.objectContaining({ tournament_fees: -16.44, net_revenue: 683.56 }),
+          }),
+        }),
+      })
+    );
+  });
+
   it('does not leak stored snake-case variants into its financial table labels', async () => {
     const payload = financialPayload();
     (payload.by_table as unknown[]) = [

@@ -93,6 +93,37 @@ const payload = () => ({
 const isoDay = (date: Date): string => date.toISOString().slice(0, 10);
 
 describe('parseClubFinancialsPayload', () => {
+  it.each([20, 3])('keeps signed fee refunds when the other day earns %s', (earned) => {
+    const value = payload();
+    value.daily[0].tournament_fees = -16.44;
+    value.daily[1].tournament_fees = earned;
+    value.totals.tournament_fees = Math.round((earned - 16.44) * 100) / 100;
+    value.totals.net_revenue = Math.round((23.75 + value.totals.tournament_fees) * 100) / 100;
+    const parsed = parseClubFinancialsPayload(value, request);
+    expect(parsed.daily[0].tournament_fees).toBe(-16.44);
+    expect(parsed.totals.tournament_fees).toBe(value.totals.tournament_fees);
+    expect(parsed.totals.net_revenue).toBe(value.totals.net_revenue);
+    value.totals.net_revenue += 0.01;
+    expect(() => parseClubFinancialsPayload(value, request)).toThrow(/net revenue reconciliation/);
+    value.totals.net_revenue -= 0.01;
+    value.daily[0].tournament_fees = -16.45;
+    expect(() => parseClubFinancialsPayload(value, request)).toThrow(
+      /tournament fees reconciliation/
+    );
+  });
+
+  it.each([Number.NaN, Number.NEGATIVE_INFINITY, -16.441])(
+    'rejects invalid signed fee value %s',
+    (invalidFee) => {
+      for (const scope of ['daily', 'totals'] as const) {
+        const value = payload();
+        if (scope === 'daily') value.daily[0].tournament_fees = invalidFee;
+        else value.totals.tournament_fees = invalidFee;
+        expect(() => parseClubFinancialsPayload(value, request)).toThrow(/tournament fees/);
+      }
+    }
+  );
+
   it('accepts a complete exact-cent report bound to the requested range', () => {
     expect(parseClubFinancialsPayload(payload(), request)).toMatchObject({
       range: { start: '2026-10-02', end: '2026-10-03', days: 2 },
