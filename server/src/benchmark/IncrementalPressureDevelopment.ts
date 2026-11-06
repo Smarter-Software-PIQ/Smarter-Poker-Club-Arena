@@ -40,7 +40,7 @@ export const isSeparateRiverTarget = (value: unknown): value is SeparateRiverTar
  * Reserved seeds are declarations only, not authority to execute a heldout. */
 export const SEPARATE_RIVER_DESIGNS = Object.freeze({
   small_pot_near_nut_value_raise: Object.freeze({
-    version: 'near-nut-physical-development-v1',
+    version: 'near-nut-physical-development-v2',
     developmentSeeds: Object.freeze([27701101, 27702203, 27703307]),
     reservedHoldoutSeeds: Object.freeze([28701109, 28702231, 28703347]),
     warmSeed: 27707777,
@@ -68,7 +68,10 @@ export function isIncrementalTarget(value: unknown): value is IncrementalTarget 
 export function incrementalPressureDecision(
   player: SeatPlayer,
   gs: HorseGameStateV2,
-  rng: () => number
+  rng: () => number,
+  /** River opening bet as a pot fraction. Omitted: the original 0.75 with no
+   * extra draw, so every existing population keeps its exact RNG sequence. */
+  riverOpenFraction?: (rng: () => number) => number
 ): HorseDecision {
   if (!['nlh', 'plo4', 'plo5', 'plo6'].includes(gs.gameVariant))
     throw new Error('Incremental stress variant refused');
@@ -112,7 +115,8 @@ export function incrementalPressureDecision(
     if (!lastToAct) return passive();
     const probability = gs.stage === 'river' ? 0.95 : gs.stage === 'flop' ? 0.75 : 0.65;
     return rng() < probability
-      ? (sized(gs.stage === 'river' ? 0.75 : 0.5) ?? passive())
+      ? (sized(gs.stage === 'river' ? (riverOpenFraction ? riverOpenFraction(rng) : 0.75) : 0.5) ??
+          passive())
       : passive();
   }
   // Deliberately wide flop/turn continuations preserve observable river opportunities.
@@ -179,6 +183,24 @@ export const INCREMENTAL_CHECKRAISE_POPULATION: Plo4AblationPopulation = Object.
     return incrementalPressureDecision(player, gs, rng);
   },
 });
+/** The near-nut candidate's declared domain is an opening river bet of at most
+ * half the pot before it (HorseNearNutRiverValue.ts). The shared overstab
+ * population always opens the river at 0.75 pot, so in 8,640 development pairs
+ * its own workload never produced one in-domain spot: the candidate was
+ * evaluated at every heads-up boat facing a bet and refused each on size. This
+ * near-nut population is identical except that the river opening bet is drawn
+ * from one third, 0.45 and 0.75 pot, keeping out-of-domain sizes as controls. */
+export const NEAR_NUT_RIVER_OPEN_FRACTIONS = Object.freeze([0.33, 0.45, 0.75]);
+export const NEAR_NUT_RIVER_POPULATION: Plo4AblationPopulation = Object.freeze({
+  id: 'near_nut_mixed_river_open_stress_v1',
+  decide: (player: SeatPlayer, gs: HorseGameStateV2, rng: () => number) =>
+    incrementalPressureDecision(
+      player,
+      gs,
+      rng,
+      (r) => NEAR_NUT_RIVER_OPEN_FRACTIONS[Math.min(2, Math.floor(r() * 3))]
+    ),
+});
 export const PRESSURE_PACKAGE_FLAGS = Object.freeze([
   'comboDrawPressure',
   'v54RiverBluff',
@@ -230,7 +252,7 @@ export function incrementalDevelopmentDesign(target: IncrementalTarget) {
       population:
         target === 'multiway_river_bluff_checkraise'
           ? MULTIWAY_RIVER_POPULATION.id
-          : INCREMENTAL_PRESSURE_POPULATION.id,
+          : NEAR_NUT_RIVER_POPULATION.id,
       contrasts:
         target === 'multiway_river_bluff_checkraise'
           ? 'riverBluffCheckRaise held true in both arms; only multiwayRiverBluffCheckRaise differs'
@@ -259,7 +281,7 @@ export function incrementalDevelopmentDesign(target: IncrementalTarget) {
 }
 export function incrementalHistoryVersion(target?: IncrementalTarget) {
   if (target === 'small_pot_near_nut_value_raise')
-    return `${target}-physical-public-node-warm-v2-${NEAR_NUT_WARM_PUBLIC_HANDS}`;
+    return `${target}-physical-public-node-warm-v3-${NEAR_NUT_WARM_PUBLIC_HANDS}`;
   if (isSeparateRiverTarget(target)) return `${target}-physical-public-node-warm-v1`;
   return target === 'pressure_package'
     ? 'five-flag-pressure-package-warm-v1'
@@ -330,7 +352,9 @@ export function incrementalDevelopmentSpec(
             ? BARREL_CONTINUATION_POPULATION
             : target === 'river_bluff_checkraise'
               ? INCREMENTAL_CHECKRAISE_POPULATION
-              : INCREMENTAL_PRESSURE_POPULATION,
+              : target === 'small_pot_near_nut_value_raise'
+                ? NEAR_NUT_RIVER_POPULATION
+                : INCREMENTAL_PRESSURE_POPULATION,
   };
 }
 /** Near-nut warm hands retain their public river nodes. Measured on the declared
@@ -362,7 +386,9 @@ export function buildIncrementalWarmRecords(
             ? BARREL_CONTINUATION_POPULATION
             : target === 'river_bluff_checkraise'
               ? INCREMENTAL_CHECKRAISE_POPULATION
-              : INCREMENTAL_PRESSURE_POPULATION,
+              : target === 'small_pot_near_nut_value_raise'
+                ? NEAR_NUT_RIVER_POPULATION
+                : INCREMENTAL_PRESSURE_POPULATION,
   });
 }
 export function incrementalWarmCoverage(records: readonly FeatureAblationWarmHand[]) {

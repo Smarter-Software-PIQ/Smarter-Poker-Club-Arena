@@ -266,6 +266,8 @@ import {
   straightTop,
   nextCardOutlook,
   estimateRiverRangeComposition,
+  saveFastRandom,
+  restoreFastRandom,
 } from './HorseEval.js';
 import { anteOrbitCostBB } from './AnteMath.js';
 import { v81Cell, v81StreetWager } from './HorseOmahaBigBetCalls.js';
@@ -3601,6 +3603,18 @@ export const PLO6_RIVER_UNPAIRED_RAISE_BEAT_PROB = 0.15;
 // Private, one-use provenance from the actual value branch. No request or
 // serialized decision field can grant the PLO6 low-commitment flat exception.
 const nearNutValueReferenceRaises = new WeakSet<HorseDecision>();
+// Raises the near-nut candidate itself chose (the original value gate had
+// already declined). Private one-use provenance for the receipt below.
+const nearNutChosenRaises = new WeakSet<HorseDecision>();
+// barrelContinuationOutlook receipt state: a river decision that read a turn
+// outlook while the flag is on, not yet consumed by the V7 continuation.
+let barrelOutlookRiverPending = false;
+// v53PloTourneyIcm receipt state: the ICM shifts changed the reference choice.
+let v53IcmAppliedPending = false;
+// The near-nut candidate kept a raise the PLO6 flat rule would have flatted.
+let nearNutFlatExceptionUsed = false;
+// barrelContinuationOutlook changed the reference choice; judged at the end.
+let barrelOutlookAppliedPending = false;
 
 function plo6RiverNutDiscipline(
   decision: HorseDecision,
@@ -3662,6 +3676,7 @@ function plo6RiverNutDiscipline(
         smallPotNearNutRiverValue(player, gs)
       ) {
         if (telemetryOn(opts)) noteFire('small_pot_near_nut_value_flat_exception');
+        nearNutFlatExceptionUsed = true;
         return decision;
       }
       noteFlat();
@@ -4859,6 +4874,10 @@ export class HorseLogic {
         ? { action: 'check', thinkTime: 1500, policyFallback: 'brain_exception' }
         : { action: 'fold', thinkTime: 1500, policyFallback: 'brain_exception' };
     } finally {
+      barrelOutlookRiverPending = false;
+      v53IcmAppliedPending = false;
+      nearNutFlatExceptionUsed = false;
+      barrelOutlookAppliedPending = false;
       phase7EquityEvidence = null;
       phase10EquityEvidence = null;
       phase11DecisionEquityCeiling = null;
@@ -4880,6 +4899,10 @@ export class HorseLogic {
     phase10EquityEvidence = null;
     phase11DecisionEquityCeiling = null;
     phase12DecisionEquityCeiling = null;
+    barrelOutlookRiverPending = false;
+    v53IcmAppliedPending = false;
+    nearNutFlatExceptionUsed = false;
+    barrelOutlookAppliedPending = false;
     // Authored JSON and older direct callers can supply arbitrary strings.
     // Inherited object keys are not styles; keep every downstream style
     // branch on the same valid fallback as the numerical parameters.
@@ -5059,6 +5082,12 @@ export class HorseLogic {
           rangeCapture,
           planReadCapture
         );
+        // barrelContinuationOutlook receipt: a river decision read the turn
+        // outlook but an earlier river owner decided before the V7 continuation.
+        if (barrelOutlookRiverPending) {
+          barrelOutlookRiverPending = false;
+          if (tele) noteFire('barrel_continuation_outlook_superseded');
+        }
       }
       // MANIAC CALL-DOWN, inside the reference like the floor call-down, so
       // every later owner sees it as the reference's own choice.
@@ -5074,6 +5103,11 @@ export class HorseLogic {
         ? { action: 'raise' as const, amount: decision.amount!, thinkTime: 0 }
         : null;
 
+    const nearNutChosen = nearNutChosenRaises.delete(decision) && nearNutReference !== null;
+    const v53IcmApplied = v53IcmAppliedPending;
+    v53IcmAppliedPending = false;
+    const barrelOutlookApplied = barrelOutlookAppliedPending;
+    barrelOutlookAppliedPending = false;
     const v54StationCheck = v54StationChecks.has(decision);
     const phase6Attribution =
       gs.stage === 'preflop'
@@ -5853,6 +5887,46 @@ export class HorseLogic {
       if (floored !== ruled && tele) noteFire('short_all_in_call_floor');
       return { decision: riverBluffCheckRaise(floored, player, gs, opts) };
     }).decision;
+    // smallPotNearNutRiverValue receipt: the raise it chose reached the final
+    // action (applied) or a later owner replaced it (superseded).
+    // v53PloTourneyIcm receipt: a changed reference choice that a later owner
+    // replaced (the applied receipt already fired at the choice itself).
+    if (
+      v53IcmApplied &&
+      tele &&
+      (decision.action !== beforePhase10.action ||
+        (decision.amount ?? null) !== (beforePhase10.amount ?? null))
+    )
+      noteFire('v53_plo_icm_superseded');
+    // The reference choice a skill changed must survive every later owner to
+    // count as applied; a later owner that replaced it superseded it.
+    const referenceKept =
+      decision.action === beforePhase10.action &&
+      (decision.amount ?? null) === (beforePhase10.amount ?? null);
+    if (barrelOutlookApplied && tele)
+      noteFire(
+        referenceKept
+          ? 'barrel_continuation_outlook_applied'
+          : 'barrel_continuation_outlook_superseded'
+      );
+    // smallPotNearNutRiverValue: its own raise reaching the final action, or
+    // the PLO6 flat exception keeping an in-domain raise, is applied; an
+    // in-domain raise the original gate made and nothing changed is considered.
+    if (nearNutReference && tele) {
+      const nearNutKept =
+        decision.action === nearNutReference.action && decision.amount === nearNutReference.amount;
+      if (nearNutChosen)
+        noteFire(
+          nearNutKept ? 'small_pot_near_nut_value_applied' : 'small_pot_near_nut_value_superseded'
+        );
+      else
+        noteFire(
+          nearNutKept && nearNutFlatExceptionUsed
+            ? 'small_pot_near_nut_value_applied'
+            : 'small_pot_near_nut_value_considered'
+        );
+    }
+    nearNutFlatExceptionUsed = false;
     decision = graph.run('timing', decision, () => {
       decision.thinkTime = this.computeThinkTime(
         decision,
@@ -7037,7 +7111,7 @@ export class HorseLogic {
       if (telemetryOn(opts)) noteFire('v77_seat_jam');
       return openWidth(ob77, (gs.ante ?? 0) > 0, dealt77, gs.gameMode === 'cash');
     })();
-    const intent = decidePreflopV7({
+    const intentCtx7: Parameters<typeof decidePreflopV7>[0] = {
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
       ...(gtoVs3Bet73 ? { gtoVs3Bet: gtoVs3Bet73 } : {}),
@@ -7293,7 +7367,27 @@ export class HorseLogic {
         return { locked: sr.locked, urgent: sr.urgent, coversAll: sr.coversAll };
       })(),
       rand: fastRandom,
-    });
+    };
+    // v53PloTourneyIcm receipt: the same context without the ICM shifts, on
+    // the same RNG position, says whether the flag changed the preflop choice.
+    // The counterfactual's draws are rewound, so the real choice is unchanged.
+    let v53IcmOff: ReturnType<typeof decidePreflopV7> | null = null;
+    if (ploIcm53 && telemetryOn(opts)) {
+      const rng53 = saveFastRandom();
+      try {
+        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined });
+      } catch {
+        v53IcmOff = null;
+      } finally {
+        restoreFastRandom(rng53);
+      }
+    }
+    const intent = decidePreflopV7(intentCtx7);
+    if (v53IcmOff) {
+      const same53 = v53IcmOff.a === intent.a && v53IcmOff.to === intent.to;
+      noteFire(same53 ? 'v53_plo_icm_considered' : 'v53_plo_icm_applied');
+      if (!same53) v53IcmAppliedPending = true;
+    }
     // V74 / V76 receipts reported by the preflop engine (no action change).
     if (telemetryOn(opts)) {
       if (intent.receipt === 'v74_nlh_open_size') noteFire('v74_nlh_open_size');
@@ -8871,6 +8965,15 @@ export class HorseLogic {
       isTournamentMode(gs) &&
       !vi.isOmaha &&
       gs.allInOrFold !== true;
+    // barrelContinuationOutlook: the river is where the recorded turn outlook
+    // is consumed. Track it so the receipt can say what happened to it.
+    barrelOutlookRiverPending =
+      opts.barrelContinuationOutlook === true &&
+      isRiver &&
+      !facingBet &&
+      useBarrels &&
+      barrelPlan === true &&
+      (outlook39 === 'good' || outlook39 === 'scare');
     const recordBarrelOutlook = (): void => {
       try {
         const o = nextCardOutlook(player.cards, board, vi, opts.drawOutlookQuality !== false);
@@ -10146,12 +10249,22 @@ export class HorseLogic {
         // scare card is the give-up the `!dangered` gate already enforces.
         const outlookMul39 =
           outlook39 === 'good' ? 1.4 : outlook39 === 'scare' ? (blocker ? 1.2 : 0.5) : 1;
+        const outlookReceipt39 = barrelOutlookRiverPending && isRiver;
+        if (outlookReceipt39) barrelOutlookRiverPending = false;
         if (barrelPlan && !dangered && oppCount <= 2 && (equity >= 0.15 || blocker)) {
           // TUNED (duplicate-deal ablation): continuation frequencies cut
           // (turn 0.75->0.60, river 0.55->0.42) and total-air no-blocker
           // barrels abandoned — the original volume measurably lost.
           const continueBase = tourneyAggro ? (isRiver ? 0.42 : 0.66) : isRiver ? 0.35 : 0.52;
-          if (fastRandom() < continueBase * Math.min(1.25, bluffScale) * outlookMul39) {
+          const continueP39 = continueBase * Math.min(1.25, bluffScale);
+          const roll39 = fastRandom();
+          const continues39 = roll39 < continueP39 * outlookMul39;
+          // Receipt: the outlook changed the barrel (applied) or the same
+          // draw would have made the same choice without it (considered).
+          if (outlookReceipt39 && continues39 !== roll39 < continueP39)
+            barrelOutlookAppliedPending = true;
+          else if (outlookReceipt39 && tele15) noteFire('barrel_continuation_outlook_considered');
+          if (continues39) {
             // The turn continuation used to return before recording its
             // river outlook. Keep the existing plan and RNG untouched; the
             // worker commits this private effect only for the exact action.
@@ -10171,6 +10284,8 @@ export class HorseLogic {
           }
         } else if (!barrelPlan && equity < 0.52 && fastRandom() < (tourneyAggro ? 0.65 : 0.8)) {
           return { action: 'check', thinkTime: 0 }; // one-and-done — give up
+        } else if (outlookReceipt39 && tele15) {
+          noteFire('barrel_continuation_outlook_considered');
         }
       }
       // ═══ V38 THE BET IS ARITHMETIC TOO (solverless games) ═══════════════
@@ -11413,6 +11528,7 @@ export class HorseLogic {
           raised.action === 'raise'
         )
           nearNutValueReferenceRaises.add(raised);
+        if (nearNutValueRaise && raised.action === 'raise') nearNutChosenRaises.add(raised);
         return raised;
       }
       return { action: 'call', amount: toCall, thinkTime: 0 };
