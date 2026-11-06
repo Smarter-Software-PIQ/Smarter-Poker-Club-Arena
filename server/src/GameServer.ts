@@ -4941,8 +4941,13 @@ export class GameServer {
      * live together in one FIFO worker. READY is a boot prerequisite: table
      * discovery cannot admit a live horse turn until that authority exists.
      * A standby returns above and therefore never starts a competing copy.
-     * Unexpected worker loss is process-fatal because silently replacing it
-     * would reset RNG and learned-memory ordering inside active hands.
+     * Unexpected loss of one decision worker after boot replaces THAT shard
+     * alone (lane.ts, SHARD_REPLACEMENT_LIMIT, 2026-11-06): its pending work
+     * was already rejected to the seats' liveness fallback, the replacement
+     * is counted and logged, never silent, and the other shards keep their
+     * RNG and learned memory. A shard that keeps dying, a replacement that
+     * cannot become ready or loads a different corpus, and any loss before
+     * boot completes still reach onFatal below and end the process.
      *
      * All-in equity and insurance are worker-only realtime dependencies. Every
      * configured worker must author a READY handshake before table discovery
