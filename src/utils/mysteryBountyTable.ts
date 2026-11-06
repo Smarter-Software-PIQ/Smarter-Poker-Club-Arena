@@ -62,6 +62,12 @@ export function seatBountyBadge(input: {
   playerStatus?: string | null;
   bountyMap: Record<string, number> | null | undefined;
   /**
+   * The engine's own head for this seat (2026-11-05), carried on the table
+   * state with the chips. It outranks the bountyMap, which is the fallback
+   * for an engine build that does not send it.
+   */
+  engineBounty?: number | null;
+  /**
    * A chests-only mystery event (Dan 2026-10-22): no bounty is paid before the
    * money, so before the chests open a seat advertises no head at all.
    */
@@ -74,6 +80,10 @@ export function seatBountyBadge(input: {
     return { value: undefined, mystery: !out };
   }
   if (input.chestsOnly) return { value: undefined, mystery: false };
+  const engineHead = input.engineBounty;
+  if (typeof engineHead === 'number' && Number.isFinite(engineHead) && engineHead >= 0) {
+    return { value: engineHead, mystery: false };
+  }
   return { value: input.bountyMap?.[input.playerId], mystery: false };
 }
 
