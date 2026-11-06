@@ -1,9 +1,29 @@
 /** Owner 2026-11-06: isolated Backup qualification, daily-only replacement. */
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
+function planShell(script: string, env: NodeJS.ProcessEnv) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'backup-plan-'));
+  const output = resolve(dir, 'github-output');
+  try {
+    const result = spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      env: { ...process.env, ...env, GITHUB_OUTPUT: output },
+    });
+    let emitted = '';
+    try {
+      emitted = readFileSync(output, 'utf8');
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    return { ...result, stdout: result.stdout + emitted };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 const read = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
 const receiver = parse(read('.github/workflows/auto-deploy-hetzner.yml'));
 const backup = parse(read('.github/workflows/backup-engine.yml'));
@@ -105,20 +125,14 @@ describe('Backup qualification and the daily release are separate authorities', 
     ['Engine Withdrawal 123-1', 'b'.repeat(40), false],
   ])('executes post-release clone selection for %s', (title, serving, accepted) => {
     const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
-    const result = spawnSync(
-      'bash',
-      ['-c', `curl() { printf '%s' '${JSON.stringify({ releaseSha: serving })}'; }\n` + plan],
+    const result = planShell(
+      `curl() { printf '%s' '${JSON.stringify({ releaseSha: serving })}'; }\n` + plan,
       {
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          EVENT: 'workflow_run',
-          INPUT_SHA: '',
-          INPUT_REFRESH: 'false',
-          GITHUB_SHA: 'a'.repeat(40),
-          RELEASE_TITLE: title,
-          GITHUB_OUTPUT: '/dev/stdout',
-        },
+        EVENT: 'workflow_run',
+        INPUT_SHA: '',
+        INPUT_REFRESH: 'false',
+        GITHUB_SHA: 'a'.repeat(40),
+        RELEASE_TITLE: title,
       }
     );
     expect(result.status === 0, result.stderr).toBe(accepted);
@@ -131,20 +145,9 @@ describe('Backup qualification and the daily release are separate authorities', 
     'keeps queued push candidate %s instead of moving main',
     (candidate) => {
       const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
-      const result = spawnSync(
-        'bash',
-        ['-c', 'git() { echo unexpected-mutable-main-read >&2; return 99; }\n' + plan],
-        {
-          encoding: 'utf8',
-          env: {
-            ...process.env,
-            EVENT: 'push',
-            INPUT_SHA: '',
-            INPUT_REFRESH: 'false',
-            GITHUB_SHA: candidate,
-            GITHUB_OUTPUT: '/dev/stdout',
-          },
-        }
+      const result = planShell(
+        'git() { echo unexpected-mutable-main-read >&2; return 99; }\n' + plan,
+        { EVENT: 'push', INPUT_SHA: '', INPUT_REFRESH: 'false', GITHUB_SHA: candidate }
       );
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain('sha=' + candidate);
