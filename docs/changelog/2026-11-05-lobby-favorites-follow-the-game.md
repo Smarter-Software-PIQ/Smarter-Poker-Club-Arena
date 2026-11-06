@@ -112,3 +112,16 @@ record the browser refuses, so the queue stays correct for the session; a
 successful write or a removal retires it. Pinned by "a device whose storage
 refuses writes" in tests/unit/preferencePersistenceScenarios.test.ts, which
 fails on the previous code (nothing was sent at all).
+
+## Follow-up: a device's own accepted save never reads as another device
+
+The storage fix did not clear verify-lobby-filters (run 42128990839). The
+gateway log showed the first of two quick sort taps accepted, the second
+refused, and every later tap in that lobby sent nothing while the screen
+snapped back to the first tap under "Changed On Another Device". preferenceSync
+now remembers the revision the account granted to each of this device's own
+saves. A refusal whose current revision is this device's own last accepted save
+is not another device: the pending choice is the same player's later one, so it
+is sent again against that revision. A change another device saved since has a
+different revision and is still refused and shown. Pinned by "a device's own
+accepted save never reads as another device" (fails on the previous code).

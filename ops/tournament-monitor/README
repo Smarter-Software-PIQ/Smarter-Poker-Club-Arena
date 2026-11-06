@@ -1,9 +1,26 @@
 Smarter.Poker Club Arena temporary tournament monitor (authorized by Dan Bekavac 2026-11-05 13:59 CT)
 
 Detects and records only. No corrective action, no engine changes, no database writes, no money movement, no email.
-Units:   tournament-monitor.service (oneshot, one cycle) + tournament-monitor.timer (every 180 s)
-Code:    /opt/tournament-monitor/tournament_monitor.py
-State:   /opt/tournament-monitor/state/{latest.json,cycles.jsonl,findings.jsonl,findings_state.json,heartbeat,monitor.log}
-Window:  /opt/tournament-monitor/window.json (24 h from the first cycle; persisted; extends while findings are open)
-Test:    drop a synthetic /opt/tournament-monitor/test-input.json ({"events":[...]}) to exercise the rules; remove it after.
-Lock:    /opt/tournament-monitor/run.lock (overlapping runs exit and log a skipped cycle)
+Units:     tournament-monitor.service (oneshot, one cycle) + tournament-monitor.timer (every 180 s)
+Code:      /opt/tournament-monitor/tournament_monitor.py
+Tests:     python3 -m unittest ops/tournament-monitor/test_tournament_monitor.py   (repo; unittest only)
+State:     /opt/tournament-monitor/state/{latest.json,cycles.jsonl,findings.jsonl,findings_state.json,heartbeat,claude_heartbeat,monitor.log}
+Incidents: /opt/tournament-monitor/incidents/<fingerprint>.json (one record per distinct finding; the source of
+           truth across Claude chat sessions; opened and updated by the checker, closed only by a person or chat
+           through the CLI, never deleted). Runbook: docs/runbooks/tournament-monitor-incidents.md
+Window:    /opt/tournament-monitor/window.json (24 h from the first cycle; persisted; extends while findings are open)
+Test:      drop a synthetic /opt/tournament-monitor/test-input.json ({"events":[...]}) to exercise the rules; remove it after.
+Lock:      /opt/tournament-monitor/run.lock (overlapping runs exit and log a skipped cycle)
+
+Chat session commands (ssh to the engine host, cd /opt/tournament-monitor):
+  python3 tournament_monitor.py handoff --by '<chat id>'        plain-text handoff; touches state/claude_heartbeat
+  python3 tournament_monitor.py incidents --open                open incident records as JSON
+  python3 tournament_monitor.py incident <fp> --stage <Stage> --by '<who>' --note '<text>' [--pr N] [--migration V] [--release SHA]
+Stages: Detected -> Investigating -> Fix implemented -> Pushed/merged -> Deployed -> Production fix verified
+        -> Phase 2 hardening -> Hardening deployed and verified -> Closed   (Reopened returns a record to Detected)
+If no chat has read the handoff for 30 min while incidents are open, the checker raises its own finding
+(no_claude_session) so the absence of an operator shows in latest.json like any other finding.
+The record is not a fix: carry it through the stages by fixing the cause at the root (CLAUDE.md 10.11, 10.12).
+
+Files to install on the host (copy into /opt/tournament-monitor):
+  tournament_monitor.py  tournament-monitor.service  tournament-monitor.timer  README

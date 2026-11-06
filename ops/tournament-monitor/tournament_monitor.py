@@ -15,12 +15,29 @@ Outputs (all under /opt/tournament-monitor):
                              resolved / reopened), append-only, keyed by fingerprint
   state/findings_state.json  current view of every finding (open + resolved)
   state/heartbeat            time of the last successful cycle
+  state/claude_heartbeat     touched by a Claude chat session when it reads the handoff
   state/monitor.log          skipped cycles, errors
   window.json                the 24 h observation window (never reset)
+  incidents/<fingerprint>.json
+                             one incident record per distinct finding fingerprint:
+                             the source of truth that carries a finding across chat
+                             sessions (Detected -> ... -> Closed). The checker opens
+                             and updates records; it never deletes or closes one.
+
+Subcommands (a chat session uses these over ssh; the systemd unit passes none):
+  tournament_monitor.py                       one monitoring cycle (default)
+  tournament_monitor.py handoff [--by WHO]    plain-text handoff; touches state/claude_heartbeat
+  tournament_monitor.py incidents [--open]    incident records as JSON
+  tournament_monitor.py incident <fp> --stage <Stage> --by WHO --note TEXT
+                                  [--pr N] [--migration V] [--release SHA] [--owner WHO]
+
+The incident record is a record keeper, not a repair: nothing here fixes, retries,
+notifies or schedules anything (CLAUDE.md 10.11, 10.12, 10.85).
 
 Optional test input: /opt/tournament-monitor/test-input.json. Synthetic events in it
 are evaluated by the same rules and tagged test=true. Production data is never touched.
 """
+import argparse
 import concurrent.futures as cf
 import datetime as dt
 import fcntl
@@ -38,6 +55,8 @@ from zoneinfo import ZoneInfo
 
 BASE = os.environ.get("TM_BASE", "/opt/tournament-monitor")
 STATE = os.path.join(BASE, "state")
+INCIDENTS = os.path.join(BASE, "incidents")
+CLAUDE_HEARTBEAT = os.path.join(STATE, "claude_heartbeat")
 ENV_FILE = os.environ.get("TM_ENV_FILE", "/opt/club-arena/server/.env")
 HEALTH_URL = os.environ.get("TM_HEALTH_URL", "https://engine.smarter.poker/health")
 METRICS_URL = os.environ.get("TM_METRICS_URL", "http://127.0.0.1:8080/metrics")
@@ -45,9 +64,16 @@ CONTAINER = os.environ.get("TM_CONTAINER", "club-arena-engine")
 TEST_INPUT = os.path.join(BASE, "test-input.json")
 LOCK = os.path.join(BASE, "run.lock")
 CHI = ZoneInfo("America/Chicago")
-MONITOR_VERSION = "1.0.0"
+MONITOR_VERSION = "1.1.0"
 
 INTERVAL_S = 180
+CLAUDE_HEARTBEAT_MAX_S = 1800   # no chat has read the handoff for 30 min while incidents are open
+
+# Incident stages, in order. "Reopened" is a transition (recorded in stage_history), not a
+# stage: a reopened record returns to "Detected".
+STAGES = ["Detected", "Investigating", "Fix implemented", "Pushed/merged", "Deployed",
+          "Production fix verified", "Phase 2 hardening", "Hardening deployed and verified", "Closed"]
+STAGE_INDEX = {s: i for i, s in enumerate(STAGES)}
 MISSED_GAP_S = 300
 WINDOW_HOURS = 24
 # Per-state thresholds (seconds)
@@ -907,6 +933,334 @@ def slim(rec):
     return {k: rec.get(k) for k in keys if k in rec}
 
 
+# ----------------------------------------------------------------- incident records
+# One JSON file per distinct finding fingerprint under incidents/. A record is the source of
+# truth for a finding across Claude chat sessions: the checker opens it at first sight, keeps
+# last_seen / times_seen / resolved_at current, reopens it when a resolved symptom returns, and
+# NEVER deletes or closes it. Only an explicit `incident <fp> --stage Closed` closes a record.
+# The checker's own operator-absence finding (no_claude_session) gets no record and is not
+# counted as an incident, so it cannot keep itself alive.
+NO_RECORD_SYMPTOMS = {"no_claude_session"}
+CHECKER_ACTOR = "tournament_monitor"
+
+
+def incident_path(fp):
+    if not re.fullmatch(r"[0-9a-f]{16}", fp or ""):
+        raise ValueError(f"not a finding fingerprint: {fp!r}")
+    return os.path.join(INCIDENTS, f"{fp}.json")
+
+
+def load_incident(fp):
+    try:
+        with open(incident_path(fp)) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return None
+
+
+def save_incident(rec):
+    os.makedirs(INCIDENTS, exist_ok=True)
+    atomic_write(incident_path(rec["fingerprint"]), json.dumps(rec, indent=1, default=str) + "\n")
+
+
+def list_incidents(open_only=False):
+    out = []
+    try:
+        names = sorted(os.listdir(INCIDENTS))
+    except FileNotFoundError:
+        names = []
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        rec = load_json(os.path.join(INCIDENTS, name), None)
+        if isinstance(rec, dict) and rec.get("fingerprint"):
+            if open_only and not incident_is_open(rec):
+                continue
+            out.append(rec)
+    out.sort(key=lambda r: (r.get("severity") != "critical", r.get("first_seen_utc") or ""))
+    return out
+
+
+def incident_is_open(rec):
+    return rec.get("stage") != "Closed"
+
+
+def _history(stage, now, by, note):
+    return {"stage": stage, "at_utc": iso(now), "at_chicago": chi(now), "by": by, "note": note}
+
+
+def new_incident(finding, now, cycle_no):
+    first = parse_ts(finding.get("first_seen")) or now
+    return {
+        "fingerprint": finding["fingerprint"],
+        "symptom": finding.get("symptom"),
+        "severity": finding.get("severity"),
+        "finding": finding.get("summary"),
+        "tournament_id": finding.get("event_id"),
+        "tournament_name": finding.get("event_name"),
+        "table_id": finding.get("table_id"),
+        "format": finding.get("format"),
+        "test": bool(finding.get("test")),
+        "first_seen_utc": iso(first), "first_seen_chicago": chi(first),
+        "last_seen_utc": iso(now), "last_seen_chicago": chi(now),
+        "times_seen": max(1, int(finding.get("occurrences") or 1)),
+        "times_reopened": 0,
+        "resolved_at": None,
+        "stage": "Detected",
+        "stage_history": [_history("Detected", now, CHECKER_ACTOR, finding.get("summary"))],
+        "owner": None,
+        "links": {"prs": [], "migrations": [], "releases": []},
+        "release_sha_first_seen": finding.get("releaseSha"),
+        "details": finding.get("details") or {},
+        "created_by_cycle": cycle_no,
+        "last_cycle": cycle_no,
+    }
+
+
+def reopen_incident(rec, now, by, note):
+    rec["stage"] = "Detected"
+    rec["resolved_at"] = None
+    rec["times_reopened"] = int(rec.get("times_reopened") or 0) + 1
+    rec.setdefault("stage_history", []).append(_history("Reopened", now, by, note))
+
+
+def sync_incidents(fstate, seen_this_cycle, now, cycle_no):
+    """Bring incidents/ in line with this cycle's findings. Returns a summary dict."""
+    created, reopened, resolved = [], [], []
+    for fp, f in fstate.items():
+        if f.get("symptom") in NO_RECORD_SYMPTOMS:
+            continue
+        rec = load_incident(fp)
+        seen = fp in seen_this_cycle and f.get("status") == "open"
+        if rec is None:
+            rec = new_incident(f, now, cycle_no)
+            if f.get("status") == "resolved":
+                rec["resolved_at"] = f.get("resolved_at") or iso(now)
+            created.append(fp)
+            save_incident(rec)
+            continue
+        changed = False
+        if seen:
+            if rec.get("resolved_at") is not None or rec.get("stage") == "Closed":
+                was = rec.get("stage")
+                reopen_incident(rec, now, CHECKER_ACTOR,
+                                f"symptom observed again by cycle {cycle_no} (record was at stage {was}); "
+                                f"finding: {f.get('summary')}")
+                reopened.append(fp)
+            rec["last_seen_utc"], rec["last_seen_chicago"] = iso(now), chi(now)
+            rec["times_seen"] = int(rec.get("times_seen") or 0) + 1
+            rec["severity"] = f.get("severity")
+            rec["finding"] = f.get("summary")
+            rec["details"] = f.get("details") or {}
+            rec["last_cycle"] = cycle_no
+            changed = True
+        elif f.get("status") == "resolved" and rec.get("resolved_at") is None:
+            rec["resolved_at"] = f.get("resolved_at") or iso(now)
+            rec["last_cycle"] = cycle_no
+            resolved.append(fp)
+            changed = True
+        if changed:
+            save_incident(rec)
+    open_recs = list_incidents(open_only=True)
+    by_stage = {}
+    for r in open_recs:
+        by_stage[r["stage"]] = by_stage.get(r["stage"], 0) + 1
+    return {"created_this_cycle": created, "reopened_this_cycle": reopened,
+            "symptom_resolved_this_cycle": resolved,
+            "open_count": len(open_recs), "open_production": sum(1 for r in open_recs if not r.get("test")),
+            "unclaimed": sum(1 for r in open_recs if not r.get("owner")),
+            "symptom_active": sum(1 for r in open_recs if r.get("resolved_at") is None),
+            "by_stage": by_stage}
+
+
+def advance_incident(fp, stage, by, note, pr=None, migration=None, release=None, owner=None, now=None):
+    """Move a record forward one or more stages (or Reopened). Validates order; never deletes."""
+    now = now or now_utc()
+    rec = load_incident(fp)
+    if rec is None:
+        raise ValueError(f"no incident record for fingerprint {fp}")
+    if not (by or "").strip():
+        raise ValueError("--by is required: name the chat session or person advancing the record")
+    if not (note or "").strip():
+        raise ValueError("--note is required: say what was done or verified at this stage")
+    if stage == "Reopened":
+        reopen_incident(rec, now, by, note)
+    else:
+        if stage not in STAGE_INDEX:
+            raise ValueError(f"unknown stage {stage!r}; stages in order: {', '.join(STAGES)} (or Reopened)")
+        cur = STAGE_INDEX.get(rec.get("stage"), 0)
+        new = STAGE_INDEX[stage]
+        if new < cur:
+            raise ValueError(f"cannot move from {rec['stage']!r} back to {stage!r}; "
+                             f"use --stage Reopened if the symptom returned")
+        rec["stage"] = stage
+        rec.setdefault("stage_history", []).append(_history(stage, now, by, note))
+        if stage == "Closed":
+            rec["closed_at"] = iso(now)
+    if owner:
+        rec["owner"] = owner
+    elif not rec.get("owner"):
+        rec["owner"] = by
+    links = rec.setdefault("links", {"prs": [], "migrations": [], "releases": []})
+    for key, val in (("prs", pr), ("migrations", migration), ("releases", release)):
+        if val is not None:
+            links.setdefault(key, [])
+            if str(val) not in [str(x) for x in links[key]]:
+                links[key].append(val)
+    rec["last_updated_utc"] = iso(now)
+    save_incident(rec)
+    return rec
+
+
+def claude_heartbeat_age(now):
+    """Returns (age_seconds or None, record dict or None). None age = never read."""
+    hb = load_json(CLAUDE_HEARTBEAT, None)
+    if not isinstance(hb, dict):
+        return None, None
+    at = parse_ts(hb.get("at_utc"))
+    if at is None:
+        return None, hb
+    return max(0, int((now - at).total_seconds())), hb
+
+
+def touch_claude_heartbeat(by, now=None):
+    now = now or now_utc()
+    os.makedirs(STATE, exist_ok=True)
+    atomic_write(CLAUDE_HEARTBEAT, json.dumps({"at_utc": iso(now), "at_chicago": chi(now), "by": by}) + "\n")
+
+
+def _age_text(seconds):
+    if seconds is None:
+        return "never"
+    m = seconds // 60
+    if m < 60:
+        return f"{m} min"
+    h, m = divmod(m, 60)
+    if h < 48:
+        return f"{h} h {m} min"
+    return f"{h // 24} d {h % 24} h"
+
+
+def handoff_text(now=None):
+    """Compact plain-text handoff for the next chat session. Read-only (the caller touches the heartbeat)."""
+    now = now or now_utc()
+    latest = load_json(os.path.join(STATE, "latest.json"), {})
+    window = load_json(os.path.join(BASE, "window.json"), {}) or latest.get("window") or {}
+    hb_age, hb = claude_heartbeat_age(now)
+    incidents = list_incidents(open_only=True)
+    lines = []
+    lines.append(f"TOURNAMENT MONITOR HANDOFF  generated {iso(now)} ({chi(now)} Chicago)  monitor {MONITOR_VERSION}")
+    lines.append(f"Window: {window.get('status', 'unknown')}; started {window.get('started_chicago')} "
+                 f"ends {window.get('ends_chicago')}"
+                 + (f"; {window.get('extended_reason')}" if window.get("extended_reason") else ""))
+    cov = latest.get("coverage") or {}
+    if latest:
+        ended = parse_ts(latest.get("ended_utc"))
+        age = _age_text(int((now - ended).total_seconds())) if ended else "unknown"
+        lines.append(f"Last cycle: #{latest.get('cycle')} at {latest.get('ended_chicago')} Chicago ({age} ago), "
+                     f"checked {cov.get('checked')}/{cov.get('expected')} active events, "
+                     f"{cov.get('unchecked', 0)} unchecked, by format {cov.get('by_format')}, "
+                     f"open findings {((latest.get('findings') or {}).get('open_count'))} "
+                     f"(critical {((latest.get('findings') or {}).get('open_critical'))}), "
+                     f"engine release {((latest.get('engine') or {}).get('releaseSha'))}")
+        if cov.get("source_errors"):
+            lines.append(f"  source errors last cycle: {cov['source_errors']}")
+    else:
+        lines.append("Last cycle: none recorded (state/latest.json missing)")
+    lines.append("Previous handoff read: " + ("never" if hb_age is None else f"{_age_text(hb_age)} ago")
+                 + (f" by {hb.get('by')}" if hb and hb.get("by") else ""))
+    lines.append("")
+    if not incidents:
+        lines.append("OPEN INCIDENTS: none")
+    else:
+        lines.append(f"OPEN INCIDENTS: {len(incidents)} "
+                     f"({sum(1 for r in incidents if not r.get('owner'))} unclaimed, "
+                     f"{sum(1 for r in incidents if r.get('resolved_at') is None)} with the symptom still observed)")
+        for r in incidents:
+            first = parse_ts(r.get("first_seen_utc"))
+            age = _age_text(int((now - first).total_seconds())) if first else "unknown"
+            sym_state = ("symptom still observed" if r.get("resolved_at") is None
+                         else f"symptom not seen since {r.get('resolved_at')}")
+            lines.append(f"- {r['fingerprint']}  [{r.get('severity')}] {r.get('symptom')}"
+                         + ("  (TEST)" if r.get("test") else ""))
+            lines.append(f"    stage: {r.get('stage')}   owner: {r.get('owner') or 'UNCLAIMED'}   age: {age}   "
+                         f"seen {r.get('times_seen')}x, last {r.get('last_seen_chicago')}   {sym_state}"
+                         + (f"   reopened {r['times_reopened']}x" if r.get("times_reopened") else ""))
+            lines.append(f"    event: {r.get('tournament_name') or '-'} ({r.get('tournament_id') or '-'})"
+                         f" {r.get('format') or ''}" + (f"  table {r['table_id']}" if r.get("table_id") else ""))
+            lines.append(f"    finding: {r.get('finding')}")
+            links = r.get("links") or {}
+            if any(links.get(k) for k in ("prs", "migrations", "releases")):
+                lines.append(f"    links: prs={links.get('prs') or []} migrations={links.get('migrations') or []} "
+                             f"releases={links.get('releases') or []}")
+            hist = r.get("stage_history") or []
+            if hist:
+                h = hist[-1]
+                lines.append(f"    last note ({h.get('stage')} by {h.get('by')} at {h.get('at_utc')}): {h.get('note')}")
+    lines.append("")
+    lines.append("STAGES (in order): " + " -> ".join(STAGES) + "   (Reopened returns a record to Detected)")
+    lines.append("COMMANDS (run on the engine host, in /opt/tournament-monitor):")
+    fp_example = incidents[0]["fingerprint"] if incidents else "<fingerprint>"
+    lines.append(f"  claim:    python3 tournament_monitor.py incident {fp_example} --stage Investigating "
+                 f"--by '<chat id or name>' --note '<what you are looking at>'")
+    lines.append(f"  advance:  python3 tournament_monitor.py incident {fp_example} --stage 'Fix implemented' "
+                 f"--by '<who>' --note '<root cause and the change>' [--pr N] [--migration VERSION] [--release SHA]")
+    lines.append(f"  close:    python3 tournament_monitor.py incident {fp_example} --stage Closed "
+                 f"--by '<who>' --note '<how production and the hardening were verified>'")
+    lines.append(f"  reopen:   python3 tournament_monitor.py incident {fp_example} --stage Reopened --by '<who>' --note '<why>'")
+    lines.append("  list:     python3 tournament_monitor.py incidents --open")
+    lines.append("  record:   cat incidents/<fingerprint>.json")
+    lines.append("The record is the source of truth across chats; the checker never closes one. "
+                 "A record is not a fix: carry it through the stages by fixing the cause at the root (CLAUDE.md 10.11, 10.12).")
+    return "\n".join(lines) + "\n"
+
+
+def cli_handoff(args):
+    text = handoff_text()
+    touch_claude_heartbeat(args.by or os.environ.get("TM_READER") or "claude-chat")
+    sys.stdout.write(text)
+    return 0
+
+
+def cli_incidents(args):
+    recs = list_incidents(open_only=bool(args.open))
+    sys.stdout.write(json.dumps(recs, indent=1, default=str) + "\n")
+    return 0
+
+
+def cli_incident(args):
+    try:
+        rec = advance_incident(args.fingerprint, args.stage, args.by, args.note, pr=args.pr,
+                               migration=args.migration, release=args.release, owner=args.owner)
+    except ValueError as e:
+        sys.stderr.write(f"refused: {e}\n")
+        return 2
+    sys.stdout.write(json.dumps({"fingerprint": rec["fingerprint"], "stage": rec["stage"], "owner": rec.get("owner"),
+                                 "links": rec.get("links"), "resolved_at": rec.get("resolved_at"),
+                                 "stage_history_len": len(rec.get("stage_history") or [])}, indent=1) + "\n")
+    return 0
+
+
+def build_parser():
+    p = argparse.ArgumentParser(prog="tournament_monitor.py",
+                                description="Read-only tournament checker with incident records (no args = one cycle).")
+    sub = p.add_subparsers(dest="cmd")
+    h = sub.add_parser("handoff", help="print the plain-text handoff and touch state/claude_heartbeat")
+    h.add_argument("--by", default=None, help="who is reading (chat id or name); recorded in the heartbeat")
+    i = sub.add_parser("incidents", help="print incident records as JSON")
+    i.add_argument("--open", action="store_true", help="only records not at stage Closed")
+    a = sub.add_parser("incident", help="advance one incident record's stage")
+    a.add_argument("fingerprint")
+    a.add_argument("--stage", required=True, help="one of: " + ", ".join(STAGES) + ", Reopened")
+    a.add_argument("--by", required=True)
+    a.add_argument("--note", required=True)
+    a.add_argument("--pr", type=int, default=None)
+    a.add_argument("--migration", default=None)
+    a.add_argument("--release", default=None)
+    a.add_argument("--owner", default=None, help="set the owner explicitly (defaults to --by when unclaimed)")
+    return p
+
+
 # ----------------------------------------------------------------- main
 def main():
     os.makedirs(STATE, exist_ok=True)
@@ -969,8 +1323,32 @@ def main():
             c.candidates[-1]["log_excerpt"] = []
             c.candidates[-1]["releaseSha"] = c.release_sha
 
+    # operator absence: no chat session has read the incident handoff while incidents are open.
+    # Counted from the records on disk as this cycle starts (this cycle's sync runs after reconcile).
+    hb_age, hb_rec = claude_heartbeat_age(start)
+    open_before = list_incidents(open_only=True)
+    open_before_prod = [r for r in open_before if not r.get("test")]
+    if open_before_prod and (hb_age is None or hb_age > CLAUDE_HEARTBEAT_MAX_S):
+        c.add("no_claude_session", "warning",
+              f"no Claude session has read the incident handoff for more than {CLAUDE_HEARTBEAT_MAX_S // 60} minutes "
+              f"while {len(open_before_prod)} incident(s) are open"
+              + (" (never read)" if hb_age is None else f" (last read {hb_age // 60} min ago)"),
+              None, details={"claude_heartbeat_age_s": hb_age, "open_incidents": len(open_before_prod),
+                             "unclaimed_incidents": sum(1 for r in open_before_prod if not r.get("owner")),
+                             "last_reader": (hb_rec or {}).get("by")})
+        c.candidates[-1]["log_excerpt"] = []
+        c.candidates[-1]["releaseSha"] = c.release_sha
+
     end = now_utc()
     opened, updated, resolved, transitions, pending = reconcile(c, fstate, prev, end)
+    try:
+        incidents = sync_incidents(fstate, set(opened) | set(updated), end, cycle_no)
+    except Exception as e:
+        log(f"incident records: {type(e).__name__}: {redact(str(e))[:200]}")
+        incidents = {"error": f"{type(e).__name__}", "open_count": len(open_before), "open_production": len(open_before_prod),
+                     "unclaimed": sum(1 for r in open_before if not r.get("owner")),
+                     "created_this_cycle": [], "reopened_this_cycle": [], "symptom_resolved_this_cycle": [],
+                     "symptom_active": None, "by_stage": {}}
     fpath = os.path.join(STATE, "findings.jsonl")
     for kind, rec in transitions:
         line = slim(rec)
@@ -1043,6 +1421,12 @@ def main():
                      "open_count": len(open_f), "open_critical": sum(1 for f in open_f if f["severity"] == "critical"),
                      "open": open_f,
                      "soft_pending_confirmation": len(pending)},
+        "incidents": dict(incidents, directory=INCIDENTS),
+        "claude_session": {"heartbeat_file": CLAUDE_HEARTBEAT,
+                           "last_read_utc": (hb_rec or {}).get("at_utc"), "last_reader": (hb_rec or {}).get("by"),
+                           "age_s": hb_age, "age_minutes": (hb_age // 60) if hb_age is not None else None,
+                           "max_age_s": CLAUDE_HEARTBEAT_MAX_S,
+                           "unattended": bool(open_before_prod and (hb_age is None or hb_age > CLAUDE_HEARTBEAT_MAX_S))},
         "events": sorted(events, key=lambda e: (e["format"], e.get("name") or "")),
     }
     atomic_write(os.path.join(STATE, "latest.json"), json.dumps(latest, indent=1, default=str))
@@ -1051,7 +1435,9 @@ def main():
         "ended_utc": iso(end), "duration_s": latest["duration_s"], "expected": expected, "checked": checked,
         "by_format": counts, "new_findings": len(opened), "resolved": len(resolved), "open_findings": len(open_f),
         "open_critical": latest["findings"]["open_critical"], "maintenance_active": extra["maint_active"],
-        "releaseSha": c.release_sha, "source_errors": len(c.source_errors), "window_status": window["status"]})
+        "releaseSha": c.release_sha, "source_errors": len(c.source_errors), "window_status": window["status"],
+        "open_incidents": incidents.get("open_count"), "unclaimed_incidents": incidents.get("unclaimed"),
+        "claude_heartbeat_age_s": hb_age})
     atomic_write(os.path.join(STATE, "heartbeat"),
                  json.dumps({"last_success_utc": iso(end), "last_success_chicago": chi(end), "cycle": cycle_no}) + "\n")
     new_prev = {"cycle": cycle_no, "last_cycle_start": iso(start), "soft_pending": pending,
@@ -1059,12 +1445,28 @@ def main():
                 "last_maintenance_end": iso(extra["last_maint_end"]) if extra["last_maint_end"] else None}
     atomic_write(os.path.join(STATE, "monitor_state.json"), json.dumps(new_prev))
     log(f"cycle {cycle_no} ok: expected={expected} checked={checked} open={len(open_f)} new={len(opened)} "
-        f"resolved={len(resolved)} {round((end - start).total_seconds(), 1)}s")
+        f"resolved={len(resolved)} incidents_open={incidents.get('open_count')} "
+        f"unclaimed={incidents.get('unclaimed')} claude_hb_age={_age_text(hb_age)} "
+        f"{round((end - start).total_seconds(), 1)}s")
     if window["status"] == "complete":
         log("observation window complete with no open findings; stopping the timer")
         subprocess.run(["systemctl", "disable", "--now", "tournament-monitor.timer"], capture_output=True, timeout=20)
     return 0
 
 
+def entry(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:
+        return main()
+    args = build_parser().parse_args(argv)
+    if args.cmd == "handoff":
+        return cli_handoff(args)
+    if args.cmd == "incidents":
+        return cli_incidents(args)
+    if args.cmd == "incident":
+        return cli_incident(args)
+    return main()
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(entry())

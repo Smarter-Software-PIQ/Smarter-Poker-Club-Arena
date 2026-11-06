@@ -230,6 +230,21 @@ describe('Phase 5 daily scorecard (read-only)', () => {
           { feature: 'v79_top_pair_weak_kicker', upgrade: 'V79', fires: 7 },
           { feature: 'v80_top_pair_strong_kicker', upgrade: 'V80', fires: 0 },
           { feature: 'v62_river_bettor_polarity', upgrade: 'V62 (opt-in: expected 0)', fires: 0 },
+          {
+            feature: 'v31_certified_facing_bet',
+            upgrade: 'V31 solver cell applied: facing bet',
+            fires: 12,
+          },
+          {
+            feature: 'v31_certified_skip_empty_store',
+            upgrade: 'V31 solver store empty, no serving binding (expected 0 once bound)',
+            fires: 400,
+          },
+          {
+            feature: 'v31_certified_execution_mismatch',
+            upgrade: 'V31 solver cell sampled but legalized away (expected 0)',
+            fires: 0,
+          },
         ],
         cells: [
           {
@@ -304,6 +319,9 @@ describe('Phase 5 daily scorecard (read-only)', () => {
         v79_top_pair_weak_kicker: 'firing',
         v80_top_pair_strong_kicker: 'SILENT',
         v62_river_bettor_polarity: 'expected 0',
+        v31_certified_facing_bet: 'firing',
+        v31_certified_skip_empty_store: 'FIRING (guard counter, unexpected)',
+        v31_certified_execution_mismatch: 'expected 0',
       });
       const c = rep.cells[0];
       expect(c.four_bet_then_fold_rate).toBe(0.1);

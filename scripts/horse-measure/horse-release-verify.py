@@ -400,6 +400,10 @@ def assemble(day, folder, omaha_cells=None, flags=None):
         fires = int(_num(r.get('fires')))
         if 'opt-in' in r.get('upgrade', ''):
             status = 'expected 0' if fires == 0 else 'FIRING (opt-in receipt, unexpected)'
+        elif 'expected 0' in r.get('upgrade', ''):
+            # A guard counter (V31 empty store, V31 execution mismatch): zero is
+            # the healthy reading; any fire is the condition the row watches for.
+            status = 'expected 0' if fires == 0 else 'FIRING (guard counter, unexpected)'
         elif not alive:
             status = 'unknown (control silent)'
         else:
