@@ -1126,17 +1126,6 @@ function fleetFixture(memory = false, action = 'bet', variant?: 'flh' | 'flo8') 
   };
   return f;
 }
-// Simulated future installed v2 admission delegates chronology/identity to the real legacy validator.
-// Current protected runtime refuses v2 until the separate consumer deploys.
-const futureMemoryApi = {
-  horseObserverReadsUsedPublicPool: (m: any, s: any) => {
-    const { publicMemoryDomain, ...context } = m.context;
-    return observer.horseObserverReadsUsedPublicPool(
-      { ...m, context: { ...context, version: 1 } },
-      s
-    );
-  },
-};
 function fleetInspect(f: any, extra: any = {}, clock?: () => number) {
   return fleetDiagnostic.inspectHorseFleetSlice(
     f.input,
@@ -1193,8 +1182,16 @@ it('fleet slice binds accepted source and keeps dormant Horse and missing memory
 });
 it('fleet slice observes exact original domain memory without equating receipt to strategy application', () => {
   const f = fleetFixture(true),
-    out = fleetInspect(f, futureMemoryApi);
-  expect(fleetInspect(f).hands[0].rows[0].exactMemoryReads).toBe(0);
+    out = fleetInspect(f);
+  expect(
+    fleetInspect(f, { horseObserverReadsUsedPublicPool: undefined }).hands[0].rows[0]
+      .exactMemoryReads
+  ).toBe(0);
+  expect(
+    fleetInspect(f, { horseObserverReadsUsedPublicPool: () => false }).hands[0].rows[0]
+      .exactMemoryReads
+  ).toBe(0);
+  expect(out.strategyApplicationVerified).toBe(false);
   expect(out.hands[0].rows[0]).toMatchObject({
     exactMemoryReads: 1,
     contexts: [{ speed: 'table', ante: 'none', exactMemoryReads: 1 }],
@@ -1212,7 +1209,7 @@ it.each(['speed', 'ante', 'variant', 'format', 'future'])(
     if (key === 'format') m.context.format = 'tournament';
     if (key === 'future') m.pooledPublicProfiles.availableAtMs = 1001;
     f.rows[0] = f.make('decision', 1, f.capture);
-    expect(fleetInspect(f, futureMemoryApi).hands[0].rows[0].exactMemoryReads).toBe(0);
+    expect(fleetInspect(f).hands[0].rows[0].exactMemoryReads).toBe(0);
   }
 );
 it.each(['source', 'acceptance', 'duplicate', 'window', 'missing'])(

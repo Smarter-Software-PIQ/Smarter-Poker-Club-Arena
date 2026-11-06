@@ -29,3 +29,9 @@ to the new context. Exact saved pooled rows and new accepted completions are
 supported; this is not a claim that lost history was reconstructed or that a
 strategy gained qualified profitability. Served identity and actual selected
 public-memory receipts remain separate live proof requirements.
+
+Integration with the continuation-plan source preserves both registered digest
+closure entries. Fleet receipt tests now exercise the real version-2 validator
+instead of a simulated future adapter. Missing or rejecting validators and
+mismatched/future receipts still produce zero observed exact-memory reads; a
+valid read still does not certify strategy application.
