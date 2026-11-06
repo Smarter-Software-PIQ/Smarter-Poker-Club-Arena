@@ -4,6 +4,7 @@ import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoun
 import { useTopUpAccounting } from '../hooks/useTopUpAccounting';
 import { autoTopUpRequest, type AutoTopUpRequest } from '../utils/autoTopUpRequest';
 import { tournamentTableLabel } from '../utils/tournamentTableLabel';
+import { tournamentTypeLabel } from '../utils/tournamentTypeLabel';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { useGameSessionLifecycle } from '../hooks/useGameSessionLifecycle';
 import {
@@ -6094,6 +6095,9 @@ function LiveTablePage({
      SHOULD SAY THE TOURNAMENT NAME AND BUY IN, NOT JUST NLH POKER
      TOURNAMENT"). '' until the tournament row has been read. */
   const [tournamentEventName, setTournamentEventName] = useState('');
+  /* Dan 2026-11-05: the line under the event name says what KIND of event it
+     is (PKO Event, Mystery Bounty Event, ...). See utils/tournamentTypeLabel. */
+  const [tournamentTypeLine, setTournamentTypeLine] = useState<string | null>(null);
   const headsUpAnnouncedRef = useRef<Set<string>>(new Set());
   const finalTableAnnouncedRef = useRef<Set<string>>(new Set());
   const [spinHeadsUpNote, setSpinHeadsUpNote] = useState(false);
@@ -15346,6 +15350,9 @@ function LiveTablePage({
             );
             setTournamentEventName(
               formatGameTitle(String((tournData as { name?: unknown }).name ?? '').trim())
+            );
+            setTournamentTypeLine(
+              fmt === 'mtt' ? tournamentTypeLabel(tournData as Record<string, unknown>) : null
             );
             // Seat-first = a Spin (3 seats) or a Heads-Up (2 seats) that has
             // not started. Once it is RUNNING the seats are no longer for
@@ -27974,6 +27981,14 @@ function LiveTablePage({
                                         </>
                                       )}
                                   </span>
+                                  {tournamentTypeLine && (
+                                    <span
+                                      className="table-brand__line"
+                                      data-testid="tournament-type-line"
+                                    >
+                                      {tournamentTypeLine}
+                                    </span>
+                                  )}
                                   {tournamentTableLabel(tableState.tableName) && (
                                     <span
                                       className="table-brand__line"
