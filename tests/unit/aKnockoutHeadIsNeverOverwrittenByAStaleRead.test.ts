@@ -16,7 +16,9 @@ describe('a knockout head is never overwritten by a stale read', () => {
   it('bumps the generation and re-reads the ledger heads on every knockout', () => {
     const at = page.indexOf('const headWinners = bountyWinnersOf(b);');
     expect(at).toBeGreaterThan(0);
-    const tail = page.slice(at, at + 1600);
+    const end = page.indexOf("} else if (data?.type === 'level_up')", at);
+    expect(end).toBeGreaterThan(at);
+    const tail = page.slice(at, end);
     expect(tail).toContain('bountyMapGenRef.current += 1;');
     expect(tail).toContain('void bountyMapRefreshRef.current?.();');
   });
