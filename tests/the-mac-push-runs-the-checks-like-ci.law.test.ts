@@ -83,6 +83,37 @@ describe('the Mac runs the push checks the way CI does', () => {
     }
   });
 
+  it('puts an installed bash 4+ on PATH for the checks, and nothing else (2026-11-06)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mac-push-'));
+    try {
+      fakeNode(join(root, 'shell-node'), 'v22.23.3');
+      const fakeBash = join(root, 'brew/bin/bash');
+      mkdirSync(join(root, 'brew/bin'), { recursive: true });
+      writeFileSync(
+        fakeBash,
+        '#!/bin/sh\ncase "$2" in *BASH_VERSINFO*) echo 5;; *) echo bash 5.3.0;; esac\n'
+      );
+      chmodSync(fakeBash, 0o755);
+      const out = runBlock(
+        {
+          HOME: join(root, 'home'),
+          TMPDIR: join(root, 'boot-tmp'),
+          CA_PUSH_TMP_ROOT: join(root, 'ssd-tmp'),
+          CA_BASH_CANDIDATES: `${join(root, 'missing/bash')} ${fakeBash}`,
+        },
+        root
+      );
+      expect(out.status, out.stderr).toBe(0);
+      expect(out.stdout).toContain('running the shell checks on bash 5.3.0');
+      const path = /PATH=(.*)/.exec(out.stdout)?.[1] ?? '';
+      const first = path.split(':')[0]!;
+      expect(first).toMatch(/club-arena-pre-push-bash\./);
+      expect(path).toContain(join(root, 'shell-node'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('builds the native evaluator before the server tests when a worktree has none', () => {
     const build = hook.indexOf('node scripts/build-public-hist215-native.mjs');
     expect(build).toBeGreaterThan(0);

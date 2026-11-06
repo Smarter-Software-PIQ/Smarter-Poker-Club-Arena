@@ -202,6 +202,76 @@ PY
 RENDERED="$RENDERED
 $CLIENT_RENDERED"
 
+# ── Engine release owner gauges (2026-11-06) ─────────────────────────────
+# On 2026-11-05 release transaction 42099609162-1 sat as the runtime owner for
+# 2 h 36 m, systemd restarted it 222 times, and five newer releases refused to
+# compete with it. Nothing on /metrics could see it: the owner is a host
+# systemd unit, not engine state. These gauges name every release unit that
+# is not inactive, how long it has held that state and how often systemd has
+# restarted it, so EngineReleaseOwnerStale and EngineReleaseOwnerLooping can
+# name the run. Like the client error half this is NOT fail closed: a host
+# without systemctl drops these series and sets the _collect_ok gauge to 0.
+RELEASE_RENDERED=$(RELEASE_UNIT_GLOB="${RELEASE_UNIT_GLOB:-club-arena-engine-release-v1@*.service}" \
+  python3 - <<'PY'
+import os, re, subprocess, sys, time
+
+def show(unit):
+    out = subprocess.run(
+        ["systemctl", "show", unit, "--property=ActiveState,SubState,NRestarts,StateChangeTimestampMonotonic"],
+        capture_output=True, text=True, timeout=10, check=True).stdout
+    return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+
+lines = []
+ok = 1
+try:
+    listing = subprocess.run(
+        ["systemctl", "list-units", "--all", "--plain", "--no-legend", "--no-pager",
+         os.environ["RELEASE_UNIT_GLOB"]],
+        capture_output=True, text=True, timeout=10, check=True).stdout
+    units = [line.split()[0] for line in listing.splitlines() if line.strip()]
+    counts = {"active": 0, "activating": 0, "auto-restart": 0, "failed": 0}
+    owners = []
+    # CLOCK_MONOTONIC in microseconds is the clock systemd stamps
+    # StateChangeTimestampMonotonic with.
+    now_us = int(time.clock_gettime(time.CLOCK_MONOTONIC) * 1_000_000)
+    for unit in units:
+        match = re.fullmatch(r"club-arena-engine-release-v1@([0-9]+-[0-9]+)\.service", unit)
+        if not match:
+            continue
+        props = show(unit)
+        state, sub = props.get("ActiveState", ""), props.get("SubState", "")
+        bucket = "auto-restart" if sub == "auto-restart" else state
+        if bucket in counts:
+            counts[bucket] += 1
+        if bucket in ("active", "activating", "auto-restart"):
+            changed = int(props.get("StateChangeTimestampMonotonic") or 0)
+            age = max(0, (now_us - changed) // 1_000_000) if changed else 0
+            owners.append((match.group(1), bucket, age, int(props.get("NRestarts") or 0)))
+    lines += ["# HELP club_arena_engine_release_units Engine release transaction units by state.",
+              "# TYPE club_arena_engine_release_units gauge"]
+    for bucket, value in counts.items():
+        lines.append(f'club_arena_engine_release_units{{state="{bucket}"}} {value}')
+    lines += ["# HELP club_arena_engine_release_owner_age_seconds Seconds a non-inactive release unit has held its current state.",
+              "# TYPE club_arena_engine_release_owner_age_seconds gauge"]
+    for run, bucket, age, _ in owners:
+        lines.append(f'club_arena_engine_release_owner_age_seconds{{run="{run}",state="{bucket}"}} {age}')
+    lines += ["# HELP club_arena_engine_release_owner_restarts Times systemd restarted a non-inactive release unit.",
+              "# TYPE club_arena_engine_release_owner_restarts gauge"]
+    for run, bucket, _, restarts in owners:
+        lines.append(f'club_arena_engine_release_owner_restarts{{run="{run}",state="{bucket}"}} {restarts}')
+except Exception as exc:
+    sys.stderr.write(f"collect-monitoring-health: release owner gauges skipped: {exc}\n")
+    lines = []
+    ok = 0
+lines += ["# HELP club_arena_engine_release_collect_ok 1 when the release owner gauges were read this run, else 0.",
+          "# TYPE club_arena_engine_release_collect_ok gauge",
+          f"club_arena_engine_release_collect_ok {ok}"]
+print("\n".join(lines))
+PY
+) || RELEASE_RENDERED='club_arena_engine_release_collect_ok 0'
+RENDERED="$RENDERED
+$RELEASE_RENDERED"
+
 if [ -n "${DRY_RUN:-}" ]; then
   printf '%s\n' "$RENDERED"
   exit 0
