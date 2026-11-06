@@ -1193,6 +1193,34 @@ export const processThreads = alwaysOnRegistry.gauge(
   'OS threads in the engine process (worker isolates, libuv, V8 helpers); -1 when /proc is unreadable'
 );
 
+/* THE WORKER ISOLATES, BY SHARD (2026-11-05). Whole-process RSS says that
+   memory grew; it does not say which isolate. On 71087373 the eight Horse
+   decision workers held 5.4 GB of old space and only an inspector attached to
+   the live process could show it. Each worker's heap is relayed with its
+   STATUS reply; the client publishes it here under its shard label. -1 until
+   the first sample, never absent. */
+export const horseDecisionWorkerHeapUsedBytes: Gauge = alwaysOnRegistry.gauge(
+  'poker_horse_decision_worker_heap_used_bytes',
+  'V8 heap in use inside one Horse decision worker isolate (label: shard); -1 until sampled'
+);
+export const horseDecisionWorkerHeapTotalBytes: Gauge = alwaysOnRegistry.gauge(
+  'poker_horse_decision_worker_heap_total_bytes',
+  'V8 heap committed inside one Horse decision worker isolate (label: shard); -1 until sampled'
+);
+export function seedHorseDecisionWorkerMemory(shard: number): void {
+  const labels = { shard: String(shard) };
+  horseDecisionWorkerHeapUsedBytes.set(-1, labels);
+  horseDecisionWorkerHeapTotalBytes.set(-1, labels);
+}
+export function recordHorseDecisionWorkerMemory(
+  shard: number,
+  sample: { heapUsedBytes: number; heapTotalBytes: number } | null
+): void {
+  const labels = { shard: String(shard) };
+  horseDecisionWorkerHeapUsedBytes.set(sample ? sample.heapUsedBytes : -1, labels);
+  horseDecisionWorkerHeapTotalBytes.set(sample ? sample.heapTotalBytes : -1, labels);
+}
+
 export function refreshProcessMemoryGauges(): void {
   const s = sampleProcessMemory();
   processRssBytes.set(s.rssBytes);

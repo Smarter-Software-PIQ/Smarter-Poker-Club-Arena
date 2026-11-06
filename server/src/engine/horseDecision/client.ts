@@ -9,6 +9,10 @@ import {
   isolateMemoryIsValid,
   type IsolateMemorySample,
 } from '../../observability/isolateMemory.js';
+import {
+  recordHorseDecisionWorkerMemory,
+  seedHorseDecisionWorkerMemory,
+} from '../../observability/engineInstruments.js';
 import type { HorseOwnPublicHistoryCacheStatus } from './ownPublicHistory.js';
 import {
   liveHorseFeatureAuthority,
@@ -647,6 +651,7 @@ export class LiveHorseDecisionWorkerClient {
   private readonly shardIndex: number | undefined;
   constructor(options: LiveHorseDecisionWorkerClientOptions = {}) {
     this.shardIndex = options.shard?.index ?? 0;
+    seedHorseDecisionWorkerMemory(this.shardIndex ?? 0);
     this.onFatal = options.onFatal;
     this.ownPublicHistory = options.ownPublicHistory
       ? new HorseOwnPublicHistoryCache(options.ownPublicHistory)
@@ -2213,6 +2218,7 @@ export class LiveHorseDecisionWorkerClient {
         message.isolateMemory.sampledAtMs <= Date.now()
           ? { ...message.isolateMemory }
           : null;
+      recordHorseDecisionWorkerMemory(this.shardIndex ?? 0, this.isolateMemory);
       this.solverStores = structuredClone(message.solverStores);
       this.solverPolicyArtifact = structuredClone(message.solverPolicyArtifact);
       this.governor = { ...message.governor };
