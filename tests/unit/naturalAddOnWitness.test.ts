@@ -6,6 +6,7 @@ import {
   addOnWindow,
   countdownSeconds,
   readAddOnCountdown,
+  hasNaturalAddOnIncrement,
   forbiddenAddOnParticipation,
   suppressedObserverReward,
 } from '../e2e/support/naturalAddOnWitness';
@@ -193,4 +194,21 @@ describe('countdown samples retain their browser observation time', () => {
       } else expect(sample.driftSeconds).toBeGreaterThan(3);
     }
   );
+});
+
+describe('natural increment evidence remains independent of reconnect', () => {
+  const changes = [
+    { tableId: id, at: 100, count: 30 },
+    { tableId: id, at: 200, count: 31 },
+  ];
+  const signals = [{ tableId: id, at: 150 }];
+  it('accepts a signal-backed increment late in the original page lifetime', () => {
+    expect(hasNaturalAddOnIncrement([id], changes, signals, {})).toBe(true);
+    expect(hasNaturalAddOnIncrement([id], changes, signals, { [id]: 201 })).toBe(true);
+  });
+  it('never treats a reload or initial count as a natural increment', () => {
+    expect(hasNaturalAddOnIncrement([id], changes, signals, { [id]: 200 })).toBe(false);
+    expect(hasNaturalAddOnIncrement([id], changes.slice(0, 1), signals, {})).toBe(false);
+    expect(hasNaturalAddOnIncrement([id], changes, [], {})).toBe(false);
+  });
 });
