@@ -14,7 +14,10 @@ async function verifyRewards(page: Page) {
   await page.getByRole('tab', { name: 'Rewards', exact: true }).click();
   await expect(page.locator('.rw-pool__value')).toHaveText('5,000');
   await expect(page.getByText('1,580 Overlay', { exact: true })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText('3,420 Of 5,000', { exact: true })).toBeVisible();
+  // Guarantee credit includes the full payment: 3,420 prize + 380 rake.
+  // Historical house funding remains posted; it is not the credit basis.
+  await expect(page.getByText('Credited Toward The Guarantee', { exact: true })).toBeVisible();
+  await expect(page.getByText('3,800 Of 5,000', { exact: true })).toBeVisible();
   await expect(page.getByText('Guarantee Met', { exact: true })).toHaveCount(0);
 
   // The first list is the place ladder. A later list may contain bounty-only winners.
