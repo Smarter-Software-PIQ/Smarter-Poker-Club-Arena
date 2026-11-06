@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import unittest
+import tempfile
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
@@ -57,6 +58,45 @@ class QualificationAdmission(unittest.TestCase):
                               return_value=io.BytesIO(json.dumps({'releaseSha': sha, **health}).encode())):
                 with self.assertRaisesRegex(RuntimeError, 'healthy instance identity'):
                     qualification.identity(sha)
+
+
+class SeedEligibility(unittest.TestCase):
+    def test_only_proven_empty_retired_memberships_are_omitted_and_recorded(self):
+        seed_spec = importlib.util.spec_from_file_location('seed_extract', Path(__file__).with_name('seed-extract.py'))
+        seed = importlib.util.module_from_spec(seed_spec)
+        seed_spec.loader.exec_module(seed)
+        with patch.object(seed, 'q', return_value=[['club', 'horse', 't']]):
+            where, exclusions = seed.playable_memberships('person_is_eligible')
+        self.assertIn('person_is_eligible', where)
+        self.assertIn("lifecycle_status='retired'", where)
+        self.assertIn('coalesce(chip_balance,0)=0', where)
+        self.assertIn('s.left_at is null', where)
+        self.assertEqual(exclusions, [{'clubId': 'club', 'userId': 'horse', 'reason': 'nonplayable_empty_retired_club_membership'}])
+        for eligibility in ['f', '', None]:
+            with patch.object(seed, 'q', return_value=[['club', 'horse', eligibility]]):
+                with self.assertRaisesRegex(seed.SeedEligibilityError, 'playable, funded, seated, or not retired'):
+                    seed.playable_memberships('person_is_eligible')
+
+    def test_membership_query_copy_and_budget_failures_cannot_be_skipped(self):
+        seed_spec = importlib.util.spec_from_file_location('seed_extract_failure', Path(__file__).with_name('seed-extract.py'))
+        seed = importlib.util.module_from_spec(seed_spec)
+        seed_spec.loader.exec_module(seed)
+        for failure in ['eligibility', 'budget', 'copy']:
+            def query(sql):
+                if 'pg_total_relation_size' in sql:
+                    return [['public', 'club_members', '1', str(seed.BYTE_CAP + 1 if failure == 'budget' else 20000)]]
+                if 'select club_id,user_id' in sql:
+                    if failure == 'eligibility':
+                        raise RuntimeError('database unreadable')
+                    return []
+                if 'select count(*)' in sql:
+                    return [['1']]
+                return []
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as folder, \
+                 patch.object(seed, 'OUT', folder), patch.object(seed, 'q', side_effect=query), \
+                 patch.object(seed, 'copy_out', side_effect=RuntimeError('copy unreadable')):
+                with self.assertRaises(seed.SeedEligibilityError):
+                    seed.main()
 
 
 if __name__ == '__main__':

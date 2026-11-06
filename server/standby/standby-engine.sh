@@ -52,9 +52,30 @@ assert_isolated() {
 
 psql_db() { docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres "$@"; }
 
+assert_restore_quiet() {
+  local running
+  running=$(docker ps --format '{{.Names}}') || return 1
+  if printf '%s\n' "$running" | grep -Fxq "$CONTAINER"; then
+    log 'restore: standby restarted during restore/seed; refusing certification'
+    return 1
+  fi
+}
+
+stop_for_restore() {
+  # Only this isolated container is stopped. An absent container is fine;
+  # an unreadable Docker inventory or an unconfirmed stop is not.
+  local containers
+  containers=$(docker ps -a --format '{{.Names}}') || return 1
+  if printf '%s\n' "$containers" | grep -Fxq "$CONTAINER"; then
+    docker stop -t 60 "$CONTAINER" >/dev/null || return 1
+    [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = false ] || return 1
+  fi
+}
+
 cmd_restore() {
   local dump="$1"; [ -s "$dump" ] || die "missing dump $dump"
   assert_isolated || return 1
+  stop_for_restore || return 1
   rm -f "$STATE_DIR/database.json" "$STATE_DIR/seed.json" || return 1
   log "restore: dropping app schemas and loading $(basename "$dump")"
   # Database-level event triggers depend on public functions; drop them first.
@@ -80,7 +101,19 @@ cmd_restore() {
   docker exec "$DB_CONTAINER" pg_restore --list /tmp/schema.dump > "$STATE_DIR/restore-toc.list" || return 1
   awk '$4 == "SCHEMA" && $5 == "-" && $6 == "public" { print ";" $0; found++; next }
        { print } END { if (found != 1) exit 1 }' "$STATE_DIR/restore-toc.list" > "$STATE_DIR/restore.list" || return 1
-  docker cp "$STATE_DIR/restore.list" "$DB_CONTAINER:/tmp/restore.list" || return 1
+  # pg_dump emits NOT VALID checks as separate post-data CHECK CONSTRAINT
+  # entries. They grandfather historical rows, so install them after loading
+  # those rows. All validated checks, keys and other schema entries stay put.
+  : > "$STATE_DIR/restore-after-seed.list"
+  awk -v before="$STATE_DIR/restore-before-seed.list" -v after="$STATE_DIR/restore-after-seed.list" '
+    NR == FNR { if ($4 == "CHECK" && $5 == "CONSTRAINT") checks[$6 SUBSEP $7 SUBSEP $8]=1; next }
+    { deferred=($4 == "CHECK" && $5 == "CONSTRAINT") ||
+        ($4 == "COMMENT" && $6 == "CONSTRAINT" && $8 == "ON" && checks[$5 SUBSEP $9 SUBSEP $7]);
+      if (deferred) print > after;
+      print (deferred ? ";" $0 : $0) > before }
+  ' "$STATE_DIR/restore.list" "$STATE_DIR/restore.list" || return 1
+  docker cp "$STATE_DIR/restore-before-seed.list" "$DB_CONTAINER:/tmp/restore.list" || return 1
+  docker cp "$STATE_DIR/restore-after-seed.list" "$DB_CONTAINER:/tmp/restore-after-seed.list" || return 1
   docker exec "$DB_CONTAINER" pg_restore -U supabase_admin -d postgres --no-owner --exit-on-error \
       --use-list /tmp/restore.list --schema-only /tmp/schema.dump > "$LOG_DIR/restore.log" 2>&1 || return 1
   local errors; errors=$(grep -c 'error:' "$LOG_DIR/restore.log" || true)
@@ -91,12 +124,6 @@ cmd_restore() {
     || docker cp /usr/local/share/club-arena-standby/owners.sql "$DB_CONTAINER:/tmp/owners.sql" || return 1
   docker exec "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/owners.sql >>"$LOG_DIR/restore.log" 2>&1 \
     || { log "restore: owner alignment reported errors (see restore.log)"; return 1; }
-  # Production's DDL break-window guard is two database-level event triggers,
-  # which a schema dump does not carry; the engine's recovery-window contract
-  # (fn_engine_recovery_window_contract) requires them, exactly as in production.
-  docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -qc "CREATE EVENT TRIGGER ca_break_window_refuses_ddl ON ddl_command_end EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();
-               CREATE EVENT TRIGGER ca_break_window_refuses_drops ON sql_drop EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();" >/dev/null \
-    || { log "restore: break-window event triggers could not be installed"; return 1; }
   # pg_cron jobs are never carried over: production jobs call production URLs.
   psql_db -qc "DELETE FROM cron.job" >/dev/null || return 1
   # The archive carries production ACLs; never broaden private function grants.
@@ -104,7 +131,7 @@ cmd_restore() {
   local tables functions
   tables=$(psql_db -Atc "select count(*) from pg_tables where schemaname='public'") || return 1
   functions=$(psql_db -Atc "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where nspname='public'") || return 1
-  printf '{"restoredAt":"%s","dump":"%s","dumpSha256":"%s","publicTables":%s,"publicFunctions":%s,"restoreErrors":%s,"restoreValidated":true}\n' \
+  printf '{"restoredAt":"%s","dump":"%s","dumpSha256":"%s","publicTables":%s,"publicFunctions":%s,"restoreErrors":%s,"restoreValidated":false}\n' \
     "$(date -u +%FT%TZ)" "$(basename "$dump")" "$(sha256sum "$dump" | cut -d' ' -f1)" "$tables" "$functions" "$errors" \
     | tee "$STATE_DIR/database.json"
 }
@@ -113,6 +140,7 @@ cmd_seed() {
   local dir="$1"; [ -f "$dir/manifest.json" ] || die "missing seed bundle $dir"
   assert_isolated || return 1
   log "seed: loading $(python3 -c "import json;print(len(json.load(open('$dir/manifest.json'))['copied']))" ) tables (horse accounts and platform structure only)"
+  assert_restore_quiet || return 1
   rm -f "$STATE_DIR/seed.json" || return 1
   docker exec "$DB_CONTAINER" rm -rf /tmp/seed || return 1
   docker cp "$dir" "$DB_CONTAINER:/tmp/seed" || return 1
@@ -125,7 +153,13 @@ CREATE TEMP TABLE h(id uuid, aud text, role text, created_at timestamptz);
 INSERT INTO auth.users (id, aud, role, created_at, instance_id)
 SELECT id, aud, role, created_at, '00000000-0000-0000-0000-000000000000' FROM h ON CONFLICT (id) DO NOTHING;
 SQL
+  # The validated club-members automation CHECK reads clubs.is_platform.
+  # Load that dependency first rather than weakening its real predicate.
+  local seed_files=("$dir/public.clubs.csv")
   for f in "$dir"/*.csv; do
+    [ "$f" = "$dir/public.clubs.csv" ] || seed_files+=("$f")
+  done
+  for f in "${seed_files[@]}"; do
     local t; t=$(basename "$f" .csv); [ "$t" = auth.users ] && continue
     local cols; cols=$(head -1 "$f" | python3 -c 'import csv,sys; print(",".join(chr(34)+c+chr(34) for c in next(csv.reader(sys.stdin))))')
     # Isolated copy only: load through a plain staging table (generated
@@ -146,6 +180,9 @@ COMMIT;
 SQL
     then loaded=$((loaded+1)); else failed=$((failed+1)); echo "seed failed: $t" >> "$LOG_DIR/seed.log"; fi
   done
+  [ "$failed" = 0 ] || return 1
+  docker exec "$DB_CONTAINER" pg_restore -U supabase_admin -d postgres --no-owner --exit-on-error \
+    --use-list /tmp/restore-after-seed.list --schema-only /tmp/schema.dump >> "$LOG_DIR/restore.log" 2>&1 || return 1
   docker cp /usr/local/share/club-arena-standby/placeholders.sql "$DB_CONTAINER:/tmp/placeholders.sql" || return 1
   docker exec "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/placeholders.sql >>"$LOG_DIR/seed.log" 2>&1 \
     || { log "seed: placeholder accounts reported errors (see seed.log)"; return 1; }
@@ -154,6 +191,24 @@ SQL
   tables=$(psql_db -Atc "select count(*) from public.tables") || return 1
   horses=$(psql_db -Atc "select count(*) from public.profiles where is_horse") || return 1
   seats=$(psql_db -Atc "select count(*) from public.table_seats where left_at is null") || return 1
+  # Production's DDL break-window guard is two database-level event triggers,
+  # which a schema dump does not carry; the engine's recovery-window contract
+  # (fn_engine_recovery_window_contract) requires them, exactly as in production.
+  docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -qc "CREATE EVENT TRIGGER ca_break_window_refuses_ddl ON ddl_command_end EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();
+               CREATE EVENT TRIGGER ca_break_window_refuses_drops ON sql_drop EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();" >/dev/null \
+    || { log "restore: break-window event triggers could not be installed"; return 1; }
+  assert_restore_quiet || return 1
+  # Publish validity only after the deferred checks and finalization succeed.
+  python3 - "$STATE_DIR/database.json" <<'PY_VALID'
+import json, os, sys
+path = sys.argv[1]
+data = json.load(open(path))
+data['restoreValidated'] = True
+with open(path + '.new', 'w') as output:
+    json.dump(data, output)
+os.replace(path + '.new', path)
+PY_VALID
+  [ "$?" = 0 ] || return 1
   printf '{"seededAt":"%s","tablesLoaded":%s,"tablesFailed":%s,"cashTables":%s,"horses":%s,"seatedHorses":%s}\n' \
     "$(date -u +%FT%TZ)" "$loaded" "$failed" "$tables" "$horses" "$seats" | tee "$STATE_DIR/seed.json"
 }

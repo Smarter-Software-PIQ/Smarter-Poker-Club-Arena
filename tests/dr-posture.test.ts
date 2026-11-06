@@ -152,7 +152,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       expect(standbyShell('assert_valid_copy', files).status).not.toBe(0);
   });
 
-  it.each(['restore', 'owners', 'triggers', 'role', 'extension'])(
+  it.each(['restore', 'owners', 'role', 'extension'])(
     'propagates %s failure and invalidates the previous receipt even under a conditional caller',
     (fault) => {
       const result = standbyShell(
@@ -183,6 +183,31 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       );
       expect(result.stderr).toBe('');
       expect(result.status).toBe(0);
+    }
+  );
+
+  it.each(['checks', 'triggers'])(
+    'refuses seed certification when final %s installation fails',
+    (fault) => {
+      const result = standbyShell(
+        `
+      assert_isolated() { return 0; }; log() { :; }
+      mkdir "$STATE_DIR/seed"
+      printf '%s' '{"copied":[]}' > "$STATE_DIR/seed/manifest.json"
+      printf 'id\\n' > "$STATE_DIR/seed/public.clubs.csv"
+      docker() {
+        case "$*" in
+          *'pg_restore'*) [ '${fault}' != checks ] || return 19;;
+          *'CREATE EVENT TRIGGER'*) [ '${fault}' != triggers ] || return 19;;
+        esac
+        return 0
+      }
+      if cmd_seed "$STATE_DIR/seed"; then exit 42; fi
+      [ ! -e "$STATE_DIR/seed.json" ]
+    `,
+        validCopy
+      );
+      expect(result.status, result.stderr).toBe(0);
     }
   );
 
@@ -243,12 +268,60 @@ with patch.object(subprocess, 'run', side_effect=[SimpleNamespace(stdout='"expec
     expect(result.status).toBe(0);
   });
 
+  it.each(['absent', 'stopped', 'daemon-failure', 'stop-failure', 'still-running'])(
+    'requires a confirmed isolated stop before restore (%s)',
+    (mode) => {
+      const result = standbyShell(`
+      docker() {
+        case "$1" in
+          ps) [ '${mode}' != daemon-failure ] || return 19; [ '${mode}' = absent ] || echo "$CONTAINER";;
+          stop) [ '${mode}' != stop-failure ];;
+          inspect) [ '${mode}' != still-running ] && echo false || echo true;;
+        esac
+      }
+      stop_for_restore
+    `);
+      expect(result.status === 0).toBe(mode === 'absent' || mode === 'stopped');
+    }
+  );
+
+  it('retains all ordinary schema entries and defers only pg_dump post-data checks', () => {
+    const result = standbyShell(`
+      assert_isolated() { return 0; }
+      log() { :; }
+      psql_db() { case "$*" in *'select count'*) echo 4;; esac; return 0; }
+      sha256sum() { echo fixture; }
+      docker() {
+        case "$*" in
+          *'pg_restore --list'*) printf '%s\\n' '5; 2615 2200 SCHEMA - public postgres' '6; 1259 1 TABLE public existing postgres' '7; 2606 2 CHECK CONSTRAINT public existing historical_not_valid postgres' '8; 2606 3 FK CONSTRAINT public existing existing_fk postgres' '9; 0 0 COMMENT public CONSTRAINT historical_not_valid ON existing postgres';;
+        esac
+        return 0
+      }
+      cmd_restore "$STATE_DIR/schema.dump"
+      cat "$STATE_DIR/restore-before-seed.list"
+      echo DEFERRED
+      cat "$STATE_DIR/restore-after-seed.list"
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    const [before, after] = result.stdout.split('DEFERRED');
+    expect(before).toContain('8; 2606 3 FK CONSTRAINT');
+    expect(before).toContain(';7; 2606 2 CHECK CONSTRAINT');
+    expect(after.trim()).toBe(
+      '7; 2606 2 CHECK CONSTRAINT public existing historical_not_valid postgres\n9; 0 0 COMMENT public CONSTRAINT historical_not_valid ON existing postgres'
+    );
+  });
+
   it('wires restore dependencies, strict errors and the actual restart mechanism into the owning route', () => {
     const script = readFileSync(root(STANDBY), 'utf8');
     expect(script).toContain('CREATE EXTENSION IF NOT EXISTS pg_cron');
     expect(script).toContain('supabase_backup_admin ca_record_gateway');
     expect(script).toContain('CREATE ROLE $role NOLOGIN');
     expect(script).toContain('--no-owner --exit-on-error');
+    expect(script.indexOf('stop_for_restore || return 1')).toBeLessThan(
+      script.indexOf('DROP SCHEMA IF EXISTS')
+    );
+    expect(script).toContain('local seed_files=("$dir/public.clubs.csv")');
+    expect(script).toContain('--use-list /tmp/restore-after-seed.list --schema-only');
     expect(script).not.toContain('GRANT EXECUTE ON ALL FUNCTIONS');
     expect(script).toContain("record 'tournament_freeze_qualification_failed'");
     expect(script).toContain('$4 == "SCHEMA" && $5 == "-" && $6 == "public"');
