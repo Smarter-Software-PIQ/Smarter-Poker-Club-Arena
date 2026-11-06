@@ -15,6 +15,7 @@ Lock:      /opt/tournament-monitor/run.lock (overlapping runs exit and log a ski
 Chat session commands (ssh to the engine host, cd /opt/tournament-monitor):
   python3 tournament_monitor.py handoff --by '<chat id>'        plain-text handoff; touches state/claude_heartbeat
   python3 tournament_monitor.py incidents --open                open incident records as JSON
+  python3 -I report_24h.py                                    observation-window report into reports/ (read-only over records)
   python3 tournament_monitor.py incident <fp> --stage <Stage> --by '<who>' --note '<text>' [--pr N] [--migration V] [--release SHA]
 Stages: Detected -> Investigating -> Fix implemented -> Pushed/merged -> Deployed -> Production fix verified
         -> Phase 2 hardening -> Hardening deployed and verified -> Closed   (Reopened returns a record to Detected)
