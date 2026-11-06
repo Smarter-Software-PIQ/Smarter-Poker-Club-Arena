@@ -149,7 +149,7 @@ jobs:
           set -euo pipefail
           scp -i ~/.ssh/standby "$RUNNER_TEMP/bundle.tgz" "root@$STANDBY_HOST:/var/lib/club-arena-standby/bundle.tgz"
           ssh -i ~/.ssh/standby "root@$STANDBY_HOST" 'set -e; cd /var/lib/club-arena-standby; rm -rf seed; tar -xzf bundle.tgz;
-            git -C /opt/club-arena fetch -q origin; git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine; chmod +x /usr/local/sbin/standby-engine; mkdir -p /usr/local/share/club-arena-standby; git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql;
+            git -C /opt/club-arena fetch -q origin; git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine; chmod +x /usr/local/sbin/standby-engine; mkdir -p /usr/local/share/club-arena-standby; git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql; git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql;
             standby-engine restore schema.dump; standby-engine seed seed'
 
   certify:
@@ -174,7 +174,7 @@ jobs:
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
           ssh -i ~/.ssh/standby -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
-            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && standby-engine certify $SHA 1800" \
+            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && standby-engine certify $SHA 1800" \
             | tee certificate.out
           rc=${PIPESTATUS[0]}
           echo "rc=$rc" >> "$GITHUB_OUTPUT"

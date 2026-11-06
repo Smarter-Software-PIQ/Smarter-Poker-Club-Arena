@@ -66,8 +66,8 @@ cmd_restore() {
       || log "restore: extension ${ext%% *} unavailable"
   done
   docker cp "$dump" "$DB_CONTAINER:/tmp/schema.dump"
-  # Owners and grants are not carried; supabase roles get default access below.
-  docker exec "$DB_CONTAINER" pg_restore -U supabase_admin -d postgres --no-owner --no-privileges \
+  # Owners are aligned below; grants are carried as in production.
+  docker exec "$DB_CONTAINER" pg_restore -U supabase_admin -d postgres --no-owner \
       --schema-only /tmp/schema.dump > "$LOG_DIR/restore.log" 2>&1 || true
   local errors; errors=$(grep -c 'error:' "$LOG_DIR/restore.log" || true)
   # Production owns application objects as postgres; SECURITY DEFINER guards
@@ -125,6 +125,9 @@ COMMIT;
 SQL
     then loaded=$((loaded+1)); else failed=$((failed+1)); echo "seed failed: $t" >> "$LOG_DIR/seed.log"; fi
   done
+  docker cp /usr/local/share/club-arena-standby/placeholders.sql "$DB_CONTAINER:/tmp/placeholders.sql"
+  docker exec "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/placeholders.sql >>"$LOG_DIR/seed.log" 2>&1 \
+    || log "seed: placeholder accounts reported errors (see seed.log)"
   local tables horses seats
   tables=$(psql_db -Atc "select count(*) from public.tables")
   horses=$(psql_db -Atc "select count(*) from public.profiles where is_horse")

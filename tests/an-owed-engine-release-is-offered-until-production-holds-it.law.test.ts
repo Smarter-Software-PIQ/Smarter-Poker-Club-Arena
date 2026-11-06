@@ -469,7 +469,8 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(certified.if).toBe("steps.offer.outputs.send == 'true'");
     expect(certified.env.REF_SHA).toBe('${{ needs.detect.outputs.target_sha }}');
     expect(certified.run).toContain('backup-engine/certified');
-    expect(certified.run).toMatch(/if \[ "\$STATE" = success \]/);
+    expect(certified.run).toMatch(/if \[ "\$STATE" = success \]; then CHOSEN=\$sha; break; fi/);
+    expect(send.env.REF_SHA).toBe('${{ steps.certified.outputs.sha }}');
     expect(stage.jobs.signal.steps.indexOf(certified)).toBeLessThan(stage.jobs.signal.steps.indexOf(send));
     expect(offer.env.OFFER_REASON).toBe('${{ needs.detect.outputs.offer_reason }}');
     expect(stage.jobs.detect.outputs.offer_reason).toBe('${{ steps.change.outputs.offer_reason }}');
