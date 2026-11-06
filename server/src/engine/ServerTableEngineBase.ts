@@ -1580,6 +1580,11 @@ export abstract class ServerTableEngineBase {
     return false;
   }
 
+  /** See ServerTableEngineDealing: a retained, never-started original held at the pause gate by ANY owner. */
+  isPreparedOriginalHeldAtPauseGate(): boolean {
+    return false;
+  }
+
   /** See ServerTableEngineDealing: a retained, never-started original held at the closeout gate. */
   isPreparedOriginalHeldAtTerminalCloseout(): boolean {
     return false;

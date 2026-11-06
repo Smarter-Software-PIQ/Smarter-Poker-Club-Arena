@@ -2999,6 +2999,35 @@ export class MaintenanceBreak {
   }
 
   /**
+   * THE TOURNAMENT BREAK AND THE HOURLY BREAK ARE ONE BREAK (2026-11-06).
+   *
+   * The tournament break fires at :55 and the hourly maintenance break is
+   * announced at :58 for :00. endsAt() is 0 at :55 (the platform break is
+   * still idle), so each tournament ran five minutes from its own last hand
+   * and ended INSIDE the maintenance break: Satellite 30 (a2a2c981) ended at
+   * 01:00:42, waited for the thaw ("its break ended but the maintenance
+   * freeze was still on 90s later"), and came back in the same instant as the
+   * maintenance resume wave - a timing that decided, by milliseconds, whether
+   * its tables dealt or froze.
+   *
+   * So the tournament break asks this instead: the active break's end, or,
+   * when this process has the next scheduled break armed to start within
+   * `horizonMs`, that break's end. Every tournament break that would overlap
+   * the coming hourly break now ends exactly with it, never partway through
+   * it. Read-only; an announcement that later fails only means the
+   * tournament's break ends at the planned time.
+   */
+  tournamentBreakEndsAt(horizonMs: number): number {
+    const active = this.endsAt();
+    if (active > 0) return active;
+    if (!this.started || !this.announceTimer || this.scheduledAnnouncementAt <= 0) return 0;
+    const now = this.now();
+    const startsAt = this.scheduledAnnouncementAt + MaintenanceBreak.LAST_HAND_LEAD_MS;
+    if (startsAt < now || startsAt > now + Math.max(0, horizonMs)) return 0;
+    return startsAt + MaintenanceBreak.BREAK_DURATION_MS;
+  }
+
+  /**
    * The deploy workflow's gate, and the single most important boolean here.
    *
    * True only when the countdown is running, every table has actually reached
