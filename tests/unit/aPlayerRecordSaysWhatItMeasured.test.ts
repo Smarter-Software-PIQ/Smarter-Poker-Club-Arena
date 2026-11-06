@@ -275,3 +275,22 @@ describe('the transfer modal (source pins beside the mount test)', () => {
     expect(MODAL).toContain('aria-label="Close"');
   });
 });
+
+describe('the production roster relevance proof', () => {
+  it('selects a real authorized name and binds the matching first-page response', () => {
+    const start = PRODUCTION_PLAYERS.indexOf("test('ranks player names above upline matches");
+    const end = PRODUCTION_PLAYERS.indexOf("test('loads the real roster once", start);
+    const proof = PRODUCTION_PLAYERS.slice(start, end);
+    expect(proof).not.toContain("'mikey'");
+    expect(proof).toContain("filter.selectOption('all')");
+    expect(proof).toContain('const initialRows = initialResult.items');
+    expect(proof).toContain('initialRows.find(');
+    expect(proof).toContain('request.p_club_id === clubId');
+    expect(proof).toContain("request.p_filter === 'all'");
+    expect(proof).toContain('request.p_cursor === null');
+    expect(proof).toContain('request.p_search?.trim().toLowerCase() === searchTerm');
+    expect(proof).toContain('expect(rows.length).toBeGreaterThan(0)');
+    expect(proof).toContain('expect(ranks).toEqual([...ranks].sort');
+    expect(proof).toContain("await expect(sort).toHaveValue('oldest')");
+  });
+});
