@@ -14,7 +14,7 @@ describe('V31 candidate promotion card', () => {
     const scenarios = families.flatMap((family) =>
       buildGtoV31EvaluationScenarios(family, 'paired_replay', CHECKSUM)
     );
-    expect(scenarios.reduce((total, scenario) => total + scenario.pairs, 0)).toBe(20_000);
+    expect(scenarios.reduce((total, scenario) => total + scenario.pairs, 0)).toBe(200_000);
     expect(scenarios.filter((scenario) => scenario.family === 'spin').map((s) => s.key)).toEqual([
       'chip_ev',
       'spin_ladder',
