@@ -119,3 +119,21 @@ if "${PSQL[@]}" -f "$DOWNLINE_MIGRATION" > "$WORK/downline-replay.log" 2>&1; the
   echo 'Downline range migration replay unexpectedly accepted'; exit 1
 fi
 grep -q 'already exists' "$WORK/downline-replay.log"
+
+# The owner's all-rake split includes tournament receipts in both Overall and
+# Chicago date-filtered member records, without changing cash or VIP events.
+"${PSQL[@]}" -f "$FIXTURE/tournament-share-setup.sql" -f "$FIXTURE/tournament-share-preimages.sql"
+python3 - "$ROOT" "$WORK/tournament-rollup-owner.sql" <<'PY'
+from pathlib import Path
+import sys
+s=(Path(sys.argv[1])/'supabase/migrations/20261015092518_player_management_fees_come_from_the_fee_ledgers.sql').read_text()
+a=s.index('CREATE FUNCTION public.fn_ca_club_member_tournament_fee_daily_apply()')
+b=s.index('-- Existing receipts.',a)
+Path(sys.argv[2]).write_text(s[a:b])
+PY
+"${PSQL[@]}" -f "$WORK/tournament-rollup-owner.sql"
+if "${PSQL[@]}" -f "$FIXTURE/tournament-share-assert.sql" > "$WORK/tournament-before.log" 2>&1; then
+ echo 'FAIL: tournament regression unexpectedly passed before fix' >&2; exit 1
+fi
+grep -q 'Mikey tournament 100 must show 50' "$WORK/tournament-before.log" || { cat "$WORK/tournament-before.log"; exit 1; }
+"${PSQL[@]}" -f "$ROOT/supabase/migrations/20261106055718_all_earned_rake_includes_tournament_shares.sql" -f "$FIXTURE/tournament-share-assert.sql"
