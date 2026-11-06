@@ -433,7 +433,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     delete clientOptions.onFatal;
     this.clientOptions = clientOptions;
     this.now = options.shardReplacementNow ?? Date.now;
-    this.clients = Array.from({ length: count }, (_, index) => this.createClient(index, count));
+    this.clients = Array.from({ length: count }, (_, index) => this.spawnShardClient(index, count));
     this.readyPromise = this.awaitAllReady().then((readiness) => {
       this.booted = readiness;
       return readiness;
@@ -441,7 +441,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     void this.readyPromise.catch(() => undefined);
   }
 
-  private createClient(index: number, count: number): LiveHorseDecisionWorkerClient {
+  private spawnShardClient(index: number, count: number): LiveHorseDecisionWorkerClient {
     const client: LiveHorseDecisionWorkerClient = new LiveHorseDecisionWorkerClient({
       ...this.clientOptions,
       shard: { index, count },
@@ -481,7 +481,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
         `alone (${recent.length + 1}/${SHARD_REPLACEMENT_LIMIT} in ` +
         `${SHARD_REPLACEMENT_WINDOW_MS / 60_000} min). The other ${this.clients.length - 1} keep dealing.`
     );
-    const replacement = this.createClient(index, this.clients.length);
+    const replacement = this.spawnShardClient(index, this.clients.length);
     this.clients[index] = replacement;
     replacement.ready().then(
       (readiness) => {
