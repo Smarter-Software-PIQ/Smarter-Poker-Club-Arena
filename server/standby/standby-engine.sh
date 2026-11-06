@@ -20,6 +20,7 @@
 #   standby-engine.sh build   <sha>           build the exact engine image
 #   standby-engine.sh run     <sha>           (re)start the Backup Engine
 #   standby-engine.sh certify <sha> [soak_s]  build, boot, crash, soak, verdict
+#   standby-engine.sh trial   <swap|break|table-kill|all> ...  simulations (standby-trials.sh)
 #   standby-engine.sh status
 set -Eeuo pipefail
 
@@ -173,6 +174,7 @@ ALERT_WEBHOOK_SECRET=standby
 TURN_HOST=
 TURN_PORT=3478
 TURN_STATIC_AUTH_SECRET=
+FAULT_INJECTION_TOKEN=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 ENGINE_STANDBY_CLONE=1
 EOF
 }
@@ -227,6 +229,11 @@ cmd_certify() {
   sv=$(health | health_field releaseSha)
   [ "$sv" = "$sha" ] || record "serving_sha_mismatch:${sv:-none}"
 
+  # The 4 AM cutover rehearsed: the live serving release swaps to this one.
+  local serving; serving=$(curl -fsS -m 10 https://engine.smarter.poker/health 2>/dev/null | health_field releaseSha)
+  if [ "$verdict" = pass ] && [[ "$serving" =~ ^[0-9a-f]{40}$ ]] && [ "$serving" != "$sha" ] && declare -F trial_swap >/dev/null; then
+    trial_swap "$serving" "$sha" >/dev/null || record "swap_rehearsal_failed_from_${serving:0:12}"
+  fi
   # Crash drill: SIGKILL, start the same container, it must come back.
   if [ "$verdict" = pass ]; then
     docker kill -s KILL "$CONTAINER" >/dev/null; sleep 2; docker start "$CONTAINER" >/dev/null
@@ -239,12 +246,18 @@ cmd_certify() {
     sleep 60
     rss0=$(docker stats --no-stream --format '{{.MemUsage}}' "$CONTAINER" | awk '{print $1}')
     local end=$(( $(date +%s) + soak ))
+    local dealt=0 h
     while [ "$(date +%s)" -lt "$end" ]; do
       [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = true ] || { record 'crashed_during_soak'; break; }
-      l=$(health | health_field liveness)
+      h=$(health); l=$(printf '%s' "$h" | health_field liveness)
       [ "$l" = ok ] || [ "$l" = standby ] || { record "liveness_${l:-unreachable}_during_soak"; break; }
+      n=$(printf '%s' "$h" | health_field dealRate.handsInWindow); [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt "$dealt" ] && dealt=$n
       sleep 15
     done
+    # The seeded horse tables must actually deal on this build.
+    if [ "$(psql_db -Atc "select count(*) from public.table_seats where left_at is null" 2>/dev/null || echo 0)" -gt 0 ] && [ "$dealt" -eq 0 ]; then
+      record 'no_hands_dealt_during_soak'
+    fi
     rss1=$(docker stats --no-stream --format '{{.MemUsage}}' "$CONTAINER" | awk '{print $1}')
   fi
   restarts=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo -1)
@@ -258,13 +271,18 @@ import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
        "bootSeconds": ${boot1:--1}, "crashRecoverySeconds": ${boot2:--1}, "soakSeconds": $soak,
-       "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals,
+       "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},
        "database": json.load(open("$STATE_DIR/database.json")) if __import__("os").path.exists("$STATE_DIR/database.json") else None}
 open(sys.argv[1], "w").write(json.dumps(doc, indent=2) + "\n")
 print(json.dumps(doc))
 PY
   [ "$verdict" = pass ]
 }
+
+TRIALS_FILE=/usr/local/share/club-arena-standby/standby-trials.sh
+[ -f "$(dirname "$0")/standby-trials.sh" ] && TRIALS_FILE="$(dirname "$0")/standby-trials.sh"
+# shellcheck source=standby-trials.sh
+[ -f "$TRIALS_FILE" ] && . "$TRIALS_FILE"
 
 cmd_status() {
   echo "container: $(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}} running={{.State.Running}} restarts={{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo none)"
@@ -279,6 +297,7 @@ case "${1:-}" in
   build)   cmd_build "${2:?sha}" ;;
   run)     cmd_run "${2:?sha}" ;;
   certify) cmd_certify "${2:?sha}" "${3:-1800}" ;;
+  trial)   shift; cmd_trial "$@" ;;
   status)  cmd_status ;;
   *) sed -n 2,22p "$0"; exit 64 ;;
 esac
