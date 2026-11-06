@@ -52,8 +52,10 @@ it('qualifies exact waiting attempt admission and its original terminal signal b
         // Local Mac transport needs headroom, and so does hosted Linux: CI
         // checks out with `filter: blob:none`, so every `git show <sha>:...`
         // of a historical source is a lazy blob fetch (60 s was exceeded on
-        // busy runners with the cases themselves passing).
-        timeout: 120000,
+        // busy runners with the cases themselves passing). A shared local Mac
+        // under pre-push load took 90 to 110 s for 83 passing cases, so the
+        // ceiling keeps that headroom; a healthy run is far below it.
+        timeout: 240000,
       }
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
@@ -69,7 +71,7 @@ it('qualifies exact waiting attempt admission and its original terminal signal b
   } finally {
     rmSync(sentinel, { recursive: true, force: true });
   }
-}, 135000);
+}, 255000);
 
 it('keeps the revoked off-cycle owner order closed', () => {
   const windows = JSON.parse(

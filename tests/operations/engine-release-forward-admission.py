@@ -37,8 +37,10 @@ def step_code(name, following):
     return textwrap.dedent(block[start:].rsplit('\n      - ', 1)[0].rstrip())
 
 
+# The Backup Engine certificate gate follows the target step; it is pinned by
+# tests/the-live-engine-only-receives-a-backup-certified-version.law.test.ts.
 PREFLIGHT = step_code('Prove the request is current protected-main engine code',
-                      'Use the production Node major')
+                      'Require the Backup Engine certificate for this exact SHA')
 QUEUED = step_code('Recheck freshness after the FIFO wait',
                    "Admit only the immutable target's preparation window")
 stage = WORKFLOW[WORKFLOW.index('name: Stage exact control bytes'):
