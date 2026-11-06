@@ -119,7 +119,17 @@ FROM (VALUES
   ('v31_certified_probe', 'V31 solver cell applied: probe'),
   ('v31_certified_barrel', 'V31 solver cell applied: barrel'),
   ('v31_certified_execution_mismatch', 'V31 solver cell sampled but legalized away (expected 0)'),
-  ('v31_certified_skip_empty_store', 'V31 solver store empty, no serving binding (expected 0 once bound)')
+  ('v31_certified_skip_empty_store', 'V31 solver store empty, no serving binding (expected 0 once bound)'),
+  ('plan_fingerprint_recorded', 'Items 21 and 23 plan fingerprint (recorded)'),
+  ('plan_fingerprint_continued_on_blank', 'Items 21 and 23 plan fingerprint (met, blank)'),
+  ('plan_fingerprint_improved_on_good_card', 'Items 21 and 23 plan fingerprint (met, good)'),
+  ('plan_fingerprint_checked_scare_card', 'Items 21 and 23 plan fingerprint (met, scare)'),
+  ('plan_fingerprint_aborted_multiway_contender_shift', 'Items 21 and 23 plan fingerprint (withdrawn: contender)'),
+  ('plan_fingerprint_aborted_stack_exposure_shift', 'Items 21 and 23 plan fingerprint (withdrawn: exposure)'),
+  ('plan_fingerprint_absent', 'Items 21 and 23 plan fingerprint (plan carried none)'),
+  ('opponent_memory_donor_fresh', 'Item 12 donor staleness (fresh)'),
+  ('opponent_memory_donor_stale', 'Item 12 donor staleness (stale)'),
+  ('opponent_memory_donor_expired', 'Item 12 donor staleness (expired)')
 ) AS x(feature, upgrade)
 LEFT JOIN public.horse_brain_telemetry t ON t.feature = x.feature AND t.day >= :START_DAY::date
 GROUP BY x.feature, x.upgrade
