@@ -18,6 +18,14 @@ it('delivers real rows from an isolated target and retires it on every outcome',
   expect(create).toBeLessThan(suite);
   expect(cleanup).toBeGreaterThan(suite);
   expect(workflow.slice(create, suite)).toContain('GITHUB_ENV=/dev/null');
+  const cleanupStep = workflow.slice(
+    cleanup,
+    workflow.indexOf('name: Retire interrupted assignment', cleanup)
+  );
+  expect(cleanupStep).toContain("steps.row_target.outcome != 'skipped'");
+  expect(cleanupStep).toContain("needs.publication-gate.outputs.client_navigation != 'true'");
+  expect(cleanupStep).toContain("needs.publication-gate.outputs.tournament_only != 'true'");
+  expect(cleanupStep).not.toContain("steps.row_target.outcome == 'success'");
   expect(
     workflow.slice(cleanup, workflow.indexOf('name: Retire interrupted assignment', cleanup))
   ).toContain('if: always()');

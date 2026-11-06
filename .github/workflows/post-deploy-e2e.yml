@@ -1643,7 +1643,7 @@ jobs:
           e2e-report/customization-commerce.json
 
       - name: Retire the isolated row-delivery target
-        if: always() && steps.row_target.outcome != 'skipped' && steps.live.outputs.ready == 'true'
+        if: always() && steps.row_target.outcome != 'skipped' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
