@@ -489,3 +489,38 @@ describe("a device's own accepted save never reads as another device", () => {
     expect(lobbySelect(net.server, 'account-a', CLUB)?.view_prefs.sortByTab.SNG).toBe('players');
   });
 });
+
+describe('two quick taps on a table heading', () => {
+  /* Production, verify-lobby-filters run 42140994979 (Spins): the heading's
+     page preference sent both taps at once against the same revision, the
+     account refused the second as Changed On Another Device and the board
+     snapped back to the first tap. */
+  it('are saved one after the other and the second tap is what the account keeps', async () => {
+    const { savePagePreference } = await import('../../src/lib/pagePreferenceSave');
+    const { pageSelect } = await import('../helpers/fakePreferenceServer');
+    const key = `lobby:headingSort:SPIN:${CLUB}`;
+    net.hold = true;
+    const first = savePagePreference(
+      'account-a',
+      key,
+      { key: 'buyin', dir: 'desc' },
+      'tap-1',
+      () => {}
+    );
+    const second = savePagePreference(
+      'account-a',
+      key,
+      { key: 'buyin', dir: 'asc' },
+      'tap-2',
+      () => {}
+    );
+    await vi.waitFor(() => expect(net.held).toHaveLength(1));
+    net.held[0]();
+    await vi.waitFor(() => expect(net.held).toHaveLength(2));
+    net.held[1]();
+    expect(await first).toEqual({ status: 'saved' });
+    expect(await second).toEqual({ status: 'saved' });
+    expect(pageSelect(net.server, 'account-a', key)?.value).toEqual({ key: 'buyin', dir: 'asc' });
+    expect(readSaveStatus('account-a:page').state).toBe('saved');
+  });
+});
