@@ -32,6 +32,45 @@ export interface WaitlistOfferRow {
   hold_expires_at?: string | null;
 }
 
+/** The committed reservation that completes an earlier Join Game request. */
+export interface CashSeatOfferArrival {
+  id: string;
+  tableId: string;
+  userId: string;
+  notifiedAt: string;
+  holdExpiresAt: string;
+}
+
+export function liveCashSeatOffer(
+  value: unknown,
+  tableId: string | undefined,
+  userId: string | null | undefined,
+  now = Date.now()
+): CashSeatOfferArrival | null {
+  if (!value || typeof value !== 'object') return null;
+  const offer = value as Partial<CashSeatOfferArrival>;
+  if (
+    typeof offer.id !== 'string' ||
+    !offer.id ||
+    !tableId ||
+    offer.tableId !== tableId ||
+    !userId ||
+    offer.userId !== userId ||
+    typeof offer.notifiedAt !== 'string' ||
+    !Number.isFinite(Date.parse(offer.notifiedAt)) ||
+    typeof offer.holdExpiresAt !== 'string' ||
+    !Number.isFinite(Date.parse(offer.holdExpiresAt)) ||
+    Date.parse(offer.holdExpiresAt) <= now
+  )
+    return null;
+  return offer as CashSeatOfferArrival;
+}
+
+/** Thaw changes a deadline, never the identity of the invitation. */
+export function cashSeatOfferKey(offer: CashSeatOfferArrival): string {
+  return `${offer.id}:${offer.notifiedAt}`;
+}
+
 export type SeatOfferDecision =
   /** A hold this client has not shown yet: banner, table name, toast. */
   | { action: 'offer'; tableId: string; deadline: string | null }

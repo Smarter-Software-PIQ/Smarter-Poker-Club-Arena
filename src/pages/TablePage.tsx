@@ -658,6 +658,7 @@ import { useBombPotCountdown } from '../hooks/useBombPotCountdown';
 import { TableHUD } from '../components/table/TableHUD';
 import { TournamentLobbyModal } from '../components/table/TournamentLobbyModal';
 import { useCashSeatEntry } from '../components/table/useCashSeatEntry';
+import { cashSeatOfferKey, liveCashSeatOffer } from '../components/common/waitlistSeatOffer';
 import { MustMoveLobbyModal } from '../components/table/MustMoveLobbyModal';
 import { CashClusterHUD } from '../components/table/CashClusterHUD';
 import TournamentInfoPanel from '../components/tournament/TournamentInfoPanel';
@@ -23015,23 +23016,34 @@ function LiveTablePage({
      must land the player "to the buy in screen directly". The offer toast and
      the bell deep link both navigate here with ?buyin=1; once the table has
      painted and the hero is not already seated, open the buy-in flow on the
-     first open seat exactly as if they had tapped it. Fires at most once per
-     mount, and never on a tournament table (handleSeatClick refuses those). */
+     first open seat exactly as if they had tapped it. Each committed waitlist
+     offer is its own invitation, even on an already-mounted table whose first
+     attempt was waitlisted. Duplicate offers and thawed deadlines never spend
+     another tap. Tournament tables remain outside the cash purchase path. */
   const [acceptedChair, setAcceptedChair] = useState(0);
   const autoBuyInFiredRef = useRef(false);
+  const consumedSeatOffersRef = useRef(new Set<string>());
   useEffect(() => {
     autoBuyInFiredRef.current = false;
+    consumedSeatOffersRef.current.clear();
   }, [tableId, userId]);
   useEffect(() => {
-    if (autoBuyInFiredRef.current) return;
+    const arrival = location.pathname.endsWith(`/table/${tableId}`)
+      ? location.state?.cashSeatOffer
+      : undefined;
+    const offer = liveCashSeatOffer(arrival, tableId, userId);
+    const offerKey = offer ? cashSeatOfferKey(offer) : null;
+    const freshOffer = offerKey !== null && !consumedSeatOffersRef.current.has(offerKey);
+    if (autoBuyInFiredRef.current && !freshOffer) return;
     // A deep-link invitation was consumed by the seat we have now left.
-    // It cannot become another buy-in invitation in a second window.
-    if (leftSeatPendingRef.current) return;
-    let wantsBuyIn = openBuyInOnArrival || acceptedChair > 0;
+    // Only a new committed offer can authorize another automatic arrival.
+    if (leftSeatPendingRef.current && !freshOffer) return;
+    let wantsBuyIn = openBuyInOnArrival || acceptedChair > 0 || freshOffer;
     try {
       wantsBuyIn ||=
+        arrival === undefined &&
         location.pathname.endsWith(`/table/${tableId}`) &&
-        new URLSearchParams(window.location.search).get('buyin') === '1';
+        new URLSearchParams(location.search).get('buyin') === '1';
     } catch {
       wantsBuyIn = false;
     }
@@ -23061,6 +23073,10 @@ function LiveTablePage({
     );
     const openIdx = tableState.players.findIndex((p, index) => !p && !occupied.has(index + 1));
     if (openIdx < 0) return;
+    if (freshOffer && offerKey) {
+      consumedSeatOffersRef.current.add(offerKey);
+      setShowMustMoveLobby(false);
+    }
     autoBuyInFiredRef.current = true;
     handleSeatClick(openIdx + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -23070,9 +23086,12 @@ function LiveTablePage({
     tableState.arenaAsset,
     engineSnapshot,
     tableId,
+    userId,
     openBuyInOnArrival,
     acceptedChair,
     location.pathname,
+    location.search,
+    location.state,
   ]);
 
   /* JOIN LIGHTNING FROM A LIGHTNING TABLE (Dan 2026-10-24: "YOU DON'T SELECT
