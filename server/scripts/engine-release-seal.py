@@ -2183,6 +2183,132 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         print(' '.join(proved) if proved else 'not-needed')
 
 
+# 2026-11-06 ROOT CAUSE (run 42190145714-1): engine-supervisor.sh read every
+# request with st_nlink == 1, but the v1 protocol publishes <run>.request as a
+# hard link of <run>.intent. A committed run whose post-commit step failed then
+# could never pass its own exact desired recovery, parked failed, and kept its
+# committed routine cycle and finalization forever, refusing every later run.
+# The fixed supervisor accepts exactly that sibling link. A run pinned to the
+# old bytes still cannot finish, so a later run gives its original unit back
+# the one shape those bytes read: the identical request with its own inode.
+# This never records a result, clears a seal field or claims authorship; the
+# original owner re-enters and records its own sealed result.
+PARKED_OWNER_SUPERVISOR_DEFECT = "s.st_nlink != 1 or s.st_size > 131072"
+ROOT_UID = 0
+
+
+def parked_owner_private(info: os.stat_result) -> bool:
+    return (stat.S_ISREG(info.st_mode) and info.st_uid == ROOT_UID
+            and stat.S_IMODE(info.st_mode) == 0o600)
+
+
+def parked_owner_stamp(info: os.stat_result) -> tuple[int, ...]:
+    return (info.st_dev, info.st_ino, info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def cmd_restart_parked_committed_owner(args: argparse.Namespace) -> None:
+    run_id = str(args.run_id)
+    if not RUN_ID_RE.fullmatch(run_id):
+        die("parked committed owner caller run id is invalid")
+    require_engine_lock(args.engine_lock_fd)
+    request_root = Path(os.environ.get("ENGINE_RELEASE_REQUEST_ROOT", str(STATE_DIR / "engine-release-requests")))
+    pin_root = Path(os.environ.get("ENGINE_RELEASE_PIN_ROOT", str(STATE_DIR / "engine-release-generation-pins")))
+    with SealLock():
+        state = load_state()
+        finalization = state.get("finalization")
+        if state.get("pending") is not None or not isinstance(finalization, dict):
+            print("not-needed"); return
+        owner = str(finalization["runId"])
+        committed = state.get("committedRuns", {}).get(owner)
+        exact = {"sha": finalization["sha"], "imageId": finalization["imageId"]}
+        cycle = own_routine_cycle(state, owner)
+        if (owner == run_id or committed != exact
+                or {"sha": state["desired"]["sha"], "imageId": state["desired"]["imageId"]} != exact
+                or owner in state.get("orphanFinalizationResolutions", {})
+                or result_path(owner).exists()
+                or (cycle is not None and (cycle["status"] != "committed" or cycle["sha"] != exact["sha"]))):
+            print("not-needed"); return
+        unit = f"club-arena-engine-release-v1@{owner}.service"
+        def parked() -> bool:
+            value = native_unit(unit)
+            return (value["LoadState"] == "loaded" and value["ActiveState"] == "failed"
+                    and value["SubState"] == "failed" and value["MainPID"] == "0"
+                    and value["ControlPID"] == "0" and value["Job"] in {"", "0"})
+        if not parked():
+            # A live, queued or unknown owner keeps its own recovery.
+            print("not-needed"); return
+        directory = request_root.lstat()
+        if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != ROOT_UID
+                or stat.S_IMODE(directory.st_mode) & 0o077):
+            die("parked committed owner request root is not private")
+        request_path = request_root / f"{owner}.request"
+        intent_path = request_root / f"{owner}.intent"
+        try:
+            request_info = request_path.lstat()
+            intent_info = intent_path.lstat()
+        except FileNotFoundError:
+            print("not-needed"); return
+        if not (parked_owner_private(request_info) and parked_owner_private(intent_info)):
+            die("parked committed owner request or intent is not private immutable input")
+        if (request_info.st_dev, request_info.st_ino) != (intent_info.st_dev, intent_info.st_ino):
+            print("not-needed"); return
+        if request_info.st_nlink != 2:
+            die("parked committed owner request has a foreign hard link")
+        payload = request_path.read_bytes()
+        request = payload.decode().splitlines()
+        if (len(request) != 6 or request[0] != exact["sha"] or not SHA_RE.fullmatch(request[4])
+                or payload.decode() != "\n".join(request) + "\n"):
+            die("parked committed owner request does not name its committed release")
+        generation = Path(request[3])
+        pin = pin_root / f"{owner}.generation"
+        pin_info = pin.lstat()
+        if (not parked_owner_private(pin_info)
+                or pin.read_text(encoding="utf-8").splitlines() != [str(generation), request[4]]):
+            die("parked committed owner generation pin does not match its request")
+        supervisor = generation / "engine-supervisor.sh"
+        source = supervisor.read_bytes()
+        if (generation.is_symlink() or supervisor.is_symlink()
+                or (generation / "control-sha").read_text(encoding="utf-8").splitlines() != [request[4]]):
+            die("parked committed owner generation is not its immutable control")
+        if PARKED_OWNER_SUPERVISOR_DEFECT.encode() not in source or b"def sibling_intent_link" in source:
+            # Owner bytes that can read their own request finish on retry.
+            print("not-needed"); return
+        temporary = request_root / f".{owner}.intent.{run_id}.{os.getpid()}"
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            try:
+                os.fchmod(fd, 0o600)
+                write_all(fd, payload)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            if (not parked() or load_state() != state
+                    or parked_owner_stamp(request_path.lstat()) != parked_owner_stamp(request_info)
+                    or parked_owner_stamp(intent_path.lstat()) != parked_owner_stamp(intent_info)):
+                die("parked committed owner evidence changed before its request was unshared")
+            os.replace(temporary, intent_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        directory_fd = os.open(request_root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        after_request, after_intent = request_path.lstat(), intent_path.lstat()
+        if (after_request.st_nlink != 1 or after_intent.st_nlink != 1
+                or (after_request.st_dev, after_request.st_ino) != (request_info.st_dev, request_info.st_ino)
+                or request_path.read_bytes() != payload or intent_path.read_bytes() != payload):
+            die("parked committed owner request was not unshared exactly")
+        audit_once("parked_committed_owner_restarted", state,
+                   f"parked_committed_owner_restarted:{owner}:{run_id}",
+                   owner=owner, release=exact, verifiedByRunId=run_id,
+                   controlSha=request[4], requestSha256=hashlib.sha256(payload).hexdigest(),
+                   supervisorSha256=hashlib.sha256(source).hexdigest())
+    run(["systemctl", "reset-failed", unit])
+    run(["systemctl", "start", "--no-block", unit])
+    print(f"restarted {owner}")
+
+
 def cmd_check_routine_owner(args: argparse.Namespace) -> None:
     with SealLock():
         state = load_state()
@@ -4484,6 +4610,10 @@ def parser() -> argparse.ArgumentParser:
     restoring.add_argument('--repo', required=True)
     restoring.add_argument('--sha', required=True)
     restoring.set_defaults(handler=cmd_restoration_needed)
+    parked_owner = commands.add_parser('restart-parked-committed-owner')
+    parked_owner.add_argument('--engine-lock-fd', type=int, required=True)
+    parked_owner.add_argument('--run-id', required=True)
+    parked_owner.set_defaults(handler=cmd_restart_parked_committed_owner)
     owner = commands.add_parser('check-routine-owner')
     owner.add_argument('--run-id', required=True)
     owner.set_defaults(handler=cmd_check_routine_owner)
