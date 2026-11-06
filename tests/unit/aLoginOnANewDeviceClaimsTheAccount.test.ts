@@ -61,6 +61,8 @@ import {
   enrollCustomizationBrowser,
 } from '../e2e/support/customizationBrowserEnrollment';
 
+import { preferenceDeviceGateObserved } from '../e2e/support/preferenceBrowserEnrollment';
+
 const SID_A = '11111111-2222-4333-8444-555555555555';
 const SID_B = '99999999-8888-4777-8666-555555555555';
 const DEV = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
@@ -142,6 +144,27 @@ describe('enrollDevice', () => {
     expect(clickButton('This Is A New Device')).toBe(true);
     await settle();
     expect(rpcMock.mock.calls.some((c) => c[0] === 'ca_register_new_device')).toBe(true);
+  });
+
+  it('a cache-empty preference device observes the real choice then actual enrollment', async () => {
+    const target = { userId: SID_A, origin: location.origin };
+    localStorage.setItem('smarter-poker-auth', JSON.stringify({ user: { id: SID_A } }));
+    rpcMock.mockImplementation(async (name: string) => ({
+      data:
+        name === 'ca_claim_active_login'
+          ? { ok: true, needs_choice: true, devices: [{ id: DEV, label: 'Previous Device' }] }
+          : { ok: true, device_id: DEV },
+      error: null,
+    }));
+    expect(preferenceDeviceGateObserved(target)).toBeNull();
+    await enrollDevice(tokenWith(SID_A));
+    await settle();
+    expect(preferenceDeviceGateObserved(target)).toBe('choice');
+    expect(preferenceDeviceGateObserved({ ...target, userId: SID_B })).toBeNull();
+    expect(clickButton('This Is A New Device')).toBe(true);
+    await settle();
+    expect(preferenceDeviceGateObserved(target)).toBe('enrolled');
+    expect(customizationEnrollmentObserved(target)?.device).toBe(DEV);
   });
 
   it('picking "same device" requests pairing for that device', async () => {

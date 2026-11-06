@@ -63,7 +63,7 @@ describe('complete production lobby coverage', () => {
   it('is invoked immediately after the maintained club lobby suite', () => {
     const workflow = readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8');
     expect(workflow).toContain(
-      'E2E_CLUB_ID=002c2d27-9584-4e52-835a-bb2be148fc81 run_suite lobby.json'
+      'E2E_CLUB_ID=a41434bb-8d0c-400a-8f0d-e8b3d65afed4 run_suite lobby.json'
     );
     expect(workflow).toContain(
       'node scripts/ci/lobby-certificate-coverage.mjs e2e-report/lobby.json'

@@ -27,6 +27,8 @@ export const FINANCIAL_ADMIN_SHELL_READ_ONLY_RPC_PATHS = Object.freeze([
   '/rest/v1/rpc/fn_poker_arena_context',
   // Shared shell registry read: SQL STABLE, SELECT-only (pg_proc, 2026-11-01).
   '/rest/v1/rpc/fn_platform_capabilities',
+  // Player notice lookup is STABLE/select-only (live pg_proc, 2026-11-06).
+  '/rest/v1/rpc/fn_ca_pending_player_notice',
   // ClubBottomNav (useClubDataScope, #7292) asks which Club Data scope the
   // signed-in member may open on every club route. STABLE SECURITY DEFINER,
   // no DML (pg_proc, 2026-10-17). Unlisted, it refused every Financial Admin
@@ -51,6 +53,9 @@ export const FINANCIAL_ADMIN_QUARANTINED_SHELL_POST_PATHS = Object.freeze([
   // DeviceSighting is another signed-in shell write, never a Financial read.
   // Abort it without forwarding, just like presence and login telemetry.
   '/rest/v1/rpc/ca_record_device_sighting',
+  // Boot-time device enrollment writes session/device bindings. Global setup
+  // already enrolled this owned fixture; never forward this shell write here.
+  '/rest/v1/rpc/ca_claim_active_login',
   // DailyBonus status opens the caller's day before reading its tiles.
   // Abort this incidental shell writer; its name does not make it read-only.
   '/rest/v1/rpc/fn_ca_daily_bonus_status',

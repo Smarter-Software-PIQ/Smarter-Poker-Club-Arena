@@ -112,6 +112,43 @@ describe('financial read-only request classification', () => {
     expect(() => guard.assertNoViolations()).toThrow('blocked 2 REST mutations');
   });
 
+  it('allows the notice read while still aborting device enrollment and notice acknowledgments', async () => {
+    const harness = pageHarness();
+    const guard = await installFinancialReadOnlyGuard(harness.page, {
+      allowedRpcPaths: FINANCIAL_ADMIN_CONSOLE_READ_ONLY_RPC_PATHS,
+      quarantinedPostPaths: FINANCIAL_ADMIN_QUARANTINED_SHELL_POST_PATHS,
+    });
+    const notice = routeHarness(
+      'POST',
+      'https://project.supabase.co/rest/v1/rpc/fn_ca_pending_player_notice'
+    );
+    await harness.handler()(notice.route, notice.route.request());
+    expect(notice.fallback).toHaveBeenCalledOnce();
+    expect(notice.abort).not.toHaveBeenCalled();
+    const claim = routeHarness(
+      'POST',
+      'https://project.supabase.co/rest/v1/rpc/ca_claim_active_login'
+    );
+    await harness.handler()(claim.route, claim.route.request());
+    expect(claim.abort).toHaveBeenCalledWith('blockedbyclient');
+    expect(claim.fallback).not.toHaveBeenCalled();
+    expect(guard.quarantinedShellWrites).toEqual([
+      { method: 'POST', path: '/rest/v1/rpc/ca_claim_active_login' },
+    ]);
+    expect(() => guard.assertNoViolations()).not.toThrow();
+    for (const path of [
+      '/rest/v1/rpc/fn_ca_pending_player_notice_extra',
+      '/rest/v1/rpc/fn_ca_ack_player_notice',
+    ]) {
+      const write = routeHarness('POST', `https://project.supabase.co${path}`);
+      await harness.handler()(write.route, write.route.request());
+      expect(write.abort).toHaveBeenCalledWith('blockedbyclient');
+      expect(write.fallback).not.toHaveBeenCalled();
+    }
+    expect(guard.violations).toHaveLength(2);
+    expect(() => guard.assertNoViolations()).toThrow('blocked 2 REST mutations');
+  });
+
   it('quarantines first-party bus observation writes without forwarding them', async () => {
     const harness = pageHarness();
     const guard = await installFinancialReadOnlyGuard(harness.page, {
