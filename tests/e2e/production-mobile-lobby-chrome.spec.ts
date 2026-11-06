@@ -943,22 +943,25 @@ test.describe('the mobile lobby chrome on production', () => {
     const saveChoice = (enabled: boolean) =>
       page.waitForResponse((response) => favoriteSaveAccepted(response, owner, chosen, enabled));
     const phaseEvidence: Array<{ phase: string; rows: Awaited<ReturnType<typeof snapshot>> }> = [];
-    // A star follows the GAME: every live run of the chosen event's schedule
-    // is starred with it, so the favorite tier is a contiguous block directly
-    // below the pins that contains the chosen run, then the ordinary rows.
-    const assertFavoriteTier = async (phase: string) => {
+    // A star follows the GAME (migration 20261105183133) and, since #9597
+    // (Dan 2026-11-05 17:07 Chicago), a starred scheduled MTT never jumps the
+    // clock: it keeps its place in the board's chosen order. So a starred
+    // board reads in the same order as the unstarred one under the same sort,
+    // with the chosen run marked. `reference` is a snapshot under that sort.
+    type Snapshot = Awaited<ReturnType<typeof snapshot>>;
+    const sameOrder = (current: Snapshot, reference: Snapshot) => {
+      const inCurrent = new Set(current.map((row) => row.id));
+      const inReference = new Set(reference.map((row) => row.id));
+      const a = current.filter((row) => inReference.has(row.id)).map((row) => row.id);
+      const b = reference.filter((row) => inCurrent.has(row.id)).map((row) => row.id);
+      return a.length > 1 && a.join() === b.join();
+    };
+    const assertStarredInPlace = async (phase: string, reference?: Snapshot) => {
       await expect
         .poll(async () => {
           const current = await snapshot();
-          const pins = current.filter((row) => row.pinned).length;
-          const favorites = current.filter((row) => !row.pinned && row.favorite).length;
-          return (
-            favorites > 0 &&
-            current.slice(0, pins).every((row) => row.pinned) &&
-            current.slice(pins, pins + favorites).every((row) => row.favorite) &&
-            current.slice(pins, pins + favorites).some((row) => row.id === chosen) &&
-            current.slice(pins + favorites).every((row) => !row.pinned && !row.favorite)
-          );
+          const chosenRow = current.find((row) => row.id === chosen);
+          return Boolean(chosenRow?.favorite) && (!reference || sameOrder(current, reference));
         })
         .toBe(true);
       phaseEvidence.push({ phase, rows: await snapshot() });
@@ -968,11 +971,11 @@ test.describe('the mobile lobby chrome on production', () => {
     await selected().getByRole('button', { name: 'Add To Favorites', exact: true }).click();
     await saved;
     expect(page.url()).toBe(originalUrl);
-    await assertFavoriteTier('starred');
+    await assertStarredInPlace('starred', before);
     await chooseSort('Most Players');
-    await assertFavoriteTier('players-descending');
+    await assertStarredInPlace('players-descending');
     await chooseSort('Stakes: High To Low');
-    await assertFavoriteTier('buy-in-descending');
+    await assertStarredInPlace('buy-in-descending', before);
     const readback = page.waitForResponse(isFavoritesRead);
     await page.reload({ waitUntil: 'domcontentloaded' });
     const persistedResponse = await readback;
@@ -980,7 +983,8 @@ test.describe('the mobile lobby chrome on production', () => {
     const persisted = (await favoritesRead(persistedResponse))!;
     expect(persisted.find((row) => row.game_id === chosen)?.active).toBe(true);
     await expect(selected()).toBeVisible({ timeout: 30_000 });
-    await assertFavoriteTier('reloaded-server-readback');
+    // The saved sort and the star both come back from the account.
+    await assertStarredInPlace('reloaded-server-readback', before);
     await selected().evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await expect(selected()).toBeInViewport();
     await testInfo.attach('tournament-favorite-starred-tier.png', {
@@ -993,14 +997,8 @@ test.describe('the mobile lobby chrome on production', () => {
     await expect(
       selected().getByRole('button', { name: 'Add To Favorites', exact: true })
     ).toBeVisible();
-    await expect
-      .poll(async () => {
-        const current = await snapshot();
-        return (
-          current.findIndex((row) => row.id === chosen) > current.filter((row) => row.pinned).length
-        );
-      })
-      .toBe(true);
+    // Unstarred, the board reads exactly as it did before the star.
+    await expect.poll(async () => sameOrder(await snapshot(), before)).toBe(true);
     expect((await snapshot()).filter((row) => row.favorite)).toEqual([]);
     // The unfavorite is the account's record too: after a reload the game is
     // kept as unstarred (not forgotten) and nothing is starred.
