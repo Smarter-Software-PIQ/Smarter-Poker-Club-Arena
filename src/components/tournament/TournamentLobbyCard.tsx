@@ -337,6 +337,8 @@ function TournamentLobbyCardInner({
     tournament.current_level,
     tournament.started_at,
     tournament.add_on_available,
+    tournament.addon_from_start,
+    tournament.addon_period_started_at,
     tournament.addon_period_triggered,
     tournament.addon_period_ends_at,
   ]);

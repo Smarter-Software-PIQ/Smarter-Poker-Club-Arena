@@ -172,7 +172,7 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
               supabase
                 .from('tournaments')
                 .select(
-                  'id, name, status, variant, tournament_type, spin_multiplier, buy_in_amount, buy_in_fee, prize_pool, guaranteed_prize, bubble_protection, satellite_target_id, satellite_target, bounty_pool, total_rake, current_players, max_players, starting_chips, current_level, level_started_at, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, add_on_available, addon_period_started_at, addon_period_ends_at, started_at, blind_structure, payout_structure, is_bounty, is_pko, start_time, arena:clubs!tournaments_club_id_fkey(id, asset, is_platform, union_id)'
+                  'id, name, status, variant, tournament_type, spin_multiplier, buy_in_amount, buy_in_fee, prize_pool, guaranteed_prize, bubble_protection, satellite_target_id, satellite_target, bounty_pool, total_rake, current_players, max_players, starting_chips, current_level, level_started_at, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, add_on_available, addon_from_start, addon_period_started_at, addon_period_ends_at, started_at, blind_structure, payout_structure, is_bounty, is_pko, start_time, arena:clubs!tournaments_club_id_fkey(id, asset, is_platform, union_id)'
                 )
                 .eq('id', tournamentId)
                 .abortSignal(signal)

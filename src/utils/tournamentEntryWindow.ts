@@ -10,6 +10,7 @@ export interface TournamentEntryWindowRow {
   started_at?: string | null;
   prize_pool_finalized?: boolean | null;
   add_on_available?: boolean | null;
+  addon_from_start?: boolean | null;
   addon_period_triggered?: boolean | null;
   addon_period_started_at?: string | null;
   addon_period_ends_at?: string | null;
@@ -73,6 +74,9 @@ export function tournamentEntryWindowOpen(row: TournamentEntryWindowRow, now: nu
       return false;
     // The level/clock boundary starts the add-on phase; it does not close admission.
     const end = Date.parse(row.addon_period_ends_at ?? '');
+    const start = Date.parse(row.addon_period_started_at ?? '');
+    // Legacy early offers are not the closing minute; the engine replaces them after drain.
+    if (row.addon_from_start === true && Number.isFinite(start) && end - start > 60000) return true;
     if (Number.isFinite(end)) return now < end;
     return row.addon_period_ends_at == null;
   }

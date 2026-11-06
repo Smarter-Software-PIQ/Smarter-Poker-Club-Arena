@@ -58,7 +58,12 @@ export function tournamentEntryTerms(
   const start = Date.parse(String(t.addon_period_started_at ?? ''));
   const end = Date.parse(String(t.addon_period_ends_at ?? ''));
   let timing: string;
-  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+  if (
+    Number.isFinite(start) &&
+    Number.isFinite(end) &&
+    end > start &&
+    !(t.addon_from_start && end - start > 60000)
+  ) {
     const state =
       finished || t.prize_pool_finalized || now >= end
         ? 'Ended'

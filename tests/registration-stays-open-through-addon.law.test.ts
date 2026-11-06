@@ -29,6 +29,15 @@ describe('registration remains open through the actual add-on minute', () => {
     expect(isInLateRegistration(addon(), now)).toBe(true);
     expect(lateRegEndMs(addon() as LobbyTournamentRow)).toBeNull();
   });
+  it('does not confuse an expired legacy early offer with the closing minute', () => {
+    const t = addon({
+      addon_from_start: true,
+      addon_period_started_at: new Date(now - 120000).toISOString(),
+      addon_period_ends_at: new Date(now - 1).toISOString(),
+    });
+    expect(isInLateRegistration(t, now)).toBe(true);
+    expect(lateRegEndMs(t as LobbyTournamentRow)).toBeNull();
+  });
   it('uses the actual end and closes exactly at it', () => {
     const t = addon({
       addon_period_triggered: true,

@@ -28,7 +28,7 @@ try:
  cmd([PG/'initdb','-D',cluster/'data','-U','postgres','-A','trust','--no-locale'])
  cmd([PG/'pg_ctl','-D',cluster/'data','-l',cluster/'pg.log','-o',f"-k {sock} -p 55941 -c listen_addresses=''",'-w','start'])
  sql((ROOT/'scripts/ci/fixtures/late-registration-clock/dependencies.sql').read_text())
- sql('''alter table tournaments add column add_on_available boolean,add column is_rebuy boolean,add column is_reentry boolean,add column addon_period_triggered boolean,add column addon_period_started_at timestamptz,add column addon_period_ends_at timestamptz;
+ sql('''alter table tournaments add column add_on_available boolean,add column addon_from_start boolean,add column is_rebuy boolean,add column is_reentry boolean,add column addon_period_triggered boolean,add column addon_period_started_at timestamptz,add column addon_period_ends_at timestamptz;
  create function fn_ca_lock_settlement_lane_for_tournament(uuid) returns void language sql as $$select$$;
  create function fn_finalize_tournament_entry_pool_locked(uuid,text,text) returns jsonb language sql as $$select '{"ok":true,"entry_closed":true,"finalized":true}'::jsonb$$;''')
  old=(ROOT/'supabase/migrations/20260926035534_late_registration_closes_at_whichever_of_its_level_or_clock_.sql').read_text()
@@ -44,6 +44,7 @@ try:
  check('last second accepts buyin',admission());r=call('fn_ca_tournament_rebuy_window');check('last second accepts rebuy',r['open']);check('rebuy decision cannot outlive addon',sql("select '"+r['prompt_until']+"'::timestamptz<=addon_period_ends_at from tournaments")=='t')
  sql("update tournaments set addon_period_ends_at=clock_timestamp()")
  check('exact expiry rejects buyin',not admission());check('exact expiry rejects rebuy',not call('fn_ca_tournament_rebuy_window')['open'])
+ fixture(addon_from_start=True,addon_period_triggered=True);sql("update tournaments set addon_period_started_at=clock_timestamp()-interval '92 minutes',addon_period_ends_at=clock_timestamp()-interval '1 minute'");check('legacy early offer expiry is not final addon cutoff',admission() and call('fn_ca_tournament_rebuy_window')['open']);check('legacy early offer rebuy deadline is still future',sql("select (fn_ca_tournament_rebuy_window('"+ID+"')->>'prompt_until')::timestamptz>clock_timestamp()")=='t')
  fixture(prize_pool_finalized=True);check('finalized rejects buyin',not admission());check('finalized rejects rebuy',not call('fn_ca_tournament_rebuy_window')['open'])
  fixture(status='COMPLETED');check('completed rejects buyin',not admission());check('completed rejects rebuy',not call('fn_ca_tournament_rebuy_window')['open'])
  fixture(format_contract='sng-v1',max_players=1);sql("insert into tournament_players(tournament_id,user_id) values ('"+ID+"',gen_random_uuid())");check('capacity remains enforced',not admission())

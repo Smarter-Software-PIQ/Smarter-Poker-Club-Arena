@@ -27,6 +27,8 @@ AS $function$
        -- Owner 2026-11-05: the actual add-on end is the admission cutoff.
        AND CASE WHEN COALESCE(t.add_on_available,false) THEN
          t.addon_period_ends_at IS NULL
+         OR (COALESCE(t.addon_from_start,false)
+             AND t.addon_period_ends_at-t.addon_period_started_at>interval '60 seconds')
          OR clock_timestamp()<t.addon_period_ends_at
        ELSE (
          (
@@ -79,7 +81,7 @@ BEGIN
   END IF;
   d:=pg_get_functiondef('public.get_club_home(text)'::regprocedure);
   d:=replace(d,'late_reg_levels, started_at, current_level,',
-    'late_reg_levels, started_at, current_level, rebuy_levels, prize_pool_finalized, add_on_available, addon_period_started_at, addon_period_ends_at,');
+    'late_reg_levels, started_at, current_level, rebuy_levels, prize_pool_finalized, add_on_available, addon_from_start, addon_period_started_at, addon_period_ends_at,');
   EXECUTE d;
   IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_close_tournament_entry_window(uuid,text)'::regprocedure) IS DISTINCT FROM '70bc6496e42ec1d67af505861979f749' THEN
     RAISE EXCEPTION 'ADDON_REGISTRATION_CLOSE_PREIMAGE_CHANGED';
@@ -105,11 +107,12 @@ BEGIN
   d:=replace(d,'  v_addon_open:=COALESCE(v_t.add_on_available,false)',
     $new$  -- Pending drain and the entire actual add-on minute retain rebuys.
   IF COALESCE(v_t.add_on_available,false) THEN
-    IF v_t.addon_period_ends_at IS NOT NULL AND v_now>=v_t.addon_period_ends_at THEN
+    IF v_t.addon_period_ends_at IS NOT NULL AND v_now>=v_t.addon_period_ends_at
+       AND NOT COALESCE(v_t.addon_from_start AND v_t.addon_period_ends_at-v_t.addon_period_started_at>interval '60 seconds',false) THEN
       RETURN jsonb_build_object('open',false,'prompt_until',NULL,'reason','rebuy_window_closed');
     END IF;
     RETURN jsonb_build_object('open',true,
-      'prompt_until',LEAST(v_now+interval '30 seconds',v_t.addon_period_ends_at),
+      'prompt_until',CASE WHEN COALESCE(v_t.addon_from_start AND v_t.addon_period_ends_at-v_t.addon_period_started_at>interval '60 seconds',false) THEN v_now+interval '30 seconds' ELSE LEAST(v_now+interval '30 seconds',v_t.addon_period_ends_at) END,
       'reason','open_through_addon','addon_open',
       v_t.addon_period_started_at IS NOT NULL AND v_now>=v_t.addon_period_started_at);
   END IF;
