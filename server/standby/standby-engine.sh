@@ -58,6 +58,8 @@ cmd_restore() {
   local dump="$1"; [ -s "$dump" ] || die "missing dump $dump"
   assert_isolated
   log "restore: dropping app schemas and loading $(basename "$dump")"
+  # Database-level event triggers depend on public functions; drop them first.
+  psql_db -qc "DROP EVENT TRIGGER IF EXISTS ca_break_window_refuses_ddl; DROP EVENT TRIGGER IF EXISTS ca_break_window_refuses_drops" >/dev/null
   for s in "${APP_SCHEMAS[@]}"; do psql_db -qc "DROP SCHEMA IF EXISTS \"$s\" CASCADE" >/dev/null; done
   psql_db -qc 'CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;' >/dev/null
   # Same extensions, same schemas as production (pg_extension on PokerIQ-Production).
@@ -77,6 +79,12 @@ cmd_restore() {
     || docker cp /usr/local/share/club-arena-standby/owners.sql "$DB_CONTAINER:/tmp/owners.sql"
   docker exec "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/owners.sql >>"$LOG_DIR/restore.log" 2>&1 \
     || log "restore: owner alignment reported errors (see restore.log)"
+  # Production's DDL break-window guard is two database-level event triggers,
+  # which a schema dump does not carry; the engine's recovery-window contract
+  # (fn_engine_recovery_window_contract) requires them, exactly as in production.
+  docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -qc "CREATE EVENT TRIGGER ca_break_window_refuses_ddl ON ddl_command_end EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();
+               CREATE EVENT TRIGGER ca_break_window_refuses_drops ON sql_drop EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();" >/dev/null \
+    || log "restore: break-window event triggers could not be installed"
   # pg_cron jobs are never carried over: production jobs call production URLs.
   psql_db -qc "DELETE FROM cron.job" >/dev/null 2>&1 || true
   for s in "${APP_SCHEMAS[@]}"; do
