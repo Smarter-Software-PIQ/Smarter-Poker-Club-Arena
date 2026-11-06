@@ -428,8 +428,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278905,
-      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+      "bytes": 279173,
+      "sha256": "6007054a8c3ec47b9551ade869a77e5f81b9186856a550cc423290154c008e59"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6934,6 +6934,17 @@
     "current": {
       "bytes": 278905,
       "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+    }
+  },
+  "cashQueueFeedbackSourceAudit20261106": {
+    "reason": "Add isolated read-only cash queue eligibility PostgreSQL regression in existing accounting shard1. Reviewed seven additive workflow lines; all existing commands/assertions and historical qualification states retained. Source identity only, no financial/live recertification.",
+    "previousCiPin": {
+      "bytes": 278905,
+      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+    },
+    "currentCiPin": {
+      "bytes": 279173,
+      "sha256": "6007054a8c3ec47b9551ade869a77e5f81b9186856a550cc423290154c008e59"
     }
   }
 }
