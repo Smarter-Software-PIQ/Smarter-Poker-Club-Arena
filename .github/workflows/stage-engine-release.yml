@@ -597,8 +597,35 @@ jobs:
           echo "Engine $REF_SHA is still owed and no receiver is offering it; offering it again."
           echo "send=true" >> "$GITHUB_OUTPUT"
 
-      - name: Send the immutable engine release request
+      # THE BACKUP ENGINE CERTIFIES FIRST (owner order 2026-11-05). Every
+      # engine change is built, booted, crash-tested and soaked on the Backup
+      # Engine (backup-engine.yml, its own isolated host and database) before
+      # the live engine may receive it. Only a version carrying the exact
+      # commit status backup-engine/certified = success is ever offered; an
+      # uncertified or refused version stays owed and is offered again once
+      # it is certified. The live engine keeps serving its sealed version.
+      - name: Require the Backup Engine certificate for this exact SHA
+        id: certified
         if: steps.offer.outputs.send == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_SHA: ${{ needs.detect.outputs.target_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$REF_SHA" =~ ^[0-9a-f]{40}$ ]]
+          STATE=$(gh api "repos/$REPO/commits/$REF_SHA/statuses?per_page=100" \
+            --jq '[.[] | select(.context == "backup-engine/certified")][0].state // "missing"')
+          if [ "$STATE" = success ]; then
+            echo "Backup Engine certified $REF_SHA."
+            echo "send=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Engine $REF_SHA is not certified by the Backup Engine (state: $STATE); it stays owed and the live engine keeps its sealed release."
+            echo "send=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send the immutable engine release request
+        if: steps.offer.outputs.send == 'true' && steps.certified.outputs.send == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REF_SHA: ${{ needs.detect.outputs.target_sha }}

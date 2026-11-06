@@ -62,6 +62,11 @@ const TIMERS: ReadonlyArray<readonly [string, string]> = [
   // 03:30-03:50 Chicago window prepares, once per Chicago date.
   ['stage-engine-release.yml', '31,35,39,43 8 * * *'],
   ['stage-engine-release.yml', '31,35,39,43 9 * * *'],
+  // Owner order 2026-11-05 (Backup Engine): refresh the isolated production
+  // copy after midnight Chicago, three chances per DST twin because GitHub
+  // delivers schedules late; the refresh itself runs once per Chicago date.
+  ['backup-engine.yml', '7,23,41 5 * * *'],
+  ['backup-engine.yml', '7,23,41 6 * * *'],
   ['applied-migrations-recorded.yml', '25 7,19 * * *'],
   ['ci.yml', '17 */2 * * *'],
   ['ci.yml', '35 6 * * *'],
@@ -153,8 +158,8 @@ describe('no workflow gains a new timer', () => {
 
   it('the surface is the size it was measured at', () => {
     expect(found).toHaveLength(TIMERS.length);
-    expect(TIMERS).toHaveLength(16);
-    expect(new Set(TIMERS.map(([f]) => f)).size).toBe(12);
+    expect(TIMERS).toHaveLength(18);
+    expect(new Set(TIMERS.map(([f]) => f)).size).toBe(13);
   });
 
   it('schema-manifest-refresh keeps the two that three other laws bound it to', () => {
