@@ -155,6 +155,42 @@ describe('private explicit refusal without provider work', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  it.each([
+    ['invalid', '{}', 'arguments'],
+    ['replay', '{private-hole-card-marker', 'input_read'],
+    ['replay', '{"privateMarker":"private-hole-card-marker"}', 'request_validation'],
+  ])('reports only the closed boundary for %s / %s', async (mode, inputBytes, stage) => {
+    const dir = mkdtempSync(join(realpathSync(tmpdir()), 'v56-stage-'));
+    try {
+      const input = join(dir, 'private-identity-input.json');
+      const output = join(dir, 'private-identity-output.json');
+      writeFileSync(input, inputBytes!, { mode: 0o600 });
+      const result = await runV56PrivateReplay(mode!, input, output, {});
+      expect(result.code).toBe(2);
+      expect(JSON.parse(result.output)).toEqual({
+        status: 'unavailable',
+        qualified: false,
+        activationAllowed: false,
+        failureStage: stage,
+      });
+      expect(JSON.parse(readFileSync(output, 'utf8'))).toEqual({
+        version: 1,
+        status: 'unavailable',
+        reason: 'private_replay_unavailable',
+        qualified: false,
+        activationAllowed: false,
+        failureStage: stage,
+      });
+      for (const bytes of [result.output, readFileSync(output, 'utf8')]) {
+        expect(bytes).not.toContain('private-hole-card-marker');
+        expect(bytes).not.toContain('private-identity');
+        expect(bytes).not.toContain(dir);
+        expect(bytes).not.toContain('SyntaxError');
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it('never overwrites an existing private result', async () => {
     const dir = mkdtempSync(join(realpathSync(tmpdir()), 'v56-existing-'));
     try {
