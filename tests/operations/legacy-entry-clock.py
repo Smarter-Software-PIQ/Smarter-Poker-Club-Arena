@@ -53,7 +53,7 @@ python3() {{
   FIXTURE_NOW="$NOW" {sys.executable} -c 'import os,sys,time;time.time=lambda:int(os.environ["FIXTURE_NOW"]);program=sys.argv.pop(1);exec(program)' "$2" "${{@:3}}"
 }}
 '''
-        script = script.replace(old, controls + COUNTDOWN)
+        script = script.replace(old, controls + COUNTDOWN + '\ndaily_cutover_clock() { return 0; }\n')
         script = script.replace('[ "$LOCK_HELD" = 0 ]; LOCK_HELD=1; event LOCK', f'[ "$LOCK_HELD" = 0 ]; NOW=$((NOW + {prelock})); LOCK_HELD=1; event LOCK')
         start = script.index('legacy_checkpoint_stub() {')
         stop = script.index('LEGACY_CHECKPOINT=legacy_checkpoint_stub', start)

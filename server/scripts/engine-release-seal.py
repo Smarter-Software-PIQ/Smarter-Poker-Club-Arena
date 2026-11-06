@@ -16,7 +16,7 @@ sealed desired image without a token.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import errno
 import fcntl
@@ -2377,6 +2377,14 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
         # the following hour instead; nothing else about admission changes.
         if starts - now < ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS:
             starts += 3600
+        if kind == 'daily-restoration':
+            # Retiring the hourly exception never authorizes one last daytime
+            # replacement. Bind restoration to the next daily 04:00 Chicago.
+            local = datetime.fromtimestamp(now, ZoneInfo('America/Chicago'))
+            boundary = local.replace(hour=4, minute=0, second=0, microsecond=0)
+            if boundary.timestamp() - now < ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS:
+                boundary += timedelta(days=1)
+            starts = int(boundary.timestamp())
         key = str(starts)
         if key in cycles:
             print(json.dumps(cycles[key], sort_keys=True)); return

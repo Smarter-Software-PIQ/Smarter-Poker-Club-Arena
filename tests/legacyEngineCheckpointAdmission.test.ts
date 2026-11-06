@@ -76,6 +76,8 @@ bind_phase1_window() {
   export PHASE1_WINDOW_START PHASE1_WINDOW_END
 }
 ${countdown}
+# Clock is independently exercised by the daily release law.
+daily_cutover_clock() { return 0; }
 result="$(legacy_checkpoint_countdown)" || exit $?
 printf '%s\\n' "$result"
 `,

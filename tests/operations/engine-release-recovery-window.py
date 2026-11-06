@@ -158,6 +158,8 @@ timeout() {{
   else exit 95; fi
 }}
 {RECOVERY}
+# Isolate the retained custody protocol; daily clock is separately qualified.
+daily_cutover_clock() {{ return 0; }}
 RECOVERY_ADMISSION_MISSED={int(missed)}
 {chr(10).join(calls_script)}
 [ "$LOCK_HELD" = 0 ]
@@ -191,6 +193,8 @@ INFLIGHT_HANDS=true
 MIN_BREAK_REMAINING_MS=285000
 curl() {{ [ {int(transport)} = 1 ] || return 1; printf '%s' {shlex.quote(response)}; }}
 {CERTIFICATE}
+# Daily clock has its own behavioral law; isolate custody here.
+daily_cutover_clock() {{ return 0; }}
 RECOVERY_URGENT=1
 maintenance_certificate {'' if minimum is None else int(minimum)}
 '''
@@ -697,7 +701,9 @@ class OwnerWitnessRealHistory(unittest.TestCase):
                             text=True, capture_output=True, timeout=15)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         admitted = ('owner-ordered fixture' if selector == 'host' else 'allowed=true') in result.stdout
-                        self.assertEqual(admitted, expected, result.stdout + result.stderr)
+                        # Historical witness custody remains testable on the host; current
+                        # stage admission never grants a daytime exception.
+                        self.assertEqual(admitted, expected if selector == 'host' else False, result.stdout + result.stderr)
 
 
 class FreshEngineOwnerWindow(unittest.TestCase):

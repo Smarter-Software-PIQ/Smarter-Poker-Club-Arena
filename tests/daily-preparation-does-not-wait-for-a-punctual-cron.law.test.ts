@@ -260,17 +260,17 @@ describe('the preparation happens once per Chicago date', () => {
     }
   });
 
-  it('a refused duplicate keeps the measured emergency and transition routes, never the installer', () => {
+  it('a refused duplicate cannot regain admission through emergency or transition routes', () => {
     const earlier = { runs: [{ id: 1, event: 'schedule', created_at: '2026-11-01T09:32:00Z' }] };
     const degraded = admit({ ...inWindow, ...earlier, health: '{"liveness":"dead"}' });
-    expect(degraded.outputs.allowed).toBe('true');
+    expect(degraded.outputs.allowed).toBe('false');
     expect(degraded.outputs.daily_preparation).toBe('false');
     const transition = admit({
       ...inWindow,
       ...earlier,
       message: 'x\n\nEngine-Release: daily-maintenance-transition',
     });
-    expect(transition.outputs.allowed).toBe('true');
+    expect(transition.outputs.allowed).toBe('false');
     expect(transition.outputs.daily_preparation).toBe('false');
     // Commit urgency is still nothing, inside the window or out of it.
     expect(
@@ -299,9 +299,8 @@ describe('the workflow adds chances, not authority', () => {
     );
   });
 
-  it('retains temporary hourly preparation and daily odd-minute DST chances', () => {
+  it('retains only daily odd-minute DST chances', () => {
     expect(stage.on.schedule).toEqual([
-      { cron: '30 * * * *' },
       { cron: '31,35,39,43 8 * * *' },
       { cron: '31,35,39,43 9 * * *' },
     ]);

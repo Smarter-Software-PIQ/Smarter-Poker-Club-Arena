@@ -87,6 +87,8 @@ timeout() {{
  else echo unexpected-transport >&2; exit 93; fi
 }}
 {block}
+# Isolate retained recovery custody; current daily admission has its own law.
+daily_cutover_clock() {{ return 0; }}
 '''
         if floor:
             helper = SOURCE[SOURCE.index('retire_unannounced_floor_entry() {'):SOURCE.index('# THE NEWEST WAITING RELEASE')]

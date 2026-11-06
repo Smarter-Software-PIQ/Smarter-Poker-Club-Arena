@@ -398,6 +398,7 @@ INFLIGHT_HANDS=true
 ${entryRead}
 curl() { printf '%s\\n%s' "$PROBE_BODY" "200"; }
 ${certificateHelper()}
+daily_cutover_clock() { return 0; }
 maintenance_certificate 260000`,
     ],
     { encoding: 'utf8', timeout: 10_000, env: { ...cleanEnv(), PROBE_BODY: body } }

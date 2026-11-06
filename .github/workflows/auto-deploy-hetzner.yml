@@ -235,6 +235,24 @@ jobs:
           echo "Backup Engine certified $CERTIFIED_SHA (backup-engine/certified = success)."
           echo "certified=true" >> "$GITHUB_OUTPUT"
 
+      - name: Require daily Chicago preparation and a daily target
+        id: daily_release
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYTHON'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import json, os, subprocess
+          now = datetime.now(ZoneInfo("America/Chicago"))
+          if not (now.hour == 3 and 30 <= now.minute < 50):
+              raise SystemExit("Engine replacement refused: preparation is only 03:30-03:50 America/Chicago; activation is only 04:00.")
+          policy = json.loads(subprocess.check_output(["git", "show", os.environ["TARGET_SHA"] + ":server/src/maintenance/maintenanceSchedulePolicy.json"], text=True))
+          if policy.get("phase1Status") not in ("off", "complete"):
+              raise SystemExit("Engine replacement refused: the exact certified target must use daily maintenance.")
+          PYTHON
+
       - name: Use the production Node major
         uses: actions/setup-node@v4
         with:

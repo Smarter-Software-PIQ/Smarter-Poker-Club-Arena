@@ -127,6 +127,7 @@ describe('an off-cycle break needs a reason, and the newest release owns it', ()
     expect([...reasons.matchAll(/echo "([a-z-]+) /g)].map((m) => m[1])).toEqual([
       'engine-degraded',
     ]);
+    expect(request).toContain('daily_cutover_clock || return 0');
     // An ordinary short read is still judged by when the release arrived, not
     // recorded as a missed break outright. The record no longer asks for
     // anything: see the gate above.

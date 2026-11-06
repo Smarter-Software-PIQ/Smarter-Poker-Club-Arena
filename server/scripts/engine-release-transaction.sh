@@ -1316,6 +1316,18 @@ floor_reservation_stamp() {
   legacy_entry_read python3 "$CONTROL_DIR/engine-release-activation-floor.py" reservation     --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA"     --deadline "$MUTATION_DEADLINE_EPOCH" --run-id "$RUN_ID"     --state-root "${ENGINE_RELEASE_STATE_DIR:-/var/lib/club-arena}"
 }
 
+# Owner 2026-11-06: replacement is confined to the daily Chicago window,
+# including legacy hourly predecessors and old recovery/owner-window branches.
+# No environment or request flag can override the wall clock.
+daily_cutover_clock() {
+  python3 -c '
+from datetime import datetime
+from zoneinfo import ZoneInfo
+n = datetime.now(ZoneInfo("America/Chicago"))
+raise SystemExit(0 if n.hour == 4 and n.minute < 5 else 1)
+'
+}
+
 assert_owner_recovery_window_live() {
   [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || return 0
   [ "${FLOOR_DISPOSITION:-never-entered}" = announced ] || return 0
@@ -1341,6 +1353,7 @@ certified_recovery_read() {
 }
 
 maintenance_certificate() {
+  daily_cutover_clock || return 1
   # The minimum break remaining is the strict MIN_BREAK_REMAINING_MS unless the
   # caller names another; the only caller that does is the read straight after
   # a legacy checkpoint, which passes LEGACY_MIN_BREAK_REMAINING_MS.
@@ -1634,6 +1647,7 @@ print(",".join(out))
 # The helper independently checks every physical table before writing. Only
 # the unchanged maintenance_certificate below can admit a replacement.
 legacy_checkpoint_countdown() {
+  daily_cutover_clock || return 1
   local response http_code body headroom floor_stamp elapsed_ms=0 expected_end="${2:-0}"
   floor_stamp=0
   if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
@@ -2085,6 +2099,8 @@ socket.setTimeout(1000,()=>{socket.destroy();process.exit(2);});
 }
 
 request_recovery_window() {
+  # Historical owner windows cannot announce a daytime pause.
+  daily_cutover_clock || return 0
   local health minute now stamp outcome reason cause_key newer stuck persistent cause_required
   local reserve_args
   [ "$RECOVERY_REQUESTED" = 0 ] || return 0
@@ -3671,6 +3687,7 @@ done
 
 [[ "$TOKEN" =~ ^[0-9a-f]{64}$ ]] || die 'release seal did not issue a valid one-use token'
 PREPARED=1
+daily_cutover_clock || die 'engine replacement is only allowed at 04:00 America/Chicago'
 MUTATION_STARTED=1
 assert_time_remaining
 assert_break_proof_time
