@@ -7,6 +7,7 @@ import {
   type Page,
 } from '@playwright/test';
 
+import { enrollCustomizationBrowser } from './support/customizationBrowserEnrollment';
 import { ensureAcceptedTerms } from './support/ensureAcceptedTerms';
 import { ensurePlayableProfile } from './support/ensurePlayableProfile';
 import {
@@ -188,7 +189,8 @@ async function expectPersistedAppearance(
 async function signInTemporaryAccount(
   context: BrowserContext,
   baseURL: string,
-  account: TemporaryCustomizationAccount
+  account: TemporaryCustomizationAccount,
+  approvingPage?: Page
 ): Promise<Page> {
   const page = await context.newPage();
   await page.addInitScript(() => {
@@ -245,6 +247,7 @@ async function signInTemporaryAccount(
   );
   expect(await signedInUser.jsonValue()).toBe(account.id);
   await signedInUser.dispose();
+  await enrollCustomizationBrowser(page, account, approvingPage);
 
   await page.evaluate(() => localStorage.setItem('club_arena_welcome_accepted', 'true'));
   // The canonical lobby is intentionally a standalone full-bleed route. It
@@ -445,10 +448,10 @@ test.describe('production Table Studio commerce certification', () => {
       expect(await deployedStorefrontFeatures(firstStudio)).toEqual(
         skus.map((sku) => sku.feature).sort()
       );
-      const secondPage = await signInTemporaryAccount(secondDevice, baseURL, buyer);
+      const secondPage = await signInTemporaryAccount(secondDevice, baseURL, buyer, firstPage);
       const secondStudio = await openStudio(secondPage);
 
-      // Two independent devices press Buy against the same permanent SKU.
+      // Two independent paired browsers press Buy against the same permanent SKU.
       // Both requests must reach the RPC; one buys and one reconciles ownership.
       const firstDialog = await openPurchase(firstStudio, 'Tables', 'Neon City');
       const secondDialog = await openPurchase(secondStudio, 'Tables', 'Neon City');
