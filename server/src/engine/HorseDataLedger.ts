@@ -701,6 +701,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PLO paired-board fold'
   ),
   flag(
+    'ploPairedBoardRiverCheck',
+    'PLO4/PLO5/PLO6 no full house checks the river of a board paired on the turn after its own turn bet was called (Dan 2026-11-06); false only to ablate or as a complaint-law control',
+    'PLO paired-board river check'
+  ),
+  flag(
+    'ploSuitedAcesFourBet',
+    'High-only PLO suited aces 4-bet one 3-bet and continue when re-raised (Dan 2026-11-06); false only to ablate or as a complaint-law control',
+    'PLO suited aces 4-bet'
+  ),
+  flag(
     'deepEquity',
     'V44 second look: every Monte Carlo read at this multiple of its sample; set only by the engine replay inside the think time',
     'V44'
@@ -2576,6 +2586,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.decide (HorsePloPairedBoardFold)',
     'PLO4/PLO5/PLO6 call, raise or jam without a full house on a paired flop, turn or river turned into a fold',
     'PLO paired-board fold'
+  ),
+  receipt(
+    'plo_paired_board_river_check',
+    'HorseLogic.decide (HorsePloPairedBoardFold)',
+    'PLO4/PLO5/PLO6 river bet or raise without a full house on a board paired on the turn, after the horse own turn bet was called, turned into a check',
+    'PLO paired-board river check'
+  ),
+  receipt(
+    'plo_suited_aces_four_bet',
+    'HorsePreflop.decidePreflopV7',
+    'High-only PLO suited aces facing one 3-bet 4-bet the pot instead of flatting',
+    'PLO suited aces 4-bet'
+  ),
+  receipt(
+    'plo_suited_aces_four_bettor_continues',
+    'HorsePreflop.decidePreflopV7',
+    'High-only PLO suited aces re-raised after their own raise continued at the price instead of folding',
+    'PLO suited aces 4-bet'
   ),
   receipt(
     'v40_omaha_pressure_cap',
