@@ -2582,6 +2582,8 @@ function LiveTablePage({
   );
   const [hitRunConfirmHands, setHitRunConfirmHands] = useState<number | null>(null);
   const hitRunConfirmFromTabRef = useRef(false);
+  /** Set by the confirmation's Leave for the one handleLeaveTable call it makes. */
+  const hitRunConfirmedRef = useRef(false);
   const [, setLeaveClockTick] = useState(0);
   useEffect(() => {
     if (!heroLeave?.running) return;
@@ -11930,9 +11932,10 @@ function LiveTablePage({
     }
     return fetchMyHandsOwed(target);
   };
-  const handleLeaveTable = async (opts: { confirmedHandCount?: boolean } = {}) => {
+  const handleLeaveTable = async () => {
     if (leaveRequestActiveRef.current) return;
-    const confirmedHandCount = opts.confirmedHandCount === true;
+    const confirmedHandCount = hitRunConfirmedRef.current;
+    hitRunConfirmedRef.current = false;
     if (!confirmedHandCount) {
       leaveRequestActiveRef.current = true;
       let owed: number | null = null;
@@ -31182,7 +31185,8 @@ function LiveTablePage({
         onLeave={async () => {
           setHitRunConfirmHands(null);
           hitRunConfirmFromTabRef.current = false;
-          await handleLeaveTable({ confirmedHandCount: true });
+          hitRunConfirmedRef.current = true;
+          await handleLeaveTable();
         }}
       />
       <TableModalsLayer

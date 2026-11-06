@@ -240,7 +240,8 @@ describe('1. a Lightning room leaves and adds on through its anchor seat', () =>
     const leave = sliceMethod(PAGE, 'const handleLeaveTable = async () => {');
     expect(leave).toContain('await resolveLightningLeave()');
     expect(leave).toMatch(
-      /tableService\.leaveTable\(leaveTableId, lightningLeave\.seatNumber, userId, \{/
+      // HIT AND RUN (2026-11-06): the confirmation travels as a fifth argument.
+      /tableService\.leaveTable\(\s*leaveTableId,\s*lightningLeave\.seatNumber,\s*userId,\s*\{/
     );
     expect(leave).toContain('occupancyId: lightningLeave.occupancyId');
     expect(leave).toMatch(/lightningLeave && result\.deferred[\s\S]*LIGHTNING_LEAVE_QUEUED_TEXT/);

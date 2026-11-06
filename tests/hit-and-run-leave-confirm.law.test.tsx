@@ -150,7 +150,10 @@ describe('every leave door asks first (TablePage source pins)', () => {
     expect(tab.indexOf('await handsOwedBeforeLeave()')).toBeLessThan(
       tab.indexOf('stopLightningForLeave()')
     );
-    expect(page).toContain('await handleLeaveTable({ confirmedHandCount: true });');
+    expect(page).toContain(
+      'hitRunConfirmedRef.current = true;\n          await handleLeaveTable();'
+    );
+    expect(page).toContain('const confirmedHandCount = hitRunConfirmedRef.current;');
     // A confirmed Lightning leave keeps being matched: it is blinded off.
     expect(page).toContain('if (!confirmedHandCount && !(await stopLightningForLeave())) {');
   });

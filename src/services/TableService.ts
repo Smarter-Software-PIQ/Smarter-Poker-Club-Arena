@@ -325,7 +325,9 @@ class TableService {
     const { leaveSeatWithIntent } = await import('./SeatLeaveIntent');
     const result = target
       ? await leaveSeatWithIntent(tableId, userId, target, confirmHandCount)
-      : await leaveSeatWithIntent(tableId, userId, undefined, confirmHandCount);
+      : confirmHandCount
+        ? await leaveSeatWithIntent(tableId, userId, undefined, true)
+        : await leaveSeatWithIntent(tableId, userId);
     if (!result.success) return result;
     if (result.tournament || result.held) return result;
     if (!result.deferred) {

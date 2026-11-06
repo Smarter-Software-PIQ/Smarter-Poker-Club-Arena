@@ -241,6 +241,13 @@ AS $function$
      ORDER BY s.opened_at DESC LIMIT 1) AS x ON true;
 $function$;
 
+-- Replaced images keep their grants; restated here so this file says so.
+REVOKE ALL ON FUNCTION public.fn_cash_leave_check(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_cash_leave_check(uuid, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_cash_session_evaluate(uuid, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_cash_session_evaluate(uuid, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_lightning_cash_clock_at_settlement() FROM PUBLIC, anon, authenticated;
+
 -- The engine records the player's confirmed early leave (and its withdrawal)
 -- so the Lightning hand host and a restarted engine see the same truth.
 CREATE FUNCTION public.fn_cash_session_set_blind_off(p_table_id uuid, p_user_id uuid, p_on boolean)
