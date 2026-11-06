@@ -61,10 +61,29 @@ function completion(hand: number): ObserveCompletedHandRequest {
 }
 const learn = (): void => {
   HorseMind.observe(
-    [{ userId: opponent, seat: 2, action: 'raise', amount: 8, stage: 'preflop', timestamp: 1 }] as never,
+    [
+      { userId: opponent, seat: 2, action: 'raise', amount: 8, stage: 'preflop', timestamp: 1 },
+    ] as never,
     []
   );
 };
+
+type HandRecord = { entries: Set<unknown> };
+type Internals = { entries: Map<string, unknown>; hands: Map<string, HandRecord> };
+const internals = (bank: HorseObserverReads): Internals => bank as unknown as Internals;
+/** Counts passes over the hand records: every call to hands.values(). */
+function countHandPasses(bank: HorseObserverReads): () => number {
+  const hands = internals(bank).hands;
+  const values = hands.values.bind(hands);
+  let passes = 0;
+  hands.values = () => {
+    passes++;
+    return values();
+  };
+  return () => passes;
+}
+const referencedByAnyHand = (bank: HorseObserverReads, entry: unknown): boolean =>
+  [...internals(bank).hands.values()].some((hand) => hand.entries.has(entry));
 afterEach(() => HorseMind.reset());
 
 describe('observer memory is bounded by use', () => {
@@ -142,5 +161,65 @@ describe('observer memory is bounded by use', () => {
     bank.run(request(horse(2), 1000006), () =>
       expect(HorseMind.getStats(opponent), 'horse 2 was evicted').toBeUndefined()
     );
+  });
+
+  it('idle sweep unlinks every evicted entry in ONE pass over the hand records', () => {
+    let now = 1_000;
+    const bank = new HorseObserverReads(2048, 4096, () => now, 60_000);
+    // 200 banks, each bound to 3 live hand records (600 hands).
+    for (let i = 0; i < 200; i++)
+      for (let h = 0; h < 3; h++) bank.run(request(horse(i), 2000000 + i * 3 + h), () => undefined);
+    const evicted = [...internals(bank).entries.values()];
+    expect(evicted).toHaveLength(200);
+    expect(internals(bank).hands.size).toBe(600);
+    now += 60_001;
+    const passes = countHandPasses(bank);
+    expect(bank.sweepIdle()).toBe(200);
+    expect(passes(), 'one pass over hands, not one per evicted entry').toBe(1);
+    for (const entry of evicted) expect(referencedByAnyHand(bank, entry)).toBe(false);
+  });
+
+  it('a horse returning after idleMs drops its old bank from every hand record', () => {
+    let now = 1_000;
+    const bank = new HorseObserverReads(2048, 4096, () => now, 60_000);
+    bank.run(request(horse(1), 3000001), () => undefined);
+    bank.run(request(horse(1), 3000002), () => undefined);
+    const [old] = internals(bank).entries.values();
+    now += 60_001;
+    const passes = countHandPasses(bank);
+    bank.run(request(horse(1), 3000003), () => undefined);
+    expect(passes()).toBe(1);
+    expect(referencedByAnyHand(bank, old)).toBe(false);
+  });
+
+  it('complete() idle eviction leaves no hand record referencing the evicted bank', () => {
+    let now = 1_000;
+    const bank = new HorseObserverReads(2048, 4096, () => now, 60_000);
+    bank.run(request(horse(1), 4000001), () => undefined);
+    bank.run(request(horse(1), 4000002), () => undefined);
+    const [old] = internals(bank).entries.values();
+    expect(referencedByAnyHand(bank, old)).toBe(true);
+    now += 60_001;
+    const passes = countHandPasses(bank);
+    // Hand 4000001 names the idle bank; it is evicted. Hand 4000002 must not
+    // keep it reachable.
+    expect(bank.complete(completion(4000001), learn)).toBe(0);
+    expect(bank.size()).toBe(0);
+    expect(passes()).toBe(1);
+    expect(referencedByAnyHand(bank, old)).toBe(false);
+    expect(bank.complete(completion(4000002), learn), 'nothing left to learn into').toBe(0);
+  });
+
+  it('pressure eviction unlinks the least recently run bank from the hand records', () => {
+    let now = 1_000;
+    const bank = new HorseObserverReads(2, 4096, () => now, 10 * 60_000);
+    bank.run(request(horse(1), 5000001), () => undefined);
+    now += 1;
+    bank.run(request(horse(2), 5000002), () => undefined);
+    const [lru] = internals(bank).entries.values();
+    now += 1;
+    bank.run(request(horse(3), 5000003), () => undefined);
+    expect(bank.size()).toBe(2);
+    expect(referencedByAnyHand(bank, lru)).toBe(false);
   });
 });

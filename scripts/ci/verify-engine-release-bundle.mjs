@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
  * 3. Platform v3 thaw database proof (`fn_platform_frozen`, `fn_entry_frozen`, all 15 deadline counts)
  * 4. Canonical 1,000-horse / 5-game turn census summary
  * 5. Post-adoption natural 1/2 cash funding verification (buy-in, rebuy, top-up)
- * 6. 900-active-second resource envelope (`maxHeapUsedMB <= 2048`, `maxRssMB <= 12288`,
+ * 6. 900-active-second resource envelope (`maxHeapUsedMB <= 2048`, `maxRssMB <= 36864`,
  *    and RSS levels off: least-squares slope over the second half of the window,
  *    from at least 8 samples, is no more than 2 MB per active minute)
  */
@@ -17,6 +17,9 @@ import { pathToFileURL } from 'node:url';
 // to 12288 MB and require it to level off". The 8192 MB ceiling was below the
 // measured steady state of the 8 horse-decision workers' bounded observer
 // memory, so it could not be met at any uptime. Heap ceiling unchanged.
+// RAISED AGAIN (Dan, 2026-11-05 18:25 Chicago): "give the engine 2-3x more
+// memory than it will ever need". The 12 GB worst case is the unit, so the
+// ceiling is 36864 MB (3x), matching MEMORY_GOVERNOR_FALLBACK_HARD_MB.
 export const RESOURCE_RSS_CEILING_MB = 36864;
 export const RESOURCE_RSS_LEVEL_OFF_MAX_MB_PER_MIN = 2;
 export const RESOURCE_RSS_LEVEL_OFF_MIN_SAMPLES = 8;
