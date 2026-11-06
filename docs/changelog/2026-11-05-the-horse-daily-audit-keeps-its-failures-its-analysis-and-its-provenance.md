@@ -26,7 +26,7 @@ SUPERSEDED BY `20261105220227` and mapped by `applied-migration-aliases.json`.
   sections are marked `evaluated_at_run_time`. The function is pinned to UTC.
 - Watchdog retries are bounded (6 failures per day per 7 days), alerts are one
   per day and kind, and `fn_horse_daily_audit_watch_status` / the admin
-  `ca_horse_daily_audit_status` report missing, failed, running, pending,
+  `ca_horse_audit_watch_status` report missing, failed, running, pending,
   recovered and completed per day.
 - A counted stage gate turns short deck, pineapple and PLO8 silence warnings
   into `layer_no_stage` notes only while that hand type dealt zero hands.

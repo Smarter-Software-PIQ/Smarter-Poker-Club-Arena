@@ -525,7 +525,7 @@ $f$;
 REVOKE ALL ON FUNCTION public.fn_horse_daily_audit_watch_status(integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_horse_daily_audit_watch_status(integer) TO service_role;
 
-CREATE OR REPLACE FUNCTION public.ca_horse_daily_audit_status(p_days integer DEFAULT 14)
+CREATE OR REPLACE FUNCTION public.ca_horse_audit_watch_status(p_days integer DEFAULT 14)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public' AS $f$
 BEGIN
   IF NOT fn_is_horse_admin() THEN
@@ -534,8 +534,12 @@ BEGIN
   RETURN public.fn_horse_daily_audit_watch_status(p_days);
 END
 $f$;
-REVOKE ALL ON FUNCTION public.ca_horse_daily_audit_status(integer) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.ca_horse_daily_audit_status(integer) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.ca_horse_audit_watch_status(integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ca_horse_audit_watch_status(integer) TO authenticated, service_role;
+INSERT INTO public.ca_browser_definer_allowlist (proname, reason)
+VALUES ('ca_horse_audit_watch_status',
+        'Per-day horse daily audit state (missing, failed, running, pending, recovered, completed) shown on the horse Daily Audit panel. Gates itself on fn_is_horse_admin() before reading anything, like the other ca_horse_* console functions; STABLE, writes nothing, returns audit job state only.')
+ON CONFLICT (proname) DO NOTHING;
 
 DO $post$
 BEGIN
