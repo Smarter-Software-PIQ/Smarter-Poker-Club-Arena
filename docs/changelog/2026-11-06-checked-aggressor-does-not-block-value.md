@@ -21,6 +21,14 @@ and river-nuts tests also pass. The legality fuzz logs an undefined-opponent
 diagnostic on unchanged HEAD as well; it is not introduced by this change and
 is not evidence of a clean error-free fuzz run.
 
+The public-history predicate is a pure source-bound module. Two historical
+layer-isolation suites mock only this later predicate to retain their original
+pre-repair corpora, digests, action streams and RNG controls. Their assertions
+and golden data remain unchanged; dedicated connected regressions exercise the
+real predicate without a production opt-out. The module is included in every
+reference policy digest so existing qualifications cannot silently cover changed
+decision behavior.
+
 This fixes a specific source decision condition. It does not certify historical
 counterfactual EV, prove all full-house checks incorrect, or establish production
 adoption. Protected checks, engine installation and observed behavior remain

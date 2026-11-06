@@ -16,7 +16,16 @@
  *     driver. With the flag on, Omaha decisions change and NLH decisions do
  *     not.
  */
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
+// This historical corpus predates the independent November 6 checked-aggressor
+// initiative repair. Restore only that later fact here, preserving all original
+// corpus bytes, digests, RNG and coverage assertions. The real helper and its
+// connected consumer run in HorseCheckedToValue.test.ts without a production
+// opt-out; this suite still exercises its own policy layer and real controls.
+vi.mock('./HorseCheckedAggressor.js', () => ({
+  priorAggressorCheckedThisStreet: () => false,
+}));
+
 import {
   OMAHA_EQUITY_SLOPE,
   MAX_STRENGTH_SHIFT,

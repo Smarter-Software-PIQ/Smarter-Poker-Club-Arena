@@ -1,3 +1,4 @@
+import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
 import { smallPotNearNutRiverValue } from './HorseNearNutRiverValue.js';
@@ -1002,11 +1003,12 @@ function currentOpponentWager(
   return null;
 }
 
-function priorStreetAggressor(
+function readInitiative(
   history: ActionRecord[] | undefined,
+  heroUserId: string,
   stage: HandStage
-): ActionRecord | null {
-  if (!history || history.length === 0) return null;
+): 'hero' | 'opp' | 'none' {
+  if (!history || history.length === 0) return 'none';
   const cur = STAGE_ORDER[stage] ?? 1;
   let last: ActionRecord | null = null;
   for (const a of history) {
@@ -1019,32 +1021,8 @@ function priorStreetAggressor(
       last = a;
     }
   }
-  return last;
-}
-
-function readInitiative(
-  history: ActionRecord[] | undefined,
-  heroUserId: string,
-  stage: HandStage
-): 'hero' | 'opp' | 'none' {
-  const last = priorStreetAggressor(history, stage);
   if (!last) return 'none';
   return last.userId === heroUserId ? 'hero' : 'opp';
-}
-
-/** A multiway player can be checked to by the aggressor without acting last.
- * Another opponent's check does not release the initiative gate. */
-function priorAggressorCheckedThisStreet(
-  history: ActionRecord[] | undefined,
-  stage: HandStage
-): boolean {
-  const aggressor = priorStreetAggressor(history, stage);
-  return (
-    !!aggressor &&
-    !!history?.some(
-      (a) => a.stage === stage && a.userId === aggressor.userId && a.action === 'check'
-    )
-  );
 }
 
 /**
