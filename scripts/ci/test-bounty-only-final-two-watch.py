@@ -18,10 +18,13 @@ schema shaped like production's and proves the watch:
   * only service_role may execute it and the cron job is registered.
 """
 from pathlib import Path
-import os, shutil, subprocess, tempfile
+import hashlib, json, os, shutil, subprocess, tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 MIG = ROOT / 'supabase/migrations/20261106032337_bounty_only_final_two_payout_is_watched.sql'
+# Production's lane doctrine as installed (md5 9cd12c0b...), the preimage the
+# migration adds the reviewed close to.
+DOCTRINE = json.loads((ROOT / 'scripts/ci/fixtures/tournament-cancellation-lane/doctrine-postimage.json').read_text())
 PG = Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 work = Path(tempfile.mkdtemp(prefix='final-two-watch-', dir=os.environ.get('TMPDIR')))
 sock = Path(tempfile.mkdtemp(prefix='s-', dir=os.environ.get('CA_PG_SOCKET_ROOT', os.environ.get('TMPDIR'))))
@@ -125,7 +128,15 @@ try:
     started = True
     run([PG / 'createdb', '-h', sock, '-p', port, '-U', 'postgres', 'w'])
     q(SCHEMA)
+    assert hashlib.md5(DOCTRINE['definition'].encode()).hexdigest() == '9cd12c0b962d33af3c1193b890b8f898'
+    q(DOCTRINE['definition'])
+    q("REVOKE ALL ON FUNCTION public.fn_ca_settlement_lane_doctrine() FROM PUBLIC;"
+      "GRANT EXECUTE ON FUNCTION public.fn_ca_settlement_lane_doctrine() TO service_role;")
     q(MIG.read_text())
+    # The close is now a reviewed global authority, and nothing else moved.
+    assert q("SELECT md5(pg_get_functiondef('public.fn_ca_settlement_lane_doctrine()'::regprocedure))") == 'a0a71944de239c5d5ef93460f0835ce0'
+    assert q("SELECT prosrc LIKE '%''fn_sweep_unsettled_tournament_rake'',\n    ''fn_ca_bounty_only_pko_final_two''];%' FROM pg_proc WHERE proname='fn_ca_settlement_lane_doctrine'") == 't'
+    assert q("SELECT proacl::text FROM pg_proc WHERE proname='fn_ca_settlement_lane_doctrine'") == '{postgres=X/postgres,service_role=X/postgres}'
 
     # Clean close: nothing to report.
     clean = event(); close(clean)

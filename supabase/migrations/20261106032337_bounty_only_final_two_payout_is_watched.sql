@@ -27,10 +27,21 @@
 -- once its event is COMPLETED; it is a breach if that has not happened 10
 -- minutes after the close.
 --
+-- THE CLOSE IS A REVIEWED GLOBAL LANE AUTHORITY. fn_ca_bounty_only_pko_final_two
+-- (20261106010426) takes fn_ca_lock_settlement_lane_global() first, the same
+-- first lock as fn_finalize_bounty_pool, the per-event bounty payer it hands
+-- off to, and the terminal finish that follows it. Read for what it writes: one
+-- event's second place, one bounty_residual through the single payer, that
+-- event's pool paid and its receipt row; no other event's rows. It is not a
+-- rolling authority (no tournament or seat lane helper) and nothing rolling
+-- calls it. The live lane doctrine refused it as an unreviewed global caller
+-- (global_lane_callers_are_reviewed), so it is added to the reviewed list in
+-- fn_ca_settlement_lane_doctrine(), md5-guarded on the preimage and postimage.
+--
 -- Each breach writes one critical financial_alerts row per tournament and
 -- breach kind while an unresolved one exists (the same per tournament dedupe
 -- as trg_seed_bounty_head). Nothing here moves chips.
--- @live-proof: to_regprocedure('public.fn_ca_bounty_only_final_two_watch(timestamptz)') IS NOT NULL AND to_regclass('public.ca_bounty_only_final_two_breaches') IS NOT NULL AND EXISTS(SELECT 1 FROM cron.job WHERE jobname='ca-bounty-only-final-two-watch-5m') AND NOT has_function_privilege('authenticated','public.fn_ca_bounty_only_final_two_watch(timestamptz)','execute')
+-- @live-proof: to_regprocedure('public.fn_ca_bounty_only_final_two_watch(timestamptz)') IS NOT NULL AND to_regclass('public.ca_bounty_only_final_two_breaches') IS NOT NULL AND EXISTS(SELECT 1 FROM cron.job WHERE jobname='ca-bounty-only-final-two-watch-5m') AND NOT has_function_privilege('authenticated','public.fn_ca_bounty_only_final_two_watch(timestamptz)','execute') AND md5(pg_get_functiondef('public.fn_ca_settlement_lane_doctrine()'::regprocedure))='a0a71944de239c5d5ef93460f0835ce0'
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='30s';
@@ -177,6 +188,35 @@ REVOKE ALL ON FUNCTION public.fn_ca_bounty_only_final_two_watch(timestamptz) FRO
 GRANT EXECUTE ON FUNCTION public.fn_ca_bounty_only_final_two_watch(timestamptz) TO service_role;
 COMMENT ON FUNCTION public.fn_ca_bounty_only_final_two_watch(timestamptz) IS
  'Detection only: proves every bounty only PKO finished after the close-at-two rule paid both survivors exactly their own heads and closed its pool exactly; one critical financial alert per tournament and breach. Moves no chips.';
+
+DO $lane$
+DECLARE
+  d text;
+  v_old CONSTANT text := $o$'fn_settle_tournament_places','fn_settle_tournament_rake','fn_sweep_unsettled_tournament_rake'];$o$;
+  v_new CONSTANT text := $n$'fn_settle_tournament_places','fn_settle_tournament_rake','fn_sweep_unsettled_tournament_rake',
+    'fn_ca_bounty_only_pko_final_two'];$n$;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p
+                  WHERE p.oid = to_regprocedure('public.fn_ca_settlement_lane_doctrine()')
+                    AND md5(pg_get_functiondef(p.oid)) = '9cd12c0b962d33af3c1193b890b8f898'
+                    AND p.proowner = 'postgres'::regrole
+                    AND p.proacl::text = '{postgres=X/postgres,service_role=X/postgres}'
+                    AND to_jsonb(p.proconfig) = '["search_path=public, pg_temp"]'::jsonb
+                    AND p.prosecdef) THEN
+    RAISE EXCEPTION 'FINAL_TWO_DOCTRINE_PREIMAGE_CHANGED' USING ERRCODE = '55000';
+  END IF;
+  d := pg_get_functiondef('public.fn_ca_settlement_lane_doctrine()'::regprocedure);
+  IF (length(d) - length(replace(d, v_old, ''))) <> length(v_old) THEN
+    RAISE EXCEPTION 'FINAL_TWO_DOCTRINE_ANCHOR_CHANGED' USING ERRCODE = '55000';
+  END IF;
+  EXECUTE replace(d, v_old, v_new);
+  IF md5(pg_get_functiondef('public.fn_ca_settlement_lane_doctrine()'::regprocedure))
+       <> 'a0a71944de239c5d5ef93460f0835ce0' THEN
+    RAISE EXCEPTION 'FINAL_TWO_DOCTRINE_POSTIMAGE_CHANGED' USING ERRCODE = '55000';
+  END IF;
+END $lane$;
+REVOKE ALL ON FUNCTION public.fn_ca_settlement_lane_doctrine() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_settlement_lane_doctrine() TO service_role;
 
 -- periodic-work: the owner requires that a bounty only PKO ends with two players and both keep exactly their own head; this proves it for every such event within five minutes of its close and raises a critical financial alert when it did not. Read-only toward money.
 SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'ca-bounty-only-final-two-watch-5m';

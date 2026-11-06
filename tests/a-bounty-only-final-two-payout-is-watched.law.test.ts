@@ -36,6 +36,14 @@ describe('a bounty only final two payout is watched', () => {
     );
   });
 
+  it('reviews the close as a global lane authority, md5-guarded both ways', () => {
+    expect(code).toContain("'9cd12c0b962d33af3c1193b890b8f898'");
+    expect(code).toContain("'a0a71944de239c5d5ef93460f0835ce0'");
+    expect(code).toMatch(
+      /'fn_sweep_unsettled_tournament_rake',\s+'fn_ca_bounty_only_pko_final_two'\];/
+    );
+  });
+
   it('runs every five minutes for the service role only', () => {
     expect(code).toContain("cron.schedule('ca-bounty-only-final-two-watch-5m'");
     expect(code).toMatch(
