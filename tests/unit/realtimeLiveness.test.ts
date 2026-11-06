@@ -109,12 +109,15 @@ describe('a resumed page finds a dead realtime socket at once', () => {
 describe('the shared client is wired for liveness', () => {
   const client = readFileSync(resolve(process.cwd(), 'src/lib/supabase.ts'), 'utf8');
   it('beats from a worker at the shorter interval', () => {
-    expect(client).toContain('heartbeatIntervalMs: REALTIME_HEARTBEAT_MS,');
+    const literal = client.match(/heartbeatIntervalMs: ([0-9_]+),/);
+    expect(literal).not.toBeNull();
+    expect(Number(literal![1].replace(/_/g, ''))).toBe(REALTIME_HEARTBEAT_MS);
     expect(client).toContain("worker: typeof Worker !== 'undefined',");
   });
   it('installs the resume probe on the one realtime client', () => {
+    expect(client).toContain("void import('./realtimeLiveness')");
     expect(client).toMatch(
-      /installRealtimeLiveness\(supabase\.realtime as unknown as RealtimeLivenessClient\);/
+      /installRealtimeLiveness\(supabase\.realtime as unknown as RealtimeLivenessClient\)/
     );
   });
 });

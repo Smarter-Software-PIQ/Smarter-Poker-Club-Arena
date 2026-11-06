@@ -15,11 +15,7 @@ import { readLocalSession as readLocalSessionShared, AUTH_STORAGE_KEY } from './
 import { reportError } from '../utils/errorReporter';
 import { IS_NATIVE_BUILD } from './appBase';
 import { realtimeAdmission } from './realtimeAdmission';
-import {
-  installRealtimeLiveness,
-  REALTIME_HEARTBEAT_MS,
-  type RealtimeLivenessClient,
-} from './realtimeLiveness';
+import type { RealtimeLivenessClient } from './realtimeLiveness';
 import { fetchAuthWithDeadline } from './authFetchDeadline';
 
 // Environment validation - follows VITE_ prefix law
@@ -148,7 +144,9 @@ export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
     // A DEAD SOCKET IS FOUND IN SECONDS (2026-11-05, see realtimeLiveness.ts):
     // the heartbeat runs in a Web Worker the browser does not throttle with
     // the page's timers, at half the SDK default interval.
-    heartbeatIntervalMs: REALTIME_HEARTBEAT_MS,
+    // Equal to REALTIME_HEARTBEAT_MS (kept literal so the liveness module stays
+    // out of the entry chunk; tests/unit/realtimeLiveness.test.ts holds them equal).
+    heartbeatIntervalMs: 12_000,
     worker: typeof Worker !== 'undefined',
     params: {
       // 2026-08-22: was 0 ("Realtime is no longer used") — but that was never
@@ -166,7 +164,14 @@ export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
 
 // The page coming back (shown, online, restored, focused) probes the socket at
 // once instead of waiting up to two heartbeats to notice it died while frozen.
-installRealtimeLiveness(supabase.realtime as unknown as RealtimeLivenessClient);
+// Loaded lazily: nothing here is needed before first paint.
+if (typeof window !== 'undefined') {
+  void import('./realtimeLiveness')
+    .then(({ installRealtimeLiveness }) =>
+      installRealtimeLiveness(supabase.realtime as unknown as RealtimeLivenessClient)
+    )
+    .catch((err) => reportError(err, 'Supabase.realtime_liveness_load_failed'));
+}
 
 /**
  * Fast auth resolver — tries local session FIRST (instant), then getUser() as background refresh.

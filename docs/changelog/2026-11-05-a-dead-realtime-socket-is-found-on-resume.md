@@ -6,7 +6,7 @@ Cause: a frozen phone page (locked screen, app switch) thaws with realtime-js st
 
 Fix:
 - The heartbeat runs in a Web Worker (realtime-js `worker`) at 12 seconds (`src/lib/supabase.ts`).
-- `src/lib/realtimeLiveness.ts` probes the socket the moment the page is shown, comes back online, is restored from the back-forward cache or regains focus: a closed socket connects at once, and a probe beat unanswered after 3 seconds triggers the SDK's own heartbeat timeout, which reconnects and rejoins every channel.
+- `src/lib/realtimeLiveness.ts` (loaded lazily, outside the entry chunk) probes the socket the moment the page is shown, comes back online, is restored from the back-forward cache or regains focus: a closed socket connects at once, and a probe beat unanswered after 3 seconds triggers the SDK's own heartbeat timeout, which reconnects and rejoins every channel.
 - The table's tournament channel rejoin now re-reads the bounty heads and any open mystery chest beside the break, level and completion it already re-read.
 - `Realtime.resume_revived` (at most once per 10 minutes per client) proves each forced revival live.
 
