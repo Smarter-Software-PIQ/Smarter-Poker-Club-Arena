@@ -21,6 +21,10 @@ do not open it again; expired, malformed, other-player and other-table offers
 cannot fall through to the retained query string. Buy-in still requires the
 player's confirmation and the existing server admission transaction.
 
+An offer arriving before the earlier admission response also stays unconsumed
+until that request settles. The request's own completion renders the pending
+offer again, so the single-flight guard cannot silently discard it.
+
 The regression failed on the original code. Tests execute the actual table
 effect with React across same-table route updates, and the existing real
 Supabase SDK/Phoenix fixture verifies delivery into that already-open route,

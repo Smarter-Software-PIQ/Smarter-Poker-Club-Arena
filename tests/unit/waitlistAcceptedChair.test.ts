@@ -54,6 +54,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
     leftSeatPendingRef: { current: false },
     openBuyInOnArrival: true,
     acceptedChair: 0,
+    cashAdmissionPending: false,
     location: { pathname: '/table/destination', search: '' },
     window: { location: { search: '' } },
     tableId: 'destination',
@@ -68,6 +69,33 @@ function fixture(overrides: Record<string, unknown> = {}) {
   return { d, run: () => new Function(...Object.keys(d), body)(...Object.values(d)) };
 }
 describe('an accepted waiting-list chair opens the destination buy-in', () => {
+  it('keeps an offer unconsumed while the earlier admission reply is in flight', () => {
+    const f = fixture({
+      cashAdmissionPending: true,
+      location: {
+        pathname: '/table/destination',
+        search: '?buyin=1',
+        state: {
+          cashSeatOffer: {
+            id: 'offer-during-admission',
+            tableId: 'destination',
+            userId: 'viewer',
+            notifiedAt: new Date().toISOString(),
+            holdExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+          },
+        },
+      },
+    });
+    f.run();
+    expect(f.d.handleSeatClick).not.toHaveBeenCalled();
+    expect(f.d.consumedSeatOffersRef.current.size).toBe(0);
+    f.d.cashAdmissionPending = false;
+    f.run();
+    expect(f.d.handleSeatClick).toHaveBeenCalledExactlyOnceWith(2);
+    expect(source.slice(effect!.end, effect!.parent.parent.parent.end)).toContain(
+      'cashAdmissionPending'
+    );
+  });
   it('reacts to a same-table offer while the roster, funding and first-arrival props stay unchanged', () => {
     const f = fixture();
     const { autoBuyInFiredRef, consumedSeatOffersRef, acceptedChair, ...context } = f.d;

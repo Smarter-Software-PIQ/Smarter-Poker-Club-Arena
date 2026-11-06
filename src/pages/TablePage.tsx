@@ -22827,6 +22827,7 @@ function LiveTablePage({
       navigate(`/table/${dest}?buyin=1`);
     }
   };
+  const [cashAdmissionPending, setCashAdmissionPending] = useState(false);
   const enterCashSeat = useCashSeatEntry({
     tableId,
     userId,
@@ -22835,6 +22836,7 @@ function LiveTablePage({
     goToTable: goToCashEntryTable,
     showWaitlist: () => setShowMustMoveLobby(true),
     notify: (message) => toast.info(message),
+    onPendingChange: setCashAdmissionPending,
   });
 
   /* A TAP IS NEVER SPENT ON A CHECK (Dan 2026-10-14): "IT SHOULD JUST CHECK
@@ -23048,6 +23050,9 @@ function LiveTablePage({
       wantsBuyIn = false;
     }
     if (!wantsBuyIn) return;
+    // A committed offer may beat the earlier waitlisted RPC response. Keep
+    // that invitation unconsumed until the original admission has settled.
+    if (cashAdmissionPending) return;
     if (!tableState.players.length) return; // table not painted yet - wait
     /* AND ITS FUNDING IS KNOWN (launch audit 2026-10-05). The seat array is
        painted before the table's asset is read, and handleSeatClick answers a
@@ -23089,6 +23094,7 @@ function LiveTablePage({
     userId,
     openBuyInOnArrival,
     acceptedChair,
+    cashAdmissionPending,
     location.pathname,
     location.search,
     location.state,
