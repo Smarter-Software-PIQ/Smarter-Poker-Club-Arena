@@ -90,6 +90,17 @@ describe('natural add-on observation admission', () => {
       expect(suppressedObserverReward('POST', rpc(name))).toBe(false);
     }
   });
+  it('allows only engine heartbeat and in-memory connection diagnostics', () => {
+    for (const path of ['/heartbeat', '/client-event']) {
+      const url = new URL('https://engine.smarter.poker' + path);
+      expect(forbiddenAddOnParticipation('POST', url)).toBe(false);
+      expect(forbiddenAddOnParticipation('DELETE', url)).toBe(true);
+    }
+    for (const path of ['/action', '/addchips', '/leave', '/unknown', '/admin/heartbeat'])
+      expect(
+        forbiddenAddOnParticipation('POST', new URL('https://engine.smarter.poker' + path))
+      ).toBe(true);
+  });
   it('blocks purchases, registration, seat writes and unknown RPCs before forwarding', () => {
     for (const path of [
       '/rest/v1/rpc/process_tournament_addon',

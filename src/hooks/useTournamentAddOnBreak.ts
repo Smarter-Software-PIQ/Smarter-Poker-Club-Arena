@@ -44,7 +44,9 @@ export function useTournamentAddOnBreak(tournamentId: string | null | undefined)
           )
           .eq('id', tournamentId)
           .maybeSingle();
-        if (!active || pending) return;
+        // A queued invalidation requires a trailing read, not discarding this
+        // successful owned response: busy tournaments may never become quiet.
+        if (!active) return;
         if (boundary) clearTimeout(boundary);
         boundary = undefined;
         if (error) throw error;

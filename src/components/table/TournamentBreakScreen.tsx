@@ -289,7 +289,9 @@ export function TournamentBreakScreen({
             controller.signal
           ),
         ]);
-        if (!mounted || pending) return;
+        // Publish progress even while purchases queue the next read. Reads are
+        // serialized; only an obsolete effect owner must discard its answer.
+        if (!mounted) return;
         if (tRes.error || pRes.error || !tRes.data || !pRes.data) {
           setFacts(null);
           setFactsFailed(true);
