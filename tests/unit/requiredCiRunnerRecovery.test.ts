@@ -36,6 +36,22 @@ const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unk
   job.steps.splice(index, 1);
 };
 
+const backupSequenceStep = {
+  name: 'Backup restore aligns standalone sequence owners',
+  if: 'matrix.shard == 4',
+  run: 'python3 -B scripts/verification-harness/standby-sequence-owners.py --pg-bin /usr/lib/postgresql/17/bin --scratch-root "${{ runner.temp }}"',
+};
+const normalizeBackupSequenceAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === backupSequenceStep.name);
+  expect(job.steps.filter((step) => step.name === backupSequenceStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(backupSequenceStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Runtime privilege changes preserve the schema DDL boundary'
+  );
+  // Pin the complete new gate while retaining every prior job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 const cashQueueFeedbackStep = {
   name: 'Cash queues explain their authoritative admission state',
   if: 'matrix.shard == 1',
@@ -453,6 +469,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
     normalizeTournamentLockAddition(normalized.jobs.accounting_postgres);
+    normalizeBackupSequenceAddition(normalized.jobs.accounting_postgres);
     normalizeCashQueueFeedbackAddition(normalized.jobs.accounting_postgres);
     const priorQualificationBudgets = {
       changes: 5,

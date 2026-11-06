@@ -77,7 +77,7 @@ describe('Backup qualification and the daily release are separate authorities', 
       'legacy_checkpoint_countdown() {\n  daily_cutover_clock || return 1'
     );
     expect(transaction).toContain(
-      "PREPARED=1\ndaily_cutover_clock || die 'engine replacement is only allowed at 04:00 America/Chicago'"
+      "PREPARED=1\nrequire_backup_certificate || die 'exact target Backup certificate is not currently successful; no replacement authorized'\ndaily_cutover_clock || die 'engine replacement is only allowed at 04:00 America/Chicago'"
     );
     expect(transaction).toContain(
       'request_recovery_window() {\n  return 0 # daily-only: no new off-cycle announcements\n  # Historical owner windows cannot announce a daytime pause.\n  daily_cutover_clock || return 0'
