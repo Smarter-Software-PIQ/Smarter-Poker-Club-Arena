@@ -57,9 +57,14 @@ describe('PLO6 river discipline is a valid final wager-rule call', () => {
       graphDecision('raise', 'call', null),
       graphDecision('check', 'call'),
       graphDecision('bet', 'call'),
-      graphDecision('raise', 'check', null),
     ])
       expect(horseDecisionReceiptIsValid(value, 'plo6')).toBe(false);
+    // A final check is the PLO4/5/6 paired-board river check (Dan 2026-11-06),
+    // bound to the request when it is known; it is refused in every other game.
+    for (const variant of ['nlh', 'plo8', 'flh', 'short_deck', 'pineapple'])
+      expect(horseDecisionReceiptIsValid(graphDecision('raise', 'check', null), variant)).toBe(
+        false
+      );
   });
 
   it('replays the real worker request whose river raise became a call', async () => {
