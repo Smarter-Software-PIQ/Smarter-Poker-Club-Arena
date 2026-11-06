@@ -197,8 +197,24 @@ describe('native contention regression enforcement', () => {
     expect(upload.with['if-no-files-found']).toBe('error');
     expect(ci.jobs.server.needs).toContain('accounting_postgres');
   });
+  it('runs current profile admission inside the required native result', () => {
+    const runner = readFileSync(resolve(ROOT, FILES[0]), 'utf8');
+    expect(runner).toContain("str(HERE / 'cash-batch-profile-admission.py')");
+    expect(runner).toContain(
+      '20261106141636_cash_batches_admit_profile_rows_before_processing_hands.sql'
+    );
+    expect(runner).toContain(
+      "admission.returncode == 0 and report['profile_admission'].get('passed') is True"
+    );
+    expect(runner).toContain("report['ok'] = all(checks.values())");
+    expect(runner).toContain(
+      "report['profile_admission_postgres_log'] = admission_log.read_text()"
+    );
+  });
   it.each([
     'scripts/qualification/replay-locks-and-player-stats-keys.py',
+    'scripts/qualification/cash-batch-profile-admission.py',
+    'scripts/qualification/cash-batch-profile-admission-capture.json',
     'scripts/qualification/replay-locks-and-player-stats-keys-schema.sql',
     'scripts/qualification/replay-locks-and-player-stats-keys-live.sql',
     'scripts/qualification/replay-locks-and-player-stats-keys.manifest.json',
