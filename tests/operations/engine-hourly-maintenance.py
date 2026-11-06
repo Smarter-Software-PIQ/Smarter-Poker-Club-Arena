@@ -415,7 +415,7 @@ class HourlyCycle(unittest.TestCase):
             seal.cmd_restoration_needed(Namespace(repo=str(self.repo),sha=self.sha))
         # A late request must refuse before writing a future global owner.
         before = seal.STATE_FILE.read_bytes()
-        for late in ('2026-11-01T09:59:30+00:00', '2026-11-01T10:00:00+00:00', '2026-11-01T20:00:00+00:00'):
+        for late in ('2026-11-01T06:30:00+00:00', '2026-11-01T09:29:59+00:00', '2026-03-08T08:29:59+00:00', '2026-03-08T09:00:00+00:00', '2026-11-01T09:59:30+00:00', '2026-11-01T10:00:00+00:00', '2026-11-01T20:00:00+00:00'):
             self.clock.return_value = seal.datetime.fromisoformat(late).timestamp()
             self.assert_refused(lambda: self.reserve())
             self.assertEqual(seal.STATE_FILE.read_bytes(), before)

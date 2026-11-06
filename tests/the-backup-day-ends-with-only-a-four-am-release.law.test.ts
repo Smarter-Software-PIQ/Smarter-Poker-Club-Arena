@@ -111,6 +111,33 @@ describe('Backup qualification and the daily release are separate authorities', 
       expect(result.stdout).toContain('refresh=force');
     } else expect(result.stdout).not.toContain('refresh=force');
   });
+  it.each(['a'.repeat(40), 'b'.repeat(40)])(
+    'keeps queued push candidate %s instead of moving main',
+    (candidate) => {
+      const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
+      const result = spawnSync(
+        'bash',
+        ['-c', 'git() { echo unexpected-mutable-main-read >&2; return 99; }\n' + plan],
+        {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            EVENT: 'push',
+            INPUT_SHA: '',
+            INPUT_REFRESH: 'false',
+            GITHUB_SHA: candidate,
+            GITHUB_OUTPUT: '/dev/stdout',
+          },
+        }
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('sha=' + candidate);
+      expect(result.stdout).toContain('refresh=auto');
+      for (const step of backup.jobs.certify.steps) {
+        if (step.env?.SHA) expect(step.env.SHA).toBe('${{ needs.plan.outputs.sha }}');
+      }
+    }
+  );
   it('serializes all Backup candidates and refreshes only after a successful sealed release', () => {
     expect(backup.concurrency).toEqual({
       group: 'backup-engine',

@@ -147,6 +147,8 @@ ${entryRead}
 MIN_BREAK_REMAINING_MS=${ENTRY_MS}
 curl() { printf '%s\\n%s' "$PROBE_BODY" "200"; }
 ${countdown}
+# Daily wall-clock enforcement is qualified separately; isolate reserve arithmetic.
+daily_cutover_clock() { return 0; }
 legacy_checkpoint_countdown "$PROBE_HEADROOM"
 `,
     ],
@@ -547,6 +549,8 @@ ${entryRead}
 MIN_BREAK_REMAINING_MS=${ENTRY_MS}
 curl() { printf '%s\\n%s' "$PROBE_BODY" "200"; }
 ${certificateHelper}
+# Daily admission has separate boundary coverage; isolate the reserve ladder.
+daily_cutover_clock() { return 0; }
 maintenance_certificate${minimum === undefined ? '' : ` ${minimum}`}`,
     ],
     { encoding: 'utf8', timeout: 10_000, env: { ...process.env, PROBE_BODY: body } }

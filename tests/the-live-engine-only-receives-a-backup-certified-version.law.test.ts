@@ -108,6 +108,20 @@ describe('auto-deploy-hetzner.yml requires the Backup Engine certificate', () =>
     expect(refused.output).not.toContain('certified=true');
   });
 
+  it.each(['pending', 'failure'])('does not reuse an older success after a newer %s', (state) => {
+    const statuses = JSON.stringify([
+      { context: 'unrelated/check', state: 'success' },
+      { context: 'backup-engine/certified', state },
+      { context: 'backup-engine/certified', state: 'success' },
+    ]);
+    // Execute the receiver's actual jq selector, not a preselected fake state.
+    const refused = runGate(`printf '%s' '${statuses}' | jq -r "\${!#}"`);
+    expect(refused.status).toBe(1);
+    expect(refused.calls).toContain(`repos/owner/repo/commits/${SHA}/statuses`);
+    expect(refused.stdout).toContain(`backup-engine/certified = ${state}`);
+    expect(refused.output).not.toContain('certified=true');
+  });
+
   it('refuses when the statuses cannot be read', () => {
     const refused = runGate('exit 1');
     expect(refused.status).not.toBe(0);

@@ -140,6 +140,8 @@ INFLIGHT_HANDS="$MOCK_INFLIGHT"
 ${entryRead}
 curl() { printf '%s\\n%s' "$PROBE_BODY" "200"; }
 ${certificateHelper}
+# Daily time admission has its own law; these cases isolate custody proof.
+daily_cutover_clock() { return 0; }
 maintenance_certificate`,
     ],
     {

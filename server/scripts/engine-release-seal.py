@@ -2383,8 +2383,9 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
             # request must not reserve tomorrow and strand its global ownership.
             local = datetime.fromtimestamp(now, ZoneInfo('America/Chicago'))
             boundary = local.replace(hour=4, minute=0, second=0, microsecond=0)
-            if boundary.timestamp() - now < ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS:
-                die('daily restoration missed its announcement lead; no future cycle reserved')
+            preparation = local.replace(hour=3, minute=30, second=0, microsecond=0)
+            if now < preparation.timestamp() or boundary.timestamp() - now < ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS:
+                die('daily restoration is outside preparation or missed its announcement lead; no future cycle reserved')
             starts = int(boundary.timestamp())
         key = str(starts)
         if key in cycles:
