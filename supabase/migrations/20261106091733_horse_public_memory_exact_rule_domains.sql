@@ -22,26 +22,40 @@ LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $f$
 $f$;
 CREATE FUNCTION public.fn_horse_exact_accept_hand() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $f$
-DECLARE actor record; m text; sz text;
+DECLARE actor record; h public.hand_history%ROWTYPE; m text; sz text;
 BEGIN
+ -- Receipt insertion follows history inside the original settlement transaction.
+ -- A service/manual history INSERT alone is not accepted engine provenance.
+ SELECT * INTO h FROM public.hand_history
+ WHERE id=NEW.hand_id AND table_id=NEW.table_id AND hand_number=NEW.hand_number;
+ IF NOT FOUND THEN RETURN NEW; END IF;
  -- Never reject an old/unknown-domain accepted hand or infer its rules.
- IF NOT public.fn_horse_public_domain_valid(NEW.public_memory_domain) THEN RETURN NEW; END IF;
- IF NEW.game_variant NOT IN ('nlh','plo4','plo5','plo6','plo8','flh','flo8','short_deck','pineapple')
-    OR NEW.game_variant IS NULL THEN RETURN NEW; END IF;
- IF NEW.horse_exploit_dealt_count IS NULL OR NEW.horse_exploit_dealt_count NOT BETWEEN 2 AND 10 THEN RETURN NEW; END IF;
- m:=CASE WHEN NEW.tournament_id IS NULL THEN 'cash' ELSE 'tournament' END;
- sz:=CASE WHEN NEW.horse_exploit_dealt_count<=2 THEN 'hu' WHEN NEW.horse_exploit_dealt_count<=5 THEN 'short' ELSE 'full' END;
- FOR actor IN SELECT * FROM jsonb_each(public.fn_horse_exploit_increments(NEW.actions)) ORDER BY key LOOP
+ IF NOT public.fn_horse_public_domain_valid(h.public_memory_domain) THEN RETURN NEW; END IF;
+ IF h.game_variant NOT IN ('nlh','plo4','plo5','plo6','plo8','flh','flo8','short_deck','pineapple')
+    OR h.game_variant IS NULL THEN RETURN NEW; END IF;
+ IF h.horse_exploit_dealt_count IS NULL OR h.horse_exploit_dealt_count NOT BETWEEN 2 AND 10 THEN RETURN NEW; END IF;
+ m:=CASE WHEN h.tournament_id IS NULL THEN 'cash' ELSE 'tournament' END;
+ sz:=CASE WHEN h.horse_exploit_dealt_count<=2 THEN 'hu' WHEN h.horse_exploit_dealt_count<=5 THEN 'short' ELSE 'full' END;
+ FOR actor IN SELECT * FROM jsonb_each(public.fn_horse_exploit_increments(h.actions)) ORDER BY key LOOP
    INSERT INTO public.horse_exact_profiles(user_id,variant,mode,size,public_memory_domain,counters,observed_hands,initialized)
-   VALUES(actor.key,NEW.game_variant,m,sz,NEW.public_memory_domain,actor.value,1,true)
+   VALUES(actor.key,h.game_variant,m,sz,h.public_memory_domain,actor.value,1,true)
    ON CONFLICT(user_id,variant,mode,size,public_memory_domain) DO UPDATE SET
      counters=public.fn_horse_exploit_add(horse_exact_profiles.counters,excluded.counters),
      observed_hands=horse_exact_profiles.observed_hands+1,updated_at=clock_timestamp();
  END LOOP;
  RETURN NEW;
 END $f$;
--- Same accepted INSERT transaction and existing hand uniqueness supply dedup.
-CREATE TRIGGER horse_exact_accept_hand AFTER INSERT ON public.hand_history
+-- The protected receipt's unique hand identity supplies duplicate protection.
+-- Later post-commit receipt updates do not relearn a hand; rollback undoes learning.
+DO $authority$
+BEGIN
+ IF has_any_column_privilege('service_role','public.hand_atomic_commits','INSERT')
+ OR has_any_column_privilege('anon','public.hand_atomic_commits','INSERT')
+ OR has_any_column_privilege('authenticated','public.hand_atomic_commits','INSERT') THEN
+   RAISE EXCEPTION 'exact_public_memory_requires_protected_accepted_receipts';
+ END IF;
+END $authority$;
+CREATE TRIGGER horse_exact_accept_hand AFTER INSERT ON public.hand_atomic_commits
  FOR EACH ROW EXECUTE FUNCTION public.fn_horse_exact_accept_hand();
 CREATE FUNCTION public.fn_horse_exact_profiles_read(p_user_ids text[],p_variant text,p_mode text,p_size text,p_speed text,p_ante text)
 RETURNS SETOF public.horse_exact_profiles LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $f$
