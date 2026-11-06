@@ -118,10 +118,16 @@ UPDATE public.tables t SET bomb_pot_trigger_mode='timed',
 DO $verify$
 DECLARE v text;
 BEGIN
- FOREACH v IN ARRAY ARRAY['nlh','plo4','plo5','plo6','plo8','flh','flo8','short_deck','pineapple'] LOOP
-  IF public.fn_cash_template_defaults('madness',v)->'bombs'->>'trigger' IS DISTINCT FROM 'timed_30m'
-     OR public.fn_cash_template_defaults('classic',v)->'bombs'->>'enabled' IS DISTINCT FROM 'false' THEN
+ -- Lightning (madness) templates exist for these variants only; the rest
+ -- are Classic-only and fn_cash_template_defaults refuses them as madness.
+ FOREACH v IN ARRAY ARRAY['nlh','plo4','plo5','plo6','flh'] LOOP
+  IF public.fn_cash_template_defaults('madness',v)->'bombs'->>'trigger' IS DISTINCT FROM 'timed_30m' THEN
    RAISE EXCEPTION 'BOMB_30_DEFAULT_FAILED: %',v;
+  END IF;
+ END LOOP;
+ FOREACH v IN ARRAY ARRAY['nlh','plo4','plo5','plo6','plo8','flh','flo8','short_deck','pineapple'] LOOP
+  IF public.fn_cash_template_defaults('classic',v)->'bombs'->>'enabled' IS DISTINCT FROM 'false' THEN
+   RAISE EXCEPTION 'BOMB_30_CLASSIC_CHANGED: %',v;
   END IF;
  END LOOP;
  IF EXISTS (

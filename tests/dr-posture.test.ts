@@ -468,3 +468,57 @@ with patch.object(subprocess, 'run', side_effect=[SimpleNamespace(stdout='"expec
     expect(workflow).toContain('tablesFailed');
   });
 });
+
+describe('standby seat proof observes the protected interval', () => {
+  for (const trial of ['swap', 'break']) {
+    it.each([
+      'legitimate-boundary-activity',
+      'frozen-mutation',
+      'unreadable',
+      'different-window',
+      'early-thaw',
+      'receipt-refused',
+    ])(`${trial} refuses invalid frozen evidence (%s)`, (mode) => {
+      const sha = 'a'.repeat(40);
+      const frozen = {
+        frozen: true,
+        token: '1135e041-af7d-417b-9121-32e30090652a',
+        startedAt: '2026-11-06T22:13:11.748+00:00',
+        releaseAt: '2026-11-06T22:18:11.748+00:00',
+        count: 1,
+        fingerprint: 'b'.repeat(32),
+      };
+      const changed = { ...frozen, fingerprint: 'c'.repeat(32) };
+      const different = { ...frozen, token: '2135e041-af7d-417b-9121-32e30090652a' };
+      const thawed = { ...changed, frozen: false, token: null, startedAt: null, releaseAt: null };
+      const result = standbyShell(`
+        source '${root('server/standby/standby-trials.sh')}'
+        cmd_run() { :; }; cmd_build() { :; }; wait_live() { :; }; wait_dealing() { :; }; wait_no_break() { :; }
+        maintenance_field() { echo 0; }; health() { echo fixture; }; health_field() { echo '${sha}'; }
+        sleep() { :; }; docker() { [ "$1" != inspect ] || echo '${sha}'; }
+        # Old proof would compare a pre-announcement A against post-thaw C.
+        seat_fingerprint() { echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }
+        request_break() { echo 0 > "$STATE_DIR/sample"; }
+        psql_db() {
+          case "$*" in *'-v boundary='*) [ '${mode}' = receipt-refused ] && echo f || echo t; return 0;; esac
+          local n; n=$(cat "$STATE_DIR/sample"); n=$((n+1)); echo "$n" > "$STATE_DIR/sample"
+          if [ '${mode}' = unreadable ]; then return 19; fi
+          if [ "$n" -eq 2 ]; then
+            case '${mode}' in
+              frozen-mutation) printf '%s' '${JSON.stringify(changed)}'; return 0;;
+              different-window) printf '%s' '${JSON.stringify(different)}'; return 0;;
+              early-thaw) printf '%s' '${JSON.stringify(thawed)}'; return 0;;
+            esac
+          fi
+          if [ "$n" -ge 4 ]; then printf '%s' '${JSON.stringify(thawed)}'; else printf '%s' '${JSON.stringify(frozen)}'; fi
+        }
+        trial_${trial} '${sha}' '${sha}'
+      `);
+      // Break has no engine boot and can legitimately release on its second sample.
+      const passing =
+        mode === 'legitimate-boundary-activity' || (trial === 'break' && mode === 'early-thaw');
+      expect(result.status === 0, result.stderr + result.stdout).toBe(passing);
+      if (passing) expect(result.stdout).toContain('"frozenSeatBoundary":');
+    });
+  }
+});

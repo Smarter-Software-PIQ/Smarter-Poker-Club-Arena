@@ -274,6 +274,14 @@ it('keeps each closed mode limited to its owned browser journeys with cleanup', 
     browser.indexOf("test('tournament Details stays inside"),
     browser.indexOf("test('the footer frame")
   );
+  const tournamentDoor = journey.slice(
+    journey.indexOf('tournamentId = await tournament.getAttribute')
+  );
+  expect(tournamentDoor).not.toContain('await expect(panel).toHaveCount(1)');
+  expect(tournamentDoor).not.toContain("await panel.getByRole('button', { name: 'Details'");
+  expect(tournamentDoor.indexOf("page.on('framenavigated', observeRoute)")).toBeLessThan(
+    tournamentDoor.indexOf("tournament.getByRole('button', { name: /^Details:/ }).click()")
+  );
   expect(journey).toContain("url.searchParams.get('user_id') === `eq.${ownerId}`");
   expect(journey).toContain("document.dispatchEvent(new Event('visibilitychange'))");
   expect(journey).toContain('expect(await refreshed.json()');
@@ -378,7 +386,7 @@ describe('closed tournament favorite priority proof', () => {
       // The account's own favorite records, read and saved as the owner.
       'favoritesRead(',
       'favoriteSaveAccepted(response, owner, chosen, enabled)',
-      "expect(unstarred.find((row) => row.game_id === chosen)?.active).toBe(false)",
+      'expect(unstarred.find((row) => row.game_id === chosen)?.active).toBe(false)',
       "'Add To Favorites'",
       "'Remove From Favorites'",
       "chooseSort('Most Players')",

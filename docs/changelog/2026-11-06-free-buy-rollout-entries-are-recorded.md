@@ -1,0 +1,9 @@
+# The Free Buy Entries Made Before Tickets Went Live Are Recorded
+
+Owner rules: "Preserve valid entries created before ticket deployment. Record their approved sponsored first-entry benefit without charging those players again" (2026-11-05), and "Record the 38 grandfathered entries so ticket alerts apply the approved exception correctly" (2026-11-06 14:52 CT).
+
+Read from production 2026-11-06 21:10 UTC: tickets went live when 20261105223835 was actually installed, at the first redemption (registration 2026-11-05 23:18:46.9654 UTC), forty minutes after the migration's version time (22:38:35). 927 Midway Free Buy entries in six events were made before that moment; each holds its one-chip promo head from the #9515 door and no ticket, and none was charged (74ba8130 236, 1d115ff4 198, dce71e3f 152, f4793b0d 149, b3ae52ef 105, f777b273 87). The "38" are the ones registered inside that forty-minute gap (f777b273 33, 1d115ff4 3, 74ba8130 2). No entry made after tickets went live lacks a ticket.
+
+Migration 20261106205705 records all 927 in the append-only `smarter_private.free_buy_rollout_entries` (registration, player, event, registration time, promo head ledger row, `in_install_gap` for the 38), and changes `fn_ca_free_buy_funding_watch`'s `entry_without_ticket` check by one asserted substitution: it exempts exactly the recorded registrations instead of everything registered before a timestamp. The clock had a hole: a pre-install entry with no promo head at all was exempt too. Now any ticketless entry not in the record is reported. Nothing moves chips.
+
+Proof: `scripts/ci/test-guarantee-funding-watch.py` (accounting shard 1) reproduces the hole, then records 906 seeded entries (35 in the gap), keeps them exempt, reports the headless pre-install entry and the post-install bypass, and refuses UPDATE and DELETE on the record for every role. Law: `tests/free-buy-rollout-entries-are-a-record.law.test.ts`.
