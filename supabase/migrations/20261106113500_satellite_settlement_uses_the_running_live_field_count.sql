@@ -1,6 +1,7 @@
 -- Satellite settlement agrees with the original live-field owner.
 -- Fix both single-winner and cohort counter checks; retain all bank, total-roster,
 -- receipt and duplicate-award checks. No persisted game or financial rows repaired.
+-- @live-proof: md5(pg_get_functiondef('public.fn_settle_satellite_tournament_pre_money_path_gate(uuid,uuid)'::regprocedure))='c8abcf05ff594c44e0007fdd73128ad9' AND md5(pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure))='125892fc05cff0f9433813fcfa8fca2b'
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='5s';
@@ -47,4 +48,3 @@ BEGIN
  IF md5(pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure)) IS DISTINCT FROM '125892fc05cff0f9433813fcfa8fca2b' THEN RAISE EXCEPTION 'SATELLITE_LIVE_FIELD_POSTIMAGE_CHANGED'; END IF;
 END $counter$;
 COMMIT;
--- @live-proof: md5(pg_get_functiondef('public.fn_settle_satellite_tournament_pre_money_path_gate(uuid,uuid)'::regprocedure))='c8abcf05ff594c44e0007fdd73128ad9' AND md5(pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure))='125892fc05cff0f9433813fcfa8fca2b'
