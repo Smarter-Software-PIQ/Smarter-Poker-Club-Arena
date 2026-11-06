@@ -1,0 +1,3 @@
+# server/src/tournament/primeTimeMysterySplitsFiftyFifty.law.test.ts
+
+The Midway Union's 8:30 PM Prime Time Free Buy (NLH) is a mystery bounty where every chip that enters (the promo-funded one-chip entry head, each 1-chip rebuy, each 1-chip add-on) goes 0.50 to the mystery bounty pool and 0.50 to the regular prize pool (owner 2026-11-05: "split all entries, rebuys and add-ons 50/50"). bountyAmount 0.50 is the bounty half per chip; mysteryBountyPoolPercent 100 / regular 0 divides only that bounty half (all of it into chests at the money, no flat pre-money knockouts) and never touches the prize pool. Pins the slot policy, the fixed-board config, the built row, the registration/rebuy/add-on rails in migration 20261105035220, and the chest pool the engine draws.
