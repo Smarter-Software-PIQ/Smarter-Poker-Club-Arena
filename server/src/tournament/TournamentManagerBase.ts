@@ -2422,12 +2422,28 @@ export abstract class TournamentManagerBase {
     step: string | null;
     msInStep: number;
   } | null {
-    const msInFlight =
+    const msSweepInFlight =
       this.isProcessingEliminations && this.eliminationSweepStartedAt > 0
         ? now - this.eliminationSweepStartedAt
         : 0;
+    // Every sweep yields to an in-flight boundary balance, so a hung one
+    // holds the manager exactly as a hung sweep does (2026-11-06).
+    const msBoundaryBalance =
+      this.boundaryBalanceInFlight && this.boundaryBalanceStartedAt > 0
+        ? now - this.boundaryBalanceStartedAt
+        : 0;
     const msBustWaiting = this.bustAwaitingSinceMs > 0 ? now - this.bustAwaitingSinceMs : 0;
-    if (msInFlight <= 0 && msBustWaiting <= 0) return null;
+    if (msSweepInFlight <= 0 && msBoundaryBalance <= 0 && msBustWaiting <= 0) return null;
+    if (msBoundaryBalance > msSweepInFlight) {
+      return {
+        msInFlight: msBoundaryBalance,
+        msBustWaiting,
+        stage: this.currentEliminationSweepStage(),
+        step: 'boundary_balance',
+        msInStep: msBoundaryBalance,
+      };
+    }
+    const msInFlight = msSweepInFlight;
     const step = msInFlight > 0 ? (this.eliminationSweepStep ?? null) : null;
     return {
       msInFlight,
@@ -2486,7 +2502,12 @@ export abstract class TournamentManagerBase {
   }
 
   requestSuccessorForStalledEliminationSweep(): boolean {
-    if (!this.isProcessingEliminations && this.bustAwaitingSinceMs <= 0) return false;
+    if (
+      !this.isProcessingEliminations &&
+      !this.boundaryBalanceInFlight &&
+      this.bustAwaitingSinceMs <= 0
+    )
+      return false;
     return this.requestSuccessorDrain();
   }
 
@@ -3576,6 +3597,14 @@ export abstract class TournamentManagerBase {
    */
   protected boundaryBalanceInFlight = false;
   protected boundaryBalanceOwesSweep = false;
+  /** When the in-flight boundary balance began; 0 while none is in flight. */
+  protected boundaryBalanceStartedAt = 0;
+  /**
+   * A boundary balance that has held the manager this long reports itself
+   * (Tournament.boundary_balance_overran). Its whole work is one board read
+   * and one batch of atomic moves; thirty seconds is many times that.
+   */
+  static readonly BOUNDARY_BALANCE_REPORT_MS = 30_000;
 
   /** Called as every admitted sweep settles; the balancing manager drains its edge work here. */
   protected onEliminationSweepSettled(): void {}
