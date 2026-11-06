@@ -541,6 +541,9 @@ export function classifyChangedPaths(paths) {
       matches(satelliteLedgerAuditIndex) ||
       matches(certificationPlayerIndex),
     tests:
+      // The existing Horse study wrapper discovers these Python regressions.
+      // Source-only edits must execute it, not merely a skipped unit gate.
+      matches(/^scripts\/ops\/(?:(?:test_)?horse[-_][^/]+|(?:test_)?omaha_reference)\.py$/) ||
       nonRuntimeCandidatePaths(paths) ||
       matches(qualificationProjections) ||
       matches(openingBlindFixture) ||
