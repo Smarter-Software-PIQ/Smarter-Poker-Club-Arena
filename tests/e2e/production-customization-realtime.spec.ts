@@ -473,13 +473,15 @@ async function signIn(
   );
   expect(await signedInUser.jsonValue()).toBe(account.id);
   await signedInUser.dispose();
-  await enrollCustomizationBrowser(page, account, approvingPage);
 
   await page.evaluate(() => localStorage.setItem('club_arena_welcome_accepted', 'true'));
   await page.goto(protectedURL, {
     waitUntil: 'domcontentloaded',
     timeout: 60_000,
   });
+  // Sign-in may finish on the shared site's landing route. Enrollment belongs
+  // to the Club Arena boot, so observe it only after entering this layout.
+  await enrollCustomizationBrowser(page, account, approvingPage);
   await ensureAcceptedTerms(page);
   await ensurePlayableProfile(page);
   await expect(page.getByRole('button', { name: 'Open Menu' }).first()).toBeVisible({
