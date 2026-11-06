@@ -78,6 +78,11 @@ INSERT INTO public.ca_settle_sources(source, note)
 VALUES ('fn_ca_bounty_only_pko_final_two',
         'Bounty only PKO closed at two players: the second player is paid his own head (owner rule 2026-11-05).');
 
+INSERT INTO public.ca_money_rpc_registry (proname, status, notes) VALUES
+ ('fn_ca_bounty_only_pko_final_two', 'approved',
+  'Engine only: closes a bounty only PKO at two players; pays the second player his own head once through fn_settle_tournament_obligation (bounty_residual) and records second place; one receipt per event.')
+ON CONFLICT (proname) DO NOTHING;
+
 CREATE FUNCTION public.fn_ca_bounty_only_pko_final_two(p_tournament_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
