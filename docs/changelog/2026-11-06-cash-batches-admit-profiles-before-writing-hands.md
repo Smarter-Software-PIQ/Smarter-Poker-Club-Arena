@@ -5,7 +5,7 @@ profile B from its first hand and requested A, while the tournament Diamond writ
 retained A and requested B. Ordered player-stats advisory keys did not prevent this:
 the wallet writer does not participate in those keys.
 
-Migration `20261106141636` changes the original batch function. After its existing
+Migration `20261106141636` changes the original batch and existing retry functions. After its existing
 ordered advisory admission and before processing any item, it attempts each profile
 row without waiting. A busy player defers the whole original item through the
 existing caller cursor contract; unrelated items proceed. Under the original hand
@@ -15,8 +15,13 @@ the existing stats-only behavior. Amounts, receipts, ownership and existing budg
 are preserved. This is not a new retry service or a payout repair.
 
 Installation asserts exact current function/dependency/immutability-trigger identity,
-owner, permissions and configuration; it replaces one function in one bounded
+owner, permissions and configuration; it replaces two functions in one bounded
 transaction. Its final definition is checked by the maintained installer live proof.
+
+The connected retry entry point reproduced the same cycle with an aborted wallet
+transaction despite returning two successful accounting items. It now admits ordered
+player keys and profiles without waiting, preserving the due window, item limit,
+original work rows and bounded deferral contract.
 
 ## Qualification
 
@@ -32,9 +37,12 @@ concurrent source expansion, missing profiles and rejected installer drift.
 Accrual readers and wallet storage are controlled: this is profile-lock admission
 proof, not full tournament settlement or production-ledger qualification.
 
-Local candidate concurrency cases and expanded-source/installer controls pass.
-The old-image deadlock was observed in PostgreSQL logs; the complete local
-before/after run was interrupted by the Mac PostgreSQL WAL-open EINTR panic.
-The required Linux native before/after verdict remains mandatory before merge.
-No production financial probe was performed. Merge, installation and affected
-natural production behavior remain separate evidence.
+The complete native before/after runner passes fourteen outcome groups, including
+both actual deadlock counterexamples, both corrected paths, preserved original
+credits/counters, five installer refusal controls, expanded sources and the retry
+window's item limit/untouched work. Initial Mac PostgreSQL WAL-open EINTR failures
+and a report-path serialization failure were retained; neither was counted as a
+passing run. The final complete run succeeds and removes its stopped cluster.
+Five existing actual settler deferral/cursor tests also pass. Required hosted checks
+remain mandatory before merge. No production financial probe was performed.
+Merge, installation and affected natural production behavior remain separate evidence.
