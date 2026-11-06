@@ -79,4 +79,9 @@ AS $function$
   order by p.bb100 desc;
 $function$;
 
+-- Access unchanged from production (read 2026-11-06: anon cannot execute,
+-- authenticated and service_role can), now stated in the migration itself.
+REVOKE ALL ON FUNCTION public.fn_league_pooled(date, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_league_pooled(date, integer) TO authenticated, service_role;
+
 COMMIT;
