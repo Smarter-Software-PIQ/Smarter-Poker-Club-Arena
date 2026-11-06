@@ -5029,10 +5029,10 @@
   }
 }
 
-/* A 320px phone needs native artwork scale without additional enlargement. Apply it
+/* Portrait phones need native artwork scale for the complete silhouettes. Apply it
    to the reference Hero too: opponent normalization matches that reference
    and otherwise cancels an opponent-only cap. Keep per-character gains. */
-@media (max-width: 340px) and (orientation: portrait) {
+@media (max-width: 768px) and (orientation: portrait) {
   .table-page .seat-wrapper {
     --sp-bust-scale: 1;
   }
