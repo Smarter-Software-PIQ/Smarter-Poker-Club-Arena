@@ -25,6 +25,7 @@ function actualBootstrap(leader: boolean, stop: () => Promise<void>) {
     },
     horseAdaptiveJournalWorker: worker,
     trackLeaderBootMutation: vi.fn(),
+    reportHorsePolicySourcesAtBoot: vi.fn(),
     leaderLifecycleIsCurrent: () => true,
     sweepIncompleteHorses: async () => undefined,
     drainLeaderBootMutations: async () => undefined,

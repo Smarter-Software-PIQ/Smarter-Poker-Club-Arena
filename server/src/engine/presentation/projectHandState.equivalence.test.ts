@@ -404,7 +404,15 @@ describe('the shared projection is the engine projection it replaced', () => {
         expect(JSON.stringify(legacyLiveShape)).toBe(JSON.stringify(legacyLive(e)));
         for (let viewer = 1; viewer <= n + 1; viewer++) {
           const uid = `u${viewer}`;
-          const { hand_blinds: _resyncStakes, ...legacyResyncShape } = e.getTableState(uid);
+          // Occupancy status lists are additive resync fields, verified by
+          // OccupiedSeatsStayVisible.law.test.ts; keep every legacy hand field exact.
+          const {
+            hand_blinds: _resyncStakes,
+            waiting_for_bb_user_ids: _waiting,
+            post_bb_deferred_user_ids: _deferred,
+            posting_bb_user_ids: _posting,
+            ...legacyResyncShape
+          } = e.getTableState(uid);
           expect(JSON.stringify(legacyResyncShape)).toBe(JSON.stringify(legacyResync(e, uid)));
         }
         compared++;
@@ -457,7 +465,15 @@ describe('the shared projection is the engine projection it replaced', () => {
 
     const { hand_blinds: _liveStakes, ...legacyLiveShape } = live;
     expect(JSON.stringify(legacyLiveShape)).toBe(JSON.stringify(legacyLive(e)));
-    const { hand_blinds: _resyncStakes, ...legacyResyncShape } = resync;
+    // Occupancy status lists are additive resync fields, verified by
+    // OccupiedSeatsStayVisible.law.test.ts; keep every legacy hand field exact.
+    const {
+      hand_blinds: _resyncStakes,
+      waiting_for_bb_user_ids: _waiting,
+      post_bb_deferred_user_ids: _deferred,
+      posting_bb_user_ids: _posting,
+      ...legacyResyncShape
+    } = resync;
     expect(JSON.stringify(legacyResyncShape)).toBe(JSON.stringify(legacyResync(e, 'u1')));
   });
 });

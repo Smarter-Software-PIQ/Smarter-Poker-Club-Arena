@@ -1,0 +1,2487 @@
+{
+  "cases": {
+    ".github/workflows/ci.yml": {
+      "phase4": true,
+      "server": true
+    },
+    ".prettierignore": {
+      "phase4": false,
+      "server": false
+    },
+    "docs/changelog/2026-10-13-standalone-selector-callback-bound.md": {
+      "phase4": false,
+      "server": false
+    },
+    "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
+      "phase4": false,
+      "server": false
+    },
+    "docs/changelog/union-original-atomic-seal-2026-09-18.md": {
+      "phase4": false,
+      "server": false
+    },
+    "docs/changelog/union-original-weekly-basis-2026-09-18.md": {
+      "phase4": false,
+      "server": false
+    },
+    "docs/laws.d/weekly-initial-selector-reads-cutoff-once.md": {
+      "phase4": false,
+      "server": false
+    },
+    "docs/laws.d/weekly-standalone-selector-callbacks.md": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/ci/build_pg17_cash_pgcron.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/classify-ci-changes.mjs": {
+      "phase4": true,
+      "server": true
+    },
+    "scripts/ci/fixtures/commission-club-history-preimages.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/ci/fixtures/satellite-qualifiers/current-committed-terms-20260917.json": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/fixtures/satellite-qualifiers/current-entry-close-functions-20260917.json": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/fixtures/satellite-qualifiers/current-entry-close-table-20260917.json": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/probes/production-alert-core/notification/manifest.json": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/qualification-input-projections.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/qualify-commission-club-legacy.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/ci/satellite_qualifier_fixture.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/schema-manifest.d/cash-original17-source-correction.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/ci/schema-manifest.d/union-weekly-original-basis.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/ci/test-cash-failure-pgcron.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/test-commission-club-history-postgres.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/ci/test-mtt-unlimited.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/test-production-alert-core-postgres.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/test_cash_native_pgcron.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/ci/test_production_alert_core_postgres.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/probe-cash-original17-pg17.sh": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/qualify-earlybird-fee-custody.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/qualify-final-atomic-receipt.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/qualify-installed-funding-guard-declaration.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/qualify-legacy-fee-finality.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/qualify-sep8-spin-custody.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/qualify-spin-mixed-cutover.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/test-full-weekly-accounting-activation.sh": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/test-union-pnl-inventory.sh": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/test-union-weekly-basis.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/dev/test-weekly-union-continuation.sh": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/operational-alerts/cash-pot-failed-run-intake.md": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/operational-alerts/cash-pot-failed-run-intake.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/cash-original17/README.md": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/actual-cardfree-literal-pins.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/candidate-fixed-sources.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/candidate-proof.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/final-expected-function-metadata.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/fixtures/actual-carry-connected-preimages.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/fixtures/actual-cash-receipt-shape.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/fixtures/actual-current-cash-setter-authority.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/fixtures/qualified-whole-carry-postimage.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/native-body-machinery.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/native-cash-concurrency.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/native-installer-owner.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/native-installer-refusals.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/parent-qualified-function-metadata.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/prepare-private-input.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/probe-native.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/probe-public-safe.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-original17/run-private-step.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/cash-pot-check-connected.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/cash-pot-check-evidence-concurrency.spec": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/cash-pot-check-evidence.manifest.json": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/cash-pot-check-evidence.md": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/cash-pot-check-evidence.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/cash-pot-failed-run-intake.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/ci-accounting-inputs.json": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/ci-admission-inputs.json": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/fixtures/cash-native-pgcron/pg_cron-heap-tables.patch": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/fixtures/cash-pot-check-evidence/original-40538.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/fixtures/cash-pot-check-evidence/preimage.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/fixtures/cash-pot-failed-run-intake/reader-source.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/fixtures/cash-pot-failed-run-intake/writer.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/original-flow-eligibility/README.md": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/actual-helpers.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/after-flow.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/after-matcher.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/before-flow.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/before-matcher.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/component-native.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/current-source40.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/installer-native.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/maintenance-type-source.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/original-flow-eligibility/run-native.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/retained18-correction/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-current-club-owner.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-current-felt-authorities.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-current-movement-check.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-current-recorded-format-authorities.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-current-seat-creation-authority.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-current-source-acls.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-diamond-variant.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-f06-share-lane.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-installer-authority.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-jackpot-financial-shape.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-lightning-marker-shape.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-lightning-seats.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-native-money-creation-wiring.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-public-schema-additions.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-resume-mark-key.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-retired-qualification-shape.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-seat-rebase-shape.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/actual-unexecuted-inventory-shape.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/after-original18.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/before-spent-original18.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/correction-authority-draft.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/current-actual-overlay.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/current-source-pin-matcher.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/fixtures/current-authorities.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/fixtures/foundation.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/installed-resume-preimage.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-concurrency.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-current-guards.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-durable-original18.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-installed-parent-history.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-late-failure.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-negative-authority.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-null-source-after.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-null-source-before.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-original-baseline.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-original18-replay.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-postcommit-interruption.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-security-immutable.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/native-source-matcher-before-null-fix.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/original-pins.json": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/prepare-original-native.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/probe-native-bootstrap.py": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/qualified-none-parent.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/qualified-none-source-native.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/retained18-correction/resume-correction-draft.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "scripts/qualification/weekly-cohort-cutoff/README.md": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/after-helper.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/authorities.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/before-helper.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/caller-source.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/cross-impact.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/earning-ctes.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/history-driver.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/installer-driver.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/run-native.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/semantic-bootstrap.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-cohort-cutoff/semantic-driver.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-first-week-aggregate/after-scope.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-first-week-aggregate/calendar-support.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-first-week-aggregate/selector-fixture.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-initial-selector/README.md": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-initial-selector/after-global-selector.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-initial-selector/after-scope.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-initial-selector/authorities.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-initial-selector/before-global-selector.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-initial-selector/before-scope.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-initial-selector/calendar-support.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-initial-selector/run-native.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-initial-selector/selector-fixture.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/README.md": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/after-scope-candidate.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/after-second-selector.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/authorities.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/before-scope.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/before-second-selector.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/calendar-proof-reuse.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/calendar-support.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/caller-source.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/cross-impact.json": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/earning-ID-instrumentation-ctes.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/earning-ctes.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/installer-driver.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/run-native.py": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/selector-fixture.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "scripts/qualification/weekly-standalone-selector/semantic-driver.py": {
+      "phase4": false,
+      "server": false
+    },
+    "server/src/lib/uuidShape.ts": {
+      "phase4": false,
+      "server": true
+    },
+    "server/src/tournament/completionSettlementReceipt.ts": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/captured-ledger-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/captured-ledger-catalog.query.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/guard-function-sources.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/guard-relation-sources.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/owner-README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/owner-SOURCE-CUSTODY.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/owner-fixture.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/owner-predecessor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/owner-private-intent.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/owner-successor-definition.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/correction-writer-v1/source-provenance.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/admin-writer-predecessor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/admin-writer-successor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/captured-credit-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/captured-credit-catalog.query.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/captured-credit-delegates.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/captured-credit-delegates.query.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/captured-lock-caller-definitions.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/captured-payment-closure.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/captured-payment-closure.query.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/contract-v1.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/document-authority.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/document-delivery-successor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/document-postconditions.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/guard-function-sources.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/guard-incoming-fk-sources.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/guard-installed-function-sources.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/guard-lock-successor-sources.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/guard-payment-relation-sources.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/guard-relation-sources.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/lock-order-predecessors.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/lock-order-source-provenance.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/lock-order-successor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/payment-closure-guards.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/postcondition-guards.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/preimage-guards.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/private-contract.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/reader-postimages.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/reader-preimages.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/reader-successor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/server-functions.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/source-assembly.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/credit-reduction-v1/source-provenance.json": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/weekly-v3/components/20260914150848_union_pnl_evidence_is_distinct_from_posted_chip_payments.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/accounting/weekly-v3/components/20260914153000_uncertified_union_pnl_blocks_close_and_squareup.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/components/cash-failed-run-intake.rollback.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/components/cash-failed-run-intake.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/components/cash-pot-check-evidence.rollback.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/components/cash-pot-check-evidence.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260914132918_union_pnl_requires_full_funding_and_stable_failure_receipts.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260914132929_cash_rakeback_reads_observed_earning_evidence.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260917060000_mtt_persisted_format_preparation.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260917070000_mtt_dual_satellite_restart_preparation.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260917113717_the_finish_lane_is_exclusive_among_finishes.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260917230515_union_eco_terms_are_observed_at_their_original_write.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260917231832_union_accounting_schedule_adoption.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260917232243_union_cash_pnl_reads_original_participant_receipts.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260917233148_union_pnl_inventory_preserves_original_boundaries.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260917234315_union_weekly_pnl_uses_original_qualified_basis.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918002654_horse_tournament_entry_retains_original_funding.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918004443_cash_pnl_validates_the_finalized_original_atomic_receipt.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918014359_declare_the_installed_original_club_funding_guard.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918085836_original_mixed_cutover_spin_fee_proof.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918122532_five_original_spin_standings_retain_their_recorded_cash_outc.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918212229_original_spin_reader_preserves_exact_indexed_history_coverag.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918213339_review_bounded_legacy_fee_custody_settlement_lane_callers.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20260921052548_payee_documents_are_private_to_their_payee_and_rosters_are_n.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261012181905_scoped_club_launch_reset_and_guarded_recovery.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013022132_a_retained_original_hand_corrects_its_exact_refused_source_o.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013034406_a_diamond_jackpot_carries_its_whole_unpaid_allocation.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013035113_a_cash_original_hand_corrects_its_rolled_back_allocator.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013063142_original_refund_evidence_scans_its_application_lineage_once.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013084856_original_flow_proofs_run_only_for_their_eligible_receipts.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013133012_scoped_launch_operator_accepts_authoritative_json_claims.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013163310_weekly_initial_cash_selection_reads_cutoff_once_per_club.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013182759_weekly_first_week_calendar_runs_once_per_club.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013195428_weekly_cohort_cutoff_runs_once_per_earning_club.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261013212336_weekly_standalone_selector_callbacks_run_once_per_earning_cl.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "supabase/migrations/20261020163005_weekly_commission_journals_keep_their_original_club.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/an-original-flow-enters-only-its-eligible-proof.law.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/cashier-weekly-statements.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/cashout-escrow-flow.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/ClubWeeklyAccountingSummary.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/CreditReductionControls.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/FinancialAlertsExport.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/UnionAccountingRunStatus.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/WeeklyAccountingWorkspace.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/agent-cashout-scope.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/agent-dashboard-durable-transfers.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/cashier-cashout-generations.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/cashout-own-event-acknowledgment.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/components/cashout-scope.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/config/roleScopedCashier.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/credit-admin-data.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/credit-admin-panel-scope.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/credit-request-widget-scope.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/accounting-alert-38644/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/accounting-alert-38644/caller-source-evidence.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/accounting-alert-38644/coordinator-retry.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/accounting-alert-38644/installed-period-basis.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/accounting-alert-38644/qualification.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/accounting-alert-38644/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/accounting-alert-38644/source-evidence.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/browser-period-observer/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/browser-period-observer/captured-dependencies.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/browser-period-observer/captured-legacy.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/browser-period-observer/captured-preimages.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/browser-period-observer/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/cash-participant-funding/bootstrap.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/build-candidate.py": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/captured-hand-preimages.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/captured-integration-preimages.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/captured-preimages.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/captured-reader-preimages.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/captured-retention-preimages.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/new-authority.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/reader-legacy-regression.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/reader-regression.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/regression.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/retention-bootstrap.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cash-participant-funding/retention-regression.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/cashier-document-authority/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/cashier-document-authority/captured-cashier-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/cashier-document-authority/captured-legacy-route-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/cashier-document-authority/captured-manual-writers.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/cashier-document-authority/captured-preimages.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/cashier-document-authority/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-document-authority/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-document-authority/captured-dependencies.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-document-authority/captured-preimages.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-document-authority/captured-references.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-document-authority/captured-union-party.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-document-authority/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/accepted-authority-supplement.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/authority-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/captured-store-policy.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/catalog-bootstrap.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/concurrency-regression.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/concurrency-session.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/concurrency-setup.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/deferred-overlay-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/legacy-before-candidate.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/legacy-replay-and-input-assertions.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/lifecycle-seed-after-activation.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/owner-fixture.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/owner-seeded-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/correction-writer-authority/source-provenance.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/accepted-authority-supplement.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/audit-failure-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/authority-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/baseline-ordinal-transform.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/capture-final-state.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/captured-dependencies.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/captured-incoming-relations.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/captured-incoming-relations.query.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/captured-ledger-dependency.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/captured-payment-closure.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/captured-payment-closure.query.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/catalog-bootstrap.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/concurrency-regression.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/concurrency-session.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/concurrency-setup.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/delivery-failure-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/helpers.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/incoming-relations-bootstrap.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/isolation-cases.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/isolation-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/refusal-replay-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/roles-history-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-reduction-authority/seed.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-request-authority/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-request-authority/captured-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-request-authority/captured-name-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-request-authority/captured-preimages.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/credit-request-authority/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/after.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/before.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/credit-originals.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/funding-scope.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/originals.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/paid-originals.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/predecessors.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/setup.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/full-weekly-accounting/schema.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/installed-funding-guard-declaration/captured-contract.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/admission-preimages.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/boundaries.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/captured-moves.jsonb": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/captured.jsonb": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/compact-preimages.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/consumer-preimage.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/load-captured.py": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/retained-cases.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/retained-key-preimage.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/retained-preimages.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/schema-additions.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/late-seat-flow/unused-original-dependencies.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/legacy-fee-finality/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/after.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/before.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/build-candidate.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/capture-authority-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/capture-bootstrap.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/captured-access.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/custody-core.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/custody-resolution.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_accounting_tournament_terminal_fee_receipt.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_ca_capture_tournament_fee_from_recorded_evidence.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_ca_supply_snapshot.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_ca_tournament_terminal_receipt.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_complete_tournament_terminal.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_complete_tournament_terminal_pre_seat_guard.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_satellite_transfer_ledger_is_immutable.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_settle_tournament_rake.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_terminal_tournament_escrow_is_immutable.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_terminal_tournament_evidence_is_immutable.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/fn_tournament_finish_readiness.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/negative.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/original-cohort.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/original-fees.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/pko-binding.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/pko-opening.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/pko-original-canonical.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/pko-original-cohort.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/pko-original-fees.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/pko-original-funding-scope.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/positive-opening.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/positive-restore-terms.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/resolution.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/setup.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/source-binding.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/legacy-fee-finality/verify-native-receipts.mjs": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/access.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/captured-access.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/captured-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/captured-preimages.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/definitions.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/messenger-private-readers-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/messenger-private-weekly-summary-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/payee-document-privacy-preimage.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/payee-document-privacy-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/messenger-private-accounting/schema.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/original-unchanged-stack/cents-preimage.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/original-unchanged-stack/lineage-preimage.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/original-unchanged-stack/schema-additions.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/pnl-evidence/PROTECTED-QUALIFICATION.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/pnl-evidence/captured-pnl-metadata.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/pnl-evidence/hooks-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/pnl-evidence/hooks-seed.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/pnl-evidence/legacy-pnl-core-preimage.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/pnl-evidence/legacy-pnl-wrapper-preimages.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/pnl-evidence/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/pnl-evidence/schema.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/pnl-evidence/source-binding.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/pnl-evidence/verify-wrapper-source-binding.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/push-subscription-ownership/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/push-subscription-ownership/push-subscription-ownership-concurrency.spec": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/push-subscription-ownership/push-subscription-ownership-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/push-subscription-rotation/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/push-subscription-rotation/concurrency.spec": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/push-subscription-rotation/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-history-privacy/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-history-privacy/policy-preimage.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-history-privacy/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-history-privacy/rejected-service-membership.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-write-authority/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-write-authority/captured-stats-batch.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-write-authority/preactivation-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-write-authority/precursor-predecessor-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-write-authority/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-write-authority/stats-batch-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-write-authority/stats-batch-catalog.query.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-write-authority/stats-batch-catalog.raw.txt": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/rakeback-write-authority/transition-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/authority.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/breakfast-bootstrap.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/breakfast-installed-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/build-candidate.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/build-standings-candidate.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/current-case-reader-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/current-case-reader-coverage.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/final-readback.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/g8-original-standings-authority.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/g8-original-standings-seed.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/late-fault.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/legacy-custody-lane-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/legacy-custody-lane-controls.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/original-physical-support.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/original-proof.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/originals.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/physical-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/player-finality.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/predecessor-functions.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/proof.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/qualify-clock-comparison.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/qualify-current-case-reader.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/qualify-legacy-custody-lane.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/resolution.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/restore-synthetic-terms.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/setup.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/source-binding.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/standings-inputs/binding.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/standings-inputs/breakfast-cash-predecessor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/standings-inputs/breakfast-migration.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/standings-inputs/financial.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/standings-inputs/later-hand-inventory.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/standings-inputs/original-cases.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/standings-inputs/physical.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/standings-negative.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/terminal-negative.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/tournament-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/union-journal-after.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/sep8-spin-custody/union-journal-guard.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/spin-mixed-cutover/after.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/spin-mixed-cutover/build-candidate.py": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/spin-mixed-cutover/captured-preimages.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/spin-mixed-cutover/captured-scope-authority.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/spin-mixed-cutover/concurrency.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/spin-mixed-cutover/proof-authority.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/spin-mixed-cutover/setup.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/spin-mixed-cutover/source-binding.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/tournament-accounting-provenance/build-candidate.py": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/tournament-accounting-provenance/build-horse-candidate.py": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/tournament-accounting-provenance/captured-dependencies.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/tournament-accounting-provenance/captured-horse-contracts.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/tournament-accounting-provenance/captured-horse-dependencies.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/tournament-accounting-provenance/captured-horse-preimages.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/tournament-accounting-provenance/captured-preimages.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/tournament-accounting-provenance/new-authority.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/tournament-fee-lifecycle/current-settlement-catalog.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/tournament-fee-lifecycle/current-settlement-catalog.query.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/tournament-fee-lifecycle/current-settlement-predecessor.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/tournament-fee-lifecycle/full-lifecycle-deferred.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/tournament-fee-lifecycle/full-lifecycle-earning.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/tournament-fee-lifecycle/full-lifecycle-normal.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/tournament-fee-lifecycle/full-lifecycle-satellite.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/tournament-fee-lifecycle/full-lifecycle-seed.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-pnl-blocked-resolution/schema.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-pnl-inventory/README.md": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-pnl-inventory/bootstrap.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-pnl-inventory/concurrency.py": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-pnl-inventory/regression.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-pnl-inventory/seed.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/README.md": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/alerts-and-ledger.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/captured-authority.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/direct-intake-authority.raw.txt": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/direct-intake-current-function-guards.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/direct-intake-installation-receipt.raw.txt": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/direct-intake-installed.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/direct-intake-prerequisites.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/direct-intake-provenance.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/direct-intake-receipt-row-successor-provenance.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/direct-intake-receipt-row-successor.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/finish-lane-installed-authority.raw.txt": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/finish-lane-installed-readback.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/finish-lane-prerequisites.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/finish-lane-seat-move-authority.raw.txt": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/finish-lane-successor-provenance.json": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/finish-lane-table-share-authority.raw.txt": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/money-registry-ddl-guard.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-provider-preimages-20260917/owner-notification-coexistence.sql": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/fixtures/union-weekly-basis/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/accepted-document-relations.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/bootstrap.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-cascade-preimage.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-cash-dependencies.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-close-dependencies.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-coordinator-preimages.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-document-dependencies.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-final-atomic-preimages.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-installed-preconditions.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-payer-preimages.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-rake-dependencies.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/captured-refund-dependencies.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/cascade-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/concurrency.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/final-atomic-after.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/final-atomic-before.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/installed-precondition.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/negative-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/payment-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/raked-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/source-binding.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/union-weekly-basis/tournament-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-fairness/captured-weekly-jobs.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-fairness/pg-cron-prerequisites.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/captured-cron-prerequisites.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/captured-cron-transition-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/captured-current-cron-and-ledger-observation.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/cron-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/due-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/full-activation-cron-regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/load.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/managed-cron-role-regression.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/post-lock-regression.py": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-scheduler-timing/post-lock-setup.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-union-continuation/README.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-union-continuation/RUNNER.md": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-union-continuation/load.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-union-continuation/regression.sql": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/fixtures/weekly-union-continuation/source-review.json": {
+      "phase4": false,
+      "server": true
+    },
+    "tests/helpers/accountingObservation.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/helpers/cashoutV2Receipt.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/helpers/clubWeeklyStatement.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/helpers/creditReductionReceipt.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/super-agent-credit-routing.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/AccountingObservationService.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/CashoutOperation.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/CashoutRequestModal.test.tsx": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/CashoutService.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/ClubWeeklyAccountingReader.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/CreditReductionContract.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/CreditReductionOperation.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/CreditRequestAuthority.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/CreditRequestLegacyCaller.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/CreditRequestService.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/FinancialAlertServiceRead.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/FinancialCronService.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/FinancialExportService.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/ServiceBootstrap.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/SettlementCronService.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/SettlementService.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/anApprovalCanBeRetried.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/discardedErrorReadRatchet.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/leaveClubReleasesEscrow.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/unit/useUnionStore.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/weekly-initial-selector-reads-cutoff-once.law.test.ts": {
+      "phase4": false,
+      "server": false
+    },
+    "tests/weekly-standalone-selector-callbacks.law.test.ts": {
+      "phase4": false,
+      "server": false
+    }
+  },
+  "consumedFlags": ["phase4", "server"],
+  "immutableDiffSHA256": "6ddbe1bdc85da21ce8d5eb87ff78f631a3df3b1320c5e232b0341f0093a63b18",
+  "schemaVersion": 1,
+  "source": "scripts/ci/classify-ci-changes.mjs",
+  "unknown": {
+    "fixture": true,
+    "phase4": true,
+    "server": true,
+    "src": true,
+    "tests": true
+  }
+}

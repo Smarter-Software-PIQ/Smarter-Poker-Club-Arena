@@ -449,7 +449,7 @@ export default function TournamentDetails({
     setLateRegCountdown('');
     if (!t || !isLateStatus(tournament?.status)) return;
     const window = tournamentEntryWindow(t);
-    if (window.mode === 'closed') return;
+    if (window.mode === 'closed' && t.add_on_available !== true) return;
     const lateRegLevels = window.mode === 'levels' ? window.cap : 0;
     const lateRegMins = window.mode === 'minutes' ? window.minutes : 0;
 
@@ -461,6 +461,10 @@ export default function TournamentDetails({
     const tick = () => {
       // Entry requires both configured bounds, just like the database and lobby.
       if (!tournamentEntryWindowOpen(t, serverNow())) return stop();
+      if (t.add_on_available === true) {
+        setLateRegCountdown('open through add-on');
+        return;
+      }
       if (!lateRegLevels) {
         // Minutes window, measured from started_at — the same span the server
         // closes on.

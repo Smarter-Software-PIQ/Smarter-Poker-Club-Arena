@@ -1,0 +1,112 @@
+# DatabaseRepliesLost / DatabaseWriteRetriesExhausted (2026-11-05).
+# Proves: background loss stays quiet, a burst fires within a minute, a
+# recovered retry is only a warning, an exhausted retry is critical, a choppy
+# link is one episode, and both resolve after ten quiet minutes.
+rule_files:
+  - ../../infra/monitoring/alert-rules.yml
+evaluation_interval: 15s
+tests:
+  - name: background loss of one or two replies a minute never fires
+    interval: 15s
+    input_series:
+      - series: 'poker_db_lost_replies_total{job="engine_game_server",kind="deadline"}'
+        values: '0+0.25x80'
+      - series: 'poker_db_lost_replies_total{job="engine_game_server",kind="network"}'
+        values: '0+0x80'
+      - series: 'poker_db_lost_replies_total{job="engine_game_server",kind="gateway"}'
+        values: '0+0x80'
+      - series: 'poker_db_rpc_retries_total{job="engine_game_server",rpc="fn_f06_retain_hand_continuation",outcome="exhausted"}'
+        values: '0+0x80'
+    alert_rule_test:
+      - alertname: DatabaseRepliesLost
+        eval_time: 10m
+        exp_alerts: []
+      - alertname: DatabaseWriteRetriesExhausted
+        eval_time: 10m
+        exp_alerts: []
+
+  - name: a burst of lost replies whose retries recover is a warning, then resolves
+    interval: 15s
+    # 2 lost every 15 s from 2m to 4m (8 a minute), then quiet.
+    input_series:
+      - series: 'poker_db_lost_replies_total{job="engine_game_server",kind="deadline"}'
+        values: '0x7 2+2x7 16x60'
+      - series: 'poker_db_lost_replies_total{job="engine_game_server",kind="network"}'
+        values: '0x75'
+      - series: 'poker_db_rpc_retries_total{job="engine_game_server",rpc="fn_f06_retain_hand_continuation",outcome="exhausted"}'
+        values: '0x75'
+    alert_rule_test:
+      - alertname: DatabaseRepliesLost
+        eval_time: 1m45s
+        exp_alerts: []
+      - alertname: DatabaseRepliesLost
+        eval_time: 3m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: database
+            exp_annotations:
+              summary: 'The game server is losing database replies (8 in one minute)'
+              description: |
+                Calls from the game server to the database ended with no answer
+                (timed out, connection dropped, or the gateway answered instead of
+                the database). Writes that retry themselves have so far recovered.
+                If this keeps up, tables can stop dealing. Read
+                poker_db_lost_replies_total by kind to see which.
+              runbook: 'docs/runbooks/database-replies-lost.md'
+      - alertname: DatabaseWriteRetriesExhausted
+        eval_time: 3m
+        exp_alerts: []
+      # Quiet from about 4m: held as one episode at 12m (showing the last
+      # value it saw), resolved by 16m.
+      - alertname: DatabaseRepliesLost
+        eval_time: 12m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: database
+            exp_annotations:
+              summary: 'The game server is losing database replies (6 in one minute)'
+              description: |
+                Calls from the game server to the database ended with no answer
+                (timed out, connection dropped, or the gateway answered instead of
+                the database). Writes that retry themselves have so far recovered.
+                If this keeps up, tables can stop dealing. Read
+                poker_db_lost_replies_total by kind to see which.
+              runbook: 'docs/runbooks/database-replies-lost.md'
+      - alertname: DatabaseRepliesLost
+        eval_time: 16m
+        exp_alerts: []
+
+  - name: one exhausted retry is critical at once and resolves after ten quiet minutes
+    interval: 15s
+    input_series:
+      - series: 'poker_db_lost_replies_total{job="engine_game_server",kind="deadline"}'
+        values: '0x7 4x60'
+      - series: 'poker_db_rpc_retries_total{job="engine_game_server",rpc="fn_f06_retain_hand_continuation",outcome="exhausted"}'
+        values: '0x7 1x60'
+    alert_rule_test:
+      - alertname: DatabaseWriteRetriesExhausted
+        eval_time: 1m45s
+        exp_alerts: []
+      - alertname: DatabaseWriteRetriesExhausted
+        eval_time: 2m15s
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: database
+              rpc: fn_f06_retain_hand_continuation
+            exp_annotations:
+              summary: 'A table could not save its hand: every retry of fn_f06_retain_hand_continuation lost its database reply'
+              description: |
+                The game server tried a hand write four times and never got an
+                answer from the database. The table that made it stops dealing on
+                that hand. More tables usually follow while the link is bad.
+              runbook: 'docs/runbooks/database-replies-lost.md'
+      # Four lost replies alone stay under the warning threshold.
+      - alertname: DatabaseRepliesLost
+        eval_time: 2m15s
+        exp_alerts: []
+      - alertname: DatabaseWriteRetriesExhausted
+        eval_time: 14m
+        exp_alerts: []

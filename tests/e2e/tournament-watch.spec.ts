@@ -144,21 +144,10 @@ test.describe('Watching a running tournament', () => {
     await expect(body).not.toContainText(/Something went wrong|This page ran into an issue/i);
   });
 
-  test('a tournament felt shows the lobby button in the right corner', async ({ page }) => {
-    /* Dan 2026-08-25: "tournaments are still missing the stats bar in the right
-       corner." It was missing for two independent reasons: MiniStatsCard bailed
-       out to a bare glyph for tournaments, and TournamentHUD was rendered
-       outside the fixed HUD layer entirely, with nothing to anchor it.
-
-       UPDATED 2026-08-28. Dan has since ruled on what that corner holds: "ALL
-       TOURNAMENTS NEED THE STATS ICON IN THE UPPER RIGHT HAND CORNER. IT
-       SHOULDN'T SHOW THE STATS, BUT OPEN TO THE TOURNAMENT LOBBY PAGE AS A IN
-       GAME 3/4 POP UP", and "STATS SHOULD LIVE INSIDE THE HERO AVATAR."
-
-       So the four-figure bar is gone and the assertion below inverts: the
-       corner must carry the LOBBY BUTTON, and it must open the lobby. What has
-       not changed, and is the thing this test has always really been for, is
-       that the corner is not empty on a tournament felt. */
+  test('a tournament felt opens its lobby from the top action bar', async ({ page }) => {
+    /* Dan 2026-11-01 moved the lobby door from the felt's HUD corner to the
+       right corner of the top action bar. Keep proving the real door, its
+       placement and the usable full-screen lobby it opens. */
     const ok = await openRunningTournament(page);
     test.skip(!ok, 'no running tournament on production right now');
 
@@ -188,15 +177,15 @@ test.describe('Watching a running tournament', () => {
       await page.waitForURL(/\/table\/[0-9a-f-]{8,}/i, { timeout: 25_000 });
     }
 
-    const corner = page.locator('.table-hud__corner--ur');
-    await expect(corner, 'the upper-right HUD corner must exist on a tournament felt').toBeVisible({
+    const actionBar = page.locator('.multi-table-page__tab-bar-wrapper');
+    await expect(actionBar, 'the top action bar must exist on a tournament felt').toBeVisible({
       timeout: 25_000,
     });
 
     /* ONE button, and it is the lobby door. Seated or watching, the corner
        carries the same control now — the seated/observer split went with the
        figures. */
-    const lobbyBtn = corner.getByRole('button', { name: /tournament lobby/i });
+    const lobbyBtn = actionBar.getByRole('button', { name: 'Open Tournament Lobby', exact: true });
     await expect(
       lobbyBtn,
       'every tournament felt must carry the tournament lobby button'
@@ -205,7 +194,19 @@ test.describe('Watching a running tournament', () => {
     /* The figures must NOT be here. This is the assertion that would catch the
        2026-08-25 bar being reinstated in the corner Dan has now said is a
        door. */
-    await expect(corner.locator('.mini-stats-card--tournament-stats')).toHaveCount(0);
+    const barBox = await actionBar.boundingBox();
+    const buttonBox = await lobbyBtn.boundingBox();
+    expect(barBox).not.toBeNull();
+    expect(buttonBox).not.toBeNull();
+    expect(
+      buttonBox!.x + buttonBox!.width / 2,
+      'the lobby door stays on the right'
+    ).toBeGreaterThan(barBox!.x + barBox!.width / 2);
+    expect(buttonBox!.y, 'the lobby door stays inside the action bar').toBeGreaterThanOrEqual(
+      barBox!.y
+    );
+    expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(barBox!.y + barBox!.height);
+    await expect(actionBar.locator('.mini-stats-card--tournament-stats')).toHaveCount(0);
     await expect(lobbyBtn).not.toContainText(/Stack|VPIP/i);
 
     /* And it opens the LOBBY as a full-screen popup — not TournamentInfoPanel, which

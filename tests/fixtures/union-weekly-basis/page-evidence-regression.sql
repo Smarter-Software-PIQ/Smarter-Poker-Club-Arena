@@ -161,11 +161,14 @@ END $f$;
 
 BEGIN;
 SET LOCAL session_replication_role=replica;
-INSERT INTO clubs(id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
- (fixture.u(9101),'Property standalone',fixture.u(901),0,'chips',false,NULL),
- (fixture.u(9100),'Property union house',fixture.u(900),0,'chips',true,fixture.u(9100)),
- (fixture.u(9102),'Property union member',fixture.u(901),0,'chips',false,fixture.u(9100)),
- (fixture.u(9103),'Property second member',fixture.u(901),0,'chips',false,fixture.u(9100));
+-- Explicit fixture IDs cannot collide with the captured random 10000..99999 default.
+INSERT INTO clubs(id,club_id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
+ (fixture.u(9101),1009101,'Property standalone',fixture.u(901),0,'chips',false,NULL),
+ (fixture.u(9100),1009100,'Property union house',fixture.u(900),0,'chips',true,fixture.u(9100)),
+ (fixture.u(9102),1009102,'Property union member',fixture.u(901),0,'chips',false,fixture.u(9100)),
+ (fixture.u(9103),1009103,'Property second member',fixture.u(901),0,'chips',false,fixture.u(9100));
+SELECT fixture.assert((SELECT count(*)=4 AND bool_and(club_id=1000000+right(id::text,4)::int) FROM clubs WHERE id IN(fixture.u(9100),fixture.u(9101),fixture.u(9102),fixture.u(9103))),
+ 'Page evidence fixture clubs use stable distinct short IDs outside the random range');
 DO $$ DECLARE seed double precision; club record; h timestamptz; cp record; since record; o record; checked int:=0; BEGIN
  FOREACH seed IN ARRAY ARRAY[0.11,0.42,0.73] LOOP
   PERFORM pg_temp.seed_week(seed,'2026-09-14','1','2026-09-14 07:00Z');
@@ -278,11 +281,14 @@ SELECT fixture.assert((SELECT count(*)>=1 FROM checkpoints_before WHERE club_id=
 -- after the week moves on under a checkpoint.
 BEGIN;
 SET LOCAL session_replication_role=replica;
-INSERT INTO clubs(id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
- (fixture.u(9101),'Property standalone',fixture.u(901),0,'chips',false,NULL),
- (fixture.u(9100),'Property union house',fixture.u(900),0,'chips',true,fixture.u(9100)),
- (fixture.u(9102),'Property union member',fixture.u(901),0,'chips',false,fixture.u(9100)),
- (fixture.u(9103),'Property second member',fixture.u(901),0,'chips',false,fixture.u(9100));
+-- Explicit fixture IDs cannot collide with the captured random 10000..99999 default.
+INSERT INTO clubs(id,club_id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
+ (fixture.u(9101),1009101,'Property standalone',fixture.u(901),0,'chips',false,NULL),
+ (fixture.u(9100),1009100,'Property union house',fixture.u(900),0,'chips',true,fixture.u(9100)),
+ (fixture.u(9102),1009102,'Property union member',fixture.u(901),0,'chips',false,fixture.u(9100)),
+ (fixture.u(9103),1009103,'Property second member',fixture.u(901),0,'chips',false,fixture.u(9100));
+SELECT fixture.assert((SELECT count(*)=4 AND bool_and(club_id=1000000+right(id::text,4)::int) FROM clubs WHERE id IN(fixture.u(9100),fixture.u(9101),fixture.u(9102),fixture.u(9103))),
+ 'Page evidence fixture clubs use stable distinct short IDs outside the random range');
 SELECT pg_temp.seed_week(0.27,'2026-09-14','1','2026-09-14 07:00Z');
 SET LOCAL session_replication_role=origin;
 SELECT pg_temp.compare_calculator('Seeded book',ARRAY['2026-09-14']::date[]);
@@ -315,8 +321,9 @@ ROLLBACK;
 BEGIN;
 SET LOCAL track_functions='pl';
 SET LOCAL session_replication_role=replica;
-INSERT INTO clubs(id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
- (fixture.u(9101),'Property standalone',fixture.u(901),0,'chips',false,NULL);
+-- Explicit fixture IDs cannot collide with the captured random 10000..99999 default.
+INSERT INTO clubs(id,club_id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
+ (fixture.u(9101),1009101,'Property standalone',fixture.u(901),0,'chips',false,NULL);
 INSERT INTO rake_records(id,hand_id,table_id,club_id,rake_amount,created_at,is_tournament,metadata,source,rake_method)
  SELECT fixture.u(9500+g),fixture.u(9800+g),fixture.u(9200),fixture.u(9101),2,'2026-09-14 08:00Z'::timestamptz+g*interval '1 minute',false,'{}','cash_game','WEIGHTED_CONTRIBUTED'
    FROM generate_series(0,1999) g;

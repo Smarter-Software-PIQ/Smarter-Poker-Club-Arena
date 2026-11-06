@@ -197,10 +197,6 @@
     }
   },
   "files": {
-    ".github/workflows/ci.yml": {
-      "bytes": 278636,
-      "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
-    },
     "scripts/qualification/original-flow-eligibility/README.md": {
       "bytes": 2608,
       "sha256": "210942d1044141362fc2222648f3d16d7af9e25ec87ec85ea350d1aa942376f0"
@@ -242,8 +238,8 @@
       "sha256": "23e1d645751cb09547654de876744af46fda802051033063fca59375ee759311"
     },
     "scripts/qualification/original-flow-eligibility/run-native.py": {
-      "bytes": 2878,
-      "sha256": "cde763f07803f0ae4d971bdd6c526e53ff3e5e2a9469a0a898b8484ae741fe04"
+      "bytes": 2993,
+      "sha256": "e36ef701842ccc32264e43a2be7967aa6a6342d38a04baf248c5cb8182c119c5"
     },
     "supabase/migrations/20261013063142_original_refund_evidence_scans_its_application_lineage_once.sql": {
       "bytes": 21799,
@@ -320,6 +316,18 @@
     "tests/fixtures/union-pnl-blocked-resolution/schema.sql": {
       "bytes": 6057,
       "sha256": "3f5650d78cbb5e171283ce9ddff00afd1f5a697c39be251d6557e93bdda94c91"
+    },
+    "scripts/qualification/ci-accounting-inputs.json": {
+      "bytes": 142840,
+      "sha256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+    },
+    "scripts/ci/qualification-input-projections.py": {
+      "bytes": 9270,
+      "sha256": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86"
+    },
+    "scripts/qualification/ci-admission-inputs.json": {
+      "bytes": 77125,
+      "sha256": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb"
     }
   },
   "spentDssSatelliteNativeIntegration20261013": {
@@ -728,7 +736,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -2585,5 +2593,110 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "bountyOnlyFinalTwoNativeEnforcement20261106": {
+    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the guarantee funding watch step: run the bounty only PKO final two proof (scripts/ci/test-bounty-only-pko-final-two.py) on native PostgreSQL 17. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
+    "changes": [
+      {
+        "section": "files",
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278636,
+          "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
+        },
+        "current": {
+          "bytes": 278905,
+          "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "sweepGatePendingWorkNativeEnforcement20261106": {
+    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the bounty only final two payout watch step: run the sweep gate pending bounty work proof (scripts/ci/test-sweep-gate-pending-bounty-work.py) on native PostgreSQL 17. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
+    "changes": [
+      {
+        "section": "files",
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 279178,
+          "sha256": "60df4d0cb3916b6f67277c8422fbdfe1312db50fbe93ea93e7b1e21e0a5b7b5e"
+        },
+        "current": {
+          "bytes": 279453,
+          "sha256": "28cb2f69661b21a526f69dc296b0b7b8492c069a912a203344c9e9aac73a689e"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "cashQueueFeedbackSourceAudit20261106": {
+    "reason": "Add the isolated cash-queue reader PostgreSQL regression to existing accounting shard 1. All existing commands, assertions, financial matrices and historical verdicts remain unchanged. Current workflow source identity only; not a financial or live recertification.",
+    "previousCiPin": {
+      "bytes": 278905,
+      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+    },
+    "currentCiPin": {
+      "bytes": 279173,
+      "sha256": "6007054a8c3ec47b9551ade869a77e5f81b9186856a550cc423290154c008e59"
+    }
+  },
+  "cashQueueProtectedMainComposition20261106": {
+    "reason": "Retain protected main bounty-only final-two watcher gate alongside the additive cash queue reader gate. Exact combined workflow source identity only; existing commands/assertions, historical audits and qualification verdicts retained.",
+    "branch": {
+      "bytes": 279173,
+      "sha256": "6007054a8c3ec47b9551ade869a77e5f81b9186856a550cc423290154c008e59"
+    },
+    "protectedMain": {
+      "bytes": 279178,
+      "sha256": "60df4d0cb3916b6f67277c8422fbdfe1312db50fbe93ea93e7b1e21e0a5b7b5e"
+    },
+    "combined": {
+      "bytes": 279446,
+      "sha256": "e57062dfd8c573990d106748ce675894e93bfbb71bb3a037c5d3578d53881de6"
+    }
+  },
+  "cashQueueProtectedMainComposition20261106B": {
+    "reason": "Preserve both additive native gates and all historical qualification records; update only current workflow pin for combined source.",
+    "protectedMain": "e31fe563bafdb8a3833ad132a171b5d869dee757",
+    "combinedWorkflow": {
+      "bytes": 279721,
+      "sha256": "afff4108c49f97318e52ae790bdeb348a41d14888dd17e8f267489e3002557ec"
+    }
+  },
+  "qualificationInputProjection20261106": {
+    "scope": "Current execution/admission input identity; historical financial sources, assertions and qualification results unchanged.",
+    "reason": "Replace whole-CI/classifier/shared-test-catalog checksums with exact global/accounting/admission context and registered-input behavior. Existing tests and financial assertions still execute through required gates; unrelated CI jobs, classifier branches and test-catalog additions need no financial source restamp. The directly invoked projection validator is a pinned executable input.",
+    "retiredWholeFilePins": {
+      ".github/workflows/ci.yml": {
+        "bytes": 278905,
+        "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+      }
+    },
+    "execution_performed": false,
+    "financialQualificationRestamped": false
+  },
+  "cashQueueProtectedMainComposition20261106C": {
+    "reason": "Preserve protected relevant-input projections replacing whole-workflow current pins; retain cash queue native gate and all historical audit/qualification verdicts. No financial qualification restamped.",
+    "protectedMain": "84d7ed6723e5e25735d8596654eac7b73116e9b3"
+  },
+  "cashQueueNativeInputComposition20261106": {
+    "reason": "Exact accounting projection includes the cash queue native step; no historical financial inputs, assertions or verdicts changed."
+  },
+  "realtimeReviveRecordedNativeInput20261106": {
+    "reason": "Exact accounting projection includes the realtime revive recorded native step (scripts/ci/test-realtime-revive-is-recorded.py, accounting shard 1); no historical financial inputs, assertions or verdicts changed."
+  },
+  "tournamentLockRegressionEnforcement20261106": {
+    "reason": "Add the existing replay/player-stat and commission-lock native proofs to required accounting shard7, preserving all prior commands, assertions and budgets. Refresh the exact accounting execution projection and its dependent current source bindings only. No financial source, historical result, installation or live certification restamped.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "10fdfc1c72ae5dcacb7c6590b52e54d8784a8dcbd36ce3c1f08b806f141f17eb",
+        "currentSHA256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

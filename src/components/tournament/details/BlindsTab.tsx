@@ -74,6 +74,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { levelClockNow } from '../../../utils/maintenanceLevelClock';
 import type { Tournament } from '../../../types/database.types';
 import { mayTakeSynchronizedBreak } from '../../../../server/src/tournament/breakEligibility';
 import { readCommittedTournamentBlinds } from '../../../utils/committedTournamentBlinds';
@@ -347,7 +348,11 @@ function EventBlindsTab({ tournament, blindLevels }: TournamentTabProps) {
   /** Seconds left in the current level. Null when it cannot be known. */
   const remainingSec: number | null =
     durationKnown && levelAnchorMs !== null
-      ? Math.min(durationSec, Math.max(0, durationSec - Math.floor((nowMs - levelAnchorMs) / 1000)))
+      ? Math.min(
+          durationSec,
+          // A maintenance break stops the level clock (Dan 2026-11-05).
+          Math.max(0, durationSec - Math.floor((levelClockNow(row, nowMs) - levelAnchorMs) / 1000))
+        )
       : null;
 
   const elapsedSec = remainingSec === null ? null : durationSec - remainingSec;

@@ -198,7 +198,7 @@ test.describe('Club lobby', () => {
     if (!ok) return;
     await lobbySettled(page);
 
-    // The dedicated tournament club has a real maintained catalog. ALL only
+    // The active member club exposes its real maintained union catalog. ALL only
     // includes registering/late entries; use the actual MTT category instead
     // of silently skipping when that subset is temporarily empty.
     await openLobbyGameSection(page, 'MTT');
@@ -243,7 +243,7 @@ test.describe('Club lobby', () => {
 
     // R10: a cash GAME opens feeders when a Main fills. It never advertises
     // the game as Full or offers a standalone table queue. The maintained
-    // Diamond catalog exercises this real production path. The standalone
+    // Midway catalog exercises this real production path. The standalone
     // 6/6 table's Join/Leave Waitlist path remains enforced by the actual
     // GameLobbyPanel browser fixture in both browser engines.
     const row = page.locator('.club-home__games .lt-row[data-kind="cash"]').first();
@@ -352,7 +352,8 @@ for (const width of [393, 1440]) {
     await expect(row, 'the member lobby must expose the running ordinary Madness game').toBeVisible(
       { timeout: 45000 }
     );
-    await expect(row).toContainText('50% Minimum VPIP');
+    // The compact row abbreviates Minimum; its title retains the full rule.
+    await expect(row.getByTitle('50% Minimum VPIP', { exact: true })).toHaveText('50% Min VPIP');
     await expect(row).toContainText('Big Blind Ante');
     const details = row.getByRole('button', { name: /^Details:/ });
     if (await details.count()) await details.click();

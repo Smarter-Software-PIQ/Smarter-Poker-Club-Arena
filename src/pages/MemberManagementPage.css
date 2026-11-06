@@ -1261,6 +1261,8 @@
    player is seated (components/club/WatchAtTableButton draws nothing else). */
 .mm-watch {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin: 20px 0 0;
 }
 

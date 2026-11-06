@@ -3,6 +3,7 @@
 # Relocated/expanded payload is UNRUN pending protected admission.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
+python3 "$root/scripts/ci/qualification-input-projections.py" --check
 work="$root/tests/fixtures/full-weekly-accounting"
 lifecycle="$root/tests/fixtures/tournament-fee-lifecycle"
 correction_writer="$root/tests/fixtures/correction-writer-authority"

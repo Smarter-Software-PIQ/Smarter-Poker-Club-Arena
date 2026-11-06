@@ -144,3 +144,22 @@ test('the raise panel keeps its taps: chat is docked away and disarmed while rai
   expect(disarmed.opacity).toBe(0);
   expect(disarmed.tapLandsOnChat).toBe(false);
 });
+
+test('multi-table chat uses the page edge below the tab bar once', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  for (const barHeight of [44, 64]) {
+    await page.setContent(`<style>${css}</style>
+      <div class="multi-table-page" style="position:relative;height:812px">
+        <div data-testid="tab-bar" style="height:${barHeight}px"></div>
+        <div class="table-page" style="position:relative;height:${812 - barHeight}px;min-height:0">
+          <button class="chat-collapsed">Chat</button>
+        </div>
+      </div>`);
+    const bar = await page.getByTestId('tab-bar').boundingBox();
+    const chat = await page.locator('.chat-collapsed').boundingBox();
+    expect(
+      chat!.y - bar!.y - bar!.height,
+      'under-bar clearance must not include a second tab bar'
+    ).toBeCloseTo(12, 1);
+  }
+});

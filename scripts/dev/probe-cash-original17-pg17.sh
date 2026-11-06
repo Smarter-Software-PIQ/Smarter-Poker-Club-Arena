@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
+python3 "$repo_root/scripts/ci/qualification-input-projections.py" --check
 evidence_root=${CASH_ORIGINAL17_EVIDENCE_DIR:?Set explicit task-owned evidence directory}
 pg_bin=${PG_BIN:?Set PostgreSQL17 bin directory}
 mkdir -p "$evidence_root"

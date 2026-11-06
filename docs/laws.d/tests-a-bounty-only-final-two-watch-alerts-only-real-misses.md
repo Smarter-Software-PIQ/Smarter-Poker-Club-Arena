@@ -1,0 +1,3 @@
+# tests/a-bounty-only-final-two-watch-alerts-only-real-misses.law.test.ts
+
+A bounty only PKO with no close at two raises the critical closed_without_final_two alert only when the field truly sat at exactly two (three or more entrants, second and third busted in different hands) and the engine recorded no refusal. A field that went from three to one in one hand, a two player event and a refused close (a rule reason, or retries the engine gave up on so the final two never froze) are the rule working, not a breach. An unknown bust hand still raises, every other breach kind is unchanged, and the refusals table is the service role only (owner, 2026-11-06: a tournament must never freeze).

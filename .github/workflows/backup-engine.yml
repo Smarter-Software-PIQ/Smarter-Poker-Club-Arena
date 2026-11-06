@@ -1,0 +1,197 @@
+name: Backup Engine (Clone, Stage, Certify)
+
+# THE BACKUP ENGINE (owner order 2026-11-05). A 1:1 clone of the serving
+# engine runs on its own Hetzner host against an isolated copy of the
+# production database structure. Every engine change lands here first and is
+# built, booted, crash-tested and soaked while the live engine keeps running.
+# A version that passes gets the commit status "backup-engine/certified"; the
+# 04:00 Chicago cutover accepts only a certified version. Nothing here can
+# touch the live engine, its host, or production data: the standby host holds
+# no production credential and its runtime network cannot reach the internet.
+#
+#   push to main (server tree)  certify the new main
+#   00:01 Chicago nightly        refresh the production structure and seed,
+#                                re-clone the serving engine, certify main
+#   workflow_dispatch            certify one exact SHA
+on:
+  push:
+    branches: [main]
+    paths: ['server/**']
+  schedule:
+    # Nightly refresh after midnight America/Chicago (05 UTC is CDT, 06 UTC
+    # is CST). GitHub has delivered schedules hours late or not at all, so
+    # there are three chances per DST twin; the refresh itself runs once per
+    # Chicago date (it reads the standby's own restore stamp).
+    - cron: '7,23,41 5 * * *'
+    - cron: '7,23,41 6 * * *'
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Exact 40-hex commit to certify (default: main)'
+        required: false
+        type: string
+      refresh:
+        description: 'Refresh the production structure and seed first'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: backup-engine
+  cancel-in-progress: false
+
+env:
+  # The Backup Engine host (club-arena-engine-standby). Firewall: SSH key-only.
+  STANDBY_HOST: 5.161.236.0
+  # Pinned host key, so the lane never trusts a substituted machine.
+  STANDBY_HOST_KEY: '5.161.236.0 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIRbg+oBuQofVZ4KWwVB9IK0vPU26+DjidHmQQ3Dprom'
+  STATUS_CONTEXT: backup-engine/certified
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      refresh: ${{ steps.plan.outputs.refresh }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+          INPUT_REFRESH: ${{ github.event.inputs.refresh }}
+        run: |
+          set -euo pipefail
+          sha="${INPUT_SHA:-$GITHUB_SHA}"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "not an exact sha: $sha"; exit 1; }
+          # The refresh job decides from the standby's restore stamp whether a
+          # refresh is due: forced, a new Chicago date, or a migration newer
+          # than the copy. A schedule event certifies main after refreshing.
+          refresh=auto
+          [ "$INPUT_REFRESH" = true ] && refresh=force
+          if [ "$EVENT" = schedule ]; then
+            sha=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY" refs/heads/main | cut -f1)
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "refresh=$refresh" >> "$GITHUB_OUTPUT"
+
+  refresh:
+    needs: plan
+    if: needs.plan.outputs.sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: |
+            scripts/dr
+            scripts/verification-harness/leaderboard-native-function-batch.mjs
+            scripts/ci/test_native_supabase_export.py
+            server/standby
+            supabase/migrations
+      - name: Decide whether the production copy is due
+        id: due
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          MODE: ${{ needs.plan.outputs.refresh }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
+          printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
+          stamp=$(ssh -i ~/.ssh/standby "root@$STANDBY_HOST" "python3 -c 'import json;print(json.load(open(\"/var/lib/club-arena-standby/database.json\"))[\"restoredAt\"])'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
+          restored=$(date -d "$stamp" +%s)
+          newest=$(git log -1 --format=%ct origin/main -- supabase/migrations 2>/dev/null || echo 0)
+          today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)
+          due=false
+          [ "$MODE" = force ] && due=true
+          [ "$newest" -gt "$restored" ] && due=true
+          [ "$EVENT" = schedule ] && [ "$copy_day" != "$today" ] && due=true
+          echo "copy=$stamp newestMigration=$(date -u -d @$newest +%FT%TZ) due=$due"
+          echo "due=$due" >> "$GITHUB_OUTPUT"
+      - name: Build the batched read-only export client
+        if: steps.due.outputs.due == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-17 postgresql-client-17 libzstd-dev zstd pkg-config >/dev/null 2>&1 \
+            || { sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'; \
+                 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg; \
+                 sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-17 postgresql-client-17 libzstd-dev zstd pkg-config >/dev/null; }
+          python3 scripts/dr/build-native-export-client.py --scratch "$RUNNER_TEMP" --pg-bin /usr/lib/postgresql/17/bin > client.log 2>&1 || true
+          PG_DUMP=$(find "$RUNNER_TEMP" -path '*src/bin/pg_dump/pg_dump' -type f -perm -u+x | head -1)
+          [ -n "$PG_DUMP" ] || { tail -40 client.log; exit 1; }
+          echo "PG_DUMP=$PG_DUMP" >> "$GITHUB_ENV"
+          echo "PG_LIB=$(dirname "$(dirname "$(dirname "$PG_DUMP")")")/interfaces/libpq" >> "$GITHUB_ENV"
+      - name: Export the production structure and the horse-only seed (read-only, short reads)
+        if: steps.due.outputs.due == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/out/seed"
+          # A held snapshot over five minutes is cancelled by production's guard,
+          # and must never happen anyway: bounded at 270 s.
+          PGOPTIONS='-c default_transaction_read_only=on' LD_LIBRARY_PATH="$PG_LIB" timeout 270 "$PG_DUMP" "$DATABASE_URL" \
+            --schema-only --no-owner --lock-wait-timeout=2000 -Fc \
+            -n public -n ca_archive -n discovery_private -n operational_source_intake -n ops -n ops_rollback -n smarter_private -n zz_archive \
+            -f "$RUNNER_TEMP/out/schema.dump"
+          SEED_DATABASE_URL="$DATABASE_URL" python3 server/standby/seed-extract.py "$RUNNER_TEMP/out/seed"
+          tar -C "$RUNNER_TEMP/out" -czf "$RUNNER_TEMP/bundle.tgz" schema.dump seed
+      - name: Ship to the standby host and restore
+        if: steps.due.outputs.due == 'true'
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/standby "$RUNNER_TEMP/bundle.tgz" "root@$STANDBY_HOST:/var/lib/club-arena-standby/bundle.tgz"
+          ssh -i ~/.ssh/standby "root@$STANDBY_HOST" 'set -e; cd /var/lib/club-arena-standby; rm -rf seed; tar -xzf bundle.tgz;
+            git -C /opt/club-arena fetch -q origin; git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine; chmod +x /usr/local/sbin/standby-engine; mkdir -p /usr/local/share/club-arena-standby; git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql; git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh;
+            standby-engine restore schema.dump; standby-engine seed seed'
+
+  certify:
+    needs: [plan, refresh]
+    # A failed refresh never blocks certification: the existing copy is still
+    # the full production structure, and a missing new migration can only make
+    # a certificate fail, never pass.
+    if: always() && needs.plan.outputs.sha != '' && needs.refresh.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Mark the certification pending
+        env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.plan.outputs.sha }}' }
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending -f context="$STATUS_CONTEXT" \
+            -f description='Backup Engine is building, booting and soaking this version' \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+      - name: Build, boot, crash, soak and judge on the Backup Engine
+        id: certify
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -uo pipefail
+          install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
+          printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/standby -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
+            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && standby-engine certify $SHA 1800" \
+            | tee certificate.out
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          tail -1 certificate.out > certificate.json || true
+          exit 0
+      - name: Publish the verdict on the exact commit
+        env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.plan.outputs.sha }}', RC: '${{ steps.certify.outputs.rc }}' }
+        run: |
+          set -euo pipefail
+          if [ "$RC" = 0 ]; then state=success; desc='Certified on the Backup Engine: built, booted, crash-recovered and soaked'
+          else state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"; fi
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context="$STATUS_CONTEXT" -f description="$desc" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+          echo "$state: $desc"
+          [ "$state" = success ]

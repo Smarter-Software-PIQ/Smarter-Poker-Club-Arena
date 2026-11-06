@@ -1,4 +1,5 @@
 import { readTournamentStandings } from '../../services/readTournamentStandings';
+import { maintenanceClockFrozen } from '../../utils/maintenanceLevelClock';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  TOURNAMENT HUD — the tournament info dock UNDER the action bar
@@ -309,6 +310,8 @@ function sellsRebuys(row: Tournament): boolean {
  */
 function lateRegBanner(row: Tournament, nowMs: number): string | null {
   if (!tournamentEntryWindowOpen(row, nowMs)) return null;
+  if (row.add_on_available === true)
+    return addOnWindowOpen(row, nowMs) ? null : 'Late Reg Open Through Add-On';
   const entry = tournamentEntryWindow(row);
   if (entry.mode === 'levels') {
     if (entry.current < entry.cap - 1) return `Late Reg Through Level ${entry.cap}`;
@@ -1043,7 +1046,13 @@ const TournamentHUDInner = memo(function TournamentHUDInner({
         ? 'Last Hand'
         : fmtClock(pauseSeconds)
       : fmtClock(remaining);
-  const clockColor = !running ? '#9aa5b3' : paused ? '#ffd700' : timerColor;
+  // The level clock is stopped for a maintenance break (Dan 2026-11-05):
+  // getCurrentLevelState already holds the time; the color says it is held.
+  const clockColor = !running
+    ? '#9aa5b3'
+    : paused || maintenanceClockFrozen()
+      ? '#ffd700'
+      : timerColor;
 
   const windowBanner = [
     handForHand === true ? 'Hand For Hand' : null,

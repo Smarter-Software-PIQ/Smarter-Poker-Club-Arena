@@ -239,7 +239,7 @@ describe('shipped functionality is still here', () => {
       expect(publisher()).toContain('node scripts/ci/ui-test-selection.mjs unit --shard=');
       const selector = readFileSync(root('scripts/ci/ui-test-selection.mjs'), 'utf8');
       expect(selector).toContain(
-        "if (!proof.focused) return invoke('vitest', ['run', 'tests/', ...args])"
+        "if (!unitProof.focused) return invoke('vitest', ['run', 'tests/', ...args])"
       );
     });
 

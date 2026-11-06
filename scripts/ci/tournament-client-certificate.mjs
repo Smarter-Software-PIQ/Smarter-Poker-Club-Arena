@@ -28,7 +28,7 @@ export const browserCases = [
   ],
   [
     'tournament-watch.spec.ts',
-    'a tournament felt shows the lobby button in the right corner',
+    'a tournament felt opens its lobby from the top action bar',
     'chromium',
   ],
   ['tournament-watch.spec.ts', 'table bookmark cannot reopen the retired game', 'chromium'],

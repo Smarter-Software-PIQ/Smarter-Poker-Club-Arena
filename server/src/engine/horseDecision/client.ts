@@ -9,6 +9,10 @@ import {
   isolateMemoryIsValid,
   type IsolateMemorySample,
 } from '../../observability/isolateMemory.js';
+import {
+  recordHorseDecisionWorkerMemory,
+  seedHorseDecisionWorkerMemory,
+} from '../../observability/engineInstruments.js';
 import type { HorseOwnPublicHistoryCacheStatus } from './ownPublicHistory.js';
 import {
   liveHorseFeatureAuthority,
@@ -428,8 +432,26 @@ function defaultWorkerFactory(shard?: { index: number; count?: number }): Worker
         }
       : undefined,
     env: horseDecisionWorkerEnv(process.env),
+    resourceLimits: HORSE_DECISION_WORKER_RESOURCE_LIMITS,
   }) as WorkerLike;
 }
+
+/**
+ * EACH DECISION WORKER OWNS THREE GIGABYTES (2026-11-05, Dan: "give the
+ * engine 2-3x more memory than it will ever need"). A worker inherited the
+ * process default (about 4 GB on this host) with nothing written down, so
+ * nobody could say what a worker was allowed to hold or when it was in
+ * trouble. The bounded observer bank (observerReads.ts) keeps a worker under
+ * 450 MB of old space; 3 GB is six times that and three times the 940 MB
+ * worst case measured before the bound, and eight of them plus the 12 GB main
+ * isolate (server/Dockerfile) fit in the 47 GB the host had free at that
+ * worst case. Young generation: 64 MB semi-spaces so the floor's short-lived
+ * decision objects rarely promote.
+ */
+export const HORSE_DECISION_WORKER_RESOURCE_LIMITS = Object.freeze({
+  maxOldGenerationSizeMb: 3072,
+  maxYoungGenerationSizeMb: 64,
+});
 
 /**
  * THE DECISION WORKER RUNS THE QUALIFIED BRAIN (2026-10-16).
@@ -647,6 +669,7 @@ export class LiveHorseDecisionWorkerClient {
   private readonly shardIndex: number | undefined;
   constructor(options: LiveHorseDecisionWorkerClientOptions = {}) {
     this.shardIndex = options.shard?.index ?? 0;
+    seedHorseDecisionWorkerMemory(this.shardIndex ?? 0);
     this.onFatal = options.onFatal;
     this.ownPublicHistory = options.ownPublicHistory
       ? new HorseOwnPublicHistoryCache(options.ownPublicHistory)
@@ -2213,6 +2236,7 @@ export class LiveHorseDecisionWorkerClient {
         message.isolateMemory.sampledAtMs <= Date.now()
           ? { ...message.isolateMemory }
           : null;
+      recordHorseDecisionWorkerMemory(this.shardIndex ?? 0, this.isolateMemory);
       this.solverStores = structuredClone(message.solverStores);
       this.solverPolicyArtifact = structuredClone(message.solverPolicyArtifact);
       this.governor = { ...message.governor };
@@ -2273,7 +2297,8 @@ export class LiveHorseDecisionWorkerClient {
     }
     this.rejectStop?.(error);
     this.clearStopResolvers();
-    // Failure is terminal and never constructs a replacement worker.
+    // Failure is terminal for THIS client; it never constructs its own
+    // replacement. The pool decides whether the shard is replaced (lane.ts).
     void this.terminateWorker().catch(() => undefined);
     if (!this.fatalNotified) {
       this.fatalNotified = true;

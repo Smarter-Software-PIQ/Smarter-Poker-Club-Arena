@@ -1,4 +1,5 @@
 import { customCashGameName } from '../../utils/customCashGameName';
+import { levelClockNow } from '../../utils/maintenanceLevelClock';
 import { cashGameNeverMovesPlayers } from '../../config/classicNeverMovesPlayers';
 import {
   getTournamentEntryCapacity,
@@ -140,6 +141,11 @@ export interface LobbyTableRow extends CashFeatureSource {
 }
 
 export interface LobbyTournamentRow {
+  add_on_available?: boolean | null;
+  addon_period_triggered?: boolean | null;
+  addon_from_start?: boolean | null;
+  addon_period_started_at?: string | null;
+  addon_period_ends_at?: string | null;
   format_contract?: unknown;
   id: string;
   name: string;
@@ -1759,7 +1765,8 @@ export function levelRemainingMs(t: LobbyTournamentRow, now: number): number | n
   if (mins <= 0) return null;
   const began = new Date(t.level_started_at).getTime();
   if (!Number.isFinite(began)) return null;
-  const left = began + mins * 60000 - now;
+  // A maintenance break stops the level clock (Dan 2026-11-05).
+  const left = began + mins * 60000 - levelClockNow(t, now);
   return left > 0 ? left : 0;
 }
 

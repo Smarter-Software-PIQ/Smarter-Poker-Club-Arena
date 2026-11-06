@@ -675,7 +675,17 @@ describe('a paused table parks whatever it was doing', () => {
     const independent = blankNonCode(
       sliceMethod(ENGINE_BASE, 'isHandForHandReleaseBlocked(): boolean')
     );
-    expect(independent).toContain('this.tournamentMovePauseOwners.size > 0');
+    // A tournament move holds the release through its maintained owner, which
+    // lets the last pause release a retained original whose move can never
+    // claim the table (2026-11-05). The owner still blocks on any move it
+    // cannot prove unclaimable.
+    expect(independent).toContain('this.tournamentMoveHoldsRelease()');
+    const moveOwner = blankNonCode(
+      sliceMethod(ENGINE_BASE, 'private tournamentMoveHoldsRelease(): boolean')
+    );
+    expect(moveOwner).toContain('this.tournamentMovePauseOwners.size === 0');
+    expect(moveOwner).toContain('this.claimedTournamentMovePauseOwners.size > 0');
+    expect(moveOwner).toContain('this.retainedPreparedOriginalController === null');
     expect(independent).toContain('this.weeklyPayoutPauseOwners.size > 0');
     expect(independent).toContain('this.maintenancePaused');
     expect(independent).toContain('this.finalTableDealPaused');
@@ -690,7 +700,7 @@ describe('a paused table parks whatever it was doing', () => {
       maint
     )?.[1];
     expect(maintenanceGate).toBeDefined();
-    expect(maintenanceGate).toContain('this.tournamentMovePauseOwners.size > 0');
+    expect(maintenanceGate).toContain('this.tournamentMoveHoldsRelease()');
     expect(maintenanceGate).toContain('this.handForHandPaused');
     expect(maintenanceGate).toContain('this.finalTableDealPaused');
     expect(maintenanceGate).toContain('this.terminalCloseoutPaused');

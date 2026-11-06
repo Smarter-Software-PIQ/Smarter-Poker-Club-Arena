@@ -1,0 +1,4 @@
+{
+  "_owner": "fix/maintenance-pauses-tournament-clocks - Dan 2026-11-05: a maintenance break pauses every tournament clock. maintenanceLevelClock is a small pure store with no imports, read by TournamentService.getCurrentLevelState and the lobby level clock, both already in the entry. The sync that feeds it, and the maintenance hook, load lazily.",
+  "modules": ["src/utils/maintenanceLevelClock.ts"]
+}

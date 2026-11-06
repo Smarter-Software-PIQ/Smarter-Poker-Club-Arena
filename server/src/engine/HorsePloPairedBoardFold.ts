@@ -86,3 +86,67 @@ export function ploPairedBoardMustFold(i: PairedBoardFoldInput): boolean {
   );
   return bettorAllIn || toCall >= stack * COMMIT_STACK_SHARE || toCall >= stack - 0.005;
 }
+
+/**
+ * PLO4 / PLO5 / PLO6 PAIRED-BOARD RIVER CHECK (Dan 2026-11-06, BINDING).
+ *
+ * Dan, on a PLO5 1/2 Madness hand (55704472) where a horse held
+ * Ad Ac Kd 9d 3h on 4d 5c Jc 5d, bet the paired turn, was called by the only
+ * human, then bet 125 into 244 on the 2s river with a five-high straight and
+ * was called by fives full:
+ *   "HE BET BIG ON THE PAIRED BOARD, HUMAN CALLED, THEN FIRED THE RIVER
+ *    UNIMPROVED."
+ * The river bet was the reference brain's ordinary value bet (a straight is
+ * category 5, and nothing demoted it on a paired board), so a hand that is
+ * still not a full house kept betting into the one player who had already
+ * called a bet on that paired board. That caller folds the hands a straight
+ * or flush beats and calls with the boats that beat it.
+ *
+ * The rule: in PLO4/PLO5/PLO6 (high only, one board), on the river of a board
+ * that was already paired on the turn, a horse without a full house or better
+ * whose own turn bet or raise was called does not bet or raise the river. It
+ * checks. A full house or better is never touched, nor is any call or fold
+ * facing a bet (the paired-board fold above owns those), nor a river the
+ * horse did not barrel into a caller.
+ */
+export interface PairedBoardRiverCheckInput {
+  gameVariant: string | undefined;
+  hiLo: boolean;
+  multiBoard: boolean;
+  board: Card[];
+  hero: Pick<SeatPlayer, 'cards' | 'user_id'>;
+  toCall?: number;
+  actionHistory?: Array<{ userId: string; action: string; stage: string }>;
+}
+
+/** True when the horse must check this river instead of betting or raising. */
+export function ploPairedBoardRiverMustCheck(i: PairedBoardRiverCheckInput): boolean {
+  const variant = String(i.gameVariant ?? '').toLowerCase();
+  if (!PLO_PAIRED_BOARD_VARIANTS.has(variant)) return false;
+  if (i.hiLo || i.multiBoard) return false;
+  if (!Array.isArray(i.board) || i.board.length !== 5) return false;
+  if (!boardIsPaired(i.board.slice(0, 4))) return false;
+  if (Number.isFinite(i.toCall) && (i.toCall as number) > 0.005) return false;
+  const hole = i.hero.cards;
+  if (!Array.isArray(hole) || hole.length < 4) return false;
+  let category: number;
+  try {
+    category = Math.floor(scoreOmahaHiPartial(hole, i.board) / 0x100000);
+  } catch {
+    return false;
+  }
+  if (!(category > 0) || category >= FULL_HOUSE) return false;
+  // The turn: the last bet or raise was the horse's own, and someone called it.
+  let lastAggressor: string | null = null;
+  let calledAfter = false;
+  for (const a of i.actionHistory ?? []) {
+    if (a.stage !== 'turn') continue;
+    if (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') {
+      lastAggressor = a.userId;
+      calledAfter = false;
+    } else if (a.action === 'call' && a.userId !== lastAggressor) {
+      calledAfter = true;
+    }
+  }
+  return lastAggressor === i.hero.user_id && calledAfter;
+}

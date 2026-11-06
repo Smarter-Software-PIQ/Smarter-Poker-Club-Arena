@@ -4,6 +4,7 @@ import argparse,json,os,pathlib,shutil,subprocess,sys,tempfile,hashlib
 p=pathlib.Path(__file__).resolve().parent
 parser=argparse.ArgumentParser();parser.add_argument('--output',type=pathlib.Path,required=True);o=parser.parse_args().output.resolve();o.mkdir(parents=True,exist_ok=True)
 root=p.parents[2]
+subprocess.run([sys.executable, str(root/'scripts/ci/qualification-input-projections.py'), '--check'], check=True)
 for name,pin in json.loads((p/'source-binding.json').read_text())['files'].items():
  raw=(root/name).read_bytes()
  if len(raw)!=pin['bytes'] or hashlib.sha256(raw).hexdigest()!=pin['sha256']:raise RuntimeError('qualification source input differs: '+name)

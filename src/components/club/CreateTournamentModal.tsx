@@ -47,6 +47,7 @@ import { BlindStructureBuilder } from '../tournament/BlindStructureBuilder';
 import { Toggle } from '../table-config/controls';
 import {
   manualTournamentBlindPreset,
+  mttAndSngOpeningBlinds,
   newTournamentPlayingLevels,
   type BlindLevel,
 } from '../../config/blindStructures';
@@ -462,7 +463,8 @@ export default function CreateTournamentModal({
 
   // The selected custom blind ladder is used only while its control is on.
   const effectiveBlinds = useMemo(() => {
-    if (showCustomBlinds) return customBlinds;
+    if (showCustomBlinds)
+      return format === 'spin' ? customBlinds : mttAndSngOpeningBlinds(customBlinds);
     /* A SPIN GETS THE SPIN LADDER (2026-08-31). This read `BLIND_STRUCTURES[
        blindSpeed]` for every format, and `blindSpeed` defaults to 'turbo' and
        is never touched when the format becomes a Spin — so a Spin created here
@@ -478,7 +480,7 @@ export default function CreateTournamentModal({
         (level) => ({ ...level, durationMinutes: values.blindsUpMinutes })
       );
     }
-    if (blindSpeed === 'custom') return customBlinds;
+    if (blindSpeed === 'custom') return mttAndSngOpeningBlinds(customBlinds);
     return isSngOrSpin
       ? BLIND_STRUCTURES[blindSpeed]
       : newTournamentPlayingLevels(BLIND_STRUCTURES[blindSpeed]);

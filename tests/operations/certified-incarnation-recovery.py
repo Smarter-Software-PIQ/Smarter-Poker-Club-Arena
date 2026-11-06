@@ -172,6 +172,46 @@ sys.exit(5)
         self.assert_refused(self.run_supervisor(extra={'FIXTURE_UID':'501'}))
         (self.requests/(RUN+'.legacy-checkpoint-intent')).chmod(0o644)
         self.assert_refused(self.run_supervisor())
+    def publish_request_as_intent_link(self):
+        # Production shape (2026-11-06, run 42190145714-1): launch/wrapper/intake
+        # publish <run>.request as a hard link of <run>.intent in a 0700 root.
+        self.requests.chmod(0o700)
+        os.link(self.requests/(RUN+'.request'), self.requests/(RUN+'.intent'))
+        self.assertEqual((self.requests/(RUN+'.request')).stat().st_nlink, 2)
+    def test_request_published_as_its_intent_link_is_readable(self):
+        self.publish_request_as_intent_link()
+        result=self.run_supervisor();self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertNotIn('retirement source file is unsafe',result.stderr)
+        self.assertEqual(len((self.root/'up.log').read_text().splitlines()),1)
+    def test_committed_run_without_checkpoint_restores_through_its_linked_request(self):
+        # The exact 04:02 failure: a sealed run with no legacy checkpoint
+        # intent must answer 'none' and prove its healthy desired runtime.
+        (self.requests/(RUN+'.legacy-checkpoint-intent')).unlink()
+        self.publish_request_as_intent_link()
+        result=self.run_supervisor();self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertNotIn('retirement source file is unsafe',result.stderr)
+        self.assertFalse((self.root/'up.log').exists())
+    def test_foreign_or_extra_request_links_stay_unsafe(self):
+        request=self.requests/(RUN+'.request')
+        with self.subTest('foreign alias only'):
+            self.requests.chmod(0o700);alias=self.requests/'alias';os.link(request,alias)
+            result=self.run_supervisor();self.assert_refused(result)
+            self.assertIn('retirement source file is unsafe',result.stderr);alias.unlink()
+        with self.subTest('intent plus a third name'):
+            self.publish_request_as_intent_link();alias=self.root/'third';os.link(request,alias)
+            result=self.run_supervisor();self.assert_refused(result)
+            self.assertIn('retirement source file is unsafe',result.stderr)
+            alias.unlink();(self.requests/(RUN+'.intent')).unlink()
+        with self.subTest('intent link in a shared directory'):
+            self.publish_request_as_intent_link();self.requests.chmod(0o750)
+            result=self.run_supervisor();self.assert_refused(result)
+            self.assertIn('retirement source file is unsafe',result.stderr)
+            self.requests.chmod(0o700);(self.requests/(RUN+'.intent')).unlink()
+        with self.subTest('intent is a different file'):
+            self.requests.chmod(0o700);self.private(self.requests/(RUN+'.intent'),request.read_text())
+            alias=self.root/'other';os.link(request,alias)
+            result=self.run_supervisor();self.assert_refused(result)
+            self.assertIn('retirement source file is unsafe',result.stderr)
     def test_intent_symlink_is_not_original_evidence(self):
         path=self.requests/(RUN+'.legacy-checkpoint-intent')
         actual=self.requests/'other-intent';path.rename(actual);path.symlink_to(actual)

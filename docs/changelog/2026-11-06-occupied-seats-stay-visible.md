@@ -1,0 +1,7 @@
+# Occupied seats stay visible between deals
+
+The reported utg777 flicker at Kings Club's Madness PLO5 came from incompatible roster scopes: idle snapshots published physical seats, while live and reconnect snapshots published only the current hand's participants. The client correctly replaced absent positions with empty seats, so an entrant waiting for the big blind disappeared as soon as the next hand update arrived.
+
+The physical engine now completes its live, reconnect and observer presentation with the current occupied nonparticipant seats. They carry their avatar, stack and existing waiting/sitting-out status, with no cards, wagers, position or eligibility. Hand participants retain their exact hand state. Released seats are no longer appended, duplicates cannot replace a hand occupant, anonymous identities stay scrubbed and Horses follow the identical path as people. Reconnects also receive the waiting/posting lists already published live. Lightning virtual hand projection is unchanged.
+
+Regression protection exercises the real engine publishers for Horses and people, idle/live/resync/observer continuity, actual release and replacement, privacy, deduplication and unchanged hand state. Five regression cases failed before the source correction. Existing projection equivalence retains exact legacy hand fields while separately allowing the new resync status lists. Deployment/live verification is recorded in the owning task checkpoint; this changelog is not a deployment receipt.

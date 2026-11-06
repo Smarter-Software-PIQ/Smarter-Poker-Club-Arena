@@ -1300,7 +1300,9 @@ async function insertHandHistoryRow(
         const rollback =
           result.atomic_hand_commit === false &&
           result.reason === 'atomic_hand_rolled_back' &&
-          (result.sqlstate === '40001' || result.sqlstate === '40P01') &&
+          (result.sqlstate === '40001' ||
+            result.sqlstate === '40P01' ||
+            result.sqlstate === '55P03') &&
           typeof result.table_id === 'string' &&
           result.table_id.toLowerCase() === payload.p_table_id.toLowerCase() &&
           (typeof result.hand_number === 'number' || typeof result.hand_number === 'string') &&

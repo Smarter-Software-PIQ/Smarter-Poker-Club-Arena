@@ -113,6 +113,8 @@ def qualify(e, root, output):
     schema.write_text(sql)
     template = e.database()
     e.sql(template, file=schema, label='ordinary-current-catalog', seconds=180)
+    from zero_pool_terminal_native import qualify as qualify_zero_pool
+    hashes.update(qualify_zero_pool(e, root, template, output))
     script = root / 'server/scripts/qualify-ordinary-terminal-transport.ts'
     for path in [script, root / 'server/src/tournament/terminalSettlementRpc.ts',
                  root / 'server/src/tournament/completionSettlementReceipt.ts',

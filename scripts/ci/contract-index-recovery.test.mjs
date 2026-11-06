@@ -228,7 +228,7 @@ function assertAtomicBodyAfterRecovery(source) {
     'admittedSQL = MAINTENANCE_THAW_REPAIR\n    ? thawRepairSQL(atomicSQL)\n    : accountingAdmissionSQL(file, sql, atomicSQL);'
   );
   const identity = source.indexOf(
-    'transactionSQL = bindMigrationSession(SETTLEMENT_LANE ? atomicSQL : admittedSQL);'
+    'transactionSQL = bindMigrationSession(\n    SETTLEMENT_LANE ? atomicSQL : admittedSQL,\n    ordinaryTransaction ? (TRANSACTION_BUDGET_SECONDS + 4) * 1000 : null\n  );'
   );
   const send = source.indexOf('await client.query(transactionSQL)');
   for (const [label, position] of [
@@ -270,13 +270,13 @@ test('body-order assertion refuses missing or reordered owning steps', () => {
     'const transactionBody = preamble.length > 0 ? shape.body : sql',
     'const atomicSQL = transactionBody.replace(',
     'admittedSQL = MAINTENANCE_THAW_REPAIR\n    ? thawRepairSQL(atomicSQL)\n    : accountingAdmissionSQL(file, sql, atomicSQL);',
-    'transactionSQL = bindMigrationSession(SETTLEMENT_LANE ? atomicSQL : admittedSQL);',
+    'transactionSQL = bindMigrationSession(\n    SETTLEMENT_LANE ? atomicSQL : admittedSQL,\n    ordinaryTransaction ? (TRANSACTION_BUDGET_SECONDS + 4) * 1000 : null\n  );',
     'await client.query(transactionSQL)',
   ]) {
     assert.throws(() => assertAtomicBodyAfterRecovery(source.replace(part, 'removed step')), part);
   }
   const identity =
-    'transactionSQL = bindMigrationSession(SETTLEMENT_LANE ? atomicSQL : admittedSQL);';
+    'transactionSQL = bindMigrationSession(\n    SETTLEMENT_LANE ? atomicSQL : admittedSQL,\n    ordinaryTransaction ? (TRANSACTION_BUDGET_SECONDS + 4) * 1000 : null\n  );';
   assert.throws(
     () =>
       assertAtomicBodyAfterRecovery(identity + '\n' + source.replace(identity, 'removed identity')),

@@ -2183,6 +2183,132 @@ def cmd_resolve_terminal_routine_failures(args: argparse.Namespace) -> None:
         print(' '.join(proved) if proved else 'not-needed')
 
 
+# 2026-11-06 ROOT CAUSE (run 42190145714-1): engine-supervisor.sh read every
+# request with st_nlink == 1, but the v1 protocol publishes <run>.request as a
+# hard link of <run>.intent. A committed run whose post-commit step failed then
+# could never pass its own exact desired recovery, parked failed, and kept its
+# committed routine cycle and finalization forever, refusing every later run.
+# The fixed supervisor accepts exactly that sibling link. A run pinned to the
+# old bytes still cannot finish, so a later run gives its original unit back
+# the one shape those bytes read: the identical request with its own inode.
+# This never records a result, clears a seal field or claims authorship; the
+# original owner re-enters and records its own sealed result.
+PARKED_OWNER_SUPERVISOR_DEFECT = "s.st_nlink != 1 or s.st_size > 131072"
+ROOT_UID = 0
+
+
+def parked_owner_private(info: os.stat_result) -> bool:
+    return (stat.S_ISREG(info.st_mode) and info.st_uid == ROOT_UID
+            and stat.S_IMODE(info.st_mode) == 0o600)
+
+
+def parked_owner_stamp(info: os.stat_result) -> tuple[int, ...]:
+    return (info.st_dev, info.st_ino, info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def cmd_restart_parked_committed_owner(args: argparse.Namespace) -> None:
+    run_id = str(args.run_id)
+    if not RUN_ID_RE.fullmatch(run_id):
+        die("parked committed owner caller run id is invalid")
+    require_engine_lock(args.engine_lock_fd)
+    request_root = Path(os.environ.get("ENGINE_RELEASE_REQUEST_ROOT", str(STATE_DIR / "engine-release-requests")))
+    pin_root = Path(os.environ.get("ENGINE_RELEASE_PIN_ROOT", str(STATE_DIR / "engine-release-generation-pins")))
+    with SealLock():
+        state = load_state()
+        finalization = state.get("finalization")
+        if state.get("pending") is not None or not isinstance(finalization, dict):
+            print("not-needed"); return
+        owner = str(finalization["runId"])
+        committed = state.get("committedRuns", {}).get(owner)
+        exact = {"sha": finalization["sha"], "imageId": finalization["imageId"]}
+        cycle = own_routine_cycle(state, owner)
+        if (owner == run_id or committed != exact
+                or {"sha": state["desired"]["sha"], "imageId": state["desired"]["imageId"]} != exact
+                or owner in state.get("orphanFinalizationResolutions", {})
+                or result_path(owner).exists()
+                or (cycle is not None and (cycle["status"] != "committed" or cycle["sha"] != exact["sha"]))):
+            print("not-needed"); return
+        unit = f"club-arena-engine-release-v1@{owner}.service"
+        def parked() -> bool:
+            value = native_unit(unit)
+            return (value["LoadState"] == "loaded" and value["ActiveState"] == "failed"
+                    and value["SubState"] == "failed" and value["MainPID"] == "0"
+                    and value["ControlPID"] == "0" and value["Job"] in {"", "0"})
+        if not parked():
+            # A live, queued or unknown owner keeps its own recovery.
+            print("not-needed"); return
+        directory = request_root.lstat()
+        if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != ROOT_UID
+                or stat.S_IMODE(directory.st_mode) & 0o077):
+            die("parked committed owner request root is not private")
+        request_path = request_root / f"{owner}.request"
+        intent_path = request_root / f"{owner}.intent"
+        try:
+            request_info = request_path.lstat()
+            intent_info = intent_path.lstat()
+        except FileNotFoundError:
+            print("not-needed"); return
+        if not (parked_owner_private(request_info) and parked_owner_private(intent_info)):
+            die("parked committed owner request or intent is not private immutable input")
+        if (request_info.st_dev, request_info.st_ino) != (intent_info.st_dev, intent_info.st_ino):
+            print("not-needed"); return
+        if request_info.st_nlink != 2:
+            die("parked committed owner request has a foreign hard link")
+        payload = request_path.read_bytes()
+        request = payload.decode().splitlines()
+        if (len(request) != 6 or request[0] != exact["sha"] or not SHA_RE.fullmatch(request[4])
+                or payload.decode() != "\n".join(request) + "\n"):
+            die("parked committed owner request does not name its committed release")
+        generation = Path(request[3])
+        pin = pin_root / f"{owner}.generation"
+        pin_info = pin.lstat()
+        if (not parked_owner_private(pin_info)
+                or pin.read_text(encoding="utf-8").splitlines() != [str(generation), request[4]]):
+            die("parked committed owner generation pin does not match its request")
+        supervisor = generation / "engine-supervisor.sh"
+        source = supervisor.read_bytes()
+        if (generation.is_symlink() or supervisor.is_symlink()
+                or (generation / "control-sha").read_text(encoding="utf-8").splitlines() != [request[4]]):
+            die("parked committed owner generation is not its immutable control")
+        if PARKED_OWNER_SUPERVISOR_DEFECT.encode() not in source or b"def sibling_intent_link" in source:
+            # Owner bytes that can read their own request finish on retry.
+            print("not-needed"); return
+        temporary = request_root / f".{owner}.intent.{run_id}.{os.getpid()}"
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            try:
+                os.fchmod(fd, 0o600)
+                write_all(fd, payload)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            if (not parked() or load_state() != state
+                    or parked_owner_stamp(request_path.lstat()) != parked_owner_stamp(request_info)
+                    or parked_owner_stamp(intent_path.lstat()) != parked_owner_stamp(intent_info)):
+                die("parked committed owner evidence changed before its request was unshared")
+            os.replace(temporary, intent_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        directory_fd = os.open(request_root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        after_request, after_intent = request_path.lstat(), intent_path.lstat()
+        if (after_request.st_nlink != 1 or after_intent.st_nlink != 1
+                or (after_request.st_dev, after_request.st_ino) != (request_info.st_dev, request_info.st_ino)
+                or request_path.read_bytes() != payload or intent_path.read_bytes() != payload):
+            die("parked committed owner request was not unshared exactly")
+        audit_once("parked_committed_owner_restarted", state,
+                   f"parked_committed_owner_restarted:{owner}:{run_id}",
+                   owner=owner, release=exact, verifiedByRunId=run_id,
+                   controlSha=request[4], requestSha256=hashlib.sha256(payload).hexdigest(),
+                   supervisorSha256=hashlib.sha256(source).hexdigest())
+    run(["systemctl", "reset-failed", unit])
+    run(["systemctl", "start", "--no-block", unit])
+    print(f"restarted {owner}")
+
+
 def cmd_check_routine_owner(args: argparse.Namespace) -> None:
     with SealLock():
         state = load_state()
@@ -2914,11 +3040,22 @@ def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
     hold = importlib.util.module_from_spec(hold_spec); hold_spec.loader.exec_module(hold)
     with SealLock():
         state = load_state()
-        failed_routine_require(state.get('pending') is None and state.get('finalization') is None
-            and args.run_id not in state['committedRuns']
-            and state['desired']['sha'] == FAILED_ROUTINE_DESIRED and state['desired']['imageId'] == FAILED_ROUTINE_IMAGE)
+        # 2026-11-05 ROOT CAUSE: this proof used to require the sealed desired
+        # release to be the Oct 29 eed06fe5 image. Once production moved past
+        # it (67bc0e85 on Nov 5), no expired announcement-only owner could ever
+        # be retired, so each one looped in systemd forever and blocked every
+        # newer release ("cannot compete with active runtime owner"). The
+        # invariant that matters is: nothing is pending or finalizing, this run
+        # never committed, and the serving runtime IS the sealed desired
+        # release. That is proved below against the live desired identity.
+        failed_routine_require(state.get('pending') is None and state.get('finalization') is None,
+            'a release is pending or finalizing')
+        failed_routine_require(args.run_id not in state['committedRuns'], 'run already committed')
+        desired = (valid_sha(state['desired']['sha'], 'desired.sha'), str(state['desired']['imageId']))
+        failed_routine_require(desired[1].startswith('sha256:'), 'sealed desired image id is malformed')
         record = floor.policy(args.repo, args.sha, args.control_sha)
-        failed_routine_require(isinstance(record, dict) and record['schema'] == floor.OWNER_CAPABILITY)
+        failed_routine_require(isinstance(record, dict) and record['schema'] in
+            (floor.OWNER_CAPABILITY, floor.PHASE1_CAPABILITY), 'activation floor record is not an owner record')
         # The actual installed control, not just its recorded SHA, must contain
         # the entry-before-checkpoint/prepare and recovery semantics being used.
         for name in ('engine-release-seal.py', 'engine-release-recover.sh', 'engine-release-transaction.sh',
@@ -2937,12 +3074,14 @@ def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
                 and request[5].isdigit() and int(request[5]) > 0
                 and failed_routine_bytes(control / 'control-sha').decode().splitlines() == [args.control_sha])
             entry = floor.existing_entry(request_root, args.run_id, args.sha, args.control_sha)
-            failed_routine_require(entry is not None and entry['schema'] == floor.OWNER_CAPABILITY
-                and entry['phase'] == 'announcement' and entry['manifestSha256'] == record['manifestSha256'])
+            failed_routine_require(entry is not None and entry['schema'] == record['schema']
+                and entry['phase'] == 'announcement' and entry['manifestSha256'] == record['manifestSha256'],
+                'runtime entry is not this run\'s own announcement')
             stamp = floor.reservation(record, STATE_DIR, args.run_id)
             reservation = json.loads(failed_routine_bytes(STATE_DIR / (RECOVERY_WINDOW_PREFIX + args.run_id + '.json')))
             ends_at = recovery_window_ends_at(reservation)
-            failed_routine_require(time.time() * 1000 > ends_at and int(request[5]) * 1000 >= ends_at)
+            failed_routine_require(time.time() * 1000 > ends_at and int(request[5]) * 1000 >= ends_at,
+                'recovery window has not expired')
             # A prior terminal cleanup may already have removed its pin/intent.
             # Only the exact durable failed outcome permits that replay edge.
             terminal = None
@@ -2978,26 +3117,28 @@ def cmd_prove_expired_recovery_announcement(args: argparse.Namespace) -> None:
                     'endsAt': ends_at, 'certifiedRecovery': reservation.get('certifiedRecovery')}
 
         owner = ownership()
-        runtime = failed_routine_runtime(deadline, bounded=True)
+        runtime = failed_routine_runtime(deadline, bounded=True, desired=desired)
         window = {'announcedAt': owner['announcedAt'], 'startsAt': owner['announcedAt'] + 120000,
                   'endsAt': owner['endsAt']}
         certified_args = (['--certified-mode', 'terminal', '--certified-run-id', args.run_id,
                            '--certified-target-sha', args.sha, '--certified-control-sha', args.control_sha]
                           if owner['certifiedRecovery'] is not None else [])
         raw = failed_routine_command([str(control / 'engine-release-database-proof.py'), '--env-file',
-            os.environ.get('ENV_FILE', args.repo + '/server/.env'), '--sha', FAILED_ROUTINE_DESIRED,
+            os.environ.get('ENV_FILE', args.repo + '/server/.env'), '--sha', desired[0],
             '--instance-id', runtime['instanceId'], '--terminal-owned-thaw',
             '--window-announced-ms', str(window['announcedAt']), '--window-starts-ms', str(window['startsAt']),
             '--window-ends-ms', str(window['endsAt']), '--timeout-seconds', '4', '--max-heartbeat-age-seconds', '15'] + certified_args, deadline)
         database = json.loads(raw)
-        thawed = {'schema': 'terminal-owned-thaw/v1', 'sha': FAILED_ROUTINE_DESIRED,
+        thawed = {'schema': 'terminal-owned-thaw/v1', 'sha': desired[0],
             'instanceId': runtime['instanceId'], 'databaseIdle': True, 'freshLeader': True, 'ownedV3Thaw': True, **window}
         refused = {**thawed, 'schema': 'terminal-refused-announcement/v1',
             'ownedV3Thaw': False, 'announcementRefused': True}
         failed_routine_require(database == thawed or
-            (owner['certifiedRecovery'] is not None and database == refused))
-        failed_routine_require(runtime == failed_routine_runtime(deadline, bounded=True)
-            and owner == ownership() and state == load_state() and time.monotonic() < deadline)
+            (owner['certifiedRecovery'] is not None and database == refused),
+            'database thaw proof does not match the serving release')
+        failed_routine_require(runtime == failed_routine_runtime(deadline, bounded=True, desired=desired)
+            and owner == ownership() and state == load_state() and time.monotonic() < deadline,
+            'evidence changed during the proof')
         print('expired-original-announcement-refused' if database == refused else 'expired-original-announcement-thawed')
 
 
@@ -3317,9 +3458,13 @@ def prove_orphan_finalization(args: argparse.Namespace, state: dict[str, Any]) -
             "observedAt": int(time.time()), "result": "already-released"}
 
 
-def failed_routine_require(value: bool) -> None:
+def failed_routine_require(value: bool, reason: str | None = None) -> None:
+    # 2026-11-05: an unnamed refusal cost 2.5 hours of blocked releases (run
+    # 42099609162-1 looped 222 times printing only this line). Every caller that
+    # can say which invariant failed says so; the custody verdict is unchanged.
     if not value:
-        die('exact failed routine custody is unproved; original owner retained')
+        die('exact failed routine custody is unproved; original owner retained'
+            + (f' ({reason})' if reason else ''))
 
 
 def failed_routine_digest(value: Any) -> str:
@@ -3670,12 +3815,23 @@ def failed_routine_current(args: argparse.Namespace, deadline: float) -> dict[st
     return current
 
 
-def failed_routine_runtime(deadline: float, bounded: bool = False) -> dict[str, Any]:
+def failed_routine_runtime(deadline: float, bounded: bool = False,
+                           desired: tuple[str, str] | None = None) -> dict[str, Any]:
+    """Prove the serving container is exactly `desired` (sha, imageId) and idle.
+
+    `desired` defaults to the frozen failed-routine identity of run
+    41349091113-1 for the failed-routine commands that are bound to it. The
+    expired-announcement retirement passes the sealed state's live desired
+    identity instead (2026-11-05): an announcement-only owner that missed its
+    window proves nothing about WHICH release is serving, only that the serving
+    release is still the sealed desired one and was never touched.
+    """
+    desired_sha, desired_image = desired or (FAILED_ROUTINE_DESIRED, FAILED_ROUTINE_IMAGE)
     container = os.environ.get('CONTAINER', 'club-arena-engine')
     if bounded:
         value = terminal_inspect_container(deadline)
         metadata = json.loads(failed_routine_command(['docker','image','inspect','--format','{{json .}}',
-            FAILED_ROUTINE_IMAGE], deadline, 262144))
+            desired_image], deadline, 262144))
         image = metadata.get('Id')
         config = metadata.get('Config') or {}
         source = (config.get('Labels') or {}).get('org.opencontainers.image.revision')
@@ -3686,10 +3842,11 @@ def failed_routine_runtime(deadline: float, bounded: bool = False) -> dict[str, 
         source = source.lower()
     else:
         value = docker_json('container', container)
-        image, source, _ = image_identity(FAILED_ROUTINE_IMAGE, require_label=False)
-    failed_routine_require(image == FAILED_ROUTINE_IMAGE and source == FAILED_ROUTINE_DESIRED and
+        image, source, _ = image_identity(desired_image, require_label=False)
+    failed_routine_require(image == desired_image and source == desired_sha and
         value.get('Image') == image and value.get('State', {}).get('Status') == 'running' and
-        CONTAINER_ID_RE.fullmatch(str(value.get('Id', ''))) is not None)
+        CONTAINER_ID_RE.fullmatch(str(value.get('Id', ''))) is not None,
+        f'serving container is not the desired release {desired_sha[:8]} / {desired_image[:19]}')
     healths = []
     for url in ('http://127.0.0.1:8080/health', os.environ.get('ENGINE_URL', 'https://engine.smarter.poker').rstrip('/') + '/health'):
         try:
@@ -4453,6 +4610,10 @@ def parser() -> argparse.ArgumentParser:
     restoring.add_argument('--repo', required=True)
     restoring.add_argument('--sha', required=True)
     restoring.set_defaults(handler=cmd_restoration_needed)
+    parked_owner = commands.add_parser('restart-parked-committed-owner')
+    parked_owner.add_argument('--engine-lock-fd', type=int, required=True)
+    parked_owner.add_argument('--run-id', required=True)
+    parked_owner.set_defaults(handler=cmd_restart_parked_committed_owner)
     owner = commands.add_parser('check-routine-owner')
     owner.add_argument('--run-id', required=True)
     owner.set_defaults(handler=cmd_check_routine_owner)

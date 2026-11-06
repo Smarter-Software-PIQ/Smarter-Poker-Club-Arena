@@ -98,6 +98,7 @@ describe('a bounty-only PKO has no money bubble', () => {
     ['a guarantee', { guaranteed_prize: '500.00' }],
     ['a paid entry', { buy_in_amount: '10.00' }],
     ['a non-PKO free roll', { is_pko: false }],
+    ['a mystery bounty free roll', { is_mystery_bounty: true }],
   ])('keeps the money bubble for %s', async (_label, change) => {
     const f = fixture(false, 37, { ...freeRoll, ...change });
     await f.run();
