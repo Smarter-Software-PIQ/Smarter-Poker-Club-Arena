@@ -7,7 +7,7 @@ import { validateMttBlindStructure } from '../../server/src/domain/tournamentBli
 import { supabase } from '../../src/lib/supabase';
 import { readFileSync } from 'node:fs';
 import { tournamentService, type TournamentConfig } from '../../src/services/TournamentService';
-import { BLIND_STRUCTURES } from '../../src/config/blindStructures';
+import { BLIND_STRUCTURES, mttAndSngOpeningBlinds } from '../../src/config/blindStructures';
 
 const vectors = JSON.parse(
   readFileSync('scripts/dev/fixtures/mtt-blind-contract/vectors.json', 'utf8')
@@ -24,6 +24,27 @@ const base = {
   payoutStructure: [{ place: 1, percentage: 100 }],
 };
 describe('manual tournament and saved schedule configuration', () => {
+  it.each(['mtt', 'sng', 'spin'] as const)(
+    'applies the opening rule to %s only when it is not a Spin',
+    (type) => {
+      const blindStructure = [
+        { level: 1, smallBlind: 10, bigBlind: 20, ante: 0, durationMinutes: 5 },
+      ];
+      const result = tournamentService.buildRpcConfig({
+        ...base,
+        type,
+        blindStructure,
+      } as TournamentConfig);
+      expect(result.blindStructure).toEqual([
+        {
+          ...blindStructure[0],
+          smallBlind: type === 'spin' ? 10 : 25,
+          bigBlind: type === 'spin' ? 20 : 50,
+        },
+      ]);
+      expect(blindStructure[0].bigBlind).toBe(20);
+    }
+  );
   it.each(vectors)(
     'uses the engine and database validation vector $name',
     ({ structure, stack, valid }) => {
@@ -41,7 +62,7 @@ describe('manual tournament and saved schedule configuration', () => {
         );
       } else if (valid)
         expect(tournamentService.buildRpcConfig(config)).toMatchObject({
-          blindStructure: structure,
+          blindStructure: mttAndSngOpeningBlinds(structure as TournamentConfig['blindStructure']),
           startingStack: stack,
         });
       else
