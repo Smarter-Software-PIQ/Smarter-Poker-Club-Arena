@@ -78,6 +78,26 @@ fi
 # when a fetch refspec exists for it; make sure the hook sees the fresh tip.
 git update-ref "refs/remotes/$REMOTE/main" FETCH_HEAD
 
+# A SATURATED MAC FAILS THE GATE ON TIMING, NOT CONTENT (2026-11-06). With a
+# 1-minute load of 60-140 on the 28-core Mac Studio (other sessions' suites),
+# the hook's shell tests missed their 3-second spawn budgets and a correct
+# push was refused after 25 minutes. Waiting for the load to fall below 1.5x
+# the core count costs minutes; a refused run costs the whole gate again. This
+# only delays the push: the hook and every check it runs are unchanged, and
+# after AGENT_PUSH_LOAD_WAIT_SECONDS (default 900, 0 disables) it pushes anyway.
+if [ "$(uname -s)" = Darwin ]; then
+  cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 0)
+  budget=${AGENT_PUSH_LOAD_WAIT_SECONDS:-900}
+  waited=0
+  while [ "$cores" -gt 0 ] && [ "$waited" -lt "$budget" ]; do
+    load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{ print int($2) }')
+    [ -n "$load" ] && [ "$load" -lt $(( cores * 3 / 2 )) ] && break
+    [ "$waited" -eq 0 ] && say "waiting for the Mac's load ($load on $cores cores) to fall below $(( cores * 3 / 2 )) before running the gate (up to ${budget}s)"
+    sleep 15
+    waited=$(( waited + 15 ))
+  done
+fi
+
 say "pushing $BRANCH ($HEAD_SHA) to $REMOTE; the pre-push hook can take minutes"
 remote_git push -u "$REMOTE" "refs/heads/$BRANCH:refs/heads/$BRANCH"
 rc=$?
