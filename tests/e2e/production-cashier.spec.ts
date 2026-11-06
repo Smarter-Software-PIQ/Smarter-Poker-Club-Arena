@@ -1196,12 +1196,37 @@ test.describe('Production Cashier Certification', () => {
     await attachCashierScreenshot(page, testInfo, 'live-promo-account-balances-393');
     await page.keyboard.press('Escape');
     await expect(promoDialog).toBeHidden();
+    // The selected account is enriched by the authorized roster read. Bind
+    // its durable identity, rather than racing the temporary My Account label.
+    const ownerId = await page.evaluate(() => {
+      const session = JSON.parse(localStorage.getItem('smarter-poker-auth') || 'null');
+      return session?.user?.id || session?.currentSession?.user?.id || null;
+    });
+    expect(ownerId).toMatch(/^[0-9a-f-]{36}$/i);
+    const ownRosterRead = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname.endsWith('/rpc/fn_club_cashier_members') &&
+        response.request().postDataJSON()?.p_club_id === clubId
+    );
     await page.getByRole('button', { name: 'Open Agent Wallet', exact: true }).click();
+    const ownRosterResponse = await ownRosterRead;
+    expect(ownRosterResponse.ok()).toBe(true);
+    const ownRoster = await ownRosterResponse.json();
+    expect(Array.isArray(ownRoster)).toBe(true);
+    const ownRows = ownRoster.filter((row: { user_id?: string }) => row.user_id === ownerId);
+    expect(ownRows).toHaveLength(1);
+    const ownName = ownRows[0].name || ownRows[0].username;
+    const ownNumber = String(ownRows[0].player_number || '');
+    expect(typeof ownName === 'string' && ownName.trim().length > 0).toBe(true);
+    expect(ownNumber).toMatch(/^\d+$/);
     const agentDialog = page.getByRole('dialog', { name: 'AGENT WALLET Cashier', exact: true });
     await agentDialog.getByRole('tab', { name: 'Claim Back', exact: true }).click();
     await agentDialog.getByRole('button', { name: 'Claim From My Wallets', exact: true }).click();
     const personal = agentDialog.getByRole('region', { name: 'Selected Player' });
-    await expect(personal).toContainText('My Account');
+    await expect(personal).toContainText(
+      new RegExp(ownName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+    );
+    await expect(personal).toContainText(`ID: ${ownNumber}`);
     // The maintained zero-balance admin has an agent wallet, not a player wallet.
     // All three agent tiers are qualified separately against PostgreSQL 17.
     await personal.getByRole('combobox', { name: 'Claim From' }).selectOption('agent_wallet');
