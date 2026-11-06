@@ -46,3 +46,10 @@ the actual delivery measurement. The manual read-only cash-queue audit SQL also
 shows historical queue-to-reservation timing and explicitly labels the latest
 recorded seat-exit correlation, which is not proof that the exit caused an
 offer. No monitoring, polling repair, scheduled audit or release loop is added.
+
+Release qualification also exposed an unrelated static tournament scroll fixture
+that combined seven tabs under one 30-second deadline. It now gives each tab
+its own test at both existing viewport widths, preserving every native wheel,
+scroll distance, footer and overscroll assertion and the same per-test deadline.
+All 28 Chromium/WebKit cases pass locally without retries or skips. No tournament
+CSS or product behavior changed.
