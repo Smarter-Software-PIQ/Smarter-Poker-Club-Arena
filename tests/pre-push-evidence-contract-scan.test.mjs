@@ -9,6 +9,10 @@ test('repeated shard filenames retain direct, deleted-path and Node contracts wi
   assert.ok(process.env.TMPDIR, 'an owned external TMPDIR is required');
   const dir = mkdtempSync(join(process.env.TMPDIR, 'contract-scan-'));
   try {
+    for (const file of ['scripts/ci/source-contract-inventory.mjs','scripts/ci/source-contract-inputs.json','scripts/ci/vendor/agentExecution.mjs']) {
+      mkdirSync(join(dir,file,'..'),{recursive:true});
+      writeFileSync(join(dir,file),readFileSync(new URL('../'+file,import.meta.url)));
+    }
     for (const path of ['tests', 'server/src', 'bin'])
       mkdirSync(join(dir, path), { recursive: true });
     writeFileSync(join(dir, 'tests/manifest.test.ts'), "const input = 'manifest.json';\n");
@@ -45,6 +49,7 @@ test('repeated shard filenames retain direct, deleted-path and Node contracts wi
         cwd: dir,
         env: {
           ...process.env,
+          CA_TREE_TOP: dir,
           FILES: files.join(' '),
           TEST_SCAN_LOG: log,
           PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
