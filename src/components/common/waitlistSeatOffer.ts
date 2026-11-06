@@ -89,7 +89,9 @@ export type SeatOfferDecision =
 export function holdDeadline(row: WaitlistOfferRow): string | null {
   if (row.hold_expires_at) return row.hold_expires_at;
   if (row.notified_at) {
-    return new Date(new Date(row.notified_at).getTime() + 60_000).toISOString();
+    const notified = Date.parse(row.notified_at);
+    if (!Number.isFinite(notified)) return null;
+    return new Date(notified + 60_000).toISOString();
   }
   return null;
 }

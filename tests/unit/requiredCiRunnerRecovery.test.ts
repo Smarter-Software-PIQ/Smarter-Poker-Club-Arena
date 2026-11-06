@@ -36,6 +36,21 @@ const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unk
   job.steps.splice(index, 1);
 };
 
+const cashQueueFeedbackStep = {
+  name: 'Cash queues explain their authoritative admission state',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-cash-queue-feedback-postgres.py',
+};
+const normalizeCashQueueFeedbackAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === cashQueueFeedbackStep.name);
+  expect(job.steps.filter((step) => step.name === cashQueueFeedbackStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(cashQueueFeedbackStep);
+  expect(job.steps[index + 1]?.name).toBe('Cash top-up retries read their original receipt');
+  // Enforce the exact added regression, retaining every prior job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 const frameCoverSteps = [
   {
     name: 'Weekly cash boundaries keep original rows and use the frame cover',
@@ -344,6 +359,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    normalizeCashQueueFeedbackAddition(normalized.jobs.accounting_postgres);
     const priorQualificationBudgets = {
       changes: 5,
       source_windows: 6,
@@ -1130,5 +1146,31 @@ it('refuses missing, duplicated, moved or broadened retained-owner scheduling', 
       job.steps.findIndex((step: any) => step.name === retainedStep.name)
     );
     expect(() => normalizeRetainedOwnerScheduling(job)).toThrow();
+  }
+});
+
+it('refuses a missing, duplicated, moved or weakened cash queue regression', () => {
+  for (const mutate of [
+    (job: any, index: number) => job.steps.splice(index, 1),
+    (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
+    (job: any, index: number) => {
+      job.steps[index].if = 'false';
+    },
+    (job: any, index: number) => {
+      job.steps[index]['continue-on-error'] = true;
+    },
+    (job: any, index: number) => {
+      job.steps[index].run += ' || true';
+    },
+    (job: any, index: number) => {
+      [job.steps[index], job.steps[index + 1]] = [job.steps[index + 1], job.steps[index]];
+    },
+  ]) {
+    const job = structuredClone(ci.jobs.accounting_postgres);
+    mutate(
+      job,
+      job.steps.findIndex((step: any) => step.name === cashQueueFeedbackStep.name)
+    );
+    expect(() => normalizeCashQueueFeedbackAddition(job)).toThrow();
   }
 });

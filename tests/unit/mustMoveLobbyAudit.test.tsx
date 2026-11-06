@@ -186,6 +186,43 @@ function deferredRpc() {
   return { promise, resolve };
 }
 
+describe('cash queues explain why admission is waiting', () => {
+  it.each(['nlh', 'plo4', 'plo5', 'plo6', 'flh', 'flo8', 'short_deck'])(
+    'renders funding feedback for %s through the real lobby',
+    async (variant) => {
+      const data = lobby({
+        seated: false,
+        table_id: null,
+        waitlist: { on_list: true, position: 1, waiting: 1, reason: 'insufficient_funds' },
+      });
+      data.game.variant = variant;
+      mocks.rpc.mockResolvedValue({ data, error: null });
+      render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />);
+      expect(await screen.findByRole('status')).toHaveTextContent(
+        'Your Balance Is Below The Entry Amount'
+      );
+      expect(screen.getByText('You Are Number 1 On The Waiting List.')).toBeVisible();
+    }
+  );
+  it('explains an expired entry without claiming a queue place or offering cancellation', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: lobby({
+        seated: false,
+        table_id: null,
+        waitlist: { on_list: false, position: null, waiting: 0, reason: 'expired' },
+      }),
+      error: null,
+    });
+    render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Your Waiting List Entry Has Expired'
+    );
+    expect(screen.getByText('You Are Off The Waiting List.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Leave Waiting List' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Join Game' })).toBeEnabled();
+  });
+});
+
 describe('a player can leave the game waiting list', () => {
   const queued = () =>
     lobby({ seated: false, table_id: null, waitlist: { on_list: true, position: 2, waiting: 3 } });

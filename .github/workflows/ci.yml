@@ -1572,6 +1572,13 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-bounty-guarantee-postgres.py
 
+      - name: Cash queues explain their authoritative admission state
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-cash-queue-feedback-postgres.py
+
       - name: Cash top-up retries read their original receipt
         if: matrix.shard == 1
         env:

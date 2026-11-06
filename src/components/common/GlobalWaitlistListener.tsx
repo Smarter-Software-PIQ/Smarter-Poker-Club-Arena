@@ -64,6 +64,14 @@ export default function GlobalWaitlistListener() {
       const key = cashSeatOfferKey(offer);
       if (openedOffersRef.current.has(key)) return;
       openedOffersRef.current.add(key);
+      const receivedAt = Date.now();
+      void import('../../lib/cashSeatOfferTiming')
+        .then(({ recordCashSeatOfferStage }) =>
+          recordCashSeatOfferStage(offer, 'received', receivedAt)
+        )
+        .catch(() => {
+          /* Optional diagnostics cannot refuse or delay a seat offer. */
+        });
       const destination = `/table/${row.table_id}`;
       // A mounted spectator may have spent its first buy-in attempt on the
       // waitlist. The same URL is not evidence that THIS offer was consumed.

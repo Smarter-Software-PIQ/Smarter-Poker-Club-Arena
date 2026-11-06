@@ -42,7 +42,7 @@
     "tests/fixtures/legacy-fee-finality/verify-native-receipts.mjs": "9556746822f0045ecadc35704929f53810676fe0ab07e49146b14495667870c8",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "abc4706cf0d90a537aa40817bd1e735f2fc692be2623a377f5af40f6a667ebf1"
+    "scripts/qualification/ci-accounting-inputs.json": "0e86381eb722804e6262cb2ba60745c946963583d28741847d0b4d855301a31e"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -1450,5 +1450,8 @@
     },
     "execution_performed": false,
     "financialQualificationRestamped": false
+  },
+  "cashQueueNativeInputComposition20261106": {
+    "reason": "Exact accounting projection includes the cash queue native step; no historical financial inputs, assertions or verdicts changed."
   }
 }
