@@ -27,7 +27,15 @@ export interface GtoV31EvaluationScenario {
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
-const TOTAL_PAIRS = 5_000;
+/**
+ * TEN TIMES THE HANDS (2026-11-06). At 5,000 pairs per family the cash card
+ * rested on ~130 candidate decisions, and single pots swung up to 85 bb: R7's
+ * league/cash verdict turned on two hands. At 50,000 pairs the same cards
+ * carry ~1,300 cash decisions and a standard error ~3.2x smaller (R7 offline:
+ * paired cash se 2.37 -> 0.63). The database floor (>= 10,000 hands) and the
+ * 2-standard-error verdict are unchanged; only the evidence grows.
+ */
+const TOTAL_PAIRS = 50_000;
 
 const tournamentContext = (
   tournament: NonNullable<LeagueGameContext['tournament']>,
