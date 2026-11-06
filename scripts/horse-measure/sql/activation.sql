@@ -20,6 +20,12 @@
 -- public.gto_v31_serving_bindings holds an open row for the serving engine
 -- commit, so 'v31_certified_skip_empty_store' is the counter that must fall
 -- to zero when V31 is live.
+--
+-- Skill result rows (2026-11-06): each default-off skill says what happened
+-- to its result once it is selected. 'applied' means the result changed the
+-- action; 'considered' means it was evaluated and the same choice stood;
+-- 'superseded' means another owner decided the spot. All three stay at zero
+-- while the skill is unselected (no selection file ships).
 SELECT x.feature, x.upgrade, coalesce(sum(t.fires), 0) AS fires,
        count(DISTINCT t.day) AS days_seen, min(t.day) AS first_day, max(t.day) AS last_day
 FROM (VALUES
@@ -27,6 +33,15 @@ FROM (VALUES
   ('v61_river_one_pair_shade', 'V61'),
   ('v63_large_river_bet_shade', 'V63'),
   ('v64_river_raise_needs_two_pair', 'V64'),
+  ('barrel_continuation_outlook_applied', 'barrelContinuationOutlook: carried turn outlook changed the river barrel (expected 0 until selected)'),
+  ('barrel_continuation_outlook_considered', 'barrelContinuationOutlook: outlook read, same choice (expected 0 until selected)'),
+  ('barrel_continuation_outlook_superseded', 'barrelContinuationOutlook: an earlier river owner decided first (expected 0 until selected)'),
+  ('small_pot_near_nut_value_applied', 'smallPotNearNutRiverValue: its value raise reached the final action (expected 0 until selected)'),
+  ('small_pot_near_nut_value_considered', 'smallPotNearNutRiverValue: in domain, original gate already raised (expected 0 until selected)'),
+  ('small_pot_near_nut_value_superseded', 'smallPotNearNutRiverValue: a later owner replaced its raise (expected 0 until selected)'),
+  ('v53_plo_icm_applied', 'v53PloTourneyIcm: ICM shifts changed the preflop choice (expected 0 until selected)'),
+  ('v53_plo_icm_considered', 'v53PloTourneyIcm: shifts priced, same choice (expected 0 until selected)'),
+  ('v53_plo_icm_superseded', 'v53PloTourneyIcm: a later owner replaced the changed choice (expected 0 until selected)'),
   ('v65_turn_one_pair_shade', 'V65'),
   ('v66_bet_raised_one_pair', 'V66'),
   ('v67_river_bet_raised_one_pair', 'V67'),

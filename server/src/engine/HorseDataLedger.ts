@@ -3742,6 +3742,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Small-pot near-nut value'
   ),
   receipt(
+    'small_pot_near_nut_value_applied',
+    'HorseLogic decideInternal after wager_rules',
+    'the near-nut candidate chose a value raise, or its PLO6 flat exception kept an in-domain raise, and that exact raise reached the final action',
+    'Small-pot near-nut value'
+  ),
+  receipt(
+    'small_pot_near_nut_value_considered',
+    'HorseLogic decideInternal after wager_rules',
+    'in domain, the original value gate already raised and the candidate changed nothing',
+    'Small-pot near-nut value'
+  ),
+  receipt(
+    'small_pot_near_nut_value_superseded',
+    'HorseLogic decideInternal after wager_rules',
+    'the near-nut candidate chose a value raise and a later owner replaced it',
+    'Small-pot near-nut value'
+  ),
+  receipt(
+    'barrel_continuation_outlook_applied',
+    'HorseLogic V7 river barrel continuation',
+    'default-off barrelContinuationOutlook: the carried turn outlook changed the river continuation choice on the same draw and it reached the final action',
+    'Barrel continuation outlook'
+  ),
+  receipt(
+    'barrel_continuation_outlook_considered',
+    'HorseLogic V7 river barrel continuation',
+    'default-off barrelContinuationOutlook: the carried turn outlook was read and the same choice stood',
+    'Barrel continuation outlook'
+  ),
+  receipt(
+    'barrel_continuation_outlook_superseded',
+    'HorseLogic decideInternal reference node',
+    'default-off barrelContinuationOutlook: an earlier river owner decided before the V7 continuation, or a later owner replaced the choice the outlook changed',
+    'Barrel continuation outlook'
+  ),
+  receipt(
     'small_pot_near_nut_value_raise',
     'HorseLogic existing value raise band after original safety gates',
     'default-off structural candidate selected a raise instead of random call; selection only, controller acceptance and economic qualification remain separate',
