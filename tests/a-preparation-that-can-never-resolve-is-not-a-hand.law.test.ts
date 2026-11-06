@@ -249,7 +249,7 @@ describe('3. the release gate asks the database, and fails closed', () => {
     expect(INFLIGHT).not.toMatch(/--force|--skip|ALLOW_|FORCE_|SKIP_|BYPASS/);
     // Scope to the admission block only - up to the close of the function.
     const from = TRANSACTION.indexOf(
-      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} >&2\n'
+      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} ${inflight_tables:+--tables "$inflight_tables"} >&2\n'
     );
     const admission = TRANSACTION.slice(from, TRANSACTION.indexOf('\n}', from));
     expect(admission).not.toMatch(/\|\|\s*true/);

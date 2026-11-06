@@ -190,8 +190,14 @@ describe('sit-out wiring', () => {
     const eng = read('ServerTableEngine.ts');
     expect(eng).not.toMatch(/is_sitting_out: p\.is_sitting_out \?\? false/);
     const hits = eng.match(/is_sitting_out: this\.disconnectEngine\.isSittingOut\(/g) || [];
-    // Live broadcast, resync (getTableState) and the idle publish.
-    expect(hits.length).toBeGreaterThanOrEqual(3);
+    // Live and resync retain the disconnect engine's authoritative state.
+    expect(hits.length).toBeGreaterThanOrEqual(2);
+    // Idle additionally marks an entrant waiting for the blind, without
+    // replacing the authoritative sit-out state for everybody else.
+    const idle = sliceMethod(eng, 'protected publishIdleState()');
+    expect(idle).toMatch(
+      /is_sitting_out:\s*this\.waitingForBB\.has\(p\.user_id\) \|\|\s*this\.disconnectEngine\.isSittingOut\(this\.tableId, p\.user_id\)/
+    );
   });
 });
 

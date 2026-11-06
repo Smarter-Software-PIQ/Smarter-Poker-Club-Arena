@@ -1542,6 +1542,14 @@ export abstract class ServerTableEngineBase {
                 generation,
                 lifecycle,
                 accounting: 'acknowledged',
+                ...(this.stoppedTimeBankCustody.cancelledPreparation
+                  ? {
+                      [this.stoppedTimeBankCustody.cancellationPending
+                        ? 'pending_preparation_cancellation'
+                        : 'cancelled_preparation']:
+                        this.stoppedTimeBankCustody.cancelledPreparation,
+                    }
+                  : {}),
                 snapshot: {
                   table_id: tableId,
                   parked_at: this.stoppedTimeBankCustody.capturedAt,
@@ -1583,6 +1591,15 @@ export abstract class ServerTableEngineBase {
   /** See ServerTableEngineDealing: a retained, never-started original held at the pause gate by ANY owner. */
   isPreparedOriginalHeldAtPauseGate(): boolean {
     return false;
+  }
+
+  /**
+   * The permit and hand number of a retained, never-started original held at
+   * the pause gate, or null. See ServerTableEngineDealing. Identification only:
+   * /health names the table so the release gate can prove it per table.
+   */
+  describeHeldOriginalAtPauseGate(): { permitId: string; handNumber: string } | null {
+    return null;
   }
 
   /** See ServerTableEngineDealing: a retained, never-started original held at the closeout gate. */
@@ -2652,6 +2669,9 @@ export abstract class ServerTableEngineBase {
     | ((handNumber: string) => F06HandPermit | Promise<F06HandPermit>)
     | null = null;
   protected f06CurrentPermit: F06HandPermit | null = null;
+  // Positive original-process acknowledgement, not a reconstructed no-start.
+  // Captured with the banks only after stop has joined the dealing writer.
+  private f06CancelledPreparation: Readonly<F06HandPermit['binding']> | null = null;
   /** Must be installed by admitted lifecycle custody before the dealer starts. */
   installF06HandAdmission(
     factory: (handNumber: string) => F06HandPermit | Promise<F06HandPermit>
@@ -2703,6 +2723,7 @@ export abstract class ServerTableEngineBase {
       return;
     await permit.cancelPreparedHand();
     if (this.f06CurrentPermit !== permit) throw new Error('f06_permit_replaced');
+    this.f06CancelledPreparation = Object.freeze({ ...permit.binding });
     this.f06CurrentPermit = null;
   }
   /**
@@ -3237,6 +3258,8 @@ export abstract class ServerTableEngineBase {
   // adopts these actual balances or the matching native park was acknowledged.
   private stoppedTimeBankCustody: {
     handNumber: number;
+    cancelledPreparation?: Readonly<F06HandPermit['binding']>;
+    cancellationPending?: boolean;
     capturedAt: string;
     disconnectStates: ReturnType<DisconnectEngine['getFsmStatesForTable']>;
     occupancies: Readonly<Record<string, string>>;
@@ -4720,8 +4743,26 @@ export abstract class ServerTableEngineBase {
           if (!banks[bank.playerId]) throw new Error('Stopped time bank has no original occupancy');
         }
         this.parkedTimeBanks = structuredClone(banks);
+        // cancelPreparedHand irreversibly excludes start before its RPC. A lost
+        // reply retains that original object, not a successful disposition.
+        // SQL must find its exact immutable receipt before admitting this proof.
+        const pendingCancellation = this.f06CurrentPermit?.hasPreparedCancellation()
+          ? this.f06CurrentPermit
+          : null;
+        const cancelledPreparation = pendingCancellation
+          ? Object.freeze({ ...pendingCancellation.binding })
+          : this.f06CancelledPreparation;
         this.stoppedTimeBankCustody = Object.freeze({
           handNumber: this.handCount,
+          ...(cancelledPreparation &&
+          BigInt(cancelledPreparation.hand_number) > BigInt(this.handCount) &&
+          cancelledPreparation.table_id === this.tableId &&
+          cancelledPreparation.tournament_id === this.engineLeaseTournamentId &&
+          cancelledPreparation.lease_generation === this.engineLeaseGeneration &&
+          cancelledPreparation.lifecycle === this.f06TableLifecycle &&
+          cancelledPreparation.custody_id === this.f06AllocationEpoch
+            ? { cancelledPreparation, cancellationPending: pendingCancellation !== null }
+            : {}),
           capturedAt: new Date().toISOString(),
           disconnectStates: structuredClone(this.captureRetainedPresence()),
           occupancies: Object.freeze({
@@ -9818,6 +9859,29 @@ export abstract class ServerTableEngineBase {
     return (
       this.finalTableDealPaused || this.terminalCloseoutPaused || this.tableFSM.state === 'paused'
     );
+  }
+
+  /**
+   * WHO IS HOLDING THIS TABLE, BY NAME (2026-11-06). isPausedByDesign() is one
+   * boolean, so /health could not tell a table held by its scheduled break
+   * from one held for nine hours by a qualifier boundary that will never lift:
+   * Satellite 25 had five such tables while stalledTableCount read 0. Every
+   * raised authority is named here, in the same terms isPausedByDesign() reads.
+   * Identification only; nothing decides on it except the /health stall census.
+   */
+  describePauseOwners(): string[] {
+    const owners: string[] = [];
+    if (this.maintenancePaused) owners.push('maintenance');
+    if (this.finalTableDealPaused) owners.push('final_table_deal');
+    if (this.weeklyPayoutPauseOwners.size > 0) owners.push('weekly_payout');
+    if (this.dealingHaltLock) owners.push('dealing_halt');
+    if (this.operatorFloorPaused) owners.push('operator_floor');
+    if (this.dealHoldUntilMs > Date.now()) owners.push('deal_hold');
+    if (this.tableFSM.state === 'paused') owners.push('fsm_paused');
+    if (this.handForHandPaused) owners.push('hand_for_hand');
+    if (this.terminalCloseoutPaused) owners.push('terminal_closeout');
+    if (this.tournamentMovePauseOwners.size > 0) owners.push('tournament_move');
+    return owners;
   }
 
   /** Ms spent in the current by-design pause; 0 when not paused. */

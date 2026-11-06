@@ -12,6 +12,13 @@
  * what the ledger holds. Reads are coalesced and spaced so a busy event costs
  * at most one bounded roster read per MIN_GAP_MS, with one trailing read so
  * the last change is never left unpublished.
+ *
+ * A FAILED READ DOES NOT GO QUIET (2026-11-06). The felt prefers the engine's
+ * head, so a read that failed right after a knockout left the old head on the
+ * winner until something else asked again. A failure now schedules its own
+ * retry with backoff (SEAT_HEADS_RETRY_BASE_MS doubling to
+ * SEAT_HEADS_RETRY_MAX_MS), up to SEAT_HEADS_MAX_RETRIES per failure streak;
+ * a success ends the streak. Every completed hand still asks again.
  */
 
 export interface SeatHeadRow {
@@ -52,6 +59,15 @@ export interface SeatHeadsDeps {
 }
 
 export const SEAT_HEADS_MIN_GAP_MS = 1_500;
+export const SEAT_HEADS_RETRY_BASE_MS = 2_000;
+export const SEAT_HEADS_RETRY_MAX_MS = 30_000;
+export const SEAT_HEADS_MAX_RETRIES = 10;
+
+/** The wait before retry number `failures` (1-based) of a failure streak. */
+export function seatHeadsRetryDelayMs(failures: number): number {
+  const n = Math.max(1, Math.floor(failures));
+  return Math.min(SEAT_HEADS_RETRY_BASE_MS * 2 ** (n - 1), SEAT_HEADS_RETRY_MAX_MS);
+}
 
 export class SeatHeadsRefresher {
   private inFlight = false;
@@ -60,6 +76,8 @@ export class SeatHeadsRefresher {
   private lastStartedAt = -Infinity;
   private latest: ReadonlyMap<string, number> | null = null;
   private failureReported = false;
+  private failures = 0;
+  private retryArmed = false;
 
   constructor(private readonly deps: SeatHeadsDeps) {}
 
@@ -100,19 +118,16 @@ export class SeatHeadsRefresher {
       const rows = await this.deps.read();
       if (rows) {
         this.failureReported = false;
+        this.failures = 0;
         this.latest = headsFromRows(rows);
         this.deps.publish(this.latest);
-      } else if (!this.failureReported) {
-        this.failureReported = true;
-        this.deps.report(
+      } else {
+        this.failed(
           new Error('seat bounty heads could not be read; the felt keeps its last heads')
         );
       }
     } catch (err) {
-      if (!this.failureReported) {
-        this.failureReported = true;
-        this.deps.report(err instanceof Error ? err : new Error(String(err)));
-      }
+      this.failed(err instanceof Error ? err : new Error(String(err)));
     } finally {
       this.inFlight = false;
       if (this.pending) {
@@ -120,5 +135,20 @@ export class SeatHeadsRefresher {
         this.request();
       }
     }
+  }
+
+  /** Report a failure streak once and schedule its bounded, backed-off retry. */
+  private failed(error: Error): void {
+    this.failures += 1;
+    if (!this.failureReported) {
+      this.failureReported = true;
+      this.deps.report(error);
+    }
+    if (this.retryArmed || this.failures > SEAT_HEADS_MAX_RETRIES) return;
+    this.retryArmed = true;
+    this.deps.later(() => {
+      this.retryArmed = false;
+      this.request();
+    }, seatHeadsRetryDelayMs(this.failures));
   }
 }

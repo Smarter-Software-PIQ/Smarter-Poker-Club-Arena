@@ -7,10 +7,17 @@ import { spawnSync } from 'node:child_process';
 
 const hook = readFileSync(new URL('../../.husky/pre-push', import.meta.url), 'utf8');
 const gate = hook.split('# BEGIN TARGETED CLIENT PREFLIGHT')[1].split('# END TARGETED CLIENT PREFLIGHT')[0];
+const installInventory = dir => {
+  for (const file of ['scripts/ci/source-contract-inventory.mjs','scripts/ci/source-contract-inputs.json','scripts/ci/vendor/agentExecution.mjs']) {
+    mkdirSync(dirname(join(dir,file)),{recursive:true});
+    writeFileSync(join(dir,file),readFileSync(new URL('../../'+file,import.meta.url)));
+  }
+};
 for (const failure of [false, true]) {
   test(`already executed contracts are excluded only from the related pass; failure=${failure}`, () => {
     const dir = mkdtempSync(join(tmpdir(), 'delivery-dedup-'));
     try {
+      installInventory(dir);
       for (const [file, body] of Object.entries({
         'tests/shared.test.ts': "// reads widget.ts and imports its implementation\n",
         'tests/other.test.ts': '// other source contract for widget.ts\n',
@@ -91,6 +98,7 @@ for (const failure of [false, true]) {
   test(`workflow directory readers execute locally once; failure=${failure}`, () => {
     const dir = mkdtempSync(join(tmpdir(), 'client-workflow-reader-'));
     try {
+      installInventory(dir);
       for (const [file, body] of Object.entries({
         '.github/workflows/ci.yml': 'jobs: {}',
         'tests/directory.test.ts': '// scans .github/workflows and imports widget.ts',

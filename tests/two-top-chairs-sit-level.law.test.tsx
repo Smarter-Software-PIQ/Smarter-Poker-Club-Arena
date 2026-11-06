@@ -10,7 +10,7 @@
  * 51px below BigJake's wolf. `useProtectedCardLayout` now places each pod as
  * before and then raises a pod whose plate lands below another plate on its
  * rail line, never past the point where its PAINTED crown would break the
- * jackpot clearance. Same-art lanes keep their exact placement.
+ * jackpot clearance. Complete silhouettes anchor this clearance to visible crowns, including same-art lanes.
  */
 import { useRef } from 'react';
 import { cleanup, render } from '@testing-library/react';
@@ -96,9 +96,8 @@ afterEach(() => {
 const measure = (left: string, right: string) => {
   const h = render(<TopLane left={left} right={right} />);
   const read = (chair: string) => ({
-    plate: h.container
-      .querySelector(`[data-chair="${chair}"] .seat__info`)!
-      .getBoundingClientRect().top,
+    plate: h.container.querySelector(`[data-chair="${chair}"] .seat__info`)!.getBoundingClientRect()
+      .top,
     box: h.container
       .querySelector(`[data-chair="${chair}"] .seat__avatar-img`)!
       .getBoundingClientRect().top,
@@ -116,11 +115,13 @@ it("MamaPriya's penguin sits level with BigJake's wolf", () => {
   expect(Math.abs(left.plate - right.plate)).toBeLessThanOrEqual(2);
 });
 
-it('a lane where both chairs wear the same art keeps its exact placement', () => {
+it('a same-art lane keeps exactly eight pixels below the visible crowns', () => {
   const { left, right } = measure('vip_wolf@2x.webp', 'vip_wolf@2x.webp');
-  // The legacy lane: each image box keeps 8px of air below the jackpot plate.
-  expect(left.box).toBeCloseTo(MINI_BOTTOM + 8);
-  expect(right.box).toBeCloseTo(MINI_BOTTOM + 8);
+  // Transparent canvas is not the head. Keep the exact visible clearance.
+  expect(left.crown).toBeCloseTo(MINI_BOTTOM + 8);
+  expect(right.crown).toBeCloseTo(MINI_BOTTOM + 8);
+  expect(left.box).toBeLessThan(left.crown);
+  expect(right.box).toBeLessThan(right.crown);
   expect(left.plate).toBeCloseTo(right.plate);
 });
 

@@ -14,14 +14,30 @@ import {
 describe('visible avatar crowns', () => {
   afterEach(() => vi.unstubAllGlobals());
   it('covers normal and retina library art with measured fractions', () => {
-    expect(Object.keys(AVATAR_CROWN_TOP)).toHaveLength(200);
+    expect(Object.keys(AVATAR_CROWN_TOP).filter((file) => /^(free|vip)_/.test(file))).toHaveLength(
+      200
+    );
+    expect(Object.keys(AVATAR_CROWN_TOP)).toHaveLength(222);
     expect(Object.values(AVATAR_CROWN_TOP).every((top) => top >= 0 && top < 0.5)).toBe(true);
   });
   it('uses the actual tech-mogul headroom seen on limplegend, including URL suffixes', () => {
-    // Shipped 250x340 art: first alpha >=16 occurs at row 54, independently measured.
+    // Shipped 250x340 art: first alpha >=16 occurs at row 27, independently measured.
     expect(
       avatarCrownTop('https://smarter.poker/avatars/table/vip_tech_mogul@2x.webp?v=1#avatar')
-    ).toBeCloseTo(54 / 340, 6);
+    ).toBeCloseTo(27 / 340, 6);
+  });
+  it('measures the published custom characters and the retained original Kaela image', () => {
+    expect(
+      Object.keys(AVATAR_CROWN_TOP).filter((file) => file.startsWith('custom_complete_'))
+    ).toHaveLength(21);
+    expect(
+      avatarCrownTop('/avatars/table/custom_complete_7f7b826d18995340@2x.webp?art=current')
+    ).toBeCloseTo(51 / 512, 6);
+    expect(avatarCrownTop('/avatars/table/custom_kaelastacks_20261105.png')).toBeCloseTo(
+      57 / 512,
+      6
+    );
+    expect(AVATAR_CROWN_TOP['custom_complete_6d0344917e977c4c@2x.webp']).toBeUndefined();
   });
   it('preserves the image boundary for unknown or uploaded art', () => {
     for (const source of [
@@ -37,7 +53,7 @@ describe('visible avatar crowns', () => {
     const image = document.createElement('img');
     image.src = '/avatars/table/vip_tech_mogul@2x.webp';
     image.getBoundingClientRect = () => ({ top: 100, height: 200 }) as DOMRect;
-    expect(paintedAvatarTop(image)).toBeCloseTo(100 + 200 * (54 / 340), 3);
+    expect(paintedAvatarTop(image)).toBeCloseTo(100 + 200 * (27 / 340), 3);
   });
   it('anchors from layout and static bust framing, independent of gesture and active scale', () => {
     vi.stubGlobal(
@@ -89,18 +105,18 @@ describe('visible avatar crowns', () => {
       Object.defineProperty(element, 'offsetTop', { value: top });
     }
     expect(restingAvatarTop(image, 0.75)).toBeCloseTo(
-      100 + (10 + 100 + (100 * (54 / 340) - 100) * 1.45) * 0.75,
+      100 + (10 + 100 + (100 * (27 / 340) - 100) * 1.45) * 0.75,
       3
     );
     wrap.style.transform = 'translateY(3px) scale(.97)';
     expect(restingAvatarTop(image, 0.75)).toBeCloseTo(
-      100 + (10 + 100 + (100 * (54 / 340) - 100) * 1.45) * 0.75,
+      100 + (10 + 100 + (100 * (27 / 340) - 100) * 1.45) * 0.75,
       3
     );
     wrap.style.transformOrigin = '50px 50px';
     wrap.style.setProperty('--sp-avatar-rest-transform', 'matrix(0.97, 0, 0, 0.97, 0, 3)');
     expect(restingAvatarTop(image, 0.75)).toBeCloseTo(
-      100 + (10 + 50 + (100 + (100 * (54 / 340) - 100) * 1.45 - 50) * 0.97 + 3) * 0.75,
+      100 + (10 + 50 + (100 + (100 * (27 / 340) - 100) * 1.45 - 50) * 0.97 + 3) * 0.75,
       3
     );
     const computed = getComputedStyle;

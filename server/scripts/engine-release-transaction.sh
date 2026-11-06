@@ -1550,6 +1550,35 @@ raise SystemExit(5 if census_claim else 4)
   # keep their existing proof unchanged. A scalar, not an array: an empty
   # array under set -u is an unbound-variable error on bash 3.2.
   [ "$status" != 5 ] || inflight_age=600
+  # NAMED TABLES, PROVED ONE BY ONE (2026-11-06). An engine that names its
+  # cards_in_air tables (maintenance.unparkedTableIds) has each one proved
+  # against the database as well as the fleet-wide read: no incomplete
+  # snapshot for that table, and no snapshot at all for a held original's
+  # hand. The names must account for EVERY cards_in_air table the engine
+  # counted; a partial or malformed list refuses. An engine that does not
+  # publish the list (older builds) keeps the fleet-wide proof alone.
+  local inflight_tables=
+  if [ "$status" = 5 ]; then
+    inflight_tables="$(printf '%s' "$body" | python3 -c '
+import json,re,sys
+m=(json.load(sys.stdin).get("maintenance") or {})
+ids=m.get("unparkedTableIds")
+if ids is None: raise SystemExit(0)
+if not isinstance(ids,list): raise SystemExit(1)
+want=(m.get("unparkedReasons") or {}).get("cards_in_air")
+uuid=re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+out=[]
+for e in ids:
+    if not isinstance(e,dict) or e.get("reason")!="cards_in_air": continue
+    t=e.get("tableId"); h=e.get("handNumber")
+    if not isinstance(t,str) or not uuid.match(t): raise SystemExit(1)
+    if h is None: out.append(t)
+    elif isinstance(h,str) and h.isdigit(): out.append(t+":"+h)
+    else: raise SystemExit(1)
+if type(want) is not int or want!=len(out): raise SystemExit(1)
+print(",".join(out))
+')" || { echo "[engine-release-transaction] the engine named its cards_in_air tables but the names do not account for every one; the cutover stays refused" >&2; return 1; }
+  fi
   # Fail closed. Exit 0 is the ONLY result that proceeds. The helper answers 1
   # for a hand in the air and 3 for "could not tell", and both refuse here.
   # There is deliberately no flag, variable or argument that skips this.
@@ -1574,7 +1603,7 @@ raise SystemExit(5 if census_claim else 4)
   # cutover every other gate had admitted was thrown away. Both now go to
   # stderr, where the journal still records them.
   set +e
-  legacy_entry_read "$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} >&2
+  legacy_entry_read "$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} ${inflight_tables:+--tables "$inflight_tables"} >&2
   local inflight_rc=$?
   set -e
   case "$inflight_rc" in
@@ -2056,7 +2085,7 @@ socket.setTimeout(1000,()=>{socket.destroy();process.exit(2);});
 }
 
 request_recovery_window() {
-  local health minute now stamp outcome reason cause_key newer stuck cause_required
+  local health minute now stamp outcome reason cause_key newer stuck persistent cause_required
   local reserve_args
   [ "$RECOVERY_REQUESTED" = 0 ] || return 0
   # This immutable one-time target may use only its daily certificate.
@@ -2089,6 +2118,30 @@ m = json.load(sys.stdin).get("maintenance") or {}
 v = m.get("stoppedCustodyStuckTables")
 print(v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0)
 ' 2>/dev/null)" || stuck=0
+  # A BREAK THAT CANNOT CLEAR ITS BLOCKER IS NOT ASKED FOR (2026-11-06).
+  # The same rule as the stuck-custody count above, applied to everything the
+  # engine says no break can clear (maintenance.restartPrecheck.persistent: a
+  # started hand frozen past FROZEN_HAND_PRECHECK_MS, custody past its bound).
+  # Release 42139090188-1 paused every table for five minutes at 01:22Z on
+  # 2026-11-06 for a certificate that was shut from the first second. Absent
+  # (older engines) asks as before; transient reasons are never named there.
+  persistent="$(printf '%s' "$health" | python3 -c '
+import json, sys
+p = (json.load(sys.stdin).get("maintenance") or {}).get("restartPrecheck")
+if not isinstance(p, dict): print(""); raise SystemExit(0)
+q = p.get("persistent")
+if not isinstance(q, dict): print("unreadable"); raise SystemExit(0)
+bad = {k: v for k, v in q.items() if not (type(v) is int and v == 0)}
+print(",".join("%s=%s" % (k, bad[k]) for k in sorted(bad)))
+' 2>/dev/null)" || persistent=unreadable
+  if [ -n "$persistent" ]; then
+    RECOVERY_NEXT_EVALUATION=$(( now + RECOVERY_DEFER_SECONDS ))
+    if [ "${RECOVERY_REFUSED_PERSISTENT:-}" != "$persistent" ]; then
+      RECOVERY_REFUSED_PERSISTENT="$persistent"
+      echo "[engine-release-transaction] the serving engine reports restart blockers no break can clear ($persistent); an off-cycle window would pause every table and admit nobody. Not asking."
+    fi
+    return 0
+  fi
   if [ "$stuck" != 0 ]; then
     RECOVERY_NEXT_EVALUATION=$(( now + RECOVERY_DEFER_SECONDS ))
     if [ "$RECOVERY_REFUSED_STUCK" != "$stuck" ]; then
@@ -2970,6 +3023,36 @@ record_floor_runtime_entry() {
 
 # Duplicate certification and interrupted recovery retain their original owner.
 acquire_engine_lock 'duplicate certification'
+# A committed run pinned to supervisor bytes that cannot read its own
+# hard-linked request parks failed while it still owns finalization and its
+# routine cycle. Its original unit is the only finalizer: give it back the
+# identical request on its own inode, restart it, and retry after it seals.
+PARKED_COMMITTED_OWNER="$(legacy_entry_read timeout --signal=TERM --kill-after=1s 60s \
+  "$RELEASE_SEAL" restart-parked-committed-owner --engine-lock-fd 9 --run-id "$RUN_ID")" \
+  || die 'a parked committed release owner could not be restarted'
+case "$PARKED_COMMITTED_OWNER" in
+  not-needed) ;;
+  'restarted '*)
+    PARKED_OWNER_RUN="${PARKED_COMMITTED_OWNER#restarted }"
+    [[ "$PARKED_OWNER_RUN" =~ ^[1-9][0-9]*(-[1-9][0-9]*)?$ ]] \
+      || die 'parked committed release owner identity is invalid'
+    echo "[engine-release-transaction] restarted parked committed release owner $PARKED_OWNER_RUN; waiting for it to record its own sealed result"
+    # The owner needs the engine lock to finish. The ordinary owner check
+    # below still decides; this wait only gives the owner its turn.
+    release_engine_lock
+    PARKED_OWNER_WAIT_END=$(( $(date +%s) + 300 ))
+    while [ "$(date +%s)" -lt "$PARKED_OWNER_WAIT_END" ]; do
+      sleep 5
+      case "$(timeout --signal=TERM --kill-after=1s 10s systemctl show -p ActiveState --value \
+        "club-arena-engine-release-v1@$PARKED_OWNER_RUN.service" 2>/dev/null || echo unknown)" in
+        activating|active|deactivating|reloading|unknown) ;;
+        *) break ;;
+      esac
+    done
+    acquire_engine_lock 'duplicate certification'
+    ;;
+  *) die 'parked committed release owner disposition is invalid' ;;
+esac
 # One pinned historical permanent refusal may release its global custody only
 # after fresh source/native/runtime/database proof under this actual lock.
 # Its failed receipt and consumed cycle remain immutable; this does not retry it.

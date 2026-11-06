@@ -449,6 +449,19 @@ export const eliminationSweepMs: Histogram = alwaysOnRegistry.histogram(
   'poker_tournament_elimination_sweep_ms',
   'Wall time of one admitted tournament elimination sweep (ms). Admission is process-wide and concurrency-bounded.'
 );
+/**
+ * WHERE A SWEEP SPENDS ITS TIME, STEP BY STEP (2026-11-05).
+ *
+ * `_sweep_ms` says how long a sweep took; this says which step took it. Every
+ * `noteEliminationSweepStep` name is one label value (a fixed set of about forty
+ * names in TournamentManagerEliminations), observed when the next step begins
+ * or the sweep ends. A step is a chain of awaited PostgREST round trips, so this
+ * is the series that shows which links of the bust path still cost a trip.
+ */
+export const eliminationSweepStepMs: Histogram = alwaysOnRegistry.histogram(
+  'poker_tournament_elimination_sweep_step_ms',
+  'Wall time of one named step of an admitted tournament elimination sweep (ms), labelled by step.'
+);
 export const eliminationSweepsInflight: Gauge = alwaysOnRegistry.gauge(
   'poker_tournament_elimination_sweeps_inflight',
   'Tournament generations currently holding their logical elimination lock. Use elimination_scheduler_slots_inflight for underlying promises physically admitted by the process-wide cap.'

@@ -46,7 +46,7 @@ class StopHarness extends TournamentManagerBase {
 afterEach(() => vi.restoreAllMocks());
 
 describe('manager owns table stop failures before awaiting another drain', () => {
-  it.each(['MTT', 'SATELLITE', 'DISAGREEMENT'])(
+  it.each(['MTT', 'SNG', 'SPIN', 'SATELLITE', 'DISAGREEMENT'])(
     'fences %s dealers before awaiting an unavailable alert writer',
     async (format) => {
       const manager = new StopHarness(
@@ -60,7 +60,9 @@ describe('manager owns table stop failures before awaiting another drain', () =>
       manager.reportTerminalReceiptDisagreement = (
         TournamentManagerEliminations.prototype as any
       ).reportTerminalReceiptDisagreement;
-      manager.processSatelliteAwards = vi.fn().mockRejectedValue(new Error('response lost'));
+      const failureMessage =
+        format === 'MTT' ? `response lost ${'x'.repeat(3000)}` : 'response lost';
+      manager.processSatelliteAwards = vi.fn().mockRejectedValue(new Error(failureMessage));
       vi.spyOn(terminalSettlement, 'requestTournamentTerminalReceipt').mockRejectedValue(
         format === 'DISAGREEMENT'
           ? new terminalSettlement.TerminalSettlementDisagreementError(
@@ -69,7 +71,7 @@ describe('manager owns table stop failures before awaiting another drain', () =>
               { settlementMode: 'places', winnerId: 'observed' },
               { settlementMode: 'places', winnerId: 'stored' }
             )
-          : new terminalSettlement.TerminalSettlementOutcomeUnknownError('response lost')
+          : new terminalSettlement.TerminalSettlementOutcomeUnknownError(failureMessage)
       );
       manager.requestUrgentEliminationSweepAfter = vi.fn();
       const engine = {
@@ -88,6 +90,17 @@ describe('manager owns table stop failures before awaiting another drain', () =>
       try {
         await new Promise<void>((resolve) => setImmediate(resolve));
         expect(raiseFinancialAlert).toHaveBeenCalled();
+        if (format !== 'DISAGREEMENT') {
+          const context = vi.mocked(raiseFinancialAlert).mock.calls.at(-1)![3];
+          expect(context).toMatchObject({
+            tournament_id: manager.tournamentId,
+            outcome_unknown: true,
+            proven_refusal: false,
+            error: failureMessage.slice(0, 2048),
+            error_name: format === 'SATELLITE' ? 'Error' : 'TerminalSettlementOutcomeUnknownError',
+          });
+          expect(context).not.toHaveProperty('stack');
+        }
         expect(manager.running).toBe(false);
         expect(engine.stop).toHaveBeenCalled();
         expect(manager.requestUrgentEliminationSweepAfter).not.toHaveBeenCalled();

@@ -8,7 +8,7 @@
  *  1. finds every decision a horse made in the hand (each recorded action
  *     with origin 'horse_policy' carries the public table snapshot the engine
  *     recorded at that moment, `publicNode`);
- *  2. rebuilds the exact game state at each of those decisions (seats,
+ *  2. rebuilds the retained public game state at each of those decisions (seats,
  *     stacks, street bets, pot, board, legal actions, raise bounds, blinds,
  *     antes, dealer, tournament stage, and the action history strictly before
  *     the decision): the generalisation to every street and variant of the
@@ -37,6 +37,7 @@ import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HORSE_HYBRID_PROFILES } from './HorseHybridProfile.js';
 import { omahaCallClass } from './HorseOmahaBigBetCalls.js';
 import type { Card, CardRank, CardSuit, HorseStyle, SeatPlayer } from '../types.js';
+import type { HorsePublicDeductions } from './HorsePublicDeductions.js';
 
 /** The public snapshot the engine records with every horse decision. */
 export interface ComplaintPublicNode {
@@ -44,7 +45,8 @@ export interface ComplaintPublicNode {
   ante?: number | null;
   anteType?: string | null;
   mode: 'cash' | 'tournament';
-  /** [seat, behind, street bet, hand total, dead ante, -, status 0 live / 1 folded / 2 all in] */
+  /** [seat, behind, street bet, hand total, dead ante, individual ante,
+   * bit flags: folded=1, all-in=2, sitting-out=4] */
   seats: number[][];
   boards?: string[];
   street: string;
@@ -61,8 +63,12 @@ export interface ComplaintPublicNode {
   structure?: string;
   actorSeat: number;
   bombPot?: boolean;
-  /** The table's all-in-or-fold rule as the engine recorded it (HorsePublicActionNode). */
+  boardCount?: number;
   allInOrFold?: boolean;
+  fixedBetSize?: number | null;
+  wagersCapped?: boolean;
+  asset?: 'chips' | 'diamonds';
+  deductions?: HorsePublicDeductions;
   tournamentStage?: Record<string, unknown> | null;
 }
 
@@ -240,7 +246,10 @@ function replayFormat(pn: ComplaintPublicNode): 'mtt' | 'spin' | 'sng' | 'hu_sng
   return f === 'mtt' || f === 'spin' || f === 'sng' || f === 'hu_sng' ? f : undefined;
 }
 
-/** The game state the engine saw at `node`, with history strictly before it. */
+/** Retained public state at `node`, with history strictly before it.
+ * This is not the original private worker request, memory, RNG or runtime.
+ * Missing canonical fields remain missing; never forge original-input custody.
+ */
 export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintAction) {
   const pn = node.publicNode;
   if (!pn) throw new Error(`action ${node.ord} has no recorded snapshot`);
@@ -248,7 +257,7 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
   const hole = heroCards(hand, heroSeat);
   if (hole.length === 0) throw new Error(`no hole cards for the horse in seat ${heroSeat}`);
   const players = pn.seats.map(
-    ([seat, behind, bet, total, , , status]) =>
+    ([seat, behind, bet, total, dead, individualAnte, status]) =>
       ({
         seat,
         user_id: `p${seat}`,
@@ -256,10 +265,12 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
         stack: behind,
         bet,
         totalInvested: total,
+        deadInvested: dead,
+        individualAnteInvested: individualAnte,
         cards: seat === heroSeat ? hole : [],
-        is_folded: status === 1,
-        is_all_in: status === 2,
-        is_sitting_out: false,
+        is_folded: (status & 1) !== 0,
+        is_all_in: (status & 2) !== 0,
+        is_sitting_out: (status & 4) !== 0,
         is_horse: isHorseSeat(hand, seat),
       }) as SeatPlayer
   );
@@ -268,17 +279,34 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
   const ts = pn.tournamentStage ?? undefined;
   const humans = hand.players.filter((p) => !p.isHorse).map((p) => `p${p.seat}`);
   const gs = {
-    // The live engine's decision state is schema version 1
-    // (ServerTableEngineTurns), and that is what arms the authoritative
-    // legal-menu check (enforceAuthoritativeDecision). Without it a replay
-    // can answer outside the recorded menu, e.g. a call on an all-in-or-fold
-    // menu of fold and all in.
+    // The live engine stamps every decision state (ServerTableEngineTurns);
+    // the final wager rules (riverNutsRaise, omahaCurrentNutsRaise) read it.
     stateSchemaVersion: 1,
-    // AoF: the live state tells the brain (ServerTableEngineTurns
-    // allInOrFold), so the replay reads the same recorded rule (#8196).
-    allInOrFold: pn.allInOrFold === true,
     players,
     communityCards: parseBoard(pn.boards?.[0]),
+    ...(pn.boards?.[1] !== undefined ? { communityCards2: parseBoard(pn.boards[1]) } : {}),
+    ...(pn.boards?.[2] !== undefined ? { communityCards3: parseBoard(pn.boards[2]) } : {}),
+    ...(pn.boardCount !== undefined ? { boardCount: pn.boardCount } : {}),
+    ...(pn.bombPot !== undefined ? { bombPot: pn.bombPot } : {}),
+    // AoF: the live state always carries a boolean (ServerTableEngineTurns
+    // sets tableInfo?.all_in_or_fold === true), so a node recorded before the
+    // field existed replays as an ordinary table, false, never undefined.
+    allInOrFold: pn.allInOrFold === true,
+    ...(pn.fixedBetSize !== undefined ? { fixedBetSize: pn.fixedBetSize } : {}),
+    ...(pn.wagersCapped !== undefined ? { wagersCapped: pn.wagersCapped } : {}),
+    ...(pn.asset !== undefined ? { asset: pn.asset } : {}),
+    ...(pn.deductions?.status === 'captured'
+      ? {
+          rakeConfig: {
+            ...pn.deductions.rake,
+            playerCountCaps: pn.deductions.rake.playerCountCaps.map(([players, cap]) => ({
+              players,
+              cap,
+            })),
+          },
+          bbjConfig: pn.deductions.bbj ? { ...pn.deductions.bbj } : null,
+        }
+      : {}),
     pot: pn.pot,
     currentBet: pn.currentBet,
     toCall: pn.toCall,
@@ -610,6 +638,7 @@ export interface NodeReplay {
   /** Live hybrid profile: share of seeds that still make the recorded action. */
   liveReproduced: number;
   verdict: string;
+  replayLimitations: string[];
 }
 
 /** Replay every horse decision of a hand (or only the `ords` given). */
@@ -629,6 +658,16 @@ export function replayHand(
     const live = profiles.find((p) => p.live)!;
     const share = live.reproduced / seeds.length;
     const anyStyle = profiles.filter((p) => p.reproduced > 0).map((p) => p.profile);
+    const unavailable = [
+      ...new Set(
+        profiles.flatMap((p) =>
+          Object.keys(p.receipts).filter(
+            (key) =>
+              key.includes('canonical_state_unavailable') || key.includes('blind_seats_unavailable')
+          )
+        )
+      ),
+    ].sort();
     out.push({
       ord: node.ord,
       seat: node.seat,
@@ -637,12 +676,17 @@ export function replayHand(
       spot: classifySpot(hand, node),
       profiles,
       liveReproduced: share,
+      replayLimitations: [
+        'Current checked-out source with opponent memory disabled, not original-runtime replay or live-use proof.',
+        'Action reproduction is not a strategic correctness or EV verdict.',
+        ...unavailable.map((key) => `Policy path unavailable in reconstructed input: ${key}`),
+      ],
       verdict:
         share === 0
           ? anyStyle.length
-            ? `the live profile no longer chooses ${kind} here; still seen in: ${anyStyle.join(', ')}`
-            : `today's brain no longer chooses ${kind} here (no profile, no seed)`
-          : `today's brain STILL chooses ${kind} here (live profile ${live.reproduced}/${seeds.length} seeds)`,
+            ? `the reconstructed current hybrid profile did not choose ${kind}; observed in: ${anyStyle.join(', ')}`
+            : `the reconstructed current source did not choose ${kind} in the tested profiles and seeds`
+          : `the reconstructed current hybrid profile chose ${kind} in ${live.reproduced}/${seeds.length} seeds`,
     });
   }
   return out;

@@ -7,6 +7,7 @@ import {
   type Page,
 } from '@playwright/test';
 
+import { enrollCustomizationBrowser } from './support/customizationBrowserEnrollment';
 import { ensureAcceptedTerms } from './support/ensureAcceptedTerms';
 import { ensurePlayableProfile } from './support/ensurePlayableProfile';
 import {
@@ -188,7 +189,8 @@ async function expectPersistedAppearance(
 async function signInTemporaryAccount(
   context: BrowserContext,
   baseURL: string,
-  account: TemporaryCustomizationAccount
+  account: TemporaryCustomizationAccount,
+  approvingPage?: Page
 ): Promise<Page> {
   const page = await context.newPage();
   await page.addInitScript(() => {
@@ -259,6 +261,9 @@ async function signInTemporaryAccount(
   if (page.url().includes('/auth')) {
     throw new Error(`Temporary customization account ${account.id} did not remain signed in.`);
   }
+  // Sign-in may finish on the shared site's landing route. Enrollment belongs
+  // to the Club Arena boot, so observe it only after entering this layout.
+  await enrollCustomizationBrowser(page, account, approvingPage);
   await ensureAcceptedTerms(page);
   await ensurePlayableProfile(page);
   await expect(page.getByRole('button', { name: 'Open Menu' }).first()).toBeVisible({
@@ -445,10 +450,10 @@ test.describe('production Table Studio commerce certification', () => {
       expect(await deployedStorefrontFeatures(firstStudio)).toEqual(
         skus.map((sku) => sku.feature).sort()
       );
-      const secondPage = await signInTemporaryAccount(secondDevice, baseURL, buyer);
+      const secondPage = await signInTemporaryAccount(secondDevice, baseURL, buyer, firstPage);
       const secondStudio = await openStudio(secondPage);
 
-      // Two independent devices press Buy against the same permanent SKU.
+      // Two independent paired browsers press Buy against the same permanent SKU.
       // Both requests must reach the RPC; one buys and one reconciles ownership.
       const firstDialog = await openPurchase(firstStudio, 'Tables', 'Neon City');
       const secondDialog = await openPurchase(secondStudio, 'Tables', 'Neon City');

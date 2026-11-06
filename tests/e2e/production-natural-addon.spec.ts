@@ -5,9 +5,12 @@ import { isReadOnlySpectatorSocketType } from './support/spectatorSocketRead';
 import {
   admitNaturalAddOn,
   completeAddOnRoster,
+  synchronizeAddOnObservers,
   addOnWindow,
-  countdownSeconds,
+  readAddOnCountdown,
+  hasNaturalAddOnIncrement,
   forbiddenAddOnParticipation,
+  suppressedObserverReward,
   type AddOnTable,
 } from './support/naturalAddOnWitness';
 
@@ -57,6 +60,8 @@ test('every captured natural add-on table renders its public minute', async ({
     rosterReads: [],
     observations: [],
     counterChanges: [],
+    purchaseSignals: [],
+    suppressedRewards: [],
     admissionReads: [],
   };
   async function readBoard() {
@@ -67,7 +72,7 @@ test('every captured natural add-on table renders its public minute', async ({
         .select('id,status,tournament_id', { count: 'exact' })
         .eq('tournament_id', tournamentId)
         .order('id')
-        .range(0, 8),
+        .range(0, 999),
     ]);
     if (board.error || tables.error || !board.data)
       throw new Error('UNKNOWN: authoritative tournament/complete roster read failed');
@@ -139,6 +144,7 @@ test('every captured natural add-on table renders its public minute', async ({
   }
   const state = await context.storageState();
   async function openTable(tableId: string) {
+    received.delete(tableId);
     const observer = await browser.newContext({
       storageState: state,
       viewport: { width: 393, height: 852 },
@@ -147,7 +153,19 @@ test('every captured natural add-on table renders its public minute', async ({
     contexts.push(observer);
     await observer.route('**/*', async (route) => {
       const req = route.request();
-      if (forbiddenAddOnParticipation(req.method(), new URL(req.url()))) {
+      const requestUrl = new URL(req.url());
+      if (suppressedObserverReward(req.method(), requestUrl)) {
+        evidence.suppressedRewards.push({ tableId, operation: requestUrl.pathname });
+        await route.abort('blockedbyclient');
+        return;
+      }
+      let body: unknown;
+      try {
+        body = req.postDataJSON();
+      } catch {
+        /* Malformed writes remain refused. */
+      }
+      if (forbiddenAddOnParticipation(req.method(), requestUrl, account.id, body)) {
         blocked.push({ tableId, transport: 'http', operation: new URL(req.url()).pathname });
         await route.abort('blockedbyclient');
       } else await route.continue();
@@ -158,6 +176,19 @@ test('every captured natural add-on table renders its public minute', async ({
         const engine = new URL(client.url()).hostname === 'engine.smarter.poker';
         const server = client.connectToServer();
         server.onMessage((message) => {
+          if (!engine) {
+            try {
+              const frame = JSON.parse(String(message));
+              if (
+                frame.event === 'broadcast' &&
+                frame.payload?.event === 'purchase_committed' &&
+                frame.topic === `realtime:tournament-purchases:${tournamentId}`
+              )
+                evidence.purchaseSignals.push({ tableId, at: Date.now() });
+            } catch {
+              /* Retain only the named signal time, never raw frames. */
+            }
+          }
           if (engine) {
             try {
               const frame = JSON.parse(String(message));
@@ -241,12 +272,15 @@ test('every captured natural add-on table renders its public minute', async ({
       .locator('.break-screen__stat-value');
     await expect(cost).toHaveText(window.cost.toLocaleString('en-US'));
     await expect(chips).toHaveAttribute('title', window.chips.toLocaleString('en-US'));
-    const seconds = countdownSeconds(await dialog.getByRole('timer').innerText());
-    const now = Date.now();
+    const countdown = await readAddOnCountdown(dialog.getByRole('timer'), window.end);
+    const { seconds, at: now } = countdown;
+    // Retain even a failed clock sample, including transport lag and visibility.
+    evidence.countdownSamples ??= [];
+    evidence.countdownSamples.push({ tableId, phase, ...countdown });
     expect(seconds).toBeGreaterThan(0);
     expect(seconds).toBeLessThanOrEqual(60);
     expect(
-      Math.abs(seconds - Math.ceil((window.end - now) / 1000)),
+      countdown.driftSeconds,
       'Rendered countdown differs from durable deadline'
     ).toBeLessThanOrEqual(3);
     evidence.observations.push({
@@ -260,7 +294,7 @@ test('every captured natural add-on table renders its public minute', async ({
     });
     if (phase === 'opened')
       await info.attach(`${tableId}-${phase}`, {
-        body: await dialog.screenshot(),
+        body: await page.screenshot({ timeout: 5000 }),
         contentType: 'image/png',
       });
     return seconds;
@@ -275,22 +309,36 @@ test('every captured natural add-on table renders its public minute', async ({
     if (initial.board.addon_period_triggered || initial.board.addon_period_started_at)
       throw new Error('UNKNOWN: add-on already opened before full-roster observers were ready');
     await Promise.all(initial.roster.map((row) => openTable(row.id)));
-    const readyAt = Date.now();
-    const ids = initial.roster.map((row) => row.id).sort();
+    let readyAt = Date.now();
+    let ids = initial.roster.map((row) => row.id).sort();
     const deadline = readyAt + 8 * 60_000;
     let window: ReturnType<typeof addOnWindow> = null;
     while (Date.now() < deadline) {
       const current = await readBoard();
-      expect(
-        current.roster.map((row) => row.id).sort(),
-        'UNKNOWN: roster changed; initial rows retained, no incomplete proof'
-      ).toEqual(ids);
-      if (current.roster.some((row, index) => row.status !== initial.roster[index].status))
-        throw new Error(
-          'UNKNOWN: table status changed; roster transition retained for SQL reconciliation'
-        );
       window = addOnWindow(current.board);
-      if (window) break;
+      const currentIds = current.roster.map((row) => row.id).sort();
+      if (window) {
+        expect(
+          currentIds,
+          'UNKNOWN: opening roster was not fully connected before opening'
+        ).toEqual(ids);
+        evidence.openingRoster = current.roster;
+        evidence.fullRosterReadyAt = readyAt;
+        break;
+      }
+      const priorIds = ids;
+      ({ ids, readyAt } = await synchronizeAddOnObservers(ids, currentIds, readyAt, {
+        open: openTable,
+        close: async (id) => {
+          await pages.get(id)!.context().close();
+          pages.delete(id);
+          received.delete(id);
+        },
+      }));
+      if (ids.join(',') !== priorIds.join(',')) {
+        evidence.rosterSynchronizations ??= [];
+        evidence.rosterSynchronizations.push({ priorIds, ids, readyAt });
+      }
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     if (!window) throw new Error('UNKNOWN: no natural add-on within the bounded observation');
@@ -307,19 +355,9 @@ test('every captured natural add-on table renders its public minute', async ({
     );
     second.forEach((seconds, index) => expect(seconds).toBeLessThan(first[index]));
     await admission(true, 'progressing');
-    await expect
-      .poll(
-        () =>
-          ids.some((id) => {
-            const samples = evidence.counterChanges.filter((sample: any) => sample.tableId === id);
-            return samples.some(
-              (sample: any, index: number) => index > 0 && sample.count > samples[index - 1].count
-            );
-          }),
-        { timeout: 15000, message: 'No natural add-on increment reached an unchanged live page' }
-      )
-      .toBe(true);
-    evidence.naturalCounterIncrementBeforeReload = true;
+    // Observe the whole minute before deciding whether a natural incremental
+    // purchase occurred. Its absence must not erase independent window proof.
+    const originalPageEnds: Record<string, number> = {};
     const committedCount = await completeAddOnCount();
     const renderedCounts: number[] = [];
     for (const id of ids) {
@@ -348,7 +386,7 @@ test('every captured natural add-on table renders its public minute', async ({
         )
       );
       await info.attach(`${id}-live-count`, {
-        body: await pages.get(id)!.locator('.break-screen').screenshot(),
+        body: await pages.get(id)!.screenshot({ timeout: 5000 }),
         contentType: 'image/png',
       });
     }
@@ -356,9 +394,12 @@ test('every captured natural add-on table renders its public minute', async ({
     const committedAfterRenders = await completeAddOnCount();
     for (const count of renderedCounts) expect(count).toBeLessThanOrEqual(committedAfterRenders);
     evidence.counterReadBounds = { committedCount, renderedCounts, committedAfterRenders };
+    evidence.counterConsistencyProof = 'passed';
     // Reopen one existing table only after closing its context: never exceed
     // eight live observers. This is a late-open consumer, not a ninth connection.
     const lateId = ids[0];
+    originalPageEnds[lateId] = Date.now();
+    evidence.originalPageEnds = originalPageEnds;
     await pages.get(lateId)!.context().close();
     received.delete(lateId);
     const late = await openTable(lateId);
@@ -370,18 +411,46 @@ test('every captured natural add-on table renders its public minute', async ({
       .poll(() => received.get(lateId)?.has('SNAPSHOT') ?? false, { timeout: 10_000 })
       .toBe(true);
     await rendered(lateId, late, window, 'reconnected');
+    const readReconnectedCount = async () =>
+      Number(
+        (await late.getByLabel('Players Who Took Add-On', { exact: true }).innerText()).replaceAll(
+          ',',
+          ''
+        )
+      );
+    await expect
+      .poll(readReconnectedCount, { timeout: 5000 })
+      .toBeGreaterThanOrEqual(committedCount);
+    const reconnectedCount = await readReconnectedCount();
+    const committedAfterReconnect = await completeAddOnCount();
+    expect(reconnectedCount).toBeGreaterThanOrEqual(committedCount);
+    expect(reconnectedCount).toBeLessThanOrEqual(committedAfterReconnect);
+    evidence.reconnectCountBounds = { committedCount, reconnectedCount, committedAfterReconnect };
+    evidence.reconnectProof = 'passed';
     const remaining = window.end - Date.now();
     if (remaining <= 0) throw new Error('UNKNOWN: reconnect exhausted the natural add-on window');
     if (remaining < 5000)
       throw new Error('UNKNOWN: no time remains to observe the end of the minute');
-    while (Date.now() < window.end - 3000) {
+    // Brunch 42260827276 needed about eight seconds for the full-roster DOM
+    // checks. Start them with headroom, then keep sampling admission to expiry.
+    const beforeCloseRenderReserveMs = 15_000;
+    while (Date.now() < window.end - beforeCloseRenderReserveMs) {
       await admission(true, 'during-addon');
       await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(1000, Math.max(0, window!.end - Date.now() - 3000)))
+        setTimeout(
+          resolve,
+          Math.min(1000, Math.max(0, window!.end - Date.now() - beforeCloseRenderReserveMs))
+        )
       );
     }
     await Promise.all(ids.map((id) => rendered(id, pages.get(id)!, window!, 'before-close')));
     await admission(true, 'before-close');
+    while (Date.now() < window.end - 1000) {
+      await admission(true, 'during-addon');
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(1000, Math.max(0, window!.end - Date.now() - 1000)))
+      );
+    }
     await new Promise((resolve) =>
       setTimeout(resolve, Math.max(0, window!.end - Date.now() - 1000))
     );
@@ -390,6 +459,7 @@ test('every captured natural add-on table renders its public minute', async ({
       setTimeout(resolve, Math.max(0, window!.end - Date.now()) + 1000)
     );
     await admission(false, 'closed');
+    evidence.admissionWindowProof = 'passed';
     evidence.finalCommittedAddOnCount = await completeAddOnCount();
     await Promise.all(
       ids.map(async (id) => {
@@ -399,6 +469,7 @@ test('every captured natural add-on table renders its public minute', async ({
         evidence.observations.push({ tableId: id, phase: 'closed', at: Date.now() });
       })
     );
+    evidence.dialogClosureProof = 'passed';
     const final = await readBoard();
     evidence.finalRoster = final.roster;
     expect(
@@ -408,6 +479,17 @@ test('every captured natural add-on table renders its public minute', async ({
     evidence.engineAfter = await engineIdentity();
     expect(evidence.engineAfter).toEqual(evidence.engineBefore);
     expect(blocked, 'Served spectator attempted a forbidden participation request').toEqual([]);
+    evidence.identityAndReadOnlyProof = 'passed';
+    evidence.naturalCounterIncrementBeforeReload = hasNaturalAddOnIncrement(
+      ids,
+      evidence.counterChanges,
+      evidence.purchaseSignals,
+      originalPageEnds
+    );
+    expect(
+      evidence.naturalCounterIncrementBeforeReload,
+      'No natural add-on increment reached an unchanged live page'
+    ).toBe(true);
     evidence.consumerProof = 'passed';
   } finally {
     evidence.blockedParticipation = blocked;

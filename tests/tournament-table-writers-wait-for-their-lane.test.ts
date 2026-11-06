@@ -145,6 +145,11 @@ describe('Tournament table writers wait for their shared lane', () => {
       'preimage-drift-refused',
       'metadata-preserved',
       'all-probes-rolled-back',
+      'late-snapshot-counterfactual-reopens-settled-hand',
+      'late-snapshot-preserves-next-hand-',
+      'late-snapshot-waits-for-receipt-',
+      'late-snapshot-receipt-result-',
+      'late-snapshot-next-hand-is-active',
     ]) {
       expect(harness).toContain(witness);
     }

@@ -209,7 +209,7 @@ describe('live break standings', () => {
     expect(state.queries).toBe(2);
   });
 
-  it('coalesces events during a read and never paints the superseded answer', async () => {
+  it('coalesces events during a read and finishes with the fresh trailing answer', async () => {
     let release!: () => void;
     state.hold = new Promise<void>((r) => {
       release = r;
@@ -225,6 +225,35 @@ describe('live break standings', () => {
     });
     expect(players()).toBe('72');
     expect(state.queries).toBe(2);
+  });
+
+  it('paints each successful add-on count during a continuous event burst', async () => {
+    let release!: () => void;
+    state.rows[0].add_on = true;
+    state.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    render(<TournamentBreakScreen {...props} addOnNotice={{ cost: 35, chips: 20000 }} />);
+    await flush();
+    for (let count = 1; count <= 3; count++) {
+      const finish = release;
+      state.hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await act(async () => {
+        state.purchaseSignal?.();
+        state.purchaseSignal?.();
+        finish();
+      });
+      expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent(String(count));
+      state.rows[count].add_on = true;
+    }
+    state.hold = null;
+    await act(async () => {
+      state.purchaseSignal?.();
+      release();
+    });
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('4');
   });
 
   it('refreshes at the last-hand/countdown transition and drops old-owner responses', async () => {

@@ -1,0 +1,56 @@
+# Original own-card recovery for the private Horse study
+
+Place receipted `snapshot-own-originals-*.jsonl.gz` batches alongside the existing
+study source inputs and run the maintained `horse-study-report.py --source SOURCE
+--output NEW_PRIVATE_OUTPUT` route. Existing reports remain immutable. The normal
+receipt SHA and row-count checks apply; snapshot receipts also require `readOnly:
+true` and the original query SHA. No runtime strategy is activated.
+
+The acquisition query must bind a protected hand_atomic_commits receipt to exact
+hand ID and expected table, then match original history/snapshot table and hand
+number and select only the named actor's own cards. Retain that query and its native
+receipt with the acquisition. File hashes establish byte provenance, not independent
+DB authentication. A fabricated receipt is not authoritative evidence.
+
+The adapter validates hand/table/number/actor/seat/variant and original configuration,
+requires valid unique fixed-hole cards, and withholds every conflicting snapshot
+rather than selecting one. Pineapple uses the separate preflop-only path described below. The decision parser rejects collisions with its currently visible board
+and mismatched captured variants. No later board, outcome, opponent holding or
+snapshot stack enters the decision information set. Existing original card sources
+retain precedence; snapshots fill missing holdings only.
+
+Clock semantics: snapshot `created_at` is DB NOW() (base snapshot migration), while
+atomic `committed_at` is DB clock_timestamp(). Require creation not after acceptance.
+The engine's history start/end timestamps come from Date.now(); without calibration
+they cannot impose DB lower/upper bounds. No arbitrary grace is used. Completion can
+advance `updated_at` after acceptance. All original timestamps are retained in the
+per-decision provenance. Fixed-hole controller cards originate at deal and do not
+change across streets; Pineapple's explicit discard paths are excluded.
+
+Summary records source/query/receipt digests and accepted/withheld decision counts.
+Decision records retain exact snapshot IDs, original timestamps, source row ordinals
+and identity. Missing/invalid records remain gaps; recovered own cards do not recover
+missing public nodes, historical runtime policy, opponent ranges or tournament utility.
+
+Focused cases live in `test_horse_snapshot_cards.py`, discovered by the maintained
+`tests/unit/horseHumanStudy.test.ts` Python test route.
+
+## Pineapple original-three recovery
+
+Optional receipted `remaining-own-delivery-*.jsonl.gz` exports select only the
+named actor's actual `hand_discards` row, joined by exact table/hand number/user.
+A three-card original snapshot, or a two-card retained holding united with that
+actor's one recorded discarded card, can establish the original dealt set. All
+snapshot and discard candidates must agree; invalid identity, duplicate cards,
+conflicting discarded cards and missing pair-completion evidence are withheld.
+Discard DB creation must not exceed the same hand's atomic commit. Null delivery
+coverage rows are not discard records.
+
+The reconstructed set is supplied only to preflop actions before any own discard
+in the recorded public chronology. Original-three cards never replace post-discard
+holdings. Later public actions, future boards and results do not alter that input.
+The discarded card is used only to recover the already-known original three-card
+set, never as an earlier discard-choice feature or shared opponent information.
+Source: HandController dealHoleCards assigns the original set; Pineapple's two
+explicit discard paths remove one card. persistDiscardedCard captures the hand
+number before awaiting its protected own-user storage write.

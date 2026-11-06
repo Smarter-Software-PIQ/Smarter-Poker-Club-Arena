@@ -1,0 +1,3 @@
+# tests/a-realtime-revive-is-recorded.law.test.ts
+
+Every realtime socket the client forces back when a player returns to the page is recorded durably (at most one row per player per ten minutes) with its reason, the probe wait and the gap from the page coming back to its channels joining again, or rejoined false when none joined within two minutes. A signed-in player can insert only their own row; only service_role reads the rows and the daily KPI view. A transport loss filed within five seconds of a forced reconnect is tagged forcedByLiveness so it is never mistaken for a new drop (2026-11-06).

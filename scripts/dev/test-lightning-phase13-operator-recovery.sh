@@ -10,6 +10,8 @@ pgbin=${PG_BIN:-/opt/homebrew/opt/postgresql@17/bin}
 python3 "$root/scripts/ci/test-lightning-live-index-maintenance.py"
 # Exact current operator body: uncertain hold outcome and foreign-hold CAS regression.
 python3 -B "$root/scripts/dev/test-lightning-release-hold-outcome.py"
+# Exact readiness law accepts only the reviewed, service-only rebuy input.
+python3 -B "$root/scripts/dev/test-lightning-readiness-rebuy.py"
 port=${LIGHTNING_P13_PORT:-55564}
 log=$(mktemp "${TMPDIR:-/tmp}/lp13-recovery.XXXXXX")
 fixture=''

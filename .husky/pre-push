@@ -148,6 +148,49 @@ fi
 # and gives the run its own short TMPDIR on the external SSD. Nothing changes
 # on Linux, and a TMPDIR the caller already placed on /Volumes is kept.
 if [ "$(uname -s)" = Darwin ]; then
+  case "${TMPDIR:-}" in
+    /Volumes/*) ;;
+    *)
+      CA_PUSH_TMP_ROOT="${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t}"
+      if mkdir -p "$CA_PUSH_TMP_ROOT" 2>/dev/null; then
+        # Runs are a day old at most; nothing else is kept here.
+        find "$CA_PUSH_TMP_ROOT" -mindepth 1 -maxdepth 1 -name 'p.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+        if CA_PUSH_TMP=$(mktemp -d "$CA_PUSH_TMP_ROOT/p.XXXXXX"); then
+          TMPDIR="$CA_PUSH_TMP"
+          export TMPDIR
+        fi
+      fi
+      ;;
+  esac
+  # BASH (2026-11-06). macOS ships bash 3.2; CI and engine-01 run bash 5.
+  # This runs before the Node step below, so Node 22 still ends up first.
+  # The release shell tests spawn `bash` from PATH, so on this Mac they ran
+  # the host transaction under 3.2, where an empty array under `set -u` is an
+  # unbound-variable error, and refused a change production would have run
+  # fine (#9630). When a bash 4 or newer is installed, the checks below get it
+  # first on PATH through a private directory that holds only that one link,
+  # so no other tool's resolution moves.
+  for CA_BASH in ${CA_BASH_CANDIDATES:-/opt/homebrew/bin/bash /usr/local/bin/bash}; do
+    [ -x "$CA_BASH" ] || continue
+    if [ "$("$CA_BASH" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)" -ge 4 ]; then
+      # The one-link shim must use the same external scratch as the tests.
+      # Refuse an unavailable/internal directory rather than falling back to /tmp.
+      CA_TMP_DEVICE=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $1}')
+      CA_ROOT_DEVICE=$(df -P / 2>/dev/null | awk 'END {print $1}')
+      CA_TMP_MOUNT=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $NF}')
+      case "$CA_TMP_MOUNT" in /Volumes/*) ;; *) CA_TMP_DEVICE="" ;; esac
+      if [ ! -d "${TMPDIR:-}" ] || [ ! -w "$TMPDIR" ] || [ -z "$CA_TMP_DEVICE" ] || [ -z "$CA_ROOT_DEVICE" ] || [ "$CA_TMP_DEVICE" = "$CA_ROOT_DEVICE" ]; then
+        echo "[club-arena pre-push] external scratch unavailable for Bash checks." >&2
+        exit 1
+      fi
+      CA_BASH_DIR=$(mktemp -d "$TMPDIR/club-arena-pre-push-bash.XXXXXX") || exit 1
+      if ! ln -s "$CA_BASH" "$CA_BASH_DIR/bash"; then rmdir "$CA_BASH_DIR"; exit 1; fi
+      PATH="$CA_BASH_DIR:$PATH"
+      export PATH
+      echo "[club-arena pre-push] running the shell checks on $("$CA_BASH" -c 'echo bash $BASH_VERSION'), the major CI uses."
+      break
+    fi
+  done
   CA_NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
   if [ "$CA_NODE_MAJOR" != 22 ]; then
     # The newest nvm 22.x, compared by version number, not by path text.
@@ -171,20 +214,7 @@ EOV
       fi
     done
   fi
-  case "${TMPDIR:-}" in
-    /Volumes/*) ;;
-    *)
-      CA_PUSH_TMP_ROOT="${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t}"
-      if mkdir -p "$CA_PUSH_TMP_ROOT" 2>/dev/null; then
-        # Runs are a day old at most; nothing else is kept here.
-        find "$CA_PUSH_TMP_ROOT" -mindepth 1 -maxdepth 1 -name 'p.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
-        if CA_PUSH_TMP=$(mktemp -d "$CA_PUSH_TMP_ROOT/p.XXXXXX"); then
-          TMPDIR="$CA_PUSH_TMP"
-          export TMPDIR
-        fi
-      fi
-      ;;
-  esac
+
 fi
 
 # September 17: applicable prechecks must run before submission. Probe this
@@ -194,13 +224,24 @@ CA_TREE_TOP="$(git rev-parse --show-toplevel)"
 # Direct policy verification and one actual-result receipt in this worktree's
 # private Git metadata. A failed check keeps its original failing exit status.
 POLICY_PRECHECK_STARTED=$(date +%s)
+# A killed attempt must never leave a prior passed receipt as its apparent result.
+POLICY_PRECHECK_RECEIPT=$(git rev-parse --git-path agent-policy-preflight.json)
+rm -f -- "$POLICY_PRECHECK_RECEIPT"
 policy_precheck_result() {
   policy_exit=$?
   trap - EXIT
+  if [ -n "${CA_BASH_DIR:-}" ]; then
+    rm -f -- "$CA_BASH_DIR/bash"
+    rmdir -- "$CA_BASH_DIR" || policy_exit=1
+  fi
   node "$CA_TREE_TOP/docs/agent-policy/agent-policy.mjs" hook-report "$POLICY_PRECHECK_STARTED" "$policy_exit" || policy_exit=1
   exit "$policy_exit"
 }
 trap policy_precheck_result EXIT
+# Explicit signal exits prevent interrupted children from producing a pass.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 node "$CA_TREE_TOP/docs/agent-policy/agent-policy.mjs" check
 node --test "$CA_TREE_TOP/docs/agent-policy/agent-policy.test.mjs"
 node --test "$CA_TREE_TOP/tests/explicit-table-access.test.mjs"
@@ -865,15 +906,21 @@ done
 # contract depends on the basename, so search each distinct name exactly once.
 # Keep deleted paths in this set: their consumers still need verification.
 CONTRACT_BASENAMES=$(printf '%s\n' $FILES | sed 's#.*/##' | sort -u)
+# Reviewed native closures override only filename collisions. Declaration drift
+# retains the test; invalid/missing inventory stops this actual owning hook.
+UNCHANGED_NATIVE_CONTRACTS=$(node "$CA_TREE_TOP/scripts/ci/source-contract-inventory.mjs" $FILES) || exit 1
+UNCHANGED_NATIVE_CONTRACTS=$(printf '%s\n' "$UNCHANGED_NATIVE_CONTRACTS" | tr '\n' ' ')
 # Directory-scanning workflow contracts do not name an individual YAML file.
 if printf '%s\n' $FILES | grep -qE '^\.github/workflows/'; then
   CONTRACT_BASENAMES="$CONTRACT_BASENAMES .github/workflows"
 fi
 for base in $CONTRACT_BASENAMES; do
   for t in $(grep -rl --include='*.test.ts' --include='*.test.tsx' -F "$base" tests/ 2>/dev/null); do
+    case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
     case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
   done
   for t in $(grep -rl --include='*.test.mjs' -F "$base" tests/ 2>/dev/null); do
+    case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
     if grep -q 'node:test' "$t"; then
       case " $NODE_TESTS " in *" $t "*) ;; *) NODE_TESTS="$NODE_TESTS $t" ;; esac
     fi
@@ -919,7 +966,7 @@ if [ -n "$CHANGED_TESTS$CHANGED_SRC$NODE_TESTS" ]; then
     fi
     if [ -n "$NODE_TESTS" ]; then
       echo "[club-arena pre-push] running affected Node test contracts..."
-      if ! node --test $NODE_TESTS; then
+      if ! node --test --test-concurrency=4 $NODE_TESTS; then
         echo "[club-arena pre-push] BLOCKED: an affected Node contract failed."
         FAIL=1
       fi

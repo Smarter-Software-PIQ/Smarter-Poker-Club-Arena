@@ -166,19 +166,19 @@ describe('a dark event is rebuilt whatever its pause timer says', () => {
       live.msPaused = () => (minute % 11) * MINUTE;
       await s.rebuildManagersOfDarkTournaments();
     }
-    // 2026-11-05 (repeatedRecoveryLedger.ts): a rebuild that returns to the
-    // same stall is escalated, not repeated. The dark lane still offers a
-    // rebuild every 30 minutes, but one that would recreate the stall the
-    // previous rebuild left is refused inside the hour: minutes 0, 60, 120
-    // and 180 rebuild, 30, 90, 150 and 210 escalate. Still never a loop.
-    expect(s.retireTournamentManagerInDiscovery).toHaveBeenCalledTimes(4);
+    // 2026-11-06 (repeatedRecoveryLedger.ts): a repeated stall is held only
+    // for a 2/4/8 minute backoff, never for the hour, so a stall no rebuild
+    // cured is never left standing still. The dark lane offers a rebuild
+    // every 30 minutes, which is past every backoff: all eight offers
+    // rebuild. Still one rebuild per window, never a loop.
+    expect(s.retireTournamentManagerInDiscovery).toHaveBeenCalledTimes(8);
     const kinds = alerts.raise.mock.calls.map((call) => call[1]);
     // The dark-after-rebuild page is unchanged: every window after the first.
     expect(kinds.filter((k) => k === 'GameServer.tournament_dark_after_rebuild')).toHaveLength(7);
-    // And each refused repeat is its own critical incident, once per hour.
+    // No offer fell inside a backoff, so none was held.
     expect(
       kinds.filter((k) => k === 'GameServer.tournament_repeated_recovery_refused')
-    ).toHaveLength(4);
+    ).toHaveLength(0);
     expect(kinds[0]).toBe('GameServer.tournament_dark_after_rebuild');
   });
 

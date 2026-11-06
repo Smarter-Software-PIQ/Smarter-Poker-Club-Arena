@@ -299,29 +299,7 @@ class ClaudeHeartbeat(Base):
         age, _ = tm.claude_heartbeat_age(self.now)
         self.assertGreater(age, tm.CLAUDE_HEARTBEAT_MAX_S)
 
-    def test_finding_logic_matches_the_cycle(self):
-        """The cycle adds no_claude_session when production incidents are open and the heartbeat is
-        missing or older than 30 min; never when nothing is open; never on a fresh heartbeat."""
-        def would_fire(now):
-            age, _ = tm.claude_heartbeat_age(now)
-            open_prod = [r for r in tm.list_incidents(open_only=True) if not r.get("test")]
-            return bool(open_prod and (age is None or age > tm.CLAUDE_HEARTBEAT_MAX_S))
-        self.assertFalse(would_fire(self.now))                      # nothing open, never read
-        fp = "0123456789abcdef"
-        tm.sync_incidents({fp: finding(fp)}, {fp}, self.t(0), 1)
-        self.assertTrue(would_fire(self.now))                       # open, never read
-        tm.touch_claude_heartbeat("chat-A", now=self.t(-5))
-        self.assertFalse(would_fire(self.now))                      # read 5 min ago
-        self.assertTrue(would_fire(self.t(31)))                     # 36 min later, nobody read again
-        tm.advance_incident(fp, "Closed", "chat-A", "verified", now=self.t(31))
-        self.assertFalse(would_fire(self.t(60)))                    # closed: absence no longer matters
-
-    def test_cycle_emits_the_absence_finding(self):
-        """Run main() with every external source stubbed so the real cycle path adds the finding."""
-        fp = "0123456789abcdef"
-        tm.sync_incidents({fp: finding(fp)}, {fp}, self.t(-60), 1)
-        tm.touch_claude_heartbeat("chat-A", now=self.t(-45))
-
+    def _run_main(self):
         class FakeCycle:
             def __init__(self):
                 self.start = tm.now_utc()
@@ -338,45 +316,142 @@ class ClaudeHeartbeat(Base):
         orig = tm.run_cycle
         tm.run_cycle = fake_run_cycle
         try:
-            out = io.StringIO()
-            with redirect_stdout(out):
+            with redirect_stdout(io.StringIO()):
                 rc = tm.main()
         finally:
             tm.run_cycle = orig
         self.assertEqual(rc, 0)
-        latest = tm.load_json(os.path.join(tm.STATE, "latest.json"), {})
-        syms = [f["symptom"] for f in latest["findings"]["open"]]
-        self.assertIn("no_claude_session", syms)
-        f = next(f for f in latest["findings"]["open"] if f["symptom"] == "no_claude_session")
-        self.assertIn("no Claude session has read the incident handoff for more than 30 minutes", f["summary"])
-        self.assertIn("1 incident(s) are open", f["summary"])
-        self.assertEqual(f["details"]["last_reader"], "chat-A")
+        return tm.load_json(os.path.join(tm.STATE, "latest.json"), {})
+
+    def test_cycle_reports_presence_but_raises_no_absence_finding(self):
+        """1.2.0: an unread handoff is reported in latest.json, never raised as a finding (CLAUDE.md 10.85)."""
+        fp = "0123456789abcdef"
+        tm.sync_incidents({fp: finding(fp)}, {fp}, tm.now_utc(), 1)
+        tm.touch_claude_heartbeat("chat-A", now=tm.now_utc() - dt.timedelta(minutes=45))
+        latest = self._run_main()
+        self.assertNotIn("no_claude_session", [f["symptom"] for f in latest["findings"]["open"]])
         self.assertEqual(latest["claude_session"]["last_reader"], "chat-A")
         self.assertTrue(latest["claude_session"]["unattended"])
         self.assertGreaterEqual(latest["claude_session"]["age_minutes"], 45)
-        self.assertEqual(latest["incidents"]["open_count"], 1)
-        self.assertEqual(latest["incidents"]["unclaimed"], 1)
-        # the absence finding does not open an incident of its own
-        self.assertEqual(len(os.listdir(tm.INCIDENTS)), 1)
-        # cycles.jsonl keeps every existing field and gains the new ones
         line = json.loads(read_text(os.path.join(tm.STATE, "cycles.jsonl")).splitlines()[-1])
         for k in ("type", "cycle", "started_utc", "started_chicago", "ended_utc", "duration_s", "expected", "checked",
                   "by_format", "new_findings", "resolved", "open_findings", "open_critical", "maintenance_active",
-                  "releaseSha", "source_errors", "window_status"):
+                  "releaseSha", "source_errors", "window_status", "open_incidents", "unclaimed_incidents"):
             self.assertIn(k, line)
-        self.assertEqual(line["open_incidents"], 1)
-        self.assertEqual(line["unclaimed_incidents"], 1)
-        # the next chat reads the handoff: the following cycle resolves the absence finding
-        tm.touch_claude_heartbeat("chat-B")
-        tm.run_cycle = fake_run_cycle
-        try:
-            with redirect_stdout(io.StringIO()):
-                self.assertEqual(tm.main(), 0)
-        finally:
-            tm.run_cycle = orig
-        latest = tm.load_json(os.path.join(tm.STATE, "latest.json"), {})
+
+    def test_a_stale_open_absence_finding_resolves_on_the_first_new_cycle(self):
+        fp = "fedcba9876543210"
+        stale = finding(fp, symptom="no_claude_session", severity="warning", event_id=None, event_name=None)
+        tm.atomic_write(os.path.join(tm.STATE, "findings_state.json"), json.dumps({fp: stale}))
+        latest = self._run_main()
         self.assertNotIn("no_claude_session", [f["symptom"] for f in latest["findings"]["open"]])
-        self.assertFalse(latest["claude_session"]["unattended"])
+        self.assertFalse(os.path.exists(tm.incident_path(fp)))
+
+
+def pko(**kw):
+    t = {"prize_pool": "0.00", "guaranteed_prize": "0.00", "is_pko": True, "is_mystery_bounty": False,
+         "bounty_pool": "314.00", "free_buy": True}
+    t.update(kw)
+    return t
+
+
+class PrizePoolZero(unittest.TestCase):
+    def test_bounty_only_pko_is_not_a_defect(self):
+        self.assertFalse(tm.prize_pool_zero_is_a_defect(pko()))
+
+    def test_bounty_only_mystery_is_not_a_defect(self):
+        self.assertFalse(tm.prize_pool_zero_is_a_defect(pko(is_pko=False, is_mystery_bounty=True)))
+
+    def test_guaranteed_pko_with_zero_pool_still_flags(self):
+        self.assertTrue(tm.prize_pool_zero_is_a_defect(pko(guaranteed_prize="500.00")))
+
+    def test_pko_with_empty_bounty_pool_still_flags(self):
+        self.assertTrue(tm.prize_pool_zero_is_a_defect(pko(bounty_pool="0")))
+        self.assertTrue(tm.prize_pool_zero_is_a_defect(pko(bounty_pool=None)))
+
+    def test_plain_event_with_zero_pool_flags_and_positive_pool_does_not(self):
+        plain = {"prize_pool": 0, "guaranteed_prize": 0, "is_pko": False, "bounty_pool": 0}
+        self.assertTrue(tm.prize_pool_zero_is_a_defect(plain))
+        self.assertTrue(tm.prize_pool_zero_is_a_defect({"prize_pool": None}))
+        self.assertFalse(tm.prize_pool_zero_is_a_defect(dict(plain, prize_pool="351.00")))
+
+    def test_the_cycle_reads_the_columns_the_rule_needs(self):
+        src = read_text(os.path.join(HERE, "tournament_monitor.py"))
+        for col in ("is_pko", "is_mystery_bounty", "bounty_pool", "guaranteed_prize", "prize_pool"):
+            self.assertIn(col, src.split("cols = (")[1].split(")")[0])
+
+
+class ClearingQuietRecords(Base):
+    fp = "0123456789abcdef"
+
+    def _resolve(self, at):
+        f = finding(self.fp, status="resolved", resolved_at=tm.iso(at))
+        tm.sync_incidents({self.fp: f}, set(), at, 2)
+        return f
+
+    def test_cleared_after_thirty_quiet_minutes_with_evidence_and_not_closed(self):
+        tm.sync_incidents({self.fp: finding(self.fp)}, {self.fp}, self.t(0), 1)
+        f = self._resolve(self.t(3))
+        s = tm.sync_incidents({self.fp: f}, set(), self.t(3 + 29), 3)
+        self.assertEqual(s["cleared_this_cycle"], [])
+        self.assertEqual(tm.load_incident(self.fp)["stage"], "Detected")
+        s = tm.sync_incidents({self.fp: f}, set(), self.t(3 + 30), 4)
+        self.assertEqual(s["cleared_this_cycle"], [self.fp])
+        rec = tm.load_incident(self.fp)
+        self.assertEqual(rec["stage"], tm.CLEARED_STAGE)
+        self.assertNotEqual(rec["stage"], "Closed")
+        self.assertNotIn("closed_at", rec)
+        note = rec["stage_history"][-1]["note"]
+        self.assertIn("30 min", note)
+        self.assertIn("No fix is recorded", note)
+        self.assertIn("abc1234", note)
+        self.assertEqual(s["open_count"], 0)
+
+    def test_recurrence_reopens_a_cleared_record(self):
+        tm.sync_incidents({self.fp: finding(self.fp)}, {self.fp}, self.t(0), 1)
+        f = self._resolve(self.t(3))
+        tm.sync_incidents({self.fp: f}, set(), self.t(40), 3)
+        self.assertEqual(tm.load_incident(self.fp)["stage"], tm.CLEARED_STAGE)
+        s = tm.sync_incidents({self.fp: finding(self.fp)}, {self.fp}, self.t(50), 4)
+        self.assertEqual(s["reopened_this_cycle"], [self.fp])
+        rec = tm.load_incident(self.fp)
+        self.assertEqual(rec["stage"], "Detected")
+        self.assertIsNone(rec["resolved_at"])
+
+    def test_claimed_or_progressed_records_are_left_to_their_owner(self):
+        tm.sync_incidents({self.fp: finding(self.fp)}, {self.fp}, self.t(0), 1)
+        tm.advance_incident(self.fp, "Investigating", "chat-A", "looking", now=self.t(1))
+        f = self._resolve(self.t(3))
+        s = tm.sync_incidents({self.fp: f}, set(), self.t(120), 3)
+        self.assertEqual(s["cleared_this_cycle"], [])
+        self.assertEqual(tm.load_incident(self.fp)["stage"], "Investigating")
+
+    def test_still_observed_records_are_never_cleared(self):
+        tm.sync_incidents({self.fp: finding(self.fp)}, {self.fp}, self.t(0), 1)
+        s = tm.sync_incidents({self.fp: finding(self.fp)}, {self.fp}, self.t(120), 2)
+        self.assertEqual(s["cleared_this_cycle"], [])
+
+    def test_untracked_record_clears_from_its_last_sighting(self):
+        """A record whose finding has been pruned from the state file anchors on last_seen_utc."""
+        tm.sync_incidents({self.fp: finding(self.fp)}, {self.fp}, self.t(0), 1)
+        s = tm.sync_incidents({}, set(), self.t(20), 2)
+        self.assertEqual(s["cleared_this_cycle"], [])
+        s = tm.sync_incidents({}, set(), self.t(31), 3)
+        self.assertEqual(s["cleared_this_cycle"], [self.fp])
+
+    def test_handoff_lists_cleared_records_separately(self):
+        tm.sync_incidents({self.fp: finding(self.fp)}, {self.fp}, self.t(0), 1)
+        tm.sync_incidents({}, set(), self.t(40), 2)
+        text = tm.handoff_text(now=self.t(41))
+        self.assertIn("OPEN INCIDENTS: none", text)
+        self.assertIn("CLEARED WITHOUT A RECORDED FIX: 1", text)
+        self.assertIn(self.fp, text)
+
+    def test_a_cleared_record_can_still_be_worked_and_closed(self):
+        tm.sync_incidents({self.fp: finding(self.fp)}, {self.fp}, self.t(0), 1)
+        tm.sync_incidents({}, set(), self.t(40), 2)
+        rec = tm.advance_incident(self.fp, "Investigating", "chat-A", "root cause review", now=self.t(41))
+        self.assertEqual(rec["stage"], "Investigating")
 
 
 if __name__ == "__main__":

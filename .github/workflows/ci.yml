@@ -150,6 +150,7 @@ jobs:
       phase4: ${{ steps.f.outputs.phase4 }}
       fixture: ${{ steps.f.outputs.fixture }}
       instructions_only: ${{ steps.f.outputs.instructions_only }}
+      unit_shards: ${{ steps.f.outputs.unit_shards }}
       head_current: ${{ steps.head.outputs.head_current }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -1293,7 +1294,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: ${{ fromJSON(needs.changes.outputs.unit_shards || '[1,2,3,4,5,6,7,8]') }}
 
     steps:
       - name: Checkout
@@ -1328,12 +1329,12 @@ jobs:
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8
+        run: node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Report
         if: always()
         run: |
-          echo "## Client Unit Tests - shard ${{ matrix.shard }}/8" >> $GITHUB_STEP_SUMMARY
+          echo "## Client Unit Tests - shard ${{ matrix.shard }}/${{ strategy.job-total }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`tests/**\` via vitest. Blocking - see the note above this job" >> $GITHUB_STEP_SUMMARY
           echo "in ci.yml for why it exists." >> $GITHUB_STEP_SUMMARY
@@ -1356,7 +1357,7 @@ jobs:
   # when the diff touches neither src nor tests - so this runs on `always()`
   # and only fails on a real failure, never on a skip.
   unit:
-    needs: unit_shards
+    needs: [changes, unit_shards]
     if: always()
     name: Client Unit Tests (vitest)
     runs-on: ubuntu-latest
@@ -1367,16 +1368,26 @@ jobs:
           RESULT="${{ needs.unit_shards.result }}"
           echo "## Client Unit Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Eight shards, aggregated. Matrix result: **$RESULT**" >> $GITHUB_STEP_SUMMARY
+          echo "Selected shards, aggregated. Matrix result: **$RESULT**" >> $GITHUB_STEP_SUMMARY
           case "$RESULT" in
             success)
-              echo "All eight shards passed." >> $GITHUB_STEP_SUMMARY ;;
+              echo "Every selected shard passed." >> $GITHUB_STEP_SUMMARY ;;
             skipped)
-              # Not a failure: the diff touched neither src/ nor tests/.
-              echo "Skipped - the diff touched neither \`src/\` nor \`tests/\`." >> $GITHUB_STEP_SUMMARY ;;
+              if [ "${{ github.event_name }}" = pull_request ]; then
+                if [ "${{ needs.changes.result }}" != success ] ||
+                   [ "${{ needs.changes.outputs.src }}" != false ] ||
+                   [ "${{ needs.changes.outputs.tests }}" != false ]; then
+                  echo '::error::Required unit coverage did not execute; missing/empty matrix is not passing.'
+                  exit 1
+                fi
+              elif [ "${{ github.event_name }}" = schedule ]; then
+                echo '::error::Scheduled unit coverage did not execute.'
+                exit 1
+              fi
+              echo "Intentionally omitted by this event's complete component classification." >> $GITHUB_STEP_SUMMARY ;;
             *)
               echo "A shard did not pass. Open the shard job for the failing test." >> $GITHUB_STEP_SUMMARY
-              echo "::error title=CLIENT UNIT TESTS FAILED::At least one of the eight vitest shards did not pass ($RESULT). The failing test is in the shard job, not here."
+              echo "::error title=CLIENT UNIT TESTS FAILED::A required vitest shard did not pass ($RESULT). The failing test is in the shard job, not here."
               exit 1 ;;
           esac
 
@@ -1560,6 +1571,13 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-bounty-guarantee-postgres.py
+
+      - name: Cash queues explain their authoritative admission state
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-cash-queue-feedback-postgres.py
 
       - name: Cash top-up retries read their original receipt
         if: matrix.shard == 1
@@ -1763,6 +1781,18 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-bounty-only-final-two-watch.py
+      - name: The sweep gate reads pending bounty work on native PostgreSQL
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-sweep-gate-pending-bounty-work.py
+      - name: A realtime revive is recorded on native PostgreSQL
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-realtime-revive-is-recorded.py
       - name: Owner alerts preserve the actual finding through the real PostgreSQL trigger
         if: matrix.shard == 1
         env:
@@ -3624,6 +3654,52 @@ jobs:
         with:
           name: breakfast-original-witness-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/breakfast-original-witness-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Receipt replay releases locks and player statistics keep key order
+        id: replay_locks_and_player_stats_keys
+        if: matrix.shard == 7
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          mkdir -p "$RUNNER_TEMP/replay_locks_and_player_stats_keys"
+          python3 -B scripts/qualification/replay-locks-and-player-stats-keys.py \
+            --work "$RUNNER_TEMP/replay_locks_and_player_stats_keys/cluster" \
+            --out "$RUNNER_TEMP/replay_locks_and_player_stats_keys/result.json" \
+            > "$RUNNER_TEMP/replay_locks_and_player_stats_keys/run.log" 2>&1
+      - name: Retain Receipt replay releases locks and player statistics keep key order
+        if: always() && matrix.shard == 7 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.replay_locks_and_player_stats_keys.outcome)
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay_locks_and_player_stats_keys-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/replay_locks_and_player_stats_keys/result.json
+            ${{ runner.temp }}/replay_locks_and_player_stats_keys/run.log
+            ${{ runner.temp }}/replay_locks_and_player_stats_keys/cluster/pg/postgres.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Commission and tournament writers preserve measured lock order
+        id: chip_deadlocks
+        if: matrix.shard == 7
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          mkdir -p "$RUNNER_TEMP/chip_deadlocks"
+          python3 -B scripts/qualification/chip-deadlocks.py \
+            --work "$RUNNER_TEMP/chip_deadlocks/cluster" \
+            --out "$RUNNER_TEMP/chip_deadlocks/result.json" \
+            > "$RUNNER_TEMP/chip_deadlocks/run.log" 2>&1
+      - name: Retain Commission and tournament writers preserve measured lock order
+        if: always() && matrix.shard == 7 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.chip_deadlocks.outcome)
+        uses: actions/upload-artifact@v4
+        with:
+          name: chip_deadlocks-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/chip_deadlocks/result.json
+            ${{ runner.temp }}/chip_deadlocks/run.log
+            ${{ runner.temp }}/chip_deadlocks/cluster/pg/postgres.log
           if-no-files-found: error
           retention-days: 7
 

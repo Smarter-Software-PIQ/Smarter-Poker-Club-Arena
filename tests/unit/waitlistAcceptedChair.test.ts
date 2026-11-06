@@ -69,6 +69,42 @@ function fixture(overrides: Record<string, unknown> = {}) {
   return { d, run: () => new Function(...Object.keys(d), body)(...Object.values(d)) };
 }
 describe('an accepted waiting-list chair opens the destination buy-in', () => {
+  it('keeps simultaneous offers isolated while one mounted table is still loading', () => {
+    const make = (tableId: string) =>
+      fixture({
+        tableId,
+        openBuyInOnArrival: false,
+        location: {
+          pathname: `/table/${tableId}`,
+          search: '?buyin=1',
+          state: {
+            cashSeatOffer: {
+              id: `offer-${tableId}`,
+              tableId,
+              userId: 'viewer',
+              notifiedAt: new Date().toISOString(),
+              holdExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+            },
+          },
+        },
+        engineSnapshot: { table_id: tableId, players: [{ seat: 1 }] },
+      });
+    const a = make('table-a');
+    const b = make('table-b');
+    a.d.tableState.arenaAsset = null as any;
+    a.run();
+    b.run();
+    expect(a.d.handleSeatClick).not.toHaveBeenCalled();
+    expect(b.d.handleSeatClick).toHaveBeenCalledExactlyOnceWith(2);
+    a.d.tableState.arenaAsset = 'chips';
+    a.run();
+    b.run();
+    expect(a.d.handleSeatClick).toHaveBeenCalledExactlyOnceWith(2);
+    expect(b.d.handleSeatClick).toHaveBeenCalledTimes(1);
+    expect([...a.d.consumedSeatOffersRef.current][0]).toContain('offer-table-a');
+    expect([...b.d.consumedSeatOffersRef.current][0]).toContain('offer-table-b');
+  });
+
   it('keeps an offer unconsumed while the earlier admission reply is in flight', () => {
     const f = fixture({
       cashAdmissionPending: true,

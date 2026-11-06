@@ -1,0 +1,3 @@
+# server/src/engine/horseDecision/oneShardsLossIsOneShardsLoss.law.test.ts
+
+One horse decision shard's loss is one shard's loss (2026-11-06). A decision worker that dies after the pool booted is replaced alone: the other shards keep their worker, RNG and learned memory, no table or live hand is restarted, and the replacement is counted (`shardReplacements`) and logged. It stays process-fatal when the pool has not finished booting, while the pool is stopping, when the replacement fails to become ready or loads a different solver corpus, and when one shard has already been replaced SHARD_REPLACEMENT_LIMIT (3) times inside SHARD_REPLACEMENT_WINDOW_MS (30 minutes).

@@ -18,7 +18,7 @@ schema shaped like production's and proves the watch:
   * only service_role may execute it and the cron job is registered.
 """
 from pathlib import Path
-import hashlib, json, os, shutil, subprocess, tempfile
+import hashlib, json, os, shutil, socket, subprocess, tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 MIG = ROOT / 'supabase/migrations/20261106032337_bounty_only_final_two_payout_is_watched.sql'
@@ -28,14 +28,17 @@ DOCTRINE = json.loads((ROOT / 'scripts/ci/fixtures/tournament-cancellation-lane/
 PG = Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 work = Path(tempfile.mkdtemp(prefix='final-two-watch-', dir=os.environ.get('TMPDIR')))
 sock = Path(tempfile.mkdtemp(prefix='s-', dir=os.environ.get('CA_PG_SOCKET_ROOT', os.environ.get('TMPDIR'))))
-port = str(39000 + (os.getpid() + 31) % 9000)
+port = None
+tcp_guard = socket.socket()
 started = False
 
 
 def run(args, sql=None, timeout=120):
     r = subprocess.run([str(a) for a in args], input=sql, text=True, capture_output=True, timeout=timeout)
     if r.returncode:
-        raise RuntimeError(r.stderr)
+        startup_log = work / 'postgres.log'
+        diagnostic = startup_log.read_text() if startup_log.exists() else ''
+        raise RuntimeError(r.stderr + '\n' + diagnostic)
     return r.stdout
 
 
@@ -122,9 +125,13 @@ def alerts(t):
 
 
 try:
+    # Every client uses our unique Unix socket. Hold the TCP port occupied as
+    # a regression guard: adding an unnecessary TCP listener must fail here.
+    tcp_guard.bind(('127.0.0.1', 0))
+    port = str(tcp_guard.getsockname()[1])
     shutil.rmtree(work / 'data', ignore_errors=True)
     run([PG / 'initdb', '-D', work / 'data', '-U', 'postgres', '-A', 'trust', '--no-locale'])
-    run([PG / 'pg_ctl', '-D', work / 'data', '-l', work / 'postgres.log', '-o', f'-k {sock} -p {port} -h 127.0.0.1', '-w', 'start'])
+    run([PG / 'pg_ctl', '-D', work / 'data', '-l', work / 'postgres.log', '-o', f"-k {sock} -p {port} -c listen_addresses=''", '-w', 'start'])
     started = True
     run([PG / 'createdb', '-h', sock, '-p', port, '-U', 'postgres', 'w'])
     q(SCHEMA)
@@ -206,3 +213,8 @@ finally:
         subprocess.run([str(PG / 'pg_ctl'), '-D', str(work / 'data'), '-m', 'immediate', 'stop'], capture_output=True)
     shutil.rmtree(work, ignore_errors=True)
     shutil.rmtree(sock, ignore_errors=True)
+    tcp_guard.close()
+
+# The follow-up (20261106105853: the watch alerts only a real miss) is proved on
+# its own fresh cluster, from this same CI step.
+subprocess.run(['python3', '-B', str(ROOT / 'scripts/ci/test-bounty-only-final-two-watch-real-misses.py')], check=True, timeout=300)

@@ -49,6 +49,8 @@
   text-align: right;
 }
 .club-verified__more {
+  min-width: 44px;
+  min-height: 44px;
   margin-top: 8px;
   background: none;
   border: 1px solid rgba(255, 255, 255, 0.2);

@@ -10,6 +10,7 @@
  * an empty preset list (with cache fallback), never a throw.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { AVATAR_ART_REVISION } from '../../src/lib/avatarArtRevision';
 import { avatarService } from '../../src/services/AvatarService';
 
 const HUB_AVATARS = [
@@ -41,10 +42,10 @@ describe('AvatarService presets via the unified Hub API', () => {
     expect(shark).toBeTruthy();
     expect(wolf).toBeTruthy();
     expect(shark!.imageUrl).toBe('/avatars/free/shark.webp');
-    expect(shark!.thumbUrl).toBe('/avatars/table/free_shark@2x.webp');
-    expect(wolf!.thumbUrl).toBe('/avatars/table/vip_wolf@2x.webp');
+    expect(shark!.thumbUrl).toBe(`/avatars/table/free_shark@2x.webp?art=${AVATAR_ART_REVISION}`);
+    expect(wolf!.thumbUrl).toBe(`/avatars/table/vip_wolf@2x.webp?art=${AVATAR_ART_REVISION}`);
     expect(lib.find((a) => a.id === 'av_wrestler')!.thumbUrl).toBe(
-      '/avatars/table/vip_wrestler@2x.webp'
+      `/avatars/table/vip_wrestler@2x.webp?art=${AVATAR_ART_REVISION}`
     );
     expect(shark!.isOwned).toBe(true);
   });

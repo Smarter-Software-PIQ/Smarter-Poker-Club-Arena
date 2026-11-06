@@ -13,6 +13,7 @@ import { readProfileInterfaceMode } from './support/profileInterfaceMode';
 import { walletPlayableAmount } from './support/walletPlayableAmount';
 import { expectedWalletChipDisplay } from './support/walletExpectedDisplay';
 
+import { enrollCustomizationBrowser } from './support/customizationBrowserEnrollment';
 import { ensureAcceptedTerms } from './support/ensureAcceptedTerms';
 import { ensurePlayableProfile } from './support/ensurePlayableProfile';
 import { observeAccountRealtime } from './support/accountRealtimeObservation';
@@ -385,7 +386,8 @@ async function signIn(
   context: BrowserContext,
   baseURL: string,
   account: TemporaryCustomizationAccount,
-  role: 'writer' | 'mobile' | 'other-player'
+  role: 'writer' | 'mobile' | 'other-player',
+  approvingPage?: Page
 ) {
   const page = await context.newPage();
   accountObservations.set(page, observeAccountRealtime(page, account.id, ''));
@@ -477,6 +479,9 @@ async function signIn(
     waitUntil: 'domcontentloaded',
     timeout: 60_000,
   });
+  // Sign-in may finish on the shared site's landing route. Enrollment belongs
+  // to the Club Arena boot, so observe it only after entering this layout.
+  await enrollCustomizationBrowser(page, account, approvingPage);
   await ensureAcceptedTerms(page);
   await ensurePlayableProfile(page);
   await expect(page.getByRole('button', { name: 'Open Menu' }).first()).toBeVisible({
@@ -676,7 +681,13 @@ test.describe('production Table Studio realtime contract', () => {
 
       primaryPage = await signIn(primaryDesktop, baseURL, primaryAccount, 'writer');
       primaryStudio = await openStudio(primaryPage);
-      const mobilePage = await signIn(primaryMobile, baseURL, primaryAccount, 'mobile');
+      const mobilePage = await signIn(
+        primaryMobile,
+        baseURL,
+        primaryAccount,
+        'mobile',
+        primaryPage
+      );
       mobileStudio = await openStudio(mobilePage);
       const otherPage = await signIn(otherPlayer, baseURL, otherAccount, 'other-player');
       otherStudio = await openStudio(otherPage);

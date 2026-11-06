@@ -46,4 +46,17 @@ describe('a bounty-only PKO pays no places', () => {
       isBountyOnlyPko({ is_pko: false, buy_in_amount: 0, guaranteed_prize: 0, prize_pool: 0 })
     ).toBe(false);
   });
+
+  it('a free mystery bounty PKO is never bounty only: its chests pay in the money', () => {
+    const t = {
+      is_pko: true,
+      is_mystery_bounty: true,
+      buy_in_amount: 0,
+      guaranteed_prize: 0,
+      prize_pool: 0,
+      payout_structure: ladder,
+    };
+    expect(isBountyOnlyPko(t)).toBe(false);
+    expect(resolvePayoutStructure(t)).toHaveLength(3);
+  });
 });

@@ -601,7 +601,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag('v15', 'Omaha nut discipline: which flush/straight, caps, small ball', 'V15'),
   flag(
     'v15Boats',
-    'Omaha boat dominance: a full house a bigger boat beats calls a raise (default OFF, league plo5_v15_boats)',
+    'Omaha boat dominance: a full house a bigger boat beats calls a raise (default ON in PLO5 cash since 2026-11-06, league plo5_v15_boats)',
     'V15'
   ),
   flag('v16Reads', 'deep reads: fold-to-c-bet, fold-to-3-bet, big-bet tells', 'V16'),
@@ -699,6 +699,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'ploPairedBoardFold',
     'PLO4/PLO5/PLO6 no full house on a paired flop, turn or river folds to a committing bet (Dan 2026-10-25); false only to ablate an older layer',
     'PLO paired-board fold'
+  ),
+  flag(
+    'ploPairedBoardRiverCheck',
+    'PLO4/PLO5/PLO6 no full house checks the river of a board paired on the turn after its own turn bet was called (Dan 2026-11-06); false only to ablate or as a complaint-law control',
+    'PLO paired-board river check'
+  ),
+  flag(
+    'ploSuitedAcesFourBet',
+    'High-only PLO suited aces 4-bet one 3-bet and continue when re-raised (Dan 2026-11-06); false only to ablate or as a complaint-law control',
+    'PLO suited aces 4-bet'
   ),
   flag(
     'deepEquity',
@@ -1838,8 +1848,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'decide_omaha',
     0.0003
   ),
-  // No floor: v15Boats is default OFF, so silence is the expected state until
-  // the plo5_v15_boats league matchup resolves and the default changes.
+  // No floor: v15Boats is default ON in PLO5 cash only (2026-11-06), a
+  // dominated boat facing a raise is rare, and other variants stay off.
   receipt(
     'v15_boat_dominated',
     'HorseLogic (V15 boats)',
@@ -2576,6 +2586,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.decide (HorsePloPairedBoardFold)',
     'PLO4/PLO5/PLO6 call, raise or jam without a full house on a paired flop, turn or river turned into a fold',
     'PLO paired-board fold'
+  ),
+  receipt(
+    'plo_paired_board_river_check',
+    'HorseLogic.decide (HorsePloPairedBoardFold)',
+    'PLO4/PLO5/PLO6 river bet or raise without a full house on a board paired on the turn, after the horse own turn bet was called, turned into a check',
+    'PLO paired-board river check'
+  ),
+  receipt(
+    'plo_suited_aces_four_bet',
+    'HorsePreflop.decidePreflopV7',
+    'High-only PLO suited aces facing one 3-bet 4-bet the pot instead of flatting',
+    'PLO suited aces 4-bet'
+  ),
+  receipt(
+    'plo_suited_aces_four_bettor_continues',
+    'HorsePreflop.decidePreflopV7',
+    'High-only PLO suited aces re-raised after their own raise continued at the price instead of folding',
+    'PLO suited aces 4-bet'
   ),
   receipt(
     'v40_omaha_pressure_cap',
@@ -3712,6 +3740,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic PLO6 final paired-board flat branch',
     'private original value-branch legal raise retained without intervening action changes below the unchanged fold threshold; accepted execution remains separate',
     'Small-pot near-nut value'
+  ),
+  receipt(
+    'small_pot_near_nut_value_applied',
+    'HorseLogic decideInternal after wager_rules',
+    'the near-nut candidate chose a value raise, or its PLO6 flat exception kept an in-domain raise, and that exact raise reached the final action',
+    'Small-pot near-nut value'
+  ),
+  receipt(
+    'small_pot_near_nut_value_considered',
+    'HorseLogic decideInternal after wager_rules',
+    'in domain, the original value gate already raised and the candidate changed nothing',
+    'Small-pot near-nut value'
+  ),
+  receipt(
+    'small_pot_near_nut_value_superseded',
+    'HorseLogic decideInternal after wager_rules',
+    'the near-nut candidate chose a value raise and a later owner replaced it',
+    'Small-pot near-nut value'
+  ),
+  receipt(
+    'barrel_continuation_outlook_applied',
+    'HorseLogic V7 river barrel continuation',
+    'default-off barrelContinuationOutlook: the carried turn outlook changed the river continuation choice on the same draw and it reached the final action',
+    'Barrel continuation outlook'
+  ),
+  receipt(
+    'barrel_continuation_outlook_considered',
+    'HorseLogic V7 river barrel continuation',
+    'default-off barrelContinuationOutlook: the carried turn outlook was read and the same choice stood',
+    'Barrel continuation outlook'
+  ),
+  receipt(
+    'barrel_continuation_outlook_superseded',
+    'HorseLogic decideInternal reference node',
+    'default-off barrelContinuationOutlook: an earlier river owner decided before the V7 continuation, or a later owner replaced the choice the outlook changed',
+    'Barrel continuation outlook'
   ),
   receipt(
     'small_pot_near_nut_value_raise',

@@ -24,6 +24,30 @@ export function validateAssignmentBrowserIdentity(account, session, clubId) {
     'Browser requires the complete real GoTrue session'
   );
 }
+async function readBrowserSupport(name) {
+  const { transform } = await import('esbuild');
+  const source = await readFile(
+    new URL(`../../tests/e2e/support/${name}.ts`, import.meta.url),
+    'utf8'
+  );
+  const { code } = await transform(source, { loader: 'ts', format: 'esm', target: 'node20' });
+  return import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+}
+
+/** Reuse the same owned browser as global setup, never a claimed-device marker. */
+export async function assignmentBrowserState(account, session, clubId, baseURL = PRODUCTION_BASE) {
+  validateAssignmentBrowserIdentity(account, session, clubId);
+  const { fixtureBrowserDevice, fixtureBrowserStorage } =
+    await readBrowserSupport('fixtureBrowserDevice');
+  const device = fixtureBrowserDevice(account, session.user, account.email, baseURL);
+  const storageState = fixtureBrowserStorage(device);
+  storageState.origins[0].localStorage.push(
+    { name: 'smarter-poker-auth', value: JSON.stringify(session) },
+    { name: 'club_arena_welcome_accepted', value: 'true' },
+    { name: `sp_firstrun_notif_v2_${account.id}`, value: String(Date.now()) }
+  );
+  return { device, storageState };
+}
 function deferred() {
   let resolve, reject;
   const promise = new Promise((yes, no) => {
@@ -121,17 +145,10 @@ export async function startAssignmentBrowserProof({
   // These are the maintained server-backed first-run gates, not DOM bypasses.
   // The owning workflow uses Node20. Compile the existing type-only TS gate
   // modules in memory with the repository's locked esbuild; never copy their logic.
-  const { transform } = await import('esbuild');
   async function gate(name) {
-    const source = await readFile(
-      new URL(`../../tests/e2e/support/${name}.ts`, import.meta.url),
-      'utf8'
-    );
-    const { code } = await transform(source, { loader: 'ts', format: 'esm', target: 'node20' });
-    return (await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64')))[
-      name
-    ];
+    return (await readBrowserSupport(name))[name];
   }
+  const { verifyFixtureEnrollment } = await readBrowserSupport('fixtureBrowserDevice');
   const ensureAcceptedTerms = await gate('ensureAcceptedTerms');
   const ensurePlayableProfile = await gate('ensurePlayableProfile');
   await mkdir(evidenceDir, { recursive: true });
@@ -140,34 +157,24 @@ export async function startAssignmentBrowserProof({
   const base = new URL(PRODUCTION_BASE);
   async function open(viewer, viewerSession) {
     validateAssignmentBrowserIdentity(viewer, viewerSession, clubId);
+    const { device, storageState } = await assignmentBrowserState(viewer, viewerSession, clubId);
     const context = await browser.newContext({
       viewport: { width: 393, height: 852 },
-      storageState: {
-        cookies: [],
-        origins: [
-          {
-            origin: base.origin,
-            localStorage: [
-              { name: 'smarter-poker-auth', value: JSON.stringify(viewerSession) },
-              { name: 'club_arena_welcome_accepted', value: 'true' },
-              { name: `sp_firstrun_notif_v2_${viewer.id}`, value: String(Date.now()) },
-            ],
-          },
-        ],
-      },
+      storageState,
     });
     contexts.push(context);
-    return { context, page: await context.newPage() };
+    return { context, device, page: await context.newPage() };
   }
   async function saveFromPlayerRecord(actor, actorSession, destinationId, beforeWrite) {
     assert.match(destinationId, /^[a-f0-9-]{36}$/);
-    const { page: actorPage } = await open(actor, actorSession);
+    const { page: actorPage, device } = await open(actor, actorSession);
     await actorPage.goto(new URL(`clubs/${clubId}/members/${playerId}`, base).toString(), {
       waitUntil: 'domcontentloaded',
       timeout: 60_000,
     });
     await ensureAcceptedTerms(actorPage);
     await ensurePlayableProfile(actorPage);
+    await verifyFixtureEnrollment(actorPage, device);
     const control = actorPage.getByLabel('Assign To Agent', { exact: true });
     const select = control.getByLabel('Destination Agent', { exact: true });
     await select.selectOption(destinationId, { timeout: 60_000 });
@@ -236,7 +243,7 @@ export async function startAssignmentBrowserProof({
         initialAssignment.beforeWrite
       );
     }
-    const { page } = await open(account, session);
+    const { page, device } = await open(account, session);
     const scopeChanged = deferred(),
       rosterChanged = deferred();
     let scopeSeen = false,
@@ -283,6 +290,7 @@ export async function startAssignmentBrowserProof({
     });
     await ensureAcceptedTerms(page);
     await ensurePlayableProfile(page);
+    await verifyFixtureEnrollment(page, device);
     const row = page.getByRole('button', { name: new RegExp(`^Open ${escaped(playerAlias)}, `) });
     await row.waitFor({ state: 'visible', timeout: 60_000 });
     await bounded(
@@ -344,13 +352,14 @@ export async function startAssignmentBrowserProof({
         });
       },
       async verifyDestination(destination, destinationSession) {
-        const { page: destinationPage } = await open(destination, destinationSession);
+        const { page: destinationPage, device } = await open(destination, destinationSession);
         await destinationPage.goto(new URL(`clubs/${clubId}/members`, base).toString(), {
           waitUntil: 'domcontentloaded',
           timeout: 60_000,
         });
         await ensureAcceptedTerms(destinationPage);
         await ensurePlayableProfile(destinationPage);
+        await verifyFixtureEnrollment(destinationPage, device);
         await destinationPage
           .getByRole('button', { name: new RegExp(`^Open ${escaped(playerAlias)}, `) })
           .waitFor({ state: 'visible', timeout: 60_000 });

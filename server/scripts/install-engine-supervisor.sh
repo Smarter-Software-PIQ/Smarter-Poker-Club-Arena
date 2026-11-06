@@ -509,11 +509,7 @@ cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT
 Description=Club Arena Engine Release Transaction %i
 After=docker.service network-online.target
 Wants=network-online.target
-# 2026-11-05: five failed starts in 20 minutes is a dead transaction. It parks
-# in failed state so it stops counting as a live owner; it used to loop every
-# 30 s forever (run 42099609162-1: 222 restarts).
-StartLimitIntervalSec=20min
-StartLimitBurst=5
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
@@ -567,6 +563,31 @@ if ! ln -- "$NEXT_RELEASE_UNIT" "$RELEASE_UNIT_V1" 2>/dev/null; then
 fi
 rm -f -- "$NEXT_RELEASE_UNIT"
 NEXT_RELEASE_UNIT=''
+
+# The restart bound lives in a drop-in because the v1 template above is frozen
+# byte for byte. 2026-11-05: putting StartLimitBurst into the template itself
+# (#9630) made every later control generation die at install with "frozen
+# release v1 unit differs" (run 42162399056-1). Five failed starts in 20
+# minutes is a dead transaction: systemd parks it in failed state so it stops
+# counting as a live owner instead of looping every 30 s forever (run
+# 42099609162-1: 222 restarts). A drop-in is ordinary mutable policy, so it is
+# rewritten atomically on every install.
+RELEASE_UNIT_V1_DROPIN_DIR="$RELEASE_UNIT_V1.d"
+RELEASE_UNIT_V1_DROPIN="$RELEASE_UNIT_V1_DROPIN_DIR/bounded-restarts.conf"
+install -d -m 0755 "$RELEASE_UNIT_V1_DROPIN_DIR"
+NEXT_DROPIN="$RELEASE_UNIT_V1_DROPIN_DIR/.bounded-restarts.conf.next.$$"
+cat > "$NEXT_DROPIN" <<'DROPIN'
+# Club Arena release v1 restart bound. The frozen v1 template keeps
+# StartLimitIntervalSec=0; this drop-in bounds an owner that can never finish
+# to five starts in 20 minutes, after which systemd parks it in failed state.
+[Unit]
+StartLimitIntervalSec=20min
+StartLimitBurst=5
+DROPIN
+chmod 0644 "$NEXT_DROPIN"
+fsync_paths "$NEXT_DROPIN"
+mv -T "$NEXT_DROPIN" "$RELEASE_UNIT_V1_DROPIN"
+fsync_paths "$RELEASE_UNIT_V1_DROPIN_DIR"
 fsync_paths /etc/systemd/system
 systemctl daemon-reload || retry 'systemd daemon-reload failed'
 

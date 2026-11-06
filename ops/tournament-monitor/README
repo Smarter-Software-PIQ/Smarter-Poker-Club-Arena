@@ -18,8 +18,11 @@ Chat session commands (ssh to the engine host, cd /opt/tournament-monitor):
   python3 tournament_monitor.py incident <fp> --stage <Stage> --by '<who>' --note '<text>' [--pr N] [--migration V] [--release SHA]
 Stages: Detected -> Investigating -> Fix implemented -> Pushed/merged -> Deployed -> Production fix verified
         -> Phase 2 hardening -> Hardening deployed and verified -> Closed   (Reopened returns a record to Detected)
-If no chat has read the handoff for 30 min while incidents are open, the checker raises its own finding
-(no_claude_session) so the absence of an operator shows in latest.json like any other finding.
+latest.json "claude_session" reports when the handoff was last read (informational; since 1.2.0 it is not a
+finding, because an agent may not keep a chat on a timer: CLAUDE.md 10.85).
+An unclaimed record still at Detected whose symptom has been absent for 30 min (10 clean cycles) is moved by the
+checker to "Cleared, no fix recorded", with the evidence in stage_history. That is not Closed and not a fix: it
+stays listed in the handoff for root-cause review, and a recurrence reopens it. Claimed records are left to their owner.
 The record is not a fix: carry it through the stages by fixing the cause at the root (CLAUDE.md 10.11, 10.12).
 
 Files to install on the host (copy into /opt/tournament-monitor):

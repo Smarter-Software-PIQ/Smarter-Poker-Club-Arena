@@ -15,6 +15,11 @@ import {
   type HorseFeatureFlags,
 } from '../HorseFeatureAuthority.js';
 import {
+  admitHorseTournamentFlagReleaseAuthority,
+  admittedTournamentFlag,
+  type HorseTournamentFlagAdmission,
+} from '../HorseTournamentFlagAuthority.js';
+import {
   readHorsePooledPublicBootstrap,
   type HorsePooledPublicBootstrap,
 } from '../../services/HorsePooledPublicBootstrap.js';
@@ -271,6 +276,8 @@ export type HorseDecisionWorkerAuthorityHolderFactory = (
 export interface HorseDecisionWorkerDependencies {
   isolateMemory?(): IsolateMemorySample | null;
   admitFeatureAuthority?(): HorseAuthorityAdmission;
+  /** v53PloTourneyIcm activation: the shipped tournament-flag selection only. */
+  admitTournamentFlagAuthority?(): HorseTournamentFlagAdmission;
   /** Trusted isolated benchmark construction only; never accepted from IPC. */
   offlineFeatureFlags?: boolean;
   journalEnabled?: () => boolean;
@@ -628,6 +635,7 @@ export const defaultHorseDecisionWorkerDependencies: HorseDecisionWorkerDependen
   phase8SafetyDisabledReason: () => liveHorsePhase8Safety.disabledReason,
   admitPhase10Authority: () => admitHorsePhase10LiveAuthority(),
   admitFeatureAuthority: () => admitHorseFeatureReleaseAuthority(),
+  admitTournamentFlagAuthority: () => admitHorseTournamentFlagReleaseAuthority(),
   admitPhase11Authority: (variant) => admitHorsePhase11LiveAuthority(variant),
   admitPhase12Authority: (variant) => admitHorsePhase12LiveAuthority(variant),
   admitPhase13Authority: (variant) => admitHorsePhase13LiveAuthority(variant),
@@ -826,6 +834,24 @@ export class HorseDecisionWorkerRuntime {
   private phase8AuthorityAdmitted = false;
   private readonly featureAuthority: HorseQualifiedAuthorityHolder;
   private featureAuthorityAdmitted = false;
+  private tournamentFlagAdmission: HorseTournamentFlagAdmission | null = null;
+  /** v53PloTourneyIcm is worker-owned: on only inside an admitted card's
+   * domain. A request can never turn it on; an offline benchmark worker keeps
+   * its explicit caller arm, exactly as the cash feature flags do. */
+  private tournamentFlagOn(request: FastHorseDecisionRequest | DeepHorseDecisionRequest): boolean {
+    if (this.deps.offlineFeatureFlags === true) return request.opts?.v53PloTourneyIcm === true;
+    if (!this.tournamentFlagAdmission) {
+      try {
+        this.tournamentFlagAdmission = this.deps.admitTournamentFlagAuthority?.() ?? {
+          status: 'refused',
+          reason: 'unselected',
+        };
+      } catch {
+        this.tournamentFlagAdmission = { status: 'refused', reason: 'missing_evidence' };
+      }
+    }
+    return admittedTournamentFlag(this.tournamentFlagAdmission, request.gameState);
+  }
   private featureAdmission(request: FastHorseDecisionRequest | DeepHorseDecisionRequest): {
     flags: HorseFeatureFlags;
     receipt: HorseDecision['featureAuthority'];
@@ -2709,6 +2735,7 @@ export class HorseDecisionWorkerRuntime {
               ...request.opts,
               ...features.flags,
               multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+              v53PloTourneyIcm: this.tournamentFlagOn(request),
               phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
               phase8PolicyFamily: phase8Guard.selected ? 'catastrophe_guard_v1' : 'continuation_v2',
               phase10Plo4: phase10.mode,
@@ -3019,6 +3046,7 @@ export class HorseDecisionWorkerRuntime {
                   ...request.opts,
                   ...features.flags,
                   multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+                  v53PloTourneyIcm: this.tournamentFlagOn(request),
                   phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
                   phase8PolicyFamily: phase8Guard.selected
                     ? 'catastrophe_guard_v1'

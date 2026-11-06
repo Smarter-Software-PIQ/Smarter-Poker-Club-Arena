@@ -1,5 +1,6 @@
 import { tournamentEntryWindowOpen } from '../utils/tournamentEntryWindow';
 import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
+import { levelClockNow, type LevelClockRow } from '../utils/maintenanceLevelClock';
 import { TOURNAMENT_START_HOLD_MESSAGE } from '../config/tournamentStartHold';
 import type { SealedStagePlanBody } from '../utils/multiDaySchedule';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
@@ -2197,6 +2198,10 @@ class TournamentService {
       const mins = blindLevelMinutes([level] as Parameters<typeof blindLevelMinutes>[0], 1);
       return mins > 0 ? mins : DEFAULT_LEVEL_MINUTES;
     };
+
+    // A maintenance break stops the level clock (Dan 2026-11-05). Every
+    // countdown below is measured at the instant the engine is crediting.
+    nowMs = levelClockNow(tournament as unknown as LevelClockRow, nowMs);
 
     if (tournament.status !== 'RUNNING' || !tournament.started_at) {
       return {

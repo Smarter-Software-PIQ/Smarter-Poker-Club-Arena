@@ -17,6 +17,11 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { announceNativeResume } from '../src/lib/nativeResume';
 
+// Recovery owns the engine socket below. Its fire-and-forget diagnostics must
+// not initialize a second, real Supabase transport on the same resume events.
+// Beacon authentication/delivery has separate coverage; keep recovery real.
+vi.mock('../src/services/clientConnectionBeacon', () => ({ reportConnectionEvent: vi.fn() }));
+
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   static CONNECTING = 0;

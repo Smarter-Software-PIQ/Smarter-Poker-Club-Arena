@@ -93,6 +93,11 @@ import { lazyWithRetry } from './utils/lazyWithRetry';
 // prompt). Keep that optional work out of first paint while preserving the
 // application-root mount that lets it operate on every route. The retry-safe
 // loader also gives an atomic publish the same stale-chunk recovery as routes.
+// Dan 2026-11-05: a maintenance break stops every tournament clock. Lazy:
+// the maintenance hook and its engine client stay out of first paint.
+const MaintenanceClockSync = lazyWithRetry(
+  () => import('./components/common/MaintenanceClockSync')
+);
 const PushSubscriptionSync = lazyWithRetry(
   () => import('./components/notifications/PushSubscriptionSync')
 );
@@ -630,6 +635,10 @@ function FullApp() {
           <MessengerDockHost />
         </Suspense>
         <GlobalBalanceSync />
+        {/* Dan 2026-11-05: a maintenance break stops every tournament clock. */}
+        <Suspense fallback={null}>
+          <MaintenanceClockSync />
+        </Suspense>
         <HeaderAppearanceSync />
         <ProfileAccountSync />
         {/* The signed-in player's presence heartbeat, mounted once: without it a

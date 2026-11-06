@@ -12,27 +12,42 @@ const chicagoToday = (): string =>
 
 const CLUB_ID = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 
-const { rpcMock, authState, clubRow, unionRow, rosterMock, navigateMock } = vi.hoisted(() => ({
-  rpcMock: vi.fn(),
-  rosterMock: vi.fn(),
-  navigateMock: vi.fn(),
-  unionRow: {
-    current: { unions: { name: 'Midway Union' } } as { unions: { name: string } } | null,
-  },
-  clubRow: { current: { name: 'Club JAQK' } as { name: string } | null },
-  authState: { current: { user: { id: 'owner-1' }, isHydrating: false } as any },
-}));
+const { rpcMock, authState, clubRow, unionRow, rosterMock, navigateMock, routeState } = vi.hoisted(
+  () => ({
+    routeState: { search: new URLSearchParams() },
+    rpcMock: vi.fn(),
+    rosterMock: vi.fn(),
+    navigateMock: vi.fn(),
+    unionRow: {
+      current: { unions: { name: 'Midway Union' } } as { unions: { name: string } } | null,
+    },
+    clubRow: { current: { name: 'Club JAQK' } as { name: string } | null },
+    authState: { current: { user: { id: 'owner-1' }, isHydrating: false } as any },
+  })
+);
 
 vi.mock('../../src/services/ClubRosterService', () => ({
   ClubRosterService: { getDataPlayerMatches: rosterMock },
 }));
 
 vi.mock('../../src/hooks/useAuthUser', () => ({ useAuthUser: () => authState.current }));
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => navigateMock,
-  useParams: () => ({ clubId: CLUB_ID }),
-  useSearchParams: () => [new URLSearchParams()],
-}));
+vi.mock('react-router-dom', async () => {
+  const { useState } = await import('react');
+  return {
+    useNavigate: () => navigateMock,
+    useParams: () => ({ clubId: CLUB_ID }),
+    useSearchParams: () => {
+      const [params, setParams] = useState(routeState.search);
+      return [
+        params,
+        (next: URLSearchParams) => {
+          routeState.search = next;
+          setParams(next);
+        },
+      ];
+    },
+  };
+});
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     rpc: rpcMock,
@@ -97,6 +112,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  routeState.search = new URLSearchParams();
   rpcMock.mockReset();
   rosterMock.mockReset().mockResolvedValue({ items: [] });
   navigateMock.mockReset();
@@ -521,4 +537,102 @@ it('finds a player independently when the game search fails', async () => {
   expect(
     screen.getAllByText('Club Data Could Not Be Read. Showing The Last Good Figures.')[0]
   ).toBeVisible();
+});
+
+describe('Selectable Chicago Dates And Player Totals', () => {
+  beforeEach(() => rpcMock.mockResolvedValue({ data: live, error: null }));
+  it('applies exact custom dates, shifts the same inclusive span and restores presets', async () => {
+    render(<ClubDataSimplePage />);
+    await screen.findByText('Shark Tank');
+    fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: addDays(today, -5) },
+    });
+    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: addDays(today, -2) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith(
+        'ca_club_data_screen',
+        expect.objectContaining({ p_start: addDays(today, -5), p_end: addDays(today, -2) })
+      )
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Previous Period' }));
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith(
+        'ca_club_data_screen',
+        expect.objectContaining({ p_start: addDays(today, -9), p_end: addDays(today, -6) })
+      )
+    );
+    fireEvent.click(screen.getByRole('button', { name: '1 Day' }));
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith(
+        'ca_club_data_screen',
+        expect.objectContaining({ p_start: addDays(today, -6), p_end: addDays(today, -6) })
+      )
+    );
+  });
+  it('offers keyboard-accessible breakdown actions for all three totals', async () => {
+    render(<ClubDataSimplePage />);
+    await screen.findByText('Shark Tank');
+    expect(
+      screen.getByRole('button', { name: 'View Total Winnings By Player' })
+    ).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'View MTT Winnings By Player' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'View Fees By Player' })).not.toBeDisabled();
+  });
+});
+
+it('keeps selected dates when access hydration unmounts and remounts the page', async () => {
+  rpcMock.mockResolvedValue({ data: live, error: null });
+  routeState.search = new URLSearchParams('club=preserved');
+  const view = render(<ClubDataSimplePage />);
+  await screen.findByText('Shark Tank');
+  fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+  fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: addDays(today, -5) } });
+  fireEvent.change(screen.getByLabelText('End Date'), { target: { value: addDays(today, -2) } });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+  view.unmount();
+  rpcMock.mockClear();
+  render(<ClubDataSimplePage />);
+  await screen.findByText('Shark Tank');
+  expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+    p_start: addDays(today, -5),
+    p_end: addDays(today, -2),
+  });
+  expect(routeState.search.get('club')).toBe('preserved');
+});
+
+it.each([
+  ['2026-02-30', '2026-03-01'],
+  ['2026-11-05', '2026-11-04'],
+  ['2020-01-01', '2026-11-01'],
+  ['2099-01-01', '2099-01-02'],
+])('does not send invalid URL dates %s to %s to the reporting RPC', async (start, end) => {
+  routeState.search = new URLSearchParams({ dataStart: start, dataEnd: end });
+  rpcMock.mockResolvedValue({ data: live, error: null });
+  render(<ClubDataSimplePage />);
+  await screen.findByText('Shark Tank');
+  expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({ p_start: today, p_end: today });
+});
+
+it('retains a shifted preset after remount and resumes today when shifted back', async () => {
+  rpcMock.mockResolvedValue({ data: live, error: null });
+  const view = render(<ClubDataSimplePage />);
+  await screen.findByText('Shark Tank');
+  fireEvent.click(screen.getByRole('button', { name: 'Previous Period' }));
+  view.unmount();
+  render(<ClubDataSimplePage />);
+  await screen.findByText('Shark Tank');
+  expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+    p_start: addDays(today, -1),
+    p_end: addDays(today, -1),
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Next Period' }));
+  await waitFor(() =>
+    expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      p_start: today,
+      p_end: today,
+    })
+  );
+  expect(routeState.search.has('dataEnd')).toBe(false);
 });
