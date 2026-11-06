@@ -1002,12 +1002,11 @@ function currentOpponentWager(
   return null;
 }
 
-function readInitiative(
+function priorStreetAggressor(
   history: ActionRecord[] | undefined,
-  heroUserId: string,
   stage: HandStage
-): 'hero' | 'opp' | 'none' {
-  if (!history || history.length === 0) return 'none';
+): ActionRecord | null {
+  if (!history || history.length === 0) return null;
   const cur = STAGE_ORDER[stage] ?? 1;
   let last: ActionRecord | null = null;
   for (const a of history) {
@@ -1020,8 +1019,32 @@ function readInitiative(
       last = a;
     }
   }
+  return last;
+}
+
+function readInitiative(
+  history: ActionRecord[] | undefined,
+  heroUserId: string,
+  stage: HandStage
+): 'hero' | 'opp' | 'none' {
+  const last = priorStreetAggressor(history, stage);
   if (!last) return 'none';
   return last.userId === heroUserId ? 'hero' : 'opp';
+}
+
+/** A multiway player can be checked to by the aggressor without acting last.
+ * Another opponent's check does not release the initiative gate. */
+function priorAggressorCheckedThisStreet(
+  history: ActionRecord[] | undefined,
+  stage: HandStage
+): boolean {
+  const aggressor = priorStreetAggressor(history, stage);
+  return (
+    !!aggressor &&
+    !!history?.some(
+      (a) => a.stage === stage && a.userId === aggressor.userId && a.action === 'check'
+    )
+  );
 }
 
 /**
@@ -9880,7 +9903,17 @@ export class HorseLogic {
       // vulnerable made hands and monsters on DYNAMIC boards, low frequency.
       // In position it never applies — checked to us, the aggressor already
       // declined to bet, so stabbing/value-betting is not a donk.
-      if (useV11 && useIQ && initiative === 'opp' && !prevChecked && !ip) {
+      // Multiway, the same is true after the actual aggressor checks even
+      // when a different opponent remains behind. Position alone cannot
+      // tell us whether we are leading into the aggressor.
+      if (
+        useV11 &&
+        useIQ &&
+        initiative === 'opp' &&
+        !prevChecked &&
+        !ip &&
+        !priorAggressorCheckedThisStreet(gs.actionHistory, street)
+      ) {
         const donkLead =
           (vulnerable && wetness >= 0.5 && fastRandom() < 0.2) ||
           (equity >= multiwayValueBar(0.8, oppCount) + mw && wetness >= 0.55 && fastRandom() < 0.3);
