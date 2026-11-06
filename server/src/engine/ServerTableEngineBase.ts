@@ -1585,6 +1585,15 @@ export abstract class ServerTableEngineBase {
     return false;
   }
 
+  /**
+   * The permit and hand number of a retained, never-started original held at
+   * the pause gate, or null. See ServerTableEngineDealing. Identification only:
+   * /health names the table so the release gate can prove it per table.
+   */
+  describeHeldOriginalAtPauseGate(): { permitId: string; handNumber: string } | null {
+    return null;
+  }
+
   /** See ServerTableEngineDealing: a retained, never-started original held at the closeout gate. */
   isPreparedOriginalHeldAtTerminalCloseout(): boolean {
     return false;
@@ -9818,6 +9827,29 @@ export abstract class ServerTableEngineBase {
     return (
       this.finalTableDealPaused || this.terminalCloseoutPaused || this.tableFSM.state === 'paused'
     );
+  }
+
+  /**
+   * WHO IS HOLDING THIS TABLE, BY NAME (2026-11-06). isPausedByDesign() is one
+   * boolean, so /health could not tell a table held by its scheduled break
+   * from one held for nine hours by a qualifier boundary that will never lift:
+   * Satellite 25 had five such tables while stalledTableCount read 0. Every
+   * raised authority is named here, in the same terms isPausedByDesign() reads.
+   * Identification only; nothing decides on it except the /health stall census.
+   */
+  describePauseOwners(): string[] {
+    const owners: string[] = [];
+    if (this.maintenancePaused) owners.push('maintenance');
+    if (this.finalTableDealPaused) owners.push('final_table_deal');
+    if (this.weeklyPayoutPauseOwners.size > 0) owners.push('weekly_payout');
+    if (this.dealingHaltLock) owners.push('dealing_halt');
+    if (this.operatorFloorPaused) owners.push('operator_floor');
+    if (this.dealHoldUntilMs > Date.now()) owners.push('deal_hold');
+    if (this.tableFSM.state === 'paused') owners.push('fsm_paused');
+    if (this.handForHandPaused) owners.push('hand_for_hand');
+    if (this.terminalCloseoutPaused) owners.push('terminal_closeout');
+    if (this.tournamentMovePauseOwners.size > 0) owners.push('tournament_move');
+    return owners;
   }
 
   /** Ms spent in the current by-design pause; 0 when not paused. */

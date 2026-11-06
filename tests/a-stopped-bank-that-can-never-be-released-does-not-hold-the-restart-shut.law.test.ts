@@ -280,7 +280,7 @@ describe('5. stdout is the verdict and nothing else', () => {
 
   it('the helper and the admission line are sent to stderr in the source', () => {
     expect(TRANSACTION).toContain(
-      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} >&2'
+      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} ${inflight_tables:+--tables "$inflight_tables"} >&2'
     );
     expect(TRANSACTION).toContain(
       'admitting the cutover past the unresolved preparation named above" >&2'
@@ -291,7 +291,7 @@ describe('5. stdout is the verdict and nothing else', () => {
 describe('4. the shape of the gate is unchanged', () => {
   it('keeps the allow-list an allow-list and admits only through the database branch', () => {
     const from = TRANSACTION.indexOf(
-      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} >&2\n'
+      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} ${inflight_tables:+--tables "$inflight_tables"} >&2\n'
     );
     const admission = TRANSACTION.slice(from, TRANSACTION.indexOf('\n}', from));
     expect(admission.match(/return 0/g)).toHaveLength(1);
