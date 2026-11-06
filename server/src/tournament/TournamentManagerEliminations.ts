@@ -2194,6 +2194,37 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               }
               payoutCount = awardDepth;
             } else {
+              // A bounty-only PKO (free entry, no guarantee, zero place pool)
+              // pays nothing for finishing position, so it has no money bubble.
+              // Its lifecycle ladder must never start hand-for-hand; clear any
+              // latch an earlier manager left behind and keep tables dealing.
+              const pkoRow = this.tournamentCache as Record<string, unknown> | null;
+              const pkoNum = (v: unknown) => {
+                const x = Number(v);
+                return Number.isFinite(x) ? x : 0;
+              };
+              const bountyOnlyPko =
+                pkoRow?.is_pko === true &&
+                pkoNum(pkoRow.buy_in_amount) <= 0 &&
+                pkoNum(pkoRow.guaranteed_prize) <= 0 &&
+                pkoNum(pkoRow.prize_pool) <= 0;
+              if (this.prizePoolFinalized && bountyOnlyPko) {
+                if (this.handForHandActive) {
+                  this.handForHandActive = false;
+                  this.stopHandForHandSync();
+                  if (!this.isOnBreak() && !this.successorDrainRequested) {
+                    for (const engine of this.tableEngines.values()) engine.resumeDealing();
+                  }
+                  this.noteEliminationSweepStep('broadcast');
+                  await this.broadcast('bubble_burst', {
+                    playersRemaining: playingNow,
+                    paidPositions: 0,
+                    reason: 'bounty_only_pko_pays_no_places',
+                  });
+                  if (sweepStopped()) return;
+                }
+                break handForHandStage;
+              }
               // PAYOUT-INTEGRITY 2026-08-28: an unparseable column is UNKNOWN,
               // never the zero-place answer. Every ordinary MTT reader uses
               // the same strict parser, and final entry closure is the only

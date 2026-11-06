@@ -59,7 +59,7 @@ describe('a seat-first table polls its tournament row', () => {
 describe('PKO bounty badges are re-read on a cadence', () => {
   it('arms and clears a bounty map poll', () => {
     expect(table).toMatch(
-      /bountyMapPollTimer = setInterval\(\(\) => void refreshBountyMap\(\), 30_000\)/
+      /bountyMapPollTimer = setInterval\(\(\) => void refreshBountyMap\(\), BOUNTY_HEAD_POLL_MS\)/
     );
     expect(table).toMatch(/clearInterval\(bountyMapPollTimer\)/);
   });

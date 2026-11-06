@@ -1,0 +1,6 @@
+{
+  "_owner": "fix/bounty-only-pko-pays-no-places",
+  "_comment": "Migration 20261105233808 (guarantee funding is watched both ways).",
+  "tables": ["ca_guarantee_funding_variances"],
+  "functions": ["fn_ca_guarantee_funding_variance_scan"]
+}

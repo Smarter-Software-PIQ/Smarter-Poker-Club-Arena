@@ -1150,6 +1150,10 @@ if (!_win.__pokerLocks) {
  * that is about to succeed — which is what the old 3s threshold did.
  */
 const ENGINE_LOSS_TOAST_DELAY_MS = 15_000;
+/** A bust's bounty settles in the elimination sweep a few seconds after the hand ends. */
+const BOUNTY_SETTLE_REREAD_MS = 8_000;
+/** The last-resort head poll when no knockout, seat or hand change has re-read them. */
+const BOUNTY_HEAD_POLL_MS = 10_000;
 /** Stable empty roster for the profile sync at an anonymous table (2026-09-07). */
 const NO_SEATED_IDS: readonly (string | undefined)[] = [];
 
@@ -1869,6 +1873,13 @@ function LiveTablePage({
   /* The bounty re-read the load effect publishes; the seat-list effect calls it
      when the set of seated players changes (utils/mysteryBountyTable rule 3). */
   const bountyMapRefreshRef = useRef<(() => Promise<void>) | null>(null);
+  /* THE HEADS MOVE THE MOMENT THE KNOCKOUT SETTLES (Dan 2026-11-05). A head
+     re-read issued before a knockout committed used to land after the
+     knockout's own badge update and put the old head back on the winner, where
+     it stayed until the 30s poll. Every applied knockout bumps this
+     generation; a read that started under an older generation is discarded
+     and read again, so a stale head can never overwrite a settled one. */
+  const bountyMapGenRef = useRef(0);
 
   /**
    * The chest on screen, with whatever is known about it right now.
@@ -15575,14 +15586,19 @@ function LiveTablePage({
                showed a missing or wrong bounty on exactly the player a call is
                being priced against. One bounded read on a slow cadence keeps
                every badge true; a failed read keeps the map the table has. */
-            const refreshBountyMap = async () => {
+            const refreshBountyMap = async (attempt = 0): Promise<void> => {
               if (!isMounted || document.hidden) return;
+              const gen = bountyMapGenRef.current;
               const { data: rows, error: readErr } = await supabase
                 .from('tournament_players')
                 .select('user_id, current_bounty')
                 .eq('tournament_id', table.tournament_id)
                 .gt('current_bounty', 0);
               if (!isMounted || readErr || !rows) return;
+              if (gen !== bountyMapGenRef.current) {
+                if (attempt < 2) await refreshBountyMap(attempt + 1);
+                return;
+              }
               const next: Record<string, number> = {};
               rows.forEach((p: { user_id: string; current_bounty: number }) => {
                 next[p.user_id] = p.current_bounty;
@@ -15602,7 +15618,7 @@ function LiveTablePage({
                head shows on the next snapshot rather than up to 30s later. */
             bountyMapRefreshRef.current = refreshBountyMap;
             if (bountyMapPollTimer) clearInterval(bountyMapPollTimer);
-            bountyMapPollTimer = setInterval(() => void refreshBountyMap(), 30_000);
+            bountyMapPollTimer = setInterval(() => void refreshBountyMap(), BOUNTY_HEAD_POLL_MS);
           } else if (tournData?.spin_multiplier) {
             setTableState((prev) => ({
               ...prev,
@@ -17103,6 +17119,7 @@ function LiveTablePage({
                    same winners list as the money, never the flat field, so a
                    split knockout cannot put the whole head on one badge. */
                 const headWinners = bountyWinnersOf(b);
+                bountyMapGenRef.current += 1;
                 setTableState((prev) => {
                   const next = { ...prev.bountyMap };
                   if (b.eliminatedUserId) delete next[b.eliminatedUserId];
@@ -17113,6 +17130,10 @@ function LiveTablePage({
                   }
                   return { ...prev, bountyMap: next };
                 });
+                /* The broadcast leaves after the knockout committed, so one
+                   read now replaces the local arithmetic with the ledger's
+                   own heads. */
+                void bountyMapRefreshRef.current?.();
               } else if (data?.type === 'level_up') {
                 // Blind level increased
                 const levelData = data.payload || {};
@@ -17530,7 +17551,27 @@ function LiveTablePage({
   useEffect(() => {
     if (!tableState.isBountyTournament || !seatedSignature) return;
     void bountyMapRefreshRef.current?.();
+    /* A bust leaves the seat list as the hand ends, but its bounty settles in
+       the elimination sweep a few seconds later. Read once more after that
+       window so the winner's head is right even if the knockout broadcast
+       never reached this table. */
+    const settled = setTimeout(() => void bountyMapRefreshRef.current?.(), BOUNTY_SETTLE_REREAD_MS);
+    return () => clearTimeout(settled);
   }, [seatedSignature, tableState.isBountyTournament]);
+
+  /* EVERY HAND RE-READS THE HEADS (Dan 2026-11-05: "bounties are not updating
+     on the winners heads correctly or in real time"). The knockout broadcast
+     rides a separate realtime channel; when it is late or lost, the felt kept
+     the old head. The engine's own hand counter is on the same socket as the
+     cards, so each new hand in a bounty event reads the ledger heads at once
+     and again after the previous hand's busts have settled. */
+  const bountyHandNumber = tableState.handNumber ?? 0;
+  useEffect(() => {
+    if (!tableState.isBountyTournament || !(bountyHandNumber > 0)) return;
+    void bountyMapRefreshRef.current?.();
+    const settled = setTimeout(() => void bountyMapRefreshRef.current?.(), BOUNTY_SETTLE_REREAD_MS);
+    return () => clearTimeout(settled);
+  }, [bountyHandNumber, tableState.isBountyTournament]);
 
   // The engine socket is replaceable. Its broadcasts are not. Whenever a
   // replacement becomes authoritative, recover any still-open add-on window
