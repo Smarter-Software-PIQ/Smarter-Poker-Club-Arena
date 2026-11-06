@@ -1542,6 +1542,56 @@ export function v62ValueClass(oppCards: Card[], board: Card[], shortDeck: boolea
   return pairsTop || overpair ? 2 : 1;
 }
 
+/** V62 river-bettor class with the board's own pair taken out (2026-11-06).
+ * v62ValueClass reads "two pair or better made by the hole cards" off the
+ * made category, so on a PAIRED board every hand that pairs one hole card
+ * (K K 9 7 2 with 9x makes kings and nines) lands in the two-pair-plus
+ * stratum, the top-pair and weaker-pair strata are empty there, and every
+ * V62 value draw on a paired board samples the whole one-private-pair
+ * population as if it were two pair or better. That over-weights the
+ * bettor's weakest made hands exactly where V62 is supposed to model a
+ * value-heavy river bet. Here a two pair that is one board pair plus ONE
+ * private pair is classed as that private pair (top pair / an overpair 2,
+ * weaker 1); trips or better, two private pairs, and a hole-made two pair
+ * on an unpaired board stay 3. Used only for the V62 river-bettor draw;
+ * V66 / V67 keep v62ValueClass unchanged. */
+export function v62RiverBettorClass(
+  oppCards: Card[],
+  board: Card[],
+  shortDeck: boolean
+): 0 | 1 | 2 | 3 {
+  const cls = v62ValueClass(oppCards, board, shortDeck);
+  if (cls !== 3 || oppCards.length !== 2) return cls;
+  const all = oppCards.concat(board);
+  const cat = Math.floor(scoreHoldem(all, all.length, shortDeck) / 0x100000);
+  if (cat !== 3) return 3;
+  const counts = new Map<string, number>();
+  let topRank = 0;
+  for (const c of board) {
+    counts.set(c.rank, (counts.get(c.rank) ?? 0) + 1);
+    topRank = Math.max(topRank, RANK_VALUES[c.rank]);
+  }
+  let boardPaired = false;
+  for (const n of counts.values()) if (n >= 2) boardPaired = true;
+  if (!boardPaired) return 3;
+  const pocket = oppCards[0].rank === oppCards[1].rank;
+  let privateRank = 0;
+  if (pocket) {
+    privateRank = RANK_VALUES[oppCards[0].rank];
+  } else {
+    let pairing = 0;
+    for (const c of oppCards) {
+      if (counts.get(c.rank) === 1) {
+        pairing++;
+        privateRank = Math.max(privateRank, RANK_VALUES[c.rank]);
+      }
+    }
+    if (pairing >= 2) return 3;
+    if (pairing === 0) return 3;
+  }
+  return privateRank >= topRank ? 2 : 1;
+}
+
 /** Draw the target stratum for one river-bettor sample: 0 = bluff, else the
  * value class (1..3). `r1`/`r2` are uniform draws. Exported for the test. */
 export function v62TargetClass(sizeClass: 0 | 1 | 2, r1: number, r2: number): 0 | 1 | 2 | 3 {
@@ -1564,7 +1614,8 @@ export function buildV62StratumIndex(
   band: [number, number] | null,
   board: Card[],
   excluded: readonly Card[],
-  shortDeck: boolean
+  shortDeck: boolean,
+  classify: (oppCards: Card[], board: Card[], shortDeck: boolean) => 0 | 1 | 2 | 3 = v62ValueClass
 ): V62StratumIndex {
   const tbl = comboTable(shortDeck);
   const lo = band ? lowerBound(tbl.scores, band[0]) : 0;
@@ -1577,7 +1628,7 @@ export function buildV62StratumIndex(
     const a = tbl.c1[idx];
     const b = tbl.c2[idx];
     if (dead[cardId(a)] || dead[cardId(b)]) continue;
-    out[v62ValueClass([a, b], board, shortDeck)].push(idx);
+    out[classify([a, b], board, shortDeck)].push(idx);
   }
   return out;
 }
@@ -2877,7 +2928,10 @@ export function simulateEquity(
         oppBands ? (oppBands[o] ?? null) : null,
         boardCards,
         [...holeCards, ...knownDeadCards],
-        vi.isShortDeck
+        vi.isShortDeck,
+        // V62 draws a river bettor by the board-relative class; V66 / V67
+        // (a raise over hero's own wager) keep v62ValueClass.
+        read.riverPolar === true && boardCards.length === 5 ? v62RiverBettorClass : v62ValueClass
       );
     }
   }

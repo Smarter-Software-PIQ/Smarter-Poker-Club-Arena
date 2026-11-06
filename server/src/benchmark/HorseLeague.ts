@@ -32,6 +32,7 @@ import {
 } from './HorseLeagueComputeWorkerClient.js';
 import type { Card, SeatPlayer, HandStage, ActionRecord, HorseStyle } from '../types.js';
 import { plo4StrengthSeatStyle } from './Plo4StrengthContract.js';
+import { HORSE_HYBRID_PROFILES } from '../engine/HorseHybridProfile.js';
 import {
   HorseLogic,
   type HorseDecideOpts,
@@ -246,6 +247,17 @@ export interface LeagueMatchup {
    * times a day against a fleet of mixed personas.
    */
   productionStyles?: boolean;
+  /**
+   * HYBRID BASELINE (2026-11-06). Absent: the 'balanced' style with {} dials
+   * (or productionStyles / modsA / modsB), as every card before the Hybrid
+   * assignment (#9595) ran. True: every horse seat plays the style and the
+   * four decision dials production now serves for this card's game mode
+   * (HORSE_HYBRID_PROFILES: cash Grinder/Pebbles, tournament Tricky/Flint),
+   * the same at every seat and in both passes, so the arms still differ
+   * only in their flags; modsA / modsB, when set, are applied over the
+   * Hybrid dials. Mirror cards only: a human-field card refuses it.
+   */
+  hybridBaseline?: boolean;
 }
 
 /** The human field inside one dealt hand (see LeagueMatchup.opponentPopulation). */
@@ -927,8 +939,24 @@ export async function runMatchup(
   shouldContinue: () => boolean = () => true
 ): Promise<LeagueResult> {
   if (matchup.opponentPopulation !== undefined) {
+    if (matchup.hybridBaseline === true) {
+      throw new Error(
+        `${matchup.name}: hybridBaseline is a mirror-card option; a human-field card cannot apply it`
+      );
+    }
     return runHumanFieldMatchup(matchup, pairs, runSeed, shouldContinue);
   }
+  if (matchup.hybridBaseline === true && matchup.productionStyles === true) {
+    throw new Error(
+      `${matchup.name}: hybridBaseline and productionStyles both choose the persona; set one`
+    );
+  }
+  const hybrid =
+    matchup.hybridBaseline === true
+      ? HORSE_HYBRID_PROFILES[
+          (matchup.context ?? CASH_LEAGUE_CONTEXT).gameMode === 'tournament' ? 'tournament' : 'cash'
+        ]
+      : undefined;
   const SEATS = matchup.seats ?? DEFAULT_SEATS;
   const t0 = Date.now();
   const counters: LeagueCounters = { illegal: 0, truncated: 0 };
@@ -981,17 +1009,18 @@ export async function runMatchup(
     };
     const evenIsA = (s: number) => withEvidence(s % 2 === 0 ? matchup.a : matchup.b);
     const evenIsB = (s: number) => withEvidence(s % 2 === 0 ? matchup.b : matchup.a);
-    const hasMods = matchup.modsA !== undefined || matchup.modsB !== undefined;
+    const hasMods =
+      matchup.modsA !== undefined || matchup.modsB !== undefined || hybrid !== undefined;
     // Same persona at the same seat in both passes; only the arm swaps.
     const styleOf = matchup.productionStyles
       ? (s: number) => plo4StrengthSeatStyle(handSeed, s + 1)
-      : undefined;
-    const modsEvenIsA = hasMods
-      ? (s: number) => (s % 2 === 0 ? (matchup.modsA ?? {}) : (matchup.modsB ?? {}))
-      : undefined;
-    const modsEvenIsB = hasMods
-      ? (s: number) => (s % 2 === 0 ? (matchup.modsB ?? {}) : (matchup.modsA ?? {}))
-      : undefined;
+      : hybrid
+        ? () => hybrid.style
+        : undefined;
+    const modsA = hybrid ? { ...hybrid.mods, ...(matchup.modsA ?? {}) } : (matchup.modsA ?? {});
+    const modsB = hybrid ? { ...hybrid.mods, ...(matchup.modsB ?? {}) } : (matchup.modsB ?? {});
+    const modsEvenIsA = hasMods ? (s: number) => (s % 2 === 0 ? modsA : modsB) : undefined;
+    const modsEvenIsB = hasMods ? (s: number) => (s % 2 === 0 ? modsB : modsA) : undefined;
 
     const net1 = playHand(
       handSeed,
@@ -1253,7 +1282,9 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'plo4_v15_discipline', variant: 'plo4', pairs: 6000, a: {}, b: { v15: false } },
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
-  { name: 'plo5_v15_boats', variant: 'plo5', pairs: 6000, a: { v15Boats: true }, b: {} },
+  // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
+  // card keeps its name and sign with arm B turning it off.
+  { name: 'plo5_v15_boats', variant: 'plo5', pairs: 6000, a: {}, b: { v15Boats: false } },
   // V58 (2026-10-25): PLO6 paired-board river nut discipline. a is today's
   // brain with it (default ON), b is the brain without it.
   {
@@ -1607,6 +1638,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       // drifts out of this list the same way.
       v12: false,
       v15: false,
+      v15Boats: false,
       v16Reads: false,
       v16Icm: false,
       v16Hu: false,

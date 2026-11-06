@@ -11,11 +11,13 @@
  * Replayed through decide() before this change, both raised or jammed on
  * 73-74% of seeds. V15 treated every `cat >= 7` as nut-class.
  *
- * The change is behind opts.v15Boats, default OFF until the plo5_v15_boats
- * league matchup resolves significant (|bb100| > 2 * stderr).
+ * The change is behind opts.v15Boats. Since 2026-11-06 it is default ON in
+ * PLO5 cash (plo5_v15_boats pooled significant positive, +0.128 +/- 0.050
+ * over 38 runs; v15BoatsOn) and OFF in every other variant and in
+ * tournaments, which the league has not measured.
  */
 import { describe, expect, it } from 'vitest';
-import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { HorseLogic, v15BoatsOn, type HorseGameStateV2 } from './HorseLogic.js';
 import { omahaBoatDominated, omahaBoatsAbove, seedFastRandom } from './HorseEval.js';
 import type { ActionRecord, Card, SeatPlayer } from '../types.js';
 
@@ -189,7 +191,7 @@ describe('V15 boats, flag on', () => {
   );
 });
 
-describe('V15 boats is off by default', () => {
+describe('V15 boats is off by default outside PLO5 cash', () => {
   it(
     'with no flag the brain is unchanged: the under-full still re-raises',
     () => {
@@ -202,6 +204,31 @@ describe('V15 boats is off by default', () => {
       // Pins that the default really is off; flip this when the league
       // resolves and the default changes, in the same commit.
       expect(aggressive).toBeGreaterThan(0);
+    },
+    SUITE_TIMEOUT_MS
+  );
+});
+
+describe('V15 boats is on by default in PLO5 cash (2026-11-06)', () => {
+  it('scopes the default to PLO5 cash and lets an explicit option decide', () => {
+    expect(v15BoatsOn(undefined, 'plo5', false)).toBe(true);
+    expect(v15BoatsOn(undefined, 'PLO5', false)).toBe(true);
+    expect(v15BoatsOn(undefined, 'plo5', true)).toBe(false);
+    for (const v of ['plo4', 'plo6', 'plo8', 'nlh', 'short_deck', undefined]) {
+      expect(v15BoatsOn(undefined, v, false)).toBe(false);
+    }
+    expect(v15BoatsOn(false, 'plo5', false)).toBe(false);
+    expect(v15BoatsOn(true, 'plo4', true)).toBe(true);
+  });
+
+  it(
+    'the recorded PLO5 under-full plays the boats line with no flag',
+    () => {
+      for (const seed of SEEDS) {
+        expect(raisedOnRiver(SEVENS_FULL, seed, {})).toBe(
+          raisedOnRiver(SEVENS_FULL, seed, { v15Boats: true })
+        );
+      }
     },
     SUITE_TIMEOUT_MS
   );
