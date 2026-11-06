@@ -413,6 +413,13 @@ class HourlyCycle(unittest.TestCase):
             'startMinute':0,'durationMs':300000,'hourlyCashFreeze':True}}}
         with patch.object(seal.sys,'stdin',io.StringIO(json.dumps(actual))), redirect_stdout(io.StringIO()):
             seal.cmd_restoration_needed(Namespace(repo=str(self.repo),sha=self.sha))
+        # A late request must refuse before writing a future global owner.
+        before = seal.STATE_FILE.read_bytes()
+        for late in ('2026-11-01T09:59:30+00:00', '2026-11-01T10:00:00+00:00', '2026-11-01T20:00:00+00:00'):
+            self.clock.return_value = seal.datetime.fromisoformat(late).timestamp()
+            self.assert_refused(lambda: self.reserve())
+            self.assertEqual(seal.STATE_FILE.read_bytes(), before)
+        self.clock.return_value = seal.datetime.fromisoformat('2026-11-01T09:30:00+00:00').timestamp()
         c=self.reserve(); self.assertEqual(c['kind'],'daily-restoration')
         local = seal.datetime.fromtimestamp(c['startsAt'], seal.ZoneInfo('America/Chicago'))
         self.assertEqual((local.hour, local.minute), (4, 0))
