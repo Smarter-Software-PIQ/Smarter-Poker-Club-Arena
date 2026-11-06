@@ -4,7 +4,7 @@ import {
   setRevivalSink,
   type RevivalReason,
   type RevivalRecord,
-} from './realtimeRevival';
+} from './realtimeTransportLoss';
 
 /**
  * A DEAD SOCKET IS FOUND THE MOMENT THE PLAYER COMES BACK (2026-11-05).
@@ -186,7 +186,7 @@ export function installRealtimeLiveness(
   report: (reason: string, data: Record<string, unknown>) => void = reportForcedReconnect
 ): () => void {
   if (!env) return () => {};
-  // Finished measurements (realtimeRevival.ts) are written durably from here,
+  // Finished measurements (realtimeTransportLoss.ts) are written durably from here,
   // so the entry chunk never carries the writer.
   setRevivalSink((record) => void writeRevival(record));
   let probe: unknown = null;

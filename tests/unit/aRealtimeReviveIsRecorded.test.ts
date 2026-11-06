@@ -10,7 +10,7 @@ import {
   setRevivalSink,
   wasForcedByLiveness,
   type RevivalRecord,
-} from '../../src/lib/realtimeRevival';
+} from '../../src/lib/realtimeTransportLoss';
 import {
   REVIVE_REPORT_WINDOW_MS,
   __resetRevivalWriteForTests,
@@ -189,10 +189,11 @@ describe('a finished measurement is written durably, throttled and signed in onl
 });
 
 describe('the revive writer stays out of the entry chunk', () => {
-  const revival = readFileSync(resolve(process.cwd(), 'src/lib/realtimeRevival.ts'), 'utf8');
+  const loss = readFileSync(resolve(process.cwd(), 'src/lib/realtimeTransportLoss.ts'), 'utf8');
   const liveness = readFileSync(resolve(process.cwd(), 'src/lib/realtimeLiveness.ts'), 'utf8');
-  it('the entry-side module imports nothing', () => {
-    expect(revival).not.toMatch(/^import /m);
+  it('the entry-side measurement adds no import to the transport-loss module', () => {
+    expect(loss.match(/^import /gm)).toHaveLength(1);
+    expect(loss).toContain("import { reportError } from '../utils/errorReporter';");
   });
   it('the liveness module owns the table write and registers the sink', () => {
     expect(liveness).toContain(".from('client_realtime_revivals')");
