@@ -39,6 +39,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'boundary: the Phase 14 worker-local corrective consumer; absent a separately admitted functional capability it preserves action and RNG, and it never stacks on an applied prior candidate',
     'src/engine/HorseRiverNuts.ts':
       'the final river-nuts raise and full-pot near-pot wager invariants after all strategy owners',
+    'src/engine/HorseOmahaCurrentNuts.ts':
+      'the final Omaha flop/turn current-nuts raise (exact public nuts with a redraw or untieable; Dan 2026-11-06), right after the river-nuts raise',
     'src/engine/HorseTournamentShoveDiscipline.ts':
       'the final tournament preflop shove-depth wager rule (no deep open or re-raise shove) after all strategy owners',
     'src/engine/HorseCallDeductions.ts':

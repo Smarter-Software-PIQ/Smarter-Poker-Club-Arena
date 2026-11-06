@@ -24,6 +24,7 @@ import {
 } from './HorsePhase6Attribution.js';
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { riverNutsRaise, fullPotNearPotWager } from './HorseRiverNuts.js';
+import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -271,7 +272,7 @@ import {
 } from './HorseEval.js';
 import { anteOrbitCostBB } from './AnteMath.js';
 import { v81Cell, v81StreetWager } from './HorseOmahaBigBetCalls.js';
-import { ploPairedBoardMustFold } from './HorsePloPairedBoardFold.js';
+import { ploPairedBoardMustFold, ploPairedBoardRiverMustCheck } from './HorsePloPairedBoardFold.js';
 import {
   holdemPremiumAggressionVerdict,
   type HoldemPremiumVerdict,
@@ -2144,6 +2145,15 @@ export interface HorseDecideOpts {
    *  paired flop, turn or river (HorsePloPairedBoardFold.ts). Live always runs it;
    *  false exists only so an ablation can measure an older layer alone. */
   ploPairedBoardFold?: boolean;
+  /** Dan 2026-11-06: high-only PLO suited aces 4-bet one 3-bet and continue
+   *  when re-raised (HorsePreflop OMAHA_SUITED_ACES_FOUR_BET_MAX_BB). Live always
+   *  runs it; false exists only for an ablation or a complaint-law control. */
+  ploSuitedAcesFourBet?: boolean;
+  /** Dan 2026-11-06: PLO4/PLO5/PLO6 without a full house never bets the river
+   *  of a paired board after its own turn bet was called
+   *  (HorsePloPairedBoardFold.ploPairedBoardRiverMustCheck). Live always runs
+   *  it; false exists only for an ablation or a complaint-law control. */
+  ploPairedBoardRiverCheck?: boolean;
   /** Dan 2026-10-25: hold'em premiums are never played passively and dominated
    *  offsuit hands fold to a big 3-bet (HorseHoldemPremiumAggression.ts). Live
    *  always runs it; false exists only so an ablation can measure an older
@@ -2221,6 +2231,10 @@ export interface HorseDecideOpts {
   v55OmahaRiverTripsFlat?: boolean;
   /** Qualification-only small-pot near-nut river value candidate; default off. */
   smallPotNearNutRiverValue?: boolean;
+  /** Omaha current nuts facing a flop/turn bet raise instead of flat
+   * (HorseOmahaCurrentNuts.ts). Default on; false only for the complaint
+   * law's non-vacuity control. */
+  omahaCurrentNutsRaise?: boolean;
   /** V56: direct public pressure sampling for vulnerable river sets/trips
    * facing tier-three pressure on one Omaha-high cash board. Default on
    * after fixed-clock/full-precision400bb cash qualification; explicit false
@@ -4196,6 +4210,42 @@ function omahaBigBetCallFold(
   }
 }
 
+/**
+ * Dan 2026-11-06: PLO4/PLO5/PLO6 without a full house never bets or raises the
+ * river of a board paired on the turn after its own turn bet was called. See
+ * HorsePloPairedBoardFold.ts. Runs in the `wager_rules` node beside the
+ * paired-board fold, so the signed graph records the change.
+ */
+function pairedBoardRiverCheck(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.ploPairedBoardRiverCheck === false) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'raise' && decision.action !== 'all_in') {
+    return decision;
+  }
+  const hiLo = gs.variantRules
+    ? gs.variantRules.splitLow8OrBetter
+    : variantInfo(gs.gameVariant).isHiLo;
+  const mustCheck = ploPairedBoardRiverMustCheck({
+    gameVariant: gs.gameVariant,
+    hiLo,
+    multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+    board: gs.communityCards ?? [],
+    hero: player,
+    toCall: gs.toCall,
+    actionHistory: gs.actionHistory,
+  });
+  if (!mustCheck) return decision;
+  if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('check')) return decision;
+  if (telemetryOn(opts)) noteFire('plo_paired_board_river_check');
+  const checked: HorseDecision = { ...decision, action: 'check' };
+  delete checked.amount;
+  return checked;
+}
+
 /** The outer safety net: only a decision the policy graph never signed. */
 function pairedBoardFoldOutsideGraph(
   decision: HorseDecision,
@@ -4204,7 +4254,12 @@ function pairedBoardFoldOutsideGraph(
   opts: HorseDecideOpts
 ): HorseDecision {
   return decision.policyGraph === undefined
-    ? omahaBigBetCallFold(pairedBoardFold(decision, player, gs, opts), player, gs, opts)
+    ? omahaBigBetCallFold(
+        pairedBoardRiverCheck(pairedBoardFold(decision, player, gs, opts), player, gs, opts),
+        player,
+        gs,
+        opts
+      )
     : decision;
 }
 
@@ -5834,7 +5889,12 @@ export class HorseLogic {
       const wagered = fullPotNearPotWager(
         // V58/V59: PLO6 river nut discipline, after every strategy owner.
         plo6RiverNutDiscipline(
-          riverNutsRaise(tournamentShoveDiscipline(decision, player, gs), player, gs),
+          omahaCurrentNutsRaise(
+            riverNutsRaise(tournamentShoveDiscipline(decision, player, gs), player, gs),
+            player,
+            gs,
+            opts
+          ),
           player,
           gs,
           opts,
@@ -5844,7 +5904,12 @@ export class HorseLogic {
         gs
       );
       const ruled = holdemPremiumAggression(
-        omahaBigBetCallFold(pairedBoardFold(wagered, player, gs, opts), player, gs, opts),
+        omahaBigBetCallFold(
+          pairedBoardRiverCheck(pairedBoardFold(wagered, player, gs, opts), player, gs, opts),
+          player,
+          gs,
+          opts
+        ),
         player,
         gs,
         opts
@@ -7213,6 +7278,8 @@ export class HorseLogic {
           ? player.cards.filter((hc) => hc.rank === 'A').length >= 2
           : undefined,
       omahaSuitedPremium: suitedPremium,
+      omahaSuitedAcesFourBet:
+        opts.ploSuitedAcesFourBet !== false && vi.isOmaha && !vi.isHiLo && suitedPremium === 'aces',
       holdemPremiumPair,
       tournamentAggression: (opts.v57TournamentAggression ?? true) !== false,
       // V74 is no-limit hold'em only: short deck, pineapple, fixed limit and
@@ -7302,6 +7369,9 @@ export class HorseLogic {
       else if (intent.receipt === 'cash_nlh_three_bet_size') noteFire('cash_nlh_three_bet_size');
       else if (intent.receipt === 'v76_retired_four_bet_bluff')
         noteFire('v76_retired_four_bet_bluff');
+      else if (intent.receipt === 'plo_suited_aces_four_bet') noteFire('plo_suited_aces_four_bet');
+      else if (intent.receipt === 'plo_suited_aces_four_bettor_continues')
+        noteFire('plo_suited_aces_four_bettor_continues');
     }
     notePhase6Route(
       phase6?.policy.fallbackReason === 'unsupported_variant' ? 'variant_fallback' : 'atlas',

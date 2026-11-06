@@ -25,7 +25,10 @@ import {
 import { isJointVariant } from '../multiway/JointInputBinding.js';
 import { JOINT_LIVE_DOMAIN } from '../multiway/JointLivePolicy.js';
 import { horsePhase13ContinuationVersion } from '../HorsePhase13Authority.js';
-import { PLO_PAIRED_BOARD_VARIANTS } from '../HorsePloPairedBoardFold.js';
+import {
+  PLO_PAIRED_BOARD_VARIANTS,
+  ploPairedBoardRiverMustCheck,
+} from '../HorsePloPairedBoardFold.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -935,10 +938,33 @@ function policyGraphIsValid(
       previous !== null &&
       ['raise', 'all_in'].includes(previous.action) &&
       plo6RiverCallIsPriced(transition.after, context);
+    // Dan 2026-11-06 (HorsePloPairedBoardFold.ploPairedBoardRiverMustCheck):
+    // a PLO4/5/6 river bet or raise without a full house, on a board paired
+    // by the turn after the horse's own turn bet was called, becomes a check.
+    // A check puts no chip in; when the request is known, only in that spot.
+    const pairedBoardRiverCheck =
+      transition.node === 'wager_rules' &&
+      PLO_PAIRED_BOARD_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        ploPairedBoardRiverMustCheck({
+          gameVariant: context.gameState.gameVariant,
+          hiLo: context.gameState.variantRules?.splitLow8OrBetter === true,
+          multiBoard: !!(
+            context.gameState.communityCards2?.length || context.gameState.communityCards3?.length
+          ),
+          board: context.gameState.communityCards ?? [],
+          hero: context.player,
+          toCall: context.gameState.toCall,
+          actionHistory: context.gameState.actionHistory,
+        }));
     if (
       transition.node === 'wager_rules' &&
       changed &&
       !pairedBoardFold &&
+      !pairedBoardRiverCheck &&
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&

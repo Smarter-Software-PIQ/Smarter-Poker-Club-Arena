@@ -169,6 +169,7 @@ describe('a style change is seen in a handful of hands, both ways', () => {
   // on. The 2026-10-25 paired-board fold changes which PLO4 hands reach later
   // streets, so it is ablated here; its own law is HorsePloPairedBoardFold.
   // V74 (2026-10-31) likewise changes the PLO4 stream and is ablated too.
+  // The 2026-11-06 Omaha current-nuts raise changes it as well and is ablated.
   for (const v of ['nlh', 'plo4']) {
     it(`${v}: a maniac who calms down stops being read as one within 25 hands`, () => {
       const t = playManiacPressure(v, 'cash', 'potter', 100, 11, 15, {
@@ -176,6 +177,7 @@ describe('a style change is seen in a handful of hands, both ways', () => {
         then: 'nit',
         pairedBoardFold: false,
         semiBluffNeedsDraw: false,
+        currentNutsRaise: false,
       });
       expect(firstFrom(t.maniacReadByHand, 0, true)).toBeLessThanOrEqual(8);
       expect(firstFrom(t.maniacReadByHand, 60, false)).toBeLessThanOrEqual(25);
@@ -186,6 +188,7 @@ describe('a style change is seen in a handful of hands, both ways', () => {
         then: 'potter',
         pairedBoardFold: false,
         semiBluffNeedsDraw: false,
+        currentNutsRaise: false,
       });
       expect(t.maniacReadByHand.slice(0, 60).some(Boolean)).toBe(false);
       expect(firstFrom(t.maniacReadByHand, 60, true)).toBeLessThanOrEqual(12);
