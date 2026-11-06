@@ -34,3 +34,20 @@ unchanged.
 private cards "Mongo's" on the felt and in the rundown, with no "Yours"
 anywhere on the page. A player's own hand still reads "Yours". The test fails
 against the previous source.
+
+## Also: an old link shows nothing of the viewer's own records
+
+Verified live as a signed-in non-participant: an old `hand-history?hand=<id>`
+link to someone else's hand showed the note and no list, but the page header
+("Won", "Biggest Pot") and the summary strip ("25 Hands ... Load More For A
+Fuller Picture") were still the viewer's own figures beside a friend's link.
+`HandHistoryPage` now derives one `showingForeignLink` flag and withholds the
+header metrics, the summary strip, the list and Load More behind it. Show My
+Hands drops the link and brings them back.
+
+## Production check after every publish
+
+`tests/e2e/routes/shared-hand-link.spec.ts` (the post-deploy sweep runs that
+directory): the shared replay of hand #56019216 opens that hand and names the
+sender with no "Yours"; signed in as the isolated account, the old archive link
+shows the note and no list, summary or Load More.

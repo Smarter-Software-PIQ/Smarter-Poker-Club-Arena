@@ -842,6 +842,15 @@ export default function HandHistoryPage() {
   };
 
   const heroId = userId || '';
+  /*
+   * A LINK TO SOMEONE ELSE'S HAND (2026-11-06). The archive reads under RLS,
+   * so a hand the viewer was not dealt into comes back missing. On that page
+   * the note is the ONLY thing shown: no list, no Load More, and none of the
+   * viewer's own figures (header metrics, summary strip). Any of them beside a
+   * friend's link reads as "the link opened MY history", which is the report
+   * this fixes. Show My Hands drops the link and brings everything back.
+   */
+  const showingForeignLink = !!linkedHandId && linkedState === 'missing';
 
   return (
     <div className="hand-history-page" data-arena-surface="play">
@@ -849,18 +858,23 @@ export default function HandHistoryPage() {
         title="Hand Archive"
         description="Every Hand You Played, Across Every Table, Newest First. Expand A Hand For The Full Rundown, Replay It, Share It, Or Send It To Jarvis."
         status="HAND RECORD // LIVE"
-        metrics={[
-          { label: 'Won', value: stats.wins, tone: 'live' },
-          {
-            label: gameMode === 'tournament' ? 'Events' : 'Biggest Pot',
-            value:
-              gameMode === 'tournament'
-                ? new Set(hands.flatMap((hand) => (hand.tournamentId ? [hand.tournamentId] : [])))
-                    .size
-                : biggestPotsByAsset,
-            tone: 'attention',
-          },
-        ]}
+        metrics={
+          showingForeignLink
+            ? []
+            : [
+                { label: 'Won', value: stats.wins, tone: 'live' },
+                {
+                  label: gameMode === 'tournament' ? 'Events' : 'Biggest Pot',
+                  value:
+                    gameMode === 'tournament'
+                      ? new Set(
+                          hands.flatMap((hand) => (hand.tournamentId ? [hand.tournamentId] : []))
+                        ).size
+                      : biggestPotsByAsset,
+                  tone: 'attention',
+                },
+              ]
+        }
       />
 
       <div className="hh-search">
@@ -995,7 +1009,7 @@ export default function HandHistoryPage() {
         </div>
       )}
 
-      {linkedHandId && linkedState === 'missing' && (
+      {showingForeignLink && (
         <div className="hh-stats-drilldown" role="status">
           <span>
             That Hand Belongs To Another Player, So It Cannot Open Here. Ask Them To Send It With
@@ -1035,7 +1049,7 @@ export default function HandHistoryPage() {
         </div>
       )}
 
-      {!loading && hands.length > 0 && (
+      {!loading && hands.length > 0 && !showingForeignLink && (
         <>
           <div className="hh-summary" aria-label={`Across The ${hands.length} Hands Loaded`}>
             <div className="summary-stat">
@@ -1101,7 +1115,7 @@ export default function HandHistoryPage() {
           listing the viewer's own hands under it is what made players think the
           link had opened the wrong person's history (2026-11-06). Show My Hands
           drops the link and brings the list back. */}
-      {linkedHandId && linkedState === 'missing' ? null : (
+      {showingForeignLink ? null : (
         <div className="hands-list" aria-busy={loading}>
           {loading ? (
             <PageSkeleton variant="list" />
@@ -1274,7 +1288,7 @@ export default function HandHistoryPage() {
         </div>
       )}
 
-      {!loading && hasMore && rows.length > 0 && !(linkedHandId && linkedState === 'missing') && (
+      {!loading && hasMore && rows.length > 0 && !showingForeignLink && (
         <button
           type="button"
           className="load-more-btn"

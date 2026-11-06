@@ -343,7 +343,13 @@ describe('the surfaces', () => {
   it("a link to another player's hand opens on a note, never on the viewer's own list", () => {
     const page = read('src/pages/HandHistoryPage.tsx');
     expect(page).toContain('That Hand Belongs To Another Player');
-    expect(page).toContain("{linkedHandId && linkedState === 'missing' ? null : (");
+    expect(page).toContain("const showingForeignLink = !!linkedHandId && linkedState === 'missing';");
+    // The list, Load More, the summary strip and the header figures are all
+    // the VIEWER's records: none of them may sit beside someone else's link.
+    expect(page).toContain('{showingForeignLink ? null : (');
+    expect(page).toContain('rows.length > 0 && !showingForeignLink && (');
+    expect(page).toContain('hands.length > 0 && !showingForeignLink && (');
+    expect(page).toMatch(/metrics=\{\s*showingForeignLink\s*\?\s*\[\]/);
   });
 
   it('reaches an older saved bomb through the loaded-page boundary', async () => {
