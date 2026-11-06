@@ -1544,11 +1544,12 @@ raise SystemExit(5 if census_claim else 4)
     5) ;;
     *) return 1 ;;
   esac
-  local inflight_args=()
+  local inflight_age=
   # A cards_in_air claim needs the in-flight database witness over its full
   # 600-second lookback (see CENSUS_CLAIM_ONLY above); the bounded F06 classes
-  # keep their existing proof unchanged.
-  [ "$status" != 5 ] || inflight_args=(--max-age-seconds 600)
+  # keep their existing proof unchanged. A scalar, not an array: an empty
+  # array under set -u is an unbound-variable error on bash 3.2.
+  [ "$status" != 5 ] || inflight_age=600
   # Fail closed. Exit 0 is the ONLY result that proceeds. The helper answers 1
   # for a hand in the air and 3 for "could not tell", and both refuse here.
   # There is deliberately no flag, variable or argument that skips this.
@@ -1573,7 +1574,7 @@ raise SystemExit(5 if census_claim else 4)
   # cutover every other gate had admitted was thrown away. Both now go to
   # stderr, where the journal still records them.
   set +e
-  legacy_entry_read "$INFLIGHT_HANDS" --env-file "$ENV_FILE" "${inflight_args[@]}" >&2
+  legacy_entry_read "$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} >&2
   local inflight_rc=$?
   set -e
   case "$inflight_rc" in
