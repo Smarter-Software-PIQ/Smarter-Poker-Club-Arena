@@ -13,9 +13,21 @@ reported a number without the funding, reservation or offer-cap reason that
 could prevent admission. The read-only function now applies the existing
 entry TTL, existing wallet authority and live hold rules, reports the caller's
 own reason and reservation, and gives the lobby the same effective queue total.
-It does not alter queue rows, queue priority, seats, wallets or purchase rules.
+The reader does not alter queue rows, queue priority, seats, wallets or purchase rules.
 The existing lobby panel prints the reason, including how to rejoin after
 expiry. Existing clients remain compatible with the original fields.
+
+The connected Join transaction also had a real admission defect: a waiting
+entry older than 24 hours still satisfied its live-row uniqueness rule, so
+selecting Join Game returned waitlisted without creating an eligible entry.
+The original caller-bound Join now expires only that caller's aged waiting
+entry before inserting the fresh request. Existing funding, membership,
+game lock and live-hold checks remain in place. Its returned queue counts use
+the same effective reader. Installation rewrites no existing player rows;
+renewal happens only during the player's explicit request. Native PostgreSQL
+reproduces the previous failed renewal, then executes the exact original
+queue tail under the maintained migration and proves concurrent requests
+create one fresh place. Earlier admission branches remain unchanged.
 
 A malformed legacy offer timestamp could throw before validation and interrupt
 that event's consumer. It now returns no deadline, allowing the next valid

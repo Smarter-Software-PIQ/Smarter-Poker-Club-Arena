@@ -1,5 +1,6 @@
 -- Queue feedback uses the same entry TTL, wallet and live reservation rules as admission.
--- Read-only: no queue, seat or wallet is repaired or changed by this migration.
+-- Installation changes definitions only. An explicit Join renews only its caller's expired entry.
+-- No queue, seat or wallet rows are rewritten at installation.
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 SET LOCAL statement_timeout = '5s';
@@ -71,6 +72,33 @@ BEGIN
    RAISE EXCEPTION 'Cash lobby queue total changed; review the current definition before installation';
  END IF;
  body := replace(body,old_fragment,'''waiting'', (public.fn_cash_game_waitlist_position(g.id)->>''waiting'')::integer');
+ EXECUTE body;
+END;
+$migration$;
+-- Renew an aged entry inside the original, caller-bound Join transaction.
+DO $migration$
+DECLARE marker text := '  -- Nothing open anywhere: hold the place. One live row per game per player.';
+ old_count text := '  SELECT count(*) + 1 INTO v_position FROM public.cash_game_waitlist w
+   WHERE w.game_id = g.id AND w.status IN (''waiting'', ''notified'')
+     AND w.created_at < (SELECT created_at FROM public.cash_game_waitlist x
+                          WHERE x.game_id = g.id AND x.user_id = v_uid AND x.status IN (''waiting'', ''notified'') LIMIT 1);
+  SELECT count(*) INTO v_count FROM public.cash_game_waitlist w
+   WHERE w.game_id = g.id AND w.status IN (''waiting'', ''notified'');';
+ body text;
+BEGIN
+ SELECT pg_get_functiondef('public.fn_cash_game_join(uuid)'::regprocedure) INTO body;
+ IF position(marker IN body)=0 OR position(old_count IN body)=0 THEN
+   RAISE EXCEPTION 'Cash Join queue tail changed; review the current definition before installation';
+ END IF;
+ body := replace(body,marker,$renew$  -- Existing funding, membership, game lock and live-hold guards ran above.
+  -- An old waiting row must not block the caller's explicit fresh request.
+  UPDATE public.cash_game_waitlist w SET status = 'expired', updated_at = now()
+   WHERE w.game_id = g.id AND w.user_id = v_uid AND w.status = 'waiting'
+     AND w.created_at <= now() - interval '24 hours';
+$renew$ || marker);
+ body := replace(body,old_count,$counts$  SELECT (state->>'position')::integer, (state->>'waiting')::integer
+    INTO v_position, v_count
+    FROM (SELECT public.fn_cash_game_waitlist_position(g.id) AS state) effective_queue;$counts$);
  EXECUTE body;
 END;
 $migration$;
