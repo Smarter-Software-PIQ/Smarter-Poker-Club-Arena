@@ -1,3 +1,4 @@
+import type { HorseStyle } from '../types.js';
 import {
   authenticateIncrementalPlan,
   incrementalQualificationRules,
@@ -38,7 +39,13 @@ import {
   PRESSURE_PACKAGE_POPULATION,
 } from './IncrementalPressureDevelopment.js';
 
+export interface HeroStyleContrast {
+  kind: 'hero_style_development';
+  candidate: HorseStyle;
+  reference: HorseStyle;
+}
 export interface FeatureAblationSpec {
+  heroStyleContrast?: HeroStyleContrast;
   id: string;
   profile: Readonly<Plo4LeagueProfile>;
   brain: Plo4AblationBrain;
@@ -90,6 +97,7 @@ export interface FeatureAblationPairRecord {
   referenceFees: { rake: number; bbj: number };
 }
 export interface FeatureAblationResult {
+  heroStyleContrast?: HeroStyleContrast;
   schema: 'horse-feature-ablation-shard-v1';
   mode: 'development' | 'contract';
   experimentId: string;
@@ -136,6 +144,7 @@ export interface FeatureAblationResult {
   promotionEligible: false;
 }
 export function assertAblationArms(spec: FeatureAblationSpec): void {
+  if (spec.heroStyleContrast) throw Error('Personality contrast is development-only');
   if (Object.hasOwn(spec.candidate, 'multiwayRiverBluffCheckRaise')) {
     const exact = (arm: Plo4AblationFlags, value: boolean) =>
       Object.keys(arm).length === 2 &&
@@ -214,9 +223,36 @@ export function ablationPilotMoments(s: Plo4PowerSums) {
     kurtosis: m2 > 0 ? m4 / (m2 * m2) : null,
   };
 }
-/** Only this exact five-flag contrast is admitted in development. The
- * protected contract path still calls the unchanged single-flag validator. */
+/** Additional contrasts are development-only. The protected contract path
+ * retains the existing flag contracts and refuses hero personality overrides. */
 export function assertDevelopmentAblationArms(spec: FeatureAblationSpec): void {
+  if (spec.heroStyleContrast) {
+    const c = spec.heroStyleContrast;
+    const styles = ['tag', 'lag', 'balanced', 'tricky', 'grinder', 'hybrid'];
+    if (
+      c.kind !== 'hero_style_development' ||
+      !styles.includes(c.candidate) ||
+      !styles.includes(c.reference) ||
+      spec.id !== 'hero_personality-development-v1' ||
+      Object.keys(spec.candidate).length ||
+      Object.keys(spec.reference).length ||
+      !['plo5', 'plo6'].includes(spec.profile.variant ?? '') ||
+      spec.profile.opponentPopulation ||
+      spec.profile.humanCalibratedProfiles ||
+      spec.profile.jointPolicy ||
+      (spec.profile.bombBoards ?? 1) !== 1 ||
+      (spec.profile.asset ?? 'chips') !== 'chips'
+    )
+      throw Error('Invalid development-only hero personality contrast');
+    // Reuse physical-domain validation without weakening single-flag contracts.
+    assertAblationArms({
+      ...spec,
+      heroStyleContrast: undefined,
+      candidate: { v53Pressure: true },
+      reference: { v53Pressure: false },
+    });
+    return;
+  }
   if (spec.id !== 'pressure_package-development-v1') return assertAblationArms(spec);
   const exact = (arm: Plo4AblationFlags, value: boolean) =>
     Object.keys(arm).length === PRESSURE_PACKAGE_FLAGS.length &&
@@ -288,6 +324,7 @@ export async function runFeatureAblationContract(
   onPair?: (record: FeatureAblationPairRecord) => void | Promise<void>,
   shouldContinue = () => true
 ): Promise<FeatureAblationResult & { mode: 'contract' }> {
+  if (spec.heroStyleContrast) throw Error('Personality contrast is development-only');
   const {
     qualificationPlan,
     qualificationPlanDigest,
@@ -406,6 +443,7 @@ async function runFeatureAblationCore(
     requestedPairs: pairs,
     pairs: 0,
     complete: false,
+    ...(spec.heroStyleContrast ? { heroStyleContrast: spec.heroStyleContrast } : {}),
     candidate: spec.candidate,
     reference: spec.reference,
     sums: sums.toJSON(),
@@ -476,9 +514,12 @@ async function runFeatureAblationCore(
     const i = startPair + k,
       dealSeed = featureAblationDealSeed(spec.profile.id, seed, i);
     const { heroSeat, button, relativePosition } = plo4LeagueSeating(i, spec.profile.seats);
-    const play = (heroOpts: Plo4AblationFlags) =>
+    const play = (heroOpts: Plo4AblationFlags, heroStyle?: HorseStyle) =>
       playPlo4PolicyHand(
-        { ...spec.profile, ablation: { brain: spec.brain, population: spec.population, heroOpts } },
+        {
+          ...spec.profile,
+          ablation: { brain: spec.brain, population: spec.population, heroOpts, heroStyle },
+        },
         dealSeed,
         button,
         heroSeat,
@@ -488,7 +529,7 @@ async function runFeatureAblationCore(
       );
     let candidate: Plo4HandReceipt;
     try {
-      candidate = await play(spec.candidate);
+      candidate = await play(spec.candidate, spec.heroStyleContrast?.candidate);
     } catch (error) {
       result.protocolErrors++;
       result.refusalReason = String(error).slice(0, 512);
@@ -498,7 +539,7 @@ async function runFeatureAblationCore(
     if (!candidate.complete || !candidate.checks) break;
     let reference: Plo4HandReceipt;
     try {
-      reference = await play(spec.reference);
+      reference = await play(spec.reference, spec.heroStyleContrast?.reference);
     } catch (error) {
       result.protocolErrors++;
       result.refusalReason = String(error).slice(0, 512);

@@ -146,6 +146,8 @@ export interface Plo4LeagueProfile {
   /** Explicit flag experiment; absent on every existing phase league path. */
   ablation?: {
     heroOpts: Plo4AblationFlags;
+    /** Offline development only; never changes a non-hero seat. */
+    heroStyle?: HorseStyle;
     brain: Plo4AblationBrain;
     population?: Plo4AblationPopulation;
   };
@@ -628,11 +630,14 @@ export async function playPlo4PolicyHand(
       const humanSeat =
         profile.opponentPopulation === HUMAN_CALIBRATED_POPULATION_ID && hero.seat !== heroSeat;
       const ablation = profile.ablation;
-      const style = profile.productionStyles
-        ? plo4StrengthSeatStyle(seed, hero.seat)
-        : hero.seat === heroSeat
-          ? 'balanced'
-          : profile.opponentStyle;
+      const style =
+        ablation?.heroStyle && hero.seat === heroSeat
+          ? ablation.heroStyle
+          : profile.productionStyles
+            ? plo4StrengthSeatStyle(seed, hero.seat)
+            : hero.seat === heroSeat
+              ? 'balanced'
+              : profile.opponentStyle;
       const baseline: HorseDecision = ablation
         ? hero.seat !== heroSeat && ablation.population
           ? ablation.population.decide(hero, gs, fastRandom)
