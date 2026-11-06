@@ -2343,7 +2343,15 @@ export interface HorseDecideOpts {
    *  the measured HUMAN pool's; the old brain bluffs rivers more) - while
    *  V61 alone resolved +1.30 +/- 0.41. V61 yields to V62 only when V62 is
    *  on. Re-enable by default only after a recalibrated stratum resolves
-   *  significant positive in the mirror and the human-field twin. */
+   *  significant positive in the mirror and the human-field twin.
+   *  2026-11-06: the river-bettor draw classes hands with the board's own
+   *  pair taken out (HorseEval v62RiverBettorClass); before that every
+   *  one-private-pair hand on a paired board sampled as two pair or better.
+   *  Rerun after the repair against the Hybrid baseline with the solver
+   *  stores loaded (60,000 pairs each): -0.02 +/- 0.42 at 200bb,
+   *  -0.19 +/- 0.23 at 100bb, -0.06 +/- 0.10 at 40bb. No longer losing, not
+   *  shown positive, so still opt-in
+   *  (docs/changelog/2026-11-06-opt-in-dispositions.md). */
   v62RiverBettorPolarity?: boolean;
   /** V74 (2026-10-31) an Omaha semi-bluff RAISE needs a draw. The branch is
    *  "semi-bluff raise with big draws", but its only Omaha draw test was
