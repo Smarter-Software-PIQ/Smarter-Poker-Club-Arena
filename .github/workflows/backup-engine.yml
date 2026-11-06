@@ -91,6 +91,8 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             scripts/dr
+            scripts/verification-harness/leaderboard-native-function-batch.mjs
+            scripts/ci/test_native_supabase_export.py
             server/standby
             supabase/migrations
       - name: Decide whether the production copy is due
@@ -154,7 +156,10 @@ jobs:
 
   certify:
     needs: [plan, refresh]
-    if: always() && needs.plan.outputs.sha != '' && needs.refresh.result == 'success'
+    # A failed refresh never blocks certification: the existing copy is still
+    # the full production structure, and a missing new migration can only make
+    # a certificate fail, never pass.
+    if: always() && needs.plan.outputs.sha != '' && needs.refresh.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
