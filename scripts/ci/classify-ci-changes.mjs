@@ -646,12 +646,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (!result.complete)
     console.log('::notice::Immutable changed-file evidence unavailable; running every suite.');
   else console.log(`Classified ${result.paths.length} paths from exact base/head Git commits.`);
-  // Reuse this job's immutable diff; preview does not change admission.
-  const { executionPlan } = await import('./agent-execution.mjs');
-  const plan = executionPlan({ root: process.cwd(), classification: result });
-  if (process.env.GITHUB_STEP_SUMMARY)
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-      `\nExecution preview (shadow): ${JSON.stringify(plan)}\n`);
   appendFileSync(
     process.env.GITHUB_OUTPUT,
     Object.entries({
