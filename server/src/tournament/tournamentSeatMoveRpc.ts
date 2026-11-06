@@ -1,5 +1,6 @@
 import { supabase } from '../services/supabase.js';
 import { UUID_SHAPE as UUID } from '../lib/uuidShape.js';
+import { isRolledBackStatementError } from './settlementRefusal.js';
 
 export type TournamentSeatMoveSourceMode = 'live_source' | 'closed_orphan';
 
@@ -225,19 +226,11 @@ export async function moveTournamentPlayerAtomically(
       } else {
         lastFailure = message(error);
         const code = String((error as { code?: unknown }).code ?? '');
-        // PostgREST cannot execute an RPC it cannot resolve. A missing or
-        // ambiguous function is a refused attempt, not a possibly moved seat.
-        // Earlier ambiguous attempts still require their exact stored receipt.
-        knownRefusal = [
-          '22023',
-          '23505',
-          '28000',
-          '55000',
-          'P0002',
-          'P0404',
-          'PGRST202',
-          'PGRST203',
-        ].includes(code);
+        // A statement rollback is a definite refusal, including lock contention.
+        // PostgREST routing failures also prove this attempt never executed.
+        // Neither can resolve an earlier ambiguous attempt without its receipt.
+        knownRefusal =
+          isRolledBackStatementError(error) || code === 'PGRST202' || code === 'PGRST203';
         if (!knownRefusal) sawAmbiguousAttempt = true;
       }
     } catch (error) {
