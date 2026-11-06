@@ -300,6 +300,54 @@ for (const action of ['fold', 'check', 'call', 'bet', 'raise', 'all_in'])
       /cards|username|policyGraph|private-sentinel|stackByUser/
     );
   });
+for (const variant of ['flh', 'flo8'])
+  it(`binds distinct fixed-limit ${variant} original chains without strategy qualification`, () => {
+    const f = fixture('check', undefined, undefined, (hero, state) => {
+      state.gameVariant = variant;
+      state.fixedBetSize = 4;
+      state.bettingStructure = 'fixed_limit';
+      state.minRaiseTo = state.maxRaiseTo = 4;
+      hero.cards = hero.cards.slice(0, variant === 'flh' ? 2 : 4);
+    });
+    const out = inspect(f);
+    expect(out.cases[0]).toMatchObject({
+      status: 'observed',
+      variant,
+      selection: { matched: true, failures: [] },
+      actions: { captured: 'check', selected: 'check', executed: 'check', accepted: 'check' },
+      guards: { wholeHandReconciled: true, canonicalInputAndReadFrameBound: true },
+    });
+    expect(out).toMatchObject({
+      replayVerified: false,
+      causalReplayVerified: false,
+      activationAllowed: false,
+    });
+    expect(sanitize(f, out).status).toBe(0);
+    const broken = {
+      ...f,
+      batch: {
+        ...f.batch,
+        recordsByHand: [
+          {
+            ...f.batch.recordsByHand[0],
+            records: f.rows.filter((r: any) => r.kind !== 'accepted_hand'),
+          },
+        ],
+      },
+    };
+    expect(inspect(broken).cases[0].status).toBe('unknown');
+  });
+for (const variant of ['unknown_limit', 'FLO8', null])
+  it(`refuses unsupported original variant ${variant}`, () => {
+    const f = fixture('check', undefined, undefined, (_hero, state) => {
+      state.gameVariant = variant;
+    });
+    expect(inspect(f).cases[0].status).toBe('unknown');
+    const valid = fixture('check'),
+      out = inspect(valid);
+    out.cases[0].variant = variant;
+    expect(sanitize(valid, out).status).not.toBe(0);
+  });
 it('preserves ABSENT, stored null and numeric zero without pretending to recover undefined', () => {
   const out = inspect(fixture('check')).cases[0];
   expect(out.amounts).toEqual({
@@ -842,7 +890,7 @@ it('uses the existing child transport with the v7 installed API and strict sanit
   expect(JSON.parse(r.stdout)).toEqual(out);
 });
 
-function riverFixture(checked = true, action = 'bet', mutate?: (g: any) => void) {
+function riverFixture(checked = true, action = 'bet', mutate?: (g: any, hero: any) => void) {
   const f = fixture(action, undefined, undefined, (hero, g) => {
     const card = (s: string) => ({
       rank: s[0],
@@ -878,7 +926,7 @@ function riverFixture(checked = true, action = 'bet', mutate?: (g: any) => void)
           a(hero, 'call', 'turn', 3),
           a(before, 'check', 'river'),
         ];
-    mutate?.(g);
+    mutate?.(g, hero);
   });
   f.input.version = 8;
   f.input.probe = 'river_value';
@@ -1017,8 +1065,15 @@ print(json.dumps(m['decision_case_diagnostic'](d['input'])))`,
   expect(JSON.parse(run.stdout)).toEqual(out);
 });
 
-function fleetFixture(memory = false, action = 'bet') {
-  const f = riverFixture(true, action, (g) => {
+function fleetFixture(memory = false, action = 'bet', variant?: 'flh' | 'flo8') {
+  const f = riverFixture(true, action, (g, hero) => {
+    if (variant) {
+      g.gameVariant = variant;
+      g.fixedBetSize = 4;
+      g.bettingStructure = 'fixed_limit';
+      g.minRaiseTo = g.maxRaiseTo = 4;
+      hero.cards = hero.cards.slice(0, variant === 'flh' ? 2 : 4);
+    }
     if (action === 'all_in')
       Object.assign(g, { currentBet: 0, toCall: 0, legalActions: ['check', 'bet', 'all_in'] });
     if (memory) g.publicMemoryDomain = { version: 1, speed: 'table', ante: 'none' };
@@ -1352,3 +1407,20 @@ it('fleet slice counts a qualifying accepted all-in separately from ordinary val
   });
   expect(fleetPython(f, out).status).toBe(0);
 });
+
+for (const variant of ['flh', 'flo8'] as const)
+  it(`fleet slice retains fixed-limit ${variant} source witnesses without river-value qualification`, () => {
+    const f = fleetFixture(false, 'check', variant),
+      out = fleetInspect(f);
+    expect(out.hands[0].rows[0]).toMatchObject({
+      sourceWitnesses: 1,
+      selectionMatched: 1,
+      qualifyingRiver: 0,
+      exactMemoryReads: 0,
+      contexts: [expect.objectContaining({ variant })],
+    });
+    expect(out).toMatchObject({ strategyApplicationVerified: false, activationAllowed: false });
+    expect(fleetPython(f, out).status).toBe(0);
+    out.hands[0].rows[0].contexts[0].variant = 'unknown_limit';
+    expect(fleetPython(f, out).status).not.toBe(0);
+  });
