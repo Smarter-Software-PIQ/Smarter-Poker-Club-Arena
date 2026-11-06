@@ -53,6 +53,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { classifyMigration } from '../scripts/ci/recording-only.mjs';
 import { sliceBetween, sliceDollarQuoted, sliceSqlStatement } from './helpers/sourceWindow';
 
 const MIGRATIONS = join(__dirname, '..', 'supabase', 'migrations');
@@ -594,9 +595,23 @@ describe('an open alert silences only its own finding', () => {
     });
   });
 
+  it('still identifies source-wide suppression in the byte-exact historical recording', () => {
+    expect(
+      sourceOnlyGuards(read('20261105174016_post_commit_alert_pages_on_harm_not_handoff.sql'))
+    ).toEqual(['fn_post_commit_stranded_watchdog on financial_alerts']);
+  });
+
   it('from 20260922160729, no migration defines a raiser whose guard names only its source', () => {
     const offenders = readdirSync(MIGRATIONS)
       .filter((f) => f.endsWith('.sql') && f >= FORWARD_GUARD_FROM)
+      // Exact installed recordings preserve evidence; they introduce no SQL.
+      // The test above still exposes the historical defect. Any byte change
+      // loses this classification and is judged as new work.
+      .filter(
+        (f) =>
+          classifyMigration(`supabase/migrations/${f}`, { repo: join(MIGRATIONS, '../..') })
+            .manifestMatched !== true
+      )
       .flatMap((f) => sourceOnlyGuards(read(f)).map((hit) => `${f}: ${hit}`));
     expect(
       offenders,

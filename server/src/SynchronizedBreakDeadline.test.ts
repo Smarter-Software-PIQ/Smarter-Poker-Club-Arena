@@ -58,7 +58,12 @@ function server(managers: ReturnType<typeof manager>[], maintenanceEndsAt = 0) {
     tournamentEngines: new Map(managers.map((entry) => [entry.tournamentId, entry])),
     breakEndsAt: 0,
     breakResumeTimer: null,
-    maintenanceBreak: { endsAt: vi.fn(() => maintenanceEndsAt) },
+    // The synchronized break asks the one-break end (an active break's end,
+    // or the next scheduled hourly break it would overlap); these cases fix it.
+    maintenanceBreak: {
+      endsAt: vi.fn(() => maintenanceEndsAt),
+      tournamentBreakEndsAt: vi.fn(() => maintenanceEndsAt),
+    },
     waitForAllTablesParked: vi.fn().mockResolvedValue(true),
     launchServerLifecycleJob: vi.fn(),
   });

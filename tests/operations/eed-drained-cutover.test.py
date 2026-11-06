@@ -95,11 +95,14 @@ class StrictCertificateTests(unittest.TestCase):
         self.assertEqual(strict.returncode, 1)
         self.assertIn('the restart certificate is shut', strict.stderr)
 
-    def test_cards_in_air_refuses_in_both_modes(self):
+    def test_cards_in_air_refuses_strict_and_reaches_only_the_strongest_proof_otherwise(self):
+        # 2026-11-05: cards_in_air is a census claim. Strict refuses it; the
+        # ordinary gate hands it ONLY to the in-flight database proof at 600 s
+        # (exit 5), never admits it on the census alone.
         shut = {'readyForRestart': False, 'unparkedTables': 78,
                 'unparkedReasons': {'cards_in_air': 78}}
-        for strict in ('0', '1'):
-            self.assertEqual(self.certificate(shut, strict).returncode, 1)
+        self.assertEqual(self.certificate(shut, '1').returncode, 1)
+        self.assertEqual(self.certificate(shut, '0').returncode, 5)
 
 
 def load_helper():

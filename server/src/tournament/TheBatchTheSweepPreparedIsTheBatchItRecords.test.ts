@@ -51,10 +51,13 @@ const { TournamentManagerBase } = await import('./TournamentManagerBase.js');
 const { TournamentSweepWorkCursor } = await import('./TournamentSweepWorkCursor.js');
 
 /**
- * Five preparatory reads at this trip cost 7.5 s, past the 5 s budget, before
- * the first mutation is attempted: the shape of the saturated loop.
+ * Three sequential preparatory trips at this trip cost 6 s, past the 5 s
+ * budget, before the first mutation is attempted: the shape of the saturated
+ * loop. (Five trips at 1.5 s until 2026-11-05, when the playing count and the
+ * first knockout-order page began to travel together and a freezeout stopped
+ * opening a rebuy decision.)
  */
-const TRIP_MS = 1_500;
+const TRIP_MS = 2_000;
 const tournamentId = '00000000-0000-4000-8000-000000000001';
 const bustedIds = [
   '00000000-0000-4000-8000-0000000000a1',

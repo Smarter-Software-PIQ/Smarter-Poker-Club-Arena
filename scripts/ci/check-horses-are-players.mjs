@@ -157,12 +157,13 @@ const REGISTER = {
     ].join('\n'),
   },
   'server/src/engine/ServerTableEngineTurns.ts': {
-    allowed: 3,
+    allowed: 4,
     kind: 'IDENTIFICATION',
     why:
       "The horse decision's gameState.humanUserIds: " +
       PRESUME_ROSTER +
-      "\nThe other two are the horse INPUT DEVICE (2026-10-22): yieldHorseTurnToOwnClient and releaseOwnClientControl return early for a non-horse seat because they only cancel or resume the brain's decision for a horse account whose own authenticated client took or released its seat. A human seat has no brain decision to cancel or resume. The horse driven by its own client gets the same human clock, time bank and timeout as anybody else. See docs/changelog/2026-10-22-a-horse-accounts-own-client-drives-its-seat.md.",
+      "\nTwo are the horse INPUT DEVICE (2026-10-22): yieldHorseTurnToOwnClient and releaseOwnClientControl return early for a non-horse seat because they only cancel or resume the brain's decision for a horse account whose own authenticated client took or released its seat. A human seat has no brain decision to cancel or resume. The horse driven by its own client gets the same human clock, time bank and timeout as anybody else. See docs/changelog/2026-10-22-a-horse-accounts-own-client-drives-its-seat.md." +
+      "\nThe fourth is noteHorseTurnResolvedWithoutDecision (2026-11-05): a RECEIPT, not a rule. The engine forces the same check or fold at a horse seat and a human seat, through the same forceResolveSeat; the horse seat additionally fires horse_turn_resolved_without_decision because Dan's order requires every horse turn to be decided by the brain, and a human timing out is a person away from the keyboard, not a defect. See docs/changelog/2026-11-05-a-clock-expiry-belongs-to-its-turn.md.",
   },
   'server/src/services/supabase/handHistory.ts': {
     allowed: 1,

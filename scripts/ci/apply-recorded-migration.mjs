@@ -85,7 +85,10 @@ import {
 
 import { batchRequest, applyFinalTablePages } from './final-table-cleanup-batches.mjs';
 import { withSettlementLane } from './settlement-lane.mjs';
-import { bindMigrationSession } from './migration-session-identity.mjs';
+import {
+  bindMigrationSession,
+  assertOrdinaryMigrationBudget,
+} from './migration-session-identity.mjs';
 import { accountingAdmissionSQL } from './accounting-migration-admission.mjs';
 import {
   validateThawRepair,
@@ -435,6 +438,20 @@ if (windowMigration && !MAINTENANCE_WINDOW) {
       'schema_migrations until the daily 03:30 America/Chicago run of stage-engine-release.yml installs it ' +
       'inside the 04:00 maintenance freeze. Nothing was sent. Do not loop, and do not apply it by hand.'
   );
+}
+
+const ordinaryTransaction =
+  !MAINTENANCE_WINDOW &&
+  !SETTLEMENT_LANE &&
+  !MAINTENANCE_THAW_REPAIR &&
+  !Object.hasOwn(ACCOUNTING_ADMISSION_SOURCES, file);
+if (ordinaryTransaction) {
+  try {
+    assertOrdinaryMigrationBudget(sql, (TRANSACTION_BUDGET_SECONDS + 4) * 1000);
+  } catch (e) {
+    await client.end().catch(() => {});
+    refused(e.message);
+  }
 }
 
 console.log(`[apply] ${file}`);
@@ -849,25 +866,34 @@ try {
   // A window file is never an accounting-admission file (validated above), so
   // the line before returned atomicSQL unchanged; wrap it in the window.
   if (MAINTENANCE_WINDOW) admittedSQL = windowTransactionSQL(file, atomicSQL, ownerWindow);
-  transactionSQL = bindMigrationSession(SETTLEMENT_LANE ? atomicSQL : admittedSQL);
+  transactionSQL = bindMigrationSession(
+    SETTLEMENT_LANE ? atomicSQL : admittedSQL,
+    ordinaryTransaction ? (TRANSACTION_BUDGET_SECONDS + 4) * 1000 : null
+  );
 } catch (e) {
   await client.end().catch(() => {});
   refused(e.message);
 }
-if (MAINTENANCE_WINDOW) {
-  // PostgreSQL 17 also bounds the whole transaction server-side, a few seconds
-  // past the closing assertion's budget and still under the 15 s age at which
-  // fn_ca_writer_lock_sentinel would cancel it; on older servers the closing
-  // assertion and the per-statement timeout are the bound.
+// Ordinary installs must not retain live row locks across an unbounded series
+// of individually short statements. On Nov 2 a membership UPDATE held a payout
+// row for 22.7 s; a statement-only limit did not protect the original writers.
+// Existing explicitly qualified settlement/accounting/thaw admissions retain
+// their own budgets. Concurrent index preambles have already completed above.
+
+if (MAINTENANCE_WINDOW || ordinaryTransaction) {
+  // Reuse the existing 12 s server-side transaction bound. Window installs
+  // also keep their shorter closing assertion and per-statement limits.
   try {
     const { rows } = await client.query(
       "SELECT current_setting('server_version_num')::int >= 170000 AS has_transaction_timeout"
     );
     if (rows[0]?.has_transaction_timeout === true)
       await client.query(`SET transaction_timeout = '${TRANSACTION_BUDGET_SECONDS + 4}s'`);
+    else if (ordinaryTransaction)
+      throw new Error('ordinary migration requires PostgreSQL 17 transaction_timeout');
   } catch (e) {
     await client.end().catch(() => {});
-    unknown(`could not bound the window transaction: ${e.message}`);
+    unknown(`could not bound the owning migration transaction: ${e.message}`);
   }
 }
 const started = Date.now();

@@ -204,6 +204,10 @@ mapfile() {
 set -euo pipefail
 case "\${1:-}:\${2:-}" in
   pending-owner:) printf '%s\\n' none ;;
+  restart-parked-committed-owner:--engine-lock-fd)
+    [ "$#" = 5 ] && [ "\${3:-}" = 9 ] && [ "\${4:-}:\${5:-}" = '--run-id:${runKey}' ] || exit 87
+    printf '%s\\n' not-needed
+    ;;
   # This isolated source has no historical 3e owner. Bind only its exact call.
   resolve-failed-routine:--engine-lock-fd)
     [ "$#" = 11 ] && [ "\${3:-}" = 9 ] &&

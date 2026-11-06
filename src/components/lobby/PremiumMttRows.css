@@ -908,3 +908,13 @@
   background-image: url('/game-card-icons/lightning-chip-v1.png');
   filter: none;
 }
+
+/* The separate start-time toggle occupies the first glass bay. Give Details
+   the row hit area, so its own centre is not hidden beneath that toggle. */
+.compact-lobby.has-premium-chassis tbody tr[data-id][data-kind='mtt'] .compact-lobby__open {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}

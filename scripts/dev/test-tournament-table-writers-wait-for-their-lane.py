@@ -412,6 +412,55 @@ CREATE TRIGGER a00_f06_cancelled_preparation BEFORE INSERT OR UPDATE ON public.h
     run('committed-effects', "SELECT (SELECT count(*) FROM public.table_hole_cards WHERE table_id='" + A + "'), "
         "(SELECT count(*) FROM public.hand_state_snapshots WHERE table_id='" + A + "'), "
         "(SELECT post_commit_completed_at IS NOT NULL FROM public.hand_atomic_commits WHERE hand_id='" + HB + "');", '1|1|t')
+
+    # The October 6 freeze: an old flush must not reopen a settled hand or
+    # overwrite the next hand's state. Exercise the installed writer, rather
+    # than only checking that its migration contains the guard text.
+    snapshot_sig = 'public.save_hand_state_snapshot(uuid,integer,jsonb,jsonb,integer,jsonb,text,jsonb,jsonb)'
+    snapshot_body = q("SELECT pg_get_functiondef('" + snapshot_sig + "'::regprocedure);")
+    guard = '''  IF EXISTS (SELECT 1 FROM hand_atomic_commits a
+              WHERE a.table_id = p_table_id
+                AND a.hand_number >= p_hand_number
+                AND a.hand_id IS NOT NULL) THEN
+    RETURN;
+  END IF;
+'''
+    require(snapshot_body.count(guard) == 1, 'exact settled-snapshot counterfactual guard')
+    late = lambda hand: "SELECT public.save_hand_state_snapshot('" + A + "'," + str(hand) + ",'{}'::jsonb,'{}'::jsonb,1,'[]'::jsonb,'preflop');"
+    snapshot_rows = "SELECT jsonb_agg(to_jsonb(s) ORDER BY hand_number) FROM public.hand_state_snapshots s WHERE table_id='" + A + "';"
+    original_snapshot = q(snapshot_rows)
+    run('late-snapshot-counterfactual-reopens-settled-hand',
+        'BEGIN;\n' + snapshot_body.replace(guard, '') + ';\nSET ROLE service_role;\nDO $$BEGIN ' + late(7).replace('SELECT ', 'PERFORM ') + ' END$$;'
+        + "\nSELECT hand_number FROM public.hand_state_snapshots WHERE table_id='" + A + "' AND NOT is_complete;\nROLLBACK;", '7')
+    run('late-snapshot-counterfactual-rolled-back', snapshot_rows, original_snapshot)
+    for hand in (6, 7):
+        run('late-snapshot-settled-' + str(hand), as_writer(late(hand), 'COMMIT'))
+        run('late-snapshot-preserves-next-hand-' + str(hand), snapshot_rows, original_snapshot)
+
+    # Isolate the receipt/snapshot serialization boundary. These are native
+    # storage writes under the acknowledgement's exact key, not a simulated
+    # financial settlement or a claim to execute its full money path.
+    receipt8 = "INSERT INTO public.hand_atomic_commits(hand_id,table_id,hand_number) VALUES('00000000-0000-4000-8000-0000000000a8','" + A + "',8);"
+    complete8 = "UPDATE public.hand_state_snapshots SET is_complete=true WHERE table_id='" + A + "' AND hand_number=8;"
+    for disposition in ('ROLLBACK', 'COMMIT'):
+        with holding(xlock('hand-snapshot:' + A) + '\n' + receipt8 + '\n' + complete8, end=disposition) as owner:
+            writer = Writer(late(8), end='COMMIT')
+            writer.start()
+            wait_until_waiting(writer.app)
+            run('late-snapshot-waits-for-receipt-' + disposition.lower(),
+                "SELECT EXISTS(SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='"
+                + writer.app + "' AND l.locktype='advisory' AND NOT l.granted);", 't')
+            owner.finish(disposition)
+            writer.join(timeout=10)
+            require(not writer.is_alive() and writer.r is not None, 'late snapshot writer did not settle')
+            record('late-snapshot-after-receipt-' + disposition.lower(), writer.r.returncode == 0,
+                   writer.elapsed, writer.r.stdout + writer.r.stderr)
+        run('late-snapshot-receipt-result-' + disposition.lower(),
+            "SELECT (SELECT count(*) FROM public.hand_state_snapshots WHERE table_id='" + A + "' AND NOT is_complete),"
+            "(SELECT count(*) FROM public.hand_atomic_commits WHERE table_id='" + A + "' AND hand_number=8);",
+            '1|0' if disposition == 'ROLLBACK' else '0|1')
+    run('late-snapshot-next-uncommitted-hand-still-writes', as_writer(late(9), 'COMMIT'))
+    run('late-snapshot-next-hand-is-active', "SELECT hand_number FROM public.hand_state_snapshots WHERE table_id='" + A + "' AND NOT is_complete;", '9')
     results['passed'] = True
 finally:
     execute([pg / 'pg_ctl', '-D', cluster / 'data', '-m', 'immediate', 'stop'])

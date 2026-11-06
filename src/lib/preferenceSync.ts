@@ -273,11 +273,11 @@ export function noteRevisions(
  */
 const ownKey = (owner: string, scope: string) => `ca_pref_own:${owner}:${scope}`;
 
-function readOwn(owner: string, scope: string): Record<string, number> {
+export function readOwn(owner: string, scope: string): Record<string, number> {
   return readJson<Record<string, number>>(ownKey(owner, scope), {});
 }
 
-function noteOwn(owner: string, scope: string, granted: Record<string, number>): void {
+export function noteOwn(owner: string, scope: string, granted: Record<string, number>): void {
   if (Object.keys(granted).length === 0) return;
   writeJson(ownKey(owner, scope), { ...readOwn(owner, scope), ...granted });
 }

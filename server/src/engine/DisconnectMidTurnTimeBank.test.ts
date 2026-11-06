@@ -249,7 +249,7 @@ it('an expired allowance cannot turn another heartbeat into a fresh action clock
   vi.spyOn(engine, 'markProgress').mockImplementation(() => {});
   const start = vi.spyOn(engine, 'startTurnTimer');
   engine.disconnectEngine.heartbeat(TABLE, 'u1');
-  expect(resolve).toHaveBeenCalledWith(SEAT, true);
+  expect(resolve).toHaveBeenCalledWith(SEAT, true, 'reconnect_protection_expired');
   expect(start).not.toHaveBeenCalled();
   engine.preciseTimer.dispose();
 });
@@ -304,6 +304,6 @@ it('a grant made on this turn keeps its rule: expired, a heartbeat buys no fresh
   const resolve = vi.spyOn(engine, 'forceResolveSeat').mockReturnValue(true);
   vi.spyOn(engine, 'markProgress').mockImplementation(() => {});
   engine.disconnectEngine.heartbeat(TABLE, 'u1');
-  expect(resolve).toHaveBeenCalledWith(SEAT, true);
+  expect(resolve).toHaveBeenCalledWith(SEAT, true, 'reconnect_protection_expired');
   engine.preciseTimer.dispose();
 });

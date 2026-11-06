@@ -25,6 +25,7 @@ import {
   HORSE_OWNER_FORCED_EVIDENCE_PATH,
   HORSE_OWNER_FORCED_EVIDENCE_SHA256,
   HORSE_OWNER_FORCED_SOURCE_SHA,
+  noteHorseOwnerForcedDigestUnavailable,
 } from '../../engine/HorseOwnerForcedActivation.js';
 import { CORRECTIVE_DOMAINS } from './domain.js';
 import {
@@ -214,6 +215,7 @@ export function admitOwnerForcedCorrectiveKernelAttachment(
     policyDigest: correctiveKernelPolicyDigest(),
     baselineSelectionsDigest: correctiveKernelBaselineSelectionsDigest(),
   };
+  if (context.policyDigest === null) noteHorseOwnerForcedDigestUnavailable('phase14', domain);
   const inputs = {
     sourceRelease: HORSE_OWNER_FORCED_SOURCE_SHA,
     policyDigest: context.policyDigest,

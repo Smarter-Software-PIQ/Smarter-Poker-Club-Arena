@@ -1543,6 +1543,14 @@ export abstract class ServerTableEngineBase {
                 generation,
                 lifecycle,
                 accounting: 'acknowledged',
+                ...(this.stoppedTimeBankCustody.cancelledPreparation
+                  ? {
+                      [this.stoppedTimeBankCustody.cancellationPending
+                        ? 'pending_preparation_cancellation'
+                        : 'cancelled_preparation']:
+                        this.stoppedTimeBankCustody.cancelledPreparation,
+                    }
+                  : {}),
                 snapshot: {
                   table_id: tableId,
                   parked_at: this.stoppedTimeBankCustody.capturedAt,
@@ -1581,8 +1589,27 @@ export abstract class ServerTableEngineBase {
     return false;
   }
 
+  /** See ServerTableEngineDealing: a retained, never-started original held at the pause gate by ANY owner. */
+  isPreparedOriginalHeldAtPauseGate(): boolean {
+    return false;
+  }
+
+  /**
+   * The permit and hand number of a retained, never-started original held at
+   * the pause gate, or null. See ServerTableEngineDealing. Identification only:
+   * /health names the table so the release gate can prove it per table.
+   */
+  describeHeldOriginalAtPauseGate(): { permitId: string; handNumber: string } | null {
+    return null;
+  }
+
   /** See ServerTableEngineDealing: a retained, never-started original held at the closeout gate. */
   isPreparedOriginalHeldAtTerminalCloseout(): boolean {
+    return false;
+  }
+
+  /** See ServerTableEngineDealing: a retained, never-started original held by the maintenance break. */
+  isPreparedOriginalHeldForMaintenance(): boolean {
     return false;
   }
 
@@ -2643,6 +2670,9 @@ export abstract class ServerTableEngineBase {
     | ((handNumber: string) => F06HandPermit | Promise<F06HandPermit>)
     | null = null;
   protected f06CurrentPermit: F06HandPermit | null = null;
+  // Positive original-process acknowledgement, not a reconstructed no-start.
+  // Captured with the banks only after stop has joined the dealing writer.
+  private f06CancelledPreparation: Readonly<F06HandPermit['binding']> | null = null;
   /** Must be installed by admitted lifecycle custody before the dealer starts. */
   installF06HandAdmission(
     factory: (handNumber: string) => F06HandPermit | Promise<F06HandPermit>
@@ -2694,6 +2724,7 @@ export abstract class ServerTableEngineBase {
       return;
     await permit.cancelPreparedHand();
     if (this.f06CurrentPermit !== permit) throw new Error('f06_permit_replaced');
+    this.f06CancelledPreparation = Object.freeze({ ...permit.binding });
     this.f06CurrentPermit = null;
   }
   /**
@@ -3146,6 +3177,20 @@ export abstract class ServerTableEngineBase {
   protected playerTurnDuration: number = 0;
   protected timeBankActivatedThisTurn: boolean = false;
   /**
+   * WHICH TURN THE ARMED CLOCK BELONGS TO (2026-11-05).
+   *
+   * `street:actions:seat` of the controller state at the moment the clock was
+   * armed (startTurnTimer). A clock expiry, and a deferred time-bank
+   * activation born from one, may only touch the turn they were armed for.
+   * Seat identity alone is not enough: the same seat is first to act on the
+   * next street, and on 2026-11-05 two horse bank burns landed in the same
+   * tick as their clock expiry, so the expiry's automatic bank was published
+   * onto the NEXT street's turn, nothing released it, and its countdown fired
+   * 20 s later over the brain's decision on a third turn (hands 039c0140 and
+   * 8d98aeb8, docs/changelog/2026-11-05-a-clock-expiry-belongs-to-its-turn.md).
+   */
+  protected turnClockIdentity: string | null = null;
+  /**
    * Set when the player whose turn it is drops out of reconnect grace.
    *
    * A time bank is a use-it-or-lose-it asset the player PAYS for. Auto-
@@ -3214,6 +3259,8 @@ export abstract class ServerTableEngineBase {
   // adopts these actual balances or the matching native park was acknowledged.
   private stoppedTimeBankCustody: {
     handNumber: number;
+    cancelledPreparation?: Readonly<F06HandPermit['binding']>;
+    cancellationPending?: boolean;
     capturedAt: string;
     disconnectStates: ReturnType<DisconnectEngine['getFsmStatesForTable']>;
     occupancies: Readonly<Record<string, string>>;
@@ -3377,6 +3424,9 @@ export abstract class ServerTableEngineBase {
                   seat: this.handController
                     ?.getState()
                     .players.find((p) => p.user_id === event.playerId)?.seat,
+                  // The turn whose clock spent this bank. Publication is
+                  // refused for any other turn (resumeContinuationTimeBankActivation).
+                  turnIdentity: this.turnClockIdentity,
                 }
               : event,
         });
@@ -4694,8 +4744,26 @@ export abstract class ServerTableEngineBase {
           if (!banks[bank.playerId]) throw new Error('Stopped time bank has no original occupancy');
         }
         this.parkedTimeBanks = structuredClone(banks);
+        // cancelPreparedHand irreversibly excludes start before its RPC. A lost
+        // reply retains that original object, not a successful disposition.
+        // SQL must find its exact immutable receipt before admitting this proof.
+        const pendingCancellation = this.f06CurrentPermit?.hasPreparedCancellation()
+          ? this.f06CurrentPermit
+          : null;
+        const cancelledPreparation = pendingCancellation
+          ? Object.freeze({ ...pendingCancellation.binding })
+          : this.f06CancelledPreparation;
         this.stoppedTimeBankCustody = Object.freeze({
           handNumber: this.handCount,
+          ...(cancelledPreparation &&
+          BigInt(cancelledPreparation.hand_number) > BigInt(this.handCount) &&
+          cancelledPreparation.table_id === this.tableId &&
+          cancelledPreparation.tournament_id === this.engineLeaseTournamentId &&
+          cancelledPreparation.lease_generation === this.engineLeaseGeneration &&
+          cancelledPreparation.lifecycle === this.f06TableLifecycle &&
+          cancelledPreparation.custody_id === this.f06AllocationEpoch
+            ? { cancelledPreparation, cancellationPending: pendingCancellation !== null }
+            : {}),
           capturedAt: new Date().toISOString(),
           disconnectStates: structuredClone(this.captureRetainedPresence()),
           occupancies: Object.freeze({
@@ -7597,7 +7665,12 @@ export abstract class ServerTableEngineBase {
       // awaiting its gate. Capture that already parked boundary here. Later
       // maintenance fan-outs must not replace a final snapshot with an
       // announcement; readiness still waits for this serialized write.
-      const alreadyParked = this.handForHandResolve !== null && this.isBetweenHands();
+      // A retained never-started original held at the gate is parked too
+      // (2026-11-05): its loop is already inside the gate and will not pass
+      // the checkpoint again, so the parked write has to be taken here.
+      const alreadyParked =
+        this.handForHandResolve !== null &&
+        (this.isBetweenHands() || this.isPreparedOriginalHeldForMaintenance());
       void this.persistPresenceForRestart(alreadyParked ? 'parked' : 'announced');
     }
     if (maxWaitMs > 0) {
@@ -8125,7 +8198,7 @@ export abstract class ServerTableEngineBase {
     this.terminalCloseoutPaused = false;
     this.notifyBoundaryPauseWaiters();
     if (
-      this.tournamentMovePauseOwners.size > 0 ||
+      this.tournamentMoveHoldsRelease() ||
       this.handForHandPaused ||
       this.weeklyPayoutPauseOwners.size > 0 ||
       this.maintenancePaused ||
@@ -8878,7 +8951,7 @@ export abstract class ServerTableEngineBase {
       this.handForHandPaused ||
       this.finalTableDealPaused ||
       this.terminalCloseoutPaused ||
-      this.tournamentMovePauseOwners.size > 0
+      this.tournamentMoveHoldsRelease()
     ) {
       // The remaining independent authority starts its own pause-age budget.
       if (this.pausedSinceMs !== 0) this.pausedSinceMs = Date.now();
@@ -9069,7 +9142,7 @@ export abstract class ServerTableEngineBase {
     for (const owner of [...this.deferredWeeklyPayoutReleases]) this.resumeFromWeeklyPayout(owner);
     if (
       this.weeklyPayoutPauseOwners.size > 0 ||
-      this.tournamentMovePauseOwners.size > 0 ||
+      this.tournamentMoveHoldsRelease() ||
       this.handForHandPaused ||
       this.finalTableDealPaused ||
       this.terminalCloseoutPaused
@@ -9097,7 +9170,7 @@ export abstract class ServerTableEngineBase {
   resumeFromFinalTableDeal(): void {
     this.finalTableDealPaused = false;
     if (
-      this.tournamentMovePauseOwners.size > 0 ||
+      this.tournamentMoveHoldsRelease() ||
       this.handForHandPaused ||
       this.weeklyPayoutPauseOwners.size > 0 ||
       this.maintenancePaused ||
@@ -9289,10 +9362,51 @@ export abstract class ServerTableEngineBase {
     return this.handForHandPaused && this.pauseRequiresExplicitResume;
   }
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   *  A MOVE THAT CAN NEVER CLAIM DOES NOT OUTLAST THE LAST REAL PAUSE (2026-11-05)
+   * ═══════════════════════════════════════════════════════════════════════════
+   *
+   * Does a tournament-move owner still hold this table against a release?
+   *
+   * A move owner holds the gate so its sweep can CLAIM the table at a
+   * between-hands boundary. A table carrying a retained, never-started
+   * original (`retainedPreparedOriginalController`) is not between hands and
+   * reaches that boundary only by playing the original, so an UNCLAIMED owner
+   * on it can never claim. #9562 already lets the original start past such an
+   * owner - but only when the pre-start loop re-evaluates, and that loop is
+   * suspended inside awaitPauseGate. Every release path (`resumeDealing`,
+   * `resumeFromMaintenance`, ...) treated the unclaimable owner as a live
+   * co-authority and deferred to it, so the gate never opened and nothing
+   * re-evaluated. The move waited for the hand; the hand waited for the move.
+   *
+   * Measured 2026-11-05, Union Mystery Bounty (PLO5) 7576aeb1, table
+   * 41d47e9d: hand #55561914 was prepared and retained at 22:52:04 as the
+   * add-on drain armed its hold (its hand_history row is 23:12:34). The gap
+   * balancer saw the table as "still in-hand" (`isBetweenHands()` is false
+   * with a prepared controller) and re-fenced it every ~7s from 22:53 to
+   * 23:08. The add-on minute, the :55 break, the freeze and the break end at
+   * 23:05:00 each let go and each deferred to that fence. The four sibling
+   * tables dealt at 23:05; this one sat until the 600s pause safety timeout
+   * fired for the second time at 23:12:05, the gate re-entered, armed the 15s
+   * unclaimed-move expiry, and the original finally played.
+   *
+   * So an unclaimed owner on a retained original does not count here; a
+   * CLAIMED owner (its seats may already be moving) and every other authority
+   * still do. Whichever pause is the last to let go now opens the gate, the
+   * loop re-evaluates, the original plays, and the move claims the boundary
+   * that hand produces.
+   */
+  private tournamentMoveHoldsRelease(): boolean {
+    if (this.tournamentMovePauseOwners.size === 0) return false;
+    if (this.claimedTournamentMovePauseOwners.size > 0) return true;
+    return this.retainedPreparedOriginalController === null;
+  }
+
   /** Hand-for-hand cannot consume another authority's existing park. */
   isHandForHandReleaseBlocked(): boolean {
     return (
-      this.tournamentMovePauseOwners.size > 0 ||
+      this.tournamentMoveHoldsRelease() ||
       this.weeklyPayoutPauseOwners.size > 0 ||
       this.maintenancePaused ||
       this.finalTableDealPaused ||
@@ -9748,6 +9862,29 @@ export abstract class ServerTableEngineBase {
     return (
       this.finalTableDealPaused || this.terminalCloseoutPaused || this.tableFSM.state === 'paused'
     );
+  }
+
+  /**
+   * WHO IS HOLDING THIS TABLE, BY NAME (2026-11-06). isPausedByDesign() is one
+   * boolean, so /health could not tell a table held by its scheduled break
+   * from one held for nine hours by a qualifier boundary that will never lift:
+   * Satellite 25 had five such tables while stalledTableCount read 0. Every
+   * raised authority is named here, in the same terms isPausedByDesign() reads.
+   * Identification only; nothing decides on it except the /health stall census.
+   */
+  describePauseOwners(): string[] {
+    const owners: string[] = [];
+    if (this.maintenancePaused) owners.push('maintenance');
+    if (this.finalTableDealPaused) owners.push('final_table_deal');
+    if (this.weeklyPayoutPauseOwners.size > 0) owners.push('weekly_payout');
+    if (this.dealingHaltLock) owners.push('dealing_halt');
+    if (this.operatorFloorPaused) owners.push('operator_floor');
+    if (this.dealHoldUntilMs > Date.now()) owners.push('deal_hold');
+    if (this.tableFSM.state === 'paused') owners.push('fsm_paused');
+    if (this.handForHandPaused) owners.push('hand_for_hand');
+    if (this.terminalCloseoutPaused) owners.push('terminal_closeout');
+    if (this.tournamentMovePauseOwners.size > 0) owners.push('tournament_move');
+    return owners;
   }
 
   /** Ms spent in the current by-design pause; 0 when not paused. */

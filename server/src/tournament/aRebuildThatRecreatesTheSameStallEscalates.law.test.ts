@@ -56,6 +56,7 @@ describe('the ledger', () => {
       previousAtMs: 1_000,
       previousBy: 'zombie',
       repeats: 1,
+      retryAtMs: 1_000 + 2 * 60_000,
     });
   });
 

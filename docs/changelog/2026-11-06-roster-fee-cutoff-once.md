@@ -1,0 +1,7 @@
+# Roster fee shares read the launch boundary once
+
+Two production browser runs received SQLSTATE 57014 from `ca_club_members_page`, with the stack inside `ca_club_member_fee_totals`. The cash-share scan calls the same club launch-cutoff lookup for each attribution. A read-only production plan measured 3,492 qualifying attributions and 274.7 ms for the helper. Materializing the cutoff once measured 43.4 ms; all 546 result rows matched in both directions. The full HTTP timeout has not been reproduced in the direct SQL probe, so the final browser retest remains required.
+
+The fee reader now materializes that one club boundary and tests the original rake receipt against it. A null cutoff still accepts missing receipts; a present cutoff still rejects missing, null and infinite receipt times. Cash rounding, UTC dates, tournament allocations, historical redemption events, scope and grants remain unchanged. No wallet, payout, game, scheduler or engine behavior changes.
+
+The existing native Data Console accounting route reproduces repeated boundary reads before the migration and requires one afterward. It compares the actual old and new readers across 54 launch/date/player/club combinations, including missing and nonfinite receipts, and preserves the existing rake/tournament assertions. Exact preimages refuse drift or reinstallation. Native tests passed locally; protected merge, installation and actual live browser proof are still required.

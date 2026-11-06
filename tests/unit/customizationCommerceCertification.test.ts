@@ -66,6 +66,32 @@ describe('customization commerce certification', () => {
     expect(helper).toContain('PLATFORM_FREEZE_MAX_WAITS');
   });
 
+  it('pairs independent customization browsers before reaching account gates or purchases', () => {
+    const realtime = source('tests/e2e/production-customization-realtime.spec.ts');
+    const commerce = source('tests/e2e/production-customization-commerce.spec.ts');
+    for (const spec of [realtime, commerce]) {
+      expect(spec).toContain('await enrollCustomizationBrowser(page, account, approvingPage)');
+      expect(spec.indexOf('await enrollCustomizationBrowser')).toBeGreaterThan(
+        spec.indexOf(
+          'await page.goto(protectedURL, {',
+          spec.indexOf('await signedInUser.dispose()')
+        )
+      );
+      expect(spec.indexOf('await enrollCustomizationBrowser')).toBeLessThan(
+        spec.indexOf('await ensureAcceptedTerms')
+      );
+    }
+    expect(realtime).toMatch(
+      /signIn\(\s*primaryMobile,\s*baseURL,\s*primaryAccount,\s*'mobile',\s*primaryPage\s*\)/
+    );
+    expect(commerce).toContain('signInTemporaryAccount(secondDevice, baseURL, buyer, firstPage)');
+    const helper = source('tests/e2e/support/customizationBrowserEnrollment.ts');
+    expect(helper).toContain("name: 'Approve', exact: true");
+    expect(helper).toContain('joined.browser === existing.browser');
+    expect(helper).not.toContain('localStorage.setItem');
+    expect(helper).not.toContain('ca_register_new_device');
+  });
+
   it('certifies all live SKUs, double-buy serialization, realtime delivery and RLS', () => {
     const spec = source('tests/e2e/production-customization-commerce.spec.ts');
 

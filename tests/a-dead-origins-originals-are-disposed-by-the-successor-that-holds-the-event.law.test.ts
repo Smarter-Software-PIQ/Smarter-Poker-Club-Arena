@@ -189,7 +189,7 @@ describe("a dead origin's originals are disposed by the successor that holds the
     expect(custody).toContain('runWithTournamentDataAuthority(');
   });
 
-  it('is one transaction with a lock timeout, and is the newest definition of each body', () => {
+  it('keeps historical transaction pins and admits only the reviewed stopped-cancellation successor', () => {
     expect(SQL.match(/^BEGIN;$/gm)?.length).toBe(1);
     expect(SQL.match(/^COMMIT;$/gm)?.length).toBe(1);
     expect(SQL).toContain("SET LOCAL lock_timeout = '2s';");
@@ -203,6 +203,34 @@ describe("a dead origin's originals are disposed by the successor that holds the
           text.includes('FUNCTION public.fn_f06_dispose_dead_origin_originals(')
         );
       });
-    expect(later).toEqual([]);
+    const stoppedCancellation =
+      '20261106160107_a_stopped_bank_capture_retains_its_acknowledged_preparation_.sql';
+    expect(later).toEqual([stoppedCancellation]);
+    const forward = body(
+      readFileSync(join(MIGRATIONS, stoppedCancellation), 'utf8'),
+      'smarter_private.f06_mixed_custody_snapshot'
+    );
+    expect(md5(forward)).toBe('00230601eeb8de97fafcbed4074a782d');
+    expect(forward).toContain(SNAP_ADDED);
+    expect(forward).toContain(
+      'IF EXISTS(SELECT 1 FROM smarter_private.f06_hand_dispatch WHERE permit_id=original_row.permit_id) THEN witness:=NULL; END IF;'
+    );
+    expect(forward).toContain(
+      "IF witness IS NULL THEN pending:=pending||jsonb_build_array(x->>'table_id'); END IF;"
+    );
+    // The entire historical snapshot still applies. The only subsequent changes
+    // are the reviewed cancellation proof and the installed lane SQLSTATE.
+    const start = forward.indexOf(' -- A cancelled preparation never became the completed hand.');
+    const end = forward.indexOf(" IF local_proof#>>'{stopped_bank_owner,kind}'", start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const historical = (forward.slice(0, start) + forward.slice(end))
+      .replace('; stopped_hand bigint; stopped_watermark bigint; stopped_cancelled jsonb;', ';')
+      .replace(
+        ' OR stopped_watermark IS DISTINCT FROM GREATEST(',
+        " OR (x#>>'{bank_custody,hand_number}')::bigint IS DISTINCT FROM GREATEST("
+      )
+      .replaceAll("USING ERRCODE='55P03'", "USING ERRCODE='40001'");
+    expect(historical).toBe(SNAP);
   });
 });

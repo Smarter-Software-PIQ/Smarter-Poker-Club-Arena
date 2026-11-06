@@ -111,7 +111,7 @@ describe('blind structure', () => {
         config.startingStack
       );
       expect(description).toMatchObject({
-        startingDepthBB: 50,
+        startingDepthBB: 20,
         speedLabel: 'Turbo',
         openingMinutes: 5,
         minimumMinutes: 5,

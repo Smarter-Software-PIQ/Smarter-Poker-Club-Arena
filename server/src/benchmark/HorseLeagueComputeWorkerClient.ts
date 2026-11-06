@@ -583,8 +583,28 @@ function isHumanFieldLeagueEvidence(value: Record<string, unknown>): boolean {
   });
 }
 
-function isLeagueResult(value: unknown): value is LeagueResult {
-  if (!isRecord(value)) return false;
+/* LEGALITY COUNTERS ARE OPTIONAL KEYS (2026-11-05). runMatchup now counts the
+   harness's own coercions and the brain's exception fallback. A result that
+   carries them must carry valid counts; a result assembled elsewhere
+   (GtoV31CandidateEvaluation, older fixtures) may omit them, and the exact-key
+   checks below then see the same shape they always did. */
+const LEAGUE_RESULT_OPTIONAL_COUNTERS = ['correctedActions', 'brainExceptionFallbacks'] as const;
+
+function withoutOptionalCounters(value: Record<string, unknown>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = { ...value };
+  for (const key of LEAGUE_RESULT_OPTIONAL_COUNTERS) {
+    if (key in out) {
+      if (!isNonnegativeSafeInteger(out[key])) return null;
+      delete out[key];
+    }
+  }
+  return out;
+}
+
+function isLeagueResult(raw: unknown): raw is LeagueResult {
+  if (!isRecord(raw)) return false;
+  const value = withoutOptionalCounters(raw);
+  if (value === null) return false;
   /* A result straight from runMatchup carries its divergence evidence
      (2026-09-21, "a league matchup that measures nothing says so"); a result
      assembled from components (GtoV31CandidateEvaluation) does not. Both

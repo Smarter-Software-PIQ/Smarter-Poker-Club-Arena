@@ -949,6 +949,7 @@ export default function MemberManagementPage() {
           <MemberWatchAtTable
             clubUuid={resolvedClubId ?? ''}
             memberUserId={identity!.user_id ?? ''}
+            memberName={alias}
             seated={detail!.presence.is_seated}
             refreshKey={recordRevision}
             fallback={

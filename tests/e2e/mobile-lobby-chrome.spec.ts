@@ -109,34 +109,37 @@ test.describe('tournament scroll gestures', () => {
     await expect(nav).toHaveAttribute('data-footer-hidden', 'true');
   });
   for (const width of [375, 1518]) {
-    test(`tournament tabs scroll from centre and sides at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 812 });
-      const sheets = [
-        'src/pages/tournament/TournamentDetails.css',
-        'src/styles/tournament-lobby-3d.css',
-        ...[
-          'DetailOverviewTab',
-          'BlindsTab',
-          'RankingTab',
-          'EntriesTab',
-          'UnionsTab',
-          'TablesTab',
-          'RewardsTab',
-        ].map((name) => `src/components/tournament/details/${name}.css`),
-      ]
-        .map(css)
-        .join('\n');
-      for (const [name, root, list] of [
-        ['Details', 'dov', 'dov-info dov-info--band tl-scroll'],
-        ['Blinds', 'blinds-tab', 'blinds-list'],
-        ['Ranking', 'tl-panel rk-panel', 'tl-list tl-scroll rk-list'],
-        ['Entries', 'tl-panel et-panel', 'tl-list tl-scroll et-scroll'],
-        ['Unions', 'tl-panel un-panel', 'tl-list tl-scroll un-clubs'],
-        ['Tables', 'tl-panel tt-panel', 'tl-list tl-scroll tt-list'],
-        ['Rewards', 'rw', 'rw-list'],
-      ]) {
-        await test.step(name, async () => {
-          await page.setContent(`<style>${sheets}</style>
+    // Native wheel completion belongs to each tab's own bounded case. Seven
+    // tabs sharing one 30s deadline exhausted it on Rewards in hosted WebKit.
+    for (const [name, root, list] of [
+      ['Details', 'dov', 'dov-info dov-info--band tl-scroll'],
+      ['Blinds', 'blinds-tab', 'blinds-list'],
+      ['Ranking', 'tl-panel rk-panel', 'tl-list tl-scroll rk-list'],
+      ['Entries', 'tl-panel et-panel', 'tl-list tl-scroll et-scroll'],
+      ['Unions', 'tl-panel un-panel', 'tl-list tl-scroll un-clubs'],
+      ['Tables', 'tl-panel tt-panel', 'tl-list tl-scroll tt-list'],
+      ['Rewards', 'rw', 'rw-list'],
+    ]) {
+      test(`tournament tabs scroll from centre and sides at ${width}px: ${name}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 812 });
+        const sheets = [
+          'src/pages/tournament/TournamentDetails.css',
+          'src/styles/tournament-lobby-3d.css',
+          ...[
+            'DetailOverviewTab',
+            'BlindsTab',
+            'RankingTab',
+            'EntriesTab',
+            'UnionsTab',
+            'TablesTab',
+            'RewardsTab',
+          ].map((name) => `src/components/tournament/details/${name}.css`),
+        ]
+          .map(css)
+          .join('\n');
+        await page.setContent(`<style>${sheets}</style>
           <section class="tournament-details" style="--details-h:780px">
             <header class="details-header"><h1 class="tournament-name">Tournament</h1></header>
             <nav class="details-tabs"><button class="tab">${name}</button></nav>
@@ -146,33 +149,42 @@ test.describe('tournament scroll gestures', () => {
               </ol></div></div>
             <footer class="details-footer"><button>Share</button></footer>
           </section>`);
-          const panel = page.locator('.details-content');
-          const box = await panel.boundingBox();
-          expect(box).not.toBeNull();
-          const footer = await page.locator('.details-footer').boundingBox();
-          for (const x of [box!.x + box!.width / 2, box!.x + 8]) {
-            await page.mouse.move(x, box!.y + box!.height / 2);
-            const before = await panel.evaluate((el) => el.scrollTop);
-            await page.mouse.wheel(0, 300);
-            // WebKit animates wheel input. Reading its first changed pixel
-            // and immediately reversing races the rest of the downward gesture.
-            // Wait for the requested distance before testing the reverse gesture.
-            await expect
-              .poll(() => panel.evaluate((el) => el.scrollTop))
-              .toBeGreaterThanOrEqual(before + 299);
-            const after = await panel.evaluate((el) => el.scrollTop);
-            await page.mouse.wheel(0, -250);
-            await expect
-              .poll(() => panel.evaluate((el) => el.scrollTop))
-              .toBeLessThanOrEqual(Math.max(0, after - 250) + 1);
-          }
-          expect(await page.locator('.details-footer').boundingBox()).toEqual(footer);
-          expect(await panel.evaluate((el) => getComputedStyle(el).overscrollBehaviorY)).toBe(
-            'contain'
-          );
-        });
-      }
-    });
+        const panel = page.locator('.details-content');
+        const box = await panel.boundingBox();
+        expect(box).not.toBeNull();
+        const footer = await page.locator('.details-footer').boundingBox();
+        for (const x of [box!.x + box!.width / 2, box!.x + 8]) {
+          await page.mouse.move(x, box!.y + box!.height / 2);
+          const waitForWheel = async (deltaY: number) => {
+            // A distance threshold can be crossed before WebKit finishes the
+            // gesture. Arm the native completion event before sending input
+            // so reversing cannot merge with the previous wheel animation.
+            await panel.evaluate((el) => {
+              el.setAttribute('data-wheel-ended', 'false');
+              el.addEventListener('scrollend', () => el.setAttribute('data-wheel-ended', 'true'), {
+                once: true,
+              });
+            });
+            await page.mouse.wheel(0, deltaY);
+            await expect(panel).toHaveAttribute('data-wheel-ended', 'true');
+          };
+          const before = await panel.evaluate((el) => el.scrollTop);
+          await waitForWheel(300);
+          await expect
+            .poll(() => panel.evaluate((el) => el.scrollTop))
+            .toBeGreaterThanOrEqual(before + 299);
+          const after = await panel.evaluate((el) => el.scrollTop);
+          await waitForWheel(-250);
+          await expect
+            .poll(() => panel.evaluate((el) => el.scrollTop))
+            .toBeLessThanOrEqual(Math.max(0, after - 250) + 1);
+        }
+        expect(await page.locator('.details-footer').boundingBox()).toEqual(footer);
+        expect(await panel.evaluate((el) => getComputedStyle(el).overscrollBehaviorY)).toBe(
+          'contain'
+        );
+      });
+    }
   }
 });
 

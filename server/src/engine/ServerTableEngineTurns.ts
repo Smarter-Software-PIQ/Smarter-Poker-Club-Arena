@@ -284,6 +284,22 @@ type HorseTurnAbandonReason =
   | 'lease_lost'
   | 'clock_expired';
 
+/**
+ * Why the engine, not the player, resolved a seat with a forced check or
+ * fold. Recorded for horse seats as horse_turn_resolved_without_decision_<reason>
+ * (HorseDataLedger) and in engine_recovery_events.
+ */
+export type HorseTurnForcedReason =
+  | 'timer_expired'
+  | 'timebank_expired'
+  | 'manual_timebank_expired'
+  | 'published_timebank_expired'
+  | 'recovered_timebank_expired'
+  | 'reconnect_protection_expired'
+  | 'watchdog_forced'
+  | 'disconnect_auto_action'
+  | 'unspecified';
+
 /** How far the turn got before the fence refused it. `commit` is the
  *  expensive one: the decision was computed and then dropped. */
 type HorseTurnAbandonStage =
@@ -505,6 +521,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
   }
 
   private static readonly HORSE_MAX_BANK_BURN_MS = 9000;
+  /** Clearance past the enforcement grace before a bank burn may act. */
+  private static readonly HORSE_MIN_BANK_BURN_MS = 2500;
 
   /**
    * How long a decision job enqueued NOW may live: what is left of this
@@ -814,11 +832,27 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // current horse turn. Cancel before performAction because it emits the
       // next TURN_CHANGE synchronously; cancelling afterwards could retire the
       // next seat's freshly scheduled work instead.
+      const brainDecisionPending = this.horseDecisionAbortController !== null;
       this.cancelHorseDecisionWork();
       try {
         applied = this.handController.performAction(seat, forced as any, undefined, 'forced');
-        if (!applied)
+        if (applied) {
+          this.noteHorseTurnResolvedWithoutDecision(
+            seat,
+            forced,
+            'watchdog_forced',
+            brainDecisionPending
+          );
+        } else {
           applied = this.handController.performAction(seat, 'fold' as any, undefined, 'forced');
+          if (applied)
+            this.noteHorseTurnResolvedWithoutDecision(
+              seat,
+              'fold',
+              'watchdog_forced',
+              brainDecisionPending
+            );
+        }
       } catch (err) {
         reportError(err, 'ServerTableEngine.' + this.tableId + '.watchdog_force_action_failed');
       }
@@ -862,22 +896,112 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
    * This helper is the single correct way to force a seat, so the bug cannot
    * be reintroduced one call site at a time.
    */
-  protected forceResolveSeat(seat: number, preferCheck: boolean): boolean {
+  protected forceResolveSeat(
+    seat: number,
+    preferCheck: boolean,
+    reason: HorseTurnForcedReason = 'unspecified'
+  ): boolean {
     if (this.pendingOriginalContinuation) return false;
     if (!this.lifecycleCanMutate() || !this.handController) return false;
     // Expiry/disconnect recovery is authoritative and supersedes any pending
     // horse computation or delayed horse action for this turn. This must be
     // before performAction: that call synchronously emits the next turn.
+    const brainDecisionPending = this.horseDecisionAbortController !== null;
     this.cancelHorseDecisionWork();
     const order: Array<'check' | 'fold'> = preferCheck ? ['check', 'fold'] : ['fold'];
     for (const a of order) {
       try {
-        if (this.handController.performAction(seat, a as any, undefined, 'forced')) return true;
+        if (this.handController.performAction(seat, a as any, undefined, 'forced')) {
+          this.noteHorseTurnResolvedWithoutDecision(seat, a, reason, brainDecisionPending);
+          return true;
+        }
       } catch (err) {
         reportError(err, 'ServerTableEngine.' + this.tableId + '.force_' + a + '_threw');
       }
     }
     return false;
+  }
+
+  /**
+   * A HORSE TURN THE CLOCK RESOLVED IS NEVER A SILENT 'forced' ROW (2026-11-05).
+   *
+   * Dan's order: every horse has an active decision process on every hand and
+   * every street. When the engine itself acts for a horse seat (clock expiry,
+   * bank expiry, watchdog, recovered clock) the hand record says origin
+   * 'forced', the same word a blind post carries, and on 2026-11-05 two such
+   * turns (hands 039c0140 and 8d98aeb8) were found only by reading the engine
+   * log. From here every one leaves its own receipt, with the reason, in the
+   * brain telemetry (activation.sql reads it) and in engine_recovery_events,
+   * and says whether a brain decision was still in flight when the clock won.
+   * Blind posts never reach this: they are posted by the dealer, not forced
+   * at a seat on the clock.
+   */
+  protected noteHorseTurnResolvedWithoutDecision(
+    seat: number,
+    action: 'check' | 'fold',
+    reason: HorseTurnForcedReason,
+    brainDecisionPending: boolean
+  ): void {
+    try {
+      const seated = this.seatedPlayers.find((p) => p.seat_number === seat);
+      if (!seated?.is_horse) return;
+      noteFire('horse_turn_resolved_without_decision');
+      noteFire(`horse_turn_resolved_without_decision_${reason}`);
+      noteFire(
+        brainDecisionPending
+          ? 'horse_turn_resolved_without_decision_brain_pending'
+          : 'horse_turn_resolved_without_decision_no_brain_request'
+      );
+      this.recordRecoveryEvent(
+        'horse_turn_resolved_without_decision',
+        'hand ' +
+          this.handCount +
+          ' seat ' +
+          seat +
+          ' horse ' +
+          seated.user_id +
+          ' forced ' +
+          action +
+          ' reason ' +
+          reason +
+          (brainDecisionPending
+            ? ' with a brain decision in flight'
+            : ' with no brain request pending')
+      );
+    } catch {
+      /* receipts must never affect gameplay */
+    }
+  }
+
+  /** `street:actions:seat` of the controller state, the identity of one turn. */
+  protected static turnIdentityOf(
+    state:
+      | { stage?: unknown; actionHistory?: unknown; currentPlayerSeat?: unknown }
+      | null
+      | undefined
+  ): string | null {
+    if (!state) return null;
+    const actions = Array.isArray(state.actionHistory) ? state.actionHistory.length : 'na';
+    return `${String(state.stage)}:${actions}:${String(state.currentPlayerSeat)}`;
+  }
+
+  protected currentTurnIdentity(): string | null {
+    try {
+      return ServerTableEngineTurns.turnIdentityOf(this.handController?.getState());
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether a clock armed under `armedIdentity` still describes the live turn.
+   * Unknown identities (no controller state at arm time) are trusted, exactly
+   * as before this check existed.
+   */
+  protected turnClockIsCurrent(armedIdentity: string | null): boolean {
+    if (armedIdentity === null) return true;
+    const live = this.currentTurnIdentity();
+    return live === null || live === armedIdentity;
   }
 
   private bankArmRetentionHold: {
@@ -991,6 +1115,10 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       if (this.turnFSM.canTransition(clockState)) this.turnFSM.transition(clockState);
       else this.turnFSM.forceState(clockState);
     }
+    // The turn this clock belongs to. Its expiry, and any bank it spends,
+    // may only ever touch this turn (see turnClockIdentity in Base).
+    this.turnClockIdentity = this.currentTurnIdentity();
+    const armedIdentity = this.turnClockIdentity;
     this.playerTurnStartTime = Date.now();
     this.playerTurnDuration = Math.max(0, durationSeconds);
     const retainedClock = this.bankArmRetentionHold;
@@ -1080,6 +1208,18 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
 
       const state = this.handController.getState();
       if (state.currentPlayerSeat !== seat) return;
+      // THE CLOCK THAT EXPIRED MUST BE THE CLOCK OF THIS TURN (2026-11-05).
+      // The seat check above cannot tell this turn from the same seat's next
+      // one: after a street closes the same seat is often first to act again.
+      // A deadline that outlived its turn (the seat acted in the same tick it
+      // expired) must spend no bank and force nothing on the turn now running.
+      if (!this.turnClockIsCurrent(armedIdentity)) {
+        noteFire('stale_turn_clock_expiry_ignored');
+        console.warn(
+          `[ServerTableEngine:${this.tableId}] Clock expiry for seat ${seat} belongs to an earlier turn (${armedIdentity}, now ${this.currentTurnIdentity()}) - ignored`
+        );
+        return;
+      }
       if (this.armRemainingReconnectProtection(userId)) return;
 
       // Bible V8 §6.2: Auto-activate time bank when primary timer expires
@@ -1118,6 +1258,16 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
             if (!this.lifecycleCanMutate() || !this.handController) return;
             const tbState = this.handController.getState();
             if (tbState.currentPlayerSeat !== seat) return;
+            // The bank was spent for ONE turn. If its countdown outlived that
+            // turn it forces nothing on the turn now running (2026-11-05: two
+            // such countdowns forced a check over the brain's turn decision).
+            if (!this.turnClockIsCurrent(armedIdentity)) {
+              noteFire('stale_turn_clock_expiry_ignored');
+              console.warn(
+                `[ServerTableEngine:${this.tableId}] Time bank expiry for seat ${seat} belongs to an earlier turn (${armedIdentity}, now ${this.currentTurnIdentity()}) - ignored`
+              );
+              return;
+            }
             if (this.armRemainingReconnectProtection(userId)) return;
             if (this.turnFSM.state === 'time_bank_active') {
               this.turnFSM.transition('expired');
@@ -1136,7 +1286,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
               `[ServerTableEngine:${this.tableId}] Player ${userId} time bank expired. ` +
                 (tbCanCheck ? 'Auto-checking.' : 'Auto-folding.')
             );
-            if (this.forceResolveSeat(seat, tbCanCheck)) {
+            if (this.forceResolveSeat(seat, tbCanCheck, 'timebank_expired')) {
               this.markProgress();
             } else {
               reportError(
@@ -1281,7 +1431,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // fired and been dropped. If the forced action is REJECTED the seat is
       // left with no clock and no action while the FSM below records it as
       // resolved — a terminal freeze. Re-arm rather than pretend it resolved.
-      if (this.forceResolveSeat(seat, canCheck)) {
+      if (this.forceResolveSeat(seat, canCheck, 'timer_expired')) {
         this.markProgress();
       } else {
         reportError(
@@ -1553,7 +1703,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         // the hand until the stall watchdog. forceResolveSeat is the path the
         // AUTO time-bank expiry already uses; this was the last site that had
         // not been migrated to it.
-        if (this.forceResolveSeat(player.seat, tbCanCheck)) {
+        if (this.forceResolveSeat(player.seat, tbCanCheck, 'manual_timebank_expired')) {
           this.markProgress();
         } else {
           reportError(
@@ -2510,9 +2660,12 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // TimeBankEngine.manualcountdown.test.ts already pins that contract
       // ("player acted in time; the intent dies with it"). The engine was
       // right; this caller simply never reached it.
-      if (this.timeBankActivatedThisTurn || this.timeBankEngine.isArmed(this.tableId, userId)) {
-        this.timeBankEngine.playerActed(this.tableId, userId);
-      }
+      // 2026-11-05: no longer gated at all. A bank can be active with a live
+      // countdown and neither flag set (a deferred activation published onto
+      // a turn that handleTurnChange then reset); a decision ends its bank
+      // regardless, and playerActed is a no-op when there is none. Same rule
+      // as the horse path (settleHorseSeatActed) and the pineapple discard.
+      this.timeBankEngine.playerActed(this.tableId, userId);
       // ── THE CLOCK STARTS BEFORE THE ACTION IS APPLIED (2026-09-05) ────
       //
       // It used to start AFTER this call, and that made
@@ -2887,7 +3040,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         if (
           this.forceResolveSeat(
             player.seat,
-            Math.max(0, state.currentBet - (player.bet ?? 0)) === 0
+            Math.max(0, state.currentBet - (player.bet ?? 0)) === 0,
+            'reconnect_protection_expired'
           )
         ) {
           this.markProgress();
@@ -2955,6 +3109,24 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       (p) => p.user_id === event.playerId && p.seat === state.currentPlayerSeat
     );
     if (!state || !actor || !this.lifecycleCanMutate()) return;
+    // A DEFERRED ACTIVATION IS PUBLISHED ONLY ONTO THE TURN THAT SPENT IT
+    // (2026-11-05). The bank was spent by one clock's expiry; its bytes are
+    // retained and published a moment later. If the seat acted in that
+    // moment and is first to act on the next street, "this player is the
+    // current seat" is still true and the countdown would be armed on a turn
+    // that never asked for it, with nothing left to release it. The turn the
+    // activation belongs to travels with the event; any other turn retires
+    // the activation (use it or lose it: the seat acted inside the instant
+    // the bank was granted) and keeps its own ordinary clock.
+    const spentFor = typeof event.turnIdentity === 'string' ? event.turnIdentity : null;
+    if (spentFor !== null && !this.turnClockIsCurrent(spentFor)) {
+      noteFire('time_bank_activation_retired_turn_ended');
+      console.warn(
+        `[ServerTableEngine:${this.tableId}] Time bank activation for ${actor.user_id} belongs to an earlier turn (${spentFor}, now ${this.currentTurnIdentity()}) - retired, not published`
+      );
+      this.timeBankEngine.playerActed(this.tableId, actor.user_id);
+      return;
+    }
     const seconds = this.timeBankEngine.resumeDeferredPublication(
       this.tableId,
       actor.user_id,
@@ -2966,7 +3138,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           return;
         const current = this.handController.getState();
         const player = current.players.find((p) => p.seat === actor.seat);
-        if (this.forceResolveSeat(actor.seat, !!player && current.currentBet <= player.bet)) {
+        if (
+          this.forceResolveSeat(
+            actor.seat,
+            !!player && current.currentBet <= player.bet,
+            'published_timebank_expired'
+          )
+        ) {
           this.disconnectEngine.recordConnectedTimeout(this.tableId, actor.user_id);
           this.markProgress();
         }
@@ -3185,7 +3363,13 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           return;
         const current = this.handController.getState();
         const actor = current.players.find((p) => p.seat === seat);
-        if (this.forceResolveSeat(seat, !!actor && current.currentBet <= actor.bet)) {
+        if (
+          this.forceResolveSeat(
+            seat,
+            !!actor && current.currentBet <= actor.bet,
+            'recovered_timebank_expired'
+          )
+        ) {
           this.disconnectEngine.recordConnectedTimeout(this.tableId, player.user_id);
           this.markProgress();
         }
@@ -3632,9 +3816,14 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
   protected settleHorseSeatActed(userId: string): void {
     try {
       this.preciseTimer.cancelTimer(this.tableId, userId);
-      if (this.timeBankActivatedThisTurn || this.timeBankEngine.isArmed(this.tableId, userId)) {
-        this.timeBankEngine.playerActed(this.tableId, userId);
-      }
+      // A DECISION ENDS ITS BANK, WHATEVER THIS TURN'S FLAG SAYS (2026-11-05).
+      // This was gated on timeBankActivatedThisTurn || isArmed. A bank
+      // published onto a turn by a deferred activation and then followed by
+      // handleTurnChange (which resets the flag) was active with a live
+      // countdown and no flag, so the seat's action left it running and it
+      // fired 20 s later over the brain's next decision. playerActed is
+      // idempotent: a seat with no active or armed bank is a no-op.
+      this.timeBankEngine.playerActed(this.tableId, userId);
       this.disconnectEngine.recordPlayerActed(this.tableId, userId);
       this.engineTelemetry.recordTimerActed(this.tableId);
     } catch (err) {
@@ -4199,7 +4388,15 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           // auto-activates the bank on primary-timer expiry (Bible V8 6.2) - then
           // act a few seconds into it. Bounded well inside the granted bank so a
           // tank can never become an auto-fold.
-          const intoBank = 2000 + (requested - HorseLogic.THINK_TIMEBANK_SENTINEL) * 0.55;
+          // The burn begins AFTER the bank has been granted. The enforcement
+          // deadline is actionTime + 2 s of grace, on a 100 ms scheduler tick,
+          // so a floor of exactly 2 s put the earliest burns in the same tick
+          // as the expiry that grants the bank (2026-11-05: two of 4,739
+          // activations). Half a second of clearance keeps the action inside
+          // the bank, as the design says, never racing its own activation.
+          const intoBank =
+            ServerTableEngineTurns.HORSE_MIN_BANK_BURN_MS +
+            (requested - HorseLogic.THINK_TIMEBANK_SENTINEL) * 0.55;
           thinkTimeMs = Math.round(
             actionTimeMs + Math.min(intoBank, ServerTableEngineTurns.HORSE_MAX_BANK_BURN_MS)
           );

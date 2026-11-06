@@ -34,7 +34,7 @@ ROSTER_PASSES = 56
 LIGHTNING_FIX = Path('supabase/migrations/20261028100820_lightning_accepted_rosters_bind_original_hand_seats.sql')
 LIGHTNING_FIXTURE = Path('scripts/ci/probes/lightning-accepted-roster-fixture.sql')
 LIGHTNING_PROBE = Path('scripts/ci/probes/lightning-accepted-roster-native.sql')
-EXISTING_PASSES = 50
+EXISTING_PASSES = 54
 
 
 def between(text, start, end, include_end=False):

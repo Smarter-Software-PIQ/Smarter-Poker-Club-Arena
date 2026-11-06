@@ -1,0 +1,6 @@
+{
+  "_owner": "feat/final-two-payout-watch",
+  "_comment": "Migration 20261106032337 (the bounty only final two payout is watched).",
+  "tables": ["ca_bounty_only_final_two_breaches"],
+  "functions": ["fn_ca_bounty_only_final_two_watch"]
+}

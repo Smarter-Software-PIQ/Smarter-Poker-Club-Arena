@@ -27,6 +27,12 @@ function pageRule(selector: string): string {
 }
 
 describe('Club Data touch targets', () => {
+  it('keeps verified rakeback expansion and retry buttons touch-safe', () => {
+    const verified = readFileSync('src/components/club/ClubRakebackVerifiedSoFar.css', 'utf8');
+    const body = ruleFrom(verified, '.club-verified__more');
+    expect(body).toMatch(/min-width:\s*44px/);
+    expect(body).toMatch(/min-height:\s*44px/);
+  });
   it('keeps the snapshot period and export controls at the 44px phone minimum', () => {
     const shared = css.match(/\.scope,\s*\.period,\s*\.exportBtn\s*\{([^}]*)\}/);
     expect(shared).not.toBeNull();

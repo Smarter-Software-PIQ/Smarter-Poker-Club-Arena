@@ -62,6 +62,23 @@ export function seatBountyBadge(input: {
   playerStatus?: string | null;
   bountyMap: Record<string, number> | null | undefined;
   /**
+   * The engine's own head for this seat (2026-11-05), carried on the table
+   * state with the chips. It is preferred unless the bountyMap took a newer
+   * value for this player since (see engineSeenAt / mapSeenAt), and the
+   * bountyMap is the fallback for an engine build that does not send it.
+   */
+  engineBounty?: number | null;
+  /**
+   * When this client first saw the engine's current head for this player, and
+   * when it first saw the bountyMap's current value (observeHead). Both are
+   * this client's own clock, so no server clock skew enters the comparison.
+   * The map wins only when it changed strictly later: a knockout broadcast or
+   * a ledger read landed after the engine's last head for the seat (an engine
+   * whose own heads read failed keeps publishing the older head).
+   */
+  engineSeenAt?: number;
+  mapSeenAt?: number;
+  /**
    * A chests-only mystery event (Dan 2026-10-22): no bounty is paid before the
    * money, so before the chests open a seat advertises no head at all.
    */
@@ -74,7 +91,69 @@ export function seatBountyBadge(input: {
     return { value: undefined, mystery: !out };
   }
   if (input.chestsOnly) return { value: undefined, mystery: false };
-  return { value: input.bountyMap?.[input.playerId], mystery: false };
+  const engineHead = input.engineBounty;
+  const mapHead = input.bountyMap?.[input.playerId];
+  const mapIsFresher =
+    typeof mapHead === 'number' &&
+    Number.isFinite(mapHead) &&
+    typeof input.mapSeenAt === 'number' &&
+    typeof input.engineSeenAt === 'number' &&
+    input.mapSeenAt > input.engineSeenAt;
+  if (
+    !mapIsFresher &&
+    typeof engineHead === 'number' &&
+    Number.isFinite(engineHead) &&
+    engineHead >= 0
+  ) {
+    return { value: engineHead, mystery: false };
+  }
+  return { value: mapHead, mystery: false };
+}
+
+/** When this client first saw a source's current head for one player. */
+export interface HeadObservation {
+  value: number | undefined;
+  at: number;
+}
+
+/**
+ * Note a head as this client sees it and return when its current value was
+ * first seen. Idempotent for an unchanged value (safe to call on every render,
+ * and twice under StrictMode); a changed value restamps at `now`.
+ */
+export function observeHead(
+  seen: Map<string, HeadObservation>,
+  userId: string | null | undefined,
+  value: unknown,
+  now: number
+): number | undefined {
+  if (!userId) return undefined;
+  const v = typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  const prior = seen.get(userId);
+  if (prior && prior.value === v) return prior.at;
+  seen.set(userId, { value: v, at: now });
+  return now;
+}
+
+/**
+ * Does the table still need the client's own ledger poll? Only while a seated,
+ * live player has no engine head on the table state (an engine build that
+ * does not publish heads, or a seat the engine has not read yet). When every
+ * seat carries the engine's head, the engine's own reads keep it true and the
+ * poll would only repeat them.
+ */
+export function seatsNeedLedgerHeadPoll(
+  players:
+    | ReadonlyArray<{ id?: unknown; status?: unknown; bounty?: unknown } | null | undefined>
+    | null
+    | undefined
+): boolean {
+  return (players ?? []).some((p) => {
+    if (!p || p.id == null || String(p.id) === '') return false;
+    if (String(p.status ?? '').toLowerCase() === 'eliminated') return false;
+    const head = p.bounty;
+    return !(typeof head === 'number' && Number.isFinite(head) && head >= 0);
+  });
 }
 
 /** Is this tournament row a chests-only mystery event? Unknown reads as no. */

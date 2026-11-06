@@ -42,6 +42,7 @@ import {
   stopHorseReferenceAgreementReport,
 } from './services/HorseReferenceAgreementReport.js';
 import { startBrainTelemetryFlush } from './services/BrainTelemetryFlush.js';
+import { reportHorsePolicySourcesAtBoot } from './engine/HorsePolicySourceManifest.js';
 import {
   startHorseDataLedgerSync,
   stopHorseDataLedgerSync,
@@ -263,6 +264,11 @@ async function startLeaderOwnedServices(): Promise<void> {
   // Proof of receipt (Dan 2026-08-26): live layer-fire counters, flushed to
   // horse_brain_telemetry every minute for the daily audit + admin panel.
   startBrainTelemetryFlush();
+  // 2026-11-05: every file the Horse phase digests hash must be readable in
+  // this image, or every phase sits in shadow with no forced authority (the
+  // Nov 5 releases). The image build refuses that; this names it at boot
+  // anyway (console, error reporter, horse_policy_source_unreadable).
+  reportHorsePolicySourcesAtBoot();
   // Journal I/O and parsing have a separate background thread and durable leases.
   horseAdaptiveJournalWorker.start();
   // Phase 1 of the real-time build plan (Dan 2026-09-04): the Horse Data

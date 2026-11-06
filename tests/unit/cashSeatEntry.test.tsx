@@ -11,6 +11,7 @@ function setup(gameId: string | null = 'game') {
     goToTable: vi.fn(),
     showWaitlist: vi.fn(),
     notify: vi.fn(),
+    onPendingChange: vi.fn(),
   };
   const hook = renderHook(
     ({ userId }) =>
@@ -25,6 +26,27 @@ function setup(gameId: string | null = 'game') {
   return { ...hook, ...callbacks };
 }
 describe('a cash seat tap always has an actionable admission outcome', () => {
+  it('signals the full lifetime of a pending admission so an arriving offer is not lost', async () => {
+    let resolve!: (reply: unknown) => void;
+    transport.rpc.mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      })
+    );
+    const h = setup();
+    h.onPendingChange.mockClear();
+    let pending!: Promise<void>;
+    act(() => {
+      pending = h.result.current(4);
+    });
+    expect(h.onPendingChange.mock.calls).toEqual([[true]]);
+    await act(async () => {
+      resolve({ data: { ok: true, action: 'waitlisted', position: 1 }, error: null });
+      await pending;
+    });
+    expect(h.onPendingChange.mock.calls).toEqual([[true], [false]]);
+    expect(h.showWaitlist).toHaveBeenCalledOnce();
+  });
   it('opens the server assigned table without submitting a purchase', async () => {
     transport.rpc.mockResolvedValue({
       data: { ok: true, action: 'seat', table_id: 'feeder', table_name: 'Feeder 2' },

@@ -6,6 +6,12 @@
 -- the upgrade is not active. A row whose label says 'expected 0' is a guard
 -- counter: it should stay at zero. Read-only (one SELECT).
 --
+-- V15 boats rows (2026-11-06): 'v15_boat_dominated' fires when a PLO5 cash
+-- full house reads as beaten by a bigger boat or quads, 'v15_boat_gate' when
+-- that boat, raised after betting, calls instead of re-raising. A dominated
+-- boat facing a raise is rare, so a low count is expected; zero over several
+-- days with decide_omaha flowing means the default did not reach the engine.
+--
 -- V31 rows (2026-11-06): 'v31_certified_<node role>' fires once per horse
 -- decision that a certified V31 solver cell answered and the engine executed
 -- as sampled (HorseLogic.ts, noteFire after legalize). The facing roles
@@ -14,6 +20,12 @@
 -- public.gto_v31_serving_bindings holds an open row for the serving engine
 -- commit, so 'v31_certified_skip_empty_store' is the counter that must fall
 -- to zero when V31 is live.
+--
+-- Skill result rows (2026-11-06): each default-off skill says what happened
+-- to its result once it is selected. 'applied' means the result changed the
+-- action; 'considered' means it was evaluated and the same choice stood;
+-- 'superseded' means another owner decided the spot. All three stay at zero
+-- while the skill is unselected (no selection file ships).
 SELECT x.feature, x.upgrade, coalesce(sum(t.fires), 0) AS fires,
        count(DISTINCT t.day) AS days_seen, min(t.day) AS first_day, max(t.day) AS last_day
 FROM (VALUES
@@ -21,6 +33,15 @@ FROM (VALUES
   ('v61_river_one_pair_shade', 'V61'),
   ('v63_large_river_bet_shade', 'V63'),
   ('v64_river_raise_needs_two_pair', 'V64'),
+  ('barrel_continuation_outlook_applied', 'barrelContinuationOutlook: carried turn outlook changed the river barrel (expected 0 until selected)'),
+  ('barrel_continuation_outlook_considered', 'barrelContinuationOutlook: outlook read, same choice (expected 0 until selected)'),
+  ('barrel_continuation_outlook_superseded', 'barrelContinuationOutlook: an earlier river owner decided first (expected 0 until selected)'),
+  ('small_pot_near_nut_value_applied', 'smallPotNearNutRiverValue: its value raise reached the final action (expected 0 until selected)'),
+  ('small_pot_near_nut_value_considered', 'smallPotNearNutRiverValue: in domain, original gate already raised (expected 0 until selected)'),
+  ('small_pot_near_nut_value_superseded', 'smallPotNearNutRiverValue: a later owner replaced its raise (expected 0 until selected)'),
+  ('v53_plo_icm_applied', 'v53PloTourneyIcm: ICM shifts changed the preflop choice (expected 0 until selected)'),
+  ('v53_plo_icm_considered', 'v53PloTourneyIcm: shifts priced, same choice (expected 0 until selected)'),
+  ('v53_plo_icm_superseded', 'v53PloTourneyIcm: a later owner replaced the changed choice (expected 0 until selected)'),
   ('v65_turn_one_pair_shade', 'V65'),
   ('v66_bet_raised_one_pair', 'V66'),
   ('v67_river_bet_raised_one_pair', 'V67'),
@@ -78,7 +99,15 @@ FROM (VALUES
   ('v60_cash_pressure_facing_open', 'V60 cash pressure (#8694)'),
   ('v60_cash_pressure_facing_open_superseded', 'V60 cash pressure (#8694)'),
   ('v60_cash_pressure_opener_vs_three_bet', 'V60 cash pressure (#8694)'),
+  ('v15_boat_dominated', 'V15 boats (default on in PLO5 cash since 2026-11-06)'),
+  ('v15_boat_gate', 'V15 boats: dominated boat called a raise (PLO5 cash)'),
   ('v62_river_bettor_polarity', 'V62 (opt-in: expected 0)'),
+  ('horse_turn_resolved_without_decision', 'clock-forced horse turn (expected 0)'),
+  ('horse_turn_resolved_without_decision_brain_pending', 'clock-forced horse turn, brain decision was in flight (expected 0)'),
+  ('horse_turn_resolved_without_decision_timebank_expired', 'clock-forced horse turn, bank countdown (expected 0)'),
+  ('horse_turn_resolved_without_decision_timer_expired', 'clock-forced horse turn, action clock (expected 0)'),
+  ('stale_turn_clock_expiry_ignored', 'clock outlived its turn, ignored (guard)'),
+  ('time_bank_activation_retired_turn_ended', 'deferred bank activation retired, turn ended (guard)'),
   ('v31_certified_facing_bet', 'V31 solver cell applied: facing bet'),
   ('v31_certified_facing_raise', 'V31 solver cell applied: facing raise'),
   ('v31_certified_check_raise', 'V31 solver cell applied: check raise'),

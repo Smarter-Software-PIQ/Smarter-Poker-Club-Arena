@@ -10444,7 +10444,10 @@
       "candidate_benchmark_components",
       "candidate_execution_mismatches",
       "status",
-      "refusal_reason"
+      "refusal_reason",
+      "harness_corrected_actions",
+      "brain_exception_fallbacks",
+      "engine_sha"
     ],
     "horse_memory": [
       "id",

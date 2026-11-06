@@ -32,8 +32,11 @@ describe('a rebuy bounty is collected by its exact obligation', () => {
   it('collects by obligation id when it exists and by player only when it does not', () => {
     const b = body();
     expect(b).toMatch(
-      /exactObligationId\s*\?\s*await supabase\.rpc\('fn_collect_bounty_obligation',\s*\{\s*p_obligation_id: exactObligationId\s*\}\)\s*:\s*await supabase\.rpc\('fn_collect_bounty',/
+      /exactObligationId\s*\?\s*supabase\.rpc\('fn_collect_bounty_obligation',\s*\{\s*p_obligation_id: exactObligationId\s*\}\)\s*:\s*supabase\.rpc\('fn_collect_bounty',/
     );
+    // The proved door obligation (eliminatePlayer) is reused, never invented.
+    expect(b).toMatch(/let exactObligationId: string \| null = knownObligationId;/);
+    expect(b).toMatch(/if \(handId && !exactObligationId\) \{/);
   });
 
   it('never collects a mystery chest through the knockout path', () => {

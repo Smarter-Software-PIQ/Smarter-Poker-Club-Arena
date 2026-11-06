@@ -1,0 +1,6 @@
+{
+  "_owner": "feat/bounty-only-pko-ends-heads-up",
+  "_comment": "Migration 20261106010426 (a bounty only PKO ends with two players).",
+  "tables": ["ca_bounty_only_final_two"],
+  "functions": ["fn_ca_bounty_only_pko_final_two"]
+}

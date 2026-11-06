@@ -1,4 +1,6 @@
+import { tournamentEntryWindowOpen } from '../utils/tournamentEntryWindow';
 import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
+import { levelClockNow, type LevelClockRow } from '../utils/maintenanceLevelClock';
 import { TOURNAMENT_START_HOLD_MESSAGE } from '../config/tournamentStartHold';
 import type { SealedStagePlanBody } from '../utils/multiDaySchedule';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
@@ -35,6 +37,7 @@ import {
   BLIND_STRUCTURES,
   SPIN_BLIND_STRUCTURE,
   assertNoNewMttBreakRows,
+  mttAndSngOpeningBlinds,
   type BlindLevel,
 } from '../config/blindStructures';
 import { SPIN_TIERS, SPIN_FREQ_DENOMINATOR } from '../config/spinSpec';
@@ -1221,6 +1224,7 @@ class TournamentService {
     }
 
     assertTournamentRpcConfig(p, { surface: 'create' });
+    if (config.type !== 'spin') p.blindStructure = mttAndSngOpeningBlinds(config.blindStructure);
     return p;
   }
 
@@ -2195,6 +2199,10 @@ class TournamentService {
       return mins > 0 ? mins : DEFAULT_LEVEL_MINUTES;
     };
 
+    // A maintenance break stops the level clock (Dan 2026-11-05). Every
+    // countdown below is measured at the instant the engine is crediting.
+    nowMs = levelClockNow(tournament as unknown as LevelClockRow, nowMs);
+
     if (tournament.status !== 'RUNNING' || !tournament.started_at) {
       return {
         currentLevel: blinds[0],
@@ -2352,35 +2360,16 @@ class TournamentService {
      * With no add-on configured the window is unchanged.
      */
     const now = Date.now();
-    const addonStartsAt = Date.parse(String(tournament.addon_period_started_at || ''));
-    const addonEndsAt = Date.parse(String(tournament.addon_period_ends_at || ''));
-    const addonWindowOpen =
-      tournament.add_on_available === true &&
-      Number.isFinite(addonStartsAt) &&
-      Number.isFinite(addonEndsAt) &&
-      now >= addonStartsAt &&
-      now < addonEndsAt;
-    const rebuyLevelCap = Number(tournament.rebuy_levels ?? tournament.late_reg_levels ?? 0);
-    if (rebuyLevelCap > 0) {
-      const persistedLevel = Number(tournament.current_level);
-      if (!Number.isInteger(persistedLevel) || persistedLevel < 0) {
-        return { allowed: false, reason: 'Could not verify the current tournament level' };
-      }
-      const minutes = Number(tournament.late_reg_mins ?? 0);
-      const startedAt = Date.parse(String(tournament.started_at || ''));
-      const clockClosed =
-        minutes > 0 && (!Number.isFinite(startedAt) || now >= startedAt + minutes * 60_000);
-      if ((persistedLevel >= rebuyLevelCap || clockClosed) && !addonWindowOpen) {
-        return { allowed: false, reason: 'Rebuy/re-entry period has ended' };
-      }
-    } else {
-      const timedMinutes = Number(tournament.late_reg_mins ?? 0);
-      const startedAt = Date.parse(String(tournament.started_at || ''));
-      const timedWindowOpen =
-        timedMinutes > 0 && Number.isFinite(startedAt) && now < startedAt + timedMinutes * 60_000;
-      if (!timedWindowOpen && !addonWindowOpen) {
-        return { allowed: false, reason: 'Rebuy/re-entry period has ended' };
-      }
+    if (
+      !tournamentEntryWindowOpen(
+        {
+          ...tournament,
+          late_reg_levels: tournament.rebuy_levels || tournament.late_reg_levels,
+        },
+        now
+      )
+    ) {
+      return { allowed: false, reason: 'Rebuy/re-entry period has ended' };
     }
 
     // Mirror the player-visible half of the atomic purchase authority. A

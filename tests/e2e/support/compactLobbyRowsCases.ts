@@ -3,6 +3,19 @@ import { build as buildFixture } from 'esbuild';
 import { readFileSync } from 'node:fs';
 
 export function registerCompactLobbyRowsCases() {
+  test('premium MTT Details and its separate countdown both receive clicks', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.setContent(
+      `<main class="club-home"><div class="lobby-table-wrap"><table class="compact-lobby has-premium-chassis"><tbody><tr data-id="fixture" data-kind="mtt"><td><button class="compact-lobby__open" aria-label="Details: Tournament" onclick="document.body.dataset.details='opened'">Tournament</button><span class="lt-name__meta"><button class="premium-lobby-start-toggle" onclick="document.body.dataset.clock='toggled'"><strong class="premium-lobby-clock__value">6:23:24</strong></button></span></td><td>10</td><td>20</td><td>Running</td></tr></tbody></table></div></main>`
+    );
+    await page.addStyleTag({
+      content: readFileSync('src/components/lobby/PremiumMttRows.css', 'utf8'),
+    });
+    await page.getByRole('button', { name: 'Details: Tournament', exact: true }).click();
+    await expect(page.locator('body')).toHaveAttribute('data-details', 'opened');
+    await page.locator('.premium-lobby-start-toggle').click();
+    await expect(page.locator('body')).toHaveAttribute('data-clock', 'toggled');
+  });
   test('game counts stay centered under Players and row details wrap', async ({
     page,
   }, testInfo) => {

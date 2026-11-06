@@ -132,14 +132,20 @@ Each cycle the checker:
   `resolved_at` cleared) when the same fingerprint is observed again after
   `resolved_at` was set or after `Closed`.
 
+- moves an **unclaimed** record still at `Detected` to `Cleared, no fix
+  recorded` once its symptom has been absent for 30 minutes (10 clean cycles),
+  appending the evidence to `stage_history`: when it was last seen, minutes
+  clean, and the engine release at last sight. This is not `Closed` and is not
+  a fix: it says the symptom stopped and the root cause is not established. The
+  handoff lists cleared records separately for root-cause review, and a
+  recurrence reopens the record to `Detected` like any other. A claimed record
+  (any owner, or any stage past `Detected`) is never cleared by the checker.
+
 The checker never deletes a record and never sets `Closed`. Test findings
 (from `test-input.json`) get records tagged `"test": true` and are not counted
 as production incidents.
 
-Its own operator-absence finding (`no_claude_session`, below) gets no record,
-so it cannot keep itself alive.
-
-## The absence finding
+## Operator presence (reported, not a finding)
 
 `state/latest.json` carries a `claude_session` block with the age of
 `state/claude_heartbeat` in seconds and minutes, the last reader, and
@@ -147,19 +153,14 @@ so it cannot keep itself alive.
 `unclaimed_incidents` and `claude_heartbeat_age_s` alongside every existing
 field (nothing was renamed).
 
-When at least one production incident record is open and no chat has read the
-handoff for more than 30 minutes (or ever), the checker raises a warning
-finding of its own:
-
-```
-no Claude session has read the incident handoff for more than 30 minutes while N incident(s) are open
-```
-
-It appears in `findings.open` in `latest.json` and in `findings.jsonl` exactly
-like any other finding, so whatever reads the digest sees that nobody is
-working the lane. It resolves on the first cycle after a chat runs `handoff`.
-It sends nothing: no email, no SMS, no push, no scheduler. The reader is the
-next chat, and this runbook is how that chat knows to look.
+Until 1.2.0 the checker also raised a warning finding, `no_claude_session`,
+whenever no chat had read the handoff for 30 minutes. It was retired on
+2026-11-06: keeping a chat reading on a timer needs the Claude scheduler, which
+CLAUDE.md 10.85 forbids agents to use, so the finding could never be cleared
+legitimately and sat open permanently as a false warning. The presence data is
+still in `latest.json`; the reader is the next chat that runs `handoff`, and
+this runbook is how that chat knows to look. Old `no_claude_session` findings in
+the state file resolve on the first 1.2.0 cycle and never got incident records.
 
 ## Installing or updating on the host
 

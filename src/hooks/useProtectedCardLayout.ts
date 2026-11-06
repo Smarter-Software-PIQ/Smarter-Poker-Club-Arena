@@ -628,7 +628,8 @@ export function useProtectedCardLayout(
             const highest = Math.min(image.top, badgeTop);
             // The same part measured by its painted crown: library canvases
             // carry up to a third of their height as transparency above the
-            // head (free_penguin 31%). Used only to level the lane below.
+            // head (free_penguin 31%). Anchor the lane to that visible head,
+            // not to transparent canvas which would leave an extra gap.
             const paintedHighest = Math.min(
               avatar ? restingAvatarTop(avatar, scale) : image.top,
               badgeTop
@@ -674,7 +675,9 @@ export function useProtectedCardLayout(
                   : naturalTarget;
               return (target - anchorTop) / scale;
             };
-            const shift = shiftFor(highest);
+            const shift = shiftFor(
+              page.getAttribute('data-seats') === '6' ? highest : paintedHighest
+            );
             placed.push({
               pod,
               shift,

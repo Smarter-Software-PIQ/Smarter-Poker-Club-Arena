@@ -68,7 +68,7 @@ describe('verify-engine-release-bundle (Phase 4 certification verifier)', () => 
     broken.v3Thaw.verifiedDeadlineFamilies = 14;
     broken.canonicalCensus.gamesVerified = ['NLH', 'PLO4', 'PLO5', 'PLO6'];
     broken.resourceWindow.activeSeconds = 600;
-    broken.resourceWindow.maxHeapUsedMB = 2400;
+    broken.resourceWindow.maxHeapUsedMB = 6200;
 
     const res = evaluateEngineReleaseCertificationBundle(broken);
     expect(res.certified).toBe(false);
@@ -76,10 +76,10 @@ describe('verify-engine-release-bundle (Phase 4 certification verifier)', () => 
     expect(res.failures).toContain('v3_thaw_deadline_families_incomplete');
     expect(res.failures).toContain('canonical_census_missing_game_PLO8');
     expect(res.failures).toContain('resource_window_under_900_active_seconds');
-    expect(res.failures).toContain('resource_window_heap_exceeded_2048mb');
+    expect(res.failures).toContain('resource_window_heap_exceeded_6144mb');
   });
 
-  it('applies the owner 12288 MB RSS ceiling and requires RSS to level off', () => {
+  it('applies the owner 36864 MB RSS ceiling and requires RSS to level off', () => {
     const at = (rss: number[]) => rss.map((rssMb, i) => ({ activeSeconds: i * 60, rssMb }));
     const ok = createValidBundle();
     ok.resourceWindow.maxRssMB = 9200;
@@ -89,9 +89,9 @@ describe('verify-engine-release-bundle (Phase 4 certification verifier)', () => 
     expect(evaluateEngineReleaseCertificationBundle(ok).failures).toEqual([]);
 
     const over = createValidBundle();
-    over.resourceWindow.maxRssMB = 12289;
+    over.resourceWindow.maxRssMB = 36865;
     expect(evaluateEngineReleaseCertificationBundle(over).failures).toContain(
-      'resource_window_rss_exceeded_12288mb'
+      'resource_window_rss_exceeded_36864mb'
     );
 
     // The measured 8017564a window: ~17 MB per active minute is still climbing.

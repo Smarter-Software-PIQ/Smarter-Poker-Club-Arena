@@ -14,12 +14,17 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { masterBus } from '../../core/MasterBus';
 import { reportError } from '../../utils/errorReporter';
-import { decideSeatOffer, holdDeadline } from './waitlistSeatOffer';
+import {
+  cashSeatOfferKey,
+  decideSeatOffer,
+  holdDeadline,
+  liveCashSeatOffer,
+} from './waitlistSeatOffer';
 
 const WAITLIST_CHANNEL_KEY = 'global-waitlist-auto-seat';
 
@@ -31,11 +36,8 @@ export default function GlobalWaitlistListener() {
   const activeUserIdRef = useRef(user?.id);
   activeUserIdRef.current = user?.id;
   const navigate = useNavigate();
-  const location = useLocation();
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
-  const locationRef = useRef(location);
-  locationRef.current = location;
   const openedOffersRef = useRef(new Set<string>());
   // A committed offer finishes the player's earlier Join action. It opens
   // the purchase door, never purchases chips or follows a turn clock.
@@ -47,24 +49,33 @@ export default function GlobalWaitlistListener() {
       hold_expires_at?: string | null;
     }) => {
       const deadline = holdDeadline(row);
-      if (
-        !row.id ||
-        !row.table_id ||
-        !deadline ||
-        Date.parse(deadline) <= Date.now() ||
-        !Number.isFinite(Date.parse(deadline))
-      )
-        return;
-      const key = `${row.id}:${row.notified_at ?? deadline}`;
+      const offer = liveCashSeatOffer(
+        {
+          id: row.id,
+          tableId: row.table_id == null ? undefined : String(row.table_id),
+          userId: activeUserIdRef.current,
+          notifiedAt: row.notified_at ?? deadline,
+          holdExpiresAt: deadline,
+        },
+        row.table_id == null ? undefined : String(row.table_id),
+        activeUserIdRef.current
+      );
+      if (!offer) return;
+      const key = cashSeatOfferKey(offer);
       if (openedOffersRef.current.has(key)) return;
       openedOffersRef.current.add(key);
+      const receivedAt = Date.now();
+      void import('../../lib/cashSeatOfferTiming')
+        .then(({ recordCashSeatOfferStage }) =>
+          recordCashSeatOfferStage(offer, 'received', receivedAt)
+        )
+        .catch(() => {
+          /* Optional diagnostics cannot refuse or delay a seat offer. */
+        });
       const destination = `/table/${row.table_id}`;
-      if (
-        locationRef.current.pathname === destination &&
-        new URLSearchParams(locationRef.current.search).get('buyin') === '1'
-      )
-        return;
-      navigateRef.current(`${destination}?buyin=1`);
+      // A mounted spectator may have spent its first buy-in attempt on the
+      // waitlist. The same URL is not evidence that THIS offer was consumed.
+      navigateRef.current(`${destination}?buyin=1`, { state: { cashSeatOffer: offer } });
     },
     []
   );

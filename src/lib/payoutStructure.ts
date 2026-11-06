@@ -11,6 +11,34 @@ export interface PayoutSubject {
   variant?: string | null;
   tournament_type?: string | null;
   spin_multiplier?: number | null;
+  is_pko?: boolean | null;
+  is_mystery_bounty?: boolean | null;
+  buy_in_amount?: number | string | null;
+  guaranteed_prize?: number | string | null;
+  prize_pool?: number | string | null;
+}
+
+/**
+ * A BOUNTY-ONLY PKO PAYS NO PLACES (Dan, 2026-11-05: "PKO FREE ROLL ONLY PAYS
+ * YOU FOR THE PLAYERS YOU ELIMINATE, AND THE LAST MAN STANDING KEEPS THE
+ * BOUNTY ON THEIR HEAD ... 0 PLACES PAID").
+ *
+ * A PKO whose entry puts nothing into the place prize pool (a free entry with
+ * no guarantee and no place prize money) is paid entirely in knockouts: 50% of
+ * each head to the eliminator's wallet, 50% onto their head, and the winner
+ * keeps their own head. The database settles it with a 0 prize pool; the
+ * stored ladder exists only for lifecycle compatibility, so no screen may show
+ * it as paid places.
+ */
+export function isBountyOnlyPko(t: PayoutSubject | null | undefined): boolean {
+  // A mystery bounty event pays its chests in the money, never bounty only
+  // (same rule as the engine's isBountyOnlyPkoRow).
+  if (!t || t.is_pko !== true || t.is_mystery_bounty === true) return false;
+  const n = (v: unknown) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : 0;
+  };
+  return n(t.buy_in_amount) <= 0 && n(t.guaranteed_prize) <= 0 && n(t.prize_pool) <= 0;
 }
 
 function numericJsonScalar(value: unknown): number {
@@ -96,5 +124,7 @@ export function resolvePayoutStructure(
   if (isSpinTournament(tournament)) {
     return spinPayoutStructure(tournament?.spin_multiplier);
   }
+  // Zero places are paid in a bounty-only PKO: the ladder is not a payout.
+  if (isBountyOnlyPko(tournament)) return [];
   return parsePayoutStructure(tournament?.payout_structure);
 }

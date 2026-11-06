@@ -61,7 +61,7 @@ import {
 // Approved table artwork used by the occupied-ring renders, bundled so these
 // layout checks never depend on production being reachable or unchanged.
 // Sources: smarter.poker/avatars/table/vip_wolf@2x.webp and the Supabase
-// assets/buttons/black/icon-*.webp objects, copied byte for byte 2026-10-21.
+// assets/buttons/black/icon-*.webp objects, icons copied byte for byte 2026-10-21; avatar fixtures match the measured artwork revision.
 const tableArtFixture = (name: string) =>
   resolve(process.cwd(), 'tests/e2e/fixtures/table-art', name);
 
@@ -1190,6 +1190,19 @@ for (const [width, heightOverride] of occupiedViewports)
         // actual painted image rectangles, not rounded offsetHeight surrogates.
         const heroArt = art.find((seat) => seat.hero)!;
         for (const seat of art) expect(Math.abs(seat.height - heroArt.height)).toBeLessThan(0.05);
+        if (width === 320) {
+          const scales = await page
+            .locator('.seat__avatar-img')
+            .evaluateAll((images) =>
+              images.map((image) =>
+                getComputedStyle(image).getPropertyValue('--sp-bust-scale').trim()
+              )
+            );
+          expect(
+            new Set(scales).size,
+            'the reference Hero must share the compact artwork policy'
+          ).toBe(1);
+        }
         if (!revealed) {
           const chips = () =>
             page.locator('.seat__bet-chips').evaluateAll((bets) =>
@@ -2289,9 +2302,12 @@ for (const [width, heightOverride] of occupiedViewports)
           }));
           return { violations, tools, canvas: { width: canvas.width, height: canvas.height } };
         });
-        if (width === 320 && count === 9 && state === 'all-in')
+        if (
+          (width === 320 && count === 9 && state === 'all-in') ||
+          (width === 600 && count === 6 && !heightOverride)
+        )
           await certifyMobileLiveTableLayout(page, testInfo, {
-            widths: [320],
+            widths: [width],
             seatChangeToggle: false,
           });
         if (result.violations.length) {
@@ -3119,6 +3135,43 @@ test('painted coverage rejects opaque avatar pixels through rotation and clippin
       null) as typeof HTMLCanvasElement.prototype.getContext;
   });
   expect(await covered(), 'Unreadable pixels fail closed under the original bounds').toBe(true);
+});
+
+test('six-seat compact crown proof reserves only its bounded card lane', async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 1000 });
+  await page.setContent(`<style>body{margin:0}</style>
+    <div class="table-page" data-seats="6" style="position:relative;width:600px;height:1000px">
+      <div class="bbj-mini-plate" style="position:absolute;top:0;left:0;width:100px;height:20px"></div>
+      <div class="table-scaler" style="width:500px;height:900px;--sp-tabled-card-w:60px">
+        <div class="seat-wrapper seat-wrapper--cap">
+          <img class="seat__avatar-img" style="position:absolute;top:85px;left:200px;width:30px;height:30px">
+          <div class="seat__info" style="position:absolute;top:115px;left:200px;width:100px;height:20px"></div>
+        </div>
+      </div>
+    </div>`);
+  const refused = async () =>
+    (await page.evaluate(readMobileTableLayout, {})).violations.includes(
+      'Six-Max Crown Does Not Meet The Top Bar'
+    );
+  expect(await refused(), 'The compact shown-card lane is allowed').toBe(false);
+  await page.locator('.seat-wrapper--cap').evaluate((pod) => {
+    (pod as HTMLElement).style.translate = '0 100px';
+  });
+  expect(await refused(), 'Moving the whole pod below its reserved lane is refused').toBe(true);
+  await page.locator('.seat-wrapper--cap').evaluate((pod) => {
+    (pod as HTMLElement).style.translate = '0 -100px';
+  });
+  expect(await refused(), 'Clipping more than the crown is still refused').toBe(true);
+  await page.locator('.seat-wrapper--cap').evaluate((pod) => {
+    (pod as HTMLElement).style.translate = 'none';
+  });
+  await page.setViewportSize({ width: 1024, height: 1000 });
+  expect(await refused(), 'The wide desktop still requires the top-bar crop').toBe(true);
+  await page.setViewportSize({ width: 600, height: 1000 });
+  await page.locator('.table-scaler').evaluate((scaler) => {
+    (scaler as HTMLElement).style.removeProperty('--sp-tabled-card-w');
+  });
+  expect(await refused(), 'No declared card lane grants no extra crown gap').toBe(true);
 });
 
 test('nine-seat top proximity measures decoded crowns and still rejects overlap, distance and unreadable paint', async ({

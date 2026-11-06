@@ -168,6 +168,8 @@ jobs:
         shard: [1, 2, 3, 4]
     permissions:
       contents: read
+      # Read-only: the Backup Engine certificate gate reads commit statuses.
+      statuses: read
     outputs:
       target_sha: ${{ steps.target.outputs.sha }}
     steps:
@@ -204,6 +206,34 @@ jobs:
             echo "::notice::Exact target $RESOLVED_SHA is behind protected-main engine $LATEST_REQUIRED; host forward-only admission is still required."
           fi
           echo "sha=$RESOLVED_SHA" >> "$GITHUB_OUTPUT"
+
+      # Owner rule 2026-11-06: the live engine only ever receives a version the
+      # Backup Engine certified. stage-engine-release.yml offers only certified
+      # commits, but this receiver also accepts deploy-club-arena-engine events
+      # sent directly. This gate refuses any request whose exact SHA does not
+      # carry backup-engine/certified = success, before tests, database doors,
+      # SSH or any Hetzner contact. Every downstream job needs this matrix.
+      - name: Require the Backup Engine certificate for this exact SHA
+        id: backup_certificate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CERTIFIED_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CERTIFIED_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo '::error title=Backup Engine certificate gate::resolved target SHA is not one full lowercase commit SHA'; exit 1; }
+          # Statuses are listed newest first; the newest backup-engine/certified
+          # status for this exact SHA decides. A read failure refuses too.
+          STATE="$(gh api "repos/$REPO/commits/$CERTIFIED_SHA/statuses?per_page=100" \
+            --jq '[.[] | select(.context == "backup-engine/certified")][0].state // "missing"')" \
+            || { echo "::error title=Backup Engine certificate gate::could not read commit statuses for $CERTIFIED_SHA; refusing to release an uncertified engine"; exit 1; }
+          if [ "$STATE" != success ]; then
+            echo "::error title=Backup Engine certificate gate::$CERTIFIED_SHA has backup-engine/certified = $STATE, not success. The live engine only receives a version the Backup Engine certified; nothing was released."
+            exit 1
+          fi
+          echo "Backup Engine certified $CERTIFIED_SHA (backup-engine/certified = success)."
+          echo "certified=true" >> "$GITHUB_OUTPUT"
 
       - name: Use the production Node major
         uses: actions/setup-node@v4

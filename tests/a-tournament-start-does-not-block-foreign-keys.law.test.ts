@@ -83,6 +83,15 @@ describe('a tournament start locks the bank without blocking foreign-key checks'
     expect(probe).toContain('expect("pre-image", fk_blocks_start=True, start_blocks_fk=True)');
     expect(probe).toContain('expect("post-image", fk_blocks_start=False, start_blocks_fk=False)');
     expect(probe).toContain('two starts of one club bank must serialize');
+    expect(probe).toContain(
+      '20261002083400_a_table_start_reads_only_the_hands_after_its_settled_mark_an.sql'
+    );
+    expect(probe).toContain('ab7d46a35a5b77593d616d1dfd6e6e74');
+    expect(probe).toContain('old guard must reproduce unnecessary club-bank wait');
+    expect(probe).toContain('unguaranteed start must not wait for union bank');
+    expect(probe).toContain('competing guaranteed union starts must serialize');
+    expect(probe).toContain('satellite seat guarantee still locks club bank');
+    expect(probe).toContain('unguaranteed club starts must not serialize');
     const runner = readFileSync(join(root, 'scripts/dev/probe-departure-postgres.sh'), 'utf8');
     expect(runner).toContain('python3 "$repo/scripts/dev/probe-start-readiness-lock.py"');
     const ci = parse(readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8'));

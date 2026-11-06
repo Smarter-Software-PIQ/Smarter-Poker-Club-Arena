@@ -45,6 +45,54 @@ class FakeClient {
 }
 
 describe('cashier database contract runner', () => {
+  it('pins the maintained wallet history including ledger-only movements', () => {
+    const migration = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20261102201013_agent_wallet_history_shows_ledger_only_movements.sql'
+      ),
+      'utf8'
+    );
+    const start = migration.indexOf('CREATE OR REPLACE FUNCTION public.fn_my_wallet_ledger(');
+    const end = migration.indexOf('$function$;', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const definition = migration.slice(start, end) + '$function$\n';
+    expect(definition).toContain("'agent_wallet_rakeback'");
+    const hash = createHash('md5').update(definition).digest('hex');
+    const pin = readPsqlFreeContract().match(
+      /'signature', 'public\.fn_my_wallet_ledger\(uuid,integer,integer\)',\s*'hash', '([a-f0-9]{32})'/
+    )?.[1];
+    expect(pin).toBe(hash);
+  });
+
+  it('pins the maintained tournament-table funding resolver', () => {
+    const migration = readFileSync(
+      resolve(
+        __dirname,
+        '../../supabase/migrations/20261101222103_fix_tournament_and_table_spendable_balance.sql'
+      ),
+      'utf8'
+    );
+    const body = migration.match(
+      /CREATE OR REPLACE FUNCTION public\.fn_player_spendable_balance\([\s\S]*?AS \$function\$([\s\S]*?)\$function\$/
+    )?.[1];
+    expect(body).toBeDefined();
+    expect(body).toContain('ELSIF v_table_tournament_id IS NOT NULL THEN');
+    const definition =
+      "CREATE OR REPLACE FUNCTION public.fn_player_spendable_balance(p_user_id uuid, p_club_id uuid DEFAULT NULL::uuid, p_table_id uuid DEFAULT NULL::uuid, p_tournament_id uuid DEFAULT NULL::uuid)\n RETURNS jsonb\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$" +
+      body +
+      '$function$\n';
+    const hash = createHash('md5').update(definition).digest('hex');
+    const entry = readPsqlFreeContract().match(
+      /'signature', 'public\.fn_player_spendable_balance\(uuid,uuid,uuid,uuid\)',([\s\S]*?)\n {4}\)/
+    )?.[1];
+    expect(entry).toBeDefined();
+    expect(
+      [...entry!.matchAll(/'(?:replacement_)?hash', '([a-f0-9]{32})'/g)].map((match) => match[1])
+    ).toEqual([hash]);
+  });
+
   it('removes the one supported psql directive from the SQL contract', () => {
     const sql = readPsqlFreeContract();
     expect(sql).not.toContain('\\set ON_ERROR_STOP');

@@ -70,7 +70,7 @@ BEGIN
  RETURN v;
 END $$;
 CREATE TABLE hand_history(id uuid,table_id uuid,hand_number int,created_at timestamptz);
-CREATE TABLE tournaments(id uuid,is_private boolean,union_id uuid,status text,prize_pool_finalized boolean,current_level integer,late_reg_levels integer,rebuy_levels integer,late_reg_mins integer,started_at timestamptz,max_players integer);
+CREATE TABLE tournaments(id uuid,is_private boolean,union_id uuid,status text,prize_pool_finalized boolean,current_level integer,late_reg_levels integer,rebuy_levels integer,late_reg_mins integer,started_at timestamptz,max_players integer,add_on_available boolean,addon_from_start boolean,addon_period_started_at timestamptz,addon_period_ends_at timestamptz);
 CREATE TABLE tournament_players(id uuid DEFAULT gen_random_uuid(), tournament_id uuid,user_id uuid,username text,chips numeric,status text,is_satellite_qualifier boolean,source_satellite_id uuid,current_bounty numeric DEFAULT 0,UNIQUE(tournament_id,user_id));
 CREATE TABLE rake_records(id uuid DEFAULT gen_random_uuid(),hand_id uuid,table_id uuid,club_id uuid,rake_amount numeric,bbj_contribution numeric,pot_size numeric,num_players int,player_contributions jsonb,is_tournament boolean,tournament_id uuid,source text,metadata jsonb,rake_method text,returned_uncalled jsonb,created_at timestamptz DEFAULT now());
 CREATE UNIQUE INDEX rake_hand ON rake_records(hand_id) WHERE hand_id IS NOT NULL;

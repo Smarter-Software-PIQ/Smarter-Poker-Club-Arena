@@ -8,7 +8,7 @@
  *  1. finds every decision a horse made in the hand (each recorded action
  *     with origin 'horse_policy' carries the public table snapshot the engine
  *     recorded at that moment, `publicNode`);
- *  2. rebuilds the exact game state at each of those decisions (seats,
+ *  2. rebuilds the retained public game state at each of those decisions (seats,
  *     stacks, street bets, pot, board, legal actions, raise bounds, blinds,
  *     antes, dealer, tournament stage, and the action history strictly before
  *     the decision): the generalisation to every street and variant of the
@@ -37,6 +37,7 @@ import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HORSE_HYBRID_PROFILES } from './HorseHybridProfile.js';
 import { omahaCallClass } from './HorseOmahaBigBetCalls.js';
 import type { Card, CardRank, CardSuit, HorseStyle, SeatPlayer } from '../types.js';
+import type { HorsePublicDeductions } from './HorsePublicDeductions.js';
 
 /** The public snapshot the engine records with every horse decision. */
 export interface ComplaintPublicNode {
@@ -44,7 +45,8 @@ export interface ComplaintPublicNode {
   ante?: number | null;
   anteType?: string | null;
   mode: 'cash' | 'tournament';
-  /** [seat, behind, street bet, hand total, dead ante, -, status 0 live / 1 folded / 2 all in] */
+  /** [seat, behind, street bet, hand total, dead ante, individual ante,
+   * bit flags: folded=1, all-in=2, sitting-out=4] */
   seats: number[][];
   boards?: string[];
   street: string;
@@ -61,6 +63,12 @@ export interface ComplaintPublicNode {
   structure?: string;
   actorSeat: number;
   bombPot?: boolean;
+  boardCount?: number;
+  allInOrFold?: boolean;
+  fixedBetSize?: number | null;
+  wagersCapped?: boolean;
+  asset?: 'chips' | 'diamonds';
+  deductions?: HorsePublicDeductions;
   tournamentStage?: Record<string, unknown> | null;
 }
 
@@ -220,7 +228,28 @@ function heroCards(hand: ExtractedHand | ComplaintFixture, seat: number): Card[]
   return (uid && hand.horseHoleCards[uid]) || [];
 }
 
-/** The game state the engine saw at `node`, with history strictly before it. */
+/** The seats that posted the live small and big blind, read from the posts. */
+function replayBlindSeats(
+  actions: ComplaintAction[]
+): { smallBlind: number | null; bigBlind: number } | null {
+  const pre = actions.filter((a) => a.stage === 'preflop' && a.dead !== true);
+  const bb = pre.find((a) => a.action === 'bb');
+  if (!bb) return null;
+  const sb = pre.find((a) => a.action === 'sb');
+  return { smallBlind: sb ? sb.seat : null, bigBlind: bb.seat };
+}
+
+/** The recorded tournament format, when the snapshot captured one. */
+function replayFormat(pn: ComplaintPublicNode): 'mtt' | 'spin' | 'sng' | 'hu_sng' | undefined {
+  if (pn.mode !== 'tournament') return undefined;
+  const f = (pn.tournamentStage as { format?: unknown } | null | undefined)?.format;
+  return f === 'mtt' || f === 'spin' || f === 'sng' || f === 'hu_sng' ? f : undefined;
+}
+
+/** Retained public state at `node`, with history strictly before it.
+ * This is not the original private worker request, memory, RNG or runtime.
+ * Missing canonical fields remain missing; never forge original-input custody.
+ */
 export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintAction) {
   const pn = node.publicNode;
   if (!pn) throw new Error(`action ${node.ord} has no recorded snapshot`);
@@ -228,7 +257,7 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
   const hole = heroCards(hand, heroSeat);
   if (hole.length === 0) throw new Error(`no hole cards for the horse in seat ${heroSeat}`);
   const players = pn.seats.map(
-    ([seat, behind, bet, total, , , status]) =>
+    ([seat, behind, bet, total, dead, individualAnte, status]) =>
       ({
         seat,
         user_id: `p${seat}`,
@@ -236,10 +265,12 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
         stack: behind,
         bet,
         totalInvested: total,
+        deadInvested: dead,
+        individualAnteInvested: individualAnte,
         cards: seat === heroSeat ? hole : [],
-        is_folded: status === 1,
-        is_all_in: status === 2,
-        is_sitting_out: false,
+        is_folded: (status & 1) !== 0,
+        is_all_in: (status & 2) !== 0,
+        is_sitting_out: (status & 4) !== 0,
         is_horse: isHorseSeat(hand, seat),
       }) as SeatPlayer
   );
@@ -248,8 +279,31 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
   const ts = pn.tournamentStage ?? undefined;
   const humans = hand.players.filter((p) => !p.isHorse).map((p) => `p${p.seat}`);
   const gs = {
+    // The live engine stamps every decision state (ServerTableEngineTurns);
+    // the final wager rules (riverNutsRaise, omahaCurrentNutsRaise) read it.
+    stateSchemaVersion: 1,
     players,
     communityCards: parseBoard(pn.boards?.[0]),
+    ...(pn.boards?.[1] !== undefined ? { communityCards2: parseBoard(pn.boards[1]) } : {}),
+    ...(pn.boards?.[2] !== undefined ? { communityCards3: parseBoard(pn.boards[2]) } : {}),
+    ...(pn.boardCount !== undefined ? { boardCount: pn.boardCount } : {}),
+    ...(pn.bombPot !== undefined ? { bombPot: pn.bombPot } : {}),
+    ...(pn.allInOrFold !== undefined ? { allInOrFold: pn.allInOrFold } : {}),
+    ...(pn.fixedBetSize !== undefined ? { fixedBetSize: pn.fixedBetSize } : {}),
+    ...(pn.wagersCapped !== undefined ? { wagersCapped: pn.wagersCapped } : {}),
+    ...(pn.asset !== undefined ? { asset: pn.asset } : {}),
+    ...(pn.deductions?.status === 'captured'
+      ? {
+          rakeConfig: {
+            ...pn.deductions.rake,
+            playerCountCaps: pn.deductions.rake.playerCountCaps.map(([players, cap]) => ({
+              players,
+              cap,
+            })),
+          },
+          bbjConfig: pn.deductions.bbj ? { ...pn.deductions.bbj } : null,
+        }
+      : {}),
     pot: pn.pot,
     currentBet: pn.currentBet,
     toCall: pn.toCall,
@@ -265,6 +319,18 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
     ante: pn.ante ?? 0,
     bigBlindAnte: pn.anteType === 'big_blind',
     dealerSeat: pn.dealerSeat,
+    // The live engine hands every decision the dealt census and the seats
+    // that posted the blinds (ServerTableEngineTurns). Without them the
+    // position read falls back to "who is live or invested", which drops
+    // every uninvested folder: folded to the small blind, the ring shrinks to
+    // the two blinds and the small blind replays as a heads-up big blind.
+    // The snapshot lists HandController's dealt roster (a tournament
+    // sit-out is dealt and auto-folded), so every listed seat was dealt.
+    dealtSeatIds: pn.seats.map((s) => s[0]).sort((a, b) => a - b),
+    blindSeats: replayBlindSeats(hand.actions),
+    // The table format the live decision read (spin, heads-up SNG, MTT).
+    // Without it a spin or heads-up hand replays as an MTT.
+    ...(replayFormat(pn) ? { format: replayFormat(pn) } : {}),
     chipUnit: pn.chipUnit,
     heroSeat,
     currentPlayerSeat: heroSeat,
@@ -569,6 +635,7 @@ export interface NodeReplay {
   /** Live hybrid profile: share of seeds that still make the recorded action. */
   liveReproduced: number;
   verdict: string;
+  replayLimitations: string[];
 }
 
 /** Replay every horse decision of a hand (or only the `ords` given). */
@@ -588,6 +655,16 @@ export function replayHand(
     const live = profiles.find((p) => p.live)!;
     const share = live.reproduced / seeds.length;
     const anyStyle = profiles.filter((p) => p.reproduced > 0).map((p) => p.profile);
+    const unavailable = [
+      ...new Set(
+        profiles.flatMap((p) =>
+          Object.keys(p.receipts).filter(
+            (key) =>
+              key.includes('canonical_state_unavailable') || key.includes('blind_seats_unavailable')
+          )
+        )
+      ),
+    ].sort();
     out.push({
       ord: node.ord,
       seat: node.seat,
@@ -596,12 +673,17 @@ export function replayHand(
       spot: classifySpot(hand, node),
       profiles,
       liveReproduced: share,
+      replayLimitations: [
+        'Current checked-out source with opponent memory disabled, not original-runtime replay or live-use proof.',
+        'Action reproduction is not a strategic correctness or EV verdict.',
+        ...unavailable.map((key) => `Policy path unavailable in reconstructed input: ${key}`),
+      ],
       verdict:
         share === 0
           ? anyStyle.length
-            ? `the live profile no longer chooses ${kind} here; still seen in: ${anyStyle.join(', ')}`
-            : `today's brain no longer chooses ${kind} here (no profile, no seed)`
-          : `today's brain STILL chooses ${kind} here (live profile ${live.reproduced}/${seeds.length} seeds)`,
+            ? `the reconstructed current hybrid profile did not choose ${kind}; observed in: ${anyStyle.join(', ')}`
+            : `the reconstructed current source did not choose ${kind} in the tested profiles and seeds`
+          : `the reconstructed current hybrid profile chose ${kind} in ${live.reproduced}/${seeds.length} seeds`,
     });
   }
   return out;

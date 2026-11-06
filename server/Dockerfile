@@ -32,6 +32,21 @@ RUN npm ci --include=dev --no-audit --no-fund
 # Copy source
 COPY tsconfig.json tsconfig.runtime.json tsconfig.emit.json ./
 COPY src/ ./src/
+# 2026-11-05 EVERY HASHED POLICY SOURCE SHIPS. The Horse phase authorities
+# recompute their policy digests at boot from the exact bytes of every file in
+# HORSE_REFERENCE_DECISION_SOURCE_FILES (and the per-phase lists), read from
+# /app/<path>. Dan's 2026-10-26 forced activation issues an authority only
+# when that digest exists. #8605 added the native public215 kernel source and
+# its build script to the hashed list; they were compiled in the builder stage
+# above and never copied here, so from release 67bc0e85 (Nov 5 01:57Z) every
+# digest read threw, every digest was null and phases 8, 10, 11, 12, 13 and 14
+# silently fell to shadow. The reviewed source bytes are copied from the build
+# context (not the builder stage) so the digest hashes exactly what main holds.
+# aHashedPolicySourceShipsInTheEngineImage.law.test.ts resolves every hashed
+# path against this stage's COPY set, and the gate after the emit below fails
+# the image build on any unreadable path.
+COPY native/public_hist215_wtl.cc ./native/public_hist215_wtl.cc
+COPY scripts/build-public-hist215-native.mjs ./scripts/build-public-hist215-native.mjs
 COPY --from=public-hist215-native /native-build/native/build/public_hist215_wtl.node ./native/build/public_hist215_wtl.node
 COPY --from=public-hist215-native /native-build/native/legacy-census/ ./native/legacy-census/
 COPY scripts/legacy-census-scale-fixture.mjs ./native/legacy-census/scale-fixture.mjs
@@ -57,6 +72,10 @@ COPY release-evidence/ ./release-evidence/
 # Resource CI proves exact runtime output.
 RUN ulimit -c 0 && node --max-old-space-size=1024 ./node_modules/typescript/bin/tsc --project tsconfig.emit.json
 
+# Refuse to ship an image whose policy digests cannot be computed: every path
+# any phase digest hashes must be readable at /app/<path> (see above).
+RUN node dist/engine/horsePolicySourcesShippedMain.js
+
 # Remove dev dependencies
 RUN npm prune --omit=dev --no-audit --no-fund
 
@@ -79,7 +98,13 @@ LABEL sp.alert-journal.schema=1
 # healthy engine sits near 1 GB, and a heap that grows anyway now has 2 GB more
 # room before V8 gives up. An explicit --max-old-space-size on a command line
 # (every docker exec probe passes its own) still overrides this value.
-ENV NODE_OPTIONS="--dns-result-order=ipv4first --max-old-space-size=6144"
+# 2026-11-05 (Dan): the engine gets two to three times the memory it will
+# ever need, so a growing heap is an alert and a daily-window hand-off, never a
+# crash. Main isolate: 12 GB (serving heap 1.5 to 2.1 GB on 71087373, 6x).
+# Horse decision workers carry their own 3 GB each (client.ts resourceLimits).
+# 12 + 8 x 3 = 36 GB of V8 on a 64 GB host with 47 GB free at the 12 GB RSS
+# worst case measured 2026-11-05.
+ENV NODE_OPTIONS="--dns-result-order=ipv4first --max-old-space-size=12288"
 EXPOSE 8080
 
 # 2026-08-15 DEPLOY VERIFIABILITY.
