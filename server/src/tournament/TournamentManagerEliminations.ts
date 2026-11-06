@@ -158,6 +158,22 @@ export const REBUY_DEADLINE_MARGIN_MS = 250;
  * returned, in epoch ms. A row with no deadline, an unreadable one, or one
  * whose decision is closed is left out.
  */
+/**
+ * The pending-bounty-work gate (migration 20261106034328) is not installed
+ * yet: PostgREST answers PGRST202 for an unknown function, Postgres 42883.
+ * Only that answer falls back to the full re-proof; every other error is a
+ * real refusal and is reported as before.
+ */
+export function pendingWorkGateIsNotInstalled(error: unknown): boolean {
+  const e = (error ?? {}) as { code?: unknown; message?: unknown };
+  const code = String(e.code ?? '');
+  if (code === 'PGRST202' || code === '42883') return true;
+  return (
+    /fn_tournament_has_pending_bounty_work/.test(String(e.message ?? '')) &&
+    /(could not find|does not exist)/i.test(String(e.message ?? ''))
+  );
+}
+
 export function rebuyDecisionDeadlines(rows: unknown): Map<string, number> {
   const out = new Map<string, number>();
   if (!Array.isArray(rows)) return out;
@@ -3385,10 +3401,27 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         return true;
       }
 
-      const { data: hasPending, error: pendingErr } = await supabase.rpc(
-        'fn_tournament_has_unsettled_bounties',
+      /* THE GATE ASKS FOR PENDING WORK, NOT FOR EVERY MARKER (2026-11-06).
+         fn_tournament_has_unsettled_bounties re-proves the complete marker of
+         every settled obligation in the event, so its cost grew with every
+         knockout already paid: 2.4 s for the 402 obligations of the Afternoon
+         Free Buy PKO, 272,041 engine calls at a 262 ms mean (about 20 hours
+         of database time), paid before every bust was recorded. This gate
+         only needs to know whether bounty work is still open;
+         fn_tournament_has_pending_bounty_work answers that with indexed reads
+         (1.3 ms on the same event) and still catches fresh marker drift. The
+         full re-proof stays at every finish. Until its migration is
+         installed the old verdict answers, unchanged. */
+      let { data: hasPending, error: pendingErr } = await supabase.rpc(
+        'fn_tournament_has_pending_bounty_work',
         { p_tournament_id: this.tournamentId }
       );
+      if (pendingErr && pendingWorkGateIsNotInstalled(pendingErr)) {
+        ({ data: hasPending, error: pendingErr } = await supabase.rpc(
+          'fn_tournament_has_unsettled_bounties',
+          { p_tournament_id: this.tournamentId }
+        ));
+      }
       if (pendingErr) {
         reportError(pendingErr, 'Tournament.bounty_outbox_verdict_failed');
         this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
