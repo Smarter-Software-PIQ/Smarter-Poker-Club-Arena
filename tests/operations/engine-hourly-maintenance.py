@@ -38,7 +38,10 @@ class HourlyCycle(unittest.TestCase):
         self.git('init','-q')
         self.git('-c','user.name=Cycle Fixture','-c','user.email=cycle@example.invalid','commit','--allow-empty','-qm','previous release')
         path = self.repo/seal.SCHEDULE_POLICY_PATH; path.parent.mkdir(parents=True)
-        path.write_bytes((ROOT/seal.SCHEDULE_POLICY_PATH).read_bytes())
+        policy = json.loads((ROOT/seal.SCHEDULE_POLICY_PATH).read_text())
+        # Exercise retained historical custody with an explicit hourly fixture.
+        policy.update(phase1Status='active', completionEvidence=None)
+        path.write_text(json.dumps(policy))
         self.git('add','.'); self.git('-c','user.name=Cycle Fixture','-c','user.email=cycle@example.invalid','commit','-qm','source policy')
         self.sha = self.git('rev-parse','HEAD')
         self.git('update-ref','refs/remotes/origin/main',self.sha)
@@ -410,7 +413,17 @@ class HourlyCycle(unittest.TestCase):
             'startMinute':0,'durationMs':300000,'hourlyCashFreeze':True}}}
         with patch.object(seal.sys,'stdin',io.StringIO(json.dumps(actual))), redirect_stdout(io.StringIO()):
             seal.cmd_restoration_needed(Namespace(repo=str(self.repo),sha=self.sha))
+        # A late request must refuse before writing a future global owner.
+        before = seal.STATE_FILE.read_bytes()
+        for late in ('2026-11-01T06:30:00+00:00', '2026-11-01T09:29:59+00:00', '2026-03-08T08:29:59+00:00', '2026-03-08T09:00:00+00:00', '2026-11-01T09:59:30+00:00', '2026-11-01T10:00:00+00:00', '2026-11-01T20:00:00+00:00'):
+            self.clock.return_value = seal.datetime.fromisoformat(late).timestamp()
+            self.assert_refused(lambda: self.reserve())
+            self.assertEqual(seal.STATE_FILE.read_bytes(), before)
+        self.clock.return_value = seal.datetime.fromisoformat('2026-11-01T09:30:00+00:00').timestamp()
         c=self.reserve(); self.assertEqual(c['kind'],'daily-restoration')
+        local = seal.datetime.fromtimestamp(c['startsAt'], seal.ZoneInfo('America/Chicago'))
+        self.assertEqual((local.hour, local.minute), (4, 0))
+        self.assertGreater(c['startsAt'], self.clock.return_value)
         self.clock.return_value=c['startsAt']
         self.bind_window(c)
         meta=dict(repo=str(self.repo),sha=self.sha,image=IMAGE,mode='deploy',run_id='101-1',

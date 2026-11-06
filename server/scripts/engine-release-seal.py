@@ -2377,6 +2377,16 @@ def cmd_reserve_routine_cycle(args: argparse.Namespace) -> None:
         # the following hour instead; nothing else about admission changes.
         if starts - now < ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS:
             starts += 3600
+        if kind == 'daily-restoration':
+            # Retiring the hourly exception never authorizes one last daytime
+            # replacement. Bind restoration to today's 04:00 Chicago; a late bounded
+            # request must not reserve tomorrow and strand its global ownership.
+            local = datetime.fromtimestamp(now, ZoneInfo('America/Chicago'))
+            boundary = local.replace(hour=4, minute=0, second=0, microsecond=0)
+            preparation = local.replace(hour=3, minute=30, second=0, microsecond=0)
+            if now < preparation.timestamp() or boundary.timestamp() - now < ROUTINE_CYCLE_ADMISSION_LEAD_SECONDS:
+                die('daily restoration is outside preparation or missed its announcement lead; no future cycle reserved')
+            starts = int(boundary.timestamp())
         key = str(starts)
         if key in cycles:
             print(json.dumps(cycles[key], sort_keys=True)); return

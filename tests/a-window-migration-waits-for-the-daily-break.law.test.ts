@@ -262,7 +262,6 @@ describe('the route runs on the daily schedule that already exists', () => {
       "needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''"
     );
     expect(stage.on.schedule).toEqual([
-      { cron: '30 * * * *' },
       { cron: '31,35,39,43 8 * * *' },
       { cron: '31,35,39,43 9 * * *' },
     ]);

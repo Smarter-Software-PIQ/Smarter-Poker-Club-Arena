@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143139,
-      "sha256": "16a695d28fdc9fda40efca7044c29314a580295a931c7ea7b6aa603a2ceae55a"
+      "bytes": 143391,
+      "sha256": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77125,
@@ -7019,6 +7019,20 @@
     ],
     "historicalEvidenceRestamped": false
   },
+  "backupSequenceOwnerNativeSourceAudit20261106": {
+    "source": "scripts/qualification/ci-accounting-inputs.json",
+    "previous": {
+      "bytes": 142840,
+      "sha256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+    },
+    "current": {
+      "bytes": 143092,
+      "sha256": "5ff34dbc80fb4789aed500df4a11c4d1677ae9b5d976cf1b2377f57e60309df2"
+    },
+    "reason": "Reviewed additive accounting shard 4 isolated PostgreSQL sequence ownership regression and generated execution projection. Existing cash SQL, oracles, assertions and historical qualifications unchanged.",
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "freeBuyCutoffNativeInput20261106": {
     "reason": "Add the Free Buy cutoff native proof (scripts/dev/test-free-buy-cutoff-postgres.sh) to required accounting shard 2, preserving all prior commands, assertions and budgets. Refresh the exact accounting execution projection and its dependent current source bindings only. No financial source, historical result, installation or live certification restamped.",
     "changes": [
@@ -7029,5 +7043,23 @@
       }
     ],
     "historicalEvidenceRestamped": false
+  },
+  "backupDailyProtectedMainIntegrationAudit20261106": {
+    "reason": "Compose protected main 250f72281f14970b2a943cd7a5e67291c51aa41a: retain both standalone sequence ownership and upstream Free Buy cutoff native accounting steps. Preserve both parent audit histories and all original financial inputs and qualification outcomes. Regenerated maintained projection from merged CI.",
+    "currentInputChanges": [
+      {
+        "section": "files",
+        "previous": {
+          "bytes": 143092,
+          "sha256": "5ff34dbc80fb4789aed500df4a11c4d1677ae9b5d976cf1b2377f57e60309df2"
+        },
+        "current": {
+          "sha256": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c",
+          "bytes": 143391
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

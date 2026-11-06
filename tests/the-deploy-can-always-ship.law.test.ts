@@ -61,8 +61,8 @@ describe('the engine deploy has one fail-closed Hetzner authority', () => {
     // The explicit migration continuation skips detection and every dependent engine signal.
     expect(engineSignal).toContain("if: github.event_name != 'workflow_dispatch'");
     expect(engineSignal).toContain('needs: detect');
-    expect(triggers).toContain("cron: '30 * * * *'");
-    expect((triggers.match(/cron:/g) ?? []).length).toBe(3);
+    expect(triggers).not.toContain("cron: '30 * * * *'");
+    expect((triggers.match(/cron:/g) ?? []).length).toBe(2);
     expect(engineSignalCode).toContain('PHASE1_RESTORING');
     expect(triggers).toContain("cron: '31,35,39,43 8 * * *'");
     expect(triggers).toContain("cron: '31,35,39,43 9 * * *'");

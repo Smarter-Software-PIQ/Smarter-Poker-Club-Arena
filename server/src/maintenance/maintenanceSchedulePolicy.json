@@ -2,7 +2,7 @@
   "schema": "engine-maintenance-schedule/v1",
   "policyId": "phase1-hourly-01a1944f",
   "timeZone": "America/Chicago",
-  "phase1Status": "active",
+  "phase1Status": "off",
   "ownerMessageId": "01a1944f-7131-7f11-8dcc-873d576e781c",
-  "completionEvidence": null
+  "completionEvidence": "Owner instruction 2026-11-06, chat 01a1b095-8bd5-7d42-afcf-1a0843448274: Backup during the day; replacements ONLY at 04:00 America/Chicago. Hourly exception revoked; not a claim of Phase1 completion."
 }

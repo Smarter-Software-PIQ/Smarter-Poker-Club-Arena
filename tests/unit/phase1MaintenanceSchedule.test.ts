@@ -9,17 +9,17 @@ import policy from '../../server/src/maintenance/maintenanceSchedulePolicy.json'
 
 describe('temporary Phase1 hourly top-of-hour maintenance', () => {
   it('announces the next ordinary hour at58 with an unchanged120second lead', () => {
-    expect(nextMaintenanceAnnouncement(Date.parse('2026-10-31T23:30:00Z'))).toBe(
+    expect(nextMaintenanceAnnouncement(Date.parse('2026-10-31T23:30:00Z'), 'phase1-hourly')).toBe(
       Date.parse('2026-10-31T23:58:00Z')
     );
   });
   it('freezes only the existing five minutes at00', () => {
-    expect(scheduledMaintenanceAt(Date.parse('2026-11-01T00:00:00Z'))).toEqual({
+    expect(scheduledMaintenanceAt(Date.parse('2026-11-01T00:00:00Z'), 'phase1-hourly')).toEqual({
       announcedAt: Date.parse('2026-10-31T23:58:00Z'),
       startsAt: Date.parse('2026-11-01T00:00:00Z'),
       endsAt: Date.parse('2026-11-01T00:05:00Z'),
     });
-    expect(scheduledMaintenanceAt(Date.parse('2026-11-01T00:05:00Z'))).toBeNull();
+    expect(scheduledMaintenanceAt(Date.parse('2026-11-01T00:05:00Z'), 'phase1-hourly')).toBeNull();
   });
 });
 
@@ -37,14 +37,16 @@ describe('daily restoration and real Chicago DST hours', () => {
       );
       expect(scheduledMaintenanceAt(Date.parse('2026-11-01T00:00:00Z'), frequency)).toBeNull();
     }
-    expect(() => maintenanceFrequency({ ...policy, phase1Status: 'complete' })).toThrow();
+    expect(() =>
+      maintenanceFrequency({ ...policy, phase1Status: 'complete', completionEvidence: null })
+    ).toThrow();
   });
   it.each([
     ['2026-11-01T05:59:00Z', '2026-11-01T06:58:00Z'],
     ['2026-11-01T06:59:00Z', '2026-11-01T07:58:00Z'],
     ['2026-03-08T07:59:00Z', '2026-03-08T08:58:00Z'],
   ])('keeps distinct actual epoch hours across DST at%s', (at, expected) => {
-    expect(nextMaintenanceAnnouncement(Date.parse(at))).toBe(Date.parse(expected));
+    expect(nextMaintenanceAnnouncement(Date.parse(at), 'phase1-hourly')).toBe(Date.parse(expected));
   });
 });
 
@@ -68,3 +70,10 @@ it.each([{ phase1Status: ['active'] }, { phase1Status: true }, { phase1Status: '
     );
   }
 );
+
+it('the current protected policy schedules only the daily boundary', () => {
+  expect(maintenanceFrequency()).toBe('daily');
+  expect(nextMaintenanceAnnouncement(Date.parse('2026-11-06T20:00:00Z'))).toBe(
+    Date.parse('2026-11-07T09:58:00Z')
+  );
+});

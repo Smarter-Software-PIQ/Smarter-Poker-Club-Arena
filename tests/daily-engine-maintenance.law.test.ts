@@ -166,15 +166,15 @@ describe('daily routine admission uses the existing protected receiver only', ()
       admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-10-22T00:01:00Z')
     ).toBe(false);
   });
-  it('refuses commit urgency while retaining measured engine emergencies', () => {
+  it('refuses daytime replacements even for urgency and degradation', () => {
     expect(admit('push', '14', 'fix\n\nEngine-Release: urgent', '{}')).toBe(false);
-    expect(admit('push', '14', 'routine', '{"liveness":"dead"}')).toBe(true);
-    expect(admit('push', '14', 'routine', '{"wholeFleetStalled":true}')).toBe(true);
-    expect(admit('push', '14', 'routine', '{"tournamentManagersQuarantined":100}')).toBe(true);
+    expect(admit('push', '14', 'routine', '{"liveness":"dead"}')).toBe(false);
+    expect(admit('push', '14', 'routine', '{"wholeFleetStalled":true}')).toBe(false);
+    expect(admit('push', '14', 'routine', '{"tournamentManagersQuarantined":100}')).toBe(false);
     expect(admit('push', '14', 'routine', '{"tournamentManagersQuarantined":27}')).toBe(false);
     expect(admit('push', '14', 'routine', 'unreadable')).toBe(false);
   });
-  it('admits an explicit owner-ordered window only while it is valid and names a contained commit', () => {
+  it('refuses historical owner windows even while their original bounds would admit them', () => {
     const iso = (offsetMin: number) => new Date(Date.now() + offsetMin * 60_000).toISOString();
     const doc = (notBefore: string, notAfter: string, contains = 'a'.repeat(40)) =>
       JSON.stringify({
@@ -204,7 +204,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
         windows: open,
         ancestor: true,
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       admit('push', '14', 'routine', healthy, undefined, undefined, {
         windows: open,
@@ -353,7 +353,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
         ancestor: true,
         served: false,
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       admit('push', '18', 'routine', healthy, undefined, undefined, {
         windows: fixture,
@@ -403,7 +403,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
     });
     const healthy = JSON.stringify({ liveness: 'ok', releaseSha: 'e'.repeat(40) });
     for (const [ancestor, served, expected] of [
-      [true, false, true],
+      [true, false, false],
       [true, true, false],
       [false, false, false],
     ])
@@ -471,7 +471,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
         }
       );
     // An old floor path in the serving base is not this exact new floor blob.
-    expect(check()).toBe(true);
+    expect(check()).toBe(false);
     // Preserve actual merged ordering for the currently selected floor. A
     // historical channel order retains its own isolated refusal cases below.
     const currentFloor = JSON.parse(
@@ -515,7 +515,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
           floor: selectedFloor,
         }
       )
-    ).toBe(true);
+    ).toBe(false);
     for (const mode of ['served', 'deleted', 'unknown-serving', 'shallow', 'missing', 'mismatch'])
       expect(check(fixture, mode), mode).toBe(false);
     expect(check({ ...fixture, id: 'foreign-owner' })).toBe(false);
@@ -573,7 +573,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
       ...witness,
       path: 'server/scripts/retained-original-checkpoint-guard.mjs',
     };
-    expect(check('unserved', doc(guardWitness))).toBe(true);
+    expect(check('unserved', doc(guardWitness))).toBe(false);
     for (const mode of ['served', 'deleted', 'mismatch', 'unreadable'])
       expect(check(mode, doc(guardWitness)), mode).toBe(false);
     expect(check('unserved', doc({ ...guardWitness, path: guardWitness.path + '.other' }))).toBe(
@@ -586,9 +586,9 @@ describe('daily routine admission uses the existing protected receiver only', ()
   it('binds a witness to full unserved history and independent owner authority', () => {
     const { doc, check } = witnessAdmissionFixture();
     // The peer has our shared base, but has never contained our actual feature.
-    expect(check('unserved')).toBe(true);
+    expect(check('unserved')).toBe(false);
     // A consumed specific order does not revoke an independent legacy order.
-    expect(check('served', doc(), true, false)).toBe(true);
+    expect(check('served', doc(), true, false)).toBe(false);
     // Unknown selected feature authority must not fall through to that order.
     expect(check('unreadable', doc(), true, false)).toBe(false);
     for (const mode of [
@@ -702,7 +702,7 @@ describe('routine activation and the owner-approved initial transition stay boun
     expect(
       certificatePolicy('2026-10-20T20:55:00+00:00', 'Scheduled Engine Maintenance', true, {})
     ).not.toBe(0);
-    expect(admit('push', '14', 'Engine-Release: daily-maintenance-transition', '{}')).toBe(true);
+    expect(admit('push', '14', 'Engine-Release: daily-maintenance-transition', '{}')).toBe(false);
     const request = transaction.slice(
       transaction.indexOf('request_recovery_window()'),
       transaction.indexOf('persist_break_deadline()')
@@ -816,8 +816,8 @@ it('every declared source witness is supported by the installed stage and host a
         // Independent historical owners may have later expiry bounds; their
         // immutable witness never grants the currently selected floor authority.
       }
-      expect(admission).toContain('floor_witness');
-      expect(admission).toContain('--find-object=');
+      expect(admission).not.toContain('floor_witness');
+      expect(admission).toContain('[ "$daily_preparation" = true ] && allowed=true');
       continue;
     }
     expect(window.releaseWitness.path, window.id).toMatch(

@@ -19,6 +19,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+# Historical custody protocol remains qualified independently of retired admission.
+# The daily law executes the unmodified entry point and proves it performs no I/O.
+SOURCE = SOURCE.replace('  return 0 # daily-only: no new off-cycle announcements\n', '')
 EED_SOURCE_BINDING = next(line for line in SOURCE.splitlines() if line.startswith('CHECKPOINT_EED_SHA='))
 PRIOR = int(dt.datetime.fromisoformat('2026-10-29T23:53:05.705+00:00').timestamp() * 1000)
 FIRST = int(dt.datetime.fromisoformat('2026-10-30T00:53:00+00:00').timestamp() * 1000)
@@ -87,6 +90,8 @@ timeout() {{
  else echo unexpected-transport >&2; exit 93; fi
 }}
 {block}
+# Isolate retained recovery custody; current daily admission has its own law.
+daily_cutover_clock() {{ return 0; }}
 '''
         if floor:
             helper = SOURCE[SOURCE.index('retire_unannounced_floor_entry() {'):SOURCE.index('# THE NEWEST WAITING RELEASE')]

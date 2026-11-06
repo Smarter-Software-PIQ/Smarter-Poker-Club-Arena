@@ -138,9 +138,12 @@ describe('a degraded engine can still be replaced', () => {
       // The production host uses Bash 5. The test host uses macOS Bash 3.2, so
       // add only a fixture-local implementation of the mapfile builtin; the
       // release transaction and every boundary under test remain unchanged.
-      const executableFixture = transaction.replace(
-        'set -Eeuo pipefail',
-        `set -Eeuo pipefail
+      // Daily clock boundaries have their own law; this fixture isolates HTTP503 custody.
+      const executableFixture = transaction
+        .replace(/daily_cutover_clock\(\) \{[\s\S]*?\n\}/, 'daily_cutover_clock() { return 0; }')
+        .replace(
+          'set -Eeuo pipefail',
+          `set -Eeuo pipefail
 mapfile() {
   [ "\${1:-}" = -t ] && [ "$#" = 2 ] || return 2
   local target="$2" line
@@ -160,7 +163,7 @@ mapfile() {
     *) return 2 ;;
   esac
 }`
-      );
+        );
       expect(executableFixture).not.toBe(transaction);
       writeFileSync(join(generation, 'engine-release-transaction.sh'), executableFixture);
       chmodSync(join(generation, 'engine-release-transaction.sh'), 0o755);
@@ -318,6 +321,10 @@ for argument in "$@"; do
   esac
   url="$argument"
 done
+if [[ "$url" == https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/commits/*/statuses?per_page=100 ]]; then
+  printf '%s' '[{"context":"backup-engine/certified","state":"success"}]'
+  exit 0
+fi
 [ "$has_write" = true ] || exit 23
 printf '503 %s\\n' "$url" >> '${curlLog}'
 if [ "$has_cache" = true ]; then

@@ -55,6 +55,9 @@ CHECKPOINT_SEQUENCE={shlex.quote(str(checkpoint_sequence))}
 LOCK_HELD=0
 FLOOR_DISPOSITION=legacy
 record_floor_runtime_entry() {{ :; }}
+# Certificate HTTP parsing is exercised by the Backup certificate law test.
+# This isolated queue supplies a certified candidate to test break admission.
+require_backup_certificate() {{ return 0; }}
 RECOVERY_WAIT_STARTED_EPOCH={waiting_since}
 LEGACY_CHECKPOINT_REQUIRED={int(legacy)}
 LEGACY_CHECKPOINT_ATTEMPTED=0

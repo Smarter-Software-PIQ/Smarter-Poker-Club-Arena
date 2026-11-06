@@ -1316,6 +1316,37 @@ floor_reservation_stamp() {
   legacy_entry_read python3 "$CONTROL_DIR/engine-release-activation-floor.py" reservation     --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA"     --deadline "$MUTATION_DEADLINE_EPOCH" --run-id "$RUN_ID"     --state-root "${ENGINE_RELEASE_STATE_DIR:-/var/lib/club-arena}"
 }
 
+# Owner 2026-11-06: replacement is confined to the daily Chicago window,
+# including legacy hourly predecessors and old recovery/owner-window branches.
+# No environment or request flag can override the wall clock.
+require_backup_certificate() {
+  [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || return 1
+  local statuses
+  statuses="$(curl --disable --fail --silent --show-error --proto '=https' \
+    --connect-timeout 3 --max-time 8 \
+    "https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/commits/$SHA/statuses?per_page=100")" || return 1
+  printf '%s' "$statuses" | python3 -c '
+import json,sys
+try:
+    rows=json.load(sys.stdin)
+    if not isinstance(rows,list) or any(not isinstance(row,dict) for row in rows):
+        raise ValueError("invalid statuses")
+    latest=next((row for row in rows if row.get("context")=="backup-engine/certified"),{})
+    raise SystemExit(0 if latest.get("state")=="success" else 1)
+except (ValueError,TypeError):
+    raise SystemExit(1)
+'
+}
+
+daily_cutover_clock() {
+  python3 -c '
+from datetime import datetime
+from zoneinfo import ZoneInfo
+n = datetime.now(ZoneInfo("America/Chicago"))
+raise SystemExit(0 if n.hour == 4 and n.minute < 5 else 1)
+'
+}
+
 assert_owner_recovery_window_live() {
   [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || return 0
   [ "${FLOOR_DISPOSITION:-never-entered}" = announced ] || return 0
@@ -1341,6 +1372,7 @@ certified_recovery_read() {
 }
 
 maintenance_certificate() {
+  daily_cutover_clock || return 1
   # The minimum break remaining is the strict MIN_BREAK_REMAINING_MS unless the
   # caller names another; the only caller that does is the read straight after
   # a legacy checkpoint, which passes LEGACY_MIN_BREAK_REMAINING_MS.
@@ -1634,6 +1666,7 @@ print(",".join(out))
 # The helper independently checks every physical table before writing. Only
 # the unchanged maintenance_certificate below can admit a replacement.
 legacy_checkpoint_countdown() {
+  daily_cutover_clock || return 1
   local response http_code body headroom floor_stamp elapsed_ms=0 expected_end="${2:-0}"
   floor_stamp=0
   if [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ]; then
@@ -2085,6 +2118,9 @@ socket.setTimeout(1000,()=>{socket.destroy();process.exit(2);});
 }
 
 request_recovery_window() {
+  return 0 # daily-only: no new off-cycle announcements
+  # Historical owner windows cannot announce a daytime pause.
+  daily_cutover_clock || return 0
   local health minute now stamp outcome reason cause_key newer stuck persistent cause_required
   local reserve_args
   [ "$RECOVERY_REQUESTED" = 0 ] || return 0
@@ -3146,6 +3182,7 @@ fi
 [ "$(date +%s)" -lt "$MUTATION_DEADLINE_EPOCH" ] \
   || die 'immutable release not-after epoch expired before new release mutation'
 source_target_is_current
+require_backup_certificate || die 'exact target Backup certificate is not currently successful; no cycle reserved'
 initialise_phase1_cycle
 if EXACT_INSTANCE="$(exact_runtime_instance)" && ! phase1_reset_required; then
   emit_already_released "$EXACT_INSTANCE"
@@ -3616,6 +3653,7 @@ FLOOR_NO_ACTION
     | grep -v "^$CONTAINER$" || true)"
   [ -z "$STRANGERS" ] || die 'an unmanaged engine container is running on this host'
 
+  require_backup_certificate || die 'exact target Backup certificate is not currently successful; no release prepared'
   record_floor_runtime_entry
   set +e
   PREPARE_OUTPUT="$(bounded_break_command 10 "$RELEASE_SEAL" prepare \
@@ -3671,6 +3709,8 @@ done
 
 [[ "$TOKEN" =~ ^[0-9a-f]{64}$ ]] || die 'release seal did not issue a valid one-use token'
 PREPARED=1
+require_backup_certificate || die 'exact target Backup certificate is not currently successful; no replacement authorized'
+daily_cutover_clock || die 'engine replacement is only allowed at 04:00 America/Chicago'
 MUTATION_STARTED=1
 assert_time_remaining
 assert_break_proof_time

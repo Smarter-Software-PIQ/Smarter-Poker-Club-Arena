@@ -51,10 +51,6 @@ const WORKFLOWS = join(ROOT, '.github', 'workflows');
 
 /** Every timer this repository runs, pinned to its exact workflow and cadence. */
 const TIMERS: ReadonlyArray<readonly [string, string]> = [
-  // Explicit temporary Phase1 hourly owner exception, 2026-10-31
-  // (01a1944f-7131-7f11-8dcc-873d576e781c). Source policy restores daily
-  // 04:00 Chicago admission when Phase1 completes or is explicitly off.
-  ['stage-engine-release.yml', '30 * * * *'],
   // Owner explicitly requested daily 04:00 Chicago engine updates, 2026-10-20.
   // Same business schedule, more chances to arrive (2026-11-01): GitHub
   // delivered the single :30 tick 5-6 h late on 10-30/10-31 and not at all on
@@ -158,7 +154,7 @@ describe('no workflow gains a new timer', () => {
 
   it('the surface is the size it was measured at', () => {
     expect(found).toHaveLength(TIMERS.length);
-    expect(TIMERS).toHaveLength(18);
+    expect(TIMERS).toHaveLength(17);
     expect(new Set(TIMERS.map(([f]) => f)).size).toBe(13);
   });
 

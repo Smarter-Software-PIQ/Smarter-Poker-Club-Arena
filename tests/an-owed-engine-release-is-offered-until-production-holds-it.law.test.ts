@@ -447,7 +447,6 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(stage.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
     expect(stage.jobs.signal.needs).toBe('detect');
     expect(stage.on.schedule).toEqual([
-      { cron: '30 * * * *' },
       { cron: '31,35,39,43 8 * * *' },
       { cron: '31,35,39,43 9 * * *' },
     ]);
@@ -464,14 +463,18 @@ describe('the offer is the existing release, not a second publisher', () => {
       /Send the immutable engine release request/.test(s.name)
     );
     // Owner order 2026-11-05: the Backup Engine certifies every release first.
-    expect(send.if).toBe("steps.offer.outputs.send == 'true' && steps.certified.outputs.send == 'true'");
+    expect(send.if).toBe(
+      "steps.offer.outputs.send == 'true' && steps.certified.outputs.send == 'true'"
+    );
     const certified = stage.jobs.signal.steps.find((s: { id?: string }) => s.id === 'certified');
     expect(certified.if).toBe("steps.offer.outputs.send == 'true'");
     expect(certified.env.REF_SHA).toBe('${{ needs.detect.outputs.target_sha }}');
     expect(certified.run).toContain('backup-engine/certified');
     expect(certified.run).toMatch(/if \[ "\$STATE" = success \]; then CHOSEN=\$sha; break; fi/);
     expect(send.env.REF_SHA).toBe('${{ steps.certified.outputs.sha }}');
-    expect(stage.jobs.signal.steps.indexOf(certified)).toBeLessThan(stage.jobs.signal.steps.indexOf(send));
+    expect(stage.jobs.signal.steps.indexOf(certified)).toBeLessThan(
+      stage.jobs.signal.steps.indexOf(send)
+    );
     expect(offer.env.OFFER_REASON).toBe('${{ needs.detect.outputs.offer_reason }}');
     expect(stage.jobs.detect.outputs.offer_reason).toBe('${{ steps.change.outputs.offer_reason }}');
     expect(detector.env.ENGINE_HEALTH_URL).toBe('https://engine.smarter.poker/health');

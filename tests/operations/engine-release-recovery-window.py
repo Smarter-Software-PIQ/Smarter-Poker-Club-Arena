@@ -11,6 +11,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+# Historical custody protocol remains qualified independently of retired admission.
+# The daily law executes the unmodified entry point and proves it performs no I/O.
+SOURCE = SOURCE.replace('  return 0 # daily-only: no new off-cycle announcements\n', '')
 ENTRY_READ = SOURCE[SOURCE.index('legacy_entry_read() {'):SOURCE.index('legacy_entry_trace() {')]
 RECOVERY = SOURCE[SOURCE.index('RECOVERY_REQUESTED=0'):SOURCE.index('persist_break_deadline() {')]
 # Include the actual coordinator: legacy fixtures retain its default zero-cycle
@@ -158,6 +161,8 @@ timeout() {{
   else exit 95; fi
 }}
 {RECOVERY}
+# Isolate the retained custody protocol; daily clock is separately qualified.
+daily_cutover_clock() {{ return 0; }}
 RECOVERY_ADMISSION_MISSED={int(missed)}
 {chr(10).join(calls_script)}
 [ "$LOCK_HELD" = 0 ]
@@ -191,6 +196,8 @@ INFLIGHT_HANDS=true
 MIN_BREAK_REMAINING_MS=285000
 curl() {{ [ {int(transport)} = 1 ] || return 1; printf '%s' {shlex.quote(response)}; }}
 {CERTIFICATE}
+# Daily clock has its own behavioral law; isolate custody here.
+daily_cutover_clock() {{ return 0; }}
 RECOVERY_URGENT=1
 maintenance_certificate {'' if minimum is None else int(minimum)}
 '''
@@ -697,7 +704,9 @@ class OwnerWitnessRealHistory(unittest.TestCase):
                             text=True, capture_output=True, timeout=15)
                         self.assertEqual(result.returncode, 0, result.stderr)
                         admitted = ('owner-ordered fixture' if selector == 'host' else 'allowed=true') in result.stdout
-                        self.assertEqual(admitted, expected, result.stdout + result.stderr)
+                        # Historical witness custody remains testable on the host; current
+                        # stage admission never grants a daytime exception.
+                        self.assertEqual(admitted, expected if selector == 'host' else False, result.stdout + result.stderr)
 
 
 class FreshEngineOwnerWindow(unittest.TestCase):

@@ -122,9 +122,9 @@ describe('scheduleAtExactEpochMs (deadline-floor timer helper)', () => {
 
 describe('MaintenanceBreak deadline-floor protection across all four scheduled timers', () => {
   it('scheduleNextAnnouncement re-arms when the announcement timer fires 1ms early instead of throwing scheduled_maintenance_announcement_expired', async () => {
-    // 1 second before 00:58:00.000Z
-    let nowMs = Date.parse('2026-11-01T00:57:59.000Z');
-    const targetAnnounceMs = Date.parse('2026-11-01T00:58:00.000Z');
+    // 1 second before 03:58 Chicago after the DST fall-back (09:58Z).
+    let nowMs = Date.parse('2026-11-01T09:57:59.000Z');
+    const targetAnnounceMs = Date.parse('2026-11-01T09:58:00.000Z');
     const timers: Array<{ fn: () => void; ms: number }> = [];
     const store = new FakeStore();
 
@@ -145,14 +145,14 @@ describe('MaintenanceBreak deadline-floor protection across all four scheduled t
     expect(timers).toHaveLength(1);
     expect(timers[0].ms).toBe(1_000);
 
-    // Fire 1ms early (00:57:59.999Z): without deadline floor this shifts intendedStartMinute and throws!
+    // Fire 1ms early (09:57:59.999Z): without deadline floor this shifts intendedStartMinute and throws!
     nowMs = targetAnnounceMs - 1;
     timers[0].fn();
     expect(store.row).toBeNull();
     expect(timers).toHaveLength(2);
     expect(timers[1].ms).toBe(1);
 
-    // Fire at exact boundary (00:58:00.000Z)
+    // Fire at exact boundary (09:58:00.000Z)
     nowMs = targetAnnounceMs;
     timers[1].fn();
     await new Promise((r) => setImmediate(r));

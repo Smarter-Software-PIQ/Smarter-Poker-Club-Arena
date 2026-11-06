@@ -68,6 +68,8 @@ curl() {
   return "$MOCK_CURL_EXIT"
 }
 ${helper}
+# Clock is independently exercised by the daily release law.
+daily_cutover_clock() { return 0; }
 maintenance_certificate${minimum === undefined ? '' : ` ${minimum}`}`,
     ],
     {

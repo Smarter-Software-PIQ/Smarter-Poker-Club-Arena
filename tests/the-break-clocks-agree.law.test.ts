@@ -138,8 +138,8 @@ describe('the break minute is the same minute everywhere', () => {
     expect(engineMinute).toBe(0);
     const policy = JSON.parse(read('server/src/maintenance/maintenanceSchedulePolicy.json'));
     expect(policy.policyId).toBe('phase1-hourly-01a1944f');
-    expect(policy.phase1Status).toBe('active');
-    expect(read('.github/workflows/stage-engine-release.yml')).toContain("cron: '30 * * * *'");
+    expect(policy.phase1Status).toBe('off');
+    expect(read('.github/workflows/stage-engine-release.yml')).not.toContain("cron: '30 * * * *'");
     expect(RELEASE_TRANSACTION).toContain('PHASE1_CYCLE_START');
   });
 
