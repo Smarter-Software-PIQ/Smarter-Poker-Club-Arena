@@ -45,6 +45,14 @@ describe('MTTs and Sit & Gos open at 25/50; Spins retain their own structure', (
     );
     expect(SPIN_BLIND_STRUCTURE[0]).toMatchObject({ smallBlind: 10, bigBlind: 20 });
   });
+  it('uses the existing pre-start registered-contract transition admission', () => {
+    expect(
+      readFileSync(
+        'supabase/migrations/20261106011202_tournaments_open_at_twenty_five_fifty.sql',
+        'utf8'
+      )
+    ).toContain("SET LOCAL app.lock_level_clock='on';");
+  });
   it('runs the real database transition proof in required accounting CI', () => {
     const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
     expect(ci).toContain('python3 -B scripts/ci/test-mtt-lobby-entry-counts.py');
