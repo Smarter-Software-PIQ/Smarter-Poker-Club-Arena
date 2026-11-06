@@ -23,6 +23,7 @@ import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
 
 import { migrationTransactionShape } from '../../scripts/ci/migration-transaction-shape.mjs';
+import { assertOrdinaryMigrationBudget } from '../../scripts/ci/migration-session-identity.mjs';
 
 const ROOT = resolve(__dirname, '../..');
 const DIR = join(ROOT, 'supabase/migrations');
@@ -106,6 +107,18 @@ describe('a merged migration is one the applier will take', () => {
     const shape = migrationTransactionShape(file, read(file));
     expect(shape.ok ? 'installable' : shape.reason).toBe('installable');
   });
+
+  // Existing installed recordings stay byte exact. The qualified long-running
+  // settlement/accounting/thaw sources all predate this boundary; new ordinary
+  // migrations must preserve the same bound the installer enforces.
+  it.each(files.filter((f) => f.slice(0, 14) >= '20261106000000'))(
+    'preserves the ordinary transaction budget before merging %s',
+    (file) => {
+      const sql = read(file);
+      if (/^-- @install-window: daily-maintenance\s*$/m.test(sql)) return;
+      expect(() => assertOrdinaryMigrationBudget(sql, 12000)).not.toThrow();
+    }
+  );
 
   it('pins every 2026-10-31 unwrapped recording to its byte-exact manifest row', () => {
     const manifest = JSON.parse(
