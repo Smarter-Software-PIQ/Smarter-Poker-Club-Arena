@@ -27,6 +27,10 @@ import type { LobbyTournamentRow } from './lobbyEntries';
  * fn_tournament_late_registration_open. Never the later of the two.
  */
 export function lateRegEndMs(t: LobbyTournamentRow): number | null {
+  if (t.add_on_available === true) {
+    const end = Date.parse(t.addon_period_ends_at ?? '');
+    return t.prize_pool_finalized !== true && Number.isFinite(end) ? end : null;
+  }
   const window = tournamentEntryWindow(t);
   const begun = Date.parse(t.started_at ?? '');
   const minutes = window.mode === 'closed' ? undefined : window.minutes;

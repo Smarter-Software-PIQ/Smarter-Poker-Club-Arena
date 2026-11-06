@@ -3450,7 +3450,7 @@ function ClubHomePageContent({
            a Diamond Spin's card can advertise its own table's top
            (withDiamondSpinCeilings below). */
           .select(
-            'format_contract, id, name, game_type, buy_in_amount, buy_in_fee, guaranteed_prize, start_time, status, current_players, max_players, starting_chips, club_id, tournament_type, satellite_target_id, satellite_target, variant, table_size, min_players, satellite_seats, late_reg_mins, late_reg_levels, rebuy_levels, prize_pool_finalized, started_at, current_level, blind_structure, level_started_at, spin_multiplier, prize_pool, is_bounty, bounty_amount, is_pko, is_mystery_bounty, is_pinned, is_vip_only, label_as_new, hide_club_name, is_rebuy, is_reentry, add_on_available, is_private, is_xmtt, union_id, blind_speed, ' +
+            'format_contract, id, name, game_type, buy_in_amount, buy_in_fee, guaranteed_prize, start_time, status, current_players, max_players, starting_chips, club_id, tournament_type, satellite_target_id, satellite_target, variant, table_size, min_players, satellite_seats, late_reg_mins, late_reg_levels, rebuy_levels, prize_pool_finalized, started_at, current_level, blind_structure, level_started_at, spin_multiplier, prize_pool, is_bounty, bounty_amount, is_pko, is_mystery_bounty, is_pinned, is_vip_only, label_as_new, hide_club_name, is_rebuy, is_reentry, add_on_available, addon_period_started_at, addon_period_ends_at, is_private, is_xmtt, union_id, blind_speed, ' +
               TOURNAMENT_ARENA_EMBED,
             { count: 'exact' }
           )

@@ -9,12 +9,16 @@ export interface TournamentEntryWindowRow {
   late_reg_mins?: number | null;
   started_at?: string | null;
   prize_pool_finalized?: boolean | null;
+  add_on_available?: boolean | null;
+  addon_period_triggered?: boolean | null;
+  addon_period_started_at?: string | null;
+  addon_period_ends_at?: string | null;
 }
 
 /**
  * `levels` is the level window; when the event also configures late_reg_mins
  * that clock bounds it too (`minutes`), and whichever deadline passes first
- * closes entry - exactly fn_tournament_late_registration_open since
+ * closes entry for events without add-ons - fn_tournament_late_registration_open since
  * 20260926035534. A level clock that stalls can no longer hold entry open for
  * days past the advertised minutes.
  */
@@ -59,6 +63,19 @@ export function tournamentEntryWindowOpen(row: TournamentEntryWindowRow, now: nu
   const status = String(row.status ?? '').toUpperCase();
   if (!['RUNNING', 'IN_PROGRESS', 'LATE_REG', 'LATE_REGISTRATION'].includes(status)) return false;
   const window = tournamentEntryWindow(row);
+  if (row.add_on_available === true && row.prize_pool_finalized !== true) {
+    if (
+      !Number.isFinite(now) ||
+      [row.current_level, row.late_reg_levels, row.rebuy_levels, row.late_reg_mins].some(
+        (value) => value != null && (!Number.isSafeInteger(value) || value < 0)
+      )
+    )
+      return false;
+    // The level/clock boundary starts the add-on phase; it does not close admission.
+    const end = Date.parse(row.addon_period_ends_at ?? '');
+    if (Number.isFinite(end)) return now < end;
+    return row.addon_period_ends_at == null;
+  }
   if (window.mode === 'closed') return false;
   if (window.mode === 'levels' && window.current >= window.cap) return false;
   // A configured clock must be open too: whichever deadline passes first wins.

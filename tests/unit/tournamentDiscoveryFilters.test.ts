@@ -145,6 +145,8 @@ const PLAIN: Record<string, unknown> = {
   is_reentry: false,
   rebuy_cost: 0,
   add_on_available: false,
+  addon_period_started_at: null,
+  addon_period_ends_at: null,
   addon_cost: 0,
   is_private: false,
   is_xmtt: false,

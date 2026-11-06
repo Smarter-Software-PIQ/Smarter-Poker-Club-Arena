@@ -30,22 +30,8 @@ describe('tournament Details entry terms', () => {
   it('shows the actual paid add-on price, stack and timed break instead of an invented level window', () => {
     const result = tournamentEntryTerms(row(), now, CHIP_UNIT_CENTS);
     expect(result).toMatchObject({ addon: 'Yes', cost: '30 Chips', stack: '50K Chips' });
-    expect(result.timing).toBe(
-      'After Late Registration Closes And Current Hands Finish · 1 Min Break'
-    );
-    expect(result.lateRegistration).toContain(
-      'End Of Level 9 Or 72 Min After Start (Whichever Comes First)'
-    );
-    expect(result.lateRegistration).toContain('Estimated');
-    expect(result.lateRegistration).toContain(
-      new Date('2026-11-01T02:42:00Z').toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZoneName: 'short',
-      })
-    );
+    expect(result.timing).toBe('After The Last Entry Level And Current Hands Finish · 1 Min Break');
+    expect(result.lateRegistration).toBe('Through The End Of The 60-Second Add-On Period');
     expect(tournamentEntryTerms(row(), now, CHIP_UNIT_CENTS, true).lateRegistration).not.toContain(
       'Estimated'
     );
@@ -56,13 +42,13 @@ describe('tournament Details entry terms', () => {
       lateRegistration: expect.any(String),
     });
   });
-  it('closes at the earlier minute bound even when the level clock has not reached its cap', () => {
-    expect(tournamentEntryTerms(row(), now + 12 * 60000, CHIP_UNIT_CENTS).lateRegistration).toMatch(
-      /^Closed/
-    );
+  it('remains open past level and clock bounds until the add-on ends', () => {
+    expect(
+      tournamentEntryTerms(row(), now + 12 * 60000, CHIP_UNIT_CENTS).lateRegistration
+    ).not.toMatch(/^Closed/);
     expect(
       tournamentEntryTerms(row({ current_level: 9 }), now, CHIP_UNIT_CENTS).lateRegistration
-    ).toMatch(/^Closed/);
+    ).not.toMatch(/^Closed/);
   });
   it('does not advertise an estimated wall clock during a break or with missing level data', () => {
     for (const over of [{ on_break: true }, { level_started_at: null }, { status: 'ANNOUNCED' }]) {
@@ -86,7 +72,7 @@ describe('tournament Details entry terms', () => {
       now,
       DIAMOND_UNIT_CENTS
     );
-    expect(result.timing).toBe('From Seating Through The 5 Min Break After Late Registration');
+    expect(result.timing).toBe('After The Last Entry Level And Current Hands Finish · 1 Min Break');
     expect(result.cost).toBe('100 Diamonds');
     expect(result.stack).toBe('50K Chips');
   });

@@ -794,7 +794,9 @@ describe('Details exposes registration and add-on terms', () => {
       addon_break_minutes: 1,
     };
     const view = render(<DetailOverviewTab {...input} />);
-    expect(value('Late Registration Closes')).toContain('End Of Level 9 Or 72 Min After Start');
+    expect(value('Late Registration Closes')).toContain(
+      'Through The End Of The 60-Second Add-On Period'
+    );
     expect(value('Add-On')).toBe('Yes');
     expect(value('Add-On Cost')).toBe('30 Chips');
     expect(value('Add-On Stack')).toBe('50K Chips');

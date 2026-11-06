@@ -1,0 +1,14 @@
+# Global registration through add-on minute
+
+Owner request 2026-11-05: every applicable tournament keeps buy-ins/rebuys open until the full 60-second add-on period ends. Nightly 10K reported prematurely closed.
+Owned branch fix/addon-registration-cutoff-20261105; base c61b48c30e1; private SSD2 worktree addon-registration-cutoff-20261105/ca.
+Policy 2.9 freshly read canonical four files, storage guide, repository AGENTS/CLAUDE/PLAYBOOK/PUBLISHING and deploy paths; canonical check matches manifest 7c7f308e580f0e2b9170085bb3a454c89ff7234627570c74ab68f5e7846b5b52. Full hash receipt in SSD2 evidence folder policy-receipt.txt.
+Production evidence: Nightly 0f369a89-1d65-467e-a580-90b0801245f5 RUNNING level 8, cap 9, minutes 90, started 2026-11-06 01:00Z, add-on not triggered, registration predicate false. Cause: earliest wall clock/level admission differs from level-driven add-on transition.
+Acceptance: registration and rebuys open before and during add-on, close at actual deadline; preserve capacity, finalized/terminal guards, purchase eligibility and accounting; no-add-on tournaments retain configured cutoff. Regression tests, protected merge, database/client installation and live proof required. Engine changes separately tracked under reported no-engine-reset/no-server-merge hold until Nov 6 09:30Z merge / 10:00Z activation; no release operation dispatched here.
+Status: DB/client source implemented, isolated PostgreSQL and focused UI tests passing. Broad qualification in progress; no production writes, commit, PR or publication yet.
+
+Owner follow-up 2026-11-05 screenshot 20:51:47: show real-time count of players who took add-on in the break window. Implement committed purchase signal and authoritative whole-field count, with reconnect/error handling. Console skill read; preserve existing chassis.
+
+2026-11-06T02:59Z resumed: freshly read canonical policy reader (manifest unchanged), operating law/hardening, root instructions, publishing/deploy references. Required migrations reserved 20261106024817 and 20261106025529. Counter sends private purchase_committed only after atomic receipt, reads authoritative add_on flags across whole field. No engine changes.
+
+2026-11-06T03:05Z: current origin/main e2778b753cc integrated (unrelated engine change). All five production function preimages still match. Local full suite:46356 passed,24 failed initially; affected expectations corrected, environmental failures resolved with external TMPDIR and CI Node22 (focused remaining153 tests qualified). Final affected110 tests pass; tsc -b passes. PostgreSQL32 checks pass and required entry/capacity integration chain running. Actual card393px rendered with count123; event updates124. Evidence in owned SSD2 directory. No live financial test writes. Source diff review corrected accidental toast additions to unrelated event handlers before submission.

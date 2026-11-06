@@ -140,6 +140,10 @@ export interface LobbyTableRow extends CashFeatureSource {
 }
 
 export interface LobbyTournamentRow {
+  add_on_available?: boolean | null;
+  addon_period_triggered?: boolean | null;
+  addon_period_started_at?: string | null;
+  addon_period_ends_at?: string | null;
   format_contract?: unknown;
   id: string;
   name: string;

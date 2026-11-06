@@ -28,10 +28,15 @@ export function tournamentEntryTerms(
   const rules: string[] = [];
   if (window.mode === 'levels') rules.push(`End Of Level ${window.cap}`);
   if (window.mode !== 'closed' && window.minutes) rules.push(`${window.minutes} Min After Start`);
-  const rule = rules.join(' Or ') + (rules.length > 1 ? ' (Whichever Comes First)' : '');
+  const rule = t.add_on_available
+    ? 'Through The End Of The 60-Second Add-On Period'
+    : rules.join(' Or ') + (rules.length > 1 ? ' (Whichever Comes First)' : '');
   const live = ['RUNNING', 'IN_PROGRESS', 'LATE_REG', 'LATE_REGISTRATION'].includes(status);
   const closed =
-    finished || window.mode === 'closed' || (live && !tournamentEntryWindowOpen(t, now));
+    finished ||
+    t.prize_pool_finalized === true ||
+    (window.mode === 'closed' && !t.add_on_available) ||
+    (live && !tournamentEntryWindowOpen(t, now));
   const deadline =
     live && !closed && !t.on_break && !clockPaused
       ? lateRegEndMs(t as unknown as LobbyTournamentRow)
@@ -52,11 +57,6 @@ export function tournamentEntryTerms(
     Number.isFinite(rawStack) && rawStack > 0 ? `${compactChips(rawStack)} Chips` : 'Unconfirmed';
   const start = Date.parse(String(t.addon_period_started_at ?? ''));
   const end = Date.parse(String(t.addon_period_ends_at ?? ''));
-  const configuredBreak = Number(t.addon_break_minutes ?? 1);
-  const breakMinutes = Math.min(
-    10,
-    Math.max(1, Number.isFinite(configuredBreak) ? Math.floor(configuredBreak) : 1)
-  );
   let timing: string;
   if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
     const state =
@@ -69,9 +69,7 @@ export function tournamentEntryTerms(
   } else if (finished || t.prize_pool_finalized) {
     timing = 'Closed';
   } else {
-    timing = t.addon_from_start
-      ? `From Seating Through The ${breakMinutes} Min Break After Late Registration`
-      : `After Late Registration Closes And Current Hands Finish · ${breakMinutes} Min Break`;
+    timing = 'After The Last Entry Level And Current Hands Finish · 1 Min Break';
   }
   return { lateRegistration, addon: 'Yes', cost, stack, timing };
 }
