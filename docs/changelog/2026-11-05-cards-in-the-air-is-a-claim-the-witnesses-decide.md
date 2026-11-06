@@ -11,8 +11,8 @@ pause gate (`Parked between hands` at 23:20:01.536). Nothing was dealt and
 nothing was written. The engine census counts any set `handController` as
 cards in the air, so the restart certificate stayed shut for the whole break.
 
-The engine-side fix is in this release
-(`2026-11-05-an-unstarted-parked-hand-is-not-cards-in-the-air.md`), but an
+The engine-side fix landed separately in #9615
+(`isPreparedOriginalHeldForMaintenance`, 997ea9814), but an
 engine fix only runs once the engine is replaced, and the replacement needs
 the certificate the bug keeps shut. The release could not cut over through the
 door it repairs.
