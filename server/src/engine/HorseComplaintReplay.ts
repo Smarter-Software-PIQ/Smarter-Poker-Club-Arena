@@ -61,6 +61,8 @@ export interface ComplaintPublicNode {
   structure?: string;
   actorSeat: number;
   bombPot?: boolean;
+  /** The table's all-in-or-fold rule as the engine recorded it (HorsePublicActionNode). */
+  allInOrFold?: boolean;
   tournamentStage?: Record<string, unknown> | null;
 }
 
@@ -266,6 +268,15 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
   const ts = pn.tournamentStage ?? undefined;
   const humans = hand.players.filter((p) => !p.isHorse).map((p) => `p${p.seat}`);
   const gs = {
+    // The live engine's decision state is schema version 1
+    // (ServerTableEngineTurns), and that is what arms the authoritative
+    // legal-menu check (enforceAuthoritativeDecision). Without it a replay
+    // can answer outside the recorded menu, e.g. a call on an all-in-or-fold
+    // menu of fold and all in.
+    stateSchemaVersion: 1,
+    // AoF: the live state tells the brain (ServerTableEngineTurns
+    // allInOrFold), so the replay reads the same recorded rule (#8196).
+    allInOrFold: pn.allInOrFold === true,
     players,
     communityCards: parseBoard(pn.boards?.[0]),
     pot: pn.pot,
