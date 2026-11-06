@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/realtime-revive-is-recorded",
+  "_comment": "Migration 20261106102321 (a realtime revive is recorded).",
+  "tables": ["client_realtime_revivals", "v_realtime_revival_daily"]
+}

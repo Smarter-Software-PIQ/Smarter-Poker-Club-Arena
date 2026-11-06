@@ -349,6 +349,27 @@ const normalizeSweepGatePendingWorkAddition = (job: { steps: Array<Record<string
   job.steps.splice(index, 1);
 };
 
+const realtimeReviveRecordedStep = {
+  name: 'A realtime revive is recorded on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-realtime-revive-is-recorded.py',
+};
+const normalizeRealtimeReviveRecordedAddition = (job: {
+  steps: Array<Record<string, unknown>>;
+}) => {
+  const index = job.steps.findIndex((step) => step.name === realtimeReviveRecordedStep.name);
+  expect(job.steps.filter((step) => step.name === realtimeReviveRecordedStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(sweepGatePendingWorkStep.name);
+  expect(job.steps[index]).toStrictEqual(realtimeReviveRecordedStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (2026-11-06: a forced realtime revive
+  // is recorded durably), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -470,6 +491,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     chicagoSteps.splice(chicagoIndex, 1);
 
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
+    normalizeRealtimeReviveRecordedAddition(normalized.jobs.accounting_postgres);
     normalizeSweepGatePendingWorkAddition(normalized.jobs.accounting_postgres);
     normalizeBountyOnlyFinalTwoWatchAddition(normalized.jobs.accounting_postgres);
     normalizeBountyOnlyFinalTwoAddition(normalized.jobs.accounting_postgres);
