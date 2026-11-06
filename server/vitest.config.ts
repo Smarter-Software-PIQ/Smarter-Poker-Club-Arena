@@ -34,6 +34,9 @@ export default defineConfig({
       // One process-wide scheduler, stopped after every test so that no tick
       // loop and no deadline crosses from one test into the next. See the file.
       './src/testing/theSchedulerStopsBetweenTests.ts',
+      // Every horse decision runs in one fixed mood hour, so no horse
+      // measurement moves with the hour CI runs in. See the file.
+      './src/testing/theHorseMoodHourIsPinned.ts',
     ],
     // The equity load governor reads the live event loop; a busy test runner
     // must not shrink the samples the precision tests depend on.

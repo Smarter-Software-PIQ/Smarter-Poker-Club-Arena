@@ -215,6 +215,8 @@ describe('the manual cashier retains only an unresolved original request', () =>
       const id = { current: 'original01' as string | null };
       const values = {
         amount: 30,
+        requiredMinimum: 0,
+        canAddAmount: 100,
         isProcessing: false,
         currentStackPending: false,
         busyRef: { current: false },

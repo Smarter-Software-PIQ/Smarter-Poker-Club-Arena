@@ -1191,6 +1191,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         // Passed straight through. Wrapping these in `async (a) => { await f(a) }`
         // is what threw the success flag away originally.
         onAddChips={onAddChips}
+        minBuyIn={minBuyIn}
         currentStack={heroStack}
         currentStackPending={heroStackPending}
         accountBalance={accountBalance}
@@ -1216,9 +1217,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           await onConfirmBustRebuy(amount);
         }}
         tableName={tableName}
-        minBuyIn={
-          bustRebuyMaxBuyIn !== undefined ? Math.min(minBuyIn, bustRebuyMaxBuyIn) : minBuyIn
-        }
+        minBuyIn={minBuyIn}
         maxBuyIn={bustRebuyMaxBuyIn ?? maxBuyIn}
         onLeave={onLeaveBustRebuy}
         /* NULL STAYS NULL, here too (Dan 2026-09-04). The 2026-08-27 fix

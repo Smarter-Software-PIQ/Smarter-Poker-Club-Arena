@@ -172,7 +172,9 @@ describe('a control script ships with its siblings', () => {
 
   it('keeps the helper three outcomes and never reports an absent file as a verdict', () => {
     const source = read(TRANSACTION);
-    const at = source.indexOf('"$INFLIGHT_HANDS" --env-file "$ENV_FILE" >&2\n');
+    const at = source.indexOf(
+      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} ${inflight_tables:+--tables "$inflight_tables"} >&2\n'
+    );
     expect(at, 'the gate must still consult the helper').toBeGreaterThan(0);
     const branch = source.slice(at, source.indexOf('\n}', at));
 

@@ -88,6 +88,7 @@ import {
 } from '../services/supabase/lightningAnchor.js';
 import { reportLightningEngineInputDeviceLive } from '../lightning/LightningEngineInputDevice.js';
 import { nextHandGap } from './nextHandGapRecorder.js';
+import { cashDealGap } from './CashDealGap.js';
 import { PostHandStageTiming, type CompletionHoldStamp } from './PostHandStageTiming.js';
 import { jitteredBackoffMs } from '../services/horseEntryRefusalBackoff.js';
 import { currentTournamentDataAuthority } from '../services/supabase/dataActorContext.js';
@@ -1779,6 +1780,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         at: now,
       });
     }
+    // Cash next-hand start (Dan 2026-11-05): the clock keeps running through
+    // dealHand's own awaits and stops at the controller start. Recomputed on
+    // every pass, so a loop that goes round again leaves no stale anchor.
+    this.cashDealGapAnchorMs =
+      this.lastCompletionAtMs !== null &&
+      !this.gapSawIdle &&
+      !this.gapHadRebuyPause &&
+      !this.isTournamentTable()
+        ? this.lastCompletionAtMs
+        : null;
     // A table that idled between the two hands (short-handed, parked, held
     // for a spin reveal) is not a sample of the rest; it waited on people.
     this.lastCompletionAtMs = null;
@@ -1853,6 +1864,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   private gapPhaseName = '';
   private gapPhaseSinceMs = 0;
   private gapHadRebuyPause = false;
+  private cashDealGapAnchorMs: number | null = null;
   private gapSawIdle = false;
 
   /**
@@ -2162,6 +2174,110 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     )
       return false;
     return JSON.parse(controller.serializeRecoveryState()).handStarted === false;
+  }
+
+  /**
+   * A RETAINED HAND THAT NEVER STARTED IS PARKED, NOT IN THE AIR (2026-11-05).
+   *
+   * Sunday Deep Stack Satellite 25 (fbb86b2a), 18:29Z: table aed78e3f
+   * prepared hand 55430351 and retained its sequence-zero original (no card
+   * dealt, no chip moved) a moment before a bust on another table raised the
+   * satellite qualifier boundary. runOriginalController holds a prepared
+   * original at the pause gate for exactly that boundary - and the boundary
+   * asked parkForTerminalCloseout, which counts only an EMPTY controller as
+   * parked. So the boundary waited for the original and the original waited
+   * for the boundary: all five tables (40 players) dealt nothing, through two
+   * successor generations that each replayed the same original into the same
+   * wait.
+   *
+   * True only for that exact shape, every term proven from this engine:
+   * running and current, physically at the gate under the terminal closeout
+   * hold, the controller IS the retained prepared original, its permit is the
+   * attempted one for this hand, no continuation batch past sequence zero,
+   * the controller reports handStarted === false, and no writer of any kind
+   * is in flight. It certifies nothing for a table closeout (which still
+   * needs isBetweenHands); only the qualifier boundary reads it.
+   */
+  override isPreparedOriginalHeldAtTerminalCloseout(): boolean {
+    return this.terminalCloseoutPaused && this.isPreparedOriginalHeldAtPauseGate();
+  }
+
+  /**
+   * ONE RULE FOR EVERY PAUSE: A HELD HAND THAT NEVER STARTED IS PARKED (2026-11-06).
+   *
+   * Satellite 25 (fbb86b2a, 18:29Z) and Satellite 30 (a2a2c981, 01:05Z) each
+   * froze for hours because a table had reserved its next hand a moment
+   * before a pause rose (a qualifier boundary, the hourly break, a table
+   * break), and every waiter asked only isBetweenHands(), which is false
+   * while ANY controller exists. The pause held the hand, and the waiter
+   * waited for the hand: a circular wait that a break landing a few seconds
+   * earlier or later decided. #9560 and #9615 closed it for the qualifier
+   * boundary and the hourly break one owner at a time; this is the single
+   * predicate every waiter now asks, so the timing of a break against a
+   * reservation can never decide whether a tournament deals again.
+   *
+   * True only for the exact shape, every term proven from this engine:
+   * running and current, physically at the pause gate (for any owner), the
+   * controller IS the retained prepared original, its permit is the attempted
+   * one for this hand, no continuation batch past sequence zero, the
+   * controller reports handStarted === false, and no writer of any kind is in
+   * flight. No card has been dealt and no chip has moved: the hand starts, in
+   * full, the moment the last pause owner lifts.
+   */
+  override isPreparedOriginalHeldAtPauseGate(): boolean {
+    const controller = this.handController;
+    if (
+      !this.running ||
+      !this.lifecycleCanMutate() ||
+      !this.isCurrentEngine() ||
+      !this.isParkedBetweenHands() ||
+      !controller ||
+      this.retainedPreparedOriginalController !== controller ||
+      this.f06CurrentPermit?.recoveryState() !== 'attempted' ||
+      this.f06CurrentPermit.binding.hand_number !== String(this.handCount) ||
+      this.handContinuation !== null ||
+      this.hasSettlementInFlight() ||
+      this.postHandTasksPromise !== null ||
+      this.terminalBoundaryPendingGenerations.size !== 0 ||
+      this.hasWeeklyPayoutMutationInFlight()
+    )
+      return false;
+    return JSON.parse(controller.serializeRecoveryState()).handStarted === false;
+  }
+
+  /**
+   * A RETAINED HAND THAT NEVER STARTED IS PARKED FOR THE BREAK (2026-11-05).
+   *
+   * Spin 9139b7d2 (tournament 3111798e), 23:20:01Z: hand 55574170 was
+   * allocated and its sequence-zero original retained in the 64 ms between
+   * the engine-recovery-window announcement and the break's pauseForMaintenance
+   * fan-out. runOriginalController then held that prepared original at the
+   * pause gate (it may never become never_started once retention is
+   * attempted, and a break forbids starting it), which is the designed
+   * outcome - the hand played intact after the thaw. But the restart census
+   * asked only isBetweenHands(), which is false while any controller exists,
+   * so it named the table `cards_in_air` for the whole break with no card
+   * dealt and no chip committed, and release 42126015699-1 (and 42099609162-1
+   * before it) backed out.
+   *
+   * True only for that exact shape, every term proven from this engine:
+   * running and current, under the maintenance hold, physically at the gate,
+   * the controller IS the retained prepared original, its permit is the
+   * attempted one for this hand, no continuation batch past sequence zero,
+   * handStarted === false, and no writer of any kind in flight. That is the
+   * same durable custody a successor generation reclaims and replays
+   * (isPreparedOriginalParkedForSuccessor), so a restart over it loses nothing.
+   * It certifies only the census's hand-in-flight question; durability of the
+   * table's time banks is still asked separately.
+   */
+  override isPreparedOriginalHeldForMaintenance(): boolean {
+    return this.maintenancePaused && this.isPreparedOriginalHeldAtPauseGate();
+  }
+
+  override describeHeldOriginalAtPauseGate(): { permitId: string; handNumber: string } | null {
+    if (!this.isPreparedOriginalHeldAtPauseGate() || !this.f06CurrentPermit) return null;
+    const binding = this.f06CurrentPermit.binding;
+    return { permitId: String(binding.permit_id), handNumber: String(binding.hand_number) };
   }
 
   protected async readNextHandInputs(): Promise<SeatedPlayer[]> {
@@ -3677,6 +3793,16 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
       const attempt = { started: false, cause: null as string | null };
       const preparedPermit = this.f06CurrentPermit;
+      const cashDealGapAnchor = this.cashDealGapAnchorMs;
+      this.cashDealGapAnchorMs = null;
+      if (cashDealGapAnchor !== null) {
+        const startAtMs = Date.now();
+        cashDealGap.record({
+          tableId: this.tableId,
+          gapMs: startAtMs - cashDealGapAnchor,
+          at: startAtMs,
+        });
+      }
       try {
         await this.runOriginalController(
           players,
@@ -3781,7 +3907,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       } catch (err) {
         reportError(err, 'ServerTableEngine.' + this.tableId + '.disconnect_autoaction_threw');
       }
-      if (!applied) applied = this.forceResolveSeat(dcPlayer.seat, true);
+      if (!applied) applied = this.forceResolveSeat(dcPlayer.seat, true, 'disconnect_auto_action');
       if (applied) {
         this.markProgress();
         console.log(
@@ -4046,11 +4172,22 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           if (this.weeklyHandPause.held()) continue;
           if (
             !resumesStartedOriginal &&
-            (this.isHandForHandReleaseBlocked() || this.handForHandPaused)
+            (this.isHandForHandReleaseBlocked() || this.handForHandPaused) &&
+            // An unclaimed move can never claim this table while the retained
+            // original occupies it (it needs a between-hands boundary), so
+            // parking here for it alone is a deadlock. Play the original; the
+            // move claims at the boundary the hand produces.
+            !this.isNextHandPausedOnlyByUnclaimedTournamentMove()
           ) {
             // Keep the retained prepared controller at the same existing
             // physical owner gate. Polled floor/admin/Cluster locks are not
             // routed here: this gate does not own their read/wait protocol.
+            // A break's last word on banks and presence is written at this
+            // park as at the dealing loop's (2026-11-05). Not awaited: this
+            // loop waits only on cooperative owners, the write serializes on
+            // presenceSave, and readiness reads its own completion
+            // (parkedBankSaveComplete / presenceSavePending).
+            if (this.maintenancePaused) void this.persistPresenceForRestart('parked');
             await this.awaitPauseGate();
             if (!this.running || !this.isCurrentEngine() || !this.lifecycleCanMutate()) return;
             continue;
@@ -4078,7 +4215,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       if (
         original &&
         JSON.parse(preparedController.serializeRecoveryState()).handStarted === false &&
-        this.isNextHandPaused()
+        this.isNextHandPaused() &&
+        !this.isNextHandPausedOnlyByUnclaimedTournamentMove()
       ) {
         // Polled holds keep their existing read/wait owner. A prepared
         // retained original (fresh or claimed) cannot bypass them or become

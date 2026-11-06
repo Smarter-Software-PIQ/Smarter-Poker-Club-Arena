@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useMasterBusBroadcastChannel } from '../../hooks/useMasterBusBroadcastChannel';
 import { serverNow } from '../../utils/serverClock';
 import { supabase } from '../../lib/supabase';
 import { tournamentChipRanks } from '../../utils/tournamentChipRanks';
@@ -221,10 +222,28 @@ export function TournamentBreakScreen({
     prizePool: number;
     playersRemaining: number;
     totalPlayers: number;
+    addOnsTaken: number;
     averageStack: number;
     topPlayers: TournamentPlayer[];
     myPlayer?: TournamentPlayer;
+    heroIsEntrant: boolean;
   } | null>(null);
+  const refreshFacts = useRef<(() => void) | null>(null);
+  const [addOnFeedFailed, setAddOnFeedFailed] = useState(false);
+  useMasterBusBroadcastChannel({
+    channelName:
+      isVisible && addOnNotice && tournamentId ? `tournament-purchases:${tournamentId}` : null,
+    event: 'purchase_committed',
+    private: true,
+    onPayload: () => refreshFacts.current?.(),
+    onSubscriptionStatus: (status) => {
+      if (status === 'SUBSCRIBED') {
+        setAddOnFeedFailed(false);
+        refreshFacts.current?.();
+      }
+    },
+    onSubscriptionError: () => setAddOnFeedFailed(true),
+  });
   const factsScope = JSON.stringify([
     tournamentId,
     heroUserId,
@@ -256,16 +275,23 @@ export function TournamentBreakScreen({
               supabase
                 .from('tournaments')
                 .select(
-                  'current_level, blind_level_state, blind_structure, prize_pool, guaranteed_prize, bounty_pool, current_players, max_players'
+                  'current_level, blind_level_state, blind_structure, prize_pool, guaranteed_prize, bounty_pool, total_rake, prize_pool_finalized, current_players, max_players'
                 )
                 .eq('id', tournamentId)
                 .abortSignal(signal)
                 .maybeSingle(),
             { signal: controller.signal }
           ),
-          readTournamentStandings(tournamentId, 'id, user_id, username, chips, status'),
+          readTournamentStandings(
+            tournamentId,
+            'id, user_id, username, chips, status, add_on',
+            false,
+            controller.signal
+          ),
         ]);
-        if (!mounted || pending) return;
+        // Publish progress even while purchases queue the next read. Reads are
+        // serialized; only an obsolete effect owner must discard its answer.
+        if (!mounted) return;
         if (tRes.error || pRes.error || !tRes.data || !pRes.data) {
           setFacts(null);
           setFactsFailed(true);
@@ -283,6 +309,8 @@ export function TournamentBreakScreen({
           prize_pool?: number | string | null;
           guaranteed_prize?: number | string | null;
           bounty_pool?: number | string | null;
+          total_rake?: number | string | null;
+          prize_pool_finalized?: boolean | null;
           current_players?: number | null;
           max_players?: number | null;
         };
@@ -350,13 +378,28 @@ export function TournamentBreakScreen({
           prizePool: effectivePrizePool(
             Number(t.prize_pool) || 0,
             Number(t.guaranteed_prize) || 0,
-            Number(t.bounty_pool) || 0
+            Number(t.bounty_pool) || 0,
+            Number(t.total_rake) || 0,
+            t.prize_pool_finalized === true
           ),
           playersRemaining: active.length,
           totalPlayers: pRes.data.length,
+          addOnsTaken: new Set(
+            pRes.data.filter((row) => row.add_on === true).map((row) => String(row.user_id))
+          ).size,
           averageStack: active.length ? Math.trunc(totalChips / active.length) : 0,
           topPlayers: ranked.slice(0, 5),
           myPlayer: ranked.find((r) => r.isCurrentUser),
+          /* "Your VPIP" belongs to the viewer's own seat in THIS event (Dan
+             2026-11-05). A rail watcher, or an owner watching another
+             account's table, has no hands here, so the card never labels an
+             empty sample as theirs. Any entrant row counts, whatever its
+             status, so a player between tables still sees their number. */
+          heroIsEntrant:
+            !!heroUserId &&
+            (pRes.data as Array<{ user_id?: string }>).some(
+              (r) => String(r.user_id ?? '') === heroUserId
+            ),
         });
       } catch (err) {
         if (mounted && !pending) {
@@ -369,10 +412,12 @@ export function TournamentBreakScreen({
         if (mounted && pending) void load();
       }
     };
+    refreshFacts.current = () => void load();
     const stop = subscribeTournamentStandings(tournamentId, () => void load());
     void load();
     return () => {
       mounted = false;
+      refreshFacts.current = null;
       controller.abort();
       stop();
     };
@@ -712,6 +757,15 @@ export function TournamentBreakScreen({
                   {countingDown ? 'All Tables Paused' : 'Finishing Current Hands'}
                 </span>
               </div>
+              <div className="break-screen__stat" aria-live="polite" aria-atomic="true">
+                <span className="break-screen__stat-label">Add-Ons Taken</span>
+                <span className="break-screen__stat-value" aria-label="Players Who Took Add-On">
+                  {currentFacts ? currentFacts.addOnsTaken.toLocaleString('en-US') : unknownValue}
+                </span>
+                <span className="break-screen__stat-sub">
+                  {addOnFeedFailed ? 'Live Updates Unavailable' : 'Across All Tables'}
+                </span>
+              </div>
             </div>
           )}
 
@@ -806,7 +860,7 @@ export function TournamentBreakScreen({
             </div>
           )}
 
-          {tournamentId && heroUserId && (
+          {tournamentId && heroUserId && currentFacts?.heroIsEntrant && (
             <TournamentHourVpip tournamentId={tournamentId} userId={heroUserId} />
           )}
 

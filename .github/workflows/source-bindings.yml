@@ -8,8 +8,8 @@
 # test files, merged green, and left main refusing the bundle for everyone.
 #
 # This job is UNGATED on purpose, for the same reason the matte gate in ci.yml
-# is. It needs no database, no node_modules and no network; it reads files and
-# hashes them. A gate here would recreate the exact hole it exists to close, so
+# is. The verifier uses Python/Node builtins without a database, node_modules
+# or qualification execution; it binds exact files and execution projections. A gate here would recreate the exact hole it exists to close, so
 # tests/every-pinned-source-stays-bound.law.test.ts fails if one appears.
 name: Source bindings
 
@@ -34,6 +34,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup projection classifier runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Every pinned source stays bound
         run: python3 scripts/ci/verify-source-bindings.py

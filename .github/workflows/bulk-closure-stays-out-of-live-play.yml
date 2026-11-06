@@ -1,0 +1,73 @@
+name: Bulk closure stays out of live play
+
+# Migration 20261105181406_bulk_closure_stays_out_of_live_play.sql. Runs
+# scripts/ci/test-bulk-closure-stays-out-of-live-play.py against a throwaway
+# PostgreSQL 17 cluster, never production: the exact production bodies of the
+# five operator bulk closure doors (pg_get_functiondef md5 equal to the live
+# functions, captured 2026-11-05) must refuse inside :53-:07 UTC, during a
+# break, within 180 s of a thaw, for a large event outside 04:00-06:00 Chicago,
+# for an unbounded caller and inside the 5 s cooldown, writing nothing; and
+# must reach their unchanged original bodies when admitted, with every later
+# lock wait bounded to 100 ms. With the hold-bound migration (20261105200238)
+# it reproduces the 04:05 lock chain (real lane helpers: a closure holding the
+# hand barrier makes waiting hand commits fail) and proves that after it every
+# hand alongside a closure commits, and that refused, cancelled and replayed
+# settlements credit exactly once. No timer (CLAUDE.md 10.85): pull_request only,
+# scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261105181406_bulk_closure_stays_out_of_live_play.sql
+      - supabase/migrations/20261105200238_bulk_closure_never_holds_the_hand_barrier_past_two_seconds.sql
+      - scripts/ci/fixtures/bulk-closure-guard/**
+      - scripts/ci/test-bulk-closure-stays-out-of-live-play.py
+      - .github/workflows/bulk-closure-stays-out-of-live-play.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bulk-closure-stays-out-of-live-play-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bulk-closure-stays-out-of-live-play:
+    name: Bulk closure stays out of live play
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        run: |
+          set -euo pipefail
+          pg_sources="$(mktemp -d "$RUNNER_TEMP/ca-postgres-apt.XXXXXX")"
+          chmod 755 "$pg_sources"
+          test -f /etc/apt/sources.list.d/ubuntu.sources
+          cp /etc/apt/sources.list.d/ubuntu.sources "$pg_sources/ubuntu.sources"
+          pg_apt=(-o "Dir::Etc::sourcelist=/dev/null" -o "Dir::Etc::sourceparts=$pg_sources")
+          sudo apt-get "${pg_apt[@]}" update
+          sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends postgresql-common curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error --location \
+            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          codename="$(. /etc/os-release && printf '%s' "$VERSION_CODENAME")"
+          printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' \
+            "$codename" > "$pg_sources/pgdg.sources"
+          sudo apt-get "${pg_apt[@]}" update
+          printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
+          sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends postgresql-17
+      # Runs as the runner user (non-root), exactly as the ci.yml step would.
+      - name: Bulk closure stays out of live play
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-bulk-closure-stays-out-of-live-play.py --output artifacts/bulk-closure-stays-out-of-live-play
+      - name: Retain the regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bulk-closure-stays-out-of-live-play-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/bulk-closure-stays-out-of-live-play/RESULTS.json
+          retention-days: 7
+          if-no-files-found: warn

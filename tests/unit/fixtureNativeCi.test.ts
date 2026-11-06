@@ -1049,7 +1049,7 @@ describe('required CI owns native fixture verification', () => {
     expect(classifyChangedPaths([path])).toEqual({
       src: false,
       server: false,
-      tests: false,
+      tests: path === 'docs/changelog/2026-09-11-a-bust-is-ranked-by-when-it-happened.md',
       phase4: false,
       fixture: false,
     });
@@ -1087,7 +1087,6 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/classify-ci-changes.mjs',
     'scripts/ci/fixture-native-gate.mjs',
     'tests/operations/fixture-required-ci.test.mjs',
-    'tests/unit/fixtureNativeCi.test.ts',
     'package-lock.json',
   ])('classifies actual affected path %s for native execution', (path) => {
     expect(classifyChangedPaths([path]).fixture).toBe(true);
@@ -1506,7 +1505,6 @@ const spinExpiryAccountingPaths = [
   'scripts/ci/probes/spin-expiry/manifest.json',
   'scripts/ci/test-spin-expiry-postgres.py',
   'scripts/ci/test_spin_expiry_wrapper.py',
-  'tests/unit/fixtureNativeCi.test.ts',
 ] as const;
 
 describe('required CI owns funded Spin expiry PostgreSQL qualification', () => {
@@ -1649,7 +1647,8 @@ describe('required CI owns funded Spin expiry PostgreSQL qualification', () => {
     expect(
       ci.jobs.unit_shards.steps.some(
         (step: { run?: string }) =>
-          step.run === 'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8'
+          step.run ===
+          'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}'
       )
     ).toBe(true);
   });
@@ -1718,7 +1717,8 @@ describe('Production Alert SQL checks use the existing accounting job', () => {
     expect(
       ci.jobs.unit_shards.steps.some(
         (step: { run?: string }) =>
-          step.run === 'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8'
+          step.run ===
+          'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}'
       )
     ).toBe(true);
   });
@@ -2328,7 +2328,7 @@ describe('instruction-only verification preserves source contracts without repla
     expect(ci).toContain("if: steps.compile_scope.outputs.instructions_only != 'true'");
     expect(ci).toContain('npx tsc --noEmit');
     expect(ci).toContain(
-      'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8'
+      'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}'
     );
   });
 });

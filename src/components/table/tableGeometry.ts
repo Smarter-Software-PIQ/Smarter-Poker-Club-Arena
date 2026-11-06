@@ -521,6 +521,22 @@ export function fitSeatToViewport(
   const minX = ((edge - canvasLeftPx) / canvas.w) * 100;
   const maxX = ((viewportWidthPx - edge - canvasLeftPx) / canvas.w) * 100;
   if (minX > maxX) return seat;
+  // FAILSAFE (Dan 2026-11-05, Danimal's phone, Afternoon Free Buy Table 9:
+  // "THE AVATARS POSITION ... NEVER EVER EVER BE ABLE TO CHANGE DURING LIVE
+  // PLAY"). A measurement that puts the table's own centre outside the screen
+  // is not a screen; it is a table caught mid-slide, mid-zoom or mid-scroll.
+  // Clamping against it pinned every right-hand chair, and the hero, at ~30%
+  // of the felt on top of the left-hand chairs. A real window leaves room for
+  // a whole chair either side of the table's centre; anything else is refused
+  // and every chair keeps its own rail spot instead.
+  const canvasCentrePx = canvasLeftPx + canvas.w / 2;
+  if (
+    minX > 50 ||
+    maxX < 50 ||
+    canvasCentrePx < edge + pod.w ||
+    canvasCentrePx > viewportWidthPx - edge - pod.w
+  )
+    return seat;
   // Side pods belong in the screen's outboard lanes, independently of the
   // narrower art. Top caps retain their own rail positions.
   //
@@ -560,6 +576,10 @@ export function fitSeatToViewport(
             : Math.max(50, Math.min(seat.x, 100 - capClearX))
           : seat.x;
   const x = Math.max(minX, Math.min(maxX, targetX));
+  // FAILSAFE: a chair never reaches or crosses the table's centre line from
+  // its own side, whatever any lane rule or measurement asks for. A left-hand
+  // chair drawn at or past the middle sits on another player's spot.
+  if (Math.sign(x - 50) !== Math.sign(seat.x - 50)) return seat;
   // Dan 2026-10-21, same report: on a phone the side column is a stack of
   // whole pods (tag, avatar, plate), and the lower side chair sat 24.5 points
   // above the bottom corner but 33 below the upper side chair, so on a short
@@ -1979,4 +1999,27 @@ export function chipCollectOffsetPx(seat: Pos, size: Size, pod: Size | undefined
     x: Math.round(dxPx * CHIP_COLLECT_FRACTION - rest.x),
     y: Math.round(dyPx * CHIP_COLLECT_FRACTION - rest.y),
   };
+}
+
+/**
+ * The scaler's left edge inside its own table page, read from LAYOUT offsets
+ * (Dan 2026-11-05, Danimal's phone). `getBoundingClientRect()` reports where
+ * the table is painted this instant, so a table sliding in, a pinch-zoom or a
+ * sideways scroll was measured as the table's resting place and every chair
+ * right of ~30% was clamped onto the left-hand chairs for the rest of the
+ * session. Layout offsets ignore transforms, zoom and scroll; the table page is
+ * the table's own screen (full width on a phone, one tile in tile view).
+ */
+export function scalerLayoutLeftPx(scaler: HTMLElement | null): number | undefined {
+  if (!scaler) return undefined;
+  const page = scaler.closest('.table-page');
+  let left = 0;
+  let element: HTMLElement | null = scaler;
+  while (element && element !== page) {
+    left += element.offsetLeft;
+    const parent = element.offsetParent as HTMLElement | null;
+    if (parent && parent !== page) left += parent.clientLeft;
+    element = parent;
+  }
+  return Number.isFinite(left) ? left : undefined;
 }

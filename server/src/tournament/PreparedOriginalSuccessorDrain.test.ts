@@ -180,3 +180,53 @@ it('completes successor drain when pauseAfterHand(untilResumed) upgrades a table
   engine.resumeDealing();
   await parked;
 });
+
+/*
+ * 2026-11-05, Satellite 25 fbb86b2a: the qualifier boundary's closeout hold
+ * (not a successor drain) held a prepared original at the gate, and
+ * parkForTerminalCloseout never counted it as parked. The narrower predicate
+ * names exactly that shape and nothing more.
+ */
+it('a prepared original held by the terminal closeout gate is named as held, not in the air', async () => {
+  const { engine, controller } = fixture();
+  void engine.parkForTerminalCloseout(0);
+  const parked = engine.awaitPauseGate();
+  expect(engine.isBetweenHands()).toBe(false);
+  expect(JSON.parse(controller.serializeRecoveryState()).handStarted).toBe(false);
+  expect(engine.isPreparedOriginalParkedForSuccessor()).toBe(false);
+  await expect(engine.parkForTerminalCloseout(0)).resolves.toBe(false);
+  expect(engine.isPreparedOriginalHeldAtTerminalCloseout()).toBe(true);
+  engine.running = false;
+  engine.releaseTerminalCloseoutPause();
+  engine.resumeDealing();
+  await parked;
+});
+
+it.each([
+  'started',
+  'no-closeout-hold',
+  'not-at-gate',
+  'wrong-controller',
+  'settling',
+  'owner-lost',
+  'permit-replaced',
+  'permit-missing',
+  'continuation-batch',
+] as const)('a %s original is never named held at the closeout gate', async (scenario) => {
+  const { engine, controller } = fixture();
+  if (scenario !== 'no-closeout-hold') void engine.parkForTerminalCloseout(0);
+  if (scenario === 'started') controller.start();
+  if (scenario === 'wrong-controller') engine.retainedPreparedOriginalController = null;
+  if (scenario === 'settling') engine.postHandTasksPromise = Promise.resolve();
+  if (scenario === 'owner-lost') engine.lifecycleCanMutate = () => false;
+  if (scenario === 'permit-replaced') engine.f06CurrentPermit.binding = { hand_number: '2' };
+  if (scenario === 'permit-missing') engine.f06CurrentPermit = null;
+  if (scenario === 'continuation-batch') engine.handContinuation = {};
+  const parked = scenario === 'not-at-gate' ? null : engine.awaitPauseGate();
+  expect(engine.isPreparedOriginalHeldAtTerminalCloseout()).toBe(false);
+  engine.handContinuation = null;
+  engine.running = false;
+  engine.releaseTerminalCloseoutPause();
+  engine.resumeDealing();
+  await parked;
+});

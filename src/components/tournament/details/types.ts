@@ -1,4 +1,4 @@
-import { placeGuarantee } from '../../../utils/tournamentPrizeFunding';
+import { guaranteeShortfall } from '../../../utils/tournamentPrizeFunding';
 import type { FollowTournamentPlayer } from '../../../utils/followTournamentPlayer';
 import type { SatelliteAwardView } from './useSatelliteAwards';
 /**
@@ -36,7 +36,7 @@ import { parsePayoutStructure } from '../../../lib/payoutStructure';
 import { isRecordedSatelliteQualifier } from '../../../utils/satelliteQualification';
 
 export { parsePayoutStructure } from '../../../lib/payoutStructure';
-export { resolvePayoutStructure } from '../../../lib/payoutStructure';
+export { isBountyOnlyPko, resolvePayoutStructure } from '../../../lib/payoutStructure';
 export type { PayoutPlace, PayoutSubject } from '../../../lib/payoutStructure';
 
 /**
@@ -499,11 +499,17 @@ export function tournamentRowUnitCents(row: TournamentArenaEmbed | null | undefi
 export function effectivePrizePool(
   poolValue: number | null | undefined,
   guaranteeValue: number | null | undefined,
-  bountyPool: number | null | undefined = 0
+  bountyPool: number | null | undefined = 0,
+  rakeValue: number | null | undefined = 0,
+  finalized: boolean | null | undefined = false
 ): number {
   const pool = finite(poolValue);
-  const guarantee = placeGuarantee(guaranteeValue, bountyPool);
-  return guarantee > 0 ? Math.max(pool, guarantee) : pool;
+  /* A BUY-IN GUARANTEE COUNTS THE WHOLE PAYMENT (Dan, 2026-11-05). The house
+     funds only max(0, guarantee - gross payments), where gross = places +
+     bounties + rake. A finalized pool already holds that funding. Callers
+     that do not yet pass the rake fall back to the place floor. */
+  if (finalized) return pool;
+  return pool + guaranteeShortfall(guaranteeValue, pool, bountyPool, rakeValue);
 }
 
 /**
@@ -519,9 +525,11 @@ export function effectivePlaceLadderPool(
   bubbleProtection: boolean,
   buyInAmount: number,
   isSatellite: boolean,
-  bountyPool: number | null | undefined = 0
+  bountyPool: number | null | undefined = 0,
+  rakeValue: number | null | undefined = 0,
+  finalized: boolean | null | undefined = false
 ): number | null {
-  const pool = effectivePrizePool(poolValue, guaranteeValue, bountyPool);
+  const pool = effectivePrizePool(poolValue, guaranteeValue, bountyPool, rakeValue, finalized);
   const structure = parsePayoutStructure(structureValue) ?? [];
   return prizePoolAvailableToPlaces(
     pool,

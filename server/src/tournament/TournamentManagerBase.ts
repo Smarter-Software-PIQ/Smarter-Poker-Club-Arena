@@ -73,6 +73,7 @@ import {
   spinBlindsForLevel,
 } from '../config/spinSpec.js';
 import { describeError, reportError } from '../services/errorReporter.js';
+import { SeatHeadsRefresher, isSeatBountyEvent } from './seatBountyHeads.js';
 import { noteDiamondTournamentTableSkipped } from '../services/cashTablePlayEligibility.js';
 import { IN_LIST_CHUNK, selectInChunks } from '../services/supabase/chunkedIn.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
@@ -140,6 +141,7 @@ import { diamondSpinSettlementProven } from './diamondSpinLaunchProof.js';
 import { raiseFinancialAlert } from '../services/financialAlerts.js';
 import {
   tournamentFinishRefusalAlertsSuppressedTotal,
+  eliminationSweepStepMs,
   classifyFinishRefusal,
   finishRefusalIsTransient,
   finishRefusalRetryDelayMs,
@@ -203,6 +205,13 @@ import {
 } from './abandonedGenerationDoor.js';
 import { levelResumeRemainingMs } from './levelClockOutage.js';
 import { unprovedHandNeedsSuccessorGeneration } from './unprovedHandSuccessor.js';
+import { throughCancellationLane } from './cancellationLane.js';
+import {
+  firstDealWaves,
+  tableOpenGate,
+  type TableOpenGate,
+  type TableOpenSlot,
+} from './tableOpenWaves.js';
 
 /**
  * What one ask of the abandoned-generation door came to.
@@ -1191,6 +1200,11 @@ export abstract class TournamentManagerBase {
    * deal within seconds of adoption.
    */
   protected lastObservedHandCompletedAtMs = 0;
+
+  /** When this manager last saw any of its tables complete a hand; 0 if never. */
+  lastHandCompletedAtMs(): number {
+    return this.lastObservedHandCompletedAtMs;
+  }
   /** One line per held level, not one per recheck. */
   private readonly stalledLevelHoldAnnouncedFor = new Set<number>();
   /** One line per level held for a table with no dealer, not one per recheck. */
@@ -1319,6 +1333,39 @@ export abstract class TournamentManagerBase {
   protected spinRevealEmittedTableIds = new Set<string>();
   // Tournament metadata cache
   protected tournamentCache: any = null;
+
+  /**
+   * THE HEAD ON EVERY SEAT (Dan 2026-11-05). The ledger's bounty heads for
+   * this event, handed to every table engine so they ride the table state
+   * with the chips. See seatBountyHeads.ts. Off a bounty event nothing reads.
+   */
+  protected readonly seatHeads = new SeatHeadsRefresher({
+    read: async () => {
+      const { data, error } = await supabase
+        .from('tournament_players')
+        .select('user_id, current_bounty')
+        .eq('tournament_id', this.tournamentId)
+        .limit(5000);
+      return error || !Array.isArray(data) ? null : data;
+    },
+    publish: (heads) => {
+      for (const engine of this.tableEngines.values()) engine.setSeatBounties?.(heads);
+    },
+    now: () => Date.now(),
+    later: (fn, delayMs) => {
+      setTimeout(fn, delayMs).unref?.();
+    },
+    report: (error) =>
+      reportError(error, 'Tournament.seat_bounty_heads_read_failed', {
+        tournamentId: this.tournamentId,
+      }),
+  });
+
+  /** Read the ledger heads again (coalesced) when this is a bounty event. */
+  protected requestSeatHeads(): void {
+    if (!isSeatBountyEvent(this.tournamentCache)) return;
+    this.seatHeads.request();
+  }
   /**
    * The three club columns the unit rule joins (`fn_ca_tournament_unit_cents`
    * on the SQL side, `tournamentUnitCents` here), read once alongside the
@@ -2376,12 +2423,28 @@ export abstract class TournamentManagerBase {
     step: string | null;
     msInStep: number;
   } | null {
-    const msInFlight =
+    const msSweepInFlight =
       this.isProcessingEliminations && this.eliminationSweepStartedAt > 0
         ? now - this.eliminationSweepStartedAt
         : 0;
+    // Every sweep yields to an in-flight boundary balance, so a hung one
+    // holds the manager exactly as a hung sweep does (2026-11-06).
+    const msBoundaryBalance =
+      this.boundaryBalanceInFlight && this.boundaryBalanceStartedAt > 0
+        ? now - this.boundaryBalanceStartedAt
+        : 0;
     const msBustWaiting = this.bustAwaitingSinceMs > 0 ? now - this.bustAwaitingSinceMs : 0;
-    if (msInFlight <= 0 && msBustWaiting <= 0) return null;
+    if (msSweepInFlight <= 0 && msBoundaryBalance <= 0 && msBustWaiting <= 0) return null;
+    if (msBoundaryBalance > msSweepInFlight) {
+      return {
+        msInFlight: msBoundaryBalance,
+        msBustWaiting,
+        stage: this.currentEliminationSweepStage(),
+        step: 'boundary_balance',
+        msInStep: msBoundaryBalance,
+      };
+    }
+    const msInFlight = msSweepInFlight;
     const step = msInFlight > 0 ? (this.eliminationSweepStep ?? null) : null;
     return {
       msInFlight,
@@ -2440,7 +2503,12 @@ export abstract class TournamentManagerBase {
   }
 
   requestSuccessorForStalledEliminationSweep(): boolean {
-    if (!this.isProcessingEliminations && this.bustAwaitingSinceMs <= 0) return false;
+    if (
+      !this.isProcessingEliminations &&
+      !this.boundaryBalanceInFlight &&
+      this.bustAwaitingSinceMs <= 0
+    )
+      return false;
     return this.requestSuccessorDrain();
   }
 
@@ -2655,6 +2723,10 @@ export abstract class TournamentManagerBase {
       // tickets. Read the serialized state before this generation deals.
       this.holdSatelliteQualifierBoundary();
     }
+    // The opening slot is released when the dealer's start-up reads are done
+    // (ready), or when the start ends without getting there; the gate's
+    // horizon bounds both (awaitTableOpeningWave).
+    const releaseOpeningSlot = () => this.releaseTableOpeningSlot(engine);
     const operation = (async () => {
       if (!lifecycle || !tableId || !this.tournamentLeaseGeneration)
         throw new Error('f06_engine_admission_identity_missing');
@@ -2664,6 +2736,17 @@ export abstract class TournamentManagerBase {
         this.tournamentLeaseGeneration === leaseGeneration &&
         this.tableEngines.get(tableId) === engine &&
         this.gameServer.ownsTournamentTableEngine(tableId, engine);
+      if (!current() || !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId))
+        throw new Error('f06_engine_admission_fenced');
+      /* THE OPENING BUDGET (Dan 2026-11-05, fix 4: wave starts for big
+         tournaments). Every dealer start below is a burst of database reads
+         and, soon after, the first hand's lock-sensitive writes. Two 60-table
+         launches in the same minute used to put ~120 of those on the database
+         at once; the reads queued past the 180 s zombie line and 115 tables
+         were rebuilt (2026-10-27 13:33Z). One process-wide gate admits starts
+         in waves (tableOpenWaves.ts) before the first read; every proof and
+         fence below then runs exactly as before, rechecked after the wait. */
+      await this.awaitTableOpeningWave(engine, tableId, current);
       if (!current() || !this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId))
         throw new Error('f06_engine_admission_fenced');
       // Retained originals must finish before the existing unresolved-permit
@@ -3017,6 +3100,8 @@ export abstract class TournamentManagerBase {
       if (!lifecycle || !tableId || !this.lifecycleIsCurrent(lifecycle)) return;
       await this.recoverManagedTableEngine(tableId, engine, lifecycle, 'engine_start_failed', true);
     });
+    // runJob below reports a failed recovery; this copy only frees the slot.
+    void operation.finally(releaseOpeningSlot).catch(() => {});
     let runJob!: Promise<void>;
     runJob = operation.finally(() => this.tableEngineRunJobs.delete(runJob));
     this.tableEngineRunJobs.add(runJob);
@@ -3039,6 +3124,7 @@ export abstract class TournamentManagerBase {
         this.tableRestartBackoff.recordReady(tableId);
       }
     });
+    void engine.ready.finally(releaseOpeningSlot).catch(() => {});
     let tableStart!: Promise<void>;
     tableStart = readiness.finally(() => this.tableEngineStartJobs.delete(tableStart));
     this.tableEngineStartJobs.add(tableStart);
@@ -3084,9 +3170,52 @@ export abstract class TournamentManagerBase {
   }
 
   /** The completed launch receipt survives dealer and manager replacement. */
+  /** The process-wide opening budget (tableOpenWaves.ts); one per process. */
+  protected tableOpenGate(): TableOpenGate {
+    return tableOpenGate;
+  }
+
+  /** Opening slots held by dealers of this manager still inside their start-up reads. */
+  // Created on first use (`??=`): harnesses build managers from the
+  // prototype, where field initializers never run.
+  private tableOpeningSlots?: WeakMap<ServerTableEngine, TableOpenSlot>;
+
+  /**
+   * Wait for this dealer's turn in the process-wide opening wave
+   * (tableOpenWaves.ts). A dealer whose manager, lease or registry slot has
+   * gone by the time its turn comes is let go without spending the wave, and
+   * the caller's own fence then refuses it exactly as before.
+   */
+  protected async awaitTableOpeningWave(
+    engine: ServerTableEngine,
+    tableId: string,
+    current: () => boolean
+  ): Promise<void> {
+    const slot = await this.tableOpenGate().acquire(
+      () => current() && this.gameServer.tournamentRetirementCustody.admissionAllowed(tableId)
+    );
+    const slots = (this.tableOpeningSlots ??= new WeakMap());
+    slots.get(engine)?.release();
+    slots.set(engine, slot);
+  }
+
+  /** Idempotent: give this dealer's opening slot back to the wave. */
+  private releaseTableOpeningSlot(engine: ServerTableEngine): void {
+    const slot = this.tableOpeningSlots?.get(engine);
+    if (!slot) return;
+    this.tableOpeningSlots?.delete(engine);
+    slot.release();
+  }
+
   private holdManagedTableUntilBookedStart(engine: ServerTableEngine): void {
     const bookedStartMs = Date.parse(String(this.tournamentCache?.started_at ?? ''));
-    if (bookedStartMs > Date.now()) engine.holdDealingUntil(bookedStartMs);
+    if (!(bookedStartMs > Date.now())) return;
+    engine.holdDealingUntil(bookedStartMs);
+    // The same first-deal wave the launch gave this table (idempotent per
+    // table), so a resume inside the pre-seat minute keeps the waves too.
+    const tableId = this.tableIdForManagedEngine(engine);
+    const at = tableId ? firstDealWaves.assign(bookedStartMs, [tableId]).get(tableId) : undefined;
+    if (at !== undefined && at > bookedStartMs) engine.holdDealingUntil(at);
   }
 
   /** Bind a delayed manager mutation to the exact lifecycle that scheduled it. */
@@ -3469,6 +3598,14 @@ export abstract class TournamentManagerBase {
    */
   protected boundaryBalanceInFlight = false;
   protected boundaryBalanceOwesSweep = false;
+  /** When the in-flight boundary balance began; 0 while none is in flight. */
+  protected boundaryBalanceStartedAt = 0;
+  /**
+   * A boundary balance that has held the manager this long reports itself
+   * (Tournament.boundary_balance_overran). Its whole work is one board read
+   * and one batch of atomic moves; thirty seconds is many times that.
+   */
+  static readonly BOUNDARY_BALANCE_REPORT_MS = 30_000;
 
   /** Called as every admitted sweep settles; the balancing manager drains its edge work here. */
   protected onEliminationSweepSettled(): void {}
@@ -3619,7 +3756,14 @@ export abstract class TournamentManagerBase {
    * exact deadline.
    */
   protected wireEliminationWake(engine: ServerTableEngine): void {
+    // A table joining a bounty event starts with the heads already read and
+    // asks for a fresh read; every hand it completes asks again (coalesced).
+    if (isSeatBountyEvent(this.tournamentCache)) {
+      engine.setSeatBounties?.(this.seatHeads.current());
+      this.requestSeatHeads();
+    }
     engine.onHandComplete((_tableId, finalStacks) => {
+      this.requestSeatHeads();
       const recovered = this.recoveredOriginalAdmissions.get(_tableId);
       if (
         recovered?.engine === engine &&
@@ -5404,10 +5548,21 @@ export abstract class TournamentManagerBase {
     }
   }
 
-  /** True only when NO table in this event has a hand in progress. */
+  /**
+   * True only when NO table in this event has a hand in progress.
+   *
+   * A table whose only controller is a retained original that never started,
+   * held at the pause gate by the activation boundary itself, has no hand in
+   * progress: no card is dealt and no decision made, and it starts after the
+   * activation like any later hand. Counting it as a live hand made the
+   * boundary wait for the hand and the hand wait for the boundary - the
+   * circular wait that froze Satellites 25 and 30 on 2026-11-05, here on the
+   * mystery activation boundary (isPreparedOriginalHeldAtPauseGate).
+   */
   protected allTablesBetweenHands(): boolean {
     for (const engine of this.tableEngines.values()) {
       try {
+        if (engine.isPreparedOriginalHeldAtPauseGate?.() === true) continue;
         if (!engine.isBetweenHands()) return false;
       } catch {
         // An engine that cannot answer is an engine we cannot vouch for.
@@ -7683,6 +7838,27 @@ export abstract class TournamentManagerBase {
       if (this.preStartLeadMs > 0) {
         for (const engine of this.tableEngines.values()) {
           engine.holdDealingUntil(launchStartMs);
+        }
+        /* THE FIRST DEAL GOES IN WAVES (Dan 2026-11-05, fix 4). Every held
+           table used to deal its first hand in the same instant, so the first
+           hands' permit, seat, funding and continuation writes of every event
+           sharing the start all landed together. Wave 0 still deals AT the
+           advertised start; the rest follow FIRST_DEAL_WAVE_GAP_MS apart,
+           continuing the count of any other launch booked for the same
+           instant (tableOpenWaves.ts). holdDealingUntil only ever lengthens a
+           hold, so a longer Spin or add-on hold is never shortened by this,
+           and the level clock still starts at the advertised instant. */
+        const firstDealAt = firstDealWaves.assign(launchStartMs, this.tableEngines.keys());
+        let lastWaveAt = launchStartMs;
+        for (const [waveTableId, at] of firstDealAt) {
+          if (at <= launchStartMs) continue;
+          this.tableEngines.get(waveTableId)?.holdDealingUntil(at);
+          if (at > lastWaveAt) lastWaveAt = at;
+        }
+        if (lastWaveAt > launchStartMs) {
+          console.log(
+            `[Tournament:${this.tournamentId.slice(0, 8)}] First deal in waves: ${this.tableEngines.size} table(s) from ${startedAtIso}, last wave +${lastWaveAt - launchStartMs}ms`
+          );
         }
         console.log(
           `[Tournament:${this.tournamentId.slice(0, 8)}] Pre-seated ${this.tableEngines.size} table(s) - holding the deal ${Math.round(this.preStartLeadMs / 1000)}s until the admitted start ${startedAtIso}`
@@ -9999,7 +10175,7 @@ export abstract class TournamentManagerBase {
         this.lifecycleIntervals.size === 0 &&
         this.seatMoveQuarantineRefusal() === null,
       prepareAcknowledgement: async (tableId, handNumber, evidence) => {
-        if (request.closureMode !== 'equal_share') return;
+        if (request.closureMode === undefined) return;
         const stopped = await supabase.rpc('fn_ca_tournament_abort_stop_state', {
           p_operation_id: request.operation_id,
           p_tournament_id: this.tournamentId,
@@ -10025,18 +10201,20 @@ export abstract class TournamentManagerBase {
           table.durable_hand_number !== handNumber
         )
           throw new Error('tournament_abort_stopped_hand_changed');
-        if (request.closureMode === 'equal_share' && table.cancellable_permit_id) {
+        if (table.cancellable_permit_id) {
           if (!table.cancellable_hand_hash || !current())
             throw new Error('tournament_abort_hand_review_unknown');
-          const cancelled = await supabase.rpc('fn_ca_cancel_tournament_abort_unsettled_hand', {
-            p_operation_id: request.operation_id,
-            p_tournament_id: this.tournamentId,
-            p_table_id: tableId,
-            p_generation: request.current_generation,
-            p_permit_id: table.cancellable_permit_id,
-            p_expected_hash: table.cancellable_hand_hash,
-            p_evidence: evidence,
-          });
+          const cancelled = await throughCancellationLane(() =>
+            supabase.rpc('fn_ca_cancel_tournament_abort_unsettled_hand', {
+              p_operation_id: request.operation_id,
+              p_tournament_id: this.tournamentId,
+              p_table_id: tableId,
+              p_generation: request.current_generation,
+              p_permit_id: table.cancellable_permit_id,
+              p_expected_hash: table.cancellable_hand_hash,
+              p_evidence: evidence,
+            })
+          );
           if (
             cancelled.error ||
             cancelled.data?.ok !== true ||
@@ -10047,14 +10225,16 @@ export abstract class TournamentManagerBase {
         }
       },
       acknowledge: async (tableId, handNumber, evidence) => {
-        const { data, error } = await supabase.rpc('fn_ca_ack_tournament_abort_boundary', {
-          p_operation_id: request.operation_id,
-          p_tournament_id: this.tournamentId,
-          p_table_id: tableId,
-          p_lease_generation: request.current_generation,
-          p_hand_number: handNumber,
-          p_evidence: evidence,
-        });
+        const { data, error } = await throughCancellationLane(() =>
+          supabase.rpc('fn_ca_ack_tournament_abort_boundary', {
+            p_operation_id: request.operation_id,
+            p_tournament_id: this.tournamentId,
+            p_table_id: tableId,
+            p_lease_generation: request.current_generation,
+            p_hand_number: handNumber,
+            p_evidence: evidence,
+          })
+        );
         if (error || data?.ok !== true) throw new Error('tournament_abort_ack_unknown_or_refused');
         return data;
       },
@@ -13731,8 +13911,19 @@ export abstract class TournamentManagerBase {
   protected eliminationSweepStepAt = 0;
 
   protected noteEliminationSweepStep(step: string): void {
+    const now = Date.now();
+    this.closeEliminationSweepStep(now);
     this.eliminationSweepStep = step;
-    this.eliminationSweepStepAt = Date.now();
+    this.eliminationSweepStepAt = now;
+  }
+
+  /** Observe the step in flight (if any) as finished at `now`. */
+  protected closeEliminationSweepStep(now = Date.now()): void {
+    const previous = this.eliminationSweepStep;
+    const startedAt = this.eliminationSweepStepAt;
+    if (previous && typeof startedAt === 'number' && startedAt > 0 && now >= startedAt) {
+      eliminationSweepStepMs.observe(now - startedAt, { step: previous });
+    }
   }
 
   // ── Implemented by TournamentManagerEliminations (layer 2/3) ──

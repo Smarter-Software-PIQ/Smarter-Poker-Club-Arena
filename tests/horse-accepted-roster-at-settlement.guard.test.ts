@@ -89,10 +89,20 @@ describe('P14.2: the accepted roster is produced inside the settlement transacti
     ])
       expect(probe).toContain(witness);
     const manifest = JSON.parse(read('scripts/qualification/cash-native-hosted.manifest.json'));
-    expect(manifest.files['.github/workflows/ci.yml'].sha256).toBe(
-      createHash('sha256')
-        .update(readFileSync(resolve(root, '.github/workflows/ci.yml')))
-        .digest('hex')
+    for (const path of [
+      'scripts/ci/qualification-input-projections.py',
+      'scripts/qualification/ci-accounting-inputs.json',
+      'scripts/qualification/ci-admission-inputs.json',
+    ]) {
+      expect(manifest.files[path].sha256).toBe(
+        createHash('sha256')
+          .update(readFileSync(resolve(root, path)))
+          .digest('hex')
+      );
+    }
+    const execution = JSON.parse(read('scripts/qualification/ci-accounting-inputs.json'));
+    expect(execution.jobs.accounting_postgres).toContain(
+      'python3 scripts/ci/test-accepted-hand-roster.py --pg-bin "$POKER_AUDIT_PG_BIN" --evidence artifacts/accepted-hand-roster'
     );
   });
   it('qualifies Lightning original positions through the existing native accounting owner', () => {

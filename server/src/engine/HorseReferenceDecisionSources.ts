@@ -19,6 +19,8 @@
  */
 export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, string>> =
   Object.freeze({
+    'src/engine/HorseCheckedAggressor.ts':
+      'the actual prior aggressor current-street check that releases the reference initiative gate without changing value pricing or legal sizing',
     'src/engine/HorseFeatureAuthority.ts':
       'boundary: exact qualified feature composition and live economic domain derive reference options; missing selection never activates a candidate',
     'src/engine/HorseMultiwayRiverRead.ts':

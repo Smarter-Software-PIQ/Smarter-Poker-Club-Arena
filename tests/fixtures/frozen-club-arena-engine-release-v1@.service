@@ -1,0 +1,29 @@
+[Unit]
+Description=Club Arena Engine Release Transaction %i
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/club-arena/engine-release-unit-wrapper-v1.sh start %i
+ExecStopPost=/usr/local/lib/club-arena/engine-release-unit-wrapper-v1.sh recover %i ${SERVICE_RESULT} ${EXIT_CODE} ${EXIT_STATUS}
+TimeoutStartSec=145min
+# ExecStopPost owns up to 300 seconds of exact desired recovery plus bounded
+# receipt validation and durable retirement overhead.
+TimeoutStopSec=330s
+Restart=on-failure
+# Exit 75 is already a failure, so Restart=on-failure retries it naturally.
+# RestartForceExitStatus is invalid for Type=oneshot on production systemd.
+RestartPreventExitStatus=1
+RestartSec=30s
+KillMode=control-group
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=tmpfs
+BindReadOnlyPaths=/root/.ssh
+ProtectSystem=full
+ReadWritePaths=/var/lib/club-arena /var/lock /var/log/club-arena-engine /opt/club-arena /etc/systemd/system/multi-user.target.wants
+
+[Install]
+WantedBy=multi-user.target

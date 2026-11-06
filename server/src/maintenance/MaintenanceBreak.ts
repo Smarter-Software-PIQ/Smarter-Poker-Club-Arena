@@ -126,6 +126,13 @@ export function scheduleAtExactEpochMs<THandle = NodeJS.Timeout>(
  * hand-for-hand's 500ms sync loop would otherwise resume a table mid-break.
  * See the `maintenancePaused` field on ServerTableEngineBase.
  */
+export interface UnparkedTableDetail {
+  tableId: string;
+  reason: string;
+  permitId?: string;
+  handNumber?: string;
+}
+
 export interface PausableTableEngine {
   pauseForMaintenance(maxWaitMs: number): void;
   resumeFromMaintenance(): void;
@@ -137,6 +144,24 @@ export interface PausableTableEngine {
    * the restart gate asks (PHASE 2, 2026-09-02) - see `unparkedTables`.
    */
   isBetweenHands(): boolean;
+  /**
+   * A retained tournament original that never started, held at the gate by
+   * this break (2026-11-05). No card dealt, no chip committed, no writer in
+   * flight, and durably reclaimed by the next generation. Optional; absent is
+   * "no", which keeps the table counted as `cards_in_air`.
+   */
+  isPreparedOriginalHeldForMaintenance?(): boolean;
+  /**
+   * The permit and hand number of a retained, never-started original held at
+   * the pause gate by any owner, or null (2026-11-06). Optional. Read only to
+   * NAME a cards_in_air table on /health so the release gate can prove each
+   * one against the database; it never parks, counts or admits anything.
+   */
+  describeHeldOriginalAtPauseGate?(): { permitId: string; handNumber: string } | null;
+  /** Any owner's held, never-started original (see describeHeldOriginalAtPauseGate). Optional. */
+  isPreparedOriginalHeldAtPauseGate?(): boolean;
+  /** Ms since the table last made progress. Optional; read only by restartPrecheck. */
+  msSinceProgress?(): number;
   /** Positive original preparation disposition must survive process replacement. */
   hasUnresolvedF06Preparation?(): boolean;
   /** Stopped originals still own actual banks until custody is confirmed. */
@@ -1972,6 +1997,54 @@ export class MaintenanceBreak {
    */
   /** Last reason breakdown computed by `unparkedTables`, for /health. */
   private unparkedReasonCounts: Record<string, number> = {};
+  /** Per-table names for the last census, bounded, for /health (2026-11-06). */
+  private unparkedTableDetails: UnparkedTableDetail[] = [];
+  static readonly UNPARKED_TABLE_IDS_LIMIT = 64;
+  /** A started hand with no progress this long will not land inside a break. */
+  static readonly FROZEN_HAND_PRECHECK_MS = 600_000;
+
+  /**
+   * WHAT A BREAK COULD NOT CLEAR, ASKED BEFORE THE BREAK (2026-11-06).
+   *
+   * A release whose certificate cannot open still announced its Deployment
+   * Recovery break, paused every table for five minutes and then backed out:
+   * release 42139090188-1 at 01:28Z on 2026-11-06 paused the whole fleet for a
+   * certificate that was shut from the first second. The release transaction
+   * reads this before it asks for a window. It names only blockers no break
+   * can clear: a started hand that has not moved for FROZEN_HAND_PRECHECK_MS
+   * (a hand that will not land), and stopped time-bank custody already past
+   * its bound (stopped_bank_custody_stuck, refused in every break). A hand in
+   * progress, a held original that never started and a fresh preparation are
+   * transient or admitted and are never named here. Identification only:
+   * nothing in the engine acts on it.
+   */
+  restartPrecheck(): { persistent: Record<string, number>; tables: UnparkedTableDetail[] } {
+    const persistent: Record<string, number> = {};
+    const tables: UnparkedTableDetail[] = [];
+    const name = (tableId: string, reason: string) => {
+      persistent[reason] = (persistent[reason] ?? 0) + 1;
+      if (tables.length < MaintenanceBreak.UNPARKED_TABLE_IDS_LIMIT)
+        tables.push({ tableId, reason });
+    };
+    for (const [tableId, engine] of this.deps.engines()) {
+      try {
+        if (engine.hasUnretiredStoppedTimeBankCustody?.()) {
+          const since = this.stoppedCustodySince.get(tableId);
+          if (since !== undefined && this.now() - since > MaintenanceBreak.STOPPED_CUSTODY_GATE_MS)
+            name(tableId, 'stopped_bank_custody_stuck');
+          continue;
+        }
+        if (!engine.isRunning() || engine.isBetweenHands()) continue;
+        if (engine.isPreparedOriginalHeldAtPauseGate?.() === true) continue;
+        const idle = engine.msSinceProgress?.();
+        if (typeof idle === 'number' && idle > MaintenanceBreak.FROZEN_HAND_PRECHECK_MS)
+          name(tableId, 'frozen_hand');
+      } catch {
+        // An engine that cannot be read is not named; the reapers own it.
+      }
+    }
+    return { persistent, tables };
+  }
 
   /**
    * ═══════════════════════════════════════════════════════════════════════
@@ -2393,8 +2466,19 @@ export class MaintenanceBreak {
     const seenStoppedCustody = new Set<string>();
     let stuck = 0;
     let custodyStuck = 0;
+    /* NAMED, NOT ONLY COUNTED (2026-11-06). Each table this census pushes is
+       recorded with the reason it was counted under, so /health can name the
+       cards_in_air tables and the release gate can prove each one against the
+       database. `lastPushed` pairs a push with the count that follows it; a
+       count with no push (f06_preparation_stuck) names no table. */
+    const details: UnparkedTableDetail[] = [];
+    let lastPushed: string | null = null;
     const count = (reason: string): string => {
       reasons[reason] = (reasons[reason] ?? 0) + 1;
+      if (lastPushed !== null) {
+        details.push({ tableId: lastPushed, reason });
+        lastPushed = null;
+      }
       return reason;
     };
     this.breakScopedUnparked = new Map();
@@ -2414,6 +2498,7 @@ export class MaintenanceBreak {
       seenUnresolved.add(tableId);
       if (this.f06PreparationHoldsGate(tableId)) {
         out.push(tableId);
+        lastPushed = tableId;
         count('f06_preparation_unresolved');
         continue;
       }
@@ -2448,6 +2533,7 @@ export class MaintenanceBreak {
              STOPPED_CUSTODY_GATE_MS: no guard behind this census re-checks the
              bank on an ordinary cutover). */
           out.push(tableId);
+          lastPushed = tableId;
           if (this.stoppedCustodyHoldsGate(tableId, custodyReason)) {
             count(custodyReason);
             continue;
@@ -2460,6 +2546,7 @@ export class MaintenanceBreak {
           seenUnresolved.add(tableId);
           if (this.f06PreparationHoldsGate(tableId)) {
             out.push(tableId);
+            lastPushed = tableId;
             count('f06_preparation_unresolved');
             continue;
           }
@@ -2471,13 +2558,31 @@ export class MaintenanceBreak {
           continue;
         }
         if (!engine.isRunning()) continue;
-        if (!engine.isBetweenHands()) {
+        /* A RESERVED HAND THAT NEVER STARTED IS NOT CARDS IN THE AIR
+           (2026-11-05). Spin 9139b7d2 retained hand 55574170 64 ms before
+           this break's park reached it, held it at the gate unstarted, and
+           this line named it `cards_in_air` for the whole break: two engine
+           releases backed out over a hand with no card dealt. The engine
+           names exactly that held shape; anything else still counts. */
+        if (!engine.isBetweenHands() && engine.isPreparedOriginalHeldForMaintenance?.() !== true) {
           out.push(tableId);
+          lastPushed = tableId;
           this.noteBreakScoped(tableId, count('cards_in_air'));
+          try {
+            const held = engine.describeHeldOriginalAtPauseGate?.() ?? null;
+            const last = details[details.length - 1];
+            if (held && last && last.tableId === tableId) {
+              last.permitId = held.permitId;
+              last.handNumber = held.handNumber;
+            }
+          } catch {
+            // Naming is best effort; the count above already stands.
+          }
           continue;
         }
         if (engine.isMaintenanceStateDurable?.() === false) {
           out.push(tableId);
+          lastPushed = tableId;
           // The engine's own answer when it has one; an engine that only
           // publishes the boolean is counted, not guessed at.
           this.noteBreakScoped(tableId, count(engine.maintenanceDurabilityReason?.() ?? 'unknown'));
@@ -2508,6 +2613,7 @@ export class MaintenanceBreak {
     this.f06StuckTableCount = stuck;
     this.stoppedCustodyStuckTableCount = custodyStuck;
     this.unparkedReasonCounts = reasons;
+    this.unparkedTableDetails = details.slice(0, MaintenanceBreak.UNPARKED_TABLE_IDS_LIMIT);
     if (this.phase === 'counting_down' && out.length > this.peakUnparked) {
       this.peakUnparked = out.length;
     }
@@ -2915,6 +3021,17 @@ export class MaintenanceBreak {
   }
 
   /**
+   * True while the last thaw's resume waves are still reaching tables
+   * (2026-11-05). Read by the bulk-closure guard: a closure holding the
+   * cancellation lane while tables come back is what froze ~40 Spins and
+   * Sit & Gos at 04:05 UTC on November 5.
+   */
+  isResuming(): boolean {
+    const waves = this.resumeWaves;
+    return waves !== null && waves.finishedAt === null && this.pendingResumeTables.size > 0;
+  }
+
+  /**
    * Is this break still the authority holding `tableId`? (2026-10-02)
    *
    * True for the whole break - last hand, countdown, and the certified-release
@@ -2972,6 +3089,35 @@ export class MaintenanceBreak {
       );
     }
     return 0;
+  }
+
+  /**
+   * THE TOURNAMENT BREAK AND THE HOURLY BREAK ARE ONE BREAK (2026-11-06).
+   *
+   * The tournament break fires at :55 and the hourly maintenance break is
+   * announced at :58 for :00. endsAt() is 0 at :55 (the platform break is
+   * still idle), so each tournament ran five minutes from its own last hand
+   * and ended INSIDE the maintenance break: Satellite 30 (a2a2c981) ended at
+   * 01:00:42, waited for the thaw ("its break ended but the maintenance
+   * freeze was still on 90s later"), and came back in the same instant as the
+   * maintenance resume wave - a timing that decided, by milliseconds, whether
+   * its tables dealt or froze.
+   *
+   * So the tournament break asks this instead: the active break's end, or,
+   * when this process has the next scheduled break armed to start within
+   * `horizonMs`, that break's end. Every tournament break that would overlap
+   * the coming hourly break now ends exactly with it, never partway through
+   * it. Read-only; an announcement that later fails only means the
+   * tournament's break ends at the planned time.
+   */
+  tournamentBreakEndsAt(horizonMs: number): number {
+    const active = this.endsAt();
+    if (active > 0) return active;
+    if (!this.started || !this.announceTimer || this.scheduledAnnouncementAt <= 0) return 0;
+    const now = this.now();
+    const startsAt = this.scheduledAnnouncementAt + MaintenanceBreak.LAST_HAND_LEAD_MS;
+    if (startsAt < now || startsAt > now + Math.max(0, horizonMs)) return 0;
+    return startsAt + MaintenanceBreak.BREAK_DURATION_MS;
   }
 
   /**
@@ -3055,6 +3201,11 @@ export class MaintenanceBreak {
       unparkedTables: unparked.length,
       // Why, not just how many: see maintenanceDurabilityReason on the engine.
       unparkedReasons: { ...this.unparkedReasonCounts },
+      /* Which tables, bounded (2026-11-06). Live only while a break is active,
+         like the count above; each names its reason and, for a held original
+         that never started, its permit and hand number. */
+      unparkedTableIds: this.isActive() ? this.unparkedTableDetails.map((d) => ({ ...d })) : [],
+      restartPrecheck: this.restartPrecheck(),
       /* See the fields these come from. `f06StuckTables` is a permit that has
          outlived the gate and no longer holds every other table's restart
          shut; `breaksSinceRestartCertified` is how many breaks in a row have

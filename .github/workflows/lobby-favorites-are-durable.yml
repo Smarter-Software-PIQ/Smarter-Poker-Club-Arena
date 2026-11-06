@@ -1,0 +1,64 @@
+name: Lobby favorites and filters are durable
+
+# Migration 20261105183133. Runs scripts/dev/test-lobby-favorites-postgres.sh
+# against a throwaway PostgreSQL 17 cluster, never production: favorites follow
+# the game (schedule, catalogue definition, cash game) through renames, finished
+# runs and rebuilt tables without merging same-named games across clubs,
+# variants or stakes; only the owner or account deletion changes a favorite,
+# saved filter or page preference; and a late replay of an older choice cannot
+# overwrite a newer one. No timer (CLAUDE.md 10.85): pull_request only, scoped
+# to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261105183133_lobby_favorites_follow_the_game_not_the_row.sql
+      - scripts/dev/test-lobby-favorites-postgres.sh
+      - .github/workflows/lobby-favorites-are-durable.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lobby-favorites-are-durable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lobby-favorites-are-durable:
+    name: Lobby favorites and filters are durable
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        run: |
+          set -euo pipefail
+          pg_sources="$(mktemp -d "$RUNNER_TEMP/ca-postgres-apt.XXXXXX")"
+          chmod 755 "$pg_sources"
+          test -f /etc/apt/sources.list.d/ubuntu.sources
+          cp /etc/apt/sources.list.d/ubuntu.sources "$pg_sources/ubuntu.sources"
+          pg_apt=(-o "Dir::Etc::sourcelist=/dev/null" -o "Dir::Etc::sourceparts=$pg_sources")
+          sudo apt-get "${pg_apt[@]}" update
+          sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends postgresql-common curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          # Retried: on 2026-11-05 this key download dropped mid-transfer on
+          # several jobs at once, failing them before any test ran.
+          sudo curl --fail --silent --show-error --location \
+            --retry 5 --retry-all-errors --retry-delay 5 \
+            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          codename="$(. /etc/os-release && printf '%s' "$VERSION_CODENAME")"
+          printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' \
+            "$codename" > "$pg_sources/pgdg.sources"
+          sudo apt-get "${pg_apt[@]}" update
+          printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
+          sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends postgresql-17
+      - name: Favorites follow the game and only their owner changes them
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          set -euo pipefail
+          bash scripts/dev/test-lobby-favorites-postgres.sh 2>&1 | tee "$RUNNER_TEMP/lobby-favorites.log"
+          # The script exits 0 only after its last check; prove it got there.
+          grep -q 'all checks passed' "$RUNNER_TEMP/lobby-favorites.log"
+          echo "Checks passed: $(grep -c 'PASS:' "$RUNNER_TEMP/lobby-favorites.log")" >> "$GITHUB_STEP_SUMMARY"

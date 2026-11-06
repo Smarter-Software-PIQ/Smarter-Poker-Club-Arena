@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { cleanup, render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cashBoardVisible } from '../src/components/lobby/cashBoardVisibility';
+import {
+  alwaysShownEmptyCashGame,
+  cashBoardVisible,
+} from '../src/components/lobby/cashBoardVisibility';
 import { cashEntry, type LobbyTableRow } from '../src/components/lobby/lobbyEntries';
 import LobbyTable from '../src/components/lobby/LobbyTable';
 import { FILTER_SPECS } from '../src/components/lobby/advancedFilterSpec';
@@ -22,10 +25,10 @@ const row = (extra: Partial<LobbyTableRow> = {}): LobbyTableRow => ({
   id: 'cash',
   name: 'Cash',
   game_variant: 'plo4',
-  small_blind: 1,
-  big_blind: 2,
-  min_buy_in: 80,
-  max_buy_in: 400,
+  small_blind: 0.5,
+  big_blind: 1,
+  min_buy_in: 40,
+  max_buy_in: 200,
   max_players: 6,
   current_players: 2,
   status: 'running',
@@ -42,6 +45,56 @@ describe('cash lobby shows open occupied games unless the player asks for emptie
       }
       expect(cashBoardVisible(row({ status }))).toBe(true);
     }
+  });
+  it('always shows empty 1/2 No Limit and 1/2 PLO so a human can sit down (owner 2026-11-05)', () => {
+    for (const game_variant of ['nlh', 'plo4', 'plo5', 'plo6', 'PLO4']) {
+      const empty = row({ game_variant, small_blind: 1, big_blind: 2, current_players: 0 });
+      expect(alwaysShownEmptyCashGame(empty)).toBe(true);
+      expect(cashBoardVisible(empty)).toBe(true);
+      const emptyCluster = row({
+        game_variant,
+        small_blind: 1,
+        big_blind: 2,
+        cluster_id: 'one-two',
+        lifecycle: 'live',
+        cluster_enabled: true,
+        cluster_front: true,
+        cluster_players: 0,
+        cluster_tables: 1,
+        current_players: 0,
+      });
+      expect(cashEntry(emptyCluster).players).toBe(0);
+      expect(cashBoardVisible(emptyCluster)).toBe(true);
+    }
+    // Only 1/2 No Limit and PLO: other stakes and other games keep the hide-empty default.
+    for (const extra of [
+      { game_variant: 'nlh', small_blind: 0.5, big_blind: 1 },
+      { game_variant: 'plo4', small_blind: 2, big_blind: 5 },
+      { game_variant: 'flh', small_blind: 1, big_blind: 2 },
+      { game_variant: 'short_deck', small_blind: 1, big_blind: 2 },
+      { game_variant: 'plo8', small_blind: 1, big_blind: 2 },
+    ]) {
+      expect(cashBoardVisible(row({ ...extra, current_players: 0 }))).toBe(false);
+    }
+    // Always shown never reopens a closed, deleted or disabled game.
+    for (const extra of [
+      { status: 'closed' },
+      { is_deleted: true },
+      { lifecycle: 'closed' },
+      {
+        cluster_id: 'one-two',
+        lifecycle: 'live',
+        cluster_enabled: false,
+        cluster_front: true,
+        cluster_players: 0,
+        cluster_tables: 1,
+      },
+    ])
+      expect(
+        cashBoardVisible(
+          row({ game_variant: 'nlh', small_blind: 1, big_blind: 2, current_players: 0, ...extra })
+        )
+      ).toBe(false);
   });
   it('never offers closed, deleted, paused, disabled or unknown games, even with opt-in', () => {
     const rows = [

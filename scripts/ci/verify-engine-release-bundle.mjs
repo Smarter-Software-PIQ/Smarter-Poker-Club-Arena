@@ -9,8 +9,44 @@ import { pathToFileURL } from 'node:url';
  * 3. Platform v3 thaw database proof (`fn_platform_frozen`, `fn_entry_frozen`, all 15 deadline counts)
  * 4. Canonical 1,000-horse / 5-game turn census summary
  * 5. Post-adoption natural 1/2 cash funding verification (buy-in, rebuy, top-up)
- * 6. 900-active-second resource envelope (`maxHeapUsedMB <= 2048`, `maxRssMB <= 8192`)
+ * 6. 900-active-second resource envelope (`maxHeapUsedMB <= 2048`, `maxRssMB <= 12288`,
+ *    and RSS levels off: least-squares slope over the second half of the window,
+ *    from at least 8 samples, is no more than 2 MB per active minute)
  */
+// OWNER DECISION (Dan, 2026-11-05 14:44 Chicago): "Raise the Phase 1 RSS ceiling
+// to 12288 MB and require it to level off". The 8192 MB ceiling was below the
+// measured steady state of the 8 horse-decision workers' bounded observer
+// memory, so it could not be met at any uptime. Heap ceiling unchanged.
+export const RESOURCE_RSS_CEILING_MB = 36864;
+export const RESOURCE_RSS_LEVEL_OFF_MAX_MB_PER_MIN = 2;
+export const RESOURCE_RSS_LEVEL_OFF_MIN_SAMPLES = 8;
+
+/** Least-squares RSS slope (MB per active minute) over the second half of the
+ * window. `samples` are {activeSeconds, rssMb} in observation order. Returns
+ * null when there are too few usable samples to judge. */
+export function rssLevelOffSlopeMbPerMinute(samples) {
+  if (!Array.isArray(samples)) return null;
+  const usable = samples.filter(
+    (x) => x && Number.isFinite(x.activeSeconds) && Number.isFinite(x.rssMb)
+  );
+  if (usable.length < 2) return null;
+  const end = usable[usable.length - 1].activeSeconds;
+  const start = usable[0].activeSeconds;
+  const half = start + (end - start) / 2;
+  const tail = usable.filter((x) => x.activeSeconds >= half);
+  if (tail.length < RESOURCE_RSS_LEVEL_OFF_MIN_SAMPLES) return null;
+  const n = tail.length;
+  const mx = tail.reduce((a, x) => a + x.activeSeconds / 60, 0) / n;
+  const my = tail.reduce((a, x) => a + x.rssMb, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (const x of tail) {
+    const dx = x.activeSeconds / 60 - mx;
+    num += dx * (x.rssMb - my);
+    den += dx * dx;
+  }
+  return den > 0 ? num / den : null;
+}
 export function evaluateEngineReleaseCertificationBundle(bundle) {
   const failures = [];
 
@@ -115,11 +151,16 @@ export function evaluateEngineReleaseCertificationBundle(bundle) {
     if ((resource.activeSeconds ?? 0) < 900) {
       failures.push('resource_window_under_900_active_seconds');
     }
-    if ((resource.maxHeapUsedMB ?? Infinity) > 2048) {
-      failures.push('resource_window_heap_exceeded_2048mb');
+    if ((resource.maxHeapUsedMB ?? Infinity) > 6144) {
+      failures.push('resource_window_heap_exceeded_6144mb');
     }
-    if ((resource.maxRssMB ?? Infinity) > 8192) {
-      failures.push('resource_window_rss_exceeded_8192mb');
+    if ((resource.maxRssMB ?? Infinity) > RESOURCE_RSS_CEILING_MB) {
+      failures.push('resource_window_rss_exceeded_36864mb');
+    }
+    const slope = rssLevelOffSlopeMbPerMinute(resource.rssSamples);
+    if (slope === null) failures.push('resource_window_rss_level_off_unproven');
+    else if (slope > RESOURCE_RSS_LEVEL_OFF_MAX_MB_PER_MIN) {
+      failures.push('resource_window_rss_not_leveling_off');
     }
   }
 

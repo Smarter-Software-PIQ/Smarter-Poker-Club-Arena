@@ -474,6 +474,17 @@ describe('LAW - local preflight selects document and workflow contracts', () => 
         writeFileSync(join(directory, file), content);
       }
       const trace = join(directory, 'runner-trace');
+      // The real client selector now invokes its dependency inventory. Keep
+      // that actual helper in this isolated gate fixture; missing declaration
+      // sources conservatively retain coverage without running native work.
+      for (const file of [
+        'scripts/ci/source-contract-inventory.mjs',
+        'scripts/ci/source-contract-inputs.json',
+        'scripts/ci/vendor/agentExecution.mjs',
+      ]) {
+        mkdirSync(dirname(join(directory, file)), { recursive: true });
+        writeFileSync(join(directory, file), read(file));
+      }
       if (runnerAvailable) {
         const runner = join(directory, 'node_modules/.bin/vitest');
         mkdirSync(dirname(runner), { recursive: true });

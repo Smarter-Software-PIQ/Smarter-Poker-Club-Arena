@@ -6,7 +6,7 @@ export const supabase = {
     if (table !== 'profiles') throw new Error('Unexpected Harness Table');
     return {
       select(columns: string) {
-        if (columns !== 'phone_verified') throw new Error('Unexpected Harness Columns');
+        if (columns !== 'phone_verified, created_at') throw new Error('Unexpected Harness Columns');
         return {
           eq(column: string, userId: string) {
             if (column !== 'id') throw new Error('Unexpected Harness Profile Filter');

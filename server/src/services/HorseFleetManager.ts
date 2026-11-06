@@ -2,6 +2,7 @@ import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
   horseUnionCashTableAllowed,
+  lightningGamesWithPlayingHumans,
   playingHumansAtCashTable,
 } from './HorseUnionCashPlan.js';
 /**
@@ -1197,6 +1198,8 @@ export class HorseFleetManager {
       }
       const tables = tablePage.rows.filter(isChipFleetTable);
       const cashPlanPrimaryTables = horseCashPlanPrimaryTables(tables);
+      /* Lightning Clusters run without the clock schedule (Dan 2026-11-05). */
+      const cashPlanLightningGames = await this.lightningClusterIds();
 
       /* ── THE DIAMOND ARENA (Dan 2026-10-06) ─────────────────────────────
          Deep Stack Society's horses play the arena's cash games too, through
@@ -2362,6 +2365,13 @@ export class HorseFleetManager {
         if (list) list.push(s);
         else seatsByTable.set(s.table_id, [s]);
       }
+      /* Lightning games a person is playing in, across all their tables. */
+      const cashPlanLightningHumanGames = lightningGamesWithPlayingHumans(
+        tables,
+        seatsByTable,
+        horseIdSet,
+        cashPlanLightningGames
+      );
       // V8: tables with a short-handed HUMAN seed first (never leave a human
       // stranded); everything else keeps its natural order. Precomputed rather
       // than recomputed inside the comparator - same predicate, same answer.
@@ -2939,7 +2949,9 @@ export class HorseFleetManager {
               table,
               playingHumansAtCashTable(tableOccupiedSeats, horseIdSet),
               Date.now(),
-              cashPlanPrimaryTables
+              cashPlanPrimaryTables,
+              cashPlanLightningGames,
+              cashPlanLightningHumanGames
             )
           ) {
             beat.withheldTables++;
@@ -4807,12 +4819,20 @@ export class HorseFleetManager {
     try {
       const tableById = new Map<string, any>(tables.map((t: any) => [t.id as string, t]));
       const cashPlanPrimaryTables = horseCashPlanPrimaryTables(tables);
+      /* Lightning Clusters run without the clock schedule (Dan 2026-11-05). */
+      const cashPlanLightningGames = await this.lightningClusterIds();
       const seatsByTable = new Map<string, typeof allActiveSeats>();
       for (const seat of allActiveSeats) {
         const seats = seatsByTable.get(seat.table_id);
         if (seats) seats.push(seat);
         else seatsByTable.set(seat.table_id, [seat]);
       }
+      const cashPlanLightningHumanGames = lightningGamesWithPlayingHumans(
+        tables,
+        seatsByTable,
+        horseIdSet,
+        cashPlanLightningGames
+      );
 
       /* PAGED (2026-09-09), like every other read of this queue in the file.
          A bare `.select()` is capped at db-max-rows (1,000) without erroring;
@@ -4900,7 +4920,9 @@ export class HorseFleetManager {
             table,
             playingHumansAtCashTable(seatsByTable.get(table.id) ?? [], horseIdSet),
             Date.now(),
-            cashPlanPrimaryTables
+            cashPlanPrimaryTables,
+            cashPlanLightningGames,
+            cashPlanLightningHumanGames
           )
         )
           continue;

@@ -18,6 +18,7 @@ const targets = [...manifest.targets, ...additional.targets];
 const manifestHash = createHash('sha256').update(bytes).update(additionalBytes).digest('hex');
 const UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 export const OWNER_ACTIONS = ['owner_request', 'owner_read', 'owner_ack'];
+const isOwnerAck = (action) => action === 'owner_ack';
 export function ownerRetirementIntent(input) {
   const member = targets.find((r) => r.tournament_id === input.tournamentId);
   if (
@@ -130,7 +131,7 @@ export async function controlOwnerRetirement(
     // Never advance a disposition already committed under any mode.
     if (value.state !== 'settled' && value.current_generation !== intent.generation)
       throw Error('Generation Changed');
-    if (value.state === 'settled' && input.action === 'owner_ack') {
+    if (value.state === 'settled' && isOwnerAck(input.action)) {
       if (
         value.tournament_status !== 'CANCELLED' ||
         value.receipt?.fully_settled !== true ||
@@ -149,6 +150,11 @@ export async function controlOwnerRetirement(
         ? value.current_generation
         : null,
       current_boundary_valid: value.current_boundary_valid === true,
+      // A table still holding a reserved hand: one from a generation that can
+      // never finish it, since the stop already fenced the event (2026-11-05).
+      dead_hand:
+        Array.isArray(value.tables) &&
+        value.tables.some((table) => typeof table?.cancellable_permit_id === 'string'),
       quiescence_generation: UUID.test(value.quiescence_generation ?? '')
         ? value.quiescence_generation
         : null,
@@ -162,7 +168,7 @@ export async function controlOwnerRetirement(
     result.before = await health();
     result.canonicalBefore = await read();
     if (result.canonicalBefore.state === 'settled') {
-      if (input.action !== 'owner_ack') {
+      if (!isOwnerAck(input.action)) {
         result.after = await health();
         result.outcome = 'prior_disposition_preserved';
         return result;
@@ -244,12 +250,17 @@ export async function controlOwnerRetirement(
           JSON.stringify(r.tournament_ids) !== JSON.stringify([intent.tournamentId])
         )
           throw Error('Request Acknowledgement Unknown');
-      } else if (input.action === 'owner_ack') {
+      } else if (isOwnerAck(input.action)) {
         if (result.canonicalBefore.state === 'not_requested') throw Error('Stop Not Requested');
         attempted = true;
         const r = await request('https://engine.smarter.poker/admin/tournament-abort-boundary', {
           operationId: intent.operationId,
           tournamentId: intent.tournamentId,
+          // OWNER RETIREMENT CANCELS A DEAD GENERATION HAND (2026-11-05). Such a
+          // hand can never park, so ask for the owner-retirement closure, which
+          // cancels it through the audited door; the database admits it only
+          // for an event the owner recorded for retirement.
+          ...(result.canonicalBefore.dead_hand ? { closureMode: 'owner_retirement' } : {}),
         });
         if (r.success !== true || r.runtime?.operation_id !== intent.operationId)
           throw Error('Boundary Acknowledgement Unknown');
@@ -268,7 +279,7 @@ export async function controlOwnerRetirement(
     )
       result.outcome = attempted ? 'owner_stop_requested' : 'owner_stop_already_requested';
     else if (
-      input.action === 'owner_ack' &&
+      isOwnerAck(input.action) &&
       result.canonicalAfter.state === 'quiesced' &&
       result.canonicalAfter.current_boundary_valid &&
       result.canonicalAfter.quiescence_generation === intent.generation

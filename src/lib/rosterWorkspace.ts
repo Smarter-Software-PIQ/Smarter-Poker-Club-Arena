@@ -1,5 +1,10 @@
 import { supabase } from './supabase';
 import {
+  notePagePreferenceRevision,
+  pagePreferenceRevision,
+  savePagePreference,
+} from './pagePreferenceSave';
+import {
   awaitPreferenceSave,
   beginTableSettingIntent,
   confirmTableSettingIntent,
@@ -119,19 +124,16 @@ async function saveWorkspace(
 ): Promise<void> {
   const key = `roster:workspace:${club}`;
   await orderTableSettingWrite(viewer, `page:${key}`, async () => {
-    try {
-      const { error } = await awaitPreferenceSave(
-        supabase
-          .from('user_page_preferences')
-          .upsert(
-            { user_id: viewer, preference_key: key, value: workspace },
-            { onConflict: 'user_id,preference_key' }
-          )
-      );
-      if (error) throw error;
-      confirmTableSettingIntent(viewer, `page:${key}`, id);
-    } catch (error) {
-      reportError(error, 'RosterWorkspace.save');
+    /* Revision-checked like every page preference (2026-11-05): a refused
+       save means the account holds a newer workspace, which is shown. */
+    const outcome = await savePagePreference(viewer, key, workspace, id, () => {
+      const pending = readTableSettingIntent(viewer, `page:${key}`);
+      const held = pending && decodeWorkspace(pending.value);
+      if (held && pending) void saveWorkspace(viewer, club, held, pending.id);
+    });
+    if (outcome.status === 'conflict') {
+      const newer = decodeWorkspace(outcome.value);
+      if (newer) cacheWorkspace(viewer, club, newer);
     }
   });
 }
@@ -150,12 +152,13 @@ export async function loadRosterWorkspace(viewer: string, club: string): Promise
     const { data, error } = (await awaitPreferenceSave(
       supabase
         .from('user_page_preferences')
-        .select('value')
+        .select('value, revision')
         .eq('user_id', viewer)
         .eq('preference_key', `roster:workspace:${club}`)
         .maybeSingle()
-    )) as { data?: { value: unknown } | null; error: unknown };
+    )) as { data?: { value: unknown; revision?: unknown } | null; error: unknown };
     if (error) throw error;
+    if (data) notePagePreferenceRevision(viewer, `roster:workspace:${club}`, data.revision);
     if ((workspaceRevisions.get(rosterWorkspaceKey(viewer, club)) ?? 0) !== revision)
       return readRosterWorkspace(viewer, club) ?? workspace;
     workspace = decodeWorkspace(data?.value) ?? workspace;
@@ -177,7 +180,12 @@ export function writeRosterWorkspace(
   const revisionKey = rosterWorkspaceKey(viewer, club);
   workspaceRevisions.set(revisionKey, (workspaceRevisions.get(revisionKey) ?? 0) + 1);
   cacheWorkspace(viewer, club, safe);
-  const id = beginTableSettingIntent(viewer, `page:roster:workspace:${club}`, safe);
+  const id = beginTableSettingIntent(
+    viewer,
+    `page:roster:workspace:${club}`,
+    safe,
+    pagePreferenceRevision(viewer, `roster:workspace:${club}`)
+  );
   void saveWorkspace(viewer, club, safe, id);
 }
 export function writeRosterReturnPosition(

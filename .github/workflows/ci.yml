@@ -150,6 +150,7 @@ jobs:
       phase4: ${{ steps.f.outputs.phase4 }}
       fixture: ${{ steps.f.outputs.fixture }}
       instructions_only: ${{ steps.f.outputs.instructions_only }}
+      unit_shards: ${{ steps.f.outputs.unit_shards }}
       head_current: ${{ steps.head.outputs.head_current }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -1293,7 +1294,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: ${{ fromJSON(needs.changes.outputs.unit_shards || '[1,2,3,4,5,6,7,8]') }}
 
     steps:
       - name: Checkout
@@ -1328,12 +1329,12 @@ jobs:
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8
+        run: node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Report
         if: always()
         run: |
-          echo "## Client Unit Tests - shard ${{ matrix.shard }}/8" >> $GITHUB_STEP_SUMMARY
+          echo "## Client Unit Tests - shard ${{ matrix.shard }}/${{ strategy.job-total }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`tests/**\` via vitest. Blocking - see the note above this job" >> $GITHUB_STEP_SUMMARY
           echo "in ci.yml for why it exists." >> $GITHUB_STEP_SUMMARY
@@ -1356,7 +1357,7 @@ jobs:
   # when the diff touches neither src nor tests - so this runs on `always()`
   # and only fails on a real failure, never on a skip.
   unit:
-    needs: unit_shards
+    needs: [changes, unit_shards]
     if: always()
     name: Client Unit Tests (vitest)
     runs-on: ubuntu-latest
@@ -1367,16 +1368,26 @@ jobs:
           RESULT="${{ needs.unit_shards.result }}"
           echo "## Client Unit Tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Eight shards, aggregated. Matrix result: **$RESULT**" >> $GITHUB_STEP_SUMMARY
+          echo "Selected shards, aggregated. Matrix result: **$RESULT**" >> $GITHUB_STEP_SUMMARY
           case "$RESULT" in
             success)
-              echo "All eight shards passed." >> $GITHUB_STEP_SUMMARY ;;
+              echo "Every selected shard passed." >> $GITHUB_STEP_SUMMARY ;;
             skipped)
-              # Not a failure: the diff touched neither src/ nor tests/.
-              echo "Skipped - the diff touched neither \`src/\` nor \`tests/\`." >> $GITHUB_STEP_SUMMARY ;;
+              if [ "${{ github.event_name }}" = pull_request ]; then
+                if [ "${{ needs.changes.result }}" != success ] ||
+                   [ "${{ needs.changes.outputs.src }}" != false ] ||
+                   [ "${{ needs.changes.outputs.tests }}" != false ]; then
+                  echo '::error::Required unit coverage did not execute; missing/empty matrix is not passing.'
+                  exit 1
+                fi
+              elif [ "${{ github.event_name }}" = schedule ]; then
+                echo '::error::Scheduled unit coverage did not execute.'
+                exit 1
+              fi
+              echo "Intentionally omitted by this event's complete component classification." >> $GITHUB_STEP_SUMMARY ;;
             *)
               echo "A shard did not pass. Open the shard job for the failing test." >> $GITHUB_STEP_SUMMARY
-              echo "::error title=CLIENT UNIT TESTS FAILED::At least one of the eight vitest shards did not pass ($RESULT). The failing test is in the shard job, not here."
+              echo "::error title=CLIENT UNIT TESTS FAILED::A required vitest shard did not pass ($RESULT). The failing test is in the shard job, not here."
               exit 1 ;;
           esac
 
@@ -1560,6 +1571,13 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-bounty-guarantee-postgres.py
+
+      - name: Cash queues explain their authoritative admission state
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-cash-queue-feedback-postgres.py
 
       - name: Cash top-up retries read their original receipt
         if: matrix.shard == 1
@@ -1745,6 +1763,30 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-midway-bounty-freezeout.py
+      - name: Guarantee funding is watched both ways on production's definitions
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-guarantee-funding-watch.py
+      - name: A bounty only PKO ends with two players on native PostgreSQL
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-bounty-only-pko-final-two.py
+      - name: A bounty only final two payout is watched on native PostgreSQL
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-bounty-only-final-two-watch.py
+      - name: The sweep gate reads pending bounty work on native PostgreSQL
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-sweep-gate-pending-bounty-work.py
       - name: Owner alerts preserve the actual finding through the real PostgreSQL trigger
         if: matrix.shard == 1
         env:
@@ -4855,7 +4897,7 @@ jobs:
           # The JSON report beside the line reporter feeds the flaky-case
           # summary step below: these suites have run with one retry since
           # before 2026-09-26, and a case that passed only on retry is named.
-          PLAYWRIGHT_JSON_OUTPUT_NAME="$RUNNER_TEMP/css-beats-report.json" node scripts/ci/ui-test-selection.mjs browser tests/e2e/multi-table.spec.ts tests/e2e/live-animations.spec.ts tests/e2e/card-squeeze-visual-regression.spec.ts tests/e2e/card-squeeze-mobile.spec.ts tests/e2e/river-squeeze-interactive.spec.ts tests/e2e/spin-wheel-on-a-phone.spec.ts tests/e2e/hero-card-row.spec.ts tests/e2e/table-proportions.spec.ts tests/e2e/top-rail-seat.spec.ts tests/e2e/pot-above-chips.spec.ts tests/e2e/flop-fan-open.spec.ts tests/e2e/hero-cards-no-glitch.spec.ts tests/e2e/raise-panel-covers-chat.spec.ts tests/e2e/customization-controls.spec.ts tests/e2e/diamond-checkout-mobile.spec.ts tests/e2e/css/diamond-wheel-reveal.spec.ts tests/e2e/tap-sweep-rules.spec.ts tests/e2e/club-mobile-wallet-reach.spec.ts tests/e2e/mobile-lobby-chrome.spec.ts tests/e2e/css/club-lobby-sticky-selector.spec.ts tests/e2e/css/club-members-containment.spec.ts tests/e2e/css/player-detail-containment.spec.ts tests/e2e/css/hand-review-awards.spec.ts tests/e2e/footer-visual-regression.spec.ts tests/e2e/footer-route.spec.ts tests/e2e/header-portrait-frame.spec.ts --project=chromium --project=webkit-footer --reporter=line,json --retries=1 --grep="$CSS_BEAT_GREP" --shard=${{ matrix.shard }}/10
+          PLAYWRIGHT_JSON_OUTPUT_NAME="$RUNNER_TEMP/css-beats-report.json" node scripts/ci/ui-test-selection.mjs browser tests/e2e/multi-table.spec.ts tests/e2e/live-animations.spec.ts tests/e2e/card-squeeze-visual-regression.spec.ts tests/e2e/card-squeeze-mobile.spec.ts tests/e2e/river-squeeze-interactive.spec.ts tests/e2e/spin-wheel-on-a-phone.spec.ts tests/e2e/hero-card-row.spec.ts tests/e2e/table-proportions.spec.ts tests/e2e/css/the-chairs-never-change-order.spec.ts tests/e2e/top-rail-seat.spec.ts tests/e2e/pot-above-chips.spec.ts tests/e2e/flop-fan-open.spec.ts tests/e2e/hero-cards-no-glitch.spec.ts tests/e2e/raise-panel-covers-chat.spec.ts tests/e2e/customization-controls.spec.ts tests/e2e/diamond-checkout-mobile.spec.ts tests/e2e/css/diamond-wheel-reveal.spec.ts tests/e2e/tap-sweep-rules.spec.ts tests/e2e/club-mobile-wallet-reach.spec.ts tests/e2e/mobile-lobby-chrome.spec.ts tests/e2e/css/club-lobby-sticky-selector.spec.ts tests/e2e/css/club-members-containment.spec.ts tests/e2e/css/player-detail-containment.spec.ts tests/e2e/css/hand-review-awards.spec.ts tests/e2e/footer-visual-regression.spec.ts tests/e2e/footer-route.spec.ts tests/e2e/header-portrait-frame.spec.ts --project=chromium --project=webkit-footer --reporter=line,json --retries=1 --grep="$CSS_BEAT_GREP" --shard=${{ matrix.shard }}/10
 
       # The CSS Beat suites run with one retry: a case that passed only on
       # retry is named, never counted as clean.

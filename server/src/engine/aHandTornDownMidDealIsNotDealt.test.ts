@@ -335,6 +335,10 @@ for (const owner of ['weekly', 'physical'] as const) {
         isHandForHandReleaseBlocked() {
           return physicalHeld;
         },
+        // The held physical owner here is not an unclaimed table move.
+        isNextHandPausedOnlyByUnclaimedTournamentMove() {
+          return false;
+        },
         awaitPauseGate() {
           return new Promise<void>((resolve) => {
             wakePhysical = resolve;

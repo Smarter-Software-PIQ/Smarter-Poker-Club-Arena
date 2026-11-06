@@ -35,7 +35,9 @@ class ActivationFloor(unittest.TestCase):
         # The caller supplies TMPDIR on the external SSD on macOS.
         self.temp = tempfile.TemporaryDirectory(prefix='activation-floor-')
         self.addCleanup(self.temp.cleanup)
-        self.repo = Path(self.temp.name)
+        # Resolved: engine-release-recover.sh names its control dir by pwd -P, and
+        # on macOS the temp root is a /var -> /private/var link (no-op on Linux).
+        self.repo = Path(self.temp.name).resolve()
         self.git('init', '-q')
         self.git('config', 'core.hooksPath', str(self.repo / 'no-hooks'))
         self.git('config', 'user.name', 'Isolated fixture')
@@ -675,7 +677,6 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_hybrid_earliest_safe_window_binds_the_live_floor_and_keeps_the_expired_minute53_entry(self):
         import hashlib
         window, raw = self.historical_floor('2026-11-05-hybrid-earliest-safe-1345z')
-        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
         self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-05T13:45:00Z', '2026-11-05T19:45:00Z'))
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
@@ -690,6 +691,43 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-05-hybrid-earliest-safe-1345z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-hybrid-earliest-safe-1345z')
         self.assertTrue(current['supersedesPhase1Schedule'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+
+    def test_lightning_always_runs_window_binds_the_live_floor_and_keeps_the_hybrid_entry(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-05-lightning-always-runs-1945z')
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-05T19:45:00Z', '2026-11-06T01:45:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertNotIn('announceAtChicagoMinutes', window)
+        self.assertNotIn('certifiedRecoveryProfile', window)
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        self.assertEqual(window['contains'], '1e6b597005285a55805242299025648bf8cae422')
+        hybrid, hybrid_raw = self.historical_floor('2026-11-05-hybrid-earliest-safe-1345z')
+        self.assertEqual(hybrid['releaseWitness']['sha256'], hashlib.sha256(hybrid_raw).hexdigest())
+        self.assertEqual(hybrid['notAfter'], '2026-11-05T19:45:00Z')
+        current = self.owner_record(window_id='2026-11-05-lightning-always-runs-1945z')
+        self.assertEqual(current['ownerWindowId'], '2026-11-05-lightning-always-runs-1945z')
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+
+    def test_cash_styles_window_binds_the_live_floor_and_keeps_the_lightning_entry(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-05-cash-styles-and-deal-timing-2045z')
+        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-05T20:45:00Z', '2026-11-06T02:45:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertNotIn('announceAtChicagoMinutes', window)
+        self.assertNotIn('certifiedRecoveryProfile', window)
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        self.assertEqual(window['contains'], 'a8b078fbde30d698511dad0ac355bd48d7a967bd')
+        lightning, lightning_raw = self.historical_floor('2026-11-05-lightning-always-runs-1945z')
+        self.assertEqual(lightning['releaseWitness']['sha256'], hashlib.sha256(lightning_raw).hexdigest())
+        self.assertEqual(lightning['notAfter'], '2026-11-06T01:45:00Z')
+        current = self.owner_record(window_id='2026-11-05-cash-styles-and-deal-timing-2045z')
+        self.assertEqual(current['ownerWindowId'], '2026-11-05-cash-styles-and-deal-timing-2045z')
         self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):

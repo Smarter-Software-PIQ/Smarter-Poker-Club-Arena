@@ -145,7 +145,7 @@ describe('browser qualification parallel delivery', () => {
     expect(browser.name).toContain('${{ matrix.partition }}');
     expect(beats.run).not.toContain('--pass-with-no-tests');
     expect(beats.run.trim()).toMatch(/--shard=\$\{\{ matrix\.shard \}\}\/10$/);
-    expect((beats.run.match(/tests\/e2e\//g) || []).length).toBe(26);
+    expect((beats.run.match(/tests\/e2e\//g) || []).length).toBe(27);
     for (const value of browser.steps) expect(value['continue-on-error']).toBeUndefined();
     const evidence = step('Preserve failed CSS beat browser evidence');
     expect(evidence.if).toContain("steps.css-beats.outcome == 'failure'");
@@ -322,18 +322,22 @@ describe('eight client shards retain the required verdict and unchanged safeguar
     const shards = ci.jobs.unit_shards;
     expect(shards.strategy).toEqual({
       'fail-fast': true,
-      matrix: { shard: [1, 2, 3, 4, 5, 6, 7, 8] },
+      matrix: {
+        shard: "${{ fromJSON(needs.changes.outputs.unit_shards || '[1,2,3,4,5,6,7,8]') }}",
+      },
     });
-    expect(new Set(shards.strategy.matrix.shard).size).toBe(8);
+    expect(ci.jobs.changes.outputs.unit_shards).toBe('${{ steps.f.outputs.unit_shards }}');
     expect(shards.env.VITEST_MAX_THREADS).toBe(8);
     expect(shards['timeout-minutes']).toBe(30);
     expect(
       shards.steps.find((value: { name: string }) => value.name === 'Run Test Suite').run
-    ).toBe('node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8');
-    expect(shards.steps.find((value: { name: string }) => value.name === 'Report').run).toContain(
-      'Client Unit Tests - shard ${{ matrix.shard }}/8'
+    ).toBe(
+      'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}'
     );
-    expect(ci.jobs.unit.needs).toBe('unit_shards');
+    expect(shards.steps.find((value: { name: string }) => value.name === 'Report').run).toContain(
+      'Client Unit Tests - shard ${{ matrix.shard }}/${{ strategy.job-total }}'
+    );
+    expect(ci.jobs.unit.needs).toEqual(['changes', 'unit_shards']);
     expect(ci.jobs.unit.if).toBe('always()');
     expect(ci.jobs.unit.name).toBe('Client Unit Tests (vitest)');
   });
@@ -346,16 +350,26 @@ describe('eight client shards retain the required verdict and unchanged safeguar
         const judge = ci.jobs.unit.steps.find(
           (value: { name: string }) => value.name === 'Every shard passed'
         );
-        expect(judge.run).toContain('All eight shards passed.');
+        expect(judge.run).toContain('Every selected shard passed.');
         const run = spawnSync(
           'bash',
-          ['-e', '-c', judge.run.replace('${{ needs.unit_shards.result }}', result)],
+          [
+            '-e',
+            '-c',
+            judge.run
+              .replace('${{ needs.unit_shards.result }}', result)
+              .replace('${{ github.event_name }}', 'pull_request')
+              .replaceAll('${{ needs.changes.result }}', 'success')
+              .replaceAll('${{ needs.changes.outputs.src }}', 'false')
+              .replaceAll('${{ needs.changes.outputs.tests }}', 'true')
+              .replaceAll('${{ needs.changes.outputs.unit_shards }}', '[1,2,3,4,5,6,7,8]'),
+          ],
           {
             encoding: 'utf8',
             env: { ...process.env, GITHUB_STEP_SUMMARY: join(root, 'summary') },
           }
         );
-        expect(run.status, run.stderr).toBe(['success', 'skipped'].includes(result) ? 0 : 1);
+        expect(run.status, run.stderr).toBe(result === 'success' ? 0 : 1);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

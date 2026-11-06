@@ -918,7 +918,26 @@ export interface PerPotAward {
 // Horse AI Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type HorseStyle = 'tag' | 'lag' | 'balanced' | 'tricky' | 'grinder';
+/**
+ * Owner direction (2026-11-05): every horse is assigned the 'hybrid' style.
+ * The five legacy styles stay in the table as the retired personas and as
+ * the mode-specific source profiles the Hybrid resolves to (cash plays the
+ * grinder table, tournaments play the tricky table); no live assignment path
+ * writes one of them to a horse any more. See HorseHybridProfile.ts.
+ */
+export type HorseStyle = 'tag' | 'lag' | 'balanced' | 'tricky' | 'grinder' | 'hybrid';
+
+/** The style every live assignment path writes to a horse. */
+export const HORSE_ASSIGNED_STYLE: HorseStyle = 'hybrid';
+
+/** The five styles retired from assignment on 2026-11-05; kept for history. */
+export const RETIRED_HORSE_STYLES: readonly HorseStyle[] = Object.freeze([
+  'tag',
+  'lag',
+  'balanced',
+  'tricky',
+  'grinder',
+]);
 
 export type HorseTournamentUtilityObjective =
   | 'mtt_payout'

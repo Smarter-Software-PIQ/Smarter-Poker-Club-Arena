@@ -1,3 +1,4 @@
+import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
 import { smallPotNearNutRiverValue } from './HorseNearNutRiverValue.js';
@@ -485,6 +486,21 @@ const STYLE_PARAMS: Record<HorseStyle, StyleParams> = {
     sizingMultiplier: 0.88,
     thinkRange: [1200, 3800],
   },
+  // Owner direction (2026-11-05): 'hybrid' is the style every horse carries.
+  // The live table and Lightning paths never bring 'hybrid' here: they resolve
+  // it through resolveHorseHybridProfile, which replaces the style with the
+  // mode's source profile (cash: grinder, tournament: tricky) before decide()
+  // runs. This row is the cash source table so a direct caller without a mode
+  // plays the same base a Hybrid horse plays at a cash table.
+  hybrid: {
+    tightness: 1.12,
+    bluffFreq: 0.09,
+    aggression: 0.95,
+    slowplayFreq: 0.12,
+    checkRaiseFreq: 0.09,
+    sizingMultiplier: 0.88,
+    thinkRange: [1200, 3800],
+  },
 };
 
 /** Optional per-horse modifiers stored in profiles.horse_profile (jsonb). */
@@ -657,6 +673,9 @@ export function resolveHorseStyle(
     balanced: 'balanced',
     tricky: 'tricky',
     grinder: 'grinder',
+    // Owner direction (2026-11-05): the assigned style of every horse. It is
+    // read as itself, never as a default; the game mode picks its profile.
+    hybrid: 'hybrid',
     reg: 'tag',
     fish: 'balanced',
     nit: 'grinder',
@@ -2485,7 +2504,21 @@ export interface HorseDecideOpts {
  * kind of exploitable-looking texture humans produce — while staying zero-mean
  * across the fleet and across time.
  */
-function moodOf(userId: string, decisionTimeMs = Date.now()): number {
+/**
+ * THE TEST SUITE PINS THE MOOD HOUR (2026-11-05). The mood reads the wall
+ * clock, so any suite measuring horse frequencies moved with the hour it ran
+ * in: HorseDefenceByOpener fell under its floors from 12:00 UTC and blocked
+ * every engine release. src/testing/theHorseMoodHourIsPinned.ts sets this
+ * global for the whole suite; production never sets it, so live horses keep
+ * their real hourly mood. A decision that passes decisionTimeMs still wins.
+ */
+export const HORSE_MOOD_TEST_CLOCK_KEY = '__smarterPokerHorseMoodClockMs';
+function moodClockMs(): number {
+  const pinned = (globalThis as Record<string, unknown>)[HORSE_MOOD_TEST_CLOCK_KEY];
+  return typeof pinned === 'number' && Number.isFinite(pinned) ? pinned : Date.now();
+}
+
+function moodOf(userId: string, decisionTimeMs = moodClockMs()): number {
   const key = userId + '|' + Math.floor(decisionTimeMs / 3_600_000);
   let h = 17;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
@@ -9848,7 +9881,17 @@ export class HorseLogic {
       // vulnerable made hands and monsters on DYNAMIC boards, low frequency.
       // In position it never applies — checked to us, the aggressor already
       // declined to bet, so stabbing/value-betting is not a donk.
-      if (useV11 && useIQ && initiative === 'opp' && !prevChecked && !ip) {
+      // Multiway, the same is true after the actual aggressor checks even
+      // when a different opponent remains behind. Position alone cannot
+      // tell us whether we are leading into the aggressor.
+      if (
+        useV11 &&
+        useIQ &&
+        initiative === 'opp' &&
+        !prevChecked &&
+        !ip &&
+        !priorAggressorCheckedThisStreet(gs.actionHistory, street)
+      ) {
         const donkLead =
           (vulnerable && wetness >= 0.5 && fastRandom() < 0.2) ||
           (equity >= multiwayValueBar(0.8, oppCount) + mw && wetness >= 0.55 && fastRandom() < 0.3);

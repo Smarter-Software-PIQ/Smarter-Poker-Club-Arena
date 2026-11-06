@@ -1,0 +1,91 @@
+.dialog[role='dialog'] {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0;
+}
+.body {
+  color: #e4e7ec;
+  font-size: max(14px, 3.7cqw);
+  overflow-wrap: anywhere;
+}
+.body p {
+  margin: 12px 0;
+}
+.action {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: #45adff !important;
+  font: inherit;
+  min-height: 44px;
+  cursor: pointer;
+}
+.totals {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+.totals dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.search {
+  display: block;
+  color: #45adff;
+}
+.search input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  font: inherit;
+  color: #e4e7ec;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #9aa5b3;
+}
+.tableScroll {
+  max-height: 45vh;
+  overflow: auto;
+}
+.tableScroll table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.tableScroll caption {
+  text-align: left;
+  padding: 12px 0;
+  color: #45adff;
+}
+.tableScroll th,
+.tableScroll td {
+  padding: 10px 4px;
+  border-bottom: 1px solid #050607;
+  text-align: left;
+}
+.tableScroll th {
+  font-weight: 500;
+}
+.tableScroll td {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.loss {
+  color: #ff5b6e;
+}
+.value {
+  color: #e4e7ec;
+}
+
+.tableScroll table {
+  display: table;
+  white-space: normal;
+}
+.tableScroll th:last-child {
+  text-align: right;
+}
+.dialog[role='dialog']::before,
+.dialog[role='dialog']::after {
+  display: none;
+}

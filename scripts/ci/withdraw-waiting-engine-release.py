@@ -834,10 +834,15 @@ def unfrozen_owner():
 
 
 def prove_unfrozen_announcement(rows, active, stamp, now, owner_request, promise, serving_instance=None):
-    """The expired owner never froze: no thaw for its exact announcement, no
-    maintenance owner, and its sealed runtime is the fresh idle leader."""
+    """An expired owner over a non-EED serving engine. Either it never froze
+    (no thaw for its exact announcement), or it froze and the STILL-SERVING
+    engine fully thawed its own exact window (2026-11-05: run 42099609162-1
+    froze 20:29:32Z, its restart certificate stayed shut on one in-flight
+    hand, and 71087373 thawed 20:33:10Z). No maintenance owner either way,
+    and the sealed runtime is the fresh idle leader."""
     require(unfrozen_owner() and owner_request is not None and owner_request['desiredSha'] != EED_SHA)
-    require(rows == [] and active == [] and type(stamp) is int and stamp + 420000 < now)
+    require(isinstance(rows, list) and len(rows) <= 1)
+    require(active == [] and type(stamp) is int and stamp + 420000 < now)
     require(isinstance(promise, dict) and promise.get('schema') == 'maintenance-promise-floor/v1'
             and promise.get('maintenance', {}) is None
             and 0 <= now - time_ms(promise.get('observedAt')) <= 10000)
@@ -846,7 +851,14 @@ def prove_unfrozen_announcement(rows, active, stamp, now, owner_request, promise
     require(isinstance(leader, dict) and leader.get('version') == owner_request['desiredSha'][:8]
             and leader.get('instanceId') == instance
             and 0 <= now - time_ms(leader.get('heartbeatAt')) <= 15000)
-    return {'schema': 'unfrozen-owner-announcement/v1', 'announcedAtMs': stamp, 'ownFreeze': None,
+    own_freeze = None
+    if rows:
+        # The complete generic v3 thaw proof for this exact announcement, and
+        # the thaw was recorded by the engine that is still serving.
+        require(rows[0].get('thawed_by') == owner_request['desiredSha'][:8])
+        own_freeze = prove_thaw(rows, active, stamp, now)
+    return {'schema': 'thawed-owner-announcement/v1' if own_freeze else 'unfrozen-owner-announcement/v1',
+            'announcedAtMs': stamp, 'ownFreeze': own_freeze,
             'leaderVersion': owner_request['desiredSha'][:8], 'leaderInstance': instance}
 
 

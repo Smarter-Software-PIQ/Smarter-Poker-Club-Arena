@@ -150,7 +150,7 @@ const nativeAlerts =
 const nativeAlertSql =
   /^(scripts\/ci\/test-native-alert-event\.py$|tests\/fixtures\/native-alert-event\/|supabase\/migrations\/20261027175950_native_alert_event_delivery\.sql$)/;
 const fixture =
-  /^(server\/(src\/(?!.*\.test\.)|package(-lock)?\.json|tsconfig\.json)|supabase\/migrations\/20260917(230925|232243)_|operations\/release\/(fixture\/|native\/|ci\/fixture-smoke\.py)|\.github\/workflows\/(ci|component-fixture-native-smoke|release-component-qualification)\.yml|scripts\/ci\/(fixture-native-gate|classify-ci-changes)\.mjs|tests\/(fixtures\/ev-cashout-lifecycle\/|fixtures\/full-weekly-accounting\/(tables|functions|types|sequences|triggers-round-3)\.json$|fixtures\/cash-participant-funding\/(bootstrap\.sql|captured-(preimages|hand-preimages|integration-preimages|reader-preimages)\.json)$|fixtures\/union-weekly-basis\/captured-cash-dependencies\.json$|operations\/(fixture-|financial-|component-source-contract|native-component-semantics|fixtures\/realtime-launcher\/)|unit\/fixtureNativeCi\.test\.ts)|package(-lock)?\.json|\.npmrc|\.nvmrc|\.node-version)/;
+  /^(server\/(src\/(?!.*\.test\.)|package(-lock)?\.json|tsconfig\.json)|supabase\/migrations\/20260917(230925|232243)_|operations\/release\/(fixture\/|native\/|ci\/fixture-smoke\.py)|\.github\/workflows\/(ci|component-fixture-native-smoke|release-component-qualification)\.yml|scripts\/ci\/(fixture-native-gate|classify-ci-changes)\.mjs|tests\/(fixtures\/ev-cashout-lifecycle\/|fixtures\/full-weekly-accounting\/(tables|functions|types|sequences|triggers-round-3)\.json$|fixtures\/cash-participant-funding\/(bootstrap\.sql|captured-(preimages|hand-preimages|integration-preimages|reader-preimages)\.json)$|fixtures\/union-weekly-basis\/captured-cash-dependencies\.json$|operations\/(fixture-|financial-|component-source-contract|native-component-semantics|fixtures\/realtime-launcher\/))|package(-lock)?\.json|\.npmrc|\.nvmrc|\.node-version)/;
 
 // These maintained SQL components and fixture inputs feed the existing required
 // PostgreSQL accounting job even when no server application source changes.
@@ -177,7 +177,7 @@ const stableAdminQualification =
 
 // Spin qualification and every reviewed input use the existing accounting job.
 const spinExpiry =
-  /^(supabase\/components\/(?:spin-expiry-lock-order|spin-history-retention|spin-mixed-basis-(?:receipt-lane|current-receipt-lane|current-terminal))(?:\.rollback)?\.sql$|supabase\/components\/spin-mixed-basis-evidence\.sql$|scripts\/qualification\/(?:spin-mixed-basis-(?:shape\.sql|evidence\.preimage\.sql|pure\.(?:sql|hosted\.manifest\.json))$|spin-finalized-horse-admission\.(?:py|manifest\.json)$|spin-horse-admission-race\.py$|spin-horse-platform-paid-entry\.sql$|spin-paid-terminal\.(?:py|md|hosted\.manifest\.json)$|spin-positive-fee-entry(?:-oracle)?\.py$|spin-positive-fee-entry\.(?:md|hosted\.manifest\.json)$|spin-mixed-positive-fee-entry\.sql$|spin-mixed-current(?:-(?:races|assertions))?\.py$|spin-mixed-current\.(?:md|hosted\.manifest\.json)$|spin-receipt-lane(?:-compactor)?\.(?:sql|py|md|hosted\.manifest\.json)$|spin-expiry-|spin-history-retention(?:-behavior\.sql|(?:-completed)?\.(?:sql|md|manifest\.json))$|fixtures\/(?:finalized-horse-admission|archived-spin-core-provider|spin-history-retention|spin-receipt-lane|spin-mixed-current|spin-mixed-positive-fee|spin-paid-terminal)\/)|scripts\/ci\/(?:test-spin-expiry-postgres\.py$|test_spin_expiry_wrapper\.py$|probes\/spin-expiry\/)|tests\/unit\/fixtureNativeCi\.test\.ts$)/;
+  /^(supabase\/components\/(?:spin-expiry-lock-order|spin-history-retention|spin-mixed-basis-(?:receipt-lane|current-receipt-lane|current-terminal))(?:\.rollback)?\.sql$|supabase\/components\/spin-mixed-basis-evidence\.sql$|scripts\/qualification\/(?:spin-mixed-basis-(?:shape\.sql|evidence\.preimage\.sql|pure\.(?:sql|hosted\.manifest\.json))$|spin-finalized-horse-admission\.(?:py|manifest\.json)$|spin-horse-admission-race\.py$|spin-horse-platform-paid-entry\.sql$|spin-paid-terminal\.(?:py|md|hosted\.manifest\.json)$|spin-positive-fee-entry(?:-oracle)?\.py$|spin-positive-fee-entry\.(?:md|hosted\.manifest\.json)$|spin-mixed-positive-fee-entry\.sql$|spin-mixed-current(?:-(?:races|assertions))?\.py$|spin-mixed-current\.(?:md|hosted\.manifest\.json)$|spin-receipt-lane(?:-compactor)?\.(?:sql|py|md|hosted\.manifest\.json)$|spin-expiry-|spin-history-retention(?:-behavior\.sql|(?:-completed)?\.(?:sql|md|manifest\.json))$|fixtures\/(?:finalized-horse-admission|archived-spin-core-provider|spin-history-retention|spin-receipt-lane|spin-mixed-current|spin-mixed-positive-fee|spin-paid-terminal)\/)|scripts\/ci\/(?:test-spin-expiry-postgres\.py$|test_spin_expiry_wrapper\.py$|probes\/spin-expiry\/))/;
 
 // The first archived recovery uses the same required PostgreSQL job. Include
 // input-only edits and removals, rather than relying on a simultaneous driver edit.
@@ -274,6 +274,19 @@ const instructionFiles = new Set([
 export function instructionOnlyPaths(paths) {
   return Array.isArray(paths) && paths.length > 0 && paths.every((p) => instructionFiles.has(p));
 }
+
+// These are known instruction/delivery inputs, not application or fixture data.
+// This chooses worker count; immutable downstream proof still owns omissions.
+export function nonRuntimeCandidatePaths(paths) {
+  return Array.isArray(paths) && paths.length > 0 && paths.every(path => typeof path === 'string' &&
+    /^(?:\.husky\/pre-push|(?:README|AGENTS|CLAUDE|AGENT-PLAYBOOK|PUBLISHING)\.md|docs\/agent-policy\/(?:OWNER-POLICY|OPERATING-LAW|HARDENING|REFERENCE-INDEX)\.md|docs\/agent-policy\/policy-manifest\.json|docs\/changelog\/\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.md|scripts\/(?:agent-push\.sh|ci\/(?:agent-execution(?:-cli)?|execution-preview)\.mjs|ci\/vendor\/agentExecution\.(?:mjs|source\.json))|tests\/(?:unit\/(?:agentPushVerifiesTheRemoteRef|fixtureNativeCi)\.test\.ts|helpers\/agentExecutionCases\.mjs|operations\/ui-test-selection\.test\.mjs))$/.test(path));
+}
+export function clientUnitShards(classification) {
+  return classification?.complete === true && nonRuntimeCandidatePaths(classification.paths) ? [1] : [1,2,3,4,5,6,7,8];
+}
+
+const openingBlindFixture = /^(?:scripts\/ci\/test-(?:tournament-opening-blinds|mtt-lobby-entry-counts)\.py$|scripts\/qualification\/fixtures\/tournament-opening-blinds\/(?!.*\.md$)|tests\/mtt-and-sng-open-at-25-50\.law\.test\.ts$)/;
+const qualificationProjections = /^scripts\/(?:ci\/qualification-input-projections\.py|qualification\/ci-(?:accounting|admission)-inputs\.json)$/;
 
 export function classifyChangedPaths(paths) {
   if (!Array.isArray(paths) || paths.some((p) => typeof p !== 'string' || !p || p.includes('\0'))) {
@@ -458,6 +471,8 @@ export function classifyChangedPaths(paths) {
       buildGate ||
       matches(/^src\//),
     server:
+      matches(qualificationProjections) ||
+      matches(openingBlindFixture) ||
       matches(cancellationAdmission) ||
       matches(/^scripts\/ci\/fixtures\/hand-prune-one-page\.sql$/) ||
       matches(
@@ -526,6 +541,12 @@ export function classifyChangedPaths(paths) {
       matches(satelliteLedgerAuditIndex) ||
       matches(certificationPlayerIndex),
     tests:
+      // The existing Horse study wrapper discovers these Python regressions.
+      // Source-only edits must execute it, not merely a skipped unit gate.
+      matches(/^scripts\/ops\/(?:(?:test_)?horse[-_][^/]+|(?:test_)?omaha_reference)\.py$/) ||
+      nonRuntimeCandidatePaths(paths) ||
+      matches(qualificationProjections) ||
+      matches(openingBlindFixture) ||
       matches(cancellationAdmission) ||
       matches(/^scripts\/ci\/fixtures\/hand-prune-one-page\.sql$/) ||
       privateRecordHosting ||
@@ -651,6 +672,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     Object.entries({
       ...result.flags,
       instructions_only: result.complete && instructionOnlyPaths(result.paths),
+      unit_shards: JSON.stringify(clientUnitShards(result)),
     })
       .map(([key, value]) => `${key}=${value}\n`)
       .join('')

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const io = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
 vi.mock('../services/supabase/client.js', () => ({ supabase: io, maintenanceSupabase: {} }));
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
@@ -125,6 +125,17 @@ describe('a closure hold deals nothing and closes from certified absence', () =>
 });
 
 describe('GameServer hands an unclosable playing manager to a closure hold', () => {
+  // A quiet minute with an idle break and a small event: the bulk-closure
+  // guard (maintenance/bulkClosureGuard.ts) admits it, so these tests judge
+  // only the handoff. TournamentAbortOwnership.test.ts proves the refusals.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-05T17:20:00Z'));
+    io.from.mockReturnValue({
+      select: () => ({ eq: async () => ({ count: 9, error: null }) }),
+    });
+  });
+  afterEach(() => vi.useRealTimers());
   function fixture(answer: () => Promise<unknown>, state = 'stop_requested') {
     const manager = {
       tournamentAbortActuationAllowed: () => true,
@@ -135,6 +146,7 @@ describe('GameServer hands an unclosable playing manager to a closure hold', () 
     };
     const server = Object.create(GameServer.prototype) as any;
     server.tournamentEngines = new Map([[tournament, manager]]);
+    server.maintenanceBreak = { isActive: () => false, isResuming: () => false };
     server.stopTournamentManagerIfOwned = vi.fn(async () => {
       server.tournamentEngines.delete(tournament);
       return true;
@@ -152,6 +164,17 @@ describe('GameServer hands an unclosable playing manager to a closure hold', () 
     });
     return { server, manager };
   }
+
+  it('never retires a playing manager for a closure refused in live play', async () => {
+    const f = fixture(async () => ({ state: 'pending', reason: 'original_graph_not_ready' }));
+    vi.setSystemTime(new Date('2026-11-05T17:58:00Z'));
+    await expect(
+      f.server.acknowledgeTournamentAbortBoundary(operation, tournament, 'equal_share')
+    ).rejects.toMatchObject({ name: 'BulkClosureRefusedError', reason: 'break_window' });
+    expect(f.server.stopTournamentManagerIfOwned).not.toHaveBeenCalled();
+    expect(f.manager.acknowledgeTournamentAbortBoundary).not.toHaveBeenCalled();
+    expect(f.server.operatorClosureHolds?.has(tournament) ?? false).toBe(false);
+  });
 
   it('retires a not-ready playing generation and arms the hold for its successor', async () => {
     const f = fixture(async () => ({ state: 'pending', reason: 'original_graph_not_ready' }));

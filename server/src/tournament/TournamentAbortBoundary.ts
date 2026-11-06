@@ -7,9 +7,19 @@ export interface AbortBoundaryTable {
   cancellable_hand_hash?: string | null;
 }
 
+/**
+ * How an explicit abort closes an event whose original hand can no longer
+ * finish. 'equal_share' is the reviewed equal-share closure; 'owner_retirement'
+ * is the owner-directed retirement of an old stuck event (2026-11-05): both
+ * cancel a dead generation's never-started hand through the same audited door
+ * instead of waiting for it to finish, which it never can. The database admits
+ * 'owner_retirement' only for an event the owner recorded for retirement.
+ */
+export type TournamentAbortClosureMode = 'equal_share' | 'owner_retirement';
+
 export interface AbortBoundaryRequest {
   operation_id: string;
-  closureMode?: 'equal_share';
+  closureMode?: TournamentAbortClosureMode;
   tournament_id: string;
   current_generation: string;
   tables: AbortBoundaryTable[];
@@ -102,7 +112,7 @@ export class TournamentAbortBoundary {
       (absent.length > 0 && !this.deps.captureAbsentTable)
     )
       return pending('original_table_coverage_incomplete');
-    const archivalCancellation = this.request.closureMode === 'equal_share';
+    const archivalCancellation = this.request.closureMode !== undefined;
     if (!this.retirementStarted) {
       // Arm every original synchronously before waiting on any individual hand.
       const parked = archivalCancellation

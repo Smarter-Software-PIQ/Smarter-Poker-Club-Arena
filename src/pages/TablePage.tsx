@@ -4,6 +4,7 @@ import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoun
 import { useTopUpAccounting } from '../hooks/useTopUpAccounting';
 import { autoTopUpRequest, type AutoTopUpRequest } from '../utils/autoTopUpRequest';
 import { tournamentTableLabel } from '../utils/tournamentTableLabel';
+import { tournamentTypeLabel } from '../utils/tournamentTypeLabel';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { useGameSessionLifecycle } from '../hooks/useGameSessionLifecycle';
 import {
@@ -411,6 +412,7 @@ import {
   POT_ANCHOR_PCT,
   seatPodPx,
   fitSeatToViewport,
+  scalerLayoutLeftPx,
   portraitTableTransform,
   portraitBoardWidthOfFeltPct,
   boardCardWidthPx,
@@ -656,6 +658,8 @@ import { useBombPotCountdown } from '../hooks/useBombPotCountdown';
 import { TableHUD } from '../components/table/TableHUD';
 import { TournamentLobbyModal } from '../components/table/TournamentLobbyModal';
 import { useCashSeatEntry } from '../components/table/useCashSeatEntry';
+import { cashSeatOfferKey, liveCashSeatOffer } from '../components/common/waitlistSeatOffer';
+import { recordCashSeatOfferStage } from '../lib/cashSeatOfferTiming';
 import { MustMoveLobbyModal } from '../components/table/MustMoveLobbyModal';
 import { CashClusterHUD } from '../components/table/CashClusterHUD';
 import TournamentInfoPanel from '../components/tournament/TournamentInfoPanel';
@@ -1148,6 +1152,10 @@ if (!_win.__pokerLocks) {
  * that is about to succeed — which is what the old 3s threshold did.
  */
 const ENGINE_LOSS_TOAST_DELAY_MS = 15_000;
+/** A bust's bounty settles in the elimination sweep a few seconds after the hand ends. */
+const BOUNTY_SETTLE_REREAD_MS = 8_000;
+/** The last-resort head poll when no knockout, seat or hand change has re-read them. */
+const BOUNTY_HEAD_POLL_MS = 10_000;
 /** Stable empty roster for the profile sync at an anonymous table (2026-09-07). */
 const NO_SEATED_IDS: readonly (string | undefined)[] = [];
 
@@ -1867,6 +1875,13 @@ function LiveTablePage({
   /* The bounty re-read the load effect publishes; the seat-list effect calls it
      when the set of seated players changes (utils/mysteryBountyTable rule 3). */
   const bountyMapRefreshRef = useRef<(() => Promise<void>) | null>(null);
+  /* THE HEADS MOVE THE MOMENT THE KNOCKOUT SETTLES (Dan 2026-11-05). A head
+     re-read issued before a knockout committed used to land after the
+     knockout's own badge update and put the old head back on the winner, where
+     it stayed until the 30s poll. Every applied knockout bumps this
+     generation; a read that started under an older generation is discarded
+     and read again, so a stale head can never overwrite a settled one. */
+  const bountyMapGenRef = useRef(0);
 
   /**
    * The chest on screen, with whatever is known about it right now.
@@ -2210,6 +2225,9 @@ function LiveTablePage({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableId]);
+  /* The tournament channel's rejoin (below) restores the chests through this. */
+  const restoreMysteryBountyStateRef = useRef(restoreMysteryBountyState);
+  restoreMysteryBountyStateRef.current = restoreMysteryBountyState;
 
   // Listen for that tap. Every client subscribes, including the winner's —
   // runOpen() is idempotent, so the echo of their own broadcast is harmless.
@@ -4853,6 +4871,14 @@ function LiveTablePage({
   /** Dan 2026-08-28: the tabbed hub behind the hero's own avatar. */
   const [showHeroHub, setShowHeroHub] = useState(false);
   const [showBuyInModal, setShowBuyInModal] = useState(false);
+  useEffect(() => {
+    if (!showBuyInModal) return;
+    // Measure after React commits the purchase sheet, rather than the request
+    // that may have returned waitlisted or been refused by a guard.
+    const arrival = liveCashSeatOffer(location.state?.cashSeatOffer, tableId, userId);
+    if (arrival) recordCashSeatOfferStage(arrival, 'buy_in_opened');
+  }, [showBuyInModal, location.state, tableId, userId]);
+
   /**
    * ═══ THE SEAT IS HELD FOR SIXTY SECONDS WHILE YOU BUY IN ═══
    *
@@ -6093,6 +6119,9 @@ function LiveTablePage({
      SHOULD SAY THE TOURNAMENT NAME AND BUY IN, NOT JUST NLH POKER
      TOURNAMENT"). '' until the tournament row has been read. */
   const [tournamentEventName, setTournamentEventName] = useState('');
+  /* Dan 2026-11-05: the line under the event name says what KIND of event it
+     is (PKO Event, Mystery Bounty Event, ...). See utils/tournamentTypeLabel. */
+  const [tournamentTypeLine, setTournamentTypeLine] = useState<string | null>(null);
   const headsUpAnnouncedRef = useRef<Set<string>>(new Set());
   const finalTableAnnouncedRef = useRef<Set<string>>(new Set());
   const [spinHeadsUpNote, setSpinHeadsUpNote] = useState(false);
@@ -11483,6 +11512,8 @@ function LiveTablePage({
             // Maintenance break refusal (2026-10-16): name the break. The
             // retry key is kept; a repeat after the break runs fresh.
             toast?.error(frozenRebuy);
+          } else if (/BUYIN_BELOW_MINIMUM|Insufficient.*chips/i.test(failure.message || '')) {
+            toast?.error(failure.message.replace(/^BUYIN_BELOW_MINIMUM:\s*/, ''));
           } else if (failure.message?.includes('FetchError') || !navigator.onLine) {
             // A rebuy is a debit against a live wallet. It is not queued for
             // later: nothing on the client can prove, at replay time, that the
@@ -12827,7 +12858,7 @@ function LiveTablePage({
           toast.info(
             applied > 0
               ? `${noun} Adjusted: ${applied.toFixed(2)} Added, ${refunded.toFixed(2)} Returned To Your Wallet. Your Stack Is At The Table Maximum.`
-              : `${noun} Returned: ${refunded.toFixed(2)} Is Back In Your Wallet. Your Stack Is Already At The Table Maximum.`
+              : `${noun} Returned: ${refunded.toFixed(2)} Is Back In Your Wallet. The Purchase Must Meet The Table Minimum And Fit Below Its Maximum.`
           );
         }
       }
@@ -15346,6 +15377,9 @@ function LiveTablePage({
             setTournamentEventName(
               formatGameTitle(String((tournData as { name?: unknown }).name ?? '').trim())
             );
+            setTournamentTypeLine(
+              fmt === 'mtt' ? tournamentTypeLabel(tournData as Record<string, unknown>) : null
+            );
             // Seat-first = a Spin (3 seats) or a Heads-Up (2 seats) that has
             // not started. Once it is RUNNING the seats are no longer for
             // sale and the normal tournament table rules apply.
@@ -15567,14 +15601,19 @@ function LiveTablePage({
                showed a missing or wrong bounty on exactly the player a call is
                being priced against. One bounded read on a slow cadence keeps
                every badge true; a failed read keeps the map the table has. */
-            const refreshBountyMap = async () => {
+            const refreshBountyMap = async (attempt = 0): Promise<void> => {
               if (!isMounted || document.hidden) return;
+              const gen = bountyMapGenRef.current;
               const { data: rows, error: readErr } = await supabase
                 .from('tournament_players')
                 .select('user_id, current_bounty')
                 .eq('tournament_id', table.tournament_id)
                 .gt('current_bounty', 0);
               if (!isMounted || readErr || !rows) return;
+              if (gen !== bountyMapGenRef.current) {
+                if (attempt < 2) await refreshBountyMap(attempt + 1);
+                return;
+              }
               const next: Record<string, number> = {};
               rows.forEach((p: { user_id: string; current_bounty: number }) => {
                 next[p.user_id] = p.current_bounty;
@@ -15594,7 +15633,7 @@ function LiveTablePage({
                head shows on the next snapshot rather than up to 30s later. */
             bountyMapRefreshRef.current = refreshBountyMap;
             if (bountyMapPollTimer) clearInterval(bountyMapPollTimer);
-            bountyMapPollTimer = setInterval(() => void refreshBountyMap(), 30_000);
+            bountyMapPollTimer = setInterval(() => void refreshBountyMap(), BOUNTY_HEAD_POLL_MS);
           } else if (tournData?.spin_multiplier) {
             setTableState((prev) => ({
               ...prev,
@@ -17095,6 +17134,7 @@ function LiveTablePage({
                    same winners list as the money, never the flat field, so a
                    split knockout cannot put the whole head on one badge. */
                 const headWinners = bountyWinnersOf(b);
+                bountyMapGenRef.current += 1;
                 setTableState((prev) => {
                   const next = { ...prev.bountyMap };
                   if (b.eliminatedUserId) delete next[b.eliminatedUserId];
@@ -17105,6 +17145,10 @@ function LiveTablePage({
                   }
                   return { ...prev, bountyMap: next };
                 });
+                /* The broadcast leaves after the knockout committed, so one
+                   read now replaces the local arithmetic with the ledger's
+                   own heads. */
+                void bountyMapRefreshRef.current?.();
               } else if (data?.type === 'level_up') {
                 // Blind level increased
                 const levelData = data.payload || {};
@@ -17158,6 +17202,16 @@ function LiveTablePage({
               if (status === 'SUBSCRIBED') {
                 if (isMounted) void refreshTournamentBreakRef.current();
                 void verifyDurableCompletion();
+                /* EVERY REJOIN RE-READS WHAT THE DROP HID (2026-11-05). This
+                   callback runs on the first join AND on every rejoin after a
+                   socket loss (realtime-js reuses the join push). A broadcast
+                   sent while the socket was dead is never resent, so the
+                   heads and any open chest are re-read from the server here,
+                   beside the break and level above. */
+                if (isMounted) {
+                  void bountyMapRefreshRef.current?.();
+                  restoreMysteryBountyStateRef.current();
+                }
               }
               if (status === 'CHANNEL_ERROR') {
                 console.debug('[TablePage] Realtime channel error:', err?.message || err);
@@ -17522,7 +17576,27 @@ function LiveTablePage({
   useEffect(() => {
     if (!tableState.isBountyTournament || !seatedSignature) return;
     void bountyMapRefreshRef.current?.();
+    /* A bust leaves the seat list as the hand ends, but its bounty settles in
+       the elimination sweep a few seconds later. Read once more after that
+       window so the winner's head is right even if the knockout broadcast
+       never reached this table. */
+    const settled = setTimeout(() => void bountyMapRefreshRef.current?.(), BOUNTY_SETTLE_REREAD_MS);
+    return () => clearTimeout(settled);
   }, [seatedSignature, tableState.isBountyTournament]);
+
+  /* EVERY HAND RE-READS THE HEADS (Dan 2026-11-05: "bounties are not updating
+     on the winners heads correctly or in real time"). The knockout broadcast
+     rides a separate realtime channel; when it is late or lost, the felt kept
+     the old head. The engine's own hand counter is on the same socket as the
+     cards, so each new hand in a bounty event reads the ledger heads at once
+     and again after the previous hand's busts have settled. */
+  const bountyHandNumber = tableState.handNumber ?? 0;
+  useEffect(() => {
+    if (!tableState.isBountyTournament || !(bountyHandNumber > 0)) return;
+    void bountyMapRefreshRef.current?.();
+    const settled = setTimeout(() => void bountyMapRefreshRef.current?.(), BOUNTY_SETTLE_REREAD_MS);
+    return () => clearTimeout(settled);
+  }, [bountyHandNumber, tableState.isBountyTournament]);
 
   // The engine socket is replaceable. Its broadcasts are not. Whenever a
   // replacement becomes authoritative, recover any still-open add-on window
@@ -18788,6 +18862,11 @@ function LiveTablePage({
           return {
             ...prev,
             handNumber: syncData.hand_number,
+            // Reconnects carry the same entry status as live snapshots. An
+            // older engine may omit these fields; omission is not a release.
+            waitingForBBUserIds: syncData.waiting_for_bb_user_ids ?? prev.waitingForBBUserIds,
+            postBBDeferredUserIds: syncData.post_bb_deferred_user_ids ?? prev.postBBDeferredUserIds,
+            postingBBUserIds: syncData.posting_bb_user_ids ?? prev.postingBBUserIds,
             pot: syncData.pot || 0,
             communityCards: normalizeCards(syncData.community_cards) as Card[],
             communityCards2: normalizeCards(syncData.community_cards2 || []) as Card[],
@@ -22414,8 +22493,12 @@ function LiveTablePage({
         avatarUrl: heroAvatarUrl,
       })
     : null;
+  // Layout, never paint: see scalerLayoutLeftPx (Danimal's collapsed ring,
+  // 2026-11-05). Rounded so sub-pixel noise does not re-fit the ring.
+  const scalerLayoutLeft = scalerLayoutLeftPx(tableScalerRef.current);
+  const canvasLeftPx = scalerLayoutLeft === undefined ? undefined : Math.round(scalerLayoutLeft);
   const seatPositions = useMemo(() => {
-    const canvasLeft = tableScalerRef.current?.getBoundingClientRect().left;
+    const canvasLeft = canvasLeftPx;
     return seatRotationMap.map(({ pos }) =>
       fitSeatToViewport(
         pos,
@@ -22429,7 +22512,7 @@ function LiveTablePage({
         seatRotationMap.length
       )
     );
-  }, [seatRotationMap, scalerSize, seatViewportWidth, tablePerspectiveTaper]);
+  }, [seatRotationMap, scalerSize, seatViewportWidth, tablePerspectiveTaper, canvasLeftPx]);
   // Published for the deferred chip flights; the ref is declared far above
   // (see seatPositionsRef) so the event handlers can read it.
   seatPositionsRef.current = seatPositions;
@@ -22773,6 +22856,7 @@ function LiveTablePage({
       navigate(`/table/${dest}?buyin=1`);
     }
   };
+  const [cashAdmissionPending, setCashAdmissionPending] = useState(false);
   const enterCashSeat = useCashSeatEntry({
     tableId,
     userId,
@@ -22781,6 +22865,7 @@ function LiveTablePage({
     goToTable: goToCashEntryTable,
     showWaitlist: () => setShowMustMoveLobby(true),
     notify: (message) => toast.info(message),
+    onPendingChange: setCashAdmissionPending,
   });
 
   /* A TAP IS NEVER SPENT ON A CHECK (Dan 2026-10-14): "IT SHOULD JUST CHECK
@@ -22962,27 +23047,41 @@ function LiveTablePage({
      must land the player "to the buy in screen directly". The offer toast and
      the bell deep link both navigate here with ?buyin=1; once the table has
      painted and the hero is not already seated, open the buy-in flow on the
-     first open seat exactly as if they had tapped it. Fires at most once per
-     mount, and never on a tournament table (handleSeatClick refuses those). */
+     first open seat exactly as if they had tapped it. Each committed waitlist
+     offer is its own invitation, even on an already-mounted table whose first
+     attempt was waitlisted. Duplicate offers and thawed deadlines never spend
+     another tap. Tournament tables remain outside the cash purchase path. */
   const [acceptedChair, setAcceptedChair] = useState(0);
   const autoBuyInFiredRef = useRef(false);
+  const consumedSeatOffersRef = useRef(new Set<string>());
   useEffect(() => {
     autoBuyInFiredRef.current = false;
+    consumedSeatOffersRef.current.clear();
   }, [tableId, userId]);
   useEffect(() => {
-    if (autoBuyInFiredRef.current) return;
+    const arrival = location.pathname.endsWith(`/table/${tableId}`)
+      ? location.state?.cashSeatOffer
+      : undefined;
+    const offer = liveCashSeatOffer(arrival, tableId, userId);
+    const offerKey = offer ? cashSeatOfferKey(offer) : null;
+    const freshOffer = offerKey !== null && !consumedSeatOffersRef.current.has(offerKey);
+    if (autoBuyInFiredRef.current && !freshOffer) return;
     // A deep-link invitation was consumed by the seat we have now left.
-    // It cannot become another buy-in invitation in a second window.
-    if (leftSeatPendingRef.current) return;
-    let wantsBuyIn = openBuyInOnArrival || acceptedChair > 0;
+    // Only a new committed offer can authorize another automatic arrival.
+    if (leftSeatPendingRef.current && !freshOffer) return;
+    let wantsBuyIn = openBuyInOnArrival || acceptedChair > 0 || freshOffer;
     try {
       wantsBuyIn ||=
+        arrival === undefined &&
         location.pathname.endsWith(`/table/${tableId}`) &&
-        new URLSearchParams(window.location.search).get('buyin') === '1';
+        new URLSearchParams(location.search).get('buyin') === '1';
     } catch {
       wantsBuyIn = false;
     }
     if (!wantsBuyIn) return;
+    // A committed offer may beat the earlier waitlisted RPC response. Keep
+    // that invitation unconsumed until the original admission has settled.
+    if (cashAdmissionPending) return;
     if (!tableState.players.length) return; // table not painted yet - wait
     /* AND ITS FUNDING IS KNOWN (launch audit 2026-10-05). The seat array is
        painted before the table's asset is read, and handleSeatClick answers a
@@ -23008,6 +23107,10 @@ function LiveTablePage({
     );
     const openIdx = tableState.players.findIndex((p, index) => !p && !occupied.has(index + 1));
     if (openIdx < 0) return;
+    if (freshOffer && offerKey) {
+      consumedSeatOffersRef.current.add(offerKey);
+      setShowMustMoveLobby(false);
+    }
     autoBuyInFiredRef.current = true;
     handleSeatClick(openIdx + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -23017,9 +23120,13 @@ function LiveTablePage({
     tableState.arenaAsset,
     engineSnapshot,
     tableId,
+    userId,
     openBuyInOnArrival,
     acceptedChair,
+    cashAdmissionPending,
     location.pathname,
+    location.search,
+    location.state,
   ]);
 
   /* JOIN LIGHTNING FROM A LIGHTNING TABLE (Dan 2026-10-24: "YOU DON'T SELECT
@@ -27969,6 +28076,14 @@ function LiveTablePage({
                                         </>
                                       )}
                                   </span>
+                                  {tournamentTypeLine && (
+                                    <span
+                                      className="table-brand__line"
+                                      data-testid="tournament-type-line"
+                                    >
+                                      {tournamentTypeLine}
+                                    </span>
+                                  )}
                                   {tournamentTableLabel(tableState.tableName) && (
                                     <span
                                       className="table-brand__line"
@@ -28958,6 +29073,7 @@ function LiveTablePage({
               playerId: player?.id,
               playerStatus: player?.status,
               bountyMap: tableState.bountyMap,
+              engineBounty: player?.bounty,
             });
 
             return (

@@ -1,7 +1,12 @@
 /** Unconfirmed choices survive a remount or reload; only their own save retires them. */
 import { createMutationId } from './mutationId';
 
-type Intent = { id: string; value: unknown };
+/**
+ * `at` is when the player made the choice; `base` is the server revision the
+ * choice was made against (2026-11-05), kept across further taps so a run of
+ * unsaved choices is still judged against what the player first saw.
+ */
+type Intent = { id: string; value: unknown; at?: string; base?: number | null };
 const PREFIX = 'ca_table_setting_intent:';
 const tails = new Map<string, Promise<unknown>>();
 const revisions = new Map<string, number>();
@@ -24,11 +29,26 @@ export function readTableSettingIntent(userId: string, column: string): Intent |
   }
 }
 
-export function beginTableSettingIntent(userId: string, column: string, value: unknown): string {
+export function beginTableSettingIntent(
+  userId: string,
+  column: string,
+  value: unknown,
+  base?: number | null
+): string {
   const id = createMutationId();
   revisions.set(userId, tableSettingRevision(userId) + 1);
+  const held = readTableSettingIntent(userId, column);
+  const keptBase = held && 'base' in held ? held.base : base;
   try {
-    localStorage.setItem(key(userId, column), JSON.stringify({ id, value }));
+    localStorage.setItem(
+      key(userId, column),
+      JSON.stringify({
+        id,
+        value,
+        at: new Date().toISOString(),
+        ...(keptBase !== undefined ? { base: keptBase } : {}),
+      })
+    );
   } catch {
     // Existing stores keep the in-memory selection when storage is unavailable.
   }

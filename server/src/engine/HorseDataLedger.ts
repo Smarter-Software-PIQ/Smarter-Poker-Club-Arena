@@ -1664,6 +1664,39 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a worker decision whose receipt or effects the client refused; isolated to its own seat (check or fold), never engine-fatal',
     '2026-10-22'
   ),
+  /*
+   * A HORSE TURN THE CLOCK RESOLVED (2026-11-05). Dan's order: an active
+   * decision process on every hand and every street. When the engine acts for
+   * a horse seat (its clock or bank ran out, the watchdog forced it, a
+   * recovered clock expired) the hand record says origin 'forced', the same
+   * word a blind post carries, and two such turns on 2026-11-05 were found
+   * only in the engine log. Each one now fires these, so a day with a single
+   * forced horse turn is visible in activation.sql. Expected 0.
+   */
+  receipt(
+    'horse_turn_resolved_without_decision',
+    'ServerTableEngineTurns.forceResolveSeat / runTableWatchdog',
+    'the engine forced a check or fold at a horse seat instead of the brain acting; expected 0',
+    '2026-11-05'
+  ),
+  receipt(
+    'horse_turn_resolved_without_decision_*',
+    'ServerTableEngineTurns.noteHorseTurnResolvedWithoutDecision',
+    'the reason (timer_expired, timebank_expired, manual_timebank_expired, published_timebank_expired, recovered_timebank_expired, reconnect_protection_expired, watchdog_forced, disconnect_auto_action, unspecified) and whether a brain decision was in flight (brain_pending) or none was pending (no_brain_request)',
+    '2026-11-05'
+  ),
+  receipt(
+    'stale_turn_clock_expiry_ignored',
+    'ServerTableEngineTurns.startTurnTimer expiry callbacks',
+    'a clock or bank countdown expired after its turn had ended (same seat, next street) and was ignored instead of spending a bank or forcing an action on the new turn',
+    '2026-11-05'
+  ),
+  receipt(
+    'time_bank_activation_retired_turn_ended',
+    'ServerTableEngineTurns.resumeContinuationTimeBankActivation',
+    'a deferred automatic bank activation reached publication after the turn that spent it had ended; retired (use it or lose it) instead of being armed on the next turn',
+    '2026-11-05'
+  ),
   receipt('decide_tournament', 'HorseLogic.decide', 'every live tournament decision', 'Phase6'),
   receipt(
     'decide_tournament_preflop',

@@ -8,6 +8,7 @@ import {
   addOnWindow,
   countdownSeconds,
   forbiddenAddOnParticipation,
+  suppressedObserverReward,
   type AddOnTable,
 } from './support/naturalAddOnWitness';
 
@@ -56,6 +57,10 @@ test('every captured natural add-on table renders its public minute', async ({
     handOverlapProof: 'separate SQL evidence required',
     rosterReads: [],
     observations: [],
+    counterChanges: [],
+    purchaseSignals: [],
+    suppressedRewards: [],
+    admissionReads: [],
   };
   async function readBoard() {
     const [board, tables] = await Promise.all([
@@ -65,7 +70,7 @@ test('every captured natural add-on table renders its public minute', async ({
         .select('id,status,tournament_id', { count: 'exact' })
         .eq('tournament_id', tournamentId)
         .order('id')
-        .range(0, 8),
+        .range(0, 999),
     ]);
     if (board.error || tables.error || !board.data)
       throw new Error('UNKNOWN: authoritative tournament/complete roster read failed');
@@ -79,6 +84,42 @@ test('every captured natural add-on table renders its public minute', async ({
       board: board.data,
       roster: completeAddOnRoster(tables.data as AddOnTable[] | null, tables.count, tournamentId),
     };
+  }
+  async function admission(expected: boolean, phase: string) {
+    const startedAt = Date.now();
+    const [registration, rebuy] = await Promise.all([
+      db.rpc('fn_tournament_late_registration_open', { p_tournament_id: tournamentId }),
+      db.rpc('fn_ca_tournament_rebuy_window', { p_tournament_id: tournamentId }),
+    ]);
+    if (registration.error || rebuy.error)
+      throw new Error('UNKNOWN: authoritative admission read failed');
+    evidence.admissionReads.push({
+      phase,
+      startedAt,
+      finishedAt: Date.now(),
+      registration: registration.data,
+      rebuy: rebuy.data,
+    });
+    expect(registration.data, `Registration at ${phase}`).toBe(expected);
+    expect(rebuy.data?.open, `Rebuy at ${phase}`).toBe(expected);
+  }
+  async function completeAddOnCount() {
+    const users = new Set<string>();
+    let offset = 0;
+    while (true) {
+      const result = await db
+        .from('tournament_players')
+        .select('user_id')
+        .eq('tournament_id', tournamentId)
+        .eq('add_on', true)
+        .order('user_id')
+        .range(offset, offset + 249);
+      if (result.error || !result.data) throw new Error('UNKNOWN: add-on count read failed');
+      for (const row of result.data) users.add(row.user_id);
+      if (result.data.length < 250) return users.size;
+      offset += 250;
+      if (offset > 10000) throw new Error('UNKNOWN: add-on roster exceeds observation budget');
+    }
   }
   async function engineIdentity() {
     const response = await request.get(
@@ -109,7 +150,19 @@ test('every captured natural add-on table renders its public minute', async ({
     contexts.push(observer);
     await observer.route('**/*', async (route) => {
       const req = route.request();
-      if (forbiddenAddOnParticipation(req.method(), new URL(req.url()))) {
+      const requestUrl = new URL(req.url());
+      if (suppressedObserverReward(req.method(), requestUrl)) {
+        evidence.suppressedRewards.push({ tableId, operation: requestUrl.pathname });
+        await route.abort('blockedbyclient');
+        return;
+      }
+      let body: unknown;
+      try {
+        body = req.postDataJSON();
+      } catch {
+        /* Malformed writes remain refused. */
+      }
+      if (forbiddenAddOnParticipation(req.method(), requestUrl, account.id, body)) {
         blocked.push({ tableId, transport: 'http', operation: new URL(req.url()).pathname });
         await route.abort('blockedbyclient');
       } else await route.continue();
@@ -120,6 +173,19 @@ test('every captured natural add-on table renders its public minute', async ({
         const engine = new URL(client.url()).hostname === 'engine.smarter.poker';
         const server = client.connectToServer();
         server.onMessage((message) => {
+          if (!engine) {
+            try {
+              const frame = JSON.parse(String(message));
+              if (
+                frame.event === 'broadcast' &&
+                frame.payload?.event === 'purchase_committed' &&
+                frame.topic === `realtime:tournament-purchases:${tournamentId}`
+              )
+                evidence.purchaseSignals.push({ tableId, at: Date.now() });
+            } catch {
+              /* Retain only the named signal time, never raw frames. */
+            }
+          }
           if (engine) {
             try {
               const frame = JSON.parse(String(message));
@@ -152,6 +218,21 @@ test('every captured natural add-on table renders its public minute', async ({
       }
     );
     const page = await observer.newPage();
+    await page.exposeFunction('__observeAddOnCount', (count: number) => {
+      evidence.counterChanges.push({ tableId, at: Date.now(), count });
+    });
+    await page.addInitScript(() => {
+      let last: number | undefined;
+      const observer = new MutationObserver(() => {
+        const text = document.querySelector('[aria-label="Players Who Took Add-On"]')?.textContent;
+        if (!text || !/^[\d,]+$/.test(text.trim())) return;
+        const count = Number(text.replaceAll(',', ''));
+        if (count === last) return;
+        last = count;
+        (window as any).__observeAddOnCount(count);
+      });
+      observer.observe(document, { subtree: true, childList: true, characterData: true });
+    });
     await page.goto(
       new URL(
         `table/${tableId}`,
@@ -207,7 +288,7 @@ test('every captured natural add-on table renders its public minute', async ({
     });
     if (phase === 'opened')
       await info.attach(`${tableId}-${phase}`, {
-        body: await dialog.screenshot(),
+        body: await page.screenshot({ timeout: 5000 }),
         contentType: 'image/png',
       });
     return seconds;
@@ -216,6 +297,7 @@ test('every captured natural add-on table renders its public minute', async ({
     evidence.engineBefore = await engineIdentity();
     const initial = await readBoard();
     evidence.initialRoster = initial.roster;
+    await admission(true, 'before-addon');
     expect(initial.board.status).toBe('RUNNING');
     expect(initial.board.add_on_available).toBe(true);
     if (initial.board.addon_period_triggered || initial.board.addon_period_started_at)
@@ -243,6 +325,7 @@ test('every captured natural add-on table renders its public minute', async ({
     if (window.start < readyAt || Date.now() - window.start > 10_000)
       throw new Error('UNKNOWN: natural opening was missed or observed too late');
     evidence.window = window;
+    await admission(true, 'opened');
     const first = await Promise.all(
       ids.map((id) => rendered(id, pages.get(id)!, window!, 'opened'))
     );
@@ -251,6 +334,61 @@ test('every captured natural add-on table renders its public minute', async ({
       ids.map((id) => rendered(id, pages.get(id)!, window!, 'progressing'))
     );
     second.forEach((seconds, index) => expect(seconds).toBeLessThan(first[index]));
+    await admission(true, 'progressing');
+    await expect
+      .poll(
+        () =>
+          ids.some((id) => {
+            const samples = evidence.counterChanges.filter((sample: any) => sample.tableId === id);
+            return samples.some(
+              (sample: any, index: number) =>
+                index > 0 &&
+                sample.count > samples[index - 1].count &&
+                evidence.purchaseSignals.some(
+                  (signal: any) => signal.tableId === id && signal.at <= sample.at
+                )
+            );
+          }),
+        { timeout: 15000, message: 'No natural add-on increment reached an unchanged live page' }
+      )
+      .toBe(true);
+    evidence.naturalCounterIncrementBeforeReload = true;
+    const committedCount = await completeAddOnCount();
+    const renderedCounts: number[] = [];
+    for (const id of ids) {
+      await expect
+        .poll(
+          async () =>
+            Number(
+              (
+                await pages
+                  .get(id)!
+                  .getByLabel('Players Who Took Add-On', { exact: true })
+                  .innerText()
+              ).replaceAll(',', '')
+            ),
+          {
+            timeout: 5000,
+            message: 'Live counter did not catch up with committed tournament-wide purchases',
+          }
+        )
+        .toBeGreaterThanOrEqual(committedCount);
+      renderedCounts.push(
+        Number(
+          (
+            await pages.get(id)!.getByLabel('Players Who Took Add-On', { exact: true }).innerText()
+          ).replaceAll(',', '')
+        )
+      );
+      await info.attach(`${id}-live-count`, {
+        body: await pages.get(id)!.screenshot({ timeout: 5000 }),
+        contentType: 'image/png',
+      });
+    }
+    evidence.committedCountDuringWindow = committedCount;
+    const committedAfterRenders = await completeAddOnCount();
+    for (const count of renderedCounts) expect(count).toBeLessThanOrEqual(committedAfterRenders);
+    evidence.counterReadBounds = { committedCount, renderedCounts, committedAfterRenders };
     // Reopen one existing table only after closing its context: never exceed
     // eight live observers. This is a late-open consumer, not a ninth connection.
     const lateId = ids[0];
@@ -269,11 +407,23 @@ test('every captured natural add-on table renders its public minute', async ({
     if (remaining <= 0) throw new Error('UNKNOWN: reconnect exhausted the natural add-on window');
     if (remaining < 5000)
       throw new Error('UNKNOWN: no time remains to observe the end of the minute');
-    await new Promise((resolve) => setTimeout(resolve, remaining - 3000));
+    while (Date.now() < window.end - 3000) {
+      await admission(true, 'during-addon');
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(1000, Math.max(0, window!.end - Date.now() - 3000)))
+      );
+    }
     await Promise.all(ids.map((id) => rendered(id, pages.get(id)!, window!, 'before-close')));
+    await admission(true, 'before-close');
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(0, window!.end - Date.now() - 1000))
+    );
+    await admission(true, 'last-second');
     await new Promise((resolve) =>
       setTimeout(resolve, Math.max(0, window!.end - Date.now()) + 1000)
     );
+    await admission(false, 'closed');
+    evidence.finalCommittedAddOnCount = await completeAddOnCount();
     await Promise.all(
       ids.map(async (id) => {
         await expect(pages.get(id)!.getByText('Add-On Closes In', { exact: true })).toHaveCount(0, {

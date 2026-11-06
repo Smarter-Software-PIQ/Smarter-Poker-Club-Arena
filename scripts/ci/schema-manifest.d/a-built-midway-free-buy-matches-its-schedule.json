@@ -1,0 +1,8 @@
+{
+  "_owner": "fix/a-built-free-buy-matches-its-schedule",
+  "_comment": "Migrations 20261106004622 and 20261106004812: the scheduler's rebuild of an unstarted horse-only Midway Free Buy built in a format its schedule does not name, and the trigger function that refuses such a build.",
+  "functions": [
+    "fn_ca_rebuild_midway_free_buy_to_its_schedule",
+    "fn_ca_a_built_midway_free_buy_matches_its_schedule"
+  ]
+}

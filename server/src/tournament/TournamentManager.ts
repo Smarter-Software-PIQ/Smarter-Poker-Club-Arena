@@ -4541,6 +4541,39 @@ export class TournamentManager extends TournamentManagerEliminations {
   private drainBoundaryBalance(): void {
     if (this.boundaryBalanceInFlight || this.isProcessingEliminations || !this.running) return;
     this.boundaryBalanceInFlight = true;
+    /**
+     * A BOUNDARY BALANCE THAT DOES NOT SETTLE IS SEEN (2026-11-06).
+     *
+     * Every sweep admitted while this flag is set yields without a word and
+     * is owed again only when the drain settles. Thursday Night PKO c0b77808
+     * came off the 04:00 maintenance break at 04:05:00 and its manager did
+     * not consume a wake again until 04:29:53: a late-registration table sat
+     * 25 minutes with no dealer and nothing reported it. The drain now
+     * carries its start time, so the GameServer stalled-sweep watchdog sees
+     * a hung one exactly as it sees a hung sweep (getStalledEliminationSweep)
+     * and hands the event to a fenced successor; it reports itself once it
+     * has held the manager past BOUNDARY_BALANCE_REPORT_MS. The live promise
+     * is never released early: that would let a sweep plan seat moves beside
+     * it, which is the concurrency this flag exists to prevent.
+     */
+    this.boundaryBalanceStartedAt = Date.now();
+    const report = setTimeout(() => {
+      if (!this.boundaryBalanceInFlight) return;
+      reportError(
+        new Error(
+          `[Tournament:${this.tournamentId}] a hand-boundary balance has held the manager ` +
+            `${Math.round((Date.now() - this.boundaryBalanceStartedAt) / 1000)}s; ` +
+            'every sweep yields to it until it settles'
+        ),
+        'Tournament.boundary_balance_overran',
+        {
+          tournamentId: this.tournamentId,
+          msInFlight: Date.now() - this.boundaryBalanceStartedAt,
+          sweepOwed: this.boundaryBalanceOwesSweep,
+        }
+      );
+    }, TournamentManagerBase.BOUNDARY_BALANCE_REPORT_MS);
+    report.unref?.();
     void (async () => {
       try {
         while (this.boundaryBalanceRequested && this.running) {
@@ -4553,7 +4586,9 @@ export class TournamentManager extends TournamentManagerEliminations {
         });
         this.requestUrgentEliminationSweepAfter(TournamentManagerBase.BALANCE_REDRIVE_MS);
       } finally {
+        clearTimeout(report);
         this.boundaryBalanceInFlight = false;
+        this.boundaryBalanceStartedAt = 0;
         if (this.boundaryBalanceOwesSweep) {
           this.boundaryBalanceOwesSweep = false;
           if (this.running) this.requestEliminationSweep('boundary_balance_settled');

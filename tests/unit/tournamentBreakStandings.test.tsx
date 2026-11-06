@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
     username: string;
     chips: number;
     status: string;
+    add_on?: boolean;
   }>,
   total: 73,
   level: 2,
@@ -20,12 +21,31 @@ const state = vi.hoisted(() => ({
   hold: null as Promise<void> | null,
   metadataHold: null as Promise<void> | null,
   listeners: new Map<string, () => void>(),
+  purchaseSignal: null as null | (() => void),
+  purchaseStatus: null as null | ((status: string) => void),
+  subscribers: new Map<string, Set<() => void>>(),
+}));
+vi.mock('../../src/hooks/useMasterBusBroadcastChannel', () => ({
+  useMasterBusBroadcastChannel: (options: any) => {
+    state.purchaseSignal = options.onPayload;
+    state.purchaseStatus = options.onSubscriptionStatus;
+  },
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/services/tournamentStandingsUpdates', () => ({
+  // Several readers share one event feed (the card and its VPIP row), so the
+  // fake fans each event out to every subscriber exactly like the real one.
   subscribeTournamentStandings: (id: string, listener: () => void) => {
-    state.listeners.set(id, listener);
-    return () => state.listeners.delete(id);
+    const subscribers = (state.subscribers.get(id) ?? new Set<() => void>()).add(listener);
+    state.subscribers.set(id, subscribers);
+    state.listeners.set(id, () => subscribers.forEach((fn) => fn()));
+    return () => {
+      subscribers.delete(listener);
+      if (subscribers.size === 0) {
+        state.subscribers.delete(id);
+        state.listeners.delete(id);
+      }
+    };
   },
 }));
 vi.mock('../../src/lib/supabase', () => ({
@@ -109,6 +129,7 @@ beforeEach(() => {
   state.metadataHold = null;
   state.queries = 0;
   state.listeners.clear();
+  state.subscribers.clear();
   state.rows = Array.from({ length: 73 }, (_, i) => ({
     id: String(i).padStart(4, '0'),
     user_id: String(i),
@@ -119,6 +140,38 @@ beforeEach(() => {
 });
 
 describe('live break standings', () => {
+  it('counts confirmed add-ons across all tables and refreshes on purchase and reconnect', async () => {
+    state.rows[0].add_on = true;
+    render(<TournamentBreakScreen {...props} addOnNotice={{ cost: 35, chips: 20000 }} />);
+    await flush();
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('1');
+    state.rows[72].add_on = true;
+    await act(async () => state.purchaseSignal?.());
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('2');
+    // Replayed delivery reads the same committed rows, never increments twice.
+    await act(async () => state.purchaseSignal?.());
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('2');
+    state.rows[71].add_on = true;
+    await act(async () => state.purchaseStatus?.('SUBSCRIBED'));
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('3');
+    state.error = true;
+    await act(async () => state.purchaseSignal?.());
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('N/A');
+  });
+
+  it('shows Your VPIP only to an entrant of this event, never to a rail watcher', async () => {
+    const view = render(<TournamentBreakScreen {...props} heroUserId="spectator" />);
+    await flush();
+    expect(players()).toBe('73');
+    expect(screen.queryByLabelText('Your VPIP (Last Hour)')).toBeNull();
+    view.rerender(<TournamentBreakScreen {...props} />);
+    await flush();
+    expect(screen.getByLabelText('Your VPIP (Last Hour)')).toBeTruthy();
+    state.rows = state.rows.map((r) => (r.user_id === '72' ? { ...r, status: 'moving' } : r));
+    await act(async () => state.listeners.get('event')!());
+    expect(screen.getByLabelText('Your VPIP (Last Hour)')).toBeTruthy();
+  });
+
   it('updates 73 to 72 during the open break, including rank, average and leaders', async () => {
     render(<TournamentBreakScreen {...props} />);
     await flush();
@@ -156,7 +209,7 @@ describe('live break standings', () => {
     expect(state.queries).toBe(2);
   });
 
-  it('coalesces events during a read and never paints the superseded answer', async () => {
+  it('coalesces events during a read and finishes with the fresh trailing answer', async () => {
     let release!: () => void;
     state.hold = new Promise<void>((r) => {
       release = r;
@@ -172,6 +225,35 @@ describe('live break standings', () => {
     });
     expect(players()).toBe('72');
     expect(state.queries).toBe(2);
+  });
+
+  it('paints each successful add-on count during a continuous event burst', async () => {
+    let release!: () => void;
+    state.rows[0].add_on = true;
+    state.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    render(<TournamentBreakScreen {...props} addOnNotice={{ cost: 35, chips: 20000 }} />);
+    await flush();
+    for (let count = 1; count <= 3; count++) {
+      const finish = release;
+      state.hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await act(async () => {
+        state.purchaseSignal?.();
+        state.purchaseSignal?.();
+        finish();
+      });
+      expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent(String(count));
+      state.rows[count].add_on = true;
+    }
+    state.hold = null;
+    await act(async () => {
+      state.purchaseSignal?.();
+      release();
+    });
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('4');
   });
 
   it('refreshes at the last-hand/countdown transition and drops old-owner responses', async () => {

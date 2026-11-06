@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { joinCashGame, joinGameRefusalText, waitlistedText } from '../../services/cashGameLobby';
 
 /** A spectator's seat tap enters the game before opening its purchase door.
@@ -12,6 +12,7 @@ export function useCashSeatEntry({
   goToTable,
   showWaitlist,
   notify,
+  onPendingChange,
 }: {
   tableId: string | undefined;
   userId: string | null | undefined;
@@ -20,10 +21,14 @@ export function useCashSeatEntry({
   goToTable: (tableId: string) => void;
   showWaitlist: () => void;
   notify: (message: string) => void;
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const scope = useMemo(() => ({ active: true, busy: false }), [tableId, userId, gameId]);
+  const onPendingChangeRef = useRef(onPendingChange);
+  onPendingChangeRef.current = onPendingChange;
   useEffect(() => {
     scope.active = true;
+    onPendingChangeRef.current?.(false);
     return () => {
       scope.active = false;
     };
@@ -36,6 +41,7 @@ export function useCashSeatEntry({
       return;
     }
     scope.busy = true;
+    onPendingChangeRef.current?.(true);
     try {
       const result = await joinCashGame(gameId);
       if (!scope.active) return;
@@ -63,6 +69,7 @@ export function useCashSeatEntry({
       }
     } finally {
       scope.busy = false;
+      if (scope.active) onPendingChangeRef.current?.(false);
     }
   };
 }

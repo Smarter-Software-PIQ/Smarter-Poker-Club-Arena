@@ -22,24 +22,50 @@ export function placeGuarantee(guarantee: unknown, bounties: unknown): number {
 }
 
 /**
- * What a guaranteed event's lobby prints as its pool (2026-11-04).
+ * A BUY-IN GUARANTEE COUNTS THE WHOLE PLAYER PAYMENT (Dan, 2026-11-05).
  *
- * The guarantee covers places and bounties together, so the number shown
- * beside "GTD" is the WHOLE pool: max(prize pool + bounty pool, guarantee).
- * Printing the prize half alone made a 750 guarantee PKO read 380 while 370
- * sat in bounties. The prize pool itself is kept honest by the database
- * (fn_ca_trim_live_overlay): it is max(place guarantee, money in), never the
- * start-time overlay stacked on late entries.
+ * "The full qualifying player-funded tournament payment counts toward the
+ * buy-in guarantee before deducting bounty allocations or rake." A 40-chip
+ * entry split 26 prize / 10 bounty / 4 rake credits 40. So the house owes
+ * only H = max(0, guarantee - gross), where gross = what reached the places
+ * + what reached the bounties + the rake taken from those same payments.
+ * Guarantee credit is not money: it adds nothing to any pool by itself.
+ *
+ * The database is the authority (fn_ca_guarantee_funding, read from the
+ * ledger, funds H once at close); this is the same arithmetic for screens
+ * that only hold the tournament row. Before the pool finalizes, the pending
+ * house share is shown on top of what the field has paid; after it
+ * finalizes the stored pool already contains it.
+ */
+export function guaranteeShortfall(
+  guarantee: unknown,
+  prizePool: unknown,
+  bountyPool: unknown = 0,
+  rake: unknown = 0
+): number {
+  const gtd = amount(guarantee);
+  if (gtd <= 0) return 0;
+  const gross = amount(prizePool) + amount(bountyPool) + amount(rake);
+  return Math.max(0, Math.round((gtd - gross) * 100) / 100);
+}
+
+/**
+ * The prize money a guaranteed event's lobby prints beside "GTD": places +
+ * bounties + any house funding still owed. It is never the advertised
+ * guarantee stacked on collected money (the 2,445 the owner saw on a 1,500
+ * guarantee, 2026-11-04), and never the guarantee itself once the field's
+ * gross payments have met it: the rake is the room's, not prize money.
  */
 export function displayTotalPool(
   prizePool: unknown,
   guarantee: unknown,
-  bountyPool: unknown = 0
+  bountyPool: unknown = 0,
+  rake: unknown = 0,
+  finalized: unknown = false
 ): number {
-  const prize = Math.max(amount(prizePool), placeGuarantee(guarantee, bountyPool));
-  const total = prize + amount(bountyPool);
-  const gtd = amount(guarantee);
-  return gtd > 0 ? Math.max(total, gtd) : total;
+  const money = amount(prizePool) + amount(bountyPool);
+  if (finalized === true) return money;
+  return money + guaranteeShortfall(guarantee, prizePool, bountyPool, rake);
 }
 
 /** Fixed-bounty copy comes from charged terms, never an old schedule blurb. */

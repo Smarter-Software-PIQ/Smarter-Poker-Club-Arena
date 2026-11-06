@@ -29,6 +29,13 @@ import {
   lobbyTabLabel,
   type LobbyPreferenceProof,
 } from './support/lobbyPreferenceProof';
+import {
+  favoriteSaveAccepted,
+  favoritesRead,
+  lobbySaveAccepted,
+  pageSaveAccepted,
+  requestOwner,
+} from './support/preferenceSaveProof';
 
 /**
  * THE THREE THINGS DAN PHOTOGRAPHED, ON THE LIVE LOBBY (2026-09-10).
@@ -569,12 +576,15 @@ test.describe('the mobile lobby chrome on production', () => {
     // Run 41272366052 completed all five format captures and the four favorite
     // phases, then exhausted the shared 120s budget during final evidence.
     // Keep each readiness/assertion deadline and zero retries unchanged.
-    test.setTimeout(180_000);
+    // Run 42129488234 then passed every favorite phase in production (the
+    // whole schedule starred, two sorts, the server read after reload, the
+    // unfavorite) and ran out of the 180s budget at the final placement poll,
+    // with the format tour now covering five sections.
+    test.setTimeout(300_000);
     expect(
       /^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || ''),
       'Favorite proof requires its owned isolated production account'
     ).toBe(true);
-    const preferenceKey = 'lobby-tournament-favorites:global';
     const participation: string[] = [];
     await page.route(
       /\/(?:action|leave|post-bb|rabbit-hunt|buyin|addchips|rebuy|cashout|sitout|seat-move|seat-change|rest\/v1\/(?:table_seats|tournament_players|wallet_transactions|rpc\/(?:fn_cash_game_join|atomic_table_buyin|fn_lightning_join|fn_lightning_buy_in|fn_take_seat_and_buy_in|fn_register_for_tournament|fn_unregister_from_tournament|fn_leave_seat_and_refund|atomic_table_rebuy|process_tournament_rebuy|fn_join_waitlist)))(?:[/?#]|$)/,
@@ -584,22 +594,17 @@ test.describe('the mobile lobby chrome on production', () => {
         await route.abort('blockedbyclient');
       }
     );
-    const isPreferenceRead = (response: import('@playwright/test').Response) => {
-      const url = new URL(response.url());
-      return (
-        url.pathname.endsWith('/user_page_preferences') &&
-        response.request().method() === 'GET' &&
-        response.ok() &&
-        url.searchParams.get('preference_key') === `eq.${preferenceKey}`
-      );
-    };
-    const initialRead = page.waitForResponse(isPreferenceRead);
+    // Favorites are the account's own records (migration 20261105183133),
+    // read through fn_my_lobby_favorites as the signed-in owner.
+    const isFavoritesRead = async (response: import('@playwright/test').Response) =>
+      (await favoritesRead(response)) !== null;
+    const initialRead = page.waitForResponse(isFavoritesRead);
     await openLobby(page);
     const owner = await readLobbyPreferenceOwner(page);
     const firstRead = await initialRead;
-    expect(new URL(firstRead.url()).searchParams.get('user_id')).toBe(`eq.${owner}`);
-    const initial = await firstRead.json();
-    expect(initial?.value ?? initial?.[0]?.value ?? []).toEqual([]);
+    expect(await requestOwner(firstRead.request())).toBe(owner);
+    const initial = (await favoritesRead(firstRead))!;
+    expect(initial.filter((row) => row.active)).toEqual([]);
     expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(
       'America/Chicago'
     );
@@ -716,12 +721,19 @@ test.describe('the mobile lobby chrome on production', () => {
         const overlayDisplay = getComputedStyle(element, '::after').display;
         if (element.matches('.is-featured') && overlayDisplay !== 'none')
           throw new Error('A format rail is covering the featured red perimeter');
+        // Since #9370 (November 2) the Rebuy / Add-On crest is a picture
+        // element inside the icon bay, with no background image of its own.
+        const crestArt = element.querySelector<HTMLImageElement>(
+          '.lt-tournament-icon img.lt-rebuy-addon-art'
+        );
         const backgrounds = [
           getComputedStyle(element, '::before').backgroundImage,
-          getComputedStyle(
-            element.querySelector('.lt-tournament-icon [data-atlas-width]') ||
-              element.querySelector('.lt-tournament-icon,.lt-lightning-icon')!
-          ).backgroundImage,
+          crestArt
+            ? `url("${crestArt.currentSrc || crestArt.src}")`
+            : getComputedStyle(
+                element.querySelector('.lt-tournament-icon [data-atlas-width]') ||
+                  element.querySelector('.lt-tournament-icon,.lt-lightning-icon')!
+              ).backgroundImage,
         ];
         for (const background of backgrounds) {
           const url = /url\(["']?(.*?)["']?\)/.exec(background)?.[1];
@@ -745,10 +757,13 @@ test.describe('the mobile lobby chrome on production', () => {
       });
       if (mode === 'cash') {
         expect(paint.icon).toBe('lightning');
-        expect(paint.filter).toContain('grayscale(1)');
-        expect(await sampleRow.evaluate((e) => getComputedStyle(e, '::before').filter)).toContain(
-          'grayscale(1)'
-        );
+        // Since #9440 (November 3) cash headings and rows wear the full-color
+        // emblems-v2 card artwork, no longer a grayscaled tournament card.
+        expect(paint.backgrounds[0]).toContain('chrome-arena-emblems-v2/card');
+        expect(paint.filter).toBe('none');
+        expect(
+          await sampleRow.evaluate((e) => getComputedStyle(e, '::before').backgroundImage)
+        ).toContain('chrome-arena-emblems-v2/card');
         await expect
           .poll(() =>
             currentRows.evaluateAll((elements) =>
@@ -769,7 +784,11 @@ test.describe('the mobile lobby chrome on production', () => {
       }
       if (mode === 'mtt' || mode === 'satellites') {
         expect(paint.backgrounds[1]).toContain(
-          paint.symbol ? '/images/throwables/animated/rocket.webp' : 'chrome-arena-emblems-v2/'
+          paint.symbol
+            ? '/images/throwables/animated/rocket.webp'
+            : paint.icon === 'rebuy'
+              ? 'game-card-icons/rebuy-addon-raised-chip-v1.png'
+              : 'chrome-arena-emblems-v2/'
         );
       }
       const readableCopy = await sampleRow.evaluate((row) =>
@@ -920,35 +939,29 @@ test.describe('the mobile lobby chrome on production', () => {
     // data-id belongs to the row itself, so address it directly rather than a descendant.
     const selected = () =>
       page.locator(`[data-testid="lobby-game-row"][data-id="${chosen}"]:visible`);
+    // Saved only once the account answers that it holds the choice.
     const saveChoice = (enabled: boolean) =>
-      page.waitForResponse((response) => {
-        if (
-          !response.url().includes('/rest/v1/user_page_preferences') ||
-          response.request().method() !== 'POST' ||
-          !response.ok()
-        )
-          return false;
-        const body = response.request().postDataJSON();
-        return (
-          body?.user_id === owner &&
-          body?.preference_key === preferenceKey &&
-          Array.isArray(body.value) &&
-          body.value.length === (enabled ? 1 : 0) &&
-          body.value.includes(chosen) === enabled
-        );
-      });
+      page.waitForResponse((response) => favoriteSaveAccepted(response, owner, chosen, enabled));
     const phaseEvidence: Array<{ phase: string; rows: Awaited<ReturnType<typeof snapshot>> }> = [];
-    const assertFavoriteTier = async (phase: string) => {
+    // A star follows the GAME (migration 20261105183133) and, since #9597
+    // (Dan 2026-11-05 17:07 Chicago), a starred scheduled MTT never jumps the
+    // clock: it keeps its place in the board's chosen order. So a starred
+    // board reads in the same order as the unstarred one under the same sort,
+    // with the chosen run marked. `reference` is a snapshot under that sort.
+    type Snapshot = Awaited<ReturnType<typeof snapshot>>;
+    const sameOrder = (current: Snapshot, reference: Snapshot) => {
+      const inCurrent = new Set(current.map((row) => row.id));
+      const inReference = new Set(reference.map((row) => row.id));
+      const a = current.filter((row) => inReference.has(row.id)).map((row) => row.id);
+      const b = reference.filter((row) => inCurrent.has(row.id)).map((row) => row.id);
+      return a.length > 1 && a.join() === b.join();
+    };
+    const assertStarredInPlace = async (phase: string, reference?: Snapshot) => {
       await expect
         .poll(async () => {
           const current = await snapshot();
-          const pins = current.filter((row) => row.pinned);
-          const favoriteIndex = current.findIndex((row) => row.id === chosen && row.favorite);
-          return (
-            favoriteIndex === pins.length &&
-            current.slice(0, pins.length).every((row) => row.pinned) &&
-            current.slice(pins.length + 1).every((row) => !row.pinned && !row.favorite)
-          );
+          const chosenRow = current.find((row) => row.id === chosen);
+          return Boolean(chosenRow?.favorite) && (!reference || sameOrder(current, reference));
         })
         .toBe(true);
       phaseEvidence.push({ phase, rows: await snapshot() });
@@ -958,21 +971,20 @@ test.describe('the mobile lobby chrome on production', () => {
     await selected().getByRole('button', { name: 'Add To Favorites', exact: true }).click();
     await saved;
     expect(page.url()).toBe(originalUrl);
-    await assertFavoriteTier('starred');
+    await assertStarredInPlace('starred', before);
     await chooseSort('Most Players');
-    await assertFavoriteTier('players-descending');
+    await assertStarredInPlace('players-descending');
     await chooseSort('Stakes: High To Low');
-    await assertFavoriteTier('buy-in-descending');
-    const readback = page.waitForResponse(
-      (response) =>
-        isPreferenceRead(response) &&
-        new URL(response.url()).searchParams.get('user_id') === `eq.${owner}`
-    );
+    await assertStarredInPlace('buy-in-descending', before);
+    const readback = page.waitForResponse(isFavoritesRead);
     await page.reload({ waitUntil: 'domcontentloaded' });
-    const persisted = await (await readback).json();
-    expect(persisted?.value ?? persisted?.[0]?.value).toEqual([chosen]);
+    const persistedResponse = await readback;
+    expect(await requestOwner(persistedResponse.request())).toBe(owner);
+    const persisted = (await favoritesRead(persistedResponse))!;
+    expect(persisted.find((row) => row.game_id === chosen)?.active).toBe(true);
     await expect(selected()).toBeVisible({ timeout: 30_000 });
-    await assertFavoriteTier('reloaded-server-readback');
+    // The saved sort and the star both come back from the account.
+    await assertStarredInPlace('reloaded-server-readback', before);
     await selected().evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await expect(selected()).toBeInViewport();
     await testInfo.attach('tournament-favorite-starred-tier.png', {
@@ -985,14 +997,17 @@ test.describe('the mobile lobby chrome on production', () => {
     await expect(
       selected().getByRole('button', { name: 'Add To Favorites', exact: true })
     ).toBeVisible();
-    await expect
-      .poll(async () => {
-        const current = await snapshot();
-        return (
-          current.findIndex((row) => row.id === chosen) > current.filter((row) => row.pinned).length
-        );
-      })
-      .toBe(true);
+    // Unstarred, the board reads exactly as it did before the star.
+    await expect.poll(async () => sameOrder(await snapshot(), before)).toBe(true);
+    expect((await snapshot()).filter((row) => row.favorite)).toEqual([]);
+    // The unfavorite is the account's record too: after a reload the game is
+    // kept as unstarred (not forgotten) and nothing is starred.
+    const unstarredRead = page.waitForResponse(isFavoritesRead);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const unstarred = (await favoritesRead(await unstarredRead))!;
+    expect(unstarred.find((row) => row.game_id === chosen)?.active).toBe(false);
+    expect(unstarred.filter((row) => row.active)).toEqual([]);
+    await expect(selected()).toBeVisible({ timeout: 30_000 });
     expect((await snapshot()).filter((row) => row.favorite)).toEqual([]);
     expect(participation).toEqual([]);
     await testInfo.attach('tournament-favorite-priority.json', {
@@ -1110,14 +1125,8 @@ test.describe('the mobile lobby chrome on production', () => {
     await expect(unread).toBeVisible({ timeout: 30_000 });
     const preferenceOwner = await readLobbyPreferenceOwner(page);
     const preferenceKey = 'NotificationsPage:filter:global';
-    const filterSaved = page.waitForResponse(
-      (response) =>
-        response.url().includes('/rest/v1/user_page_preferences') &&
-        response.request().method() === 'POST' &&
-        response.ok() &&
-        response.request().postDataJSON()?.user_id === preferenceOwner &&
-        response.request().postDataJSON()?.preference_key === preferenceKey &&
-        response.request().postDataJSON()?.value === 'unread'
+    const filterSaved = page.waitForResponse((response) =>
+      pageSaveAccepted(response, preferenceOwner, preferenceKey, 'unread')
     );
     await unread.click();
     await filterSaved;
@@ -1138,14 +1147,8 @@ test.describe('the mobile lobby chrome on production', () => {
       .getByRole('group', { name: 'Filter Notifications' })
       .getByRole('button', { name: /^All/ });
     const intentKey = `ca_table_setting_intent:${preferenceOwner}:page:${preferenceKey}`;
-    const recovered = page.waitForResponse(
-      (response) =>
-        response.url().includes('/rest/v1/user_page_preferences') &&
-        response.request().method() === 'POST' &&
-        response.ok() &&
-        response.request().postDataJSON()?.user_id === preferenceOwner &&
-        response.request().postDataJSON()?.preference_key === preferenceKey &&
-        response.request().postDataJSON()?.value === 'all'
+    const recovered = page.waitForResponse((response) =>
+      pageSaveAccepted(response, preferenceOwner, preferenceKey, 'all')
     );
     try {
       await page.context().setOffline(true);
@@ -1451,12 +1454,21 @@ preferenceLifecycleTest.describe('owned preference lifecycle', () => {
       await expect(seats).toBeVisible();
       const original = await seats.inputValue();
       const chosen = original === '3' ? '4' : '3';
+      // The account holds the new seat minimum for the Hold'em filters.
+      const seatOwner = await readLobbyPreferenceOwner(page);
       const saved = page.waitForResponse(
-        (response) =>
-          response.url().includes('/rest/v1/user_lobby_filters') &&
-          response.request().method() === 'POST' &&
-          response.ok() &&
-          response.request().postDataJSON()?.filters?.HOLDEM?.seatMin === Number(chosen),
+        async (response) => {
+          const change = (
+            response.request().method() === 'POST' &&
+            response.url().includes('/rest/v1/rpc/fn_save_lobby_preferences')
+              ? response.request().postDataJSON()?.p_changes
+              : null
+          )?.find?.((c: { field?: string }) => c?.field === 'filters.HOLDEM');
+          return (
+            change?.value?.seatMin === Number(chosen) &&
+            (await lobbySaveAccepted(response, seatOwner, CLUB_ID, 'filters.HOLDEM', change.value))
+          );
+        },
         { timeout: 45_000 }
       );
       await seats.evaluate((input: HTMLInputElement, value) => {

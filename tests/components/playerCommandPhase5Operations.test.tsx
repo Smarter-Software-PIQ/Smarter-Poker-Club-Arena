@@ -32,7 +32,7 @@ vi.mock('../../src/services/ClubRosterService', () => ({
   MemberAccessDeniedError: class MemberAccessDeniedError extends Error {},
 }));
 vi.mock('../../src/lib/export', () => ({ exportToCSV: f.csv }));
-vi.mock('../../src/utils/errorReporter', () => ({ reportError: f.report }));
+vi.mock('../../src/utils/errorReporter', () => ({ reportError: f.report, reportWarning: vi.fn() }));
 import ClubMembersPage from '../../src/pages/ClubMembersPage';
 
 function Harness() {
@@ -85,6 +85,9 @@ async function ready() {
 beforeEach(() => {
   vi.useFakeTimers();
   sessionStorage.clear();
+  // Each case is a fresh device: an unsent roster choice kept on this device
+  // (src/lib/preferenceSync.ts) must not carry into the next case.
+  localStorage.clear();
   vi.clearAllMocks();
   f.actor.user = { id: 'viewer-a' };
   f.page.mockResolvedValue({

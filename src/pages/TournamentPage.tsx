@@ -945,12 +945,13 @@ export default function TournamentPage() {
             break;
 
           case 'late_reg_closed':
-            toastRef.current.info('Late registration closed');
             // Refresh tournament data
             (async () => {
               try {
                 const updated = await tournamentService.getTournament(selectedTournament.id);
                 if (alive && updated) {
+                  if (!tournamentEntryWindowOpen(updated, Date.now()))
+                    toastRef.current.info('Late registration closed');
                   setSelectedTournament((current) =>
                     current?.id === selectedTournament.id ? updated : current
                   );

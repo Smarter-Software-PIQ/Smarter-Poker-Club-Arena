@@ -11,6 +11,7 @@ import {
   gtoPostflopV31Dataset,
   gtoV31PolicyContractIdentity,
   gtoPostflopV31EvaluationCount,
+  GTO_V31_EVALUATION_STORE_MAX,
   gtoV31CellMatrix,
   gtoStreetAdviceV31,
   gtoV31StoreIsEmpty,
@@ -344,6 +345,46 @@ describe('V31 certification and lookup', () => {
       miss: 'empty_store',
     });
     expect(gtoPostflopV31Dataset()?.id).toBe(CELL.dataset_id);
+  });
+
+  it('keeps only the four most recently loaded evaluation datasets and leaves the active store alone', () => {
+    replaceGtoPostflopV31([CELL]);
+    const candidateFor = (n: number): GtoPostflopV31Row => ({
+      ...CELL,
+      dataset_id: `${String(n).repeat(8)}-${String(n).repeat(4)}-4${String(n).repeat(3)}-8${String(n).repeat(3)}-${String(n).repeat(12)}`,
+      dataset_key: `phase4-candidate-${n}`,
+      dataset_checksum: String(n).repeat(64),
+      dataset_state: 'evaluating',
+    });
+    expect(GTO_V31_EVALUATION_STORE_MAX).toBe(4);
+    const checksums = [2, 3, 4, 5].map((n) => {
+      const row = candidateFor(n);
+      expect(replaceGtoPostflopV31Evaluation([row])).toBe(1);
+      return row.dataset_checksum;
+    });
+    for (const checksum of checksums) {
+      expect(gtoPostflopV31EvaluationCount(checksum)).toBe(1);
+    }
+    // Re-loading the oldest moves it to most recent, so it survives the next eviction.
+    expect(replaceGtoPostflopV31Evaluation([candidateFor(2)])).toBe(1);
+    // A fifth distinct checksum evicts the least recently loaded one (now 3).
+    const sixth = candidateFor(6);
+    expect(replaceGtoPostflopV31Evaluation([sixth])).toBe(1);
+    expect(gtoPostflopV31EvaluationCount('3'.repeat(64))).toBe(0);
+    expect(gtoV31StoreIsEmpty('3'.repeat(64))).toBe(true);
+    for (const checksum of ['2'.repeat(64), '4'.repeat(64), '5'.repeat(64), sixth.dataset_checksum]) {
+      expect(gtoPostflopV31EvaluationCount(checksum)).toBe(1);
+    }
+    // One more: 4 is now the oldest.
+    expect(replaceGtoPostflopV31Evaluation([candidateFor(7)])).toBe(1);
+    expect(gtoPostflopV31EvaluationCount('4'.repeat(64))).toBe(0);
+    expect(gtoPostflopV31EvaluationCount('2'.repeat(64))).toBe(1);
+    // The active store never moves.
+    expect(gtoPostflopV31Count()).toBe(1);
+    expect(gtoPostflopV31Dataset()?.id).toBe(CELL.dataset_id);
+    expect(gtoV31StoreIsEmpty()).toBe(false);
+    const active = lookup();
+    expect(active.hit && active.mix.c).toBe(1);
   });
 
   it('refuses to load active rows into the candidate store or candidates live', () => {

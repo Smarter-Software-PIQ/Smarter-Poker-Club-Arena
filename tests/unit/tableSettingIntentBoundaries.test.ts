@@ -12,7 +12,11 @@ it('only the newest selection can retire its durable pending record', () => {
   const older = beginTableSettingIntent('a', 'volume', 20);
   const newer = beginTableSettingIntent('a', 'volume', 40);
   confirmTableSettingIntent('a', 'volume', older);
-  expect(readTableSettingIntent('a', 'volume')).toEqual({ id: newer, value: 40 });
+  expect(readTableSettingIntent('a', 'volume')).toEqual({
+    id: newer,
+    value: 40,
+    at: expect.any(String),
+  });
   expect(readTableSettingIntent('b', 'volume')).toBeNull();
   confirmTableSettingIntent('a', 'volume', newer);
   expect(readTableSettingIntent('a', 'volume')).toBeNull();

@@ -76,6 +76,8 @@ interface Tournament extends TournamentEntryWindowRow {
   prizePool: number;
   /** Bounty money held for knockouts; the guarantee covers it too. */
   bountyPool: number;
+  /** Rake already taken from entries: part of the gross guarantee credit. */
+  totalRake: number;
   guaranteedPrize: number;
   startTime: string;
   status: 'ANNOUNCED' | 'REGISTERING' | 'RUNNING' | 'BAGGED' | 'COMPLETED' | 'CANCELLED';
@@ -350,6 +352,7 @@ function TournamentLobbyBoard() {
                     buy_in_fee,
                     prize_pool,
                     bounty_pool,
+                    total_rake,
                     guaranteed_prize,
                     start_time,
                     status,
@@ -370,6 +373,10 @@ function TournamentLobbyBoard() {
                     is_rebuy,
                     is_reentry,
                     addon_levels,
+                    add_on_available,
+                    addon_from_start,
+                    addon_period_started_at,
+                    addon_period_ends_at,
                     is_bounty,
                     is_pko,
                     is_mystery_bounty,
@@ -584,6 +591,7 @@ function TournamentLobbyBoard() {
           buyInFee: Number(t.buy_in_fee) || 0,
           prizePool: Math.round(Number(t.prize_pool) || 0),
           bountyPool: Number(t.bounty_pool) || 0,
+          totalRake: Number(t.total_rake) || 0,
           startTime: t.start_time,
           status: t.status,
           currentPlayers: t.current_players || 0,
@@ -599,6 +607,10 @@ function TournamentLobbyBoard() {
           late_reg_levels: t.late_reg_levels,
           late_reg_mins: t.late_reg_mins,
           rebuy_levels: t.rebuy_levels,
+          add_on_available: t.add_on_available,
+          addon_from_start: t.addon_from_start,
+          addon_period_started_at: t.addon_period_started_at,
+          addon_period_ends_at: t.addon_period_ends_at,
           prize_pool_finalized: t.prize_pool_finalized,
           started_at: t.started_at,
           current_level: t.current_level || 0,
@@ -1030,6 +1042,7 @@ function TournamentLobbyBoard() {
                       ),
                       prizePool: tournament.prizePool,
                       bountyPool: tournament.bountyPool,
+                      totalRake: tournament.totalRake,
                       maxPlayers: tournament.maxPlayers,
                       registeredPlayers: tournament.currentPlayers,
                       startsAt: tournament.startTime,
@@ -1053,6 +1066,10 @@ function TournamentLobbyBoard() {
                       late_reg_levels: tournament.late_reg_levels,
                       late_reg_mins: tournament.late_reg_mins,
                       rebuy_levels: tournament.rebuy_levels,
+                      add_on_available: tournament.add_on_available,
+                      addon_from_start: tournament.addon_from_start,
+                      addon_period_started_at: tournament.addon_period_started_at,
+                      addon_period_ends_at: tournament.addon_period_ends_at,
                       prize_pool_finalized: tournament.prize_pool_finalized,
                       current_level: tournament.current_level,
                       started_at: tournament.started_at,

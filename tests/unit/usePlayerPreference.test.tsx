@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   writes: [] as any[],
   error: null as unknown,
   read: null as Promise<any> | null,
+  revision: 0,
 }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
@@ -18,11 +19,26 @@ vi.mock('../../src/lib/supabase', () => ({
         };
         return builder;
       },
-      upsert: async (row: any) => {
-        state.writes.push(row);
-        return { error: state.error };
-      },
     }),
+    /* fn_save_page_preferences (2026-11-05): every write goes through the
+       revision-checked function; the row it records is what the old upsert
+       recorded, so each assertion below still names exactly what was saved. */
+    rpc: async (fn: string, args: any) => {
+      const { useUserStore } = await import('../../src/stores/useUserStore');
+      const user = useUserStore.getState().user?.id;
+      if (fn !== 'fn_save_page_preferences') return { data: null, error: { message: fn } };
+      const c = args.p_changes[0];
+      state.writes.push({ user_id: user, preference_key: c.field, value: c.value });
+      if (state.error) return { data: null, error: state.error };
+      state.revision += 1;
+      return {
+        data: {
+          ok: true,
+          results: [{ field: c.field, status: 'applied', revision: state.revision, value: c.value }],
+        },
+        error: null,
+      };
+    },
   },
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
@@ -129,7 +145,11 @@ it('flushes the selected value before logout instead of losing the debounce wind
     await flushPreferencesBeforeLogout('preference-a');
   });
   expect(state.writes).toEqual([
-    { user_id: 'preference-a', preference_key: 'instant:logout:global', value: 'mine' },
+    {
+      user_id: 'preference-a',
+      preference_key: 'instant:logout:global',
+      value: 'mine',
+    },
   ]);
   expect(readTableSettingIntent('preference-a', 'page:instant:logout:global')).toBeNull();
   view.unmount();
@@ -211,7 +231,11 @@ it('keeps an offline notification gesture pending and saves that same intent onc
     window.dispatchEvent(new Event('online'));
   });
   expect(state.writes).toEqual([
-    { user_id: 'preference-a', preference_key: 'NotificationsPage:filter:global', value: 'all' },
+    {
+      user_id: 'preference-a',
+      preference_key: 'NotificationsPage:filter:global',
+      value: 'all',
+    },
   ]);
   expect(readTableSettingIntent('preference-a', 'page:NotificationsPage:filter:global')).toBeNull();
   view.unmount();
@@ -244,7 +268,11 @@ it('resumes a remounted offline notification intent only for its current account
   act(() => useUserStore.setState({ user: { id: 'preference-a' } as any }));
   await act(async () => {});
   expect(state.writes).toEqual([
-    { user_id: 'preference-a', preference_key: 'NotificationsPage:filter:global', value: 'all' },
+    {
+      user_id: 'preference-a',
+      preference_key: 'NotificationsPage:filter:global',
+      value: 'all',
+    },
   ]);
   next.unmount();
   online.mockRestore();

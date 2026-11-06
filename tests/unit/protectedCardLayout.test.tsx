@@ -360,3 +360,5 @@ it('a seat that leaves the top lane drops its shift (Dan 2026-11-02, jam_degen o
   await waitFor(() => expect(pod().style.getPropertyValue('--sp-top-seat-shift')).toBe(''));
   expect(pod().style.translate).toBe('');
 });
+
+// Two top chairs sitting level is a law: tests/two-top-chairs-sit-level.law.test.tsx

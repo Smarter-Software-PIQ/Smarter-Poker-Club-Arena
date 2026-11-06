@@ -13,6 +13,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import measurements from '../../scripts/data/bust-art-measurements.json';
+import { AVATAR_ART_REVISION } from '../../src/lib/avatarArtRevision';
 import { BUST_ART_GAIN, bustArtGain } from '../../src/components/table/bustArtGain';
 
 /** Widest correction the composed scale may apply. See scripts/measure-bust-art.py. */
@@ -34,17 +36,15 @@ describe('bustArtGain', () => {
     expect(outOfBand).toEqual([]);
   });
 
-  it('corrects the viking DOWN — it is one of the largest assets, not one of the smallest', () => {
-    // The precise number is generated; the DIRECTION is the fact that was got
-    // wrong, and it is what this asserts.
-    expect(BUST_ART_GAIN.viking).toBeLessThan(1);
-    expect(BUST_ART_GAIN.viking_warrior).toBeLessThan(1);
-  });
-
-  it('still corrects the chef UP — it really is drawn small', () => {
-    // The other half of "the viking and chef need to be 2x". One of the two
-    // was right, and normalising must not quietly undo it.
-    expect(BUST_ART_GAIN.chef).toBeGreaterThan(1);
+  it('corrects every current silhouette to the independently measured median', () => {
+    expect(measurements.artRevision).toBe(AVATAR_ART_REVISION);
+    expect(Object.keys(measurements.assets).sort()).toEqual(Object.keys(BUST_ART_GAIN).sort());
+    for (const [slug, measured] of Object.entries(measurements.assets)) {
+      expect(measured.sha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(
+        Math.abs(measured.subjectShare * BUST_ART_GAIN[slug] - measurements.referenceShare)
+      ).toBeLessThan(0.001);
+    }
   });
 
   it('resolves a table avatar url to its slug, retina variant included', () => {
@@ -73,4 +73,18 @@ describe('bustArtGain', () => {
     // Unmeasured new art falls back to the global scale rather than throwing.
     expect(bustArtGain('/avatars/table/free_brand_new_character.webp')).toBe(1);
   });
+});
+
+it('browser artwork fixtures match the exact measured retina library', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { createHash } = await import('node:crypto');
+  for (const [file, slug] of [
+    ['tests/e2e/fixtures/table-art/vip_wolf@2x.webp', 'wolf'],
+    ['tests/e2e/fixtures/table-art/vip_aztec_warrior@2x.webp', 'aztec_warrior'],
+    ['tests/fixtures/mobile-avatar-geometry/free_penguin@2x.webp', 'penguin'],
+  ] as const) {
+    expect(createHash('sha256').update(readFileSync(file)).digest('hex')).toBe(
+      measurements.assets[slug].retinaSha256
+    );
+  }
 });

@@ -361,7 +361,8 @@ describe('surface: TournamentService.buildRpcConfig and createTournament', () =>
   });
 
   it('refuses a Sit And Go ladder that falls, and one with a 0 minute level', () => {
-    const [a, b] = sng.blindStructure;
+    const a = sng.blindStructure[0];
+    const b = sng.blindStructure.find((level) => level.bigBlind > a.bigBlind)!;
     expect(
       refusalOf(() => tournamentService.buildRpcConfig({ ...sng, blindStructure: [b, a] }))
     ).toBe('blind_structure_must_not_decrease');

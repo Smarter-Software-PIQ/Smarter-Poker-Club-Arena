@@ -43,6 +43,10 @@ import { validateMttBlindStructure } from '../domain/tournamentBlindContract.js'
 
 import { supabase } from './supabase.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
+import {
+  shouldRebuildMidwayOccurrence,
+  type MidwayOccurrenceUnderReview,
+} from '../tournament/midwayFreeBuyPolicy.js';
 import { reportError } from './errorReporter.js';
 import { raiseFinancialAlert } from './financialAlerts.js';
 import { isGuaranteeBankRefusal } from '../domain/guaranteeBankRefusal.js';
@@ -58,6 +62,7 @@ import {
 } from './diamondScheduledSpawn.js';
 import { mttBountyAmount } from '../tournament/mttBountyAllocation.js';
 import { withMidwayStructure } from '../tournament/midwayStructurePolicy.js';
+import { ORPHAN_SPAWN_SWEEP_MS, sweepOrphanSpawnClaims } from './orphanSpawnClaims.js';
 import { withBountyRebuyUntilRegistrationCloses } from '../tournament/bountyRebuyPolicy.js';
 import { withMysteryBountyTerms } from '../tournament/mysteryBountyTerms.js';
 import { withLockedLevelClock } from '../tournament/lockedLevelClock.js';
@@ -762,6 +767,9 @@ export class ScheduledTournamentService {
    * edited or switched off after boot cannot stay wrong until the next release.
    */
   private fixedBoardSyncedAt = 0;
+  private orphanClaimsSweptAt = 0;
+  /** Orphaned spawn claims by first sighting (orphanSpawnClaims.ts). */
+  private readonly orphanClaimsSeen = new Map<string, number>();
   private isRunning = false;
   /** Re-entrancy guard: a slow poll must never overlap the next tick. */
   private polling = false;
@@ -974,6 +982,24 @@ export class ScheduledTournamentService {
         }
       }
 
+      // A STUCK SPAWN CLAIM REPAIRS ITSELF (owner 2026-11-05,
+      // orphanSpawnClaims.ts): a claim a dead spawn left with no tournament
+      // is linked or released, so the occurrence is never silently skipped.
+      if (Date.now() - this.orphanClaimsSweptAt >= ORPHAN_SPAWN_SWEEP_MS) {
+        this.orphanClaimsSweptAt = Date.now();
+        try {
+          await sweepOrphanSpawnClaims(supabase, new Date(), reportError, this.orphanClaimsSeen);
+        } catch (err: unknown) {
+          reportError(
+            new Error(
+              `[ScheduledTournaments] orphan spawn claim sweep failed: ${(err as Error)?.message ?? err}`
+            ),
+            'ScheduledTournaments.orphan_claim_sweep_failed'
+          );
+        }
+        if (!this.lifecycleIsCurrent(generation)) return;
+      }
+
       try {
         if (!this.lifecycleIsCurrent(generation)) return;
         await this.processRestartEvery();
@@ -1137,6 +1163,20 @@ export class ScheduledTournamentService {
       );
       await this.conformClaimedOccurrences(schedule, plans, claimedSet);
     }
+    /* A BUILT EVENT MATCHES ITS SCHEDULE (owner 2026-11-05). A claimed
+       Midway Free Buy occurrence built in a format its schedule no longer
+       names is rebuilt, while it is unstarted and horse-only, before this
+       pass decides what to spawn: the database cancels it (every entry
+       refunded) and releases its claim in one transaction, so the loop below
+       spawns the date fresh from the schedule. */
+    if (claimedSet) {
+      await this.rebuildWrongShapedMidwayOccurrences(
+        schedule,
+        cfg,
+        candidates.map((d) => d.spawnKey).filter((k) => claimedSet!.has(k)),
+        claimedSet
+      );
+    }
     const due = change
       ? resolveTimeChange(dueNew, duePrev, change, claimedSet!, schedule.id)
       : dueNew;
@@ -1145,6 +1185,102 @@ export class ScheduledTournamentService {
       if (this.retiredScheduleIds.has(schedule.id)) return; // deleted mid-pass
       if (claimedSet?.has(spawn.spawnKey)) continue; // already spawned
       await this.spawnInstance(schedule, cfg, spawn.spawnKey, spawn.startTime);
+    }
+  }
+
+  /** A refused rebuild (a human registered, too close to start) is a
+   * stable answer: ask the database again at most this often per event. */
+  private static readonly MIDWAY_REBUILD_RETRY_MS = 10 * 60_000;
+  private readonly midwayRebuildAskedAt = new Map<string, number>();
+
+  /**
+   * A BUILT EVENT MATCHES ITS SCHEDULE (owner 2026-11-05): the row work behind
+   * shouldRebuildMidwayOccurrence. For each claimed occurrence of a Midway
+   * Free Buy schedule whose built format is not the one the schedule names,
+   * fn_ca_rebuild_midway_free_buy_to_its_schedule re-checks everything under
+   * the event's lock and, only for an unstarted horse-only field, cancels it
+   * through atomic_cancel_tournament (every horse refunded exactly as a human
+   * would be) and releases its spawn claim in the same transaction. The key
+   * then leaves claimedSet, so this same pass spawns the date in the
+   * schedule's shape and the pre-start ramp registers the field again. Every
+   * failure skips that occurrence, never the loop. Not a sweep: it runs only
+   * inside this schedule's own sync pass, on dates the pass is already
+   * resolving.
+   */
+  private async rebuildWrongShapedMidwayOccurrences(
+    schedule: TournamentScheduleRow,
+    cfg: Record<string, unknown>,
+    claimedKeys: string[],
+    claimedSet: Set<string>
+  ): Promise<void> {
+    if (!cfg.midwayFreeBuyFormat || claimedKeys.length === 0 || isMaintenanceFrozen()) return;
+    try {
+      const { data: spawns, error: spawnErr } = await supabase
+        .from('tournament_schedule_spawns')
+        .select('spawn_key, tournament_id')
+        .in('spawn_key', claimedKeys);
+      if (spawnErr || !Array.isArray(spawns)) return; // fail closed
+      const keyOf = new Map<string, string>();
+      for (const s of spawns as Array<{ spawn_key: string; tournament_id: string | null }>) {
+        if (s.tournament_id) keyOf.set(s.tournament_id, s.spawn_key);
+      }
+      if (keyOf.size === 0) return;
+      const { data: rows, error: rowErr } = await supabase
+        .from('tournaments')
+        .select(
+          'id, name, status, start_time, started_at, prize_pool_finalized, is_pko, is_bounty, ' +
+            'is_mystery_bounty, all_in_or_fold, bounty_amount, guaranteed_prize'
+        )
+        .in('id', [...keyOf.keys()]);
+      if (rowErr || !Array.isArray(rows)) return; // fail closed
+      const nowMs = Date.now();
+      for (const row of rows as unknown as Array<
+        MidwayOccurrenceUnderReview & { id: string; name?: string }
+      >) {
+        if (!shouldRebuildMidwayOccurrence(cfg, row, nowMs)) continue;
+        const askedAt = this.midwayRebuildAskedAt.get(row.id) ?? 0;
+        if (nowMs - askedAt < ScheduledTournamentService.MIDWAY_REBUILD_RETRY_MS) continue;
+        this.midwayRebuildAskedAt.set(row.id, nowMs);
+        if (isMaintenanceFrozen()) return;
+        const { data: out, error } = await supabase.rpc(
+          'fn_ca_rebuild_midway_free_buy_to_its_schedule',
+          { p_tournament_id: row.id }
+        );
+        if (error) {
+          reportError(
+            new Error(
+              `[ScheduledTournaments] "${String(row.name ?? schedule.name)}" (${row.id.slice(0, 8)}) could not be rebuilt to its schedule: ${error.message}`
+            ),
+            'ScheduledTournaments.midway_rebuild_failed'
+          );
+          continue;
+        }
+        const result = (out ?? {}) as {
+          rebuilt?: boolean;
+          reason?: string;
+          format?: string;
+          expected_format?: string;
+          entries_refunded?: number;
+        };
+        if (result.rebuilt !== true) {
+          console.log(
+            `[ScheduledTournaments] "${String(row.name ?? schedule.name)}" (${row.id.slice(0, 8)}) left as built: ${result.reason ?? 'unknown'}`
+          );
+          continue;
+        }
+        this.midwayRebuildAskedAt.delete(row.id);
+        const key = keyOf.get(row.id);
+        if (key) claimedSet.delete(key);
+        console.log(
+          `[ScheduledTournaments] "${String(row.name ?? schedule.name)}" (${row.id.slice(0, 8)}) was ${result.format ?? 'unformatted'}, ` +
+            `its schedule names ${result.expected_format}: cancelled with ${result.entries_refunded ?? 0} entr(ies) refunded and rebuilt from the schedule`
+        );
+      }
+    } catch (e) {
+      reportError(
+        e instanceof Error ? e : new Error(String(e)),
+        'ScheduledTournaments.midway_rebuild_failed'
+      );
     }
   }
 

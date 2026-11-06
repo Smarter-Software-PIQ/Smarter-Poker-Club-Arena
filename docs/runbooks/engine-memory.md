@@ -18,8 +18,18 @@ Retired local/custom pipelines remain unavailable under the shared owner policy.
 - `EngineBuildHeadroomLost`: host MemAvailable below 2304 MiB for thirty minutes,
   warning. It reports sustained pressure relative to the current on-host build
   gate; conditions can change before the next authorized attempt.
-- `EngineProcessMemoryHigh`: engine RSS above 8589934592 bytes (8 GiB) for
-  fifteen minutes, warning. Re-measured 2026-10-19 after engine-01 was resized
+- `EngineProcessMemoryHigh`: engine RSS above 12884901888 bytes (12 GiB) for
+  fifteen minutes, warning. Re-set 2026-11-05 to the owner ceiling (Dan,
+  2026-11-05 14:44 Chicago, `scripts/ci/verify-engine-release-bundle.mjs`):
+  the Phase 1 RSS ceiling is 12288 MB and RSS must level off. The measured
+  steady state on the current engine is 8.85-10.3 GB whole-process RSS, and
+  that figure already counts the eight horse decision workers, the equity
+  workers and the journal writers, which are worker_threads inside the one
+  engine process. The engine memory governor
+  (`server/src/observability/memoryGovernor.ts`) falls back to the same
+  12288 MB hard line (9830 MB soft), so the live alarm, the governor and the
+  release gate agree. The history below is the earlier 8 GiB line.
+  Re-measured 2026-10-19 after engine-01 was resized
   at ~17:00 UTC 2026-10-17 from 30.6 GiB to 61.3 GiB with 16 cores. The equity
   worker pool sizes from cores (`availableParallelism() - 2` in
   `server/src/engine/equity/EquityWorkerPool.ts`), so it went from 6 to 14

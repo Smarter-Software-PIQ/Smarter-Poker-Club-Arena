@@ -1,5 +1,6 @@
 import { openLobbyGameSection } from './lobbyGameSections';
 import type { Page, Request, Response } from '@playwright/test';
+import { lobbySaveAccepted, preferenceCall, requestOwner } from './preferenceSaveProof';
 
 const TAB_KEYS: Record<string, string> = {
   ALL: 'ALL',
@@ -11,11 +12,18 @@ const TAB_KEYS: Record<string, string> = {
   'HEADS UP': 'SNG',
 };
 const SAVE_TIMEOUT_MS = 30_000;
+// Reads come from the account's row; every change goes through the owner-only
+// save function (migration 20261105183133), never a direct row write.
 const ENDPOINT = '/rest/v1/user_lobby_filters';
+const SAVE_FN = 'fn_save_lobby_preferences';
+const isViewProjection = (select: string | null) =>
+  select === 'view_prefs' || select === 'view_prefs,revisions';
 
 function preferenceUrl(request: Request): URL | null {
   const url = new URL(request.url());
-  return url.pathname.endsWith(ENDPOINT) ? url : null;
+  return url.pathname.endsWith(ENDPOINT) || url.pathname.endsWith(`/rest/v1/rpc/${SAVE_FN}`)
+    ? url
+    : null;
 }
 
 export function isLobbySelectionRequest(
@@ -25,27 +33,27 @@ export function isLobbySelectionRequest(
   ownerId: string
 ): boolean {
   if (!TAB_KEYS[label]) throw new Error(`Unknown lobby tab: ${label}`);
-  if (!ownerId || request.method() !== 'POST' || !preferenceUrl(request)) return false;
-  try {
-    const body: unknown = request.postDataJSON();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
-    const row = body as { user_id?: unknown; club_id?: unknown; view_prefs?: { tab?: unknown } };
-    return (
-      row.user_id === ownerId && row.club_id === clubId && row.view_prefs?.tab === TAB_KEYS[label]
-    );
-  } catch {
-    return false;
-  }
+  if (!ownerId) return false;
+  const call = preferenceCall(request, SAVE_FN);
+  return (
+    call?.clubId === clubId &&
+    call.changes.some((c) => c.field === 'view.tab' && c.value === TAB_KEYS[label])
+  );
 }
 
-/** Advanced Filters and another owner's write are not this tab's acknowledgement. */
-export function isLobbySelectionSave(
+/**
+ * Advanced Filters and another owner's write are not this tab's
+ * acknowledgement: the call must be the owner's and the account must hold
+ * the tab afterwards.
+ */
+export async function isLobbySelectionSave(
   response: Response,
   clubId: string,
   label: string,
   ownerId: string
-): boolean {
-  return response.ok() && isLobbySelectionRequest(response.request(), clubId, label, ownerId);
+): Promise<boolean> {
+  if (!isLobbySelectionRequest(response.request(), clubId, label, ownerId)) return false;
+  return lobbySaveAccepted(response, ownerId, clubId, 'view.tab', TAB_KEYS[label]);
 }
 
 async function bounded<T>(promise: Promise<T>, ms: number, phase: string): Promise<T> {
@@ -99,20 +107,25 @@ export function observeLobbyPreferenceProof(page: Page, clubId: string) {
     if (request.method() === 'GET') {
       detail.clubMatches = url.searchParams.get('club_id') === `eq.${clubId}`;
       detail.ownerMatches = owner ? url.searchParams.get('user_id') === `eq.${owner}` : null;
-      detail.projection = ['view_prefs', 'filters'].includes(url.searchParams.get('select') ?? '')
-        ? url.searchParams.get('select')
-        : 'other';
+      const select = url.searchParams.get('select');
+      detail.projection = isViewProjection(select)
+        ? 'view_prefs'
+        : select === 'filters' || select === 'filters,revisions'
+          ? 'filters'
+          : 'other';
     } else if (request.method() === 'POST') {
-      try {
-        const row = request.postDataJSON();
-        detail.ownerMatches = owner ? row?.user_id === owner : null;
-        detail.clubMatches = row?.club_id === clubId;
-        detail.writer = row?.view_prefs ? 'view' : row?.filters ? 'filters' : 'other';
-        detail.tab = Object.values(TAB_KEYS).includes(row?.view_prefs?.tab)
-          ? row.view_prefs.tab
-          : null;
-      } catch {
-        detail.writer = 'invalid';
+      const call = preferenceCall(request, SAVE_FN);
+      if (!call) detail.writer = 'invalid';
+      else {
+        detail.clubMatches = call.clubId === clubId;
+        const fields = call.changes.map((c) => String(c.field));
+        detail.writer = fields.some((f) => f.startsWith('view.'))
+          ? 'view'
+          : fields.some((f) => f.startsWith('filters.'))
+            ? 'filters'
+            : 'other';
+        const tab = call.changes.find((c) => c.field === 'view.tab')?.value;
+        detail.tab = Object.values(TAB_KEYS).includes(tab as string) ? tab : null;
       }
     }
     record('request', detail);
@@ -125,7 +138,7 @@ export function observeLobbyPreferenceProof(page: Page, clubId: string) {
     if (
       request.method() !== 'GET' ||
       url.searchParams.get('club_id') !== `eq.${clubId}` ||
-      url.searchParams.get('select') !== 'view_prefs'
+      !isViewProjection(url.searchParams.get('select'))
     )
       return;
     const ownerFilter = url.searchParams.get('user_id');
@@ -229,22 +242,31 @@ export async function selectLobbyPreference(
   proof: LobbyPreferenceProof
 ) {
   await proof.ready(ownerId);
+  // Observe before the section opens: opening Tournaments or Cash Games can
+  // itself select, and save, the intended tab. The click on a tab that is
+  // already selected then changes nothing and correctly sends nothing
+  // (migration 20261105183133 writes only what the player changed), so a
+  // listener installed after the section opened waited for a save that had
+  // already happened (verify-lobby-ui run 42125924931).
+  let receiveRequest!: (request: Request) => void;
+  const requested = new Promise<Request>((resolve) => {
+    receiveRequest = resolve;
+  });
+  // Another account's write is not this owner's acknowledgement: keep waiting.
+  const observeRequest = (request: Request) => {
+    if (!isLobbySelectionRequest(request, clubId, label, ownerId)) return;
+    void requestOwner(request)
+      .then((who) => {
+        if (who === ownerId) receiveRequest(request);
+      })
+      .catch(() => {});
+  };
+  page.on('request', observeRequest);
   await openLobbyGameSection(page, label);
   const tabs = page.getByRole('tablist', { name: 'Game Type', exact: true });
   const tab = tabs.getByRole('tab', { name: label, exact: true });
   const before = await tabs.getByRole('tab', { selected: true }).textContent();
   proof.record('selection-before', { selected: before?.trim(), intended: label });
-
-  // Observe before the action, including a write that precedes click completion.
-  // Start the existing network budget only after the action has succeeded.
-  let receiveRequest!: (request: Request) => void;
-  const requested = new Promise<Request>((resolve) => {
-    receiveRequest = resolve;
-  });
-  const observeRequest = (request: Request) => {
-    if (isLobbySelectionRequest(request, clubId, label, ownerId)) receiveRequest(request);
-  };
-  page.on('request', observeRequest);
   let phase = 'click';
   const actionStarted = Date.now();
   try {
@@ -276,6 +298,10 @@ export async function selectLobbyPreference(
     if (!response) throw new Error('Lobby preference save ended without a response');
     proof.record('intended-response', { status: response.status() });
     if (!response.ok()) throw new Error(`Lobby preference save returned HTTP ${response.status()}`);
+    if ((await requestOwner(request)) !== ownerId)
+      throw new Error('Lobby preference save was not made as the proof owner');
+    if (!(await lobbySaveAccepted(response, ownerId, clubId, 'view.tab', TAB_KEYS[label])))
+      throw new Error(`Lobby preference ${label} was not accepted by the account`);
     phase = 'state';
     const after = await tab.getAttribute('aria-selected');
     proof.record('selection-after', { selected: label, ariaSelected: after });

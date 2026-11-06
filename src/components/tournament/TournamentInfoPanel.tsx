@@ -92,16 +92,22 @@ interface TournamentRow extends TournamentEntryWindowRow, TournamentArenaEmbed {
   satellite_target_id: string | null;
   satellite_target: string | null;
   bounty_pool: number | null;
+  total_rake?: number | null;
+  prize_pool_finalized?: boolean | null;
   current_players: number | null;
   max_players: number | null;
   starting_chips: number | null;
   current_level: number | null;
   level_started_at: string | null;
   late_reg_levels: number | null;
+  add_on_available?: boolean | null;
+  addon_period_started_at?: string | null;
+  addon_period_ends_at?: string | null;
   blind_structure: unknown;
   payout_structure: unknown;
   spin_multiplier: number | null;
   is_bounty: boolean | null;
+  is_pko?: boolean | null;
   start_time: string | null;
 }
 
@@ -166,7 +172,7 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
               supabase
                 .from('tournaments')
                 .select(
-                  'id, name, status, variant, tournament_type, spin_multiplier, buy_in_amount, buy_in_fee, prize_pool, guaranteed_prize, bubble_protection, satellite_target_id, satellite_target, bounty_pool, current_players, max_players, starting_chips, current_level, level_started_at, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, started_at, blind_structure, payout_structure, is_bounty, start_time, arena:clubs!tournaments_club_id_fkey(id, asset, is_platform, union_id)'
+                  'id, name, status, variant, tournament_type, spin_multiplier, buy_in_amount, buy_in_fee, prize_pool, guaranteed_prize, bubble_protection, satellite_target_id, satellite_target, bounty_pool, total_rake, current_players, max_players, starting_chips, current_level, level_started_at, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, add_on_available, addon_from_start, addon_period_started_at, addon_period_ends_at, started_at, blind_structure, payout_structure, is_bounty, is_pko, start_time, arena:clubs!tournaments_club_id_fkey(id, asset, is_platform, union_id)'
                 )
                 .eq('id', tournamentId)
                 .abortSignal(signal)
@@ -257,7 +263,13 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
     const ranked = [...alive].sort((a, b) => num(b.chips) - num(a.chips));
     const ranks = tournamentChipRanks(alive);
     const myRank = mine ? (ranks.get(mine.user_id) ?? 0) : 0;
-    const pool = effectivePrizePool(t?.prize_pool, t?.guaranteed_prize, t?.bounty_pool);
+    const pool = effectivePrizePool(
+      t?.prize_pool,
+      t?.guaranteed_prize,
+      t?.bounty_pool,
+      t?.total_rake,
+      t?.prize_pool_finalized === true
+    );
     return {
       entriesAlive: alive.length,
       entriesTotal: fieldSize ?? rows.length,
@@ -330,11 +342,13 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
   const lateRegText =
     !t || !tournamentEntryWindowOpen(t, Date.now())
       ? 'Closed'
-      : entryWindow.mode === 'levels'
-        ? `Through Level ${entryWindow.cap}`
-        : entryWindow.mode === 'minutes'
-          ? `${entryWindow.minutes} Minutes`
-          : 'Closed';
+      : t.add_on_available === true
+        ? 'Through Add-On'
+        : entryWindow.mode === 'levels'
+          ? `Through Level ${entryWindow.cap}`
+          : entryWindow.mode === 'minutes'
+            ? `${entryWindow.minutes} Minutes`
+            : 'Closed';
 
   const tables = useMemo(() => {
     const byTable = new Map<string, number>();
