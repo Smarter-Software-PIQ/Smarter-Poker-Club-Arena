@@ -787,6 +787,7 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/satellite_qualifier_concurrency.py',
     'scripts/ci/satellite_entry_club_native.py',
     'scripts/ci/ordinary_terminal_transport.py',
+    'scripts/ci/zero_pool_terminal_native.py',
     'scripts/ci/terminal_original_request_native.py',
     'scripts/ci/fixtures/terminal-original-request/custody-preimage.sql',
     'scripts/ci/fixtures/terminal-original-request/deal-consent.sql',
@@ -809,6 +810,13 @@ describe('required CI owns native fixture verification', () => {
       server: true,
       tests: true,
     });
+  });
+
+  it.each([
+    'scripts/ci/fixtures/tournament-abort/diamond/diamond_abort_native.py',
+    'scripts/ci/fixtures/tournament-abort/diamond/authenticated-payout-guards.json',
+  ])('runs existing accounting for authenticated Diamond payout input %s', (path) => {
+    expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
   });
 
   it('executes satellite settlement and retains exact receipts in accounting', () => {
