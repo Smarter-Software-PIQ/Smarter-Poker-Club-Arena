@@ -83,6 +83,9 @@ export const FINANCIAL_ADMIN_CONSOLE_READ_ONLY_RPC_PATHS = Object.freeze([
   // (pg_proc, 2026-10-07).
   '/rest/v1/rpc/fn_batch_club_realtime_active_counts',
   '/rest/v1/rpc/fn_batch_club_realtime_member_counts',
+  // HomePage reads separately labeled display additions on the same fallback.
+  // SQL STABLE, SELECT-only; no nested functions or DML (live pg_proc, 2026-11-06).
+  '/rest/v1/rpc/fn_club_display_labeled_additions',
   '/rest/v1/rpc/fn_get_club_entry_flags',
   '/rest/v1/rpc/get_club_players_playing',
 ] as const);
