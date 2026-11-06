@@ -228,6 +228,10 @@ BEGIN
 END;
 $function$;
 
+-- Production already holds this function owner-only ({postgres=X/postgres});
+-- restated so no browser role can ever execute the promo writer.
+REVOKE ALL ON FUNCTION public.fn_ca_midway_free_buy_promo_head(uuid, uuid, boolean) FROM PUBLIC, anon, authenticated;
+
 -- 3. The cutoff funds the prize-pool part once.
 CREATE FUNCTION public.fn_ca_fund_free_buy_at_cutoff_locked(p_tournament_id uuid)
 RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER
