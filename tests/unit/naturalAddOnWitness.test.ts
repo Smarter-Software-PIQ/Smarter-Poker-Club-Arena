@@ -32,6 +32,32 @@ describe('natural add-on observation admission', () => {
     ] as const)
       expect(() => completeAddOnRoster(rows as any, count, id)).toThrow();
   });
+  it('keeps complete historical evidence but opens only live tables', () => {
+    const rows = Array.from({ length: 12 }, (_, index) => ({
+      ...row,
+      id: `11111111-1111-4111-8111-${String(index).padStart(12, '0')}`,
+      status: index < 6 ? 'closed' : 'running',
+    }));
+    expect(completeAddOnRoster(rows, 12, id)).toEqual(rows.slice(6));
+    expect(() => completeAddOnRoster(rows.slice(1), 12, id)).toThrow();
+    expect(() =>
+      completeAddOnRoster(
+        rows.map((r) => ({ ...r, status: 'running' })),
+        12,
+        id
+      )
+    ).toThrow();
+    expect(() =>
+      completeAddOnRoster(
+        rows.map((r) => ({ ...r, status: 'closed' })),
+        12,
+        id
+      )
+    ).toThrow();
+    expect(() =>
+      completeAddOnRoster([{ ...rows[0], tournament_id: 'other' }, ...rows.slice(1)], 12, id)
+    ).toThrow();
+  });
   it('requires a full sixty-second durable window after late entry', () => {
     const state = {
       addon_period_triggered: true,

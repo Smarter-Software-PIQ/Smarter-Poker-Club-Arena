@@ -23,20 +23,19 @@ export function completeAddOnRoster(
   count: number | null,
   tournamentId: string
 ): AddOnTable[] {
-  if (
-    !rows ||
-    !Number.isInteger(count) ||
-    count! < 1 ||
-    count! > ADDON_TABLE_CAP ||
-    rows.length !== count
-  )
-    throw new Error('UNKNOWN: natural add-on roster is empty, incomplete or exceeds eight tables');
+  if (!rows || !Number.isInteger(count) || count! < 1 || rows.length !== count)
+    throw new Error('UNKNOWN: natural add-on roster is empty or incomplete');
   if (
     new Set(rows.map((row) => row.id)).size !== count ||
     rows.some((row) => !UUID.test(row.id) || row.tournament_id !== tournamentId || !row.status)
   )
     throw new Error('UNKNOWN: natural add-on roster identity is invalid');
-  return rows;
+  // Retain and validate the complete historical roster before selecting live
+  // consumers. A retired table has no snapshot or add-on dialog to observe.
+  const live = rows.filter((row) => row.status !== 'closed');
+  if (live.length === 0 || live.length > ADDON_TABLE_CAP)
+    throw new Error('UNKNOWN: natural add-on live roster is empty or exceeds eight tables');
+  return live;
 }
 export function addOnWindow(row: Record<string, unknown>) {
   const start = Date.parse(String(row.addon_period_started_at || ''));
