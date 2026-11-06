@@ -224,6 +224,7 @@ export function TournamentBreakScreen({
     averageStack: number;
     topPlayers: TournamentPlayer[];
     myPlayer?: TournamentPlayer;
+    heroIsEntrant: boolean;
   } | null>(null);
   const factsScope = JSON.stringify([
     tournamentId,
@@ -361,6 +362,16 @@ export function TournamentBreakScreen({
           averageStack: active.length ? Math.trunc(totalChips / active.length) : 0,
           topPlayers: ranked.slice(0, 5),
           myPlayer: ranked.find((r) => r.isCurrentUser),
+          /* "Your VPIP" belongs to the viewer's own seat in THIS event (Dan
+             2026-11-05). A rail watcher, or an owner watching another
+             account's table, has no hands here, so the card never labels an
+             empty sample as theirs. Any entrant row counts, whatever its
+             status, so a player between tables still sees their number. */
+          heroIsEntrant:
+            !!heroUserId &&
+            (pRes.data as Array<{ user_id?: string }>).some(
+              (r) => String(r.user_id ?? '') === heroUserId
+            ),
         });
       } catch (err) {
         if (mounted && !pending) {
@@ -810,7 +821,7 @@ export function TournamentBreakScreen({
             </div>
           )}
 
-          {tournamentId && heroUserId && (
+          {tournamentId && heroUserId && currentFacts?.heroIsEntrant && (
             <TournamentHourVpip tournamentId={tournamentId} userId={heroUserId} />
           )}
 
