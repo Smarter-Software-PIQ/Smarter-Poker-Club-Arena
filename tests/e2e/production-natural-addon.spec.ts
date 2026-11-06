@@ -6,7 +6,7 @@ import {
   admitNaturalAddOn,
   completeAddOnRoster,
   addOnWindow,
-  countdownSeconds,
+  readAddOnCountdown,
   forbiddenAddOnParticipation,
   suppressedObserverReward,
   type AddOnTable,
@@ -269,12 +269,15 @@ test('every captured natural add-on table renders its public minute', async ({
       .locator('.break-screen__stat-value');
     await expect(cost).toHaveText(window.cost.toLocaleString('en-US'));
     await expect(chips).toHaveAttribute('title', window.chips.toLocaleString('en-US'));
-    const seconds = countdownSeconds(await dialog.getByRole('timer').innerText());
-    const now = Date.now();
+    const countdown = await readAddOnCountdown(dialog.getByRole('timer'), window.end);
+    const { seconds, at: now } = countdown;
+    // Retain even a failed clock sample, including transport lag and visibility.
+    evidence.countdownSamples ??= [];
+    evidence.countdownSamples.push({ tableId, phase, ...countdown });
     expect(seconds).toBeGreaterThan(0);
     expect(seconds).toBeLessThanOrEqual(60);
     expect(
-      Math.abs(seconds - Math.ceil((window.end - now) / 1000)),
+      countdown.driftSeconds,
       'Rendered countdown differs from durable deadline'
     ).toBeLessThanOrEqual(3);
     evidence.observations.push({
