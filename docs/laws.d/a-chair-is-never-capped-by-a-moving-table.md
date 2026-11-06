@@ -1,0 +1,3 @@
+# tests/a-chair-is-never-capped-by-a-moving-table.law.test.ts
+
+A chair is never capped by a moving table. Danimal's phone, Afternoon Free Buy Table 9 (Dan 2026-11-05: "THE AVATARS POSITION ... NEVER EVER EVER BE ABLE TO CHANGE DURING LIVE PLAY"): `fitSeatToViewport` was given the scaler's painted left edge, so a table caught mid-slide, mid-zoom or mid-scroll pinned every chair right of ~30% of the felt on top of the left-hand chairs, and the memoized ring kept it. The left edge is now read from layout (`scalerLayoutLeftPx`), and a window that does not contain the table's own centre is refused, so no measurement can move any chair into the other half of the table, at any width, ring size or offset.
