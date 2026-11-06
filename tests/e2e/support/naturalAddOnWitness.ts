@@ -1,3 +1,5 @@
+import type { Locator } from '@playwright/test';
+
 export const ADDON_TABLE_CAP = 8;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 export type AddOnTable = { id: string; status: string; tournament_id: string };
@@ -60,6 +62,23 @@ export function countdownSeconds(text: string): number {
   if (!match || Number(match[2]) > 59)
     throw new Error('UNKNOWN: rendered add-on countdown is unreadable');
   return Number(match[1]) * 60 + Number(match[2]);
+}
+/** Capture the rendered value and its clock in the same browser task. A slow
+ * protocol response must not age the text before we compare its deadline. */
+export async function readAddOnCountdown(timer: Pick<Locator, 'evaluate'>, endsAt: number) {
+  const sample = await timer.evaluate((element) => ({
+    text: element.textContent ?? '',
+    at: Date.now(),
+    visibility: document.visibilityState,
+  }));
+  const receivedAt = Date.now();
+  const seconds = countdownSeconds(sample.text);
+  return {
+    ...sample,
+    receivedAt,
+    seconds,
+    driftSeconds: Math.abs(seconds - Math.ceil((endsAt - sample.at) / 1000)),
+  };
 }
 // These deployed RPCs read public/table context without purchasing or reserving anything.
 const OBSERVER_READ_RPCS = new Set([

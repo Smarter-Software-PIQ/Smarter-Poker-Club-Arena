@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Locator } from '@playwright/test';
 import {
   admitNaturalAddOn,
   completeAddOnRoster,
   addOnWindow,
   countdownSeconds,
+  readAddOnCountdown,
   forbiddenAddOnParticipation,
   suppressedObserverReward,
 } from '../e2e/support/naturalAddOnWitness';
@@ -155,4 +157,40 @@ describe('natural add-on observation admission', () => {
       )
     ).toBe(false);
   });
+});
+
+describe('countdown samples retain their browser observation time', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  it.each([0, 10])(
+    'keeps %s seconds of actual drift despite a delayed protocol response',
+    async (drift) => {
+      const browserAt = Date.parse('2026-11-06T16:11:10Z');
+      const end = browserAt + 50_000;
+      let now = browserAt;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      vi.stubGlobal('document', { visibilityState: 'visible' });
+      const timer = {
+        evaluate: async (capture: (element: { textContent: string }) => unknown) => {
+          const sample = capture({ textContent: `0:${50 - drift}` });
+          // The DOM is read first; the runner receives that result ten seconds later.
+          await Promise.resolve();
+          now += 10_000;
+          return sample;
+        },
+      } as unknown as Pick<Locator, 'evaluate'>;
+      const sample = await readAddOnCountdown(timer, end);
+      expect(sample.at).toBe(browserAt);
+      expect(sample.receivedAt - sample.at).toBe(10_000);
+      expect(sample.visibility).toBe('visible');
+      expect(sample.driftSeconds).toBe(drift);
+      if (drift === 0) {
+        // The former cross-process timestamp comparison creates a false ten-second drift.
+        expect(Math.abs(sample.seconds - Math.ceil((end - sample.receivedAt) / 1000))).toBe(10);
+        expect(sample.driftSeconds).toBeLessThanOrEqual(3);
+      } else expect(sample.driftSeconds).toBeGreaterThan(3);
+    }
+  );
 });
