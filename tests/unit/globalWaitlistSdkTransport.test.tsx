@@ -195,13 +195,14 @@ function Location() {
         {location.pathname}
         {location.search}
       </output>
+      <output data-testid="offer-id">{location.state?.cashSeatOffer?.id ?? ''}</output>
       <button onClick={() => navigate('/elsewhere')}>Elsewhere</button>
     </>
   );
 }
-function MountedQueue() {
+function MountedQueue({ initialEntry = '/lobby' }: { initialEntry?: string }) {
   return (
-    <MemoryRouter initialEntries={['/lobby']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <WaitlistBanner />
       <GlobalWaitlistListener />
       <Location />
@@ -217,7 +218,9 @@ it('delivers real SDK row updates through the mounted listener, bus, service and
   const unlisten = masterBus.subscribe('WAITLIST_SEAT_OFFERED', (event) =>
     offers.push(event.payload)
   );
-  let mounted = render(<MountedQueue />);
+  // The reported failure: the player is already watching this table, and a
+  // previous admission left the same buy-in query in the persistent route.
+  let mounted = render(<MountedQueue initialEntry={`/table/${tableId}?buyin=1`} />);
   try {
     await expect.poll(() => queue.channels.size).toBe(2);
     expect(
@@ -267,6 +270,7 @@ it('delivers real SDK row updates through the mounted listener, bus, service and
     await expect
       .poll(() => screen.getByTestId('location').textContent)
       .toBe(`/table/${tableId}?buyin=1`);
+    expect(screen.getByTestId('offer-id').textContent).toBe(rowId);
     // A duplicate delivery or a thawed deadline must not reclaim focus after
     // the player leaves the offered table. No second join/purchase is sent.
     act(() => screen.getByText('Elsewhere').click());
