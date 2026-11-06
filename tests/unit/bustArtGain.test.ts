@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import measurements from '../../src/components/table/bustArtMeasurements.json';
+import measurements from '../../scripts/data/bust-art-measurements.json';
 import { AVATAR_ART_REVISION } from '../../src/lib/avatarArtRevision';
 import { BUST_ART_GAIN, bustArtGain } from '../../src/components/table/bustArtGain';
 
@@ -73,4 +73,18 @@ describe('bustArtGain', () => {
     // Unmeasured new art falls back to the global scale rather than throwing.
     expect(bustArtGain('/avatars/table/free_brand_new_character.webp')).toBe(1);
   });
+});
+
+it('browser artwork fixtures match the exact measured retina library', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { createHash } = await import('node:crypto');
+  for (const [file, slug] of [
+    ['tests/e2e/fixtures/table-art/vip_wolf@2x.webp', 'wolf'],
+    ['tests/e2e/fixtures/table-art/vip_aztec_warrior@2x.webp', 'aztec_warrior'],
+    ['tests/fixtures/mobile-avatar-geometry/free_penguin@2x.webp', 'penguin'],
+  ] as const) {
+    expect(createHash('sha256').update(readFileSync(file)).digest('hex')).toBe(
+      measurements.assets[slug].retinaSha256
+    );
+  }
 });

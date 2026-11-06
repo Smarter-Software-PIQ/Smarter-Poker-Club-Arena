@@ -5029,17 +5029,12 @@
   }
 }
 
-/* A 320px first-generation phone has no full-size avatar lane at any chair.
-   Apply the same artwork scale to every villain rather than singling out top. */
+/* A 320px phone needs native artwork scale without additional enlargement. Apply it
+   to the reference Hero too: opponent normalization matches that reference
+   and otherwise cancels an opponent-only cap. Keep per-character gains. */
 @media (max-width: 340px) and (orientation: portrait) {
-  .table-page .seat-wrapper:not(.seat-wrapper--hero) {
-    --sp-bust-scale: 1.05;
-  }
-}
-@media (max-width: 340px) and (orientation: portrait) {
-  .table-page:where([data-seats='7'], [data-seats='8'], [data-seats='9'])
-    .seat-wrapper:not(.seat-wrapper--hero) {
-    --sp-bust-scale: 1.3;
+  .table-page .seat-wrapper {
+    --sp-bust-scale: 1;
   }
 }
 

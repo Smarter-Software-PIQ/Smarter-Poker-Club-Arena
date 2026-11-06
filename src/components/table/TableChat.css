@@ -766,6 +766,17 @@
   }
 }
 
+/* Multi-table pages already start below the tab bar. Their layout/paint
+   containment makes fixed descendants page-relative too; adding the bar's
+   height here counted it twice and covered the upper-right player's portrait.
+   Anchor explicitly in the owned page and retain the 12px under-bar gap. */
+@media (max-width: 768px) {
+  .multi-table-page .chat-collapsed {
+    position: absolute;
+    top: 12px;
+  }
+}
+
 /* Dan 2026-08-26: Strip baked button styles for 3D assets */
 .chat-collapsed {
   background: transparent !important;

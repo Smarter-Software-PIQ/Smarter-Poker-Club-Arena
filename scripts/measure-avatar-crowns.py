@@ -7,8 +7,8 @@ from PIL import Image
 assets = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / 'Documents/Smarter-Poker-World-Hub/public/avatars/table'
 output = Path(__file__).resolve().parent.parent / 'src/components/table/avatarCrownBounds.ts'
 rows = []
-for path in sorted(assets.glob('*.webp')):
-    if not path.name.startswith(('free_', 'vip_')):
+for path in sorted([*assets.glob('*.webp'), *assets.glob('*.png')]):
+    if not path.name.startswith(('free_', 'vip_', 'custom_')):
         continue
     with Image.open(path) as image:
         # Ignore barely visible feathering; this is the visible head, not its glow.

@@ -61,7 +61,7 @@ import {
 // Approved table artwork used by the occupied-ring renders, bundled so these
 // layout checks never depend on production being reachable or unchanged.
 // Sources: smarter.poker/avatars/table/vip_wolf@2x.webp and the Supabase
-// assets/buttons/black/icon-*.webp objects, copied byte for byte 2026-10-21.
+// assets/buttons/black/icon-*.webp objects, icons copied byte for byte 2026-10-21; avatar fixtures match the measured artwork revision.
 const tableArtFixture = (name: string) =>
   resolve(process.cwd(), 'tests/e2e/fixtures/table-art', name);
 
@@ -1190,6 +1190,19 @@ for (const [width, heightOverride] of occupiedViewports)
         // actual painted image rectangles, not rounded offsetHeight surrogates.
         const heroArt = art.find((seat) => seat.hero)!;
         for (const seat of art) expect(Math.abs(seat.height - heroArt.height)).toBeLessThan(0.05);
+        if (width === 320) {
+          const scales = await page
+            .locator('.seat__avatar-img')
+            .evaluateAll((images) =>
+              images.map((image) =>
+                getComputedStyle(image).getPropertyValue('--sp-bust-scale').trim()
+              )
+            );
+          expect(
+            new Set(scales).size,
+            'the reference Hero must share the compact artwork policy'
+          ).toBe(1);
+        }
         if (!revealed) {
           const chips = () =>
             page.locator('.seat__bet-chips').evaluateAll((bets) =>

@@ -14,14 +14,30 @@ import {
 describe('visible avatar crowns', () => {
   afterEach(() => vi.unstubAllGlobals());
   it('covers normal and retina library art with measured fractions', () => {
-    expect(Object.keys(AVATAR_CROWN_TOP)).toHaveLength(200);
+    expect(Object.keys(AVATAR_CROWN_TOP).filter((file) => /^(free|vip)_/.test(file))).toHaveLength(
+      200
+    );
+    expect(Object.keys(AVATAR_CROWN_TOP)).toHaveLength(222);
     expect(Object.values(AVATAR_CROWN_TOP).every((top) => top >= 0 && top < 0.5)).toBe(true);
   });
   it('uses the actual tech-mogul headroom seen on limplegend, including URL suffixes', () => {
-    // Shipped 250x340 art: first alpha >=16 occurs at row 54, independently measured.
+    // Shipped 250x340 art: first alpha >=16 occurs at row 27, independently measured.
     expect(
       avatarCrownTop('https://smarter.poker/avatars/table/vip_tech_mogul@2x.webp?v=1#avatar')
     ).toBeCloseTo(27 / 340, 6);
+  });
+  it('measures the published custom characters and the retained original Kaela image', () => {
+    expect(
+      Object.keys(AVATAR_CROWN_TOP).filter((file) => file.startsWith('custom_complete_'))
+    ).toHaveLength(21);
+    expect(
+      avatarCrownTop('/avatars/table/custom_complete_7f7b826d18995340@2x.webp?art=current')
+    ).toBeCloseTo(51 / 512, 6);
+    expect(avatarCrownTop('/avatars/table/custom_kaelastacks_20261105.png')).toBeCloseTo(
+      57 / 512,
+      6
+    );
+    expect(AVATAR_CROWN_TOP['custom_complete_6d0344917e977c4c@2x.webp']).toBeUndefined();
   });
   it('preserves the image boundary for unknown or uploaded art', () => {
     for (const source of [

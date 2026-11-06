@@ -121,7 +121,7 @@ export const BUST_ART_GAIN: Readonly<Record<string, number>> = {
   viking_warrior: 1.049,
   voodoo_priest: 1.0,
   wizard: 1.0,
-  wolf: 1.049,
+  wolf: 1.0,
   wrestler: 1.28,
   yakuza: 1.0,
 };

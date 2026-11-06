@@ -4,6 +4,28 @@
  * is not a head. Keeping this separate from bust gain preserves avatar size.
  */
 export const AVATAR_CROWN_TOP: Readonly<Record<string, number>> = {
+  'custom_complete_0131b099c918d884@2x.webp': 0.099609,
+  'custom_complete_0da1fb1798f3cae1@2x.webp': 0.099609,
+  'custom_complete_10532176e04b308b@2x.webp': 0.099609,
+  'custom_complete_18f0699283328e6e@2x.webp': 0.099609,
+  'custom_complete_3cc909ae5d88316a@2x.webp': 0.099609,
+  'custom_complete_42fd8b6f6c4ad623@2x.webp': 0.099609,
+  'custom_complete_433068844d76bfbb@2x.webp': 0.099609,
+  'custom_complete_4342d338731689df@2x.webp': 0.099609,
+  'custom_complete_4b54611bbfb7d88b@2x.webp': 0.099609,
+  'custom_complete_5444979bbcd6722d@2x.webp': 0.099609,
+  'custom_complete_6cb197d65578c31b@2x.webp': 0.099609,
+  'custom_complete_73072f2a2aa98d3d@2x.webp': 0.099609,
+  'custom_complete_7f10ed2af667ba12@2x.webp': 0.099609,
+  'custom_complete_7f7b826d18995340@2x.webp': 0.099609,
+  'custom_complete_843ce7ea72fe7a0d@2x.webp': 0.099609,
+  'custom_complete_a837b0680094f110@2x.webp': 0.099609,
+  'custom_complete_c109592c8cfaddb0@2x.webp': 0.099609,
+  'custom_complete_c5f5a8c1b7012b74@2x.webp': 0.099609,
+  'custom_complete_d26e7f051db82666@2x.webp': 0.099609,
+  'custom_complete_d37c37f20ee2cad3@2x.webp': 0.099609,
+  'custom_complete_fe70c4d8bb381471@2x.webp': 0.099609,
+  'custom_kaelastacks_20261105.png': 0.111328,
   'free_android.webp': 0.082353,
   'free_android@2x.webp': 0.079412,
   'free_aztec.webp': 0.082353,
@@ -198,8 +220,8 @@ export const AVATAR_CROWN_TOP: Readonly<Record<string, number>> = {
   'vip_viking_warrior@2x.webp': 0.123529,
   'vip_voodoo_priest.webp': 0.082353,
   'vip_voodoo_priest@2x.webp': 0.079412,
-  'vip_wolf.webp': 0.123529,
-  'vip_wolf@2x.webp': 0.120588,
+  'vip_wolf.webp': 0.082353,
+  'vip_wolf@2x.webp': 0.079412,
   'vip_wrestler.webp': 0.276471,
   'vip_wrestler@2x.webp': 0.276471,
   'vip_yakuza.webp': 0.082353,
@@ -208,8 +230,7 @@ export const AVATAR_CROWN_TOP: Readonly<Record<string, number>> = {
 
 /** Unknown/uploaded avatars keep their existing image-box boundary. */
 export function avatarCrownTop(source: string | null | undefined): number {
-  const file =
-    source && /\/avatars\/table\/((?:free|vip)_[\w-]+(?:@2x)?\.webp)(?:[?#]|$)/.exec(source)?.[1];
+  const file = source && /\/avatars\/table\/([^/?#]+\.(?:webp|png))(?:[?#]|$)/.exec(source)?.[1];
   return (file && AVATAR_CROWN_TOP[file]) || 0;
 }
 

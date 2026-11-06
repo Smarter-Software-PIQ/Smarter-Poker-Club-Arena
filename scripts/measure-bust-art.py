@@ -119,7 +119,7 @@ def main() -> int:
             continue
         slug = name.split("_", 1)[1]
         shares[slug] = share
-        measurements[slug] = {"subjectShare": share, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+        measurements[slug] = {"subjectShare": share, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "retinaSha256": hashlib.sha256(path.with_name(path.stem + "@2x.webp").read_bytes()).hexdigest()}
 
     if not shares:
         sys.exit(f"No free_/vip_ .webp assets found in {asset_dir}")
@@ -187,7 +187,7 @@ def main() -> int:
 
     OUT_PATH.write_text("\n".join(lines), encoding="utf-8")
     revision = (Path(__file__).resolve().parent.parent / "src/lib/avatarArtRevision.ts").read_text().split("AVATAR_ART_REVISION = ")[1].split(";")[0].strip("\"\' ")
-    (OUT_PATH.parent / "bustArtMeasurements.json").write_text(json.dumps({"artRevision": revision, "referenceShare": reference, "assets": measurements}, indent=2) + "\n")
+    (Path(__file__).resolve().parent / "data/bust-art-measurements.json").write_text(json.dumps({"artRevision": revision, "referenceShare": reference, "assets": measurements}, indent=2) + "\n")
 
     ordered = sorted(gains.items(), key=lambda kv: kv[1])
     print(f"Measured {len(shares)} assets from {asset_dir}")
