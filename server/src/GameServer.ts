@@ -1,3 +1,4 @@
+import { classifyHeldStall, type HeldTableStall } from './engine/heldTableStall.js';
 import type { TournamentAbortClosureMode } from './tournament/TournamentAbortBoundary.js';
 import { readDurableTerminalRequest } from './tournament/terminalDurableRequest.js';
 import {
@@ -5969,8 +5970,16 @@ export class GameServer {
        stalledTableCount 0). Counted here and named in the list, kept out of
        the liveness verdict below: identification only, it restarts nothing. */
     const liveStalledIds = new Set(liveStalledTables.map((t) => t.tableId));
+    /* A HELD TABLE THAT NEVER LIFTS IS A STALLED TABLE (2026-11-06). A table
+       held past its bound by a boundary, a table move or a never-started
+       retained original is stalled, and named with its holder. See
+       engine/heldTableStall.ts. Identification only, like the admission list
+       below: kept out of the liveness verdict, it restarts nothing. */
+    const heldStalledTables = this.heldStalledTables(liveStalledIds);
+    for (const t of heldStalledTables) liveStalledIds.add(t.tableId);
     const stalledTables = [
       ...liveStalledTables,
+      ...heldStalledTables,
       ...this.tournamentTablesFailingAdmission(now)
         .filter((t) => !liveStalledIds.has(t.tableId))
         .map((t) => ({
@@ -7169,6 +7178,47 @@ export class GameServer {
    * 120 s stall threshold, oldest first. Between retries such a table has no
    * engine, so tableLivenessSnapshot() cannot see it.
    */
+  /** Seated tables held past their bound by a non-scheduled owner. See engine/heldTableStall.ts. */
+  private heldStalledTables(exclude: ReadonlySet<string>): Array<{
+    tableId: string;
+    dealable: number;
+    secsIdle: number;
+    reason: HeldTableStall['reason'];
+    heldBy: string[];
+  }> {
+    const out: Array<{
+      tableId: string;
+      dealable: number;
+      secsIdle: number;
+      reason: HeldTableStall['reason'];
+      heldBy: string[];
+    }> = [];
+    for (const [tableId, engine] of this.tableEngines) {
+      if (exclude.has(tableId)) continue;
+      try {
+        const stall = classifyHeldStall({
+          seated: engine.seatedCount(),
+          paused: engine.isPausedByDesign(),
+          msPaused: engine.msPaused(),
+          msSinceProgress: engine.msSinceProgress(),
+          owners: engine.describePauseOwners?.() ?? [],
+          heldOriginal: engine.isPreparedOriginalHeldAtPauseGate?.() === true,
+        });
+        if (!stall) continue;
+        out.push({
+          tableId,
+          dealable: engine.dealableCount(),
+          secsIdle: Math.round(stall.msHeld / 1000),
+          reason: stall.reason,
+          heldBy: stall.heldBy,
+        });
+      } catch {
+        // An engine that cannot be read is not named here; the reapers own it.
+      }
+    }
+    return out.sort((x, y) => y.secsIdle - x.secsIdle);
+  }
+
   private tournamentTablesFailingAdmission(now: number): Array<{
     tableId: string;
     msFailing: number;
