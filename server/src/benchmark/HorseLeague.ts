@@ -77,6 +77,8 @@ import {
   HUMAN_FIELD_COMPONENT_SCENARIOS,
   HUMAN_FIELD_NAME_PREFIX,
   HUMAN_FIELD_VARIANTS,
+  HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS,
+  HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID,
   V53_PRESSURE_FIELD_VARIANTS,
   V53_PRESSURE_POPULATION_ID,
 } from './HorseLeagueHumanField.js';
@@ -86,6 +88,8 @@ export {
   HUMAN_FIELD_COMPONENT_SCENARIOS,
   HUMAN_FIELD_NAME_PREFIX,
   HUMAN_FIELD_VARIANTS,
+  HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS,
+  HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID,
   V53_PRESSURE_FIELD_VARIANTS,
   V53_PRESSURE_POPULATION_ID,
 } from './HorseLeagueHumanField.js';
@@ -94,12 +98,15 @@ export {
  *  LeagueMatchup.opponentPopulation). */
 export type LeagueOpponentPopulation =
   | typeof HUMAN_CALIBRATED_POPULATION_ID
-  | typeof V53_PRESSURE_POPULATION_ID;
+  | typeof V53_PRESSURE_POPULATION_ID
+  | typeof HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID;
 
 /** Variants each field may be dealt, or null for an unknown field. */
 export function leagueFieldVariants(population: unknown): readonly string[] | null {
   if (population === HUMAN_CALIBRATED_POPULATION_ID) return HUMAN_FIELD_VARIANTS;
   if (population === V53_PRESSURE_POPULATION_ID) return V53_PRESSURE_FIELD_VARIANTS;
+  if (population === HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID)
+    return HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS;
   return null;
 }
 import { supabase } from '../services/supabase.js';
@@ -852,12 +859,20 @@ function humanFieldDecision(
   if (toCall > 0) legalActions.push('fold');
   else legalActions.push('check');
   if (toCall > 0 && p.stack > toCall) legalActions.push('call');
-  const maxTo = p.bet + p.stack;
+  // Pot-limit variants (the Omaha development field only; the calibrated
+  // NLH field is never dealt one): a wager may raise to at most the pot
+  // after calling (calculateBettingState), and a stack deeper than that cap
+  // is not a legal all-in.
+  const stackTo = p.bet + p.stack;
+  const potCapTo = variantInfo(gameVariant).isPotLimit
+    ? currentBet + pot + toCall
+    : Number.POSITIVE_INFINITY;
+  const maxTo = Math.min(stackTo, potCapTo);
   const minTo = currentBet > 0 ? currentBet + Math.max(BB, lastRaise) : BB;
   const wager = currentBet > 0 ? 'raise' : 'bet';
   const canWager = maxTo > currentBet && maxTo >= minTo;
   if (canWager) legalActions.push(wager);
-  if (p.stack > 0) legalActions.push('all_in');
+  if (p.stack > 0 && stackTo <= potCapTo) legalActions.push('all_in');
   const spot: HumanCalibratedSpot = {
     variant: gameVariant,
     stage,

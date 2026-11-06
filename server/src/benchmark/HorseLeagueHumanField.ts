@@ -47,3 +47,24 @@ export const HUMAN_FIELD_NAME_PREFIX = 'human_';
  */
 export const V53_PRESSURE_POPULATION_ID = 'v53_pressure_stress_v1' as const;
 export const V53_PRESSURE_FIELD_VARIANTS: readonly string[] = Object.freeze(['nlh']);
+
+/**
+ * THE OMAHA DEVELOPMENT FIELD (2026-11-06). The human-calibrated population's
+ * own Omaha profile (the same profile row humanCalibratedProfileFor('plo4')
+ * returns), offered under its own id so no card can reach it by accident.
+ * It exists for one question: targeted, spot-conditioned measurement of an
+ * Omaha layer self-play never reaches (V55, HorseLeagueSpotConditioned.ts).
+ * The profile misses the 5-point fidelity criterion at the flop facing-bet
+ * node (5.6 points, docs/horse-brain-human-population-2026-10-08.md), so a
+ * result against it is a DEVELOPMENT measurement, never a promotion. The
+ * nightly worker refuses it (HorseLeagueComputeWorkerClient accepts only the
+ * NLH human field and the V53 field), and HUMAN_FIELD_VARIANTS stays NLH.
+ * Pot-limit variants only: the field's raise menu is capped at the pot.
+ */
+export const HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID =
+  'human-calibrated-v1-20261008-omaha-dev' as const;
+export const HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS: readonly string[] = Object.freeze([
+  'plo4',
+  'plo5',
+  'plo6',
+]);
