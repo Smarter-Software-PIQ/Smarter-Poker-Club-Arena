@@ -33,3 +33,12 @@ This fixes a specific source decision condition. It does not certify historical
 counterfactual EV, prove all full-house checks incorrect, or establish production
 adoption. Protected checks, engine installation and observed behavior remain
 separate delivery requirements.
+
+The first hosted accounting run failed before assertions because its private
+PostgreSQL fixture could not start, and discarded the startup log. The exact
+runner cause is unavailable. An occupied PID-derived TCP port reproduces the
+same failure. The affected fixture now uses only its unique Unix socket, like
+its existing clients, and deliberately holds its chosen TCP port occupied to
+pin that isolation. Startup diagnostics survive failure. All existing payout,
+permission, idempotency and second-install assertions pass unchanged with the
+port occupied; no production migration or payout behavior changes.
