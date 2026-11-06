@@ -56,5 +56,9 @@ describe('bomb pots run every thirty minutes (owner 2026-11-06)', () => {
       /SET\s+(?:bomb_pot_sched_state|bomb_pot_next_due_at|stack|chip_balance)/i
     );
     expect(sql).not.toMatch(/variant IN \('plo4'/);
+    // The verification asks the madness template only for the variants that
+    // have one (Pineapple, PLO8, FLO8 and Short Deck are Classic-only and the
+    // template refuses them: the first install was refused for exactly that).
+    expect(sql).toContain("FOREACH v IN ARRAY ARRAY['nlh','plo4','plo5','plo6','flh'] LOOP");
   });
 });
