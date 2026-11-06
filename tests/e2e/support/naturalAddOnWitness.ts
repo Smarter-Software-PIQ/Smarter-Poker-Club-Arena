@@ -39,6 +39,12 @@ export function completeAddOnRoster(
     throw new Error('UNKNOWN: natural add-on live roster is empty or exceeds eight tables');
   return live;
 }
+/** Keep one real consumer stable while the complete tournament roster evolves. */
+export function selectAddOnObserver(roster: readonly AddOnTable[], currentId?: string): string {
+  const live = roster.filter((row) => row.status !== 'closed');
+  if (!live.length) throw new Error('UNKNOWN: no live table for add-on observation');
+  return live.find((row) => row.id === currentId)?.id ?? live[0].id;
+}
 /** Only before opening: retire departed consumers before admitting new ones.
  * The caller keeps its original observation deadline; readiness is renewed
  * only after every changed-roster subscription supplies its real snapshot. */

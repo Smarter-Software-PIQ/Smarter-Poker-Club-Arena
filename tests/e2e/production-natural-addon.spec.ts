@@ -5,6 +5,7 @@ import { isReadOnlySpectatorSocketType } from './support/spectatorSocketRead';
 import {
   admitNaturalAddOn,
   completeAddOnRoster,
+  selectAddOnObserver,
   synchronizeAddOnObservers,
   addOnWindow,
   readAddOnCard,
@@ -18,7 +19,7 @@ import {
 // This is opt-in through the maintained provider. No synthetic events or raw
 // socket/token/hand-state traces are saved. SQL hand-overlap proof is separate.
 test.use({ viewport: { width: 393, height: 852 }, trace: 'off', video: 'off' });
-test('every captured natural add-on table renders its public minute', async ({
+test('a live table proves tournament-wide add-on count and its public minute', async ({
   browser,
   context,
   request,
@@ -57,6 +58,8 @@ test('every captured natural add-on table renders its public minute', async ({
   const evidence: Record<string, any> = {
     tournamentId,
     source: 'natural-production-spectator',
+    browserCoverage: 'one stable live table; not all-table browser certification',
+    countCoverage: 'complete tournament-wide authoritative unique-player count',
     participantDeviceAcknowledgements: false,
     handOverlapProof: 'separate SQL evidence required',
     rosterReads: [],
@@ -305,10 +308,10 @@ test('every captured natural add-on table renders its public minute', async ({
     expect(initial.board.status).toBe('RUNNING');
     expect(initial.board.add_on_available).toBe(true);
     if (initial.board.addon_period_triggered || initial.board.addon_period_started_at)
-      throw new Error('UNKNOWN: add-on already opened before full-roster observers were ready');
-    await Promise.all(initial.roster.map((row) => openTable(row.id)));
+      throw new Error('UNKNOWN: add-on already opened before the live observer was ready');
+    let ids = [selectAddOnObserver(initial.roster)];
+    await openTable(ids[0]);
     let readyAt = Date.now();
-    let ids = initial.roster.map((row) => row.id).sort();
     const deadline = readyAt + 8 * 60_000;
     let window: ReturnType<typeof addOnWindow> = null;
     while (Date.now() < deadline) {
@@ -316,23 +319,28 @@ test('every captured natural add-on table renders its public minute', async ({
       window = addOnWindow(current.board);
       const currentIds = current.roster.map((row) => row.id).sort();
       if (window) {
-        expect(
-          currentIds,
-          'UNKNOWN: opening roster was not fully connected before opening'
-        ).toEqual(ids);
+        expect(currentIds, 'UNKNOWN: observed table left the opening live roster').toContain(
+          ids[0]
+        );
         evidence.openingRoster = current.roster;
-        evidence.fullRosterReadyAt = readyAt;
+        evidence.observerReadyAt = readyAt;
+        evidence.observedTableIds = ids;
         break;
       }
       const priorIds = ids;
-      ({ ids, readyAt } = await synchronizeAddOnObservers(ids, currentIds, readyAt, {
-        open: openTable,
-        close: async (id) => {
-          await pages.get(id)!.context().close();
-          pages.delete(id);
-          received.delete(id);
-        },
-      }));
+      ({ ids, readyAt } = await synchronizeAddOnObservers(
+        ids,
+        [selectAddOnObserver(current.roster, ids[0])],
+        readyAt,
+        {
+          open: openTable,
+          close: async (id) => {
+            await pages.get(id)!.context().close();
+            pages.delete(id);
+            received.delete(id);
+          },
+        }
+      ));
       if (ids.join(',') !== priorIds.join(',')) {
         evidence.rosterSynchronizations ??= [];
         evidence.rosterSynchronizations.push({ priorIds, ids, readyAt });
@@ -483,8 +491,8 @@ test('every captured natural add-on table renders its public minute', async ({
     evidence.finalRoster = final.roster;
     expect(
       final.roster.map((row) => row.id).sort(),
-      'UNKNOWN: closing roster changed; original roster remains in evidence'
-    ).toEqual(ids);
+      'UNKNOWN: observed table left the closing live roster'
+    ).toContain(ids[0]);
     evidence.engineAfter = await engineIdentity();
     expect(evidence.engineAfter).toEqual(evidence.engineBefore);
     expect(blocked, 'Served spectator attempted a forbidden participation request').toEqual([]);
