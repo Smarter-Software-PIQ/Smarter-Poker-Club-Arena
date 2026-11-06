@@ -3,7 +3,17 @@
 -- 'decide_nlh' row is the liveness CONTROL: if it is zero, telemetry is not
 -- flowing and every other zero is meaningless. With the control non-zero, a
 -- zero row means the receipt never fired: either the spot did not occur or
--- the upgrade is not active. Read-only (one SELECT).
+-- the upgrade is not active. A row whose label says 'expected 0' is a guard
+-- counter: it should stay at zero. Read-only (one SELECT).
+--
+-- V31 rows (2026-11-06): 'v31_certified_<node role>' fires once per horse
+-- decision that a certified V31 solver cell answered and the engine executed
+-- as sampled (HorseLogic.ts, noteFire after legalize). The facing roles
+-- (facing_bet, facing_raise, check_raise, bet_raise, all_in) are the response
+-- nodes the legacy V29/V30 aggregate never covered. The store is empty until
+-- public.gto_v31_serving_bindings holds an open row for the serving engine
+-- commit, so 'v31_certified_skip_empty_store' is the counter that must fall
+-- to zero when V31 is live.
 SELECT x.feature, x.upgrade, coalesce(sum(t.fires), 0) AS fires,
        count(DISTINCT t.day) AS days_seen, min(t.day) AS first_day, max(t.day) AS last_day
 FROM (VALUES
@@ -34,7 +44,19 @@ FROM (VALUES
   ('hybrid_v1_cash_grinder_decided', 'Hybrid v1 cash grinder'),
   ('hybrid_v1_tournament_tricky_decided', 'Hybrid v1 tournament tricky'),
   ('cash_nlh_three_bet_size', 'cash NLH 3-bet size'),
-  ('v62_river_bettor_polarity', 'V62 (opt-in: expected 0)')
+  ('v62_river_bettor_polarity', 'V62 (opt-in: expected 0)'),
+  ('v31_certified_facing_bet', 'V31 solver cell applied: facing bet'),
+  ('v31_certified_facing_raise', 'V31 solver cell applied: facing raise'),
+  ('v31_certified_check_raise', 'V31 solver cell applied: check raise'),
+  ('v31_certified_bet_raise', 'V31 solver cell applied: bet raise'),
+  ('v31_certified_all_in', 'V31 solver cell applied: all in'),
+  ('v31_certified_open', 'V31 solver cell applied: open'),
+  ('v31_certified_cbet', 'V31 solver cell applied: cbet'),
+  ('v31_certified_delayed_cbet', 'V31 solver cell applied: delayed cbet'),
+  ('v31_certified_probe', 'V31 solver cell applied: probe'),
+  ('v31_certified_barrel', 'V31 solver cell applied: barrel'),
+  ('v31_certified_execution_mismatch', 'V31 solver cell sampled but legalized away (expected 0)'),
+  ('v31_certified_skip_empty_store', 'V31 solver store empty, no serving binding (expected 0 once bound)')
 ) AS x(feature, upgrade)
 LEFT JOIN public.horse_brain_telemetry t ON t.feature = x.feature AND t.day >= :START_DAY::date
 GROUP BY x.feature, x.upgrade
