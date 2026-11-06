@@ -1002,8 +1002,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         const dealable = this.seatedPlayers.filter(
           (p) =>
             p.stack > 0 &&
-            (this.dealsInWhileSittingOut(p.user_id) ||
-              !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)) &&
+            (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+              this.dealsInWhileSittingOut(p.user_id)) &&
             !this.waitingForBB.has(p.user_id) &&
             // A swap side holding for its partner's table (Dan 2026-09-05).
             !this.isHeldForSwap(p.user_id)
@@ -2473,8 +2473,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               current.occupancy_id === p.occupancy_id
           ) &&
           (this.isTournamentTable() ||
-            ((this.isBlindedOff(p.user_id) ||
-              !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)) &&
+            ((!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+              this.isBlindedOff(p.user_id)) &&
               !this.waitingForBB.has(p.user_id) &&
               !this.isHeldForSwap(p.user_id)))
       );
