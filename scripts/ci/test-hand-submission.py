@@ -283,7 +283,7 @@ def main():
         if stdout.splitlines().count("HAND_SUBMISSION_NATIVE_PASS")!=1:raise RuntimeError("completion marker missing")
         if before!=e.snapshot(db,"after-data") or catalog!=e.catalog_snapshot(db,"after-catalog") or private!=private_snapshot(e,db,"after-private"):raise RuntimeError("full rollback differs")
         e.report.update(assertions=stderr.count("HAND SUBMISSION PASS:"),data_rollback=True,catalog_rollback=True,private_catalog_and_data_rollback=True)
-        if stderr.count("HAND SUBMISSION PASS:")!=50:raise RuntimeError("exact assertion count differs")
+        if stderr.count("HAND SUBMISSION PASS:")!=54:raise RuntimeError("exact assertion count differs")
         qualify_fences(e,root,db,native)
         qualify_owners(e,root,db,native)
         qualify_maintenance_first(e,root,db,native)
