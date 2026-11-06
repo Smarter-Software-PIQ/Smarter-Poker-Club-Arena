@@ -1221,12 +1221,26 @@ test.describe('Production Cashier Certification', () => {
     expect(ownNumber).toMatch(/^\d+$/);
     const agentDialog = page.getByRole('dialog', { name: 'AGENT WALLET Cashier', exact: true });
     await agentDialog.getByRole('tab', { name: 'Claim Back', exact: true }).click();
-    await agentDialog.getByRole('button', { name: 'Claim From My Wallets', exact: true }).click();
-    const personal = agentDialog.getByRole('region', { name: 'Selected Player' });
-    await expect(personal).toContainText(
-      new RegExp(ownName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+    const ownWalletRead = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname.endsWith('/rpc/fn_cashier_recipient_wallet_balances') &&
+        response.request().postDataJSON()?.p_club_id === clubId &&
+        JSON.stringify(response.request().postDataJSON()?.p_user_ids) === JSON.stringify([ownerId])
     );
-    await expect(personal).toContainText(`ID: ${ownNumber}`);
+    await agentDialog.getByRole('button', { name: 'Claim From My Wallets', exact: true }).click();
+    const ownWalletResponse = await ownWalletRead;
+    expect(ownWalletResponse.ok()).toBe(true);
+    const ownWalletRows = await ownWalletResponse.json();
+    expect(ownWalletRows).toHaveLength(1);
+    expect(ownWalletRows[0].user_id).toBe(ownerId);
+    const personal = agentDialog.getByRole('region', { name: 'Selected Player' });
+    // The roster may finish before or after selection. Both own-account
+    // labels are valid; the request and response above prove wallet ownership.
+    const escapedName = ownName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    await expect(personal.locator('strong').first()).toHaveText(
+      new RegExp(`^(?:My Account|${escapedName})$`, 'i')
+    );
+    await expect(personal).toContainText(new RegExp(`ID: (?:You|${ownNumber})(?:\\D|$)`));
     // The maintained zero-balance admin has an agent wallet, not a player wallet.
     // All three agent tiers are qualified separately against PostgreSQL 17.
     await personal.getByRole('combobox', { name: 'Claim From' }).selectOption('agent_wallet');
