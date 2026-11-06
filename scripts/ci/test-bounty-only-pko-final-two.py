@@ -70,6 +70,7 @@ CREATE TABLE public.tournament_obligations(
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid, kind text, place integer,
   user_id uuid, amount_owed numeric(15,2), amount_paid numeric(15,2), source text);
 CREATE TABLE public.ca_settle_sources(source text PRIMARY KEY, note text, added_at timestamptz DEFAULT now());
+CREATE TABLE public.ca_money_rpc_registry(proname text PRIMARY KEY, status text NOT NULL, notes text);
 CREATE TABLE public.test_credits(user_id uuid, amount numeric(15,2), kind text, source text, description text);
 CREATE FUNCTION public.fn_caller_is_engine() RETURNS boolean LANGUAGE sql
   AS $$ SELECT COALESCE(current_setting('test.engine', true), '1') = '1' $$;

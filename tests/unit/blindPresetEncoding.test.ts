@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { BLIND_STRUCTURES } from '../../src/config/blindStructures';
 const baseline = JSON.parse(readFileSync('tests/fixtures/mtt-blind-preset-preimage.json', 'utf8'));
-// Owner October 21 changes clocks only; retain every original blind, ante and break.
+// Owner October 21 clock floor and November 5 global 25/50 opening rule.
 for (const levels of Object.values(baseline.blind_structures) as Array<
-  Array<{ durationMinutes: number; isBreak?: boolean }>
+  Array<{ durationMinutes: number; smallBlind: number; bigBlind: number; isBreak?: boolean }>
 >)
   for (const level of levels)
-    if (!level.isBreak) level.durationMinutes = Math.max(5, level.durationMinutes);
-describe('compact blind presets preserve the original stakes with the owner clock floor', () => {
+    if (!level.isBreak) {
+      level.durationMinutes = Math.max(5, level.durationMinutes);
+      level.smallBlind = Math.max(25, level.smallBlind);
+      level.bigBlind = Math.max(50, level.bigBlind);
+    }
+describe('compact blind presets preserve levels with the owner opening and clock floors', () => {
   it('keeps every property on all 135 original levels exactly', () => {
     expect(BLIND_STRUCTURES).toEqual(baseline.blind_structures);
     expect(

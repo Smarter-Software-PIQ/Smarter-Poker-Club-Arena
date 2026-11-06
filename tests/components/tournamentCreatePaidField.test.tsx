@@ -66,9 +66,9 @@ describe('club MTT setup presets reach the creation payload', () => {
       const payload = tournamentService.buildRpcConfig(config);
       expect(screen.queryByText('Max Players')).toBeNull();
       expect(payload.maxPlayers).toBeNull();
-      expect(payload.startingStack).toBe(bb * 20);
+      expect(payload.startingStack).toBe(bb * 50);
       const levels = payload.blindStructure as BlindLevel[];
-      expect(levels[0]).toMatchObject({ smallBlind: 10, bigBlind: 20 });
+      expect(levels[0]).toMatchObject({ smallBlind: 25, bigBlind: 50 });
       expect(
         levels.filter((row) => !row.isBreak).every((row) => row.durationMinutes === minutes)
       ).toBe(true);
@@ -96,7 +96,7 @@ describe('club MTT setup presets reach the creation payload', () => {
     expect(screen.getByRole('combobox', { name: 'Setup Preset' })).toHaveDisplayValue(
       'Custom Setup'
     );
-    expect(screen.getByLabelText('MTT Structure Preview')).toHaveTextContent('75 Big Blinds');
+    expect(screen.getByLabelText('MTT Structure Preview')).toHaveTextContent('30 Big Blinds');
     fireEvent.change(screen.getByPlaceholderText('E.G. Saturday Night Turbo'), {
       target: { value: 'Existing Custom Draft' },
     });
@@ -237,7 +237,7 @@ describe('club profile selection preserves operator terms', () => {
     // matcher checks the DOM's actual disabled-fieldset contract instead.
     expect(smallBlind).toBeDisabled();
     const config = await submitDraft(container);
-    expect(config.blindStructure[0]).toMatchObject({ smallBlind: 10, bigBlind: 20 });
+    expect(config.blindStructure[0]).toMatchObject({ smallBlind: 25, bigBlind: 50 });
     chooseProfile('custom');
     expect(smallBlind).not.toBeDisabled();
     expect(smallBlind).toHaveValue(0);
@@ -251,7 +251,7 @@ describe('club profile selection preserves operator terms', () => {
       'Custom Setup'
     );
     expect(screen.getByLabelText('MTT Structure Preview')).toHaveTextContent(
-      '175 Big Blinds At Start'
+      '70 Big Blinds At Start'
     );
     expect(screen.getByLabelText('MTT Structure Preview')).toHaveTextContent('15 Min');
     const config = await submitDraft(container);
@@ -267,16 +267,16 @@ describe('club profile selection preserves operator terms', () => {
     fireEvent.change(within(row).getAllByRole('spinbutton')[3], { target: { value: '7' } });
     const before = await submitDraft(container);
     expect(before.blindStructure[0]).toMatchObject({
-      smallBlind: 5,
-      bigBlind: 10,
+      smallBlind: 25,
+      bigBlind: 50,
       durationMinutes: 7,
     });
     chooseProfile('deep');
     expect(screen.queryByRole('table')).toBeNull();
     const profile = await submitDraft(container, 2);
     expect(profile.blindStructure[0]).toMatchObject({
-      smallBlind: 10,
-      bigBlind: 20,
+      smallBlind: 25,
+      bigBlind: 50,
       durationMinutes: 15,
     });
     chooseProfile('custom');
@@ -284,9 +284,9 @@ describe('club profile selection preserves operator terms', () => {
     expect(after.blindStructure).toEqual(before.blindStructure);
     // The explicit Deep selection changed the stack; returning to its custom
     // ladder preserves that current input and accurately discloses the ratio.
-    expect(after.startingStack).toBe(6000);
+    expect(after.startingStack).toBe(15000);
     expect(screen.getByLabelText('MTT Structure Preview')).toHaveTextContent(
-      '600 Big Blinds At Start'
+      '300 Big Blinds At Start'
     );
     expect(() => tournamentService.buildRpcConfig(after)).not.toThrow();
   });
@@ -309,7 +309,7 @@ describe('club profile selection preserves operator terms', () => {
     )) {
       expect(after[key], key).toEqual(before[key]);
     }
-    expect(after.startingStack).toBe(3000);
+    expect(after.startingStack).toBe(7500);
     expect(() => tournamentService.buildRpcConfig(after)).not.toThrow();
   });
 
@@ -330,12 +330,12 @@ describe('club profile selection preserves operator terms', () => {
     }
     expect(after).toMatchObject({
       buyIn: 0,
-      startingStack: 6000,
+      startingStack: 15000,
       rebuyCost: 1,
       // Existing freeBuyConfig binds omitted rebuy chips to the chosen stack.
-      rebuyChips: 6000,
+      rebuyChips: 15000,
       // Dan 2026-11-01: an add-on pays the starting stack, exactly.
-      addOnChips: 6000,
+      addOnChips: 15000,
       addOnCost: 1,
       freeBuy: true,
     });
@@ -384,7 +384,7 @@ describe('club profile selection preserves operator terms', () => {
       type: 'satellite',
       satelliteTargetId: target.id,
       satelliteSeats: 1,
-      startingStack: 2000,
+      startingStack: 5000,
       buyIn: 10,
     });
     expect(config.blindStructure[0].durationMinutes).toBe(5);
@@ -409,13 +409,13 @@ describe('club profile selection preserves operator terms', () => {
       rpc.mock.calls.find(([name]) => name === 'fn_create_tournament_schedule_request')![1] as any
     ).p_schedule;
     expect(schedule.config).toMatchObject({
-      startingStack: 1000,
+      startingStack: 2500,
       buyIn: 10,
       payoutPercent: 15,
       recurrenceCadence: 'weekly',
     });
     expect(schedule.config.startTime).toBeUndefined();
-    expect(schedule.config.blindStructure[0]).toMatchObject({ bigBlind: 20, durationMinutes: 5 });
+    expect(schedule.config.blindStructure[0]).toMatchObject({ bigBlind: 50, durationMinutes: 5 });
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.error).not.toHaveBeenCalled();
   });
@@ -549,7 +549,7 @@ describe('creator controls describe the committed purchase and mystery contracts
     expect(screen.queryByText(/Set Entry Rules To Rebuy To Turn This On/)).toBeNull();
     expect(purchaseField('Rebuy / Re-Entry Cost')).toHaveValue(1);
     expect(purchaseField('Rebuy / Re-Entry Cost')).toBeDisabled();
-    expect(purchaseField('Rebuy / Re-Entry Chips')).toHaveValue(6000);
+    expect(purchaseField('Rebuy / Re-Entry Chips')).toHaveValue(15000);
     expect(purchaseField('Rebuy / Re-Entry Chips')).toBeDisabled();
     expect(purchaseField('Add-On Cost')).toHaveValue(1);
     expect(purchaseField('Add-On Cost')).toBeDisabled();
@@ -564,16 +564,16 @@ describe('creator controls describe the committed purchase and mystery contracts
     expect(raw.rebuyLevels).toBeUndefined();
     expect(tournamentService.buildRpcConfig(raw)).toMatchObject({
       buyIn: 0,
-      startingStack: 6000,
+      startingStack: 15000,
       isRebuy: true,
       isReentry: true,
       rebuyCost: 1,
-      rebuyChips: 6000,
+      rebuyChips: 15000,
       rebuyLevels: 4,
       addOnAvailable: true,
       addOnCost: 1,
       // Dan 2026-11-01: an add-on pays the starting stack, exactly.
-      addOnChips: 6000,
+      addOnChips: 15000,
       addOnFromStart: true,
     });
   });

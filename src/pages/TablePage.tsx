@@ -658,6 +658,7 @@ import { useBombPotCountdown } from '../hooks/useBombPotCountdown';
 import { TableHUD } from '../components/table/TableHUD';
 import { TournamentLobbyModal } from '../components/table/TournamentLobbyModal';
 import { useCashSeatEntry } from '../components/table/useCashSeatEntry';
+import { cashSeatOfferKey, liveCashSeatOffer } from '../components/common/waitlistSeatOffer';
 import { MustMoveLobbyModal } from '../components/table/MustMoveLobbyModal';
 import { CashClusterHUD } from '../components/table/CashClusterHUD';
 import TournamentInfoPanel from '../components/tournament/TournamentInfoPanel';
@@ -2223,6 +2224,9 @@ function LiveTablePage({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableId]);
+  /* The tournament channel's rejoin (below) restores the chests through this. */
+  const restoreMysteryBountyStateRef = useRef(restoreMysteryBountyState);
+  restoreMysteryBountyStateRef.current = restoreMysteryBountyState;
 
   // Listen for that tap. Every client subscribes, including the winner's —
   // runOpen() is idempotent, so the echo of their own broadcast is harmless.
@@ -17187,6 +17191,16 @@ function LiveTablePage({
               if (status === 'SUBSCRIBED') {
                 if (isMounted) void refreshTournamentBreakRef.current();
                 void verifyDurableCompletion();
+                /* EVERY REJOIN RE-READS WHAT THE DROP HID (2026-11-05). This
+                   callback runs on the first join AND on every rejoin after a
+                   socket loss (realtime-js reuses the join push). A broadcast
+                   sent while the socket was dead is never resent, so the
+                   heads and any open chest are re-read from the server here,
+                   beside the break and level above. */
+                if (isMounted) {
+                  void bountyMapRefreshRef.current?.();
+                  restoreMysteryBountyStateRef.current();
+                }
               }
               if (status === 'CHANNEL_ERROR') {
                 console.debug('[TablePage] Realtime channel error:', err?.message || err);
@@ -22826,6 +22840,7 @@ function LiveTablePage({
       navigate(`/table/${dest}?buyin=1`);
     }
   };
+  const [cashAdmissionPending, setCashAdmissionPending] = useState(false);
   const enterCashSeat = useCashSeatEntry({
     tableId,
     userId,
@@ -22834,6 +22849,7 @@ function LiveTablePage({
     goToTable: goToCashEntryTable,
     showWaitlist: () => setShowMustMoveLobby(true),
     notify: (message) => toast.info(message),
+    onPendingChange: setCashAdmissionPending,
   });
 
   /* A TAP IS NEVER SPENT ON A CHECK (Dan 2026-10-14): "IT SHOULD JUST CHECK
@@ -23015,27 +23031,41 @@ function LiveTablePage({
      must land the player "to the buy in screen directly". The offer toast and
      the bell deep link both navigate here with ?buyin=1; once the table has
      painted and the hero is not already seated, open the buy-in flow on the
-     first open seat exactly as if they had tapped it. Fires at most once per
-     mount, and never on a tournament table (handleSeatClick refuses those). */
+     first open seat exactly as if they had tapped it. Each committed waitlist
+     offer is its own invitation, even on an already-mounted table whose first
+     attempt was waitlisted. Duplicate offers and thawed deadlines never spend
+     another tap. Tournament tables remain outside the cash purchase path. */
   const [acceptedChair, setAcceptedChair] = useState(0);
   const autoBuyInFiredRef = useRef(false);
+  const consumedSeatOffersRef = useRef(new Set<string>());
   useEffect(() => {
     autoBuyInFiredRef.current = false;
+    consumedSeatOffersRef.current.clear();
   }, [tableId, userId]);
   useEffect(() => {
-    if (autoBuyInFiredRef.current) return;
+    const arrival = location.pathname.endsWith(`/table/${tableId}`)
+      ? location.state?.cashSeatOffer
+      : undefined;
+    const offer = liveCashSeatOffer(arrival, tableId, userId);
+    const offerKey = offer ? cashSeatOfferKey(offer) : null;
+    const freshOffer = offerKey !== null && !consumedSeatOffersRef.current.has(offerKey);
+    if (autoBuyInFiredRef.current && !freshOffer) return;
     // A deep-link invitation was consumed by the seat we have now left.
-    // It cannot become another buy-in invitation in a second window.
-    if (leftSeatPendingRef.current) return;
-    let wantsBuyIn = openBuyInOnArrival || acceptedChair > 0;
+    // Only a new committed offer can authorize another automatic arrival.
+    if (leftSeatPendingRef.current && !freshOffer) return;
+    let wantsBuyIn = openBuyInOnArrival || acceptedChair > 0 || freshOffer;
     try {
       wantsBuyIn ||=
+        arrival === undefined &&
         location.pathname.endsWith(`/table/${tableId}`) &&
-        new URLSearchParams(window.location.search).get('buyin') === '1';
+        new URLSearchParams(location.search).get('buyin') === '1';
     } catch {
       wantsBuyIn = false;
     }
     if (!wantsBuyIn) return;
+    // A committed offer may beat the earlier waitlisted RPC response. Keep
+    // that invitation unconsumed until the original admission has settled.
+    if (cashAdmissionPending) return;
     if (!tableState.players.length) return; // table not painted yet - wait
     /* AND ITS FUNDING IS KNOWN (launch audit 2026-10-05). The seat array is
        painted before the table's asset is read, and handleSeatClick answers a
@@ -23061,6 +23091,10 @@ function LiveTablePage({
     );
     const openIdx = tableState.players.findIndex((p, index) => !p && !occupied.has(index + 1));
     if (openIdx < 0) return;
+    if (freshOffer && offerKey) {
+      consumedSeatOffersRef.current.add(offerKey);
+      setShowMustMoveLobby(false);
+    }
     autoBuyInFiredRef.current = true;
     handleSeatClick(openIdx + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -23070,9 +23104,13 @@ function LiveTablePage({
     tableState.arenaAsset,
     engineSnapshot,
     tableId,
+    userId,
     openBuyInOnArrival,
     acceptedChair,
+    cashAdmissionPending,
     location.pathname,
+    location.search,
+    location.state,
   ]);
 
   /* JOIN LIGHTNING FROM A LIGHTNING TABLE (Dan 2026-10-24: "YOU DON'T SELECT
@@ -29019,6 +29057,7 @@ function LiveTablePage({
               playerId: player?.id,
               playerStatus: player?.status,
               bountyMap: tableState.bountyMap,
+              engineBounty: player?.bounty,
             });
 
             return (

@@ -2119,7 +2119,9 @@ describe('the dealing loop parks for the break, not only the wait loop', () => {
       'this.maintenancePaused',
       'this.terminalCloseoutPaused',
       'this.finalTableDealPaused',
-      'this.tournamentMovePauseOwners.size > 0',
+      // An unclaimable move on a retained original is not an owner; see
+      // anUnclaimableMoveDoesNotOutlastTheLastPause.law.test.ts.
+      'this.tournamentMoveHoldsRelease()',
       'this.weeklyPayoutPauseOwners.size > 0',
     ])
       expect(independent).toContain(owner);

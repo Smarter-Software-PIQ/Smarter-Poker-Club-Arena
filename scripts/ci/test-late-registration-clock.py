@@ -212,3 +212,6 @@ subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/ci/test-tournament-ent
 
 # Dealer admission consumes a committed capacity receipt under service-role access.
 subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/ci/test-capacity-receipt-read-postgres.py')], check=True)
+
+# Current owner rule: admission and rebuys outlive the add-on start boundary.
+subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/ci/test-registration-through-addon.py')], check=True)

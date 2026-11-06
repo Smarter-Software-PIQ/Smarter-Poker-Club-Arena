@@ -43,6 +43,8 @@ type Entry = {
   readonly context: HorseObserverReadContext;
   state: HorseMindSandbox;
   observedAt: number;
+  /** Last time this horse actually decided through this entry (run), ms. */
+  lastRunAtMs: number;
   historyPhase?: 'pending' | 'loaded' | 'unavailable';
   historyError?: boolean;
   history?: { digest: string; availableAtMs: number; hands: number; capped: boolean };
@@ -71,19 +73,102 @@ export class HorseObserverReads {
       historyAckDigest: string | null;
     }
   >();
+  /**
+   * OBSERVER MEMORY IS BOUNDED BY USE, NOT BY ARRIVAL (2026-11-05).
+   *
+   * Production, engine 71087373 at 4.7 hours: the eight decision workers held
+   * 583 to 937 MB of old space each (5.4 GB together), rising about 90 MB per
+   * worker per hour with no plateau, while a 6-minute allocation sampling
+   * profile showed the live-hand code retaining almost nothing. The growth
+   * was this map. Every shard learns every completed hand on the floor into
+   * every existing entry named by the hand's observer participants, and until
+   * now:
+   *
+   *   1. the per-entry capacity caps were checked only in run(), so an entry
+   *      whose horse stopped deciding on this shard (moved tables, changed
+   *      dealt count, sat out, or was routed to another shard) kept learning
+   *      through complete() with no cap at all - up to the live-mind caps of
+   *      60k seen actions, 20k hand flags and 20k pairs, 10 MB and more each;
+   *   2. eviction was first-in first-out by creation, never by use, so those
+   *      departed entries were the ones that stayed longest;
+   *   3. 2048 such entries per worker is exactly the 600 to 900 MB measured.
+   *
+   * Now an entry that has not decided a hand for `idleMs` (default 20 minutes,
+   * longer than any tournament break or seat move) stops learning and is
+   * evicted; complete() enforces the same capacity reset run() does; and the
+   * map is least-recently-run, so pressure evicts the horse that stopped
+   * deciding first. A horse that returns simply starts a fresh entry, which is
+   * what it did after every eviction before.
+   */
+  static readonly DEFAULT_IDLE_MS = 20 * 60 * 1000;
+  private completionsSinceSweep = 0;
   constructor(
     private readonly maxEntries = 2048,
     private readonly maxHands = 4096,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly idleMs = HorseObserverReads.DEFAULT_IDLE_MS
   ) {
     if (
       !Number.isSafeInteger(maxEntries) ||
       maxEntries < 1 ||
       !Number.isSafeInteger(maxHands) ||
-      maxHands < 1
+      maxHands < 1 ||
+      !Number.isSafeInteger(idleMs) ||
+      idleMs < 1
     )
       throw Error('Invalid observer memory bounds');
     this.publicProfiles = new PooledPublicProfiles(now);
+  }
+  /** Entries resident on this shard; diagnostics only. */
+  size(): number {
+    return this.entries.size;
+  }
+  private idle(entry: Entry, at: number): boolean {
+    return at - entry.lastRunAtMs > this.idleMs;
+  }
+  /** Drop every entry that has not decided within idleMs. O(entries), run
+   * at most once per 64 completions so the floor's hand rate never makes it
+   * quadratic. Returns the number evicted. */
+  sweepIdle(at: number = this.now()): number {
+    let evicted = 0;
+    for (const [key, entry] of this.entries) {
+      if (!this.idle(entry, at)) continue;
+      this.entries.delete(key);
+      for (const hand of this.hands.values()) hand.entries.delete(entry);
+      evicted++;
+    }
+    return evicted;
+  }
+  private static overCapacity(entry: Entry | { state: HorseMindSandbox }): boolean {
+    const historyEntry = 'context' in entry ? (entry as Entry) : null;
+    return (
+      entry.state.stats.size > 512 ||
+      entry.state.seenActions.size > 8192 ||
+      entry.state.handFlags.size > 8192 ||
+      entry.state.pairs.size > 2048 ||
+      entry.state.scoped.size > 1024 ||
+      (entry.state.exploit?.size ?? 0) > 1024 ||
+      entry.state.plans.size > 2048 ||
+      entry.state.raisePlans.size > 2048 ||
+      entry.state.outlooks.size > 2048 ||
+      (entry.state.winnerReads?.rows.size ?? 0) > 512 ||
+      (entry.state.winnerReads?.seen.size ?? 0) > 8192 ||
+      (historyEntry?.completedHandIds?.size ?? 0) > 4096
+    );
+  }
+  private static capacityReset(entry: Entry | { state: HorseMindSandbox; observedAt: number }): void {
+    entry.state = HorseMind.createSandbox();
+    entry.observedAt = 0;
+    if ('context' in entry) {
+      const historyEntry = entry as Entry;
+      historyEntry.history = undefined;
+      historyEntry.historyPhase = undefined;
+      historyEntry.historyAckDigest = undefined;
+      historyEntry.historyError = false;
+      historyEntry.historyTailCapped = false;
+      historyEntry.completedHandIds = new Set();
+      historyEntry.pendingCompletions = [];
+    }
   }
   bootstrapPublicProfiles(snapshot: {
     availableAtMs: number;
@@ -287,15 +372,31 @@ export class HorseObserverReads {
   }
   private entry(context: HorseObserverReadContext): Entry {
     const key = horseObserverReadContextKey(context)!;
+    const at = this.now();
     let entry = this.entries.get(key);
+    if (entry && this.idle(entry, at)) {
+      // The horse is back after a long absence: its bank learned the floor
+      // without it for longer than idleMs and starts fresh, as an evicted
+      // entry always has.
+      this.entries.delete(key);
+      for (const hand of this.hands.values()) hand.entries.delete(entry);
+      entry = undefined;
+    }
     if (!entry) {
       entry = {
         context: Object.freeze({ ...context }),
         state: HorseMind.createSandbox(),
         observedAt: 0,
+        lastRunAtMs: at,
       };
-      if (this.entries.size >= this.maxEntries)
-        this.entries.delete(this.entries.keys().next().value!);
+      if (this.entries.size >= this.maxEntries) {
+        if (this.sweepIdle(at) === 0) this.entries.delete(this.entries.keys().next().value!);
+      }
+      this.entries.set(key, entry);
+    } else {
+      // Least-recently-RUN order: a decision moves its entry to the tail.
+      entry.lastRunAtMs = at;
+      this.entries.delete(key);
       this.entries.set(key, entry);
     }
     return entry;
@@ -319,31 +420,8 @@ export class HorseObserverReads {
     const historyEntry = entry.context ? (entry as Entry) : null;
     // Reset an entire over-capacity individual view; never retain counters
     // while losing the dedupe keys that made those counters meaningful.
-    if (
-      entry.state.stats.size > 512 ||
-      entry.state.seenActions.size > 8192 ||
-      entry.state.handFlags.size > 8192 ||
-      entry.state.pairs.size > 2048 ||
-      entry.state.scoped.size > 1024 ||
-      (entry.state.exploit?.size ?? 0) > 1024 ||
-      entry.state.plans.size > 2048 ||
-      entry.state.raisePlans.size > 2048 ||
-      entry.state.outlooks.size > 2048 ||
-      (entry.state.winnerReads?.rows.size ?? 0) > 512 ||
-      (entry.state.winnerReads?.seen.size ?? 0) > 8192 ||
-      (historyEntry?.completedHandIds?.size ?? 0) > 4096
-    ) {
-      entry.state = HorseMind.createSandbox();
-      entry.observedAt = 0;
-      if (historyEntry) {
-        historyEntry.history = undefined;
-        historyEntry.historyPhase = undefined;
-        historyEntry.historyAckDigest = undefined;
-        historyEntry.historyError = false;
-        historyEntry.historyTailCapped = false;
-        historyEntry.completedHandIds = new Set();
-        historyEntry.pendingCompletions = [];
-      }
+    if (HorseObserverReads.overCapacity(entry)) {
+      HorseObserverReads.capacityReset(entry);
       disposition = 'capacity_reset';
     }
     if (historyEntry) {
@@ -508,8 +586,20 @@ export class HorseObserverReads {
     if (this.completed.size >= this.maxHands)
       this.completed.delete(this.completed.values().next().value!);
     this.completed.add(key);
+    const at = this.now();
+    if (++this.completionsSinceSweep >= 64) {
+      this.completionsSinceSweep = 0;
+      this.sweepIdle(at);
+    }
     let learned = 0;
     for (const entry of targets) {
+      if (this.idle(entry, at)) {
+        // A bank whose horse has not decided here for idleMs does not keep
+        // learning the floor; it leaves.
+        const idleKey = horseObserverReadContextKey(entry.context)!;
+        if (this.entries.get(idleKey) === entry) this.entries.delete(idleKey);
+        continue;
+      }
       const id = request.committedHandId.toLowerCase();
       if (entry.completedHandIds?.has(id)) continue;
       (entry.completedHandIds ??= new Set()).add(id);
@@ -552,6 +642,10 @@ export class HorseObserverReads {
         observe(independent);
         learned++;
       });
+      // The same cap run() applies, applied where the growth actually
+      // happens. Before this, only a decision could trigger the reset, so an
+      // entry that only ever completed grew without bound.
+      if (HorseObserverReads.overCapacity(entry)) HorseObserverReads.capacityReset(entry);
     }
     return learned + pooledLearned;
   }

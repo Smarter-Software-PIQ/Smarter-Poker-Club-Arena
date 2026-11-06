@@ -492,7 +492,7 @@ describe('a pause a tournament manager armed is a pause it gives back', () => {
     expect(independent).toContain('this.terminalCloseoutPaused');
     expect(independent).toContain('this.maintenancePaused');
     expect(independent).toContain('this.weeklyPayoutPauseOwners.size > 0');
-    expect(independent).toContain('this.tournamentMovePauseOwners.size > 0');
+    expect(independent).toContain('this.tournamentMoveHoldsRelease()');
     expect(independent).toContain('this.finalTableDealPaused');
     expect(independent).not.toContain('&&');
     const gate = resumeDealing.indexOf('this.releasePauseGate()');
