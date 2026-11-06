@@ -109,6 +109,7 @@ function harness(horse = true) {
   );
   engine.handController = {
     getState: () => state,
+    getBlindSnapshot: () => ({ smallBlind: 1, bigBlind: 2, ante: 0, bigBlindAnte: false }),
     performAction,
     getAuthoritativeActionState: () => ({
       schemaVersion: 1,

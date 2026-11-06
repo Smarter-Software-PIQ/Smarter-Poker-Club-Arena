@@ -88,7 +88,9 @@ describe('P12.2 Phase 12 policy digest', () => {
     // 34: private river board contact is an independently hashed pure source.
     // 35: conditional river position evidence is learned by HorseMind.
     // 37: exact-context river reads add their public parser and canonical pot arithmetic.
-    expect(closure).toHaveLength(37);
+    // 38: original public speed/ante domain validation is part of the memory closure.
+    expect(closure).toHaveLength(38);
+    expect(closure).toContain('src/engine/HorsePublicMemoryDomain.ts');
     expect(closure).toContain('src/engine/HorseMultiwayRiverRead.ts');
     expect(closure).toContain('src/engine/multiway/JointPotDistribution.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseMultiwayRiverRead.ts');

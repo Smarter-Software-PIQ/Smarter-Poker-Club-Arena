@@ -18,7 +18,12 @@
  *   3. Teaching the horses never holds or endangers the hand: a lane that
  *      throws still leaves the hand settled exactly once.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+const exactProfiles = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => []));
+vi.mock('../services/HorseExactOpponentMemory.js', () => ({
+  readExactHorseOpponentProfiles: exactProfiles,
+}));
+beforeEach(() => exactProfiles.mockClear());
 vi.mock('../services/supabase/client.js', () => ({
   supabase: {
     from: vi.fn(() => {
@@ -82,26 +87,33 @@ describe('LAW: every Lightning hand teaches the horses', () => {
   });
 
   it('the actors’ durable profiles ride the observation, read in the hand’s own bucket', async () => {
-    const reads: unknown[][] = [];
+    const reads = exactProfiles.mock.calls;
     const t = await playHand(8200, {
       deps: {
         horseObservation: {
           schema: async () => 'installed',
-          readProfiles: async (...args: unknown[]) => {
-            reads.push(args);
-            return [];
-          },
+          readProfiles: vi.fn(async () => {
+            throw Error('Legacy memory must not serve an exact domain');
+          }),
           report: () => {},
         },
       },
     });
     expect(t.horseLane.observed.length).toBe(1);
     expect(reads.length).toBe(1);
-    const [ids, variant, mode, size] = reads[0] as [string[], string, string, string];
+    const [ids, variant, mode, size, domain] = reads[0] as [
+      string[],
+      string,
+      string,
+      string,
+      unknown,
+    ];
     expect(new Set(ids)).toEqual(
       new Set((t.host as any).actions.map((a: { userId: string }) => a.userId))
     );
     expect([variant, mode, size]).toEqual(['nlh', 'cash', 'short']);
+    expect(domain).toEqual({ version: 1, speed: 'lightning', ante: 'none' });
+    expect(t.horseLane.observed[0]!.publicMemoryDomain).toEqual(domain);
     expect(t.horseLane.observed[0]!.durableOpponentProfiles).toEqual([]);
   });
 
@@ -109,6 +121,7 @@ describe('LAW: every Lightning hand teaches the horses', () => {
     '%s reads its own durable memory and is observed',
     async (variant) => {
       const readProfiles = vi.fn(async () => []);
+      const readExactProfiles = exactProfiles;
       const t = await playHand(8300, {
         rules: { game_variant: variant },
         deps: {
@@ -116,8 +129,13 @@ describe('LAW: every Lightning hand teaches the horses', () => {
         },
       });
       expect(t.horseLane.observed.length).toBe(1);
-      expect(readProfiles).toHaveBeenCalledTimes(1);
-      expect(readProfiles).toHaveBeenCalledWith(expect.any(Array), variant, 'cash', 'short');
+      expect(readProfiles).not.toHaveBeenCalled();
+      expect(readExactProfiles).toHaveBeenCalledTimes(1);
+      expect(readExactProfiles).toHaveBeenCalledWith(expect.any(Array), variant, 'cash', 'short', {
+        version: 1,
+        speed: 'lightning',
+        ante: 'none',
+      });
       expect(t.horseLane.observed[0]!.scope).toBe(readScopeOf(variant, 3));
       expect(t.horseLane.observed[0]!.durableOpponentProfiles).toEqual([]);
     }
