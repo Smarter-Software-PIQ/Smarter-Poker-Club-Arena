@@ -1,4 +1,12 @@
 {
+  "pageEvidenceFixtureIds20261106": {
+    "reason": "Required accounting shard 6 failed on random fixture club ID39595. Page-evidence fixtures now use explicit unique IDs outside the captured random range; existing native assertions enforce them. Production SQL/defaults/constraints unchanged.",
+    "verification": "Full scripts/dev/test-union-weekly-basis.py passed locally, including page-evidence-regression and commission before/after; 20 page-evidence law tests passed.",
+    "changedActiveInputs": [
+      "tests/fixtures/union-weekly-basis/source-binding.json",
+      "tests/fixtures/union-weekly-basis/page-evidence-regression.sql"
+    ]
+  },
   "inventoryCalendarFixtureAudit20261102": {
     "reason": "Reviewed fixture-only DST correction: derive the prior Los Angeles closed book through the unchanged week-start function instead of UTC seven-day subtraction. Exact native PostgreSQL 17 failure reproduced before repair; after repair both DST transitions across UTC, Chicago and Tokyo sessions plus actual concurrent reader and negative STABLE control pass. Five-second deadline, production SQL, historical financial assertions and qualification states unchanged. This records current source identity, not a financial or production certificate.",
     "path": "tests/fixtures/union-pnl-inventory/concurrency.py",
@@ -450,7 +458,7 @@
     "tests/fixtures/union-pnl-inventory/README.md": "1ec2588a68d7fa3123ca63a033c2ac6b02e3b0d4efb43aff01091ba36d56d826",
     "tests/fixtures/union-pnl-inventory/bootstrap.sql": "7bbbc23553513e88b53c066f6afe47170d5a2f85f2b215ac72fd2df603cd8a08",
     "supabase/migrations/20260917231832_union_accounting_schedule_adoption.sql": "ad8d6c8ff386f7701a7ae394059099bb847574ac88cc06d29401f35b2e62a876",
-    "tests/fixtures/union-weekly-basis/source-binding.json": "e071f62262b950acad5cdb023c8d6c6301143af920d8eed0585ee2b3ce46aa97",
+    "tests/fixtures/union-weekly-basis/source-binding.json": "e3d2f70f9a3785da06ca6076e3ebe0c83991903cea894b4abc6406ea9c060385",
     "tests/fixtures/union-weekly-basis/installed-precondition.sql": "e72a8066b405a3abe1f573a1b2925986da0bb086f5b0b6cbed7492b777636297",
     "tests/fixtures/union-weekly-basis/captured-close-dependencies.json": "e696d389d3b69ff1b101d56d0b94beb6878faa2ea6113b31cbf6b1d7ec59a3a9",
     "tests/fixtures/union-weekly-basis/tournament-regression.sql": "d3b981a7be49916f2b672c174acfac2f5e3a5e136984cf9e801fe5120dce7a6d",
