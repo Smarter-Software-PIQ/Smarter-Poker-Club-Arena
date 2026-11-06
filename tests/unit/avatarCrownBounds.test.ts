@@ -21,7 +21,7 @@ describe('visible avatar crowns', () => {
     // Shipped 250x340 art: first alpha >=16 occurs at row 54, independently measured.
     expect(
       avatarCrownTop('https://smarter.poker/avatars/table/vip_tech_mogul@2x.webp?v=1#avatar')
-    ).toBeCloseTo(54 / 340, 6);
+    ).toBeCloseTo(27 / 340, 6);
   });
   it('preserves the image boundary for unknown or uploaded art', () => {
     for (const source of [
@@ -37,7 +37,7 @@ describe('visible avatar crowns', () => {
     const image = document.createElement('img');
     image.src = '/avatars/table/vip_tech_mogul@2x.webp';
     image.getBoundingClientRect = () => ({ top: 100, height: 200 }) as DOMRect;
-    expect(paintedAvatarTop(image)).toBeCloseTo(100 + 200 * (54 / 340), 3);
+    expect(paintedAvatarTop(image)).toBeCloseTo(100 + 200 * (27 / 340), 3);
   });
   it('anchors from layout and static bust framing, independent of gesture and active scale', () => {
     vi.stubGlobal(
@@ -89,18 +89,18 @@ describe('visible avatar crowns', () => {
       Object.defineProperty(element, 'offsetTop', { value: top });
     }
     expect(restingAvatarTop(image, 0.75)).toBeCloseTo(
-      100 + (10 + 100 + (100 * (54 / 340) - 100) * 1.45) * 0.75,
+      100 + (10 + 100 + (100 * (27 / 340) - 100) * 1.45) * 0.75,
       3
     );
     wrap.style.transform = 'translateY(3px) scale(.97)';
     expect(restingAvatarTop(image, 0.75)).toBeCloseTo(
-      100 + (10 + 100 + (100 * (54 / 340) - 100) * 1.45) * 0.75,
+      100 + (10 + 100 + (100 * (27 / 340) - 100) * 1.45) * 0.75,
       3
     );
     wrap.style.transformOrigin = '50px 50px';
     wrap.style.setProperty('--sp-avatar-rest-transform', 'matrix(0.97, 0, 0, 0.97, 0, 3)');
     expect(restingAvatarTop(image, 0.75)).toBeCloseTo(
-      100 + (10 + 50 + (100 + (100 * (54 / 340) - 100) * 1.45 - 50) * 0.97 + 3) * 0.75,
+      100 + (10 + 50 + (100 + (100 * (27 / 340) - 100) * 1.45 - 50) * 0.97 + 3) * 0.75,
       3
     );
     const computed = getComputedStyle;

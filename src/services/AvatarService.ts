@@ -1,3 +1,5 @@
+import { versionedTableAvatarArt } from '../lib/avatarArtRevision';
+
 /**
  * ♠ CLUB ARENA — Avatar Service (Database-Driven)
  *
@@ -409,7 +411,7 @@ class AvatarServiceClass {
         const slugMatch = entry.image.match(/\/([^/?#.]+)\.(?:png|webp)(?:[?#].*)?$/i);
         const assetTier = libraryPathMatch?.[1]?.toLowerCase() || tierLower;
         const slug = libraryPathMatch?.[2] || slugMatch?.[1] || entry.id;
-        const thumbUrl = `/avatars/table/${assetTier}_${slug}@2x.webp`;
+        const thumbUrl = versionedTableAvatarArt(`/avatars/table/${assetTier}_${slug}@2x.webp`);
 
         return {
           id: entry.id,
