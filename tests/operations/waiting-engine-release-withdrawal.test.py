@@ -30,6 +30,13 @@ if not TEST_TMP:
     raise RuntimeError('An explicit owned TMPDIR or hosted Linux RUNNER_TEMP is required')
 TEST_TMP = str(Path(TEST_TMP).resolve(strict=True))
 
+# Fixture ceiling for the real subprocesses this harness spawns (pinned floor
+# CLI, signal fixture). Production keeps its own short timeouts; the fakes
+# below only stop a shared, heavily loaded host (local pre-push beside other
+# agents) from turning interpreter start-up latency into a false failure.
+# A healthy run returns in well under a second, so the ceiling costs nothing.
+FIXTURE_SECONDS = 60
+
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('withdrawal', ROOT / 'scripts/ci/withdraw-waiting-engine-release.py')
 module = importlib.util.module_from_spec(spec)
@@ -368,7 +375,13 @@ class Withdrawal(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='withdrawal-signal-', dir=os.environ.get('TMPDIR')) as directory:
             path = Path(directory) / 'transaction.sh'
             path.write_text(trap + "\nprintf 'ready\\n'\nwhile :; do sleep 0.05; done\n")
-            process = subprocess.Popen(['bash', str(path)], stdout=subprocess.PIPE, text=True)
+            # A non-interactive shell cannot trap a signal ignored on entry, and
+            # a launcher's background job (nohup ... &, a hook run from a
+            # background push) passes SIGINT down as ignored. The production
+            # unit starts with default dispositions, so the fixture does too;
+            # otherwise the trap never runs and the wait hangs.
+            process = subprocess.Popen(['bash', str(path)], stdout=subprocess.PIPE, text=True,
+                                       preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
             try:
                 self.assertEqual(process.stdout.readline(), 'ready\n')
                 if hasattr(os, 'pidfd_open') and hasattr(signal, 'pidfd_send_signal'):
@@ -379,7 +392,7 @@ class Withdrawal(unittest.TestCase):
                         os.close(fd)
                 else:
                     os.kill(process.pid, signal.SIGINT)
-                self.assertEqual(process.wait(timeout=3), 130)
+                self.assertEqual(process.wait(timeout=FIXTURE_SECONDS), 130)
             finally:
                 if process.poll() is None:
                     process.kill()
@@ -948,7 +961,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 calls.append(args)
                 self.assertEqual(args[:2], ['python3', '-B'])
                 return subprocess.check_output([str(ROOT) if value == '/opt/club-arena' else value for value in args],
-                                               timeout=timeout, text=True).strip()
+                                               timeout=max(timeout, FIXTURE_SECONDS), text=True).strip()
             def open_response(req, timeout):
                 reads.append(req.full_url)
                 if 'rpc/fn_engine_maintenance_promise_proof' in req.full_url: value = promise
@@ -1040,7 +1053,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 calls.append(args)
                 self.assertEqual(args[:2], ['python3', '-B'])
                 return subprocess.check_output([str(ROOT) if value == '/opt/club-arena' else value for value in args],
-                                               timeout=timeout, text=True).strip()
+                                               timeout=max(timeout, FIXTURE_SECONDS), text=True).strip()
             def open_response(req, timeout):
                 reads.append(req.full_url)
                 if 'rpc/fn_engine_maintenance_promise_proof' in req.full_url: value = fixture['promise']
@@ -1383,7 +1396,7 @@ class AnnouncedCancellation(unittest.TestCase):
                 # policy bytes and isolated canonical files. No production IO.
                 selected = [str(proof_repo) if arg == '/opt/club-arena' else arg for arg in args]
                 env = dict(private_env); env.pop('PYTHONDONTWRITEBYTECODE', None)
-                return subprocess.check_output(selected, env=env, timeout=timeout, text=True).strip()
+                return subprocess.check_output(selected, env=env, timeout=max(timeout, FIXTURE_SECONDS), text=True).strip()
             for name, value in [('ROOT', state), ('PARENT', parent)]:
                 patches.enter_context(patch.object(module, name, value))
             patches.enter_context(patch.object(module, 'regular', side_effect=lambda p, mode=None: Path(p).read_text()))
