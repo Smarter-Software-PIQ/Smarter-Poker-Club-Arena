@@ -3,6 +3,7 @@ import type { Locator, Page } from '@playwright/test';
 import {
   admitNaturalAddOn,
   completeAddOnRoster,
+  selectAddOnObserver,
   synchronizeAddOnObservers,
   addOnWindow,
   countdownSeconds,
@@ -62,6 +63,15 @@ describe('natural add-on observation admission', () => {
     expect(() =>
       completeAddOnRoster([{ ...rows[0], tournament_id: 'other' }, ...rows.slice(1)], 12, id)
     ).toThrow();
+  });
+  it('keeps one live consumer stable across additions and replaces only retired tables', () => {
+    const other = { ...row, id: '22222222-2222-4222-8222-222222222222' };
+    expect(selectAddOnObserver([row])).toBe(row.id);
+    expect(selectAddOnObserver([other, row], row.id)).toBe(row.id);
+    expect(selectAddOnObserver([{ ...row, status: 'closed' }, other], row.id)).toBe(other.id);
+    expect(() => selectAddOnObserver([{ ...row, status: 'closed' }], row.id)).toThrow(
+      'no live table'
+    );
   });
   it('requires a full sixty-second durable window after late entry', () => {
     const state = {
