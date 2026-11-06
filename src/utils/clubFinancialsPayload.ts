@@ -173,7 +173,9 @@ function parseTotals(value: unknown): FinancialTotals {
     bbj_drop: nonnegativeMoneyValue(totals.bbj_drop, 'total bad beat drop'),
     net_rake: nonnegativeMoneyValue(totals.net_rake, 'total net rake'),
     pot_volume: nonnegativeMoneyValue(totals.pot_volume, 'total pot volume'),
-    tournament_fees: nonnegativeMoneyValue(totals.tournament_fees, 'total tournament fees'),
+    // Cancellation reversals are signed fees on their posting day. A window
+    // can contain refunds of fees collected before that window began.
+    tournament_fees: moneyValue(totals.tournament_fees, 'total tournament fees'),
     rakeback_paid: nonnegativeMoneyValue(totals.rakeback_paid, 'total rakeback paid'),
     rakeback_rows: countValue(totals.rakeback_rows, 'total rakeback row count'),
     agent_commissions: nonnegativeMoneyValue(totals.agent_commissions, 'total agent commissions'),
@@ -210,7 +212,7 @@ function parseDay(value: unknown, expectedDate: string): FinancialDay {
     gross_rake: nonnegativeMoneyValue(row.gross_rake, 'daily gross rake'),
     bbj_drop: nonnegativeMoneyValue(row.bbj_drop, 'daily bad beat drop'),
     pot_volume: nonnegativeMoneyValue(row.pot_volume, 'daily pot volume'),
-    tournament_fees: nonnegativeMoneyValue(row.tournament_fees, 'daily tournament fees'),
+    tournament_fees: moneyValue(row.tournament_fees, 'daily tournament fees'),
     rakeback_paid: nonnegativeMoneyValue(row.rakeback_paid, 'daily rakeback paid'),
     agent_commissions: nonnegativeMoneyValue(row.agent_commissions, 'daily agent commissions'),
     union_fee: nonnegativeMoneyValue(row.union_fee, 'daily union fee'),
