@@ -326,16 +326,16 @@
       "sha256": "aef92500e63a4e1cd6632b8616ec1c1d138f2ff09f464368baeef185ca93fb1b"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 139780,
-      "sha256": "9f3c06506f35c0c94b7a6120a5ea74ab3e944daa83c1625f22bf2eb7b40f8773"
+      "bytes": 139768,
+      "sha256": "abc4706cf0d90a537aa40817bd1e735f2fc692be2623a377f5af40f6a667ebf1"
     },
     "scripts/ci/qualification-input-projections.py": {
-      "bytes": 8827,
-      "sha256": "024aa0f262b5547f2d8cfaee61781b7085f34bd66b8d78f2ca98d931cef76791"
+      "bytes": 9270,
+      "sha256": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86"
     },
     "scripts/qualification/ci-admission-inputs.json": {
-      "bytes": 77137,
-      "sha256": "0fa674cd3834ab67bd61af6966b0f7491dbe8ac7766f694e1ffb053e75f58729"
+      "bytes": 77125,
+      "sha256": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb"
     }
   },
   "diamondOwnHistoryCiInput20261015": {
