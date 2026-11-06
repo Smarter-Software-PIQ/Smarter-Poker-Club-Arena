@@ -122,7 +122,7 @@ grep -q 'already exists' "$WORK/downline-replay.log"
 
 # The owner's all-rake split includes tournament receipts in both Overall and
 # Chicago date-filtered member records, without changing cash or VIP events.
-"${PSQL[@]}" -f "$FIXTURE/tournament-share-setup.sql" -f "$FIXTURE/tournament-share-preimages.sql"
+"${PSQL[@]}" -f "$FIXTURE/tournament-share-setup.sql" -f "$FIXTURE/tournament-share-preimages.sql" -f "$FIXTURE/tournament-statistics-preimage.sql"
 python3 - "$ROOT" "$WORK/tournament-rollup-owner.sql" <<'PY'
 from pathlib import Path
 import sys
