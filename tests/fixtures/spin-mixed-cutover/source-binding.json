@@ -8,7 +8,7 @@
     "tests/fixtures/spin-mixed-cutover/proof-authority.sql": "56d0f2337776aec187ed5f4833f81652a500b0896277d636c3c3150580cea66a",
     "tests/fixtures/spin-mixed-cutover/setup.sql": "023ca3e1c6b4614d83190bcd7c1ad8f8a1e7d5ceea8ffa419564b59aa5d2e06c",
     "scripts/dev/qualify-spin-mixed-cutover.py": "4b50779f6ed435262e7281057d4dbf588dab131fb0a6862fb743d7b13e5d402f",
-    "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
+    "scripts/dev/test-full-weekly-accounting-activation.sh": "866959327e7db278f788330c3a10334fe73a6169ee1a4bd5485115aad7d5c9c6",
     "supabase/migrations/20260918085836_original_mixed_cutover_spin_fee_proof.sql": "a79d6e958f06bf17470a870e20167fa2e9b0cc358cb79a22f75f5866e737f8c6"
   },
   "expected_assertion_executions": 33,
@@ -76,5 +76,12 @@
         "current": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae"
       }
     }
+  },
+  "qualificationProjectionPreflight20261106": {
+    "scope": "Current wrapper identity only; financial sources, assertions and historical qualification unchanged.",
+    "reason": "The existing wrapper now verifies execution/admission projections before starting isolated PostgreSQL; no financial command or test was removed.",
+    "previous": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
+    "current": "866959327e7db278f788330c3a10334fe73a6169ee1a4bd5485115aad7d5c9c6",
+    "execution_performed": false
   }
 }

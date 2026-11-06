@@ -10,6 +10,7 @@ const fx = vi.hoisted(() => ({
   stop: vi.fn(),
   now: 1_000_000,
   error: null as any,
+  hold: null as Promise<void> | null,
 }));
 vi.mock('../../src/utils/serverClock', () => ({ serverNow: () => fx.now }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
@@ -25,7 +26,11 @@ vi.mock('../../src/lib/supabase', () => ({
       const chain: any = {
         select: () => chain,
         eq: () => chain,
-        maybeSingle: async () => ({ data: fx.row, error: fx.error }),
+        maybeSingle: async () => {
+          const result = { data: { ...fx.row }, error: fx.error };
+          await fx.hold;
+          return result;
+        },
       };
       return chain;
     },
@@ -42,6 +47,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   fx.now = 1_000_000;
   fx.error = null;
+  fx.hold = null;
   fx.stop.mockClear();
   fx.row = {
     status: 'RUNNING',
@@ -75,6 +81,21 @@ describe('every player receives the public add-on break notice', () => {
     fx.row.addon_period_ends_at = new Date(fx.now + 60_000).toISOString();
     await act(async () => fx.listener!());
     expect(screen.getByRole('status')).toHaveTextContent('15/20000/1130000');
+  });
+  it('publishes the actual minute even when another phase read is pending', async () => {
+    let release!: () => void;
+    fx.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    render(<Witness />);
+    await flush();
+    fx.hold = new Promise<void>(() => {});
+    await act(async () => {
+      fx.listener!();
+      fx.listener!();
+      release();
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('15/20000/1060000');
   });
   it('names the add-on last hand without claiming all tables are already paused', () => {
     render(
@@ -171,6 +192,7 @@ describe('every player receives the public add-on break notice', () => {
     });
     expect(screen.getByRole('status')).toHaveTextContent('None');
     fx.error = null;
+    fx.hold = null;
     await act(async () => fx.listener!());
     expect(screen.getByRole('status')).toHaveTextContent('15/20000/1300000');
   });

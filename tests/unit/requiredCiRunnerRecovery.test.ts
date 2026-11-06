@@ -36,6 +36,21 @@ const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unk
   job.steps.splice(index, 1);
 };
 
+const cashQueueFeedbackStep = {
+  name: 'Cash queues explain their authoritative admission state',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-cash-queue-feedback-postgres.py',
+};
+const normalizeCashQueueFeedbackAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === cashQueueFeedbackStep.name);
+  expect(job.steps.filter((step) => step.name === cashQueueFeedbackStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(cashQueueFeedbackStep);
+  expect(job.steps[index + 1]?.name).toBe('Cash top-up retries read their original receipt');
+  // Enforce the exact added regression, retaining every prior job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 const frameCoverSteps = [
   {
     name: 'Weekly cash boundaries keep original rows and use the frame cover',
@@ -173,6 +188,59 @@ const normalizeCashDecisionAddition = (job: { steps: Array<Record<string, unknow
   job.steps.splice(start, 1);
 };
 
+const tournamentLockSteps = [
+  {
+    name: 'Receipt replay releases locks and player statistics keep key order',
+    id: 'replay_locks_and_player_stats_keys',
+    if: 'matrix.shard == 7',
+    env: {
+      PG_BIN: '/usr/lib/postgresql/17/bin',
+    },
+    run: 'mkdir -p "$RUNNER_TEMP/replay_locks_and_player_stats_keys"\npython3 -B scripts/qualification/replay-locks-and-player-stats-keys.py \\\n  --work "$RUNNER_TEMP/replay_locks_and_player_stats_keys/cluster" \\\n  --out "$RUNNER_TEMP/replay_locks_and_player_stats_keys/result.json" \\\n  > "$RUNNER_TEMP/replay_locks_and_player_stats_keys/run.log" 2>&1\n',
+  },
+  {
+    name: 'Retain Receipt replay releases locks and player statistics keep key order',
+    if: 'always() && matrix.shard == 7 && contains(fromJSON(\'["success", "failure", "cancelled"]\'), steps.replay_locks_and_player_stats_keys.outcome)',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'replay_locks_and_player_stats_keys-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: '${{ runner.temp }}/replay_locks_and_player_stats_keys/result.json\n${{ runner.temp }}/replay_locks_and_player_stats_keys/run.log\n${{ runner.temp }}/replay_locks_and_player_stats_keys/cluster/pg/postgres.log\n',
+      'if-no-files-found': 'error',
+      'retention-days': 7,
+    },
+  },
+  {
+    name: 'Commission and tournament writers preserve measured lock order',
+    id: 'chip_deadlocks',
+    if: 'matrix.shard == 7',
+    env: {
+      PG_BIN: '/usr/lib/postgresql/17/bin',
+    },
+    run: 'mkdir -p "$RUNNER_TEMP/chip_deadlocks"\npython3 -B scripts/qualification/chip-deadlocks.py \\\n  --work "$RUNNER_TEMP/chip_deadlocks/cluster" \\\n  --out "$RUNNER_TEMP/chip_deadlocks/result.json" \\\n  > "$RUNNER_TEMP/chip_deadlocks/run.log" 2>&1\n',
+  },
+  {
+    name: 'Retain Commission and tournament writers preserve measured lock order',
+    if: 'always() && matrix.shard == 7 && contains(fromJSON(\'["success", "failure", "cancelled"]\'), steps.chip_deadlocks.outcome)',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'chip_deadlocks-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: '${{ runner.temp }}/chip_deadlocks/result.json\n${{ runner.temp }}/chip_deadlocks/run.log\n${{ runner.temp }}/chip_deadlocks/cluster/pg/postgres.log\n',
+      'if-no-files-found': 'error',
+      'retention-days': 7,
+    },
+  },
+];
+const normalizeTournamentLockAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === tournamentLockSteps[0].name);
+  for (const step of tournamentLockSteps)
+    expect(job.steps.filter((actual) => actual.name === step.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe('Retain original Breakfast witness qualification');
+  expect(job.steps.slice(start, start + 4)).toStrictEqual(tournamentLockSteps);
+  expect(job.steps[start + 4]?.name).toBe('Stall closure requires an exact recorded hand');
+  // Validate only this exact addition before preserving every existing workflow fingerprint.
+  job.steps.splice(start, 4);
+};
+
 const stallProgressStep = {
   name: 'Stall closure requires an exact recorded hand',
   if: 'matrix.shard == 7',
@@ -251,6 +319,110 @@ const normalizeFinishUnionAddition = (job: { steps: Array<Record<string, unknown
   job.steps.splice(start, 2);
 };
 
+const guaranteeFundingWatchStep = {
+  name: "Guarantee funding is watched both ways on production's definitions",
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-guarantee-funding-watch.py',
+};
+const normalizeGuaranteeFundingWatchAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === guaranteeFundingWatchStep.name);
+  expect(job.steps.filter((step) => step.name === guaranteeFundingWatchStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(
+    'Midway daily bounty freezeout preserves the owner contract'
+  );
+  expect(job.steps[index]).toStrictEqual(guaranteeFundingWatchStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (owner's full-buy-in guarantee rule,
+  // 2026-11-05), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
+const bountyOnlyFinalTwoStep = {
+  name: 'A bounty only PKO ends with two players on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-bounty-only-pko-final-two.py',
+};
+const normalizeBountyOnlyFinalTwoAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === bountyOnlyFinalTwoStep.name);
+  expect(job.steps.filter((step) => step.name === bountyOnlyFinalTwoStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(guaranteeFundingWatchStep.name);
+  expect(job.steps[index]).toStrictEqual(bountyOnlyFinalTwoStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (owner rule 2026-11-05: a bounty only
+  // PKO ends with two players), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
+const bountyOnlyFinalTwoWatchStep = {
+  name: 'A bounty only final two payout is watched on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-bounty-only-final-two-watch.py',
+};
+const normalizeBountyOnlyFinalTwoWatchAddition = (job: {
+  steps: Array<Record<string, unknown>>;
+}) => {
+  const index = job.steps.findIndex((step) => step.name === bountyOnlyFinalTwoWatchStep.name);
+  expect(job.steps.filter((step) => step.name === bountyOnlyFinalTwoWatchStep.name)).toHaveLength(
+    1
+  );
+  expect(job.steps[index - 1]?.name).toBe(bountyOnlyFinalTwoStep.name);
+  expect(job.steps[index]).toStrictEqual(bountyOnlyFinalTwoWatchStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (owner rule 2026-11-05: both final
+  // two heads are proven paid), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
+const sweepGatePendingWorkStep = {
+  name: 'The sweep gate reads pending bounty work on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-sweep-gate-pending-bounty-work.py',
+};
+const normalizeSweepGatePendingWorkAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === sweepGatePendingWorkStep.name);
+  expect(job.steps.filter((step) => step.name === sweepGatePendingWorkStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(bountyOnlyFinalTwoWatchStep.name);
+  expect(job.steps[index]).toStrictEqual(sweepGatePendingWorkStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (2026-11-06: the per-sweep bounty gate
+  // reads pending work, not every marker), preserving every historical job
+  // fingerprint.
+  job.steps.splice(index, 1);
+};
+
+const realtimeReviveRecordedStep = {
+  name: 'A realtime revive is recorded on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-realtime-revive-is-recorded.py',
+};
+const normalizeRealtimeReviveRecordedAddition = (job: {
+  steps: Array<Record<string, unknown>>;
+}) => {
+  const index = job.steps.findIndex((step) => step.name === realtimeReviveRecordedStep.name);
+  expect(job.steps.filter((step) => step.name === realtimeReviveRecordedStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(sweepGatePendingWorkStep.name);
+  expect(job.steps[index]).toStrictEqual(realtimeReviveRecordedStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (2026-11-06: a forced realtime revive
+  // is recorded durably), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -259,8 +431,29 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     });
   }
 
+  it.each(['missing', 'duplicate', 'reordered', 'skip', 'continue', 'command', 'artifact'])(
+    'refuses a %s tournament lock qualification mutation',
+    (mutation) => {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const index = job.steps.findIndex(
+        (step: { id?: string }) => step.id === 'replay_locks_and_player_stats_keys'
+      );
+      if (mutation === 'missing') job.steps.splice(index, 1);
+      if (mutation === 'duplicate') job.steps.splice(index, 0, structuredClone(job.steps[index]));
+      if (mutation === 'reordered')
+        [job.steps[index], job.steps[index + 2]] = [job.steps[index + 2], job.steps[index]];
+      if (mutation === 'skip') job.steps[index].if = 'false';
+      if (mutation === 'continue') job.steps[index]['continue-on-error'] = true;
+      if (mutation === 'command') job.steps[index].run = 'true';
+      if (mutation === 'artifact') job.steps[index + 1].with['if-no-files-found'] = 'ignore';
+      expect(() => normalizeTournamentLockAddition(job)).toThrow();
+    }
+  );
+
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    normalizeTournamentLockAddition(normalized.jobs.accounting_postgres);
+    normalizeCashQueueFeedbackAddition(normalized.jobs.accounting_postgres);
     const priorQualificationBudgets = {
       changes: 5,
       source_windows: 6,
@@ -371,6 +564,11 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     chicagoSteps.splice(chicagoIndex, 1);
 
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
+    normalizeRealtimeReviveRecordedAddition(normalized.jobs.accounting_postgres);
+    normalizeSweepGatePendingWorkAddition(normalized.jobs.accounting_postgres);
+    normalizeBountyOnlyFinalTwoWatchAddition(normalized.jobs.accounting_postgres);
+    normalizeBountyOnlyFinalTwoAddition(normalized.jobs.accounting_postgres);
+    normalizeGuaranteeFundingWatchAddition(normalized.jobs.accounting_postgres);
     // Review the added tournament gate exactly, then retain every existing job pin.
     for (const tournamentStep of [
       {
@@ -649,14 +847,14 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       fingerprint(Object.fromEntries(Object.entries(normalized).filter(([key]) => key !== 'jobs')))
     ).toBe('bf371889e58c11a6f6178fd7405b0cb3a484ed6016b88629bc790f4b4ed83d0e');
     const expectedJobs = {
-      changes: 'f9d317d1503f4dc8a8945bb2b9238bcfa89b2ea551a970dd23ddb3d531f4a481',
+      changes: 'fe673573c5f5db526c93c086e911b58b9c956ac1f5070d10f29aa78158b86d5f',
       source_windows: 'a9830648dfc81b5558d0e9a45d75307210fa1535926da65e087f6647e1fa4189',
       stub_gate: '166528cc83e7d0c075c59b6facb1a6782f3e2eda6c334f9608b933319aca9c80',
       fixture_native: '8949ac7f86b74f267efb996eecddb67f8c59f93d3e40a8bc407530ec3b1644ec',
       typecheck: '07758ff6fff680beb77a9e38725eecc5776b94db14cdc3499783c049ce771750',
       typecheck_compile: '88a03bf85dc749608900101f598720ad93c957e5b5bf75791c589c9e25228168',
-      unit_shards: 'a694772adb1e9b9c9cf9e8ff24d9a655deb26d18b5d1f191b120ac3b4516c474',
-      unit: '69c8c0e64dddf305dd3336a22d977be302c177d26adb4f19a9928efd40fe42a0',
+      unit_shards: 'dee27f1ca77441b7044d7044f7fc5d5eb428376fe6a175bf0310a9d1f4d413ef',
+      unit: '1a7b2d6c8f6c6fb045124997bf1780d296cd4a7c9d3241bdb4cc52ba82cddd08',
       // Retain both original top-up receipt and funded satellite qualifications.
       // Every other normalized job and prior accounting command is unchanged.
       accounting_postgres: '8fe0309bc5f9c00d2987d02020e9ef6aa0a13eb2dcbcd16ae69e21274d5735a3',
@@ -1043,5 +1241,31 @@ it('refuses missing, duplicated, moved or broadened retained-owner scheduling', 
       job.steps.findIndex((step: any) => step.name === retainedStep.name)
     );
     expect(() => normalizeRetainedOwnerScheduling(job)).toThrow();
+  }
+});
+
+it('refuses a missing, duplicated, moved or weakened cash queue regression', () => {
+  for (const mutate of [
+    (job: any, index: number) => job.steps.splice(index, 1),
+    (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
+    (job: any, index: number) => {
+      job.steps[index].if = 'false';
+    },
+    (job: any, index: number) => {
+      job.steps[index]['continue-on-error'] = true;
+    },
+    (job: any, index: number) => {
+      job.steps[index].run += ' || true';
+    },
+    (job: any, index: number) => {
+      [job.steps[index], job.steps[index + 1]] = [job.steps[index + 1], job.steps[index]];
+    },
+  ]) {
+    const job = structuredClone(ci.jobs.accounting_postgres);
+    mutate(
+      job,
+      job.steps.findIndex((step: any) => step.name === cashQueueFeedbackStep.name)
+    );
+    expect(() => normalizeCashQueueFeedbackAddition(job)).toThrow();
   }
 });

@@ -25,7 +25,12 @@
  * one packet.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { recordServerTime, serverNow, clockOffsetMs, __resetServerClock } from '../../src/utils/serverClock';
+import {
+  recordServerTime,
+  serverNow,
+  clockOffsetMs,
+  __resetServerClock,
+} from '../../src/utils/serverClock';
 
 /** A device whose clock is exactly right, on a jittery network. */
 const TRUE_OFFSET = 0;
@@ -37,6 +42,7 @@ describe('the offset estimate converges toward the lowest-latency sample', () =>
     vi.setSystemTime(new Date('2026-08-28T12:00:00Z'));
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
     __resetServerClock();
   });
@@ -82,18 +88,42 @@ describe('the offset estimate converges toward the lowest-latency sample', () =>
     expect(clockOffsetMs()).toBeLessThan(3200);
   });
 
-  it('tracks real drift instead of pinning itself to an old minimum', () => {
-    for (let i = 0; i < 6; i++) {
-      recordServerTime(Date.now() - 20);
-      vi.advanceTimersByTime(1000);
-    }
-    // The device clock jumps forward (NTP correction, wake from sleep).
-    vi.advanceTimersByTime(120_000); // past the window
-    for (let i = 0; i < 12; i++) {
-      recordServerTime(Date.now() - 5000 - 20);
-      vi.advanceTimersByTime(1000);
-    }
-    expect(clockOffsetMs()).toBeGreaterThan(4000);
+  it.each([5000, -5000])('tracks an independent device wall-clock adjustment of %s ms', (jump) => {
+    let monotonic = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => monotonic);
+    const engineStart = Date.now();
+    recordServerTime(engineStart - 20);
+    monotonic += 120_000;
+    vi.setSystemTime(engineStart + 120_000 + jump);
+    recordServerTime(engineStart + 120_000 - 20);
+    expect(clockOffsetMs()).toBeCloseTo(jump + 20, 3);
+    expect(serverNow()).toBe(engineStart + 120_000 - 20);
+  });
+
+  it('does not turn a delayed frame burst after sixty seconds into extra countdown time', () => {
+    vi.spyOn(performance, 'now').mockImplementation(() => Date.now() - origin);
+    const origin = Date.now();
+    recordServerTime(origin);
+    vi.advanceTimersByTime(60_001);
+    for (let i = 0; i < 6; i++) recordServerTime(Date.now() - 8000);
+    expect(clockOffsetMs()).toBeLessThan(50);
+    const deadline = Date.now() + 44_000;
+    expect(Math.round((deadline - serverNow()) / 1000)).toBe(44);
+  });
+
+  it('keeps elapsed sleep time and immediately accepts a fresh advancing server after wake', () => {
+    let monotonic = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => monotonic);
+    const origin = Date.now();
+    recordServerTime(origin - 20);
+    vi.setSystemTime(origin + 120_000); // Some platforms pause performance.now during OS sleep.
+    expect(serverNow()).toBe(origin + 120_000 - 20);
+    recordServerTime(origin + 120_000 - 20);
+    expect(clockOffsetMs()).toBe(20);
+    monotonic += 1000;
+    vi.setSystemTime(origin + 121_000);
+    recordServerTime(origin + 121_000 - 20);
+    expect(clockOffsetMs()).toBe(20);
   });
 
   it('before any sample, serverNow() is just the device clock', () => {

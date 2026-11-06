@@ -1,0 +1,76 @@
+rule_files:
+  - ../../infra/monitoring/engine-freeze-rules.yml
+evaluation_interval: 15s
+tests:
+  # 2026-11-05: 42099609162-1 looped in auto-restart with 222 restarts.
+  - name: a looping release owner is named
+    interval: 1m
+    input_series:
+      - series: 'club_arena_engine_release_owner_restarts{run="42099609162-1",state="auto-restart"}'
+        values: '0 1 2 3 4'
+      - series: 'club_arena_engine_release_collect_ok'
+        values: '1x4'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: EngineReleaseOwnerLooping
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: EngineReleaseOwnerLooping
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: engine
+              run: 42099609162-1
+              state: auto-restart
+            exp_annotations:
+              summary: 'Release 42099609162-1 restarted 3 times'
+              description: |
+                systemd has restarted this engine release transaction three or
+                more times. The journal for club-arena-engine-release-v1@RUN shows
+                the refusal it repeats.
+              runbook: 'docs/runbooks/tables-frozen.md'
+
+  - name: an honest wait for the break does not fire, an owner past 75 minutes does
+    interval: 5m
+    input_series:
+      # A staged release waiting its hour: 0 .. 3600 s, then the cutover ends it.
+      - series: 'club_arena_engine_release_owner_age_seconds{run="1-1",state="activating"}'
+        values: '0+300x12'
+      # The stuck owner: keeps aging past 4500 s.
+      - series: 'club_arena_engine_release_owner_age_seconds{run="2-1",state="activating"}'
+        values: '0+300x20'
+    promql_expr_test:
+      - expr: 'count(ALERTS{alertname="EngineReleaseOwnerStale",alertstate="firing"}) or vector(0)'
+        eval_time: 60m
+        exp_samples:
+          - labels: '{}'
+            value: 0
+      - expr: 'ALERTS{alertname="EngineReleaseOwnerStale",alertstate="firing"}'
+        eval_time: 80m
+        exp_samples:
+          - labels: 'ALERTS{alertname="EngineReleaseOwnerStale",alertstate="firing",severity="critical",component="engine",run="2-1",state="activating"}'
+            value: 1
+
+  - name: a collector that cannot read systemd says so
+    interval: 1m
+    input_series:
+      - series: 'club_arena_engine_release_collect_ok'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: EngineReleaseOwnerBlind
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: EngineReleaseOwnerBlind
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: engine
+            exp_annotations:
+              summary: 'The host cannot read engine release units'
+              description: |
+                collect-monitoring-health.sh could not list the engine release
+                systemd units for ten minutes, so EngineReleaseOwnerStale and
+                EngineReleaseOwnerLooping cannot fire. Its stderr is in
+                journalctl -u club-arena-money-health.
+              runbook: 'docs/runbooks/tables-frozen.md'

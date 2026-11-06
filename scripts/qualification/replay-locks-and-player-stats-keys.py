@@ -17,7 +17,7 @@ migration file itself (its preimage, postimage, metadata and grant assertions), 
 every case runs AFTER on the text it installed.
 Deadlocks are counted from the cluster log (one 'deadlock detected' per deadlock).
 """
-import argparse, hashlib, json, os, pathlib, queue, re, shutil, subprocess, threading, time, uuid
+import argparse, hashlib, json, os, pathlib, queue, re, shutil, subprocess, sys, threading, time, uuid
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -415,6 +415,25 @@ def main():
             by[('replay-vs-live-target', 'budgeted')]['replay'] == by[('replay-vs-live-target', 'after')]['replay'])
     report['checks'] = checks
     report['ok'] = all(checks.values())
+    # Continue the same required profile-lock qualification with the current
+    # batch versus the wallet writer that does not own player-stats keys.
+    # Retain its result and failure log in this job's existing artifact.
+    if report['ok']:
+        admission_out = work / 'profile-admission-result.json'
+        admission = subprocess.run([
+            sys.executable, '-B', str(HERE / 'cash-batch-profile-admission.py'),
+            '--work', str(work / 'profile-admission'), '--out', str(admission_out),
+            '--migration', str(ROOT / 'supabase/migrations/20261106141636_cash_batches_admit_profile_rows_before_processing_hands.sql'),
+        ], capture_output=True, text=True)
+        print(admission.stdout)
+        print(admission.stderr)
+        report['profile_admission'] = json.loads(admission_out.read_text()) if admission_out.exists() else {'passed': False, 'reason': 'native result missing'}
+        checks['current batch and payout profile admission'] = admission.returncode == 0 and report['profile_admission'].get('passed') is True
+        if not checks['current batch and payout profile admission']:
+            admission_log = work / 'profile-admission' / 'pg' / 'postgres.log'
+            if admission_log.exists():
+                report['profile_admission_postgres_log'] = admission_log.read_text()
+        report['ok'] = all(checks.values())
     print(json.dumps(report['results'], indent=1))
     for k, v in checks.items():
         print('%-6s %s' % ('PASS' if v else 'FAIL', k))

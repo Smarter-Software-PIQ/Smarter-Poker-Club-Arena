@@ -208,6 +208,26 @@ def drained_predecessor_witness(base_url: str, service_key: str, timeout_seconds
     return state
 
 
+_UUID = __import__("re").compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def parse_named_tables(raw: str) -> list[tuple[str, str | None]]:
+    """table_id[:hand_number],... -> pairs. Anything malformed is UNKNOWN, never skipped."""
+    out: list[tuple[str, str | None]] = []
+    if raw == "":
+        return out
+    for item in raw.split(","):
+        table_id, sep, hand = item.partition(":")
+        if not _UUID.match(table_id):
+            unknown("a named table id is not a table id")
+        if sep and not (hand.isdigit() and 0 < len(hand) <= 18):
+            unknown("a named hand number is not a hand number")
+        out.append((table_id, hand if sep else None))
+    if len(out) > 64:
+        unknown("more named tables than the engine may report")
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", required=True)
@@ -217,7 +237,10 @@ def main() -> None:
                         help="Also read the database half of a drained hand boundary for eed06fe5")
     parser.add_argument("--max-age-seconds", type=int, default=DEFAULT_MAX_AGE_SECONDS)
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
+    parser.add_argument("--tables", default="",
+                        help="Comma list of table_id or table_id:hand_number the engine named as cards_in_air")
     args = parser.parse_args()
+    named = parse_named_tables(args.tables)
 
     if not 30 <= args.max_age_seconds <= 600:
         unknown("the freshness window must stay inside its measured band")
@@ -300,6 +323,51 @@ def main() -> None:
               "no recent Lightning hand unsettled, no incomplete snapshot written in the last "
               f"{args.max_age_seconds}s")
         raise SystemExit(EXIT_QUIET)
+
+    # PER TABLE, WHEN THE ENGINE NAMES THEM (2026-11-06). The fleet-wide read
+    # above is still required and still decides first; this ADDS a proof for
+    # every table the engine counted as cards_in_air: no incomplete snapshot
+    # written for that table in the window, and, where the engine says the
+    # table holds a retained original that never started, no snapshot row for
+    # that hand at all (a hand that started writes one). Any table that fails
+    # refuses the whole cutover; nothing here can turn a refusal into QUIET.
+    for table_id, hand_number in named:
+        own = get_json(
+            f"{base_url}/rest/v1/hand_state_snapshots?" + urlencode({
+                "select": "table_id,hand_number,stage,updated_at",
+                "table_id": f"eq.{table_id}",
+                "is_complete": "eq.false",
+                "updated_at": f"gte.{since.isoformat()}",
+                "limit": "1",
+            }),
+            service_key, args.timeout_seconds,
+        )
+        if not isinstance(own, list):
+            unknown(f"the per-table in-flight read for {table_id} did not return a list")
+        if own:
+            print(f"[engine-release-inflight-hands] named table {table_id} has a hand in the air "
+                  f"within {args.max_age_seconds}s - refusing the cutover", file=sys.stderr)
+            raise SystemExit(EXIT_HAND_IN_AIR)
+        if hand_number is not None:
+            started = get_json(
+                f"{base_url}/rest/v1/hand_state_snapshots?" + urlencode({
+                    "select": "table_id,hand_number",
+                    "table_id": f"eq.{table_id}",
+                    "hand_number": f"eq.{hand_number}",
+                    "limit": "1",
+                }),
+                service_key, args.timeout_seconds,
+            )
+            if not isinstance(started, list):
+                unknown(f"the held-original read for {table_id} did not return a list")
+            if started:
+                print(f"[engine-release-inflight-hands] named table {table_id} hand {hand_number} "
+                      "STARTED (a snapshot row exists) - it is not a held original; refusing the cutover",
+                      file=sys.stderr)
+                raise SystemExit(EXIT_HAND_IN_AIR)
+    if named:
+        print(f"[engine-release-inflight-hands] {len(named)} named cards_in_air table(s) proved one by one",
+              file=sys.stderr)
 
     if rows:
         print(

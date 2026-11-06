@@ -12,7 +12,10 @@ migration 20260929071925 twice, and proves:
   * a start still waits for a competing start of the same bank, for a
     treasury write, and for a competing start on the same union bank;
   * an overlay start still debits the bank exactly once, beside an open
-    foreign-key holder.
+    foreign-key holder;
+  * the later installed readiness guard (20261002083400), isolated from the
+    historical overlay fixture, avoids bank locks for unguaranteed starts
+    while preserving enforced guarantee/seat serialization and FK concurrency.
 
 Readiness, payout terms, alerts and authentication are fixture boundaries.
 No production connection string or credential is read.
@@ -20,6 +23,7 @@ No production connection string or credential is read.
 from pathlib import Path
 import json
 import os
+import re
 import subprocess
 import tempfile
 
@@ -70,7 +74,7 @@ CREATE TRIGGER zz_ca_fund_overlay_on_lock BEFORE UPDATE OF status ON public.tour
 
 with tempfile.TemporaryDirectory(prefix="ca-start-lock-pg17-") as directory:
     root = Path(directory)
-    cluster, sock = root / "cluster", root / "socket"
+    cluster, sock = root / "cluster", root / "s"
     sock.mkdir()
     port = str(36000 + os.getpid() % 10000)
     share = Path(subprocess.check_output([str(pg / "pg_config"), "--sharedir"], text=True).strip())
@@ -101,9 +105,11 @@ with tempfile.TemporaryDirectory(prefix="ca-start-lock-pg17-") as directory:
     FK_INSERT = f"INSERT INTO public.agent_commissions(club_id) VALUES ('{CLUB}');"
     TREASURY = f"UPDATE public.clubs SET chip_treasury = chip_treasury + 1 WHERE id = '{CLUB}';"
 
-    def waits(holder_sql, contender_sql):
+    def waits(holder_sql, contender_sql, setup_sql=""):
         """True when contender_sql cannot finish while holder_sql's transaction is open."""
         seed()
+        if setup_sql:
+            sql(setup_sql)
         holder = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, text=True)
         try:
@@ -178,6 +184,44 @@ with tempfile.TemporaryDirectory(prefix="ca-start-lock-pg17-") as directory:
         assert got == [940, 100, 1, 60], got
         print("PASS: an overlay start beside an open foreign-key holder debits the bank once (1000 -> 940, pool 100)",
               flush=True)
+
+        # The historical overlay checks above intentionally keep their original inputs.
+        # These cases isolate the installed readiness trigger: no payout/overlay fixture
+        # can supply or hide its bank lock. They do not certify the full launch path.
+        sql("ALTER TABLE public.tournaments DISABLE TRIGGER zz_ca_fund_overlay_on_lock;")
+        assert waits(TREASURY, START % T1) is True, "old guard must reproduce unnecessary club-bank wait"
+        union_write = f"UPDATE public.union_wallets SET chip_balance = chip_balance + 1 WHERE union_id = '{UNION}';"
+        assert waits(union_write, START % T3) is True, "old guard must reproduce unnecessary union-bank wait"
+
+        current_source = (repo / "supabase/migrations/"
+            "20261002083400_a_table_start_reads_only_the_hands_after_its_settled_mark_an.sql").read_text()
+        current_guard = re.findall(
+            r"CREATE OR REPLACE FUNCTION public\.fn_guard_tournament_start_readiness\(\)"
+            r"[\s\S]*?AS \$function\$[\s\S]*?\$function\$;", current_source)
+        assert len(current_guard) == 1, "current readiness authority must be unique"
+        sql(current_guard[0])
+        assert value("SELECT to_json(md5(pg_get_functiondef('public.fn_guard_tournament_start_readiness()'::regprocedure)))") \
+            == "ab7d46a35a5b77593d616d1dfd6e6e74", "readiness trigger differs from installed authority"
+        assert waits(TREASURY, START % T1) is False, "unguaranteed start must not wait for club treasury"
+        assert waits(START % T1, TREASURY) is False, "unguaranteed start must not retain club treasury"
+        assert waits(union_write, START % T3) is False, "unguaranteed start must not wait for union bank"
+        assert waits(START % T3, union_write) is False, "unguaranteed start must not retain union bank"
+        assert waits(START % T1, START % T2) is False, "unguaranteed club starts must not serialize"
+        assert waits(START % T3, START % T4) is False, "unguaranteed union starts must not serialize"
+        guarantees = "UPDATE public.tournaments SET guaranteed_prize = 100, prize_pool = 100;"
+        assert waits(TREASURY, START % T1, guarantees) is True, "guaranteed club start must still serialize"
+        assert waits(union_write, START % T3, guarantees) is True, "guaranteed union start must still serialize"
+        assert waits(START % T1, START % T2, guarantees) is True, "competing guaranteed club starts must serialize"
+        assert waits(START % T3, START % T4, guarantees) is True, "competing guaranteed union starts must serialize"
+        assert waits(FK_INSERT, START % T1, guarantees) is False, "guaranteed start must not wait for foreign keys"
+        assert waits(START % T1, FK_INSERT, guarantees) is False, "guaranteed start must not block foreign keys"
+        seats = "UPDATE public.tournaments SET satellite_seats = 1;"
+        assert waits(TREASURY, START % T1, seats) is True, "satellite seat guarantee still locks club bank"
+        assert waits(union_write, START % T3, seats) is True, "satellite seat guarantee still locks union bank"
+        unenforced = guarantees + "UPDATE public.clubs SET guarantee_enforcement_enabled = false;"
+        assert waits(TREASURY, START % T1, unenforced) is False, "unenforced guarantee must not take club bank"
+        assert waits(union_write, START % T3, unenforced) is False, "unenforced guarantee must not take union bank"
+        print("PASS: current readiness trigger: unguaranteed starts avoid bank locks; enforced guarantees and seats serialize; foreign keys remain free", flush=True)
 
         bad = sql(migration.replace("f2ee43657b769c37527ae2974101bb06", "0" * 32)
                   .replace("82a9626b0fd5a6f93ed297b397ded144", "1" * 32), check=False)

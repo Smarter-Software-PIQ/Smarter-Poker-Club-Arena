@@ -1,0 +1,727 @@
+{
+  "version": 1,
+  "slug": "plo5-suited-aces-flat-vs-3bet",
+  "title": "PLO5 suited aces never flat a single 3-bet",
+  "complaint": "ON THE PREVIOUS HAND, I JUST WATCHED NOODLE NOT RE RAISE PRE FLOP WITH SUITED ACES",
+  "handId": "843a6511-e18d-4536-b069-6d54822bd07e",
+  "fmt": "cash",
+  "variant": "plo5",
+  "players": [
+    {
+      "seat": 1,
+      "isHorse": true
+    },
+    {
+      "seat": 3,
+      "isHorse": true
+    },
+    {
+      "seat": 4,
+      "isHorse": true
+    },
+    {
+      "seat": 5,
+      "isHorse": false
+    },
+    {
+      "seat": 6,
+      "isHorse": true
+    }
+  ],
+  "hole": {
+    "3": [
+      {
+        "rank": "3",
+        "suit": "hearts"
+      },
+      {
+        "rank": "9",
+        "suit": "diamonds"
+      },
+      {
+        "rank": "A",
+        "suit": "diamonds"
+      },
+      {
+        "rank": "K",
+        "suit": "diamonds"
+      },
+      {
+        "rank": "A",
+        "suit": "clubs"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "ord": 1,
+      "seat": 5,
+      "stage": "preflop",
+      "action": "sb",
+      "amount": 1,
+      "origin": "forced",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 2,
+      "seat": 6,
+      "stage": "preflop",
+      "action": "bb",
+      "amount": 2,
+      "origin": "forced",
+      "isFullRaise": false,
+      "dead": false
+    },
+    {
+      "ord": 3,
+      "seat": 6,
+      "stage": "preflop",
+      "action": "ante",
+      "amount": 2,
+      "origin": "forced",
+      "isFullRaise": false,
+      "dead": true
+    },
+    {
+      "ord": 4,
+      "seat": 1,
+      "stage": "preflop",
+      "action": "fold",
+      "amount": 0,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 5,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 0],
+          [3, 475.25, 0, 0, 0, 0, 0],
+          [4, 400.45, 0, 0, 0, 0, 0],
+          [5, 446.5, 1, 1, 0, 0, 0],
+          [6, 731, 2, 4, 2, 0, 0]
+        ],
+        "boards": [""],
+        "street": "preflop",
+        "toCall": 2,
+        "currentBet": 2,
+        "minRaiseTo": 4,
+        "maxRaiseTo": 9,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 1,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 5,
+      "seat": 3,
+      "stage": "preflop",
+      "action": "raise",
+      "amount": 8,
+      "origin": "horse_policy",
+      "isFullRaise": true,
+      "dead": false,
+      "publicNode": {
+        "pot": 5,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 475.25, 0, 0, 0, 0, 0],
+          [4, 400.45, 0, 0, 0, 0, 0],
+          [5, 446.5, 1, 1, 0, 0, 0],
+          [6, 731, 2, 4, 2, 0, 0]
+        ],
+        "boards": [""],
+        "street": "preflop",
+        "toCall": 2,
+        "currentBet": 2,
+        "minRaiseTo": 4,
+        "maxRaiseTo": 9,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 3,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 6,
+      "seat": 4,
+      "stage": "preflop",
+      "action": "call",
+      "amount": 8,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 13,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 467.25, 8, 8, 0, 0, 0],
+          [4, 400.45, 0, 0, 0, 0, 0],
+          [5, 446.5, 1, 1, 0, 0, 0],
+          [6, 731, 2, 4, 2, 0, 0]
+        ],
+        "boards": [""],
+        "street": "preflop",
+        "toCall": 8,
+        "currentBet": 8,
+        "minRaiseTo": 14,
+        "maxRaiseTo": 29,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 4,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 7,
+      "seat": 5,
+      "stage": "preflop",
+      "action": "raise",
+      "amount": 36,
+      "origin": "player",
+      "isFullRaise": true,
+      "dead": false,
+      "publicNode": {
+        "pot": 21,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 467.25, 8, 8, 0, 0, 0],
+          [4, 392.45, 8, 8, 0, 0, 0],
+          [5, 446.5, 1, 1, 0, 0, 0],
+          [6, 731, 2, 4, 2, 0, 0]
+        ],
+        "boards": [""],
+        "street": "preflop",
+        "toCall": 7,
+        "currentBet": 8,
+        "minRaiseTo": 14,
+        "maxRaiseTo": 36,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 5,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 8,
+      "seat": 6,
+      "stage": "preflop",
+      "action": "fold",
+      "amount": 0,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 56,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 467.25, 8, 8, 0, 0, 0],
+          [4, 392.45, 8, 8, 0, 0, 0],
+          [5, 411.5, 36, 36, 0, 0, 0],
+          [6, 731, 2, 4, 2, 0, 0]
+        ],
+        "boards": [""],
+        "street": "preflop",
+        "toCall": 34,
+        "currentBet": 36,
+        "minRaiseTo": 64,
+        "maxRaiseTo": 126,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 6,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 9,
+      "seat": 3,
+      "stage": "preflop",
+      "action": "call",
+      "amount": 28,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 56,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 467.25, 8, 8, 0, 0, 0],
+          [4, 392.45, 8, 8, 0, 0, 0],
+          [5, 411.5, 36, 36, 0, 0, 0],
+          [6, 731, 2, 4, 2, 0, 1]
+        ],
+        "boards": [""],
+        "street": "preflop",
+        "toCall": 28,
+        "currentBet": 36,
+        "minRaiseTo": 64,
+        "maxRaiseTo": 120,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 3,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 10,
+      "seat": 4,
+      "stage": "preflop",
+      "action": "fold",
+      "amount": 0,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 84,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 439.25, 36, 36, 0, 0, 0],
+          [4, 392.45, 8, 8, 0, 0, 0],
+          [5, 411.5, 36, 36, 0, 0, 0],
+          [6, 731, 2, 4, 2, 0, 1]
+        ],
+        "boards": [""],
+        "street": "preflop",
+        "toCall": 28,
+        "currentBet": 36,
+        "minRaiseTo": 64,
+        "maxRaiseTo": 148,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 4,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 11,
+      "seat": 5,
+      "stage": "flop",
+      "action": "bet",
+      "amount": 42,
+      "origin": "player",
+      "isFullRaise": true,
+      "dead": false,
+      "publicNode": {
+        "pot": 84,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 439.25, 0, 36, 0, 0, 0],
+          [4, 392.45, 0, 8, 0, 0, 1],
+          [5, 411.5, 0, 36, 0, 0, 0],
+          [6, 731, 0, 4, 2, 0, 1]
+        ],
+        "boards": ["4d5cJc"],
+        "street": "flop",
+        "toCall": 0,
+        "currentBet": 0,
+        "minRaiseTo": 2,
+        "maxRaiseTo": 84,
+        "legalActions": ["fold", "check", "bet", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 5,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 12,
+      "seat": 3,
+      "stage": "flop",
+      "action": "call",
+      "amount": 42,
+      "origin": "horse_policy",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 126,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 439.25, 0, 36, 0, 0, 0],
+          [4, 392.45, 0, 8, 0, 0, 1],
+          [5, 369.5, 42, 78, 0, 0, 0],
+          [6, 731, 0, 4, 2, 0, 1]
+        ],
+        "boards": ["4d5cJc"],
+        "street": "flop",
+        "toCall": 42,
+        "currentBet": 42,
+        "minRaiseTo": 84,
+        "maxRaiseTo": 210,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 3,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 13,
+      "seat": 5,
+      "stage": "turn",
+      "action": "check",
+      "amount": 0,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 168,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 397.25, 0, 78, 0, 0, 0],
+          [4, 392.45, 0, 8, 0, 0, 1],
+          [5, 369.5, 0, 78, 0, 0, 0],
+          [6, 731, 0, 4, 2, 0, 1]
+        ],
+        "boards": ["4d5cJc5d"],
+        "street": "turn",
+        "toCall": 0,
+        "currentBet": 0,
+        "minRaiseTo": 2,
+        "maxRaiseTo": 168,
+        "legalActions": ["fold", "check", "bet", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 5,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 14,
+      "seat": 3,
+      "stage": "turn",
+      "action": "bet",
+      "amount": 38,
+      "origin": "horse_policy",
+      "isFullRaise": true,
+      "dead": false,
+      "publicNode": {
+        "pot": 168,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 397.25, 0, 78, 0, 0, 0],
+          [4, 392.45, 0, 8, 0, 0, 1],
+          [5, 369.5, 0, 78, 0, 0, 0],
+          [6, 731, 0, 4, 2, 0, 1]
+        ],
+        "boards": ["4d5cJc5d"],
+        "street": "turn",
+        "toCall": 0,
+        "currentBet": 0,
+        "minRaiseTo": 2,
+        "maxRaiseTo": 168,
+        "legalActions": ["fold", "check", "bet", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 3,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 15,
+      "seat": 5,
+      "stage": "turn",
+      "action": "call",
+      "amount": 38,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 206,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 359.25, 38, 116, 0, 0, 0],
+          [4, 392.45, 0, 8, 0, 0, 1],
+          [5, 369.5, 0, 78, 0, 0, 0],
+          [6, 731, 0, 4, 2, 0, 1]
+        ],
+        "boards": ["4d5cJc5d"],
+        "street": "turn",
+        "toCall": 38,
+        "currentBet": 38,
+        "minRaiseTo": 76,
+        "maxRaiseTo": 282,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 5,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 16,
+      "seat": 5,
+      "stage": "river",
+      "action": "check",
+      "amount": 0,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 244,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 359.25, 0, 116, 0, 0, 0],
+          [4, 392.45, 0, 8, 0, 0, 1],
+          [5, 331.5, 0, 116, 0, 0, 0],
+          [6, 731, 0, 4, 2, 0, 1]
+        ],
+        "boards": ["4d5cJc5d2s"],
+        "street": "river",
+        "toCall": 0,
+        "currentBet": 0,
+        "minRaiseTo": 2,
+        "maxRaiseTo": 244,
+        "legalActions": ["fold", "check", "bet", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 5,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 17,
+      "seat": 3,
+      "stage": "river",
+      "action": "bet",
+      "amount": 125,
+      "origin": "horse_policy",
+      "isFullRaise": true,
+      "dead": false,
+      "publicNode": {
+        "pot": 244,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 359.25, 0, 116, 0, 0, 0],
+          [4, 392.45, 0, 8, 0, 0, 1],
+          [5, 331.5, 0, 116, 0, 0, 0],
+          [6, 731, 0, 4, 2, 0, 1]
+        ],
+        "boards": ["4d5cJc5d2s"],
+        "street": "river",
+        "toCall": 0,
+        "currentBet": 0,
+        "minRaiseTo": 2,
+        "maxRaiseTo": 244,
+        "legalActions": ["fold", "check", "bet", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 3,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    },
+    {
+      "ord": 18,
+      "seat": 5,
+      "stage": "river",
+      "action": "call",
+      "amount": 125,
+      "origin": "player",
+      "isFullRaise": false,
+      "dead": false,
+      "publicNode": {
+        "pot": 369,
+        "ante": 2,
+        "anteType": "big_blind",
+        "mode": "cash",
+        "seats": [
+          [1, 762.77, 0, 0, 0, 0, 1],
+          [3, 234.25, 125, 241, 0, 0, 0],
+          [4, 392.45, 0, 8, 0, 0, 1],
+          [5, 331.5, 0, 116, 0, 0, 0],
+          [6, 731, 0, 4, 2, 0, 1]
+        ],
+        "boards": ["4d5cJc5d2s"],
+        "street": "river",
+        "toCall": 125,
+        "currentBet": 125,
+        "minRaiseTo": 250,
+        "maxRaiseTo": 331.5,
+        "legalActions": ["fold", "call", "raise", "all_in"],
+        "dealerSeat": 4,
+        "chipUnit": 0.01,
+        "bigBlind": 2,
+        "smallBlind": 1,
+        "variant": "plo5",
+        "structure": "pot_limit",
+        "actorSeat": 5,
+        "bombPot": false,
+        "tournamentStage": {
+          "status": "not_applicable",
+          "version": 1
+        }
+      }
+    }
+  ],
+  "forbidden": [
+    {
+      "ord": 9,
+      "kind": "call"
+    }
+  ],
+  "seeds": [1, 7, 42, 99, 2026, 3, 11, 17, 23, 31],
+  "control": {
+    "ploSuitedAcesFourBet": false
+  }
+}

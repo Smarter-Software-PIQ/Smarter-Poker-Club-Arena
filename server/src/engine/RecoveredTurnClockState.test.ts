@@ -111,7 +111,7 @@ describe('a recovered turn clock carries its actual turn state', () => {
     expect(h.engine.timeBankEngine.getUsesRemaining(TABLE, PLAYER)).toBe(2);
     h.now.mockReturnValue(deadline + 2_000);
     h.expire();
-    expect(h.engine.forceResolveSeat).toHaveBeenCalledWith(2, false);
+    expect(h.engine.forceResolveSeat).toHaveBeenCalledWith(2, false, 'timer_expired');
     expect(h.engine.turnFSM.state).toBe('complete');
     expect(h.warnings.mock.calls.flat().join('\n')).not.toContain('Invalid transition');
     expect(h.engine.timeBankEngine.getUsesRemaining(TABLE, PLAYER)).toBe(2);
@@ -214,7 +214,7 @@ describe('a recovered turn clock carries its actual turn state', () => {
         h.expire();
       }
       h.expire(`timebank:${PLAYER}`);
-      expect(h.engine.forceResolveSeat).toHaveBeenCalledWith(2, false);
+      expect(h.engine.forceResolveSeat).toHaveBeenCalledWith(2, false, expect.any(String));
       expect(h.engine.disconnectEngine.getState(TABLE, PLAYER)).toMatchObject({
         consecutiveTimeouts: 2,
         isSittingOut: true,
@@ -254,7 +254,7 @@ describe('a recovered turn clock carries its actual turn state', () => {
     h.now.mockReturnValue(Date.now() + 15_000);
     expect(await h.engine.activateTimeBank(PLAYER)).toMatchObject({ success: true });
     h.expire(`timebank:${PLAYER}`);
-    expect(h.engine.forceResolveSeat).toHaveBeenCalledWith(2, true);
+    expect(h.engine.forceResolveSeat).toHaveBeenCalledWith(2, true, expect.any(String));
     expect(h.engine.disconnectEngine.getState(TABLE, PLAYER).isSittingOut).toBe(false);
   });
 

@@ -154,6 +154,10 @@ describe('the seat offer decision', () => {
 });
 
 describe('the hold deadline', () => {
+  it('rejects malformed legacy timestamps without interrupting later offers', () => {
+    expect(holdDeadline({ notified_at: 'invalid' })).toBeNull();
+    expect(holdDeadline({ notified_at: NOTIFIED_AT })).toBe(HOLD);
+  });
   it('prefers the authoritative column', () => {
     expect(holdDeadline({ hold_expires_at: HOLD, notified_at: NOTIFIED_AT })).toBe(HOLD);
   });

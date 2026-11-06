@@ -316,21 +316,22 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     }
   });
 
-  it('all three state payloads carry the same stay-clock fields (the two-out-of-three bug)', () => {
+  it('every state payload and occupied nonparticipant carries the stay-clock fields', () => {
     // Two hand-state builders judge on the roster stack (a bet is not a loss
-    // yet); the idle builder's roster IS the hand roster.
+    // yet); idle and occupied nonparticipants use the physical roster stack.
     const rosterSpreads =
       ENGINE.match(
         /\.\.\.this\.chipContinuity\.seatFields\(p\.user_id, this\.continuityStack\(p\.user_id, p\.stack\)\)/g
       ) ?? [];
-    const idleSpreads =
+    const physicalRosterSpreads =
       ENGINE.match(/\.\.\.this\.chipContinuity\.seatFields\(p\.user_id, p\.stack\)/g) ?? [];
     expect(rosterSpreads.length).toBe(2);
-    expect(idleSpreads.length).toBe(1);
+    expect(physicalRosterSpreads.length).toBe(2);
     for (const sig of [
       'public getTableState(',
       'protected broadcastCurrentState()',
       'protected publishIdleState()',
+      'private includeOccupiedSeats(',
     ]) {
       expect(sliceMethod(ENGINE, sig)).toContain('chipContinuity.seatFields(p.user_id,');
     }

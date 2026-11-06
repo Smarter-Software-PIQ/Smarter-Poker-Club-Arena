@@ -113,7 +113,16 @@ export interface LobbyMe {
   };
   pending_move: LobbyPendingMove | null;
   /** Not seated: the caller's place on the game's waitlist (Gate 4). */
-  waitlist?: { waiting: number; position: number | null; on_list: boolean } | null;
+  waitlist?: {
+    waiting: number;
+    position: number | null;
+    on_list: boolean;
+    reason?: string;
+    queued_at?: string | null;
+    minimum_entry?: number | string | null;
+    reserved_table_id?: string | null;
+    hold_expires_at?: string | null;
+  } | null;
 }
 
 export interface CashGameLobby {

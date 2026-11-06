@@ -76,6 +76,58 @@ describe('complaint replay library', () => {
     expect(actionKind('check', 0, deep)).toBe('check');
   });
 
+  it('preserves captured multiple boards, dead antes and seat flags instead of replaying another game', () => {
+    const fixture = structuredClone(FX);
+    const node = horseNodes(fixture)[0];
+    Object.assign(node.publicNode!, {
+      boards: ['AsKd7h', 'QcJh8s'],
+      boardCount: 2,
+      bombPot: true,
+      allInOrFold: false,
+      fixedBetSize: null,
+      wagersCapped: true,
+      asset: 'diamonds',
+      deductions: {
+        version: 1,
+        status: 'captured',
+        rules: 'controller-rake-bbj-v1',
+        rake: {
+          percent: 5,
+          cap: 3,
+          noFlopNoDrop: true,
+          playerCountCaps: [
+            [2, 1.5],
+            [4, 3],
+          ],
+        },
+        bbj: null,
+      },
+    });
+    node.publicNode!.seats[0][4] = 2;
+    node.publicNode!.seats[0][5] = 1;
+    node.publicNode!.seats[0][6] = 5; // folded + sitting out
+    const st = stateAt(fixture, node);
+    expect(st.gs.communityCards2?.map((c) => c.rank).join('')).toBe('QJ8');
+    expect(st.gs.boardCount).toBe(2);
+    expect(st.gs.bombPot).toBe(true);
+    expect(st.gs.wagersCapped).toBe(true);
+    expect(st.gs.asset).toBe('diamonds');
+    expect(st.gs.rakeConfig?.playerCountCaps).toEqual([
+      { players: 2, cap: 1.5 },
+      { players: 4, cap: 3 },
+    ]);
+    expect(st.gs.bbjConfig).toBeNull();
+    expect(st.gs.players[0]).toMatchObject({
+      deadInvested: 2,
+      individualAnteInvested: 1,
+      is_folded: true,
+      is_sitting_out: true,
+    });
+    expect(
+      st.gs.players.filter((p) => p.seat !== st.hero.seat).every((p) => p.cards.length === 0)
+    ).toBe(true);
+  });
+
   it('classifies the 4-bet and the 5-bet nodes into the 4-bet-then-fold cell', () => {
     const [n9, n12] = horseNodes(FX);
     const c9 = classifySpot(FX, n9);
@@ -97,6 +149,8 @@ describe('complaint replay library', () => {
     expect(a[0].profiles).toHaveLength(replayProfiles('cash').length);
     expect(Object.keys(a[0].profiles[0].receipts)).toContain('decide_nlh');
     for (const n of a) expect(n.verdict.length).toBeGreaterThan(0);
+    expect(a[0].replayLimitations.join(' ')).toContain('not original-runtime replay');
+    expect(a[0].replayLimitations.join(' ')).toContain('not a strategic correctness');
   });
 
   it('the forbidden path is checked per profile, and a path the hand never took is refused', () => {

@@ -30,11 +30,25 @@ const separateBackendTools = new Set([
   'scripts/dev/fixtures/lightning-private-discovery.sql',
   'scripts/dev/fixtures/lightning-private-join.sql',
 ]);
+// Node-only agent entrypoints have no application/build consumer. Actual
+// Rollup module/watch observations still override these exact exclusions.
+const separateAgentTools = new Set([
+  '.husky/pre-push', 'scripts/agent-push.sh',
+  'scripts/ci/agent-execution.mjs', 'scripts/ci/agent-execution-cli.mjs',
+  'scripts/ci/execution-preview.mjs', 'scripts/ci/vendor/agentExecution.mjs',
+  'scripts/ci/vendor/agentExecution.source.json',
+  'scripts/ci/source-contract-inventory.mjs', 'scripts/ci/source-contract-inputs.json',
+  'README.md', 'AGENTS.md', 'CLAUDE.md', 'AGENT-PLAYBOOK.md', 'PUBLISHING.md',
+  'docs/agent-policy/OWNER-POLICY.md', 'docs/agent-policy/OPERATING-LAW.md',
+  'docs/agent-policy/HARDENING.md', 'docs/agent-policy/REFERENCE-INDEX.md',
+  'docs/agent-policy/policy-manifest.json',
+]);
 // Build inputs are conservative whole scopes. These exclusions are separately
 // delivered verification/database/engine components, never client inputs by
 // assumption: actual Rollup module/watch reads override EVERY exclusion.
 export function conservativeClientInput(path) {
   if (!safePath(path)) throw new Error('Invalid input path.');
+  if (separateAgentTools.has(path)) return false;
   if (
     /(?:^|\/)(?:package(?:-lock)?\.json|[^/]*lock[^/]*\.(?:json|yaml)|tsconfig[^/]*\.json)$/.test(
       path
@@ -69,7 +83,7 @@ export function conservativeClientInput(path) {
 export function separateComponentPath(path) {
   return (
     safePath(path) &&
-    /^(?:docs\/|tests\/|server\/|supabase\/|scripts\/|\.github\/workflows\/)/.test(path)
+    (separateAgentTools.has(path) || /^(?:docs\/|tests\/|server\/|supabase\/|scripts\/|\.github\/workflows\/)/.test(path))
   );
 }
 

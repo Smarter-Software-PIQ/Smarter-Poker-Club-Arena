@@ -9,8 +9,10 @@
  */
 import {
   callPreferenceRpc,
+  noteOwn,
   noteRevisions,
   readAck,
+  readOwn,
   registerRetry,
   sameValue,
   setSaveStatus,
@@ -37,11 +39,39 @@ export type PageSaveOutcome =
   | { status: 'conflict'; value: unknown }
   | { status: 'failed' };
 
+/* ONE SAVE AT A TIME PER SETTING (2026-11-05). Every save used to go out at
+   once: two quick taps on a table heading were both sent against the revision
+   from before either, the account accepted the first and refused the second
+   as Changed On Another Device, and the board snapped back to the first tap
+   (production proof verify-lobby-filters, run 42140994979, Spins). A save now
+   waits for the previous save of the same setting, so it is stated against
+   the revision that save was granted. */
+const pageChains = new Map<string, Promise<unknown>>();
+
 /**
  * Save `value` for owner+key. The base is the journal's (the revision the
  * player first chose against), else the last revision seen.
  */
-export async function savePagePreference(
+export function savePagePreference(
+  owner: string,
+  key: string,
+  value: unknown,
+  intentId: string,
+  retry: () => void
+): Promise<PageSaveOutcome> {
+  const chainKey = `${owner}:${key}`;
+  const previous = pageChains.get(chainKey) ?? Promise.resolve();
+  const run = previous
+    .catch(() => undefined)
+    .then(() => savePagePreferenceNow(owner, key, value, intentId, retry));
+  pageChains.set(chainKey, run);
+  void run.finally(() => {
+    if (pageChains.get(chainKey) === run) pageChains.delete(chainKey);
+  });
+  return run;
+}
+
+async function savePagePreferenceNow(
   owner: string,
   key: string,
   value: unknown,
@@ -57,9 +87,25 @@ export async function savePagePreference(
       ? held.base
       : pagePreferenceRevision(owner, key);
   setSaveStatus(scopeKey, 'saving');
-  const outcome = await callPreferenceRpc(owner, 'fn_save_page_preferences', {
+  let outcome = await callPreferenceRpc(owner, 'fn_save_page_preferences', {
     p_changes: [{ field: key, value, base }],
   });
+  /* The account holds this device's own last accepted save of this setting:
+     the refusal is not another device, the player chose again here. Send the
+     newer choice once more against that revision. */
+  const first = outcome.ok
+    ? ((outcome.data as { results?: FieldResult[] })?.results ?? [])[0]
+    : undefined;
+  if (
+    first?.status === 'conflict' &&
+    !sameValue(first.value, value) &&
+    typeof first.revision === 'number' &&
+    readOwn(owner, PAGE_SCOPE)[key] === first.revision
+  ) {
+    outcome = await callPreferenceRpc(owner, 'fn_save_page_preferences', {
+      p_changes: [{ field: key, value, base: first.revision }],
+    });
+  }
   if (!outcome.ok) {
     if (outcome.reason === 'failed') reportError(outcome.error, 'pagePreferenceSave.failed');
     setSaveStatus(scopeKey, outcome.reason === 'signed_out' ? 'signed_out' : 'failed');
@@ -71,6 +117,9 @@ export async function savePagePreference(
     return { status: 'failed' };
   }
   notePagePreferenceRevision(owner, key, result.revision);
+  if (result.status === 'applied' && typeof result.revision === 'number') {
+    noteOwn(owner, PAGE_SCOPE, { [key]: result.revision });
+  }
   if (
     result.status === 'applied' ||
     (result.status === 'conflict' && sameValue(result.value, value))

@@ -54,6 +54,11 @@ describe('V54 station intent survives the actual worker policy graph', () => {
       const baselineRiver: { action: string; amount: number | null }[] = [];
       const checks: { reference: string; final: string; changed: boolean }[] = [];
       brain.decide = async (...args) => {
+        // The paired-board river check (Dan 2026-11-06) is independent of
+        // V54 and checks the plo6 baseline river bet this test measures V54
+        // against; its off arm keeps the measured spot. The real rule is
+        // pinned in HorsePloSuitedAcesAndPairedRiver.test.ts.
+        args[3] = { ...args[3], ploPairedBoardRiverCheck: false };
         const d = await original(...args);
         if (args[1].stage === 'river' && args[3].v54RiverBluff === false)
           baselineRiver.push({ action: d.action, amount: d.amount ?? null });

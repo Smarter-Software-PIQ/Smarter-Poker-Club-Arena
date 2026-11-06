@@ -1,0 +1,189 @@
+/* Dan 2026-11-06: the breakdowns use the Data page, without bulky popup art. */
+.dialog[role='dialog'] {
+  width: 640px;
+  max-width: 100%;
+  background: var(--cd-surface-deep) !important;
+  background-image: none !important;
+  border: 1px solid var(--cd-hairline) !important;
+  border-radius: 14px !important;
+  outline: none;
+  box-shadow: var(--cd-bevel), var(--cd-cast-high) !important;
+  padding: 0;
+  color: var(--cd-ink);
+  font-family: 'Roboto Condensed', Inter, system-ui, sans-serif;
+}
+.dialog[role='dialog'] > div {
+  padding: 0;
+}
+.dialog[role='dialog']::before,
+.dialog[role='dialog']::after {
+  display: none;
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 8px 0 16px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, #1c2840 0%, #121a2b 55%, #0c1220 100%);
+  box-shadow: inset 0 -1px 0 var(--cd-hairline);
+}
+.header h2 {
+  margin: 0;
+  color: var(--cd-ink);
+  font:
+    600 18px 'Roboto Condensed',
+    Inter,
+    system-ui,
+    sans-serif;
+  text-shadow: none;
+}
+.dialog .close,
+.dialog .action {
+  background: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: var(--cd-accent) !important;
+  font: inherit;
+  min-height: 44px;
+  cursor: pointer;
+}
+.dialog .close {
+  min-width: 44px;
+  font-size: 28px;
+}
+.body {
+  padding: 0 16px 12px;
+  color: var(--cd-ink);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.body p {
+  margin: 12px 0;
+  color: var(--cd-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.body .range {
+  padding: 10px 8px;
+  border: 1px solid var(--cd-hairline);
+  border-radius: 10px;
+  background: var(--cd-surface-sunk);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55);
+  color: var(--cd-ink);
+  text-align: center;
+  font-size: 14px;
+}
+.totals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 12px 0;
+  overflow: hidden;
+  border: 1px solid var(--cd-hairline);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--cd-surface-raised), var(--cd-surface-sunk));
+  box-shadow: var(--cd-bevel), var(--cd-cast);
+}
+.totals > div {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  border: 1px solid var(--cd-hairline-soft);
+}
+.totals dt {
+  color: var(--cd-muted);
+  font-size: 12px;
+}
+.totals dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.search {
+  display: block;
+  color: var(--cd-muted);
+  font-size: 12px;
+}
+.dialog .search input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 5px;
+  padding: 10px 12px;
+  font:
+    14px Inter,
+    system-ui,
+    sans-serif;
+  color: var(--cd-ink) !important;
+  background: var(--cd-surface-sunk) !important;
+  border: 1px solid var(--cd-hairline) !important;
+  border-radius: 10px;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55) !important;
+}
+.tableScroll {
+  max-height: 45dvh;
+  overflow: auto;
+  margin-top: 12px;
+  border: 1px solid var(--cd-hairline);
+  border-radius: 12px;
+  background: var(--cd-surface-sunk);
+}
+.tableScroll table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  white-space: normal;
+}
+.tableScroll caption {
+  text-align: left;
+  padding: 12px;
+  color: var(--cd-accent);
+  font-weight: 600;
+}
+.tableScroll th,
+.tableScroll td {
+  padding: 12px;
+  border-bottom: 1px solid var(--cd-hairline-soft);
+  text-align: left;
+}
+.tableScroll thead {
+  color: var(--cd-muted);
+  font-size: 12px;
+}
+.tableScroll tbody tr:nth-child(odd) {
+  background: var(--cd-surface);
+}
+.tableScroll th {
+  font-weight: 500;
+}
+.tableScroll td,
+.tableScroll th:last-child {
+  text-align: right;
+}
+.tableScroll td {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.loss {
+  color: var(--cd-loss);
+}
+.win {
+  color: var(--cd-win);
+}
+.value {
+  color: var(--cd-ink);
+}
+@media (min-width: 520px) {
+  .totals {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+}

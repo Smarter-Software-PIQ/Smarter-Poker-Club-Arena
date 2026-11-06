@@ -73,6 +73,7 @@ import {
   spinBlindsForLevel,
 } from '../config/spinSpec.js';
 import { describeError, reportError } from '../services/errorReporter.js';
+import { SeatHeadsRefresher, isSeatBountyEvent } from './seatBountyHeads.js';
 import { noteDiamondTournamentTableSkipped } from '../services/cashTablePlayEligibility.js';
 import { IN_LIST_CHUNK, selectInChunks } from '../services/supabase/chunkedIn.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
@@ -140,6 +141,7 @@ import { diamondSpinSettlementProven } from './diamondSpinLaunchProof.js';
 import { raiseFinancialAlert } from '../services/financialAlerts.js';
 import {
   tournamentFinishRefusalAlertsSuppressedTotal,
+  eliminationSweepStepMs,
   classifyFinishRefusal,
   finishRefusalIsTransient,
   finishRefusalRetryDelayMs,
@@ -1331,6 +1333,39 @@ export abstract class TournamentManagerBase {
   protected spinRevealEmittedTableIds = new Set<string>();
   // Tournament metadata cache
   protected tournamentCache: any = null;
+
+  /**
+   * THE HEAD ON EVERY SEAT (Dan 2026-11-05). The ledger's bounty heads for
+   * this event, handed to every table engine so they ride the table state
+   * with the chips. See seatBountyHeads.ts. Off a bounty event nothing reads.
+   */
+  protected readonly seatHeads = new SeatHeadsRefresher({
+    read: async () => {
+      const { data, error } = await supabase
+        .from('tournament_players')
+        .select('user_id, current_bounty')
+        .eq('tournament_id', this.tournamentId)
+        .limit(5000);
+      return error || !Array.isArray(data) ? null : data;
+    },
+    publish: (heads) => {
+      for (const engine of this.tableEngines.values()) engine.setSeatBounties?.(heads);
+    },
+    now: () => Date.now(),
+    later: (fn, delayMs) => {
+      setTimeout(fn, delayMs).unref?.();
+    },
+    report: (error) =>
+      reportError(error, 'Tournament.seat_bounty_heads_read_failed', {
+        tournamentId: this.tournamentId,
+      }),
+  });
+
+  /** Read the ledger heads again (coalesced) when this is a bounty event. */
+  protected requestSeatHeads(): void {
+    if (!isSeatBountyEvent(this.tournamentCache)) return;
+    this.seatHeads.request();
+  }
   /**
    * The three club columns the unit rule joins (`fn_ca_tournament_unit_cents`
    * on the SQL side, `tournamentUnitCents` here), read once alongside the
@@ -2388,12 +2423,28 @@ export abstract class TournamentManagerBase {
     step: string | null;
     msInStep: number;
   } | null {
-    const msInFlight =
+    const msSweepInFlight =
       this.isProcessingEliminations && this.eliminationSweepStartedAt > 0
         ? now - this.eliminationSweepStartedAt
         : 0;
+    // Every sweep yields to an in-flight boundary balance, so a hung one
+    // holds the manager exactly as a hung sweep does (2026-11-06).
+    const msBoundaryBalance =
+      this.boundaryBalanceInFlight && this.boundaryBalanceStartedAt > 0
+        ? now - this.boundaryBalanceStartedAt
+        : 0;
     const msBustWaiting = this.bustAwaitingSinceMs > 0 ? now - this.bustAwaitingSinceMs : 0;
-    if (msInFlight <= 0 && msBustWaiting <= 0) return null;
+    if (msSweepInFlight <= 0 && msBoundaryBalance <= 0 && msBustWaiting <= 0) return null;
+    if (msBoundaryBalance > msSweepInFlight) {
+      return {
+        msInFlight: msBoundaryBalance,
+        msBustWaiting,
+        stage: this.currentEliminationSweepStage(),
+        step: 'boundary_balance',
+        msInStep: msBoundaryBalance,
+      };
+    }
+    const msInFlight = msSweepInFlight;
     const step = msInFlight > 0 ? (this.eliminationSweepStep ?? null) : null;
     return {
       msInFlight,
@@ -2452,7 +2503,12 @@ export abstract class TournamentManagerBase {
   }
 
   requestSuccessorForStalledEliminationSweep(): boolean {
-    if (!this.isProcessingEliminations && this.bustAwaitingSinceMs <= 0) return false;
+    if (
+      !this.isProcessingEliminations &&
+      !this.boundaryBalanceInFlight &&
+      this.bustAwaitingSinceMs <= 0
+    )
+      return false;
     return this.requestSuccessorDrain();
   }
 
@@ -3542,6 +3598,14 @@ export abstract class TournamentManagerBase {
    */
   protected boundaryBalanceInFlight = false;
   protected boundaryBalanceOwesSweep = false;
+  /** When the in-flight boundary balance began; 0 while none is in flight. */
+  protected boundaryBalanceStartedAt = 0;
+  /**
+   * A boundary balance that has held the manager this long reports itself
+   * (Tournament.boundary_balance_overran). Its whole work is one board read
+   * and one batch of atomic moves; thirty seconds is many times that.
+   */
+  static readonly BOUNDARY_BALANCE_REPORT_MS = 30_000;
 
   /** Called as every admitted sweep settles; the balancing manager drains its edge work here. */
   protected onEliminationSweepSettled(): void {}
@@ -3692,7 +3756,14 @@ export abstract class TournamentManagerBase {
    * exact deadline.
    */
   protected wireEliminationWake(engine: ServerTableEngine): void {
+    // A table joining a bounty event starts with the heads already read and
+    // asks for a fresh read; every hand it completes asks again (coalesced).
+    if (isSeatBountyEvent(this.tournamentCache)) {
+      engine.setSeatBounties?.(this.seatHeads.current());
+      this.requestSeatHeads();
+    }
     engine.onHandComplete((_tableId, finalStacks) => {
+      this.requestSeatHeads();
       const recovered = this.recoveredOriginalAdmissions.get(_tableId);
       if (
         recovered?.engine === engine &&
@@ -5477,10 +5548,21 @@ export abstract class TournamentManagerBase {
     }
   }
 
-  /** True only when NO table in this event has a hand in progress. */
+  /**
+   * True only when NO table in this event has a hand in progress.
+   *
+   * A table whose only controller is a retained original that never started,
+   * held at the pause gate by the activation boundary itself, has no hand in
+   * progress: no card is dealt and no decision made, and it starts after the
+   * activation like any later hand. Counting it as a live hand made the
+   * boundary wait for the hand and the hand wait for the boundary - the
+   * circular wait that froze Satellites 25 and 30 on 2026-11-05, here on the
+   * mystery activation boundary (isPreparedOriginalHeldAtPauseGate).
+   */
   protected allTablesBetweenHands(): boolean {
     for (const engine of this.tableEngines.values()) {
       try {
+        if (engine.isPreparedOriginalHeldAtPauseGate?.() === true) continue;
         if (!engine.isBetweenHands()) return false;
       } catch {
         // An engine that cannot answer is an engine we cannot vouch for.
@@ -13829,8 +13911,19 @@ export abstract class TournamentManagerBase {
   protected eliminationSweepStepAt = 0;
 
   protected noteEliminationSweepStep(step: string): void {
+    const now = Date.now();
+    this.closeEliminationSweepStep(now);
     this.eliminationSweepStep = step;
-    this.eliminationSweepStepAt = Date.now();
+    this.eliminationSweepStepAt = now;
+  }
+
+  /** Observe the step in flight (if any) as finished at `now`. */
+  protected closeEliminationSweepStep(now = Date.now()): void {
+    const previous = this.eliminationSweepStep;
+    const startedAt = this.eliminationSweepStepAt;
+    if (previous && typeof startedAt === 'number' && startedAt > 0 && now >= startedAt) {
+      eliminationSweepStepMs.observe(now - startedAt, { step: previous });
+    }
   }
 
   // ── Implemented by TournamentManagerEliminations (layer 2/3) ──

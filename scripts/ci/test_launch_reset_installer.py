@@ -71,6 +71,40 @@ with tempfile.TemporaryDirectory(prefix='installer-native-',dir=a.scratch) as tm
   sql((Path(__file__).parent/'fixtures'/'launch-reset'/'installer'/'launch_reset_installer_fixture.sql').read_text())
   name,text=migration('20261012010101','atomic_success');r=apply(name);assert r.returncode==0,(r.stdout,r.stderr)
   rows=json.loads(sql("SELECT json_build_object('name',name,'statements',statements) FROM supabase_migrations.schema_migrations WHERE version='20261012010101';"));assert rows=={'name':'atomic_success','statements':[text]};assert sql("SELECT to_regclass('public.atomic_success') IS NOT NULL;")=='t'
+  for version,setting in [('20261012010110',"SET LOCAL transaction_timeout='60s';"),('20261012010111',"SELECT set_config('transaction_timeout','0',true);")]:
+   override_name=version+'_budget_override.sql'
+   (migrations/override_name).write_text('BEGIN;\n'+setting+'\nCREATE TABLE public.fixture_budget_override(id integer);\nCOMMIT;\n')
+   rejected=apply(override_name)
+   assert rejected.returncode==1 and 'budget' in rejected.stderr,(rejected.stdout,rejected.stderr)
+   assert sql("SELECT to_regclass('public.fixture_budget_override') IS NULL AND NOT EXISTS(SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='"+version+"');")=='t'
+  # Ordinary installation cannot hold live row locks across a long transaction,
+  # even when every individual statement fits the migration's larger timeout.
+  sql('CREATE TABLE public.fixture_live_member(id integer PRIMARY KEY, balance integer); INSERT INTO public.fixture_live_member VALUES(1,100);')
+  budget_name='20261012010109_ordinary_transaction_budget.sql'
+  budget_text="BEGIN;\nSET LOCAL statement_timeout='60s';\nUPDATE public.fixture_live_member SET balance=90 WHERE id=1;\nSELECT pg_sleep(5);\nSELECT pg_sleep(5);\nSELECT pg_sleep(5);\nCOMMIT;\n"
+  (migrations/budget_name).write_text(budget_text)
+  budget_started=time.monotonic()
+  installing=subprocess.Popen([str(x) for x in [a.node,'--require',clock,installer,'--migration',budget_name,'--ssl-root-cert',cert]],env=child,cwd=work,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+  try:
+   deadline=time.monotonic()+5
+   while sql("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE relation='public.fixture_live_member'::regclass AND mode='RowExclusiveLock' AND granted);")!='t':
+    assert installing.poll() is None,'installer ended before acquiring fixture row'
+    assert time.monotonic()<deadline,'installer never acquired fixture row'
+    time.sleep(.05)
+   contender=subprocess.Popen([str(x) for x in q]+['-c',"SET lock_timeout='20s'; UPDATE public.fixture_live_member SET balance=balance+7 WHERE id=1;"],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+   deadline=time.monotonic()+3
+   while sql("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE query LIKE 'SET lock_timeout=%fixture_live_member%' AND cardinality(pg_blocking_pids(pid))>0);")!='t':
+    assert time.monotonic()<deadline,'fixture writer never waited on installer row'
+    time.sleep(.05)
+   out,err=installing.communicate(timeout=25)
+   cout,cerr=contender.communicate(timeout=5)
+   assert installing.returncode==1 and '25P04' in err,(installing.returncode,out,err)
+   assert contender.returncode==0,(cout,cerr)
+   assert time.monotonic()-budget_started<16,'ordinary transaction exceeded bounded rollback runway'
+   assert sql("SELECT balance=107 AND NOT EXISTS(SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20261012010109') FROM fixture_live_member WHERE id=1;")=='t','budget refusal must roll back original update/history before waiting writer completes'
+  finally:
+   if installing.poll() is None:installing.kill();installing.communicate()
+   if 'contender' in locals() and contender.poll() is None:contender.kill();contender.communicate()
   # Exact already-installed operation is read-only and does not re-run DDL.
   again=apply(name);assert again.returncode==0 and 'ALREADY-APPLIED' in again.stdout
   sql("CREATE FUNCTION supabase_migrations.fixture_reject_history() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.name='history_failure' THEN RAISE EXCEPTION 'fixture history failure' USING ERRCODE='23514';END IF;RETURN NEW;END$$;CREATE TRIGGER fixture_reject BEFORE INSERT ON supabase_migrations.schema_migrations FOR EACH ROW EXECUTE FUNCTION supabase_migrations.fixture_reject_history();")
@@ -129,7 +163,7 @@ with tempfile.TemporaryDirectory(prefix='installer-native-',dir=a.scratch) as tm
   import runpy
   runpy.run_path(str(a.repository/'scripts/ci/fixtures/accounting-migration-admission/qualify.py'),init_globals=globals())
   assert a.installer.read_bytes()==original,'Candidate installer changed during qualification'
-  result={'qualified':True,'settlement_lane_actual_installer_qualified':True,'accounting_admission_actual_installer_qualified':True,'installer_sha256':source_sha,'native_tls_verified':True,'invalid_ca_refused_before_ddl':True,'atomic_schema_exact_history_commit':True,'history_failure_rolls_back_schema':True,'original_window_refusal_sends_nothing':True,'original_readiness_refusal_sends_nothing':True,'original_break_guard_body_fixture_time_only':True,'already_applied_no_replay':True,'postcommit_socket_loss_returns_unknown':True,'precommit_backend_termination_returns_unknown_without_partial_schema_or_history':True,'unknown_durable_state_inspected_without_retry':True,'production_actions':False,'fixture_clock_only_stubbed_for_utc_window':True}
+  result={'ordinary_transaction_budget_rolls_back_before_waiting_writer':True,'qualified':True,'settlement_lane_actual_installer_qualified':True,'accounting_admission_actual_installer_qualified':True,'installer_sha256':source_sha,'native_tls_verified':True,'invalid_ca_refused_before_ddl':True,'atomic_schema_exact_history_commit':True,'history_failure_rolls_back_schema':True,'original_window_refusal_sends_nothing':True,'original_readiness_refusal_sends_nothing':True,'original_break_guard_body_fixture_time_only':True,'already_applied_no_replay':True,'postcommit_socket_loss_returns_unknown':True,'precommit_backend_termination_returns_unknown_without_partial_schema_or_history':True,'unknown_durable_state_inspected_without_retry':True,'production_actions':False,'fixture_clock_only_stubbed_for_utc_window':True}
   a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result))
  finally:cmd([pg/'pg_ctl','-D',data,'-m','immediate','-w','stop'],expect=None)
 

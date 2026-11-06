@@ -66,7 +66,7 @@ it('embeds fixed helper source and preserves reviewed v1/v2/v3 validators and aw
     [
       '-B',
       '-c',
-      'import ast,json,sys; tree=ast.parse(sys.stdin.read()); print(json.dumps(ast.literal_eval(tree.body[0].value)))',
+      "import ast,json,sys; tree=ast.parse(sys.stdin.read()); matches=[n for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='TOURNAMENT_PREDICATE_JS' for t in n.targets)]; assert len(matches)==1; print(json.dumps(ast.literal_eval(matches[0].value)))",
     ],
     { input: result.stdout, encoding: 'utf8' }
   );

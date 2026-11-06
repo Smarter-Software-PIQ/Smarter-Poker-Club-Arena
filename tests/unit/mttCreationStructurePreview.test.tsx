@@ -26,11 +26,11 @@ const initial: TournamentFormInput = {
 const preview = () => screen.getByLabelText('MTT Structure Preview');
 
 describe('the MTT creator previews its actual mapped rules before booking', () => {
-  it('discloses the manual Standard default as 50 BB on a minimum five-minute Turbo clock', () => {
+  it('discloses the manual Standard default as 20 BB on a minimum five-minute Turbo clock', () => {
     const input = Object.freeze({ ...initial });
     render(<MttCreationStructurePreview config={input} gameType="nlh" />);
     expect(preview().textContent).toContain('Turbo · 5 Min');
-    expect(preview().textContent).toContain('1K Starting Chips · 50 Big Blinds');
+    expect(preview().textContent).toContain('1K Starting Chips · 20 Big Blinds');
     expect(preview().textContent).toContain('Blind Structure Sets How Blinds Grow');
     expect(input).toEqual(initial);
   });
@@ -40,7 +40,7 @@ describe('the MTT creator previews its actual mapped rules before booking', () =
       <MttCreationStructurePreview config={{ ...initial, blindStructure: 'slow' }} gameType="nlh" />
     );
     expect(preview().textContent).toContain('Turbo · 5 Min');
-    expect(preview().textContent).toContain('50 Big Blinds');
+    expect(preview().textContent).toContain('20 Big Blinds');
   });
 
   it('updates the exact speed and depth when the owner changes independent controls', () => {
@@ -52,12 +52,12 @@ describe('the MTT creator previews its actual mapped rules before booking', () =
       />
     );
     expect(preview().textContent).toContain('Slow · 15 Min');
-    expect(preview().textContent).toContain('5K Starting Chips · 250 Big Blinds');
+    expect(preview().textContent).toContain('5K Starting Chips · 100 Big Blinds');
     view.rerender(
       <MttCreationStructurePreview config={{ ...initial, blindsUpMinutes: 2 }} gameType="nlh" />
     );
     expect(preview().textContent).toContain('Turbo · 5 Min');
-    expect(preview().textContent).toContain('50 Big Blinds');
+    expect(preview().textContent).toContain('20 Big Blinds');
   });
 
   it('uses the effective mapped clock for a restored zero-minute draft', () => {
@@ -80,7 +80,7 @@ describe('the MTT creator previews its actual mapped rules before booking', () =
       />
     );
     expect(preview().textContent).toContain('Turbo · 5 Min');
-    expect(preview().textContent).toContain('50 Big Blinds');
+    expect(preview().textContent).toContain('20 Big Blinds');
   });
 
   it('keeps a malformed restored stack unconfirmed', () => {

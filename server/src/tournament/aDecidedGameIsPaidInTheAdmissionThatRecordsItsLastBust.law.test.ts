@@ -94,8 +94,9 @@ function oneBustOutOf(playing: number) {
     .spyOn(supabase, 'from')
     .mockReturnValueOnce(answer({ data: [], error: null }) as never)
     .mockReturnValueOnce(answer({ data: [{ user_id: 'loser', chips: 0 }], error: null }) as never)
-    .mockReturnValueOnce(answer({ count: playing, error: null }) as never)
+    // The first knockout-order page leaves with the playing count (2026-11-05).
     .mockReturnValueOnce(answer({ data: [], count: 0, error: null }) as never)
+    .mockReturnValueOnce(answer({ count: playing, error: null }) as never)
     .mockReturnValueOnce(answer({ data: [], error: null }) as never)
     .mockReturnValueOnce(answer({ count: playing, error: null }) as never)
     .mockReturnValueOnce(answer({ count: playing - 1, error: null }) as never)

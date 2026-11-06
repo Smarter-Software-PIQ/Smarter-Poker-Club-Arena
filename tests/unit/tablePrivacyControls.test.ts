@@ -37,12 +37,11 @@ describe('Anonymous Table', () => {
     expect(fn).not.toMatch(/user_id:\s*''/);
   });
 
-  it('is applied by EVERY serializer, not three of four', () => {
-    // getTableState, broadcastCurrentState, the second broadcast block and
-    // publishIdleState are byte-identical seat maps; this file already carries
-    // a comment about a reveal gate that was missed in one of them.
+  it('is applied by every hand and occupied-seat serializer', () => {
+    // The four hand/idle serializers and the nonparticipant occupancy
+    // projection all use the same anonymous identity boundary.
     const uses = ENGINE.match(/\.\.\.this\.seatIdentity\(p\)/g) ?? [];
-    expect(uses.length).toBe(4);
+    expect(uses.length).toBe(5);
     /* The ONE remaining raw read is inside seatIdentity itself, which is the
        point of the helper. Anywhere else means a serializer was missed. */
     const outsideHelper =

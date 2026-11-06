@@ -990,29 +990,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/ci/production-e2e-account.mjs create
 
-      - name: Verify the reported bounty guarantee and charged entry breakdown
-        id: bounty_guarantee
-        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.tournament_only != 'true'
-        env:
-          BASE_URL: https://smarter.poker/hub/club-arena/
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
-          E2E_REQUIRE_AUTH: '1'
-          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/bounty-guarantee.json
-        run: npx playwright test tests/e2e/production-bounty-guarantee.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
-
-      - name: Retain bounty guarantee browser evidence
-        if: always() && steps.bounty_guarantee.outcome != 'skipped'
-        uses: actions/upload-artifact@v4
-        with:
-          name: post-deploy-bounty-guarantee
-          path: |
-            e2e-report/bounty-guarantee.json
-            e2e-report/bounty-guarantee.png
-            test-results/production-bounty-guarantee-*/
-          if-no-files-found: error
-          retention-days: 7
-
       # The Player Command route is intentionally staff-only. Give the brand
       # new reserved identity a zero-balance admin membership before any
       # browser starts. The helper refuses existing memberships and non-test
@@ -1047,6 +1024,32 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
         run: node scripts/ci/production-e2e-account.mjs prepare-template-staff
+
+      # Browser global setup joins its club. Prepare the reserved staff identity
+      # first so that join cannot create a player membership the staff guard
+      # correctly refuses to overwrite (production run 42193473441).
+      - name: Verify the reported bounty guarantee and charged entry breakdown
+        id: bounty_guarantee
+        if: steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.tournament_only != 'true'
+        env:
+          BASE_URL: https://smarter.poker/hub/club-arena/
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_REQUIRE_AUTH: '1'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/bounty-guarantee.json
+        run: npx playwright test tests/e2e/production-bounty-guarantee.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
+
+      - name: Retain bounty guarantee browser evidence
+        if: always() && steps.bounty_guarantee.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-deploy-bounty-guarantee
+          path: |
+            e2e-report/bounty-guarantee.json
+            e2e-report/bounty-guarantee.png
+            test-results/production-bounty-guarantee-*/
+          if-no-files-found: error
+          retention-days: 7
 
       # Lightning membership is independent of standalone template topology.
       # A union member club still hosts its authorized operator dashboard.
@@ -1263,6 +1266,19 @@ jobs:
       # whether the money surface itself passed or failed"). It promised
       # independence and delivered it in one direction only. Run 33394046555:
       # Cashier failed, and thirteen spec files plus tests/e2e/routes never ran.
+      - name: Prepare the isolated row-delivery target
+        id: row_target
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_TEST_ACCOUNT_FILE: ${{ runner.temp }}/club-arena-row-delivery-target.json
+          E2E_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
+        run: |
+          GITHUB_ENV=/dev/null node scripts/ci/production-e2e-account.mjs create
+          GITHUB_ENV=/dev/null node scripts/ci/production-e2e-account.mjs prepare-staff
+
       - name: Run the specs that need a deployed page
         if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
@@ -1273,6 +1289,7 @@ jobs:
           # and cross-player isolation; commerce creates a third for checkout.
           # Routed gameplay below owns a fourth cosmetic-only account. Every
           # fixture is hard-deleted and residue-checked before the run ends.
+          ROW_DELIVERY_TARGET_FILE: ${{ runner.temp }}/club-arena-row-delivery-target.json
           CUSTOMIZATION_COMMERCE_CERTIFICATION: '1'
           # The routed customization lane owns a disposable account and makes
           # only cosmetic writes. Its hand and seat are deterministic browser
@@ -1409,9 +1426,10 @@ jobs:
           # single-worker process so a waitlist/realtime update cannot
           # invalidate another browser's snapshot. Playwright retries stay off:
           # a release must not hide a broken first attempt behind a warm retry.
-          # This maintained club supplies both real MTTs and clustered cash
-          # games. global-setup joins this same club through the public door.
-          E2E_CLUB_ID=002c2d27-9584-4e52-835a-bb2be148fc81 run_suite lobby.json tests/e2e/club-lobby.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
+          # Kings Club exposes the active Midway MTT and clustered-cash catalog.
+          # Diamond Arena is permanently retired; global setup already owns
+          # this same Kings Club fixture and its public membership.
+          E2E_CLUB_ID=a41434bb-8d0c-400a-8f0d-e8b3d65afed4 run_suite lobby.json tests/e2e/club-lobby.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
           lobby_rc=$?; [ $lobby_rc -ne 0 ] && rc=$lobby_rc
           node scripts/ci/lobby-certificate-coverage.mjs e2e-report/lobby.json
           lobby_coverage_rc=$?; [ $lobby_coverage_rc -ne 0 ] && rc=$lobby_coverage_rc
@@ -1624,6 +1642,15 @@ jobs:
           e2e-report/customization-realtime.json
           e2e-report/gameplay-customization-runtime.json
           e2e-report/customization-commerce.json
+
+      - name: Retire the isolated row-delivery target
+        if: always() && steps.row_target.outcome != 'skipped' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          E2E_TEST_ACCOUNT_FILE: ${{ runner.temp }}/club-arena-row-delivery-target.json
+        run: node scripts/ci/production-e2e-account.mjs cleanup
 
       - name: Retire interrupted assignment qualification fixtures
         if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'

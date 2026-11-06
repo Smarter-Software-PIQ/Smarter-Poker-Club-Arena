@@ -137,13 +137,39 @@ certified_retirement_witness() {
     "$CONTROL_DIR" <<'CERTIFIED_EXPECTATION'
 import datetime, json, os, re, stat, sys
 run, root, control = sys.argv[1:]
+def sibling_intent_link(path, s):
+    # The v1 protocol publishes <run>.request as a hard link of its immutable
+    # <run>.intent (launch, unit wrapper and intake all use ln). Exactly that
+    # one second name is the request itself, never a foreign alias: same
+    # inode, same root-owned private directory, and nlink 2 counts both names.
+    head, name = os.path.split(path)
+    if os.path.abspath(head) != os.path.abspath(root) or not name.endswith('.request'):
+        return False
+    dfd = os.open(head, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        d = os.fstat(dfd)
+        if not stat.S_ISDIR(d.st_mode) or d.st_uid != 0 or d.st_mode & 0o077:
+            return False
+        try:
+            ifd = os.open(name[:-len('.request')] + '.intent', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
+        except FileNotFoundError:
+            return False
+        try:
+            i = os.fstat(ifd)
+        finally:
+            os.close(ifd)
+    finally:
+        os.close(dfd)
+    return (stat.S_ISREG(i.st_mode) and i.st_uid == 0 and (i.st_dev, i.st_ino) == (s.st_dev, s.st_ino)
+            and i.st_nlink == 2 and s.st_nlink == 2)
 def read_private(path, private=True):
     if os.path.realpath(path) != os.path.abspath(path):
         raise ValueError('retirement source path is indirect')
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         s = os.fstat(fd)
-        if not stat.S_ISREG(s.st_mode) or s.st_uid != 0 or s.st_nlink != 1 or s.st_size > 131072 or s.st_mode & (0o077 if private else 0o022):
+        if (not stat.S_ISREG(s.st_mode) or s.st_uid != 0 or s.st_size > 131072 or s.st_mode & (0o077 if private else 0o022)
+                or not (s.st_nlink == 1 or (private and sibling_intent_link(path, s)))):
             raise ValueError('retirement source file is unsafe')
         return os.read(fd, 131073).decode()
     finally:

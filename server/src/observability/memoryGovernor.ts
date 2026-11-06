@@ -25,18 +25,18 @@
  * Ceilings:
  *  - MEMORY_LIMIT_MB set (the container/host budget for this process):
  *    soft = 80% of it, hard = 95% of it.
- *  - unset: soft = 9830 MB (80% of the hard line), hard = 12288 MB. The hard
- *    line is the Phase 1 RSS ceiling from the owner decision (Dan,
- *    2026-11-05 14:44 Chicago, recorded in
- *    scripts/ci/verify-engine-release-bundle.mjs): 12288 MB, and RSS must
- *    level off. It is also the EngineProcessMemoryHigh warning line in
+ *  - unset: soft = 29491 MB (80% of the hard line), hard = 36864 MB. The hard
+ *    line is the RSS ceiling from the owner decisions (Dan, 2026-11-05 14:44
+ *    Chicago raised it to 12288 MB; 18:25 Chicago raised it to 3x the 12 GB
+ *    worst case, recorded in scripts/ci/verify-engine-release-bundle.mjs):
+ *    36864 MB, and RSS must level off. It is also the EngineProcessMemoryHigh warning line in
  *    infra/monitoring/alert-rules.yml, so the live alarm and the release gate
  *    agree. RSS here is WHOLE-PROCESS RSS: the eight horse decision workers,
  *    the equity workers and the journal writers are worker_threads inside
  *    this one process, so their memory is already counted in the figure the
  *    governor samples; the ceiling is not per isolate. The measured steady
  *    state on the current engine is 8.85-10.3 GB whole-process RSS, which
- *    sits below the 12288 MB line, so "a firing means growth again". The old
+ *    sits below the 36864 MB line, so "a firing means growth again". The old
  *    6144 / 8192 MB pair was set for the 4.85-6.82 GiB band measured
  *    2026-10-17/19, before the horse decision workers' bounded observer
  *    memory existed, and could not be met at any uptime.
@@ -44,7 +44,7 @@
  *
  * MODE (2026-10-31 safety review, before first deploy). Production RSS was
  * 8.85-9.49 GB in steady state on eed06fe5, which was ABOVE the 8192 MB
- * fallback hard line of the time (the line is 12288 MB since 2026-11-05, so
+ * fallback hard line of the time (the line is 36864 MB since 2026-11-05, so
  * steady state now sits below it), and there is one engine instance: a
  * "hand-off" there is a process exit that the supervisor answers with a cold
  * boot (~72 s to dealer ready, every table re-adopted), not a warm standby
@@ -68,8 +68,12 @@
  * dispatches.
  */
 
-export const MEMORY_GOVERNOR_FALLBACK_SOFT_MB = 9830;
-export const MEMORY_GOVERNOR_FALLBACK_HARD_MB = 12288;
+/* 2026-11-05 18:25 Chicago (Dan): "give the engine 2-3x more memory than it
+   will ever need". The 12 GB RSS worst case measured on 71087373 becomes the
+   unit: hard = 36864 MB (3x), soft = 80% of it, both inside the 47 GB the
+   host had free at that worst case. MEMORY_LIMIT_MB still overrides both. */
+export const MEMORY_GOVERNOR_FALLBACK_HARD_MB = 36864;
+export const MEMORY_GOVERNOR_FALLBACK_SOFT_MB = Math.floor(MEMORY_GOVERNOR_FALLBACK_HARD_MB * 0.8);
 export const MEMORY_GOVERNOR_SOFT_RATIO = 0.8;
 export const MEMORY_GOVERNOR_HARD_RATIO = 0.95;
 /** Soft pressure lifts only once RSS is below this share of the soft ceiling. */

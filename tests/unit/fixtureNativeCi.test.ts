@@ -739,6 +739,9 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/build-f06-stopped-bank-custody.py',
     'scripts/ci/probes/f06-shared-hand-lane/stopped-bank-fixture.sql',
     'scripts/ci/probes/f06-shared-hand-lane/stopped_bank_qualification.py',
+    'scripts/ci/probes/f06-shared-hand-lane/stopped_cancelled_qualification.py',
+    'scripts/ci/probes/f06-shared-hand-lane/stopped-cancelled-preimage.json',
+    'supabase/migrations/20261106160107_a_stopped_bank_capture_retains_its_acknowledged_preparation_.sql',
     'scripts/ci/schema-manifest.d/f06-stopped-bank-custody.json',
     'supabase/migrations/20260919032212_stopped_mtt_banks_survive_their_original_owner_transfer.sql',
     'scripts/ci/probes/f06-retired-origin-authority.sql',
@@ -787,6 +790,7 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/satellite_qualifier_concurrency.py',
     'scripts/ci/satellite_entry_club_native.py',
     'scripts/ci/ordinary_terminal_transport.py',
+    'scripts/ci/zero_pool_terminal_native.py',
     'scripts/ci/terminal_original_request_native.py',
     'scripts/ci/fixtures/terminal-original-request/custody-preimage.sql',
     'scripts/ci/fixtures/terminal-original-request/deal-consent.sql',
@@ -809,6 +813,13 @@ describe('required CI owns native fixture verification', () => {
       server: true,
       tests: true,
     });
+  });
+
+  it.each([
+    'scripts/ci/fixtures/tournament-abort/diamond/diamond_abort_native.py',
+    'scripts/ci/fixtures/tournament-abort/diamond/authenticated-payout-guards.json',
+  ])('runs existing accounting for authenticated Diamond payout input %s', (path) => {
+    expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
   });
 
   it('executes satellite settlement and retains exact receipts in accounting', () => {
@@ -1049,7 +1060,7 @@ describe('required CI owns native fixture verification', () => {
     expect(classifyChangedPaths([path])).toEqual({
       src: false,
       server: false,
-      tests: false,
+      tests: path === 'docs/changelog/2026-09-11-a-bust-is-ranked-by-when-it-happened.md',
       phase4: false,
       fixture: false,
     });
@@ -1087,7 +1098,6 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/classify-ci-changes.mjs',
     'scripts/ci/fixture-native-gate.mjs',
     'tests/operations/fixture-required-ci.test.mjs',
-    'tests/unit/fixtureNativeCi.test.ts',
     'package-lock.json',
   ])('classifies actual affected path %s for native execution', (path) => {
     expect(classifyChangedPaths([path]).fixture).toBe(true);
@@ -1506,7 +1516,6 @@ const spinExpiryAccountingPaths = [
   'scripts/ci/probes/spin-expiry/manifest.json',
   'scripts/ci/test-spin-expiry-postgres.py',
   'scripts/ci/test_spin_expiry_wrapper.py',
-  'tests/unit/fixtureNativeCi.test.ts',
 ] as const;
 
 describe('required CI owns funded Spin expiry PostgreSQL qualification', () => {
@@ -1649,7 +1658,8 @@ describe('required CI owns funded Spin expiry PostgreSQL qualification', () => {
     expect(
       ci.jobs.unit_shards.steps.some(
         (step: { run?: string }) =>
-          step.run === 'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8'
+          step.run ===
+          'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}'
       )
     ).toBe(true);
   });
@@ -1718,7 +1728,8 @@ describe('Production Alert SQL checks use the existing accounting job', () => {
     expect(
       ci.jobs.unit_shards.steps.some(
         (step: { run?: string }) =>
-          step.run === 'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8'
+          step.run ===
+          'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}'
       )
     ).toBe(true);
   });
@@ -2328,7 +2339,7 @@ describe('instruction-only verification preserves source contracts without repla
     expect(ci).toContain("if: steps.compile_scope.outputs.instructions_only != 'true'");
     expect(ci).toContain('npx tsc --noEmit');
     expect(ci).toContain(
-      'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/8'
+      'node scripts/ci/ui-test-selection.mjs unit --shard=${{ matrix.shard }}/${{ strategy.job-total }}'
     );
   });
 });

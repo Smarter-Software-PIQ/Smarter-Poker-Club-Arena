@@ -1,0 +1,506 @@
+{
+  "artRevision": "01583720e532bebe42bf",
+  "referenceShare": 0.888235294117647,
+  "assets": {
+    "android": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "9888ff105593fa8bcbe5f695cd5dc4bc23f12b152e2eebc533f81f6c6354927a",
+      "retinaSha256": "8450afccf9aec06aaf7edbf7f0ba41c2558af262af452612937943125cb86a56"
+    },
+    "aztec": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "652da56f53cdbc0caddbd9504c9e55d89fb112943b28a6a59d5f87887b00066c",
+      "retinaSha256": "820fba93764b0982681c7520e878b0f0fa18100cba60ce90035b9825c27bfcf6"
+    },
+    "business": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "2a9af30dd90c706f83162043738503124e13217374eef533e5cdbe75938539db",
+      "retinaSha256": "81c7e134bda0b434cdd7fcad98d7d5ff9276702300002a28b5b5a99027b2a30b"
+    },
+    "chef": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "a691e93bad016ab6d0a80b035b52e90f72c7f1283a5d3c53107dd7ea84b8d657",
+      "retinaSha256": "9e7a0033aa09e00c9970a16e603737ac53ca2b77ef18d044654ee28cef606598"
+    },
+    "cowboy": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "9747d9fad778034560bc63981e9da561298394e8cc9872a4ad00ad77fe72ea93",
+      "retinaSha256": "13ddc601879035b1f266b6a227a673201460b08032f017faa86fd00c5ac427a0"
+    },
+    "cyborg": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "c55f98bd3b2d583879cb446006139429a8bc5a570c732a565e66b5f1920e2439",
+      "retinaSha256": "e6a758711acc7da43affd3083de24781294e463fe157adb1e08719aaf2be033b"
+    },
+    "detective": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "c584982c33ddc0f9a4d4e6cb27c919b58a0e0557f552080240f1cf339eea8c6f",
+      "retinaSha256": "f955f35d6c4fbaebd6752f9d0faa8000f25b476ea792436ec4ee9d23b7e96a08"
+    },
+    "fox": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "536616239c724effa3a29d89e2286cb0d7c4de0035ecb451f6fe06f3f070807c",
+      "retinaSha256": "742b76651cc8fde0e53e19d79c692413e04c63efb9580c96a4a3d24684e540f7"
+    },
+    "geisha": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "5e79025412ba48e755b37e1a60e1bd1e1165cbd7db644663a9d8a457d455a4b2",
+      "retinaSha256": "8cba68a74389f48c7aab053bd73c062cb9fde9902a3212a54454f6ff4e54bdb9"
+    },
+    "knight": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "f55f87f03f7a0893d8bb9c68edb04130697f08fcc2fbab9a23fd686c66a2bc95",
+      "retinaSha256": "b6946cd8bcfe8f10d21ce7bbcfa2513a410dcd4c91b6ff1bbac4caf50569eb4b"
+    },
+    "lion": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "086077e2ec33d8f444eca16365530d6ded8de1ddb5cc091d3b9376c40ff05218",
+      "retinaSha256": "0483a7f32adab0182e1cd7836406dd9f6408a398d9e746a4624037455bd65585"
+    },
+    "musician": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "09eda4f642d092eb99f5392a3c32ffe4f88b470e9923fec36980103a148f87e5",
+      "retinaSha256": "996323a3698a3a50eedeccf760b8204fa125bae50cf3c129dcdd10fe799f8071"
+    },
+    "ninja": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "73e1d8916c4a59d12cb141c6aabed3ef7c15da7518ef9d3321aa9cea5ff9e95f",
+      "retinaSha256": "910434f7b67a603be82c56690cceb05d2d57cedfbb747687e3291ae8d2fdd910"
+    },
+    "owl": {
+      "subjectShare": 0.8294117647058824,
+      "sha256": "3a5747934174ce5bfd9ea417a454ee8db57f0694ac8c3cf00e9576bb5145b359",
+      "retinaSha256": "0176846e76da73c90e7c54de9ca5225d5cc5398ef94f099244c014a0da086c33"
+    },
+    "penguin": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "47cd6633f3a0183cbd815cd147b28fc48f1d3374ba00c901d74a60df2b001cc3",
+      "retinaSha256": "2ce85a1962f794f8f56485ab699373b0ac14dacd81e1c5788bb1264c1a345367"
+    },
+    "pirate": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "265a162ce76e3cd6953b7286d6f76352da2e4118c1bf8a27dd62c2aed2bd9ead",
+      "retinaSha256": "c0e2536274fe07315be9a900801585c509ae6aed53b80bba32171b66524637b5"
+    },
+    "rockstar": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "a6c6f7f708225353d0b64626e9dd41699785298b7f4f4e1d62d6c614d9f8a03f",
+      "retinaSha256": "b23f1f2c28ff98aac03ebeaf1e615d18e2d72aff8da4e5aca1b5206e6683e464"
+    },
+    "samurai": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "3376f238a43e4a375bae87ea6a6b4485379d6a2fc0525773543869755f0574fa",
+      "retinaSha256": "228b5f45664a43064a88efc2360d55237b59ccc1e16ed5367be598551b3e646e"
+    },
+    "shark": {
+      "subjectShare": 0.7588235294117647,
+      "sha256": "d89a42f4b8798537d6a310035cc6ecd7433eb33fb61fe2d8f57e514a3cec9018",
+      "retinaSha256": "0871d6aa02534be441ffdadcb670266c639c86f2caa9072075bddb738d11608d"
+    },
+    "shiba": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "62efa8271d313e4aec3f4b1f50d8be9f7cfab67a2ac09691f568d06c04c257f9",
+      "retinaSha256": "dbc1f7ea5ba9b4df8410e8bda42e9d5a32b82d71f1acef65154ef502c92c62af"
+    },
+    "space_commander": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "235feea9dda51ff1366c68c1a13f2e2cb8602efaea0f9aa922159a1ae17e9d87",
+      "retinaSha256": "cb0bddd4a1f41a0c977b04a4f679b9cce1e677382540ea1a36b351b1adcf6810"
+    },
+    "teacher": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "7ecfed52703534a91384eed0a625a93c38232b9f46c75d9c055a517ed9787b62",
+      "retinaSha256": "27c766bab2a16b5600e61fcd52525e974a3c85a393ae1b39957b2322e43b6930"
+    },
+    "viking": {
+      "subjectShare": 0.8470588235294118,
+      "sha256": "2b0a4632705e94b484674d2383d3c8bcc858edb37db305b8edbe66d9b5502fa2",
+      "retinaSha256": "3c7141f05e6ae9e4820efc40879beb89b4ab40dc7c11dceb85bc7b3897c48aa6"
+    },
+    "wizard": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "11b685f935a082a158eae137f360c774e31bb69fc83fbd41c4397d02c37d7dff",
+      "retinaSha256": "b6a6af6c5ec008f6b1471d625c5a8c311e276e1b570121350c078da0eb955668"
+    },
+    "alien": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "b60c0cb1ede71c2b8e2f6246c38078f3fd2703af275802240c5e0a7e29797df2",
+      "retinaSha256": "093373387580b8859b2c6795a2dfa0cf87563ba53bc6302b985ba01cbd1522bb"
+    },
+    "alien_overlord": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "4acbe4c1e23fc2f054a1d7527fd5da585c06fa5a08f844ec8f52ac6defaeb2fc",
+      "retinaSha256": "1251d6320433db6ba75a203f0856bc9e26567e8f06846590865eb846d465d597"
+    },
+    "angel": {
+      "subjectShare": 0.8470588235294118,
+      "sha256": "3f6fc88ba337400856ad0d8296320d9531dd639b977a54697782e75060dcf0fe",
+      "retinaSha256": "fe661671a4c41b7e6bc3f70d8f6a955c32ad7047899d2f38f067c30257cf350d"
+    },
+    "arctic_explorer": {
+      "subjectShare": 0.8529411764705882,
+      "sha256": "dca5ee63710bd89c93d27c40c1071f873db57a08dbcb0ff3fe1222b6a8886506",
+      "retinaSha256": "e9051d66b72c1cddb3343329e658fb4de8e02bbcf3b0308654bcbc760c90f4e6"
+    },
+    "artist": {
+      "subjectShare": 0.8058823529411765,
+      "sha256": "696950cf1f2f8c965b0a6c44816de079cdc1f2b5d0779cf3931a9fdaee477470",
+      "retinaSha256": "1e420621d8c9601e992d68c590064b7d74251a09b974a66d9761fea703ea6c56"
+    },
+    "astronaut": {
+      "subjectShare": 0.8058823529411765,
+      "sha256": "d0e328b505421f3f3c9e94edadacc2c4cb5d12ee2359ce1f9833f7bad4f02686",
+      "retinaSha256": "991148c35c690090b12b887230a5ce13938beb0aa833d14e89f56aa28b97b25e"
+    },
+    "aztec_warrior": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "3103fff4f5268b7a7233712a90113927cea669f7754219626b32ec40312d06c9",
+      "retinaSha256": "897ed9f4013d9c21956f39e6d70642461098830eb68f87add5167c9af56c24b0"
+    },
+    "badger": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "e98262c6afffa82b23745bfb72f798e9ffd4e041962527632eadb3a63ace4e40",
+      "retinaSha256": "8e96bcdc130b474583456022a464bb067ec6ff924ab6fce352257e46f2ab6d55"
+    },
+    "basketball": {
+      "subjectShare": 0.7823529411764706,
+      "sha256": "84aab8c5269e7ef00eba39c072916827f475abd596ef38045ca676c2714af4c1",
+      "retinaSha256": "6e0347ae3b1975f914d80be75a481ead6f5b8e011b81ffa102cb3ec039cba49c"
+    },
+    "bear": {
+      "subjectShare": 0.7176470588235294,
+      "sha256": "c9cd4504ff842abdf2d83437dbdc563c254a4a34fa2938899c09b6385f0e15ed",
+      "retinaSha256": "cf53e4b93d27ff44bf7b3a8b240f73b4c331f23e1caad51a32876124417d9ec2"
+    },
+    "bounty_hunter": {
+      "subjectShare": 0.8823529411764706,
+      "sha256": "063d41d824c48c45a96d640a89db3925a417937f0349b1379e50eece1d086551",
+      "retinaSha256": "ea1473668c14d712b82318fc4467d4d4ce04477207c9459e7e8a37b9ddef35ac"
+    },
+    "boxer": {
+      "subjectShare": 0.8117647058823529,
+      "sha256": "178779cbf348aacca17217973859a992af589dca0c36902f3d2690249e8ec30b",
+      "retinaSha256": "c1ee476838fb82ea3555a7ce132a51f486c284a1960e5aba6671e6a7c054a664"
+    },
+    "bull": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "084b06adbf8a72a6180f8520afa933c51a93ecb41963baee4c5c660c911f70e0",
+      "retinaSha256": "3893c3ccb7464837f794aa99a0f35aacd2ea7a1682e0df9645543089bf4cd42c"
+    },
+    "business_cat": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "bf8a194b76529a9677a39409f1721ef819b901f56c4e50d82bee003c2714b106",
+      "retinaSha256": "dc68c8e00a4faa289ea89be67bfb72a697d0ca58449a0a3676e04266d36e2789"
+    },
+    "casino_dealer": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "a464aa02a17f0395d6717340e1c20a3a8300f03e4710b5e8c3941964109b554b",
+      "retinaSha256": "0a2e5a61db463ae53cd28692db145f9d5be278068d9cff7a717571ea508adfc2"
+    },
+    "country": {
+      "subjectShare": 0.7058823529411765,
+      "sha256": "66ce666c83a4b6f12fa0310401a64378c18da09ecba72b0fdde6851f631eac9f",
+      "retinaSha256": "ee017b4ba39d6cfb6b7bf096dafb0b6de05f38b8a50abf428adb7f6500f8591e"
+    },
+    "cyber_assassin": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "d11f8f43a6125e31b7a103d6b5bc8f85aa6b5abc2841278b2a1337d6e31a1e20",
+      "retinaSha256": "89b38829423980166996b6283efa37f7f01614896389618f175b712cd5a5d0a1"
+    },
+    "cyber_punk": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "385c8130f668c712115ed07ee5cc994afe135f1edafeb64afec9fc606c5486cb",
+      "retinaSha256": "788d38924187655af56e761ca58804782039290307687b7c331c3c958d581340"
+    },
+    "dancer": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "eb08a9130c9442a8f7990396c001f4ff600d4c2ed1c4b5f227da8fae97814eb3",
+      "retinaSha256": "65f7963cd4cb826609335fc3d3667314ec039dc392f04f9f1f871ce9b0821177"
+    },
+    "director": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "9e060ec44d703e8c332ed1c0377e06ecbea4ea0e13134d943ebab28b11904fa4",
+      "retinaSha256": "f40af792196c1bed1e980a66840b6f6d3c54c85e5f294e06119fd6318f337036"
+    },
+    "dj": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "8c3ffaf0156aff42a81bdaad1626c1e1cd96662d25a49f8ed293d8b0dc36a6a7",
+      "retinaSha256": "1cb250d6597d240c6416aa774f1007a2dfd30346d561a7de2504886d6e4edb82"
+    },
+    "dragon": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "385e12ab1f349ba7583de5d0e54cd61b47dd34f5161ff94be2911932c1534e0f",
+      "retinaSha256": "b3e03cc8749b66f507e3c27bb8aee0d78dbe884f4c95d1c900cd8dae55c72a44"
+    },
+    "eagle": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "f01fcd4bac4dcb331d4aabaae9de3b5bf11f0373c09bce837956fd757a62610c",
+      "retinaSha256": "6a4bfb83fded3fa0cd102dbaa4db52cee846932104a62d1e7e9f98a595f41b14"
+    },
+    "elite_cyborg": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "04a4b6ff01e031dbd80103a5bf3d46cf353ec1abba055663338e5b6e65eaf7af",
+      "retinaSha256": "05454014062f0549943d33301ba07b469aa5df9e39772e3af5d9223a355d6015"
+    },
+    "fire_demon": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "12e398c8ce7c57840476421533f37cd543516f2c83d972a68397b00336c02284",
+      "retinaSha256": "e40b3adb84adeba5d7b0bd354e80afc0c74e8dc98fb142733d8b105b960aabf6"
+    },
+    "football": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "67163a86bb1ed2289053f5349c79f6d54466d333c8bf54bd4a86b36546397c88",
+      "retinaSha256": "12802ea458d3aee47dcf934af24db56cc8a2bd03f9c03b9a567c5f6ecd26386c"
+    },
+    "galactic_emperor": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "4e0e67797f87b33567004dc8da50c8563102d716e09030b4355a5b030d3ef7c8",
+      "retinaSha256": "38874f11c08ee5c0e69cded0c01626abedbd4c74b524443494b11be229486180"
+    },
+    "geisha_master": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "fd039036657672b7fe81f1a32b4655602e123b0b68aad5782b92d13a01416da5",
+      "retinaSha256": "c87bdc81d1d7e941bfe87d048b93124480b3cb648cfa0c18b27c9ea8360e498e"
+    },
+    "gladiator": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "5675c5461c35bc083eafdf40cbeab0cb4e791cbe01c250bc48c2e61772097932",
+      "retinaSha256": "0a869ba8c3cd816d96f06cbe1cc3acd2ded79b6f48e52092609bbf3022fcc31f"
+    },
+    "gorilla": {
+      "subjectShare": 0.788235294117647,
+      "sha256": "f2feb98a93370832a4dacfb2fe441f330f51eda2002dfb1aaac81f779ab46481",
+      "retinaSha256": "54158fad973b6dd18eccb41e9319cd2f6111cfec41eaee5e232171fa28259469"
+    },
+    "grumpy_cat": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "0e230ec317e0bedfeabfb9e2bf16b01c1c9427b56883aaccdcfc3d55c59ae973",
+      "retinaSha256": "2b60b54d04c3bf1ca2151ddd0ad5142025f9f03db45d69f62ac3b31a26b21e5c"
+    },
+    "hacker": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "e5c268546c3102a912e4e85c4dbad8734aa33f46e59f7ca5d21e4fd9c8f3544b",
+      "retinaSha256": "ce6950fbd9d021b296c01470b5e5bb39dce486daa2bd40ed3dadd775fd4fbd74"
+    },
+    "hollywood": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "955965e2e98237f6118d8b7ed9edd40fb423502d73358af2f1406e5ce30edf35",
+      "retinaSha256": "ba09da26f472211b49ffc195a361236a71dc6a6f7b2d3de6d4d49e978a0608cd"
+    },
+    "ice_queen": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "d4e2a4756eff8d9f99fd9bb81d2376c60392aa0cee8f0ecb04c0692691605b2c",
+      "retinaSha256": "353973c8e111436a21f35b783cb79abea46d5d13cfc9ee6a493dd49fac22db75"
+    },
+    "jazz": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "82a35679e7fe19d06c02ca2b8e298a10c3e704947eda078160d13d7e937c88e4",
+      "retinaSha256": "d7873b6e74c19d9aa736ea0d51db259d26a50457782fe56ee8f39eabd83b5148"
+    },
+    "liberty": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "abddee8d303e79d6c6fbea304f730bf619e221736f7edafc5ae34b9a630c7588",
+      "retinaSha256": "77bb44cd356b2e110202d1aa7f4ba8c5ebae2ec5f70800fa9c9caf918272bde7"
+    },
+    "luchador": {
+      "subjectShare": 0.7411764705882353,
+      "sha256": "1f13f6a4a2e9a3f736f4e02da61b92dd52605cfbe2b6a48a52f2f8a6346f3a8d",
+      "retinaSha256": "9a4758d8b251cced00e08d693f9dad647c1f7f08e51bba1043a82d2943d8fcaf"
+    },
+    "mad_scientist": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "d3c997c578a81b52f9c40b4d910ff21a145d14aa33ee6d361c577ea0a0852d3b",
+      "retinaSha256": "758f3df9720cceb3a64d72efc9de534200dda51d8e021d1be57a3838cc9d3332"
+    },
+    "mecha_pilot": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "d39df2c22c36c663d81b0958e8a9480c47f75ebd24983cd87018dbc4b10e2867",
+      "retinaSha256": "a367ddd3d43357d1ee8acb90faed30570e1af92385447bb1048e1b08de5478b3"
+    },
+    "mobster": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "3f005ffdf386f9a5069cb264cb6adba7081649e6d0aa86d906f5b62a38485fdb",
+      "retinaSha256": "a24c98bf63cc5ce45f49d5ef1bc424c3efe3b75cd45605cdf397786513fe6d85"
+    },
+    "monarch": {
+      "subjectShare": 0.8235294117647058,
+      "sha256": "89daff5e7f0ec71fc030bc66f456220cf503961ff9708872930f33f0760ee377",
+      "retinaSha256": "4d994f91cec47ddb69e188d792a8720b35e5c19871e2286eef6cb1cc8d11a415"
+    },
+    "mummy": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "6e2725820c46159600031ea0fd8ca857310de4d57dbb0b8bbc16a06c48c0bb60",
+      "retinaSha256": "6152e8ed844b6df9dccbabe2f02ff0dad072e678ad2a76c7228c60bfa640f6e7"
+    },
+    "neon_ninja": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "b4cace71d282f7183f06eee017a5e000418ba024e0f7604dc5ebe0003005d39b",
+      "retinaSha256": "9690f7f3ec32eea31e92df0c07bd840a611ba29e53d2059cb056bfaf5f0afe5e"
+    },
+    "panther": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "6fd1c951150afe75b49bacd67deec9b38ca20a99611ca4ddf9d09ba6b792a4b7",
+      "retinaSha256": "daedb2e7d333752adb8740223b23cff56f25c2b0465ecf33eb843d46d75bed9f"
+    },
+    "phantom": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "467cfda50e3bb4e5690ba3abef0dbc7c1ff92f80d78111e14b164f500c657936",
+      "retinaSha256": "9e928bab48b3a5c71c4441612ce5755c36ccd6c5e3dc51916c9f003d9b9b958b"
+    },
+    "pharaoh": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "76c16af38fefc415b6bae9d2a7688eb240753d9530b3a88ffee581b40a3ca62b",
+      "retinaSha256": "20151591e2386e507298dd8c8723838afd50c047f402906253d865deca185f14"
+    },
+    "phoenix": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "349accd8766e0574564c86f5544c25bdcfd1ab80e1420500dea064b2b588f35c",
+      "retinaSha256": "b8e229419600bd7cb2ac529f64e0baace00e5cb533a00cc94dcf6df71f825f5b"
+    },
+    "physicist": {
+      "subjectShare": 0.8294117647058824,
+      "sha256": "a819de92dbbc2a3a758661f11bae51da3815a1c30e9457645be3e4f5e661a43a",
+      "retinaSha256": "8fa0d2a187364e486a7df80937185b2f2976830d3eef978cf2c162a1dfcb0be8"
+    },
+    "plague_doctor": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "9573630001c767fc4a03dad3c820d8ebadd2cdf75b4f81a4a406056fe6d542a1",
+      "retinaSha256": "830377f7ce349032a07a8f132dc25deaec64bcd3e35d5691520ae7da9050fd5d"
+    },
+    "politician": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "54e6e16a99cb2e245cae3da0ec01cdab45da137b695e68ed857c383bd0293a9a",
+      "retinaSha256": "2da712ba0620a5623d6e7861b3a80746b37bee92829bfe847bbd968f13d2b826"
+    },
+    "pug": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "1f4df21749f5f276589fc55014308ff106608d4d81b022f081e27bfafb6b42ee",
+      "retinaSha256": "3ad878ecfe1d6e2d1b580b618f3e5bbee507c3902caf4cfabea1da2395dc37ed"
+    },
+    "rapper": {
+      "subjectShare": 0.8705882352941177,
+      "sha256": "80416e9edaa4475d66ef69afe5ddfd2cf45f2632d2f5fcd3cfad92ede6551ae7",
+      "retinaSha256": "19cd00f01da8afcdc2d6ee5d5f26e228311bb90fbcafb8f2a840ae972ecb6578"
+    },
+    "rock_legend": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "a1828666fa2762b2ef964a8c14a083e713cb780df53dfb2cb1bdb8dafa9dc74c",
+      "retinaSha256": "06173568b3a2b726b598f5de7ec60e240f80db186a8d81bd1389e913f1f4eef9"
+    },
+    "royal_guard": {
+      "subjectShare": 0.8823529411764706,
+      "sha256": "eba4b94f4f71526ff6584dcf26ff16ba0312d773fb0d4822ac7b42fe2833733e",
+      "retinaSha256": "c49a4d0b4e9f6bcae7126963887cb966a4b65c129f22d13fb7a965e6f6bdb76f"
+    },
+    "samurai_cyborg": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "2d4b8c5d96182c08a7a1e219bbfcab79079072c66370785ee3092a5a2be5c614",
+      "retinaSha256": "64b81e0489b8ff7ca6cc4d71347bd2424ab2b6f4d068dbbc9e5945f37afd7e75"
+    },
+    "secret_agent": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "254c976b421c495156317eca8662f42cce33fa791ce9d82043a312428c5925d9",
+      "retinaSha256": "cd2660888eb8d33ec1fd278444139ac8b208b42c57cbfa96b456d9f079c29e06"
+    },
+    "silent_actor": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "c53c66e57d2c7823daf6d6af62517c912b6c60cebf87a423401d8dc4c0896292",
+      "retinaSha256": "576a9ad7d57a2294a98e3ab4637533da33db12608f8095ea2134f4829ecf63d5"
+    },
+    "soccer": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "ee75f28470ac81070d7047a4cb914577e8aebff50d0a4c56a7fdac715433bb04",
+      "retinaSha256": "58164d3a40d68b5bb06533e4e1984faf9b96ce3ab38ca18f0d6976ed00c5d543"
+    },
+    "sorceress": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "8690e9be90e43d2e64636d0daa91d96dd71745233f77395c17c2705b2388487b",
+      "retinaSha256": "90656290ac59f93cd4a5adb1eecb7601a8cb340941e6a71e1804616224ba2f47"
+    },
+    "space_pioneer": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "9a42c9e869c8788b247c943a9c41ebfdfdb384514a9057ab0651df4b0a25649f",
+      "retinaSha256": "bfd41ff08c3cee9de4ca4ba08a443c0dd747804ba4dc8387f2c892149cd3c56d"
+    },
+    "space_pirate": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "3b12ddae6d527524595434f97ffab565c9f496b40660a50130a795bf09a56540",
+      "retinaSha256": "f141f4a0d3b0f5a88730f85062315cd6fc55edf14ebc83dc8d903a02b60ddf54"
+    },
+    "space_ranger": {
+      "subjectShare": 0.8176470588235294,
+      "sha256": "91121dfb573a7b5c3bcc56e65e57f7a8ab19f35a3710a99c4c91de2d092fc9b8",
+      "retinaSha256": "014024969d6b91359b56967f7c2efb836f6f97019c662cd721e5fca429a7c18a"
+    },
+    "spartan": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "8aa083bb196a5d1e1254c257d6aba85333b045ee983e249790c1133644968c09",
+      "retinaSha256": "ec2f17f4068df5799dd8945ba2a427ee87005f0038fe9660cc32d8a0f308428a"
+    },
+    "steampunk_inventor": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "3a2128c58e6e9ab286f390bce8ee3e302a571e41c802409674d664a9c3222890",
+      "retinaSha256": "ca118fba6fe46816e06f5ff4b265b16be94aa796f25d16a23cf1d31f87f2306f"
+    },
+    "street_racer": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "b4b3a100583242cce82e62796e377f823494225946a2f57545314f48c5a645dd",
+      "retinaSha256": "dff8ab42ddfa047a313850b2bfe935f43472c32e18b3366b49eef1c5d7e0c5f0"
+    },
+    "tech_mogul": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "476b5c2bcff0e15aba928e5a28c1055de174c6308e2e73bdd5e309d5f0b2b884",
+      "retinaSha256": "cff89f65593b4e3ffa8b1ef9d0aaf578a38eb4be27b82dd504e854380e28cf67"
+    },
+    "tiger_boss": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "a32410c25787eaeecdde8cf8282d0fe1c321637a9fee5d47ff3571b469fb74f7",
+      "retinaSha256": "5c98751c5bf2b0d673097f1d38069b4a747b64d3cdce9adb47cadc7f7772e366"
+    },
+    "unicorn": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "51e1d87e3fba93f571eedcc529785d0361b17d8bc425528a40b56ff681b4db1f",
+      "retinaSha256": "35fb1fbfc8af11805b9de9b359337599df45f3fa93aab0ab7ef001a587e3ad5d"
+    },
+    "vampire": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "cf47e2c57fc9043bba6ee43496fe5283b0e5aa68679c0ae891d588314f22d26f",
+      "retinaSha256": "248e9e14b1bb642e0b70bc9962cdd7c80e75e4f4ccfd932c878ef8bda5b2fd5a"
+    },
+    "vampire_hunter": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "4271851ebeb66108393743a93a49f2e0d982a506ae3f05c58dd258da4527b02a",
+      "retinaSha256": "2302c229a9291d37c2d5f4bedab09bb9a75fc6eb8f0e8be89c8909dab13653b6"
+    },
+    "vigilante": {
+      "subjectShare": 0.7588235294117647,
+      "sha256": "ae2b81380931d454601e0ea0283dbc6a7391376d1285a550d0b2739f4891dd5b",
+      "retinaSha256": "8b381c1a91b4e67bc7783174eb1cbbc3161362fb3485968b33f392d914558bac"
+    },
+    "viking_warrior": {
+      "subjectShare": 0.8470588235294118,
+      "sha256": "51737bc787d71e128844d6297c83e5deef75563eba987f7b3f85cad8f72feef7",
+      "retinaSha256": "47a1f5b0b20c863651ff616f3d80ecedf9774d1a8a93687b6c68739c9ea61b4c"
+    },
+    "voodoo_priest": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "387685a32b546329b1a9b6947030884aa42acc89181fb99f475e9f4bf19a2d18",
+      "retinaSha256": "2cbeb03172fa89fad49905164004f1016eaf2f5f4e9ea579aa7ed0aed65f591c"
+    },
+    "wolf": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "6230f91bb6a31c11dd7fc65ae28792e22aad9430d052c79a59b535bc35f8ca1b",
+      "retinaSha256": "ccc2e21fbeec0bc8de6ebe315ecf77972662ea5e6ef0e7d34008e43b9797ab28"
+    },
+    "wrestler": {
+      "subjectShare": 0.6941176470588235,
+      "sha256": "39e54d56b828fbbc9920f8d5412e604ae2ff09a4ef2344bd99afc085711ecab9",
+      "retinaSha256": "5a2195456e824bf871213e8a965b5b37d79c9b7cc7445bf00db48bd79a3988a7"
+    },
+    "yakuza": {
+      "subjectShare": 0.888235294117647,
+      "sha256": "79397bce65b1df5c89ce70fa14e97fbd3165d89cbdf14f46721cba9c9431e4b8",
+      "retinaSha256": "f895a44aaa1292e37d74dfb84314d3b6601c9b120c65f3399baeb95a07e5483b"
+    }
+  }
+}

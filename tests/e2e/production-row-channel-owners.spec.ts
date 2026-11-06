@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { readLobbyPreferenceOwner } from './support/lobbyPreferenceProof';
 import { isClubMemberOwnerJoin } from './support/rowChannelOwner';
 import { isReadOnlySpectatorSocketType } from './support/spectatorSocketRead';
 import { test, expect, type Page } from '@playwright/test';
@@ -17,7 +19,7 @@ async function openLobby(page: Page) {
   await openLobbyGameSection(page, 'ALL');
 }
 
-// This case observes natural row traffic in two mounted views. No raw socket
+// This case observes audited reserved-fixture note events in two mounted views. No raw socket
 // frames, tokens or member rows are retained in its evidence.
 test('both club views keep receiving rows and one survives the other unmounting', async ({
   page,
@@ -164,39 +166,77 @@ test('both club views keep receiving rows and one survives the other unmounting'
   await page.goBack();
   await expect(page).toHaveURL(returnToLobby);
   await expect.poll(() => [...owners.values()].filter((owner) => owner.joined).length).toBe(2);
-  await expect
-    .poll(() => [...owners.values()].every((owner) => owner.updates > 0), { timeout: 30_000 })
-    .toBe(true);
-  const both = [...owners.values()].map((owner) => ({
-    joined: owner.joined,
-    updates: owner.updates,
-  }));
-  await info.attach('two-mounted-club-views.png', {
-    body: await page.screenshot(),
-    contentType: 'image/png',
-  });
-  await page.goForward();
-  await expect(page).toHaveURL(new RegExp(`/table/${subject.tableId}(?:[?#]|$)`));
-  await expect.poll(() => owners.size).toBe(1);
-  expect(owners.has(retainedTopic)).toBe(true);
-  const afterUnmount = owners.get(retainedTopic)!.updates;
-  await expect
-    .poll(() => owners.get(retainedTopic)!.updates, { timeout: 30_000 })
-    .toBeGreaterThan(afterUnmount);
-  expect(participation).toEqual([]);
-  expect(await readPublishedClient()).toEqual(publishedClient);
-  await info.attach('row-owner-natural-delivery.json', {
-    body: Buffer.from(
-      JSON.stringify({
-        both,
-        remainingOwnerReceivedAnotherRow: true,
-        zeroParticipation: true,
-        naturalTrafficOnly: true,
-        publishedClient,
-        tableId: subject.tableId,
-        engineSha: health.releaseSha,
-      })
-    ),
-    contentType: 'application/json',
-  });
+  const ownerId = await readLobbyPreferenceOwner(page);
+  const targetPath = process.env.ROW_DELIVERY_TARGET_FILE;
+  expect(targetPath, 'The maintained row-delivery fixture is required').toBeTruthy();
+  const target = JSON.parse(readFileSync(targetPath!, 'utf8'));
+  expect(target.id).toMatch(/^[0-9a-f-]{36}$/i);
+  expect(target.email).toMatch(/^ca-customization-cert-postdeploy-.*@example\.invalid$/);
+  expect(target.id).not.toBe(ownerId);
+  const editor = await context.newPage();
+  await editor.goto(`clubs/${CLUB_ID}/members/${target.id}`, { waitUntil: 'domcontentloaded' });
+  const nickname = editor.getByRole('textbox', { name: 'Nickname', exact: true });
+  await expect(nickname).toBeEditable();
+  const originalNickname = await nickname.inputValue();
+  const saveNickname = async (value: string) => {
+    const receipt = editor.waitForResponse((response) => {
+      if (!response.url().includes('/rpc/ca_club_member_notes_update')) return false;
+      const body = response.request().postDataJSON();
+      return (
+        body?.p_club_id === CLUB_ID &&
+        body?.p_target_user_id === target.id &&
+        body?.p_nickname === value
+      );
+    });
+    await nickname.fill(value);
+    await nickname.press('Tab');
+    const response = await receipt;
+    expect(response.ok()).toBe(true);
+    expect((await response.json()).success).toBe(true);
+  };
+  try {
+    await saveNickname(`Row Owner First ${Date.now()}`);
+    await expect
+      .poll(() => [...owners.values()].every((owner) => owner.updates > 0), { timeout: 30_000 })
+      .toBe(true);
+    const both = [...owners.values()].map((owner) => ({
+      joined: owner.joined,
+      updates: owner.updates,
+    }));
+    await info.attach('two-mounted-club-views.png', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    });
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`/table/${subject.tableId}(?:[?#]|$)`));
+    await expect.poll(() => owners.size).toBe(1);
+    expect(owners.has(retainedTopic)).toBe(true);
+    const afterUnmount = owners.get(retainedTopic)!.updates;
+    await saveNickname(`Row Owner Remaining ${Date.now()}`);
+    await expect
+      .poll(() => owners.get(retainedTopic)!.updates, { timeout: 30_000 })
+      .toBeGreaterThan(afterUnmount);
+    expect(participation).toEqual([]);
+    expect(await readPublishedClient()).toEqual(publishedClient);
+    await info.attach('row-owner-natural-delivery.json', {
+      body: Buffer.from(
+        JSON.stringify({
+          both,
+          remainingOwnerReceivedAnotherRow: true,
+          zeroParticipation: true,
+          ownedFixtureEventOnly: true,
+          publishedClient,
+          tableId: subject.tableId,
+          engineSha: health.releaseSha,
+        })
+      ),
+      contentType: 'application/json',
+    });
+  } finally {
+    try {
+      await saveNickname(originalNickname);
+    } finally {
+      await editor.close();
+    }
+  }
 });

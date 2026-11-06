@@ -1,0 +1,361 @@
+{
+  "note": "PLO4 MTT preflop decision from the pinned V53 corpus (HorseOmahaTournamentPressureCorpus, seed 5301024). Public seat state plus hero cards only.",
+  "rngState": 3673590224,
+  "player": {
+    "seat": 1,
+    "user_id": "corpus-1",
+    "username": "Horse 1",
+    "stack": 2205,
+    "bet": 0,
+    "totalInvested": 25,
+    "cards": [
+      {
+        "rank": "6",
+        "suit": "spades"
+      },
+      {
+        "rank": "4",
+        "suit": "clubs"
+      },
+      {
+        "rank": "5",
+        "suit": "clubs"
+      },
+      {
+        "rank": "9",
+        "suit": "spades"
+      }
+    ],
+    "is_folded": false,
+    "is_all_in": false,
+    "is_sitting_out": false,
+    "returnedUncalled": 0,
+    "deadInvested": 25,
+    "individualAnteInvested": 25
+  },
+  "gameState": {
+    "players": [
+      {
+        "seat": 1,
+        "user_id": "corpus-1",
+        "username": "Horse 1",
+        "stack": 2205,
+        "bet": 0,
+        "totalInvested": 25,
+        "cards": [
+          {
+            "rank": "6",
+            "suit": "spades"
+          },
+          {
+            "rank": "4",
+            "suit": "clubs"
+          },
+          {
+            "rank": "5",
+            "suit": "clubs"
+          },
+          {
+            "rank": "9",
+            "suit": "spades"
+          }
+        ],
+        "is_folded": false,
+        "is_all_in": false,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "deadInvested": 25,
+        "individualAnteInvested": 25
+      },
+      {
+        "seat": 2,
+        "user_id": "corpus-2",
+        "username": "Horse 2",
+        "stack": 3338,
+        "bet": 0,
+        "totalInvested": 25,
+        "cards": [],
+        "is_folded": false,
+        "is_all_in": false,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "deadInvested": 25,
+        "individualAnteInvested": 25
+      },
+      {
+        "seat": 3,
+        "user_id": "corpus-3",
+        "username": "Horse 3",
+        "stack": 6218,
+        "bet": 0,
+        "totalInvested": 25,
+        "cards": [],
+        "is_folded": false,
+        "is_all_in": false,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "deadInvested": 25,
+        "individualAnteInvested": 25
+      },
+      {
+        "seat": 4,
+        "user_id": "corpus-4",
+        "username": "Horse 4",
+        "stack": 11842,
+        "bet": 100,
+        "totalInvested": 125,
+        "cards": [],
+        "is_folded": false,
+        "is_all_in": false,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "deadInvested": 25,
+        "individualAnteInvested": 25
+      },
+      {
+        "seat": 5,
+        "user_id": "corpus-5",
+        "username": "Horse 5",
+        "stack": 7703,
+        "bet": 200,
+        "totalInvested": 225,
+        "cards": [],
+        "is_folded": false,
+        "is_all_in": false,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "deadInvested": 25,
+        "individualAnteInvested": 25
+      },
+      {
+        "seat": 6,
+        "user_id": "corpus-6",
+        "username": "Horse 6",
+        "stack": 3405,
+        "bet": 0,
+        "totalInvested": 25,
+        "cards": [],
+        "is_folded": true,
+        "is_all_in": false,
+        "is_sitting_out": false,
+        "returnedUncalled": 0,
+        "deadInvested": 25,
+        "individualAnteInvested": 25
+      }
+    ],
+    "communityCards": [],
+    "pot": 450,
+    "currentBet": 200,
+    "stage": "preflop",
+    "minRaise": 200,
+    "lastRaise": 200,
+    "dealerSeat": 3,
+    "stateSchemaVersion": 1,
+    "heroSeat": 1,
+    "currentPlayerSeat": 1,
+    "gameMode": "tournament",
+    "format": "mtt",
+    "gameVariant": "plo4",
+    "bigBlind": 200,
+    "ante": 25,
+    "boardCount": 1,
+    "legalActions": ["fold", "call", "raise", "all_in"],
+    "toCall": 200,
+    "minRaiseTo": 400,
+    "maxRaiseTo": 850,
+    "bettingStructure": "pot_limit",
+    "pots": [
+      {
+        "amount": 150,
+        "eligiblePlayers": ["corpus-1", "corpus-2", "corpus-3", "corpus-4", "corpus-5"]
+      },
+      {
+        "amount": 200,
+        "eligiblePlayers": ["corpus-4", "corpus-5"]
+      },
+      {
+        "amount": 100,
+        "eligiblePlayers": ["corpus-5"]
+      }
+    ],
+    "contestablePot": 450,
+    "variantRules": {
+      "holeCardsDealt": 4,
+      "holeCardsUse": "exactly_two",
+      "boardCardsUse": "exactly_three",
+      "deckSize": 52,
+      "splitLow8OrBetter": false
+    },
+    "rakeConfig": {
+      "percent": 0,
+      "cap": 0,
+      "noFlopNoDrop": true
+    },
+    "tournament": {
+      "schemaVersion": 1,
+      "contextStatus": "complete",
+      "contextIssues": [],
+      "sourceAgeMs": 0,
+      "tournamentId": "v53-corpus",
+      "playersLeft": 6,
+      "entrants": 16,
+      "spotsPaid": 5,
+      "inMoney": false,
+      "payoutPct": [40, 25, 18, 10, 7],
+      "stacks": [11967, 7928, 6243, 3430, 3363, 2230],
+      "stackByUser": {
+        "corpus-1": 2230,
+        "corpus-2": 3363,
+        "corpus-3": 6243,
+        "corpus-4": 11967,
+        "corpus-5": 7928,
+        "corpus-6": 3430
+      },
+      "currentSmallBlind": 100,
+      "currentBigBlind": 200,
+      "currentAnte": 25,
+      "anteType": "per_player",
+      "playersAtTable": 6,
+      "seatsPerTable": 6,
+      "nextSmallBlind": 200,
+      "nextBigBlind": 400,
+      "nextAnte": 50,
+      "nextBlindInMin": 6,
+      "currentLevel": 8,
+      "levelDurationMin": 10,
+      "levelElapsedMin": 4,
+      "prizePoolCents": 100000,
+      "bountyPoolCents": 0,
+      "satellite": false,
+      "satelliteSeats": 0,
+      "isPko": false,
+      "isBounty": false,
+      "isMysteryBounty": false,
+      "mysteryBountyStage": "none",
+      "mysteryMeanCents": 0,
+      "meanBountyCents": 0,
+      "bountyByUser": {},
+      "bountyFactor": 0,
+      "reentryOpen": false,
+      "rebuyOpen": false,
+      "addOnPeriodOpen": false,
+      "reloadsUsed": 0,
+      "addOnTaken": false,
+      "rebuyAffordable": false,
+      "addOnAffordable": false,
+      "maxReentries": 0,
+      "maxRebuys": 0,
+      "m": {
+        "schemaVersion": 1,
+        "orbitCostChips": 450,
+        "realM": 4.9,
+        "effectiveM": 2.94,
+        "projectedOrbitCostChips": 900,
+        "projectedM": 2.45,
+        "projectedEffectiveM": 1.47,
+        "projectedStackBB": 5.5125,
+        "velocityMPerMinute": 0.245,
+        "coveringOpponentM": 7.473333333333334,
+        "coveringOpponents": [
+          {
+            "userId": "corpus-2",
+            "stackChips": 3363,
+            "realM": 7.473333333333334,
+            "effectiveM": 4.484
+          },
+          {
+            "userId": "corpus-6",
+            "stackChips": 3430,
+            "realM": 7.622222222222222,
+            "effectiveM": 4.573333333333333
+          },
+          {
+            "userId": "corpus-3",
+            "stackChips": 6243,
+            "realM": 13.873333333333333,
+            "effectiveM": 8.324
+          },
+          {
+            "userId": "corpus-5",
+            "stackChips": 7928,
+            "realM": 17.61777777777778,
+            "effectiveM": 10.570666666666666
+          },
+          {
+            "userId": "corpus-4",
+            "stackChips": 11967,
+            "realM": 26.593333333333334,
+            "effectiveM": 15.956
+          }
+        ],
+        "zone": "red",
+        "previousZone": null
+      }
+    },
+    "actionHistory": [
+      {
+        "seat": 6,
+        "userId": "corpus-6",
+        "action": "fold",
+        "amount": 0,
+        "timestamp": 2001,
+        "stage": "preflop",
+        "publicNode": {
+          "version": 1,
+          "status": "captured",
+          "variant": "plo4",
+          "mode": "tournament",
+          "tournamentStage": {
+            "version": 1,
+            "status": "unavailable",
+            "reason": "context_missing"
+          },
+          "asset": "chips",
+          "chipUnit": 1,
+          "deductions": {
+            "version": 1,
+            "status": "captured",
+            "rules": "controller-rake-bbj-v1",
+            "rake": {
+              "percent": 0,
+              "cap": 0,
+              "noFlopNoDrop": true,
+              "playerCountCaps": []
+            },
+            "bbj": null
+          },
+          "street": "preflop",
+          "dealerSeat": 3,
+          "actorSeat": 6,
+          "smallBlind": 100,
+          "bigBlind": 200,
+          "ante": 25,
+          "anteType": "per_player",
+          "allInOrFold": false,
+          "bombPot": false,
+          "boardCount": 1,
+          "boards": [""],
+          "pot": 450,
+          "currentBet": 200,
+          "toCall": 200,
+          "structure": "pot_limit",
+          "minRaiseTo": 400,
+          "maxRaiseTo": 850,
+          "fixedBetSize": null,
+          "wagersCapped": false,
+          "legalActions": ["fold", "call", "raise", "all_in"],
+          "seats": [
+            [1, 2205, 0, 25, 25, 25, 0],
+            [2, 3338, 0, 25, 25, 25, 0],
+            [3, 6218, 0, 25, 25, 25, 0],
+            [4, 11842, 100, 125, 25, 25, 0],
+            [5, 7703, 200, 225, 25, 25, 0],
+            [6, 3405, 0, 25, 25, 25, 0]
+          ]
+        }
+      }
+    ]
+  },
+  "flagOn": ["fold", null],
+  "flagOff": ["raise", 850]
+}

@@ -73,6 +73,22 @@
       "file": "supabase/migrations/20261024211825_a_rebuy_seated_from_another_table_is_movement_evidence.sql",
       "sameBytes": false,
       "basis": "Installed 2026-10-24 as 20261024233909 (40954 bytes, condensed apply of the 53968-byte file). Live smarter_private.f06_movement_prior(uuid,uuid) reads definition md5 ddbca56b65a99f017fb86e791b2fb971, exactly the post-image the file asserts and its @live-proof names. Same function, same passage, same intent. Never replay."
+    },
+    {
+      "appliedVersion": "20261105172255",
+      "appliedName": "horse_daily_audit_fix_r_alias_and_independent_watchdog",
+      "appliedMd5": "cf50f09a2090f85fb09d0fc98a423f79",
+      "file": "supabase/migrations/20261105230744_horse_daily_audit_r_alias_fix_and_first_watchdog_as_applied.sql",
+      "sameBytes": false,
+      "basis": "Applied directly 2026-11-05 during the horse daily audit outage with no BEGIN/COMMIT. 20261105230744_horse_daily_audit_r_alias_fix_and_first_watchdog_as_applied.sql is that exact SQL (md5 cf50f09a2090f85fb09d0fc98a423f79) inside a BEGIN/COMMIT envelope with a header, marked SUPERSEDED BY 20261105220227, which replaces fn_horse_daily_audit_watchdog, fn_horse_daily_audit_fallback and fn_horse_audit_set_agent_analysis and carries the alias fix in fn_run_horse_daily_audit forward from the live definition. Same objects, same intent. Never replay."
+    },
+    {
+      "appliedVersion": "20261105202216",
+      "appliedName": "horse_audit_watchdog_also_watches_lost_analysis_and_stale_claims",
+      "appliedMd5": "6b932c312f64d320b3d2414f3b01d4fe",
+      "file": "supabase/migrations/20261105230750_horse_audit_watchdog_lost_analysis_as_applied.sql",
+      "sameBytes": false,
+      "basis": "Applied directly 2026-11-05 during the horse daily audit outage with no BEGIN/COMMIT. 20261105230750_horse_audit_watchdog_lost_analysis_as_applied.sql is that exact SQL (md5 6b932c312f64d320b3d2414f3b01d4fe) inside a BEGIN/COMMIT envelope with a header, marked SUPERSEDED BY 20261105220227, which replaces fn_horse_daily_audit_watchdog, fn_horse_daily_audit_fallback and fn_horse_audit_set_agent_analysis and carries the alias fix in fn_run_horse_daily_audit forward from the live definition. Same objects, same intent. Never replay."
     }
   ],
   "superseded": [

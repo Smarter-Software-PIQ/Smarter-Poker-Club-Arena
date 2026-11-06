@@ -11,6 +11,10 @@ describe('the fee redemption runs with the maintained Data Console qualification
     expect(runner).toContain('FEE_REDEMPTION_SCRATCH="$DATA_CONSOLE_PG_SCRATCH_PARENT"');
     expect(native).toContain('fee-redemption-source-functions.sql');
     expect(native).toContain('fee-redemption-assert.sql');
+    expect(native).toContain('roster-cutoff-setup.sql');
+    expect(native).toContain('roster-cutoff-cost.sql');
+    expect(native).toContain('roster-cutoff-assert.sql');
+    expect(native).toContain('ROSTER_FEE_CUTOFF_PREIMAGE_CHANGED');
     expect(native).toContain('regression unexpectedly passed before the migration');
     // The standing rake share (20261025030629) replaces the October 24 cron,
     // proven against the recorded out-of-band state in the same database.

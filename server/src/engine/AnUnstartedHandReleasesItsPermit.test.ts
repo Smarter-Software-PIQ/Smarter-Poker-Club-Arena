@@ -65,8 +65,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function fixture(opts: { loseBeginReply?: number; loseCancelReply?: number } = {}) {
-  const engine = new ServerTableEngine(ids.table_id) as any;
+function fixture(
+  opts: {
+    loseBeginReply?: number;
+    loseCancelReply?: number;
+    stoppedCustody?: boolean;
+    failCancelBeforeCommit?: boolean;
+  } = {}
+) {
+  const engine = new ServerTableEngine(
+    ids.table_id,
+    opts.stoppedCustody
+      ? {
+          scope: 'tournament',
+          verified: true,
+          tournamentId: ids.tournament_id,
+          generation: ids.lease_generation,
+          proofDeadlineMonotonicMs: performance.now() + 30_000,
+        }
+      : undefined
+  ) as any;
   engines.push(engine);
   expect(engine.claimProcessOwnership()).toBe(true);
   engine.tableInfo = {
@@ -145,6 +163,8 @@ function fixture(opts: { loseBeginReply?: number; loseCancelReply?: number } = {
     }
     if (name === 'fn_f06_cancel_prepared_hand') {
       cancelCalls += 1;
+      if (opts.failCancelBeforeCommit)
+        return { data: null, error: new Error('transport before commit') };
       const row = db.get(permitId);
       if (!row || (row.state !== 'reserved' && row.evidence_id !== permitId))
         return { data: null, error: new Error('F06_PREPARED_NOT_RESERVED') };
@@ -158,6 +178,13 @@ function fixture(opts: { loseBeginReply?: number; loseCancelReply?: number } = {
   });
   const allowStart = { value: true };
   engine.running = false;
+  if (opts.stoppedCustody)
+    engine.installF06Allocator(
+      ids.custody_id,
+      async () => 100,
+      () => true,
+      ids.lifecycle
+    );
   engine.installF06HandAdmission(
     (handNumber: string) =>
       new F06HandPermit(
@@ -188,6 +215,62 @@ function fixture(opts: { loseBeginReply?: number; loseCancelReply?: number } = {
 }
 
 describe('a deal attempt that ends without a hand releases its F06 permit', () => {
+  it('captures the acknowledged cancelled original after the last completed hand', async () => {
+    const f = fixture({ stoppedCustody: true });
+    f.allowStart.value = false;
+    await f.engine.dealHand(f.seats);
+    const cancelled = [...f.db.values()][0];
+    expect(cancelled.state).toBe('never_started');
+    f.engine.timeBankEngine.initializePlayer(ids.table_id, 'u1', {
+      remainingSeconds: 7,
+      usesRemaining: 1,
+      unlimitedActivations: true,
+    });
+    await f.engine.stop();
+    const proof = f.engine.captureDrainedF06Identity(
+      ids.table_id,
+      ids.tournament_id,
+      ids.lease_generation
+    );
+    expect(proof).not.toBeNull();
+    expect(proof.bank_custody.hand_number).toBe(0);
+    expect(
+      proof.bank_custody.stopped_capture.snapshot.time_bank_snapshot.players.u1.remainingSeconds
+    ).toBe(7);
+    expect(proof.bank_custody.stopped_capture.cancelled_preparation).toEqual({
+      ...ids,
+      permit_id: cancelled.permit_id,
+      hand_number: '100',
+    });
+  });
+
+  it.each([false, true])(
+    'retains positive cancellation intent without assuming a durable receipt (not committed=%s)',
+    async (notCommitted) => {
+      const f = fixture({
+        stoppedCustody: true,
+        loseCancelReply: 1,
+        failCancelBeforeCommit: notCommitted,
+      });
+      f.allowStart.value = false;
+      await f.engine.dealHand(f.seats);
+      await f.engine.stop();
+      const proof = f.engine.captureDrainedF06Identity(
+        ids.table_id,
+        ids.tournament_id,
+        ids.lease_generation
+      );
+      expect(proof.bank_custody.stopped_capture).not.toHaveProperty('cancelled_preparation');
+      expect(proof.bank_custody.stopped_capture.pending_preparation_cancellation).toEqual(
+        proof.permit.binding
+      );
+      expect(proof.permit.phase).toBe('terminated');
+      expect(f.engine.hasUnresolvedF06Preparation()).toBe(true);
+      expect([...f.db.values()][0].state).toBe(notCommitted ? 'reserved' : 'never_started');
+      expect(proof.permit.binding.permit_id).toBe([...f.db.values()][0].permit_id);
+    }
+  );
+
   it('a permit that refuses to start is released, and the table deals its next hand', async () => {
     const f = fixture();
     f.allowStart.value = false;

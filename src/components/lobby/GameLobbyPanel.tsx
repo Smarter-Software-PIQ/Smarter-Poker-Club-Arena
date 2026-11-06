@@ -43,6 +43,7 @@ import type { Tournament, BlindLevel } from '../../types/database.types';
 import {
   effectivePlaceLadderPool,
   effectivePrizePool,
+  isBountyOnlyPko,
   placePrize,
   resolvePayoutStructure,
   tournamentRowUnitCents,
@@ -1241,7 +1242,9 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                       ? 'Tickets'
                       : panelPayouts.length
                         ? `${panelPayouts.length} Paid`
-                        : entry.gameLabel
+                        : isBountyOnlyPko(tournament)
+                          ? '0 Places Paid'
+                          : entry.gameLabel
                   }
                   id="glp-panel-payouts"
                   role="tabpanel"
@@ -1265,6 +1268,17 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                       <p className="glp__note">
                         Final Awards Follow The Funded Ticket Plan. The Bubble Receives Any
                         Remaining Cash.
+                      </p>
+                    </div>
+                  ) : tournament && isBountyOnlyPko(tournament) ? (
+                    <div className="glp__satellite-payouts">
+                      <p>
+                        <strong>0 Places Paid. Bounties Only</strong>
+                      </p>
+                      <p>
+                        Every Chip Is Paid For Knockouts. Half Of Each Bounty Goes To The Wallet Of
+                        The Player Who Wins It And Half Onto Their Head. The Event Ends With Two
+                        Players Left, And Both Keep The Bounty On Their Own Head.
                       </p>
                     </div>
                   ) : tournament && panelPayouts.length > 0 ? (

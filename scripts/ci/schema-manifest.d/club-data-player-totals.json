@@ -1,0 +1,4 @@
+{
+  "_owner": "agent/codex/club-data-ranges-20261106: read-only reporting function declared by migration 20261106074830_club_data_selectable_ranges_and_player_totals.sql; install from protected main.",
+  "functions": ["ca_club_data_player_totals"]
+}

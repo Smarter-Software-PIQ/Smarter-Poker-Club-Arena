@@ -132,7 +132,8 @@ maintenance_certificate`,
 /** The #5266 exception, re-inserted into a copy of today's certificate. */
 function withRetiredException(source: string): string {
   const anchor = 'BOUNDED_ONLY={"f06_preparation_unresolved","f06_preparation_stuck"}\n';
-  const guard = '    if k not in BOUNDED_ONLY: raise SystemExit(1)\n';
+  const guard =
+    '    if k not in BOUNDED_ONLY and k not in CENSUS_CLAIM_ONLY: raise SystemExit(1)\n';
   expect(source).toContain(anchor);
   expect(source).toContain(guard);
   return source
@@ -167,7 +168,9 @@ describe('1. the certificate never asks who is serving', () => {
     expect(literal).toBeTruthy();
     const admitted = [...literal![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
     expect(admitted).toEqual(['f06_preparation_stuck', 'f06_preparation_unresolved']);
-    expect(CERTIFICATE).toContain('    if k not in BOUNDED_ONLY: raise SystemExit(1)\n');
+    expect(CERTIFICATE).toContain(
+      '    if k not in BOUNDED_ONLY and k not in CENSUS_CLAIM_ONLY: raise SystemExit(1)\n'
+    );
   });
 });
 

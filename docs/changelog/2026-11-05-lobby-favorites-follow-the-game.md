@@ -125,3 +125,14 @@ is not another device: the pending choice is the same player's later one, so it
 is sent again against that revision. A change another device saved since has a
 different revision and is still refused and shown. Pinned by "a device's own
 accepted save never reads as another device" (fails on the previous code).
+
+## Follow-up: page preference saves go one at a time per setting
+
+verify-lobby-filters run 42140994979 (Spins) still snapped back after quick
+heading taps. The table heading sort is also kept as a page preference, and
+pagePreferenceSave sent every save at once with no queue: two quick taps were
+both stated against the revision from before either, the account accepted the
+first and refused the second as Changed On Another Device. A save now waits for
+the previous save of the same setting, and a refusal whose current revision is
+this device's own last accepted save of that setting is sent again against it.
+Pinned by "two quick taps on a table heading" (fails on the previous code).

@@ -56,6 +56,13 @@ import {
   fixtureEnrollmentObserved,
 } from '../e2e/support/fixtureBrowserDevice';
 
+import {
+  customizationEnrollmentObserved,
+  enrollCustomizationBrowser,
+} from '../e2e/support/customizationBrowserEnrollment';
+
+import { preferenceDeviceGateObserved } from '../e2e/support/preferenceBrowserEnrollment';
+
 const SID_A = '11111111-2222-4333-8444-555555555555';
 const SID_B = '99999999-8888-4777-8666-555555555555';
 const DEV = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
@@ -137,6 +144,27 @@ describe('enrollDevice', () => {
     expect(clickButton('This Is A New Device')).toBe(true);
     await settle();
     expect(rpcMock.mock.calls.some((c) => c[0] === 'ca_register_new_device')).toBe(true);
+  });
+
+  it('a cache-empty preference device observes the real choice then actual enrollment', async () => {
+    const target = { userId: SID_A, origin: location.origin };
+    localStorage.setItem('smarter-poker-auth', JSON.stringify({ user: { id: SID_A } }));
+    rpcMock.mockImplementation(async (name: string) => ({
+      data:
+        name === 'ca_claim_active_login'
+          ? { ok: true, needs_choice: true, devices: [{ id: DEV, label: 'Previous Device' }] }
+          : { ok: true, device_id: DEV },
+      error: null,
+    }));
+    expect(preferenceDeviceGateObserved(target)).toBeNull();
+    await enrollDevice(tokenWith(SID_A));
+    await settle();
+    expect(preferenceDeviceGateObserved(target)).toBe('choice');
+    expect(preferenceDeviceGateObserved({ ...target, userId: SID_B })).toBeNull();
+    expect(clickButton('This Is A New Device')).toBe(true);
+    await settle();
+    expect(preferenceDeviceGateObserved(target)).toBe('enrolled');
+    expect(customizationEnrollmentObserved(target)?.device).toBe(DEV);
   });
 
   it('picking "same device" requests pairing for that device', async () => {
@@ -238,6 +266,54 @@ describe('owned disposable fixture browser continuity', () => {
       };
     });
   }
+  it('waits for normal first-browser enrollment for the actual hyphenated fixture names', async () => {
+    const waitForFunction = vi.fn().mockResolvedValue({ dispose: vi.fn() });
+    const page = {
+      url: () => location.href,
+      evaluate: vi.fn().mockResolvedValue(fixture.id),
+      waitForFunction,
+    };
+    await enrollCustomizationBrowser(page as never, {
+      id: fixture.id,
+      email:
+        'ca-customization-cert-theme-primary-1793599200000-11111111-2222-4333-8444-555555555555@example.invalid',
+    });
+    expect(waitForFunction).toHaveBeenCalledWith(
+      customizationEnrollmentObserved,
+      { userId: fixture.id, origin: location.origin },
+      { timeout: 30_000 }
+    );
+    await expect(
+      enrollCustomizationBrowser(page as never, { id: fixture.id, email: 'person@example.com' })
+    ).rejects.toThrow('owned disposable');
+    page.evaluate.mockResolvedValue('another-user');
+    await expect(
+      enrollCustomizationBrowser(page as never, {
+        id: fixture.id,
+        email:
+          'ca-customization-cert-buyer-1793599200000-11111111-2222-4333-8444-555555555555@example.invalid',
+      })
+    ).rejects.toThrow('identity does not match');
+  });
+  it('customization accepts only the real owned enrollment and rejects pending or foreign sessions', async () => {
+    const target = { userId: fixture.id, origin: location.origin };
+    freshBrowser();
+    localStorage.setItem('smarter-poker-auth', JSON.stringify({ user: { id: fixture.id } }));
+    rpcMock.mockResolvedValue({ data: { ok: true, bound: true, device_id: DEV }, error: null });
+    expect(customizationEnrollmentObserved(target)).toBeNull();
+    await enrollDevice(tokenWith(SID_A));
+    await settle();
+    expect(customizationEnrollmentObserved(target)).toEqual({
+      browser: localStorage.getItem('ca_device_id'),
+      device: DEV,
+    });
+    expect(customizationEnrollmentObserved({ ...target, userId: 'someone-else' })).toBeNull();
+    expect(
+      customizationEnrollmentObserved({ ...target, origin: 'https://another.invalid' })
+    ).toBeNull();
+    localStorage.removeItem('ca_enrolled_device_id');
+    expect(customizationEnrollmentObserved(target)).toBeNull();
+  });
   it('reproduces the old fresh-context failure through the real enrollment consumer', async () => {
     deviceDoor();
     freshBrowser();
@@ -268,6 +344,63 @@ describe('owned disposable fixture browser continuity', () => {
     expect(fixtureBrowserStorage(device).origins[0].localStorage).toEqual([
       { name: 'ca_device_id', value: device.browserId },
     ]);
+  });
+  it('assignment contexts and the later global setup share one normally enrolled fixture device', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const assignmentBrowserState = (
+      account: unknown,
+      session: unknown,
+      clubId: string,
+      baseURL: string
+    ) =>
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            '--input-type=module',
+            '-e',
+            `import {assignmentBrowserState} from './scripts/ci/qualify-agent-assignment-browser.mjs';
+         const args=JSON.parse(process.argv[1]); console.log(JSON.stringify(await assignmentBrowserState(...args)));`,
+            JSON.stringify([account, session, clubId, baseURL]),
+          ],
+          { encoding: 'utf8' }
+        )
+      );
+    deviceDoor();
+    for (const sid of [SID_A, SID_A, SID_B]) {
+      const session = {
+        user: fixture,
+        access_token: tokenWith(sid),
+        refresh_token: 'fixture-refresh',
+      };
+      const { device, storageState } = await assignmentBrowserState(
+        fixture,
+        session,
+        'a41434bb-8d0c-400a-8f0d-e8b3d65afed4',
+        location.origin
+      );
+      expect(device).toEqual(identity());
+      expect(
+        storageState.origins[0].localStorage.some(
+          (item: { name: string }) => item.name === ENROLLED_DEVICE_STORAGE_KEY
+        )
+      ).toBe(false);
+      freshBrowser();
+      for (const item of storageState.origins[0].localStorage)
+        localStorage.setItem(item.name, item.value);
+      expect(fixtureEnrollmentObserved(device)).toBe(false);
+      await enrollDevice(session.access_token);
+      await settle();
+      expect(fixtureEnrollmentObserved(device)).toBe(true);
+      expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    }
+    // The next certificate's global setup must claim the same browser too.
+    const device = identity();
+    freshBrowser(device);
+    localStorage.setItem('smarter-poker-auth', JSON.stringify({ user: fixture }));
+    await enrollDevice(tokenWith(SID_B));
+    await settle();
+    expect(fixtureEnrollmentObserved(device)).toBe(true);
   });
   it('normalizes paths to the exact origin but isolates another origin and account', () => {
     expect(identity('https://smarter.poker/hub/club-arena/')).toEqual(

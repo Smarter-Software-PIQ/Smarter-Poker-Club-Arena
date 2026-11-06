@@ -1,3 +1,4 @@
+import { classifyHeldStall, type HeldTableStall } from './engine/heldTableStall.js';
 import type { TournamentAbortClosureMode } from './tournament/TournamentAbortBoundary.js';
 import { readDurableTerminalRequest } from './tournament/terminalDurableRequest.js';
 import {
@@ -3944,10 +3945,13 @@ export class GameServer {
 
   /**
    * Ask whether rebuilding this tournament may cure its stall. False means a
-   * previous rebuild already returned to the very same stall: the caller does
-   * NOT rebuild, and this raises one critical incident per window naming both
-   * rebuilds, so the event is escalated instead of re-adopted into the same
-   * wait. The event, its tables and every chip stay exactly as they are.
+   * previous rebuild already returned to the very same stall and its backoff
+   * (2, 4, then 8 minutes, repeatedRecoveryLedger.ts) has not run out: the
+   * caller does not rebuild on this pass, and this raises one critical
+   * incident per window naming both rebuilds. Once the backoff runs out the
+   * answer is true again, so a stall no rebuild has cured is retried at a
+   * falling rate and never left standing still (2026-11-06). The event, its
+   * tables and every chip stay exactly as they are while it is held.
    */
   private mayRebuildTournamentForStall(
     tournamentId: string,
@@ -3958,13 +3962,29 @@ export class GameServer {
   ): boolean {
     const ledger = (this.repeatedTournamentRecoveries ??= new RepeatedRecoveryLedger());
     ledger.prune(nowMs);
-    const decision = ledger.decide(tournamentId, signature, by, nowMs, lastProgressAtMs);
-    if (decision.kind === 'rebuild') return true;
     const alerted = (this.repeatedTournamentRecoveryAlertedAt ??= new Map());
+    // The page cadence map is bounded like the ledger: an entry older than
+    // the window can no longer suppress anything.
+    for (const [id, at] of alerted)
+      if (nowMs - at >= REPEATED_RECOVERY_WINDOW_MS) alerted.delete(id);
+    const decision = ledger.decide(tournamentId, signature, by, nowMs, lastProgressAtMs);
+    if (decision.kind === 'rebuild') {
+      if (decision.repeatedRebuilds)
+        reportError(
+          new Error(
+            `Tournament ${tournamentId} is still in the same stall (${signature}) after its ` +
+              `backoff; ${by} rebuilds it again (repeat rebuild ${decision.repeatedRebuilds})`
+          ),
+          'GameServer.tournament_repeated_recovery_retried',
+          { tournamentId, signature, repeatedRebuilds: decision.repeatedRebuilds }
+        );
+      return true;
+    }
     const message =
       `Tournament ${tournamentId} was rebuilt by ${decision.previousBy} at ` +
       `${new Date(decision.previousAtMs).toISOString()} and is back in exactly the same stall ` +
-      `(${signature}); ${by} will not rebuild it again into the same wait`;
+      `(${signature}); ${by} holds the next rebuild until ` +
+      `${new Date(decision.retryAtMs).toISOString()} instead of rebuilding into the same wait`;
     const last = alerted.get(tournamentId);
     // Named once per window, like the page: a refusal repeated on every sweep
     // is the same fact, and a line per pass is how the one that changed is buried.
@@ -3975,6 +3995,7 @@ export class GameServer {
         signature,
         previousBy: decision.previousBy,
         repeats: decision.repeats,
+        retryAtMs: decision.retryAtMs,
       });
       void raiseFinancialAlert(
         'critical',
@@ -4941,8 +4962,13 @@ export class GameServer {
      * live together in one FIFO worker. READY is a boot prerequisite: table
      * discovery cannot admit a live horse turn until that authority exists.
      * A standby returns above and therefore never starts a competing copy.
-     * Unexpected worker loss is process-fatal because silently replacing it
-     * would reset RNG and learned-memory ordering inside active hands.
+     * Unexpected loss of one decision worker after boot replaces THAT shard
+     * alone (lane.ts, SHARD_REPLACEMENT_LIMIT, 2026-11-06): its pending work
+     * was already rejected to the seats' liveness fallback, the replacement
+     * is counted and logged, never silent, and the other shards keep their
+     * RNG and learned memory. A shard that keeps dying, a replacement that
+     * cannot become ready or loads a different corpus, and any loss before
+     * boot completes still reach onFatal below and end the process.
      *
      * All-in equity and insurance are worker-only realtime dependencies. Every
      * configured worker must author a READY handshake before table discovery
@@ -5659,6 +5685,10 @@ export class GameServer {
       clearTimeout(this.tournamentManagerWakeDrainRetryTimer);
       this.tournamentManagerWakeDrainRetryTimer = null;
     }
+    if (this.tournamentCapacityWakeRecheckTimer) {
+      clearTimeout(this.tournamentCapacityWakeRecheckTimer);
+      this.tournamentCapacityWakeRecheckTimer = null;
+    }
     this.tournamentManagerWakeDrainRetryGeneration++;
     this.tournamentManagerWakeDrainRetryBackoffMs = 250;
     this.bountyRecoveryDueAt = 0;
@@ -5965,8 +5995,16 @@ export class GameServer {
        stalledTableCount 0). Counted here and named in the list, kept out of
        the liveness verdict below: identification only, it restarts nothing. */
     const liveStalledIds = new Set(liveStalledTables.map((t) => t.tableId));
+    /* A HELD TABLE THAT NEVER LIFTS IS A STALLED TABLE (2026-11-06). A table
+       held past its bound by a boundary, a table move or a never-started
+       retained original is stalled, and named with its holder. See
+       engine/heldTableStall.ts. Identification only, like the admission list
+       below: kept out of the liveness verdict, it restarts nothing. */
+    const heldStalledTables = this.heldStalledTables(liveStalledIds);
+    for (const t of heldStalledTables) liveStalledIds.add(t.tableId);
     const stalledTables = [
       ...liveStalledTables,
+      ...heldStalledTables,
       ...this.tournamentTablesFailingAdmission(now)
         .filter((t) => !liveStalledIds.has(t.tableId))
         .map((t) => ({
@@ -7165,6 +7203,47 @@ export class GameServer {
    * 120 s stall threshold, oldest first. Between retries such a table has no
    * engine, so tableLivenessSnapshot() cannot see it.
    */
+  /** Seated tables held past their bound by a non-scheduled owner. See engine/heldTableStall.ts. */
+  private heldStalledTables(exclude: ReadonlySet<string>): Array<{
+    tableId: string;
+    dealable: number;
+    secsIdle: number;
+    reason: HeldTableStall['reason'];
+    heldBy: string[];
+  }> {
+    const out: Array<{
+      tableId: string;
+      dealable: number;
+      secsIdle: number;
+      reason: HeldTableStall['reason'];
+      heldBy: string[];
+    }> = [];
+    for (const [tableId, engine] of this.tableEngines) {
+      if (exclude.has(tableId)) continue;
+      try {
+        const stall = classifyHeldStall({
+          seated: engine.seatedCount(),
+          paused: engine.isPausedByDesign(),
+          msPaused: engine.msPaused(),
+          msSinceProgress: engine.msSinceProgress(),
+          owners: engine.describePauseOwners?.() ?? [],
+          heldOriginal: engine.isPreparedOriginalHeldAtPauseGate?.() === true,
+        });
+        if (!stall) continue;
+        out.push({
+          tableId,
+          dealable: engine.dealableCount(),
+          secsIdle: Math.round(stall.msHeld / 1000),
+          reason: stall.reason,
+          heldBy: stall.heldBy,
+        });
+      } catch {
+        // An engine that cannot be read is not named here; the reapers own it.
+      }
+    }
+    return out.sort((x, y) => y.secsIdle - x.secsIdle);
+  }
+
   private tournamentTablesFailingAdmission(now: number): Array<{
     tableId: string;
     msFailing: number;
@@ -7643,7 +7722,10 @@ export class GameServer {
      * resumeFromBreak waits for the maintenance thaw before it takes a running
      * tournament off its break. See the comment there.
      */
-    const maintenanceEndsAt = this.maintenanceBreak.endsAt();
+    // One break, never a partial overlap (MaintenanceBreak.tournamentBreakEndsAt).
+    const maintenanceEndsAt = this.maintenanceBreak.tournamentBreakEndsAt(
+      TournamentManager.LAST_HAND_GRACE_MS + GameServer.BREAK_DURATION_MS
+    );
 
     /**
      * The break window opens NOW, at :55. A tournament that begins during the
@@ -7859,7 +7941,10 @@ export class GameServer {
     // Epoch hours are UTC hours, the same boundary the :55 cadence uses.
     const topOfHour = Math.ceil((now + 1) / 3_600_000) * 3_600_000;
     if (topOfHour - now <= 1000) return;
-    const maintenanceEndsAt = this.maintenanceBreak.endsAt();
+    // One break, never a partial overlap (MaintenanceBreak.tournamentBreakEndsAt).
+    const maintenanceEndsAt = this.maintenanceBreak.tournamentBreakEndsAt(
+      TournamentManager.LAST_HAND_GRACE_MS + GameServer.BREAK_DURATION_MS
+    );
     this.synchronizedBreakGeneration++;
     const breakGeneration = this.synchronizedBreakGeneration;
     this.clearTournamentBreakResumeTimers();
@@ -11462,6 +11547,9 @@ export class GameServer {
       this.drainTournamentManagerWakes(),
       'GameServer.tournament_manager_wake_boot_drain_failed'
     );
+    // Safety net under Realtime: a lost late_registration frame never leaves a
+    // seated capacity table waiting for a full elimination sweep.
+    this.scheduleTournamentCapacityWakeRecheck();
   }
 
   /** Recreate the durable-wake channel only after a close, error or timeout. */
@@ -11561,24 +11649,123 @@ export class GameServer {
     // manager finishes a full reason-aware sweep; a crash, lifecycle abort or
     // cooperative budget yield must be replayed by the next manager.
     const accepted = manager.requestEliminationSweep(String(row.reason ?? ''), id, generation);
-    if (
-      row.reason === 'late_registration' &&
-      this.tournamentManagersReadyForCapacityWake?.has(manager)
-    ) {
-      const owner = manager;
-      const lifecycle = this.lifecycleGeneration;
-      // A full sweep may already be awaiting an unrelated bust transaction.
-      // The committed capacity receipt only needs its dealer, not another
-      // money/seat writer or permission to release that existing operation.
-      await owner.admitCommittedCapacityTablesForWake(
-        () =>
-          this.running &&
-          this.lifecycleGeneration === lifecycle &&
-          this.tournamentEngines.get(tournamentId) === owner &&
-          this.tournamentManagersReadyForCapacityWake?.has(owner) === true
-      );
+    if (row.reason === 'late_registration') {
+      await this.admitCapacityTablesOnLateRegistrationWake(tournamentId, manager);
     }
     return accepted;
+  }
+
+  /**
+   * Start the dealers of committed late-registration (capacity) tables for
+   * one ready manager. Shared by every delivery of a `late_registration` wake:
+   * the Realtime frame, the boot/reconnect drain and the capacity recheck.
+   * A full sweep may already be awaiting an unrelated bust transaction; the
+   * committed capacity receipt only needs its dealer, not another money/seat
+   * writer or permission to release that existing operation.
+   */
+  private async admitCapacityTablesOnLateRegistrationWake(
+    tournamentId: string,
+    manager: TournamentManager
+  ): Promise<void> {
+    if (!this.tournamentManagersReadyForCapacityWake?.has(manager)) return;
+    const owner = manager;
+    const lifecycle = this.lifecycleGeneration;
+    await owner.admitCommittedCapacityTablesForWake(
+      () =>
+        this.running &&
+        this.lifecycleGeneration === lifecycle &&
+        this.tournamentEngines.get(tournamentId) === owner &&
+        this.tournamentManagersReadyForCapacityWake?.has(owner) === true
+    );
+  }
+
+  /**
+   * A SEATED LATE-REGISTRATION TABLE NEVER WAITS FOR A LOST FRAME (2026-11-06).
+   *
+   * Realtime is the primary delivery of a `late_registration` wake, but it is
+   * not a delivery guarantee: postgres_changes frames can be dropped or
+   * throttled while the channel still reports SUBSCRIBED, and the drain only
+   * re-reads on boot, reconnect or a failed read. When a frame was lost the
+   * table's dealer was started only by a later full elimination sweep, which
+   * on a busy field (constant busts, rebuys, rebalances and consolidation)
+   * arrived minutes later.
+   *
+   * Production 2026-11-06 03:07-03:18 UTC, engine 71087373: every capacity
+   * table opened after the 03:00 maintenance break waited for that sweep -
+   * Six-Card Feature 1817ecac 72 s and 716f92a0 304 s (3 seated, no hand),
+   * 40 Chip Bounty Freezeout 4b7f39d4 164 s - against a median of about 1 s
+   * for the 30 capacity tables opened earlier that night. In each case the
+   * table was committed by a generation bump of an already-pending wake row
+   * and was admitted only seconds before that row's full sweep consumed it.
+   *
+   * So the process re-reads its pending `late_registration` wakes on a short
+   * bounded cadence and runs exactly the same direct admission a frame would
+   * have run. It is a safety net under Realtime, not a second writer: it only
+   * starts dealers for receipts the database already committed with seated
+   * entrants (idempotent per receipt), never requests or acknowledges a sweep,
+   * and every gate of the direct path (ready manager, lifecycle, freeze,
+   * finished event) still applies.
+   */
+  static readonly CAPACITY_WAKE_RECHECK_MS = 5_000;
+  private tournamentCapacityWakeRecheckTimer: NodeJS.Timeout | null = null;
+  private tournamentCapacityWakeRecheckInFlight = false;
+
+  private scheduleTournamentCapacityWakeRecheck(): void {
+    if (!this.running || this.tournamentCapacityWakeRecheckTimer) return;
+    const lifecycle = this.lifecycleGeneration;
+    this.tournamentCapacityWakeRecheckTimer = setTimeout(() => {
+      this.tournamentCapacityWakeRecheckTimer = null;
+      if (!this.running || this.lifecycleGeneration !== lifecycle) return;
+      this.launchServerLifecycleJob(
+        this.recheckTournamentCapacityWakes().finally(() =>
+          this.scheduleTournamentCapacityWakeRecheck()
+        ),
+        'GameServer.tournament_capacity_wake_recheck_failed'
+      );
+    }, GameServer.CAPACITY_WAKE_RECHECK_MS);
+    this.tournamentCapacityWakeRecheckTimer.unref?.();
+  }
+
+  private async recheckTournamentCapacityWakes(): Promise<void> {
+    if (this.tournamentCapacityWakeRecheckInFlight || isMaintenanceFrozen()) return;
+    this.tournamentCapacityWakeRecheckInFlight = true;
+    try {
+      const lifecycle = this.lifecycleGeneration;
+      const { data, error } = await supabase
+        .from('tournament_manager_wakes')
+        .select('tournament_id')
+        .eq('reason', 'late_registration')
+        .is('consumed_at', null)
+        .order('id', { ascending: true })
+        .limit(200);
+      if (!this.running || this.lifecycleGeneration !== lifecycle) return;
+      if (error || !Array.isArray(data)) {
+        if (error) reportError(error, 'GameServer.tournament_capacity_wake_recheck_read_failed');
+        return;
+      }
+      const tournamentIds = [
+        ...new Set(
+          data
+            .map((row: { tournament_id?: string | null }) => String(row.tournament_id ?? ''))
+            .filter((tournamentId) => tournamentId.length > 0)
+        ),
+      ];
+      await Promise.all(
+        tournamentIds.map(async (tournamentId) => {
+          const manager = this.tournamentEngines.get(tournamentId);
+          if (!manager || !manager.isRunning() || manager.isF06RecoveryOwner?.()) return;
+          try {
+            await this.admitCapacityTablesOnLateRegistrationWake(tournamentId, manager);
+          } catch (error) {
+            reportError(error, 'GameServer.tournament_capacity_wake_recheck_admission_failed', {
+              tournamentId,
+            });
+          }
+        })
+      );
+    } finally {
+      this.tournamentCapacityWakeRecheckInFlight = false;
+    }
   }
 
   /** Acknowledge durable action wakes only after their full sweep completed. */

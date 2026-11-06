@@ -2137,6 +2137,120 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9408",
       "refusedBy": [],
       "liveVerdict": "Active paid Spin outage: 64 games / 192 paid seats could not launch because an invoker trigger called a postgres-only conversion predicate (42501). Owner PUBLISHING.md active-outage exception used for the exact native-qualified source. Installed source keeps fn_guard_managed_game_lifecycle SECURITY INVOKER and nests the conversion predicate behind current_user=postgres. No new grants, money, redraws or game-state edits. Readback confirms service_role and authenticated still cannot execute the predicate; exact SQL md5 e7f385192355699caab792c71e75c74a. Original source submission cb69852 required live-proof metadata correction, now qualified by 26 law cases and native runtime/funding/412-entry financial tests. Protected recording and required CI continue in PR9408; installation is not completion."
+    },
+    {
+      "version": "20261105172610",
+      "name": "tournament_relaunch_award_ledger_and_runner",
+      "file": "supabase/migrations/20261105172610_tournament_relaunch_award_ledger_and_runner.sql",
+      "md5": "4a399f18694db8f3ed10afceaab3aeba",
+      "appliedToProductionAt": "2026-11-05T17:26:10Z",
+      "recoveredOn": "2026-11-06",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
+      "refusedBy": [
+        "all-files periodic-work regression: historical SQL has no periodic-work comment"
+      ],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording. Read-only cron.job inspection confirms the historical schedule remains active. This records that fact without introducing, invoking or certifying the schedule; adding a comment to historical SQL would invalidate its installed hash."
+    },
+    {
+      "version": "20261105172841",
+      "name": "tournament_relaunch_notice_receipts",
+      "file": "supabase/migrations/20261105172841_tournament_relaunch_notice_receipts.sql",
+      "md5": "16e04496db29bf49a80b49669433343d",
+      "appliedToProductionAt": "2026-11-05T17:28:41Z",
+      "recoveredOn": "2026-11-06",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261105174016",
+      "name": "post_commit_alert_pages_on_harm_not_handoff",
+      "file": "supabase/migrations/20261105174016_post_commit_alert_pages_on_harm_not_handoff.sql",
+      "md5": "4a880eddb47843bdb6aeb9e9be6b3069",
+      "appliedToProductionAt": "2026-11-05T17:40:16Z",
+      "recoveredOn": "2026-11-06",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
+      "refusedBy": [
+        "all-files periodic-work regression: historical SQL has no periodic-work comment"
+      ],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording. Read-only cron.job inspection confirms the historical schedule remains active. This records that fact without introducing, invoking or certifying the schedule; adding a comment to historical SQL would invalidate its installed hash."
+    },
+    {
+      "version": "20261105174204",
+      "name": "digest_big_diamond_moves_skip_certification_fixtures",
+      "file": "supabase/migrations/20261105174204_digest_big_diamond_moves_skip_certification_fixtures.sql",
+      "md5": "8136034a5af8f7908e680b9c1d9a6f57",
+      "appliedToProductionAt": "2026-11-05T17:42:04Z",
+      "recoveredOn": "2026-11-06",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261105174453",
+      "name": "horse_stats_basis_accepts_horse_rollups",
+      "file": "supabase/migrations/20261105174453_horse_stats_basis_accepts_horse_rollups.sql",
+      "md5": "11f02eff6bbbf7ee1990c49b6b8d02e9",
+      "appliedToProductionAt": "2026-11-05T17:44:53Z",
+      "recoveredOn": "2026-11-06",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261105174811",
+      "name": "escrow_shadow_reads_operator_abort_fee_reversal",
+      "file": "supabase/migrations/20261105174811_escrow_shadow_reads_operator_abort_fee_reversal.sql",
+      "md5": "70016443ab448540693210b23cbe0dc3",
+      "appliedToProductionAt": "2026-11-05T17:48:11Z",
+      "recoveredOn": "2026-11-06",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261105181932",
+      "name": "player_announcements_reusable_pipeline",
+      "file": "supabase/migrations/20261105181932_player_announcements_reusable_pipeline.sql",
+      "md5": "62d31265011c5c6e87e95215ef375ec6",
+      "appliedToProductionAt": "2026-11-05T18:19:32Z",
+      "recoveredOn": "2026-11-06",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
+      "refusedBy": [
+        "all-files periodic-work regression: historical SQL has no periodic-work comment"
+      ],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording. Read-only cron.job inspection confirms the historical schedule remains active. This records that fact without introducing, invoking or certifying the schedule; adding a comment to historical SQL would invalidate its installed hash."
+    },
+    {
+      "version": "20261105200910",
+      "name": "sms_delivery_receipts_and_relaunch_sms_sid",
+      "file": "supabase/migrations/20261105200910_sms_delivery_receipts_and_relaunch_sms_sid.sql",
+      "md5": "3b7f67622a44a1a48623489da2056cc9",
+      "appliedToProductionAt": "2026-11-05T20:09:10Z",
+      "recoveredOn": "2026-11-06",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261105220755",
+      "name": "campaign_notices_once_per_player_and_phone_and_relaunch_chips_landed",
+      "file": "supabase/migrations/20261105220755_campaign_notices_once_per_player_and_phone_and_relaunch_chips_landed.sql",
+      "md5": "48f00c9eae03c77cec5d9b0318eb3b6a",
+      "appliedToProductionAt": "2026-11-05T22:07:55Z",
+      "recoveredOn": "2026-11-06",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording."
     }
   ]
 }

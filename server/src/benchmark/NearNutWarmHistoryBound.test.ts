@@ -17,7 +17,7 @@ describe('near-nut warm public history fits the original packet bound', { timeou
   it('declares its own versioned warm size', () => {
     expect(NEAR_NUT_WARM_PUBLIC_HANDS).toBe(32);
     expect(incrementalHistoryVersion('small_pot_near_nut_value_raise')).toBe(
-      'small_pot_near_nut_value_raise-physical-public-node-warm-v2-32'
+      'small_pot_near_nut_value_raise-physical-public-node-warm-v4-32'
     );
     expect(incrementalHistoryVersion('multiway_river_bluff_checkraise')).toBe(
       'multiway_river_bluff_checkraise-physical-public-node-warm-v1'

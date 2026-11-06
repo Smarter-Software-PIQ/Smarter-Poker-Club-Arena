@@ -3,8 +3,15 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TournamentBreakScreen from '../../src/components/table/TournamentBreakScreen';
 
-const clock = vi.hoisted(() => ({ now: 1_000_000 }));
-vi.mock('../../src/utils/serverClock', () => ({ serverNow: () => clock.now }));
+const clock = vi.hoisted(() => ({ now: 1_000_000, actual: false }));
+vi.mock('../../src/hooks/useMasterBusBroadcastChannel', () => ({
+  useMasterBusBroadcastChannel: () => {},
+}));
+vi.mock('../../src/utils/serverClock', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/utils/serverClock')>();
+  return { ...actual, serverNow: () => (clock.actual ? actual.serverNow() : clock.now) };
+});
+import { recordServerTime, __resetServerClock } from '../../src/utils/serverClock';
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 const reads = vi.hoisted(() => ({ result: new Promise(() => {}) as Promise<unknown> }));
 vi.mock('../../src/lib/supabase', () => ({
@@ -41,13 +48,35 @@ const props = {
 beforeEach(() => {
   vi.useFakeTimers();
   clock.now = 1_000_000;
+  clock.actual = false;
+  __resetServerClock();
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('the tournament break card', () => {
+  it('does not inflate the actual add-on countdown after a delayed clock-frame burst', () => {
+    clock.actual = true;
+    const origin = Date.now();
+    vi.spyOn(performance, 'now').mockImplementation(() => Date.now() - origin);
+    recordServerTime(origin);
+    vi.advanceTimersByTime(60_001);
+    for (let i = 0; i < 6; i++) recordServerTime(Date.now() - 8000);
+    render(
+      <TournamentBreakScreen
+        {...props}
+        breakEndsAtMs={Date.now() + 44_000}
+        addOnNotice={{ cost: 25, chips: 15000, asset: 'chips' }}
+      />
+    );
+    expect(screen.getByRole('timer')).toHaveTextContent('0:44');
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByRole('timer')).toHaveTextContent('0:43');
+  });
+
   it('shares the canonical tournament link and prevents duplicate share sheets', async () => {
     let finish!: () => void;
     const share = vi.fn(
