@@ -15,6 +15,21 @@ def decision():
 
 
 class StrategyReviewTests(unittest.TestCase):
+    def test_short_deck_variant_order_and_low_straight(self):
+        flush=made_hand(['Ah','Kh'],['Qh','Jh','8h','Ac','Ad'],'short_deck')
+        boat=made_hand(['Ac','Ad'],['Ah','Kc','Kd','Qh','Js'],'short_deck')
+        self.assertEqual(flush['highCategory'],'flush')
+        self.assertEqual(boat['highCategory'],'full_house')
+        self.assertGreater(flush['highRank'],boat['highRank'])
+        self.assertEqual(made_hand(['Ac','6d'],['7h','8s','9c'],'short_deck')['highRank'],[4,9])
+        with self.assertRaisesRegex(ValueError,'short_deck'):
+            made_hand(['Ac','2d'],['7h','8s','9c'],'short_deck')
+
+    def test_pineapple_post_discard_uses_only_retained_pair(self):
+        self.assertEqual(made_hand(['Ac','Ad'],['Ah','Kc','Kd'],'pineapple')['highCategory'],'full_house')
+        with self.assertRaises(ValueError):
+            made_hand(['Ac','Ad','Kh'],['Ah','Kc','Kd'],'pineapple')
+
     def test_top_boat_blocks_only_quad(self):
         c=river_high_ceiling(['Ah','Ad','Kc','2c'],['As','Kh','Kd','Qc','Js'],'plo4')
         self.assertTrue(c['highUnbeatableAndUntieable'])
