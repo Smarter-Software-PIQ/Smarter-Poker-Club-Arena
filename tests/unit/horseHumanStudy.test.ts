@@ -21,6 +21,9 @@ describe('private Horse historical analysis independent references', () => {
       expect(selected.src, path).toBe(false);
     }
     expect(classifyChangedPaths(['scripts/ops/horse-river-appendix.md']).tests).toBe(false);
+    const bridge = classifyChangedPaths(['scripts/ops/horse-river-terminal-prices.mjs']);
+    expect(bridge.tests).toBe(true);
+    expect(bridge.server).toBe(false);
   });
   it('runs the outcome isolation, domain and exact-card regression suite', () => {
     const result = spawnSync(
