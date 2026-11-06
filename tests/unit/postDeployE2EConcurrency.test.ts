@@ -100,6 +100,14 @@ describe('post-deploy E2E concurrency', () => {
     expect(sweep).not.toContain('--workers=2');
   });
 
+  it('budgets the serialized client sweep through its validators and cleanup', () => {
+    const client = workflow
+      .slice(workflow.indexOf('  production-e2e:'))
+      .split('  live-table-e2e:')[0];
+    expect(client).toContain('timeout-minutes: 120');
+    expect(client).not.toContain('timeout-minutes: 80');
+  });
+
   it('hard-deletes disposable realtime fixtures without restoring cosmetics first', () => {
     expect(realtimeCertification).not.toContain('restoreState(');
     expect(realtimeCertification).toContain(
