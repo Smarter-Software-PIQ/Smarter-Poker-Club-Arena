@@ -138,8 +138,11 @@ describe('the game bar does not offer a control that does nothing', () => {
   });
 });
 
-it('ranks current pins and player favorites before applying the existing MTT cap', () => {
+it('drops starred MTTs beyond 24 hours and ranks pins before applying the existing MTT cap', () => {
+  const horizonAt = allBranch.indexOf('withoutFavoritesBeyondHorizon(');
   const rankAt = allBranch.indexOf('prioritizeTournamentFavorites(candidates, favoriteGameIds)');
+  expect(horizonAt).toBeGreaterThan(-1);
+  expect(rankAt).toBeGreaterThan(horizonAt);
   const capAt = allBranch.indexOf('.slice(0, ALL_TAB_MTT_CAP)');
   expect(rankAt).toBeGreaterThan(-1);
   expect(capAt).toBeGreaterThan(rankAt);

@@ -1,0 +1,3 @@
+# server/src/services/EveryHorseIsAssignedTheHybrid.law.test.ts
+
+Owner direction of 2026-11-05: every horse is assigned the 'hybrid' style and the five legacy styles (tag, lag, balanced, tricky, grinder) are retired from assignment. 'hybrid' is a real HorseStyle that resolveHorseStyle reads as itself, never as the id-hash default; the new-horse brain, the completeness sweep and the fleet migration all write 'hybrid' and keep the old persona under retiredStyle; and a 'hybrid' row resolves to exactly the mode profile a legacy row did (cash grinder/pebbles, tournament tricky/flint, every dial), so the brain's decision and the hybrid execution receipts are unchanged. Pinned clock.

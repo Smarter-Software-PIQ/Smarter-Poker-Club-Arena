@@ -99,8 +99,8 @@ function toggle(id: string, label: string, compact = true) {
   fireEvent.click(within(row as HTMLElement).getByRole('button', { name: label, exact: true }));
 }
 
-describe('tournament favorites always follow host pins', () => {
-  it('a real star toggle promotes and removes the tournament across both layouts under a chosen sort', () => {
+describe('tournament favorites follow host pins without jumping the clock', () => {
+  it('a real star toggle marks an MTT in both layouts but never moves it (Dan 2026-11-05)', () => {
     rememberSort('MTT');
     const onSelect = vi.fn();
     const entries = [
@@ -111,17 +111,18 @@ describe('tournament favorites always follow host pins', () => {
     render(<Board entries={entries} onSelect={onSelect} />);
     expectOrder(['pinned', 'ordinary-high', 'favorite-low']);
     toggle('favorite-low', 'Add To Favorites');
-    expectOrder(['pinned', 'favorite-low', 'ordinary-high']);
+    expectOrder(['pinned', 'ordinary-high', 'favorite-low']);
     expect(
       document.querySelectorAll('tr[data-id="favorite-low"] button[aria-pressed="true"]')
     ).toHaveLength(2);
     expect(onSelect).not.toHaveBeenCalled();
     toggle('favorite-low', 'Remove From Favorites', false);
     expectOrder(['pinned', 'ordinary-high', 'favorite-low']);
+    expect(document.body.textContent).not.toContain('Favorites');
   });
 
   it.each(['SPIN', 'SNG', 'SATELLITE'] as const)(
-    '%s keeps pins then favorites even under a chosen order',
+    '%s keeps pins then seat-first favorites even under a chosen order',
     (category) => {
       rememberSort(category, 'buyin', 'asc');
       const kind = category === 'SPIN' ? 'spin' : 'sng';
@@ -144,25 +145,6 @@ describe('tournament favorites always follow host pins', () => {
     }
   );
 
-  it('preserves the chosen order within favorite and ordinary tiers and responds to the owner changing', () => {
-    rememberSort('MTT');
-    render(
-      <Board
-        initial={['favorite-high', 'favorite-low']}
-        entries={[
-          event('ordinary-high', 100),
-          event('favorite-low', 10),
-          event('pinned', 1, 'mtt', true),
-          event('favorite-high', 50),
-          event('ordinary-low', 5),
-        ]}
-      />
-    );
-    expectOrder(['pinned', 'favorite-high', 'favorite-low', 'ordinary-high', 'ordinary-low']);
-    fireEvent.click(within(document.body).getByRole('button', { name: 'Switch Favorite Owner' }));
-    expectOrder(['pinned', 'ordinary-high', 'favorite-high', 'favorite-low', 'ordinary-low']);
-  });
-
   it('starring a cash game leaves its selected stakes order unchanged', () => {
     rememberSort('HOLDEM', 'stakes');
     const cash = (id: string, stakes: number) =>
@@ -183,7 +165,7 @@ describe('tournament favorites always follow host pins', () => {
   });
 });
 
-it('the ALL selection retains a low-priced favorite beyond its ten-event cap', () => {
+it('the ALL selection ranks today pins first and leaves a starred MTT in its place', () => {
   const ordinary = Array.from({ length: 11 }, (_, index) =>
     event(`ordinary-${index}`, 100 - index)
   );
@@ -193,8 +175,7 @@ it('the ALL selection retains a low-priced favorite beyond its ten-event cap', (
   const selected = prioritizeTournamentFavorites(candidates, new Set([favorite.id])).slice(0, 10);
   expect(selected.map((entry) => entry.id)).toEqual([
     'today-pin',
-    'beyond-the-cap',
-    ...ordinary.slice(0, 8).map((entry) => entry.id),
+    ...ordinary.slice(0, 9).map((entry) => entry.id),
   ]);
   expect(candidates.map((entry) => entry.id)).toEqual([
     ...ordinary.map((entry) => entry.id),
