@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { getFullRakeConfig } from '../config/RakeConfig.js';
 import {
   assertAblationArms,
+  assertDevelopmentAblationArms,
   ablationPilotMoments,
   runFeatureAblationDevelopment,
   runFeatureAblationContract,
@@ -205,5 +206,96 @@ describe('explicit physical flag ablation', () => {
     expect(r.complete).toBe(false);
     expect(r.pairs).toBe(0);
     expect(r.promotionEligible).toBe(false);
+  });
+});
+
+const personality: FeatureAblationSpec = {
+  ...spec,
+  id: 'hero_personality-development-v1',
+  candidate: {},
+  reference: {},
+  heroStyleContrast: { kind: 'hero_style_development', candidate: 'grinder', reference: 'tricky' },
+};
+describe('development-only hero personality contrast', () => {
+  it('refuses mixed flags, unsupported domains and every qualification route before admission', async () => {
+    expect(() => assertDevelopmentAblationArms(personality)).not.toThrow();
+    for (const patch of [
+      { candidate: { v54RiverBluff: true } },
+      { profile: { ...profile, tournament: true } },
+      { profile: { ...profile, anteBB: 1 } },
+      { profile: { ...profile, variant: 'plo8' as const } },
+      { profile: { ...profile, bombBoards: 2 as const } },
+      {
+        heroStyleContrast: {
+          kind: 'hero_style_development' as const,
+          candidate: 'invalid' as any,
+          reference: 'tricky' as const,
+        },
+      },
+    ])
+      expect(() => assertDevelopmentAblationArms({ ...personality, ...patch })).toThrow();
+    expect(() => assertAblationArms(personality)).toThrow('development-only');
+    let admitted = false;
+    await expect(
+      runFeatureAblationContract(
+        personality,
+        { seed: 27301101, pairs: 1, startPair: 0, planDigest: '', cellKey: '' },
+        () => {
+          admitted = true;
+        }
+      )
+    ).rejects.toThrow('development-only');
+    expect(admitted).toBe(false);
+    await expect(
+      runFeatureAblationDevelopment(personality, { seed: 28301109, pairs: 1 })
+    ).rejects.toThrow('held-out');
+  });
+  it('changes only the hero style and gives exact same-style paired controls', async () => {
+    const seen: { seat: number; style: string; flags: unknown }[][] = [];
+    const capture: Plo4AblationBrain = {
+      ...brain,
+      beginHand() {
+        seen.push([]);
+      },
+      decide(p, gs, style, opts, sandbox, coordinate) {
+        seen
+          .at(-1)!
+          .push({ seat: p.seat, style, flags: { v54: opts.v54RiverBluff, v53: opts.v53Pressure } });
+        return brain.decide(p, gs, style, opts, sandbox, coordinate);
+      },
+    };
+    const rows: import('./FeatureAblationLeague.js').FeatureAblationPairRecord[] = [];
+    const result = await runFeatureAblationDevelopment(
+      { ...personality, brain: capture },
+      { seed: 27301101, pairs: 2 },
+      () => true,
+      (r) => {
+        rows.push(r);
+      }
+    );
+    expect(result.complete).toBe(true);
+    for (let i = 0; i < 2; i++) {
+      const a = seen[i * 2],
+        b = seen[i * 2 + 1],
+        hero = rows[i].heroSeat;
+      expect(a.filter((x) => x.seat !== hero)).toEqual(b.filter((x) => x.seat !== hero));
+      expect(a.filter((x) => x.seat === hero).every((x) => x.style === 'grinder')).toBe(true);
+      expect(b.filter((x) => x.seat === hero).every((x) => x.style === 'tricky')).toBe(true);
+      expect(a.map((x) => x.flags)).toEqual(b.map((x) => x.flags));
+    }
+    const control = await runFeatureAblationDevelopment(
+      {
+        ...personality,
+        heroStyleContrast: {
+          kind: 'hero_style_development',
+          candidate: 'grinder',
+          reference: 'grinder',
+        },
+      },
+      { seed: 27301101, pairs: 2 }
+    );
+    expect(control.changedPairs).toBe(0);
+    expect(control.sums.s1).toBe('0');
+    expect(control.promotionEligible).toBe(false);
   });
 });

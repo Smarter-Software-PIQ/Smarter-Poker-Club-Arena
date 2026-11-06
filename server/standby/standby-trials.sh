@@ -64,7 +64,7 @@ trial_verdict() {  # name verdict json-fields...
 trial_break() {
   local sha="$1" t0 frozen_at thaw_at resumed reasons=""
   valid_sha "$sha"
-  [ "$(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}}' "$CONTAINER" 2>/dev/null)" = "$sha" ] || cmd_run "$sha"
+  [ "$(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}}' "$CONTAINER" 2>/dev/null)" = "$sha" ] || cmd_run "$sha" || return 1
   wait_live 600 >/dev/null || { trial_verdict break fail ',"reason":"never_live"'; return 1; }
   wait_dealing 300 || { trial_verdict break fail ',"reason":"never_dealt_before_break"'; return 1; }
   wait_no_break || { trial_verdict break fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
@@ -87,7 +87,7 @@ trial_break() {
 trial_swap() {
   local from="$1" to="$2" t0 frozen_at stop_at live_at thaw_at reasons=""
   valid_sha "$from"; valid_sha "$to"
-  cmd_run "$from"
+  cmd_run "$from" || return 1
   wait_live 600 >/dev/null || { trial_verdict swap fail ',"reason":"from_never_live"'; return 1; }
   wait_dealing 300 || { trial_verdict swap fail ',"reason":"from_never_dealt"'; return 1; }
   wait_no_break || { trial_verdict swap fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
@@ -100,7 +100,7 @@ trial_swap() {
   # The cutover: the serving engine stops inside the freeze (graceful SIGTERM,
   # as the release transaction's drain does), the candidate takes the fleet.
   docker stop -t 60 "$CONTAINER" >/dev/null 2>&1; stop_at=$(date +%s)
-  cmd_run "$to"
+  cmd_run "$to" || return 1
   wait_live 600 >/dev/null && live_at=$(date +%s) || reasons="$reasons,to_never_live"
   [ "$(health | health_field releaseSha)" = "$to" ] || reasons="$reasons,to_not_serving"
   while [ $(( $(date +%s) - t0 )) -lt 1800 ]; do frozen || { thaw_at=$(date +%s); break; }; sleep 3; done
@@ -112,11 +112,12 @@ trial_swap() {
 }
 
 trial_table_kill() {
-  local sha="$1" n="${2:-3}" reasons="" killed=0 tok
+  local sha="$1" n="${2:-3}" reasons="" killed=0 tok restarts_before
   valid_sha "$sha"
-  [ "$(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}}' "$CONTAINER" 2>/dev/null)" = "$sha" ] || cmd_run "$sha"
+  [ "$(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}}' "$CONTAINER" 2>/dev/null)" = "$sha" ] || cmd_run "$sha" || return 1
   wait_live 600 >/dev/null || { trial_verdict table-kill fail ',"reason":"never_live"'; return 1; }
   wait_dealing 300 || { trial_verdict table-kill fail ',"reason":"never_dealt"'; return 1; }
+  restarts_before=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER") || return 1
   wait_no_break || { trial_verdict table-kill fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
   tok=$(fault_token)
   local seats_before; seats_before=$(seat_fingerprint)
@@ -133,7 +134,7 @@ trial_table_kill() {
   sleep 90
   wait_dealing 300 || reasons="$reasons,fleet_stopped_dealing"
   [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = true ] || reasons="$reasons,engine_process_died"
-  [ "$(docker inspect -f '{{.RestartCount}}' "$CONTAINER")" = 0 ] || reasons="$reasons,engine_process_restarted"
+  [ "$(docker inspect -f '{{.RestartCount}}' "$CONTAINER")" = "$restarts_before" ] || reasons="$reasons,engine_process_restarted"
   [ "$(seat_fingerprint)" = "$seats_before" ] || reasons="$reasons,seats_moved"
   local v=pass; [ -z "$reasons" ] || v=fail
   trial_verdict table-kill "$v" ",\"sha\":\"$sha\",\"killed\":$killed,\"reasons\":\"${reasons#,}\""

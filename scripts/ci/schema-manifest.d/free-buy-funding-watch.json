@@ -1,0 +1,6 @@
+{
+  "_owner": "fix/free-buy-voucher-and-ticket-books-watched",
+  "_comment": "Migration 20261106194903 (Free Buy vouchers and ticket books are watched, and every funding variance alerts).",
+  "tables": ["ca_free_buy_watch_findings"],
+  "functions": ["fn_ca_free_buy_funding_watch"]
+}

@@ -37,8 +37,6 @@ KONG=http://supabase_kong_standby:8000
 HOST_PORT=127.0.0.1:18080
 APP_SCHEMAS=(public ca_archive discovery_private operational_source_intake ops ops_rollback smarter_private zz_archive)
 
-mkdir -p "$CERT_DIR" "$LOG_DIR" "$STATE_DIR/engine-alerts" "$STATE_DIR/horse-journal"
-
 die() { echo "standby-engine: $*" >&2; exit 1; }
 log() { echo "[$(date -u +%FT%TZ)] $*" | tee -a "$LOG_DIR/standby.log" >&2; }
 valid_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]] || die "not a 40-hex sha: $1"; }
@@ -54,70 +52,114 @@ assert_isolated() {
 
 psql_db() { docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres "$@"; }
 
+assert_restore_quiet() {
+  local running
+  running=$(docker ps --format '{{.Names}}') || return 1
+  if printf '%s\n' "$running" | grep -Fxq "$CONTAINER"; then
+    log 'restore: standby restarted during restore/seed; refusing certification'
+    return 1
+  fi
+}
+
+stop_for_restore() {
+  # Only this isolated container is stopped. An absent container is fine;
+  # an unreadable Docker inventory or an unconfirmed stop is not.
+  local containers
+  containers=$(docker ps -a --format '{{.Names}}') || return 1
+  if printf '%s\n' "$containers" | grep -Fxq "$CONTAINER"; then
+    docker stop -t 60 "$CONTAINER" >/dev/null || return 1
+    [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = false ] || return 1
+  fi
+}
+
 cmd_restore() {
   local dump="$1"; [ -s "$dump" ] || die "missing dump $dump"
-  assert_isolated
+  assert_isolated || return 1
+  stop_for_restore || return 1
+  rm -f "$STATE_DIR/database.json" "$STATE_DIR/seed.json" || return 1
   log "restore: dropping app schemas and loading $(basename "$dump")"
   # Database-level event triggers depend on public functions; drop them first.
-  psql_db -qc "DROP EVENT TRIGGER IF EXISTS ca_break_window_refuses_ddl; DROP EVENT TRIGGER IF EXISTS ca_break_window_refuses_drops" >/dev/null
-  for s in "${APP_SCHEMAS[@]}"; do psql_db -qc "DROP SCHEMA IF EXISTS \"$s\" CASCADE" >/dev/null; done
-  psql_db -qc 'CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;' >/dev/null
+  psql_db -qc "DROP EVENT TRIGGER IF EXISTS ca_break_window_refuses_ddl; DROP EVENT TRIGGER IF EXISTS ca_break_window_refuses_drops" >/dev/null || return 1
+  for s in "${APP_SCHEMAS[@]}"; do psql_db -qc "DROP SCHEMA IF EXISTS \"$s\" CASCADE" >/dev/null || return 1; done
+  psql_db -qc 'CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;' >/dev/null || return 1
   # Same extensions, same schemas as production (pg_extension on PokerIQ-Production).
   for ext in "pg_trgm SCHEMA public" "vector SCHEMA public" "postgis SCHEMA extensions" "dblink SCHEMA extensions" \
              "pgstattuple SCHEMA extensions" "plpgsql_check SCHEMA extensions" "http SCHEMA extensions"; do
     psql_db -qc "CREATE EXTENSION IF NOT EXISTS ${ext%% *} WITH ${ext#* }" >/dev/null 2>&1 \
-      || log "restore: extension ${ext%% *} unavailable"
+      || { log "restore: extension ${ext%% *} unavailable"; return 1; }
   done
+  # Real extension-owned cron relations are dependencies of production views.
+  # No production cron rows are exported or scheduled on the isolated copy.
+  psql_db -qc 'CREATE EXTENSION IF NOT EXISTS pg_cron' >/dev/null || return 1
   # Production's own roles, so its grants restore exactly (no login, no password).
-  for role in ca_ledger_refusal_recorder engine_lightning_fold engine_lease_heartbeat supabase_backup_admin; do
-    psql_db -qc "DO \$\$ BEGIN CREATE ROLE $role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$" >/dev/null
+  for role in ca_ledger_refusal_recorder engine_lightning_fold engine_lease_heartbeat supabase_backup_admin ca_record_gateway; do
+    psql_db -qc "DO \$\$ BEGIN CREATE ROLE $role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$" >/dev/null || return 1
   done
-  docker cp "$dump" "$DB_CONTAINER:/tmp/schema.dump"
-  # Owners are aligned below; grants are carried as in production.
-  docker exec "$DB_CONTAINER" pg_restore -U supabase_admin -d postgres --no-owner \
-      --schema-only /tmp/schema.dump > "$LOG_DIR/restore.log" 2>&1 || true
+  docker cp "$dump" "$DB_CONTAINER:/tmp/schema.dump" || return 1
+  # public already exists so extension dependencies can be installed first.
+  # Omit only its duplicate CREATE; retain every object, comment and ACL.
+  docker exec "$DB_CONTAINER" pg_restore --list /tmp/schema.dump > "$STATE_DIR/restore-toc.list" || return 1
+  awk '$4 == "SCHEMA" && $5 == "-" && $6 == "public" { print ";" $0; found++; next }
+       { print } END { if (found != 1) exit 1 }' "$STATE_DIR/restore-toc.list" > "$STATE_DIR/restore.list" || return 1
+  # pg_dump emits NOT VALID checks as separate post-data CHECK CONSTRAINT
+  # entries. They grandfather historical rows, so install them after loading
+  # those rows. All validated checks, keys and other schema entries stay put.
+  : > "$STATE_DIR/restore-after-seed.list"
+  awk -v before="$STATE_DIR/restore-before-seed.list" -v after="$STATE_DIR/restore-after-seed.list" '
+    NR == FNR { if ($4 == "CHECK" && $5 == "CONSTRAINT") checks[$6 SUBSEP $7 SUBSEP $8]=1; next }
+    { deferred=($4 == "CHECK" && $5 == "CONSTRAINT") ||
+        ($4 == "COMMENT" && $6 == "CONSTRAINT" && $8 == "ON" && checks[$5 SUBSEP $9 SUBSEP $7]);
+      if (deferred) print > after;
+      print (deferred ? ";" $0 : $0) > before }
+  ' "$STATE_DIR/restore.list" "$STATE_DIR/restore.list" || return 1
+  docker cp "$STATE_DIR/restore-before-seed.list" "$DB_CONTAINER:/tmp/restore.list" || return 1
+  docker cp "$STATE_DIR/restore-after-seed.list" "$DB_CONTAINER:/tmp/restore-after-seed.list" || return 1
+  docker exec "$DB_CONTAINER" pg_restore -U supabase_admin -d postgres --no-owner --exit-on-error \
+      --use-list /tmp/restore.list --schema-only /tmp/schema.dump > "$LOG_DIR/restore.log" 2>&1 || return 1
   local errors; errors=$(grep -c 'error:' "$LOG_DIR/restore.log" || true)
+  [ "$errors" = 0 ] || return 1
   # Production owns application objects as postgres; SECURITY DEFINER guards
   # (current_user IN ('postgres','service_role')) depend on it.
   docker cp "$(dirname "$0")/standby-owners.sql" "$DB_CONTAINER:/tmp/owners.sql" 2>/dev/null \
-    || docker cp /usr/local/share/club-arena-standby/owners.sql "$DB_CONTAINER:/tmp/owners.sql"
+    || docker cp /usr/local/share/club-arena-standby/owners.sql "$DB_CONTAINER:/tmp/owners.sql" || return 1
   docker exec "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/owners.sql >>"$LOG_DIR/restore.log" 2>&1 \
-    || log "restore: owner alignment reported errors (see restore.log)"
-  # Production's DDL break-window guard is two database-level event triggers,
-  # which a schema dump does not carry; the engine's recovery-window contract
-  # (fn_engine_recovery_window_contract) requires them, exactly as in production.
-  docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -qc "CREATE EVENT TRIGGER ca_break_window_refuses_ddl ON ddl_command_end EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();
-               CREATE EVENT TRIGGER ca_break_window_refuses_drops ON sql_drop EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();" >/dev/null \
-    || log "restore: break-window event triggers could not be installed"
+    || { log "restore: owner alignment reported errors (see restore.log)"; return 1; }
   # pg_cron jobs are never carried over: production jobs call production URLs.
-  psql_db -qc "DELETE FROM cron.job" >/dev/null 2>&1 || true
-  for s in "${APP_SCHEMAS[@]}"; do
-    psql_db -qc "GRANT USAGE ON SCHEMA \"$s\" TO service_role; GRANT ALL ON ALL TABLES IN SCHEMA \"$s\" TO service_role; GRANT ALL ON ALL SEQUENCES IN SCHEMA \"$s\" TO service_role; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA \"$s\" TO service_role;" >/dev/null 2>&1 || true
-  done
-  docker restart supabase_rest_standby >/dev/null
+  psql_db -qc "DELETE FROM cron.job" >/dev/null || return 1
+  # The archive carries production ACLs; never broaden private function grants.
+  docker restart supabase_rest_standby >/dev/null || return 1
   local tables functions
-  tables=$(psql_db -Atc "select count(*) from pg_tables where schemaname='public'")
-  functions=$(psql_db -Atc "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where nspname='public'")
-  printf '{"restoredAt":"%s","dump":"%s","dumpSha256":"%s","publicTables":%s,"publicFunctions":%s,"restoreErrors":%s}\n' \
+  tables=$(psql_db -Atc "select count(*) from pg_tables where schemaname='public'") || return 1
+  functions=$(psql_db -Atc "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where nspname='public'") || return 1
+  printf '{"restoredAt":"%s","dump":"%s","dumpSha256":"%s","publicTables":%s,"publicFunctions":%s,"restoreErrors":%s,"restoreValidated":false}\n' \
     "$(date -u +%FT%TZ)" "$(basename "$dump")" "$(sha256sum "$dump" | cut -d' ' -f1)" "$tables" "$functions" "$errors" \
     | tee "$STATE_DIR/database.json"
 }
 
 cmd_seed() {
   local dir="$1"; [ -f "$dir/manifest.json" ] || die "missing seed bundle $dir"
-  assert_isolated
+  assert_isolated || return 1
   log "seed: loading $(python3 -c "import json;print(len(json.load(open('$dir/manifest.json'))['copied']))" ) tables (horse accounts and platform structure only)"
-  docker exec "$DB_CONTAINER" rm -rf /tmp/seed; docker cp "$dir" "$DB_CONTAINER:/tmp/seed"
+  assert_restore_quiet || return 1
+  rm -f "$STATE_DIR/seed.json" || return 1
+  docker exec "$DB_CONTAINER" rm -rf /tmp/seed || return 1
+  docker cp "$dir" "$DB_CONTAINER:/tmp/seed" || return 1
   local loaded=0 failed=0
   # Seed loads into a freshly restored (empty) copy only: restore always runs first.
-  docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q >>"$LOG_DIR/seed.log" 2>&1 <<'SQL' || log "seed: auth users load failed"
+  docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q >>"$LOG_DIR/seed.log" 2>&1 <<'SQL' || { log "seed: auth users load failed"; return 1; }
 SET session_replication_role = replica;
 CREATE TEMP TABLE h(id uuid, aud text, role text, created_at timestamptz);
 \copy h FROM '/tmp/seed/auth.users.csv' CSV HEADER
 INSERT INTO auth.users (id, aud, role, created_at, instance_id)
 SELECT id, aud, role, created_at, '00000000-0000-0000-0000-000000000000' FROM h ON CONFLICT (id) DO NOTHING;
 SQL
+  # The validated club-members automation CHECK reads clubs.is_platform.
+  # Load that dependency first rather than weakening its real predicate.
+  local seed_files=("$dir/public.clubs.csv")
   for f in "$dir"/*.csv; do
+    [ "$f" = "$dir/public.clubs.csv" ] || seed_files+=("$f")
+  done
+  for f in "${seed_files[@]}"; do
     local t; t=$(basename "$f" .csv); [ "$t" = auth.users ] && continue
     local cols; cols=$(head -1 "$f" | python3 -c 'import csv,sys; print(",".join(chr(34)+c+chr(34) for c in next(csv.reader(sys.stdin))))')
     # Isolated copy only: load through a plain staging table (generated
@@ -127,24 +169,55 @@ SQL
     local tq="${t%%.*}.\"${t#*.}\""
     if docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q >>"$LOG_DIR/seed.log" 2>&1 <<SQL
 BEGIN;
+CREATE TEMP TABLE _seed_trigger_modes ON COMMIT DROP AS
+WITH RECURSIVE relations(oid) AS (
+  SELECT '$tq'::regclass::oid
+  UNION ALL SELECT i.inhrelid FROM pg_inherits i JOIN relations r ON i.inhparent=r.oid
+)
+SELECT t.tgrelid,t.tgname,t.tgenabled FROM pg_trigger t JOIN relations r ON r.oid=t.tgrelid;
 ALTER TABLE $tq DISABLE TRIGGER ALL;
 CREATE TEMP TABLE _seed (LIKE $tq) ON COMMIT DROP;
 \\copy _seed ($cols) FROM '/tmp/seed/$t.csv' CSV HEADER
 SELECT string_agg(quote_ident(attname), ',' ORDER BY attnum) AS c FROM pg_attribute
  WHERE attrelid = '$tq'::regclass AND attnum > 0 AND NOT attisdropped AND attgenerated = '' \\gset
 INSERT INTO $tq (:c) OVERRIDING SYSTEM VALUE SELECT :c FROM _seed;
-ALTER TABLE $tq ENABLE TRIGGER ALL;
+SELECT format('ALTER TABLE ONLY %s %s TRIGGER %I',tgrelid::regclass,
+ CASE tgenabled WHEN 'D' THEN 'DISABLE' WHEN 'O' THEN 'ENABLE'
+                WHEN 'R' THEN 'ENABLE REPLICA' WHEN 'A' THEN 'ENABLE ALWAYS' END,tgname)
+ FROM _seed_trigger_modes ORDER BY tgrelid,tgname \\gexec
 COMMIT;
 SQL
     then loaded=$((loaded+1)); else failed=$((failed+1)); echo "seed failed: $t" >> "$LOG_DIR/seed.log"; fi
   done
-  docker cp /usr/local/share/club-arena-standby/placeholders.sql "$DB_CONTAINER:/tmp/placeholders.sql"
+  [ "$failed" = 0 ] || return 1
+  docker exec "$DB_CONTAINER" pg_restore -U supabase_admin -d postgres --no-owner --exit-on-error \
+    --use-list /tmp/restore-after-seed.list --schema-only /tmp/schema.dump >> "$LOG_DIR/restore.log" 2>&1 || return 1
+  docker cp /usr/local/share/club-arena-standby/placeholders.sql "$DB_CONTAINER:/tmp/placeholders.sql" || return 1
   docker exec "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/placeholders.sql >>"$LOG_DIR/seed.log" 2>&1 \
-    || log "seed: placeholder accounts reported errors (see seed.log)"
+    || { log "seed: placeholder accounts reported errors (see seed.log)"; return 1; }
+  [ "$failed" = 0 ] || return 1
   local tables horses seats
-  tables=$(psql_db -Atc "select count(*) from public.tables")
-  horses=$(psql_db -Atc "select count(*) from public.profiles where is_horse")
-  seats=$(psql_db -Atc "select count(*) from public.table_seats where left_at is null")
+  tables=$(psql_db -Atc "select count(*) from public.tables") || return 1
+  horses=$(psql_db -Atc "select count(*) from public.profiles where is_horse") || return 1
+  seats=$(psql_db -Atc "select count(*) from public.table_seats where left_at is null") || return 1
+  # Production's DDL break-window guard is two database-level event triggers,
+  # which a schema dump does not carry; the engine's recovery-window contract
+  # (fn_engine_recovery_window_contract) requires them, exactly as in production.
+  docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -qc "CREATE EVENT TRIGGER ca_break_window_refuses_ddl ON ddl_command_end EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();
+               CREATE EVENT TRIGGER ca_break_window_refuses_drops ON sql_drop EXECUTE FUNCTION public.fn_ca_break_window_ddl_guard();" >/dev/null \
+    || { log "restore: break-window event triggers could not be installed"; return 1; }
+  assert_restore_quiet || return 1
+  # Publish validity only after the deferred checks and finalization succeed.
+  python3 - "$STATE_DIR/database.json" <<'PY_VALID'
+import json, os, sys
+path = sys.argv[1]
+data = json.load(open(path))
+data['restoreValidated'] = True
+with open(path + '.new', 'w') as output:
+    json.dump(data, output)
+os.replace(path + '.new', path)
+PY_VALID
+  [ "$?" = 0 ] || return 1
   printf '{"seededAt":"%s","tablesLoaded":%s,"tablesFailed":%s,"cashTables":%s,"horses":%s,"seatedHorses":%s}\n' \
     "$(date -u +%FT%TZ)" "$loaded" "$failed" "$tables" "$horses" "$seats" | tee "$STATE_DIR/seed.json"
 }
@@ -152,10 +225,10 @@ SQL
 cmd_build() {
   local sha="$1"; valid_sha "$sha"
   if docker image inspect "$IMAGE_REPO:$sha" >/dev/null 2>&1; then echo "$IMAGE_REPO:$sha"; return; fi
-  git -C "$REPO_DIR" fetch -q origin
+  git -C "$REPO_DIR" fetch -q origin || return 1
   git -C "$REPO_DIR" cat-file -e "$sha^{commit}" || die "unknown commit $sha"
-  local ctx; ctx=$(mktemp -d /tmp/standby-ctx.XXXXXX)
-  git -C "$REPO_DIR" archive "$sha" server | tar -x -C "$ctx"
+  local ctx; ctx=$(mktemp -d /tmp/standby-ctx.XXXXXX) || return 1
+  git -C "$REPO_DIR" archive "$sha" server | tar -x -C "$ctx" || { rm -rf "$ctx"; return 1; }
   log "build: $sha"
   docker build -q -t "$IMAGE_REPO:$sha" --build-arg "GIT_COMMIT_SHA=$sha" \
     --label "org.opencontainers.image.revision=$sha" "$ctx/server" >> "$LOG_DIR/build-$sha.log" 2>&1 \
@@ -191,21 +264,34 @@ ENGINE_STANDBY_CLONE=1
 EOF
 }
 
+assert_valid_copy() {
+  python3 - "$STATE_DIR/database.json" "$STATE_DIR/seed.json" <<'PY_CHECK'
+import json, sys
+try:
+    database, seed = (json.load(open(p)) for p in sys.argv[1:])
+    assert database.get('restoreValidated') is True and database.get('restoreErrors') == 0
+    assert seed['tablesFailed'] == 0 and seed['seededAt'] >= database['restoredAt']
+except (OSError, ValueError, KeyError, TypeError, AssertionError):
+    sys.exit('standby database restore/seed is unqualified')
+PY_CHECK
+}
+
 cmd_run() {
   local sha="$1"; valid_sha "$sha"
-  assert_isolated
-  cmd_build "$sha" >/dev/null
-  write_env
+  assert_isolated || return 1
+  assert_valid_copy || return 1
+  cmd_build "$sha" >/dev/null || return 1
+  write_env || return 1
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   log "run: $sha"
   docker run -d --name "$CONTAINER" --network "$NETWORK" -p "$HOST_PORT:8080" \
-    --restart no --cpus 7 --memory 26g \
+    --restart unless-stopped --cpus 7 --memory 26g \
     --log-driver json-file --log-opt max-size=50m --log-opt max-file=5 \
     --env-file "$STATE_DIR/engine.env" \
     --mount "type=bind,source=$STATE_DIR/engine-alerts,target=/var/lib/club-arena/engine-alerts" \
     --mount "type=bind,source=$STATE_DIR/horse-journal,target=/var/lib/club-arena/horse-journal" \
     --label "com.smarterpoker.standby.sha=$sha" \
-    "$IMAGE_REPO:$sha" >/dev/null
+    "$IMAGE_REPO:$sha" >/dev/null || return 1
 }
 
 health() { curl -fsS -m 5 "http://$HOST_PORT/health" 2>/dev/null || true; }
@@ -227,14 +313,66 @@ wait_live() {
   return 1
 }
 
+crash_container() {
+  # PID1 ignores same-namespace SIGKILL. Signal the exact process from the
+  # host through a pidfd, without Docker's intentional-stop semantics.
+  python3 - "$CONTAINER" "$1" <<'PY_CRASH'
+import json, os, signal, subprocess, sys
+container, expected = sys.argv[1:]
+def binding():
+    output = subprocess.run(['docker', 'inspect', '--format',
+        '{{json .Id}} {{json .State.Pid}}', container],
+        check=True, capture_output=True, text=True).stdout
+    identifier, pid = output.split()
+    return json.loads(identifier), int(pid)
+identifier, pid = binding()
+if identifier != expected or pid <= 1:
+    raise RuntimeError('standby crash target identity is not proved')
+fd = os.pidfd_open(pid)
+try:
+    if binding() != (expected, pid):
+        raise RuntimeError('standby crash target changed before signal')
+    signal.pidfd_send_signal(fd, signal.SIGKILL)
+finally:
+    os.close(fd)
+PY_CRASH
+}
+
+count_fatal_logs() {
+  docker logs --since "@$1" "$CONTAINER" > "$LOG_DIR/certify-$2.log" 2>&1 || return 1
+  local count rc=0
+  count=$(grep -c -E 'FATAL ERROR|Uncaught|unhandledRejection|heap out of memory|Segmentation fault' "$LOG_DIR/certify-$2.log") || rc=$?
+  [ "$rc" -le 1 ] || return 1
+  echo "$count"
+}
+
+wait_auto_recovery() {
+  local sha="$1" container_id="$2" before="$3" deadline=$(( $(date +%s) + $4 )) count h l
+  [[ "$before" =~ ^[0-9]+$ ]] || return 1
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    [ "$(docker inspect -f '{{.Id}}' "$CONTAINER")" = "$container_id" ] || return 1
+    count=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER") || return 1
+    [[ "$count" =~ ^[0-9]+$ ]] || return 1
+    h=$(health); l=$(printf '%s' "$h" | health_field liveness)
+    if [ "$count" -gt "$before" ] && { [ "$l" = ok ] || [ "$l" = standby ]; } \
+       && [ "$(printf '%s' "$h" | health_field releaseSha)" = "$sha" ]; then
+      echo "$count"; return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
+
 cmd_certify() {
   local sha="$1" soak="${2:-1800}" started verdict=pass reasons=() boot1 boot2 rss0 rss1 restarts fatals sv
+  local restart_before restart_after container_id seats
   valid_sha "$sha"
   started=$(date +%s)
   local result="$CERT_DIR/$sha.json"
   record() { reasons+=("$1"); verdict=fail; log "certify $sha: FAIL $1"; }
 
-  cmd_run "$sha" || record 'boot_or_build_failed'
+  assert_valid_copy || return 1
+  cmd_run "$sha" || { record 'boot_or_build_failed'; return 1; }
   t0=$(date +%s)
   if l=$(wait_live 600); then boot1=$(( $(date +%s) - t0 )); log "certify $sha: live ($l) in ${boot1}s"
   else record 'never_became_live'; boot1=-1; fi
@@ -246,11 +384,17 @@ cmd_certify() {
   if [ "$verdict" = pass ] && [[ "$serving" =~ ^[0-9a-f]{40}$ ]] && [ "$serving" != "$sha" ] && declare -F trial_swap >/dev/null; then
     trial_swap "$serving" "$sha" >/dev/null || record "swap_rehearsal_failed_from_${serving:0:12}"
   fi
-  # Crash drill: SIGKILL, start the same container, it must come back.
+  # An unexpected PID1 exit must recover through Docker's installed policy.
+  # docker kill/stop is an intentional operator stop and suppresses that policy.
   if [ "$verdict" = pass ]; then
-    docker kill -s KILL "$CONTAINER" >/dev/null; sleep 2; docker start "$CONTAINER" >/dev/null
+    container_id=$(docker inspect -f '{{.Id}}' "$CONTAINER") || return 1
+    [ "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTAINER")" = unless-stopped ] || return 1
+    restart_before=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER") || return 1
+    crash_container "$container_id" || return 1
     t0=$(date +%s)
-    if wait_live 600 >/dev/null; then boot2=$(( $(date +%s) - t0 )); else record 'did_not_recover_from_crash'; boot2=-1; fi
+    if restart_after=$(wait_auto_recovery "$sha" "$container_id" "$restart_before" 600); then
+      boot2=$(( $(date +%s) - t0 ))
+    else record 'did_not_recover_from_crash'; boot2=-1; fi
   fi
 
   # Soak: stays up, no restarts, no fatal errors, bounded memory growth.
@@ -266,14 +410,22 @@ cmd_certify() {
       n=$(printf '%s' "$h" | health_field dealRate.handsInWindow); [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt "$dealt" ] && dealt=$n
       sleep 15
     done
+    [ "$(docker inspect -f '{{.Id}}' "$CONTAINER")" = "$container_id" ] || record 'container_changed_during_soak'
+    [ "$(docker inspect -f '{{.RestartCount}}' "$CONTAINER")" = "$restart_after" ] || record 'restarted_during_soak'
     # The seeded horse tables must actually deal on this build.
-    if [ "$(psql_db -Atc "select count(*) from public.table_seats where left_at is null" 2>/dev/null || echo 0)" -gt 0 ] && [ "$dealt" -eq 0 ]; then
+    seats=$(psql_db -Atc "select count(*) from public.table_seats where left_at is null") || return 1
+    [[ "$seats" =~ ^[0-9]+$ ]] || return 1
+    if [ "$seats" -gt 0 ] && [ "$dealt" -eq 0 ]; then
       record 'no_hands_dealt_during_soak'
     fi
     rss1=$(docker stats --no-stream --format '{{.MemUsage}}' "$CONTAINER" | awk '{print $1}')
   fi
+  if [ "$verdict" = pass ]; then
+    python3 /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py "$sha" >&2 \
+      || record 'tournament_freeze_qualification_failed'
+  fi
   restarts=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo -1)
-  fatals=$(docker logs --since "@$started" "$CONTAINER" 2>&1 | grep -c -E 'FATAL ERROR|Uncaught|unhandledRejection|heap out of memory|Segmentation fault' || true)
+  fatals=$(count_fatal_logs "$started" "$sha") || { record 'container_logs_unreadable'; fatals=-1; }
   [ "$fatals" -eq 0 ] || record "fatal_log_lines:$fatals"
 
   local reasons_json="[]"
@@ -282,7 +434,8 @@ cmd_certify() {
 import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-       "bootSeconds": ${boot1:--1}, "crashRecoverySeconds": ${boot2:--1}, "soakSeconds": $soak,
+       "bootSeconds": ${boot1:--1}, "crashRecoverySeconds": ${boot2:--1}, "soakSeconds": $soak, "restartPolicy": "unless-stopped", "crashRestartsBefore": ${restart_before:--1}, "crashRestartsAfter": ${restart_after:--1},
+       "standbyScriptSha256": "$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)",
        "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},
        "database": json.load(open("$STATE_DIR/database.json")) if __import__("os").path.exists("$STATE_DIR/database.json") else None}
 open(sys.argv[1], "w").write(json.dumps(doc, indent=2) + "\n")
@@ -303,6 +456,8 @@ cmd_status() {
   ls -1t "$CERT_DIR" 2>/dev/null | head -5 | sed 's/^/certificate: /'
 }
 
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+mkdir -p "$CERT_DIR" "$LOG_DIR" "$STATE_DIR/engine-alerts" "$STATE_DIR/horse-journal"
 case "${1:-}" in
   restore) cmd_restore "${2:?dump}" ;;
   seed)    cmd_seed "${2:?seed_dir}" ;;
@@ -313,3 +468,4 @@ case "${1:-}" in
   status)  cmd_status ;;
   *) sed -n 2,22p "$0"; exit 64 ;;
 esac
+fi

@@ -14,7 +14,7 @@ import { openLobbyGameSection } from './support/lobbyGameSections';
  *     seat that did not exist
  *   - queueing from the lobby also navigated
  *   - selecting a row must NEVER join, register, or spend — it opens the
- *     game lobby panel where the player commits explicitly
+ *     cash game panel or tournament lobby where the player commits explicitly
  *
  * SIGNED OUT this file skips, exactly like the other authenticated specs:
  * expectRoute() calls test.skip() the moment it lands on /auth.
@@ -191,9 +191,7 @@ test.describe('Club lobby', () => {
     await expect(panel, 'Escape did not close the game lobby panel').toBeHidden({ timeout: 8000 });
   });
 
-  test('selecting a tournament reviews its card, then Details opens that event', async ({
-    page,
-  }) => {
+  test('selecting a tournament opens its own lobby directly without joining', async ({ page }) => {
     const ok = await expectRoute(page, LOBBY);
     if (!ok) return;
     await lobbySettled(page);
@@ -217,14 +215,8 @@ test.describe('Club lobby', () => {
 
     await row.click();
 
-    const panel = page.locator('.glp');
-    await expect(panel).toBeVisible();
-    await expect(panel.locator('.arena-game-card')).toBeVisible();
-    await expect(page).not.toHaveURL(new RegExp(`/tournaments/${id}(?:[/?#]|$)`));
-    await panel.getByRole('button', { name: 'Details', exact: true }).click();
-
-    // It reviews the tournament. It must be THAT tournament, and it must not
-    // have committed the player to anything on the way there.
+    // Tournament rows open their own lobby directly (owner direction November 1).
+    // Selecting the event must still never commit the player to participation.
     await expect(page, 'a tournament row did not open its own screen').toHaveURL(
       new RegExp(`/tournaments/${id}(?:[/?#]|$)`),
       { timeout: 10000 }

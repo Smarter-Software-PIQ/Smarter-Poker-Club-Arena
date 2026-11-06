@@ -548,7 +548,15 @@ describe('authenticated production account preflight', () => {
     const lobby = source('tests/e2e/club-lobby.spec.ts');
     expect(lobby).not.toContain("locator('.cplaque')");
     expect(lobby).toContain("await expect(panel.locator('.arena-game-card')).toBeVisible()");
-    expect(lobby).toContain("panel.getByRole('button', { name: 'Details', exact: true }).click()");
+    const tournamentDoor = lobby.slice(
+      lobby.indexOf("test('selecting a tournament opens its own lobby directly without joining'"),
+      lobby.indexOf("test('a clustered cash game")
+    );
+    expect(tournamentDoor).toContain('await row.click()');
+    expect(tournamentDoor).toContain('new RegExp(`/tournaments/${id}(?:[/?#]|$)`)');
+    expect(tournamentDoor).toContain("page.locator('.glp')");
+    expect(tournamentDoor).toContain(').toHaveCount(0)');
+    expect(tournamentDoor).not.toContain("name: 'Details'");
     expect(lobby).toContain("locator('.arena-game-card')");
     expect(lobby).toContain('.lt-row[data-kind="cash"]');
     expect(lobby).toContain(`locator('button[data-zone="primaryAction"]')`);

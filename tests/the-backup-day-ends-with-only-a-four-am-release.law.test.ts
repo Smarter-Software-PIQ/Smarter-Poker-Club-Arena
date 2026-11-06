@@ -150,7 +150,13 @@ describe('Backup qualification and the daily release are separate authorities', 
     const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
     expect(plan).toContain('[ "$served" = "$sha" ]');
     expect(plan).toContain('refresh=force');
-    expect(backup.jobs.certify.if).toContain("needs.refresh.result == 'success'");
+    expect(backup.jobs.certify.if).toBe("always() && needs.plan.outputs.sha != ''");
+    const certify = backup.jobs.certify.steps.find((s: any) => s.id === 'certify');
+    expect(certify.env.REFRESH_RESULT).toBe('${{ needs.refresh.result }}');
+    expect(certify.run.indexOf('if [ "$REFRESH_RESULT" != success ]; then')).toBeLessThan(
+      certify.run.indexOf('ssh -i')
+    );
+    expect(certify.run).toContain('database_refresh_failed');
     expect(backup.jobs.certify.steps.find((s: any) => s.id === 'certify').run).toContain(
       'standby-engine certify $SHA 1800'
     );

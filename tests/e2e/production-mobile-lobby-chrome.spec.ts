@@ -967,65 +967,107 @@ test.describe('the mobile lobby chrome on production', () => {
         .toBe(true);
       phaseEvidence.push({ phase, rows: await snapshot() });
     };
-    const originalUrl = page.url();
-    const saved = saveChoice(true);
-    await selected().getByRole('button', { name: 'Add To Favorites', exact: true }).click();
-    await saved;
-    expect(page.url()).toBe(originalUrl);
-    await assertStarredInPlace('starred', before);
-    await chooseSort('Most Players');
-    await assertStarredInPlace('players-descending');
-    await chooseSort('Stakes: High To Low');
-    await assertStarredInPlace('buy-in-descending', before);
-    const readback = page.waitForResponse(isFavoritesRead);
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    const persistedResponse = await readback;
-    expect(await requestOwner(persistedResponse.request())).toBe(owner);
-    const persisted = (await favoritesRead(persistedResponse))!;
-    expect(persisted.find((row) => row.game_id === chosen)?.active).toBe(true);
-    await expect(selected()).toBeVisible({ timeout: 30_000 });
-    // The saved sort and the star both come back from the account.
-    await assertStarredInPlace('reloaded-server-readback', before);
-    await selected().evaluate((element) => element.scrollIntoView({ block: 'center' }));
-    await expect(selected()).toBeInViewport();
-    await testInfo.attach('tournament-favorite-starred-tier.png', {
-      body: await page.screenshot(),
-      contentType: 'image/png',
-    });
-    const removed = saveChoice(false);
-    await selected().getByRole('button', { name: 'Remove From Favorites', exact: true }).click();
-    await removed;
-    await expect(
-      selected().getByRole('button', { name: 'Add To Favorites', exact: true })
-    ).toBeVisible();
-    // Unstarred, the board reads exactly as it did before the star.
-    await expect.poll(async () => sameOrder(await snapshot(), before)).toBe(true);
-    expect((await snapshot()).filter((row) => row.favorite)).toEqual([]);
-    // The unfavorite is the account's record too: after a reload the game is
-    // kept as unstarred (not forgotten) and nothing is starred.
-    const unstarredRead = page.waitForResponse(isFavoritesRead);
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    const unstarred = (await favoritesRead(await unstarredRead))!;
-    expect(unstarred.find((row) => row.game_id === chosen)?.active).toBe(false);
-    expect(unstarred.filter((row) => row.active)).toEqual([]);
-    await expect(selected()).toBeVisible({ timeout: 30_000 });
-    expect((await snapshot()).filter((row) => row.favorite)).toEqual([]);
-    expect(participation).toEqual([]);
-    await testInfo.attach('tournament-favorite-priority.json', {
-      body: Buffer.from(
-        JSON.stringify({
-          chosen,
-          initialFavoritesEmpty: true,
-          phases: phaseEvidence,
-          participation,
-        })
-      ),
-      contentType: 'application/json',
-    });
-    await testInfo.attach('tournament-favorite-priority.png', {
-      body: await page.screenshot(),
-      contentType: 'image/png',
-    });
+    let favoriteAttempted = false;
+    let journeyError: unknown;
+    let cleanupFailure: unknown;
+    try {
+      const originalUrl = page.url();
+      const saved = saveChoice(true);
+      favoriteAttempted = true;
+      await selected().getByRole('button', { name: 'Add To Favorites', exact: true }).click();
+      await saved;
+      expect(page.url()).toBe(originalUrl);
+      await assertStarredInPlace('starred', before);
+      await chooseSort('Most Players');
+      await assertStarredInPlace('players-descending');
+      await chooseSort('Stakes: High To Low');
+      await assertStarredInPlace('buy-in-descending', before);
+      const readback = page.waitForResponse(isFavoritesRead);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const persistedResponse = await readback;
+      expect(await requestOwner(persistedResponse.request())).toBe(owner);
+      const persisted = (await favoritesRead(persistedResponse))!;
+      expect(persisted.find((row) => row.game_id === chosen)?.active).toBe(true);
+      await expect(selected()).toBeVisible({ timeout: 30_000 });
+      // The saved sort and the star both come back from the account.
+      await assertStarredInPlace('reloaded-server-readback', before);
+      await selected().evaluate((element) => element.scrollIntoView({ block: 'center' }));
+      await expect(selected()).toBeInViewport();
+      await testInfo.attach('tournament-favorite-starred-tier.png', {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+      const removed = saveChoice(false);
+      await selected().getByRole('button', { name: 'Remove From Favorites', exact: true }).click();
+      await removed;
+      await expect(
+        selected().getByRole('button', { name: 'Add To Favorites', exact: true })
+      ).toBeVisible();
+      // Unstarred, the board reads exactly as it did before the star.
+      await expect.poll(async () => sameOrder(await snapshot(), before)).toBe(true);
+      expect((await snapshot()).filter((row) => row.favorite)).toEqual([]);
+      // The unfavorite is the account's record too: after a reload the game is
+      // kept as unstarred (not forgotten) and nothing is starred.
+      const unstarredRead = page.waitForResponse(isFavoritesRead);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const unstarred = (await favoritesRead(await unstarredRead))!;
+      expect(unstarred.find((row) => row.game_id === chosen)?.active).toBe(false);
+      expect(unstarred.filter((row) => row.active)).toEqual([]);
+      await expect(selected()).toBeVisible({ timeout: 30_000 });
+      expect((await snapshot()).filter((row) => row.favorite)).toEqual([]);
+      expect(participation).toEqual([]);
+      await testInfo.attach('tournament-favorite-priority.json', {
+        body: Buffer.from(
+          JSON.stringify({
+            chosen,
+            initialFavoritesEmpty: true,
+            phases: phaseEvidence,
+            participation,
+          })
+        ),
+        contentType: 'application/json',
+      });
+      await testInfo.attach('tournament-favorite-priority.png', {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+    } catch (error) {
+      journeyError = error;
+    } finally {
+      // A failed assertion must not leave this account's star active for the
+      // next browser. Read the account first, then use its normal UI door.
+      if (favoriteAttempted) {
+        try {
+          const cleanupRead = page.waitForResponse(isFavoritesRead);
+          await page.reload({ waitUntil: 'domcontentloaded' });
+          const cleanupResponse = await cleanupRead;
+          expect(await requestOwner(cleanupResponse.request())).toBe(owner);
+          const cleanupState = (await favoritesRead(cleanupResponse))!;
+          if (cleanupState.some((row) => row.game_id === chosen && row.active)) {
+            await openLobbyGameSection(page, 'MTT');
+            await page.getByRole('tab', { name: "MTT'S", exact: true }).click();
+            const accepted = saveChoice(false);
+            await selected()
+              .getByRole('button', { name: 'Remove From Favorites', exact: true })
+              .click();
+            await accepted;
+            const verifyRead = page.waitForResponse(isFavoritesRead);
+            await page.reload({ waitUntil: 'domcontentloaded' });
+            const verified = (await favoritesRead(await verifyRead))!;
+            expect(verified.find((row) => row.game_id === chosen)?.active).toBe(false);
+          }
+        } catch (cleanupError) {
+          cleanupFailure = cleanupError;
+        }
+      }
+    }
+    if (journeyError && cleanupFailure)
+      throw new AggregateError(
+        [journeyError, cleanupFailure],
+        'Favorite Journey And Cleanup Failed'
+      );
+    if (journeyError) throw journeyError;
+    if (cleanupFailure) throw cleanupFailure;
   });
 
   test('the footer frame sits on the bottom edge with nothing under it', async ({ page }) => {

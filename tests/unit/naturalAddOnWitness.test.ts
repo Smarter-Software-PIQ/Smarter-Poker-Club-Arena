@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
   admitNaturalAddOn,
   completeAddOnRoster,
@@ -7,6 +7,7 @@ import {
   addOnWindow,
   countdownSeconds,
   readAddOnCountdown,
+  readAddOnCard,
   hasNaturalAddOnIncrement,
   forbiddenAddOnParticipation,
   suppressedObserverReward,
@@ -278,5 +279,85 @@ describe('pre-opening live roster synchronization', () => {
       );
     expect(operations.open).not.toHaveBeenCalled();
     expect(operations.close).not.toHaveBeenCalled();
+  });
+});
+
+describe('atomic add-on card evidence', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.restoreAllMocks();
+  });
+  function fixture() {
+    document.body.innerHTML = `<div class="break-screen">
+      <h2>Add-On Break</h2><span>Add-On Closes In</span><span>All Tables Paused</span>
+      <span role="timer">0:44</span>
+      <div class="break-screen__stat"><span class="break-screen__stat-label">Add-On Cost</span><span class="break-screen__stat-value">35</span></div>
+      <div class="break-screen__stat"><span class="break-screen__stat-label">Chips Received</span><span class="break-screen__stat-value" title="20,000">20K</span></div>
+      <span aria-label="Players Who Took Add-On">1,234</span>
+    </div>`;
+    // happy-dom has no layout engine; supply measurable boxes while exercising
+    // the real DOM selectors and computed visibility styles.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 100,
+      height: 20,
+    } as DOMRect);
+    return { evaluate: vi.fn(async (capture: () => unknown) => capture()) };
+  }
+  it('captures labels, price, chips, timer, count and browser time in one evaluation', async () => {
+    const page = fixture();
+    vi.spyOn(Date, 'now').mockReturnValue(12345);
+    const sample = await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>);
+    expect(page.evaluate).toHaveBeenCalledTimes(1);
+    expect(sample).toMatchObject({
+      at: 12345,
+      receivedAt: 12345,
+      dialogVisible: true,
+      titleVisible: true,
+      closingVisible: true,
+      pausedVisible: true,
+      cost: '35',
+      chips: '20,000',
+      text: '0:44',
+      timerCount: 1,
+      count: '1,234',
+    });
+  });
+  it('does not accept missing, hidden, collapsed or zero-area labels', async () => {
+    const page = fixture();
+    const title = document.querySelector('h2')!;
+    title.style.visibility = 'hidden';
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+    title.style.visibility = 'collapse';
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+    title.style.visibility = 'visible';
+    title.style.display = 'none';
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+    title.style.display = 'block';
+    vi.spyOn(title, 'getBoundingClientRect').mockReturnValue({ width: 0, height: 20 } as DOMRect);
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+    title.remove();
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+  });
+  it('retains missing values and refuses duplicate exact labels instead of fabricating proof', async () => {
+    const page = fixture();
+    document.querySelector('[role="timer"]')!.remove();
+    document.querySelector('[aria-label="Players Who Took Add-On"]')!.remove();
+    document
+      .querySelector('.break-screen')!
+      .insertAdjacentHTML('beforeend', '<h3>Add-On Break</h3>');
+    const sample = await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>);
+    expect(sample.titleVisible).toBe(false);
+    expect(sample.text).toBe('');
+    expect(sample.count).toBe('');
   });
 });

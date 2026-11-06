@@ -363,3 +363,50 @@ it('actual controller callback emits accepted coverage once, separately from sel
     decide.mockRestore();
   }
 }, 60000);
+
+it('records the actual requested hero style and preserves opponent style through legal worker acceptance', async () => {
+  const { runFeatureAblationDevelopment } = await import('./FeatureAblationLeague.js');
+  const receipts: FeatureAblationWorkerReceipt[] = [];
+  const worker = createFeatureAblationWorker(
+    (r) => receipts.push(r),
+    () => {},
+    false,
+    emptyHistory
+  );
+  const { ablation: _ablation, ...profile } = workerProfile(worker, false);
+  const result = await runFeatureAblationDevelopment(
+    {
+      id: 'hero_personality-development-v1',
+      profile,
+      brain: worker,
+      candidate: {},
+      reference: {},
+      heroStyleContrast: {
+        kind: 'hero_style_development',
+        candidate: 'grinder',
+        reference: 'tricky',
+      },
+    },
+    { seed: 27301101, pairs: 1 }
+  );
+  expect(result.complete).toBe(true);
+  for (const key of [
+    'protocolErrors',
+    'brainExceptions',
+    'illegalActions',
+    'conservationErrors',
+    'cardErrors',
+    'settlementMismatches',
+    'deductionMismatches',
+    'truncatedHands',
+    'pairedReplayMismatches',
+  ] as const)
+    expect(result[key], key).toBe(0);
+  expect(result.candidateHeroDecisions).toBeGreaterThan(0);
+  expect(result.referenceHeroDecisions).toBeGreaterThan(0);
+  const hero = receipts.filter((r) => r.actorSeat === 1);
+  expect(new Set(hero.map((r) => r.inputStyle))).toEqual(new Set(['grinder', 'tricky']));
+  expect(receipts.every((r) => r.restoredCanonical && r.phase11Authority?.plo6)).toBe(true);
+  expect(receipts.every((r) => r.inputFlags.v54RiverBluff === undefined)).toBe(true);
+  expect(new Set(receipts.filter((r) => r.actorSeat !== 1).map((r) => r.inputStyle)).size).toBe(1);
+});

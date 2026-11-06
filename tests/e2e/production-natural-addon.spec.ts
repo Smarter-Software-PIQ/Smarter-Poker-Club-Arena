@@ -7,7 +7,8 @@ import {
   completeAddOnRoster,
   synchronizeAddOnObservers,
   addOnWindow,
-  readAddOnCountdown,
+  readAddOnCard,
+  countdownSeconds,
   hasNaturalAddOnIncrement,
   forbiddenAddOnParticipation,
   suppressedObserverReward,
@@ -49,6 +50,7 @@ test('every captured natural add-on table renders its public minute', async ({
   const columns =
     'id,status,current_level,late_reg_levels,rebuy_levels,late_reg_mins,started_at,addon_from_start,add_on_available,addon_period_triggered,addon_period_started_at,addon_period_ends_at,addon_cost,addon_chips,buy_in_amount,starting_chips,prize_pool_finalized';
   const contexts: BrowserContext[] = [];
+  let representativeCapture: Promise<void> | undefined;
   const pages = new Map<string, Page>();
   const received = new Map<string, Set<string>>();
   const blocked: { tableId: string; transport: string; operation: string }[] = [];
@@ -258,23 +260,38 @@ test('every captured natural add-on table renders its public minute', async ({
     window: NonNullable<ReturnType<typeof addOnWindow>>,
     phase: string
   ) {
-    const dialog = page.locator('.break-screen');
-    await expect(dialog.getByText('Add-On Break', { exact: true })).toBeVisible({ timeout: 5_000 });
-    await expect(dialog.getByText('Add-On Closes In', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('All Tables Paused', { exact: true })).toBeVisible();
-    const cost = dialog
-      .locator('.break-screen__stat')
-      .filter({ has: page.getByText('Add-On Cost', { exact: true }) })
-      .locator('.break-screen__stat-value');
-    const chips = dialog
-      .locator('.break-screen__stat')
-      .filter({ has: page.getByText('Chips Received', { exact: true }) })
-      .locator('.break-screen__stat-value');
-    await expect(cost).toHaveText(window.cost.toLocaleString('en-US'));
-    await expect(chips).toHaveAttribute('title', window.chips.toLocaleString('en-US'));
-    const countdown = await readAddOnCountdown(dialog.getByRole('timer'), window.end);
-    const { seconds, at: now } = countdown;
-    // Retain even a failed clock sample, including transport lag and visibility.
+    let sample: Awaited<ReturnType<typeof readAddOnCard>>;
+    await expect
+      .poll(
+        async () => {
+          sample = await readAddOnCard(page);
+          evidence.cardSamples ??= [];
+          evidence.cardSamples.push({ tableId, phase, ...sample });
+          return (
+            sample.dialogVisible &&
+            sample.titleVisible &&
+            sample.closingVisible &&
+            sample.pausedVisible &&
+            sample.cost === window.cost.toLocaleString('en-US') &&
+            sample.chips === window.chips.toLocaleString('en-US')
+          );
+        },
+        { timeout: 5000, message: `Add-on card is not ready for ${tableId} at ${phase}` }
+      )
+      .toBe(true);
+    const current = sample!;
+    expect(current.titleVisible).toBe(true);
+    expect(current.closingVisible).toBe(true);
+    expect(current.pausedVisible).toBe(true);
+    expect(current.cost).toBe(window.cost.toLocaleString('en-US'));
+    expect(current.chips).toBe(window.chips.toLocaleString('en-US'));
+    expect(current.timerCount, 'Exactly one rendered add-on timer').toBe(1);
+    const seconds = countdownSeconds(current.text);
+    const countdown = {
+      ...current,
+      seconds,
+      driftSeconds: Math.abs(seconds - Math.ceil((window.end - current.at) / 1000)),
+    };
     evidence.countdownSamples ??= [];
     evidence.countdownSamples.push({ tableId, phase, ...countdown });
     expect(seconds).toBeGreaterThan(0);
@@ -286,17 +303,9 @@ test('every captured natural add-on table renders its public minute', async ({
     evidence.observations.push({
       tableId,
       phase,
-      at: now,
-      seconds,
-      cost: await cost.innerText(),
-      chips: await chips.getAttribute('title'),
+      ...countdown,
       receivedTypes: [...(received.get(tableId) ?? [])],
     });
-    if (phase === 'opened')
-      await info.attach(`${tableId}-${phase}`, {
-        body: await page.screenshot({ timeout: 5000 }),
-        contentType: 'image/png',
-      });
     return seconds;
   }
   try {
@@ -349,6 +358,29 @@ test('every captured natural add-on table renders its public minute', async ({
     const first = await Promise.all(
       ids.map((id) => rendered(id, pages.get(id)!, window!, 'opened'))
     );
+    // Supplementary image capture must not serialize or abort minute-long proof.
+    const captureTableId = ids[0];
+    representativeCapture = (async () => {
+      const startedAt = Date.now();
+      try {
+        const body = await pages.get(captureTableId)!.screenshot({ timeout: 5000 });
+        await info.attach(`${captureTableId}-opened`, { body, contentType: 'image/png' });
+        evidence.representativeCapture = {
+          tableId: captureTableId,
+          startedAt,
+          finishedAt: Date.now(),
+          status: 'passed',
+        };
+      } catch (error) {
+        evidence.representativeCapture = {
+          tableId: captureTableId,
+          startedAt,
+          finishedAt: Date.now(),
+          status: 'failed',
+          error: String(error),
+        };
+      }
+    })();
     await new Promise((resolve) => setTimeout(resolve, 2500));
     const second = await Promise.all(
       ids.map((id) => rendered(id, pages.get(id)!, window!, 'progressing'))
@@ -359,37 +391,28 @@ test('every captured natural add-on table renders its public minute', async ({
     // purchase occurred. Its absence must not erase independent window proof.
     const originalPageEnds: Record<string, number> = {};
     const committedCount = await completeAddOnCount();
-    const renderedCounts: number[] = [];
-    for (const id of ids) {
-      await expect
-        .poll(
-          async () =>
-            Number(
-              (
-                await pages
-                  .get(id)!
-                  .getByLabel('Players Who Took Add-On', { exact: true })
-                  .innerText()
-              ).replaceAll(',', '')
-            ),
-          {
-            timeout: 5000,
-            message: 'Live counter did not catch up with committed tournament-wide purchases',
-          }
-        )
-        .toBeGreaterThanOrEqual(committedCount);
-      renderedCounts.push(
-        Number(
-          (
-            await pages.get(id)!.getByLabel('Players Who Took Add-On', { exact: true }).innerText()
-          ).replaceAll(',', '')
-        )
-      );
-      await info.attach(`${id}-live-count`, {
-        body: await pages.get(id)!.screenshot({ timeout: 5000 }),
-        contentType: 'image/png',
-      });
-    }
+    const renderedCounts = await Promise.all(
+      ids.map(async (id) => {
+        let count = NaN;
+        await expect
+          .poll(
+            async () => {
+              const sample = await readAddOnCard(pages.get(id)!);
+              evidence.cardSamples.push({ tableId: id, phase: 'count-consistency', ...sample });
+              count = /^[\d,]+$/.test(sample.count)
+                ? Number(sample.count.replaceAll(',', ''))
+                : NaN;
+              return count;
+            },
+            {
+              timeout: 5000,
+              message: 'Live counter did not catch up with committed tournament-wide purchases',
+            }
+          )
+          .toBeGreaterThanOrEqual(committedCount);
+        return count;
+      })
+    );
     evidence.committedCountDuringWindow = committedCount;
     const committedAfterRenders = await completeAddOnCount();
     for (const count of renderedCounts) expect(count).toBeLessThanOrEqual(committedAfterRenders);
@@ -492,6 +515,7 @@ test('every captured natural add-on table renders its public minute', async ({
     ).toBe(true);
     evidence.consumerProof = 'passed';
   } finally {
+    await representativeCapture;
     evidence.blockedParticipation = blocked;
     await Promise.all(contexts.map((observer) => observer.close().catch(() => undefined)));
     await info.attach('natural-addon-evidence', {

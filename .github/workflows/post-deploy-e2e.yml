@@ -1461,6 +1461,8 @@ jobs:
           # only tests/e2e/*.spec.ts, so nine route suites stayed invisible one
           # level down - the same class of miss as the specs this job exists for.
           # A directory cannot go stale when a tenth file is added beside them.
+          # Every authenticated journey below shares the same reserved account.
+          # Parallel documents can overwrite each other's durable preferences.
           run_suite sweep.json \
             tests/e2e/smoke.spec.ts \
             tests/e2e/club-data-deep.spec.ts \
@@ -1483,7 +1485,7 @@ jobs:
             tests/e2e/an-old-bookmark-lands-somewhere-true.spec.ts \
             tests/e2e/production-csp-violations.spec.ts \
             tests/e2e/routes \
-            --reporter=line,json --workers=2 --retries=0
+            --reporter=line,json --workers=1 --retries=0
           sweep_rc=$?; [ $sweep_rc -ne 0 ] && rc=$sweep_rc
 
           echo "stats exit=$stats_rc  financial admin exit=$financial_admin_rc  lobby exit=$lobby_rc  club members exit=$club_members_rc  customization realtime exit=$customization_realtime_rc  gameplay customization exit=$gameplay_customization_runtime_rc  customization commerce exit=$customization_commerce_rc  daily missions exit=$daily_missions_rc  daily missions accessibility exit=$daily_missions_accessibility_rc  daily missions settlement exit=$daily_missions_settlement_rc  sweep exit=$sweep_rc"
