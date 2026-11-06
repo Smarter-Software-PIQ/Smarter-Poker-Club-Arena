@@ -73,6 +73,7 @@ import {
   spinBlindsForLevel,
 } from '../config/spinSpec.js';
 import { describeError, reportError } from '../services/errorReporter.js';
+import { SeatHeadsRefresher, isSeatBountyEvent } from './seatBountyHeads.js';
 import { noteDiamondTournamentTableSkipped } from '../services/cashTablePlayEligibility.js';
 import { IN_LIST_CHUNK, selectInChunks } from '../services/supabase/chunkedIn.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
@@ -1332,6 +1333,39 @@ export abstract class TournamentManagerBase {
   protected spinRevealEmittedTableIds = new Set<string>();
   // Tournament metadata cache
   protected tournamentCache: any = null;
+
+  /**
+   * THE HEAD ON EVERY SEAT (Dan 2026-11-05). The ledger's bounty heads for
+   * this event, handed to every table engine so they ride the table state
+   * with the chips. See seatBountyHeads.ts. Off a bounty event nothing reads.
+   */
+  protected readonly seatHeads = new SeatHeadsRefresher({
+    read: async () => {
+      const { data, error } = await supabase
+        .from('tournament_players')
+        .select('user_id, current_bounty')
+        .eq('tournament_id', this.tournamentId)
+        .limit(5000);
+      return error || !Array.isArray(data) ? null : data;
+    },
+    publish: (heads) => {
+      for (const engine of this.tableEngines.values()) engine.setSeatBounties?.(heads);
+    },
+    now: () => Date.now(),
+    later: (fn, delayMs) => {
+      setTimeout(fn, delayMs).unref?.();
+    },
+    report: (error) =>
+      reportError(error, 'Tournament.seat_bounty_heads_read_failed', {
+        tournamentId: this.tournamentId,
+      }),
+  });
+
+  /** Read the ledger heads again (coalesced) when this is a bounty event. */
+  protected requestSeatHeads(): void {
+    if (!isSeatBountyEvent(this.tournamentCache)) return;
+    this.seatHeads.request();
+  }
   /**
    * The three club columns the unit rule joins (`fn_ca_tournament_unit_cents`
    * on the SQL side, `tournamentUnitCents` here), read once alongside the
@@ -3693,7 +3727,14 @@ export abstract class TournamentManagerBase {
    * exact deadline.
    */
   protected wireEliminationWake(engine: ServerTableEngine): void {
+    // A table joining a bounty event starts with the heads already read and
+    // asks for a fresh read; every hand it completes asks again (coalesced).
+    if (isSeatBountyEvent(this.tournamentCache)) {
+      engine.setSeatBounties?.(this.seatHeads.current());
+      this.requestSeatHeads();
+    }
     engine.onHandComplete((_tableId, finalStacks) => {
+      this.requestSeatHeads();
       const recovered = this.recoveredOriginalAdmissions.get(_tableId);
       if (
         recovered?.engine === engine &&
@@ -5478,10 +5519,21 @@ export abstract class TournamentManagerBase {
     }
   }
 
-  /** True only when NO table in this event has a hand in progress. */
+  /**
+   * True only when NO table in this event has a hand in progress.
+   *
+   * A table whose only controller is a retained original that never started,
+   * held at the pause gate by the activation boundary itself, has no hand in
+   * progress: no card is dealt and no decision made, and it starts after the
+   * activation like any later hand. Counting it as a live hand made the
+   * boundary wait for the hand and the hand wait for the boundary - the
+   * circular wait that froze Satellites 25 and 30 on 2026-11-05, here on the
+   * mystery activation boundary (isPreparedOriginalHeldAtPauseGate).
+   */
   protected allTablesBetweenHands(): boolean {
     for (const engine of this.tableEngines.values()) {
       try {
+        if (engine.isPreparedOriginalHeldAtPauseGate?.() === true) continue;
         if (!engine.isBetweenHands()) return false;
       } catch {
         // An engine that cannot answer is an engine we cannot vouch for.

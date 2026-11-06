@@ -9,6 +9,8 @@
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='8s';
+-- Existing postgres-only admission for pre-start blind/clock contract transitions.
+SET LOCAL app.lock_level_clock='on';
 DO $guard$
 BEGIN
  IF md5(pg_get_functiondef('public.fn_ca_tournament_lock_level_clock()'::regprocedure)) NOT IN ('b7f65a69cfded92ffbab47184ed6bfe4','5a612658a54907df14142624d8253249') THEN

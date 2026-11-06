@@ -1,6 +1,7 @@
 import { useSatelliteDestination } from '../lobby/game-cards/useTournamentCardText';
 import {
   tournamentEntryWindow,
+  tournamentEntryWindowOpen,
   type TournamentEntryWindowRow,
 } from '../../utils/tournamentEntryWindow';
 import {
@@ -312,12 +313,16 @@ function TournamentLobbyCardInner({
   });
   const lateRegLevels = entryWindow.mode === 'levels' ? entryWindow.cap : 0;
   const lateRegMinutes = entryWindow.mode === 'minutes' ? entryWindow.minutes : 0;
-  const hasLateReg = lateRegLevels > 0 || lateRegMinutes > 0;
+  const hasLateReg =
+    tournament.add_on_available === true || lateRegLevels > 0 || lateRegMinutes > 0;
 
   useEffect(() => {
     if (tournament.status === 'running' && hasLateReg) {
       updateLateRegCountdown();
-      const interval = setInterval(updateLateRegCountdown, 10000);
+      const interval = setInterval(
+        updateLateRegCountdown,
+        tournament.add_on_available ? 1000 : 10000
+      );
       return () => clearInterval(interval);
     }
     setLateRegCountdown('');
@@ -331,6 +336,11 @@ function TournamentLobbyCardInner({
     tournament.prize_pool_finalized,
     tournament.current_level,
     tournament.started_at,
+    tournament.add_on_available,
+    tournament.addon_from_start,
+    tournament.addon_period_started_at,
+    tournament.addon_period_triggered,
+    tournament.addon_period_ends_at,
   ]);
 
   const checkRegistration = async () => {
@@ -404,6 +414,12 @@ function TournamentLobbyCardInner({
   const updateLateRegCountdown = () => {
     const startedAt = tournament.started_at;
     const startedMs = startedAt ? new Date(startedAt).getTime() : null;
+    if (tournament.add_on_available === true) {
+      const active = tournamentEntryWindowOpen(tournament, Date.now());
+      setLateRegActive(active);
+      setLateRegCountdown(active ? 'Open Through Add-On' : 'Closed');
+      return;
+    }
     const next = lateRegState({
       levels: lateRegLevels,
       minutes: lateRegMinutes,

@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
     username: string;
     chips: number;
     status: string;
+    add_on?: boolean;
   }>,
   total: 73,
   level: 2,
@@ -20,7 +21,15 @@ const state = vi.hoisted(() => ({
   hold: null as Promise<void> | null,
   metadataHold: null as Promise<void> | null,
   listeners: new Map<string, () => void>(),
+  purchaseSignal: null as null | (() => void),
+  purchaseStatus: null as null | ((status: string) => void),
   subscribers: new Map<string, Set<() => void>>(),
+}));
+vi.mock('../../src/hooks/useMasterBusBroadcastChannel', () => ({
+  useMasterBusBroadcastChannel: (options: any) => {
+    state.purchaseSignal = options.onPayload;
+    state.purchaseStatus = options.onSubscriptionStatus;
+  },
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 vi.mock('../../src/services/tournamentStandingsUpdates', () => ({
@@ -131,6 +140,25 @@ beforeEach(() => {
 });
 
 describe('live break standings', () => {
+  it('counts confirmed add-ons across all tables and refreshes on purchase and reconnect', async () => {
+    state.rows[0].add_on = true;
+    render(<TournamentBreakScreen {...props} addOnNotice={{ cost: 35, chips: 20000 }} />);
+    await flush();
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('1');
+    state.rows[72].add_on = true;
+    await act(async () => state.purchaseSignal?.());
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('2');
+    // Replayed delivery reads the same committed rows, never increments twice.
+    await act(async () => state.purchaseSignal?.());
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('2');
+    state.rows[71].add_on = true;
+    await act(async () => state.purchaseStatus?.('SUBSCRIBED'));
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('3');
+    state.error = true;
+    await act(async () => state.purchaseSignal?.());
+    expect(screen.getByLabelText('Players Who Took Add-On')).toHaveTextContent('N/A');
+  });
+
   it('shows Your VPIP only to an entrant of this event, never to a rail watcher', async () => {
     const view = render(<TournamentBreakScreen {...props} heroUserId="spectator" />);
     await flush();

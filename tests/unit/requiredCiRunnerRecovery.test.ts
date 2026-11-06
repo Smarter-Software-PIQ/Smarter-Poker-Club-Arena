@@ -291,6 +291,29 @@ const normalizeBountyOnlyFinalTwoAddition = (job: { steps: Array<Record<string, 
   job.steps.splice(index, 1);
 };
 
+const bountyOnlyFinalTwoWatchStep = {
+  name: 'A bounty only final two payout is watched on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-bounty-only-final-two-watch.py',
+};
+const normalizeBountyOnlyFinalTwoWatchAddition = (job: {
+  steps: Array<Record<string, unknown>>;
+}) => {
+  const index = job.steps.findIndex((step) => step.name === bountyOnlyFinalTwoWatchStep.name);
+  expect(job.steps.filter((step) => step.name === bountyOnlyFinalTwoWatchStep.name)).toHaveLength(
+    1
+  );
+  expect(job.steps[index - 1]?.name).toBe(bountyOnlyFinalTwoStep.name);
+  expect(job.steps[index]).toStrictEqual(bountyOnlyFinalTwoWatchStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (owner rule 2026-11-05: both final
+  // two heads are proven paid), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 const sweepGatePendingWorkStep = {
   name: 'The sweep gate reads pending bounty work on native PostgreSQL',
   if: 'matrix.shard == 1',
@@ -300,7 +323,7 @@ const sweepGatePendingWorkStep = {
 const normalizeSweepGatePendingWorkAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === sweepGatePendingWorkStep.name);
   expect(job.steps.filter((step) => step.name === sweepGatePendingWorkStep.name)).toHaveLength(1);
-  expect(job.steps[index - 1]?.name).toBe(bountyOnlyFinalTwoStep.name);
+  expect(job.steps[index - 1]?.name).toBe(bountyOnlyFinalTwoWatchStep.name);
   expect(job.steps[index]).toStrictEqual(sweepGatePendingWorkStep);
   expect(job.steps[index + 1]?.name).toBe(
     'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
@@ -432,6 +455,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
     normalizeSweepGatePendingWorkAddition(normalized.jobs.accounting_postgres);
+    normalizeBountyOnlyFinalTwoWatchAddition(normalized.jobs.accounting_postgres);
     normalizeBountyOnlyFinalTwoAddition(normalized.jobs.accounting_postgres);
     normalizeGuaranteeFundingWatchAddition(normalized.jobs.accounting_postgres);
     // Review the added tournament gate exactly, then retain every existing job pin.

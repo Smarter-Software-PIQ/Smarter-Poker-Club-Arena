@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TournamentBreakScreen from '../../src/components/table/TournamentBreakScreen';
 
 const clock = vi.hoisted(() => ({ now: 1_000_000 }));
+vi.mock('../../src/hooks/useMasterBusBroadcastChannel', () => ({
+  useMasterBusBroadcastChannel: () => {},
+}));
 vi.mock('../../src/utils/serverClock', () => ({ serverNow: () => clock.now }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 const reads = vi.hoisted(() => ({ result: new Promise(() => {}) as Promise<unknown> }));

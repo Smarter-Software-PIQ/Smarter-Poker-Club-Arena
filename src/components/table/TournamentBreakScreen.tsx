@@ -12,6 +12,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useMasterBusBroadcastChannel } from '../../hooks/useMasterBusBroadcastChannel';
 import { serverNow } from '../../utils/serverClock';
 import { supabase } from '../../lib/supabase';
 import { tournamentChipRanks } from '../../utils/tournamentChipRanks';
@@ -221,11 +222,28 @@ export function TournamentBreakScreen({
     prizePool: number;
     playersRemaining: number;
     totalPlayers: number;
+    addOnsTaken: number;
     averageStack: number;
     topPlayers: TournamentPlayer[];
     myPlayer?: TournamentPlayer;
     heroIsEntrant: boolean;
   } | null>(null);
+  const refreshFacts = useRef<(() => void) | null>(null);
+  const [addOnFeedFailed, setAddOnFeedFailed] = useState(false);
+  useMasterBusBroadcastChannel({
+    channelName:
+      isVisible && addOnNotice && tournamentId ? `tournament-purchases:${tournamentId}` : null,
+    event: 'purchase_committed',
+    private: true,
+    onPayload: () => refreshFacts.current?.(),
+    onSubscriptionStatus: (status) => {
+      if (status === 'SUBSCRIBED') {
+        setAddOnFeedFailed(false);
+        refreshFacts.current?.();
+      }
+    },
+    onSubscriptionError: () => setAddOnFeedFailed(true),
+  });
   const factsScope = JSON.stringify([
     tournamentId,
     heroUserId,
@@ -264,7 +282,12 @@ export function TournamentBreakScreen({
                 .maybeSingle(),
             { signal: controller.signal }
           ),
-          readTournamentStandings(tournamentId, 'id, user_id, username, chips, status'),
+          readTournamentStandings(
+            tournamentId,
+            'id, user_id, username, chips, status, add_on',
+            false,
+            controller.signal
+          ),
         ]);
         if (!mounted || pending) return;
         if (tRes.error || pRes.error || !tRes.data || !pRes.data) {
@@ -359,6 +382,9 @@ export function TournamentBreakScreen({
           ),
           playersRemaining: active.length,
           totalPlayers: pRes.data.length,
+          addOnsTaken: new Set(
+            pRes.data.filter((row) => row.add_on === true).map((row) => String(row.user_id))
+          ).size,
           averageStack: active.length ? Math.trunc(totalChips / active.length) : 0,
           topPlayers: ranked.slice(0, 5),
           myPlayer: ranked.find((r) => r.isCurrentUser),
@@ -384,10 +410,12 @@ export function TournamentBreakScreen({
         if (mounted && pending) void load();
       }
     };
+    refreshFacts.current = () => void load();
     const stop = subscribeTournamentStandings(tournamentId, () => void load());
     void load();
     return () => {
       mounted = false;
+      refreshFacts.current = null;
       controller.abort();
       stop();
     };
@@ -725,6 +753,15 @@ export function TournamentBreakScreen({
                 </span>
                 <span className="break-screen__stat-sub">
                   {countingDown ? 'All Tables Paused' : 'Finishing Current Hands'}
+                </span>
+              </div>
+              <div className="break-screen__stat" aria-live="polite" aria-atomic="true">
+                <span className="break-screen__stat-label">Add-Ons Taken</span>
+                <span className="break-screen__stat-value" aria-label="Players Who Took Add-On">
+                  {currentFacts ? currentFacts.addOnsTaken.toLocaleString('en-US') : unknownValue}
+                </span>
+                <span className="break-screen__stat-sub">
+                  {addOnFeedFailed ? 'Live Updates Unavailable' : 'Across All Tables'}
                 </span>
               </div>
             </div>
