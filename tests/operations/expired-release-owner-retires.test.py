@@ -11,7 +11,8 @@ owner". These laws pin the four properties that end that class of outage:
    release constant;
 2. a refused custody proof names the invariant that failed;
 3. a release unit parked in systemd auto-restart is not a live owner;
-4. the release unit template bounds its restarts.
+4. the release unit bounds its restarts through a drop-in, and the frozen v1
+   template renders byte-identical to production.
 """
 import ast
 import os
@@ -92,9 +93,30 @@ class ExpiredOwnerRetiresGenerically(unittest.TestCase):
         source = SUPERVISOR.read_text()
         unit = source[source.index('club-arena-engine-release-v1@.service" <<UNIT'):]
         unit = unit[:unit.index('\nUNIT\n')]
-        self.assertIn('StartLimitIntervalSec=20min', unit)
-        self.assertIn('StartLimitBurst=5', unit)
-        self.assertNotIn('StartLimitIntervalSec=0', unit)
+        # The bound is a drop-in: the v1 template itself is frozen byte for byte.
+        self.assertNotIn('StartLimitBurst', unit)
+        dropin = source[source.index("<<'DROPIN'\n") + len("<<'DROPIN'\n"):]
+        dropin = dropin[:dropin.index('\nDROPIN\n')]
+        self.assertIn('[Unit]', dropin)
+        self.assertIn('StartLimitIntervalSec=20min', dropin)
+        self.assertIn('StartLimitBurst=5', dropin)
+        self.assertIn('$RELEASE_UNIT_V1.d', source)
+        self.assertIn('mv -T "$NEXT_DROPIN" "$RELEASE_UNIT_V1_DROPIN"', source)
+
+    def test_frozen_release_v1_template_renders_byte_identical_to_production(self):
+        # 2026-11-05 run 42162399056-1: a two-line edit to this template made
+        # every later control generation fail install permanently with
+        # "frozen release v1 unit differs". The template must render to the
+        # exact bytes installed on the production host since 2026-09-11.
+        source = SUPERVISOR.read_text()
+        marker = 'club-arena-engine-release-v1@.service" <<UNIT\n'
+        unit = source[source.index(marker) + len(marker):]
+        unit = unit[:unit.index('\nUNIT\n') + 1]
+        rendered = (unit.replace('$UNIT_WRAPPER_V1', '/usr/local/lib/club-arena/engine-release-unit-wrapper-v1.sh')
+                        .replace('\\${', '${'))
+        self.assertNotIn('$UNIT_WRAPPER_V1', rendered)
+        frozen = (ROOT / 'tests' / 'fixtures' / 'frozen-club-arena-engine-release-v1@.service').read_text()
+        self.assertEqual(rendered, frozen)
 
 
 if __name__ == '__main__':
