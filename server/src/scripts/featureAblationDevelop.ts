@@ -11,7 +11,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'feature-ablation-offline-placeholder';
 const args = new Map<string, string>();
 for (const a of process.argv.slice(2)) {
   const m =
-    /^--(experiment|variant|profile|seed|pairs|start-pair|proposed-owner-head|output|inspect|hero-candidate-style|hero-reference-style)=(.+)$/.exec(
+    /^--(experiment|variant|profile|seed|pairs|start-pair|proposed-owner-head|output|inspect|trace-plans|hero-candidate-style|hero-reference-style)=(.+)$/.exec(
       a
     );
   if (!m || args.has(m[1])) throw new Error('Unknown/duplicate development argument');
@@ -21,7 +21,8 @@ for (const key of ['experiment', 'variant', 'profile', 'seed', 'pairs', 'output'
   if (!args.has(key)) throw new Error(`Missing --${key}`);
 const { hydrateFrozenFeatureAblationStores } =
   await import('../benchmark/FeatureAblationStores.js');
-const { createFeatureAblationWorker } = await import('../benchmark/FeatureAblationWorker.js');
+const { createFeatureAblationWorker, boundedFeaturePlanTraceSink } =
+  await import('../benchmark/FeatureAblationWorker.js');
 const { runFeatureAblationDevelopment, ablationPilotMoments, assertDevelopmentAblationArms } =
   await import('../benchmark/FeatureAblationLeague.js');
 const { PLO6_V24_DEVELOPMENT_DESIGN, plo6V24DevelopmentSpec, plo6V24DevelopmentProfile } =
@@ -112,6 +113,15 @@ try {
     throw new Error('Invalid inspection mode');
   if (!Number.isSafeInteger(startPair) || startPair < 0 || startPair + pairs > 576)
     throw new Error('Development continuation outside declared 576-pair pilot');
+  const tracePlans = args.get('trace-plans');
+  if (
+    tracePlans !== undefined &&
+    (tracePlans !== 'true' ||
+      experiment !== 'barrel_continuation_outlook' ||
+      pairs !== 1 ||
+      args.get('inspect') === 'true')
+  )
+    throw Error('Plan diagnostics require exactly one barrel continuation development pair');
   const proposedOwnerHead = args.get('proposed-owner-head');
   const dirtyCoreFiles = git(['diff', '--name-only', '--no-relative', '--', 'src/engine'])
     .trim()
@@ -224,6 +234,9 @@ try {
   const manifest = {
     ...(styleContrast ? { heroStyleContrast: styleContrast } : {}),
     schema: 'horse-feature-ablation-development-manifest-v1',
+    ...(tracePlans
+      ? { planDiagnostics: { maxEvents: 256, maxEventBytes: 16384, ownOnly: true } }
+      : {}),
     mode: args.get('inspect') === 'true' ? 'baseline_inspection_no_deals' : 'development',
     baselineKind: isIncrementalTarget(experiment)
       ? 'proposed_combined_candidate_development'
@@ -286,6 +299,8 @@ try {
     const receiptHash = createHash('sha256');
     let receiptCount = 0;
     const planResolutions: Record<string, number> = {};
+    const planTrace: import('../benchmark/FeatureAblationWorker.js').FeatureAblationPlanTrace[] =
+      [];
     enableBrainTelemetry();
     const brain = createFeatureAblationWorker(
       (r) => {
@@ -307,7 +322,8 @@ try {
           historyCache.set(key, packet);
         }
         return packet;
-      }
+      },
+      tracePlans ? boundedFeaturePlanTraceSink(planTrace) : undefined
     );
     const spec = styleContrast
       ? {
@@ -355,9 +371,15 @@ try {
     } finally {
       await rawHandle.close();
     }
+    const planTraceText = JSON.stringify(planTrace, null, 2) + '\n';
+    if (tracePlans)
+      await writeFile(resolve(out, 'own-plan-trace.json'), planTraceText, { flag: 'wx' });
     const rawPairs = await readFile(resolve(out, 'raw-pairs.jsonl'));
     const evidence = {
       manifestSha256: sha(manifestText),
+      ...(tracePlans
+        ? { planTraceSha256: sha(planTraceText), planTraceEvents: planTrace.length }
+        : {}),
       result,
       rawPairsSha256: sha(rawPairs),
       rawPairCount: result.pairs,
