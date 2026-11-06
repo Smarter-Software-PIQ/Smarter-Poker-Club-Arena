@@ -2274,6 +2274,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     return this.maintenancePaused && this.isPreparedOriginalHeldAtPauseGate();
   }
 
+  override describeHeldOriginalAtPauseGate(): { permitId: string; handNumber: string } | null {
+    if (!this.isPreparedOriginalHeldAtPauseGate() || !this.f06CurrentPermit) return null;
+    const binding = this.f06CurrentPermit.binding;
+    return { permitId: String(binding.permit_id), handNumber: String(binding.hand_number) };
+  }
+
   protected async readNextHandInputs(): Promise<SeatedPlayer[]> {
     // Seats and cash rake can be prepared in parallel under the rest.
     // Tournament blinds must wait until that rest ends: a level may advance

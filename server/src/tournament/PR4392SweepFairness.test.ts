@@ -391,6 +391,9 @@ describe('PR4392 actual staged sweep fairness', () => {
         if (request.table === 'tournament_players' && request.head) return { count: 3 };
       });
       const { manager } = bustStageManager();
+      // An open or concurrently resolved rebuy decision exists only in an
+      // event that sells rebuys; a freezeout opens none (2026-11-05).
+      manager.tournamentCache.is_rebuy = true;
       Object.assign(manager, {
         tryTournamentRebuys: vi.fn(async () => ({
           rebought: new Set(outcome === 'rebought' ? [bustedId] : []),

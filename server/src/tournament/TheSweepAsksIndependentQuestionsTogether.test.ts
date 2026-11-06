@@ -225,17 +225,78 @@ describe('the sweep asks independent questions together', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('reaches the first elimination of a one-bust event after five round trips, not seven', async () => {
-    oneBustOfTwo();
+  it('reaches the first elimination of a one-bust freezeout after three round trips, not seven', async () => {
+    const sent = oneBustOfTwo();
     const { manager, eliminated } = bustStageManager();
     const startedAt = await sweep(manager);
 
     expect(eliminated).toHaveLength(1);
     expect(eliminated[0]).toMatchObject({ userId: bustedId, place: 2 });
-    // busted list -> playing count -> knockout order -> rebuy decisions ->
-    // (taken places + unplaced count). Two trips fewer than before.
-    expect(eliminated[0].at - startedAt).toBe(5 * TRIP_MS);
+    // busted list -> (playing count + knockout order) -> (taken places +
+    // unplaced count). A freezeout opens no rebuy decision (2026-11-05).
+    expect(eliminated[0].at - startedAt).toBe(3 * TRIP_MS);
+    expect(sent.some((r) => r.table === 'rpc:fn_open_tournament_rebuy_decisions')).toBe(false);
     expect(fixture.reportError).not.toHaveBeenCalled();
+  });
+
+  it('sends the playing count and the first knockout-order page in the same round trip', async () => {
+    const sent = oneBustOfTwo();
+    const { manager } = bustStageManager();
+    await sweep(manager);
+    const count = sent.find((r) => isPlayingCount(r));
+    const order = sent.find((r) => r.table === 'tournament_knockout_candidates');
+    expect(count).toBeDefined();
+    expect(order).toBeDefined();
+    expect(order!.sentAt).toBe(count!.sentAt);
+  });
+
+  it.each([
+    ['rebuy', { is_rebuy: true, is_reentry: false }],
+    ['re-entry', { is_rebuy: false, is_reentry: true }],
+    ['unread format', { is_rebuy: undefined, is_reentry: undefined }],
+  ])('still opens the rebuy decision for a %s event (four trips)', async (_label, format) => {
+    const sent = oneBustOfTwo();
+    const { manager, eliminated } = bustStageManager();
+    Object.assign(manager.tournamentCache, format);
+    // A rebuy event with no rebuy window open behaves like the freezeout.
+    manager.tryTournamentRebuys = vi.fn().mockResolvedValue({
+      rebought: new Set(),
+      answered: new Set(),
+      horses: new Set(),
+      deferredUntil: new Map(),
+    });
+    const startedAt = await sweep(manager);
+    expect(eliminated).toHaveLength(1);
+    expect(sent.filter((r) => r.table === 'rpc:fn_open_tournament_rebuy_decisions')).toHaveLength(
+      1
+    );
+    expect(eliminated[0].at - startedAt).toBe(4 * TRIP_MS);
+  });
+
+  it('holds an open rebuy decision in a rebuy event exactly as before', async () => {
+    oneBustOfTwo((request) =>
+      request.table === 'rpc:fn_open_tournament_rebuy_decisions'
+        ? {
+            data: [
+              {
+                user_id: bustedId,
+                rebuy_prompt_until: new Date(Date.now() + 30_000).toISOString(),
+                decision_open: true,
+              },
+            ],
+          }
+        : undefined
+    );
+    const { manager, eliminated } = bustStageManager();
+    manager.tournamentCache.is_rebuy = true;
+    manager.tryTournamentRebuys = vi.fn().mockResolvedValue({
+      rebought: new Set(),
+      answered: new Set(),
+      horses: new Set(),
+      deferredUntil: new Map(),
+    });
+    await sweep(manager);
+    expect(eliminated).toHaveLength(0);
   });
 
   it('reads the playing count once and lets it answer both the guard and the ladder', async () => {

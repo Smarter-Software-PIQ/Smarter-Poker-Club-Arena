@@ -1,0 +1,4 @@
+{
+  "_owner": "Avatar URL selection is synchronous and already runs at startup. This small dependency-free helper pins artwork requests to the same revision as measured sizing and prevents stale cached art from rendering at the new scale.",
+  "modules": ["src/lib/avatarArtRevision.ts"]
+}

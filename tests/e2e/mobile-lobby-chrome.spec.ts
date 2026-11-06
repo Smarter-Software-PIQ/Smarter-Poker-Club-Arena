@@ -109,6 +109,8 @@ test.describe('tournament scroll gestures', () => {
     await expect(nav).toHaveAttribute('data-footer-hidden', 'true');
   });
   for (const width of [375, 1518]) {
+    // Native wheel completion belongs to each tab's own bounded case. Seven
+    // tabs sharing one 30s deadline exhausted it on Rewards in hosted WebKit.
     for (const [name, root, list] of [
       ['Details', 'dov', 'dov-info dov-info--band tl-scroll'],
       ['Blinds', 'blinds-tab', 'blinds-list'],
@@ -118,8 +120,6 @@ test.describe('tournament scroll gestures', () => {
       ['Tables', 'tl-panel tt-panel', 'tl-list tl-scroll tt-list'],
       ['Rewards', 'rw', 'rw-list'],
     ]) {
-      // Each tab owns the existing deadline and a fresh native wheel context.
-      // Combining seven tabs made the last one inherit an exhausted budget.
       test(`tournament tabs scroll from centre and sides at ${width}px: ${name}`, async ({
         page,
       }) => {
@@ -140,15 +140,15 @@ test.describe('tournament scroll gestures', () => {
           .map(css)
           .join('\n');
         await page.setContent(`<style>${sheets}</style>
-      <section class="tournament-details" style="--details-h:780px">
-        <header class="details-header"><h1 class="tournament-name">Tournament</h1></header>
-        <nav class="details-tabs"><button class="tab">${name}</button></nav>
-        <div class="details-content"><div class="${root}">
-          <ol class="${list}" style="margin:0;padding:0;list-style:none">
-            ${Array.from({ length: 40 }, (_, i) => `<li style="height:64px;flex-shrink:0">Row ${i + 1}</li>`).join('')}
-          </ol></div></div>
-        <footer class="details-footer"><button>Share</button></footer>
-      </section>`);
+          <section class="tournament-details" style="--details-h:780px">
+            <header class="details-header"><h1 class="tournament-name">Tournament</h1></header>
+            <nav class="details-tabs"><button class="tab">${name}</button></nav>
+            <div class="details-content"><div class="${root}">
+              <ol class="${list}" style="margin:0;padding:0;list-style:none">
+                ${Array.from({ length: 40 }, (_, i) => `<li style="height:64px;flex-shrink:0">Row ${i + 1}</li>`).join('')}
+              </ol></div></div>
+            <footer class="details-footer"><button>Share</button></footer>
+          </section>`);
         const panel = page.locator('.details-content');
         const box = await panel.boundingBox();
         expect(box).not.toBeNull();

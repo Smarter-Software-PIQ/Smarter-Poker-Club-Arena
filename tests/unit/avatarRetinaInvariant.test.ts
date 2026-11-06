@@ -11,10 +11,11 @@
  * These tests pin the two rules that make that impossible:
  *   1. SeatSlot may only offer a 2x srcSet candidate for BASE table art
  *      (guarded by a regex that rejects URLs already containing @2x).
- *   2. getAvatarWithFallback must pass @2x table art through untouched.
+ *   2. getAvatarWithFallback must keep a single @2x suffix while requesting the current art revision.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
+import { AVATAR_ART_REVISION } from '../../src/lib/avatarArtRevision';
 import { getAvatarWithFallback, sizedStorageUrl } from '../../src/utils/avatarGenerator';
 
 const seatSlot = readFileSync('src/components/table/SeatSlot.tsx', 'utf8');
@@ -41,19 +42,19 @@ describe('SeatSlot retina srcSet guard', () => {
 });
 
 describe('getAvatarWithFallback', () => {
-  it('passes @2x table art through untouched (absolute)', () => {
+  it('keeps a single @2x suffix and requests the current art revision', () => {
     expect(getAvatarWithFallback('/avatars/table/vip_angel@2x.webp', 'seed', 'Name')).toBe(
-      'https://smarter.poker/avatars/table/vip_angel@2x.webp'
+      `https://smarter.poker/avatars/table/vip_angel@2x.webp?art=${AVATAR_ART_REVISION}`
     );
   });
   it('maps library png to the table webp', () => {
     expect(getAvatarWithFallback('/avatars/free/shark.png', 'seed', 'Name')).toBe(
-      'https://smarter.poker/avatars/table/free_shark.webp'
+      `https://smarter.poker/avatars/table/free_shark@2x.webp?art=${AVATAR_ART_REVISION}`
     );
   });
   it('maps the current Hub library webp to the table webp', () => {
     expect(getAvatarWithFallback('/avatars/free/shark.webp', 'seed', 'Name')).toBe(
-      'https://smarter.poker/avatars/table/free_shark.webp'
+      `https://smarter.poker/avatars/table/free_shark@2x.webp?art=${AVATAR_ART_REVISION}`
     );
   });
   it('routes storage objects through the resize endpoint when sized', () => {

@@ -329,6 +329,26 @@ const normalizeBountyOnlyFinalTwoWatchAddition = (job: {
   job.steps.splice(index, 1);
 };
 
+const sweepGatePendingWorkStep = {
+  name: 'The sweep gate reads pending bounty work on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-sweep-gate-pending-bounty-work.py',
+};
+const normalizeSweepGatePendingWorkAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === sweepGatePendingWorkStep.name);
+  expect(job.steps.filter((step) => step.name === sweepGatePendingWorkStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(bountyOnlyFinalTwoWatchStep.name);
+  expect(job.steps[index]).toStrictEqual(sweepGatePendingWorkStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (2026-11-06: the per-sweep bounty gate
+  // reads pending work, not every marker), preserving every historical job
+  // fingerprint.
+  job.steps.splice(index, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -450,6 +470,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     chicagoSteps.splice(chicagoIndex, 1);
 
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
+    normalizeSweepGatePendingWorkAddition(normalized.jobs.accounting_postgres);
     normalizeBountyOnlyFinalTwoWatchAddition(normalized.jobs.accounting_postgres);
     normalizeBountyOnlyFinalTwoAddition(normalized.jobs.accounting_postgres);
     normalizeGuaranteeFundingWatchAddition(normalized.jobs.accounting_postgres);

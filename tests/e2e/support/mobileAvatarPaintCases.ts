@@ -31,8 +31,8 @@ export function registerMobileAvatarPaintCases() {
       height: image.naturalHeight,
     }));
     expect(measured).toEqual({ width: 250, height: 340 });
-    // Independent asset measurement: alpha>=16 starts at row106 of340.
-    expect(AVATAR_CROWN_TOP['free_penguin@2x.webp']).toBeCloseTo(106 / 340, 5);
+    // Independent asset measurement: alpha>=16 starts at row27 of340.
+    expect(AVATAR_CROWN_TOP['free_penguin@2x.webp']).toBeCloseTo(27 / 340, 5);
     // The raw canvas intersects the board, independently of crown metadata.
     // Decoded transparent pixels must clear with or without that metadata.
     const rawOverlap = await page.evaluate(() => {

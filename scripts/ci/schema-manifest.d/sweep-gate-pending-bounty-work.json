@@ -1,0 +1,6 @@
+{
+  "_owner": "perf/elimination-sweep-round-trips",
+  "_comment": "Migration 20261106034328 (the sweep gate reads pending bounty work, not every marker).",
+  "tables": [],
+  "functions": ["fn_tournament_has_pending_bounty_work"]
+}
