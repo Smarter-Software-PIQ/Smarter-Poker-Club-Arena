@@ -15,7 +15,10 @@ import { horseLeagueComputeResponseIsValid } from './HorseLeagueComputeWorkerCli
 import type { TournamentLeagueResult, TournamentLeagueRequest } from './HorseTournamentLeague.js';
 
 export const FLAG_WORKFLOW = '.github/workflows/horse-tournament-flag-cards.yml';
-export const FLAG_REPOSITORY = 'Smarter-Poker/Smarter-Poker-Club-Arena';
+/** The repository transfer changed the provider name, not its immutable identity.
+ * Card seeds are one-shot reservations, so a stale name would burn them on refusal. */
+export const FLAG_REPOSITORY = 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena';
+export const FLAG_REPOSITORY_ID = 1132369872;
 export interface TournamentFlagPlan {
   schema: 'horse-tournament-flag-plan-v1';
   state: 'awaiting_protected_source_lock' | 'heldout_locked';
@@ -111,6 +114,7 @@ export async function tournamentFlagProvider(card: string, cellKey?: string) {
     attempt = Number(env.GITHUB_RUN_ATTEMPT);
   if (
     env.GITHUB_REPOSITORY !== FLAG_REPOSITORY ||
+    env.GITHUB_REPOSITORY_ID !== String(FLAG_REPOSITORY_ID) ||
     env.GITHUB_REF !== 'refs/heads/main' ||
     env.GITHUB_EVENT_NAME !== 'workflow_dispatch' ||
     !Number.isSafeInteger(id) ||
@@ -133,6 +137,8 @@ export async function tournamentFlagProvider(card: string, cellKey?: string) {
   const run = await api(`/actions/runs/${id}`);
   if (
     run.event !== 'workflow_dispatch' ||
+    run.repository?.id !== FLAG_REPOSITORY_ID ||
+    run.repository?.full_name !== FLAG_REPOSITORY ||
     run.head_branch !== 'main' ||
     run.path !== FLAG_WORKFLOW ||
     run.run_attempt !== 1 ||
