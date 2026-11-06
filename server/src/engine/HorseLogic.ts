@@ -1,3 +1,4 @@
+import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
 import { smallPotNearNutRiverValue } from './HorseNearNutRiverValue.js';
@@ -9880,7 +9881,17 @@ export class HorseLogic {
       // vulnerable made hands and monsters on DYNAMIC boards, low frequency.
       // In position it never applies — checked to us, the aggressor already
       // declined to bet, so stabbing/value-betting is not a donk.
-      if (useV11 && useIQ && initiative === 'opp' && !prevChecked && !ip) {
+      // Multiway, the same is true after the actual aggressor checks even
+      // when a different opponent remains behind. Position alone cannot
+      // tell us whether we are leading into the aggressor.
+      if (
+        useV11 &&
+        useIQ &&
+        initiative === 'opp' &&
+        !prevChecked &&
+        !ip &&
+        !priorAggressorCheckedThisStreet(gs.actionHistory, street)
+      ) {
         const donkLead =
           (vulnerable && wetness >= 0.5 && fastRandom() < 0.2) ||
           (equity >= multiwayValueBar(0.8, oppCount) + mw && wetness >= 0.55 && fastRandom() < 0.3);
