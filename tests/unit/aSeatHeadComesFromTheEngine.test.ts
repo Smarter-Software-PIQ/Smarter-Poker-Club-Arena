@@ -11,7 +11,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { mapEngineSnapshot } from '../../src/utils/mapEngineSnapshot';
-import { seatBountyBadge } from '../../src/utils/mysteryBountyTable';
+import {
+  observeHead,
+  seatBountyBadge,
+  seatsNeedLedgerHeadPoll,
+  type HeadObservation,
+} from '../../src/utils/mysteryBountyTable';
 
 function snapshot(players: Array<Record<string, unknown>>) {
   return {
@@ -69,6 +74,52 @@ describe('a seat head comes from the engine', () => {
     expect(
       seatBountyBadge({ ...base, isBountyTournament: false, mysteryChestsLive: false }).value
     ).toBeUndefined();
+  });
+
+  it('the fresher source wins: a map that changed after the engine head outranks it', () => {
+    const base = {
+      isBountyTournament: true,
+      mysteryChestsLive: false,
+      playerId: 'a',
+      bountyMap: { a: 7.5 },
+      engineBounty: 5,
+    };
+    // The engine's heads read failed after a knockout; the map moved later.
+    expect(seatBountyBadge({ ...base, engineSeenAt: 100, mapSeenAt: 200 }).value).toBe(7.5);
+    // The engine caught up (or moved first): it wins again, ties included.
+    expect(seatBountyBadge({ ...base, engineSeenAt: 300, mapSeenAt: 200 }).value).toBe(5);
+    expect(seatBountyBadge({ ...base, engineSeenAt: 200, mapSeenAt: 200 }).value).toBe(5);
+    // A map with no head for the seat never hides the engine's.
+    expect(
+      seatBountyBadge({ ...base, bountyMap: {}, engineSeenAt: 100, mapSeenAt: 200 }).value
+    ).toBe(5);
+  });
+
+  it('observes when each value was first seen, idempotently', () => {
+    const seen = new Map<string, HeadObservation>();
+    expect(observeHead(seen, 'a', 5, 100)).toBe(100);
+    expect(observeHead(seen, 'a', 5, 900)).toBe(100);
+    expect(observeHead(seen, 'a', 7.5, 1000)).toBe(1000);
+    expect(observeHead(seen, 'a', 'x', 1100)).toBe(1100);
+    expect(observeHead(seen, null, 5, 1200)).toBeUndefined();
+  });
+
+  it('the client polls the ledger only while a live seat lacks the engine head', () => {
+    expect(
+      seatsNeedLedgerHeadPoll([
+        { id: 'a', bounty: 5 },
+        { id: 'b', bounty: 0 },
+      ])
+    ).toBe(false);
+    expect(seatsNeedLedgerHeadPoll([{ id: 'a', bounty: 5 }, { id: 'b' }])).toBe(true);
+    expect(
+      seatsNeedLedgerHeadPoll([
+        { id: 'a', bounty: 5 },
+        { id: 'b', status: 'eliminated' },
+      ])
+    ).toBe(false);
+    expect(seatsNeedLedgerHeadPoll([null, undefined, { id: 'a', bounty: 2 }])).toBe(false);
+    expect(seatsNeedLedgerHeadPoll([])).toBe(false);
   });
 
   it('the table page hands the seat engine head to the badge', () => {

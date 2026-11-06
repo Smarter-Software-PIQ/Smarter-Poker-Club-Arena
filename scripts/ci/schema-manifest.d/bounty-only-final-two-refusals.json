@@ -1,0 +1,6 @@
+{
+  "_owner": "fix/pko-final-two-never-freezes-2",
+  "_comment": "Migration 20261106105853 (the final two watch alerts only a real miss). Pending protected-main installation.",
+  "tables": ["ca_bounty_only_final_two_refusals"],
+  "functions": []
+}

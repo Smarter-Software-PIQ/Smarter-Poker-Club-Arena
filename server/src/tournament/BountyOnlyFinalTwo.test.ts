@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  BOUNTY_ONLY_FINAL_TWO_MAX_RETRIES,
+  BOUNTY_ONLY_FINAL_TWO_MAX_RETRY_MS,
   BOUNTY_ONLY_FINAL_TWO_PARK_MS,
+  BOUNTY_ONLY_FINAL_TWO_RETRY_MS,
   closeBountyOnlyPkoAtTwo,
   isBountyOnlyPkoRow,
   type FinalTwoDeps,
@@ -109,6 +112,82 @@ describe('a bounty only PKO closes at two players', () => {
     tables[0].parked = false;
     expect(await closeBountyOnlyPkoAtTwo(deps)).toBe('waiting');
     expect(tables[0].pauseAfterHand).toHaveBeenLastCalledWith(BOUNTY_ONLY_FINAL_TWO_PARK_MS);
+  });
+});
+
+describe('a tournament never freezes at the final two (owner rule)', () => {
+  it('an authority that always throws is bounded: the final two play on heads up', async () => {
+    let clock = 0;
+    const tables = [table(true), table(true)];
+    const deps = {
+      tournamentId: 'event-1234',
+      tables,
+      state: { parked: false, refused: false },
+      rpc: vi.fn(async (): Promise<{ data: unknown; error: { message?: string } | null }> => {
+        throw new Error('connect ETIMEDOUT');
+      }),
+      recheckAfter: vi.fn((delayMs: number) => {
+        clock += delayMs;
+      }),
+      release: vi.fn(),
+      report: vi.fn(),
+      now: () => clock,
+    } satisfies FinalTwoDeps;
+    const outcomes: string[] = [];
+    for (let i = 0; i < 100 && outcomes.at(-1) !== 'refused'; i += 1) {
+      outcomes.push(await closeBountyOnlyPkoAtTwo(deps));
+    }
+    expect(outcomes.at(-1)).toBe('refused');
+    expect(outcomes.length).toBeLessThanOrEqual(BOUNTY_ONLY_FINAL_TWO_MAX_RETRIES);
+    expect(clock).toBeLessThanOrEqual(BOUNTY_ONLY_FINAL_TWO_MAX_RETRY_MS);
+    expect(outcomes.slice(0, -1).every((o) => o === 'retry')).toBe(true);
+    expect(deps.release).toHaveBeenCalledTimes(1);
+    expect(deps.report).toHaveBeenCalledTimes(1);
+    expect(String(deps.report.mock.calls[0][0].message)).toContain('authority_unreachable');
+    expect(deps.report.mock.calls[0][1]).toBe('Tournament.bounty_only_final_two_refused');
+    // Once released it stays released: no further park, no further ask.
+    const asks = deps.rpc.mock.calls.length;
+    expect(await closeBountyOnlyPkoAtTwo(deps)).toBe('refused');
+    expect(deps.rpc).toHaveBeenCalledTimes(asks);
+    expect(deps.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('a "not yet" that never settles gives up after the time budget', async () => {
+    let clock = 1_000;
+    const { deps } = setup(true, { ok: false, reason: 'busts_not_settled' });
+    const timed = { ...deps, now: () => clock };
+    expect(await closeBountyOnlyPkoAtTwo(timed)).toBe('retry');
+    clock += BOUNTY_ONLY_FINAL_TWO_MAX_RETRY_MS - 1;
+    expect(await closeBountyOnlyPkoAtTwo(timed)).toBe('retry');
+    clock += 1;
+    expect(await closeBountyOnlyPkoAtTwo(timed)).toBe('refused');
+    expect(deps.release).toHaveBeenCalledTimes(1);
+    expect(deps.report).toHaveBeenCalledTimes(1);
+    expect(String(deps.report.mock.calls[0][0].message)).toContain('busts_not_settled');
+  });
+
+  it('records the refusal for the watch, and a failed record never throws', async () => {
+    const { deps } = setup(true, { ok: false, reason: 'heads_do_not_match_the_open_pool' });
+    const recordRefusal = vi.fn(async () => {
+      throw new Error('relation does not exist');
+    });
+    expect(await closeBountyOnlyPkoAtTwo({ ...deps, recordRefusal })).toBe('refused');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(recordRefusal).toHaveBeenCalledWith('heads_do_not_match_the_open_pool');
+    expect(deps.release).toHaveBeenCalledTimes(1);
+    expect(deps.report.mock.calls.map((c) => c[1])).toEqual([
+      'Tournament.bounty_only_final_two_refused',
+      'Tournament.bounty_only_final_two_refusal_record_failed',
+    ]);
+  });
+
+  it('a "not yet" that settles inside the budget still closes at two', async () => {
+    const { deps } = setup(true, { ok: false, reason: 'field_is_not_two' });
+    expect(await closeBountyOnlyPkoAtTwo(deps)).toBe('retry');
+    expect(deps.recheckAfter).toHaveBeenLastCalledWith(BOUNTY_ONLY_FINAL_TWO_RETRY_MS);
+    deps.rpc.mockResolvedValueOnce({ data: { ok: true }, error: null });
+    expect(await closeBountyOnlyPkoAtTwo(deps)).toBe('closed');
+    expect(deps.release).not.toHaveBeenCalled();
   });
 });
 
