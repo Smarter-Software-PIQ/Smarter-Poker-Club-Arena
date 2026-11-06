@@ -129,7 +129,7 @@
     "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+    "scripts/qualification/ci-accounting-inputs.json": "16a695d28fdc9fda40efca7044c29314a580295a931c7ea7b6aa603a2ceae55a"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -2012,6 +2012,17 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previousSHA256": "10fdfc1c72ae5dcacb7c6590b52e54d8784a8dcbd36ce3c1f08b806f141f17eb",
         "currentSHA256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "freeBuyCutoffNativeInput20261106": {
+    "reason": "Add the Free Buy cutoff native proof (scripts/dev/test-free-buy-cutoff-postgres.sh) to required accounting shard 2, preserving all prior commands, assertions and budgets. Refresh the exact accounting execution projection and its dependent current source bindings only. No financial source, historical result, installation or live certification restamped.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689",
+        "currentSHA256": "16a695d28fdc9fda40efca7044c29314a580295a931c7ea7b6aa603a2ceae55a"
       }
     ],
     "historicalEvidenceRestamped": false

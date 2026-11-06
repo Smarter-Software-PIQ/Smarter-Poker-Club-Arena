@@ -482,8 +482,8 @@
       "sha256": "0c3c357e106b6daf5461587e707e63d47260837870a7fb423d2f4fdd00b339bd"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 142840,
-      "sha256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+      "bytes": 143139,
+      "sha256": "16a695d28fdc9fda40efca7044c29314a580295a931c7ea7b6aa603a2ceae55a"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2496,7 +2496,9 @@
   },
   "closureMainIntegration20261101": {
     "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
-    "updatedCurrentInputs": [".github/workflows/ci.yml"],
+    "updatedCurrentInputs": [
+      ".github/workflows/ci.yml"
+    ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   },
@@ -2943,6 +2945,17 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previousSHA256": "10fdfc1c72ae5dcacb7c6590b52e54d8784a8dcbd36ce3c1f08b806f141f17eb",
         "currentSHA256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+      }
+    ],
+    "historicalEvidenceRestamped": false
+  },
+  "freeBuyCutoffNativeInput20261106": {
+    "reason": "Add the Free Buy cutoff native proof (scripts/dev/test-free-buy-cutoff-postgres.sh) to required accounting shard 2, preserving all prior commands, assertions and budgets. Refresh the exact accounting execution projection and its dependent current source bindings only. No financial source, historical result, installation or live certification restamped.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689",
+        "currentSHA256": "16a695d28fdc9fda40efca7044c29314a580295a931c7ea7b6aa603a2ceae55a"
       }
     ],
     "historicalEvidenceRestamped": false

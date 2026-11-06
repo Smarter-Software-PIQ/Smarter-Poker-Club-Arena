@@ -16,10 +16,10 @@ describe('a Free Buy promo chip moves at the cutoff, not at sign-up', () => {
 
   it('the human and horse registration doors book no prize-pool promo money', () => {
     expect(sql).toContain(
-      "'public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)'",
+      "'public.fn_register_for_tournament_before_atomic_capacity_20260907(uuid,boolean)'"
     );
     expect(sql).toContain(
-      "'public.fn_register_horse_for_tournament_before_maintenance_gate(uuid,uuid)'",
+      "'public.fn_register_horse_for_tournament_before_maintenance_gate(uuid,uuid)'"
     );
     expect(sql).toContain('v_split.bounty:=0; v_split.prize:=0; -- cutoff');
     expect(sql).toContain('v_split.bounty:=0.50; v_split.prize:=0; -- cutoff');
@@ -29,9 +29,11 @@ describe('a Free Buy promo chip moves at the cutoff, not at sign-up', () => {
   it('the sign-up leg carries only the bounty part; regular and all-in-or-fold post nothing', () => {
     const head = sql.slice(
       sql.indexOf('CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_promo_head'),
-      sql.indexOf('CREATE FUNCTION public.fn_ca_fund_free_buy_at_cutoff_locked'),
+      sql.indexOf('CREATE FUNCTION public.fn_ca_fund_free_buy_at_cutoff_locked')
     );
-    expect(head).toContain("v_bounty:=CASE v_format WHEN 'pko' THEN 1 WHEN 'mystery' THEN 0.50 ELSE 0 END;");
+    expect(head).toContain(
+      "v_bounty:=CASE v_format WHEN 'pko' THEN 1 WHEN 'mystery' THEN 0.50 ELSE 0 END;"
+    );
     expect(head).toContain('v_amount:=round(v_bounty+v_prize,2);');
     expect(head).toMatch(/IF v_amount<=0 THEN[\s\S]*?RETURN 0;/);
     // A returned entry with nothing posted still gets its ticket back.
@@ -42,11 +44,19 @@ describe('a Free Buy promo chip moves at the cutoff, not at sign-up', () => {
     expect(sql).toContain("':free_buy_cutoff_funding'");
     expect(sql).toContain("'house_due'");
     expect(sql).toMatch(
-      /PERFORM public\.fn_ca_fund_free_buy_at_cutoff_locked\(p_tournament_id\);\n\s*PERFORM public\.fn_ca_return_excess_guarantee_promo_locked\(p_tournament_id\);/,
+      /PERFORM public\.fn_ca_fund_free_buy_at_cutoff_locked\(p_tournament_id\);\n\s*PERFORM public\.fn_ca_return_excess_guarantee_promo_locked\(p_tournament_id\);/
     );
     // Booked as promo money so the escrow shadow and the funding read count it.
     expect(sql).toContain("'kind', 'midway_free_buy_promo_head', 'stage', 'cutoff'");
     expect(sql).toContain("('fn_ca_fund_free_buy_at_cutoff_locked', 'approved'");
+  });
+
+  it('the native proof runs in CI on every change', () => {
+    const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+    expect(ci).toContain('run: bash scripts/dev/test-free-buy-cutoff-postgres.sh');
+    const runner = readFileSync('scripts/dev/test-free-buy-cutoff-postgres.sh', 'utf8');
+    expect(runner).toContain('20261106195136_a_free_buy_promo_chip_moves_at_cutoff_not_signup.sql');
+    expect(runner).toContain("grep -q 'FAIL'");
   });
 
   it('the native proof carries the owner acceptance table', () => {
