@@ -1,0 +1,6 @@
+{
+  "_owner": "fix/midway-free-buy-watch-reads-the-schedule",
+  "_comment": "Midway Free Buy rotation and promo runway watch without event-id exemptions (20261105233756).",
+  "tables": [],
+  "functions": ["fn_ca_midway_free_buy_slot_format", "fn_sp_midway_free_buy_watch"]
+}
