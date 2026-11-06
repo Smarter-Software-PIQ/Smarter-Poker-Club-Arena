@@ -400,7 +400,8 @@ test.describe('the mobile lobby chrome on production', () => {
       contentType: 'image/png',
     });
     await tournamentDoor.click();
-    await expect(gameTypes).toHaveCount(0);
+    await expect(tournamentDoor).toHaveAttribute('aria-expanded', 'true');
+    await expect(gameTypes).toHaveCount(1);
     await cashDoor.click();
     await expect(cashDoor).toHaveAttribute('aria-expanded', 'true');
     await expect(gameTypes.getByRole('tab')).toHaveText(['ALL', 'NLH', 'PLO', 'LIMIT']);
