@@ -522,7 +522,7 @@ def sanitize_fleet_slice_result(result,value):
             seen.add(r['horseHash']); contexts=set()
             for c in r['contexts']:
                 if (not isinstance(c,dict) or set(c)!={'variant','mode','format','speed','ante','dealtCount','exactMemoryReads','sourceWitnesses'}
-                    or c['variant'] not in ('nlh','plo4','plo5','plo6','plo8') or c['mode'] not in ('cash','tournament')
+                    or c['variant'] not in ('nlh','plo4','plo5','plo6','plo8','flh','flo8') or c['mode'] not in ('cash','tournament')
                     or c['format'] not in (None,'cash','mtt','sng','spin')
                     or c['speed'] not in (None,'table','lightning') or c['ante'] not in (None,'none','individual','big_blind')
                     or (c['speed'] is None)!=(c['ante'] is None)
@@ -669,7 +669,7 @@ def sanitize_original_turn_gap_result(result, value):
         if (set(c)!={'handKey','status','actionOrdinal','variant','mode','stage','recordHashes','inputDigest','readFrameDigest',
                      'actions','amounts','comparisons','selection','phase14','guards','executionStatus','contextSource','originalWitnessWithdrawals'} or c['status']!='observed'
             or type(c['actionOrdinal']) is not int or c['actionOrdinal']!=original['actionOrdinal']
-            or c['variant'] not in ('nlh','plo4','plo5','plo6','plo8') or c['mode'] not in ('cash','tournament')
+            or c['variant'] not in ('nlh','plo4','plo5','plo6','plo8','flh','flo8') or c['mode'] not in ('cash','tournament')
             or c['stage'] not in ('preflop','flop','turn','river') or c['executionStatus'] not in ('intended','coerced') or c['contextSource']!='captured_original_snapshot'): reject()
         if (not isinstance(c['recordHashes'],dict) or set(c['recordHashes'])!={'decision','execution','accepted'}
             or any(not isinstance(h,str) or not re.fullmatch('[0-9a-f]{64}',h) for h in [*c['recordHashes'].values(),c['inputDigest'],c['readFrameDigest']])
