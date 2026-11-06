@@ -76,6 +76,54 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     return typeof head === 'number' && Number.isFinite(head) && head >= 0 ? { bounty: head } : {};
   }
 
+  /**
+   * Occupancy is not hand participation. Cash entrants waiting for the blind
+   * and players sitting out still own their seats. Live/resync hand projections
+   * omit them, whereas idle state includes them; publishing those alternately
+   * made their avatars flash in and out on every hand (utg777, 2026-11-06).
+   * Append only the current physical roster's nonparticipants. Never modify
+   * the hand, its chips, cards, positions, actor or pot eligibility.
+   */
+  private includeOccupiedSeats(payload: Record<string, any>): Record<string, any> {
+    const players = [...payload.players];
+    const userIds = new Set(players.map((p) => p.user_id));
+    const seats = new Set(players.map((p) => p.seat));
+    for (const p of this.seatedPlayers ?? []) {
+      // The hand owns its players until settlement, including a pending exit.
+      if (userIds.has(p.user_id) || seats.has(p.seat_number)) continue;
+      players.push({
+        seat: p.seat_number,
+        user_id: p.user_id,
+        ...this.seatIdentity(p),
+        ...this.seatBountyFields(p.user_id),
+        stack: p.stack,
+        bet: 0,
+        totalInvested: 0,
+        cards: [],
+        is_folded: false,
+        is_all_in: false,
+        // Not dealt in. Waiting/posting lists refine the existing seat badge.
+        is_sitting_out: true,
+        is_disconnected: !this.disconnectEngine.isConnected(this.tableId, p.user_id),
+        time_bank_remaining: this.timeBankEngine.getRemainingSeconds(this.tableId, p.user_id),
+        time_bank_uses_remaining: this.timeBankEngine.getUsesRemaining(this.tableId, p.user_id),
+        position: '',
+        is_waiting_for_bb: this.waitingForBB.has(p.user_id),
+        hand_name: '',
+        ...this.chipContinuity.seatFields(p.user_id, p.stack),
+      });
+      userIds.add(p.user_id);
+      seats.add(p.seat_number);
+    }
+    return {
+      ...payload,
+      players,
+      waiting_for_bb_user_ids: Array.from(this.waitingForBB),
+      post_bb_deferred_user_ids: Array.from(this.postBBWhenClear),
+      posting_bb_user_ids: Array.from(this.postingBBToEnter),
+    };
+  }
+
   // ═════════════════════════════════════════════════════════════════════════════
   // Bible V8 §6.15: OBSERVER PERMISSIONS
   // ═════════════════════════════════════════════════════════════════════════════
@@ -89,7 +137,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     const state = this.publishedHandState();
     if (!state) return null;
     const showCards = this.tableInfo.observer_show_cards ?? false;
-    return {
+    return this.includeOccupiedSeats({
       table_id: this.tableId,
       hand_number: this.handCount,
       ...this.handBlindSnapshotFields(),
@@ -124,7 +172,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
       is_observer: true,
       admin_paused: this.adminPauseLock,
       maintenance_lock: this.maintenanceLock,
-    };
+    });
   }
 
   /**
@@ -436,7 +484,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     };
     this.continuityStackLookup = this.rosterStackByUserMap();
     try {
-      return projectResyncHandState(state, ctx, requestingUserId);
+      return this.includeOccupiedSeats(projectResyncHandState(state, ctx, requestingUserId));
     } finally {
       this.continuityStackLookup = null;
     }
@@ -562,7 +610,7 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
     // The legacy Supabase Realtime broadcast path has been deleted.
     // All game-state delivery now flows through the native WS hub.
     if (this.hub) {
-      this.hub.publish(this.tableId, payload);
+      this.hub.publish(this.tableId, this.includeOccupiedSeats(payload));
     } else {
       console.warn(
         `[ServerTableEngine:${this.tableId}] No hub attached - state not delivered to clients`
@@ -652,7 +700,9 @@ export class ServerTableEngine extends ServerTableEngineHandEvents {
         cards: [],
         is_folded: false,
         is_all_in: false,
-        is_sitting_out: this.disconnectEngine.isSittingOut(this.tableId, p.user_id),
+        is_sitting_out:
+          this.waitingForBB.has(p.user_id) ||
+          this.disconnectEngine.isSittingOut(this.tableId, p.user_id),
         is_disconnected: !this.disconnectEngine.isConnected(this.tableId, p.user_id),
         time_bank_remaining: this.timeBankEngine.getRemainingSeconds(this.tableId, p.user_id),
         time_bank_uses_remaining: this.timeBankEngine.getUsesRemaining(this.tableId, p.user_id),

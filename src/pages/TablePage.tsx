@@ -18853,6 +18853,11 @@ function LiveTablePage({
           return {
             ...prev,
             handNumber: syncData.hand_number,
+            // Reconnects carry the same entry status as live snapshots. An
+            // older engine may omit these fields; omission is not a release.
+            waitingForBBUserIds: syncData.waiting_for_bb_user_ids ?? prev.waitingForBBUserIds,
+            postBBDeferredUserIds: syncData.post_bb_deferred_user_ids ?? prev.postBBDeferredUserIds,
+            postingBBUserIds: syncData.posting_bb_user_ids ?? prev.postingBBUserIds,
             pot: syncData.pot || 0,
             communityCards: normalizeCards(syncData.community_cards) as Card[],
             communityCards2: normalizeCards(syncData.community_cards2 || []) as Card[],
