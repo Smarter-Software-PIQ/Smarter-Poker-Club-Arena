@@ -149,19 +149,22 @@ describe('LAW 4 - the estimator still errs the safe way', () => {
     /* 2026-08-28: every one-way sample overstates the offset by its own
        latency, so averaging bakes in the average latency and the countdown
        shows time the player does not have. Cristian's algorithm takes the
-       window minimum instead. Feeding a good sample then worse ones must not
+       minimum instead. Feeding a good sample then worse ones must not
        drag the offset up. */
     const ENGINE = 1_800_000_000_000;
     const spy = vi.spyOn(Date, 'now');
+    const monotonic = vi.spyOn(performance, 'now').mockReturnValue(1_000);
     spy.mockReturnValue(ENGINE + 1_000); // best sample: offset 1000
     recordServerTime(ENGINE);
     const afterBest = clockOffsetMs();
     for (let i = 0; i < 20; i++) {
       spy.mockReturnValue(ENGINE + 9_000); // worse samples: offset 9000
+      monotonic.mockReturnValue(9_000); // delivery time passes on both clocks, no NTP jump
       recordServerTime(ENGINE);
     }
     expect(clockOffsetMs()).toBeCloseTo(afterBest, 0);
     spy.mockRestore();
+    monotonic.mockRestore();
   });
 
   it('ignores junk rather than adopting it', () => {

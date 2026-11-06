@@ -49,35 +49,31 @@
  * Every one-way sample overstates the offset by its own latency, so no amount
  * of smoothing removes it — averaging just bakes in the AVERAGE latency, and
  * jitter makes that worse than the best sample. The estimator now takes the
- * MINIMUM sample in a rolling window (Cristian's algorithm): the smallest
+ * MINIMUM latency sample (Cristian's algorithm): the smallest
  * latency observed is the closest a one-way sample can get to the true offset.
  * That shrinks the residual from average-plus-jitter to one best-case
  * latency, and it is the tightest correction available without a round trip.
  *
- * The window resets so genuine clock drift is still tracked, and the value is
- * still smoothed toward the window minimum so one delayed packet cannot jerk
- * the ring. Before the first sample, serverNow() is just Date.now() - exactly
- * the old behaviour, and correct for any device whose clock is right.
+ * A proven minimum must not expire into a delayed packet. The former
+ * sixty-second reset turned an eight-second frame backlog into seven seconds
+ * of extra add-on countdown (2026-11-06). Preserve the minimum, translating it
+ * only by independently observed wall-clock movement relative to monotonic
+ * time. Adopt a better sample immediately rather than smoothing away its proof.
+ *
+ * Apply that translation only when a server sample arrives. performance.now
+ * can pause during OS sleep on some platforms: reads must keep advancing by
+ * wall time, and the fresh advancing server sample after wake selects the
+ * smaller current offset instead of retaining the apparent wall-clock jump.
+ * Before the first sample, serverNow() remains the device clock.
  */
-
-/** Exponential smoothing factor for offset updates. 1 = trust each sample fully. */
-const SMOOTHING = 0.3;
 
 /** Ignore absurd samples (bad payload, or a clock caught mid-adjustment). */
 const MAX_PLAUSIBLE_OFFSET_MS = 24 * 60 * 60 * 1000;
 
-/**
- * How long a minimum-sample window lasts. Long enough that a quiet stretch
- * still collects several samples, short enough that real clock drift (a phone
- * waking from sleep, an NTP correction) is picked up promptly.
- */
-const WINDOW_MS = 60_000;
-
 let offsetMs = 0;
 let haveSample = false;
-/** Smallest sample seen in the current window — the best offset estimate. */
-let windowMinMs = 0;
-let windowStartedAt = 0;
+let lastWallMs = 0;
+let lastMonotonicMs = 0;
 
 /**
  * Feed the `server_time_ms` from a state snapshot.
@@ -87,30 +83,22 @@ export function recordServerTime(serverTimeMs: number | undefined | null): void 
   if (typeof serverTimeMs !== 'number' || !Number.isFinite(serverTimeMs) || serverTimeMs <= 0) {
     return;
   }
-  const sample = Date.now() - serverTimeMs;
-  if (Math.abs(sample) > MAX_PLAUSIBLE_OFFSET_MS) return;
-
   const now = Date.now();
+  const sample = now - serverTimeMs;
+  if (Math.abs(sample) > MAX_PLAUSIBLE_OFFSET_MS) return;
+  const monotonic = performance.now();
   if (!haveSample) {
-    // First sample: adopt it outright, exactly as before. It carries this
-    // packet's latency, and the window below walks that back as more arrive.
-    windowMinMs = sample;
-    windowStartedAt = now;
     offsetMs = sample;
     haveSample = true;
-    return;
+  } else {
+    // Network latency cannot explain a wall/monotonic clock difference. A
+    // genuine device correction moves the old baseline and the new sample
+    // together; a sleep-paused monotonic clock is resolved by the fresh sample.
+    const wallShift = now - lastWallMs - (monotonic - lastMonotonicMs);
+    offsetMs = Math.min(offsetMs + wallShift, sample);
   }
-  if (now - windowStartedAt >= WINDOW_MS) {
-    // New window — re-seed from this sample so a drifting clock is tracked
-    // rather than pinned to a minimum taken minutes ago.
-    windowMinMs = sample;
-    windowStartedAt = now;
-  } else if (sample < windowMinMs) {
-    windowMinMs = sample;
-  }
-  // Converge on the window's best (lowest-latency) sample, not on the raw
-  // one — see the LATENCY SIGN CORRECTION note at the top of this file.
-  offsetMs += (windowMinMs - offsetMs) * SMOOTHING;
+  lastWallMs = now;
+  lastMonotonicMs = monotonic;
 }
 
 /**
@@ -166,6 +154,6 @@ export function clockOffsetMs(): number {
 export function __resetServerClock(): void {
   offsetMs = 0;
   haveSample = false;
-  windowMinMs = 0;
-  windowStartedAt = 0;
+  lastWallMs = 0;
+  lastMonotonicMs = 0;
 }
