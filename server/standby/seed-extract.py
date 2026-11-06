@@ -87,6 +87,9 @@ def main():
         try:
             if key == ("public", "profiles"):
                 where = "is_horse is true"
+            elif key in (("public", "clubs"), ("public", "unions"), ("public", "union_clubs")):
+                # Platform structure: copied whole; owner ids become id-only placeholders.
+                where = "true"
             elif key == ("public", "tables"):
                 where = "tournament_id is null and status in ('waiting','running','active')"
             elif key == ("public", "table_seats"):
@@ -98,9 +101,9 @@ def main():
                 where = " and ".join(f'("{c}" is null or "{c}" in {horses})' for c in person_cols[key])
             else:
                 where = "true"
-            if int(nbytes) > BYTE_CAP and key not in (("public", "profiles"), ("public", "tables"), ("public", "table_seats")):
+            if int(nbytes) > BYTE_CAP and key not in (("public", "profiles"), ("public", "tables"), ("public", "table_seats"), ("public", "clubs"), ("public", "unions"), ("public", "union_clubs")):
                 return ("skipped", {"table": name, "why": f"large_{int(nbytes)//1048576}_MB"})
-            if key not in person_cols and key != ("public", "profiles") and int(est) > ROW_CAP:
+            if key not in person_cols and key not in (("public", "profiles"), ("public", "clubs"), ("public", "unions"), ("public", "union_clubs")) and int(est) > ROW_CAP:
                 return ("skipped", {"table": name, "why": f"large_{est}_rows"})
             if int(nbytes) <= 16384 and int(est) <= 0 and key not in (("public", "profiles"),):
                 return None  # empty table
