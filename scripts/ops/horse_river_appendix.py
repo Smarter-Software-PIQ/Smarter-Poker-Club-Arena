@@ -36,7 +36,9 @@ def review_opportunity(d):
     tc = state.get('toCall')
     seats = state.get('seats') or []
     hero = next((x for x in seats if x[0] == i['heroSeat']), None)
-    opp = [x for x in seats if x[0] != i['heroSeat'] and (not x[6] & 5)]
+    # Sitting out does not relinquish a committed all-in hand's pot claim.
+    opp = [x for x in seats if x[0] != i['heroSeat'] and not x[6] & 1
+           and not (x[6] & 4 and not x[6] & 2)]
     responsive = [x for x in opp if not x[6] & 6 and x[1] > 0]
     opportunity = facts.get('riverOpportunity') or {}
     notes = []

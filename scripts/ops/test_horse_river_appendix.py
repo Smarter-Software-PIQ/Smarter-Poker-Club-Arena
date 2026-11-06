@@ -74,6 +74,22 @@ class RiverAppendixTests(unittest.TestCase):
         self.assertIn('joint_high_low_holdings_scoop_quartering_response_model', row['requiredEvidence'])
         self.assertFalse(row['gtoVerified']); self.assertFalse(row['activationAllowed'])
 
+    def test_sitting_out_all_in_opponent_still_contests_the_pot(self):
+        d = fixture()
+        seats = d['informationSet']['publicState']['seats']
+        seats[0][1] = 0
+        seats[0][6] = 6  # all-in plus sitting out is still an eligible hand
+        seats.append([3, 500, 0, 250, 0, 0, 0])
+        row = review_opportunity(d)
+        self.assertEqual(row['opponentsInHand'], 2)
+        self.assertEqual(row['opponentsAbleToRespond'], 1)
+        self.assertTrue(all(not x['allOpponentsCanRespondAndFold']
+                            for x in row['conditionalLegalSizeDiagnostics']))
+        from horse_river_opportunities import river_opportunity
+        original = river_opportunity({**d['informationSet'], 'street': 'river'}, 'check')
+        self.assertEqual(original['opponentsStillInHand'], 2)
+        self.assertEqual(original['opponentsAbleToRespond'], 1)
+
     def test_missing_node_and_bad_price_stay_unknown(self):
         d = fixture(); d['informationSet']['publicState'] = {}; d['informationSet']['legalActions'] = None
         row = review_opportunity(d)
