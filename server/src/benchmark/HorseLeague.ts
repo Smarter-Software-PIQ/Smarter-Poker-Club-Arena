@@ -1282,7 +1282,9 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   { name: 'plo4_v15_discipline', variant: 'plo4', pairs: 6000, a: {}, b: { v15: false } },
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
-  { name: 'plo5_v15_boats', variant: 'plo5', pairs: 6000, a: { v15Boats: true }, b: {} },
+  // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
+  // card keeps its name and sign with arm B turning it off.
+  { name: 'plo5_v15_boats', variant: 'plo5', pairs: 6000, a: {}, b: { v15Boats: false } },
   // V58 (2026-10-25): PLO6 paired-board river nut discipline. a is today's
   // brain with it (default ON), b is the brain without it.
   {
@@ -1636,6 +1638,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       // drifts out of this list the same way.
       v12: false,
       v15: false,
+      v15Boats: false,
       v16Reads: false,
       v16Icm: false,
       v16Hu: false,

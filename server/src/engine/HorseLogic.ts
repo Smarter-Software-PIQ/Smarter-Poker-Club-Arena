@@ -567,6 +567,26 @@ export function v24PloDefenseOn(
   return tournament || String(gameVariant ?? '').toLowerCase() !== 'plo6';
 }
 
+/**
+ * V15 BOATS, PER VARIANT (2026-11-06). Default ON in PLO5 CASH only: the
+ * plo5_v15_boats league card pooled significant positive (+0.128 +/- 0.050
+ * bb/100 over 38 nightly runs, 456,000 hands), the activation rule for a
+ * default-off layer (a pooled significant positive league result), and the
+ * rerun against the Hybrid baseline agreed in sign (+0.21 +/- 0.18 over
+ * 72,000 hands; combined +0.134 +/- 0.048). The league deals PLO5 cash only,
+ * so PLO4, PLO6, PLO8 and every tournament stay off: unmeasured, not
+ * negative. An explicit option decides it everywhere (true: the
+ * qualification arm; false: the league card's arm B and the ablation).
+ */
+export function v15BoatsOn(
+  option: boolean | undefined,
+  gameVariant: unknown,
+  tournament: boolean
+): boolean {
+  if (option !== undefined) return option !== false;
+  return !tournament && String(gameVariant ?? '').toLowerCase() === 'plo5';
+}
+
 export function leakLoad(
   mods: HorseProfileMods | undefined,
   tags: readonly string[],
@@ -1979,10 +1999,12 @@ export interface HorseDecideOpts {
    *  per hole count, plo5/plo6 value sizing plays small ball, and PLO
    *  aggressors are sampled toward board contact (default: enabled) */
   v15?: boolean;
-  /** V15 BOATS (2026-09-28, default OFF until the league resolves it): an
-   *  Omaha full house that a bigger boat or quads beats stops being nut-class,
-   *  and when raised after betting it calls instead of re-raising or jamming.
-   *  Measured by the plo5_v15_boats league matchup. */
+  /** V15 BOATS (2026-09-28): an Omaha full house that a bigger boat or quads
+   *  beats stops being nut-class, and when raised after betting it calls
+   *  instead of re-raising or jamming. Default ON in PLO5 cash since
+   *  2026-11-06 (plo5_v15_boats pooled significant positive; see
+   *  v15BoatsOn), OFF elsewhere until measured. An explicit value decides it
+   *  everywhere. */
   v15Boats?: boolean;
   /** disable the V12 river-sizing polish: OOP block bets, nut-advantage
    *  overbets + blocker overbet bluffs, extended blocker-aware catches
@@ -8346,9 +8368,14 @@ export class HorseLogic {
       for (const n of rankN.values()) if (n >= 2) boardPaired15 = true;
     }
     // V15 BOATS (2026-09-28): a full house is not the nuts when a bigger boat
-    // or quads is live. Off by default until plo5_v15_boats resolves.
+    // or quads is live. Default ON in PLO5 cash since 2026-11-06 (v15BoatsOn).
     let boatDominated15 = false;
-    if (useV15 && opts.v15Boats === true && vi.isOmaha && cat === 7) {
+    if (
+      useV15 &&
+      v15BoatsOn(opts.v15Boats, gs.gameVariant, isTournamentMode(gs)) &&
+      vi.isOmaha &&
+      cat === 7
+    ) {
       try {
         boatDominated15 = omahaBoatDominated(omahaBoatsAbove(player.cards, board));
         if (tele15 && boatDominated15) noteFire('v15_boat_dominated');

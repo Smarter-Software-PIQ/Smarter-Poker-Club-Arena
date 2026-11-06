@@ -6,6 +6,12 @@
 -- the upgrade is not active. A row whose label says 'expected 0' is a guard
 -- counter: it should stay at zero. Read-only (one SELECT).
 --
+-- V15 boats rows (2026-11-06): 'v15_boat_dominated' fires when a PLO5 cash
+-- full house reads as beaten by a bigger boat or quads, 'v15_boat_gate' when
+-- that boat, raised after betting, calls instead of re-raising. A dominated
+-- boat facing a raise is rare, so a low count is expected; zero over several
+-- days with decide_omaha flowing means the default did not reach the engine.
+--
 -- V31 rows (2026-11-06): 'v31_certified_<node role>' fires once per horse
 -- decision that a certified V31 solver cell answered and the engine executed
 -- as sampled (HorseLogic.ts, noteFire after legalize). The facing roles
@@ -44,6 +50,8 @@ FROM (VALUES
   ('hybrid_v1_cash_grinder_decided', 'Hybrid v1 cash grinder'),
   ('hybrid_v1_tournament_tricky_decided', 'Hybrid v1 tournament tricky'),
   ('cash_nlh_three_bet_size', 'cash NLH 3-bet size'),
+  ('v15_boat_dominated', 'V15 boats (default on in PLO5 cash since 2026-11-06)'),
+  ('v15_boat_gate', 'V15 boats: dominated boat called a raise (PLO5 cash)'),
   ('v62_river_bettor_polarity', 'V62 (opt-in: expected 0)'),
   ('horse_turn_resolved_without_decision', 'clock-forced horse turn (expected 0)'),
   ('horse_turn_resolved_without_decision_brain_pending', 'clock-forced horse turn, brain decision was in flight (expected 0)'),

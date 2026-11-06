@@ -601,7 +601,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag('v15', 'Omaha nut discipline: which flush/straight, caps, small ball', 'V15'),
   flag(
     'v15Boats',
-    'Omaha boat dominance: a full house a bigger boat beats calls a raise (default OFF, league plo5_v15_boats)',
+    'Omaha boat dominance: a full house a bigger boat beats calls a raise (default ON in PLO5 cash since 2026-11-06, league plo5_v15_boats)',
     'V15'
   ),
   flag('v16Reads', 'deep reads: fold-to-c-bet, fold-to-3-bet, big-bet tells', 'V16'),
@@ -1838,8 +1838,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'decide_omaha',
     0.0003
   ),
-  // No floor: v15Boats is default OFF, so silence is the expected state until
-  // the plo5_v15_boats league matchup resolves and the default changes.
+  // No floor: v15Boats is default ON in PLO5 cash only (2026-11-06), a
+  // dominated boat facing a raise is rare, and other variants stay off.
   receipt(
     'v15_boat_dominated',
     'HorseLogic (V15 boats)',
