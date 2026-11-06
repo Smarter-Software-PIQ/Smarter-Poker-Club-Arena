@@ -51,8 +51,12 @@ remain separate in `ruleContext` and the summary's exact-context breakdown.
 The standard high-hand and eight-or-better low reference uses exactly two hole
 cards and three board cards for Omaha. PLO4, PLO5, PLO6 and four-card PLO8 are
 different input domains; FLO8 retains fixed-limit context. NLH may play the
-board. Short-deck and Pineapple are explicitly outside this independent
-made-hand reference rather than silently evaluated as NLH.
+board. Short-deck uses its 36-card deck, flush-over-full-house ordering and
+A6789 low straight. Pineapple post-discard ranking requires the retained pair
+and an earlier own discard; preflop requires all three original cards. A final
+two-card pair must never stand in for the preflop hand. Missing original cards
+may be recovered from the named actor's validated history mapping, with provenance;
+other players' private cards and future boards never supply that recovery.
 
 For strong single-board Omaha river holdings, all unblocked opposing hole-card
 pairs are enumerated to establish whether a better high is possible. This is
@@ -67,6 +71,12 @@ Origins such as pre-action, timeout and fallback must be traced separately from
 the selected Horse policy.
 
 River opportunity counts separate open-bet opportunities, actual actions and players able to respond. They never label every river bet a bluff or every check a missed bluff. Public turn aggression, short all-in calls, postflop raises and suited-card removal are recorded separately. Pure-bluff fold thresholds are illustrative conditional arithmetic, not legal sizing recommendations or tournament utility.
+
+For an explicitly declared heads-up PLO4/5/6 cash river range and size-specific
+fold/call responses, [the private conditional comparison CLI](horse-river-conditional.md)
+compares check-through with legal bets using exact rational arithmetic. It
+refuses unsupported costs, contexts and unpriced raises. These assumptions are
+not inferred from revealed opponent cards or treated as qualified historical EV.
 
 ## Implementation and qualification route
 

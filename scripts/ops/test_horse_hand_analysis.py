@@ -125,4 +125,79 @@ class HistoricalStudyTests(unittest.TestCase):
         self.assertEqual(r['horses'][0]['classificationBasis'],'historical_roster')
 
 
+class OriginalHeroCardRecoveryTests(unittest.TestCase):
+    def recovered(self):
+        h,p=fixture();h['players'][0]['cards']=[]
+        h['hole_cards']={'horse':[{'rank':r,'suit':s} for r,s in [('A','hearts'),('K','hearts'),('Q','clubs'),('J','clubs'),('T','spades')]],'human':['As']*5}
+        return h,p
+
+    def test_original_cards_normalized_actor_only_and_provenanced(self):
+        h,p=self.recovered();d=analyze_hand(h,p)['decisions'][0]
+        self.assertEqual(d['informationSet']['heroCards'],['Ah','Kh','Qc','Jc','Ts'])
+        self.assertEqual(d['heroCardProvenance'],{'source':'hand_history.hole_cards','actorId':'horse','accepted':True})
+        h['hole_cards']['human']=['9s']*5
+        self.assertEqual(d,analyze_hand(h,p)['decisions'][0])
+        del h['hole_cards']['horse']
+        self.assertIsNone(analyze_hand(h,p)['decisions'][0]['informationSet']['heroCards'])
+
+    def test_precedence_preserved(self):
+        h,p=self.recovered();h['players'][0]['cards']=['Ac','Kc','Qh','Jh','Th']
+        self.assertEqual(analyze_hand(h,p)['decisions'][0]['informationSet']['heroCards'],h['players'][0]['cards'])
+        facts={'horse':['Ad','Ks','Qs','Js','Tc']}
+        self.assertEqual(analyze_hand(h,p,facts)['decisions'][0]['informationSet']['heroCards'],facts['horse'])
+
+    def test_invalid_duplicate_count_and_visible_board_collision_rejected(self):
+        for cards in [['Ah']*5,['Ah'],['XX','Kh','Qc','Jc','Ts'],['As','Kh','Qc','Jc','Ts']]:
+            with self.subTest(cards=cards):
+                h,p=self.recovered();h['hole_cards']['horse']=cards
+                self.assertIsNone(analyze_hand(h,p)['decisions'][0]['informationSet']['heroCards'])
+
+    def test_future_board_ignored_and_missing_node_not_invented(self):
+        h,p=self.recovered();h['community_cards']=['Ah'];del h['actions'][0]['publicNode']
+        d=analyze_hand(h,p)['decisions'][0]
+        self.assertEqual(d['informationSet']['heroCards'],['Ah','Kh','Qc','Jc','Ts'])
+        self.assertEqual(d['informationSet']['publicState'],{})
+        self.assertIn('original_public_node_missing_or_mismatched',d['gaps'])
+
+    def test_discard_game_and_short_deck_invalid_originals_not_recovered(self):
+        for variant,cards in [('pineapple',['Ah','Kh','Qc']),('short_deck',['2h','Kh'])]:
+            h,p=self.recovered();h['game_variant']=variant;h['hole_cards']['horse']=cards
+            self.assertIsNone(analyze_hand(h,p)['decisions'][0]['informationSet']['heroCards'])
+
+
+class PineappleStreetHoldingTests(unittest.TestCase):
+    def fixture(self, street):
+        h,p=fixture('pineapple');h['actions'][0]['stage']=street
+        node=h['actions'][0]['publicNode'];node['street']=street
+        node['boards']=[{'preflop':'','flop':'AsKd7h','turn':'AsKd7h6c','river':'AsKd7h6c2s'}[street]]
+        h['players'][0]['cards']=['Ah','Kh']
+        return h,p
+
+    def test_future_discard_choice_cannot_change_preflop_information(self):
+        h,p=self.fixture('preflop');h['actions'].append({'userId':'horse','action':'discard','stage':'pineapple_discard','cardIndex':0})
+        a=analyze_hand(h,p)['decisions'][0]
+        h['players'][0]['cards']=['Qc','Jc'];h['actions'][1]['cardIndex']=2
+        b=analyze_hand(h,p)['decisions'][0]
+        self.assertEqual(a,b)
+        self.assertIsNone(a['informationSet']['heroCards'])
+        self.assertIn('pineapple_original_three_cards_unavailable',a['gaps'])
+
+    def test_preflop_original_three_recovered_without_final_pair_leakage(self):
+        h,p=self.fixture('preflop');h['hole_cards']={'horse':['Ah','Kh','Qc'],'human':['As','Ks','Qs']}
+        d=analyze_hand(h,p)['decisions'][0]
+        self.assertEqual(d['informationSet']['heroCards'],['Ah','Kh','Qc'])
+        self.assertEqual(d['heroCardProvenance']['source'],'hand_history.hole_cards')
+        h['players'][0]['cards']=['Jc','Tc']
+        self.assertEqual(d,analyze_hand(h,p)['decisions'][0])
+
+    def test_postflop_three_or_unproven_pair_withheld(self):
+        for street in ['flop','turn','river']:
+            h,p=self.fixture(street)
+            self.assertIsNone(analyze_hand(h,p)['decisions'][0]['informationSet']['heroCards'])
+            h['actions'].insert(0,{'userId':'horse','action':'discard','stage':'pineapple_discard'})
+            self.assertEqual(analyze_hand(h,p)['decisions'][0]['informationSet']['heroCards'],['Ah','Kh'])
+            h['players'][0]['cards']=['Ah','Kh','Qc']
+            self.assertIsNone(analyze_hand(h,p)['decisions'][0]['informationSet']['heroCards'])
+
+
 if __name__=='__main__': unittest.main()

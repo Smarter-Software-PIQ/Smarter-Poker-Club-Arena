@@ -84,7 +84,31 @@ def classify_participants(hand, profiles, accepted_roster=None):
     return roles, sorted(set(gaps))
 
 
-def analyze_decision(hand, action, ordinal, hero, cards):
+def original_hero_cards(hand, hero, pineapple_preflop=False):
+    """Recover only the named actor's original cards; never other actors' cards."""
+    mapping = hand.get('hole_cards')
+    variant = hand.get('game_variant')
+    # Discard games need street-specific holdings, not original deal cards.
+    if not isinstance(mapping, dict) or variant not in VARIANTS or (variant == 'pineapple' and not pineapple_preflop):
+        return None
+    cards = mapping.get(hero)
+    if not isinstance(cards, list) or len(cards) != VARIANTS[variant][0]:
+        return None
+    suits = {'clubs':'c', 'diamonds':'d', 'hearts':'h', 'spades':'s'}
+    normalized = []
+    for card in cards:
+        if isinstance(card, dict):
+            rank, suit = card.get('rank'), card.get('suit')
+            card = rank + suits.get(suit, '') if isinstance(rank, str) else None
+        if not isinstance(card, str) or not re.fullmatch(r'[2-9TJQKA][cdhs]', card):
+            return None
+        if variant == 'short_deck' and card[0] in '2345':
+            return None
+        normalized.append(card)
+    return normalized if len(set(normalized)) == len(normalized) else None
+
+
+def analyze_decision(hand, action, ordinal, hero, cards, card_source=None):
     raw_node = action.get('publicNode')
     node = raw_node if isinstance(raw_node,dict) else {}
     street = action.get('stage') or action.get('street')
@@ -102,6 +126,28 @@ def analyze_decision(hand, action, ordinal, hero, cards):
     if variant not in VARIANTS:
         gaps.append('unsupported_variant')
     expected = VARIANTS.get(variant,(None,None))[0]
+    if variant == 'pineapple':
+        prior_discard = any(isinstance(previous, dict)
+            and previous.get('action') == 'discard'
+            and previous.get('stage') == 'pineapple_discard'
+            and actor_id(previous) == hero
+            for previous in (hand.get('actions') or [])[:ordinal])
+        if street == 'preflop':
+            if prior_discard or not isinstance(cards, list) or len(cards) != 3:
+                cards = original_hero_cards(hand, hero, pineapple_preflop=True) if not prior_discard else None
+                card_source = 'hand_history.hole_cards' if cards else None
+            if not cards:
+                gaps.append('pineapple_original_three_cards_unavailable')
+        elif not isinstance(cards, list) or len(cards) != 2 or not prior_discard:
+            cards = None
+            card_source = None
+            gaps.append('pineapple_street_holdings_unproven')
+    if card_source and variant != hand.get('game_variant'):
+        cards = None
+        gaps.append('hero_cards_variant_conflict')
+    if card_source and captured and cards and any(card in {b[i:i+2] for b in boards for i in range(0,len(b),2)} for card in cards):
+        cards = None
+        gaps.append('hero_cards_conflict_with_visible_board')
     if not isinstance(cards,list) or not cards:
         cards = None; gaps.append('hero_cards_missing')
     elif variant != 'pineapple' and expected is not None and len(cards) != expected:
@@ -145,12 +191,15 @@ def analyze_decision(hand, action, ordinal, hero, cards):
                    'structure':structure,'publicState':observed,'priorPublicActions':prior,
                    'legalActions':legal,'tournamentStage':stage}
     digest = hashlib.sha256(json.dumps(information,sort_keys=True,separators=(',',':')).encode()).hexdigest()
-    return {'decisionId':str(hand['id'])+':'+str(ordinal),'horseId':hero,'street':street,
+    result = {'decisionId':str(hand['id'])+':'+str(ordinal),'horseId':hero,'street':street,
             'action':action.get('action'),'amount':action.get('amount'),'origin':action.get('origin'),
             'informationSet':information,'informationSha256':digest,
             'callPriceFractionBeforeCosts':price_fraction,'findings':findings,
             'strategicVerdict':'insufficient_evidence','gaps':sorted(set(gaps+['qualified_reference_not_bound'])),
             'gtoVerified':False,'activationAllowed':False}
+    if card_source:
+        result['heroCardProvenance'] = {'source':card_source,'actorId':hero,'accepted':cards is not None}
+    return result
 
 
 def analyze_hand(hand, profiles, facts=None, accepted_roster=None, excluded_ids=()):
@@ -166,12 +215,16 @@ def analyze_hand(hand, profiles, facts=None, accepted_roster=None, excluded_ids=
     if status=='included':
         for hero in horses:
             cards = (facts or {}).get(hero) or players.get(hero,{}).get('cards')
+            card_source = None
+            if not cards:
+                cards = original_hero_cards(hand, hero)
+                if cards is not None: card_source = 'hand_history.hole_cards'
             own=[]
             for i,a in enumerate(actions):
                 if not isinstance(a,dict) or not decision(a): continue
                 uid=actor_id(a)
                 if uid is None and a.get('seat')==players[hero].get('seat'): uid=hero
-                if uid==hero: own.append(analyze_decision(hand,a,i,hero,cards))
+                if uid==hero: own.append(analyze_decision(hand,a,i,hero,cards,card_source))
             decisions.extend(own)
             horse_reports.append({'horseId':hero,'classificationBasis':roles[hero]['basis'],
                 'streets':{s:{'decisions':[d['decisionId'] for d in own if d['street']==s],

@@ -15,6 +15,21 @@ def decision():
 
 
 class StrategyReviewTests(unittest.TestCase):
+    def test_short_deck_variant_order_and_low_straight(self):
+        flush=made_hand(['Ah','Kh'],['Qh','Jh','8h','Ac','Ad'],'short_deck')
+        boat=made_hand(['Ac','Ad'],['Ah','Kc','Kd','Qh','Js'],'short_deck')
+        self.assertEqual(flush['highCategory'],'flush')
+        self.assertEqual(boat['highCategory'],'full_house')
+        self.assertGreater(flush['highRank'],boat['highRank'])
+        self.assertEqual(made_hand(['Ac','6d'],['7h','8s','9c'],'short_deck')['highRank'],[4,9])
+        with self.assertRaisesRegex(ValueError,'short_deck'):
+            made_hand(['Ac','2d'],['7h','8s','9c'],'short_deck')
+
+    def test_pineapple_post_discard_uses_only_retained_pair(self):
+        self.assertEqual(made_hand(['Ac','Ad'],['Ah','Kc','Kd'],'pineapple')['highCategory'],'full_house')
+        with self.assertRaises(ValueError):
+            made_hand(['Ac','Ad','Kh'],['Ah','Kc','Kd'],'pineapple')
+
     def test_top_boat_blocks_only_quad(self):
         c=river_high_ceiling(['Ah','Ad','Kc','2c'],['As','Kh','Kd','Qc','Js'],'plo4')
         self.assertTrue(c['highUnbeatableAndUntieable'])
@@ -62,6 +77,14 @@ class StrategyReviewTests(unittest.TestCase):
     def test_all_in_seat_has_no_remaining_action(self):
         d=decision();d['informationSet']['publicState']['seats'].append([7,0,0,100,0,0,2])
         self.assertTrue(closes_unbet_street(d['informationSet']))
+
+    def test_sitting_out_seat_cannot_act_behind_or_respond(self):
+        d=decision();d['informationSet']['publicState']['dealerSeat']=7
+        d['informationSet']['publicState']['seats'].append([7,100,0,0,0,0,4])
+        r=review_decision(d)
+        self.assertTrue(r['facts']['closingUnbetStreet'])
+        self.assertEqual(r['facts']['riverOpportunity']['opponentsStillInHand'],1)
+        self.assertEqual(r['facts']['riverOpportunity']['opponentsAbleToRespond'],1)
 
     def test_no_outcome_or_hidden_card_leakage(self):
         d=decision();before=review_decision(d,True)

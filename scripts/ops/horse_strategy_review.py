@@ -14,14 +14,26 @@ CATEGORIES=('high_card','one_pair','two_pair','trips','straight','flush',
 def made_hand(hero, board, variant):
     if variant in HOLES:
         high,low=omaha(hero,board,variant)
-    elif variant=='nlh':
+    elif variant in ('nlh','short_deck','pineapple'):
         cards=list(map(card,[*hero,*board]))
         if len(hero)!=2 or not 3<=len(board)<=5 or len(set(cards))!=len(cards):
             raise ValueError('invalid_holdem_state')
-        high=max(five(tuple(sorted(c)))[0] for c in combinations(cards,5));low=None
+        if variant=='short_deck' and any(c[0] in '2345' for c in cards):
+            raise ValueError('invalid_short_deck_card')
+        def rank_five(c):
+            rank=five(tuple(sorted(c)))[0]
+            if variant!='short_deck':return rank
+            # Authoritative rules: flush above full house, A6789 low straight;
+            # straight remains above trips. Rank tuples are variant-specific.
+            if {x[0] for x in c}==set('A6789'):
+                return (8 if len({x[1] for x in c})==1 else 4,9)
+            return ({5:6,6:5}.get(rank[0],rank[0]),*rank[1:])
+        high=max(rank_five(c) for c in combinations(cards,5));low=None
     else:
         raise ValueError('variant_reference_unavailable')
-    return {'highCategory':CATEGORIES[high[0]],'highRank':list(high),
+    categories=list(CATEGORIES)
+    if variant=='short_deck':categories[5],categories[6]=categories[6],categories[5]
+    return {'highCategory':categories[high[0]],'highRank':list(high),
             'qualifyingLow':list(low) if low else None,
             'lowApplicable':variant in ('plo8','flo8')}
 
@@ -33,7 +45,7 @@ def closes_unbet_street(info):
     if state.get('toCall')!=0 or state.get('currentBet')!=0:return None
     if type(hero) is not int or type(button) is not int or not isinstance(seats,list):return None
     if any(not isinstance(s,list) or len(s)<7 or type(s[0]) is not int or type(s[6]) is not int for s in seats):return None
-    eligible=sorted(s[0] for s in seats if not s[6]&3)
+    eligible=sorted(s[0] for s in seats if not s[6]&7)
     if hero not in eligible or len(eligible)<2:return None
     order=[s for s in eligible if s>button]+[s for s in eligible if s<=button]
     return order[-1]==hero
