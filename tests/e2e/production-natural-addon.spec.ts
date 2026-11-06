@@ -70,7 +70,7 @@ test('every captured natural add-on table renders its public minute', async ({
         .select('id,status,tournament_id', { count: 'exact' })
         .eq('tournament_id', tournamentId)
         .order('id')
-        .range(0, 8),
+        .range(0, 999),
     ]);
     if (board.error || tables.error || !board.data)
       throw new Error('UNKNOWN: authoritative tournament/complete roster read failed');
