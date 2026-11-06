@@ -137,6 +137,30 @@ const normalizeMysteryAwardOrderAddition = (job: { steps: Array<Record<string, u
   job.steps.splice(start, 1);
 };
 
+const freeBuyCutoffStep = {
+  name: 'Free Buy promo money moves at the cutoff, never at sign-up',
+  if: 'matrix.shard == 2',
+  env: {
+    PG17_BINDIR: '/usr/lib/postgresql/17/bin',
+    FREE_BUY_CUTOFF_PG_SCRATCH_PARENT: '${{ runner.temp }}',
+  },
+  run: 'bash scripts/dev/test-free-buy-cutoff-postgres.sh',
+};
+
+const normalizeFreeBuyCutoffAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === freeBuyCutoffStep.name);
+  expect(job.steps.filter((step) => step.name === freeBuyCutoffStep.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe(
+    'Retired VIP points cannot earn, spend, or mutate historical balances'
+  );
+  expect(job.steps[start]).toStrictEqual(freeBuyCutoffStep);
+  expect(job.steps[start + 1]?.name).toBe(
+    'Digest Lightning Funding And Ticket Bounty Native PostgreSQL'
+  );
+  // Enforce the exact owner acceptance gate before retaining every prior job hash.
+  job.steps.splice(start, 1);
+};
+
 const scheduleRequestStep = {
   name: 'Schedule creates retain their original request receipt',
   if: 'matrix.shard == 3',
@@ -791,6 +815,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     normalizeNov3AttendanceAddition(normalized.jobs.accounting_postgres);
     normalizeFrameCoverAddition(normalized.jobs.accounting_postgres);
     normalizePostpaidQualityAddition(normalized.jobs.accounting_postgres);
+    normalizeFreeBuyCutoffAddition(normalized.jobs.accounting_postgres);
     const formerClientRoute = '$' + '{{ ' + trusted + " && 'ca-linux-4core' || 'ubuntu-latest' }}";
     const intendedRoutes = {
       typecheck: 'ubuntu-latest',

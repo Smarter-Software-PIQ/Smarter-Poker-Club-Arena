@@ -1827,6 +1827,12 @@ jobs:
           PG17_BINDIR: /usr/lib/postgresql/17/bin
           VIP_POINTS_PG_SCRATCH_PARENT: ${{ runner.temp }}
         run: bash scripts/dev/test-retired-vip-points-postgres.sh
+      - name: Free Buy promo money moves at the cutoff, never at sign-up
+        if: matrix.shard == 2
+        env:
+          PG17_BINDIR: /usr/lib/postgresql/17/bin
+          FREE_BUY_CUTOFF_PG_SCRATCH_PARENT: ${{ runner.temp }}
+        run: bash scripts/dev/test-free-buy-cutoff-postgres.sh
       - name: Digest Lightning Funding And Ticket Bounty Native PostgreSQL
         if: matrix.shard == 2
         env:
