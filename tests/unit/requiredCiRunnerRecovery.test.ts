@@ -272,6 +272,25 @@ const normalizeGuaranteeFundingWatchAddition = (job: { steps: Array<Record<strin
   job.steps.splice(index, 1);
 };
 
+const bountyOnlyFinalTwoStep = {
+  name: 'A bounty only PKO ends with two players on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-bounty-only-pko-final-two.py',
+};
+const normalizeBountyOnlyFinalTwoAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === bountyOnlyFinalTwoStep.name);
+  expect(job.steps.filter((step) => step.name === bountyOnlyFinalTwoStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(guaranteeFundingWatchStep.name);
+  expect(job.steps[index]).toStrictEqual(bountyOnlyFinalTwoStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (owner rule 2026-11-05: a bounty only
+  // PKO ends with two players), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -392,6 +411,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     chicagoSteps.splice(chicagoIndex, 1);
 
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
+    normalizeBountyOnlyFinalTwoAddition(normalized.jobs.accounting_postgres);
     normalizeGuaranteeFundingWatchAddition(normalized.jobs.accounting_postgres);
     // Review the added tournament gate exactly, then retain every existing job pin.
     for (const tournamentStep of [

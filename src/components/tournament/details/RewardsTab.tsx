@@ -1158,7 +1158,8 @@ export default function RewardsTab({
             0 Places Paid. Bounties Only
             <span className="tl-empty__hint">
               Every Chip Is Paid For Knockouts. Half Of Each Bounty Goes To The Wallet Of The Player
-              Who Wins It And Half Onto Their Head. The Last Player Standing Keeps Their Own Bounty.
+              Who Wins It And Half Onto Their Head. The Event Ends With Two Players Left, And Both
+              Keep The Bounty On Their Own Head.
             </span>
           </div>
         ) : bands.length === 0 ? (
