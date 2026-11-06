@@ -50,6 +50,8 @@ export interface EnginePublicPlayer {
   equipped_frame?: string;
   /** Equipped avatar aura token, e.g. `aura-fire`. '' or absent means none. */
   equipped_aura?: string;
+  /** The ledger bounty on this seat's head in a bounty event. Absent elsewhere. */
+  bounty?: number;
   hand_name?: string;
   /**
    * SHOWDOWN SYSTEM 2026-08-25: the engine ruled this hand muckable at
@@ -232,6 +234,8 @@ export interface MappedTableStatePatch {
     frame?: string;
     /** Equipped avatar aura token. Drawn under `avatar` by AvatarCosmetics. */
     aura?: string;
+    /** The engine's ledger head for this seat; undefined when it sent none. */
+    bounty?: number;
     stack: number;
     status: 'active' | 'folded' | 'all_in' | 'sitting_out' | 'away' | 'disconnected';
     holeCards?: Array<{ rank: string; suit: string }>;
@@ -476,6 +480,10 @@ export function mapEngineSnapshot(
          through the realtime merge as a value worth preserving. */
       frame: p.equipped_frame || undefined,
       aura: p.equipped_aura || undefined,
+      bounty:
+        typeof p.bounty === 'number' && Number.isFinite(p.bounty) && p.bounty >= 0
+          ? p.bounty
+          : undefined,
       stack: p.stack,
       status: STATUS_FROM_PLAYER(p),
       holeCards: p.cards && p.cards.length > 0 ? canonicalCards(p.cards) : undefined,

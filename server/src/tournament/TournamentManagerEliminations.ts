@@ -4229,6 +4229,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         // Which table this happened at — see the tableId parameter.
         tableId,
       });
+      // The heads just moved in the ledger: put them on the felt now, on the
+      // table state itself, not only on this broadcast.
+      this.requestSeatHeads();
 
       // NO DEAL HOLD ON THIS PATH, DELIBERATELY (corrected 2026-08-26).
       //

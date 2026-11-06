@@ -2199,12 +2199,37 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * needs isBetweenHands); only the qualifier boundary reads it.
    */
   override isPreparedOriginalHeldAtTerminalCloseout(): boolean {
+    return this.terminalCloseoutPaused && this.isPreparedOriginalHeldAtPauseGate();
+  }
+
+  /**
+   * ONE RULE FOR EVERY PAUSE: A HELD HAND THAT NEVER STARTED IS PARKED (2026-11-06).
+   *
+   * Satellite 25 (fbb86b2a, 18:29Z) and Satellite 30 (a2a2c981, 01:05Z) each
+   * froze for hours because a table had reserved its next hand a moment
+   * before a pause rose (a qualifier boundary, the hourly break, a table
+   * break), and every waiter asked only isBetweenHands(), which is false
+   * while ANY controller exists. The pause held the hand, and the waiter
+   * waited for the hand: a circular wait that a break landing a few seconds
+   * earlier or later decided. #9560 and #9615 closed it for the qualifier
+   * boundary and the hourly break one owner at a time; this is the single
+   * predicate every waiter now asks, so the timing of a break against a
+   * reservation can never decide whether a tournament deals again.
+   *
+   * True only for the exact shape, every term proven from this engine:
+   * running and current, physically at the pause gate (for any owner), the
+   * controller IS the retained prepared original, its permit is the attempted
+   * one for this hand, no continuation batch past sequence zero, the
+   * controller reports handStarted === false, and no writer of any kind is in
+   * flight. No card has been dealt and no chip has moved: the hand starts, in
+   * full, the moment the last pause owner lifts.
+   */
+  override isPreparedOriginalHeldAtPauseGate(): boolean {
     const controller = this.handController;
     if (
       !this.running ||
       !this.lifecycleCanMutate() ||
       !this.isCurrentEngine() ||
-      !this.terminalCloseoutPaused ||
       !this.isParkedBetweenHands() ||
       !controller ||
       this.retainedPreparedOriginalController !== controller ||
@@ -2246,25 +2271,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
    * table's time banks is still asked separately.
    */
   override isPreparedOriginalHeldForMaintenance(): boolean {
-    const controller = this.handController;
-    if (
-      !this.running ||
-      !this.lifecycleCanMutate() ||
-      !this.isCurrentEngine() ||
-      !this.maintenancePaused ||
-      !this.isParkedBetweenHands() ||
-      !controller ||
-      this.retainedPreparedOriginalController !== controller ||
-      this.f06CurrentPermit?.recoveryState() !== 'attempted' ||
-      this.f06CurrentPermit.binding.hand_number !== String(this.handCount) ||
-      this.handContinuation !== null ||
-      this.hasSettlementInFlight() ||
-      this.postHandTasksPromise !== null ||
-      this.terminalBoundaryPendingGenerations.size !== 0 ||
-      this.hasWeeklyPayoutMutationInFlight()
-    )
-      return false;
-    return JSON.parse(controller.serializeRecoveryState()).handStarted === false;
+    return this.maintenancePaused && this.isPreparedOriginalHeldAtPauseGate();
   }
 
   protected async readNextHandInputs(): Promise<SeatedPlayer[]> {

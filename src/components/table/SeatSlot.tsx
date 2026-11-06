@@ -220,6 +220,12 @@ export interface SeatPlayer {
   frame?: string;
   /** Equipped avatar aura token (`aura-fire`, ...), from `profiles.equipped_aura`. */
   aura?: string;
+  /**
+   * The bounty on this seat's head, from the engine's table state (2026-11-05).
+   * The tournament manager copies it from the ledger, so it moves in the same
+   * update as the chips. Undefined on a non-bounty table or an older engine.
+   */
+  bounty?: number;
   stack: number;
   /** True while no authoritative balance is available; known zero stays zero. */
   stackPending?: boolean;

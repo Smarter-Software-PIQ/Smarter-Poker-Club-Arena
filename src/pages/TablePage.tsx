@@ -29053,6 +29053,7 @@ function LiveTablePage({
               playerId: player?.id,
               playerStatus: player?.status,
               bountyMap: tableState.bountyMap,
+              engineBounty: player?.bounty,
             });
 
             return (
