@@ -24127,7 +24127,10 @@ function LiveTablePage({
            The stamps are their own state and reach SeatSlot as their own prop. */
         const players = prev.players.map((p) => {
           if (!p || !p.id) return p;
-          const shouldBeOut = sittingOut.has(p.id);
+          // The DB flag describes a voluntary sit-out, not an engine entry
+          // hold. Only an authoritative waiting-list update admits that seat.
+          const shouldBeOut =
+            sittingOut.has(p.id) || (prev.waitingForBBUserIds ?? []).includes(p.id);
           /* Never repaint a seat whose status is telling a more urgent story.
              An all-in seat is all-in first; a folded seat has already acted
              this hand. Sitting out is the resting state underneath both, and
