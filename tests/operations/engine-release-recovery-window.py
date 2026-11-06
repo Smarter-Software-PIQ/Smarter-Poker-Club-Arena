@@ -11,6 +11,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+# Historical custody protocol remains qualified independently of retired admission.
+# The daily law executes the unmodified entry point and proves it performs no I/O.
+SOURCE = SOURCE.replace('  return 0 # daily-only: no new off-cycle announcements\n', '')
 ENTRY_READ = SOURCE[SOURCE.index('legacy_entry_read() {'):SOURCE.index('legacy_entry_trace() {')]
 RECOVERY = SOURCE[SOURCE.index('RECOVERY_REQUESTED=0'):SOURCE.index('persist_break_deadline() {')]
 # Include the actual coordinator: legacy fixtures retain its default zero-cycle

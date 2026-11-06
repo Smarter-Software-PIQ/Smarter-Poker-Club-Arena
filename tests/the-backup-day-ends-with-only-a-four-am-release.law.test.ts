@@ -80,8 +80,24 @@ describe('Backup qualification and the daily release are separate authorities', 
       "PREPARED=1\ndaily_cutover_clock || die 'engine replacement is only allowed at 04:00 America/Chicago'"
     );
     expect(transaction).toContain(
-      'request_recovery_window() {\n  # Historical owner windows cannot announce a daytime pause.\n  daily_cutover_clock || return 0'
+      'request_recovery_window() {\n  return 0 # daily-only: no new off-cycle announcements\n  # Historical owner windows cannot announce a daytime pause.\n  daily_cutover_clock || return 0'
     );
+  });
+  it('never asks for a new emergency pause, even within the 4 AM window', () => {
+    const request = transaction.slice(
+      transaction.indexOf('request_recovery_window() {'),
+      transaction.indexOf('persist_break_deadline() {')
+    );
+    const result = spawnSync(
+      'bash',
+      [
+        '-c',
+        `set -eu\n${request}\ncurl() { echo forbidden-read; return 99; }\ndaily_cutover_clock() { echo forbidden-clock; return 99; }\nrequest_recovery_window`,
+      ],
+      { encoding: 'utf8' }
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('');
   });
   it.each([
     ['Engine Release ' + 'b'.repeat(40), 'b'.repeat(40), true],

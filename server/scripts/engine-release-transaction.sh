@@ -2099,6 +2099,7 @@ socket.setTimeout(1000,()=>{socket.destroy();process.exit(2);});
 }
 
 request_recovery_window() {
+  return 0 # daily-only: no new off-cycle announcements
   # Historical owner windows cannot announce a daytime pause.
   daily_cutover_clock || return 0
   local health minute now stamp outcome reason cause_key newer stuck persistent cause_required
