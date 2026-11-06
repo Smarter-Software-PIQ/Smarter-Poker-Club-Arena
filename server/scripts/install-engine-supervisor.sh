@@ -509,7 +509,11 @@ cat > "$UNIT_STAGE/club-arena-engine-release-v1@.service" <<UNIT
 Description=Club Arena Engine Release Transaction %i
 After=docker.service network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=0
+# 2026-11-05: five failed starts in 20 minutes is a dead transaction. It parks
+# in failed state so it stops counting as a live owner; it used to loop every
+# 30 s forever (run 42099609162-1: 222 restarts).
+StartLimitIntervalSec=20min
+StartLimitBurst=5
 
 [Service]
 Type=oneshot

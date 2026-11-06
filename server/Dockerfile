@@ -79,7 +79,13 @@ LABEL sp.alert-journal.schema=1
 # healthy engine sits near 1 GB, and a heap that grows anyway now has 2 GB more
 # room before V8 gives up. An explicit --max-old-space-size on a command line
 # (every docker exec probe passes its own) still overrides this value.
-ENV NODE_OPTIONS="--dns-result-order=ipv4first --max-old-space-size=6144"
+# 2026-11-05 (Dan): the engine gets two to three times the memory it will
+# ever need, so a growing heap is an alert and a daily-window hand-off, never a
+# crash. Main isolate: 12 GB (serving heap 1.5 to 2.1 GB on 71087373, 6x).
+# Horse decision workers carry their own 3 GB each (client.ts resourceLimits).
+# 12 + 8 x 3 = 36 GB of V8 on a 64 GB host with 47 GB free at the 12 GB RSS
+# worst case measured 2026-11-05.
+ENV NODE_OPTIONS="--dns-result-order=ipv4first --max-old-space-size=12288"
 EXPOSE 8080
 
 # 2026-08-15 DEPLOY VERIFIABILITY.

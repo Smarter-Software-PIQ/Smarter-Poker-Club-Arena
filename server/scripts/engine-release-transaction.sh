@@ -1491,6 +1491,28 @@ if os.environ.get("STRICT_RESTART_CERTIFICATE")=="1": raise SystemExit(1)
 # No bank or custody name may appear in this set (pinned by
 # theCertificateOpensBeforeTheFleetIsSwept and everyRestartBlockerDeclaresItsBound).
 BOUNDED_ONLY={"f06_preparation_unresolved","f06_preparation_stuck"}
+# CARDS IN THE AIR IS A CLAIM; THE TWO PHYSICAL WITNESSES DECIDE (2026-11-05).
+# Engine 71087373 missed seven certified breaks in a row, each shut by
+# cards_in_air from a table that had prepared a retained original hand
+# milliseconds after the announcement and then parked UNSTARTED at the pause
+# gate (table 9139b7d2 at 23:20Z: "Hand #55574170" at 23:20:01.301, "Parked
+# between hands" at 23:20:01.536). Nothing was dealt and nothing was written,
+# but the census counts any set handController as cards in the air, so the
+# release that carries the census fix could never cut over: the door was
+# locked by the bug the release repairs. The census reason is admitted here
+# ONLY into the database proof at its full 600-second lookback: every dealt
+# hand writes an incomplete hand_state_snapshots row and keeps writing until it
+# completes, so zero such rows in ten minutes means no cards are in the air
+# anywhere, and a hand stuck for minutes still refuses. Measured live at the
+# 01:00Z break on 2026-11-06: census cards_in_air=3 (tables bcca79f3, 21f7e3b0,
+# aed78e3f, each "Hand #N" then "Parked between hands" within 330 ms of the
+# announcement), handsInFlightTotal=0, and zero incomplete snapshots in 600 s.
+# The drained-boundary mode is NOT used: it counts the tournament hand permits
+# those unstarted hands reserved, which a successor re-adopts from their rows.
+# The engine handsInFlightTotal witness must still be present and zero, but it is
+# not the decisive witness (it already reads 0 during the last-hand notice).
+# Every bank, custody and unknown reason still refuses.
+CENSUS_CLAIM_ONLY={"cards_in_air"}
 unparked=m.get("unparkedTables")
 if not isinstance(unparked,int) or isinstance(unparked,bool) or unparked<1: raise SystemExit(1)
 reasons=m.get("unparkedReasons")
@@ -1501,8 +1523,9 @@ if not isinstance(reasons,dict) or not reasons: raise SystemExit(1)
 # are all outside the set and all keep the gate shut.
 for k,v in reasons.items():
     if not isinstance(k,str): raise SystemExit(1)
-    if k not in BOUNDED_ONLY: raise SystemExit(1)
+    if k not in BOUNDED_ONLY and k not in CENSUS_CLAIM_ONLY: raise SystemExit(1)
     if not isinstance(v,int) or isinstance(v,bool) or v<0: raise SystemExit(1)
+census_claim=any(k in CENSUS_CLAIM_ONLY for k in reasons)
 # The engine own physical witness, which must be PRESENT and zero. Absent is
 # unreadable, and unreadable is a refusal, never an assumed zero.
 hands=d.get("handsInFlightTotal")
@@ -1510,7 +1533,7 @@ if not isinstance(hands,int) or isinstance(hands,bool) or hands!=0: raise System
 sys.stderr.write("[engine-release-transaction] restart certificate is held shut only by " + repr(reasons) + "; consulting the database for hands actually in the air\n")
 _admitted[0]=True
 print(remaining)
-raise SystemExit(4)
+raise SystemExit(5 if census_claim else 4)
 ')"
   status=$?
   set -e
@@ -1518,8 +1541,15 @@ raise SystemExit(4)
     0) printf '%s\n' "$verdict"; return 0 ;;
     2) printf '%s\n' "$verdict"; return 2 ;;
     4) ;;
+    5) ;;
     *) return 1 ;;
   esac
+  local inflight_age=
+  # A cards_in_air claim needs the in-flight database witness over its full
+  # 600-second lookback (see CENSUS_CLAIM_ONLY above); the bounded F06 classes
+  # keep their existing proof unchanged. A scalar, not an array: an empty
+  # array under set -u is an unbound-variable error on bash 3.2.
+  [ "$status" != 5 ] || inflight_age=600
   # Fail closed. Exit 0 is the ONLY result that proceeds. The helper answers 1
   # for a hand in the air and 3 for "could not tell", and both refuse here.
   # There is deliberately no flag, variable or argument that skips this.
@@ -1544,7 +1574,7 @@ raise SystemExit(4)
   # cutover every other gate had admitted was thrown away. Both now go to
   # stderr, where the journal still records them.
   set +e
-  legacy_entry_read "$INFLIGHT_HANDS" --env-file "$ENV_FILE" >&2
+  legacy_entry_read "$INFLIGHT_HANDS" --env-file "$ENV_FILE" ${inflight_age:+--max-age-seconds "$inflight_age"} >&2
   local inflight_rc=$?
   set -e
   case "$inflight_rc" in
@@ -1938,6 +1968,13 @@ newer_release_in_flight() {
     fi
     state="$(systemctl show "club-arena-engine-release-v1@$run.service" \
       -p ActiveState --value 2>/dev/null || true)"
+    # 2026-11-05: a unit whose SubState is auto-restart has no process; it is
+    # systemd waiting RestartSec between two failures. Run 42099609162-1 sat in
+    # that state for 2.5 hours and five newer releases refused to compete with
+    # it. A live owner holds a process (MainPID or ControlPID), nothing else.
+    sub="$(systemctl show "club-arena-engine-release-v1@$run.service" \
+      -p SubState --value 2>/dev/null || true)"
+    [ "$sub" != auto-restart ] || continue
     case "$state" in active|activating|reloading) ;;
       deactivating) [ "$mode" = any ] || continue ;;
       inactive|failed) continue ;;

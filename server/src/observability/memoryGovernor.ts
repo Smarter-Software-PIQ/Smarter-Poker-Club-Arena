@@ -25,7 +25,7 @@
  * Ceilings:
  *  - MEMORY_LIMIT_MB set (the container/host budget for this process):
  *    soft = 80% of it, hard = 95% of it.
- *  - unset: soft = 9830 MB (80% of the hard line), hard = 12288 MB. The hard
+ *  - unset: soft = 29491 MB (80% of the hard line), hard = 36864 MB. The hard
  *    line is the Phase 1 RSS ceiling from the owner decision (Dan,
  *    2026-11-05 14:44 Chicago, recorded in
  *    scripts/ci/verify-engine-release-bundle.mjs): 12288 MB, and RSS must
@@ -68,8 +68,12 @@
  * dispatches.
  */
 
-export const MEMORY_GOVERNOR_FALLBACK_SOFT_MB = 9830;
-export const MEMORY_GOVERNOR_FALLBACK_HARD_MB = 12288;
+/* 2026-11-05 18:25 Chicago (Dan): "give the engine 2-3x more memory than it
+   will ever need". The 12 GB RSS worst case measured on 71087373 becomes the
+   unit: hard = 36864 MB (3x), soft = 80% of it, both inside the 47 GB the
+   host had free at that worst case. MEMORY_LIMIT_MB still overrides both. */
+export const MEMORY_GOVERNOR_FALLBACK_HARD_MB = 36864;
+export const MEMORY_GOVERNOR_FALLBACK_SOFT_MB = Math.floor(MEMORY_GOVERNOR_FALLBACK_HARD_MB * 0.8);
 export const MEMORY_GOVERNOR_SOFT_RATIO = 0.8;
 export const MEMORY_GOVERNOR_HARD_RATIO = 0.95;
 /** Soft pressure lifts only once RSS is below this share of the soft ceiling. */

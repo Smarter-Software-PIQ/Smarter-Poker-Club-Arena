@@ -86,13 +86,13 @@
           [{ 'alertname': 'EngineProcessMemoryHigh', 'eval_time': '45m', 'exp_alerts': [] }],
       },
       {
-        'name': 'Growth past 12 GiB for fifteen minutes fires the engine memory warning',
+        'name': 'Growth past 36 GiB for fifteen minutes fires the engine memory warning',
         'interval': '1m',
         'input_series':
           [
             {
               'series': 'poker_engine_process_rss_bytes{job="engine_game_server",host="engine-01"}',
-              'values': '13958643712+0x60',
+              'values': '40802189312+0x60',
             },
           ],
         'alert_rule_test':
@@ -113,8 +113,8 @@
                       },
                     'exp_annotations':
                       {
-                        'summary': 'Engine process RSS 13GiB - above the 12 GiB owner ceiling (12288 MB, 2026-11-05)',
-                        'description': "Engine process RSS has exceeded 12 GiB for fifteen minutes - above\nthe 12288 MB Phase 1 ceiling set by the owner on 2026-11-05 and\nabove the 8.85-10.3 GB whole-process steady state measured on the\ncurrent engine (the horse decision workers, equity workers and\njournal writers are worker_threads inside this process and are\nalready counted in that figure).\nCompare whole-process RSS, main-isolate V8 usage, worker activity,\nexternal memory and threads. poker_engine_native_main_arena_bytes\nis current [heap] virtual extent, not RSS or allocation ownership.\nCorrelation between these observations does not establish a leak,\nTLS attribution or a runtime memory limit. Use the existing\non-host build gate to establish build headroom at the actual attempt.\n",
+                        'summary': 'Engine process RSS 38GiB - above the 36 GiB owner ceiling (36864 MB, 3x the 2026-11-05 worst case)',
+                        'description': "Engine process RSS has exceeded 36 GiB for fifteen minutes - three\ntimes the 12 GB worst case measured on 71087373 on 2026-11-05, the\nheadroom the owner ordered that day (\"2-3x more memory than it will\never need\"), and well above the 8.85-10.3 GB whole-process steady\nstate (the horse decision workers, equity workers and journal\nwriters are worker_threads inside this process and are already\ncounted in that figure).\nCompare whole-process RSS, main-isolate V8 usage, worker activity,\nexternal memory and threads. poker_engine_native_main_arena_bytes\nis current [heap] virtual extent, not RSS or allocation ownership.\nCorrelation between these observations does not establish a leak,\nTLS attribution or a runtime memory limit. Use the existing\non-host build gate to establish build headroom at the actual attempt.\n",
                         'runbook': 'docs/runbooks/engine-memory.md',
                       },
                   },
