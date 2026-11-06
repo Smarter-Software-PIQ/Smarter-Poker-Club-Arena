@@ -11,14 +11,6 @@ const fx = vi.hoisted(() => ({
   now: 1_000_000,
   error: null as any,
   hold: null as Promise<void> | null,
-  purchase: null as null | (() => void),
-  subscription: null as null | ((status: string) => void),
-}));
-vi.mock('../../src/hooks/useMasterBusBroadcastChannel', () => ({
-  useMasterBusBroadcastChannel: (options: any) => {
-    fx.purchase = options.onPayload;
-    fx.subscription = options.onSubscriptionStatus;
-  },
 }));
 vi.mock('../../src/utils/serverClock', () => ({ serverNow: () => fx.now }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
@@ -104,22 +96,6 @@ describe('every player receives the public add-on break notice', () => {
       release();
     });
     expect(screen.getByRole('status')).toHaveTextContent('15/20000/1060000');
-  });
-  it('refreshes the durable phase on committed purchases and subscription recovery', async () => {
-    fx.row.addon_period_triggered = false;
-    fx.row.addon_period_started_at = null;
-    fx.row.addon_period_ends_at = null;
-    render(<Witness />);
-    await flush();
-    expect(screen.getByRole('status')).toHaveTextContent('15/20000/null');
-    fx.row.addon_period_triggered = true;
-    fx.row.addon_period_started_at = new Date(fx.now).toISOString();
-    fx.row.addon_period_ends_at = new Date(fx.now + 60_000).toISOString();
-    await act(async () => fx.purchase!());
-    expect(screen.getByRole('status')).toHaveTextContent('15/20000/1060000');
-    fx.row.prize_pool_finalized = true;
-    await act(async () => fx.subscription!('SUBSCRIBED'));
-    expect(screen.getByRole('status')).toHaveTextContent('None');
   });
   it('names the add-on last hand without claiming all tables are already paused', () => {
     render(

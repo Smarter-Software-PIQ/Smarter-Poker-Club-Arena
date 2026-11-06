@@ -1,6 +1,5 @@
 import { tournamentAddOnEntryBoundaryPassed } from '../utils/tournamentAddOnBoundary';
-import { useEffect, useRef, useState } from 'react';
-import { useMasterBusBroadcastChannel } from './useMasterBusBroadcastChannel';
+import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { subscribeTournamentStandings } from '../services/tournamentStandingsUpdates';
 import { reportError } from '../utils/errorReporter';
@@ -22,16 +21,6 @@ export function useTournamentAddOnBreak(tournamentId: string | null | undefined)
   const [shown, setShown] = useState<(TournamentAddOnBreak & { tournamentId: string }) | null>(
     null
   );
-  const refresh = useRef<(() => void) | null>(null);
-  useMasterBusBroadcastChannel({
-    channelName: tournamentId ? `tournament-purchases:${tournamentId}` : null,
-    event: 'purchase_committed',
-    private: true,
-    onPayload: () => refresh.current?.(),
-    onSubscriptionStatus: (status) => {
-      if (status === 'SUBSCRIBED') refresh.current?.();
-    },
-  });
   useEffect(() => {
     setShown(null);
     if (!tournamentId) return;
@@ -135,12 +124,10 @@ export function useTournamentAddOnBreak(tournamentId: string | null | undefined)
         if (active && pending) void load();
       }
     };
-    refresh.current = () => void load();
     const stop = subscribeTournamentStandings(tournamentId, () => void load());
     void load();
     return () => {
       active = false;
-      refresh.current = null;
       stop();
       if (boundary) clearTimeout(boundary);
     };
