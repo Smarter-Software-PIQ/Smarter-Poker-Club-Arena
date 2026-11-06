@@ -5659,6 +5659,10 @@ export class GameServer {
       clearTimeout(this.tournamentManagerWakeDrainRetryTimer);
       this.tournamentManagerWakeDrainRetryTimer = null;
     }
+    if (this.tournamentCapacityWakeRecheckTimer) {
+      clearTimeout(this.tournamentCapacityWakeRecheckTimer);
+      this.tournamentCapacityWakeRecheckTimer = null;
+    }
     this.tournamentManagerWakeDrainRetryGeneration++;
     this.tournamentManagerWakeDrainRetryBackoffMs = 250;
     this.bountyRecoveryDueAt = 0;
@@ -11462,6 +11466,9 @@ export class GameServer {
       this.drainTournamentManagerWakes(),
       'GameServer.tournament_manager_wake_boot_drain_failed'
     );
+    // Safety net under Realtime: a lost late_registration frame never leaves a
+    // seated capacity table waiting for a full elimination sweep.
+    this.scheduleTournamentCapacityWakeRecheck();
   }
 
   /** Recreate the durable-wake channel only after a close, error or timeout. */
@@ -11561,24 +11568,123 @@ export class GameServer {
     // manager finishes a full reason-aware sweep; a crash, lifecycle abort or
     // cooperative budget yield must be replayed by the next manager.
     const accepted = manager.requestEliminationSweep(String(row.reason ?? ''), id, generation);
-    if (
-      row.reason === 'late_registration' &&
-      this.tournamentManagersReadyForCapacityWake?.has(manager)
-    ) {
-      const owner = manager;
-      const lifecycle = this.lifecycleGeneration;
-      // A full sweep may already be awaiting an unrelated bust transaction.
-      // The committed capacity receipt only needs its dealer, not another
-      // money/seat writer or permission to release that existing operation.
-      await owner.admitCommittedCapacityTablesForWake(
-        () =>
-          this.running &&
-          this.lifecycleGeneration === lifecycle &&
-          this.tournamentEngines.get(tournamentId) === owner &&
-          this.tournamentManagersReadyForCapacityWake?.has(owner) === true
-      );
+    if (row.reason === 'late_registration') {
+      await this.admitCapacityTablesOnLateRegistrationWake(tournamentId, manager);
     }
     return accepted;
+  }
+
+  /**
+   * Start the dealers of committed late-registration (capacity) tables for
+   * one ready manager. Shared by every delivery of a `late_registration` wake:
+   * the Realtime frame, the boot/reconnect drain and the capacity recheck.
+   * A full sweep may already be awaiting an unrelated bust transaction; the
+   * committed capacity receipt only needs its dealer, not another money/seat
+   * writer or permission to release that existing operation.
+   */
+  private async admitCapacityTablesOnLateRegistrationWake(
+    tournamentId: string,
+    manager: TournamentManager
+  ): Promise<void> {
+    if (!this.tournamentManagersReadyForCapacityWake?.has(manager)) return;
+    const owner = manager;
+    const lifecycle = this.lifecycleGeneration;
+    await owner.admitCommittedCapacityTablesForWake(
+      () =>
+        this.running &&
+        this.lifecycleGeneration === lifecycle &&
+        this.tournamentEngines.get(tournamentId) === owner &&
+        this.tournamentManagersReadyForCapacityWake?.has(owner) === true
+    );
+  }
+
+  /**
+   * A SEATED LATE-REGISTRATION TABLE NEVER WAITS FOR A LOST FRAME (2026-11-06).
+   *
+   * Realtime is the primary delivery of a `late_registration` wake, but it is
+   * not a delivery guarantee: postgres_changes frames can be dropped or
+   * throttled while the channel still reports SUBSCRIBED, and the drain only
+   * re-reads on boot, reconnect or a failed read. When a frame was lost the
+   * table's dealer was started only by a later full elimination sweep, which
+   * on a busy field (constant busts, rebuys, rebalances and consolidation)
+   * arrived minutes later.
+   *
+   * Production 2026-11-06 03:07-03:18 UTC, engine 71087373: every capacity
+   * table opened after the 03:00 maintenance break waited for that sweep -
+   * Six-Card Feature 1817ecac 72 s and 716f92a0 304 s (3 seated, no hand),
+   * 40 Chip Bounty Freezeout 4b7f39d4 164 s - against a median of about 1 s
+   * for the 30 capacity tables opened earlier that night. In each case the
+   * table was committed by a generation bump of an already-pending wake row
+   * and was admitted only seconds before that row's full sweep consumed it.
+   *
+   * So the process re-reads its pending `late_registration` wakes on a short
+   * bounded cadence and runs exactly the same direct admission a frame would
+   * have run. It is a safety net under Realtime, not a second writer: it only
+   * starts dealers for receipts the database already committed with seated
+   * entrants (idempotent per receipt), never requests or acknowledges a sweep,
+   * and every gate of the direct path (ready manager, lifecycle, freeze,
+   * finished event) still applies.
+   */
+  static readonly CAPACITY_WAKE_RECHECK_MS = 5_000;
+  private tournamentCapacityWakeRecheckTimer: NodeJS.Timeout | null = null;
+  private tournamentCapacityWakeRecheckInFlight = false;
+
+  private scheduleTournamentCapacityWakeRecheck(): void {
+    if (!this.running || this.tournamentCapacityWakeRecheckTimer) return;
+    const lifecycle = this.lifecycleGeneration;
+    this.tournamentCapacityWakeRecheckTimer = setTimeout(() => {
+      this.tournamentCapacityWakeRecheckTimer = null;
+      if (!this.running || this.lifecycleGeneration !== lifecycle) return;
+      this.launchServerLifecycleJob(
+        this.recheckTournamentCapacityWakes().finally(() =>
+          this.scheduleTournamentCapacityWakeRecheck()
+        ),
+        'GameServer.tournament_capacity_wake_recheck_failed'
+      );
+    }, GameServer.CAPACITY_WAKE_RECHECK_MS);
+    this.tournamentCapacityWakeRecheckTimer.unref?.();
+  }
+
+  private async recheckTournamentCapacityWakes(): Promise<void> {
+    if (this.tournamentCapacityWakeRecheckInFlight || isMaintenanceFrozen()) return;
+    this.tournamentCapacityWakeRecheckInFlight = true;
+    try {
+      const lifecycle = this.lifecycleGeneration;
+      const { data, error } = await supabase
+        .from('tournament_manager_wakes')
+        .select('tournament_id')
+        .eq('reason', 'late_registration')
+        .is('consumed_at', null)
+        .order('id', { ascending: true })
+        .limit(200);
+      if (!this.running || this.lifecycleGeneration !== lifecycle) return;
+      if (error || !Array.isArray(data)) {
+        if (error) reportError(error, 'GameServer.tournament_capacity_wake_recheck_read_failed');
+        return;
+      }
+      const tournamentIds = [
+        ...new Set(
+          data
+            .map((row: { tournament_id?: string | null }) => String(row.tournament_id ?? ''))
+            .filter((tournamentId) => tournamentId.length > 0)
+        ),
+      ];
+      await Promise.all(
+        tournamentIds.map(async (tournamentId) => {
+          const manager = this.tournamentEngines.get(tournamentId);
+          if (!manager || !manager.isRunning() || manager.isF06RecoveryOwner?.()) return;
+          try {
+            await this.admitCapacityTablesOnLateRegistrationWake(tournamentId, manager);
+          } catch (error) {
+            reportError(error, 'GameServer.tournament_capacity_wake_recheck_admission_failed', {
+              tournamentId,
+            });
+          }
+        })
+      );
+    } finally {
+      this.tournamentCapacityWakeRecheckInFlight = false;
+    }
   }
 
   /** Acknowledge durable action wakes only after their full sweep completed. */
