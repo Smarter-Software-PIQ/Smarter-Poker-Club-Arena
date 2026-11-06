@@ -121,10 +121,41 @@ async function localQueue() {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Local queue did not bind');
+  // Unmount unsubscribes synchronously, but its final hydration read can still
+  // be in flight. Keep the local peer alive until those real SDK reads settle.
+  const pendingReads = new Set<Promise<Response>>();
+  const localFetch: typeof fetch = (input, init) => {
+    const pending = (async () => {
+      const response = await fetch(input, init);
+      const body = await response.arrayBuffer();
+      return new Response(body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    })();
+    pendingReads.add(pending);
+    void pending.then(
+      () => pendingReads.delete(pending),
+      () => pendingReads.delete(pending)
+    );
+    return pending;
+  };
+  const drainReads = async () => {
+    await act(async () => {
+      for (let pass = 0; pass < 5; pass++) {
+        await Promise.all([...pendingReads]);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        if (pendingReads.size === 0) return;
+      }
+      expect(pendingReads.size).toBe(0);
+    });
+  };
   const createLocalClient = () =>
     createClient(`http://127.0.0.1:${address.port}`, 'local-fixture-only', {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       realtime: { transport: WebSocket },
+      global: { fetch: localFetch },
     });
   state.client = createLocalClient();
   return {
@@ -173,11 +204,13 @@ async function localQueue() {
       // A page reload constructs a new SDK client, after retiring the old one.
       await state.client!.removeAllChannels();
       state.client!.realtime.disconnect();
+      await drainReads();
       state.client = createLocalClient();
     },
     async close() {
       await state.client!.removeAllChannels();
       state.client!.realtime.disconnect();
+      await drainReads();
       for (const socket of sockets.clients) socket.terminate();
       await new Promise<void>((resolve) => sockets.close(() => resolve()));
       await new Promise<void>((resolve) => server.close(() => resolve()));
