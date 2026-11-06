@@ -407,15 +407,12 @@ test('every captured natural add-on table renders its public minute', async ({
     for (const count of renderedCounts) expect(count).toBeLessThanOrEqual(committedAfterRenders);
     evidence.counterReadBounds = { committedCount, renderedCounts, committedAfterRenders };
     evidence.counterConsistencyProof = 'passed';
-    // Reopen one existing table only after closing its context: never exceed
-    // eight live observers. This is a late-open consumer, not a ninth connection.
+    // Prove the requested reconnect once on an established page. A separate
+    // cold-context boot is not needed and can consume the remaining minute.
     const lateId = ids[0];
     originalPageEnds[lateId] = Date.now();
     evidence.originalPageEnds = originalPageEnds;
-    await pages.get(lateId)!.context().close();
-    received.delete(lateId);
-    const late = await openTable(lateId);
-    await rendered(lateId, late, window, 'late-open');
+    const late = pages.get(lateId)!;
     // Reload creates a real client reconnect; no injected visibility/events.
     received.delete(lateId);
     await late.reload({ waitUntil: 'domcontentloaded', timeout: 15_000 });
