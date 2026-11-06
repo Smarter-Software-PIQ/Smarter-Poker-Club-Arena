@@ -137,6 +137,13 @@ export interface PausableTableEngine {
    * the restart gate asks (PHASE 2, 2026-09-02) - see `unparkedTables`.
    */
   isBetweenHands(): boolean;
+  /**
+   * A retained tournament original that never started, held at the gate by
+   * this break (2026-11-05). No card dealt, no chip committed, no writer in
+   * flight, and durably reclaimed by the next generation. Optional; absent is
+   * "no", which keeps the table counted as `cards_in_air`.
+   */
+  isPreparedOriginalHeldForMaintenance?(): boolean;
   /** Positive original preparation disposition must survive process replacement. */
   hasUnresolvedF06Preparation?(): boolean;
   /** Stopped originals still own actual banks until custody is confirmed. */
@@ -2471,7 +2478,13 @@ export class MaintenanceBreak {
           continue;
         }
         if (!engine.isRunning()) continue;
-        if (!engine.isBetweenHands()) {
+        /* A RESERVED HAND THAT NEVER STARTED IS NOT CARDS IN THE AIR
+           (2026-11-05). Spin 9139b7d2 retained hand 55574170 64 ms before
+           this break's park reached it, held it at the gate unstarted, and
+           this line named it `cards_in_air` for the whole break: two engine
+           releases backed out over a hand with no card dealt. The engine
+           names exactly that held shape; anything else still counts. */
+        if (!engine.isBetweenHands() && engine.isPreparedOriginalHeldForMaintenance?.() !== true) {
           out.push(tableId);
           this.noteBreakScoped(tableId, count('cards_in_air'));
           continue;

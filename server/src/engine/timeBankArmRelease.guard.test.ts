@@ -17,6 +17,9 @@
  * in the CALLER's condition, not in TimeBankEngine - whose own contract is
  * already pinned by TimeBankEngine.manualcountdown.test.ts ("player acted in
  * time; the intent dies with it").
+ *
+ * 2026-11-05: the gate was widened once more, to nothing. See
+ * aClockExpiryBelongsToItsTurn.test.ts for the orphaned countdown it hid.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -28,27 +31,27 @@ const src = readFileSync(
 );
 
 describe('releasing an armed-but-unspent time bank', () => {
-  it('handlePlayerAction reaches playerActed for an ARMED bank, not only an ACTIVATED one', () => {
-    const call = 'this.timeBankEngine.playerActed(this.tableId, userId)';
-    const i = src.indexOf(call);
-    expect(i, 'the playerActed call in handlePlayerAction is gone').toBeGreaterThan(-1);
-
-    // The condition immediately guarding that call.
-    const before = src.slice(Math.max(0, i - 600), i);
-    const lastIf = before.lastIndexOf('if (');
-    expect(lastIf, 'no guarding if( found').toBeGreaterThan(-1);
-    const cond = before.slice(lastIf);
-
+  it('handlePlayerAction reaches playerActed unconditionally: armed, activated, or neither', () => {
+    // 2026-11-05: the gate (timeBankActivatedThisTurn || isArmed) is gone. A
+    // bank can be active with a live countdown and neither flag set (a
+    // deferred activation published onto a turn that handleTurnChange then
+    // reset), and that orphan fired 20 s later over the brain's next
+    // decision. playerActed is idempotent, so the call is now unconditional on
+    // both the human and the horse path.
+    const call = 'this.timeBankEngine.playerActed(this.tableId, userId);';
+    const calls = src.split(call).length - 1;
+    expect(calls, 'the playerActed calls in handlePlayerAction and settleHorseSeatActed').toBe(2);
+    const guarded = new RegExp(
+      String.raw`if \([^{]*\)\s*\{\s*` + call.replace(/[.()]/g, (c) => '\\' + c)
+    );
     expect(
-      cond,
-      'the gate is timeBankActivatedThisTurn alone again - an armed-but-unspent ' +
-        'bank will leak into a later turn and be spent without consent'
-    ).toContain('isArmed');
+      src,
+      'playerActed is gated again: an active bank with the flag off would leak'
+    ).not.toMatch(guarded);
   });
 
   it('the arm-only branch still returns without claiming anything was spent', () => {
-    // If this ever starts setting timeBankActivatedThisTurn, the guard above
-    // becomes redundant rather than wrong - but the reader should know.
+    // If this ever starts setting timeBankActivatedThisTurn, the reader should know.
     expect(src).toContain('Time Bank Armed. It Starts When Your Clock Runs Out');
   });
 });

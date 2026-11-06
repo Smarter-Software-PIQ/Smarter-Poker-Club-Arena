@@ -108,6 +108,14 @@ import {
   type LiveHorseDecisionLaneStatus,
 } from '../engine/horseDecision/lane.js';
 
+/** Per-matchup legality counters. corrected/brainFallback are optional so older callers keep compiling. */
+type LeagueCounters = {
+  illegal: number;
+  truncated: number;
+  corrected?: number;
+  brainFallback?: number;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,6 +131,10 @@ export interface LeagueResult {
   illegalActions: number;
   /** streets cut short by the action cap (must be 0; see runStreet) */
   truncatedStreets: number;
+  /** Actions the harness coerced (check facing a bet, call with nothing to call, bet/raise swaps). */
+  correctedActions?: number;
+  /** Decisions where HorseLogic.decide caught an exception and returned its check/fold fallback. */
+  brainExceptionFallbacks?: number;
   /** Candidate-policy decisions actually consumed during an offline gate. */
   candidatePolicyHits: number;
   /** Solver samples that legalization changed into a different action family. */
@@ -366,7 +378,7 @@ export function playHand(
     deck[j] = tmp;
   }
 
-  const tally = counters ?? { illegal: 0, truncated: 0 };
+  const tally: LeagueCounters = counters ?? { illegal: 0, truncated: 0 };
 
   const seats: Seat[] = [];
   for (let s = 0; s < SEATS; s++) {
@@ -525,10 +537,19 @@ export function playHand(
       // to the safe fallback and count it (the conservation test asserts 0).
       let action = d.action as string;
       const amount = d.amount ?? 0;
+      // 2026-11-05: what reaches the validator is already the brain's
+      // legalized output plus these harness coercions. A zero illegal count
+      // proved nothing while the coercions and the brain's own exception
+      // fallback went uncounted, so both are now counted separately.
+      if ((d as { policyFallback?: string }).policyFallback === 'brain_exception') {
+        tally.brainFallback = (tally.brainFallback ?? 0) + 1;
+      }
+      const recommended = action;
       if (action === 'check' && toCall > 0) action = 'fold';
       if (action === 'call' && toCall === 0) action = 'check';
       if (action === 'bet' && currentBet > 0) action = 'raise';
       if (action === 'raise' && currentBet === 0) action = 'bet';
+      if (action !== recommended) tally.corrected = (tally.corrected ?? 0) + 1;
       // V12.3: validation is UNCONDITIONAL. It used to be gated on `counters`
       // being passed, so the chip-conservation tests — which pass none — ran a
       // different code path from production and could never catch an illegal
@@ -910,7 +931,7 @@ export async function runMatchup(
   }
   const SEATS = matchup.seats ?? DEFAULT_SEATS;
   const t0 = Date.now();
-  const counters = { illegal: 0, truncated: 0 };
+  const counters: LeagueCounters = { illegal: 0, truncated: 0 };
   let candidatePolicyHits = 0;
   let candidateExecutionMismatches = 0;
   const candidateNodeRoles = new Set<string>();
@@ -1033,6 +1054,8 @@ export async function runMatchup(
     durationMs: Date.now() - t0,
     illegalActions: counters.illegal,
     truncatedStreets: counters.truncated,
+    correctedActions: counters.corrected ?? 0,
+    brainExceptionFallbacks: counters.brainFallback ?? 0,
     candidatePolicyHits,
     candidateExecutionMismatches,
     candidateNodeRoles: [...candidateNodeRoles].sort(),
@@ -1087,7 +1110,7 @@ async function runHumanFieldMatchup(
   const SEATS = matchup.seats ?? DEFAULT_SEATS;
   const HERO = HUMAN_FIELD_HERO_SEAT;
   const t0 = Date.now();
-  const counters = { illegal: 0, truncated: 0 };
+  const counters: LeagueCounters = { illegal: 0, truncated: 0 };
   let candidatePolicyHits = 0;
   let candidateExecutionMismatches = 0;
   const candidateNodeRoles = new Set<string>();
@@ -1189,6 +1212,8 @@ async function runHumanFieldMatchup(
     durationMs,
     illegalActions: counters.illegal,
     truncatedStreets: counters.truncated,
+    correctedActions: counters.corrected ?? 0,
+    brainExceptionFallbacks: counters.brainFallback ?? 0,
     candidatePolicyHits,
     candidateExecutionMismatches,
     candidateNodeRoles: [...candidateNodeRoles].sort(),
@@ -2831,8 +2856,14 @@ export async function runLeague(
             config_a: leagueResultConfig(m, 'a') as never,
             config_b: leagueResultConfig(m, 'b') as never,
             duration_ms: r.durationMs,
-            illegal_actions: r.illegalActions + r.truncatedStreets,
+            // Illegal sizings only. Truncated streets have their own column
+            // and the audit judges them on their own (2026-11-05).
+            illegal_actions: r.illegalActions,
             truncated_streets: r.truncatedStreets,
+            harness_corrected_actions: r.correctedActions ?? null,
+            brain_exception_fallbacks: r.brainExceptionFallbacks ?? null,
+            engine_sha:
+              process.env.GIT_COMMIT_SHA?.trim() || process.env.ENGINE_VERSION?.trim() || null,
             candidate_policy_hits: r.candidatePolicyHits,
             candidate_execution_mismatches: r.candidateExecutionMismatches,
             candidate_node_roles: r.candidateNodeRoles,

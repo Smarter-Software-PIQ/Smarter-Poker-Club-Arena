@@ -2220,6 +2220,53 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     return JSON.parse(controller.serializeRecoveryState()).handStarted === false;
   }
 
+  /**
+   * A RETAINED HAND THAT NEVER STARTED IS PARKED FOR THE BREAK (2026-11-05).
+   *
+   * Spin 9139b7d2 (tournament 3111798e), 23:20:01Z: hand 55574170 was
+   * allocated and its sequence-zero original retained in the 64 ms between
+   * the engine-recovery-window announcement and the break's pauseForMaintenance
+   * fan-out. runOriginalController then held that prepared original at the
+   * pause gate (it may never become never_started once retention is
+   * attempted, and a break forbids starting it), which is the designed
+   * outcome - the hand played intact after the thaw. But the restart census
+   * asked only isBetweenHands(), which is false while any controller exists,
+   * so it named the table `cards_in_air` for the whole break with no card
+   * dealt and no chip committed, and release 42126015699-1 (and 42099609162-1
+   * before it) backed out.
+   *
+   * True only for that exact shape, every term proven from this engine:
+   * running and current, under the maintenance hold, physically at the gate,
+   * the controller IS the retained prepared original, its permit is the
+   * attempted one for this hand, no continuation batch past sequence zero,
+   * handStarted === false, and no writer of any kind in flight. That is the
+   * same durable custody a successor generation reclaims and replays
+   * (isPreparedOriginalParkedForSuccessor), so a restart over it loses nothing.
+   * It certifies only the census's hand-in-flight question; durability of the
+   * table's time banks is still asked separately.
+   */
+  override isPreparedOriginalHeldForMaintenance(): boolean {
+    const controller = this.handController;
+    if (
+      !this.running ||
+      !this.lifecycleCanMutate() ||
+      !this.isCurrentEngine() ||
+      !this.maintenancePaused ||
+      !this.isParkedBetweenHands() ||
+      !controller ||
+      this.retainedPreparedOriginalController !== controller ||
+      this.f06CurrentPermit?.recoveryState() !== 'attempted' ||
+      this.f06CurrentPermit.binding.hand_number !== String(this.handCount) ||
+      this.handContinuation !== null ||
+      this.hasSettlementInFlight() ||
+      this.postHandTasksPromise !== null ||
+      this.terminalBoundaryPendingGenerations.size !== 0 ||
+      this.hasWeeklyPayoutMutationInFlight()
+    )
+      return false;
+    return JSON.parse(controller.serializeRecoveryState()).handStarted === false;
+  }
+
   protected async readNextHandInputs(): Promise<SeatedPlayer[]> {
     // Seats and cash rake can be prepared in parallel under the rest.
     // Tournament blinds must wait until that rest ends: a level may advance
@@ -3847,7 +3894,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       } catch (err) {
         reportError(err, 'ServerTableEngine.' + this.tableId + '.disconnect_autoaction_threw');
       }
-      if (!applied) applied = this.forceResolveSeat(dcPlayer.seat, true);
+      if (!applied) applied = this.forceResolveSeat(dcPlayer.seat, true, 'disconnect_auto_action');
       if (applied) {
         this.markProgress();
         console.log(
@@ -4122,6 +4169,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             // Keep the retained prepared controller at the same existing
             // physical owner gate. Polled floor/admin/Cluster locks are not
             // routed here: this gate does not own their read/wait protocol.
+            // A break's last word on banks and presence is written at this
+            // park as at the dealing loop's (2026-11-05). Not awaited: this
+            // loop waits only on cooperative owners, the write serializes on
+            // presenceSave, and readiness reads its own completion
+            // (parkedBankSaveComplete / presenceSavePending).
+            if (this.maintenancePaused) void this.persistPresenceForRestart('parked');
             await this.awaitPauseGate();
             if (!this.running || !this.isCurrentEngine() || !this.lifecycleCanMutate()) return;
             continue;

@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278626,
-      "sha256": "766bcc04a8f64f09699288bb85fd74a27220d61aac7ef00e879a93e0a156ecea"
+      "bytes": 278899,
+      "sha256": "7ab6f2fb901369b0ffdfebdd1504f604eab27684b3467a2557187a711ac8309a"
     },
     "scripts/qualification/original-flow-eligibility/README.md": {
       "bytes": 2608,
@@ -2567,6 +2567,25 @@
       }
     ]
   },
+  "guaranteeFundingWatchNativeEnforcement20261105": {
+    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the Midway bounty freezeout step: run the guarantee funding watch proof (scripts/ci/test-guarantee-funding-watch.py) on native PostgreSQL 17 over production definitions. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
+    "changes": [
+      {
+        "section": "files",
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278363,
+          "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
+        },
+        "current": {
+          "bytes": 278636,
+          "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "mttSngOpeningBlindsSourceAudit20261105": {
     "reason": "Add the isolated PostgreSQL MTT/SNG 25/50 opening regression to existing required accounting shard 4. Preserve all existing commands, assertions, budgets, historical receipts and financial qualification. Source identity only; no live or financial certification.",
     "previousCiPin": {
@@ -2576,6 +2595,10 @@
     "currentCiPin": {
       "bytes": 278626,
       "sha256": "766bcc04a8f64f09699288bb85fd74a27220d61aac7ef00e879a93e0a156ecea"
+    },
+    "integratedCiPin": {
+      "bytes": 278899,
+      "sha256": "7ab6f2fb901369b0ffdfebdd1504f604eab27684b3467a2557187a711ac8309a"
     }
   }
 }

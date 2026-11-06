@@ -54,8 +54,12 @@ describe('settleHorseSeatActed', () => {
     expect(cancelTimer).toHaveBeenCalledWith(TABLE, HORSE);
     expect(recordPlayerActed).toHaveBeenCalledWith(TABLE, HORSE);
     expect(recordTimerActed).toHaveBeenCalledWith(TABLE);
-    // No bank was spent or armed this turn: nothing to release.
-    expect(playerActed).not.toHaveBeenCalled();
+    // 2026-11-05: a decision ends its bank whatever this turn's flag says.
+    // playerActed is a no-op for a seat with no active or armed bank, and a
+    // bank left active by a deferred activation published onto a turn that
+    // handleTurnChange then reset was the orphan that fired 20 s later over
+    // the brain's next decision (aClockExpiryBelongsToItsTurn.test.ts).
+    expect(playerActed).toHaveBeenCalledWith(TABLE, HORSE);
   });
 
   it('releases a bank the auto-activation spent on this turn (use it or lose it, like a human)', () => {

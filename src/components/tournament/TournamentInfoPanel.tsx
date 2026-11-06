@@ -104,6 +104,7 @@ interface TournamentRow extends TournamentEntryWindowRow, TournamentArenaEmbed {
   payout_structure: unknown;
   spin_multiplier: number | null;
   is_bounty: boolean | null;
+  is_pko?: boolean | null;
   start_time: string | null;
 }
 
@@ -168,7 +169,7 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
               supabase
                 .from('tournaments')
                 .select(
-                  'id, name, status, variant, tournament_type, spin_multiplier, buy_in_amount, buy_in_fee, prize_pool, guaranteed_prize, bubble_protection, satellite_target_id, satellite_target, bounty_pool, total_rake, current_players, max_players, starting_chips, current_level, level_started_at, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, started_at, blind_structure, payout_structure, is_bounty, start_time, arena:clubs!tournaments_club_id_fkey(id, asset, is_platform, union_id)'
+                  'id, name, status, variant, tournament_type, spin_multiplier, buy_in_amount, buy_in_fee, prize_pool, guaranteed_prize, bubble_protection, satellite_target_id, satellite_target, bounty_pool, total_rake, current_players, max_players, starting_chips, current_level, level_started_at, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, started_at, blind_structure, payout_structure, is_bounty, is_pko, start_time, arena:clubs!tournaments_club_id_fkey(id, asset, is_platform, union_id)'
                 )
                 .eq('id', tournamentId)
                 .abortSignal(signal)

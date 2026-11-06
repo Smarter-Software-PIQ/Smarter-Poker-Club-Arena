@@ -428,8 +428,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278626,
-      "sha256": "766bcc04a8f64f09699288bb85fd74a27220d61aac7ef00e879a93e0a156ecea"
+      "bytes": 278899,
+      "sha256": "7ab6f2fb901369b0ffdfebdd1504f604eab27684b3467a2557187a711ac8309a"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6914,6 +6914,17 @@
       "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
     }
   },
+  "guaranteeFundingWatchNativeEnforcement20261105": {
+    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the Midway bounty freezeout step: run the guarantee funding watch proof (scripts/ci/test-guarantee-funding-watch.py) on native PostgreSQL 17 over production definitions. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
+    "previous": {
+      "bytes": 278363,
+      "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
+    },
+    "current": {
+      "bytes": 278636,
+      "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
+    }
+  },
   "mttSngOpeningBlindsSourceAudit20261105": {
     "reason": "Add the native opening-blind regression to required accounting shard 4. Existing financial/native commands, assertions, deadlines and historical receipts are unchanged; source identity only.",
     "previousCiPin": {
@@ -6923,6 +6934,10 @@
     "currentCiPin": {
       "bytes": 278626,
       "sha256": "766bcc04a8f64f09699288bb85fd74a27220d61aac7ef00e879a93e0a156ecea"
+    },
+    "integratedCiPin": {
+      "bytes": 278899,
+      "sha256": "7ab6f2fb901369b0ffdfebdd1504f604eab27684b3467a2557187a711ac8309a"
     }
   }
 }

@@ -36,7 +36,7 @@ import { parsePayoutStructure } from '../../../lib/payoutStructure';
 import { isRecordedSatelliteQualifier } from '../../../utils/satelliteQualification';
 
 export { parsePayoutStructure } from '../../../lib/payoutStructure';
-export { resolvePayoutStructure } from '../../../lib/payoutStructure';
+export { isBountyOnlyPko, resolvePayoutStructure } from '../../../lib/payoutStructure';
 export type { PayoutPlace, PayoutSubject } from '../../../lib/payoutStructure';
 
 /**

@@ -101,6 +101,7 @@ import {
   chips,
   effectivePlaceLadderPool,
   effectivePrizePool,
+  isBountyOnlyPko,
   isPlayerLive,
   isPlayerOut,
   lastPaidPlace,
@@ -108,6 +109,7 @@ import {
   placePrize,
   resolvePayoutStructure,
   tournamentRowUnitCents,
+  type PayoutSubject,
 } from './types';
 import { formatPrizeAtUnit, moneySuffixAtUnit } from '../../../utils/format';
 import {
@@ -555,6 +557,7 @@ export default function RewardsTab({
   /* ── THE LADDER OF PLACES ─────────────────────────────────────────────── */
 
   const parsedPlaces = useMemo(() => resolvePayoutStructure(tournament), [tournament]);
+  const bountyOnly = isBountyOnlyPko(tournament as PayoutSubject | null);
   /**
    * WHO FINISHED IN EACH PAID PLACE (Dan 2026-10-24: "WHAT PLAYERS WON WHAT
    * PRIZES UNDER REWARDS").
@@ -1150,6 +1153,14 @@ export default function RewardsTab({
               </span>
             </div>
           )
+        ) : bands.length === 0 && bountyOnly ? (
+          <div className="tl-empty">
+            0 Places Paid. Bounties Only
+            <span className="tl-empty__hint">
+              Every Chip Is Paid For Knockouts. Half Of Each Bounty Goes To The Wallet Of The Player
+              Who Wins It And Half Onto Their Head. The Last Player Standing Keeps Their Own Bounty.
+            </span>
+          </div>
         ) : bands.length === 0 ? (
           <div className="tl-empty">
             No Payout Structure Yet
