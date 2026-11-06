@@ -1,0 +1,9 @@
+{
+  "_owner": "Hit and run (owner 2026-11-06): created by supabase/migrations/20261106203853_hit_and_run_ten_hands_in_profit.sql, installed in the daily-maintenance window with the engine that calls them. Until then the client's status read fails closed to no count and the engine's blind-off record is best effort.",
+  "functions": [
+    "fn_cash_hit_run_hands_remaining",
+    "fn_cash_session_set_blind_off",
+    "fn_lightning_blind_off_players",
+    "fn_my_hit_run_status"
+  ]
+}

@@ -2574,7 +2574,11 @@ describe.skipIf(!host)('engine/service/PostgreSQL departure recovery', () => {
         };
         for (const name of ['timeBankEngine', 'straddleEngine', 'preActionEngine'])
           e[name] = { removePlayer: vi.fn() };
-        e.chipContinuity = { forget: vi.fn() };
+        e.chipContinuity = {
+          forget: vi.fn(),
+          markBlindOff: vi.fn(),
+          leaveLock: vi.fn(() => ({ locked: false, remainingMs: 0, handsRemaining: 0 })),
+        };
         e.hub = { emitEvent: vi.fn() };
         e.bustedSince = new Map([[USER, Date.now() - 3600000]]);
         e.rebuyPromptOpenAt = new Map();
