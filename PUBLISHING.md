@@ -26,6 +26,7 @@ Use an owned worktree and branch. Recover the existing PR, unmerged work, applie
 4. Read the actual required results for the current PR revision. Use the configured GitHub CLI/API; if one interface cannot read check details, Actions run/job evidence is available through the authenticated REST API. An unreadable result is unknown, not passing.
 5. Fix actual blockers with the smallest correct change, using the last successful equivalent as the baseline. Reuse successful evidence for unchanged source and inputs; do not add duplicate suites or run unrelated checks. Applicable required checks must actually pass.
 6. Complete the protected squash merge with the reviewed current PR head. Let GitHub enforce branch protection. The agent owns this action once its assigned release is authorized; an additional restoration-owner handoff is not required.
+   On the Mac Studio, run `gh` for the merge and for PR title or body edits with the shell's tokens removed: `env -u GH_TOKEN -u GITHUB_TOKEN gh pr merge <n> --squash --match-head-commit <sha>`. The exported `GH_TOKEN` is a fine-grained token that can read and push but is refused `mergePullRequest` and `updatePullRequest` (measured 2026-11-06); `gh`'s own login is the identity `scripts/agent-push.sh` already pushes with. Agent Autopilot is disabled and stays disabled, so nothing merges a green PR for you.
 
 ## World Hub
 
