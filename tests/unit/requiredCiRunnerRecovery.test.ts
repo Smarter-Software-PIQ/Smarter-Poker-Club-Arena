@@ -11,6 +11,23 @@ const recovery = " && vars.CA_REQUIRED_NATIVE_PROFILE == 'large'";
 const expression = (standard: string) =>
   '$' + '{{ ' + trusted + recovery + " && 'ca-linux-8core' || '" + standard + "' }}";
 const accountingRoute = '$' + "{{ matrix.shard == 2 && 'ubuntu-24.04' || 'ubuntu-latest' }}";
+const normalizeOpeningBlindAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const step = {
+    name: 'MTT and Sit and Go opening blinds preserve Spin rules',
+    if: 'matrix.shard == 4',
+    env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+    run: 'python3 -B scripts/ci/test-tournament-opening-blinds.py',
+  };
+  const index = job.steps.findIndex((entry) => entry.name === step.name);
+  expect(job.steps.filter((entry) => entry.name === step.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(step);
+  expect(job.steps[index - 1]?.name).toBe(
+    'MTT lobby entries count committed registrations and rebuys'
+  );
+  expect(job.steps[index + 1]?.name).toBe('Tournament guarantees include funded bounties');
+  // Validate this exact added gate before preserving all prior workflow pins.
+  job.steps.splice(index, 1);
+};
 const jobs = [
   ['accounting_postgres', ci.jobs.accounting_postgres, accountingRoute],
   ['server_shards', ci.jobs.server_shards, 'ubuntu-latest'],
@@ -261,6 +278,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    normalizeOpeningBlindAddition(normalized.jobs.accounting_postgres);
     const priorQualificationBudgets = {
       changes: 5,
       source_windows: 6,

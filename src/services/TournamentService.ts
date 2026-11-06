@@ -35,6 +35,7 @@ import {
   BLIND_STRUCTURES,
   SPIN_BLIND_STRUCTURE,
   assertNoNewMttBreakRows,
+  mttAndSngOpeningBlinds,
   type BlindLevel,
 } from '../config/blindStructures';
 import { SPIN_TIERS, SPIN_FREQ_DENOMINATOR } from '../config/spinSpec';
@@ -1221,6 +1222,7 @@ class TournamentService {
     }
 
     assertTournamentRpcConfig(p, { surface: 'create' });
+    if (config.type !== 'spin') p.blindStructure = mttAndSngOpeningBlinds(config.blindStructure);
     return p;
   }
 

@@ -20,16 +20,35 @@ export interface BlindLevel {
   isBreak?: boolean;
 }
 
-/** Compact preset data; preserves every published level, ante and break. */
+/** New tournament authoring only. Preserve indices, clocks, antes and breaks. */
+export function mttAndSngOpeningBlinds<
+  T extends { smallBlind: number; bigBlind: number; isBreak?: boolean },
+>(levels: readonly T[]): T[] {
+  let first = true;
+  return levels.map((row) => {
+    if (row.isBreak) return { ...row };
+    const opening = first;
+    first = false;
+    return {
+      ...row,
+      smallBlind: opening ? 25 : Math.max(25, row.smallBlind),
+      bigBlind: opening ? 50 : Math.max(50, row.bigBlind),
+    };
+  });
+}
+
+/** Compact preset data under the MTT and Sit & Go 25/50 opening rule. */
 function blindLevels(minutes: number, rows: Array<[number, number]>): BlindLevel[] {
-  return rows.map(([smallBlind, ante], i) => ({
-    level: i + 1,
-    smallBlind,
-    bigBlind: smallBlind * 2,
-    ante,
-    durationMinutes: smallBlind === 0 ? 5 : minutes,
-    ...(smallBlind === 0 ? { isBreak: true } : {}),
-  }));
+  return mttAndSngOpeningBlinds(
+    rows.map(([smallBlind, ante], i) => ({
+      level: i + 1,
+      smallBlind,
+      bigBlind: smallBlind * 2,
+      ante,
+      durationMinutes: smallBlind === 0 ? 5 : minutes,
+      ...(smallBlind === 0 ? { isBreak: true } : {}),
+    }))
+  );
 }
 export const BLIND_STRUCTURES = {
   hyperTurbo: blindLevels(5, [
