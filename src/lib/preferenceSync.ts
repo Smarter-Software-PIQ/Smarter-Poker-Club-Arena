@@ -262,6 +262,26 @@ export function noteRevisions(
   writeJson(ackKey(owner, scope), ack);
 }
 
+/**
+ * Revisions the account granted to THIS device's own saves, per field. When
+ * the account refuses a change only because it now holds this device's own
+ * last accepted save, the refusal is false: the player made both choices here,
+ * in order. Production proof verify-lobby-filters (runs 42121413754 and
+ * 42128990839): the first of two quick sort taps was accepted, the second was
+ * sent against an older revision and refused, the lobby showed Changed On
+ * Another Device and snapped back, and later taps were lost.
+ */
+const ownKey = (owner: string, scope: string) => `ca_pref_own:${owner}:${scope}`;
+
+function readOwn(owner: string, scope: string): Record<string, number> {
+  return readJson<Record<string, number>>(ownKey(owner, scope), {});
+}
+
+function noteOwn(owner: string, scope: string, granted: Record<string, number>): void {
+  if (Object.keys(granted).length === 0) return;
+  writeJson(ownKey(owner, scope), { ...readOwn(owner, scope), ...granted });
+}
+
 export type PendingMap = Record<string, { value: unknown; base: number | null }>;
 
 export function readPending(owner: string, scope: string): PendingMap {
@@ -365,12 +385,15 @@ export function flushScope(spec: FlushSpec): Promise<void> {
       const now = readPending(spec.owner, spec.scope);
       const conflicts: string[] = [];
       const revisions: Record<string, number> = {};
+      const own = readOwn(spec.owner, spec.scope);
+      const granted: Record<string, number> = {};
       for (const result of results) {
         const sent = changes.find((c) => c.field === result.field);
         if (!sent) continue;
         if (typeof result.revision === 'number') revisions[result.field] = result.revision;
         const stillSame = result.field in now && sameValue(now[result.field].value, sent.value);
         if (result.status === 'applied') {
+          if (typeof result.revision === 'number') granted[result.field] = result.revision;
           if (stillSame) delete now[result.field];
           // Changed again while in flight: send that newer value next pass,
           // against the revision this reply just returned.
@@ -381,6 +404,18 @@ export function flushScope(spec: FlushSpec): Promise<void> {
           const equal = spec.equals
             ? spec.equals(result, sent.value)
             : sameValue(result.value, sent.value);
+          // The account holds this device's own last accepted save: the
+          // pending choice is the same player's later one. Send it again
+          // against that revision instead of reporting another device.
+          if (
+            !equal &&
+            result.field in now &&
+            typeof result.revision === 'number' &&
+            own[result.field] === result.revision
+          ) {
+            now[result.field].base = result.revision;
+            continue;
+          }
           // Any edit to this field made on the same stale view is stale too:
           // the device shows the account's value and the player decides again.
           delete now[result.field];
@@ -396,6 +431,7 @@ export function flushScope(spec: FlushSpec): Promise<void> {
         }
       }
       noteRevisions(spec.owner, spec.scope, revisions);
+      noteOwn(spec.owner, spec.scope, granted);
       writePending(spec.owner, spec.scope, now);
       if (conflicts.length > 0) {
         setSaveStatus(scopeKey, 'conflict', conflicts);

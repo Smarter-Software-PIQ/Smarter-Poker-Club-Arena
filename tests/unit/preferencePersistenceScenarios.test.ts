@@ -428,3 +428,64 @@ describe('a device whose storage refuses writes', () => {
     expect(lobbySelect(net.server, 'account-a', CLUB)?.view_prefs.sortByTab.SNG).toBe('players');
   });
 });
+
+describe("a device's own accepted save never reads as another device", () => {
+  const sortsSent = () =>
+    net.calls
+      .filter((c) => c.fn === 'fn_save_lobby_preferences')
+      .flatMap((c) => c.args.p_changes)
+      .filter((c: any) => c.field === 'view.sort.SNG');
+  /** Lose this device's note of the revision its last save was granted. */
+  const forgetAck = () => {
+    const key = `ca_pref_ack:account-a:lobby:${CLUB}`;
+    const ack = JSON.parse(localStorage.getItem(key) || '{"revisions":{}}');
+    delete ack.revisions['view.sort.SNG'];
+    localStorage.setItem(key, JSON.stringify(ack));
+  };
+
+  /* Production, verify-lobby-filters runs 42121413754 and 42128990839: the
+     first of two quick sort taps was accepted, the second went out against an
+     older revision and was refused as Changed On Another Device, the lobby
+     snapped back to the first tap and later taps were lost. */
+  it('a later tap made against a stale revision is sent again and kept', async () => {
+    const view = loadViewPrefs(CLUB);
+    await pushRemoteViewPrefs(
+      CLUB,
+      { ...view, sortByTab: { ...view.sortByTab, SNG: 'stakes_low' } },
+      'account-a'
+    );
+    forgetAck();
+    await pushRemoteViewPrefs(
+      CLUB,
+      { ...view, sortByTab: { ...view.sortByTab, SNG: 'stakes_high' } },
+      'account-a'
+    );
+    expect(readSaveStatus(`account-a:lobby:${CLUB}`).state).toBe('saved');
+    expect(sortsSent().map((c: any) => c.value)).toEqual([
+      'stakes_low',
+      'stakes_high',
+      'stakes_high',
+    ]);
+    expect(lobbySelect(net.server, 'account-a', CLUB)?.view_prefs.sortByTab.SNG).toBe(
+      'stakes_high'
+    );
+  });
+
+  it('a change another device saved since is still refused and shown', async () => {
+    const view = loadViewPrefs(CLUB);
+    await pushRemoteViewPrefs(
+      CLUB,
+      { ...view, sortByTab: { ...view.sortByTab, SNG: 'stakes_low' } },
+      'account-a'
+    );
+    otherDeviceSaves('view.sort.SNG', 'players');
+    forgetAck();
+    await pushRemoteViewPrefs(
+      CLUB,
+      { ...view, sortByTab: { ...view.sortByTab, SNG: 'stakes_high' } },
+      'account-a'
+    );
+    expect(readSaveStatus(`account-a:lobby:${CLUB}`).state).toBe('conflict');
+    expect(lobbySelect(net.server, 'account-a', CLUB)?.view_prefs.sortByTab.SNG).toBe('players');
+  });
+});

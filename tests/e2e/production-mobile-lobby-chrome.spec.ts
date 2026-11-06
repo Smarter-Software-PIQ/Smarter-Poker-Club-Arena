@@ -576,7 +576,11 @@ test.describe('the mobile lobby chrome on production', () => {
     // Run 41272366052 completed all five format captures and the four favorite
     // phases, then exhausted the shared 120s budget during final evidence.
     // Keep each readiness/assertion deadline and zero retries unchanged.
-    test.setTimeout(180_000);
+    // Run 42129488234 then passed every favorite phase in production (the
+    // whole schedule starred, two sorts, the server read after reload, the
+    // unfavorite) and ran out of the 180s budget at the final placement poll,
+    // with the format tour now covering five sections.
+    test.setTimeout(300_000);
     expect(
       /^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || ''),
       'Favorite proof requires its owned isolated production account'
