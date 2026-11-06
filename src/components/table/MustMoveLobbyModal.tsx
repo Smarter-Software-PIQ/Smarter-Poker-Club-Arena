@@ -36,6 +36,7 @@
  */
 
 import { useEffect } from 'react';
+import { cashQueueFeedback } from './cashQueueFeedback';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import {
   cancelSeatChange,
@@ -406,18 +407,25 @@ export function MustMoveLobbyModal({
                 </section>
               )}
 
-              {!me?.seated && me?.waitlist?.on_list && (
+              {!me?.seated && (me?.waitlist?.on_list || me?.waitlist?.reason === 'expired') && (
                 <section className="mml-me">
                   <div className="mml-section-title">Your Waiting List Place</div>
                   <div className="mml-me-line">
-                    {me.waitlist.position
+                    {me?.waitlist?.on_list && me.waitlist.position
                       ? `You Are Number ${me.waitlist.position} On The Waiting List.`
-                      : 'You Are On The Waiting List.'}
+                      : me?.waitlist?.on_list
+                        ? 'You Are On The Waiting List.'
+                        : 'You Are Off The Waiting List.'}
                   </div>
+                  {cashQueueFeedback(me?.waitlist?.reason) && (
+                    <div className="mml-me-line" role="status">
+                      {cashQueueFeedback(me?.waitlist?.reason)}
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="mml-btn"
-                    disabled={busy}
+                    disabled={busy || !me?.waitlist?.on_list}
                     onClick={() => void leaveWaitlist()}
                   >
                     Leave Waiting List

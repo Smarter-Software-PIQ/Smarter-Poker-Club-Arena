@@ -337,3 +337,31 @@ it('delivers real SDK row updates through the mounted listener, bus, service and
     await queue.close();
   }
 }, 15_000);
+
+it('recovers a valid offer after a malformed legacy deadline on the actual SDK channel', async () => {
+  const queue = await localQueue();
+  masterBus.reset();
+  const mounted = render(<MountedQueue />);
+  try {
+    await expect.poll(() => queue.channels.size).toBe(2);
+    queue.patch({ status: 'notified', notified_at: 'invalid', hold_expires_at: null });
+    await act(async () => {
+      queue.update(true);
+    });
+    expect(screen.getByTestId('offer-id').textContent).toBe('');
+    queue.patch({
+      notified_at: new Date().toISOString(),
+      hold_expires_at: new Date(Date.now() + 60_000).toISOString(),
+    });
+    await act(async () => {
+      queue.update(true);
+    });
+    await expect.poll(() => screen.getByTestId('offer-id').textContent).toBe(rowId);
+    expect(queue.writes).toEqual([]);
+  } finally {
+    mounted.unmount();
+    cleanup();
+    masterBus.reset();
+    await queue.close();
+  }
+}, 15000);

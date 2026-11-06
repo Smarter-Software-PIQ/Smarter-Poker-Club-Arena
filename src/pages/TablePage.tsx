@@ -659,6 +659,7 @@ import { TableHUD } from '../components/table/TableHUD';
 import { TournamentLobbyModal } from '../components/table/TournamentLobbyModal';
 import { useCashSeatEntry } from '../components/table/useCashSeatEntry';
 import { cashSeatOfferKey, liveCashSeatOffer } from '../components/common/waitlistSeatOffer';
+import { recordCashSeatOfferStage } from '../lib/cashSeatOfferTiming';
 import { MustMoveLobbyModal } from '../components/table/MustMoveLobbyModal';
 import { CashClusterHUD } from '../components/table/CashClusterHUD';
 import TournamentInfoPanel from '../components/tournament/TournamentInfoPanel';
@@ -4867,6 +4868,14 @@ function LiveTablePage({
   /** Dan 2026-08-28: the tabbed hub behind the hero's own avatar. */
   const [showHeroHub, setShowHeroHub] = useState(false);
   const [showBuyInModal, setShowBuyInModal] = useState(false);
+  useEffect(() => {
+    if (!showBuyInModal) return;
+    // Measure after React commits the purchase sheet, rather than the request
+    // that may have returned waitlisted or been refused by a guard.
+    const arrival = liveCashSeatOffer(location.state?.cashSeatOffer, tableId, userId);
+    if (arrival) recordCashSeatOfferStage(arrival, 'buy_in_opened');
+  }, [showBuyInModal, location.state, tableId, userId]);
+
   /**
    * ═══ THE SEAT IS HELD FOR SIXTY SECONDS WHILE YOU BUY IN ═══
    *
