@@ -280,7 +280,7 @@ trial_table_kill() {
   [ "$killed" -eq "$n" ] || reasons="$reasons,fault_injection_refused"
   sleep 90
   wait_dealing 300 || reasons="$reasons,fleet_stopped_dealing"
-  [ "$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$CONTAINER")" = true ] || reasons="$reasons,engine_process_died"
+  [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = true ] || reasons="$reasons,engine_process_died"
   [ "$(docker inspect -f '{{.RestartCount}}' "$CONTAINER")" = "$restarts_before" ] || reasons="$reasons,engine_process_restarted"
   [ "$(seat_fingerprint)" = "$seats_before" ] || reasons="$reasons,seats_moved"
   local v=pass; [ -z "$reasons" ] || v=fail

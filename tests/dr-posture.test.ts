@@ -557,3 +557,11 @@ describe('standby adoption authority and timing', () => {
     expect(result.stdout).toBe('null\nnull\nnull\n5');
   });
 });
+
+it('table-kill compares running state and restart count separately', () => {
+  const script = readFileSync(root('server/standby/standby-trials.sh'), 'utf8');
+  const trial = script.slice(script.indexOf('trial_table_kill()'), script.indexOf('cmd_trial()'));
+  expect(trial).toContain("docker inspect -f '{{.State.Running}}'");
+  expect(trial).not.toContain('{{.State.Running}} {{.RestartCount}}');
+  expect(trial).toContain('"$restarts_before" ] || reasons="$reasons,engine_process_restarted"');
+});
