@@ -94,7 +94,8 @@ export function forbiddenAddOnParticipation(
 ): boolean {
   if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return false;
   const path = url.pathname.toLowerCase().replace(/\/+$/, '');
-  if (url.hostname === 'engine.smarter.poker') return !path.endsWith('/heartbeat');
+  if (url.hostname === 'engine.smarter.poker')
+    return method !== 'POST' || !['/heartbeat', '/client-event'].includes(path);
   if (
     /\/rest\/v1\/(?:table_seats|tournament_players|wallets|wallet_transactions|chip_ledger|chip_transactions|club_members)$/.test(
       path
