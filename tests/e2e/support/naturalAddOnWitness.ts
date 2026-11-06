@@ -39,6 +39,25 @@ export function completeAddOnRoster(
     throw new Error('UNKNOWN: natural add-on live roster is empty or exceeds eight tables');
   return live;
 }
+/** Only before opening: retire departed consumers before admitting new ones.
+ * The caller keeps its original observation deadline; readiness is renewed
+ * only after every changed-roster subscription supplies its real snapshot. */
+export async function synchronizeAddOnObservers(
+  currentIds: readonly string[],
+  nextIds: readonly string[],
+  readyAt: number,
+  operations: { open: (id: string) => Promise<unknown>; close: (id: string) => Promise<unknown> },
+  now: () => number = Date.now
+): Promise<{ ids: string[]; readyAt: number }> {
+  const ids = [...nextIds].sort();
+  if (!ids.length || ids.length > ADDON_TABLE_CAP || new Set(ids).size !== ids.length)
+    throw new Error('UNKNOWN: invalid bounded live observer roster');
+  const removed = currentIds.filter((id) => !ids.includes(id));
+  const added = ids.filter((id) => !currentIds.includes(id));
+  await Promise.all(removed.map((id) => operations.close(id)));
+  await Promise.all(added.map((id) => operations.open(id)));
+  return { ids, readyAt: removed.length || added.length ? now() : readyAt };
+}
 export function addOnWindow(row: Record<string, unknown>) {
   const start = Date.parse(String(row.addon_period_started_at || ''));
   const end = Date.parse(String(row.addon_period_ends_at || ''));

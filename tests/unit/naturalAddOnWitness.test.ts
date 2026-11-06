@@ -3,6 +3,7 @@ import type { Locator } from '@playwright/test';
 import {
   admitNaturalAddOn,
   completeAddOnRoster,
+  synchronizeAddOnObservers,
   addOnWindow,
   countdownSeconds,
   readAddOnCountdown,
@@ -210,5 +211,72 @@ describe('natural increment evidence remains independent of reconnect', () => {
     expect(hasNaturalAddOnIncrement([id], changes, signals, { [id]: 200 })).toBe(false);
     expect(hasNaturalAddOnIncrement([id], changes.slice(0, 1), signals, {})).toBe(false);
     expect(hasNaturalAddOnIncrement([id], changes, [], {})).toBe(false);
+  });
+});
+
+describe('pre-opening live roster synchronization', () => {
+  it('closes retired contexts before subscribing additions and records actual readiness', async () => {
+    const calls: string[] = [];
+    let clock = 100;
+    let release!: () => void;
+    const snapshot = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const sync = synchronizeAddOnObservers(
+      ['old', 'kept'],
+      ['new', 'kept'],
+      50,
+      {
+        close: async (id) => {
+          calls.push(`close:${id}`);
+        },
+        open: async (id) => {
+          calls.push(`open:${id}`);
+          await snapshot;
+        },
+      },
+      () => clock
+    );
+    await vi.waitFor(() => expect(calls).toEqual(['close:old', 'open:new']));
+    let finished = false;
+    void sync.then(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    clock = 200;
+    release();
+    expect(await sync).toEqual({ ids: ['kept', 'new'], readyAt: 200 });
+  });
+  it('keeps readiness on an unchanged live roster and advances it after removal', async () => {
+    const operations = { open: vi.fn(async () => {}), close: vi.fn(async () => {}) };
+    expect(
+      await synchronizeAddOnObservers(['a', 'b'], ['b', 'a'], 10, operations, () => 99)
+    ).toEqual({ ids: ['a', 'b'], readyAt: 10 });
+    expect(operations.open).not.toHaveBeenCalled();
+    expect(operations.close).not.toHaveBeenCalled();
+    expect(await synchronizeAddOnObservers(['a', 'b'], ['b'], 10, operations, () => 99)).toEqual({
+      ids: ['b'],
+      readyAt: 99,
+    });
+    expect(operations.close).toHaveBeenCalledWith('a');
+  });
+  it('never declares readiness after a failed added snapshot or an invalid roster', async () => {
+    const operations = {
+      open: vi.fn(async () => {
+        throw new Error('snapshot missing');
+      }),
+      close: vi.fn(async () => {}),
+    };
+    await expect(synchronizeAddOnObservers(['a'], ['a', 'b'], 10, operations)).rejects.toThrow(
+      'snapshot missing'
+    );
+    operations.open.mockClear();
+    for (const ids of [[], ['a', 'a'], Array.from({ length: 9 }, (_, i) => String(i))])
+      await expect(synchronizeAddOnObservers(['a'], ids, 10, operations)).rejects.toThrow(
+        'bounded'
+      );
+    expect(operations.open).not.toHaveBeenCalled();
+    expect(operations.close).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@ import { isReadOnlySpectatorSocketType } from './support/spectatorSocketRead';
 import {
   admitNaturalAddOn,
   completeAddOnRoster,
+  synchronizeAddOnObservers,
   addOnWindow,
   readAddOnCountdown,
   hasNaturalAddOnIncrement,
@@ -143,6 +144,7 @@ test('every captured natural add-on table renders its public minute', async ({
   }
   const state = await context.storageState();
   async function openTable(tableId: string) {
+    received.delete(tableId);
     const observer = await browser.newContext({
       storageState: state,
       viewport: { width: 393, height: 852 },
@@ -307,22 +309,36 @@ test('every captured natural add-on table renders its public minute', async ({
     if (initial.board.addon_period_triggered || initial.board.addon_period_started_at)
       throw new Error('UNKNOWN: add-on already opened before full-roster observers were ready');
     await Promise.all(initial.roster.map((row) => openTable(row.id)));
-    const readyAt = Date.now();
-    const ids = initial.roster.map((row) => row.id).sort();
+    let readyAt = Date.now();
+    let ids = initial.roster.map((row) => row.id).sort();
     const deadline = readyAt + 8 * 60_000;
     let window: ReturnType<typeof addOnWindow> = null;
     while (Date.now() < deadline) {
       const current = await readBoard();
-      expect(
-        current.roster.map((row) => row.id).sort(),
-        'UNKNOWN: roster changed; initial rows retained, no incomplete proof'
-      ).toEqual(ids);
-      if (current.roster.some((row, index) => row.status !== initial.roster[index].status))
-        throw new Error(
-          'UNKNOWN: table status changed; roster transition retained for SQL reconciliation'
-        );
       window = addOnWindow(current.board);
-      if (window) break;
+      const currentIds = current.roster.map((row) => row.id).sort();
+      if (window) {
+        expect(
+          currentIds,
+          'UNKNOWN: opening roster was not fully connected before opening'
+        ).toEqual(ids);
+        evidence.openingRoster = current.roster;
+        evidence.fullRosterReadyAt = readyAt;
+        break;
+      }
+      const priorIds = ids;
+      ({ ids, readyAt } = await synchronizeAddOnObservers(ids, currentIds, readyAt, {
+        open: openTable,
+        close: async (id) => {
+          await pages.get(id)!.context().close();
+          pages.delete(id);
+          received.delete(id);
+        },
+      }));
+      if (ids.join(',') !== priorIds.join(',')) {
+        evidence.rosterSynchronizations ??= [];
+        evidence.rosterSynchronizations.push({ priorIds, ids, readyAt });
+      }
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     if (!window) throw new Error('UNKNOWN: no natural add-on within the bounded observation');
