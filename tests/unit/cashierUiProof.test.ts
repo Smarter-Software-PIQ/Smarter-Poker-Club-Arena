@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   admitDispatch,
   assertCases,
@@ -92,4 +93,16 @@ describe('closed scoped cashier proof', () => {
     expect(() => assertPins(pin(), pin(), { verified: true, runId: '999' })).toThrow();
     expect(() => assertPins(pin(), pin(), { verified: false, runId: '123' })).toThrow();
   });
+});
+
+it('binds a personal claim preview to the authenticated roster identity', () => {
+  const browser = readFileSync('tests/e2e/production-cashier.spec.ts', 'utf8');
+  const claim = browser.slice(browser.indexOf("test('offers reclaim return wallets"));
+  expect(claim).toContain("pathname.endsWith('/rpc/fn_club_cashier_members')");
+  expect(claim).toContain('row.user_id === ownerId');
+  expect(claim).toContain('expect(ownRows).toHaveLength(1)');
+  expect(claim).toContain('expect(ownWalletRows[0].user_id).toBe(ownerId)');
+  expect(claim).toContain('JSON.stringify([ownerId])');
+  expect(claim).toContain('My Account|${escapedName}');
+  expect(claim).not.toContain("toContainText('My Account')");
 });
