@@ -152,16 +152,30 @@ test.describe('tournament scroll gestures', () => {
           const footer = await page.locator('.details-footer').boundingBox();
           for (const x of [box!.x + box!.width / 2, box!.x + 8]) {
             await page.mouse.move(x, box!.y + box!.height / 2);
+            const waitForWheel = async (deltaY: number) => {
+              // A distance threshold can be crossed before WebKit finishes the
+              // gesture. Arm the native completion event before sending input
+              // so reversing cannot merge with the previous wheel animation.
+              await panel.evaluate((el) => {
+                el.setAttribute('data-wheel-ended', 'false');
+                el.addEventListener(
+                  'scrollend',
+                  () => el.setAttribute('data-wheel-ended', 'true'),
+                  {
+                    once: true,
+                  }
+                );
+              });
+              await page.mouse.wheel(0, deltaY);
+              await expect(panel).toHaveAttribute('data-wheel-ended', 'true');
+            };
             const before = await panel.evaluate((el) => el.scrollTop);
-            await page.mouse.wheel(0, 300);
-            // WebKit animates wheel input. Reading its first changed pixel
-            // and immediately reversing races the rest of the downward gesture.
-            // Wait for the requested distance before testing the reverse gesture.
+            await waitForWheel(300);
             await expect
               .poll(() => panel.evaluate((el) => el.scrollTop))
               .toBeGreaterThanOrEqual(before + 299);
             const after = await panel.evaluate((el) => el.scrollTop);
-            await page.mouse.wheel(0, -250);
+            await waitForWheel(-250);
             await expect
               .poll(() => panel.evaluate((el) => el.scrollTop))
               .toBeLessThanOrEqual(Math.max(0, after - 250) + 1);
