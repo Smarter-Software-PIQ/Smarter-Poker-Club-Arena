@@ -24,6 +24,91 @@ seat_fingerprint() {
 }
 seat_count() { psql_db -Atc "select count(*) from public.table_seats where left_at is null"; }
 frozen() { psql_db -Atc "select coalesce(public.fn_platform_frozen(), false)" 2>/dev/null | grep -qx t; }
+# One MVCC statement binds identities to the actual protected window. No locks
+# are held across samples: the trial observes the engine's real freeze.
+frozen_seat_snapshot() {
+  psql_db -Atc "SELECT json_build_object(
+    'frozen', public.fn_platform_frozen(),
+    'token', b.ownership_token, 'startedAt', b.break_started_at,
+    'releaseAt', b.break_ends_at,
+    'count', s.n, 'fingerprint', s.fingerprint)
+    FROM (SELECT count(*) n, md5(coalesce(string_agg(
+      table_id::text||':'||seat_number::text||':'||user_id::text,
+      ',' ORDER BY table_id,seat_number,user_id),'')) fingerprint
+      FROM public.table_seats WHERE left_at IS NULL) s
+    LEFT JOIN public.engine_maintenance_break b ON b.id=true"
+}
+
+frozen_seat_state() { # snapshot, original (or empty), frozen|poll
+  python3 - "$1" "${2:-}" "${3:-frozen}" <<'PY_SEATS'
+import datetime, json, re, sys, uuid
+try:
+    current = json.loads(sys.argv[1])
+    assert type(current['frozen']) is bool
+    assert type(current['count']) is int and current['count'] >= 0
+    assert re.fullmatch('[0-9a-f]{32}', current['fingerprint'])
+    if not current['frozen']:
+        assert sys.argv[3] == 'poll'
+        print('thawed')
+    else:
+        uuid.UUID(current['token'])
+        assert datetime.datetime.fromisoformat(current['releaseAt']) > datetime.datetime.fromisoformat(current['startedAt'])
+        if sys.argv[2]:
+            original = json.loads(sys.argv[2])
+            assert original['frozen'] is True
+            for key in ('token', 'startedAt', 'releaseAt', 'count', 'fingerprint'):
+                assert current[key] == original[key], key
+        print('frozen')
+except (ValueError, KeyError, TypeError, AssertionError, AttributeError):
+    sys.exit('frozen seat boundary unreadable, changed, or unavailable')
+PY_SEATS
+}
+
+capture_frozen_seats() { # absolute bounded deadline; result in FROZEN_SEATS
+  local snapshot state
+  while [ "$(date +%s)" -lt "$1" ]; do
+    snapshot=$(frozen_seat_snapshot) || return 1
+    state=$(frozen_seat_state "$snapshot" '' poll) || return 1
+    if [ "$state" = frozen ]; then FROZEN_SEATS=$snapshot; return 0; fi
+    sleep 3
+  done
+  return 1
+}
+
+wait_frozen_seats() { # original, deadline; keep checking until real thaw
+  local state current
+  FROZEN_SEATS_LAST=$1
+  while [ "$(date +%s)" -lt "$2" ]; do
+    current=$(frozen_seat_snapshot) || return 1
+    state=$(frozen_seat_state "$current" "$1" poll) || return 1
+    if [ "$state" = thawed ]; then THAW_OBSERVED_AT=$(date +%s); return 0; fi
+    FROZEN_SEATS_LAST=$current
+    sleep 3
+  done
+  return 1
+}
+
+frozen_seat_receipt() { # exact v3 release, successful maintenance, no frozen exits
+  local result
+  result=$(psql_db -At -v boundary="$1" <<'SQL_SEAT_RECEIPT'
+WITH b AS (SELECT :'boundary'::jsonb j)
+SELECT EXISTS (
+  SELECT 1 FROM b JOIN public.engine_maintenance_thaws t
+    ON t.ownership_token=(j->>'token')::uuid
+   AND t.freeze_started_at=(j->>'startedAt')::timestamptz
+   AND t.release_target_at=(j->>'releaseAt')::timestamptz
+   AND t.contract_version=3
+  JOIN public.engine_maintenance_break_log l
+    ON l.break_started_at=t.freeze_started_at
+   AND l.break_ended_at>=t.release_target_at AND l.thaw_ok
+  WHERE NOT EXISTS (SELECT 1 FROM public.ca_seat_stack_exits e
+    WHERE e.occurred_at>=t.freeze_started_at AND e.occurred_at<t.release_target_at)
+);
+SQL_SEAT_RECEIPT
+  ) || return 1
+  [ "$result" = t ]
+}
+
 hands_in_window() { health | health_field dealRate.handsInWindow; }
 maintenance_field() { health | health_field "maintenance.$1"; }
 
@@ -68,20 +153,20 @@ trial_break() {
   wait_live 600 >/dev/null || { trial_verdict break fail ',"reason":"never_live"'; return 1; }
   wait_dealing 300 || { trial_verdict break fail ',"reason":"never_dealt_before_break"'; return 1; }
   wait_no_break || { trial_verdict break fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
-  local seats_before; seats_before=$(seat_fingerprint)
+  local seats_before
   t0=$(date +%s)
-  request_break >/dev/null || reasons="$reasons,break_request_refused"
+  request_break >/dev/null || { trial_verdict break fail ',"reason":"break_request_refused"'; return 1; }
   # announcement, last hand, park, freeze
-  while [ $(( $(date +%s) - t0 )) -lt 600 ]; do frozen && { frozen_at=$(date +%s); break; }; sleep 3; done
-  [ -n "${frozen_at:-}" ] || reasons="$reasons,never_froze"
+  capture_frozen_seats "$((t0 + 600))" || { trial_verdict break fail ',"reason":"frozen_seat_capture_failed"'; return 1; }
+  seats_before=$FROZEN_SEATS; frozen_at=$(date +%s)
   local unparked; unparked=$(maintenance_field unparkedTables)
   # thaw
-  while [ $(( $(date +%s) - t0 )) -lt 1200 ]; do frozen || { thaw_at=$(date +%s); break; }; sleep 3; done
-  [ -n "${thaw_at:-}" ] || reasons="$reasons,never_thawed"
+  wait_frozen_seats "$seats_before" "$((t0 + 1200))" && thaw_at=$THAW_OBSERVED_AT \
+    || reasons="$reasons,frozen_seat_boundary_failed"
   wait_dealing 300 && resumed=1 || { resumed=0; reasons="$reasons,did_not_deal_after_thaw"; }
-  [ "$(seat_fingerprint)" = "$seats_before" ] || reasons="$reasons,seats_moved"
+  frozen_seat_receipt "$seats_before" || reasons="$reasons,frozen_seat_receipt_failed"
   local v=pass; [ -z "$reasons" ] || v=fail
-  trial_verdict break "$v" ",\"sha\":\"$sha\",\"secondsToFreeze\":$(( ${frozen_at:-0} - t0 )),\"secondsFrozen\":$(( ${thaw_at:-0} - ${frozen_at:-0} )),\"unparkedAtFreeze\":\"${unparked}\",\"reasons\":\"${reasons#,}\""
+  trial_verdict break "$v" ",\"sha\":\"$sha\",\"secondsToFreeze\":$(( ${frozen_at:-0} - t0 )),\"secondsFrozen\":$(( ${thaw_at:-0} - ${frozen_at:-0} )),\"unparkedAtFreeze\":\"${unparked}\",\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"reasons\":\"${reasons#,}\""
 }
 
 trial_swap() {
@@ -92,23 +177,32 @@ trial_swap() {
   wait_dealing 300 || { trial_verdict swap fail ',"reason":"from_never_dealt"'; return 1; }
   wait_no_break || { trial_verdict swap fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
   cmd_build "$to" >/dev/null || { trial_verdict swap fail ',"reason":"to_build_failed"'; return 1; }
-  local seats_before count_before; seats_before=$(seat_fingerprint); count_before=$(seat_count)
+  local seats_before count_before post_boot
   t0=$(date +%s)
-  request_break >/dev/null || reasons="$reasons,break_request_refused"
-  while [ $(( $(date +%s) - t0 )) -lt 600 ]; do frozen && { frozen_at=$(date +%s); break; }; sleep 3; done
-  [ -n "${frozen_at:-}" ] || reasons="$reasons,never_froze"
+  request_break >/dev/null || { trial_verdict swap fail ',"reason":"break_request_refused"'; return 1; }
+  capture_frozen_seats "$((t0 + 600))" || { trial_verdict swap fail ',"reason":"frozen_seat_capture_failed"'; return 1; }
+  seats_before=$FROZEN_SEATS; frozen_at=$(date +%s)
+  count_before=$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["count"])' "$seats_before") || return 1
   # The cutover: the serving engine stops inside the freeze (graceful SIGTERM,
   # as the release transaction's drain does), the candidate takes the fleet.
-  docker stop -t 60 "$CONTAINER" >/dev/null 2>&1; stop_at=$(date +%s)
+  docker stop -t 60 "$CONTAINER" >/dev/null 2>&1 || { trial_verdict swap fail ',"reason":"from_stop_failed"'; return 1; }
+  stop_at=$(date +%s)
   cmd_run "$to" || return 1
   wait_live 600 >/dev/null && live_at=$(date +%s) || reasons="$reasons,to_never_live"
   [ "$(health | health_field releaseSha)" = "$to" ] || reasons="$reasons,to_not_serving"
-  while [ $(( $(date +%s) - t0 )) -lt 1800 ]; do frozen || { thaw_at=$(date +%s); break; }; sleep 3; done
-  [ -n "${thaw_at:-}" ] || reasons="$reasons,never_thawed_after_swap"
+  # Candidate must adopt the SAME still-frozen custody before play resumes.
+  post_boot=$(frozen_seat_snapshot) && frozen_seat_state "$post_boot" "$seats_before" frozen >/dev/null \
+    || reasons="$reasons,frozen_seats_changed_across_swap"
+  # Preserve JSON evidence even on a failed comparison; malformed reads are null.
+  post_boot=$(python3 -c 'import json,sys
+try: print(json.dumps(json.loads(sys.argv[1])))
+except ValueError: print("null")' "$post_boot") || return 1
+  wait_frozen_seats "$seats_before" "$((t0 + 1800))" && thaw_at=$THAW_OBSERVED_AT \
+    || reasons="$reasons,frozen_seat_boundary_failed"
   wait_dealing 420 || reasons="$reasons,to_did_not_deal_after_thaw"
-  [ "$(seat_fingerprint)" = "$seats_before" ] || reasons="$reasons,seats_moved_across_swap"
+  frozen_seat_receipt "$seats_before" || reasons="$reasons,frozen_seat_receipt_failed"
   local v=pass; [ -z "$reasons" ] || v=fail
-  trial_verdict swap "$v" ",\"from\":\"$from\",\"to\":\"$to\",\"seats\":$count_before,\"secondsToFreeze\":$(( ${frozen_at:-0} - t0 )),\"secondsBootToLive\":$(( ${live_at:-0} - ${stop_at:-0} )),\"secondsFrozenTotal\":$(( ${thaw_at:-0} - ${frozen_at:-0} )),\"reasons\":\"${reasons#,}\""
+  trial_verdict swap "$v" ",\"from\":\"$from\",\"to\":\"$to\",\"seats\":$count_before,\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"secondsToFreeze\":$(( ${frozen_at:-0} - t0 )),\"postBootSeatSnapshot\":$post_boot,\"secondsBootToLive\":$(( ${live_at:-0} - ${stop_at:-0} )),\"secondsFrozenTotal\":$(( ${thaw_at:-0} - ${frozen_at:-0} )),\"reasons\":\"${reasons#,}\""
 }
 
 trial_table_kill() {
