@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "tests": [
+    {
+      "test": "tests/a-waiting-release-withdrawal-keeps-its-original-owner.law.test.ts",
+      "owner": "server/scripts release transaction owner",
+      "invariant": "Only the original waiting release owner may withdraw its exact terminal attempt",
+      "runtime": "Node22/Python3/Git; isolated filesystem and immutable historical controls",
+      "inputs": [
+        "tests/a-waiting-release-withdrawal-keeps-its-original-owner.law.test.ts",
+        "tests/operations/waiting-engine-release-withdrawal.test.py",
+        "tests/operations/pinned-history-sources.py",
+        "scripts/ci/withdraw-waiting-engine-release.py",
+        "server/scripts/",
+        "server/release/",
+        "server/src/maintenance/maintenanceSchedulePolicy.json",
+        ".github/workflows/auto-deploy-hetzner.yml",
+        ".gitattributes",
+        ".gitmodules"
+      ],
+      "declarationFiles": {
+        "tests/a-waiting-release-withdrawal-keeps-its-original-owner.law.test.ts": "8470749ec66c0f9e2592e35e9ff722a88bb0e95187d7cbde9fac5e72236b062a",
+        "tests/operations/waiting-engine-release-withdrawal.test.py": "1045b33684baf02d35cd8ae8987f476a6857c3c484ab40ff3c3e5ef2bb1f98e8",
+        "tests/operations/pinned-history-sources.py": "deacdf339241042a80bcd61bbb64bca67eca36b657ac953c87a9212b9b4520c0",
+        "scripts/ci/withdraw-waiting-engine-release.py": "4f5fc5c4ab3b3d0637557f1d38499e713456039ea07d220c0f90de5adb9bb7c5"
+      },
+      "replacement": null,
+      "observedSeconds": 44.14,
+      "observationSource": "Execution efficiency checkpoint; isolated173-case diagnostic2026-11-06; wrapper itself unchanged",
+      "scope": "No financial/source-binding fixture or ci.yml read. Historical blobs are addressed by immutable controls from the pinned producer. Declaration drift conservatively retains coverage."
+    }
+  ]
+}

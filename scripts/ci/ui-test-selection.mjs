@@ -5,6 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, appendFileSync, lstatSync } from 'node:fs';
 import { resolve, dirname, relative, basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { declaredContractSelection } from './source-contract-inventory.mjs';
 
 // A positive proof, never a filename-only exemption for executable UI logic.
 // Only scoped styles without global escapes, or JSX text with identical code,
@@ -548,9 +549,13 @@ const overlaps = (inputs, changed) =>
   changed.some((c) => inputs.some((p) => c === p || c.startsWith(p.replace(/\/$/, '') + '/')));
 export function contractTests(root, changed) {
   const cache = new Map();
+  const registry = resolve(root, 'scripts/ci/source-contract-inputs.json');
+  const declared = existsSync(registry) ? declaredContractSelection(root, changed,
+    JSON.parse(readFileSync(registry, 'utf8'))) : new Map();
   return files(root, 'tests')
     .filter((p) => /\.test\.tsx?$/.test(p) && !p.startsWith('tests/_archive/'))
     .filter((p) => {
+      if (declared.has(p)) return declared.get(p).selected;
       const source = readFileSync(resolve(root, p), 'utf8');
       // Preserve the established source-contract basename selection, including
       // deleted sources, alongside imports and conservative dynamic readers.

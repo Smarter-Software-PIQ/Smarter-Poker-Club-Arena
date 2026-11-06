@@ -872,12 +872,17 @@ done
 # contract depends on the basename, so search each distinct name exactly once.
 # Keep deleted paths in this set: their consumers still need verification.
 CONTRACT_BASENAMES=$(printf '%s\n' $FILES | sed 's#.*/##' | sort -u)
+# Reviewed native closures override only filename collisions. Declaration drift
+# retains the test; invalid/missing inventory stops this actual owning hook.
+UNCHANGED_NATIVE_CONTRACTS=$(node "$CA_TREE_TOP/scripts/ci/source-contract-inventory.mjs" $FILES) || exit 1
+UNCHANGED_NATIVE_CONTRACTS=$(printf '%s\n' "$UNCHANGED_NATIVE_CONTRACTS" | tr '\n' ' ')
 # Directory-scanning workflow contracts do not name an individual YAML file.
 if printf '%s\n' $FILES | grep -qE '^\.github/workflows/'; then
   CONTRACT_BASENAMES="$CONTRACT_BASENAMES .github/workflows"
 fi
 for base in $CONTRACT_BASENAMES; do
   for t in $(grep -rl --include='*.test.ts' --include='*.test.tsx' -F "$base" tests/ 2>/dev/null); do
+    case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
     case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
   done
   for t in $(grep -rl --include='*.test.mjs' -F "$base" tests/ 2>/dev/null); do

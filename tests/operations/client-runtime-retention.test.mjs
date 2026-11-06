@@ -69,6 +69,12 @@ const commit = (cwd) => {
 };
 
 const backendToolPaths = [
+  '.husky/pre-push', 'scripts/agent-push.sh', 'scripts/ci/agent-execution.mjs',
+  'scripts/ci/agent-execution-cli.mjs', 'scripts/ci/execution-preview.mjs',
+  'scripts/ci/vendor/agentExecution.mjs', 'scripts/ci/vendor/agentExecution.source.json',
+  'scripts/ci/source-contract-inventory.mjs', 'scripts/ci/source-contract-inputs.json',
+  'README.md', 'AGENTS.md', 'CLAUDE.md', 'AGENT-PLAYBOOK.md', 'PUBLISHING.md',
+  'docs/agent-policy/OWNER-POLICY.md', 'docs/agent-policy/policy-manifest.json',
   'scripts/ci/fixtures/new-native-proof/source-pins.json',
   'scripts/ci/migration-live-proofs.json',
   'scripts/ci/recorded-migrations.manifest.json',
@@ -86,6 +92,31 @@ const backendToolPaths = [
   'scripts/dev/test-lightning-private-discovery.sh',
   'scripts/dev/fixtures/lightning-private-discovery.sql',
 ];
+
+test('actual build observation overrides an exact agent-tool exclusion', async () => {
+  const cwd = temp();
+  try {
+    initFixture(cwd);
+    put(cwd, '.gitignore', 'dist/\n.client-runtime-*.json\n');
+    const lock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8'));
+    put(cwd, 'package.json', '{"name":"observed-tool-fixture"}');
+    put(cwd, 'package-lock.json', JSON.stringify({packages:{'node_modules/vite':lock.packages['node_modules/vite']}}));
+    put(cwd, 'index.html', '<script type="module" src="/src/main.js"></script>');
+    put(cwd, 'src/main.js', 'import {value} from "../scripts/ci/agent-execution.mjs"; window.observed=value;');
+    put(cwd, 'scripts/ci/agent-execution.mjs', 'export const value=1;');
+    const baseline=commit(cwd), observations=[];
+    for (const label of ['app','diamond','prerender']) {
+      await build({root:cwd,configFile:false,logLevel:'silent',plugins:[runtimeInputPlugin(label,cwd)],build:{outDir:resolve(cwd,'dist'),emptyOutDir:true}});
+      observations.push(JSON.parse(readFileSync(resolve(cwd,`.client-runtime-${label}.json`),'utf8')));
+    }
+    const inputs=makeRuntimeInputs(baseline,observations,cwd);
+    assert.equal(inputs.complete,true);
+    assert.ok(inputs.files.some(input=>input.path==='scripts/ci/agent-execution.mjs'));
+    put(cwd,'scripts/ci/agent-execution.mjs','export const value=2;');
+    const target=commit(cwd);
+    assert.equal(qualifiesRuntimeInputs(inputs,baseline,target,compareClientBacklog(baseline,target,cwd).paths,cwd),false);
+  } finally {rmSync(cwd,{recursive:true,force:true});}
+});
 
 test('actual lazy shared-server module/watch graph excludes engine-only churn and includes all shared inputs', async () => {
   const cwd = temp();

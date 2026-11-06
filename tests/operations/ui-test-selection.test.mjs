@@ -1,3 +1,4 @@
+import '../helpers/sourceContractInventoryCases.mjs';
 // Shared execution primitives run in this existing required CI gate.
 import '../helpers/agentExecutionCases.mjs';
 import { test } from 'node:test';

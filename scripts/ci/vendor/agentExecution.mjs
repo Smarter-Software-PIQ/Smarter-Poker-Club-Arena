@@ -132,3 +132,59 @@ export function summarizeMetrics(events) {
     tokens: events.every(e => Number.isFinite(e.tokens)) ? events.reduce((n, e) => n + e.tokens, 0) : null,
     cost: events.every(e => Number.isFinite(e.cost)) ? events.reduce((n, e) => n + e.cost, 0) : null };
 }
+
+// Explicit maintained dependency inventory, never basename guesses or a SQL =>
+// accounting rule. This describes selection; owning gates decide admission.
+export function executionInventory(entries) {
+  requireValue(Array.isArray(entries) && entries.length, 'Check inventory required');
+  const ids = new Set();
+  const safe = path => typeof path === 'string' && path && !isAbsolute(path) &&
+    !path.includes('\\') && !path.includes('\0') &&
+    !path.replace(/\/$/, '').split('/').some(part => !part || part === '.' || part === '..');
+  for (const entry of entries) {
+    requireValue(entry && typeof entry.id === 'string' && entry.id && !ids.has(entry.id), 'Unique check identity required');
+    ids.add(entry.id);
+    for (const key of ['owner', 'invariant', 'runtime', 'environment'])
+      requireValue(typeof entry[key] === 'string' && entry[key], `${entry.id}: ${key} required`);
+    requireValue(Array.isArray(entry.command) && entry.command.length && entry.command.every(v => typeof v === 'string' && v), 'Explicit command required');
+    requireValue(Array.isArray(entry.inputs) && entry.inputs.length && entry.inputs.every(safe), 'Explicit safe input paths/scopes required');
+    requireValue(Array.isArray(entry.risks) && entry.risks.length && entry.risks.every(v =>
+      ['documentation','tooling','client','engine','database','financial','security','verification'].includes(v)), 'Explicit risk classification required');
+    requireValue(typeof entry.always === 'boolean', 'Always-on admission must be explicit');
+    requireValue(entry.durationSeconds == null || (Number.isFinite(entry.durationSeconds) && entry.durationSeconds >= 0), 'Observed duration or null required');
+    requireValue(entry.replaces == null || typeof entry.replaces === 'string', 'Replacement identity must be explicit');
+  }
+  const overlap = [];
+  for (let i = 0; i < entries.length; i++) for (let j = i + 1; j < entries.length; j++) {
+    if (entries[i].invariant === entries[j].invariant)
+      overlap.push({ checks: [entries[i].id, entries[j].id], invariant: entries[i].invariant,
+        action: 'Review distinct authority/runtime before retiring anything; overlap never auto-skips a gate' });
+  }
+  return { version: 1, checks: structuredClone(entries), overlap };
+}
+
+export function previewExecution(inventory, { paths, complete, required = [], evidence = {}, expectedEvidence = {}, observations = {} }) {
+  // Validate even a deserialized inventory rather than accepting a claimed seal.
+  const checked = executionInventory(inventory?.checks);
+  requireValue(Array.isArray(required) && required.every(id => checked.checks.some(c => c.id === id)), 'Unknown required gate');
+  requireValue(Array.isArray(paths) && paths.every(p => typeof p === 'string' && p && !p.includes('\0')), 'Changed paths required');
+  const matches = (path, input) => input.endsWith('/') ? path.startsWith(input) : path === input;
+  const uncovered = paths.filter(path => !checked.checks.some(c => c.inputs.some(input => matches(path, input))));
+  const uncertain = complete !== true || uncovered.length > 0;
+  const checks = checked.checks.map(check => {
+    const affected = paths.filter(path => check.inputs.some(input => matches(path, input)));
+    const selected = uncertain || check.always || required.includes(check.id) || affected.length > 0;
+    const reuse = expectedEvidence[check.id]
+      ? reusableEvidence(evidence[check.id], expectedEvidence[check.id], observations[check.id])
+      : { reusable: false, reasons: ['no_complete_input_evidence'] };
+    return { ...check, selected, affected,
+      reason: uncertain ? 'Incomplete or uncovered dependency evidence; preserve coverage' :
+        required.includes(check.id) ? 'Required owning gate' : check.always ? 'Always-on invariant' : affected.length ? 'Declared input changed' : 'Declared inputs unchanged',
+      reuse, action: !selected ? 'omit_if_owning_gate_allows' : reuse.reusable ? 'reuse_if_owning_gate_allows' : 'run' };
+  });
+  return { version: 1, mode: 'advisory', complete: !uncertain, uncovered, checks,
+    risks: [...new Set(checks.filter(c => c.affected.length).flatMap(c => c.risks))].sort(),
+    overlap: checked.overlap, estimatedSeconds: checks.filter(c => c.selected && !c.reuse.reusable).every(c => Number.isFinite(c.durationSeconds))
+      ? checks.filter(c => c.selected && !c.reuse.reusable).reduce((sum,c) => sum + c.durationSeconds, 0) : null,
+    limitation: 'Selection and evidence preview only; cannot waive provider, security, financial or publication gates' };
+}
