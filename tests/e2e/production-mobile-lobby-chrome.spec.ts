@@ -479,8 +479,6 @@ test.describe('the mobile lobby chrome on production', () => {
       });
       tournamentId = await tournament.getAttribute('data-id');
       expect(tournamentId).toMatch(/^[0-9a-f-]{36}$/i);
-      await tournament.getByRole('button', { name: /^Details:/ }).click();
-      await expect(panel).toHaveCount(1);
       tableUrl = page.url();
       expect(new URL(tableUrl).pathname).toMatch(/\/table\/[0-9a-f-]{36}$/i);
       // The app can recover a wrong /tournaments route through its backstop.
@@ -488,7 +486,9 @@ test.describe('the mobile lobby chrome on production', () => {
       // cannot hide the route departure this source repair prevents.
       routeTrace.push(tableUrl);
       page.on('framenavigated', observeRoute);
-      await panel.getByRole('button', { name: 'Details', exact: true }).click();
+      // The owner-directed MTT row opens its lobby directly. Cash retains its
+      // preview card; tournaments have no intermediate GameLobbyPanel.
+      await tournament.getByRole('button', { name: /^Details:/ }).click();
       await expect(page.locator('.tournament-details[data-lobby-tab="true"]:visible')).toBeVisible({
         timeout: 20_000,
       });
