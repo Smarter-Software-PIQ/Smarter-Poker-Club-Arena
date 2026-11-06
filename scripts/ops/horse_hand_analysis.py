@@ -238,12 +238,17 @@ def analyze_hand(hand, profiles, facts=None, accepted_roster=None, excluded_ids=
                 uid=actor_id(a)
                 if uid is None and a.get('seat')==players[hero].get('seat'): uid=hero
                 if uid==hero:
-                    item = analyze_decision(hand,a,i,hero,cards,card_source)
+                    decision_cards = cards
+                    snapshot_seat_conflict = (recovery is not None and
+                        a.get('seat') != recovery['provenance']['identity']['seat'])
+                    if snapshot_seat_conflict: decision_cards = None
+                    item = analyze_decision(hand,a,i,hero,decision_cards,card_source)
                     if recovery is not None:
                         item['snapshotOwnCardRecovery'] = {**recovery['provenance'],
                             'accepted': item['informationSet'].get('heroCards') is not None,
                             'gaps': recovery['gaps']}
-                        item['gaps'] = sorted(set(item['gaps'] + recovery['gaps']))
+                        item['gaps'] = sorted(set(item['gaps'] + recovery['gaps'] +
+                            (['snapshot_decision_seat_mismatch'] if snapshot_seat_conflict else [])))
                     own.append(item)
             decisions.extend(own)
             horse_reports.append({'horseId':hero,'classificationBasis':roles[hero]['basis'],

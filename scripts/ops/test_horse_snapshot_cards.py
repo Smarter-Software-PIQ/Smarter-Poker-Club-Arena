@@ -57,6 +57,13 @@ class SnapshotCardsTests(unittest.TestCase):
         self.assertFalse(result['snapshotOwnCardRecovery']['accepted'])
         self.assertIn('hero_cards_conflict_with_visible_board',result['gaps'])
 
+    def test_snapshot_cannot_supply_cards_to_different_action_seat(self):
+        h,p,r=snapshot_fixture()
+        h['actions'][0]['seat']=2;h['actions'][0]['publicNode']['actorSeat']=2
+        result=analyze_hand(h,p,snapshot_rows={'horse':[(r,{})]})['decisions'][0]
+        self.assertIsNone(result['informationSet']['heroCards'])
+        self.assertIn('snapshot_decision_seat_mismatch',result['gaps'])
+
     def test_pineapple_invalid_cards_and_missing_identity_refused(self):
         h,p,r=snapshot_fixture()
         for variant in ('pineapple','unknown'):
