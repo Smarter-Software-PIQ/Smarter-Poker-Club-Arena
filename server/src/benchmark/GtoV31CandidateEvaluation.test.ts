@@ -37,6 +37,16 @@ describe('V31 candidate promotion card', () => {
       expect(scenario.matchup.b.telemetry).toBe(false);
     }
 
+    // Every certification card stamps the mood hour from the deal seed, so
+    // a verdict never depends on the UTC hour the job runs in.
+    const allFamilies = families.flatMap((family) =>
+      (['paired_replay', 'league'] as const).flatMap((kind) =>
+        buildGtoV31EvaluationScenarios(family, kind, CHECKSUM)
+      )
+    );
+    expect(allFamilies.length).toBe(18);
+    for (const scenario of allFamilies) expect(scenario.matchup.moodClock).toBe('deal_seed');
+
     const league = buildGtoV31EvaluationScenarios('cash', 'league', CHECKSUM)[0];
     expect(league.matchup.a.gtoV31DatasetChecksum).toBe(CHECKSUM);
     expect(league.matchup.a.mind).toBeUndefined();
