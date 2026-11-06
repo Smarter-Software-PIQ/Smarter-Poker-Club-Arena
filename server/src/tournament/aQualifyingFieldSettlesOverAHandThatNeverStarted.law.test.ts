@@ -126,3 +126,46 @@ describe('a qualifying field over a retained original that never started', () =>
     expect(m.satelliteQualifierBoundaryPending).toBe(true);
   });
 });
+
+describe('an entry-open field over a retained original that never started', () => {
+  it('releases the original boundary after the second authoritative read without settlement', async () => {
+    const held = table({ parks: false, heldOriginal: true });
+    const { m, parked } = heldBoundary(held);
+    rpc.read.mockResolvedValue({ state: 'entry_open' });
+    expect(await m.checkSatelliteQualifierCompletion()).toBe('continue');
+    expect(rpc.read).toHaveBeenCalledTimes(2);
+    expect(m.satelliteQualifierBoundaryPending).toBe(false);
+    expect(held.releaseTerminalCloseoutPause).toHaveBeenCalledTimes(1);
+    expect(parked.releaseTerminalCloseoutPause).toHaveBeenCalledTimes(1);
+    expect(m.advanceHandForHandBarrier).toHaveBeenCalledTimes(1);
+    expect(rpc.settle).not.toHaveBeenCalled();
+    expect(m.tournamentFinished).toBe(false);
+  });
+
+  it('keeps the boundary when the original loses its unstarted gate during the second read', async () => {
+    const held = table({ parks: false, heldOriginal: true });
+    const { m, parked } = heldBoundary(held);
+    rpc.read.mockResolvedValueOnce({ state: 'entry_open' }).mockImplementationOnce(async () => {
+      held.state.held = false;
+      return { state: 'entry_open' };
+    });
+    expect(await m.checkSatelliteQualifierCompletion()).toBe('pending');
+    expect(m.satelliteQualifierBoundaryPending).toBe(true);
+    expect(held.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
+    expect(parked.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
+    expect(rpc.settle).not.toHaveBeenCalled();
+  });
+
+  it('keeps the boundary if the second authoritative read becomes unresolved', async () => {
+    const held = table({ parks: false, heldOriginal: true });
+    const { m, parked } = heldBoundary(held);
+    rpc.read
+      .mockResolvedValueOnce({ state: 'entry_open' })
+      .mockResolvedValueOnce({ state: 'unresolved' });
+    expect(await m.checkSatelliteQualifierCompletion()).toBe('pending');
+    expect(m.satelliteQualifierBoundaryPending).toBe(true);
+    expect(held.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
+    expect(parked.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
+    expect(rpc.settle).not.toHaveBeenCalled();
+  });
+});

@@ -6192,13 +6192,20 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
          * the settlement, and the committed cleanup stops its dealer and closes
          * its table without it ever starting.
          *
+         * An entry-open field also continues: the authority has not finalized
+         * its prize pool, so it must release the same unstarted original just
+         * like a continuing field. Keeping it pending here makes the boundary
+         * wait for a hand that the boundary itself forbids starting.
+         *
          * Every held original must still be exactly that shape now, after the
          * second read; one that changed (it started, or lost its gate) keeps
          * the boundary for every field, exactly as before.
          */
         if (
           heldPreparedOriginals.size > 0 &&
-          ((state.state !== 'continuing' && state.state !== 'qualifying') ||
+          ((state.state !== 'entry_open' &&
+            state.state !== 'continuing' &&
+            state.state !== 'qualifying') ||
             owned.some(
               ({ tableId, engine }) =>
                 heldPreparedOriginals.has(tableId) &&
