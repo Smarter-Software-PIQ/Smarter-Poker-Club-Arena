@@ -242,14 +242,12 @@ export async function selectLobbyPreference(
   proof: LobbyPreferenceProof
 ) {
   await proof.ready(ownerId);
-  await openLobbyGameSection(page, label);
-  const tabs = page.getByRole('tablist', { name: 'Game Type', exact: true });
-  const tab = tabs.getByRole('tab', { name: label, exact: true });
-  const before = await tabs.getByRole('tab', { selected: true }).textContent();
-  proof.record('selection-before', { selected: before?.trim(), intended: label });
-
-  // Observe before the action, including a write that precedes click completion.
-  // Start the existing network budget only after the action has succeeded.
+  // Observe before the section opens: opening Tournaments or Cash Games can
+  // itself select, and save, the intended tab. The click on a tab that is
+  // already selected then changes nothing and correctly sends nothing
+  // (migration 20261105183133 writes only what the player changed), so a
+  // listener installed after the section opened waited for a save that had
+  // already happened (verify-lobby-ui run 42125924931).
   let receiveRequest!: (request: Request) => void;
   const requested = new Promise<Request>((resolve) => {
     receiveRequest = resolve;
@@ -264,6 +262,11 @@ export async function selectLobbyPreference(
       .catch(() => {});
   };
   page.on('request', observeRequest);
+  await openLobbyGameSection(page, label);
+  const tabs = page.getByRole('tablist', { name: 'Game Type', exact: true });
+  const tab = tabs.getByRole('tab', { name: label, exact: true });
+  const before = await tabs.getByRole('tab', { selected: true }).textContent();
+  proof.record('selection-before', { selected: before?.trim(), intended: label });
   let phase = 'click';
   const actionStarted = Date.now();
   try {
