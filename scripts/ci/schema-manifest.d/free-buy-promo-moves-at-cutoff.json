@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/free-buy-promo-moves-at-cutoff",
+  "_comment": "A Free Buy's prize-pool promo part is funded once at the cutoff.",
+  "functions": ["fn_ca_fund_free_buy_at_cutoff_locked"]
+}
