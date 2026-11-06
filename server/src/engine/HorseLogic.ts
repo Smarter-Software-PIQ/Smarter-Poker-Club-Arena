@@ -1,3 +1,4 @@
+import { checkedToNonBottomRiverBoat } from './HorseNonBottomRiverValue.js';
 import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
@@ -9890,7 +9891,8 @@ export class HorseLogic {
         initiative === 'opp' &&
         !prevChecked &&
         !ip &&
-        !priorAggressorCheckedThisStreet(gs.actionHistory, street)
+        !priorAggressorCheckedThisStreet(gs.actionHistory, street) &&
+        !checkedToNonBottomRiverBoat(player, gs)
       ) {
         const donkLead =
           (vulnerable && wetness >= 0.5 && fastRandom() < 0.2) ||

@@ -1110,7 +1110,19 @@ export function omahaBoatDominated(b: OmahaBoatsAbove): boolean {
 }
 
 export function omahaBoatsAbove(hole: Card[], board: Card[]): OmahaBoatsAbove {
-  if (!hole || hole.length < 2 || !board || board.length < 3) return NO_BOATS_ABOVE;
+  const position = omahaBoatPosition(hole, board);
+  return position ? { boats: position.boats, quads: position.quads } : NO_BOATS_ABOVE;
+}
+
+/** Physically reachable two-rank holdings, not range equity or a value verdict.
+ * A singleton boat rank has lowerBoats === 0: it is not automatically a
+ * non-bottom value hand merely because no higher full house exists. */
+export interface OmahaBoatPosition extends OmahaBoatsAbove {
+  lowerBoats: number;
+}
+
+export function omahaBoatPosition(hole: Card[], board: Card[]): OmahaBoatPosition | null {
+  if (!hole || hole.length < 2 || !board || board.length < 3) return null;
   const R = (cd: Card) => RANK_VALUES[cd.rank];
   // A five-rank hand's boat/quads strength; 0 when it is neither.
   const strength = (ranks: number[]): number => {
@@ -1146,15 +1158,16 @@ export function omahaBoatsAbove(hole: Card[], board: Card[]): OmahaBoatsAbove {
   for (let i = 0; i < holeRanks.length; i++)
     for (let j = i + 1; j < holeRanks.length; j++)
       hero = Math.max(hero, best(holeRanks[i], holeRanks[j]));
-  if (hero < 1_000_000 || hero >= 2_000_000) return NO_BOATS_ABOVE; // not a full house
+  if (hero < 1_000_000 || hero >= 2_000_000) return null; // not a full house
   const seen = new Map<number, number>();
   for (const r of holeRanks.concat(boardRanks)) seen.set(r, (seen.get(r) || 0) + 1);
   const live = (r: number) => 4 - (seen.get(r) || 0);
-  const out: OmahaBoatsAbove = { boats: 0, quads: 0 };
+  const out: OmahaBoatPosition = { boats: 0, quads: 0, lowerBoats: 0 };
   for (let a = 2; a <= 14; a++) {
     for (let b = a; b <= 14; b++) {
       if (a === b ? live(a) < 2 : live(a) < 1 || live(b) < 1) continue;
       const opp = best(a, b);
+      if (opp >= 1_000_000 && opp < hero) out.lowerBoats++;
       if (opp <= hero) continue;
       if (opp >= 2_000_000) out.quads++;
       else out.boats++;

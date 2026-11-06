@@ -148,6 +148,20 @@ fi
 # and gives the run its own short TMPDIR on the external SSD. Nothing changes
 # on Linux, and a TMPDIR the caller already placed on /Volumes is kept.
 if [ "$(uname -s)" = Darwin ]; then
+  case "${TMPDIR:-}" in
+    /Volumes/*) ;;
+    *)
+      CA_PUSH_TMP_ROOT="${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t}"
+      if mkdir -p "$CA_PUSH_TMP_ROOT" 2>/dev/null; then
+        # Runs are a day old at most; nothing else is kept here.
+        find "$CA_PUSH_TMP_ROOT" -mindepth 1 -maxdepth 1 -name 'p.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+        if CA_PUSH_TMP=$(mktemp -d "$CA_PUSH_TMP_ROOT/p.XXXXXX"); then
+          TMPDIR="$CA_PUSH_TMP"
+          export TMPDIR
+        fi
+      fi
+      ;;
+  esac
   # BASH (2026-11-06). macOS ships bash 3.2; CI and engine-01 run bash 5.
   # This runs before the Node step below, so Node 22 still ends up first.
   # The release shell tests spawn `bash` from PATH, so on this Mac they ran
@@ -159,7 +173,20 @@ if [ "$(uname -s)" = Darwin ]; then
   for CA_BASH in ${CA_BASH_CANDIDATES:-/opt/homebrew/bin/bash /usr/local/bin/bash}; do
     [ -x "$CA_BASH" ] || continue
     if [ "$("$CA_BASH" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)" -ge 4 ]; then
-      CA_BASH_DIR=$(mktemp -d /tmp/club-arena-pre-push-bash.XXXXXX) && ln -sf "$CA_BASH" "$CA_BASH_DIR/bash" && PATH="$CA_BASH_DIR:$PATH" && export PATH
+      # The one-link shim must use the same external scratch as the tests.
+      # Refuse an unavailable/internal directory rather than falling back to /tmp.
+      CA_TMP_DEVICE=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $1}')
+      CA_ROOT_DEVICE=$(df -P / 2>/dev/null | awk 'END {print $1}')
+      CA_TMP_MOUNT=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $NF}')
+      case "$CA_TMP_MOUNT" in /Volumes/*) ;; *) CA_TMP_DEVICE="" ;; esac
+      if [ ! -d "${TMPDIR:-}" ] || [ ! -w "$TMPDIR" ] || [ -z "$CA_TMP_DEVICE" ] || [ -z "$CA_ROOT_DEVICE" ] || [ "$CA_TMP_DEVICE" = "$CA_ROOT_DEVICE" ]; then
+        echo "[club-arena pre-push] external scratch unavailable for Bash checks." >&2
+        exit 1
+      fi
+      CA_BASH_DIR=$(mktemp -d "$TMPDIR/club-arena-pre-push-bash.XXXXXX") || exit 1
+      if ! ln -s "$CA_BASH" "$CA_BASH_DIR/bash"; then rmdir "$CA_BASH_DIR"; exit 1; fi
+      PATH="$CA_BASH_DIR:$PATH"
+      export PATH
       echo "[club-arena pre-push] running the shell checks on $("$CA_BASH" -c 'echo bash $BASH_VERSION'), the major CI uses."
       break
     fi
@@ -187,20 +214,7 @@ EOV
       fi
     done
   fi
-  case "${TMPDIR:-}" in
-    /Volumes/*) ;;
-    *)
-      CA_PUSH_TMP_ROOT="${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t}"
-      if mkdir -p "$CA_PUSH_TMP_ROOT" 2>/dev/null; then
-        # Runs are a day old at most; nothing else is kept here.
-        find "$CA_PUSH_TMP_ROOT" -mindepth 1 -maxdepth 1 -name 'p.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
-        if CA_PUSH_TMP=$(mktemp -d "$CA_PUSH_TMP_ROOT/p.XXXXXX"); then
-          TMPDIR="$CA_PUSH_TMP"
-          export TMPDIR
-        fi
-      fi
-      ;;
-  esac
+
 fi
 
 # September 17: applicable prechecks must run before submission. Probe this
@@ -216,6 +230,10 @@ rm -f -- "$POLICY_PRECHECK_RECEIPT"
 policy_precheck_result() {
   policy_exit=$?
   trap - EXIT
+  if [ -n "${CA_BASH_DIR:-}" ]; then
+    rm -f -- "$CA_BASH_DIR/bash"
+    rmdir -- "$CA_BASH_DIR" || policy_exit=1
+  fi
   node "$CA_TREE_TOP/docs/agent-policy/agent-policy.mjs" hook-report "$POLICY_PRECHECK_STARTED" "$policy_exit" || policy_exit=1
   exit "$policy_exit"
 }

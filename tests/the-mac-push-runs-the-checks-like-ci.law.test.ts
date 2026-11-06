@@ -29,7 +29,7 @@ function fakeNode(dir: string, version: string) {
 }
 
 function runBlock(env: Record<string, string>, root: string) {
-  const script = `uname() { echo Darwin; }\n${darwinBlock}\necho "PATH=$PATH"\necho "TMPDIR=$TMPDIR"\n`;
+  const script = `uname() { echo Darwin; }\ndf() { if [ "$2" = / ] || [ "\${TEST_INTERNAL_SCRATCH:-}" = yes ]; then echo internal; else echo "external /Volumes/test-ssd"; fi; }\n${darwinBlock}\necho "PATH=$PATH"\necho "TMPDIR=$TMPDIR"\n`;
   return spawnSync('bash', ['-c', script], {
     encoding: 'utf8',
     env: { ...env, PATH: `${join(root, 'shell-node')}:/usr/bin:/bin` },
@@ -71,13 +71,17 @@ describe('the Mac runs the push checks the way CI does', () => {
     const root = mkdtempSync(join(tmpdir(), 'mac-push-'));
     try {
       fakeNode(join(root, 'shell-node'), 'v22.23.3');
+      const owned = join(root, 'mine');
+      mkdirSync(owned);
       const out = runBlock(
-        { HOME: join(root, 'home'), TMPDIR: '/Volumes/SmarterWork/agent-work/mine' },
+        { HOME: join(root, 'home'), TMPDIR: owned, CA_PUSH_TMP_ROOT: join(root, 'ssd-tmp') },
         root
       );
       expect(out.status, out.stderr).toBe(0);
       expect(out.stdout).not.toContain('running the checks on Node');
-      expect(out.stdout).toContain('TMPDIR=/Volumes/SmarterWork/agent-work/mine');
+      const retained = /TMPDIR=(.*)/.exec(out.stdout)?.[1] ?? '';
+      if (owned.startsWith('/Volumes/')) expect(retained).toBe(owned);
+      else expect(retained.startsWith(join(root, 'ssd-tmp'))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -97,7 +101,7 @@ describe('the Mac runs the push checks the way CI does', () => {
       const out = runBlock(
         {
           HOME: join(root, 'home'),
-          TMPDIR: join(root, 'boot-tmp'),
+          TMPDIR: 'boot-drive/T',
           CA_PUSH_TMP_ROOT: join(root, 'ssd-tmp'),
           CA_BASH_CANDIDATES: `${join(root, 'missing/bash')} ${fakeBash}`,
         },
@@ -108,7 +112,40 @@ describe('the Mac runs the push checks the way CI does', () => {
       const path = /PATH=(.*)/.exec(out.stdout)?.[1] ?? '';
       const first = path.split(':')[0]!;
       expect(first).toMatch(/club-arena-pre-push-bash\./);
+      const tmp = /TMPDIR=(.*)/.exec(out.stdout)?.[1] ?? '';
+      expect(first.startsWith(tmp + '/')).toBe(true);
       expect(path).toContain(join(root, 'shell-node'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses internal scratch and cleans only the shim it created', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mac-push-'));
+    try {
+      fakeNode(join(root, 'shell-node'), 'v22.23.3');
+      const fakeBash = join(root, 'bash');
+      writeFileSync(fakeBash, '#!/bin/sh\necho 5\n', { mode: 0o755 });
+      const out = runBlock(
+        {
+          HOME: join(root, 'home'),
+          TMPDIR: root,
+          CA_PUSH_TMP_ROOT: join(root, 'ssd-tmp'),
+          CA_BASH_CANDIDATES: fakeBash,
+          TEST_INTERNAL_SCRATCH: 'yes',
+        },
+        root
+      );
+      expect(out.status).toBe(1);
+      expect(out.stderr).toContain('external scratch unavailable');
+      expect(hook).not.toContain('mktemp -d /tmp/club-arena-pre-push-bash');
+      const cleanup = hook.slice(
+        hook.indexOf('policy_precheck_result()'),
+        hook.indexOf('trap policy_precheck_result EXIT')
+      );
+      expect(cleanup).toContain('rm -f -- "$CA_BASH_DIR/bash"');
+      expect(cleanup).toContain('rmdir -- "$CA_BASH_DIR"');
+      expect(cleanup).not.toContain('rm -rf');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

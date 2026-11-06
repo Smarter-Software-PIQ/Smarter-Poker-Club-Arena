@@ -19,6 +19,8 @@
  */
 export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, string>> =
   Object.freeze({
+    'src/engine/HorseNonBottomRiverValue.ts':
+      'the exact non-bottom high-only Omaha river initiative eligibility; downstream equity, utility and legal bounds remain authoritative',
     'src/engine/HorseCheckedAggressor.ts':
       'the actual prior aggressor current-street check that releases the reference initiative gate without changing value pricing or legal sizing',
     'src/engine/HorseFeatureAuthority.ts':
