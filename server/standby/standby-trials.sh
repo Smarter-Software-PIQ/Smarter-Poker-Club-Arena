@@ -120,7 +120,9 @@ trial_table_kill() {
   wait_no_break || { trial_verdict table-kill fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
   tok=$(fault_token)
   local seats_before; seats_before=$(seat_fingerprint)
-  for t in $(psql_db -Atc "select table_id from public.table_seats where left_at is null group by 1 order by random() limit $n"); do
+  # Only an actively dealing horse-only table accepts a kill; try tables until n are down.
+  for t in $(psql_db -Atc "select table_id from public.table_seats where left_at is null group by 1 order by random()"); do
+    [ "$killed" -ge "$n" ] && break
     docker exec "$CONTAINER" node -e '
       fetch("http://127.0.0.1:8080/admin/inject-fault", {method: "POST",
         headers: {"x-fault-token": process.env.FAULT_INJECTION_TOKEN, "content-type": "application/json"},
