@@ -25,6 +25,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
+import { classifyChangedPaths } from '../scripts/ci/classify-ci-changes.mjs';
 import { migrationNames, migrationText } from './helpers/migrationCorpus';
 import { sliceBetween } from './helpers/sourceWindow';
 
@@ -162,5 +164,46 @@ describe('the receipt replay and the player_stats writers take no lock out of or
     expect(run.installed['fn_project_hand_side_effects_after_post_commit_20260908(uuid)']).toBe(
       PINS[2][2]
     );
+  });
+});
+
+describe('native contention regression enforcement', () => {
+  it('executes and retains the native proof in required accounting CI', () => {
+    const ci = parse(readFileSync(resolve(__dirname, '..', '.github/workflows/ci.yml'), 'utf8'));
+    const steps = ci.jobs.accounting_postgres.steps;
+    const run = steps.find(
+      (step: { id?: string }) => step.id === 'replay_locks_and_player_stats_keys'
+    );
+    expect(run).toBeDefined();
+    expect(run.if).toBe('matrix.shard == 7');
+    expect(run.env.PG_BIN).toBe('/usr/lib/postgresql/17/bin');
+    expect(run.run).toContain(
+      'python3 -B scripts/qualification/replay-locks-and-player-stats-keys.py'
+    );
+    expect(run.run).toContain(
+      '--out "$RUNNER_TEMP/replay_locks_and_player_stats_keys/result.json"'
+    );
+    expect(run['continue-on-error']).toBeUndefined();
+    const upload = steps.find((step: { with?: { name?: string } }) =>
+      step.with?.name?.startsWith('replay_locks_and_player_stats_keys-')
+    );
+    expect(upload.if).toContain('always()');
+    expect(upload.if).toContain('steps.replay_locks_and_player_stats_keys.outcome');
+    expect(upload.with.path.trim().split('\n')).toEqual([
+      '${{ runner.temp }}/replay_locks_and_player_stats_keys/result.json',
+      '${{ runner.temp }}/replay_locks_and_player_stats_keys/run.log',
+      '${{ runner.temp }}/replay_locks_and_player_stats_keys/cluster/pg/postgres.log',
+    ]);
+    expect(upload.with['if-no-files-found']).toBe('error');
+    expect(ci.jobs.server.needs).toContain('accounting_postgres');
+  });
+  it.each([
+    'scripts/qualification/replay-locks-and-player-stats-keys.py',
+    'scripts/qualification/replay-locks-and-player-stats-keys-schema.sql',
+    'scripts/qualification/replay-locks-and-player-stats-keys-live.sql',
+    'scripts/qualification/replay-locks-and-player-stats-keys.manifest.json',
+    'tests/the-replay-and-player-stats-writers-take-no-lock-out-of-order.law.test.ts',
+  ])('selects required accounting for isolated input %s', (path) => {
+    expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
   });
 });
