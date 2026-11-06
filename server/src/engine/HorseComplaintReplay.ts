@@ -288,7 +288,10 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
     ...(pn.boards?.[2] !== undefined ? { communityCards3: parseBoard(pn.boards[2]) } : {}),
     ...(pn.boardCount !== undefined ? { boardCount: pn.boardCount } : {}),
     ...(pn.bombPot !== undefined ? { bombPot: pn.bombPot } : {}),
-    ...(pn.allInOrFold !== undefined ? { allInOrFold: pn.allInOrFold } : {}),
+    // AoF: the live state always carries a boolean (ServerTableEngineTurns
+    // sets tableInfo?.all_in_or_fold === true), so a node recorded before the
+    // field existed replays as an ordinary table, false, never undefined.
+    allInOrFold: pn.allInOrFold === true,
     ...(pn.fixedBetSize !== undefined ? { fixedBetSize: pn.fixedBetSize } : {}),
     ...(pn.wagersCapped !== undefined ? { wagersCapped: pn.wagersCapped } : {}),
     ...(pn.asset !== undefined ? { asset: pn.asset } : {}),
