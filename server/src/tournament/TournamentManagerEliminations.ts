@@ -274,7 +274,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
    */
   private readonly bustRefusalStreak = new Map<string, number>();
   /** The close of a bounty only PKO at two players; see bountyOnlyFinalTwo.ts. */
-  private readonly bountyOnlyFinalTwo: FinalTwoState = { parked: false, refused: false };
+  private readonly bountyOnlyFinalTwo: FinalTwoState = {
+    parked: false,
+    refused: false,
+    retryCount: 0,
+    firstRetryAt: null,
+  };
 
   /**
    * ═════════════════════════════════════════════════════════════════════════
@@ -1822,6 +1827,17 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               for (const engine of this.tableEngines.values()) engine.resumeDealing();
             },
             report: (error, tag) => reportError(error, tag),
+            // The watch (fn_ca_bounty_only_final_two_watch) reads this so a
+            // refused close is not raised as a missed one.
+            recordRefusal: async (reason) => {
+              const { error } = await supabase
+                .from('ca_bounty_only_final_two_refusals')
+                .upsert(
+                  { tournament_id: this.tournamentId, reason: reason.slice(0, 500) },
+                  { onConflict: 'tournament_id' }
+                );
+              if (error) throw new Error(error.message);
+            },
           });
           if (sweepStopped()) return;
           if (finalTwo === 'closed') remainingCount = 1;
@@ -2291,6 +2307,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               // pays nothing for finishing position, so it has no money bubble.
               // Its lifecycle ladder must never start hand-for-hand; clear any
               // latch an earlier manager left behind and keep tables dealing.
+              // Same definition as isBountyOnlyPkoRow (kept inline: this stage
+              // is executed verbatim by BountyOnlyPkoHasNoBubble.test.ts). A
+              // mystery bounty event is never bounty only: its chests pay in
+              // the money, so its bubble keeps hand-for-hand.
               const pkoRow = this.tournamentCache as Record<string, unknown> | null;
               const pkoNum = (v: unknown) => {
                 const x = Number(v);
@@ -2298,6 +2318,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               };
               const bountyOnlyPko =
                 pkoRow?.is_pko === true &&
+                pkoRow.is_mystery_bounty !== true &&
                 pkoNum(pkoRow.buy_in_amount) <= 0 &&
                 pkoNum(pkoRow.guaranteed_prize) <= 0 &&
                 pkoNum(pkoRow.prize_pool) <= 0;

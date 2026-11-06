@@ -22,10 +22,20 @@ describe('a knockout head is never overwritten by a stale read', () => {
     expect(tail).toContain('bountyMapGenRef.current += 1;');
     expect(tail).toContain('void bountyMapRefreshRef.current?.();');
   });
-  it('re-reads the heads on every hand and polls at most ten seconds apart', () => {
-    expect(page).toMatch(/const BOUNTY_HEAD_POLL_MS = 10_000;/);
-    expect(page).toContain('setInterval(() => void refreshBountyMap(), BOUNTY_HEAD_POLL_MS)');
-    expect(page).toMatch(/\}, \[bountyHandNumber, tableState\.isBountyTournament\]\);/);
+  it('reads per hand and polls only while a seat lacks the engine head, never under 30s', () => {
+    // 2026-11-06: when every seat carries the engine's head, the engine's own
+    // reads (after each hand and knockout, retried on failure) keep it true.
+    const poll = page.match(/const BOUNTY_HEAD_POLL_MS = ([\d_]+);/);
+    expect(poll).not.toBeNull();
+    expect(Number(poll![1].replace(/_/g, ''))).toBeGreaterThanOrEqual(30_000);
+    expect(page).toMatch(
+      /bountyMapPollTimer = setInterval\(\(\) => \{\s*(\/\/[^\n]*\n\s*)*if \(!seatsNeedLedgerHeadsRef\.current\) return;\s*void refreshBountyMap\(\);\s*\}, BOUNTY_HEAD_POLL_MS\)/
+    );
+    expect(page).toContain('seatsNeedLedgerHeadsRef.current = seatsNeedLedgerHeads;');
+    expect(page).toMatch(/if \(!seatsNeedLedgerHeads\) return;/);
+    expect(page).toMatch(
+      /\}, \[bountyHandNumber, tableState\.isBountyTournament, seatsNeedLedgerHeads\]\);/
+    );
   });
   it('reads the heads again after a bust has had time to settle', () => {
     expect(page).toMatch(/const BOUNTY_SETTLE_REREAD_MS = 8_000;/);
