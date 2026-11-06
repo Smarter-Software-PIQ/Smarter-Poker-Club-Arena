@@ -14,7 +14,9 @@ def river_opportunity(info, action):
     legal=info.get('legalActions') or []
     seats=state.get('seats');hero=info.get('heroSeat')
     valid=isinstance(seats,list) and all(isinstance(s,list) and len(s)>=7 and type(s[6]) is int for s in seats)
-    opponents=[s for s in seats if s[0]!=hero and not s[6]&5] if valid else None
+    # Sitting out never removes an already committed all-in pot claim.
+    opponents=[s for s in seats if s[0]!=hero and not s[6]&1
+               and not (s[6]&4 and not s[6]&2)] if valid else None
     open_node=state.get('toCall')==0 and 'check' in legal and any(a in legal for a in ('bet','raise','all_in'))
     history=info.get('priorPublicActions',[])
     aggressive=lambda a:a.get('action') in ('bet','raise') or (a.get('action')=='all_in' and a.get('isFullRaise') is True)

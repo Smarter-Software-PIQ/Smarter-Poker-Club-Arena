@@ -2,8 +2,26 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { scoreOmahaHiPartial, scoreOmahaLowPartial } from '../../server/src/engine/HorseEval';
 import type { Card } from '../../server/src/types';
+import { classifyChangedPaths } from '../../scripts/ci/classify-ci-changes.mjs';
 
 describe('private Horse historical analysis independent references', () => {
+  it('runs this wrapper when its Python inputs change without selecting engine jobs', () => {
+    for (const path of [
+      'horse-study-report.py',
+      'horse_river_appendix.py',
+      'horse_river_opportunities.py',
+      'horse_hand_analysis.py',
+      'omaha_reference.py',
+      'test_horse_river_appendix.py',
+      'test_omaha_reference.py',
+    ]) {
+      const selected = classifyChangedPaths([`scripts/ops/${path}`]);
+      expect(selected.tests, path).toBe(true);
+      expect(selected.server, path).toBe(false);
+      expect(selected.src, path).toBe(false);
+    }
+    expect(classifyChangedPaths(['scripts/ops/horse-river-appendix.md']).tests).toBe(false);
+  });
   it('runs the outcome isolation, domain and exact-card regression suite', () => {
     const result = spawnSync(
       'python3',
