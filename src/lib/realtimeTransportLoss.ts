@@ -1,4 +1,5 @@
 import { reportError } from '../utils/errorReporter';
+import { noteRevivalRejoined, wasForcedByLiveness } from './realtimeRevival';
 
 /**
  * ONE SOCKET DROP IS ONE EVENT, NOT ONE PER CHANNEL (2026-10-24).
@@ -71,15 +72,20 @@ export function noteRealtimeTransportLoss(
     return;
   }
   const reason = err instanceof Error && err.message ? err.message : 'socket closed';
+  // A loss right after the liveness probe forced a reconnect is that
+  // reconnect's own fan-out, not a new drop (realtimeRevival.ts).
+  const forcedByLiveness = wasForcedByLiveness(now);
   reportError(new Error(`Realtime transport lost (${reason})`), 'Realtime.transport_lost', {
     firstChannel: channelName,
     via: source,
+    ...(forcedByLiveness ? { forcedByLiveness: true } : {}),
   });
 }
 
 /** A channel joined: the socket is up, so the next failure is a new outage. */
 export function noteRealtimeTransportRecovered(): void {
   outageReportedAt = null;
+  noteRevivalRejoined();
 }
 
 /**

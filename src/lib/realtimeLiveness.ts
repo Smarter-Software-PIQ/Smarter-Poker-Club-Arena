@@ -1,4 +1,10 @@
 import { reportWarning } from '../utils/errorReporter';
+import {
+  markForcedReconnect,
+  setRevivalSink,
+  type RevivalReason,
+  type RevivalRecord,
+} from './realtimeRevival';
 
 /**
  * A DEAD SOCKET IS FOUND THE MOMENT THE PLAYER COMES BACK (2026-11-05).
@@ -70,14 +76,101 @@ function browserEnv(): LivenessEnv | null {
   };
 }
 
-/** At most one revive report per client per window, so the proof never becomes noise. */
+/** At most one durable revive row per client per window, so the proof never becomes noise. */
 export const REVIVE_REPORT_WINDOW_MS = 10 * 60_000;
-let lastRevivedReportAt: number | null = null;
-function reportRevivedOncePerWindow(reason: string, data: Record<string, unknown>): void {
-  const now = Date.now();
-  if (lastRevivedReportAt !== null && now - lastRevivedReportAt < REVIVE_REPORT_WINDOW_MS) return;
-  lastRevivedReportAt = now;
+let lastRevivalWrittenAt: number | null = null;
+
+/** May a revive row be written now? One per REVIVE_REPORT_WINDOW_MS. Exported for the test. */
+export function mayWriteRevival(now: number, last: number | null): boolean {
+  return last === null || now - last >= REVIVE_REPORT_WINDOW_MS;
+}
+
+export interface RevivalRowWriter {
+  userId(): Promise<string | null>;
+  insert(row: Record<string, unknown>): Promise<{ error: { message?: string } | null }>;
+}
+
+async function supabaseWriter(): Promise<RevivalRowWriter> {
+  const { supabase } = await import('./supabase');
+  return {
+    userId: async () => {
+      // Bound and acted on (discarded-error-read ratchet): a failed session
+      // read is treated as signed out, never as a reason to throw.
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        console.debug('[realtime-revival] session read failed; skipping write', error.message);
+        return null;
+      }
+      return data.session?.user?.id ?? null;
+    },
+    insert: async (row) => {
+      const { error } = await supabase.from('client_realtime_revivals').insert(row);
+      return { error };
+    },
+  };
+}
+
+function currentRoute(): string | null {
+  try {
+    return typeof window === 'undefined' ? null : window.location.pathname.slice(0, 200);
+  } catch {
+    return null;
+  }
+}
+
+function currentAppVersion(): string | null {
+  try {
+    const v = import.meta.env.VITE_APP_VERSION;
+    return typeof v === 'string' && v ? v.slice(0, 64) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist one finished revive measurement to client_realtime_revivals:
+ * fire-and-forget, signed-in only, throttled, never retried, never surfaced.
+ */
+export async function writeRevival(
+  record: RevivalRecord,
+  now: number = Date.now(),
+  writer: () => Promise<RevivalRowWriter> = supabaseWriter
+): Promise<boolean> {
+  try {
+    if (!mayWriteRevival(now, lastRevivalWrittenAt)) return false;
+    lastRevivalWrittenAt = now;
+    const w = await writer();
+    const userId = await w.userId();
+    if (!userId) return false; // RLS would refuse it; do not generate the noise
+    const { error } = await w.insert({
+      user_id: userId,
+      reason: record.reason,
+      rejoined: record.rejoined,
+      gap_ms: record.gapMs,
+      waited_ms: record.waitedMs === null ? null : Math.max(0, Math.round(record.waitedMs)),
+      route: currentRoute(),
+      app_version: currentAppVersion(),
+    });
+    if (error) {
+      console.debug('[realtime-revival] insert refused', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Test-only: forget the write throttle. */
+export function __resetRevivalWriteForTests(): void {
+  lastRevivalWrittenAt = null;
+}
+
+function reportForcedReconnect(reason: string, data: Record<string, unknown>): void {
   reportWarning(`Realtime socket revived on resume (${reason})`, 'Realtime.resume_revived', data);
+  const waited = typeof data.waitedMs === 'number' ? data.waitedMs : null;
+  const resumedAt = typeof data.resumedAt === 'number' ? data.resumedAt : Date.now();
+  markForcedReconnect(reason as RevivalReason, waited, resumedAt);
 }
 
 /** The four moments a page comes back to the player. */
@@ -90,17 +183,21 @@ export const RESUME_EVENTS = ['visibilitychange', 'pageshow', 'online', 'focus']
 export function installRealtimeLiveness(
   client: RealtimeLivenessClient,
   env: LivenessEnv | null = browserEnv(),
-  report: (reason: string, data: Record<string, unknown>) => void = reportRevivedOncePerWindow
+  report: (reason: string, data: Record<string, unknown>) => void = reportForcedReconnect
 ): () => void {
   if (!env) return () => {};
+  // Finished measurements (realtimeRevival.ts) are written durably from here,
+  // so the entry chunk never carries the writer.
+  setRevivalSink((record) => void writeRevival(record));
   let probe: unknown = null;
 
   const resume = () => {
     if (!env.isVisible()) return;
     if (probe !== null) return; // one probe at a time
     if (!client.isConnected()) {
+      const resumedAt = env.now();
       client.connect();
-      report('not_connected', {});
+      report('not_connected', { resumedAt });
       return;
     }
     const startedAt = env.now();
@@ -112,13 +209,14 @@ export function installRealtimeLiveness(
       // Unanswered: a second beat with one pending is realtime-js's own
       // heartbeat timeout - it closes the socket and reconnects.
       void client.sendHeartbeat();
-      report('unanswered_heartbeat', { waitedMs: env.now() - startedAt });
+      report('unanswered_heartbeat', { waitedMs: env.now() - startedAt, resumedAt: startedAt });
     }, RESUME_PROBE_MS);
   };
 
   for (const type of RESUME_EVENTS) env.addEventListener(type, resume);
   return () => {
     for (const type of RESUME_EVENTS) env.removeEventListener(type, resume);
+    setRevivalSink(null);
     if (probe !== null) env.clearTimeout(probe);
     probe = null;
   };
