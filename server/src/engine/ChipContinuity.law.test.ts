@@ -29,6 +29,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ChipContinuityTracker,
+  handsLeftLabel,
   isLeaveLocked,
   leaveLabel,
   stayRemainingMs,
@@ -54,6 +55,12 @@ const row = (over: Partial<CashSessionRow> = {}): CashSessionRow => ({
   stay_last_tick_at: new Date(1_000_000).toISOString(),
   stay_clock_ms: 600_000,
   leave_locked: true,
+  hands_required: 0,
+  hands_played: 0,
+  hands_remaining: 0,
+  hit_run_doubles: 0,
+  hit_run_completed: false,
+  blind_off: false,
   ...over,
 });
 
@@ -129,7 +136,7 @@ describe('the tracker reports transitions and renders answers', () => {
     const t = make(evaluate, false, false);
     await t.evaluate([{ user_id: 'a', stack: 100, active: true }]);
     expect(evaluate).not.toHaveBeenCalled();
-    expect(t.leaveLock('a', 100)).toEqual({ locked: false, remainingMs: 0 });
+    expect(t.leaveLock('a', 100)).toEqual({ locked: false, remainingMs: 0, handsRemaining: 0 });
   });
 
   it('answers POST /leave from the mirror and forgets a seat that left', async () => {
@@ -149,6 +156,9 @@ describe('the tracker reports transitions and renders answers', () => {
       stay_remaining_ms: 0,
       stay_running: false,
       leave_locked: false,
+      hit_run_hands_remaining: null,
+      hit_run_hands_required: null,
+      hit_run_blind_off: false,
     });
   });
 
@@ -176,21 +186,57 @@ describe('the tracker reports transitions and renders answers', () => {
     const t = make(evaluate);
     await t.evaluate([{ user_id: 'a', stack: 180, active: true }]);
     t.noteRefusal('a', 300_000);
-    expect(t.leaveLock('a', 180)).toEqual({ locked: false, remainingMs: 0 });
+    expect(t.leaveLock('a', 180)).toEqual({ locked: false, remainingMs: 0, handsRemaining: 0 });
+  });
+
+  it('HIT AND RUN: the mirror holds a winner who still owes hands, at the live stack', async () => {
+    const owing = row({ user_id: 'a', hands_required: 20, hands_played: 6, hands_remaining: 14 });
+    const t = make(vi.fn(async () => [owing]));
+    await t.evaluate([{ user_id: 'a', stack: 180, active: true }]);
+    expect(t.leaveLock('a', 180)).toEqual({ locked: true, remainingMs: 0, handsRemaining: 14 });
+    // Profit gone at the live stack: free to go whatever the count says.
+    expect(t.leaveLock('a', 100).locked).toBe(false);
+    expect(t.seatFields('a', 180)).toMatchObject({
+      leave_locked: true,
+      hit_run_hands_remaining: 14,
+      hit_run_hands_required: 20,
+      hit_run_blind_off: false,
+    });
+    t.markBlindOff('a', true);
+    expect(t.seatFields('a', 180).hit_run_blind_off).toBe(true);
+    expect(t.row('a')?.blind_off).toBe(true);
+    t.markBlindOff('a', false);
+    expect(t.row('a')?.blind_off).toBe(false);
+    // A completed count is free for the rest of the session.
+    expect(
+      isLeaveLocked(row({ hands_required: 10, hands_played: 10, hit_run_completed: true }), 900)
+    ).toBe(false);
+    expect(isLeaveLocked(row({ hands_required: 10, hands_played: 3 }), 180)).toBe(true);
+    expect(handsLeftLabel(1)).toBe('1 Hand Left Before You Can Leave');
+    expect(handsLeftLabel(7)).toBe('7 Hands Left Before You Can Leave');
   });
 });
 
 describe('the engine wiring (source pins - each one is a leak that shipped once already elsewhere)', () => {
-  it('leaveTable refuses a locked cash player with the label and LEAVE_LOCKED (A0.2)', () => {
+  it('HIT AND RUN: leaveTable asks first, and a confirmed leave is blinded off (owner 2026-11-06)', () => {
     const body = sliceMethod(SEATING, 'public async leaveTable(');
     expect(body).toContain('this.chipContinuity.leaveLock(userId, player.stack)');
     expect(body).toContain("code: 'LEAVE_LOCKED'");
-    expect(body).toContain('return this.holdLockedLeave(userId, lock.remainingMs);');
+    expect(body).toContain('if (opts.confirmHandCount !== true) {');
+    expect(body).toContain(
+      'return this.handCountConfirmationRequired(userId, lock.handsRemaining);'
+    );
+    expect(body).toContain('return this.holdLockedLeave(userId, lock.handsRemaining);');
+    const ask = sliceMethod(SEATING, 'protected handCountConfirmationRequired(');
+    expect(ask).toContain('success: false');
+    expect(ask).toContain("code: 'LEAVE_LOCKED' as const");
+    expect(ask).toContain('needs_confirmation: true');
     const held = sliceMethod(SEATING, 'protected holdLockedLeave(');
-    expect(held).toContain('success: false');
-    expect(held).toContain("code: 'LEAVE_LOCKED'");
-    expect(held).toContain('error: leaveLabel(remainingMs)');
+    expect(held).toContain('success: true');
+    expect(held).toContain('blindOff: true');
+    expect(held).toContain('this.leaveHeldByClock.set(userId, seat.occupancy_id)');
     expect(held).toContain('this.sitOutLeaver(userId, this.foldLeaverNow(userId))');
+    expect(held).toContain('setCashSessionBlindOff(this.tableId, userId, true)');
     // The lock is checked AFTER the tournament branch returns: tournaments have no stay clock.
     expect(body.indexOf('if (this.isTournamentTable())')).toBeLessThan(
       body.indexOf('chipContinuity.leaveLock')
@@ -212,9 +258,9 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     expect(emit).toBeGreaterThan(-1);
     expect(emitAfter).toBeGreaterThan(voluntary);
     expect(body).toContain("if (res.code === 'LEAVE_LOCKED') {");
-    expect(body.slice(body.indexOf("if (res.code === 'LEAVE_LOCKED') {"))).toContain(
-      'return this.holdLockedLeave(userId, res.stayRemainingMs);'
-    );
+    const door = body.slice(body.indexOf("if (res.code === 'LEAVE_LOCKED') {"));
+    expect(door).toContain('return this.handCountConfirmationRequired(userId, hands);');
+    expect(door).toContain('return this.holdLockedLeave(userId, hands);');
   });
 
   it('a leave refused at settlement is held by the clock and released by the heartbeat', () => {
@@ -231,7 +277,8 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     expect(sliceMethod(BASE, 'protected scheduleHeartbeatCheck()')).toContain(
       'releaseLeavesHeldByClock()'
     );
-    expect(sliceMethod(SEATING, 'public sitOut(')).toContain(
+    expect(sliceMethod(SEATING, 'public sitOut(')).toContain('this.withdrawBlindOff(userId)');
+    expect(sliceMethod(SEATING, 'protected withdrawBlindOff(')).toContain(
       'this.leaveHeldByClock.delete(userId)'
     );
   });
@@ -239,7 +286,9 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
   it('the leave handler answers a lawful refusal with 200, and the admin kick is forced', () => {
     const LEAVE = read('src/handlers/leaveOccupancy.ts');
     expect(LEAVE).toContain("result.code === 'LEAVE_LOCKED' ? 200");
-    expect(LEAVE).toContain('await engine.leaveTable(auth.userId, { occupancyId, seatNumber })');
+    expect(LEAVE.replace(/\s+/g, ' ')).toContain(
+      'await engine.leaveTable(auth.userId, { occupancyId, seatNumber, ...(confirmHandCount ? { confirmHandCount } : {}), })'
+    );
     const ADMIN = read('src/handlers/admin.ts');
     expect(ADMIN).toMatch(/await engine\.leaveTable\(targetUserId,\s*\{\s*forced: true,/);
     expect(ADMIN).toContain('occupancyBound ? { occupancyId, seatNumber } : {}');

@@ -11,7 +11,7 @@ export interface LeaveOccupancyDeps {
       | {
           leaveTable(
             userId: string,
-            opts: { occupancyId: string; seatNumber: number }
+            opts: { occupancyId: string; seatNumber: number; confirmHandCount?: boolean }
           ): Promise<{
             success: boolean;
             immediate: boolean;
@@ -19,6 +19,10 @@ export interface LeaveOccupancyDeps {
             tournament?: boolean;
             error?: string;
             stay_remaining_ms?: number;
+            held?: boolean;
+            blindOff?: boolean;
+            hands_remaining?: number;
+            needs_confirmation?: boolean;
           }>;
         }
       | null
@@ -108,7 +112,14 @@ export async function handleLeaveOccupancy(
         success: false,
         error: 'The Table Is Temporarily Unavailable. Please Try Again.',
       });
-    const result = await engine.leaveTable(auth.userId, { occupancyId, seatNumber });
+    // HIT AND RUN (owner 2026-11-06): the player saw "YOUR HAND COUNT IS NOT
+    // COMPLETED" and chose to leave; their seat is blinded off for the rest.
+    const confirmHandCount = requested.confirmHandCount === true;
+    const result = await engine.leaveTable(auth.userId, {
+      occupancyId,
+      seatNumber,
+      ...(confirmHandCount ? { confirmHandCount } : {}),
+    });
     if (!result.success)
       return sendJSON(
         res,

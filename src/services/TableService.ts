@@ -304,13 +304,18 @@ class TableService {
     seatNumber: number,
     userId: string,
     /** LIGHTNING PHASE 6: the anchor seat a Lightning room leaves through. */
-    target?: { seatNumber: number; occupancyId: string }
+    target?: { seatNumber: number; occupancyId: string },
+    /** HIT AND RUN: the player confirmed leaving with hands still owed. */
+    confirmHandCount = false
   ): Promise<{
     success: boolean;
     chipsReturned: number;
     deferred?: boolean;
     tournament?: boolean;
     held?: boolean;
+    blindOff?: boolean;
+    handsRemaining?: number;
+    needsConfirmation?: boolean;
     occupancyId?: string;
     error?: string;
   }> {
@@ -319,8 +324,8 @@ class TableService {
     void seatNumber;
     const { leaveSeatWithIntent } = await import('./SeatLeaveIntent');
     const result = target
-      ? await leaveSeatWithIntent(tableId, userId, target)
-      : await leaveSeatWithIntent(tableId, userId);
+      ? await leaveSeatWithIntent(tableId, userId, target, confirmHandCount)
+      : await leaveSeatWithIntent(tableId, userId, undefined, confirmHandCount);
     if (!result.success) return result;
     if (result.tournament || result.held) return result;
     if (!result.deferred) {

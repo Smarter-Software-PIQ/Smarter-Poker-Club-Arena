@@ -32,6 +32,20 @@ export interface CashSessionRow {
   stay_last_tick_at: string;
   stay_clock_ms: number;
   leave_locked: boolean;
+  /**
+   * HIT AND RUN (owner 2026-11-06). Hands owed in profit (10, plus 10 per
+   * Charles double; 0 = no countdown), hands played toward it, what is left
+   * (0 unless the player is in profit and still owes hands), whether this
+   * session completed it, and whether the player confirmed leaving early and
+   * is being blinded off. Absent fields (a database without the rule) read
+   * as "no countdown", never as a lock.
+   */
+  hands_required: number;
+  hands_played: number;
+  hands_remaining: number;
+  hit_run_doubles: number;
+  hit_run_completed: boolean;
+  blind_off: boolean;
 }
 
 export interface CashSessionEntry {
@@ -40,6 +54,12 @@ export interface CashSessionEntry {
   stack?: number;
   /** seated AND not sitting out AND connected AND not pending a move. */
   active: boolean;
+  /**
+   * HIT AND RUN: the settled hand this player was dealt into. Present only on
+   * the settlement report, only for dealt players; the database advances the
+   * countdown once per hand id.
+   */
+  hand_id?: string;
 }
 
 function toRow(raw: unknown): CashSessionRow | null {
@@ -55,7 +75,18 @@ function toRow(raw: unknown): CashSessionRow | null {
     stay_last_tick_at: typeof o.stay_last_tick_at === 'string' ? o.stay_last_tick_at : '',
     stay_clock_ms: Number(o.stay_clock_ms ?? 600000),
     leave_locked: o.leave_locked === true,
+    hands_required: nonNegativeInt(o.hands_required),
+    hands_played: nonNegativeInt(o.hands_played),
+    hands_remaining: nonNegativeInt(o.hands_remaining),
+    hit_run_doubles: nonNegativeInt(o.hit_run_doubles),
+    hit_run_completed: o.hit_run_completed === true,
+    blind_off: o.blind_off === true,
   };
+}
+
+function nonNegativeInt(v: unknown): number {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /**
@@ -75,6 +106,12 @@ export async function evaluateCashSessions(
         user_id: e.user_id,
         stack: typeof e.stack === 'number' && Number.isFinite(e.stack) ? e.stack : null,
         active: e.active === true,
+        // This engine serves the hit-and-run rule (blind-off included), so
+        // the database may enforce it for this player's session.
+        hit_run: true,
+        ...(typeof e.hand_id === 'string' && e.hand_id
+          ? { hand_id: e.hand_id, hand_source: 'table' }
+          : {}),
       })),
     });
     if (error) {
@@ -138,4 +175,66 @@ export async function atomicCashoutVoluntary(
   if (out.lightning) return { ok: false, code: 'LIGHTNING_HAND_IN_PROGRESS' };
   if (out.failed !== null) return { ok: false, code: 'FAILED', message: out.failed };
   return { ok: true, stack };
+}
+
+/**
+ * HIT AND RUN: record (or withdraw) the player's confirmed early leave, so a
+ * restarted engine and the Lightning hand host read the same truth. Best
+ * effort: false on any failure, and the engine's own hold still stands.
+ */
+export async function setCashSessionBlindOff(
+  tableId: string,
+  userId: string,
+  on: boolean
+): Promise<boolean> {
+  try {
+    const { error } = await supabase.rpc('fn_cash_session_set_blind_off', {
+      p_table_id: tableId,
+      p_user_id: userId,
+      p_on: on,
+    });
+    if (error) {
+      console.warn(
+        `[cashSessions] blind-off ${on} failed for ${tableId.slice(0, 8)}: ${error.message}`
+      );
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    console.warn(
+      `[cashSessions] blind-off transport failure for ${tableId.slice(0, 8)}:`,
+      err?.message
+    );
+    return false;
+  }
+}
+
+/**
+ * HIT AND RUN (Lightning): which of these pool sessions are being blinded off
+ * and still owe hands. An unreadable answer is the empty set: the seat then
+ * plays on its ordinary clock, which is never a reason to fold a player.
+ */
+export async function lightningBlindOffPlayers(
+  poolSessionIds: readonly string[]
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (poolSessionIds.length === 0) return out;
+  try {
+    const { data, error } = await supabase.rpc('fn_lightning_blind_off_players', {
+      p_pool_session_ids: [...poolSessionIds],
+    });
+    if (error || !Array.isArray(data)) return out;
+    for (const row of data as unknown[]) {
+      const id =
+        typeof row === 'string'
+          ? row
+          : typeof (row as any)?.fn_lightning_blind_off_players === 'string'
+            ? (row as any).fn_lightning_blind_off_players
+            : null;
+      if (id) out.add(id);
+    }
+  } catch {
+    /* empty set */
+  }
+  return out;
 }

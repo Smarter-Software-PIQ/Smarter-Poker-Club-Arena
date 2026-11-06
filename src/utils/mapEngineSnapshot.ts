@@ -69,6 +69,14 @@ export interface EnginePublicPlayer {
   stay_remaining_ms?: number;
   stay_running?: boolean;
   leave_locked?: boolean;
+  /**
+   * HIT AND RUN (owner 2026-11-06): hands still owed in profit before this
+   * player may leave (null: none owed), and whether a confirmed early leave
+   * is blinding the seat off. Absent on an engine that predates the rule.
+   */
+  hit_run_hands_remaining?: number | null;
+  hit_run_hands_required?: number | null;
+  hit_run_blind_off?: boolean;
 }
 
 export interface EngineActionRecord {
@@ -340,6 +348,11 @@ export interface MappedTableStatePatch {
    * engine build predates the field.
    */
   heroLeave: { locked: boolean; remainingMs: number; running: boolean; at: number } | null;
+  /**
+   * HIT AND RUN: the hero's hands still owed as the engine reports them; null
+   * for none owed, undefined when the payload does not carry the field.
+   */
+  heroHandsOwed: number | null | undefined;
 }
 
 // ─── Mapping ──────────────────────────────────────────────────────────────────
@@ -646,6 +659,12 @@ export function mapEngineSnapshot(
     isTimeBankActive: s.time_bank_active ?? false,
     handNumber: s.hand_number ?? 0,
     heroLeave,
+    heroHandsOwed:
+      heroRaw && 'hit_run_hands_remaining' in heroRaw
+        ? typeof heroRaw.hit_run_hands_remaining === 'number' && heroRaw.hit_run_hands_remaining > 0
+          ? Math.floor(heroRaw.hit_run_hands_remaining)
+          : null
+        : undefined,
     sidePots,
     disconnectStates: s.disconnect_states ?? {},
     // Phase 2 T1-01: winners with net amount. Server emits winners[] with

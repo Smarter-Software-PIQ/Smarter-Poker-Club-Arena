@@ -23,6 +23,7 @@ import type { LightningObserverProjection } from './LightningObserverProjection.
  * settlement (the instance is voided; no chip has moved).
  */
 import { supabase } from '../services/supabase/client.js';
+import { lightningBlindOffPlayers } from '../services/supabase/cashSessions.js';
 import type { TableConnectionAccess } from '../services/TableConnectionAccess.js';
 import {
   LightningPresence,
@@ -1012,6 +1013,8 @@ export class LightningHosting {
       },
       isConnected: (playerId, roomId) => registry.isConnected(playerId, roomId),
       isClientControlling: (playerId, roomId) => registry.isClientControlling(playerId, roomId),
+      // HIT AND RUN (owner 2026-11-06): confirmed early leaves are blinded off.
+      blindOffPlayers: (poolSessionIds) => lightningBlindOffPlayers(poolSessionIds),
       onPlayerReleased: (playerId, why) => {
         // A FOLDED player is free while the hand plays on: match them now.
         // Everyone released at the hand's end waits for onFinished, which

@@ -1565,14 +1565,21 @@ export async function notifyServerKickOccupancy(
 export async function notifyServerLeaveOccupancy(
   tableId: string,
   seatNumber: number,
-  occupancyId: string
+  occupancyId: string,
+  /** HIT AND RUN: the player confirmed leaving with hands still owed. */
+  confirmHandCount = false
 ): Promise<unknown> {
   try {
     const headers = await getAuthHeaders();
     const response = await engineFetch(`${GAME_SERVER_URL}/leave-occupancy`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ tableId, seatNumber, occupancyId }),
+      body: JSON.stringify({
+        tableId,
+        seatNumber,
+        occupancyId,
+        ...(confirmHandCount ? { confirmHandCount: true } : {}),
+      }),
     });
     const body: unknown = await response.json();
     if (!response.ok && body && typeof body === 'object') {

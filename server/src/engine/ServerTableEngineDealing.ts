@@ -993,16 +993,24 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         // from the deal would freeze their stack: no blind-off, no
         // elimination, a tournament that can never end. This is how every
         // real poker site handles tournament sit-outs.
-        const dealInWhileSittingOut = this.isTournamentTable();
-        const activePlayers = this.seatedPlayers.filter(
+        //
+        // HIT AND RUN (owner 2026-11-06): a cash seat whose player confirmed
+        // leaving with hands still owed in profit is BLINDED OFF - dealt in
+        // and auto-acted like a tournament sit-out - but only while somebody
+        // who is actually playing is dealt in with it. Blinded-off seats alone
+        // never deal a hand among themselves.
+        const dealable = this.seatedPlayers.filter(
           (p) =>
             p.stack > 0 &&
-            (dealInWhileSittingOut ||
+            (this.dealsInWhileSittingOut(p.user_id) ||
               !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)) &&
             !this.waitingForBB.has(p.user_id) &&
             // A swap side holding for its partner's table (Dan 2026-09-05).
             !this.isHeldForSwap(p.user_id)
         );
+        const activePlayers = dealable.some((p) => !this.isBlindedOff(p.user_id))
+          ? dealable
+          : dealable.filter((p) => !this.isBlindedOff(p.user_id));
 
         // Clean up rebuy map (Garbage Collection for horses no longer sitting here)
         const currentHorseIds = new Set(
@@ -2465,7 +2473,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               current.occupancy_id === p.occupancy_id
           ) &&
           (this.isTournamentTable() ||
-            (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) &&
+            ((this.isBlindedOff(p.user_id) ||
+              !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)) &&
               !this.waitingForBB.has(p.user_id) &&
               !this.isHeldForSwap(p.user_id)))
       );
