@@ -1,0 +1,3 @@
+# Keep the Mac push Bash shim on external scratch
+
+The first required local push exposed an existing pre-push storage violation: its macOS Bash shim was created under `/tmp` before external scratch was selected. The hook now creates that one-link shim beneath its established external TMPDIR, refuses unavailable or root-device scratch, and removes only its own link and empty directory on exit. The maintained Mac hook regression covers placement and refusal. No check timeout or gate was relaxed. Two unchanged release-contract files that timed out in the first push passed all 40 cases when rerun serially; this does not establish the original timeout's cause.
