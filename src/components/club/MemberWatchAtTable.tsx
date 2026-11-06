@@ -15,7 +15,7 @@ import { withStakes } from '../../utils/tableEyebrow';
  * THERE SHOULD BE A BUTTON TO EASILY CLICK TO BE REDIRECTED AND WATCH THEM."
  *
  * The record already knows the player is seated (ca_club_member_detail's
- * presence.is_seated); this finds WHICH table, prints the painted Watch At
+ * presence.is_seated); this finds EVERY table, prints the painted Watch At
  * Table shell, and on a tap revalidates access with the same
  * fn_get_table_watch_access the Find A Player locator uses before routing to
  * the observer view. A seat the viewer cannot read, or a table that closed in
@@ -40,20 +40,20 @@ export default function MemberWatchAtTable({
 }: MemberWatchAtTableProps) {
   const navigate = useNavigate();
   const toast = useToast();
-  const [table, setTable] = useState<MemberLiveTable | null>(null);
-  const [verifying, setVerifying] = useState(false);
+  const [tables, setTables] = useState<MemberLiveTable[]>([]);
+  const [verifying, setVerifying] = useState<string | null>(null);
   const busyRef = useRef(false);
   const generationRef = useRef(0);
 
   useEffect(() => {
     const generation = ++generationRef.current;
     busyRef.current = false;
-    setVerifying(false);
-    setTable(null);
+    setVerifying(null);
+    setTables([]);
     if (!seated || !clubUuid || !memberUserId) return;
-    PlayerSearchService.getMemberLiveTable(memberUserId, clubUuid)
+    PlayerSearchService.getMemberLiveTables(memberUserId, clubUuid)
       .then((live) => {
-        if (generationRef.current === generation) setTable(live);
+        if (generationRef.current === generation) setTables(live);
       })
       .catch((error) => {
         if (generationRef.current === generation) {
@@ -65,13 +65,13 @@ export default function MemberWatchAtTable({
     };
   }, [clubUuid, memberUserId, seated, refreshKey]);
 
-  if (!table) return <>{fallback}</>;
+  if (!tables.length) return <>{fallback}</>;
 
-  const watch = async () => {
+  const watch = async (table: MemberLiveTable) => {
     if (busyRef.current) return;
     busyRef.current = true;
     const generation = generationRef.current;
-    setVerifying(true);
+    setVerifying(table.table_id);
     try {
       const access = await PlayerSearchService.getTableWatchAccess(table.table_id, memberUserId);
       if (generationRef.current !== generation) return;
@@ -82,7 +82,7 @@ export default function MemberWatchAtTable({
       }
       haptic.error();
       if (!access.found) {
-        setTable(null);
+        setTables((current) => current.filter((item) => item.table_id !== table.table_id));
         toast.error('This Player Has Left The Table.');
       } else if (access.action === 'observers_restricted') {
         toast.error('This Table Does Not Allow Observers.');
@@ -96,24 +96,28 @@ export default function MemberWatchAtTable({
     } finally {
       if (generationRef.current === generation) {
         busyRef.current = false;
-        setVerifying(false);
+        setVerifying(null);
       }
     }
   };
 
-  const name = titleCase(table.name);
-  const stakes = titleCase(table.stakes);
-
   return (
-    <div className="mm-watch">
-      <WatchAtTableButton
-        onClick={() => void watch()}
-        disabled={verifying}
-        socket={table.is_tournament ? 'MTT' : 'Cash'}
-        eyebrow={withStakes(name, stakes)}
-        title={verifying ? 'Verifying Access' : 'Watch At Table'}
-        ariaLabel={`Watch At Table, ${name}`}
-      />
+    <div className="mm-watch" role="group" aria-label="Current Tables">
+      {tables.map((table) => {
+        const name = titleCase(table.name);
+        const stakes = titleCase(table.stakes);
+        return (
+          <WatchAtTableButton
+            key={table.table_id}
+            onClick={() => void watch(table)}
+            disabled={verifying !== null}
+            socket={table.is_tournament ? 'MTT' : 'Cash'}
+            eyebrow={withStakes(name, stakes)}
+            title={verifying === table.table_id ? 'Verifying Access' : 'Watch At Table'}
+            ariaLabel={`Watch At Table, ${name}`}
+          />
+        );
+      })}
     </div>
   );
 }

@@ -50,7 +50,7 @@ describe('Player Record: Watch At Table', () => {
   });
 
   it('asks for nothing and shows the caption while the player is not seated', () => {
-    const live = vi.spyOn(PlayerSearchService, 'getMemberLiveTable');
+    const live = vi.spyOn(PlayerSearchService, 'getMemberLiveTables');
     renderRecord(false);
     expect(screen.getByText('Record Caption')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -59,12 +59,14 @@ describe('Player Record: Watch At Table', () => {
 
   it('offers Watch At Table for the seated player and opens the observer view', async () => {
     const user = userEvent.setup();
-    vi.spyOn(PlayerSearchService, 'getMemberLiveTable').mockResolvedValue({
-      table_id: 'table-9',
-      name: 'midnight cash',
-      stakes: '$1/$2',
-      is_tournament: false,
-    });
+    vi.spyOn(PlayerSearchService, 'getMemberLiveTables').mockResolvedValue([
+      {
+        table_id: 'table-9',
+        name: 'midnight cash',
+        stakes: '$1/$2',
+        is_tournament: false,
+      },
+    ]);
     const access = vi.spyOn(PlayerSearchService, 'getTableWatchAccess').mockResolvedValue({
       found: true,
       table_id: 'table-9',
@@ -75,7 +77,7 @@ describe('Player Record: Watch At Table', () => {
 
     const button = await screen.findByRole('button', { name: 'Watch At Table, Midnight Cash' });
     expect(screen.queryByText('Record Caption')).not.toBeInTheDocument();
-    expect(PlayerSearchService.getMemberLiveTable).toHaveBeenCalledWith('player-1', 'club-1');
+    expect(PlayerSearchService.getMemberLiveTables).toHaveBeenCalledWith('player-1', 'club-1');
 
     await user.click(button);
 
@@ -86,21 +88,23 @@ describe('Player Record: Watch At Table', () => {
   });
 
   it('keeps the caption when no live table can be read', async () => {
-    vi.spyOn(PlayerSearchService, 'getMemberLiveTable').mockResolvedValue(null);
+    vi.spyOn(PlayerSearchService, 'getMemberLiveTables').mockResolvedValue([]);
     renderRecord(true);
-    await waitFor(() => expect(PlayerSearchService.getMemberLiveTable).toHaveBeenCalled());
+    await waitFor(() => expect(PlayerSearchService.getMemberLiveTables).toHaveBeenCalled());
     expect(screen.getByText('Record Caption')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('does not route when the player has already left the table', async () => {
     const user = userEvent.setup();
-    vi.spyOn(PlayerSearchService, 'getMemberLiveTable').mockResolvedValue({
-      table_id: 'table-9',
-      name: 'midnight cash',
-      stakes: '',
-      is_tournament: false,
-    });
+    vi.spyOn(PlayerSearchService, 'getMemberLiveTables').mockResolvedValue([
+      {
+        table_id: 'table-9',
+        name: 'midnight cash',
+        stakes: '',
+        is_tournament: false,
+      },
+    ]);
     vi.spyOn(PlayerSearchService, 'getTableWatchAccess').mockResolvedValue({
       found: false,
       can_watch: false,
@@ -115,6 +119,110 @@ describe('Player Record: Watch At Table', () => {
     );
     expect(screen.queryByLabelText('current route')).not.toBeInTheDocument();
     expect(screen.getByText('Record Caption')).toBeInTheDocument();
+  });
+
+  it.each(['cash-1', 'mtt-2', 'cash-3'])(
+    'offers every table and watches the selected table %s',
+    async (selected) => {
+      const user = userEvent.setup();
+      vi.spyOn(PlayerSearchService, 'getMemberLiveTables').mockResolvedValue(
+        ['cash-1', 'mtt-2', 'cash-3'].map((id) => ({
+          table_id: id,
+          name: id,
+          stakes: '100/200',
+          is_tournament: id === 'mtt-2',
+        }))
+      );
+      const access = vi.spyOn(PlayerSearchService, 'getTableWatchAccess').mockResolvedValue({
+        found: true,
+        can_watch: true,
+        action: 'watch',
+      });
+      renderRecord(true);
+      await screen.findByRole('group', { name: 'Current Tables' });
+      expect(screen.getAllByRole('button')).toHaveLength(3);
+      await user.click(screen.getByRole('button', { name: new RegExp(selected, 'i') }));
+      expect(access).toHaveBeenCalledExactlyOnceWith(selected, 'player-1');
+      await waitFor(() =>
+        expect(screen.getByLabelText('current route')).toHaveTextContent(
+          `/table/${selected}?observer=1`
+        )
+      );
+    }
+  );
+
+  it('removes only the departed table and retains the other watch buttons', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(PlayerSearchService, 'getMemberLiveTables').mockResolvedValue(
+      ['Left', 'Still Playing'].map((name) => ({
+        table_id: name,
+        name,
+        stakes: '',
+        is_tournament: false,
+      }))
+    );
+    vi.spyOn(PlayerSearchService, 'getTableWatchAccess').mockResolvedValue({
+      found: false,
+      can_watch: false,
+      action: 'unavailable',
+    });
+    renderRecord(true);
+    await user.click(await screen.findByRole('button', { name: 'Watch At Table, Left' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Watch At Table, Left' })).toBeNull()
+    );
+    expect(screen.getByRole('button', { name: 'Watch At Table, Still Playing' })).toBeEnabled();
+    expect(screen.queryByText('Record Caption')).not.toBeInTheDocument();
+  });
+
+  it.each(['observers_restricted', 'unavailable'])(
+    'does not route when access is refused: %s',
+    async (action) => {
+      const user = userEvent.setup();
+      vi.spyOn(PlayerSearchService, 'getMemberLiveTables').mockResolvedValue([
+        { table_id: 'table-9', name: 'Cash', stakes: '', is_tournament: false },
+      ]);
+      vi.spyOn(PlayerSearchService, 'getTableWatchAccess').mockResolvedValue({
+        found: true,
+        can_watch: false,
+        action: action as 'observers_restricted' | 'unavailable',
+      });
+      renderRecord(true);
+      await user.click(await screen.findByRole('button', { name: 'Watch At Table, Cash' }));
+      await waitFor(() => expect(toast.error).toHaveBeenCalled());
+      expect(screen.queryByLabelText('current route')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Watch At Table, Cash' })).toBeEnabled();
+    }
+  );
+
+  it('replaces the full list on record refresh and ignores an older pending response', async () => {
+    let resolveOld!: (tables: []) => void;
+    const live = vi
+      .spyOn(PlayerSearchService, 'getMemberLiveTables')
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        })
+      )
+      .mockResolvedValueOnce([
+        { table_id: 'new', name: 'New Table', stakes: '', is_tournament: true },
+      ]);
+    const record = (refreshKey: number) => (
+      <MemoryRouter>
+        <MemberWatchAtTable
+          clubUuid="club-1"
+          memberUserId="player-1"
+          seated
+          refreshKey={refreshKey}
+        />
+      </MemoryRouter>
+    );
+    const view = render(record(0));
+    view.rerender(record(1));
+    await screen.findByRole('button', { name: 'Watch At Table, New Table' });
+    resolveOld([]);
+    await waitFor(() => expect(live).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: 'Watch At Table, New Table' })).toBeInTheDocument();
   });
 
   it('is wired into the Player Record from the record presence', () => {
