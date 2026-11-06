@@ -8,6 +8,7 @@ import {
   addOnWindow,
   countdownSeconds,
   forbiddenAddOnParticipation,
+  suppressedObserverReward,
   type AddOnTable,
 } from './support/naturalAddOnWitness';
 
@@ -58,6 +59,7 @@ test('every captured natural add-on table renders its public minute', async ({
     observations: [],
     counterChanges: [],
     purchaseSignals: [],
+    suppressedRewards: [],
     admissionReads: [],
   };
   async function readBoard() {
@@ -148,7 +150,19 @@ test('every captured natural add-on table renders its public minute', async ({
     contexts.push(observer);
     await observer.route('**/*', async (route) => {
       const req = route.request();
-      if (forbiddenAddOnParticipation(req.method(), new URL(req.url()))) {
+      const requestUrl = new URL(req.url());
+      if (suppressedObserverReward(req.method(), requestUrl)) {
+        evidence.suppressedRewards.push({ tableId, operation: requestUrl.pathname });
+        await route.abort('blockedbyclient');
+        return;
+      }
+      let body: unknown;
+      try {
+        body = req.postDataJSON();
+      } catch {
+        /* Malformed writes remain refused. */
+      }
+      if (forbiddenAddOnParticipation(req.method(), requestUrl, account.id, body)) {
         blocked.push({ tableId, transport: 'http', operation: new URL(req.url()).pathname });
         await route.abort('blockedbyclient');
       } else await route.continue();

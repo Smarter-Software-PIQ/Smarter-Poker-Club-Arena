@@ -5,3 +5,5 @@ The existing opt-in production spectator test now records DOM counter changes be
 Validation: focused natural-add-on admission/workflow tests and Playwright discovery; the actual natural observation remains required after protected merge.
 
 The first natural run witnessed real 0-to-30 DOM increments on unchanged pages and all six tables reached 30. Its element screenshot then waited for the animated countdown card to stabilize until the minute ended. Capture now uses the actual viewport with a five-second timeout, avoiding element-stability waits while retaining every behavioral assertion. The complete minute is re-observed on a subsequent natural tournament.
+
+The request classifier now admits the actual deployed context-read RPCs and reserved-account session housekeeping. Previously it rejected balance, capability, exclusion, jackpot and time-bank reads, causing artificial errors during observation. Own-user presence is identity checked; login achievements remain explicitly suppressed because they can award currency, and this suppression is retained separately in evidence. Unknown RPCs, purchases and gameplay writes still fail the witness.
