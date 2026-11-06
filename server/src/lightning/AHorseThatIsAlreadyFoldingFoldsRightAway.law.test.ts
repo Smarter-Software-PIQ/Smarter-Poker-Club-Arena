@@ -56,6 +56,7 @@ const { buildHost, formedHand, flush } = kit;
 const hosts: any[] = [];
 afterEach(async () => {
   for (const h of hosts.splice(0)) await h.abort('test_complete').catch(() => undefined);
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -118,7 +119,10 @@ async function scriptedHand(base: number, script: Script, deps: Record<string, u
           : undefined;
     return {
       ...result,
-      decision: { ...result.decision, action: want, amount, thinkTime },
+      // The script owns this decision. Brain receipts describe a different
+      // wager and can legitimately restore its baseline at the host door.
+      // Keep the lane envelope, but never attach those receipts to a script.
+      decision: { action: want, amount, thinkTime },
     };
   });
   start = Date.now();
@@ -313,6 +317,25 @@ describe('a Lightning horse that is already folding folds right away (the host)'
 
   it('a free check is never folded: checked-to streets are checked, not folded', async () => {
     fake();
+    // A scripted action must not inherit an unrelated policy receipt: the
+    // real host correctly withdraws a stale receipt to its own baseline.
+    const { HorseLogic } = await import('../engine/HorseLogic.js');
+    const decide = HorseLogic.decide;
+    vi.spyOn(HorseLogic, 'decide').mockImplementation(
+      (...args) =>
+        ({
+          ...decide(...args),
+          ...(args[1].stage === 'preflop'
+            ? {}
+            : {
+                correctivePolicy: {
+                  applied: true,
+                  domain: 'unavailable-fixture-policy',
+                  baseline: { action: 'raise', amount: args[1].minRaiseTo ?? 4 },
+                },
+              }),
+        }) as any
+    );
     // Preflop everybody calls or checks; after that the policy says fold
     // everywhere, and nobody ever bets.
     const t = await scriptedHand(4200, (snap) =>
@@ -325,7 +348,10 @@ describe('a Lightning horse that is already folding folds right away (the host)'
     for (const user of t.formed.players) {
       const post = actionsBy(t, user).filter((a) => a.stage !== 'preflop');
       expect(post.length).toBeGreaterThan(0);
-      expect(post.every((a) => a.action === 'check')).toBe(true);
+      expect(
+        post.every((a) => a.action === 'check'),
+        JSON.stringify(post)
+      ).toBe(true);
     }
     // No early look ever happened after preflop: nobody owed anything.
     const earlyAfterPreflop = t.horseLane.calls.filter(
