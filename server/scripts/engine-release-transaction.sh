@@ -12,6 +12,11 @@ ENGINE_UP="$CONTROL_DIR/engine-up.sh"
 IMAGE_BUILDER="$CONTROL_DIR/build-engine-image.sh"
 DATABASE_PROOF="$CONTROL_DIR/engine-release-database-proof.py"
 INFLIGHT_HANDS="$CONTROL_DIR/engine-release-inflight-hands.py"
+# The SAME helper, named a second time on purpose: it is the only witness that
+# may admit a certificate held shut by cards_in_air, and it is consulted in its
+# drained-boundary mode (see "A HELD ORIGINAL THAT NEVER STARTED" below). A
+# certificate reader that never sets this name can never admit cards_in_air.
+HELD_ORIGINAL_WITNESS="$CONTROL_DIR/engine-release-inflight-hands.py"
 LIGHTNING_HOLD="$CONTROL_DIR/engine-release-lightning-hold.py"
 LEGACY_CHECKPOINT="$CONTROL_DIR/legacy-engine-checkpoint.sh"
 LEGACY_CHECKPOINT_SHA=2f4e33560bcd23bfb5cc731f31816b2c2e2847e5
@@ -1499,14 +1504,36 @@ if not isinstance(reasons,dict) or not reasons: raise SystemExit(1)
 # recognise refuses. cards_in_air, the bank-durability classes (unwritten,
 # unreadable, bank_park_write_incomplete) and anything a future engine invents
 # are all outside the set and all keep the gate shut.
+# A HELD ORIGINAL THAT NEVER STARTED (2026-11-06). cards_in_air is the one
+# reason that may be a held original rather than a hand: a table that reserved
+# its next hand an instant before the break paused it, so the hand can never
+# start, and the serving build has no rule that parks it (#9615 is that rule,
+# and it can only go live through this certificate). On 2026-11-06 Satellite 30
+# (table 72417d9c, permit b7c07f7c) and Satellite 25 held such hands and every
+# release backed out on cards_in_air for hours. It is NOT added to BOUNDED_ONLY
+# and the database in-flight branch below still never admits it. It is counted
+# here and handed to the drained-boundary witness only (exit 5), which must
+# prove that no tournament hand is moving, no incomplete snapshot was written
+# in the window and no recent Lightning hand is unsettled; with the engine
+# own handsInFlightTotal present and zero, nothing on any cards_in_air table is
+# being dealt, and a held original resumes from its durable continuation.
+held_original=0
 for k,v in reasons.items():
     if not isinstance(k,str): raise SystemExit(1)
-    if k not in BOUNDED_ONLY: raise SystemExit(1)
     if not isinstance(v,int) or isinstance(v,bool) or v<0: raise SystemExit(1)
+    if k=="cards_in_air":
+        held_original+=v
+        continue
+    if k not in BOUNDED_ONLY: raise SystemExit(1)
 # The engine own physical witness, which must be PRESENT and zero. Absent is
 # unreadable, and unreadable is a refusal, never an assumed zero.
 hands=d.get("handsInFlightTotal")
 if not isinstance(hands,int) or isinstance(hands,bool) or hands!=0: raise SystemExit(1)
+if held_original:
+    sys.stderr.write("[engine-release-transaction] restart certificate is held shut by " + repr(reasons) + "; cards_in_air may only be held originals, consulting the drained-boundary witness\n")
+    _admitted[0]=True
+    print(remaining)
+    raise SystemExit(5)
 sys.stderr.write("[engine-release-transaction] restart certificate is held shut only by " + repr(reasons) + "; consulting the database for hands actually in the air\n")
 _admitted[0]=True
 print(remaining)
@@ -1518,6 +1545,26 @@ raise SystemExit(4)
     0) printf '%s\n' "$verdict"; return 0 ;;
     2) printf '%s\n' "$verdict"; return 2 ;;
     4) ;;
+    5)
+      # cards_in_air: only the drained-boundary witness can admit it, and only
+      # its exit 0 does. Unset, missing, "in the air" (1), unknown (3) and any
+      # other answer all refuse. There is no flag that skips this read.
+      if [ -z "${HELD_ORIGINAL_WITNESS:-}" ]; then
+        echo "[engine-release-transaction] UNKNOWN: no drained-boundary witness is named in this control generation; cards_in_air keeps the gate shut" >&2
+        return 1
+      fi
+      set +e
+      legacy_entry_read "$HELD_ORIGINAL_WITNESS" --env-file "$ENV_FILE" --drained-predecessor >&2
+      local held_rc=$?
+      set -e
+      if [ "$held_rc" -eq 0 ]; then
+        echo "[engine-release-transaction] the drained-boundary witness proves no hand is moving; admitting the cutover past cards_in_air held originals" >&2
+        printf '%s\n' "$verdict"
+        return 0
+      fi
+      echo "[engine-release-transaction] the drained-boundary witness answered $held_rc; cards_in_air keeps the gate shut" >&2
+      return 1
+      ;;
     *) return 1 ;;
   esac
   # Fail closed. Exit 0 is the ONLY result that proceeds. The helper answers 1

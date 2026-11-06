@@ -95,11 +95,18 @@ class StrictCertificateTests(unittest.TestCase):
         self.assertEqual(strict.returncode, 1)
         self.assertIn('the restart certificate is shut', strict.stderr)
 
-    def test_cards_in_air_refuses_in_both_modes(self):
+    def test_cards_in_air_never_reaches_an_admission_of_its_own(self):
+        # 2026-11-06: cards_in_air (a held original that never started) is
+        # handed ONLY to the drained-boundary witness (exit 5), never to the
+        # plain database admission (4) and never admitted here (0). Strict
+        # mode, the eed drained cutover, still refuses it outright.
         shut = {'readyForRestart': False, 'unparkedTables': 78,
                 'unparkedReasons': {'cards_in_air': 78}}
-        for strict in ('0', '1'):
-            self.assertEqual(self.certificate(shut, strict).returncode, 1)
+        self.assertEqual(self.certificate(shut, '0').returncode, 5)
+        self.assertEqual(self.certificate(shut, '1').returncode, 1)
+        mixed = {'readyForRestart': False, 'unparkedTables': 79,
+                 'unparkedReasons': {'cards_in_air': 78, 'stopped_bank_custody_stuck': 1}}
+        self.assertEqual(self.certificate(mixed, '0').returncode, 1)
 
 
 def load_helper():
