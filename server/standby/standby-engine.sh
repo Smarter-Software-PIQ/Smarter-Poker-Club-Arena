@@ -169,13 +169,22 @@ SQL
     local tq="${t%%.*}.\"${t#*.}\""
     if docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q >>"$LOG_DIR/seed.log" 2>&1 <<SQL
 BEGIN;
+CREATE TEMP TABLE _seed_trigger_modes ON COMMIT DROP AS
+WITH RECURSIVE relations(oid) AS (
+  SELECT '$tq'::regclass::oid
+  UNION ALL SELECT i.inhrelid FROM pg_inherits i JOIN relations r ON i.inhparent=r.oid
+)
+SELECT t.tgrelid,t.tgname,t.tgenabled FROM pg_trigger t JOIN relations r ON r.oid=t.tgrelid;
 ALTER TABLE $tq DISABLE TRIGGER ALL;
 CREATE TEMP TABLE _seed (LIKE $tq) ON COMMIT DROP;
 \\copy _seed ($cols) FROM '/tmp/seed/$t.csv' CSV HEADER
 SELECT string_agg(quote_ident(attname), ',' ORDER BY attnum) AS c FROM pg_attribute
  WHERE attrelid = '$tq'::regclass AND attnum > 0 AND NOT attisdropped AND attgenerated = '' \\gset
 INSERT INTO $tq (:c) OVERRIDING SYSTEM VALUE SELECT :c FROM _seed;
-ALTER TABLE $tq ENABLE TRIGGER ALL;
+SELECT format('ALTER TABLE ONLY %s %s TRIGGER %I',tgrelid::regclass,
+ CASE tgenabled WHEN 'D' THEN 'DISABLE' WHEN 'O' THEN 'ENABLE'
+                WHEN 'R' THEN 'ENABLE REPLICA' WHEN 'A' THEN 'ENABLE ALWAYS' END,tgname)
+ FROM _seed_trigger_modes ORDER BY tgrelid,tgname \\gexec
 COMMIT;
 SQL
     then loaded=$((loaded+1)); else failed=$((failed+1)); echo "seed failed: $t" >> "$LOG_DIR/seed.log"; fi

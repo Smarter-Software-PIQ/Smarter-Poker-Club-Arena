@@ -311,6 +311,26 @@ with patch.object(subprocess, 'run', side_effect=[SimpleNamespace(stdout='"expec
     );
   });
 
+  it('restores each trigger mode transactionally instead of enabling retired guards', () => {
+    const seed = readFileSync(root(STANDBY), 'utf8');
+    const placeholders = readFileSync(root('server/standby/standby-placeholders.sql'), 'utf8');
+    for (const source of [seed, placeholders]) {
+      expect(source).toContain('t.tgrelid,t.tgname,t.tgenabled');
+      expect(source).toContain("WHEN 'D' THEN 'DISABLE' WHEN 'O' THEN 'ENABLE'");
+      expect(source).toContain("WHEN 'R' THEN 'ENABLE REPLICA' WHEN 'A' THEN 'ENABLE ALWAYS'");
+      expect(source).toContain('ALTER TABLE ONLY %s %s TRIGGER %I');
+      expect(source).toContain('FROM pg_inherits i JOIN relations r');
+      expect(source).not.toMatch(/ENABLE TRIGGER (ALL|USER)/);
+      expect(source).toContain('ON COMMIT DROP');
+    }
+    expect(seed.indexOf('BEGIN;\nCREATE TEMP TABLE _seed_trigger_modes')).toBeGreaterThan(-1);
+    expect(placeholders.indexOf('BEGIN;')).toBeLessThan(
+      placeholders.indexOf('DISABLE TRIGGER USER')
+    );
+    expect(placeholders.trim().endsWith('COMMIT;')).toBe(true);
+    expect(placeholders).toContain('WHERE NOT t.tgisinternal');
+  });
+
   it('wires restore dependencies, strict errors and the actual restart mechanism into the owning route', () => {
     const script = readFileSync(root(STANDBY), 'utf8');
     expect(script).toContain('CREATE EXTENSION IF NOT EXISTS pg_cron');

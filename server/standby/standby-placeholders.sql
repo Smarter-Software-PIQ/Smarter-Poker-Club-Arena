@@ -2,7 +2,8 @@
 -- accounts (club owners, agents, operators) whose data is never copied. Each
 -- referenced id gets an id-only placeholder so foreign keys hold; no name,
 -- email, phone or balance of any real person exists in the Backup Engine.
-CREATE TEMP TABLE _ref(id uuid PRIMARY KEY);
+BEGIN;
+CREATE TEMP TABLE _ref(id uuid PRIMARY KEY) ON COMMIT DROP;
 DO $$
 DECLARE r record;
 BEGIN
@@ -37,8 +38,19 @@ END $$;
 INSERT INTO auth.users (id, instance_id, aud, role)
 SELECT id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated' FROM _ref
 ON CONFLICT (id) DO NOTHING;
+CREATE TEMP TABLE _placeholder_trigger_modes ON COMMIT DROP AS
+WITH RECURSIVE relations(oid) AS (
+  SELECT 'public.profiles'::regclass::oid
+  UNION ALL SELECT i.inhrelid FROM pg_inherits i JOIN relations r ON i.inhparent=r.oid
+)
+SELECT t.tgrelid,t.tgname,t.tgenabled FROM pg_trigger t JOIN relations r ON r.oid=t.tgrelid
+ WHERE NOT t.tgisinternal;
 ALTER TABLE public.profiles DISABLE TRIGGER USER;
 INSERT INTO public.profiles (id, display_name, is_horse)
 SELECT id, 'Backup placeholder', false FROM _ref ON CONFLICT (id) DO NOTHING;
-ALTER TABLE public.profiles ENABLE TRIGGER USER;
+SELECT format('ALTER TABLE ONLY %s %s TRIGGER %I',tgrelid::regclass,
+ CASE tgenabled WHEN 'D' THEN 'DISABLE' WHEN 'O' THEN 'ENABLE'
+                WHEN 'R' THEN 'ENABLE REPLICA' WHEN 'A' THEN 'ENABLE ALWAYS' END,tgname)
+ FROM _placeholder_trigger_modes ORDER BY tgrelid,tgname \gexec
 SELECT count(*) AS placeholder_candidates FROM _ref;
+COMMIT;
