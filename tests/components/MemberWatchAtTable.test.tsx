@@ -225,6 +225,32 @@ describe('Player Record: Watch At Table', () => {
     expect(screen.getByRole('button', { name: 'Watch At Table, New Table' })).toBeInTheDocument();
   });
 
+  it('carries the selected tournament player so the viewer own finished entry cannot replace the watch', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(PlayerSearchService, 'getMemberLiveTables').mockResolvedValue([
+      {
+        table_id: 'mtt-9',
+        tournament_id: 'event-9',
+        name: 'Nightly',
+        stakes: '',
+        is_tournament: true,
+      },
+      { table_id: 'cash-1', name: 'Cash', stakes: '', is_tournament: false },
+    ]);
+    vi.spyOn(PlayerSearchService, 'getTableWatchAccess').mockResolvedValue({
+      found: true,
+      can_watch: true,
+      action: 'watch',
+    });
+    renderRecord(true);
+    await user.click(await screen.findByRole('button', { name: 'Watch At Table, Nightly' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('current route')).toHaveTextContent(
+        '/table/mtt-9?observer=1&followTournament=event-9&followPlayer=player-1&followName=Player'
+      )
+    );
+  });
+
   it('is wired into the Player Record from the record presence', () => {
     const page = readFileSync(
       resolve(__dirname, '../../src/pages/MemberManagementPage.tsx'),

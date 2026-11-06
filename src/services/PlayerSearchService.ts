@@ -233,6 +233,7 @@ export async function getTableWatchAccess(
 /** A live table a club member is sitting at, as the Player Record's Watch At Table needs it. */
 export interface MemberLiveTable {
   table_id: string;
+  tournament_id?: string | null;
   name: string;
   stakes: string;
   is_tournament: boolean;
@@ -286,6 +287,7 @@ export async function getMemberLiveTables(
       continue;
     tables.set(row.table_id, {
       table_id: row.table_id,
+      tournament_id: table.tournament_id,
       name: table.name || 'Live Table',
       stakes: table.stakes || '',
       is_tournament: table.tournament_id != null,

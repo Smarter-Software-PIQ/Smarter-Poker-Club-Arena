@@ -6,6 +6,7 @@ import { useToast } from '../common/Toast';
 import { reportError } from '../../utils/errorReporter';
 import { titleCase } from '../../utils/titleCase';
 import { WatchAtTableButton } from './WatchAtTableButton';
+import { writePlayerFollow } from '../../utils/followTournamentPlayer';
 import { withStakes } from '../../utils/tableEyebrow';
 
 /**
@@ -24,6 +25,7 @@ import { withStakes } from '../../utils/tableEyebrow';
 export interface MemberWatchAtTableProps {
   clubUuid: string;
   memberUserId: string;
+  memberName?: string;
   /** presence.is_seated from the record; nothing is fetched while false. */
   seated: boolean;
   refreshKey?: number;
@@ -34,6 +36,7 @@ export interface MemberWatchAtTableProps {
 export default function MemberWatchAtTable({
   clubUuid,
   memberUserId,
+  memberName = 'Player',
   seated,
   refreshKey = 0,
   fallback = null,
@@ -77,7 +80,17 @@ export default function MemberWatchAtTable({
       if (generationRef.current !== generation) return;
       if (access.can_watch) {
         haptic.success();
-        navigate(`/table/${table.table_id}?observer=1`);
+        if (table.tournament_id) {
+          const params = new URLSearchParams({ observer: '1' });
+          writePlayerFollow(params, {
+            tournamentId: table.tournament_id,
+            userId: memberUserId,
+            username: memberName,
+          });
+          navigate(`/table/${table.table_id}?${params.toString()}`);
+        } else {
+          navigate(`/table/${table.table_id}?observer=1`);
+        }
         return;
       }
       haptic.error();
