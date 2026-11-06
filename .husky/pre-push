@@ -886,6 +886,7 @@ for base in $CONTRACT_BASENAMES; do
     case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
   done
   for t in $(grep -rl --include='*.test.mjs' -F "$base" tests/ 2>/dev/null); do
+    case " $UNCHANGED_NATIVE_CONTRACTS " in *" $t "*) continue ;; esac
     if grep -q 'node:test' "$t"; then
       case " $NODE_TESTS " in *" $t "*) ;; *) NODE_TESTS="$NODE_TESTS $t" ;; esac
     fi
@@ -931,7 +932,7 @@ if [ -n "$CHANGED_TESTS$CHANGED_SRC$NODE_TESTS" ]; then
     fi
     if [ -n "$NODE_TESTS" ]; then
       echo "[club-arena pre-push] running affected Node test contracts..."
-      if ! node --test $NODE_TESTS; then
+      if ! node --test --test-concurrency=4 $NODE_TESTS; then
         echo "[club-arena pre-push] BLOCKED: an affected Node contract failed."
         FAIL=1
       fi

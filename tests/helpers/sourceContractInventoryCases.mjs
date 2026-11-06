@@ -40,9 +40,10 @@ test('actual native wrapper closure and both owning selection entrypoints are co
     'server/scripts/engine-release-transaction.sh','.github/workflows/auto-deploy-hetzner.yml'])
     assert.equal(declaredContractSelection(root,[input],inventory).get(wrapper).selected,true);
   const cli=execFileSync(process.execPath,['scripts/ci/source-contract-inventory.mjs','tests/fixtures/unrelated/source-binding.json'],{encoding:'utf8'});
-  assert.equal(cli.trim(),wrapper);
+  assert.deepEqual(cli.trim().split('\n').sort(), inventory.tests.map(entry=>entry.test).sort());
   const hook=readFileSync('.husky/pre-push','utf8');
   assert.match(hook,/UNCHANGED_NATIVE_CONTRACTS=\$\(node .*source-contract-inventory\.mjs.*\|\| exit 1/);
   assert.match(hook,/\$UNCHANGED_NATIVE_CONTRACTS.*continue/);
+  assert.match(hook,/node --test --test-concurrency=4 \$NODE_TESTS/);
   assert.match(readFileSync('scripts/ci/ui-test-selection.mjs','utf8'),/if \(declared\.has\(p\)\) return declared\.get\(p\)\.selected/);
 });

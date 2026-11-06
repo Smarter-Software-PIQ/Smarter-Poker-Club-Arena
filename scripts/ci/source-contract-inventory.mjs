@@ -10,7 +10,7 @@ const safe = path => typeof path === 'string' && path && !isAbsolute(path) &&
   !path.replace(/\/$/, '').split('/').some(part => !part || part === '.' || part === '..');
 export function nativeContractInventory(inventory) {
   return executionInventory(inventory.tests.map(entry => ({...entry, id:entry.test,
-    command:['vitest','run',entry.test], runtime:entry.runtime || 'Node22/Python3/Git',
+    command:entry.test.endsWith('.mjs') ? ['node','--test',entry.test] : ['vitest','run',entry.test], runtime:entry.runtime || 'Node22/Python3/Git',
     environment:'isolated-native-fixture', risks:['verification','engine'], always:false,
     durationSeconds:entry.observedSeconds ?? null, replaces:entry.replacement ?? null})));
 }
