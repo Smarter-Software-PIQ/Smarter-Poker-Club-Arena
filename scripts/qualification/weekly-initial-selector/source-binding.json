@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 279178,
-      "sha256": "60df4d0cb3916b6f67277c8422fbdfe1312db50fbe93ea93e7b1e21e0a5b7b5e"
+      "bytes": 279453,
+      "sha256": "28cb2f69661b21a526f69dc296b0b7b8492c069a912a203344c9e9aac73a689e"
     },
     "docs/changelog/2026-10-13-weekly-initial-selector-cutoff-cohort.md": {
       "bytes": 1252,
@@ -2567,6 +2567,25 @@
         "current": {
           "bytes": 279178,
           "sha256": "60df4d0cb3916b6f67277c8422fbdfe1312db50fbe93ea93e7b1e21e0a5b7b5e"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "sweepGatePendingWorkNativeEnforcement20261106": {
+    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the bounty only final two payout watch step: run the sweep gate pending bounty work proof (scripts/ci/test-sweep-gate-pending-bounty-work.py) on native PostgreSQL 17. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
+    "changes": [
+      {
+        "section": "files",
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 279178,
+          "sha256": "60df4d0cb3916b6f67277c8422fbdfe1312db50fbe93ea93e7b1e21e0a5b7b5e"
+        },
+        "current": {
+          "bytes": 279453,
+          "sha256": "28cb2f69661b21a526f69dc296b0b7b8492c069a912a203344c9e9aac73a689e"
         }
       }
     ],

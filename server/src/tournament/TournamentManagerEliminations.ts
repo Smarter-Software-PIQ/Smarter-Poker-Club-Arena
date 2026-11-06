@@ -158,6 +158,22 @@ export const REBUY_DEADLINE_MARGIN_MS = 250;
  * returned, in epoch ms. A row with no deadline, an unreadable one, or one
  * whose decision is closed is left out.
  */
+/**
+ * The pending-bounty-work gate (migration 20261106034328) is not installed
+ * yet: PostgREST answers PGRST202 for an unknown function, Postgres 42883.
+ * Only that answer falls back to the full re-proof; every other error is a
+ * real refusal and is reported as before.
+ */
+export function pendingWorkGateIsNotInstalled(error: unknown): boolean {
+  const e = (error ?? {}) as { code?: unknown; message?: unknown };
+  const code = String(e.code ?? '');
+  if (code === 'PGRST202' || code === '42883') return true;
+  return (
+    /fn_tournament_has_pending_bounty_work/.test(String(e.message ?? '')) &&
+    /(could not find|does not exist)/i.test(String(e.message ?? ''))
+  );
+}
+
 export function rebuyDecisionDeadlines(rows: unknown): Map<string, number> {
   const out = new Map<string, number>();
   if (!Array.isArray(rows)) return out;
@@ -948,6 +964,53 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
            * now defers the batch instead of skipping the guard and reading
            * again - the fail-closed direction the second read already took.
            */
+          /* THE COUNT AND THE BUST ORDER TRAVEL TOGETHER (2026-11-05). The
+             guard below needs the playing count and the bust order needs the
+             knockout history of the busted players; neither waits on the
+             other, so the first history chunk leaves with the count and a
+             bust reaches its knockout door one round trip sooner. Both are
+             reads; the guard still decides before the history is used, and a
+             refused field simply discards it. */
+          const readBustHistoryChunk = (userIds: string[]) =>
+            fetchAllRows<Record<string, unknown>>(
+              async (cursor, pageSize) => {
+                let query = supabase
+                  .from('tournament_knockout_candidates')
+                  .select(
+                    'id, eliminated_user_id, hand_number, stack_before, state, created_at, rebuy_prompt_until',
+                    { count: 'exact' }
+                  )
+                  .eq('tournament_id', this.tournamentId)
+                  .in('eliminated_user_id', userIds)
+                  .order('id', { ascending: true })
+                  .limit(pageSize);
+                if (cursor) query = query.gt('id', cursor);
+                const { data, error, count } = await query;
+                const expected =
+                  typeof count === 'number' && Number.isSafeInteger(count) && count >= 0
+                    ? Math.min(count, pageSize)
+                    : null;
+                return {
+                  data,
+                  error:
+                    error ??
+                    (knockoutCandidateReadIsComplete(data, expected)
+                      ? null
+                      : new Error('incomplete knockout history page')),
+                };
+              },
+              {
+                label: 'Tournament.bustOrder',
+                pageAttempts: 1,
+                shouldContinue: () => !sweepStopped(),
+              }
+            );
+          const bustOrderLookupSize = 40;
+          const firstBustHistoryChunk = readBustHistoryChunk(
+            busted.slice(0, bustOrderLookupSize).map((player) => player.user_id)
+          );
+          // Settled even when the guard below returns before reading it.
+          firstBustHistoryChunk.catch(() => undefined);
           // Get current remaining count BEFORE processing any eliminations
           this.noteEliminationSweepStep('db:tournament_players');
           const { count: playingCount, error: playingErr } = await supabase
@@ -1049,7 +1112,6 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           const bustHandNumbers = new Map<string, number>();
           const bustStartingStacks = new Map<string, number>();
           const bustOfferTimings = new Map<string, HorseRebuyOfferTiming>();
-          const bustOrderLookupSize = 40;
           for (let offset = 0; offset < busted.length; offset += bustOrderLookupSize) {
             const userIds = busted
               .slice(offset, offset + bustOrderLookupSize)
@@ -1062,39 +1124,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             // Rebuys have no generation ceiling. Page the complete history by
             // immutable id, then bind by hand number below. Exact per-page
             // counts also refuse a silently shortened transport response.
-            const bustHistory = await fetchAllRows<Record<string, unknown>>(
-              async (cursor, pageSize) => {
-                let query = supabase
-                  .from('tournament_knockout_candidates')
-                  .select(
-                    'id, eliminated_user_id, hand_number, stack_before, state, created_at, rebuy_prompt_until',
-                    { count: 'exact' }
-                  )
-                  .eq('tournament_id', this.tournamentId)
-                  .in('eliminated_user_id', userIds)
-                  .order('id', { ascending: true })
-                  .limit(pageSize);
-                if (cursor) query = query.gt('id', cursor);
-                const { data, error, count } = await query;
-                const expected =
-                  typeof count === 'number' && Number.isSafeInteger(count) && count >= 0
-                    ? Math.min(count, pageSize)
-                    : null;
-                return {
-                  data,
-                  error:
-                    error ??
-                    (knockoutCandidateReadIsComplete(data, expected)
-                      ? null
-                      : new Error('incomplete knockout history page')),
-                };
-              },
-              {
-                label: 'Tournament.bustOrder',
-                pageAttempts: 1,
-                shouldContinue: () => !sweepStopped(),
-              }
-            );
+            const bustHistory = await (offset === 0
+              ? firstBustHistoryChunk
+              : readBustHistoryChunk(userIds));
             if (sweepStopped()) return;
             if (!bustHistory.complete) {
               reportError(
@@ -1199,14 +1231,36 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
            * deadline for a zero written by an old pod during rolling deploy.
            */
           {
+            /* A FREEZEOUT HAS NO REBUY DECISION TO OPEN (2026-11-05). This
+               RPC can only open a 30 second prompt when the event allows a
+               rebuy or a re-entry; for a freezeout every row it returns is
+               closed. tryTournamentRebuys above already skips on the same
+               immutable flags, so a freezeout bust skips this round trip too
+               and goes straight to its place. The knockout door still
+               re-proves the bust under its own lock. An unread row (no cache)
+               keeps the RPC. */
+            const cachedFormat = this.tournamentCache as
+              | { is_rebuy?: unknown; is_reentry?: unknown }
+              | null
+              | undefined;
+            const freezeout =
+              !!cachedFormat &&
+              cachedFormat.is_rebuy === false &&
+              cachedFormat.is_reentry === false;
             this.noteEliminationSweepStep('db:fn_open_tournament_rebuy_decisions');
-            const { data: decisionsRaw, error: decisionsErr } = await supabase.rpc(
-              'fn_open_tournament_rebuy_decisions',
-              {
-                p_tournament_id: this.tournamentId,
-                p_user_ids: busted.map((b) => b.user_id),
-              }
-            );
+            const { data: decisionsRaw, error: decisionsErr } = freezeout
+              ? {
+                  data: busted.map((b) => ({
+                    user_id: b.user_id,
+                    rebuy_prompt_until: null,
+                    decision_open: false,
+                  })),
+                  error: null,
+                }
+              : await supabase.rpc('fn_open_tournament_rebuy_decisions', {
+                  p_tournament_id: this.tournamentId,
+                  p_user_ids: busted.map((b) => b.user_id),
+                });
             if (sweepStopped()) return;
             if (decisionsErr || !Array.isArray(decisionsRaw)) {
               reportError(
@@ -2426,6 +2480,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       this.eliminationSweepDeadlineAt = 0;
       this.isProcessingEliminations = false;
       this.eliminationSweepStartedAt = 0;
+      this.closeEliminationSweepStep();
       this.eliminationSweepStep = null;
       eliminationSweepsInflight.dec();
       eliminationSweepMs.observe(Date.now() - sweepStartedAt);
@@ -3346,10 +3401,27 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         return true;
       }
 
-      const { data: hasPending, error: pendingErr } = await supabase.rpc(
-        'fn_tournament_has_unsettled_bounties',
+      /* THE GATE ASKS FOR PENDING WORK, NOT FOR EVERY MARKER (2026-11-06).
+         fn_tournament_has_unsettled_bounties re-proves the complete marker of
+         every settled obligation in the event, so its cost grew with every
+         knockout already paid: 2.4 s for the 402 obligations of the Afternoon
+         Free Buy PKO, 272,041 engine calls at a 262 ms mean (about 20 hours
+         of database time), paid before every bust was recorded. This gate
+         only needs to know whether bounty work is still open;
+         fn_tournament_has_pending_bounty_work answers that with indexed reads
+         (1.3 ms on the same event) and still catches fresh marker drift. The
+         full re-proof stays at every finish. Until its migration is
+         installed the old verdict answers, unchanged. */
+      let { data: hasPending, error: pendingErr } = await supabase.rpc(
+        'fn_tournament_has_pending_bounty_work',
         { p_tournament_id: this.tournamentId }
       );
+      if (pendingErr && pendingWorkGateIsNotInstalled(pendingErr)) {
+        ({ data: hasPending, error: pendingErr } = await supabase.rpc(
+          'fn_tournament_has_unsettled_bounties',
+          { p_tournament_id: this.tournamentId }
+        ));
+      }
       if (pendingErr) {
         reportError(pendingErr, 'Tournament.bounty_outbox_verdict_failed');
         this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
@@ -3374,13 +3446,31 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     allowCompletingClaim = false
   ): Promise<boolean> {
     if (!this.eliminationMutationAllowed()) return false;
-    // Guard: check if already eliminated (prevents double-processing)
-    const { data: playerCheck, error: checkErr } = await supabase
-      .from('tournament_players')
-      .select('status')
-      .eq('tournament_id', this.tournamentId)
-      .eq('user_id', userId)
-      .maybeSingle();
+    /* ONE TRIP FOR TWO INDEPENDENT READS (2026-11-05). The replay guard and
+       the pricing row answer different questions and neither waits on the
+       other, so they travel together: a bust reaches its knockout door one
+       round trip sooner (aBustReachesItsBountyInFewerTrips). A replay discards
+       the row it did not need; nothing is written by either read. */
+    const [playerCheckRead, tournamentRead] = await Promise.all([
+      // Guard: check if already eliminated (prevents double-processing)
+      supabase
+        .from('tournament_players')
+        .select('status')
+        .eq('tournament_id', this.tournamentId)
+        .eq('user_id', userId)
+        .maybeSingle(),
+      supabase
+        .from('tournaments')
+        .select(
+          // spin_multiplier + tournament_type: a Spin's payout split is a pure
+          // function of its multiplier, so the spec can rebuild the structure
+          // when the stored column is unreadable. See payoutStructure.ts.
+          'format_contract, payout_structure, prize_pool, bubble_protection, buy_in_amount, is_bounty, is_pko, is_mystery_bounty, bounty_amount, mystery_bounty_min, mystery_bounty_max, variant, tournament_type, satellite_target_id, spin_multiplier'
+        )
+        .eq('id', this.tournamentId)
+        .maybeSingle(), // FIX 168: Bible safety rule — use maybeSingle over single
+    ]);
+    const { data: playerCheck, error: checkErr } = playerCheckRead;
     if (!this.eliminationMutationAllowed()) return false;
 
     if (
@@ -3395,17 +3485,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       return false; // Already processed
     }
 
-    const { data: tournament, error: tournamentErr } = await supabase
-      .from('tournaments')
-      .select(
-        // spin_multiplier + tournament_type: a Spin's payout split is a pure
-        // function of its multiplier, so the spec can rebuild the structure
-        // when the stored column is unreadable. See payoutStructure.ts.
-        'format_contract, payout_structure, prize_pool, bubble_protection, buy_in_amount, is_bounty, is_pko, is_mystery_bounty, bounty_amount, mystery_bounty_min, mystery_bounty_max, variant, tournament_type, satellite_target_id, spin_multiplier'
-      )
-      .eq('id', this.tournamentId)
-      .maybeSingle(); // FIX 168: Bible safety rule — use maybeSingle over single
-    if (!this.eliminationMutationAllowed()) return false;
+    const { data: tournament, error: tournamentErr } = tournamentRead;
 
     /**
      * PAYOUT-INTEGRITY 2026-08-25: THE PRIZE IS COMPUTED FROM THIS ROW, SO A
@@ -3528,6 +3608,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     let durableBountyClaimants: Array<{ userId: string; weight: number }> = [];
     /** The door recorded this bust and, by design, wrote no bounty obligation. */
     let doorWroteNoBountyObligation = false;
+    let verifiedDoorObligationId: string | null = null;
     if (hasBounty) {
       if (!this.eliminationMutationAllowed()) return false;
       const attribution = bountyEvidence!.attribution;
@@ -3673,6 +3754,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         bountyMode = String(row!.mode || '');
         durableBountyKnocker = String(row!.knocker_user_id || '');
         durableBountyClaimants = canonicalClaims;
+        // The exact-hand obligation just proved above; the payer reuses it
+        // instead of reading the same row again. A chest is never paid here.
+        if (row!.mode !== 'mystery_chest' && row!.hand_id === bountyEvidence!.handId)
+          verifiedDoorObligationId = String(row!.id);
       }
       // An `already` row is the replay of that exact generation, not permission
       // to run a place or Bubble payer here.
@@ -3790,7 +3875,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             ? durableBountyClaimants
             : attribution.claimants.map((claimant) => ({ ...claimant })),
           bountyEvidence.handId,
-          bountyMode
+          bountyMode,
+          verifiedDoorObligationId
         );
         if (!bountySettled) {
           this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
@@ -3881,7 +3967,14 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     /** The hand_history row this knockout happened in, for the audit link. */
     handId: string | null = null,
     /** Persisted by the atomic elimination RPC; never re-derived from stage. */
-    persistedMode: string | null = null
+    persistedMode: string | null = null,
+    /**
+     * The exact-hand obligation the knockout door just returned and the
+     * caller already proved against this hand (eliminatePlayer reads it to
+     * verify the claim). Passing it spares the payer a second read of the same
+     * row; null keeps the lookup below.
+     */
+    knownObligationId: string | null = null
   ): Promise<boolean> {
     // ── MYSTERY PHASE ──────────────────────────────────────────────────────
     // Once the chests are open, this knockout draws one. fn_collect_bounty
@@ -3969,8 +4062,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
      * obligation by id with the knocker and claimants stored on it at the
      * bust; it is idempotent and returns fn_collect_bounty's own answer.
      */
-    let exactObligationId: string | null = null;
-    if (handId) {
+    let exactObligationId: string | null = knownObligationId;
+    if (handId && !exactObligationId) {
       const { data: exactObligation, error: exactObligationErr } = await supabase
         .from('tournament_bounty_obligations')
         .select('id')
@@ -3982,14 +4075,37 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       if (!exactObligationErr && exactObligation?.id)
         exactObligationId = String(exactObligation.id);
     }
-    const { data: result, error } = exactObligationId
-      ? await supabase.rpc('fn_collect_bounty_obligation', { p_obligation_id: exactObligationId })
-      : await supabase.rpc('fn_collect_bounty', {
-          p_tournament_id: this.tournamentId,
-          p_eliminated_user_id: eliminatedUserId,
-          p_collector_user_id: knockerUserId,
-          p_claimants: claimants.map((c) => ({ user_id: c.userId, weight: c.weight })),
-        });
+    /* THE NAMES TRAVEL WITH THE PAYMENT (2026-11-05). The broadcast needs a
+       display name for the busted player and every winner of the pot. Every
+       winner the payer can report is the knocker or one of the claimants, so
+       the names are read in the same round trip as the payment instead of
+       after it, and the knockout reaches the table one trip sooner. The read
+       writes nothing and a failed read only falls back to "Player". */
+    const prefetchNameIds = Array.from(
+      new Set<string>(
+        [eliminatedUserId, knockerUserId, ...claimants.map((c) => c.userId)].filter(Boolean)
+      )
+    );
+    const [collectRead, prefetchedNames] = await Promise.all([
+      exactObligationId
+        ? supabase.rpc('fn_collect_bounty_obligation', { p_obligation_id: exactObligationId })
+        : supabase.rpc('fn_collect_bounty', {
+            p_tournament_id: this.tournamentId,
+            p_eliminated_user_id: eliminatedUserId,
+            p_collector_user_id: knockerUserId,
+            p_claimants: claimants.map((c) => ({ user_id: c.userId, weight: c.weight })),
+          }),
+      supabase
+        .from('tournament_players')
+        .select('user_id, username')
+        .eq('tournament_id', this.tournamentId)
+        .in('user_id', prefetchNameIds)
+        .then(
+          (read: { data: unknown }) => read,
+          () => ({ data: null })
+        ),
+    ]);
+    const { data: result, error } = collectRead;
 
     let res = (result ?? {}) as {
       ok?: boolean;
@@ -4149,11 +4265,21 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           ...shareRows.map((s) => String(s.user_id || '')).filter(Boolean),
         ])
       );
-      const { data: names } = await supabase
-        .from('tournament_players')
-        .select('user_id, username')
-        .eq('tournament_id', this.tournamentId)
-        .in('user_id', nameIds);
+      // Read with the payment above; only a winner the prefetch could not
+      // have named (none today) costs a trip of its own here.
+      let names = (Array.isArray(prefetchedNames.data) ? prefetchedNames.data : null) as Array<{
+        user_id: string;
+        username: string;
+      }> | null;
+      const unnamed = nameIds.filter((id) => !prefetchNameIds.includes(id));
+      if (!names || unnamed.length > 0) {
+        const { data: read } = await supabase
+          .from('tournament_players')
+          .select('user_id, username')
+          .eq('tournament_id', this.tournamentId)
+          .in('user_id', nameIds);
+        names = read as typeof names;
+      }
       const nameOf = (id: string) =>
         (names || []).find((n: any) => n.user_id === id)?.username || 'Player';
 

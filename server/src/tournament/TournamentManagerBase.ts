@@ -141,6 +141,7 @@ import { diamondSpinSettlementProven } from './diamondSpinLaunchProof.js';
 import { raiseFinancialAlert } from '../services/financialAlerts.js';
 import {
   tournamentFinishRefusalAlertsSuppressedTotal,
+  eliminationSweepStepMs,
   classifyFinishRefusal,
   finishRefusalIsTransient,
   finishRefusalRetryDelayMs,
@@ -13910,8 +13911,19 @@ export abstract class TournamentManagerBase {
   protected eliminationSweepStepAt = 0;
 
   protected noteEliminationSweepStep(step: string): void {
+    const now = Date.now();
+    this.closeEliminationSweepStep(now);
     this.eliminationSweepStep = step;
-    this.eliminationSweepStepAt = Date.now();
+    this.eliminationSweepStepAt = now;
+  }
+
+  /** Observe the step in flight (if any) as finished at `now`. */
+  protected closeEliminationSweepStep(now = Date.now()): void {
+    const previous = this.eliminationSweepStep;
+    const startedAt = this.eliminationSweepStepAt;
+    if (previous && typeof startedAt === 'number' && startedAt > 0 && now >= startedAt) {
+      eliminationSweepStepMs.observe(now - startedAt, { step: previous });
+    }
   }
 
   // ── Implemented by TournamentManagerEliminations (layer 2/3) ──
