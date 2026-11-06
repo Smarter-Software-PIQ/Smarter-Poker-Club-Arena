@@ -13,7 +13,7 @@
  *   npx tsx ../scripts/horse-measure/horse-complaint-replay.ts --extract FILE \
  *     [--complaint "what was said"] [--ord 9,12] [--scorecard scorecard-DAY.json] [--json]
  *
- * rebuilds the exact state at every horse decision, replays today's brain
+ * rebuilds retained public state at every horse decision, replays the checked-out brain
  * (HorseLogic.decide) there for the live hybrid profile and every base style
  * over fixed seeds, reports whether today's brain still makes the recorded
  * action, which brain receipts fired (the rule that governs, named from
@@ -196,6 +196,7 @@ export function renderText(
       );
     }
     L.push(`  Verdict: ${n.verdict}.`);
+    for (const limitation of n.replayLimitations) L.push(`  Limitation: ${limitation}`);
     L.push(`  Measured: ${lookupCell(n.spot, sc)}.`);
   }
   return L.join('\n');
