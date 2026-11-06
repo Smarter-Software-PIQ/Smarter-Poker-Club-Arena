@@ -1,3 +1,7 @@
+import {
+  publicMemoryDomainIsValid,
+  type HorsePublicMemoryDomain,
+} from './HorsePublicMemoryDomain.js';
 import { EXPLOIT_COUNTER_FIELDS, type ExploitCounters } from './HorseOpponentExploit.js';
 
 export const MEMORY_VARIANTS = [
@@ -15,6 +19,7 @@ export type MemoryVariant = (typeof MEMORY_VARIANTS)[number];
 export type MemoryMode = 'cash' | 'tournament';
 export type MemorySize = 'hu' | 'short' | 'full';
 export interface DurableOpponentProfile {
+  public_memory_domain?: HorsePublicMemoryDomain;
   user_id: string;
   variant: MemoryVariant;
   mode: MemoryMode;
@@ -65,6 +70,7 @@ export function validOpponentProfile(value: unknown): value is DurableOpponentPr
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const p = value as DurableOpponentProfile;
   return (
+    (p.public_memory_domain === undefined || publicMemoryDomainIsValid(p.public_memory_domain)) &&
     typeof p.user_id === 'string' &&
     /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(p.user_id) &&
     memoryVariant(p.variant) !== null &&

@@ -1,3 +1,8 @@
+import {
+  publicMemoryDomainIsValid,
+  type HorsePublicMemoryDomain,
+} from '../../engine/HorsePublicMemoryDomain.js';
+import { readExactHorseOpponentProfiles } from '../HorseExactOpponentMemory.js';
 import { publicHandStatsFrame } from '../../engine/presentation/publicHandStats.js';
 import { horseOpponentMemorySchema, readHorseOpponentProfiles } from '../HorseOpponentMemory.js';
 import { memoryVariant, type DurableOpponentProfile } from '../../engine/HorseOpponentMemory.js';
@@ -436,6 +441,7 @@ export function tournamentStackProofIsExact(
  * demand without adding a second persistence path.
  */
 export async function logHandHistory(params: {
+  publicMemoryDomain?: HorsePublicMemoryDomain | null;
   tableId: string;
   /**
    * `tables.nit_game`. Passed through to writeHandFacts so a horse at a NIT
@@ -754,6 +760,9 @@ export async function logHandHistory(params: {
     big_blind: params.bigBlind,
     pot_size: params.potSize,
     rake_amount: params.rakeAmount,
+    ...(publicMemoryDomainIsValid(params.publicMemoryDomain)
+      ? { public_memory_domain: params.publicMemoryDomain }
+      : {}),
     ...(params.cashRakePolicy?.cashPolicy ? { cash_rake_policy: params.cashRakePolicy } : {}),
     bbj_amount: params.bbjAmount || 0,
     community_cards: params.communityCards,
@@ -958,7 +967,16 @@ export async function logHandHistory(params: {
           ),
         ];
         if (actors.length)
-          durableOpponentProfiles = await readHorseOpponentProfiles(
+          durableOpponentProfiles = await (
+            params.publicMemoryDomain === undefined
+              ? readHorseOpponentProfiles
+              : (
+                  ids: string[],
+                  v: string,
+                  mode: 'cash' | 'tournament',
+                  size: 'hu' | 'short' | 'full'
+                ) => readExactHorseOpponentProfiles(ids, v, mode, size, params.publicMemoryDomain)
+          )(
             actors,
             variant,
             params.tournamentId ? 'tournament' : 'cash',
@@ -974,6 +992,9 @@ export async function logHandHistory(params: {
       }
     }
     const observation = getLiveHorseDecisionWorker().observeCompletedHand({
+      ...(params.publicMemoryDomain !== undefined
+        ? { publicMemoryDomain: params.publicMemoryDomain }
+        : {}),
       durableOpponentProfiles,
       generation: params.handNumber,
       fence: [

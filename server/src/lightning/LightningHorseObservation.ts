@@ -1,3 +1,5 @@
+import type { HorsePublicMemoryDomain } from '../engine/HorsePublicMemoryDomain.js';
+import { readExactHorseOpponentProfiles } from '../services/HorseExactOpponentMemory.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  EVERY LIGHTNING HAND TEACHES THE HORSES (2026-10-24)
@@ -43,6 +45,7 @@ import type {
 } from '../engine/horseDecision/index.js';
 
 export interface LightningObservedHand {
+  publicMemoryDomain?: HorsePublicMemoryDomain | null;
   hostTableId: string;
   handNumber: number;
   leaseGeneration: string | null;
@@ -67,6 +70,7 @@ export interface LightningObservationDeps {
     mode: 'cash' | 'tournament',
     size: 'hu' | 'short' | 'full'
   ) => Promise<DurableOpponentProfile[]>;
+  readExactProfiles?: typeof readExactHorseOpponentProfiles;
   report: (error: unknown, where: string) => void;
 }
 
@@ -81,6 +85,9 @@ export function buildLightningObservation(
   durableOpponentProfiles: DurableOpponentProfile[] | undefined
 ): CompletedHandObservation {
   return {
+    ...(hand.publicMemoryDomain !== undefined
+      ? { publicMemoryDomain: hand.publicMemoryDomain }
+      : {}),
     ...(durableOpponentProfiles !== undefined ? { durableOpponentProfiles } : {}),
     generation: hand.handNumber,
     fence: [hand.hostTableId, hand.handNumber, hand.leaseGeneration ?? 'unleased', 'observe'].join(
@@ -134,12 +141,23 @@ export async function observeLightningHand(
           ),
         ];
         if (actors.length)
-          durable = await deps.readProfiles(
-            actors,
-            variant,
-            'cash',
-            lightningMemorySize(hand.dealtCount)
-          );
+          durable = await (
+            hand.publicMemoryDomain === undefined
+              ? deps.readProfiles
+              : (
+                  ids: string[],
+                  v: string,
+                  mode: 'cash' | 'tournament',
+                  size: 'hu' | 'short' | 'full'
+                ) =>
+                  (deps.readExactProfiles ?? readExactHorseOpponentProfiles)(
+                    ids,
+                    v,
+                    mode,
+                    size,
+                    hand.publicMemoryDomain
+                  )
+          )(actors, variant, 'cash', lightningMemorySize(hand.dealtCount));
       } catch (error) {
         if (isOpponentMemoryBusyRefusal(error))
           reportThrottled(

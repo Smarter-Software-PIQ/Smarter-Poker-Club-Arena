@@ -115,7 +115,7 @@ export function createOpponentMemoryReadAdmission(now = () => Date.now()) {
     }
   };
 }
-const admitOpponentMemoryRead = createOpponentMemoryReadAdmission();
+export const admitOpponentMemoryRead = createOpponentMemoryReadAdmission();
 /**
  * Donor reads (the sibling table size's saved row) are admitted on their own.
  * Measured 2026-10-25 over six production hours: 36,244 donor reads were

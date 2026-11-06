@@ -1,3 +1,4 @@
+import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
 import { createHash } from 'node:crypto';
 import {
   opponentMemoryKey,
@@ -21,6 +22,12 @@ export interface PooledPublicProfileReceipt {
  * decision-plan, wager or caller-authored FAST packet enters this cache.
  * The existing accepted-hand broadcaster supplies every worker. No IO,
  * timer, donor inference or private observer state is needed on the turn. */
+function profileKey(p: DurableOpponentProfile): string {
+  return (
+    opponentMemoryKey(p.user_id, p.variant, p.mode, p.size) +
+    (p.public_memory_domain ? '|' + publicMemoryDomainKey(p.public_memory_domain) : '')
+  );
+}
 export class PooledPublicProfiles {
   private readonly rows = new Map<string, { profile: DurableOpponentProfile; at: number }>();
   private readonly seen = new Set<string>();
@@ -47,10 +54,13 @@ export class PooledPublicProfiles {
     const staged = new Map<string, { profile: DurableOpponentProfile; at: number }>();
     for (const p of snapshot.profiles) {
       if (!validOpponentProfile(p)) return false;
-      const key = opponentMemoryKey(p.user_id, p.variant, p.mode, p.size);
+      const key = profileKey(p);
       if (staged.has(key)) return false;
       staged.set(key, {
         profile: {
+          ...(p.public_memory_domain
+            ? { public_memory_domain: { ...p.public_memory_domain } }
+            : {}),
           user_id: p.user_id,
           variant: p.variant,
           mode: p.mode,
@@ -97,7 +107,8 @@ export class PooledPublicProfiles {
     this.seen.add(key);
     while (this.seen.size > this.capacity) this.seen.delete(this.seen.values().next().value!);
     const rowKey = (id: string) =>
-      opponentMemoryKey(id, context.variant as DurableOpponentProfile['variant'], mode, size);
+      opponentMemoryKey(id, context.variant as DurableOpponentProfile['variant'], mode, size) +
+      (context.version === 2 ? '|' + publicMemoryDomainKey(context.publicMemoryDomain) : '');
     const valid =
       Array.isArray(profiles) &&
       profiles.length <= 10 &&
@@ -105,6 +116,10 @@ export class PooledPublicProfiles {
       profiles.every(
         (p) =>
           validOpponentProfile(p) &&
+          (context.version === 2
+            ? publicMemoryDomainKey(p.public_memory_domain) ===
+              publicMemoryDomainKey(context.publicMemoryDomain)
+            : p.public_memory_domain === undefined) &&
           p.variant === context.variant &&
           p.mode === mode &&
           p.size === size &&
@@ -117,7 +132,7 @@ export class PooledPublicProfiles {
     if (!valid) return 0;
     let learned = 0;
     for (const p of profiles) {
-      const k = opponentMemoryKey(p.user_id, p.variant, p.mode, p.size);
+      const k = profileKey(p);
       const previous = this.rows.get(k);
       if (previous) {
         const previousVersion = opponentProfileVersion(previous.profile),
@@ -131,6 +146,9 @@ export class PooledPublicProfiles {
       this.rows.delete(k);
       this.rows.set(k, {
         profile: {
+          ...(p.public_memory_domain
+            ? { public_memory_domain: { ...p.public_memory_domain } }
+            : {}),
           user_id: p.user_id,
           variant: p.variant,
           mode: p.mode,
@@ -168,7 +186,7 @@ export class PooledPublicProfiles {
           context.variant as DurableOpponentProfile['variant'],
           mode,
           size
-        )
+        ) + (context.version === 2 ? '|' + publicMemoryDomainKey(context.publicMemoryDomain) : '')
       );
       // A newer receipt is unavailable to an older queued snapshot. Never
       // substitute it or relabel its availability with the decision clock.

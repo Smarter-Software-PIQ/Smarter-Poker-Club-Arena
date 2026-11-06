@@ -112,6 +112,8 @@ function validWindow(value: unknown, availableAtMs: number): value is HorseOwnPu
     value.version !== 1 ||
     value.source !== 'original_dealt_public_v1' ||
     !horseObserverReadContextIsValid(value.context) ||
+    // Legacy historical packets do not prove speed/ante for each accepted hand.
+    value.context.version !== 1 ||
     typeof value.capped !== 'boolean' ||
     !Array.isArray(value.hands) ||
     value.hands.length > MAX_HANDS

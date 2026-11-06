@@ -63,9 +63,9 @@ it('reads only saved public columns with observed hands, by keyset, before the f
   const result = await readHorsePooledPublicBootstrap();
   expect(result?.profiles).toEqual([row()]);
   expect(result!.availableAtMs).toBeGreaterThanOrEqual(before);
-  expect(mock.from).toHaveBeenCalledWith('horse_exploit_profiles');
+  expect(mock.from).toHaveBeenCalledWith('horse_exact_profiles');
   expect(mock.select).toHaveBeenCalledWith(
-    'user_id,variant,mode,size,counters,observed_hands,initialized'
+    'user_id,variant,mode,size,counters,observed_hands,initialized,public_memory_domain'
   );
   expect(mock.gt).toHaveBeenCalledWith('observed_hands', 0);
   expect(mock.limit).toHaveBeenCalledWith(1000);
@@ -150,4 +150,53 @@ it('refuses malformed, duplicate, regressing, failed and over-budget reads atomi
       signal.addEventListener('abort', () => reject(signal.reason))
     );
   expect(await readHorsePooledPublicBootstrap(hang, 20)).toBeNull();
+});
+
+it('keeps a full exact-domain player together across the page boundary', async () => {
+  const variants = [
+    'nlh',
+    'plo4',
+    'plo5',
+    'plo6',
+    'plo8',
+    'flh',
+    'flo8',
+    'pineapple',
+    'short_deck',
+  ] as const;
+  const domains = (['table', 'lightning'] as const).flatMap((speed) =>
+    (['none', 'individual', 'big_blind'] as const).map((ante) => ({
+      version: 1 as const,
+      speed,
+      ante,
+    }))
+  );
+  const all = variants.flatMap((variant) =>
+    (['cash', 'tournament'] as const).flatMap((mode) =>
+      (['hu', 'short', 'full'] as const).flatMap((size) =>
+        domains.map((public_memory_domain) => ({
+          ...row(5000),
+          variant,
+          mode,
+          size,
+          public_memory_domain,
+        }))
+      )
+    )
+  );
+  expect(all).toHaveLength(324);
+  const rows = [...Array.from({ length: 990 }, (_, i) => row(i + 1)), ...all];
+  const page = async (after: string | null) => ({
+    data: rows.filter((r) => after === null || r.user_id > after).slice(0, 1000),
+    error: null,
+  });
+  const snapshot = await readHorsePooledPublicBootstrap(page);
+  expect(snapshot?.profiles).toHaveLength(1314);
+});
+it('canonicalizes domain object ordering for duplicate refusal', async () => {
+  const a = { ...row(), public_memory_domain: { version: 1, speed: 'table', ante: 'none' } };
+  const b = { ...row(), public_memory_domain: { ante: 'none', speed: 'table', version: 1 } };
+  expect(
+    await readHorsePooledPublicBootstrap(async () => ({ data: [a, b], error: null }))
+  ).toBeNull();
 });

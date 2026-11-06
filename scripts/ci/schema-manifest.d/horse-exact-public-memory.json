@@ -1,0 +1,10 @@
+{
+  "_comment": "Additive exact original public rule domains; source declaration only, not installation proof. No legacy aggregate relabeling.",
+  "tables": ["horse_exact_profiles"],
+  "functions": [
+    "fn_horse_public_domain_valid",
+    "fn_horse_exact_accept_hand",
+    "fn_horse_exact_profiles_read"
+  ],
+  "columns": { "hand_history": ["public_memory_domain"] }
+}

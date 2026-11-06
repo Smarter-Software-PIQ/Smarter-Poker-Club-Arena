@@ -1,3 +1,4 @@
+import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  A HORSE DECIDES A LIGHTNING TURN IN THE SAME LANE AS AT A TABLE (2026-10-01)
@@ -164,6 +165,7 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     actionHistory: state.actionHistory.map((a) => ({ ...a })),
     gameMode: 'cash' as const,
     ante: turn.ante,
+    publicMemoryDomain: publicMemoryDomainFromRules('lightning', turn.ante, turn.bigBlindAnte),
     bigBlindAnte: turn.bigBlindAnte,
     allInOrFold: turn.allInOrFold,
     straddleActive: false,

@@ -196,9 +196,8 @@ it.each(['missing', 'stale', 'throw', 'captured'] as const)(
     const second = vi.fn(async (_signal: AbortSignal) => {
       if (mode === 'throw') throw Error('missing RPC');
       if (mode === 'missing') return { data: null, error: { message: 'missing RPC' } };
-      const { HORSE_RIVER_NODE_DEFINITION_MD5, riverNodeBindings } = await import(
-        '../engine/horseDecision/riverNodeSidecar.js'
-      );
+      const { HORSE_RIVER_NODE_DEFINITION_MD5, riverNodeBindings } =
+        await import('../engine/horseDecision/riverNodeSidecar.js');
       return {
         error: null,
         data: {
@@ -244,9 +243,8 @@ it.each([
 ] as const)(
   'carries original %s cause through the actual service and cache',
   async (fault, reason) => {
-    const { HorseOwnPublicHistoryCache } = await import(
-      '../engine/horseDecision/ownPublicHistory.js'
-    );
+    const { HorseOwnPublicHistoryCache } =
+      await import('../engine/horseDecision/ownPublicHistory.js');
     const now = Date.now();
     if (fault === 'error') fixture.response.error = { message: 'never copied' };
     if (fault === 'empty') fixture.response.data = null;
@@ -284,4 +282,15 @@ it('diagnostic callback failure cannot change an existing null read outcome', as
       throw Error('diagnostic');
     })
   ).toBeNull();
+});
+
+it('refuses v2 history before IO when per-hand original rules are unavailable', async () => {
+  expect(
+    await readHorseOwnPublicHistory({
+      ...context,
+      version: 2,
+      publicMemoryDomain: { version: 1, speed: 'table', ante: 'none' },
+    })
+  ).toBeNull();
+  expect(fixture.rpc).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { publicMemoryDomainKey } from '../engine/HorsePublicMemoryDomain.js';
 import { supabase } from './supabase.js';
 import {
   validOpponentProfile,
@@ -22,8 +23,8 @@ export const HORSE_POOLED_BOOTSTRAP_PAGE = 1000;
  * horse_pooled_public_bootstrap_unavailable and none reported _loaded.
  */
 export const HORSE_POOLED_BOOTSTRAP_BUDGET_MS = 30000;
-/** A player holds at most variants x modes x sizes rows (9 x 2 x 3). */
-const MAX_ROWS_PER_PLAYER = 54;
+/** A player holds at most variants x modes x sizes x speeds x ante modes (9 x 2 x 3 x 2 x 3). */
+const MAX_ROWS_PER_PLAYER = 324;
 
 type Page = (
   afterUserId: string | null,
@@ -32,8 +33,8 @@ type Page = (
 
 const readPage: Page = (afterUserId, signal) => {
   let query = supabase
-    .from('horse_exploit_profiles')
-    .select('user_id,variant,mode,size,counters,observed_hands,initialized')
+    .from('horse_exact_profiles')
+    .select('user_id,variant,mode,size,counters,observed_hands,initialized,public_memory_domain')
     .gt('observed_hands', 0);
   if (afterUserId !== null) query = query.gt('user_id', afterUserId);
   return query
@@ -54,7 +55,7 @@ const readPage: Page = (afterUserId, signal) => {
  * inserted between two pages, so a live table returned a duplicate key and the
  * whole read was discarded. Each page now starts after the last COMPLETE
  * player: the trailing player of a full page is re-read whole by the next page
- * (a player has at most 54 rows, a page holds 1,000), so no row is skipped or
+ * (a player has at most 324 rows, a page holds 1,000), so no row is skipped or
  * read twice. Rows with no observed hand carry no read and are not loaded.
  * More profiles than the cache holds keep the most-observed ones instead of
  * loading nothing.
@@ -81,7 +82,13 @@ export async function readHorsePooledPublicBootstrap(
         // The trailing player of a full page may continue on the next page.
         if (full && row.user_id === lastUser) continue;
         if (after !== null && row.user_id <= after) return null;
-        const key = JSON.stringify([row.user_id, row.variant, row.mode, row.size]);
+        const key = JSON.stringify([
+          row.user_id,
+          row.variant,
+          row.mode,
+          row.size,
+          publicMemoryDomainKey(row.public_memory_domain),
+        ]);
         if (seen.has(key)) return null;
         seen.add(key);
         profiles.push(row);

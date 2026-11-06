@@ -147,6 +147,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the original public-action last-to-act river opportunity, check-back and confidence evidence consumed by conditional river defense',
     'src/engine/HorseRiverCallEvidence.ts':
       'the public river-call category eligibility and confidence boundary used by the reference opponent read',
+    'src/engine/HorsePublicMemoryDomain.ts':
+      'original public speed and ante domain validation, canonical keys and unknown-domain refusal',
     'src/engine/HorseObserverReadContext.ts':
       'the exact individual, variant, explicit format and dealt-size partition for public observation history',
     'src/engine/horseDecision/ownPublicHistory.ts':

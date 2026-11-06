@@ -1,3 +1,4 @@
+import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
 import { riverPublicNode } from '../HorseMultiwayRiverRead.js';
 import { PooledPublicProfiles, type PooledPublicProfileReceipt } from './pooledPublicProfiles.js';
 import { opponentMemoryKey } from '../HorseOpponentMemory.js';
@@ -156,7 +157,9 @@ export class HorseObserverReads {
       (historyEntry?.completedHandIds?.size ?? 0) > 4096
     );
   }
-  private static capacityReset(entry: Entry | { state: HorseMindSandbox; observedAt: number }): void {
+  private static capacityReset(
+    entry: Entry | { state: HorseMindSandbox; observedAt: number }
+  ): void {
     entry.state = HorseMind.createSandbox();
     entry.observedAt = 0;
     if ('context' in entry) {
@@ -503,14 +506,25 @@ export class HorseObserverReads {
       if (!this.hands.has(key)) {
         if (this.hands.size >= this.maxHands) this.hands.delete(this.hands.keys().next().value!);
         this.hands.set(key, {
-          signature: JSON.stringify([context!.variant, context!.format, context!.dealtCount]),
+          signature: JSON.stringify([
+            context!.variant,
+            context!.format,
+            context!.dealtCount,
+            ...(context!.version === 2 ? [publicMemoryDomainKey(context!.publicMemoryDomain)] : []),
+          ]),
           entries: new Set(),
           conflict: false,
         });
       }
       const hand = this.hands.get(key)!;
       if (
-        hand.signature !== JSON.stringify([context!.variant, context!.format, context!.dealtCount])
+        hand.signature !==
+        JSON.stringify([
+          context!.variant,
+          context!.format,
+          context!.dealtCount,
+          ...(context!.version === 2 ? [publicMemoryDomainKey(context!.publicMemoryDomain)] : []),
+        ])
       )
         hand.conflict = true;
       if (hand.entries.size >= 10 && !hand.entries.has(entry as Entry)) hand.conflict = true;
