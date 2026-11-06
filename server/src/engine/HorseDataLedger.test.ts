@@ -83,6 +83,17 @@ const BRAIN_FILES = [
   'engine/HorsePhase14Acceptance.ts',
 ];
 const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
+// Layer receipts (2026-11-05): layers that run outside the brain modules emit
+// their own receipt where they act. These files are read for telemetry keys
+// only; they read no HorseDecideOpts control and no game-state field.
+const RECEIPT_ONLY_FILES = [
+  'engine/ServerTableEngineBase.ts',
+  'engine/horseDecision/ownPublicHistory.ts',
+  'services/HorseExploitHydrator.ts',
+  'lightning/LightningHandHost.ts',
+  'lightning/LightningHorse.ts',
+];
+const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 
 /** Pull the argument text of a telemetry call, respecting nested arguments. */
 function telemetryArgs(src: string, call: 'noteFire' | 'noteFeature'): string[] {
@@ -184,8 +195,8 @@ describe('HorseDataLedger - the contract holds against the source', () => {
     const literals = new Set<string>();
     const dynamicPrefixes = new Set<string>();
     const firedArgs = [
-      ...telemetryArgs(BRAIN_SOURCE, 'noteFire'),
-      ...telemetryArgs(BRAIN_SOURCE, 'noteFeature'),
+      ...telemetryArgs(RECEIPT_SOURCE, 'noteFire'),
+      ...telemetryArgs(RECEIPT_SOURCE, 'noteFeature'),
     ];
     for (const rawArg of firedArgs) {
       // template literal: `prefix_${...}` -> the text before the first ${;
@@ -229,8 +240,8 @@ describe('HorseDataLedger - the contract holds against the source', () => {
           [...dynamicPrefixes].some((p) => p.startsWith(prefix) || prefix.startsWith(p)) ||
           // v29..v32 are built as layer + '_miss_...' in noteGtoMiss, and the
           // solver layers name themselves in their own modules
-          BRAIN_SOURCE.includes(`'${prefix.replace(/_$/, '')}'`) ||
-          BRAIN_SOURCE.includes(`"${prefix.replace(/_$/, '')}"`);
+          RECEIPT_SOURCE.includes(`'${prefix.replace(/_$/, '')}'`) ||
+          RECEIPT_SOURCE.includes(`"${prefix.replace(/_$/, '')}"`);
         expect(covered, `receipt family ${r.key} has nothing under it in the source`).toBe(true);
       } else {
         // fired as a literal, or built from a dynamic prefix (decide_omaha is
@@ -248,8 +259,8 @@ describe('HorseDataLedger - the contract holds against the source', () => {
     expect(retired.length).toBeGreaterThan(100);
     const firedLiterals = new Set(
       [
-        ...telemetryArgs(BRAIN_SOURCE, 'noteFire'),
-        ...telemetryArgs(BRAIN_SOURCE, 'noteFeature'),
+        ...telemetryArgs(RECEIPT_SOURCE, 'noteFire'),
+        ...telemetryArgs(RECEIPT_SOURCE, 'noteFeature'),
       ].flatMap((arg) => [...arg.matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]))
     );
     for (const e of retired) {

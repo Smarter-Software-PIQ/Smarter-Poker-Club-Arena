@@ -1,4 +1,5 @@
 import { HorseHistoryRetentionBudget, HISTORY_PACKET_MAX_BYTES } from './ownPublicHistoryBudget.js';
+import { drainFires, enableBrainTelemetry } from '../BrainTelemetry.js';
 import { expect, it, vi } from 'vitest';
 import {
   HorseOwnPublicHistoryCache,
@@ -656,7 +657,11 @@ it('refuses admission with unavailable main heap headroom without loading or cha
   cache.acknowledge(context(), packet.digest);
   available = 0;
   const other = new HorseOwnPublicHistoryCache(load, () => 200, 2048, budget);
+  enableBrainTelemetry();
+  drainFires();
   expect(other.forSnapshot(context(), 200)).toBeUndefined();
+  // Layer receipt (2026-11-05): the retention budget refused the load.
+  expect(drainFires()).toEqual([{ feature: 'horse_history_retention_refused', fires: 1 }]);
   expect(other.status()).toMatchObject({ entries: 1, pendingCount: 0 });
   expect(other.state(context())).toBe('unavailable');
   expect(load).toHaveBeenCalledTimes(1);
@@ -811,3 +816,17 @@ it.each(['clone', 'parse', 'ack'] as const)(
     cache.dispose();
   }
 );
+
+it('counts the entry-bound eviction of its oldest entry (layer receipt, 2026-11-05)', () => {
+  const load = vi.fn(() => new Promise<unknown>(() => undefined));
+  const cache = new HorseOwnPublicHistoryCache(load, () => 200, 1);
+  enableBrainTelemetry();
+  drainFires();
+  expect(cache.forSnapshot(context(), 200)).toBeUndefined();
+  expect(
+    drainFires().find((r) => r.feature === 'horse_history_cache_entry_bound_evicted')
+  ).toBeUndefined();
+  expect(cache.forSnapshot({ ...context(), observerId: opponentId }, 200)).toBeUndefined();
+  expect(drainFires()).toEqual([{ feature: 'horse_history_cache_entry_bound_evicted', fires: 1 }]);
+  expect(cache.status().entries).toBe(1);
+});

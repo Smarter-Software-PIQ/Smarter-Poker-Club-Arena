@@ -13,6 +13,7 @@ import {
   type HorseHistoryRetentionBudget,
 } from './ownPublicHistoryBudget.js';
 import { riverPublicNode } from '../HorseMultiwayRiverRead.js';
+import { noteFire } from '../BrainTelemetry.js';
 import { createHash } from 'node:crypto';
 import {
   horseObserverReadContextIsValid,
@@ -391,6 +392,8 @@ export class HorseOwnPublicHistoryCache {
       const oldest = this.entries.keys().next().value!;
       this.retentionBudget.release(this.entries.get(oldest)!);
       this.entries.delete(oldest);
+      // Receipt (#9387 family): the bounded history cache evicted its oldest entry.
+      noteFire('horse_history_cache_entry_bound_evicted');
     }
     if (known) this.retentionBudget.release(known);
     const entry: {
@@ -418,6 +421,8 @@ export class HorseOwnPublicHistoryCache {
           reason === 'retention_capacity' ? 'retention_capacity' : `retention_${reason}`;
       });
     if (!reserve(HISTORY_PACKET_MAX_BYTES)) {
+      // Receipt (#9387 family): the retention budget refused a history load.
+      noteFire('horse_history_retention_refused');
       entry.settled = true;
       entry.retryAfterMs = this.now() + HORSE_HISTORY_RETRY_COOLDOWN_MS;
       this.entries.set(key, entry);

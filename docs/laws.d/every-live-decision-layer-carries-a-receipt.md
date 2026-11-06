@@ -1,0 +1,3 @@
+# server/src/engine/everyLiveDecisionLayerCarriesAReceipt.law.test.ts
+
+Every live horse decision layer carries a telemetry receipt: each layer the two-week inventory found running without one (river nuts, Omaha implied credit, draw blockers, PLO8 outlook and closed-table memory release, exploit hydrator, wager-bound reads, Lightning fast fold, river caller showdown read, river opportunity counters, range reads, heads-up matched commitment, Lightning hand binding, history retention bounds, V60 cash pressure) has a receipt registered in HorseDataLedger, fired by noteFire where the layer acts, and counted by scripts/horse-measure/sql/activation.sql.

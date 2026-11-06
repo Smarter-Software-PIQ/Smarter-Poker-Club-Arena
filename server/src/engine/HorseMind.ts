@@ -774,6 +774,8 @@ export class HorseMind {
           const before = { ...row };
           row.riverLastToActOpps = (row.riverLastToActOpps ?? 0) + inc.opportunities;
           row.riverLastToActBets = (row.riverLastToActBets ?? 0) + inc.bets;
+          // Receipt (#8386): a last-to-act river opportunity was counted.
+          noteFire('river_last_to_act_counted');
           row.sourceWindow = observeHorseObservationWindow(
             before.sourceWindow,
             action.timestamp,
@@ -1701,6 +1703,9 @@ export class HorseMind {
     let pot = forced ? 0 : (initial?.pot ?? (bigBlind > 0 ? bigBlind * 1.5 : 3));
     let curStreet: string = 'preflop';
     let newestStreetBigBet = false;
+    // Receipt only (#8563): a capped all-in call of 20bb or more on the
+    // newest street, which the range read refuses to count as a big bet.
+    let newestStreetCappedAllIn = false;
     let streetBets = new Map<string, number>(initial?.streetBets);
     let price = Math.max(bigBlind > 0 ? bigBlind : 0, ...streetBets.values());
     const userBySeat = new Map(history.map((entry) => [entry.seat, entry.userId]));
@@ -1709,6 +1714,7 @@ export class HorseMind {
       if (a.stage !== curStreet) {
         curStreet = a.stage;
         newestStreetBigBet = false;
+        newestStreetCappedAllIn = false;
         streetBets = new Map();
         price = 0;
       }
@@ -1752,6 +1758,12 @@ export class HorseMind {
       // existing 20bb street-total threshold and newest-street scope.
       if (a.userId === userId && isAggr && a.amount >= 20 * (bigBlind > 0 ? bigBlind : 1)) {
         newestStreetBigBet = true;
+      } else if (
+        a.userId === userId &&
+        kind === 'all_in' &&
+        a.amount >= 20 * (bigBlind > 0 ? bigBlind : 1)
+      ) {
+        newestStreetCappedAllIn = true;
       }
 
       if (a.stage !== 'preflop') {
@@ -1975,6 +1987,10 @@ export class HorseMind {
       // V16: the newest street's large AGGRESSIVE wager, classified above
       // against its actual price rather than the all_in action label alone.
       if (newestStreetBigBet) readOut.bigBet = true;
+      // Receipt (#8563): the big-bet read classified the newest street's
+      // wager against its price, or refused a capped all-in call as one.
+      if (newestStreetBigBet) noteFire('range_read_big_bet_counted');
+      else if (newestStreetCappedAllIn) noteFire('range_read_capped_all_in_not_big_bet');
     }
 
     lo = Math.max(0, Math.min(0.9, lo));
@@ -2789,6 +2805,8 @@ export class HorseMind {
           const s = touch(sample.userId);
           s.riverCallSD++;
           if (sample.weak) s.riverCallSDWeak++;
+          // Receipt (#8160, #8214): a shown river call taught the caller read.
+          noteFire('river_call_showdown_learned');
         }
       }
       mirror();
