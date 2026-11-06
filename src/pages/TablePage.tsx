@@ -11503,6 +11503,8 @@ function LiveTablePage({
             // Maintenance break refusal (2026-10-16): name the break. The
             // retry key is kept; a repeat after the break runs fresh.
             toast?.error(frozenRebuy);
+          } else if (/BUYIN_BELOW_MINIMUM|Insufficient.*chips/i.test(failure.message || '')) {
+            toast?.error(failure.message.replace(/^BUYIN_BELOW_MINIMUM:\s*/, ''));
           } else if (failure.message?.includes('FetchError') || !navigator.onLine) {
             // A rebuy is a debit against a live wallet. It is not queued for
             // later: nothing on the client can prove, at replay time, that the
@@ -12847,7 +12849,7 @@ function LiveTablePage({
           toast.info(
             applied > 0
               ? `${noun} Adjusted: ${applied.toFixed(2)} Added, ${refunded.toFixed(2)} Returned To Your Wallet. Your Stack Is At The Table Maximum.`
-              : `${noun} Returned: ${refunded.toFixed(2)} Is Back In Your Wallet. Your Stack Is Already At The Table Maximum.`
+              : `${noun} Returned: ${refunded.toFixed(2)} Is Back In Your Wallet. The Purchase Must Meet The Table Minimum And Fit Below Its Maximum.`
           );
         }
       }
