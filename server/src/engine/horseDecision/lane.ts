@@ -90,10 +90,11 @@ import type { HorsePlanAcceptance } from '../HorsePlanEffectReceipt.js';
  * GREATEST-merged flush stays correct: every shard's counters now count the
  * same hands, so any shard's flush is the floor's.
  *
- * WHAT DOES NOT CHANGE: no replacement worker, no respawn. Any worker's loss
- * is process-fatal exactly as the sole worker's was (see client.ts), and the
- * dispatch barrier one table holds across its synchronous performAction is
- * held on every shard, so it can only be stricter than before.
+ * WHAT DOES NOT CHANGE: the dispatch barrier one table holds across its
+ * synchronous performAction is held on every shard, so it can only be
+ * stricter than before. (Until 2026-11-06 any worker's loss was also
+ * process-fatal; a failed shard now replaces itself alone, see
+ * SHARD_REPLACEMENT_LIMIT below.)
  *
  * THE COUNT IS A CAPACITY POLICY, MEASURED TWICE (2026-09-26).
  *
@@ -268,6 +269,8 @@ export interface LiveHorseDecisionLaneStatus extends LiveHorseDecisionWorkerStat
   journalShardCapacity: number | null;
   /** Why that reading was refused (the two-worker ceiling), else null. */
   journalCapacityUnreadable: string | null;
+  /** Shards replaced alone since boot (2026-11-06); optional for the sole-client surface. */
+  shardReplacements?: number;
   workers: LiveHorseDecisionWorkerShardStatus[];
 }
 
@@ -311,6 +314,8 @@ export interface LiveHorseDecisionLaneOptions extends LiveHorseDecisionWorkerCli
   /** The journal capacity measured before construction off the event loop
    * (horseJournalShardCapacityMeasured); absent, the constructor reads it. */
   journalCapacity?: { shards: number | undefined };
+  /** Tests pin the clock the shard replacement window reads. */
+  shardReplacementNow?: () => number;
 }
 
 const PHASE_RANK: Record<LiveHorseDecisionWorkerPhase, number> = {
@@ -333,10 +338,73 @@ const minOf = (values: Array<number | null>): number | null =>
   );
 const sumOf = (values: number[]): number => values.reduce((a, b) => a + b, 0);
 
+/**
+ * ONE SHARD'S LOSS IS ONE SHARD'S LOSS (2026-11-06).
+ *
+ * Until today any decision worker's unexpected loss was process-fatal: the
+ * client's onFatal reached GameServer, which revoked every dealer and threw,
+ * so one isolate's death restarted the whole engine - every table, every
+ * live hand, and the learned memory of all eight shards - to replace one.
+ * A shard now replaces itself. Its pending work was already rejected to its
+ * own callers by fail(), whose existing liveness fallback checks or folds
+ * those seats; plans the dead worker issued find no ownership on the new one
+ * and retire. The replacement hydrates from the same durable reads every
+ * worker boots from and must load the same solver corpus as the first ready
+ * worker. It is NOT silent: the replacement is counted, logged and exposed
+ * as `shardReplacements` on the lane status.
+ *
+ * It stays process-fatal exactly as before when: the pool has not finished
+ * booting, the pool is stopping, the replacement fails to become ready or
+ * loads a different corpus, or one shard has already been replaced
+ * SHARD_REPLACEMENT_LIMIT times inside SHARD_REPLACEMENT_WINDOW_MS (a worker
+ * that keeps dying is a defect a fresh process must surface).
+ */
+export const SHARD_REPLACEMENT_LIMIT = 3;
+export const SHARD_REPLACEMENT_WINDOW_MS = 30 * 60_000;
+
+export interface HorseDecisionShardReplacement {
+  shard: number;
+  at: number;
+  error: string;
+}
+
+function readinessIdentity(r: HorseDecisionWorkerReadiness): string {
+  return JSON.stringify([
+    r.solverStores,
+    r.solverPolicyArtifact.policyVersion,
+    r.solverPolicyArtifact.schemaSha256,
+    r.solverPolicyArtifact.totalPolicies,
+  ]);
+}
+
+function sameReadinessCorpus(
+  first: HorseDecisionWorkerReadiness,
+  r: HorseDecisionWorkerReadiness
+): boolean {
+  const a = first.solverStoreIdentity;
+  const b = r.solverStoreIdentity;
+  // Preserve legacy handshakes without identity, but never equate a missing
+  // or malformed identity to a genuinely loaded content-addressed corpus.
+  if (a === undefined && b === undefined) return true;
+  return (
+    isHorseSolverStoreIdentity(a) &&
+    isHorseSolverStoreIdentity(b) &&
+    sameSolverStoreIdentity(a.charts, b.charts) &&
+    sameSolverStoreIdentity(a.postflop, b.postflop)
+  );
+}
+
 export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   private readonly observerParticipants = new HorseObserverParticipantRegistry();
-  private readonly clients: readonly LiveHorseDecisionWorkerClient[];
+  private readonly clients: LiveHorseDecisionWorkerClient[];
   private readonly readyPromise: Promise<HorseDecisionWorkerReadiness>;
+  private readonly clientOptions: LiveHorseDecisionWorkerClientOptions;
+  private readonly onFatal?: (error: Error) => void;
+  private readonly now: () => number;
+  private booted: HorseDecisionWorkerReadiness | null = null;
+  private stopping = false;
+  private readonly replacements: HorseDecisionShardReplacement[] = [];
+  private replacementCount = 0;
   /** The journal shards the disk can hold, read once at construction. */
   readonly journalShardCapacity: number | undefined;
   /** Why the capacity reading was refused, read once with it. */
@@ -360,15 +428,85 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
     };
     delete (clientOptions as LiveHorseDecisionLaneOptions).workers;
     delete (clientOptions as LiveHorseDecisionLaneOptions).journalCapacity;
-    this.clients = Object.freeze(
-      Array.from(
-        { length: count },
-        (_, index) =>
-          new LiveHorseDecisionWorkerClient({ ...clientOptions, shard: { index, count } })
-      )
-    );
-    this.readyPromise = this.awaitAllReady();
+    delete (clientOptions as LiveHorseDecisionLaneOptions).shardReplacementNow;
+    this.onFatal = clientOptions.onFatal;
+    delete clientOptions.onFatal;
+    this.clientOptions = clientOptions;
+    this.now = options.shardReplacementNow ?? Date.now;
+    this.clients = Array.from({ length: count }, (_, index) => this.spawnShardClient(index, count));
+    this.readyPromise = this.awaitAllReady().then((readiness) => {
+      this.booted = readiness;
+      return readiness;
+    });
     void this.readyPromise.catch(() => undefined);
+  }
+
+  private spawnShardClient(index: number, count: number): LiveHorseDecisionWorkerClient {
+    const client: LiveHorseDecisionWorkerClient = new LiveHorseDecisionWorkerClient({
+      ...this.clientOptions,
+      shard: { index, count },
+      onFatal: (error) => this.shardFailed(index, client, error),
+    });
+    return client;
+  }
+
+  private fatal(error: Error): void {
+    // The production callback throws on purpose so the process's fatal
+    // shutdown owns the exit (GameServer); the client already invoked us from
+    // a microtask, so the throw surfaces exactly as it did before.
+    this.onFatal?.(error);
+  }
+
+  private shardFailed(index: number, failed: LiveHorseDecisionWorkerClient, error: Error): void {
+    if (this.clients[index] !== failed) return;
+    const first = this.booted;
+    if (first === null || this.stopping) return this.fatal(error);
+    const at = this.now();
+    const recent = this.replacements.filter(
+      (r) => r.shard === index && at - r.at < SHARD_REPLACEMENT_WINDOW_MS
+    );
+    if (recent.length >= SHARD_REPLACEMENT_LIMIT) {
+      return this.fatal(
+        new Error(
+          `horse decision shard ${index} failed ${recent.length + 1} times in ` +
+            `${SHARD_REPLACEMENT_WINDOW_MS / 60_000} minutes; last: ${error.message}`
+        )
+      );
+    }
+    this.replacements.push({ shard: index, at, error: error.message });
+    if (this.replacements.length > 64) this.replacements.splice(0, this.replacements.length - 64);
+    this.replacementCount += 1;
+    console.error(
+      `[LiveHorseDecisionWorker] shard ${index} failed (${error.message}); replacing that shard ` +
+        `alone (${recent.length + 1}/${SHARD_REPLACEMENT_LIMIT} in ` +
+        `${SHARD_REPLACEMENT_WINDOW_MS / 60_000} min). The other ${this.clients.length - 1} keep dealing.`
+    );
+    const replacement = this.spawnShardClient(index, this.clients.length);
+    this.clients[index] = replacement;
+    replacement.ready().then(
+      (readiness) => {
+        if (this.clients[index] !== replacement) return;
+        if (
+          readinessIdentity(readiness) !== readinessIdentity(first) ||
+          !sameReadinessCorpus(first, readiness)
+        ) {
+          this.fatal(
+            new Error(`replacement horse decision shard ${index} loaded a different solver corpus`)
+          );
+          return;
+        }
+        console.log(`[LiveHorseDecisionWorker] shard ${index} replacement is ready`);
+      },
+      (readyError: unknown) => {
+        if (this.clients[index] !== replacement || this.stopping) return;
+        this.fatal(readyError instanceof Error ? readyError : new Error(String(readyError)));
+      }
+    );
+  }
+
+  /** Every shard replacement since boot, newest last (bounded to 64). */
+  shardReplacements(): { total: number; recent: HorseDecisionShardReplacement[] } {
+    return { total: this.replacementCount, recent: this.replacements.slice() };
   }
 
   get workerCount(): number {
@@ -403,28 +541,11 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   private async awaitAllReady(): Promise<HorseDecisionWorkerReadiness> {
     const readiness = await Promise.all(this.clients.map((client) => client.ready()));
     const first = readiness[0]!;
-    const identity = (r: HorseDecisionWorkerReadiness): string =>
-      JSON.stringify([
-        r.solverStores,
-        r.solverPolicyArtifact.policyVersion,
-        r.solverPolicyArtifact.schemaSha256,
-        r.solverPolicyArtifact.totalPolicies,
-      ]);
+    const identity = readinessIdentity;
     const expected = identity(first);
-    const sameCorpus = (r: HorseDecisionWorkerReadiness): boolean => {
-      const a = first.solverStoreIdentity;
-      const b = r.solverStoreIdentity;
-      // Preserve legacy handshakes without identity, but never equate a missing
-      // or malformed identity to a genuinely loaded content-addressed corpus.
-      if (a === undefined && b === undefined) return true;
-      return (
-        isHorseSolverStoreIdentity(a) &&
-        isHorseSolverStoreIdentity(b) &&
-        sameSolverStoreIdentity(a.charts, b.charts) &&
-        sameSolverStoreIdentity(a.postflop, b.postflop)
-      );
-    };
-    const divergent = readiness.findIndex((r) => identity(r) !== expected || !sameCorpus(r));
+    const divergent = readiness.findIndex(
+      (r) => identity(r) !== expected || !sameReadinessCorpus(first, r)
+    );
     if (divergent >= 0) {
       // Two brains with different corpora would make a table's play depend on
       // its shard. Refuse readiness; GameServer treats that as a boot failure
@@ -540,6 +661,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       workerCount: all.length,
       journalShardCapacity: this.journalShardCapacity ?? null,
       journalCapacityUnreadable: this.journalCapacityUnreadable,
+      shardReplacements: this.replacementCount,
       workers: all.map((s, index) => ({
         index,
         isolateMemory: s.isolateMemory ?? null,
@@ -640,6 +762,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   }
 
   async stop(): Promise<void> {
+    this.stopping = true;
     const outcomes = await Promise.allSettled(this.clients.map((client) => client.stop()));
     const failed = outcomes.find(
       (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected'

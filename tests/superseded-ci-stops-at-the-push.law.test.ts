@@ -251,7 +251,14 @@ describe('a docs-only pull request runs no heavy suite', () => {
     ['CLAUDE.md', 'PUBLISHING.md', 'README.md'],
     ['docs/changelog/2026-10-25-a.md', 'docs/notes.md', 'AGENTS.md'],
   ])('%s classifies as touching nothing a heavy suite reads', (...paths) => {
-    expect(classifyChangedPaths(paths)).toEqual(NONE);
+    expect(classifyChangedPaths(paths)).toEqual({
+      ...NONE,
+      tests: paths.every((path) =>
+        /^(?:CLAUDE\.md|PUBLISHING\.md|README\.md|docs\/changelog\/\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.md)$/.test(
+          path
+        )
+      ),
+    });
   });
 
   it('still runs the suites that read docs/laws.d and docs/evidence', () => {

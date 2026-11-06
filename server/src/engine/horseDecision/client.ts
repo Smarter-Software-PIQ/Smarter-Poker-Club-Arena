@@ -2297,7 +2297,8 @@ export class LiveHorseDecisionWorkerClient {
     }
     this.rejectStop?.(error);
     this.clearStopResolvers();
-    // Failure is terminal and never constructs a replacement worker.
+    // Failure is terminal for THIS client; it never constructs its own
+    // replacement. The pool decides whether the shard is replaced (lane.ts).
     void this.terminateWorker().catch(() => undefined);
     if (!this.fatalNotified) {
       this.fatalNotified = true;

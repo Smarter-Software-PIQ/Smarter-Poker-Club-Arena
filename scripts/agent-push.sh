@@ -78,12 +78,51 @@ fi
 # when a fetch refspec exists for it; make sure the hook sees the fresh tip.
 git update-ref "refs/remotes/$REMOTE/main" FETCH_HEAD
 
+# A repeated request for the exact already-pushed source needs no new push or
+# hook execution. Read back the remote outcome first; never infer it from a
+# prior command's acknowledgement. New source still follows all normal hooks.
+if ! git diff --quiet HEAD --; then
+  say "REFUSED: commit tracked working edits before pushing the candidate."
+  exit 2
+fi
+EXISTING_LINE=$(remote_git ls-remote "$REMOTE" "refs/heads/$BRANCH")
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  say "UNKNOWN: could not read the remote branch before push ($rc)."
+  exit "$rc"
+fi
+EXISTING_SHA=$(printf '%s\n' "$EXISTING_LINE" | awk -v ref="refs/heads/$BRANCH" '$2 == ref { print $1 }')
+if [ "$EXISTING_SHA" = "$HEAD_SHA" ]; then
+  say "ALREADY PRESENT: $REMOTE refs/heads/$BRANCH = $HEAD_SHA; no new push required."
+  exit 0
+fi
+
 # Show existing admission before expensive hooks; never skips a gate.
 node "$SCRIPT_DIR/ci/execution-preview.mjs"
 rc=$?
 if [ "$rc" -ne 0 ]; then
   say "FAILED: execution preview could not inspect this candidate ($rc)."
   exit "$rc"
+fi
+
+# A SATURATED MAC FAILS THE GATE ON TIMING, NOT CONTENT (2026-11-06). With a
+# 1-minute load of 60-140 on the 28-core Mac Studio (other sessions' suites),
+# the hook's shell tests missed their 3-second spawn budgets and a correct
+# push was refused after 25 minutes. Waiting for the load to fall below 1.5x
+# the core count costs minutes; a refused run costs the whole gate again. This
+# only delays the push: the hook and every check it runs are unchanged, and
+# after AGENT_PUSH_LOAD_WAIT_SECONDS (default 900, 0 disables) it pushes anyway.
+if [ "$(uname -s)" = Darwin ]; then
+  cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 0)
+  budget=${AGENT_PUSH_LOAD_WAIT_SECONDS:-900}
+  waited=0
+  while [ "$cores" -gt 0 ] && [ "$waited" -lt "$budget" ]; do
+    load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{ print int($2) }')
+    [ -n "$load" ] && [ "$load" -lt $(( cores * 3 / 2 )) ] && break
+    [ "$waited" -eq 0 ] && say "waiting for the Mac's load ($load on $cores cores) to fall below $(( cores * 3 / 2 )) before running the gate (up to ${budget}s)"
+    sleep 15
+    waited=$(( waited + 15 ))
+  done
 fi
 
 say "pushing $BRANCH ($HEAD_SHA) to $REMOTE; the pre-push hook can take minutes"

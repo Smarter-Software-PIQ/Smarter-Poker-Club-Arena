@@ -20,7 +20,7 @@ CREATE TABLE ca_club_rake_daily_user(club_id uuid,user_id uuid,day date,rake_cen
 CREATE TABLE ca_club_member_tournament_fee_daily(club_id uuid,user_id uuid,day date,fees numeric);
 CREATE TABLE accounting_tournament_fee_sources(club_id uuid,player_id uuid,charged_at timestamptz,rake_credit numeric,tournament_id uuid);
 CREATE TABLE smarter_private.player_fee_redemptions(club_id uuid,user_id uuid,effective_on date,amount_cents bigint);
-CREATE TABLE smarter_private.player_rake_share_rules(rule_key text,club_id uuid,from_user uuid,to_user uuid,share_bps integer,effective_from timestamptz,effective_until timestamptz);
+CREATE TABLE smarter_private.player_rake_share_rules(rule_key text,club_id uuid,from_user uuid,to_user uuid,share_bps integer,effective_from timestamptz,effective_until timestamptz,tournament_effective_from date);
 CREATE TABLE club_members(user_id uuid,club_id uuid,role text,agent_id uuid,chip_balance numeric,promo_balance numeric,nickname text,notes text,display_name text,joined_at timestamptz,last_active_at timestamptz,status text);
 CREATE TABLE profiles(id uuid,player_number text,alias text,username text,display_name text,first_name text,last_name text,full_name text,arena_avatar_url text,avatar_url text,last_login timestamptz,last_seen timestamptz,is_online boolean,status text);
 CREATE TABLE clubs(id uuid,name text);

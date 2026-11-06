@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "tests": [
+    {
+      "test": "tests/a-waiting-release-withdrawal-keeps-its-original-owner.law.test.ts",
+      "owner": "server/scripts release transaction owner",
+      "invariant": "Only the original waiting release owner may withdraw its exact terminal attempt",
+      "runtime": "Node22/Python3/Git; isolated filesystem and immutable historical controls",
+      "inputs": [
+        "tests/a-waiting-release-withdrawal-keeps-its-original-owner.law.test.ts",
+        "tests/operations/waiting-engine-release-withdrawal.test.py",
+        "tests/operations/pinned-history-sources.py",
+        "scripts/ci/withdraw-waiting-engine-release.py",
+        "server/scripts/",
+        "server/release/",
+        "server/src/maintenance/maintenanceSchedulePolicy.json",
+        ".github/workflows/auto-deploy-hetzner.yml",
+        ".gitattributes",
+        ".gitmodules"
+      ],
+      "declarationFiles": {
+        "tests/a-waiting-release-withdrawal-keeps-its-original-owner.law.test.ts": "8470749ec66c0f9e2592e35e9ff722a88bb0e95187d7cbde9fac5e72236b062a",
+        "tests/operations/waiting-engine-release-withdrawal.test.py": "1045b33684baf02d35cd8ae8987f476a6857c3c484ab40ff3c3e5ef2bb1f98e8",
+        "tests/operations/pinned-history-sources.py": "deacdf339241042a80bcd61bbb64bca67eca36b657ac953c87a9212b9b4520c0",
+        "scripts/ci/withdraw-waiting-engine-release.py": "4f5fc5c4ab3b3d0637557f1d38499e713456039ea07d220c0f90de5adb9bb7c5"
+      },
+      "replacement": null,
+      "observedSeconds": 44.14,
+      "observationSource": "Execution efficiency checkpoint; isolated173-case diagnostic2026-11-06; wrapper itself unchanged",
+      "scope": "No financial/source-binding fixture or ci.yml read. Historical blobs are addressed by immutable controls from the pinned producer. Declaration drift conservatively retains coverage."
+    },
+    {
+      "test": "tests/operations/engine-main-profile.test.mjs",
+      "owner": "Engine profiling and closed native observation tooling",
+      "invariant": "Read-only profiling, original process custody and closed native fault evidence",
+      "runtime": "Node22/Python3; owned local child processes, pipes and inspector fixtures",
+      "inputs": [
+        "tests/operations/engine-main-profile.test.mjs",
+        "scripts/ci/profile-engine-main-thread.mjs",
+        "tests/fixtures/engine-native-fault/qualify.py",
+        "tests/fixtures/engine-native-fault/qualify_host_unit.py",
+        "tests/fixtures/engine-native-fault/",
+        ".github/workflows/profile-engine-main-thread.yml",
+        "server/Dockerfile"
+      ],
+      "declarationFiles": {
+        "tests/operations/engine-main-profile.test.mjs": "ae125af97144f81851806c4640e465ec2d7489f85876f38123473342a00ee1f8",
+        "scripts/ci/profile-engine-main-thread.mjs": "0a8cfc7d56620f03f9a26e906bd4248596178696edf5f446b93253e484f2ae85",
+        "tests/fixtures/engine-native-fault/qualify.py": "569edba6d2c6c8144a4f45b3b27b03760cb4d76f3f188f5cdba01c1c81e15191",
+        "tests/fixtures/engine-native-fault/qualify_host_unit.py": "85bb680c8bd3d584ed42f2a44f854fd884eb097f9ef8986b3e243cf35e37b510"
+      },
+      "replacement": null,
+      "observedSeconds": null,
+      "observationSource": "No complete isolated timing recorded; unknown rather than estimating",
+      "scope": "Actual literal file reads and local Python producer imports inspected. No general ci.yml or financial fixture/source-binding input. Changes to any declaration source retain coverage."
+    },
+    {
+      "test": "tests/operations/native-fault-observation.test.mjs",
+      "owner": "Engine profiling and closed native observation tooling",
+      "invariant": "Read-only profiling, original process custody and closed native fault evidence",
+      "runtime": "Node22/Python3; owned local child processes, pipes and inspector fixtures",
+      "inputs": [
+        "tests/operations/native-fault-observation.test.mjs",
+        "scripts/ci/native-fault-observation.py",
+        "tests/fixtures/engine-native-fault/qualify.py",
+        "tests/fixtures/engine-native-fault/qualify_host_unit.py",
+        "tests/fixtures/engine-native-fault/",
+        ".github/workflows/profile-engine-main-thread.yml",
+        "server/Dockerfile"
+      ],
+      "declarationFiles": {
+        "tests/operations/native-fault-observation.test.mjs": "2d1ac7a32c4c24eddeeec3963f72a9b435905c9795625c239151f227556bec9d",
+        "scripts/ci/native-fault-observation.py": "020c6c74be9e6942feadb2b9b3eca80db41f8af1515deaa48f9b8ba5d6d76a72",
+        "tests/fixtures/engine-native-fault/qualify.py": "569edba6d2c6c8144a4f45b3b27b03760cb4d76f3f188f5cdba01c1c81e15191",
+        "tests/fixtures/engine-native-fault/qualify_host_unit.py": "85bb680c8bd3d584ed42f2a44f854fd884eb097f9ef8986b3e243cf35e37b510"
+      },
+      "replacement": null,
+      "observedSeconds": null,
+      "observationSource": "No complete isolated timing recorded; unknown rather than estimating",
+      "scope": "Actual literal file reads and local Python producer imports inspected. No general ci.yml or financial fixture/source-binding input. Changes to any declaration source retain coverage."
+    }
+  ]
+}

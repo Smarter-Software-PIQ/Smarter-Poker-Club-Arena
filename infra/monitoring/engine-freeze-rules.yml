@@ -179,6 +179,66 @@ groups:
             log names the table id.
           runbook: 'docs/runbooks/tables-frozen.md'
 
+      # ── A RELEASE OWNER THAT OUTLIVES ITS WINDOW (2026-11-06) ──────────
+      # On 2026-11-05 release 42099609162-1 held the runtime owner for 2 h 36 m
+      # while systemd restarted it 222 times, and five newer releases died
+      # "cannot compete with active runtime owner". PokerEngineCannotBeReplaced
+      # cannot see that: the engine's restart gate was not the thing refusing.
+      # collect-monitoring-health.sh now publishes every non-inactive release
+      # unit from the host. A staged release legitimately waits for its break,
+      # at most one hour under the hourly policy and about 30 minutes before
+      # the daily 04:00 window, so 75 minutes is past any honest wait.
+      - alert: EngineReleaseOwnerStale
+        expr: max by (run, state) (club_arena_engine_release_owner_age_seconds) > 4500
+        for: 0m
+        labels:
+          severity: critical
+          component: engine
+        annotations:
+          summary: 'Release {{ $labels.run }} has been {{ $labels.state }} for {{ $value | humanizeDuration }}'
+          description: |
+            An engine release transaction unit has held the same state for more
+            than 75 minutes. While it does, every newer release refuses to
+            compete with it. journalctl -u club-arena-engine-release-v1@RUN
+            names the refusal; engine-release-seal.py retires an expired
+            announcement-only owner itself since #9630.
+          runbook: 'docs/runbooks/tables-frozen.md'
+
+      # The looping half of the same fault: a unit systemd keeps restarting.
+      # Since #9630 the unit template stops after five starts in twenty
+      # minutes, so three restarts means the transaction is failing the same
+      # way each time and the run is about to park in failed.
+      - alert: EngineReleaseOwnerLooping
+        expr: max by (run, state) (club_arena_engine_release_owner_restarts) >= 3
+        for: 0m
+        labels:
+          severity: warning
+          component: engine
+        annotations:
+          summary: 'Release {{ $labels.run }} restarted {{ $value }} times'
+          description: |
+            systemd has restarted this engine release transaction three or
+            more times. The journal for club-arena-engine-release-v1@RUN shows
+            the refusal it repeats.
+          runbook: 'docs/runbooks/tables-frozen.md'
+
+      # The gauges above come from a host collector. If it stops reading
+      # systemd, a stuck owner would look like no owner at all.
+      - alert: EngineReleaseOwnerBlind
+        expr: club_arena_engine_release_collect_ok == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: engine
+        annotations:
+          summary: 'The host cannot read engine release units'
+          description: |
+            collect-monitoring-health.sh could not list the engine release
+            systemd units for ten minutes, so EngineReleaseOwnerStale and
+            EngineReleaseOwnerLooping cannot fire. Its stderr is in
+            journalctl -u club-arena-money-health.
+          runbook: 'docs/runbooks/tables-frozen.md'
+
       # A settlement retry heartbeat can keep the existing progress watchdog
       # healthy while the same accepted hand remains blocked indefinitely.
       # Confirmed in the live Prometheus name catalog on 2026-09-08 after
