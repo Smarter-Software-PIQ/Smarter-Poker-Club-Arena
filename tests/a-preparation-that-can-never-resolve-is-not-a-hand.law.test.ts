@@ -188,7 +188,9 @@ describe('3. the release gate asks the database, and fails closed', () => {
     // An allow-list, so an unrecognised reason refuses. A deny-list would let
     // every reason a future engine invents through by default.
     expect(TRANSACTION).toContain('if not isinstance(k,str): raise SystemExit(1)');
-    expect(TRANSACTION).toContain('if k not in BOUNDED_ONLY: raise SystemExit(1)');
+    expect(TRANSACTION).toContain(
+      'if k not in BOUNDED_ONLY and k not in CENSUS_CLAIM_ONLY: raise SystemExit(1)'
+    );
     // Assert the SET ITSELF, not a slice of the file: the surrounding prose
     // names the excluded reasons on purpose, and a text search would match it.
     const literal = TRANSACTION.slice(
@@ -246,7 +248,9 @@ describe('3. the release gate asks the database, and fails closed', () => {
     // is that it cannot be talked out of a refusal by hand.
     expect(INFLIGHT).not.toMatch(/--force|--skip|ALLOW_|FORCE_|SKIP_|BYPASS/);
     // Scope to the admission block only - up to the close of the function.
-    const from = TRANSACTION.indexOf('"$INFLIGHT_HANDS" --env-file "$ENV_FILE" >&2\n');
+    const from = TRANSACTION.indexOf(
+      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" "${inflight_args[@]}" >&2\n'
+    );
     const admission = TRANSACTION.slice(from, TRANSACTION.indexOf('\n}', from));
     expect(admission).not.toMatch(/\|\|\s*true/);
     expect(admission).not.toMatch(/FORCE|SKIP|BYPASS|OVERRIDE/);

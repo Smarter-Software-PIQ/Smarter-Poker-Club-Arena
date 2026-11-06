@@ -47,8 +47,11 @@
  *    reason now refuses from EVERY serving release, 778075b4 included, and
  *    tests/noServingReleaseBuysACustodyException.law.test.ts pins that no
  *    SHA-specific exception can come back.
- * 3. `cards_in_air`, the refusing bank classes and unknown reasons still
- *    refuse, from every serving release, predecessor included.
+ * 3. The refusing bank classes and unknown reasons still refuse, from every
+ *    serving release, predecessor included. `cards_in_air` (2026-11-05) is a
+ *    census claim, not a witness: it reaches ONLY the strongest proof, zero
+ *    live hands from the engine and a drained boundary from the database over
+ *    its full 600-second lookback, and refuses on anything less (section 5).
  * 4. Every other refusal is exactly as it was: the database proof is still
  *    the only thing that proceeds, and nothing bypasses it.
  */
@@ -85,7 +88,7 @@ function inflightHelper(rc: number): string {
   // a certificate that leaks it into the captured figure fails here.
   writeFileSync(
     path,
-    `#!/bin/sh\nif [ "\${3:-}" = --weekly-payout-only ]; then echo database-proves-no-weekly-owner; exit 0; fi\necho '[engine-release-inflight-hands] answer ${rc}'\nexit ${rc}\n`
+    `#!/bin/sh\nif [ "\${3:-}" = --weekly-payout-only ]; then echo database-proves-no-weekly-owner; exit 0; fi\necho "[engine-release-inflight-hands] answer ${rc} args: $*" >&2\necho '[engine-release-inflight-hands] answer ${rc}'\nexit ${rc}\n`
   );
   chmodSync(path, 0o755);
   return path;
@@ -195,13 +198,14 @@ describe('2. the raw reason refuses from every serving release, the retired pred
     expect(TRANSACTION).not.toContain('STOPPED_BANK_UNBOUNDED_PREDECESSORS');
     expect(TRANSACTION).not.toContain('RAW_STOPPED_BANK');
     expect(TRANSACTION).not.toContain('serving=d.get("releaseSha")');
-    expect(TRANSACTION).toContain('    if k not in BOUNDED_ONLY: raise SystemExit(1)\n');
+    expect(TRANSACTION).toContain(
+      '    if k not in BOUNDED_ONLY and k not in CENSUS_CLAIM_ONLY: raise SystemExit(1)\n'
+    );
   });
 });
 
 describe('3. everything that refused still refuses', () => {
   it.each([
-    { cards_in_air: 1 },
     { stopped_bank_custody_stuck: 154, cards_in_air: 1 },
     { stopped_bank_custody_unwritten: 1 },
     { stopped_bank_custody_unreadable: 1 },
@@ -220,7 +224,6 @@ describe('3. everything that refused still refuses', () => {
   });
 
   it.each([
-    { cards_in_air: 1 },
     { stopped_bank_custody_unconfirmed: 154, cards_in_air: 1 },
     { stopped_bank_custody_unconfirmed: 154, stopped_bank_custody_unwritten: 1 },
     { stopped_bank_custody_unconfirmed: 154, bank_park_write_incomplete: 1 },
@@ -276,7 +279,9 @@ describe('5. stdout is the verdict and nothing else', () => {
   });
 
   it('the helper and the admission line are sent to stderr in the source', () => {
-    expect(TRANSACTION).toContain('"$INFLIGHT_HANDS" --env-file "$ENV_FILE" >&2');
+    expect(TRANSACTION).toContain(
+      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" "${inflight_args[@]}" >&2'
+    );
     expect(TRANSACTION).toContain(
       'admitting the cutover past the unresolved preparation named above" >&2'
     );
@@ -285,7 +290,9 @@ describe('5. stdout is the verdict and nothing else', () => {
 
 describe('4. the shape of the gate is unchanged', () => {
   it('keeps the allow-list an allow-list and admits only through the database branch', () => {
-    const from = TRANSACTION.indexOf('"$INFLIGHT_HANDS" --env-file "$ENV_FILE" >&2\n');
+    const from = TRANSACTION.indexOf(
+      '"$INFLIGHT_HANDS" --env-file "$ENV_FILE" "${inflight_args[@]}" >&2\n'
+    );
     const admission = TRANSACTION.slice(from, TRANSACTION.indexOf('\n}', from));
     expect(admission.match(/return 0/g)).toHaveLength(1);
     expect(admission).not.toMatch(/FORCE|SKIP|BYPASS|OVERRIDE/);
@@ -308,5 +315,56 @@ describe('4. the shape of the gate is unchanged', () => {
     );
     expect(BREAK).toContain('for (const tableId of [...this.stoppedCustodySince.keys()]) {');
     expect(BREAK).toMatch(/stopped_bank_custody_unwritten: \{[^}]*neverHoldsGate: true/);
+  });
+});
+
+describe('5. cards_in_air is a census claim; the two physical witnesses decide (2026-11-05)', () => {
+  it('the census-claim set is exactly cards_in_air and never a bank or custody name', () => {
+    expect(TRANSACTION).toContain('CENSUS_CLAIM_ONLY={"cards_in_air"}\n');
+    expect(TRANSACTION.match(/^CENSUS_CLAIM_ONLY=\{(.*)\}$/gm)).toHaveLength(1);
+  });
+
+  // Engine 71087373 missed seven certified breaks, each shut by cards_in_air
+  // from a table parked UNSTARTED at the pause gate. The release carrying the
+  // census fix could never cut over through the door it repairs. Measured at
+  // the 01:00Z break: census 3, zero incomplete snapshots in 600 s.
+  it('admits it only with zero live hands and the database in-flight proof at 600s', () => {
+    for (const releaseSha of [BOUNDED_RELEASE, PREDECESSOR]) {
+      const result = certificate({ reasons: { cards_in_air: 1 }, releaseSha });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout.trim()).toBe('296000');
+      expect(result.stderr).toContain('args: --env-file /dev/null --max-age-seconds 600');
+      expect(result.stderr).toContain('the database confirms');
+    }
+  });
+
+  it('admits it beside the bounded preparation classes under the same strongest proof', () => {
+    const result = certificate({ reasons: { cards_in_air: 2, f06_preparation_stuck: 3 } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toContain('args: --env-file /dev/null --max-age-seconds 600');
+  });
+
+  it('the bounded classes alone keep their unchanged proof', () => {
+    const result = certificate({ reasons: { f06_preparation_stuck: 3 } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).not.toContain('--max-age-seconds 600');
+  });
+
+  it.each([1, 3, 127])('refuses when the database answers %s', (inflightRc) => {
+    const result = certificate({ reasons: { cards_in_air: 1 }, inflightRc });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).not.toContain('the database confirms');
+  });
+
+  it.each([1, 'absent', '0'])('refuses when the engine live-hand witness is %s', (hands) => {
+    const result = certificate({ reasons: { cards_in_air: 1 }, hands: hands as never });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).not.toContain('the database confirms');
+  });
+
+  it('a bank or custody reason beside it still refuses before the database is asked', () => {
+    const result = certificate({ reasons: { cards_in_air: 1, bank_park_write_incomplete: 1 } });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).not.toContain('answer');
   });
 });
