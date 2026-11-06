@@ -232,6 +232,10 @@ try:
     try:
         historical_run('historical-runs-on-the-clone', 'SELECT current_database();', clone_db)
         historical['qualify'](ROOT, historical_out, cmd, command, historical_run, historical_probe, require, historical_results)
+        stopped_cancelled = runpy.run_path(str(ROOT / 'scripts/ci/probes/f06-shared-hand-lane/stopped_cancelled_qualification.py'))
+        stopped_cancelled['qualify'](ROOT, historical_out, cmd, command, historical_run, historical_probe, require, historical_results)
+        require(historical_results.get('stoppedCancelled', {}).get('passed') is True, 'Cancelled preparation custody did not qualify')
+        results['stoppedCancelled'] = historical_results['stoppedCancelled']
     finally:
         cmd[-1] = prerequisite_db
     run('historical-ordinary-database-restored', 'SELECT current_database();', prerequisite_db)
