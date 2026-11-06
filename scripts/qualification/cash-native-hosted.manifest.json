@@ -41,7 +41,7 @@
   },
   "schemaVersion": 1,
   "diamondLaunchMainInputMerge20261013": {
-    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1\u21923. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
+    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1→3. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
     "changes": {
       ".github/workflows/ci.yml": {
         "previous": {
@@ -427,17 +427,9 @@
     }
   },
   "files": {
-    ".github/workflows/ci.yml": {
-      "bytes": 279453,
-      "sha256": "28cb2f69661b21a526f69dc296b0b7b8492c069a912a203344c9e9aac73a689e"
-    },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
-    },
-    "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 48221,
-      "sha256": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -448,8 +440,8 @@
       "bytes": 14523
     },
     "scripts/ci/test-cash-failure-pgcron.py": {
-      "bytes": 31563,
-      "sha256": "1b152f792192a139a791bb8f996a39326f5507ebc8804fcd144f3151457e44ab"
+      "bytes": 31937,
+      "sha256": "bf095eea2f7bf324991802cf097633735604a404f068593244c0bd228fc0fbc0"
     },
     "scripts/ci/test-production-alert-core-postgres.py": {
       "bytes": 32569,
@@ -531,9 +523,17 @@
       "bytes": 50456,
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
-    "tests/unit/fixtureNativeCi.test.ts": {
-      "bytes": 122859,
-      "sha256": "b2e12459daec2aa40b51ab33301738463605b35067ee2176e16d38d08ee2670e"
+    "scripts/qualification/ci-accounting-inputs.json": {
+      "bytes": 139768,
+      "sha256": "abc4706cf0d90a537aa40817bd1e735f2fc692be2623a377f5af40f6a667ebf1"
+    },
+    "scripts/qualification/ci-admission-inputs.json": {
+      "bytes": 77125,
+      "sha256": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb"
+    },
+    "scripts/ci/qualification-input-projections.py": {
+      "bytes": 9270,
+      "sha256": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86"
     }
   },
   "nativePgCron": {
@@ -4244,7 +4244,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -6936,16 +6936,25 @@
       "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
     }
   },
-  "bountyOnlyFinalTwoWatchNativeEnforcement20261106": {
-    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the bounty only PKO final two step: run the bounty only final two payout watch proof (scripts/ci/test-bounty-only-final-two-watch.py) on native PostgreSQL 17. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
-    "previous": {
-      "bytes": 278905,
-      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+  "qualificationInputProjection20261106": {
+    "scope": "Current execution/admission input identity; historical financial sources, assertions and qualification results unchanged.",
+    "reason": "Replace whole-CI/classifier/shared-test-catalog checksums with exact global/accounting/admission context and registered-input behavior. Existing tests and financial assertions still execute through required gates; unrelated CI jobs, classifier branches and test-catalog additions need no financial source restamp. The directly invoked projection validator is a pinned executable input.",
+    "retiredWholeFilePins": {
+      ".github/workflows/ci.yml": {
+        "bytes": 278905,
+        "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+      },
+      "scripts/ci/classify-ci-changes.mjs": {
+        "bytes": 48221,
+        "sha256": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c"
+      },
+      "tests/unit/fixtureNativeCi.test.ts": {
+        "bytes": 122859,
+        "sha256": "b2e12459daec2aa40b51ab33301738463605b35067ee2176e16d38d08ee2670e"
+      }
     },
-    "current": {
-      "bytes": 279178,
-      "sha256": "60df4d0cb3916b6f67277c8422fbdfe1312db50fbe93ea93e7b1e21e0a5b7b5e"
-    }
+    "execution_performed": false,
+    "financialQualificationRestamped": false
   },
   "sweepGatePendingWorkNativeEnforcement20261106": {
     "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the bounty only final two payout watch step: run the sweep gate pending bounty work proof (scripts/ci/test-sweep-gate-pending-bounty-work.py) on native PostgreSQL 17. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",

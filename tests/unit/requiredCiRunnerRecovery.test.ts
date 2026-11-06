@@ -736,14 +736,14 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       fingerprint(Object.fromEntries(Object.entries(normalized).filter(([key]) => key !== 'jobs')))
     ).toBe('bf371889e58c11a6f6178fd7405b0cb3a484ed6016b88629bc790f4b4ed83d0e');
     const expectedJobs = {
-      changes: 'f9d317d1503f4dc8a8945bb2b9238bcfa89b2ea551a970dd23ddb3d531f4a481',
+      changes: 'fe673573c5f5db526c93c086e911b58b9c956ac1f5070d10f29aa78158b86d5f',
       source_windows: 'a9830648dfc81b5558d0e9a45d75307210fa1535926da65e087f6647e1fa4189',
       stub_gate: '166528cc83e7d0c075c59b6facb1a6782f3e2eda6c334f9608b933319aca9c80',
       fixture_native: '8949ac7f86b74f267efb996eecddb67f8c59f93d3e40a8bc407530ec3b1644ec',
       typecheck: '07758ff6fff680beb77a9e38725eecc5776b94db14cdc3499783c049ce771750',
       typecheck_compile: '88a03bf85dc749608900101f598720ad93c957e5b5bf75791c589c9e25228168',
-      unit_shards: 'a694772adb1e9b9c9cf9e8ff24d9a655deb26d18b5d1f191b120ac3b4516c474',
-      unit: '69c8c0e64dddf305dd3336a22d977be302c177d26adb4f19a9928efd40fe42a0',
+      unit_shards: 'dee27f1ca77441b7044d7044f7fc5d5eb428376fe6a175bf0310a9d1f4d413ef',
+      unit: '1a7b2d6c8f6c6fb045124997bf1780d296cd4a7c9d3241bdb4cc52ba82cddd08',
       // Retain both original top-up receipt and funded satellite qualifications.
       // Every other normalized job and prior accounting command is unchanged.
       accounting_postgres: '8fe0309bc5f9c00d2987d02020e9ef6aa0a13eb2dcbcd16ae69e21274d5735a3',

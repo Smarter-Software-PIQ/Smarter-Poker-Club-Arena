@@ -68,11 +68,10 @@
     }
   },
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/qualify-sep8-spin-custody.py": "28a2b63e4424f15d3b85ad742f7592fd65c2f8a8493eabb06210665e01e9ad67",
-    "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
+    "scripts/dev/test-full-weekly-accounting-activation.sh": "866959327e7db278f788330c3a10334fe73a6169ee1a4bd5485115aad7d5c9c6",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
@@ -89,7 +88,6 @@
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/restore-synthetic-terms.sql": "9d14a15482330a285c5346e9607a3beec85b2b21b46dcec3a15372a1524e5596",
     "tests/fixtures/sep8-spin-custody/setup.sql": "eded939b6797c5e561e12071cb08938a25359b791cdb810fc49b5e0424565f29",
-    "tests/unit/fixtureNativeCi.test.ts": "b2e12459daec2aa40b51ab33301738463605b35067ee2176e16d38d08ee2670e",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -128,7 +126,10 @@
     "tests/fixtures/sep8-spin-custody/legacy-custody-lane-controls.sql": "ea881ef1234b034658a9d56b332b91c2fd9994cca2abbb1743b142723c217aab",
     "supabase/migrations/20260918213339_review_bounded_legacy_fee_custody_settlement_lane_callers.sql": "61ffaf5bf15ed33970efed36677fac4341d66f3fdf403fde79efff8744c24e08",
     "tests/fixtures/sep8-spin-custody/qualify-clock-comparison.py": "6e72595bd5ec5f56dbd00a10621e72d5050a7d5d9da98bc48827479e0c1aaa97",
-    "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d"
+    "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
+    "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
+    "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
+    "scripts/qualification/ci-accounting-inputs.json": "abc4706cf0d90a537aa40817bd1e735f2fc692be2623a377f5af40f6a667ebf1"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -1987,5 +1988,15 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "qualificationInputProjection20261106": {
+    "scope": "Current execution/admission input identity; historical financial sources, assertions and qualification results unchanged.",
+    "reason": "Replace whole-CI/classifier/shared-test-catalog checksums with exact global/accounting/admission context and registered-input behavior. Existing tests and financial assertions still execute through required gates; unrelated CI jobs, classifier branches and test-catalog additions need no financial source restamp. The directly invoked projection validator is a pinned executable input.",
+    "retiredWholeFilePins": {
+      "scripts/ci/classify-ci-changes.mjs": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c",
+      "tests/unit/fixtureNativeCi.test.ts": "b2e12459daec2aa40b51ab33301738463605b35067ee2176e16d38d08ee2670e"
+    },
+    "execution_performed": false,
+    "financialQualificationRestamped": false
   }
 }

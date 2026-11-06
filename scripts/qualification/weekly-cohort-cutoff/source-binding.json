@@ -197,10 +197,6 @@
     }
   },
   "files": {
-    ".github/workflows/ci.yml": {
-      "bytes": 279453,
-      "sha256": "28cb2f69661b21a526f69dc296b0b7b8492c069a912a203344c9e9aac73a689e"
-    },
     "scripts/qualification/original-flow-eligibility/after-flow.sql": {
       "bytes": 13791,
       "sha256": "828e1139c4b54abe5df31e7858884279c7e240cb842544730612e2e5a3925873"
@@ -250,12 +246,12 @@
       "sha256": "b71407042a67bba07268fdf61b1b466c9a035f8ae8b22718381e95ebfa729a5a"
     },
     "scripts/qualification/weekly-cohort-cutoff/installer-driver.py": {
-      "bytes": 11273,
-      "sha256": "57fce087e84ef59f1be3963ec29c49de49eb263c4a9aa19d5232c69312a309aa"
+      "bytes": 11385,
+      "sha256": "c1d1652f8739a9cc834a0e744128a9269d4b699546b00ddd5bfad6d0d4c7c0bf"
     },
     "scripts/qualification/weekly-cohort-cutoff/run-native.py": {
-      "bytes": 1481,
-      "sha256": "c22c18ffcfb3f1e3e755bad7895c9c0ee4af7f468c08963a9ccc3ce9182736d0"
+      "bytes": 1593,
+      "sha256": "8a48b71fee505b05c1ea604502534c242170edfc858574ec41ae2de6412ab5a4"
     },
     "scripts/qualification/weekly-cohort-cutoff/semantic-bootstrap.sql": {
       "bytes": 10091,
@@ -300,6 +296,18 @@
     "supabase/migrations/20261013195428_weekly_cohort_cutoff_runs_once_per_earning_club.sql": {
       "bytes": 11065,
       "sha256": "0d963d68abc79558029bd3a44069f851c03ccfa882b041dc785e280261027b54"
+    },
+    "scripts/qualification/ci-accounting-inputs.json": {
+      "bytes": 139768,
+      "sha256": "abc4706cf0d90a537aa40817bd1e735f2fc692be2623a377f5af40f6a667ebf1"
+    },
+    "scripts/ci/qualification-input-projections.py": {
+      "bytes": 9270,
+      "sha256": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86"
+    },
+    "scripts/qualification/ci-admission-inputs.json": {
+      "bytes": 77125,
+      "sha256": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb"
     }
   },
   "diamondOwnHistoryCiInput20261015": {
@@ -697,7 +705,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -2574,24 +2582,17 @@
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   },
-  "bountyOnlyFinalTwoWatchNativeEnforcement20261106": {
-    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the bounty only PKO final two step: run the bounty only final two payout watch proof (scripts/ci/test-bounty-only-final-two-watch.py) on native PostgreSQL 17. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
-    "changes": [
-      {
-        "section": "files",
-        "path": ".github/workflows/ci.yml",
-        "previous": {
-          "bytes": 278905,
-          "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
-        },
-        "current": {
-          "bytes": 279178,
-          "sha256": "60df4d0cb3916b6f67277c8422fbdfe1312db50fbe93ea93e7b1e21e0a5b7b5e"
-        }
+  "qualificationInputProjection20261106": {
+    "scope": "Current execution/admission input identity; historical financial sources, assertions and qualification results unchanged.",
+    "reason": "Replace whole-CI/classifier/shared-test-catalog checksums with exact global/accounting/admission context and registered-input behavior. Existing tests and financial assertions still execute through required gates; unrelated CI jobs, classifier branches and test-catalog additions need no financial source restamp. The directly invoked projection validator is a pinned executable input.",
+    "retiredWholeFilePins": {
+      ".github/workflows/ci.yml": {
+        "bytes": 278905,
+        "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
       }
-    ],
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false
+    },
+    "execution_performed": false,
+    "financialQualificationRestamped": false
   },
   "sweepGatePendingWorkNativeEnforcement20261106": {
     "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the bounty only final two payout watch step: run the sweep gate pending bounty work proof (scripts/ci/test-sweep-gate-pending-bounty-work.py) on native PostgreSQL 17. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",

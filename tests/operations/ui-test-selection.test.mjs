@@ -1,6 +1,8 @@
+import '../helpers/sourceContractInventoryCases.mjs';
 // Shared execution primitives run in this existing required CI gate.
 import '../helpers/agentExecutionCases.mjs';
 import { test } from 'node:test';
+import { parse } from 'yaml';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,12 +15,15 @@ import {
   runSelection,
   selectionInputs,
   consumedInputs,
+  contractTests,
   browserSpecs,
 } from '../../scripts/ci/ui-test-selection.mjs';
 import {
   classifyChangedPaths,
   cssBeatJobInputs,
   gitEnvironmentForCwd,
+  nonRuntimeCandidatePaths,
+  clientUnitShards,
 } from '../../scripts/ci/classify-ci-changes.mjs';
 
 const owned = (fn) => {
@@ -688,3 +693,120 @@ test('isolated simulations accept exact CSS and binary artwork without narrowing
     assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false);
     assert.equal(isolatedSimulationsUnchanged(root, '', head), false);
   }));
+
+
+test('isolated delivery tools retain readers and omit only proved unchanged simulations', () => owned(root => {
+  const git = (...args) => execFileSync('git', args, { cwd: root, env: gitEnvironmentForCwd(), encoding: 'utf8' }).trim();
+  git('init', '-q');
+  git('config', 'user.name', 'Tool Selection Fixture');
+  git('config', 'user.email', 'fixture@example.invalid');
+  write(root, '.gitignore', 'node_modules/\ncalls.jsonl\nscope.out\n');
+  write(root, '.husky/pre-push', '# before\n');
+  write(root, 'tests/direct.test.ts', "import {readFileSync} from 'node:fs'; import {test} from 'vitest'; test('hook',()=>readFileSync('.husky/pre-push'));\n");
+  write(root, 'tests/dynamic.test.ts', "import {readFileSync} from 'node:fs'; import {test} from 'vitest'; test('dynamic',()=>readFileSync(process.env.TARGET));\n");
+  write(root, 'tests/unrelated.test.ts', "import {test,expect} from 'vitest'; test('unrelated',()=>expect(1).toBe(1));\n");
+  git('add', '.'); git('commit', '-qm', 'base');
+  const base = git('rev-parse', 'HEAD');
+  write(root, '.husky/pre-push', '# after\n');
+  git('add', '.'); git('commit', '-qm', 'tool');
+  const head = git('rev-parse', 'HEAD');
+  assert.equal(selectionInputs(root, base, head).focused, false);
+  assert.equal(selectionInputs(root, base, head, false, true).focused, true);
+  assert.equal(isolatedSimulationsUnchanged(root, base, head), true);
+  assert.deepEqual(contractTests(root, ['.husky/pre-push']), ['tests/direct.test.ts', 'tests/dynamic.test.ts']);
+  const scope = join(root, 'scope.out');
+  runSelection(root, ['scope'], { ...process.env, CI_BASE_SHA: base, CI_HEAD_SHA: head, GITHUB_OUTPUT: scope });
+  assert.match(readFileSync(scope, 'utf8'), /presentation_only=false/);
+  assert.match(readFileSync(scope, 'utf8'), /isolated_simulations_unchanged=true/);
+  write(root, 'node_modules/.bin/vitest', `#!${process.execPath}\nimport('node:fs').then(fs=>fs.appendFileSync('calls.jsonl',JSON.stringify(process.argv.slice(2))+'\\n'));\n`);
+  execFileSync('chmod', ['+x', join(root, 'node_modules/.bin/vitest')]);
+  runSelection(root, ['unit'], { ...process.env, CI_BASE_SHA: base, CI_HEAD_SHA: head });
+  const calls = readFileSync(join(root, 'calls.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.ok(calls[0].includes('tests/direct.test.ts'));
+  assert.ok(calls[0].includes('tests/dynamic.test.ts'));
+  assert.ok(!calls[0].includes('tests/unrelated.test.ts'));
+  assert.ok(calls[1].includes('--exclude'));
+  write(root, 'untracked-test-input.json', '{}');
+  assert.equal(selectionInputs(root, base, head, false, true).focused, false);
+  rmSync(join(root, 'untracked-test-input.json'));
+  write(root, '.github/workflows/ci.yml', 'jobs: {}\n');
+  git('add', '.'); git('commit', '-qm', 'mixed delivery controls');
+  assert.equal(selectionInputs(root, base, git('rev-parse', 'HEAD'), false, true).focused, false);
+  assert.equal(isolatedSimulationsUnchanged(root, base, git('rev-parse', 'HEAD')), false);
+}));
+
+test('re-exported helper readers retain uncertainty instead of dropping a source contract', () => owned(root => {
+  write(root, 'tests/forwarder.ts', "export {reader} from './reader';\n");
+  write(root, 'tests/reader.ts', "import {readFileSync} from 'node:fs'; export const reader=()=>readFileSync(process.env.INPUT);\n");
+  write(root, 'tests/case.test.ts', "import {reader} from './forwarder'; reader();\n");
+  assert.equal(consumedInputs(root, 'tests/case.test.ts').unknown, true);
+}));
+
+test('qualification execution/admission projections preserve their actual dependency boundaries', () => {
+  execFileSync('python3', ['-m', 'unittest', 'discover', '-s', 'scripts/ci', '-p', 'test_qualification_input_projections.py'], {
+    cwd: process.cwd(), env: gitEnvironmentForCwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+});
+
+test('projection and lifecycle fixture inputs admit their real native consumers', () => {
+  for (const path of [
+    'scripts/ci/qualification-input-projections.py',
+    'scripts/qualification/ci-accounting-inputs.json',
+    'scripts/qualification/ci-admission-inputs.json',
+    'scripts/ci/test-tournament-opening-blinds.py',
+    'scripts/ci/test-mtt-lobby-entry-counts.py',
+    'scripts/qualification/fixtures/tournament-opening-blinds/lifecycle-guard-capture.json',
+  ]) {
+    const flags = classifyChangedPaths([path]);
+    assert.equal(flags.server, true, path);
+    assert.equal(flags.tests, true, path);
+  }
+  assert.equal(classifyChangedPaths(['scripts/qualification/fixtures/tournament-opening-blinds/README.md']).server, false);
+});
+
+
+test('instruction and routing catalogs use one unit shard while unknown/runtime inputs keep the full budget', () => {
+  for (const path of ['README.md', 'AGENTS.md', 'docs/changelog/2026-11-06-actual-note.md', 'tests/unit/fixtureNativeCi.test.ts']) {
+    assert.equal(nonRuntimeCandidatePaths([path]), true, path);
+    assert.deepEqual(clientUnitShards({ complete: true, paths: [path] }), [1]);
+    const flags = classifyChangedPaths([path]);
+    assert.equal(flags.tests, true, path);
+    assert.equal(flags.server, false, path);
+    assert.equal(flags.fixture, false, path);
+  }
+  for (const paths of [[], ['README.md', 'supabase/migrations/money.sql'], ['docs/evidence/qualification.md'], ['.github/workflows/ci.yml']])
+    assert.deepEqual(clientUnitShards({ complete: true, paths }), [1,2,3,4,5,6,7,8]);
+  assert.deepEqual(clientUnitShards({ complete: false, paths: ['README.md'] }), [1,2,3,4,5,6,7,8]);
+});
+
+test('a real documentation-only immutable diff omits unchanged simulations without calling it presentation', () => owned(root => {
+  const git = (...args) => execFileSync('git', args, { cwd: root, env: gitEnvironmentForCwd(), encoding: 'utf8' }).trim();
+  git('init', '-q'); git('config', 'user.name', 'Documentation Fixture'); git('config', 'user.email', 'fixture@example.invalid');
+  write(root, 'README.md', 'Before\n'); git('add', '.'); git('commit', '-qm', 'before');
+  const base = git('rev-parse', 'HEAD');
+  write(root, 'README.md', 'After\n'); git('add', '.'); git('commit', '-qm', 'after');
+  const head = git('rev-parse', 'HEAD');
+  assert.equal(selectionInputs(root, base, head).focused, false);
+  assert.equal(isolatedSimulationsUnchanged(root, base, head), true);
+  write(root, 'docs/changelog/2026-11-06-actual-note.md', '# Actual change\n'); git('add', '.'); git('commit', '-qm', 'record');
+  assert.equal(isolatedSimulationsUnchanged(root, head, git('rev-parse', 'HEAD')), true);
+}));
+
+test('the actual required unit aggregate rejects unexplained skip, empty matrix and cancelled work', () => owned(root => {
+  const workflow = parse(readFileSync(' .github/workflows/ci.yml'.trim(), 'utf8'));
+  const script = workflow.jobs.unit.steps.find(step => step.name === 'Every shard passed').run;
+  const evaluate = ({ result, changes = 'success', src = 'false', tests = 'false', event = 'pull_request' }) => {
+    const values = { 'needs.unit_shards.result': result, 'needs.changes.result': changes,
+      'needs.changes.outputs.src': src, 'needs.changes.outputs.tests': tests, 'github.event_name': event };
+    const expanded = script.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, name) => {
+      assert.ok(Object.hasOwn(values, name), name); return values[name];
+    });
+    try { execFileSync('bash', ['-c', expanded], { env: { ...process.env, GITHUB_STEP_SUMMARY: join(root, 'summary') }, stdio: 'pipe' }); return true; }
+    catch { return false; }
+  };
+  assert.equal(evaluate({ result: 'success', tests: 'true' }), true);
+  assert.equal(evaluate({ result: 'skipped' }), true);
+  for (const state of [{ result: 'skipped', tests: 'true' }, { result: 'skipped', changes: 'failure' },
+    { result: 'skipped', event: 'schedule' }, { result: 'cancelled' }, { result: 'failure' }])
+    assert.equal(evaluate(state), false, JSON.stringify(state));
+}));
