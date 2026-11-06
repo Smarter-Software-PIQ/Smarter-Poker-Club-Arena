@@ -2516,20 +2516,21 @@ groups:
       # changes.
       - alert: EngineProcessMemoryHigh
         expr: |
-          poker_engine_process_rss_bytes > 12884901888
+          poker_engine_process_rss_bytes > 38654705664
         for: 15m
         labels:
           severity: warning
           component: engine
         annotations:
-          summary: 'Engine process RSS {{ $value | humanize1024 }}B - above the 12 GiB owner ceiling (12288 MB, 2026-11-05)'
+          summary: 'Engine process RSS {{ $value | humanize1024 }}B - above the 36 GiB owner ceiling (36864 MB, 3x the 2026-11-05 worst case)'
           description: |
-            Engine process RSS has exceeded 12 GiB for fifteen minutes - above
-            the 12288 MB Phase 1 ceiling set by the owner on 2026-11-05 and
-            above the 8.85-10.3 GB whole-process steady state measured on the
-            current engine (the horse decision workers, equity workers and
-            journal writers are worker_threads inside this process and are
-            already counted in that figure).
+            Engine process RSS has exceeded 36 GiB for fifteen minutes - three
+            times the 12 GB worst case measured on 71087373 on 2026-11-05, the
+            headroom the owner ordered that day ("2-3x more memory than it will
+            ever need"), and well above the 8.85-10.3 GB whole-process steady
+            state (the horse decision workers, equity workers and journal
+            writers are worker_threads inside this process and are already
+            counted in that figure).
             Compare whole-process RSS, main-isolate V8 usage, worker activity,
             external memory and threads. poker_engine_native_main_arena_bytes
             is current [heap] virtual extent, not RSS or allocation ownership.

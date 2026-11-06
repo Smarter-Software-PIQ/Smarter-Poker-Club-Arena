@@ -25,9 +25,9 @@ describe('memoryGovernorThresholds', () => {
     });
   });
 
-  it('falls back to 9830 soft / 12288 hard (the 2026-11-05 owner ceiling) when the limit is unset or malformed', () => {
-    expect(MEMORY_GOVERNOR_FALLBACK_HARD_MB).toBe(12288);
-    expect(MEMORY_GOVERNOR_FALLBACK_SOFT_MB).toBe(Math.floor(12288 * 0.8));
+  it('falls back to 29491 soft / 36864 hard (3x the 2026-11-05 worst case, Dan) when the limit is unset or malformed', () => {
+    expect(MEMORY_GOVERNOR_FALLBACK_HARD_MB).toBe(36864);
+    expect(MEMORY_GOVERNOR_FALLBACK_SOFT_MB).toBe(Math.floor(36864 * 0.8));
     for (const env of [{}, { MEMORY_LIMIT_MB: '' }, { MEMORY_LIMIT_MB: 'lots' }]) {
       const t = memoryGovernorThresholds(env);
       expect(t.softMb).toBe(MEMORY_GOVERNOR_FALLBACK_SOFT_MB);
@@ -216,14 +216,14 @@ describe('MemoryGovernor first deploy safety (2026-10-31 production RSS, 2026-11
   // 9490 MB at 102 min; the current engine levels off at 8.85-10.3 GB
   // whole-process RSS (the horse decision workers are worker_threads inside
   // this process, so they are already in that figure). Since the owner
-  // decision of 2026-11-05 the fallback hard line is 12288 MB, so the
-  // measured steady state sits BELOW it and must not even register as a hard
-  // crossing.
+  // decision of 2026-11-05 18:25 the fallback hard line is 36864 MB (three
+  // times the 12 GB worst case), so the measured steady state sits far BELOW
+  // it and must not even register as a hard crossing.
   const productionRssMb = [
     5101, 6000, 7000, 8000, 8850, 8900, 9000, 9100, 9300, 9490, 9800, 10300, 10300, 10300,
   ];
   // The shape the ceiling is there for: growth that does not level off.
-  const runawayRssMb = [...productionRssMb, 11000, 12000, 12288, 12400, 12500, 12500];
+  const runawayRssMb = [...productionRssMb, 20000, 30000, 36864, 37000, 38000, 38000];
 
   it('the measured steady state sits below the fallback ceilings and is never a hard crossing', () => {
     let i = 0;
@@ -248,7 +248,8 @@ describe('MemoryGovernor first deploy safety (2026-10-31 production RSS, 2026-11
     expect(onHardCeilingWithheld).not.toHaveBeenCalled();
     expect(g.health()).toMatchObject({
       mode: 'observe',
-      level: 'soft',
+      // 10.3 GB against a 29.5 GB soft line is plain normal now.
+      level: 'normal',
       admittingNewTables: true,
       journalTrimRequested: false,
       handOffRequested: false,
@@ -259,7 +260,7 @@ describe('MemoryGovernor first deploy safety (2026-10-31 production RSS, 2026-11
     });
   });
 
-  it('with no env at all it only observes: never holds, trims or hands off, even past 12288 MB', () => {
+  it('with no env at all it only observes: never holds, trims or hands off, even past 36864 MB', () => {
     let i = 0;
     const onHandOff = vi.fn();
     const onHardCeilingWithheld = vi.fn();
@@ -298,8 +299,8 @@ describe('MemoryGovernor first deploy safety (2026-10-31 production RSS, 2026-11
     const onHandOff = vi.fn();
     const onHardCeilingWithheld = vi.fn();
     const g = new MemoryGovernor({
-      // Above the 12288 MB fallback hard line.
-      sampleRssBytes: () => 12_500e6,
+      // Above the 36864 MB fallback hard line.
+      sampleRssBytes: () => 38_000e6,
       onHandOff,
       onHardCeilingWithheld,
       env: { MEMORY_GOVERNOR_MODE: 'enforce' },

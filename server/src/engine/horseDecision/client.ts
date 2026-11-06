@@ -432,8 +432,26 @@ function defaultWorkerFactory(shard?: { index: number; count?: number }): Worker
         }
       : undefined,
     env: horseDecisionWorkerEnv(process.env),
+    resourceLimits: HORSE_DECISION_WORKER_RESOURCE_LIMITS,
   }) as WorkerLike;
 }
+
+/**
+ * EACH DECISION WORKER OWNS THREE GIGABYTES (2026-11-05, Dan: "give the
+ * engine 2-3x more memory than it will ever need"). A worker inherited the
+ * process default (about 4 GB on this host) with nothing written down, so
+ * nobody could say what a worker was allowed to hold or when it was in
+ * trouble. The bounded observer bank (observerReads.ts) keeps a worker under
+ * 450 MB of old space; 3 GB is six times that and three times the 940 MB
+ * worst case measured before the bound, and eight of them plus the 12 GB main
+ * isolate (server/Dockerfile) fit in the 47 GB the host had free at that
+ * worst case. Young generation: 64 MB semi-spaces so the floor's short-lived
+ * decision objects rarely promote.
+ */
+export const HORSE_DECISION_WORKER_RESOURCE_LIMITS = Object.freeze({
+  maxOldGenerationSizeMb: 3072,
+  maxYoungGenerationSizeMb: 64,
+});
 
 /**
  * THE DECISION WORKER RUNS THE QUALIFIED BRAIN (2026-10-16).

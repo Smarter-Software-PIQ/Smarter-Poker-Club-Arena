@@ -17,7 +17,7 @@ import { pathToFileURL } from 'node:url';
 // to 12288 MB and require it to level off". The 8192 MB ceiling was below the
 // measured steady state of the 8 horse-decision workers' bounded observer
 // memory, so it could not be met at any uptime. Heap ceiling unchanged.
-export const RESOURCE_RSS_CEILING_MB = 12288;
+export const RESOURCE_RSS_CEILING_MB = 36864;
 export const RESOURCE_RSS_LEVEL_OFF_MAX_MB_PER_MIN = 2;
 export const RESOURCE_RSS_LEVEL_OFF_MIN_SAMPLES = 8;
 
@@ -151,11 +151,11 @@ export function evaluateEngineReleaseCertificationBundle(bundle) {
     if ((resource.activeSeconds ?? 0) < 900) {
       failures.push('resource_window_under_900_active_seconds');
     }
-    if ((resource.maxHeapUsedMB ?? Infinity) > 2048) {
-      failures.push('resource_window_heap_exceeded_2048mb');
+    if ((resource.maxHeapUsedMB ?? Infinity) > 6144) {
+      failures.push('resource_window_heap_exceeded_6144mb');
     }
     if ((resource.maxRssMB ?? Infinity) > RESOURCE_RSS_CEILING_MB) {
-      failures.push('resource_window_rss_exceeded_12288mb');
+      failures.push('resource_window_rss_exceeded_36864mb');
     }
     const slope = rssLevelOffSlopeMbPerMinute(resource.rssSamples);
     if (slope === null) failures.push('resource_window_rss_level_off_unproven');
