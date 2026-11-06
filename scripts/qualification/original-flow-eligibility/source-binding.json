@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278636,
-      "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
+      "bytes": 278905,
+      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
     },
     "scripts/qualification/original-flow-eligibility/README.md": {
       "bytes": 2608,
@@ -2580,6 +2580,25 @@
         "current": {
           "bytes": 278636,
           "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
+        }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "bountyOnlyFinalTwoNativeEnforcement20261106": {
+    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the guarantee funding watch step: run the bounty only PKO final two proof (scripts/ci/test-bounty-only-pko-final-two.py) on native PostgreSQL 17. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
+    "changes": [
+      {
+        "section": "files",
+        "path": ".github/workflows/ci.yml",
+        "previous": {
+          "bytes": 278636,
+          "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
+        },
+        "current": {
+          "bytes": 278905,
+          "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
         }
       }
     ],

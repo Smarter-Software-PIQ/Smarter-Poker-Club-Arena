@@ -1277,8 +1277,8 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                       </p>
                       <p>
                         Every Chip Is Paid For Knockouts. Half Of Each Bounty Goes To The Wallet Of
-                        The Player Who Wins It And Half Onto Their Head. The Last Player Standing
-                        Keeps Their Own Bounty.
+                        The Player Who Wins It And Half Onto Their Head. The Event Ends With Two
+                        Players Left, And Both Keep The Bounty On Their Own Head.
                       </p>
                     </div>
                   ) : tournament && panelPayouts.length > 0 ? (

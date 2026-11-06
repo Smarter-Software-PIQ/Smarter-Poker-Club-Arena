@@ -85,6 +85,11 @@ import {
   type HorseRebuyOfferTiming,
 } from './horseTournamentRebuyTiming.js';
 import { bindLatestKnockoutCandidates, knockoutCandidateReadIsComplete } from './bustOrder.js';
+import {
+  closeBountyOnlyPkoAtTwo,
+  isBountyOnlyPkoRow,
+  type FinalTwoState,
+} from './bountyOnlyFinalTwo.js';
 
 /** Distinguish a receipted retirement, completed planning and an unfinished pass. */
 export type TournamentBalanceProgress =
@@ -252,6 +257,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
    * standings tie that the accepted hand can distinguish.
    */
   private readonly bustRefusalStreak = new Map<string, number>();
+  /** The close of a bounty only PKO at two players; see bountyOnlyFinalTwo.ts. */
+  private readonly bountyOnlyFinalTwo: FinalTwoState = { parked: false, refused: false };
 
   /**
    * ═════════════════════════════════════════════════════════════════════════
@@ -1728,12 +1735,44 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         }
         // Check remaining players AFTER all eliminations processed
         this.noteEliminationSweepStep('db:tournament_players');
-        const { count: remainingCount, error: remainingErr } = await supabase
+        const { count: remainingRead, error: remainingErr } = await supabase
           .from('tournament_players')
           .select('*', { count: 'exact', head: true })
           .eq('tournament_id', this.tournamentId)
           .eq('status', 'playing');
         if (sweepStopped()) return;
+        let remainingCount = remainingRead;
+
+        // A BOUNTY ONLY PKO ENDS WITH TWO PLAYERS (Dan 2026-11-05): both keep
+        // the bounty on their own head. Once the bust that left two has
+        // settled, park the tables and let fn_ca_bounty_only_pko_final_two
+        // pay the second player his head and record second place; the one
+        // player left then finishes below exactly like any other winner, and
+        // the terminal pays him his own head. See bountyOnlyFinalTwo.ts.
+        if (
+          !remainingErr &&
+          remainingCount === 2 &&
+          this.prizePoolFinalized &&
+          isBountyOnlyPkoRow(this.tournamentCache)
+        ) {
+          this.noteEliminationSweepStep('db:fn_ca_bounty_only_pko_final_two');
+          const finalTwo = await closeBountyOnlyPkoAtTwo({
+            tournamentId: this.tournamentId,
+            tables: [...this.tableEngines.values()],
+            state: this.bountyOnlyFinalTwo,
+            rpc: (fn, args) => supabase.rpc(fn, args),
+            recheckAfter: (delayMs) => this.requestUrgentEliminationSweepAfter(delayMs),
+            release: () => {
+              // A break or a successor drain owns its own pause.
+              if (this.isOnBreak() || this.successorDrainRequested) return;
+              for (const engine of this.tableEngines.values()) engine.resumeDealing();
+            },
+            report: (error, tag) => reportError(error, tag),
+          });
+          if (sweepStopped()) return;
+          if (finalTwo === 'closed') remainingCount = 1;
+          else if (finalTwo !== 'refused') return;
+        }
 
         // PAYOUT-INTEGRITY 2026-08-20: a FAILED count must never read as
         // "nobody is left". This line used to be `(remainingCount || 0) <= 1`,
