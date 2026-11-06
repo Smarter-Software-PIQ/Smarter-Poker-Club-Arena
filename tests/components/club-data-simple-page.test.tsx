@@ -522,3 +522,46 @@ it('finds a player independently when the game search fails', async () => {
     screen.getAllByText('Club Data Could Not Be Read. Showing The Last Good Figures.')[0]
   ).toBeVisible();
 });
+
+describe('Selectable Chicago Dates And Player Totals', () => {
+  beforeEach(() => rpcMock.mockResolvedValue({ data: live, error: null }));
+  it('applies exact custom dates, shifts the same inclusive span and restores presets', async () => {
+    render(<ClubDataSimplePage />);
+    await screen.findByText('Shark Tank');
+    fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+    fireEvent.change(screen.getByLabelText('Start Date'), {
+      target: { value: addDays(today, -5) },
+    });
+    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: addDays(today, -2) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith(
+        'ca_club_data_screen',
+        expect.objectContaining({ p_start: addDays(today, -5), p_end: addDays(today, -2) })
+      )
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Previous Period' }));
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith(
+        'ca_club_data_screen',
+        expect.objectContaining({ p_start: addDays(today, -9), p_end: addDays(today, -6) })
+      )
+    );
+    fireEvent.click(screen.getByRole('button', { name: '1 Day' }));
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith(
+        'ca_club_data_screen',
+        expect.objectContaining({ p_start: addDays(today, -6), p_end: addDays(today, -6) })
+      )
+    );
+  });
+  it('offers keyboard-accessible breakdown actions for all three totals', async () => {
+    render(<ClubDataSimplePage />);
+    await screen.findByText('Shark Tank');
+    expect(
+      screen.getByRole('button', { name: 'View Total Winnings By Player' })
+    ).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'View MTT Winnings By Player' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'View Fees By Player' })).not.toBeDisabled();
+  });
+});

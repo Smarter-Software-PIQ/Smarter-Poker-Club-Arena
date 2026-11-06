@@ -38,6 +38,8 @@ import { resolveClubUUID, isUUID } from '../../utils/clubIdResolver';
 import { isAuthzError } from '../../utils/clubDashboard';
 import { reportError } from '../../utils/errorReporter';
 import styles from './ClubDataSimplePage.module.css';
+import { clubDataRangeDays, clubDataRangeError } from '../../lib/clubDataRange';
+import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
 import { useClubGameHost } from '../../hooks/useClubGameHost';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { ClubRosterService, type RosterMember } from '../../services/ClubRosterService';
@@ -217,6 +219,14 @@ export default function ClubDataSimplePage() {
   const [preset, setPreset] = usePlayerPreference<Preset>('club/ClubDataSimplePage:preset', 1);
   const [endDate, setEndDate] = useState<string>(() => clubDataToday());
   const observedDayRef = useRef(endDate);
+  const [customStart, setCustomStart] = useState<string | null>(null);
+  const [editingDates, setEditingDates] = useState(false);
+  const [draftStart, setDraftStart] = useState('');
+  const [draftEnd, setDraftEnd] = useState('');
+  const [rangeError, setRangeError] = useState<string | null>(null);
+  const [breakdown, setBreakdown] = useState<'total_winnings' | 'mtt_winnings' | 'fee' | null>(
+    null
+  );
   const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataSimplePage:game', 'ALL');
   const [stakes, setStakes] = usePlayerPreference<StakesFilter>(
     'club/ClubDataSimplePage:stakes',
@@ -246,7 +256,8 @@ export default function ClubDataSimplePage() {
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
   const today = clubDataToday();
   const isToday = endDate >= today;
-  const startDate = addDays(endDate, -(preset - 1));
+  const startDate = customStart ?? addDays(endDate, -(preset - 1));
+  const rangeDays = clubDataRangeDays(startDate, endDate);
   const stakesApply = game === 'ALL' || game === 'HOLDEM' || game === 'OMAHA' || game === 'MIXED';
   const scopeKey = JSON.stringify([
     userId,
@@ -270,6 +281,7 @@ export default function ClubDataSimplePage() {
   // while the new session is still hydrating, or a response after unmount.
   useLayoutEffect(() => {
     ++requestRef.current;
+    setBreakdown(null);
     setSnapshot(null);
     setSnapshotScope(null);
     setDenied(false);
@@ -463,7 +475,8 @@ export default function ClubDataSimplePage() {
       // A refresh may render after midnight before this callback runs. Keep
       // the last observed day instead of relying on render-derived isToday.
       // Comparing dates also handles a tab suspended for more than one day.
-      setEndDate((prev) => (prev === previousDay || prev > now ? now : prev));
+      if (customStart === null)
+        setEndDate((prev) => (prev === previousDay || prev > now ? now : prev));
     };
     const onVisible = () => {
       if (document.visibilityState === 'visible') followDay();
@@ -474,7 +487,7 @@ export default function ClubDataSimplePage() {
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, []);
+  }, [customStart]);
 
   // Search waits for the typing to stop.
   useEffect(() => {
@@ -483,8 +496,10 @@ export default function ClubDataSimplePage() {
   }, [searchInput]);
 
   const shift = (dir: -1 | 1) => {
-    const next = addDays(endDate, dir * preset);
-    setEndDate(next > today ? today : next);
+    const next = addDays(endDate, dir * rangeDays);
+    const end = next > today ? today : next;
+    if (customStart !== null) setCustomStart(addDays(end, -(rangeDays - 1)));
+    setEndDate(end);
   };
 
   const summary = visibleSnapshot?.summary ?? null;
@@ -546,12 +561,24 @@ export default function ClubDataSimplePage() {
             <path d="M16 3 L5 12 L16 21 Z" />
           </svg>
         </button>
-        <div className={styles.rangeChip} aria-live="polite">
+        <button
+          type="button"
+          className={styles.rangeChip}
+          aria-label="Select Date Range"
+          aria-expanded={editingDates}
+          aria-controls="club-data-date-range"
+          onClick={() => {
+            setDraftStart(startDate);
+            setDraftEnd(endDate);
+            setRangeError(null);
+            setEditingDates((open) => !open);
+          }}
+        >
           <span>{startDate}</span>
           <span className={styles.rangeDash}>-</span>
           <span>{endDate}</span>
           <span className={styles.rangeTz}>{CLUB_DATA_ZONE_LABEL}</span>
-        </div>
+        </button>
         <button
           type="button"
           className={styles.arrow}
@@ -565,14 +592,65 @@ export default function ClubDataSimplePage() {
         </button>
       </div>
 
+      {editingDates && (
+        <form
+          id="club-data-date-range"
+          className={styles.dateEditor}
+          onSubmit={(event) => {
+            event.preventDefault();
+            const problem = clubDataRangeError(draftStart, draftEnd, today);
+            setRangeError(problem);
+            if (problem) return;
+            setCustomStart(draftStart);
+            setEndDate(draftEnd);
+            setEditingDates(false);
+          }}
+        >
+          <label>
+            Start Date
+            <input
+              type="date"
+              aria-label="Start Date"
+              value={draftStart}
+              max={draftEnd || today}
+              onChange={(event) => setDraftStart(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            End Date
+            <input
+              type="date"
+              aria-label="End Date"
+              value={draftEnd}
+              min={draftStart}
+              max={today}
+              onChange={(event) => setDraftEnd(event.target.value)}
+              required
+            />
+          </label>
+          <p>Chicago Time. Up To 93 Days.</p>
+          {rangeError && <p role="alert">{rangeError}</p>}
+          <button type="button" className={styles.retry} onClick={() => setEditingDates(false)}>
+            Cancel
+          </button>
+          <button type="submit" className={styles.retry}>
+            Apply Dates
+          </button>
+        </form>
+      )}
       <div className={styles.segment} role="group" aria-label="Date Range">
         {PRESETS.map((p) => (
           <button
             key={p}
             type="button"
-            aria-pressed={preset === p}
-            className={`${styles.segmentButton} ${preset === p ? styles.segmentActive : ''}`}
-            onClick={() => setPreset(p)}
+            aria-pressed={customStart === null && preset === p}
+            className={`${styles.segmentButton} ${customStart === null && preset === p ? styles.segmentActive : ''}`}
+            onClick={() => {
+              setCustomStart(null);
+              setPreset(p);
+              setEditingDates(false);
+            }}
           >
             {p === 1 ? '1 Day' : `${p} Days`}
           </button>
@@ -587,7 +665,17 @@ export default function ClubDataSimplePage() {
           </dd>
         </div>
         <div className={styles.stat}>
-          <dt className={styles.statLabel}>Total Winnings</dt>
+          <dt className={styles.statLabel}>
+            <button
+              type="button"
+              className={styles.statAction}
+              disabled={!summary}
+              onClick={() => setBreakdown('total_winnings')}
+              aria-label="View Total Winnings By Player"
+            >
+              Total Winnings
+            </button>
+          </dt>
           <dd
             className={`${styles.statValue} ${summary ? inkFor(summary.total_winnings) : ''}`}
             title={summary ? formatMoney(summary.total_winnings) : undefined}
@@ -597,7 +685,17 @@ export default function ClubDataSimplePage() {
           </dd>
         </div>
         <div className={styles.stat}>
-          <dt className={styles.statLabel}>MTT Winnings</dt>
+          <dt className={styles.statLabel}>
+            <button
+              type="button"
+              className={styles.statAction}
+              disabled={!summary}
+              onClick={() => setBreakdown('mtt_winnings')}
+              aria-label="View MTT Winnings By Player"
+            >
+              MTT Winnings
+            </button>
+          </dt>
           <dd
             className={`${styles.statValue} ${summary ? inkFor(summary.mtt_winnings) : ''}`}
             title={summary ? formatMoney(summary.mtt_winnings) : undefined}
@@ -608,7 +706,19 @@ export default function ClubDataSimplePage() {
         </div>
         <div className={styles.stat}>
           <dt className={styles.statLabel}>
-            {visibleSnapshot?.scope === 'downline' ? 'My Fees Earned' : 'Fee'}
+            {isDownline ? (
+              'My Fees Earned'
+            ) : (
+              <button
+                type="button"
+                className={styles.statAction}
+                disabled={!summary}
+                onClick={() => setBreakdown('fee')}
+                aria-label="View Fees By Player"
+              >
+                Fee
+              </button>
+            )}
           </dt>
           <dd
             className={styles.statValue}
@@ -632,6 +742,19 @@ export default function ClubDataSimplePage() {
           </dd>
         </div>
       </dl>
+      {breakdown && visibleSnapshot && clubUuid && userId && (
+        <ClubDataTotalsBreakdown
+          key={scopeKey}
+          clubId={clubUuid}
+          start={startDate}
+          end={endDate}
+          game={game}
+          stakes={stakesApply ? stakes : 'ALL'}
+          search={search || null}
+          metric={breakdown}
+          onClose={() => setBreakdown(null)}
+        />
+      )}
       {visibleSnapshot?.scope === 'downline' && (
         <p className={styles.liveLine}>
           Your Fees After Shares And Adjustments, Across All Games For These UTC Dates. Game Rows
