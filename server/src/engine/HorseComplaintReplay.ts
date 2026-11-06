@@ -220,6 +220,24 @@ function heroCards(hand: ExtractedHand | ComplaintFixture, seat: number): Card[]
   return (uid && hand.horseHoleCards[uid]) || [];
 }
 
+/** The seats that posted the live small and big blind, read from the posts. */
+function replayBlindSeats(
+  actions: ComplaintAction[]
+): { smallBlind: number | null; bigBlind: number } | null {
+  const pre = actions.filter((a) => a.stage === 'preflop' && a.dead !== true);
+  const bb = pre.find((a) => a.action === 'bb');
+  if (!bb) return null;
+  const sb = pre.find((a) => a.action === 'sb');
+  return { smallBlind: sb ? sb.seat : null, bigBlind: bb.seat };
+}
+
+/** The recorded tournament format, when the snapshot captured one. */
+function replayFormat(pn: ComplaintPublicNode): 'mtt' | 'spin' | 'sng' | 'hu_sng' | undefined {
+  if (pn.mode !== 'tournament') return undefined;
+  const f = (pn.tournamentStage as { format?: unknown } | null | undefined)?.format;
+  return f === 'mtt' || f === 'spin' || f === 'sng' || f === 'hu_sng' ? f : undefined;
+}
+
 /** The game state the engine saw at `node`, with history strictly before it. */
 export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintAction) {
   const pn = node.publicNode;
@@ -265,6 +283,18 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
     ante: pn.ante ?? 0,
     bigBlindAnte: pn.anteType === 'big_blind',
     dealerSeat: pn.dealerSeat,
+    // The live engine hands every decision the dealt census and the seats
+    // that posted the blinds (ServerTableEngineTurns). Without them the
+    // position read falls back to "who is live or invested", which drops
+    // every uninvested folder: folded to the small blind, the ring shrinks to
+    // the two blinds and the small blind replays as a heads-up big blind.
+    // The snapshot lists HandController's dealt roster (a tournament
+    // sit-out is dealt and auto-folded), so every listed seat was dealt.
+    dealtSeatIds: pn.seats.map((s) => s[0]).sort((a, b) => a - b),
+    blindSeats: replayBlindSeats(hand.actions),
+    // The table format the live decision read (spin, heads-up SNG, MTT).
+    // Without it a spin or heads-up hand replays as an MTT.
+    ...(replayFormat(pn) ? { format: replayFormat(pn) } : {}),
     chipUnit: pn.chipUnit,
     heroSeat,
     currentPlayerSeat: heroSeat,
