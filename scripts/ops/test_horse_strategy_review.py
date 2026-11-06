@@ -78,6 +78,14 @@ class StrategyReviewTests(unittest.TestCase):
         d=decision();d['informationSet']['publicState']['seats'].append([7,0,0,100,0,0,2])
         self.assertTrue(closes_unbet_street(d['informationSet']))
 
+    def test_sitting_out_seat_cannot_act_behind_or_respond(self):
+        d=decision();d['informationSet']['publicState']['dealerSeat']=7
+        d['informationSet']['publicState']['seats'].append([7,100,0,0,0,0,4])
+        r=review_decision(d)
+        self.assertTrue(r['facts']['closingUnbetStreet'])
+        self.assertEqual(r['facts']['riverOpportunity']['opponentsStillInHand'],1)
+        self.assertEqual(r['facts']['riverOpportunity']['opponentsAbleToRespond'],1)
+
     def test_no_outcome_or_hidden_card_leakage(self):
         d=decision();before=review_decision(d,True)
         d.update({'winners':['villain'],'opponentCards':['As'],'netAmount':-10000})

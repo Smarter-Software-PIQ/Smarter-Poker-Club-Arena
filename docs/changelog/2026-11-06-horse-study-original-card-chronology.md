@@ -9,6 +9,8 @@ Pineapple preflop analysis no longer substitutes the final post-discard pair for
 the original three cards. Postflop analysis requires the retained pair and an
 earlier own discard. Short-deck ranking uses the maintained flush-over-full-house
 and A6789 rules; Pineapple ranks only proven post-discard holdings.
+River position and response counts exclude sitting-out seats, matching the
+authoritative controller's action eligibility.
 
 A private conditional river CLI compares check-through and finite legal bet
 sizes in declared heads-up high-only PLO4/5/6 cash response models. It uses exact

@@ -45,7 +45,7 @@ def closes_unbet_street(info):
     if state.get('toCall')!=0 or state.get('currentBet')!=0:return None
     if type(hero) is not int or type(button) is not int or not isinstance(seats,list):return None
     if any(not isinstance(s,list) or len(s)<7 or type(s[0]) is not int or type(s[6]) is not int for s in seats):return None
-    eligible=sorted(s[0] for s in seats if not s[6]&3)
+    eligible=sorted(s[0] for s in seats if not s[6]&7)
     if hero not in eligible or len(eligible)<2:return None
     order=[s for s in eligible if s>button]+[s for s in eligible if s<=button]
     return order[-1]==hero
