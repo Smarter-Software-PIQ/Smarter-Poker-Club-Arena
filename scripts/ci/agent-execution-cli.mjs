@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { inputFingerprint, reusableEvidence, updateOperation, failureDisposition, summarizeMetrics } from './agent-execution.mjs';
+import { inputFingerprint, reusableEvidence, readProviderEvidence, updateOperation, failureDisposition, summarizeMetrics } from './agent-execution.mjs';
 // Every action is an explicit invocation. No subprocess executes a release.
 const [command, file] = process.argv.slice(2);
 try {
@@ -8,7 +8,8 @@ try {
   let result;
   switch (command) {
     case 'fingerprint': result = { fingerprint: inputFingerprint(process.cwd(), input) }; break;
-    case 'evidence': result = reusableEvidence(input.receipt, input.expected, input.providerObservation); break;
+    case 'evidence': result = reusableEvidence(input.receipt, input.expected,
+      input.expected.authority === 'github' ? readProviderEvidence(input.expected, input.receipt) : undefined); break;
     case 'operation': result = updateOperation(input.directory, input.event); break;
     case 'failure': result = failureDisposition(input); break;
     case 'metrics': result = summarizeMetrics(input); break;

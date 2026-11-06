@@ -436,8 +436,8 @@
       "sha256": "fdab007e3ea2e953ca07229476b743c573ff3118e0b11df80d705af4ad431a07"
     },
     "scripts/ci/classify-ci-changes.mjs": {
-      "bytes": 48221,
-      "sha256": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c"
+      "bytes": 48597,
+      "sha256": "e6d41ad8ff2dd5915fe76febaa5f7a1cb9b433d7ba78c3043058411bf4d0a530"
     },
     "scripts/ci/probes/production-alert-core/cash-checker-preimage.sql": {
       "bytes": 6379,
@@ -6935,5 +6935,18 @@
       "bytes": 278905,
       "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
     }
+  },
+  "executionPreviewSourceIdentity20261106": {
+    "review": "Shadow preview only; existing classification flags and cash qualification commands/assertions unchanged. Current source identity only, not a financial recertification.",
+    "file": "scripts/ci/classify-ci-changes.mjs",
+    "previous": {
+      "bytes": 48221,
+      "sha256": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c"
+    },
+    "current": {
+      "bytes": 48597,
+      "sha256": "e6d41ad8ff2dd5915fe76febaa5f7a1cb9b433d7ba78c3043058411bf4d0a530"
+    },
+    "execution_performed": false
   }
 }

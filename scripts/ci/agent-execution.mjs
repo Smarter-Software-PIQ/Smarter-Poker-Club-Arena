@@ -36,6 +36,25 @@ export function inputFingerprint(root, { inputs, command, runtime, environment, 
   return digest(JSON.stringify({ version: 1, files, command, runtime, environment, schema }));
 }
 
+export function readProviderEvidence(expected, receipt, readApi = path => JSON.parse(execFileSync('gh', ['api', path], {
+  encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+}))) {
+  requireValue(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(expected.repository || ''), 'Repository identity required');
+  requireValue([receipt?.runId, receipt?.jobId, receipt?.attempt].every(v => Number.isSafeInteger(v) && v > 0), 'Provider operation identity required');
+  requireValue(/^[0-9a-f]{40}$/.test(receipt.head || '') && typeof expected.check === 'string' && expected.check &&
+    /^\.github\/workflows\/[A-Za-z0-9_-]+\.yml$/.test(expected.workflow || ''), 'Workflow/check/source identity required');
+  const prefix = `repos/${expected.repository}/actions`;
+  const run = readApi(`${prefix}/runs/${receipt.runId}`);
+  const job = readApi(`${prefix}/jobs/${receipt.jobId}`);
+  requireValue(run.id === receipt.runId && run.head_sha === receipt.head && run.run_attempt === receipt.attempt &&
+    run.repository?.full_name.toLowerCase() === expected.repository.toLowerCase() && run.path === expected.workflow &&
+    job.run_id === run.id && job.id === receipt.jobId && job.head_sha === run.head_sha &&
+    job.run_attempt === receipt.attempt && job.name === expected.check && job.status === 'completed',
+    'Provider job provenance differs');
+  return { runId: run.id, head: run.head_sha, attempt: run.run_attempt, repository: expected.repository,
+    workflow: run.path, check: job.name, conclusion: job.conclusion };
+}
+
 export function reusableEvidence(receipt, expected, providerObservation) {
   const reasons = [];
   if (!receipt || receipt.version !== 1 || receipt.status !== 'passed' || receipt.exitCode !== 0)
@@ -51,7 +70,7 @@ export function reusableEvidence(receipt, expected, providerObservation) {
     if (!providerObservation || providerObservation.conclusion !== 'success' ||
       providerObservation.runId !== receipt?.runId || providerObservation.head !== receipt?.head ||
       providerObservation.repository !== expected.repository ||
-      providerObservation.workflow !== expected.workflow ||
+      providerObservation.workflow !== expected.workflow || providerObservation.check !== expected.check ||
       providerObservation.attempt !== receipt?.attempt) reasons.push('provider_provenance_unverified');
   } else if (expected.authority !== 'local') reasons.push('unknown_authority');
   return { reusable: reasons.length === 0, reasons };
