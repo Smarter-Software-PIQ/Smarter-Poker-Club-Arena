@@ -17,3 +17,8 @@ helper across its PLO scenes. It reproduced the original failure. Negative
 coverage rejects a pod below its reserved lane, excess crown clipping, extra
 desktop gap, and a gap without a declared card lane. Local qualification and
 protected publication evidence are recorded in the owning delivery checkpoint.
+
+Required hosted WebKit also exhausted the existing seven-tab scroll case's
+shared 30-second deadline on Rewards. Each tab now owns a separate bounded
+case at both widths. All native scroll-completion waits, displacement checks,
+centre/edge gestures, footer geometry and containment assertions remain intact.
