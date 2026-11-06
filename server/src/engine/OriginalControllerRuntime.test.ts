@@ -629,10 +629,9 @@ it('still fences a retained original when an admin pause sits beside the move', 
     started: false,
     cause: null,
   });
-  // The move alone no longer parks the original; the admin owner still fences it.
-  await vi.waitFor(() => expect(e.handForHandResolve).not.toBeNull());
-  e.tournamentMovePauseOwners.clear();
-  e.releasePauseGate();
+  // The move alone neither parks nor holds the original (an unclaimed move on
+  // a retained original is not a release-holding owner); the polled admin
+  // owner still fences it at the start edge.
   await run;
   expect(e.killForRestart).toHaveBeenCalledWith('retained_original_start_unproven');
   expect(emitted).toEqual([]);

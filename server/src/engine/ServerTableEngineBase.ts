@@ -8149,7 +8149,7 @@ export abstract class ServerTableEngineBase {
     this.terminalCloseoutPaused = false;
     this.notifyBoundaryPauseWaiters();
     if (
-      this.tournamentMovePauseOwners.size > 0 ||
+      this.tournamentMoveHoldsRelease() ||
       this.handForHandPaused ||
       this.weeklyPayoutPauseOwners.size > 0 ||
       this.maintenancePaused ||
@@ -8902,7 +8902,7 @@ export abstract class ServerTableEngineBase {
       this.handForHandPaused ||
       this.finalTableDealPaused ||
       this.terminalCloseoutPaused ||
-      this.tournamentMovePauseOwners.size > 0
+      this.tournamentMoveHoldsRelease()
     ) {
       // The remaining independent authority starts its own pause-age budget.
       if (this.pausedSinceMs !== 0) this.pausedSinceMs = Date.now();
@@ -9093,7 +9093,7 @@ export abstract class ServerTableEngineBase {
     for (const owner of [...this.deferredWeeklyPayoutReleases]) this.resumeFromWeeklyPayout(owner);
     if (
       this.weeklyPayoutPauseOwners.size > 0 ||
-      this.tournamentMovePauseOwners.size > 0 ||
+      this.tournamentMoveHoldsRelease() ||
       this.handForHandPaused ||
       this.finalTableDealPaused ||
       this.terminalCloseoutPaused
@@ -9121,7 +9121,7 @@ export abstract class ServerTableEngineBase {
   resumeFromFinalTableDeal(): void {
     this.finalTableDealPaused = false;
     if (
-      this.tournamentMovePauseOwners.size > 0 ||
+      this.tournamentMoveHoldsRelease() ||
       this.handForHandPaused ||
       this.weeklyPayoutPauseOwners.size > 0 ||
       this.maintenancePaused ||
@@ -9313,10 +9313,51 @@ export abstract class ServerTableEngineBase {
     return this.handForHandPaused && this.pauseRequiresExplicitResume;
   }
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════
+   *  A MOVE THAT CAN NEVER CLAIM DOES NOT OUTLAST THE LAST REAL PAUSE (2026-11-05)
+   * ═══════════════════════════════════════════════════════════════════════════
+   *
+   * Does a tournament-move owner still hold this table against a release?
+   *
+   * A move owner holds the gate so its sweep can CLAIM the table at a
+   * between-hands boundary. A table carrying a retained, never-started
+   * original (`retainedPreparedOriginalController`) is not between hands and
+   * reaches that boundary only by playing the original, so an UNCLAIMED owner
+   * on it can never claim. #9562 already lets the original start past such an
+   * owner - but only when the pre-start loop re-evaluates, and that loop is
+   * suspended inside awaitPauseGate. Every release path (`resumeDealing`,
+   * `resumeFromMaintenance`, ...) treated the unclaimable owner as a live
+   * co-authority and deferred to it, so the gate never opened and nothing
+   * re-evaluated. The move waited for the hand; the hand waited for the move.
+   *
+   * Measured 2026-11-05, Union Mystery Bounty (PLO5) 7576aeb1, table
+   * 41d47e9d: hand #55561914 was prepared and retained at 22:52:04 as the
+   * add-on drain armed its hold (its hand_history row is 23:12:34). The gap
+   * balancer saw the table as "still in-hand" (`isBetweenHands()` is false
+   * with a prepared controller) and re-fenced it every ~7s from 22:53 to
+   * 23:08. The add-on minute, the :55 break, the freeze and the break end at
+   * 23:05:00 each let go and each deferred to that fence. The four sibling
+   * tables dealt at 23:05; this one sat until the 600s pause safety timeout
+   * fired for the second time at 23:12:05, the gate re-entered, armed the 15s
+   * unclaimed-move expiry, and the original finally played.
+   *
+   * So an unclaimed owner on a retained original does not count here; a
+   * CLAIMED owner (its seats may already be moving) and every other authority
+   * still do. Whichever pause is the last to let go now opens the gate, the
+   * loop re-evaluates, the original plays, and the move claims the boundary
+   * that hand produces.
+   */
+  private tournamentMoveHoldsRelease(): boolean {
+    if (this.tournamentMovePauseOwners.size === 0) return false;
+    if (this.claimedTournamentMovePauseOwners.size > 0) return true;
+    return this.retainedPreparedOriginalController === null;
+  }
+
   /** Hand-for-hand cannot consume another authority's existing park. */
   isHandForHandReleaseBlocked(): boolean {
     return (
-      this.tournamentMovePauseOwners.size > 0 ||
+      this.tournamentMoveHoldsRelease() ||
       this.weeklyPayoutPauseOwners.size > 0 ||
       this.maintenancePaused ||
       this.finalTableDealPaused ||
