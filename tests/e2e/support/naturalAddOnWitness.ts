@@ -101,49 +101,81 @@ export async function readAddOnCountdown(timer: Pick<Locator, 'evaluate'>, endsA
 }
 /** One browser task captures the entire rendered card. Do not age early
  * locator reads through dozens of queued protocol round trips. */
-export async function readAddOnCard(page: Pick<Page, 'evaluate'>) {
-  const sample = await page.evaluate(() => {
-    const dialog = document.querySelector('.break-screen');
-    const text = (element: Element | null) =>
-      element?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-    const visible = (element: Element | null) => {
-      if (!element) return false;
-      const style = getComputedStyle(element);
-      const box = element.getBoundingClientRect();
-      return (
-        style.display !== 'none' &&
-        style.visibility !== 'hidden' &&
-        style.visibility !== 'collapse' &&
-        box.width > 0 &&
-        box.height > 0
-      );
+export async function readAddOnCard(
+  page: Pick<Page, 'evaluate'>,
+  expected?: { cost: string; chips: string }
+) {
+  const sample = await page.evaluate(async (expected) => {
+    const capture = () => {
+      const dialog = document.querySelector('.break-screen');
+      const text = (element: Element | null) =>
+        element?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+      const visible = (element: Element | null) => {
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          style.visibility !== 'collapse' &&
+          box.width > 0 &&
+          box.height > 0
+        );
+      };
+      const labelVisible = (label: string) => {
+        const matches = [...(dialog?.querySelectorAll('*') ?? [])].filter(
+          (element) =>
+            text(element) === label && ![...element.children].some((child) => text(child) === label)
+        );
+        return matches.length === 1 && visible(matches[0]);
+      };
+      const stat = (label: string) =>
+        [...(dialog?.querySelectorAll('.break-screen__stat') ?? [])]
+          .find((element) => text(element.querySelector('.break-screen__stat-label')) === label)
+          ?.querySelector('.break-screen__stat-value') ?? null;
+      const timer = dialog?.querySelector('[role="timer"]') ?? null;
+      return {
+        at: Date.now(),
+        visibility: document.visibilityState,
+        dialogVisible: visible(dialog),
+        titleVisible: labelVisible('Add-On Break'),
+        closingVisible: labelVisible('Add-On Closes In'),
+        pausedVisible: labelVisible('All Tables Paused'),
+        cost: text(stat('Add-On Cost')),
+        chips: stat('Chips Received')?.getAttribute('title') ?? null,
+        text: text(timer),
+        timerCount: dialog?.querySelectorAll('[role="timer"]').length ?? 0,
+        count: text(dialog?.querySelector('[aria-label="Players Who Took Add-On"]') ?? null),
+      };
     };
-    const labelVisible = (label: string) => {
-      const matches = [...(dialog?.querySelectorAll('*') ?? [])].filter(
-        (element) =>
-          text(element) === label && ![...element.children].some((child) => text(child) === label)
-      );
-      return matches.length === 1 && visible(matches[0]);
-    };
-    const stat = (label: string) =>
-      [...(dialog?.querySelectorAll('.break-screen__stat') ?? [])]
-        .find((element) => text(element.querySelector('.break-screen__stat-label')) === label)
-        ?.querySelector('.break-screen__stat-value') ?? null;
-    const timer = dialog?.querySelector('[role="timer"]') ?? null;
-    return {
-      at: Date.now(),
-      visibility: document.visibilityState,
-      dialogVisible: visible(dialog),
-      titleVisible: labelVisible('Add-On Break'),
-      closingVisible: labelVisible('Add-On Closes In'),
-      pausedVisible: labelVisible('All Tables Paused'),
-      cost: text(stat('Add-On Cost')),
-      chips: stat('Chips Received')?.getAttribute('title') ?? null,
-      text: text(timer),
-      timerCount: dialog?.querySelectorAll('[role="timer"]').length ?? 0,
-      count: text(dialog?.querySelector('[aria-label="Players Who Took Add-On"]') ?? null),
-    };
-  });
+    // UI readiness is measured where the DOM is sampled. Protocol delivery
+    // latency must not discard a successful sample inside the same five seconds.
+    const started = performance.now();
+    const readinessStartedAt = Date.now();
+    const readinessSamples: { at: number; ready: boolean }[] = [];
+    while (true) {
+      const current = capture();
+      const elapsed = performance.now() - started;
+      const ready =
+        !expected ||
+        (current.dialogVisible &&
+          current.titleVisible &&
+          current.closingVisible &&
+          current.pausedVisible &&
+          current.cost === expected.cost &&
+          current.chips === expected.chips);
+      readinessSamples.push({ at: current.at, ready });
+      if (!expected || (ready && elapsed <= 5000) || elapsed >= 5000)
+        return {
+          ...current,
+          readinessStartedAt,
+          readinessElapsedMs: elapsed,
+          readinessPassed: ready && (!expected || elapsed <= 5000),
+          readinessSamples,
+        };
+      await new Promise((resolve) => setTimeout(resolve, Math.min(100, 5000 - elapsed)));
+    }
+  }, expected);
   return { ...sample, receivedAt: Date.now() };
 }
 // These deployed RPCs read public/table context without purchasing or reserving anything.
