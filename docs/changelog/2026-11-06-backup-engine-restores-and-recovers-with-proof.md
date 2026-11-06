@@ -1,0 +1,7 @@
+# Backup Engine Restores And Recovers With Proof
+
+The isolated Backup Engine's restore reported seven errors: duplicate public schema creation, absent pg_cron relations required by two views and their metadata, and an absent ca_record_gateway ACL role. The maintained restore now installs the real empty pg_cron extension, creates the missing NOLOGIN role, and omits only the duplicate public-schema CREATE from the archive TOC. Other objects and grants remain intact. Every restore, owner alignment, trigger installation and seed failure prevents a valid copy receipt and certification; refresh failure replaces any prior success status for the same SHA with failure.
+
+The standby container now uses Docker's unless-stopped policy. Certification terminates PID1 and proves automatic recovery of the same container and exact engine SHA, with an increased restart count. Any further restart during soak fails certification. Table-kill trials compare their own restart baseline. Certificate evidence records the actual standby script hash separately from the candidate engine SHA.
+
+Focused regressions exercise the actual shell failure propagation, invalid/stale restore and seed receipts, conditional-caller behavior, and recovery identity/count boundaries through the existing DR posture test. Real PostgreSQL restore and Docker crash/soak qualification remain required on the isolated backup host after protected merge. This change does not turn the backup into automatic production failover and does not authorize a production restart.

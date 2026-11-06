@@ -105,7 +105,7 @@ jobs:
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
-          stamp=$(ssh -i ~/.ssh/standby "root@$STANDBY_HOST" "python3 -c 'import json;print(json.load(open(\"/var/lib/club-arena-standby/database.json\"))[\"restoredAt\"])'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
+          stamp=$(ssh -i ~/.ssh/standby "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"restoreValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
           restored=$(date -d "$stamp" +%s)
           newest=$(git log -1 --format=%ct origin/main -- supabase/migrations 2>/dev/null || echo 0)
           today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)
@@ -151,15 +151,14 @@ jobs:
           set -euo pipefail
           scp -i ~/.ssh/standby "$RUNNER_TEMP/bundle.tgz" "root@$STANDBY_HOST:/var/lib/club-arena-standby/bundle.tgz"
           ssh -i ~/.ssh/standby "root@$STANDBY_HOST" 'set -e; cd /var/lib/club-arena-standby; rm -rf seed; tar -xzf bundle.tgz;
-            git -C /opt/club-arena fetch -q origin; git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine; chmod +x /usr/local/sbin/standby-engine; mkdir -p /usr/local/share/club-arena-standby; git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql; git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh;
+            git -C /opt/club-arena fetch -q origin; git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine; chmod +x /usr/local/sbin/standby-engine; mkdir -p /usr/local/share/club-arena-standby; git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql; git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show origin/main:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py;
             standby-engine restore schema.dump; standby-engine seed seed'
 
   certify:
     needs: [plan, refresh]
-    # A failed refresh never blocks certification: the existing copy is still
-    # the full production structure, and a missing new migration can only make
-    # a certificate fail, never pass.
-    if: always() && needs.plan.outputs.sha != '' && needs.refresh.result != 'cancelled'
+    # Publish a failure for this exact SHA if refresh failed, including when a
+    # previous attempt left a success status. Never certify a partial copy.
+    if: always() && needs.plan.outputs.sha != ''
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -174,19 +173,31 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
           SHA: ${{ needs.plan.outputs.sha }}
+          REFRESH_RESULT: ${{ needs.refresh.result }}
         run: |
           set -uo pipefail
+          if [ "$REFRESH_RESULT" != success ]; then
+            printf '%s\n' '{"reasons":["database_refresh_failed"]}' > certificate.json
+            echo 'rc=1' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
           ssh -i ~/.ssh/standby -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
-            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && standby-engine certify $SHA 1800" \
+            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show origin/main:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && standby-engine certify $SHA 1800" \
             | tee certificate.out
           rc=${PIPESTATUS[0]}
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           tail -1 certificate.out > certificate.json || true
           exit 0
       - name: Publish the verdict on the exact commit
-        env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.plan.outputs.sha }}', RC: '${{ steps.certify.outputs.rc }}' }
+        if: always()
+        env:
+          {
+            GH_TOKEN: '${{ github.token }}',
+            SHA: '${{ needs.plan.outputs.sha }}',
+            RC: '${{ steps.certify.outputs.rc }}',
+          }
         run: |
           set -euo pipefail
           if [ "$RC" = 0 ]; then state=success; desc='Certified on the Backup Engine: built, booted, crash-recovered and soaked'
