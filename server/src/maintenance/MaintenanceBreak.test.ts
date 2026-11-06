@@ -1894,15 +1894,15 @@ describe('surviving the restart', () => {
 
 describe('the schedule', () => {
   it.each([
-    ['America/Chicago', '2026-11-01T07:54:00.000Z', '2026-11-01T07:58:00.000Z'],
-    ['Europe/Berlin', '2026-10-25T01:54:00.000Z', '2026-10-25T01:58:00.000Z'],
-    ['Asia/Kathmandu', '2026-09-10T00:52:00.000Z', '2026-09-10T00:58:00.000Z'],
-    ['UTC', '2026-12-31T23:54:00.000Z', '2026-12-31T23:58:00.000Z'],
+    ['America/Chicago', '2026-11-01T07:54:00.000Z', '2026-11-01T09:58:00.000Z'],
+    ['Europe/Berlin', '2026-10-25T01:54:00.000Z', '2026-10-25T08:58:00.000Z'],
+    ['Asia/Kathmandu', '2026-09-10T00:52:00.000Z', '2026-09-10T08:58:00.000Z'],
+    ['UTC', '2026-12-31T23:54:00.000Z', '2027-01-01T09:58:00.000Z'],
     ['UTC', '2026-03-08T07:59:00.000Z', '2026-03-08T08:58:00.000Z'],
-    ['UTC', '2026-03-07T09:59:00.000Z', '2026-03-07T10:58:00.000Z'],
-    ['UTC', '2026-10-31T08:59:00.000Z', '2026-10-31T09:58:00.000Z'],
-    ['UTC', '2026-10-20T08:58:00.000Z', '2026-10-20T09:58:00.000Z'],
-  ])('targets the next :58 Chicago independently of host TZ %s at %s', (zone, now, expected) => {
+    ['UTC', '2026-03-07T09:59:00.000Z', '2026-03-08T08:58:00.000Z'],
+    ['UTC', '2026-10-31T08:59:00.000Z', '2026-11-01T09:58:00.000Z'],
+    ['UTC', '2026-10-20T08:58:00.000Z', '2026-10-21T08:58:00.000Z'],
+  ])('targets the next 03:58 Chicago independently of host TZ %s at %s', (zone, now, expected) => {
     vi.stubEnv('TZ', zone);
     try {
       vi.setSystemTime(new Date(now));
@@ -1927,7 +1927,7 @@ describe('the schedule', () => {
     }
   });
 
-  it('announces at :58 and freezes at the next Chicago hour', async () => {
+  it('announces at 03:58 and freezes at 04:00 Chicago', async () => {
     vi.setSystemTime(new Date('2026-10-20T08:57:59.000Z'));
     const { mb, store } = build(1);
     await mb.start();
@@ -1938,16 +1938,16 @@ describe('the schedule', () => {
     expect(store.row?.breakEndsAt).toBe(Date.parse('2026-10-20T09:05:00Z'));
     expect(mb.snapshot().schedule).toMatchObject({
       timeZone: 'America/Chicago',
-      startHour: null,
-      frequency: 'phase1-hourly',
-      hourlyCashFreeze: true,
+      startHour: 4,
+      frequency: 'daily',
+      hourlyCashFreeze: false,
     });
   });
 
   it.each([25, 45_000])(
     'keeps a delayed callback truthful with the full120second lead (%sms)',
     async (lag) => {
-      let at = Date.parse('2026-11-01T00:57:59Z');
+      let at = Date.parse('2026-11-01T09:57:59Z');
       const timers: Array<{ fn: () => void; ms: number }> = [];
       const store = new FakeStore();
       const mb = new MaintenanceBreak({
@@ -1963,7 +1963,7 @@ describe('the schedule', () => {
         clearTimer: () => {},
       });
       await mb.start();
-      at = Date.parse('2026-11-01T00:58:00Z') + lag;
+      at = Date.parse('2026-11-01T09:58:00Z') + lag;
       timers[0].fn();
       await vi.waitFor(() => expect(store.row?.phase).toBe('last_hand'));
       expect(store.row?.announcedAt).toBe(at);
@@ -1976,7 +1976,7 @@ describe('the schedule', () => {
   );
 
   it('refuses before notice when a delayed callback cannot start inside00minute', async () => {
-    let at = Date.parse('2026-11-01T00:57:59Z');
+    let at = Date.parse('2026-11-01T09:57:59Z');
     const timers: Array<{ fn: () => void; ms: number }> = [];
     const store = new FakeStore();
     const e = new FakeEngine();
@@ -1993,7 +1993,7 @@ describe('the schedule', () => {
       clearTimer: () => {},
     });
     await mb.start();
-    at = Date.parse('2026-11-01T00:59:01Z');
+    at = Date.parse('2026-11-01T09:59:01Z');
     timers[0].fn();
     await vi.waitFor(() => expect(timers.length).toBe(2));
     expect(store.row).toBeNull();
@@ -2002,7 +2002,7 @@ describe('the schedule', () => {
     await mb.stop();
   });
 
-  it('re-arms the next wall-clock hour when the durable announcement fails', async () => {
+  it('re-arms the next daily window when the durable announcement fails', async () => {
     const timers: Array<{ fn: () => void; ms: number }> = [];
     const mb = new MaintenanceBreak({
       engines: () => new Map([['t0', new FakeEngine()]]).entries() as any,
@@ -2024,12 +2024,12 @@ describe('the schedule', () => {
     });
 
     await mb.start();
-    expect(timers, 'the first :58 was not armed').toHaveLength(1);
+    expect(timers, 'the first 03:58 was not armed').toHaveLength(1);
     vi.setSystemTime(Date.now() + timers[0].ms);
     timers[0].fn();
 
     await vi.waitFor(() => {
-      expect(timers, 'one failed hour cancelled every future maintenance break').toHaveLength(2);
+      expect(timers, 'one failed day cancelled every future maintenance break').toHaveLength(2);
     });
     expect(mb.isActive(), 'a failed durable promise stayed visible/in force').toBe(false);
     expect(timers[1].ms).toBeGreaterThan(0);
