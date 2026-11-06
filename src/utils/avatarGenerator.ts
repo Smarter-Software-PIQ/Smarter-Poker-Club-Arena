@@ -1,3 +1,5 @@
+import { versionedTableAvatarArt } from '../lib/avatarArtRevision';
+
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * SVG Avatar Generator — Deterministic, poker-themed placeholder avatars
@@ -158,25 +160,16 @@ export function getAvatarWithFallback(
   displayPx?: number
 ): string {
   if (avatarUrl && avatarUrl.trim()) {
-    // Library avatar → table-optimized bust (absolute URL so it also works
-    // when the client runs on a non-Hub origin, e.g. local dev).
-    //
-    // .webp, not .png (Dan 2026-08-20): the World Hub now ships a lossless
-    // WebP beside every one of the 76 /avatars/table/ PNGs — pixel-identical,
-    // 40% smaller. Nine seats pull nine of these on every table open, so that
-    // is 250 KB -> 150 KB per table. The PNGs are still there; only this line
-    // decides which one the client asks for, which is what makes the change
-    // reversible in one character.
-    //
-    // Safe because this path is CONSTRUCTED, never stored: production profiles
-    // hold /avatars/free/* and /avatars/vip/*, and not one row holds an
-    // /avatars/table/* value. Both the bust-art detector in SeatSlot and the
-    // baked-nameplate clip in SeatSlot.css key off the DIRECTORY, not the
-    // extension, so neither notices the swap.
-    const lib = /^\/avatars\/(free|vip)\/([\w-]+)\.(?:png|webp)$/.exec(avatarUrl);
-    if (lib) return `${HUB_ORIGIN}/avatars/table/${lib[1]}_${lib[2]}.webp`;
+    // Preferences retain their stable catalog identity. Image requests use the
+    // matching artwork revision and its 2x variant, so a cached old image cannot
+    // be combined with newly measured bust gain and crown bounds.
+    const lib = /^\/avatars\/(free|vip)\/([\w-]+)\.(?:png|webp)(?:[?#].*)?$/.exec(avatarUrl);
+    if (lib) return versionedTableAvatarArt(`${HUB_ORIGIN}/avatars/table/${lib[1]}_${lib[2]}.webp`);
     // Any other Hub-relative avatar path (e.g. already table-optimized)
-    if (avatarUrl.startsWith('/avatars/')) return `${HUB_ORIGIN}${avatarUrl}`;
+    if (avatarUrl.startsWith('/avatars/'))
+      return versionedTableAvatarArt(`${HUB_ORIGIN}${avatarUrl}`);
+    const versioned = versionedTableAvatarArt(avatarUrl);
+    if (versioned !== avatarUrl) return versioned;
     // Full URL (Supabase storage custom avatars, etc.)
     return displayPx ? sizedStorageUrl(avatarUrl, displayPx) : avatarUrl;
   }

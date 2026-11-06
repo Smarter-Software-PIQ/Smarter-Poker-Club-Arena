@@ -1,3 +1,6 @@
+-- Receipt cases buy 5 chips at 0.05/0.10, above the real 40BB minimum.
+ALTER TABLE tables ADD COLUMN big_blind numeric DEFAULT 0.10;
+ALTER TABLE tables ALTER COLUMN min_buy_in SET DEFAULT 4;
 
 ALTER TABLE club_members ADD COLUMN updated_at timestamptz;
 CREATE UNIQUE INDEX member_scope ON club_members(club_id,user_id);

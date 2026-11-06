@@ -72,3 +72,6 @@ jsonb_build_object('door','atomic_table_addon','table_id','{t}','user_id','{u}',
         print('PASS: native receipt readback, current seat/pending truth, duplicate reads, immutable receipt, identity and ACL refusals')
     finally:
         run([PG/'pg_ctl','-D',folder/'data','-m','immediate','-w','stop'])
+
+# The existing native cash-purchase check also owns the felted-seat floor.
+subprocess.run(['python3', '-B', str(ROOT/'scripts/ci/test-cash-rebuy-minimum-postgres.py')], check=True, env=env)

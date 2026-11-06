@@ -5,6 +5,7 @@ import {
   addOnWindow,
   countdownSeconds,
   forbiddenAddOnParticipation,
+  suppressedObserverReward,
 } from '../e2e/support/naturalAddOnWitness';
 const id = '11111111-1111-4111-8111-111111111111';
 const row = { id, tournament_id: id, status: 'active' };
@@ -50,6 +51,44 @@ describe('natural add-on observation admission', () => {
   it('reads real countdowns and refuses placeholders', () => {
     expect(countdownSeconds('0:59')).toBe(59);
     for (const text of ['--', '0:60', 'NaN', '']) expect(() => countdownSeconds(text)).toThrow();
+  });
+  it('allows observed context reads and only the reserved identity housekeeping', () => {
+    const rpc = (name: string) => new URL('https://db.example/rest/v1/rpc/' + name);
+    for (const name of [
+      'fn_player_spendable_balance',
+      'fn_platform_capabilities',
+      'fn_rg_require_not_excluded',
+      'fn_batch_club_member_counts',
+      'fn_table_chat_is_silenced',
+      'fn_time_bank_allowance_v2',
+      'fn_bbj_mini_for_club',
+      'fn_bbj_pool_for_club',
+    ])
+      expect(forbiddenAddOnParticipation('POST', rpc(name))).toBe(false);
+    for (const name of [
+      'ca_claim_active_login',
+      'ca_record_device_sighting',
+      'fn_report_client_errors',
+    ]) {
+      expect(forbiddenAddOnParticipation('POST', rpc(name), id)).toBe(false);
+      expect(forbiddenAddOnParticipation('POST', rpc(name))).toBe(true);
+    }
+    expect(
+      forbiddenAddOnParticipation('POST', rpc('fn_update_presence'), id, { p_user_id: id })
+    ).toBe(false);
+    for (const body of [undefined, {}, { p_user_id: 'another-player' }])
+      expect(forbiddenAddOnParticipation('POST', rpc('fn_update_presence'), id, body)).toBe(true);
+    expect(suppressedObserverReward('POST', rpc('fn_achievement_record_login'))).toBe(true);
+    expect(forbiddenAddOnParticipation('POST', rpc('fn_achievement_record_login'), id)).toBe(true);
+    for (const name of [
+      'process_tournament_rebuy',
+      'fn_register_for_tournament',
+      'fn_unknown',
+      'fn_achievement_unlock_server',
+    ]) {
+      expect(forbiddenAddOnParticipation('POST', rpc(name), id)).toBe(true);
+      expect(suppressedObserverReward('POST', rpc(name))).toBe(false);
+    }
   });
   it('blocks purchases, registration, seat writes and unknown RPCs before forwarding', () => {
     for (const path of [

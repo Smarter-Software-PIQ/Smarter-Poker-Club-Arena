@@ -62,8 +62,36 @@ export function countdownSeconds(text: string): number {
     throw new Error('UNKNOWN: rendered add-on countdown is unreadable');
   return Number(match[1]) * 60 + Number(match[2]);
 }
-/** No participation request reaches a real player/table. Auth and read RPCs retain their normal paths. */
-export function forbiddenAddOnParticipation(method: string, url: URL): boolean {
+// These deployed RPCs read public/table context without purchasing or reserving anything.
+const OBSERVER_READ_RPCS = new Set([
+  'fn_db_now',
+  'fn_mystery_bounty_table_state',
+  'fn_player_spendable_balance',
+  'fn_platform_capabilities',
+  'fn_rg_require_not_excluded',
+  'fn_batch_club_member_counts',
+  'fn_table_chat_is_silenced',
+  'fn_time_bank_allowance_v2',
+  'fn_bbj_mini_for_club',
+  'fn_bbj_pool_for_club',
+]);
+// Auth-bound housekeeping for the workflow's reserved identity, not gameplay writes.
+const OBSERVER_SESSION_RPCS = new Set([
+  'ca_claim_active_login',
+  'ca_record_device_sighting',
+  'fn_report_client_errors',
+]);
+/** Login achievements can award currency: suppress this incidental mount call explicitly. */
+export function suppressedObserverReward(method: string, url: URL): boolean {
+  return method === 'POST' && /\/rest\/v1\/rpc\/fn_achievement_record_login\/?$/.test(url.pathname);
+}
+/** No participation request reaches a real player/table. Unknown RPCs remain refused. */
+export function forbiddenAddOnParticipation(
+  method: string,
+  url: URL,
+  observerId?: string,
+  body?: unknown
+): boolean {
   if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return false;
   const path = url.pathname.toLowerCase().replace(/\/+$/, '');
   if (url.hostname === 'engine.smarter.poker') return !path.endsWith('/heartbeat');
@@ -74,8 +102,16 @@ export function forbiddenAddOnParticipation(method: string, url: URL): boolean {
   )
     return true;
   const rpc = path.match(/\/rpc\/([^/]+)$/)?.[1];
-  // These two STABLE SELECT RPCs run on every served table mount.
-  if (rpc === 'fn_db_now' || rpc === 'fn_mystery_bounty_table_state') return false;
+  if (rpc && OBSERVER_READ_RPCS.has(rpc)) return false;
+  if (rpc && observerId && UUID.test(observerId)) {
+    if (OBSERVER_SESSION_RPCS.has(rpc)) return false;
+    if (rpc === 'fn_update_presence')
+      return (
+        !body ||
+        typeof body !== 'object' ||
+        (body as Record<string, unknown>).p_user_id !== observerId
+      );
+  }
   if (rpc)
     return !/^(?:(?:fn_|ca_)?(?:get|read|list|fetch|can|has|is)_|fn_cash_effective_buyin$)/.test(
       rpc

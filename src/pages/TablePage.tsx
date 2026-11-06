@@ -2224,6 +2224,9 @@ function LiveTablePage({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableId]);
+  /* The tournament channel's rejoin (below) restores the chests through this. */
+  const restoreMysteryBountyStateRef = useRef(restoreMysteryBountyState);
+  restoreMysteryBountyStateRef.current = restoreMysteryBountyState;
 
   // Listen for that tap. Every client subscribes, including the winner's —
   // runOpen() is idempotent, so the echo of their own broadcast is harmless.
@@ -11500,6 +11503,8 @@ function LiveTablePage({
             // Maintenance break refusal (2026-10-16): name the break. The
             // retry key is kept; a repeat after the break runs fresh.
             toast?.error(frozenRebuy);
+          } else if (/BUYIN_BELOW_MINIMUM|Insufficient.*chips/i.test(failure.message || '')) {
+            toast?.error(failure.message.replace(/^BUYIN_BELOW_MINIMUM:\s*/, ''));
           } else if (failure.message?.includes('FetchError') || !navigator.onLine) {
             // A rebuy is a debit against a live wallet. It is not queued for
             // later: nothing on the client can prove, at replay time, that the
@@ -12844,7 +12849,7 @@ function LiveTablePage({
           toast.info(
             applied > 0
               ? `${noun} Adjusted: ${applied.toFixed(2)} Added, ${refunded.toFixed(2)} Returned To Your Wallet. Your Stack Is At The Table Maximum.`
-              : `${noun} Returned: ${refunded.toFixed(2)} Is Back In Your Wallet. Your Stack Is Already At The Table Maximum.`
+              : `${noun} Returned: ${refunded.toFixed(2)} Is Back In Your Wallet. The Purchase Must Meet The Table Minimum And Fit Below Its Maximum.`
           );
         }
       }
@@ -17188,6 +17193,16 @@ function LiveTablePage({
               if (status === 'SUBSCRIBED') {
                 if (isMounted) void refreshTournamentBreakRef.current();
                 void verifyDurableCompletion();
+                /* EVERY REJOIN RE-READS WHAT THE DROP HID (2026-11-05). This
+                   callback runs on the first join AND on every rejoin after a
+                   socket loss (realtime-js reuses the join push). A broadcast
+                   sent while the socket was dead is never resent, so the
+                   heads and any open chest are re-read from the server here,
+                   beside the break and level above. */
+                if (isMounted) {
+                  void bountyMapRefreshRef.current?.();
+                  restoreMysteryBountyStateRef.current();
+                }
               }
               if (status === 'CHANNEL_ERROR') {
                 console.debug('[TablePage] Realtime channel error:', err?.message || err);

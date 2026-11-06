@@ -77,6 +77,16 @@ pin_share_clock "${SHARE[0]}" "$WORK/rake-share-migration.sql"
 pin_share_clock "$FIXTURE/rake-share-assert.sql" "$WORK/rake-share-assert.sql"
 "${PSQL[@]}" -f "$WORK/rake-share-migration.sql" -f "$WORK/rake-share-assert.sql"
 echo 'PASS: the standing rake share replaces the cron; exact, immediate, funded club, ended rule, grants, fixed events kept and no cron writes the redemptions'
+# Restore the production standing rule ended only by the preceding fixture.
+"${PSQL[@]}" <<'MIKEY_SETUP'
+UPDATE smarter_private.player_rake_share_rules SET effective_until=NULL;
+CREATE TABLE public.profiles(id uuid,username text);
+INSERT INTO profiles VALUES ('b52f183b-c0fc-4dcc-8d96-7d2a1cdb7216','Mikey'),('47965354-0e56-43ef-931c-ddaab82af765','kingfish');
+MIKEY_SETUP
+"${PSQL[@]}" -f "$ROOT/supabase/migrations/20261106043955_mikey_shares_half_earned_rake_with_kingfish.sql" -f "$FIXTURE/mikey-share-assert.sql"
+echo 'PASS: Mikey and WooWoo each keep 50 of 100 earned rake; KingFish receives both other halves in fee and player statistics'
+"${PSQL[@]}" -c 'DROP TABLE public.profiles;'
+
 restore_fixture_clock
 "${PSQL[@]}" <<'RESTORED_CLOCK'
 DO $$ BEGIN ASSERT (SELECT l.lanname = 'internal' AND p.prosrc = 'now' FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang WHERE p.oid = 'pg_catalog.now()'::regprocedure), 'builtin clock not restored'; END $$;

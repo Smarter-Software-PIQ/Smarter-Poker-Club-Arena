@@ -129,7 +129,7 @@
     "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
     "scripts/qualification/ci-admission-inputs.json": "0fa674cd3834ab67bd61af6966b0f7491dbe8ac7766f694e1ffb053e75f58729",
     "scripts/ci/qualification-input-projections.py": "024aa0f262b5547f2d8cfaee61781b7085f34bd66b8d78f2ca98d931cef76791",
-    "scripts/qualification/ci-accounting-inputs.json": "189c022030985b1ae381fdfb3c6cc72df184eb4297bc2ae868415119cb49a40b"
+    "scripts/qualification/ci-accounting-inputs.json": "9f3c06506f35c0c94b7a6120a5ea74ab3e944daa83c1625f22bf2eb7b40f8773"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
