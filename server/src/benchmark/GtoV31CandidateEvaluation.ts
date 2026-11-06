@@ -50,7 +50,7 @@ const tournamentContext = (
 function candidateArms(
   datasetChecksum: string,
   kind: GtoV31EvaluationKind
-): Pick<LeagueMatchup, 'a' | 'b'> {
+): Pick<LeagueMatchup, 'a' | 'b' | 'moodClock'> {
   if (!HEX64.test(datasetChecksum) || datasetChecksum === '0'.repeat(64)) {
     throw new Error('a sealed V31 dataset checksum is required');
   }
@@ -58,15 +58,22 @@ function candidateArms(
   // side effect. The league card deliberately leaves the full brain enabled
   // inside HorseLeague's private sandboxes, so it measures the candidate in
   // the same decision stack production uses without touching live memory.
+  //
+  // Both kinds stamp the mood hour from the deal seed (HorseLeague
+  // moodClock). Without it a certification verdict depended on the UTC hour
+  // the job happened to run: R7's league/cash -3.575 bb/100 (epoch 4, 19:40Z)
+  // reproduces exactly only with the mood clock pinned to hour 19.
   if (kind === 'paired_replay') {
     return {
       a: { gtoV31DatasetChecksum: datasetChecksum, mind: false, telemetry: false },
       b: { mind: false, telemetry: false },
+      moodClock: 'deal_seed',
     };
   }
   return {
     a: { gtoV31DatasetChecksum: datasetChecksum },
     b: {},
+    moodClock: 'deal_seed',
   };
 }
 

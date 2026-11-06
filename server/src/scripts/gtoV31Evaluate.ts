@@ -29,6 +29,7 @@ import {
   loadGtoPostflopV31Evaluation,
 } from '../services/GtoPostflopV31Loader.js';
 import { supabase } from '../services/supabase/client.js';
+import { equityGovernor } from '../engine/EquityLoadGovernor.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FAMILIES: GtoV31EvaluationFamily[] = ['cash', 'spin', 'tourney_ev', 'tourney_icm'];
@@ -316,6 +317,12 @@ async function main(): Promise<void> {
     throw new Error('promotion runs only through the engine-locked atomic qualification operation');
   }
   const engineCommit = evaluationEngineCommit();
+  // A governed Monte Carlo scales its sample count with host event-loop lag,
+  // so the same seed and engine would give load-dependent verdicts. The
+  // qualification job exports EQUITY_GOVERNOR=off; refuse rather than trust it.
+  if (equityGovernor.snapshot().enabled) {
+    throw new Error('the V31 evaluation must run with EQUITY_GOVERNOR=off');
+  }
   await loadGtoPostflopV31();
   const incumbentChecksum = gtoPostflopV31Dataset()?.checksum ?? 'legacy_v30';
   const loaded = await loadGtoPostflopV31Evaluation(datasetId);

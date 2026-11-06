@@ -220,6 +220,18 @@ export interface LeagueMatchup {
    *  config object still type-checks. */
   mind?: 'sandbox';
   /**
+   * THE MOOD HOUR IS PART OF THE DEAL (2026-11-06). The V9 hourly mood reads
+   * the wall clock unless a decision passes decisionTimeMs, so a mind-on card
+   * measured whatever hour it happened to run in: the R7 certification
+   * (dataset 187815b1, epoch 4, league/cash) recorded -3.575 bb/100 at 19:40Z,
+   * and the same seed, model and engine re-run with the mood clock pinned to
+   * other hours gives other verdicts. 'deal_seed' stamps every decision of a
+   * pair, in both passes and both arms, with dealMoodClockMs(handSeed): a
+   * reproducible hour drawn uniformly from the day, like production play.
+   * Unset keeps the old behaviour for every existing card.
+   */
+  moodClock?: 'deal_seed';
+  /**
    * HUMAN FIELD (2026-10-24). Absent: the MIRROR card every matchup has
    * always been - every seat a horse, half the seats on config A and half on
    * B, swapped between the two passes of a duplicate pair. A mirror measures
@@ -947,6 +959,18 @@ function pressureFieldDecision(
  * same seed twice with the seat->config assignment inverted, so identical
  * cards flow to both configs and luck cancels in the difference.
  */
+/** The mood clock a 'deal_seed' matchup stamps on every decision of one pair:
+ *  seconds 0..86,399 of a fixed day, so the hour (moodOf keys on the hour)
+ *  is uniform over 0..23 and identical in both passes and both arms. Same
+ *  formula as JointStrengthContract.jointMoodClockMs. */
+export function dealMoodClockMs(handSeed: number): number {
+  return (handSeed % 86_400) * 1000;
+}
+
+function withDealMood(opts: HorseDecideOpts, moodClockMs: number | null): HorseDecideOpts {
+  return moodClockMs === null ? opts : { ...opts, decisionTimeMs: moodClockMs };
+}
+
 export async function runMatchup(
   matchup: LeagueMatchup,
   pairs: number,
@@ -1022,8 +1046,11 @@ export async function runMatchup(
         },
       };
     };
-    const evenIsA = (s: number) => withEvidence(s % 2 === 0 ? matchup.a : matchup.b);
-    const evenIsB = (s: number) => withEvidence(s % 2 === 0 ? matchup.b : matchup.a);
+    const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
+    const evenIsA = (s: number) =>
+      withDealMood(withEvidence(s % 2 === 0 ? matchup.a : matchup.b), moodMs);
+    const evenIsB = (s: number) =>
+      withDealMood(withEvidence(s % 2 === 0 ? matchup.b : matchup.a), moodMs);
     const hasMods =
       matchup.modsA !== undefined || matchup.modsB !== undefined || hybrid !== undefined;
     // Same persona at the same seat in both passes; only the arm swaps.
@@ -1199,11 +1226,12 @@ async function runHumanFieldMatchup(
       if (p > 0 && (p & 0x0f) === 0) await new Promise((res) => setImmediate(res));
       const handSeed = (runSeed ^ (p * 2654435761)) >>> 0 || 1;
       const dealerSeat = (p % SEATS) + 1;
+      const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
       const play = (opts: HorseDecideOpts, mods: HorseProfileMods, sb: HorseMindSandbox) =>
         playHand(
           handSeed,
           dealerSeat,
-          () => opts,
+          () => withDealMood(opts, moodMs),
           counters,
           sb,
           variant,
