@@ -165,7 +165,8 @@ for (const [orientation, viewport] of ORIENTATIONS) {
         )
         .then(async (response) => {
           if (!response.ok()) throw new Error(`Arena context returned HTTP ${response.status()}`);
-          return { context: parseDiamondDoorContext(await response.json()), error: null };
+          const value = await response.json();
+          return { context: value === null ? null : parseDiamondDoorContext(value), error: null };
         })
         .catch((error: unknown) => ({ context: null, error: String(error) }));
       const holdingRead = (
@@ -234,6 +235,26 @@ for (const [orientation, viewport] of ORIENTATIONS) {
         cashTablesRead,
       ]);
       expect(authority.error, 'the actual arena switch read could not be verified').toBeNull();
+      if (authority.context === null) {
+        await expect(
+          page.getByRole('heading', { name: 'Arena Not Found', exact: true })
+        ).toBeVisible();
+        await expect(
+          page.getByText('That Link Does Not Lead To A Club On This Platform Any More.', {
+            exact: true,
+          })
+        ).toBeVisible();
+        await expect(page.getByTestId('lobby-game-row')).toHaveCount(0);
+        await expect(page.getByRole('tab', { name: 'ALL', exact: true })).toHaveCount(0);
+        test
+          .info()
+          .annotations.push({
+            type: 'arena-authority',
+            description:
+              'Server returned null; retired or absent arena renders the closed route without playable games.',
+          });
+        return;
+      }
       expect(seats.error, 'own seat state could not be verified').toBeNull();
       expect(registrations.error, 'own registration state could not be verified').toBeNull();
       const context = authority.context!;
