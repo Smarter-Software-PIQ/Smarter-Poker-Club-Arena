@@ -10,7 +10,8 @@
  * below), and a cast shadow so every frame sits above the page.
  */
 
-.page {
+.page,
+.theme {
   --cd-deep: #070b14;
   --cd-surface-raised: #223046;
   --cd-surface: #1a2436;
@@ -33,6 +34,9 @@
   --cd-cast-high: 0 12px 30px rgba(0, 0, 0, 0.55);
   --cd-glow: 0 0 18px rgba(111, 220, 255, 0.3);
   --cd-ease: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.page {
   min-height: 100dvh;
   background:
     radial-gradient(ellipse 120% 60% at 50% -10%, rgba(24, 119, 242, 0.22) 0%, transparent 60%),
