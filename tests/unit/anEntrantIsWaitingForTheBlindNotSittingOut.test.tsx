@@ -13,6 +13,7 @@
  * lists, and says what is true. This renders the seat for each state.
  */
 import { describe, it, expect } from 'vitest';
+import ts from 'typescript';
 import { render } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -174,5 +175,137 @@ describe('occupied nonparticipants survive the client mapper', () => {
     expect(resync).toContain('syncData.waiting_for_bb_user_ids ?? prev.waitingForBBUserIds');
     expect(resync).toContain('syncData.post_bb_deferred_user_ids ?? prev.postBBDeferredUserIds');
     expect(resync).toContain('syncData.posting_bb_user_ids ?? prev.postingBBUserIds');
+  });
+});
+
+// Run the actual DB-poll paint callback between engine frames. The row's
+// voluntary sit-out flag does not encode the engine's waiting-for-BB hold.
+function seatPollPaint(update: (fn: (state: any) => any) => void) {
+  const source = ts.createSourceFile(
+    'TablePage.tsx',
+    readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX
+  );
+  let paint = '';
+  function visit(node: ts.Node) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.name.getText(source) === 'paint' &&
+      node.initializer?.getText(source).includes('sittingOut.has(p.id)')
+    ) {
+      paint = node.initializer.getText(source);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  if (!paint) throw new Error('Actual seat sit-out paint callback not found');
+  const compiled = ts.transpileModule('const paint = ' + paint, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  return new Function('setTableState', 'cancelled', compiled + '\nreturn paint;')(update, false);
+}
+
+describe('DB seat refresh cannot release an engine entry hold', () => {
+  it('keeps the avatar and waiting badge between frames, then clears on admission and departure', () => {
+    let state: any = {
+      players: [entrant({ avatar: '/waiting.png' })],
+      waitingForBBUserIds: ['u-kingfish'],
+    };
+    const paint = seatPollPaint((update) => {
+      state = update(state);
+    });
+    const view = render(
+      <SeatSlot
+        seatNumber={1}
+        player={state.players[0]}
+        position={null}
+        isActive={false}
+        lastAction={null}
+        entryWait="waiting_for_bb"
+      />
+    );
+    const repaint = () =>
+      view.rerender(
+        <SeatSlot
+          seatNumber={1}
+          player={state.players[0]}
+          position={null}
+          isActive={false}
+          lastAction={null}
+          entryWait={
+            state.waitingForBBUserIds.includes(state.players[0]?.id) ? 'waiting_for_bb' : null
+          }
+        />
+      );
+    for (let poll = 0; poll < 3; poll++) {
+      paint(new Set());
+      expect(state.players[0].status).toBe('sitting_out');
+      repaint();
+      expect(view.container.querySelector('[data-testid="seat-waiting-bb-badge"]')).not.toBeNull();
+      expect(view.container.querySelector('img[src="/waiting.png"]')).not.toBeNull();
+    }
+    // The engine admits this entrant; only then may the DB paint restore active.
+    state = { ...state, waitingForBBUserIds: [] };
+    paint(new Set());
+    repaint();
+    expect(state.players[0].status).toBe('active');
+    expect(view.container.querySelector('[data-testid="seat-waiting-bb-badge"]')).toBeNull();
+    paint(new Set(['u-kingfish']));
+    repaint();
+    expect(view.container.querySelector('[data-testid="seat-sitout-badge"]')).not.toBeNull();
+    state = { ...state, players: [null] };
+    paint(new Set());
+    repaint();
+    expect(view.container.textContent).not.toContain('KingFish');
+  });
+
+  it('retains folded and all-in precedence and never transfers a departed hold to another occupant', () => {
+    let state: any = {
+      waitingForBBUserIds: ['u-kingfish'],
+      players: [
+        entrant({ status: 'folded' }),
+        entrant({ status: 'all_in' }),
+        entrant({ id: 'replacement', status: 'sitting_out' }),
+        null,
+      ],
+    };
+    const paint = seatPollPaint((update) => {
+      state = update(state);
+    });
+    paint(new Set());
+    expect(state.players.map((p: SeatPlayer | null) => p?.status ?? null)).toEqual([
+      'folded',
+      'all_in',
+      'active',
+      null,
+    ]);
+  });
+
+  it('renders the engine waiting reason even while another seat projection says active', () => {
+    const view = render(
+      <SeatSlot
+        seatNumber={1}
+        player={entrant({ status: 'active' })}
+        position={null}
+        isActive={false}
+        lastAction={null}
+        entryWait="waiting_for_bb"
+      />
+    );
+    expect(view.container.querySelector('[data-testid="seat-waiting-bb-badge"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-testid="seat-sitout-badge"]')).toBeNull();
+    view.rerender(
+      <SeatSlot
+        seatNumber={1}
+        player={entrant({ status: 'active' })}
+        position={null}
+        isActive={false}
+        lastAction={null}
+        entryWait="posting_bb"
+      />
+    );
+    expect(view.container.querySelector('[data-testid="seat-waiting-bb-badge"]')).toBeNull();
   });
 });

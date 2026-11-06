@@ -3466,7 +3466,9 @@ export const SeatSlot = memo(
               means. The disconnect overlay below is the third state and takes
               precedence over neither: a dropped player reads DISCONNECTED until
               the engine formally sits them out, and SITTING OUT after. */}
-          {player.status === 'sitting_out' &&
+          {/* The engine's entry reason remains authoritative even between
+              independent DB seat-status refreshes. */}
+          {(player.status === 'sitting_out' || entryWait === 'waiting_for_bb') &&
             entryWait !== 'posting_bb' &&
             (entryWait === 'waiting_for_bb' ? (
               /* An entrant the engine holds for the blind is not sitting out;
