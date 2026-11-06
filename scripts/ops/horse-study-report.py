@@ -29,7 +29,7 @@ def read_rows(path):
     if count!=receipt['rows']:raise ValueError('source_count_mismatch:'+path.name)
 
 
-def run(source,output):
+def run(source,output,river_opportunities=False):
     exclusion_bytes=(source/'exclusions.json').read_bytes()
     exclusion_config=json.loads(exclusion_bytes)
     if not isinstance(exclusion_config,list) or any(not isinstance(x,str) for x in exclusion_config):
@@ -152,17 +152,22 @@ def run(source,output):
         with path.open('rb') as f:digest=hashlib.file_digest(f,'sha256').hexdigest()
         summary[path.name]={'sha256':digest,'bytes':path.stat().st_size}
     (output/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+    if river_opportunities:
+        from horse_river_appendix import build_appendix
+        build_appendix(output,output/'river-opportunities')
     return summary
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',required=True);parser.add_argument('--output',required=True)
+    parser.add_argument('--river-opportunities',action='store_true',
+                        help='Generate the private conditional PLO river appendix after this study batch')
     args=parser.parse_args();os.umask(0o077)
     spec=importlib.util.spec_from_file_location('acquisition',Path(__file__).with_name('horse-human-study.py'))
     acquisition=importlib.util.module_from_spec(spec);spec.loader.exec_module(acquisition)
     source=acquisition.private_directory(args.source);destination=Path(args.output)
     if destination.exists():raise ValueError('new_output_directory_required')
     output=acquisition.private_directory(destination)
-    result=run(source,output)
+    result=run(source,output,river_opportunities=args.river_opportunities)
     print(json.dumps({k:result[k] for k in ('status','uniqueHistoryRows','counts','completeHistory','strategicAnalysisComplete','activationAllowed')}))
