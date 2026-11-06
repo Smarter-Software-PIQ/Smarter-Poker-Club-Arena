@@ -1150,6 +1150,8 @@ if (!_win.__pokerLocks) {
 const ENGINE_LOSS_TOAST_DELAY_MS = 15_000;
 /** A bust's bounty settles in the elimination sweep a few seconds after the hand ends. */
 const BOUNTY_SETTLE_REREAD_MS = 8_000;
+/** The last-resort head poll when no knockout, seat or hand change has re-read them. */
+const BOUNTY_HEAD_POLL_MS = 10_000;
 /** Stable empty roster for the profile sync at an anonymous table (2026-09-07). */
 const NO_SEATED_IDS: readonly (string | undefined)[] = [];
 
@@ -15608,7 +15610,7 @@ function LiveTablePage({
                head shows on the next snapshot rather than up to 30s later. */
             bountyMapRefreshRef.current = refreshBountyMap;
             if (bountyMapPollTimer) clearInterval(bountyMapPollTimer);
-            bountyMapPollTimer = setInterval(() => void refreshBountyMap(), 30_000);
+            bountyMapPollTimer = setInterval(() => void refreshBountyMap(), BOUNTY_HEAD_POLL_MS);
           } else if (tournData?.spin_multiplier) {
             setTableState((prev) => ({
               ...prev,
@@ -17548,6 +17550,20 @@ function LiveTablePage({
     const settled = setTimeout(() => void bountyMapRefreshRef.current?.(), BOUNTY_SETTLE_REREAD_MS);
     return () => clearTimeout(settled);
   }, [seatedSignature, tableState.isBountyTournament]);
+
+  /* EVERY HAND RE-READS THE HEADS (Dan 2026-11-05: "bounties are not updating
+     on the winners heads correctly or in real time"). The knockout broadcast
+     rides a separate realtime channel; when it is late or lost, the felt kept
+     the old head. The engine's own hand counter is on the same socket as the
+     cards, so each new hand in a bounty event reads the ledger heads at once
+     and again after the previous hand's busts have settled. */
+  const bountyHandNumber = tableState.handNumber ?? 0;
+  useEffect(() => {
+    if (!tableState.isBountyTournament || !(bountyHandNumber > 0)) return;
+    void bountyMapRefreshRef.current?.();
+    const settled = setTimeout(() => void bountyMapRefreshRef.current?.(), BOUNTY_SETTLE_REREAD_MS);
+    return () => clearTimeout(settled);
+  }, [bountyHandNumber, tableState.isBountyTournament]);
 
   // The engine socket is replaceable. Its broadcasts are not. Whenever a
   // replacement becomes authoritative, recover any still-open add-on window

@@ -20,6 +20,11 @@ describe('a knockout head is never overwritten by a stale read', () => {
     expect(tail).toContain('bountyMapGenRef.current += 1;');
     expect(tail).toContain('void bountyMapRefreshRef.current?.();');
   });
+  it('re-reads the heads on every hand and polls at most ten seconds apart', () => {
+    expect(page).toMatch(/const BOUNTY_HEAD_POLL_MS = 10_000;/);
+    expect(page).toContain('setInterval(() => void refreshBountyMap(), BOUNTY_HEAD_POLL_MS)');
+    expect(page).toMatch(/\}, \[bountyHandNumber, tableState\.isBountyTournament\]\);/);
+  });
   it('reads the heads again after a bust has had time to settle', () => {
     expect(page).toMatch(/const BOUNTY_SETTLE_REREAD_MS = 8_000;/);
     expect(page).toMatch(
