@@ -54,6 +54,23 @@ class ReportIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'source_digest_mismatch'):report.run(self.source,self.output)
         self.assertFalse((self.output/'summary.json').exists())
 
+    def test_captured_asset_limit_and_paid_places_reach_exact_rule_context(self):
+        h=self.hand;h['game_variant']='flo8';h['tournament_id']='event'
+        h['players'][0]['cards']=['Ah','Kh','Qc','Jc']
+        node=h['actions'][0]['publicNode']
+        node.update(variant='flo8',structure='fixed_limit',asset='diamonds',fixedBetSize=20,
+                    tournamentStage={'status':'captured','playersLeft':2,'spotsPaid':1})
+        self.write('flagged-2026-11-05',[h])
+        result=report.run(self.source,self.output)
+        with closing(sqlite3.connect(self.output/'study.sqlite')) as db:
+            decision=hand_review(db,'hand')['decisions'][0]
+        context=decision['ruleContext']
+        self.assertEqual(context['asset'],'diamonds')
+        self.assertEqual(context['fixedBetSize'],20)
+        self.assertEqual(context['paidPlaceGeometry'],'heads_up_one_regular_paid_place')
+        self.assertEqual(context['tournamentStage'],'stone_bubble')
+        self.assertFalse(result['strategicAnalysisComplete'])
+
     def test_missing_exclusion_configuration_cannot_silently_include_everyone(self):
         (self.source/'exclusions.json').unlink()
         with self.assertRaises(FileNotFoundError):report.run(self.source,self.output)

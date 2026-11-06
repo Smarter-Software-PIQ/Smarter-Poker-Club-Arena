@@ -104,9 +104,11 @@ def run(source,output):
                     d['ruleContext']={'format':report['format'],'variant':info['variant'],
                         'bettingStructure':info['structure'],'speedFormat':'lightning' if hand['id'] in lightning else 'table',
                         'anteType':state.get('anteType'),'ante':state.get('ante'),
+                        'asset':state.get('asset'),'fixedBetSize':state.get('fixedBetSize'),
                         'bigBlind':state.get('bigBlind'),'boardCount':state.get('boardCount'),
                         'bombPot':state.get('bombPot'),'allInOrFold':state.get('allInOrFold'),
-                        'tournamentStage':info['tournamentStage']['phase']}
+                        'tournamentStage':info['tournamentStage']['phase'],
+                        'paidPlaceGeometry':info['tournamentStage'].get('paidPlaceGeometry')}
                     rules[json.dumps(d['ruleContext'],sort_keys=True,separators=(',',':'))]+=1
                     d['review']=review_decision(d,exact_river_ceiling=True)
                     opportunity=d['review']['facts'].get('riverOpportunity')
