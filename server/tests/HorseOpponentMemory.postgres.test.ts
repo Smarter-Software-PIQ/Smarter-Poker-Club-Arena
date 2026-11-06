@@ -1179,3 +1179,26 @@ describe('Pineapple public opponent memory exact schema extension', () => {
     ).toMatchObject({ convalidated: true, body: expect.stringContaining("'pineapple'::text") });
   });
 });
+
+// Execute the additive exact-domain installation through the same required PG17 gate.
+it('isolates accepted public rule domains without breaking legacy accepted hands', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'exact-memory-'));
+  try {
+    execFileSync(
+      'python3',
+      [
+        '../scripts/ci/test-horse-exact-public-memory.py',
+        '--scratch',
+        tmpdir(),
+        '--output',
+        join(scratch, 'evidence'),
+      ],
+      { env: { ...process.env, PG_BIN: PG }, stdio: 'pipe', timeout: 60000 }
+    );
+    expect(JSON.parse(readFileSync(join(scratch, 'evidence/result.json'), 'utf8')).passed).toBe(
+      true
+    );
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}, 60000);
