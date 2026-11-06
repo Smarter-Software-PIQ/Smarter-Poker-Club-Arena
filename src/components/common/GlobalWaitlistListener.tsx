@@ -19,7 +19,6 @@ import { supabase } from '../../lib/supabase';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { masterBus } from '../../core/MasterBus';
 import { reportError } from '../../utils/errorReporter';
-import { recordCashSeatOfferStage } from '../../lib/cashSeatOfferTiming';
 import {
   cashSeatOfferKey,
   decideSeatOffer,
@@ -65,7 +64,14 @@ export default function GlobalWaitlistListener() {
       const key = cashSeatOfferKey(offer);
       if (openedOffersRef.current.has(key)) return;
       openedOffersRef.current.add(key);
-      recordCashSeatOfferStage(offer, 'received');
+      const receivedAt = Date.now();
+      void import('../../lib/cashSeatOfferTiming')
+        .then(({ recordCashSeatOfferStage }) =>
+          recordCashSeatOfferStage(offer, 'received', receivedAt)
+        )
+        .catch(() => {
+          /* Optional diagnostics cannot refuse or delay a seat offer. */
+        });
       const destination = `/table/${row.table_id}`;
       // A mounted spectator may have spent its first buy-in attempt on the
       // waitlist. The same URL is not evidence that THIS offer was consumed.

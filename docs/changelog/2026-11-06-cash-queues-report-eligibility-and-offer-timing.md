@@ -40,7 +40,9 @@ rewrite in the existing required accounting lane.
 Explicit offer receipt and visible buy-in now record reservation-to-stage and
 remaining-hold timing in bounded first-party browser performance marks and through existing consent-aware analytics. Duplicate
 and thawed deliveries do not record another stage. Optional analytics failures
-cannot interrupt admission. The manual read-only cash-queue audit SQL also
+cannot interrupt admission. The global listener loads diagnostics on demand and
+captures the arrival clock before loading, preserving both first-paint cost and
+the actual delivery measurement. The manual read-only cash-queue audit SQL also
 shows historical queue-to-reservation timing and explicitly labels the latest
 recorded seat-exit correlation, which is not proof that the exit caused an
 offer. No monitoring, polling repair, scheduled audit or release loop is added.
