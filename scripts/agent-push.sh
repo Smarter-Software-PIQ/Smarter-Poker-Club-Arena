@@ -78,6 +78,14 @@ fi
 # when a fetch refspec exists for it; make sure the hook sees the fresh tip.
 git update-ref "refs/remotes/$REMOTE/main" FETCH_HEAD
 
+# Show existing admission before expensive hooks; never skips a gate.
+node "$SCRIPT_DIR/ci/execution-preview.mjs"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  say "FAILED: execution preview could not inspect this candidate ($rc)."
+  exit "$rc"
+fi
+
 # A SATURATED MAC FAILS THE GATE ON TIMING, NOT CONTENT (2026-11-06). With a
 # 1-minute load of 60-140 on the 28-core Mac Studio (other sessions' suites),
 # the hook's shell tests missed their 3-second spawn budgets and a correct

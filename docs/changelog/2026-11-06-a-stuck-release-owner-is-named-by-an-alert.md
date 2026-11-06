@@ -16,12 +16,12 @@ not the thing refusing.
 `server/scripts/collect-monitoring-health.sh` (host, every 60 s) now also
 publishes, from `systemctl`:
 
-| Metric | Meaning |
-| --- | --- |
-| `club_arena_engine_release_units{state}` | release units by state: active, activating, auto-restart, failed |
-| `club_arena_engine_release_owner_age_seconds{run,state}` | how long a non-inactive release unit has held its state |
-| `club_arena_engine_release_owner_restarts{run,state}` | how often systemd restarted it |
-| `club_arena_engine_release_collect_ok` | 1 when the units were read this run |
+| Metric                                                   | Meaning                                                          |
+| -------------------------------------------------------- | ---------------------------------------------------------------- |
+| `club_arena_engine_release_units{state}`                 | release units by state: active, activating, auto-restart, failed |
+| `club_arena_engine_release_owner_age_seconds{run,state}` | how long a non-inactive release unit has held its state          |
+| `club_arena_engine_release_owner_restarts{run,state}`    | how often systemd restarted it                                   |
+| `club_arena_engine_release_collect_ok`                   | 1 when the units were read this run                              |
 
 This half is not fail closed, like the client error half: a host without
 `systemctl` drops these series and sets `_collect_ok` to 0. The money,

@@ -159,8 +159,7 @@ if [ "$(uname -s)" = Darwin ]; then
   for CA_BASH in ${CA_BASH_CANDIDATES:-/opt/homebrew/bin/bash /usr/local/bin/bash}; do
     [ -x "$CA_BASH" ] || continue
     if [ "$("$CA_BASH" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)" -ge 4 ]; then
-      CA_BASH_DIR="${TMPDIR:-/tmp}/club-arena-pre-push-bash.$$"
-      mkdir -p "$CA_BASH_DIR" && ln -sf "$CA_BASH" "$CA_BASH_DIR/bash" && PATH="$CA_BASH_DIR:$PATH" && export PATH
+      CA_BASH_DIR=$(mktemp -d /tmp/club-arena-pre-push-bash.XXXXXX) && ln -sf "$CA_BASH" "$CA_BASH_DIR/bash" && PATH="$CA_BASH_DIR:$PATH" && export PATH
       echo "[club-arena pre-push] running the shell checks on $("$CA_BASH" -c 'echo bash $BASH_VERSION'), the major CI uses."
       break
     fi
@@ -211,6 +210,9 @@ CA_TREE_TOP="$(git rev-parse --show-toplevel)"
 # Direct policy verification and one actual-result receipt in this worktree's
 # private Git metadata. A failed check keeps its original failing exit status.
 POLICY_PRECHECK_STARTED=$(date +%s)
+# A killed attempt must never leave a prior passed receipt as its apparent result.
+POLICY_PRECHECK_RECEIPT=$(git rev-parse --git-path agent-policy-preflight.json)
+rm -f -- "$POLICY_PRECHECK_RECEIPT"
 policy_precheck_result() {
   policy_exit=$?
   trap - EXIT
@@ -218,6 +220,10 @@ policy_precheck_result() {
   exit "$policy_exit"
 }
 trap policy_precheck_result EXIT
+# Explicit signal exits prevent interrupted children from producing a pass.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 node "$CA_TREE_TOP/docs/agent-policy/agent-policy.mjs" check
 node --test "$CA_TREE_TOP/docs/agent-policy/agent-policy.test.mjs"
 node --test "$CA_TREE_TOP/tests/explicit-table-access.test.mjs"

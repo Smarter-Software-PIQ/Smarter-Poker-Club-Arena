@@ -32,7 +32,9 @@ BEGIN
       ('20260906093024'),
       ('20260923150831'),
       ('20261004124327'),
-      ('20261006022835')
+      ('20261006022835'),
+      ('20261101222103'),
+      ('20261102201013')
   ) AS required(version)
   WHERE NOT EXISTS (
     SELECT 1
@@ -367,8 +369,9 @@ BEGIN
       'hash', 'edbce76de5a1f9ba633d0a55e713ca00'
     ),
     jsonb_build_object(
+      -- 20261102201013 includes the agent wallet's ledger-only movements.
       'signature', 'public.fn_my_wallet_ledger(uuid,integer,integer)',
-      'hash', '59c419c559309605fcb3e2634beb830e'
+      'hash', 'c9dc6280dd607a4e0d14878bdc8a3dc7'
     ),
     jsonb_build_object(
       'signature', 'public.fn_ca_chip_statement_page(text,uuid,jsonb,integer)',
@@ -403,11 +406,8 @@ BEGIN
     ),
     jsonb_build_object(
       'signature', 'public.fn_player_spendable_balance(uuid,uuid,uuid,uuid)',
-      -- Installed buy-in resolver 20261012131301: explicit club-only cashier
-      -- reads and authority are unchanged; table/entry previews follow the debit.
-      -- Exact source body 3dbf828a2c68ac402367aba5417bc45c was read back live.
-      'hash', '2eef81f95feb167a6d687dbb538f9bc2',
-      'replacement_hash', '7486d37ebaec9159719da58cdf8993ff',
+      -- 20261101222103 resolves tournament table funding from the entry wallet.
+      'hash', '4fbed730126f6764b2674f1e4f74cedb',
       'search_path', 'search_path=public'
     ),
     jsonb_build_object(
