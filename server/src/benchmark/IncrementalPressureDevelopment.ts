@@ -258,6 +258,8 @@ export function incrementalDevelopmentDesign(target: IncrementalTarget) {
   };
 }
 export function incrementalHistoryVersion(target?: IncrementalTarget) {
+  if (target === 'small_pot_near_nut_value_raise')
+    return `${target}-physical-public-node-warm-v2-${NEAR_NUT_WARM_PUBLIC_HANDS}`;
   if (isSeparateRiverTarget(target)) return `${target}-physical-public-node-warm-v1`;
   return target === 'pressure_package'
     ? 'five-flag-pressure-package-warm-v1'
@@ -331,6 +333,13 @@ export function incrementalDevelopmentSpec(
               : INCREMENTAL_PRESSURE_POPULATION,
   };
 }
+/** Near-nut warm hands retain their public river nodes. Measured on the declared
+ * PLO4/5/6 development profiles, 48 of them serialize to about 272 KB at four dealt
+ * and 367 KB at six dealt, over the original 256 KiB public-history window, so the
+ * original worker validator refused every multiway near-nut pilot before a pair
+ * was dealt. 32 is the largest uniform count whose six-dealt history fits with
+ * margin (about 240 KB). Multiway check-raise histories fit at 48 and are unchanged. */
+export const NEAR_NUT_WARM_PUBLIC_HANDS = 32;
 export function buildIncrementalWarmRecords(
   variant: 'nlh' | 'plo4' | 'plo5' | 'plo6',
   seats: number,
@@ -341,7 +350,7 @@ export function buildIncrementalWarmRecords(
     variant,
     seats,
     seed: target ? incrementalDevelopmentDesign(target).warmSeed : INCREMENTAL_WARM_SEED,
-    hands: 48,
+    hands: target === 'small_pot_near_nut_value_raise' ? NEAR_NUT_WARM_PUBLIC_HANDS : 48,
     historyVersion: incrementalHistoryVersion(target),
     retainPublicNodes: isSeparateRiverTarget(target),
     population:
