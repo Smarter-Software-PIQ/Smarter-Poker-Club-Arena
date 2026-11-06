@@ -2496,9 +2496,7 @@
   },
   "closureMainIntegration20261101": {
     "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
-    "updatedCurrentInputs": [
-      ".github/workflows/ci.yml"
-    ],
+    "updatedCurrentInputs": [".github/workflows/ci.yml"],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   },
