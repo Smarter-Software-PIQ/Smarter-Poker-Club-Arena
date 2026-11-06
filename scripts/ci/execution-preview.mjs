@@ -14,7 +14,12 @@ if (process.argv.includes('--working-tree') && classification.complete) {
   const paths = [...new Set([...classification.paths, ...pending, ...untracked])].sort();
   classification = { ...classification, paths, flags: classifyChangedPaths(paths), source: 'working-tree-advisory-only' };
 }
-const plan = executionPlan({ root, classification });
+let simulationsUnchanged = false;
+try {
+  const selection = await import('./ui-test-selection.mjs');
+  simulationsUnchanged = selection.isolatedSimulationsUnchanged(root, base, head);
+} catch { /* Missing proof/dependencies retains the existing simulation checks. */ }
+const plan = executionPlan({ root, classification, simulationsUnchanged });
 const selected = plan.checks.filter(c => c.selected).map(c => c.id);
 const summary = `Execution preview (shadow): ${selected.join(', ')}. Components: ${plan.components.join(', ') || 'unknown'}. Required gates unchanged.`;
 console.log(summary);

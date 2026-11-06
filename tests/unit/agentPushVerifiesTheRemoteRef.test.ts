@@ -100,6 +100,27 @@ describe('scripts/agent-push.sh', () => {
     expect(git(tree, 'rev-parse', 'refs/remotes/origin/main')).toBe(remoteRef('main'));
   });
 
+  it('reuses an exact remote commit without running its hook again', () => {
+    expect(push(tree).status).toBe(0);
+    const before = readFileSync(hookLog, 'utf8');
+    const repeated = push(tree);
+    expect(repeated.status, repeated.stderr).toBe(0);
+    expect(repeated.stderr).toContain('ALREADY PRESENT');
+    expect(readFileSync(hookLog, 'utf8')).toBe(before);
+    expect(remoteRef('agent/feature')).toBe(git(tree, 'rev-parse', 'HEAD'));
+  });
+
+  it('refuses dirty tracked bytes instead of describing an old remote commit as the candidate', () => {
+    writeFileSync(join(tree, 'tracked.txt'), 'original');
+    git(tree, 'add', 'tracked.txt');
+    git(tree, 'commit', '-m', 'tracked input');
+    expect(push(tree).status).toBe(0);
+    writeFileSync(join(tree, 'tracked.txt'), 'pending edit');
+    const result = push(tree);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('commit tracked');
+  });
+
   it('propagates the real exit code of a push that dies (SIGPIPE, 141)', () => {
     const result = push(tree, shimmedPath(141));
     expect(result.status).toBe(141);

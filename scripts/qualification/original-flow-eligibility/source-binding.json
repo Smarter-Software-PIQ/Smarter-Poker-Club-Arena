@@ -197,10 +197,6 @@
     }
   },
   "files": {
-    ".github/workflows/ci.yml": {
-      "bytes": 278905,
-      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
-    },
     "scripts/qualification/original-flow-eligibility/README.md": {
       "bytes": 2608,
       "sha256": "210942d1044141362fc2222648f3d16d7af9e25ec87ec85ea350d1aa942376f0"
@@ -242,8 +238,8 @@
       "sha256": "23e1d645751cb09547654de876744af46fda802051033063fca59375ee759311"
     },
     "scripts/qualification/original-flow-eligibility/run-native.py": {
-      "bytes": 2878,
-      "sha256": "cde763f07803f0ae4d971bdd6c526e53ff3e5e2a9469a0a898b8484ae741fe04"
+      "bytes": 2993,
+      "sha256": "e36ef701842ccc32264e43a2be7967aa6a6342d38a04baf248c5cb8182c119c5"
     },
     "supabase/migrations/20261013063142_original_refund_evidence_scans_its_application_lineage_once.sql": {
       "bytes": 21799,
@@ -320,6 +316,18 @@
     "tests/fixtures/union-pnl-blocked-resolution/schema.sql": {
       "bytes": 6057,
       "sha256": "3f5650d78cbb5e171283ce9ddff00afd1f5a697c39be251d6557e93bdda94c91"
+    },
+    "scripts/qualification/ci-accounting-inputs.json": {
+      "bytes": 139220,
+      "sha256": "189c022030985b1ae381fdfb3c6cc72df184eb4297bc2ae868415119cb49a40b"
+    },
+    "scripts/ci/qualification-input-projections.py": {
+      "bytes": 8827,
+      "sha256": "024aa0f262b5547f2d8cfaee61781b7085f34bd66b8d78f2ca98d931cef76791"
+    },
+    "scripts/qualification/ci-admission-inputs.json": {
+      "bytes": 77137,
+      "sha256": "0fa674cd3834ab67bd61af6966b0f7491dbe8ac7766f694e1ffb053e75f58729"
     }
   },
   "spentDssSatelliteNativeIntegration20261013": {
@@ -2604,5 +2612,17 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "qualificationInputProjection20261106": {
+    "scope": "Current execution/admission input identity; historical financial sources, assertions and qualification results unchanged.",
+    "reason": "Replace whole-CI/classifier/shared-test-catalog checksums with exact global/accounting/admission context and registered-input behavior. Existing tests and financial assertions still execute through required gates; unrelated CI jobs, classifier branches and test-catalog additions need no financial source restamp. The directly invoked projection validator is a pinned executable input.",
+    "retiredWholeFilePins": {
+      ".github/workflows/ci.yml": {
+        "bytes": 278905,
+        "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+      }
+    },
+    "execution_performed": false,
+    "financialQualificationRestamped": false
   }
 }

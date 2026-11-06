@@ -10,7 +10,7 @@
     "tests/fixtures/held-fee-owner-basis/after.sql": "5d385b8489b8255bc04c723ea2f3a2ee8ba15278604ee9ef579c2fb24a3f7f56",
     "tests/fixtures/held-fee-owner-basis/production-owner-path.json": "2ed43c7b261fe76b47567891f3b1033b567d71d9e27fa03bbb99afd5b6ee249f",
     "scripts/dev/qualify-held-fee-owner-basis.py": "eea8f9de3d2ac24156120c695289e521823adf67f1ffc8ff5573e42309283a21",
-    "scripts/dev/test-full-weekly-accounting-activation.sh": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
+    "scripts/dev/test-full-weekly-accounting-activation.sh": "866959327e7db278f788330c3a10334fe73a6169ee1a4bd5485115aad7d5c9c6",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260930121356_held_fee_owner_operations_use_event_lanes_and_indexed_journa.sql": "394bb56aaac8126e55f99907ff11b03f94dabd046eb16def0171a493396fa20d",
     "tests/fixtures/held-fee-owner-basis/member-lane-production.json": "b28cea6982d8321ed642afb40ce5c9f72dda11907fd3a2927cb9cd25d2f91d45",
@@ -81,5 +81,12 @@
         "current": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae"
       }
     }
+  },
+  "qualificationProjectionPreflight20261106": {
+    "scope": "Current wrapper identity only; financial sources, assertions and historical qualification unchanged.",
+    "reason": "The existing wrapper now verifies execution/admission projections before starting isolated PostgreSQL; no financial command or test was removed.",
+    "previous": "6edf29df3c6108fa7d7f0a7e433fd582148064812610944bb1a42e3e9b87cdae",
+    "current": "866959327e7db278f788330c3a10334fe73a6169ee1a4bd5485115aad7d5c9c6",
+    "execution_performed": false
   }
 }

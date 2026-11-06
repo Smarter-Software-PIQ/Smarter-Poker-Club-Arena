@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import postcss from 'postcss';
-import { gitEnvironmentForCwd } from './classify-ci-changes.mjs';
+import { gitEnvironmentForCwd, nonRuntimeCandidatePaths } from './classify-ci-changes.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, appendFileSync, lstatSync } from 'node:fs';
 import { resolve, dirname, relative, basename, join } from 'node:path';
@@ -170,7 +170,7 @@ export function configOnly(path, before, after) {
   }
 }
 
-export function selectionInputs(root, base, head, isolatedStyles = false) {
+export function selectionInputs(root, base, head, isolatedStyles = false, toolingOnly = false) {
   const git = (...args) =>
     execFileSync('git', args, {
       cwd: root,
@@ -192,6 +192,8 @@ export function selectionInputs(root, base, head, isolatedStyles = false) {
     git('diff', '--quiet', 'HEAD', '--');
     if (git('ls-files', '--others', '--exclude-standard', '--', 'src', 'server', 'supabase').trim())
       throw Error('Untracked runtime input');
+    if (toolingOnly && git('ls-files', '--others', '--exclude-standard', '-z').length)
+      throw Error('Untracked delivery/test input');
     // The presentation proof may omit the unchanged bitmap scan. Ignored
     // local assets/baselines are still detector inputs, never an exemption.
     if (git('ls-files', '--others', '--', 'public/assets', 'docs/art').trim())
@@ -215,7 +217,7 @@ export function selectionInputs(root, base, head, isolatedStyles = false) {
       const bytesAt = (revision) => execFileSync('git', ['show', `${revision}:${path}`], {
         cwd: root, env: gitEnvironmentForCwd(), maxBuffer: 64 * 1024 * 1024,
       });
-      if (isolatedStyles) {
+      if (isolatedStyles || toolingOnly) {
         if (!lstatSync(resolve(root, path)).isFile()) throw Error('Non-regular input');
         for (const revision of status === 'A' ? [head] : [ancestor, head])
           if (!/^100(?:644|755) blob /.test(git('ls-tree', revision, '--', path)))
@@ -227,7 +229,12 @@ export function selectionInputs(root, base, head, isolatedStyles = false) {
       const before = beforeBytes.toString('utf8');
       const after = afterBytes.toString('utf8');
       if (!changelog) {
-        if (isolatedStyles) {
+        if (toolingOnly) {
+          // Only these isolated agent tools may omit unchanged simulations.
+          // Schema, financial, runtime, fixtures and CI controls are excluded.
+          if (!nonRuntimeCandidatePaths([path]))
+            throw Error('Not an isolated delivery-tool input');
+        } else if (isolatedStyles) {
           if (/^src\/.+\.css$/.test(path)) {
             if (!Buffer.from(before).equals(beforeBytes) || !Buffer.from(after).equals(afterBytes))
               throw Error('Invalid CSS encoding');
@@ -242,25 +249,28 @@ export function selectionInputs(root, base, head, isolatedStyles = false) {
         }
         provedSource = true;
       }
+      if (toolingOnly && changelog) provedSource = true;
       changed.push(path);
     }
     if (!provedSource) throw Error('No proved source edit');
     return {
       focused: true,
       changed,
-      reason: 'Scoped presentation or proved configuration edit; affected consumers retained',
+      reason: toolingOnly ? 'Isolated delivery tools; source contracts, dynamic readers and import consumers retained' : 'Scoped presentation or proved configuration edit; affected consumers retained',
     };
   } catch (error) {
     return { focused: false, changed: [], reason: error.message };
   }
 }
 
-// This proof only omits isolated SQL and monitoring simulations. It must not
-// narrow browser/unit coverage or omit the asset matte scan. Those consumers
-// still use the original presentation proof above.
+// Positive proofs omit only isolated simulations whose producer, SQL/server
+// sources, fixtures, lockfiles and workflow inputs are unchanged. Isolated agent
+// tools are disjoint from both simulation runners. Browser/asset admissions
+// retain their original proof; unknown and mixed executable inputs stay broad.
 export function isolatedSimulationsUnchanged(root, base, head) {
   return selectionInputs(root, base, head).focused ||
-    selectionInputs(root, base, head, true).focused;
+    selectionInputs(root, base, head, true).focused ||
+    selectionInputs(root, base, head, false, true).focused;
 }
 
 function files(root, dir) {
@@ -471,6 +481,9 @@ export function consumedInputs(root, entry, seen = new Set(), cache = new Map())
       }
       if (n.expression.kind === ts.SyntaxKind.ImportKeyword) unknown = true;
     }
+    // A re-export can hide a filesystem reader behind another module. Until
+    // its complete closure is proved, retain that test.
+    if (ts.isExportDeclaration(n) && n.moduleSpecifier) unknown = true;
     if (ts.isImportDeclaration(n) && ts.isStringLiteralLike(n.moduleSpecifier)) {
       const spec = n.moduleSpecifier.text;
       if (spec.startsWith('.')) {
@@ -580,21 +593,23 @@ export function runSelection(root, args, env = process.env) {
   if (mode === 'scope') {
     if (!env.GITHUB_OUTPUT) throw Error('Compiler scope output is missing');
     // Only positive presentation/configuration proofs may omit the unchanged
-    // SQL replay. Financial, executable, mixed and unknown inputs keep it.
+    // SQL replay. Isolated agent tools may prove those inputs unchanged;
+    // financial, runtime, fixture, mixed and unknown inputs keep it.
     appendFileSync(env.GITHUB_OUTPUT, `presentation_only=${proof.focused}\n`);
     appendFileSync(env.GITHUB_OUTPUT,
-      `isolated_simulations_unchanged=${proof.focused || selectionInputs(root, env.CI_BASE_SHA, env.CI_HEAD_SHA, true).focused}\n`);
+      `isolated_simulations_unchanged=${isolatedSimulationsUnchanged(root, env.CI_BASE_SHA, env.CI_HEAD_SHA)}\n`);
   } else if (mode === 'unit') {
-    if (!proof.focused) return invoke('vitest', ['run', 'tests/', ...args]);
+    const unitProof = proof.focused ? proof : selectionInputs(root, env.CI_BASE_SHA, env.CI_HEAD_SHA, false, true);
+    if (!unitProof.focused) return invoke('vitest', ['run', 'tests/', ...args]);
     // Run the conservative source-contract set, then the actual import graph.
     // Exact exclusions prevent a contract from executing twice on this shard.
-    const contracts = contractTests(root, proof.changed);
-    if (!contracts.length) throw Error('No source contracts discovered');
+    const contracts = contractTests(root, unitProof.changed);
+    if (!contracts.length) return invoke('vitest', ['run', 'tests/', ...args]);
     invoke('vitest', ['run', ...contracts, ...args]);
     invoke('vitest', [
       'related',
       '--run',
-      ...proof.changed,
+      ...unitProof.changed,
       ...args,
       ...contracts.flatMap((p) => ['--exclude', p]),
       '--passWithNoTests',

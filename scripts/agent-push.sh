@@ -78,6 +78,25 @@ fi
 # when a fetch refspec exists for it; make sure the hook sees the fresh tip.
 git update-ref "refs/remotes/$REMOTE/main" FETCH_HEAD
 
+# A repeated request for the exact already-pushed source needs no new push or
+# hook execution. Read back the remote outcome first; never infer it from a
+# prior command's acknowledgement. New source still follows all normal hooks.
+if ! git diff --quiet HEAD --; then
+  say "REFUSED: commit tracked working edits before pushing the candidate."
+  exit 2
+fi
+EXISTING_LINE=$(remote_git ls-remote "$REMOTE" "refs/heads/$BRANCH")
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  say "UNKNOWN: could not read the remote branch before push ($rc)."
+  exit "$rc"
+fi
+EXISTING_SHA=$(printf '%s\n' "$EXISTING_LINE" | awk -v ref="refs/heads/$BRANCH" '$2 == ref { print $1 }')
+if [ "$EXISTING_SHA" = "$HEAD_SHA" ]; then
+  say "ALREADY PRESENT: $REMOTE refs/heads/$BRANCH = $HEAD_SHA; no new push required."
+  exit 0
+fi
+
 # Show existing admission before expensive hooks; never skips a gate.
 node "$SCRIPT_DIR/ci/execution-preview.mjs"
 rc=$?

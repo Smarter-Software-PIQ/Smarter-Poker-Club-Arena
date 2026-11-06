@@ -54,6 +54,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -193,6 +194,17 @@ def main() -> int:
                     "    pinned size " + str(expected_bytes) + "; actual size " + str((root / pinned).stat().st_size) + "\n"
                     "    actual bytes sha256 " + actual
                 )
+
+    # The maintained projection reader binds real qualification execution and
+    # immutable admission inputs; unrelated CI jobs need no financial restamp.
+    projector = REPO_ROOT / 'scripts/ci/qualification-input-projections.py'
+    if projector.exists():
+        try:
+            subprocess.run([sys.executable, str(projector), '--check'], cwd=REPO_ROOT,
+                           text=True, capture_output=True, timeout=45, check=True)
+        except (subprocess.SubprocessError, OSError) as error:
+            detail = getattr(error, 'stderr', '') or str(error)
+            findings.append('Qualification execution/admission projection mismatch: ' + detail[-3000:])
 
     print(
         "Checked " + str(verified + len(findings)) + " pins across "
