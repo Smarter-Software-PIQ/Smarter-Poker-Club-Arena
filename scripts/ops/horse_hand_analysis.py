@@ -209,7 +209,7 @@ def analyze_decision(hand, action, ordinal, hero, cards, card_source=None):
     return result
 
 
-def analyze_hand(hand, profiles, facts=None, accepted_roster=None, excluded_ids=()):
+def analyze_hand(hand, profiles, facts=None, accepted_roster=None, excluded_ids=(), snapshot_rows=None):
     roles,gaps = classify_participants(hand,profiles,accepted_roster)
     humans = [uid for uid,r in roles.items() if r['horse'] is False and uid not in excluded_ids]
     horses = [uid for uid,r in roles.items() if r['horse'] is True]
@@ -226,12 +226,25 @@ def analyze_hand(hand, profiles, facts=None, accepted_roster=None, excluded_ids=
             if not cards:
                 cards = original_hero_cards(hand, hero)
                 if cards is not None: card_source = 'hand_history.hole_cards'
+            recovery = None
+            if not cards and snapshot_rows and hero in snapshot_rows:
+                from horse_snapshot_cards import recover_own_cards
+                recovery = recover_own_cards(hand, hero, snapshot_rows[hero])
+                cards = recovery['cards']
+                if cards: card_source = recovery['provenance']['source']
             own=[]
             for i,a in enumerate(actions):
                 if not isinstance(a,dict) or not decision(a): continue
                 uid=actor_id(a)
                 if uid is None and a.get('seat')==players[hero].get('seat'): uid=hero
-                if uid==hero: own.append(analyze_decision(hand,a,i,hero,cards,card_source))
+                if uid==hero:
+                    item = analyze_decision(hand,a,i,hero,cards,card_source)
+                    if recovery is not None:
+                        item['snapshotOwnCardRecovery'] = {**recovery['provenance'],
+                            'accepted': item['informationSet'].get('heroCards') is not None,
+                            'gaps': recovery['gaps']}
+                        item['gaps'] = sorted(set(item['gaps'] + recovery['gaps']))
+                    own.append(item)
             decisions.extend(own)
             horse_reports.append({'horseId':hero,'classificationBasis':roles[hero]['basis'],
                 'streets':{s:{'decisions':[d['decisionId'] for d in own if d['street']==s],
