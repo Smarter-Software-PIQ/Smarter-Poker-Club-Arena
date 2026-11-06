@@ -141,7 +141,7 @@ export default function ClubDataTotalsBreakdown({
       className={styles.dialog}
       size="large"
     >
-      <SpadeConsole title={LABELS[metric]} eyebrow="Player Breakdown" foot="foot">
+      <SpadeConsole title={LABELS[metric]} eyebrow="Player Breakdown" foot="foot" onClose={onClose}>
         <div className={styles.body}>
           <button type="button" className={styles.action} onClick={onClose}>
             Close Breakdown
