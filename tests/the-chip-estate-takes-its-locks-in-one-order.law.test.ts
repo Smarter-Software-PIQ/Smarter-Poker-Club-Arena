@@ -30,6 +30,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
+import { classifyChangedPaths } from '../scripts/ci/classify-ci-changes.mjs';
 import { migrationNames, migrationText } from './helpers/migrationCorpus';
 import { sliceBetween } from './helpers/sourceWindow';
 
@@ -314,5 +316,41 @@ describe('LAW: the chip estate takes its locks in one order', () => {
     const code = MIG.replace(/--[^\n]*/g, ' ');
     expect(code).not.toMatch(/\bGRANT\b/i);
     expect(code).not.toMatch(/SET\s+(?:cash_games_enabled|tournaments_enabled)\s*=\s*true/i);
+  });
+});
+
+describe('native contention regression enforcement', () => {
+  it('executes and retains the native proof in required accounting CI', () => {
+    const ci = parse(readFileSync(resolve(__dirname, '..', '.github/workflows/ci.yml'), 'utf8'));
+    const steps = ci.jobs.accounting_postgres.steps;
+    const run = steps.find((step: { id?: string }) => step.id === 'chip_deadlocks');
+    expect(run).toBeDefined();
+    expect(run.if).toBe('matrix.shard == 7');
+    expect(run.env.PG_BIN).toBe('/usr/lib/postgresql/17/bin');
+    expect(run.run).toContain('python3 -B scripts/qualification/chip-deadlocks.py');
+    expect(run.run).toContain('--out "$RUNNER_TEMP/chip_deadlocks/result.json"');
+    expect(run['continue-on-error']).toBeUndefined();
+    const upload = steps.find((step: { with?: { name?: string } }) =>
+      step.with?.name?.startsWith('chip_deadlocks-')
+    );
+    expect(upload.if).toContain('always()');
+    expect(upload.if).toContain('steps.chip_deadlocks.outcome');
+    expect(upload.with.path.trim().split('\n')).toEqual([
+      '${{ runner.temp }}/chip_deadlocks/result.json',
+      '${{ runner.temp }}/chip_deadlocks/run.log',
+      '${{ runner.temp }}/chip_deadlocks/cluster/pg/postgres.log',
+    ]);
+    expect(upload.with['if-no-files-found']).toBe('error');
+    expect(ci.jobs.server.needs).toContain('accounting_postgres');
+  });
+  it.each([
+    'scripts/qualification/chip-deadlocks.py',
+    'scripts/qualification/chip-deadlocks-schema.sql',
+    'scripts/qualification/chip-deadlocks-stubs.sql',
+    'scripts/qualification/chip-deadlocks-live-doors.sql',
+    'scripts/qualification/chip-deadlocks.manifest.json',
+    'tests/the-chip-estate-takes-its-locks-in-one-order.law.test.ts',
+  ])('selects required accounting for isolated input %s', (path) => {
+    expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
   });
 });

@@ -1,0 +1,11 @@
+# Tournament lock regressions run in required CI
+
+The native receipt-replay/player-stat and commission-lock qualification runners existed but were never executed by required CI. Their laws checked old evidence and source text. A future change could therefore pass without exercising the real concurrent transactions that previously froze tournament hands and finishes.
+
+The existing accounting job now executes both maintained PostgreSQL 17 runners on shard 7 and retains results and process logs on success or failure. The required Server Engine aggregate still requires every accounting shard. All runner, schema, live-body, manifest and enforcement-law inputs select this route independently; migrations already select it. No production function, financial formula, repair schedule or deployment route changes.
+
+Shard 7 was selected from run 42215317435: it finished in 60 seconds while shard 3 took 34m40s. This adds the missing proofs without another runner or extending the existing job budget. Artifact uploads retain logs and results, not database data directories.
+
+Validation: 13 new enforcement assertions fail before the wiring; 777 focused enforcement, shard and fixture-routing assertions pass after the final artifact-path refinement; five projection tests pass. Current source-binding verification passes after regenerating the maintained accounting execution projection and its ten dependent manifests. Their audit entries describe source identity only; historical financial results are unchanged. The unchanged chip native runner passed locally on PostgreSQL 17.11, including its explicit historical unresolved-pair reporting. The replay runner could not reach a verdict locally: macOS returned EINTR while PostgreSQL opened WAL, causing a process PANIC during the intentional pre-fix deadlock. A durable flush-method experiment reproduced the crash and was removed; no assertion or database durability setting was weakened. Required Linux-hosted native execution remains pending and must pass before merge. Neither source-law success nor the historical evidence substitutes for that result.
+
+The known historical unresolved pairs in chip-deadlocks.py remain explicit; this change does not claim to repair every payout lock cycle. The separate union-wallet proof already runs in the same accounting matrix.
