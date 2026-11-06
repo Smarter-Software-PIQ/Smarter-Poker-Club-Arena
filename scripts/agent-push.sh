@@ -78,6 +78,14 @@ fi
 # when a fetch refspec exists for it; make sure the hook sees the fresh tip.
 git update-ref "refs/remotes/$REMOTE/main" FETCH_HEAD
 
+# Show existing admission before expensive hooks; never skips a gate.
+node "$SCRIPT_DIR/ci/execution-preview.mjs"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  say "FAILED: execution preview could not inspect this candidate ($rc)."
+  exit "$rc"
+fi
+
 say "pushing $BRANCH ($HEAD_SHA) to $REMOTE; the pre-push hook can take minutes"
 remote_git push -u "$REMOTE" "refs/heads/$BRANCH:refs/heads/$BRANCH"
 rc=$?
