@@ -1566,9 +1566,7 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
-        run: |
-          python3 -B scripts/ci/test-cash-addon-receipt-postgres.py
-          python3 -B scripts/ci/test-cash-rebuy-minimum-postgres.py
+        run: python3 -B scripts/ci/test-cash-addon-receipt-postgres.py
 
       - name: Original committed horse turns have an independent complete census
         if: matrix.shard == 3

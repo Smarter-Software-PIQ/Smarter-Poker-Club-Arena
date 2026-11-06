@@ -7,8 +7,8 @@ describe('felted cash seats never short buy', () => {
     expect(sql).toContain('coalesce(t.big_blind,0)*40');
     expect(sql).toContain('IF v_applied<v_rebuy_minimum THEN v_applied:=0; END IF;');
     expect(sql.match(/BUYIN_BELOW_MINIMUM: Insufficient chips/g)).toHaveLength(2);
-    expect(read('.github/workflows/ci.yml')).toContain(
-      'python3 -B scripts/ci/test-cash-rebuy-minimum-postgres.py'
+    expect(read('scripts/ci/test-cash-addon-receipt-postgres.py')).toContain(
+      'test-cash-rebuy-minimum-postgres.py'
     );
     expect(read('src/components/table/TableModalsLayer.tsx')).not.toContain(
       'Math.min(minBuyIn, bustRebuyMaxBuyIn)'
