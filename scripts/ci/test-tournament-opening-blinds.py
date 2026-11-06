@@ -142,9 +142,16 @@ CREATE TRIGGER tournament_table_inherits_committed_blinds BEFORE INSERT ON table
                     assert old==new,(old,new)
                 else:
                     assert new==dict(old,small_blind=25,big_blind=50,stakes='25/50'),(old,new)
-            assert after['schedules'][2]==before['schedules'][2]
-            for row in after['schedules'][:2]:
-                assert row['config']['blindStructure']==expected
+            # UUID order is unrelated to insertion/format order. Match the
+            # actual rows by identity and classify from their original config.
+            schedules = {row['id']: row for row in before['schedules']}
+            assert {row['id'] for row in after['schedules']} == set(schedules)
+            for row in after['schedules']:
+                original = schedules[row['id']]
+                if original['config']['type'] == 'spin':
+                    assert row == original, (original, row)
+                else:
+                    assert row == dict(original, config=dict(original['config'], blindStructure=expected)), (original, row)
             print('PASS transition changes only unstarted MTT/SNG blinds; Spins and played events unchanged',flush=True)
             state=snapshot()
             sql(MIGRATION.read_text())
