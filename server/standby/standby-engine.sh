@@ -68,6 +68,10 @@ cmd_restore() {
     psql_db -qc "CREATE EXTENSION IF NOT EXISTS ${ext%% *} WITH ${ext#* }" >/dev/null 2>&1 \
       || log "restore: extension ${ext%% *} unavailable"
   done
+  # Production's own roles, so its grants restore exactly (no login, no password).
+  for role in ca_ledger_refusal_recorder engine_lightning_fold engine_lease_heartbeat supabase_backup_admin; do
+    psql_db -qc "DO \$\$ BEGIN CREATE ROLE $role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END \$\$" >/dev/null
+  done
   docker cp "$dump" "$DB_CONTAINER:/tmp/schema.dump"
   # Owners are aligned below; grants are carried as in production.
   docker exec "$DB_CONTAINER" pg_restore -U supabase_admin -d postgres --no-owner \
