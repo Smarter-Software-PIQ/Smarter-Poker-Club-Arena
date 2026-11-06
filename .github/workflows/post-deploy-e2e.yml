@@ -1266,6 +1266,19 @@ jobs:
       # whether the money surface itself passed or failed"). It promised
       # independence and delivered it in one direction only. Run 33394046555:
       # Cashier failed, and thirteen spec files plus tests/e2e/routes never ran.
+      - name: Prepare the isolated row-delivery target
+        id: row_target
+        if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
+          E2E_TEST_ACCOUNT_FILE: ${{ runner.temp }}/club-arena-row-delivery-target.json
+          E2E_CLUB_ID: a41434bb-8d0c-400a-8f0d-e8b3d65afed4
+        run: |
+          GITHUB_ENV=/dev/null node scripts/ci/production-e2e-account.mjs create
+          GITHUB_ENV=/dev/null node scripts/ci/production-e2e-account.mjs prepare-staff
+
       - name: Run the specs that need a deployed page
         if: always() && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
         env:
@@ -1276,6 +1289,7 @@ jobs:
           # and cross-player isolation; commerce creates a third for checkout.
           # Routed gameplay below owns a fourth cosmetic-only account. Every
           # fixture is hard-deleted and residue-checked before the run ends.
+          ROW_DELIVERY_TARGET_FILE: ${{ runner.temp }}/club-arena-row-delivery-target.json
           CUSTOMIZATION_COMMERCE_CERTIFICATION: '1'
           # The routed customization lane owns a disposable account and makes
           # only cosmetic writes. Its hand and seat are deterministic browser
@@ -1628,6 +1642,15 @@ jobs:
           e2e-report/customization-realtime.json
           e2e-report/gameplay-customization-runtime.json
           e2e-report/customization-commerce.json
+
+      - name: Retire the isolated row-delivery target
+        if: always() && steps.row_target.outcome != 'skipped' && steps.live.outputs.ready == 'true' && steps.account.outcome == 'success' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          E2E_TEST_ACCOUNT_FILE: ${{ runner.temp }}/club-arena-row-delivery-target.json
+        run: node scripts/ci/production-e2e-account.mjs cleanup
 
       - name: Retire interrupted assignment qualification fixtures
         if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
