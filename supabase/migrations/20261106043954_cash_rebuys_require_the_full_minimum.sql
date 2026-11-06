@@ -337,7 +337,7 @@ BEGIN
       v_row.user_id,
       v_credit,
       'addon_refund',
-      'Add-on refund (exceeds max buy-in or seat vacated)',
+      'Add-on refund (outside buy-in limits or seat vacated)',
       v_row.table_id,
       NULL::uuid,
       NULL::uuid,

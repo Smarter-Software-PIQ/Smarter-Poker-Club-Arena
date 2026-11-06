@@ -12849,7 +12849,7 @@ function LiveTablePage({
           toast.info(
             applied > 0
               ? `${noun} Adjusted: ${applied.toFixed(2)} Added, ${refunded.toFixed(2)} Returned To Your Wallet. Your Stack Is At The Table Maximum.`
-              : `${noun} Returned: ${refunded.toFixed(2)} Is Back In Your Wallet. Your Stack Is Already At The Table Maximum.`
+              : `${noun} Returned: ${refunded.toFixed(2)} Is Back In Your Wallet. The Purchase Must Meet The Table Minimum And Fit Below Its Maximum.`
           );
         }
       }
