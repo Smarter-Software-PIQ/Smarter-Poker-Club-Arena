@@ -198,8 +198,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278905,
-      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+      "bytes": 279173,
+      "sha256": "6007054a8c3ec47b9551ade869a77e5f81b9186856a550cc423290154c008e59"
     },
     "scripts/ci/satellite_qualifier_fixture.py": {
       "bytes": 18466,
@@ -2852,5 +2852,16 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "cashQueueFeedbackSourceAudit20261106": {
+    "reason": "Add the isolated cash-queue reader PostgreSQL regression to existing accounting shard 1. All existing commands, assertions, financial matrices and historical verdicts remain unchanged. Current workflow source identity only; not a financial or live recertification.",
+    "previousCiPin": {
+      "bytes": 278905,
+      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
+    },
+    "currentCiPin": {
+      "bytes": 279173,
+      "sha256": "6007054a8c3ec47b9551ade869a77e5f81b9186856a550cc423290154c008e59"
+    }
   }
 }
