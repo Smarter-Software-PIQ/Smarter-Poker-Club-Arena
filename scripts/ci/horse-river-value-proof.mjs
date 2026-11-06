@@ -139,6 +139,7 @@ export function inspectRiverValueRecords(input, batch, api, reconcileOriginal) {
         inputDigest: item.inputDigest,
         readFrameDigest: item.readFrameDigest,
         policyComparisons,
+        policyTrace: riverValuePolicyTrace(capture.decision, witness),
         baselineAttribution: policyComparisons.length ? 'receipt_comparison_only' : 'unavailable',
         guards: item.guards,
       };
@@ -166,4 +167,122 @@ export async function loadInstalledRiverValueApi(loadOriginal) {
     /* Older source can prove only the original aggressor-checked context. */
   }
   return api;
+}
+
+/** Retained outer receipts only. Unknown vocabulary stays unavailable, never raw text. */
+export function riverValuePolicyTrace(decision, execution) {
+  const actions = ['fold', 'check', 'call', 'bet', 'raise', 'all_in', 'discard'];
+  const selections = [
+    'none',
+    'shadow_change',
+    'selected',
+    'controller_accepted',
+    'withdrawn_before_acceptance',
+  ];
+  const reasons = [
+    'reference_retained',
+    'heads_up_position_stab',
+    'heads_up_button_open',
+    'off',
+    'invalid_mode',
+    'variant_outside_pack',
+    'multiboard_owned_by_phase13',
+    'canonical_state_unavailable',
+    'seat_count_outside_pack',
+    'blind_seats_unavailable',
+    'private_state_rejected',
+    'invalid_geometry',
+    'invalid_wager_geometry',
+    'depth_or_ante_outside_pack',
+    'rake_schedule_unavailable',
+    'invalid_cards',
+    'invalid_equity_evidence',
+    'proposal_outside_legal_menu',
+  ];
+  const ownership = (v) =>
+    v &&
+    ['reference', 'phase10', 'phase11', 'phase12'].includes(v.owner) &&
+    ['reference', 'off', 'shadow', 'candidate'].includes(v.mode) &&
+    ['reference', 'disabled', 'computed', 'outside_domain', 'unavailable'].includes(v.outcome) &&
+    (v.reason === null || reasons.includes(v.reason))
+      ? { owner: v.owner, mode: v.mode, outcome: v.outcome, reason: v.reason }
+      : null;
+  const graph = (v) => {
+    const nodes = [
+      'reference',
+      'reference_legality',
+      'variant_policy',
+      'tournament_utility',
+      'tournament_continuation',
+      'variant_utility_guard',
+      'joint_policy',
+      'corrective_policy',
+      'wager_rules',
+      'timing',
+    ];
+    if (
+      !v ||
+      !['horse-policy-order-v1', 'horse-policy-order-v2', 'horse-policy-order-v3'].includes(
+        v.version
+      ) ||
+      !Array.isArray(v.transitions) ||
+      v.transitions.length > 10 ||
+      !actions.includes(v.finalAction?.action) ||
+      new Set(v.transitions.map((t) => t.node)).size !== v.transitions.length ||
+      v.transitions.some(
+        (t) =>
+          !nodes.includes(t.node) ||
+          (t.before !== null && !actions.includes(t.before?.action)) ||
+          !actions.includes(t.after?.action) ||
+          typeof t.changed !== 'boolean'
+      )
+    )
+      return null;
+    return {
+      version: v.version,
+      finalAction: v.finalAction.action,
+      transitions: v.transitions.map((t) => ({
+        node: t.node,
+        before: t.before?.action ?? null,
+        after: t.after.action,
+        changed: t.changed,
+      })),
+    };
+  };
+  const v = decision?.omahaVariantPolicy;
+  const omaha =
+    v &&
+    ['off', 'shadow', 'candidate'].includes(v.mode) &&
+    reasons.includes(v.reason) &&
+    ['eligible', 'fired', 'changed', 'applied'].every((k) => typeof v[k] === 'boolean') &&
+    ['baselineAction', 'proposalAction', 'finalAction'].every((k) => actions.includes(v[k])) &&
+    (v.selection === undefined || selections.includes(v.selection)) &&
+    (v.selectionRefusal === undefined ||
+      v.selectionRefusal === null ||
+      v.selectionRefusal === 'illegal_candidate')
+      ? {
+          mode: v.mode,
+          eligible: v.eligible,
+          fired: v.fired,
+          changed: v.changed,
+          applied: v.applied,
+          reason: v.reason,
+          baselineAction: v.baselineAction,
+          proposalAction: v.proposalAction,
+          finalAction: v.finalAction,
+          selection: v.selection ?? null,
+          selectionRefusal: v.selectionRefusal ?? null,
+        }
+      : null;
+  return {
+    scope: 'outer_receipts_only',
+    decisionOwnership: ownership(decision?.policyOwnership),
+    executionOwnership: ownership(execution?.policyOwnership),
+    omahaVariant: omaha,
+    decisionGraph: graph(decision?.policyGraph),
+    executionGraph: graph(execution?.policyGraph),
+    executionPhase11Selection: selections.includes(execution?.phase11Authority?.selection)
+      ? execution.phase11Authority.selection
+      : null,
+  };
 }
