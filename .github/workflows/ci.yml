@@ -1600,6 +1600,10 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-fixed-limit-policy-postgres.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"
 
+      - name: Backup restore aligns standalone sequence owners
+        if: matrix.shard == 4
+        run: python3 -B scripts/verification-harness/standby-sequence-owners.py --pg-bin /usr/lib/postgresql/17/bin --scratch-root "${{ runner.temp }}"
+
       - name: Runtime privilege changes preserve the schema DDL boundary
         if: matrix.shard == 4
         env:

@@ -137,6 +137,17 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     expect(result.status, result.stderr).toBe(0);
   });
 
+  it('qualifies real sequence ownership in the required native accounting job', () => {
+    const workflow = readFileSync(root('.github/workflows/ci.yml'), 'utf8');
+    expect(workflow).toContain(
+      'python3 -B scripts/verification-harness/standby-sequence-owners.py --pg-bin /usr/lib/postgresql/17/bin --scratch-root'
+    );
+    expect(classifyChangedPaths(['server/standby/standby-owners.sql']).server).toBe(true);
+    expect(
+      classifyChangedPaths(['scripts/verification-harness/standby-sequence-owners.py']).server
+    ).toBe(true);
+  });
+
   it('admits only a zero-error restore with its successful seed', () => {
     expect(standbyShell('assert_valid_copy', validCopy).status).toBe(0);
     for (const files of [

@@ -12,6 +12,18 @@ BEGIN
       CASE r.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END,
       r.nspname, r.relname);
   END LOOP;
+  -- ALTER TABLE already transfers its serial/identity sequences. Standalone
+  -- counters have no table owner to follow and otherwise retain the restore
+  -- role, denying nextval to the postgres SECURITY DEFINER functions below.
+  FOR r IN SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname IN ('public','ca_archive','discovery_private','operational_source_intake','ops','ops_rollback','smarter_private','zz_archive')
+              AND c.relkind = 'S'
+              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass
+                AND d.objid = c.oid AND (d.deptype = 'e' OR
+                  (d.refclassid = 'pg_class'::regclass AND d.refobjsubid > 0 AND d.deptype IN ('a','i'))))
+  LOOP
+    EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO postgres', r.nspname, r.relname);
+  END LOOP;
   FOR r IN SELECT p.oid::regprocedure AS sig, p.prokind FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname IN ('public','ca_archive','discovery_private','operational_source_intake','ops','ops_rollback','smarter_private','zz_archive')
               AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
