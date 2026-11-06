@@ -50,6 +50,12 @@ export interface HandDetailViewProps {
   /** Highlights the viewer's own rows. */
   currentUserId?: string | null;
   currentUserName?: string | null;
+  /**
+   * The tag on the highlighted player's unshown cards. "Yours" when the
+   * person reading is that player; a SHARED replay passes the sender's name
+   * ("Mongo's"), because the person reading a link is somebody else.
+   */
+  privateOwnerTag?: string;
   /** Rendered under the showdown — the BBJP Winners box on a jackpot hand. */
   footer?: React.ReactNode;
   /** Extra chip beside the stakes, e.g. the game type. */
@@ -215,7 +221,9 @@ function ActionRow({
   showStack,
   muckCount,
   arenaAsset,
+  privateOwnerTag = 'Yours',
 }: {
+  privateOwnerTag?: string;
   arenaAsset?: ReplayModel['arenaAsset'];
   row: ReplayRow;
   isYou: boolean;
@@ -241,7 +249,7 @@ function ActionRow({
             {row.privateCards.map((c, i) => (
               <CardImage key={`p-${row.key}-${i}`} card={c} size="xs" className="hdv-private" />
             ))}
-            <span className="hdv__private-tag">Yours</span>
+            <span className="hdv__private-tag">{privateOwnerTag}</span>
           </>
         ) : (
           row.showsMuck &&
@@ -276,7 +284,9 @@ function ShowdownRow({
   muckCount,
   isBadBeat,
   arenaAsset,
+  privateOwnerTag = 'Yours',
 }: {
+  privateOwnerTag?: string;
   arenaAsset?: ReplayModel['arenaAsset'];
   row: ReplayShowdownRow;
   isYou: boolean;
@@ -299,7 +309,9 @@ function ShowdownRow({
           {/* HI-LO: the half this row is for. A PLO8 scoop is two rows. */}
           {row.low && <span className="hdv__sd-tag hdv__sd-tag--low">LOW</span>}
           {/* Your own mucked cards, drawn face-up for you alone. */}
-          {row.holePrivate && <span className="hdv__private-tag">Yours, Not Shown</span>}
+          {row.holePrivate && (
+            <span className="hdv__private-tag">{privateOwnerTag}, Not Shown</span>
+          )}
           {/* Dan 2026-10-25: a hand that called the river and lost - mucked and
               revealed from the record, or tabled by the engine since 10-26. */}
           {(row.calledMuck || row.calledRiver) && <span className="hdv__sd-tag">CALLED</span>}
@@ -431,6 +443,7 @@ export function HandDetailView({
   badge,
   badBeatUserId,
   viewerFacts,
+  privateOwnerTag = 'Yours',
 }: HandDetailViewProps) {
   const money = moneyForHand(model);
   const equities = useStreetEquities(model);
@@ -553,6 +566,7 @@ export function HandDetailView({
               isYou={isYou(row.userId, row.name)}
               showStack={showStack}
               muckCount={muckCount}
+              privateOwnerTag={privateOwnerTag}
             />
           ))}
 
@@ -596,6 +610,7 @@ export function HandDetailView({
               isYou={isYou(row.userId, row.name)}
               muckCount={muckCount}
               isBadBeat={!!badBeatUserId && row.userId === badBeatUserId}
+              privateOwnerTag={privateOwnerTag}
             />
           ))}
         </section>
