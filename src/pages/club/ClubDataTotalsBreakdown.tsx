@@ -1,0 +1,238 @@
+import { useEffect, useState } from 'react';
+import { supabase } from '../../lib/supabase';
+import { Modal } from '../../components/common/Modal';
+import { SpadeConsole } from '../../components/console/SpadeConsole';
+import { reportError } from '../../utils/errorReporter';
+import { titleCase } from '../../utils/titleCase';
+import styles from './ClubDataTotalsBreakdown.module.css';
+
+export type TotalMetric = 'total_winnings' | 'mtt_winnings' | 'fee';
+interface PlayerTotal {
+  user_id: string;
+  name: string;
+  total_winnings: number;
+  mtt_winnings: number;
+  fee: number;
+}
+interface Breakdown {
+  contract: string;
+  club_id: string;
+  range: { start: string; end: string };
+  filters: { game: string; stakes: string; search: string | null };
+  scope: string;
+  players: PlayerTotal[];
+  generated_at: string;
+}
+interface Props {
+  clubId: string;
+  start: string;
+  end: string;
+  game: string;
+  stakes: string;
+  search: string | null;
+  metric: TotalMetric;
+  onClose: () => void;
+}
+const LABELS = {
+  total_winnings: 'Total Winnings',
+  mtt_winnings: 'MTT Winnings',
+  fee: 'Fees Generated',
+};
+const money = (value: number) =>
+  value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+export function validBreakdown(
+  value: unknown,
+  request: Omit<Props, 'metric' | 'onClose'>
+): value is Breakdown {
+  const v = value as Breakdown | null;
+  return (
+    !!v &&
+    v.contract === 'ca_club_data_player_totals.v1' &&
+    v.club_id === request.clubId &&
+    v.range?.start === request.start &&
+    v.range?.end === request.end &&
+    v.filters?.game === request.game &&
+    v.filters?.stakes === request.stakes &&
+    v.filters?.search === request.search &&
+    (v.scope === 'club' || v.scope === 'downline') &&
+    Array.isArray(v.players) &&
+    v.players.every(
+      (p) =>
+        typeof p.user_id === 'string' &&
+        typeof p.name === 'string' &&
+        [p.total_winnings, p.mtt_winnings, p.fee].every(
+          (n) => typeof n === 'number' && Number.isFinite(n)
+        )
+    ) &&
+    new Set(v.players.map((p) => p.user_id)).size === v.players.length
+  );
+}
+
+export default function ClubDataTotalsBreakdown({
+  clubId,
+  start,
+  end,
+  game,
+  stakes,
+  search,
+  metric,
+  onClose,
+}: Props) {
+  const [data, setData] = useState<Breakdown | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    let dead = false;
+    const controller = new AbortController();
+    setData(null);
+    setFailed(false);
+    const timer = window.setTimeout(() => {
+      if (!dead) {
+        setFailed(true);
+        controller.abort();
+      }
+    }, 20000);
+    void (async () => {
+      try {
+        const { data: result, error } = await supabase
+          .rpc('ca_club_data_player_totals', {
+            p_club_id: clubId,
+            p_start: start,
+            p_end: end,
+            p_game: game,
+            p_stakes: stakes,
+            p_search: search,
+          })
+          .abortSignal(controller.signal);
+        if (dead || controller.signal.aborted) return;
+        if (error) throw error;
+        if (!validBreakdown(result, { clubId, start, end, game, stakes, search }))
+          throw new Error('Incomplete player totals');
+        setData(result);
+      } catch (error) {
+        if (!dead) {
+          reportError(error, 'ClubDataTotalsBreakdown.read');
+          setFailed(true);
+        }
+      } finally {
+        window.clearTimeout(timer);
+      }
+    })();
+    return () => {
+      dead = true;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [clubId, start, end, game, stakes, search, attempt]);
+  const players = data?.players ?? [];
+  const sorted = [...players]
+    .filter((p) => `${p.name} ${p.user_id}`.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((a, b) => b[metric] - a[metric] || a.user_id.localeCompare(b.user_id));
+  const wins = players.reduce((sum, p) => sum + Math.max(p[metric], 0), 0);
+  const losses = players.reduce((sum, p) => sum + Math.min(p[metric], 0), 0);
+  return (
+    <Modal
+      isOpen
+      onClose={onClose}
+      ariaLabel={`${LABELS[metric]} By Player`}
+      showCloseButton={false}
+      className={styles.dialog}
+      size="large"
+    >
+      <SpadeConsole title={LABELS[metric]} eyebrow="Player Breakdown" foot="foot">
+        <div className={styles.body}>
+          <button type="button" className={styles.action} onClick={onClose}>
+            Close Breakdown
+          </button>
+          <p>
+            {start} - {end} Chicago Time
+          </p>
+          {metric === 'mtt_winnings' && (
+            <p>Finished MTTs Only. Amounts Are Net Entries And Payouts.</p>
+          )}
+          {metric === 'total_winnings' && (
+            <p>Net Results Include Cash, Tournaments And Chips Still On The Felt.</p>
+          )}
+          {metric === 'fee' && (
+            <p>Fees Generated By Each Player, Before Agent Shares And Adjustments.</p>
+          )}
+          {data?.scope === 'downline' && <p>You And Your Downline</p>}
+          {failed ? (
+            <div role="alert">
+              <p>Player Totals Could Not Be Read.</p>
+              <button
+                type="button"
+                className={styles.action}
+                onClick={() => setAttempt((n) => n + 1)}
+              >
+                Try Again
+              </button>
+            </div>
+          ) : !data ? (
+            <p role="status">Reading Player Totals</p>
+          ) : (
+            <>
+              <dl className={styles.totals}>
+                {metric !== 'fee' && (
+                  <>
+                    <dt>Winning Players</dt>
+                    <dd>{money(wins)}</dd>
+                    <dt>Losing Players</dt>
+                    <dd>{money(losses)}</dd>
+                  </>
+                )}
+                <dt>{metric === 'fee' ? 'Total Fees' : 'Net Total'}</dt>
+                <dd>{money(wins + losses)}</dd>
+                <dt>Players</dt>
+                <dd>
+                  {players
+                    .filter((p) => p.user_id !== '00000000-0000-0000-0000-000000000000')
+                    .length.toLocaleString('en-US')}
+                </dd>
+              </dl>
+              <label className={styles.search}>
+                Find Player
+                <input
+                  type="search"
+                  aria-label="Find Player In Breakdown"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </label>
+              <div className={styles.tableScroll}>
+                <table>
+                  <caption>{LABELS[metric]} By Player</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Player</th>
+                      <th scope="col">{LABELS[metric]}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sorted.map((p) => (
+                      <tr key={p.user_id}>
+                        <th scope="row" title={p.user_id}>
+                          {titleCase(p.name)}
+                        </th>
+                        <td className={p[metric] < 0 ? styles.loss : styles.value}>
+                          {money(p[metric])}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {sorted.length === 0 && <p>No Players In This Selection.</p>}
+              <p>
+                All Player Totals Are Included. Search Only Filters The List. Individual Amounts Are
+                Rounded To Two Decimals.
+              </p>
+            </>
+          )}
+        </div>
+      </SpadeConsole>
+    </Modal>
+  );
+}
