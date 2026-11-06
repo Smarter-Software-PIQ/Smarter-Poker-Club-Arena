@@ -105,7 +105,8 @@ jobs:
           set -euo pipefail
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
-          stamp=$(ssh -i ~/.ssh/standby "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"restoreValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
+          owners_sha=$(sha256sum server/standby/standby-owners.sql | cut -d' ' -f1)
+          stamp=$(ssh -i ~/.ssh/standby "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"ownersSha256\") == \"$owners_sha\" and d.get(\"restoreValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
           restored=$(date -d "$stamp" +%s)
           newest=$(git log -1 --format=%ct origin/main -- supabase/migrations 2>/dev/null || echo 0)
           today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)
@@ -183,10 +184,9 @@ jobs:
           fi
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
-          ssh -i ~/.ssh/standby -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
+          if ssh -i ~/.ssh/standby -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
             "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show origin/main:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && standby-engine certify $SHA 1800" \
-            | tee certificate.out
-          rc=${PIPESTATUS[0]}
+            | tee certificate.out; then rc=0; else rc=1; fi
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           tail -1 certificate.out > certificate.json || true
           exit 0

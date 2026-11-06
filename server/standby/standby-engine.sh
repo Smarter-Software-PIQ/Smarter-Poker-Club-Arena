@@ -24,6 +24,7 @@
 #   standby-engine.sh status
 set -Eeuo pipefail
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_DIR=/opt/club-arena
 DB_DIR=/opt/standby-db
 STATE_DIR=/var/lib/club-arena-standby
@@ -40,6 +41,14 @@ APP_SCHEMAS=(public ca_archive discovery_private operational_source_intake ops o
 die() { echo "standby-engine: $*" >&2; exit 1; }
 log() { echo "[$(date -u +%FT%TZ)] $*" | tee -a "$LOG_DIR/standby.log" >&2; }
 valid_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]] || die "not a 40-hex sha: $1"; }
+
+owners_file() {
+  if [ -f "$SCRIPT_DIR/standby-owners.sql" ]; then
+    printf '%s\n' "$SCRIPT_DIR/standby-owners.sql"
+  else
+    printf '%s\n' /usr/local/share/club-arena-standby/owners.sql
+  fi
+}
 
 assert_isolated() {
   systemctl is-active -q standby-egress-lock || die 'egress lock is not active; refusing to run'
@@ -120,8 +129,11 @@ cmd_restore() {
   [ "$errors" = 0 ] || return 1
   # Production owns application objects as postgres; SECURITY DEFINER guards
   # (current_user IN ('postgres','service_role')) depend on it.
-  docker cp "$(dirname "$0")/standby-owners.sql" "$DB_CONTAINER:/tmp/owners.sql" 2>/dev/null \
-    || docker cp /usr/local/share/club-arena-standby/owners.sql "$DB_CONTAINER:/tmp/owners.sql" || return 1
+  docker cp "$(owners_file)" "$DB_CONTAINER:/tmp/owners.sql" || return 1
+  local owners_sha
+  owners_sha=$(docker exec "$DB_CONTAINER" sha256sum /tmp/owners.sql) || return 1
+  owners_sha=${owners_sha%% *}
+  [[ "$owners_sha" =~ ^[0-9a-f]{64}$ ]] || return 1
   docker exec "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/owners.sql >>"$LOG_DIR/restore.log" 2>&1 \
     || { log "restore: owner alignment reported errors (see restore.log)"; return 1; }
   # pg_cron jobs are never carried over: production jobs call production URLs.
@@ -131,8 +143,8 @@ cmd_restore() {
   local tables functions
   tables=$(psql_db -Atc "select count(*) from pg_tables where schemaname='public'") || return 1
   functions=$(psql_db -Atc "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where nspname='public'") || return 1
-  printf '{"restoredAt":"%s","dump":"%s","dumpSha256":"%s","publicTables":%s,"publicFunctions":%s,"restoreErrors":%s,"restoreValidated":false}\n' \
-    "$(date -u +%FT%TZ)" "$(basename "$dump")" "$(sha256sum "$dump" | cut -d' ' -f1)" "$tables" "$functions" "$errors" \
+  printf '{"restoredAt":"%s","dump":"%s","dumpSha256":"%s","publicTables":%s,"publicFunctions":%s,"restoreErrors":%s,"restoreValidated":false,"ownersSha256":"%s"}\n' \
+    "$(date -u +%FT%TZ)" "$(basename "$dump")" "$(sha256sum "$dump" | cut -d' ' -f1)" "$tables" "$functions" "$errors" "$owners_sha" \
     | tee "$STATE_DIR/database.json"
 }
 
@@ -265,10 +277,11 @@ EOF
 }
 
 assert_valid_copy() {
-  python3 - "$STATE_DIR/database.json" "$STATE_DIR/seed.json" <<'PY_CHECK'
-import json, sys
+  python3 - "$STATE_DIR/database.json" "$STATE_DIR/seed.json" "$(owners_file)" <<'PY_CHECK'
+import hashlib, json, sys
 try:
-    database, seed = (json.load(open(p)) for p in sys.argv[1:])
+    database, seed = (json.load(open(p)) for p in sys.argv[1:3])
+    assert database.get('ownersSha256') == hashlib.sha256(open(sys.argv[3], 'rb').read()).hexdigest()
     assert database.get('restoreValidated') is True and database.get('restoreErrors') == 0
     assert seed['tablesFailed'] == 0 and seed['seededAt'] >= database['restoredAt']
 except (OSError, ValueError, KeyError, TypeError, AssertionError):
@@ -339,7 +352,7 @@ PY_CRASH
 }
 
 count_fatal_logs() {
-  docker logs --since "@$1" "$CONTAINER" > "$LOG_DIR/certify-$2.log" 2>&1 || return 1
+  docker logs --since "$1" "$CONTAINER" > "$LOG_DIR/certify-$2.log" 2>&1 || return 1
   local count rc=0
   count=$(grep -c -E 'FATAL ERROR|Uncaught|unhandledRejection|heap out of memory|Segmentation fault' "$LOG_DIR/certify-$2.log") || rc=$?
   [ "$rc" -le 1 ] || return 1
