@@ -56,6 +56,11 @@ import {
   fixtureEnrollmentObserved,
 } from '../e2e/support/fixtureBrowserDevice';
 
+import {
+  customizationEnrollmentObserved,
+  enrollCustomizationBrowser,
+} from '../e2e/support/customizationBrowserEnrollment';
+
 const SID_A = '11111111-2222-4333-8444-555555555555';
 const SID_B = '99999999-8888-4777-8666-555555555555';
 const DEV = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
@@ -238,6 +243,54 @@ describe('owned disposable fixture browser continuity', () => {
       };
     });
   }
+  it('waits for normal first-browser enrollment for the actual hyphenated fixture names', async () => {
+    const waitForFunction = vi.fn().mockResolvedValue({ dispose: vi.fn() });
+    const page = {
+      url: () => location.href,
+      evaluate: vi.fn().mockResolvedValue(fixture.id),
+      waitForFunction,
+    };
+    await enrollCustomizationBrowser(page as never, {
+      id: fixture.id,
+      email:
+        'ca-customization-cert-theme-primary-1793599200000-11111111-2222-4333-8444-555555555555@example.invalid',
+    });
+    expect(waitForFunction).toHaveBeenCalledWith(
+      customizationEnrollmentObserved,
+      { userId: fixture.id, origin: location.origin },
+      { timeout: 30_000 }
+    );
+    await expect(
+      enrollCustomizationBrowser(page as never, { id: fixture.id, email: 'person@example.com' })
+    ).rejects.toThrow('owned disposable');
+    page.evaluate.mockResolvedValue('another-user');
+    await expect(
+      enrollCustomizationBrowser(page as never, {
+        id: fixture.id,
+        email:
+          'ca-customization-cert-buyer-1793599200000-11111111-2222-4333-8444-555555555555@example.invalid',
+      })
+    ).rejects.toThrow('identity does not match');
+  });
+  it('customization accepts only the real owned enrollment and rejects pending or foreign sessions', async () => {
+    const target = { userId: fixture.id, origin: location.origin };
+    freshBrowser();
+    localStorage.setItem('smarter-poker-auth', JSON.stringify({ user: { id: fixture.id } }));
+    rpcMock.mockResolvedValue({ data: { ok: true, bound: true, device_id: DEV }, error: null });
+    expect(customizationEnrollmentObserved(target)).toBeNull();
+    await enrollDevice(tokenWith(SID_A));
+    await settle();
+    expect(customizationEnrollmentObserved(target)).toEqual({
+      browser: localStorage.getItem('ca_device_id'),
+      device: DEV,
+    });
+    expect(customizationEnrollmentObserved({ ...target, userId: 'someone-else' })).toBeNull();
+    expect(
+      customizationEnrollmentObserved({ ...target, origin: 'https://another.invalid' })
+    ).toBeNull();
+    localStorage.removeItem('ca_enrolled_device_id');
+    expect(customizationEnrollmentObserved(target)).toBeNull();
+  });
   it('reproduces the old fresh-context failure through the real enrollment consumer', async () => {
     deviceDoor();
     freshBrowser();
