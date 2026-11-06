@@ -8,6 +8,9 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 // @ts-expect-error standalone maintained host helper
 import * as diagnostic from '../../../../scripts/ci/horse-tournament-predicate-proof.mjs';
+// @ts-expect-error standalone maintained host helper
+import * as riverDiagnostic from '../../../../scripts/ci/horse-river-value-proof.mjs';
+import { omahaQuickCategory } from '../../engine/HorseEval.js';
 import * as records from '../../services/horseDecisionJournal/record.js';
 import * as binding from '../../engine/HorseDecisionHandBinding.js';
 import * as review from '../../services/horseDecisionJournal/review.js';
@@ -58,7 +61,12 @@ const table = '12345678-abcd-4321-abcd-123456789abc',
   handId = '32345678-abcd-4321-abcd-123456789abc',
   producer = '42345678-abcd-4321-abcd-123456789abc',
   source = 'a'.repeat(40);
-function fixture(actionKind = 'raise', change?: (x: any) => void, provided?: any) {
+function fixture(
+  actionKind = 'raise',
+  change?: (x: any) => void,
+  provided?: any,
+  prepare?: (hero: any, state: any) => void
+) {
   const { hero, state }: any =
     provided ??
     JSON.parse(JSON.stringify(jointPolicyFixture('plo5', 1, 'cash', 'river')), (_k, v) =>
@@ -97,6 +105,8 @@ function fixture(actionKind = 'raise', change?: (x: any) => void, provided?: any
     stage: 'preflop',
     timestamp: 100 + i,
   }));
+  prepare?.(hero, state);
+  const ordinal = state.actionHistory.length;
   const s: any = {
     type: 'DECIDE_FAST',
     requestId: 9,
@@ -189,8 +199,8 @@ function fixture(actionKind = 'raise', change?: (x: any) => void, provided?: any
           version: 1,
           status: 'bound',
           handId,
-          actionOrdinal: 3,
-          observationId: `${handId}:3`,
+          actionOrdinal: ordinal,
+          observationId: `${handId}:${ordinal}`,
           sessionKey: 'c'.repeat(64),
         },
       },
@@ -212,7 +222,7 @@ function fixture(actionKind = 'raise', change?: (x: any) => void, provided?: any
         decisionRecordSha256: null,
         actorId: hero.user_id,
         seat: 1,
-        actionOrdinal: 3,
+        actionOrdinal: ordinal,
       },
     ],
   };
@@ -828,4 +838,179 @@ it('uses the existing child transport with the v7 installed API and strict sanit
   );
   expect(r.status, r.stderr).toBe(0);
   expect(JSON.parse(r.stdout)).toEqual(out);
+});
+
+function riverFixture(checked = true, action = 'bet', mutate?: (g: any) => void) {
+  const f = fixture(action, undefined, undefined, (hero, g) => {
+    const card = (s: string) => ({
+      rank: s[0],
+      suit: ({ c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' } as any)[s[1]],
+    });
+    hero.cards = ['Kc', 'Kh', 'Ac', '7d', '6d'].map(card);
+    g.communityCards = ['9c', '4s', 'Qd', '9h', 'Ks'].map(card);
+    g.dealerSeat = 2;
+    g.bettingStructure = 'pot_limit';
+    g.boardCount = 1;
+    const before = g.players.find((p: any) => p.seat === 3),
+      behind = g.players.find((p: any) => p.seat === 2);
+    const a = (p: any, action: string, stage: string, amount = 0) => ({
+      userId: p.user_id,
+      seat: p.seat,
+      action,
+      stage,
+      amount,
+      timestamp: 10,
+    });
+    g.actionHistory = checked
+      ? [
+          a(before, 'bet', 'turn', 3),
+          a(hero, 'call', 'turn', 3),
+          a(behind, 'call', 'turn', 3),
+          a(before, 'check', 'river'),
+        ]
+      : [
+          a(before, 'check', 'turn'),
+          a(hero, 'check', 'turn'),
+          a(behind, 'bet', 'turn', 3),
+          a(before, 'call', 'turn', 3),
+          a(hero, 'call', 'turn', 3),
+          a(before, 'check', 'river'),
+        ];
+    mutate?.(g);
+  });
+  f.input.version = 8;
+  f.input.probe = 'river_value';
+  return f;
+}
+const riverInspect = (f: any, extra: any = {}) =>
+  riverDiagnostic.inspectRiverValueRecords(
+    f.input,
+    f.batch,
+    { ...api, omahaQuickCategory, ...extra },
+    diagnostic.inspectOriginalTurnGapRecords
+  );
+function riverSanitize(f: any, result: any) {
+  return spawnSync(
+    'python3',
+    [
+      '-B',
+      '-c',
+      'import json,runpy,sys; m=runpy.run_path(sys.argv[1]); d=json.loads(sys.stdin.read()); print(json.dumps(m["sanitize_river_value_result"](d["result"],d["input"])))',
+      resolve('../scripts/ci/inspect-tournament-refill.py'),
+    ],
+    { input: JSON.stringify({ input: f.input, result }), encoding: 'utf8' }
+  );
+}
+it.each(['bet', 'check'])(
+  'river value mode binds natural %s without claiming cause or EV',
+  (action) => {
+    const f = riverFixture(true, action),
+      out = riverInspect(f);
+    expect(out, JSON.stringify(out)).toMatchObject({
+      status: 'observed',
+      causalReplayVerified: false,
+      gtoVerified: false,
+      cases: [
+        {
+          initiative: 'aggressor_checked',
+          actions: { accepted: action },
+          baselineAttribution: 'unavailable',
+        },
+      ],
+    });
+    expect(riverSanitize(f, out).status).toBe(0);
+    expect(JSON.stringify(out)).not.toContain('cards');
+  }
+);
+it('requires installed non-bottom eligibility for pending aggressor, with unavailable distinct from false', () => {
+  const f = riverFixture(false);
+  expect(riverInspect(f).cases[0].reason).toBe('eligibility_unavailable');
+  expect(riverInspect(f, { checkedToNonBottomRiverBoat: () => false }).cases[0].reason).toBe(
+    'outside_nonbottom_context'
+  );
+  const out = riverInspect(f, { checkedToNonBottomRiverBoat: () => true });
+  expect(out.cases[0].initiative).toBe('nonbottom_aggressor_pending');
+  expect(riverSanitize(f, out).status).toBe(0);
+});
+it.each(['variant', 'hilo', 'boards', 'bet', 'cards', 'history'])(
+  'river value refuses unsupported %s',
+  (kind) => {
+    const f = riverFixture(true, 'bet', (g) => {
+      if (kind === 'variant') g.gameVariant = 'nlh';
+      if (kind === 'hilo') g.variantRules = { ...g.variantRules, splitLow8OrBetter: true };
+      if (kind === 'boards') g.boardCount = 2;
+      if (kind === 'bet') g.currentBet = 5;
+      if (kind === 'cards') g.communityCards = g.communityCards.slice(0, 4);
+      if (kind === 'history')
+        g.actionHistory = g.actionHistory.filter((a: any) => a.stage !== 'river');
+    });
+    expect(riverInspect(f).status).toBe('unknown');
+  }
+);
+it('river value refuses source mismatch, corrupted acceptance, and private output extension', () => {
+  const f = riverFixture();
+  expect(riverInspect({ ...f, batch: { ...f.batch, sourceRelease: 'b'.repeat(40) } }).status).toBe(
+    'unknown'
+  );
+  const broken = {
+    ...f,
+    batch: {
+      ...f.batch,
+      recordsByHand: [
+        {
+          ...f.batch.recordsByHand[0],
+          records: f.rows.filter((r: any) => r.kind !== 'accepted_hand'),
+        },
+      ],
+    },
+  };
+  expect(riverInspect(broken).cases[0].reason).toBe('accepted_hand_missing_or_ambiguous');
+  const out = riverInspect(f);
+  out.cases[0].cards = ['private'];
+  expect(riverSanitize(f, out).status).not.toBe(0);
+});
+it('river value metadata is bounded, exact and wired into existing host inspector', () => {
+  const f = riverFixture();
+  const run = (input: any) =>
+    spawnSync(
+      'python3',
+      [
+        '-B',
+        resolve('../scripts/ci/inspect-tournament-refill.py'),
+        '--encode-reference-cases',
+        source,
+      ],
+      { input: JSON.stringify(input), encoding: 'utf8' }
+    );
+  expect(run(f.input).status).toBe(0);
+  expect(run({ ...f.input, cases: Array(7).fill(f.input.cases[0]) }).status).not.toBe(0);
+  expect(run({ ...f.input, command: 'private' }).status).not.toBe(0);
+});
+it('routes v8 through the fixed bounded host adapter and sanitizer', () => {
+  const f = riverFixture(),
+    out = riverInspect(f);
+  const run = spawnSync(
+    'python3',
+    [
+      '-B',
+      '-c',
+      `import json,runpy,sys
+from pathlib import Path
+m=runpy.run_path(sys.argv[1]);d=json.loads(sys.stdin.read());g=m['decision_case_diagnostic'].__globals__
+g['TOURNAMENT_PREDICATE_JS']=Path(sys.argv[1]).with_name('horse-tournament-predicate-proof.mjs').read_text()
+g['RIVER_VALUE_JS']=Path(sys.argv[1]).with_name('horse-river-value-proof.mjs').read_text()
+def bounded(args,**kwargs):
+ assert args[:4]==['docker','exec','-i','club-arena-engine']
+ assert 'inspectRiverValueRecords(input,batch,api,inspectOriginalTurnGapRecords)' in args[8]
+ assert 'loadInstalledRiverValueApi(loadInstalledOriginalTurnGapApi)' in args[8]
+ assert json.loads(kwargs['input_bytes'])==d['input']
+ return json.dumps(d['result'])
+g['bounded_command']=bounded
+print(json.dumps(m['decision_case_diagnostic'](d['input'])))`,
+      resolve('../scripts/ci/inspect-tournament-refill.py'),
+    ],
+    { input: JSON.stringify({ input: f.input, result: out }), encoding: 'utf8' }
+  );
+  expect(run.status, run.stderr).toBe(0);
+  expect(JSON.parse(run.stdout)).toEqual(out);
 });

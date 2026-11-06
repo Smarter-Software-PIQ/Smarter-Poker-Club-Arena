@@ -407,6 +407,11 @@ def reference_case_metadata(raw, expected):
             value[key] = item
         return value
     value = json.loads(raw.decode('utf-8', errors='strict'), object_pairs_hook=unique_object)
+    if isinstance(value, dict) and type(value.get('version')) is int and value['version'] == 8:
+        if set(value) != {'version','sourceRelease','probe','cases'} or value['probe'] != 'river_value':
+            raise ValueError('reference_cases_refused')
+        reference_case_metadata(json.dumps({**value,'version':5,'probe':'cash_turn_fold'}).encode('utf-8'),expected)
+        return value
     if isinstance(value, dict) and type(value.get('version')) is int and value['version'] == 7:
         if set(value) != {'version','sourceRelease','probe','cases'} or value['probe'] != 'original_turn_gap':
             raise ValueError('reference_cases_refused')
@@ -439,6 +444,49 @@ def reference_case_metadata(raw, expected):
                                      'cases': value['cases']}).encode('utf-8'), expected)
         return value
     return reference_cases(raw, expected)
+
+
+def sanitize_river_value_result(result, value):
+    def refuse(): raise ValueError('river_value_result_refused')
+    reasons = {'input_refused','journal_source_or_shape_mismatch','journal_missing_or_bounds','record_binding_or_duplicate',
+        'accepted_hand_missing_or_ambiguous','accepted_hand_binding_mismatch','accepted_action_not_observed',
+        'matching_pair_missing','matching_pair_ambiguous','execution_binding_mismatch','hand_not_reconciled',
+        'input_binding_unavailable','stored_fields_unavailable','record_or_validator_unavailable','output_bound',
+        'selection_not_matched','outside_river_value_context','outside_initiative_context','eligibility_unavailable','outside_nonbottom_context'}
+    fixed={'version':8,'probe':'river_value','rawRecordsExported':False,'replayVerified':False,'causalReplayVerified':False,'gtoVerified':False,'activationAllowed':False}
+    if not isinstance(result,dict) or any(type(result.get(k)) is not type(v) or result[k]!=v for k,v in fixed.items()): refuse()
+    if set(result)==set(fixed)|{'status','reason'}:
+        if result['status']!='unknown' or result['reason'] not in reasons: refuse()
+        return result
+    if (set(result)!=set(fixed)|{'status','sourceRelease','cases'} or result['sourceRelease']!=value['sourceRelease']
+        or not isinstance(result['cases'],list) or len(result['cases'])!=len(value['cases']) or len(json.dumps(result).encode())>8192): refuse()
+    for c,t in zip(result['cases'],value['cases']):
+        if not isinstance(c,dict) or c.get('handKey')!=t['handKey']: refuse()
+        if c.get('status')=='unknown':
+            if set(c)!={'handKey','status','reason'} or c['reason'] not in reasons: refuse()
+            continue
+        if (set(c)!={'handKey','status','actionOrdinal','variant','mode','initiative','actions','recordHashes','inputDigest','readFrameDigest','policyComparisons','baselineAttribution','guards'}
+            or c['status']!='observed' or type(c['actionOrdinal']) is not int or c['actionOrdinal']!=t['actionOrdinal']
+            or c['variant'] not in ('plo4','plo5','plo6') or c['mode'] not in ('cash','tournament')
+            or c['initiative'] not in ('aggressor_checked','nonbottom_aggressor_pending')): refuse()
+        if (not isinstance(c['actions'],dict) or set(c['actions'])!={'captured','selected','executed','accepted'}
+            or any(a not in ('fold','check','call','bet','raise','all_in') for a in c['actions'].values())): refuse()
+        if (not isinstance(c['recordHashes'],dict) or set(c['recordHashes'])!={'decision','execution','accepted'}
+            or any(not isinstance(h,str) or not re.fullmatch('[0-9a-f]{64}',h) for h in [*c['recordHashes'].values(),c['inputDigest'],c['readFrameDigest']])
+            or (t['decisionRecordSha256'] is not None and c['recordHashes']['decision']!=t['decisionRecordSha256'])): refuse()
+        guards={'recordHashesVerified','originalHandBound','uniqueOriginalPair','wholeHandReconciled','canonicalInputAndReadFrameBound'}
+        if not isinstance(c['guards'],dict) or set(c['guards'])!=guards or any(v is not True for v in c['guards'].values()): refuse()
+        ps=c['policyComparisons']
+        if not isinstance(ps,list) or len(ps)>7: refuse()
+        owners=set()
+        for q in ps:
+            if (not isinstance(q,dict) or set(q)!={'owner','selectedMatchesReference','selectedMatchesCandidate'}
+                or q['owner'] not in ('phase8','phase8Guard','phase10','phase11','phase12','phase13','phase14') or q['owner'] in owners
+                or type(q['selectedMatchesReference']) is not bool or type(q['selectedMatchesCandidate']) is not bool): refuse()
+            owners.add(q['owner'])
+        if c['baselineAttribution']!=('receipt_comparison_only' if ps else 'unavailable'): refuse()
+    if result['status']!=('observed' if all(c['status']=='observed' for c in result['cases']) else 'unknown'): refuse()
+    return result
 
 
 def sanitize_original_turn_gap_result(result, value):
@@ -822,6 +870,8 @@ process.exit(0);
 
 ACCEPTED_ALL_IN_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api', 'loadInstalledAcceptedAllInExecutionApi').replace('inspectDecision8464Records', 'inspectAcceptedAllInExecutionRecords')
 
+RIVER_VALUE_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api()', 'loadInstalledRiverValueApi(loadInstalledOriginalTurnGapApi)').replace('inspectDecision8464Records(input,batch,api)', 'inspectRiverValueRecords(input,batch,api,inspectOriginalTurnGapRecords)')
+
 ORIGINAL_TURN_GAP_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api', 'loadInstalledOriginalTurnGapApi').replace('inspectDecision8464Records', 'inspectOriginalTurnGapRecords')
 
 CASH_TURN_FOLD_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api', 'loadInstalledCashTurnFoldApi').replace('inspectDecision8464Records', 'inspectCashTurnFoldRecords')
@@ -918,15 +968,20 @@ def reference_diagnostic(value):
         return diagnostic_failure('sanitizer', 'result_refused')
 
 def decision_case_diagnostic(value):
-    if value.get('version') not in (4,5,6,7):
+    if value.get('version') not in (4,5,6,7,8):
         return reference_diagnostic(value)
     try:
         diagnostic_js = REFERENCE_DIAGNOSTIC_JS
-        if value.get('version') in (4,5,6,7):
+        if value.get('version') in (4,5,6,7,8):
             helper = globals().get('TOURNAMENT_PREDICATE_JS', '')
             if not helper or len(helper.encode('utf-8')) > 65536:
                 raise ValueError('decision_helper_unavailable')
             diagnostic_js = helper + '\n' + DECISION_8464_ADAPTER
+            if value.get('version') == 8:
+                river = globals().get('RIVER_VALUE_JS', '')
+                if not river or len(river.encode('utf-8')) > 16384:
+                    raise ValueError('river_helper_unavailable')
+                diagnostic_js = helper + '\n' + river + '\n' + RIVER_VALUE_ADAPTER
             if value.get('version') == 6:
                 diagnostic_js = helper + '\n' + ACCEPTED_ALL_IN_ADAPTER
             if value.get('version') == 7:
@@ -954,7 +1009,8 @@ def decision_case_diagnostic(value):
                     or diagnostic['stage'] not in DIAGNOSTIC_CHILD_STAGES or diagnostic['code'] != 'exception'):
                 raise ValueError()
             return result
-        return (sanitize_original_turn_gap_result(result,value) if value.get('version') == 7 else
+        return (sanitize_river_value_result(result,value) if value.get('version') == 8 else
+                sanitize_original_turn_gap_result(result,value) if value.get('version') == 7 else
                 sanitize_accepted_all_in_result(result,value) if value.get('version') == 6
                 else sanitize_cash_turn_fold_result(result,value) if value.get('version') == 5
                 else sanitize_decision_8464_result(result, value))
@@ -1411,7 +1467,10 @@ def tournament_host_script():
     helper = Path(__file__).with_name('horse-tournament-predicate-proof.mjs').read_text(encoding='utf-8')
     if not helper or len(helper.encode('utf-8')) > 65536:
         raise ValueError('tournament_helper_unavailable')
-    return 'TOURNAMENT_PREDICATE_JS = ' + repr(helper) + '\n' + Path(__file__).read_text(encoding='utf-8')
+    river = Path(__file__).with_name('horse-river-value-proof.mjs').read_text(encoding='utf-8')
+    if not river or len(river.encode('utf-8')) > 16384:
+        raise ValueError('river_helper_unavailable')
+    return 'TOURNAMENT_PREDICATE_JS = ' + repr(helper) + '\nRIVER_VALUE_JS = ' + repr(river) + '\n' + Path(__file__).read_text(encoding='utf-8')
 
 
 def merge_worker_receipt_errors(target, addition):
