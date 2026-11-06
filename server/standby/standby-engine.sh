@@ -249,6 +249,39 @@ wait_live() {
   return 1
 }
 
+crash_container() {
+  # PID1 ignores same-namespace SIGKILL. Signal the exact process from the
+  # host through a pidfd, without Docker's intentional-stop semantics.
+  python3 - "$CONTAINER" "$1" <<'PY_CRASH'
+import json, os, signal, subprocess, sys
+container, expected = sys.argv[1:]
+def binding():
+    output = subprocess.run(['docker', 'inspect', '--format',
+        '{{json .Id}} {{json .State.Pid}}', container],
+        check=True, capture_output=True, text=True).stdout
+    identifier, pid = output.split()
+    return json.loads(identifier), int(pid)
+identifier, pid = binding()
+if identifier != expected or pid <= 1:
+    raise RuntimeError('standby crash target identity is not proved')
+fd = os.pidfd_open(pid)
+try:
+    if binding() != (expected, pid):
+        raise RuntimeError('standby crash target changed before signal')
+    signal.pidfd_send_signal(fd, signal.SIGKILL)
+finally:
+    os.close(fd)
+PY_CRASH
+}
+
+count_fatal_logs() {
+  docker logs --since "@$1" "$CONTAINER" > "$LOG_DIR/certify-$2.log" 2>&1 || return 1
+  local count rc=0
+  count=$(grep -c -E 'FATAL ERROR|Uncaught|unhandledRejection|heap out of memory|Segmentation fault' "$LOG_DIR/certify-$2.log") || rc=$?
+  [ "$rc" -le 1 ] || return 1
+  echo "$count"
+}
+
 wait_auto_recovery() {
   local sha="$1" container_id="$2" before="$3" deadline=$(( $(date +%s) + $4 )) count h l
   [[ "$before" =~ ^[0-9]+$ ]] || return 1
@@ -293,7 +326,7 @@ cmd_certify() {
     container_id=$(docker inspect -f '{{.Id}}' "$CONTAINER") || return 1
     [ "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTAINER")" = unless-stopped ] || return 1
     restart_before=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER") || return 1
-    docker exec "$CONTAINER" node -e 'process.kill(1, "SIGKILL")' >/dev/null 2>&1 || true
+    crash_container "$container_id" || return 1
     t0=$(date +%s)
     if restart_after=$(wait_auto_recovery "$sha" "$container_id" "$restart_before" 600); then
       boot2=$(( $(date +%s) - t0 ))
@@ -328,7 +361,7 @@ cmd_certify() {
       || record 'tournament_freeze_qualification_failed'
   fi
   restarts=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER" 2>/dev/null || echo -1)
-  fatals=$(docker logs --since "@$started" "$CONTAINER" 2>&1 | grep -c -E 'FATAL ERROR|Uncaught|unhandledRejection|heap out of memory|Segmentation fault' || true)
+  fatals=$(count_fatal_logs "$started" "$sha") || { record 'container_logs_unreadable'; fatals=-1; }
   [ "$fatals" -eq 0 ] || record "fatal_log_lines:$fatals"
 
   local reasons_json="[]"

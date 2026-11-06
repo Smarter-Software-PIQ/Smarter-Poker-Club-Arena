@@ -64,7 +64,9 @@ def identity(sha):
     subnet = run(['docker', 'network', 'inspect', NETWORK, '-f',
                   '{{(index .IPAM.Config 0).Subnet}}'])
     run(['iptables', '-C', 'DOCKER-USER', '-s', subnet, '-j', 'REJECT'])
-    container = json.loads(run(['docker', 'inspect', ENGINE]))[0]
+    container = json.loads(run(['docker', 'inspect', '--format',
+        '[{"Id":{{json .Id}},"Image":{{json .Image}},"State":{{json .State}},'
+        '"Config":{"Labels":{{json .Config.Labels}}}}]', ENGINE]))[0]
     label = container['Config']['Labels'].get('com.smarterpoker.standby.sha')
     with urllib.request.urlopen('http://127.0.0.1:18080/health', timeout=10) as response:
         health = json.load(response)

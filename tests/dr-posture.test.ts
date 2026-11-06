@@ -119,6 +119,24 @@ const validCopy = {
 };
 
 describe('the Backup Engine refuses partial restores and proves automatic recovery', () => {
+  it('runs qualification admission regressions in the existing required DR suite', () => {
+    const result = spawnSync(
+      'python3',
+      [
+        '-B',
+        '-m',
+        'unittest',
+        'discover',
+        '-s',
+        root('server/standby'),
+        '-p',
+        'test_qualify_tournament_freeze_fixes.py',
+      ],
+      { encoding: 'utf8', timeout: 15000 }
+    );
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it('admits only a zero-error restore with its successful seed', () => {
     expect(standbyShell('assert_valid_copy', validCopy).status).toBe(0);
     for (const files of [
@@ -198,6 +216,33 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     }
   );
 
+  it('refuses unreadable container logs instead of reporting zero fatal lines', () => {
+    expect(standbyShell('docker() { return 19; }; count_fatal_logs 0 fixture').status).toBe(1);
+    expect(
+      standbyShell('docker() { echo healthy; }; count_fatal_logs 0 fixture').stdout.trim()
+    ).toBe('0');
+  });
+
+  it.each([false, true])('binds the host PID signal to the exact container (%s)', (changed) => {
+    const script = readFileSync(root(STANDBY), 'utf8');
+    const crash = script.split("<<'PY_CRASH'\n")[1].split('\nPY_CRASH')[0];
+    const program = `
+import os, signal, subprocess, sys
+from unittest.mock import patch
+from types import SimpleNamespace
+sys.argv = ['crash', 'standby', 'expected']
+with patch.object(subprocess, 'run', side_effect=[SimpleNamespace(stdout='"expected" 123'), SimpleNamespace(stdout='"${changed ? 'replaced' : 'expected'}" 123')]), patch.object(os, 'pidfd_open', create=True, return_value=9), patch.object(os, 'close'), patch.object(signal, 'pidfd_send_signal', create=True) as send:
+    try:
+        exec(${JSON.stringify(crash)})
+    except RuntimeError:
+        pass
+    assert send.call_count == ${changed ? 0 : 1}
+`;
+    const result = spawnSync('python3', ['-c', program], { encoding: 'utf8', timeout: 15000 });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+
   it('wires restore dependencies, strict errors and the actual restart mechanism into the owning route', () => {
     const script = readFileSync(root(STANDBY), 'utf8');
     expect(script).toContain('CREATE EXTENSION IF NOT EXISTS pg_cron');
@@ -208,7 +253,9 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     expect(script).toContain("record 'tournament_freeze_qualification_failed'");
     expect(script).toContain('$4 == "SCHEMA" && $5 == "-" && $6 == "public"');
     expect(script).toContain('--restart unless-stopped');
-    expect(script).toContain('process.kill(1, "SIGKILL")');
+    expect(script).toContain('signal.pidfd_send_signal(fd, signal.SIGKILL)');
+    expect(script).toContain('if binding() != (expected, pid):');
+    expect(script).not.toContain('process.kill(1');
     expect(script).not.toContain('docker start "$CONTAINER"');
     expect(script).toContain("record 'restarted_during_soak'");
     const workflow = readFileSync(root('.github/workflows/backup-engine.yml'), 'utf8');
