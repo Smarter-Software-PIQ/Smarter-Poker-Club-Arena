@@ -11,6 +11,7 @@ import {
 } from './support/temporaryCustomizationAccount';
 import { diamondInvitation, registerDiamondInvitationDismissal } from './support/cashLobbyOverlays';
 import { recordNonVerdict } from './support/nonVerdict';
+import { fixtureBrowserDevice, verifyFixtureEnrollment } from './support/fixtureBrowserDevice';
 
 /**
  * A PUBLISH THAT LANDS MID-RUN IS NOT A FAILED PROOF (2026-10-26). Each proof
@@ -270,6 +271,12 @@ test('published club news appears once per new message across fresh browser cont
   });
   if (login.error || login.data.user?.id !== account.id)
     throw new Error('The reserved club-news account could not authenticate as itself.');
+  const device = fixtureBrowserDevice(
+    account,
+    login.data.user,
+    account.email,
+    String(testInfo.project.use.baseURL)
+  );
   const newsId = randomUUID();
   const suffix = String(Number.parseInt(newsId.slice(0, 8), 16));
   const first = `Club News First ${suffix}`;
@@ -354,11 +361,16 @@ test('published club news appears once per new message across fresh browser cont
     await expect(popup(page)).toBeHidden();
     await silent(page);
 
-    // Carry only this synthetic player's authentication into a cold device,
-    // plus the device-local welcome acceptance that global setup seeded: that
-    // first-run overlay otherwise stacks above the club message and covers its
-    // Close control. Neither key holds club-news state, which lives server-side.
-    const coldDeviceKeys = new Set(['smarter-poker-auth', 'club_arena_welcome_accepted']);
+    // A fresh context on this fixture's existing browser keeps its browser ID,
+    // authentication and welcome acceptance, but no news or enrollment state.
+    // The app must enroll normally again; a random ID would open the legitimate
+    // same-or-new-device choice instead of testing server-owned news receipts.
+    const coldDeviceKeys = new Set([
+      'smarter-poker-auth',
+      'club_arena_welcome_accepted',
+      'ca_device_id',
+    ]);
+    await verifyFixtureEnrollment(page, device);
     const state = await page.context().storageState();
     secondContext = await browser.newContext({
       baseURL: testInfo.project.use.baseURL,
@@ -374,6 +386,7 @@ test('published club news appears once per new message across fresh browser cont
     const second = await secondContext.newPage();
     await ownInvitation(second);
     await silent(second);
+    await verifyFixtureEnrollment(second, device);
     await save(first); // saving identical copy must not reopen the popup
     await silent(second);
     await save(changed);
