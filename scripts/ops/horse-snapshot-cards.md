@@ -14,8 +14,7 @@ DB authentication. A fabricated receipt is not authoritative evidence.
 
 The adapter validates hand/table/number/actor/seat/variant and original configuration,
 requires valid unique fixed-hole cards, and withholds every conflicting snapshot
-rather than selecting one. Pineapple is unsupported without original discard
-chronology. The decision parser rejects collisions with its currently visible board
+rather than selecting one. Pineapple uses the separate preflop-only path described below. The decision parser rejects collisions with its currently visible board
 and mismatched captured variants. No later board, outcome, opponent holding or
 snapshot stack enters the decision information set. Existing original card sources
 retain precedence; snapshots fill missing holdings only.
@@ -35,3 +34,23 @@ missing public nodes, historical runtime policy, opponent ranges or tournament u
 
 Focused cases live in `test_horse_snapshot_cards.py`, discovered by the maintained
 `tests/unit/horseHumanStudy.test.ts` Python test route.
+
+## Pineapple original-three recovery
+
+Optional receipted `remaining-own-delivery-*.jsonl.gz` exports select only the
+named actor's actual `hand_discards` row, joined by exact table/hand number/user.
+A three-card original snapshot, or a two-card retained holding united with that
+actor's one recorded discarded card, can establish the original dealt set. All
+snapshot and discard candidates must agree; invalid identity, duplicate cards,
+conflicting discarded cards and missing pair-completion evidence are withheld.
+Discard DB creation must not exceed the same hand's atomic commit. Null delivery
+coverage rows are not discard records.
+
+The reconstructed set is supplied only to preflop actions before any own discard
+in the recorded public chronology. Original-three cards never replace post-discard
+holdings. Later public actions, future boards and results do not alter that input.
+The discarded card is used only to recover the already-known original three-card
+set, never as an earlier discard-choice feature or shared opponent information.
+Source: HandController dealHoleCards assigns the original set; Pineapple's two
+explicit discard paths remove one card. persistDiscardedCard captures the hand
+number before awaiting its protected own-user storage write.
