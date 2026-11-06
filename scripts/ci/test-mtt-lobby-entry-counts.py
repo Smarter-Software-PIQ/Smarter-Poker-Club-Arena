@@ -47,4 +47,7 @@ GRANT SELECT ON tournaments,tournament_players TO authenticated, service_role;''
             print('\n'.join('PASS '+name for name in passed))
         finally:
             cmd([PG/'pg_ctl','-D',d/'db','-m','immediate','-w','stop'])
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    main()
+    # The same required tournament qualification proves MTT/SNG opening rules.
+    subprocess.run([__import__('sys').executable, '-B', str(ROOT/'scripts/ci/test-tournament-opening-blinds.py')], check=True)

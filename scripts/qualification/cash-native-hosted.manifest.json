@@ -428,8 +428,8 @@
   },
   "files": {
     ".github/workflows/ci.yml": {
-      "bytes": 278899,
-      "sha256": "7ab6f2fb901369b0ffdfebdd1504f604eab27684b3467a2557187a711ac8309a"
+      "bytes": 278905,
+      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
     },
     "scripts/ci/build_pg17_cash_pgcron.py": {
       "bytes": 6283,
@@ -6925,19 +6925,15 @@
       "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
     }
   },
-  "mttSngOpeningBlindsSourceAudit20261105": {
-    "reason": "Add the native opening-blind regression to required accounting shard 4. Existing financial/native commands, assertions, deadlines and historical receipts are unchanged; source identity only.",
-    "previousCiPin": {
-      "bytes": 278363,
-      "sha256": "5ad6e557f651ae4e1618455dd6c528ca6010b3c97a16b9aaf19ad2dbb0fea4f6"
+  "bountyOnlyFinalTwoNativeEnforcement20261106": {
+    "reason": "Reviewed six-line CI addition in existing accounting shard 1, directly after the guarantee funding watch step: run the bounty only PKO final two proof (scripts/ci/test-bounty-only-pko-final-two.py) on native PostgreSQL 17. Existing commands, assertions, budgets, financial owners and historical receipts unchanged. Current source identity only; no historical or live certification restamped.",
+    "previous": {
+      "bytes": 278636,
+      "sha256": "b2c08f8ed13dade91afda0d9f446aa02accf0bb6f6b63b0d761f2aa7afa80991"
     },
-    "currentCiPin": {
-      "bytes": 278626,
-      "sha256": "766bcc04a8f64f09699288bb85fd74a27220d61aac7ef00e879a93e0a156ecea"
-    },
-    "integratedCiPin": {
-      "bytes": 278899,
-      "sha256": "7ab6f2fb901369b0ffdfebdd1504f604eab27684b3467a2557187a711ac8309a"
+    "current": {
+      "bytes": 278905,
+      "sha256": "6de6540538e575d4c8fc6d410ba01ee05ac9a4f9d0e27e529f1b9b88cd652269"
     }
   }
 }

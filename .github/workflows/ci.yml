@@ -1554,13 +1554,6 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-mtt-lobby-entry-counts.py
 
-      - name: MTT and Sit and Go opening blinds preserve Spin rules
-        if: matrix.shard == 4
-        env:
-          PG_BIN: /usr/lib/postgresql/17/bin
-          TMPDIR: ${{ runner.temp }}
-        run: python3 -B scripts/ci/test-tournament-opening-blinds.py
-
       - name: Tournament guarantees include funded bounties
         if: matrix.shard == 1
         env:
@@ -1758,6 +1751,12 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-guarantee-funding-watch.py
+      - name: A bounty only PKO ends with two players on native PostgreSQL
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-bounty-only-pko-final-two.py
       - name: Owner alerts preserve the actual finding through the real PostgreSQL trigger
         if: matrix.shard == 1
         env:

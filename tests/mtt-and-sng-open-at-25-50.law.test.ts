@@ -47,6 +47,9 @@ describe('MTTs and Sit & Gos open at 25/50; Spins retain their own structure', (
   });
   it('runs the real database transition proof in required accounting CI', () => {
     const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
-    expect(ci).toContain('python3 -B scripts/ci/test-tournament-opening-blinds.py');
+    expect(ci).toContain('python3 -B scripts/ci/test-mtt-lobby-entry-counts.py');
+    expect(readFileSync('scripts/ci/test-mtt-lobby-entry-counts.py', 'utf8')).toContain(
+      "str(ROOT/'scripts/ci/test-tournament-opening-blinds.py')"
+    );
   });
 });
