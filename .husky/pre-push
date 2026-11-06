@@ -194,6 +194,9 @@ CA_TREE_TOP="$(git rev-parse --show-toplevel)"
 # Direct policy verification and one actual-result receipt in this worktree's
 # private Git metadata. A failed check keeps its original failing exit status.
 POLICY_PRECHECK_STARTED=$(date +%s)
+# A killed attempt must never leave a prior passed receipt as its apparent result.
+POLICY_PRECHECK_RECEIPT=$(git rev-parse --git-path agent-policy-preflight.json)
+rm -f -- "$POLICY_PRECHECK_RECEIPT"
 policy_precheck_result() {
   policy_exit=$?
   trap - EXIT
@@ -201,6 +204,10 @@ policy_precheck_result() {
   exit "$policy_exit"
 }
 trap policy_precheck_result EXIT
+# Explicit signal exits prevent interrupted children from producing a pass.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 node "$CA_TREE_TOP/docs/agent-policy/agent-policy.mjs" check
 node --test "$CA_TREE_TOP/docs/agent-policy/agent-policy.test.mjs"
 node --test "$CA_TREE_TOP/tests/explicit-table-access.test.mjs"

@@ -1,3 +1,5 @@
+// Shared execution primitives run in this existing required CI gate.
+import './agent-execution.test.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';

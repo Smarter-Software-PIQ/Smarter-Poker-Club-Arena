@@ -68,7 +68,7 @@
     }
   },
   "repository_files": {
-    "scripts/ci/classify-ci-changes.mjs": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c",
+    "scripts/ci/classify-ci-changes.mjs": "e6d41ad8ff2dd5915fe76febaa5f7a1cb9b433d7ba78c3043058411bf4d0a530",
     "scripts/ci/schema-manifest.d/union-sep8-spin-custody.json": "b79ed45b40b172ed16f7cd4dd101d541d4ebab29e8defb20be4e531eae7215a8",
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/dev/qualify-sep8-spin-custody.py": "28a2b63e4424f15d3b85ad742f7592fd65c2f8a8493eabb06210665e01e9ad67",
@@ -1987,5 +1987,12 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "executionPreviewSourceIdentity20261106": {
+    "scope": "Current routing source identity only; no financial qualification restamp.",
+    "review": "Adds shadow execution preview only. Existing selection flags, native financial commands and assertions remain unchanged. New module tests execute in the existing always-on required UI-selection Node gate.",
+    "previous": "7fff9904c61326fa5d0bca6d2d59f7191a328d654e7a8621199c5d9c7ce3cb7c",
+    "current": "e6d41ad8ff2dd5915fe76febaa5f7a1cb9b433d7ba78c3043058411bf4d0a530",
+    "execution_performed": false
   }
 }

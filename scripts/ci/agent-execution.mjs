@@ -1,0 +1,148 @@
+// Directly invoked planning and evidence primitives. This module never publishes.
+import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, lstatSync, readdirSync, unlinkSync, realpathSync } from 'node:fs';
+import { resolve, relative, isAbsolute } from 'node:path';
+const digest = value => createHash('sha256').update(value).digest('hex');
+const requireValue = (value, message) => { if (!value) throw Error(message); };
+const git = (root, ...args) => execFileSync('git', args, {
+  cwd: root, encoding: 'utf8', timeout: 30000, maxBuffer: 64 * 1024 * 1024,
+  env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))),
+  stdio: ['ignore', 'pipe', 'pipe'],
+}).trim();
+
+export function inputFingerprint(root, { inputs, command, runtime, environment, schema }) {
+  // No implicit environment capture: only explicit nonsecret identity/version values.
+  requireValue(Array.isArray(inputs) && inputs.length && Array.isArray(command) && command.length,
+    'Explicit input closure and command required');
+  for (const [key, value] of Object.entries({ runtime, environment, schema }))
+    requireValue(typeof value === 'string' && value.length, `${key} identity required`);
+  const files = [];
+  const visit = path => {
+    requireValue(typeof path === 'string' && path && !isAbsolute(path) &&
+      !path.split('/').some(p => p === '..' || p === '.' || p === ''), 'Unsafe input path');
+    const full = resolve(root, path);
+    requireValue(realpathSync(full) === resolve(realpathSync(root), path), 'Symlink ancestor input');
+    requireValue(!relative(root, full).startsWith('..'), 'Input outside checkout');
+    const stat = lstatSync(full); // Missing and symlink inputs refuse reuse.
+    requireValue(!stat.isSymbolicLink(), 'Symlink input is not reusable');
+    if (stat.isDirectory()) for (const child of readdirSync(full).sort()) visit(`${path}/${child}`);
+    else {
+      requireValue(stat.isFile(), 'Nonregular input');
+      files.push([path, stat.mode & 0o111, digest(readFileSync(full))]);
+    }
+  };
+  for (const path of [...new Set(inputs)].sort()) visit(path);
+  return digest(JSON.stringify({ version: 1, files, command, runtime, environment, schema }));
+}
+
+export function reusableEvidence(receipt, expected, providerObservation) {
+  const reasons = [];
+  if (!receipt || receipt.version !== 1 || receipt.status !== 'passed' || receipt.exitCode !== 0)
+    reasons.push('no_successful_execution');
+  for (const key of ['fingerprint', 'check', 'authority', 'environment'])
+    if (!expected[key] || receipt?.[key] !== expected[key]) reasons.push(`changed_or_missing_${key}`);
+  if (!receipt?.startedAt || !receipt?.finishedAt ||
+      !Number.isFinite(Date.parse(receipt.startedAt)) ||
+      !Number.isFinite(Date.parse(receipt.finishedAt)) ||
+      Date.parse(receipt.finishedAt) < Date.parse(receipt.startedAt)) reasons.push('invalid_execution_time');
+  if (expected.authority === 'github') {
+    // Caller supplies an authenticated provider readback, never the downloaded receipt alone.
+    if (!providerObservation || providerObservation.conclusion !== 'success' ||
+      providerObservation.runId !== receipt?.runId || providerObservation.head !== receipt?.head ||
+      providerObservation.repository !== expected.repository ||
+      providerObservation.workflow !== expected.workflow ||
+      providerObservation.attempt !== receipt?.attempt) reasons.push('provider_provenance_unverified');
+  } else if (expected.authority !== 'local') reasons.push('unknown_authority');
+  return { reusable: reasons.length === 0, reasons };
+}
+
+export function operationTransition(current, event) {
+  requireValue(event && typeof event.owner === 'string' && event.owner && event.id, 'Owner and operation required');
+  if (!current) {
+    requireValue(event.action === 'claim', 'Claim first');
+    return { version: 1, id: event.id, owner: event.owner, status: 'claimed', sequence: 0 };
+  }
+  requireValue(current.id === event.id && current.owner === event.owner, 'Operation has another owner');
+  requireValue(current.sequence === event.sequence, 'Stale operation revision');
+  const allowed = {
+    claimed: { start: 'running', abandon: 'abandoned' },
+    running: { success: 'succeeded', failure: 'failed', interrupted: 'unknown' },
+    unknown: { observed_success: 'succeeded', observed_failure: 'failed', observed_running: 'running' },
+    failed: { retry: 'claimed' },
+  };
+  const status = allowed[current.status]?.[event.action];
+  requireValue(status, 'Illegal operation transition; read back unknown outcome before retry');
+  if (current.status === 'unknown') requireValue(event.source, 'Durable readback source required');
+  return { ...current, status, sequence: current.sequence + 1, source: event.source ?? null };
+}
+
+export function updateOperation(directory, event) {
+  mkdirSync(directory, { recursive: true });
+  // Atomic exclusive creation serializes only this operation, never unrelated releases.
+  const lock = resolve(directory, 'mutation.lock');
+  writeFileSync(lock, event.owner, { flag: 'wx', mode: 0o600 });
+  const file = resolve(directory, 'operation.json');
+  let current;
+  try {
+    try { current = JSON.parse(readFileSync(file, 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const next = operationTransition(current, event);
+    const temp = resolve(directory, `${randomUUID()}.json`);
+    writeFileSync(temp, `${JSON.stringify(next)}\n`, { flag: 'wx', mode: 0o600 });
+    renameSync(temp, file);
+    return next;
+  } finally {
+    // No stale-lock takeover: an interrupted write requires explicit ownership recovery.
+    unlinkSync(lock);
+  }
+}
+
+export function failureDisposition({ outcome, sideEffect, source }) {
+  if (!source || outcome === 'unknown' || outcome === 'timeout')
+    return { action: 'readback', retry: false };
+  if (outcome === 'success') return { action: 'verify', retry: false };
+  if (outcome === 'test_failure' || outcome === 'configuration_failure')
+    return { action: 'diagnose_changed_inputs', retry: false };
+  if (outcome === 'provider_transient' && sideEffect === false)
+    return { action: 'bounded_retry_same_operation', retry: true };
+  return { action: 'inspect_owning_operation', retry: false };
+}
+
+export function executionPlan({ root, classification, baseline = null }) {
+  const { complete, paths = [], flags } = classification;
+  const checks = [
+    ['typecheck', true, 'Always-on repository invariants'],
+    ['client-unit', flags.tests || flags.src, 'Existing client/source-contract admission'],
+    ['engine-unit', flags.server, 'Legacy server admission; independent selector pending shadow qualification'],
+    ['accounting-postgres', flags.server, 'Legacy accounting admission preserved until dependency coverage is proved'],
+    ['production-build', flags.src, 'Client build inputs'],
+    ['browser', flags.src, 'Existing browser dependency admission'],
+    ['solver', flags.phase4, 'Certified solver dependencies'],
+    ['component-native', flags.fixture, 'Native fixture dependencies'],
+  ].map(([id, selected, reason]) => ({ id, selected: Boolean(selected), reason,
+    durationSeconds: baseline?.checks?.[id]?.durationSeconds ?? null,
+    owner: '.github/workflows/ci.yml', reuse: 'requires successful exact-input evidence and owning gate support' }));
+  const components = [...new Set(paths.map(p => /^server\/src\/(?!.*\.test\.)/.test(p) ? 'engine' :
+    /^supabase\//.test(p) ? 'database' : /^(src|public)\//.test(p) ? 'client' :
+    /^(scripts|tools|\.github|\.husky)\//.test(p) ? 'delivery-tooling' : p.endsWith('.md') ? 'documentation' : 'unclassified'))];
+  const changedDelivery = paths.filter(p => /^(\.github|\.husky|scripts\/ci|package(?:-lock)?\.json)/.test(p));
+  return { version: 1, mode: 'shadow', complete, head: classification.head ?? null,
+    base: classification.base ?? null, components, paths, checks,
+    engineActivationRequired: !complete || components.includes('unclassified') ? null : components.includes('engine'),
+    publicationRequired: components.filter(c => c !== 'documentation'),
+    scopeReview: changedDelivery.length ? { reason: 'Shared delivery/dependency inputs changed', paths: changedDelivery } : null,
+    readiness: { trackedClean: git(root, 'status', '--porcelain', '--untracked-files=no') === '',
+      access: 'unknown_until_authenticated_provider_readback', fixtureCoverage: 'existing_gates_retained' },
+    estimates: { basis: baseline ? 'observed baseline' : 'unknown; no invented timing or token prices' },
+    limitation: 'Preview only; never substitutes for required checks, installation or live proof' };
+}
+
+export function summarizeMetrics(events) {
+  requireValue(Array.isArray(events), 'Event array required');
+  const count = type => events.filter(e => e.type === type).length;
+  return { builds: count('build'), reusedChecks: count('reuse'), retries: count('retry'),
+    statusMessages: count('status'), escapedRegressions: count('escaped_regression'),
+    tokens: events.every(e => Number.isFinite(e.tokens)) ? events.reduce((n, e) => n + e.tokens, 0) : null,
+    cost: events.every(e => Number.isFinite(e.cost)) ? events.reduce((n, e) => n + e.cost, 0) : null };
+}
