@@ -127,18 +127,33 @@ export class HorseObserverReads {
   private idle(entry: Entry, at: number): boolean {
     return at - entry.lastRunAtMs > this.idleMs;
   }
-  /** Drop every entry that has not decided within idleMs. O(entries), run
-   * at most once per 64 completions so the floor's hand rate never makes it
-   * quadratic. Returns the number evicted. */
+  /** Unlink evicted entries from every hand record in ONE pass over hands.
+   *
+   * SINGLE-PASS EVICTION (2026-11-06). Eviction used to walk every hand
+   * record once PER evicted entry, so a sweep after boot or a break could run
+   * up to maxEntries x maxHands (2048 x 4096) Set deletes inside a decision
+   * worker on the hot path. Callers collect what they evict and unlink it here
+   * once: O(hands + evicted). */
+  private unlinkFromHands(evicted: ReadonlySet<Entry>): void {
+    if (!evicted.size) return;
+    for (const hand of this.hands.values()) {
+      if (hand.entries.size <= evicted.size) {
+        for (const entry of hand.entries) if (evicted.has(entry)) hand.entries.delete(entry);
+      } else for (const entry of evicted) hand.entries.delete(entry);
+    }
+  }
+  /** Drop every entry that has not decided within idleMs. O(entries + hands),
+   * run at most once per 64 completions so the floor's hand rate never makes
+   * it quadratic. Returns the number evicted. */
   sweepIdle(at: number = this.now()): number {
-    let evicted = 0;
+    const evicted = new Set<Entry>();
     for (const [key, entry] of this.entries) {
       if (!this.idle(entry, at)) continue;
       this.entries.delete(key);
-      for (const hand of this.hands.values()) hand.entries.delete(entry);
-      evicted++;
+      evicted.add(entry);
     }
-    return evicted;
+    this.unlinkFromHands(evicted);
+    return evicted.size;
   }
   private static overCapacity(entry: Entry | { state: HorseMindSandbox }): boolean {
     const historyEntry = 'context' in entry ? (entry as Entry) : null;
@@ -382,7 +397,7 @@ export class HorseObserverReads {
       // without it for longer than idleMs and starts fresh, as an evicted
       // entry always has.
       this.entries.delete(key);
-      for (const hand of this.hands.values()) hand.entries.delete(entry);
+      this.unlinkFromHands(new Set([entry]));
       entry = undefined;
     }
     if (!entry) {
@@ -393,7 +408,13 @@ export class HorseObserverReads {
         lastRunAtMs: at,
       };
       if (this.entries.size >= this.maxEntries) {
-        if (this.sweepIdle(at) === 0) this.entries.delete(this.entries.keys().next().value!);
+        if (this.sweepIdle(at) === 0) {
+          // Pressure eviction of the least recently run entry unlinks it from
+          // the hand records too, so no evicted bank stays reachable.
+          const [lruKey, lru] = this.entries.entries().next().value!;
+          this.entries.delete(lruKey);
+          this.unlinkFromHands(new Set([lru]));
+        }
       }
       this.entries.set(key, entry);
     } else {
@@ -606,12 +627,15 @@ export class HorseObserverReads {
       this.sweepIdle(at);
     }
     let learned = 0;
+    const idleEvicted = new Set<Entry>();
     for (const entry of targets) {
       if (this.idle(entry, at)) {
         // A bank whose horse has not decided here for idleMs does not keep
-        // learning the floor; it leaves.
+        // learning the floor; it leaves, and is unlinked from every hand
+        // record (one pass, after the loop) so no hand can reach it again.
         const idleKey = horseObserverReadContextKey(entry.context)!;
         if (this.entries.get(idleKey) === entry) this.entries.delete(idleKey);
+        idleEvicted.add(entry);
         continue;
       }
       const id = request.committedHandId.toLowerCase();
@@ -661,6 +685,7 @@ export class HorseObserverReads {
       // entry that only ever completed grew without bound.
       if (HorseObserverReads.overCapacity(entry)) HorseObserverReads.capacityReset(entry);
     }
+    this.unlinkFromHands(idleEvicted);
     return learned + pooledLearned;
   }
   clear(): void {

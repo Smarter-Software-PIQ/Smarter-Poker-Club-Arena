@@ -14,7 +14,7 @@ import { openLobbyGameSection } from './support/lobbyGameSections';
  *     seat that did not exist
  *   - queueing from the lobby also navigated
  *   - selecting a row must NEVER join, register, or spend — it opens the
- *     game lobby panel where the player commits explicitly
+ *     cash game panel or tournament lobby where the player commits explicitly
  *
  * SIGNED OUT this file skips, exactly like the other authenticated specs:
  * expectRoute() calls test.skip() the moment it lands on /auth.
@@ -191,14 +191,12 @@ test.describe('Club lobby', () => {
     await expect(panel, 'Escape did not close the game lobby panel').toBeHidden({ timeout: 8000 });
   });
 
-  test('selecting a tournament reviews its card, then Details opens that event', async ({
-    page,
-  }) => {
+  test('selecting a tournament opens its own lobby directly without joining', async ({ page }) => {
     const ok = await expectRoute(page, LOBBY);
     if (!ok) return;
     await lobbySettled(page);
 
-    // The dedicated tournament club has a real maintained catalog. ALL only
+    // The active member club exposes its real maintained union catalog. ALL only
     // includes registering/late entries; use the actual MTT category instead
     // of silently skipping when that subset is temporarily empty.
     await openLobbyGameSection(page, 'MTT');
@@ -217,14 +215,8 @@ test.describe('Club lobby', () => {
 
     await row.click();
 
-    const panel = page.locator('.glp');
-    await expect(panel).toBeVisible();
-    await expect(panel.locator('.arena-game-card')).toBeVisible();
-    await expect(page).not.toHaveURL(new RegExp(`/tournaments/${id}(?:[/?#]|$)`));
-    await panel.getByRole('button', { name: 'Details', exact: true }).click();
-
-    // It reviews the tournament. It must be THAT tournament, and it must not
-    // have committed the player to anything on the way there.
+    // Tournament rows open their own lobby directly (owner direction November 1).
+    // Selecting the event must still never commit the player to participation.
     await expect(page, 'a tournament row did not open its own screen').toHaveURL(
       new RegExp(`/tournaments/${id}(?:[/?#]|$)`),
       { timeout: 10000 }
@@ -243,7 +235,7 @@ test.describe('Club lobby', () => {
 
     // R10: a cash GAME opens feeders when a Main fills. It never advertises
     // the game as Full or offers a standalone table queue. The maintained
-    // Diamond catalog exercises this real production path. The standalone
+    // Midway catalog exercises this real production path. The standalone
     // 6/6 table's Join/Leave Waitlist path remains enforced by the actual
     // GameLobbyPanel browser fixture in both browser engines.
     const row = page.locator('.club-home__games .lt-row[data-kind="cash"]').first();
@@ -352,7 +344,8 @@ for (const width of [393, 1440]) {
     await expect(row, 'the member lobby must expose the running ordinary Madness game').toBeVisible(
       { timeout: 45000 }
     );
-    await expect(row).toContainText('50% Minimum VPIP');
+    // The compact row abbreviates Minimum; its title retains the full rule.
+    await expect(row.getByTitle('50% Minimum VPIP', { exact: true })).toHaveText('50% Min VPIP');
     await expect(row).toContainText('Big Blind Ante');
     const details = row.getByRole('button', { name: /^Details:/ });
     if (await details.count()) await details.click();

@@ -24,8 +24,14 @@ vi.mock('../services/supabase/client.js', () => ({
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
 const { ServerTableEngine } = await import('./ServerTableEngine.js');
 const { HandController } = await import('./HandController.js');
-const { SeatHeadsRefresher, headsFromRows, isSeatBountyEvent } =
-  await import('../tournament/seatBountyHeads.js');
+const {
+  SEAT_HEADS_MAX_RETRIES,
+  SEAT_HEADS_RETRY_MAX_MS,
+  SeatHeadsRefresher,
+  headsFromRows,
+  isSeatBountyEvent,
+  seatHeadsRetryDelayMs,
+} = await import('../tournament/seatBountyHeads.js');
 import type { SeatPlayer } from '../types.js';
 
 function seat(seatNo: number, userId: string, stack: number): SeatPlayer {
@@ -263,7 +269,8 @@ describe('the head rides the table state', () => {
       read: async () => (fail ? null : [{ user_id: 'a', current_bounty: 2 }]),
       publish: (h) => published.push(h),
       now: () => clock,
-      later: (fn) => setTimeout(fn, 0),
+      // Retries are held, not run: this test is about what a failure keeps.
+      later: () => undefined,
       report,
     });
     refresher.request();
@@ -278,6 +285,83 @@ describe('the head rides the table state', () => {
     expect(published).toHaveLength(1);
     expect(refresher.current()?.get('a')).toBe(2);
     expect(report).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed read retries on its own with backoff until the heads land', async () => {
+    const report = vi.fn();
+    let failuresLeft = 3;
+    let reads = 0;
+    let clock = 0;
+    const scheduled: number[] = [];
+    const timers: Array<() => void> = [];
+    const published: Array<ReadonlyMap<string, number>> = [];
+    const refresher = new SeatHeadsRefresher({
+      read: async () => {
+        reads++;
+        if (failuresLeft > 0) {
+          failuresLeft--;
+          return null;
+        }
+        return [{ user_id: 'a', current_bounty: 7 }];
+      },
+      publish: (h) => published.push(h),
+      now: () => clock,
+      later: (fn, ms) => {
+        scheduled.push(ms);
+        timers.push(() => {
+          clock += ms;
+          fn();
+        });
+      },
+      report,
+    });
+    refresher.request();
+    await flush();
+    // Nothing else asks: the refresher itself keeps trying.
+    while (timers.length > 0 && published.length === 0) {
+      timers.shift()!();
+      await flush();
+    }
+    expect(reads).toBe(4);
+    expect(scheduled).toEqual([
+      seatHeadsRetryDelayMs(1),
+      seatHeadsRetryDelayMs(2),
+      seatHeadsRetryDelayMs(3),
+    ]);
+    expect(scheduled[1]).toBeGreaterThan(scheduled[0]);
+    expect(published).toHaveLength(1);
+    expect(refresher.current()?.get('a')).toBe(7);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(timers).toHaveLength(0);
+  });
+
+  it('a read that never succeeds stops retrying after the streak budget', async () => {
+    let reads = 0;
+    let clock = 0;
+    const timers: Array<() => void> = [];
+    const refresher = new SeatHeadsRefresher({
+      read: async () => {
+        reads++;
+        throw new Error('timeout');
+      },
+      publish: vi.fn(),
+      now: () => clock,
+      later: (fn, ms) =>
+        timers.push(() => {
+          clock += ms;
+          fn();
+        }),
+      report: vi.fn(),
+    });
+    refresher.request();
+    await flush();
+    for (let i = 0; i < 100 && timers.length > 0; i++) {
+      timers.shift()!();
+      await flush();
+    }
+    expect(timers).toHaveLength(0);
+    expect(reads).toBe(SEAT_HEADS_MAX_RETRIES + 1);
+    expect(seatHeadsRetryDelayMs(SEAT_HEADS_MAX_RETRIES)).toBe(SEAT_HEADS_RETRY_MAX_MS);
   });
 
   it('copies only ledger heads and only for bounty events', () => {

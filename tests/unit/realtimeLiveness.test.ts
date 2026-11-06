@@ -65,7 +65,7 @@ describe('a resumed page finds a dead realtime socket at once', () => {
     h.fire('pageshow');
     expect(h.client.connect).toHaveBeenCalledTimes(1);
     expect(h.client.sendHeartbeat).not.toHaveBeenCalled();
-    expect(h.report).toHaveBeenCalledWith('not_connected', {});
+    expect(h.report).toHaveBeenCalledWith('not_connected', { resumedAt: 0 });
   });
   it('leaves a live socket alone once its probe beat is answered', () => {
     const h = harness(true);
@@ -81,7 +81,7 @@ describe('a resumed page finds a dead realtime socket at once', () => {
     h.fire('online');
     h.runProbe();
     expect(h.client.sendHeartbeat).toHaveBeenCalledTimes(2);
-    expect(h.report).toHaveBeenCalledWith('unanswered_heartbeat', { waitedMs: 0 });
+    expect(h.report).toHaveBeenCalledWith('unanswered_heartbeat', { waitedMs: 0, resumedAt: 0 });
   });
   it('runs one probe at a time', () => {
     const h = harness(true);

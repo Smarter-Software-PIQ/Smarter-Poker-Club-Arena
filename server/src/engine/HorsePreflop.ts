@@ -52,8 +52,38 @@ export interface PreflopIntent {
    *  'v74_nlh_open_size' = the open was drawn from the V74 band;
    *  'v76_retired_four_bet_bluff' = the V7 4-bet-bluff band would have
    *  fired and was retired. Never changes the action. */
-  receipt?: 'v74_nlh_open_size' | 'v76_retired_four_bet_bluff' | 'cash_nlh_three_bet_size';
+  receipt?:
+    | 'v74_nlh_open_size'
+    | 'v76_retired_four_bet_bluff'
+    | 'cash_nlh_three_bet_size'
+    | 'plo_suited_aces_four_bet'
+    | 'plo_suited_aces_four_bettor_continues';
 }
+
+/** Layers that report through PreflopCtx.noteLayer (receipt only). */
+export type PreflopLayerReceipt =
+  | 'v60_cash_pressure_facing_open'
+  | 'v60_cash_pressure_facing_open_superseded'
+  | 'v60_cash_pressure_opener_vs_three_bet';
+
+/**
+ * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
+ * RE RAISE PRE FLOP WITH SUITED ACES". The horse opened Ad Ac Kd 9d 3h, was
+ * 3-bet pot by the small blind and flat called. The suited-aces anchor
+ * (#7838) only reached the facing-an-open branch; facing a 3-bet the 4-bet
+ * bar read the raw percentile, and a PLO5 AAxxx hand rates about 0.69 against
+ * a bar near 0.87, so suited aces could never 4-bet. Now, in a high-only
+ * pot-limit Omaha game, exactly two aces with an ace suited to another card
+ * 4-bet the pot facing exactly one 3-bet, at every frequency (the same anchor
+ * the 3-bet uses), when the call is not already a commitment (at most a
+ * quarter of the stack; past that the commitment rules decide) and the
+ * effective stack is at most OMAHA_SUITED_ACES_FOUR_BET_MAX_BB deep. A suited
+ * aces raiser that is re-raised again continues at any price it can take
+ * (required equity at most OMAHA_SUITED_ACES_CONTINUE_ODDS) instead of
+ * folding the chips it just raised.
+ */
+export const OMAHA_SUITED_ACES_FOUR_BET_MAX_BB = 250;
+export const OMAHA_SUITED_ACES_CONTINUE_ODDS = 0.45;
 
 export interface PreflopCtx {
   /** Phase 6 total tournament atlas cell and exact M snapshot. */
@@ -229,6 +259,10 @@ export interface PreflopCtx {
   /** Real-card suited AA / double-suited KK anchor, not a percentile proxy.
    * Only selects value 3-bets versus one open; never a 4-bet stack-off. */
   omahaSuitedPremium?: 'aces' | 'kings';
+  /** Dan 2026-11-06: high-only pot-limit Omaha suited aces also 4-bet facing
+   *  one 3-bet, and continue when re-raised (see OMAHA_SUITED_ACES_FOUR_BET_MAX_BB).
+   *  Undefined or false = off (hold'em, hi-lo, ablation). */
+  omahaSuitedAcesFourBet?: boolean;
   /** Exact Hold’em AA/KK, so score jitter cannot demote a value squeeze. */
   holdemPremiumPair?: boolean;
   /** Effective stack in big blinds against the deepest live opponent
@@ -242,6 +276,9 @@ export interface PreflopCtx {
   nlhOpenSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
+  /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
+   *  named here when that layer moves a bar. This module has no telemetry. */
+  noteLayer?: (layer: PreflopLayerReceipt) => void;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
   isShortDeck?: boolean;
   /** League calibration arm (2026-10-30): added to the tournament call bar
@@ -1612,11 +1649,23 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
               : null;
       // The V12 hunter discount still applies below the cash bar.
       // V74: as in the tournament layer, the per-seat base owns the width.
+      // Receipt (#8694): applied when the V60 bar moved the 3-bet width;
+      // superseded when the V74 base or an earlier lower bar kept it.
       if (def72) {
         /* the V74 base owns the 3-bet width */
-      } else if (cashBar !== null)
+        ctx.noteLayer?.('v60_cash_pressure_facing_open_superseded');
+      } else if (cashBar !== null) {
+        const beforeV60 = threeBetThresh;
         threeBetThresh = Math.min(threeBetThresh, t(cashBar) - 0.05 * hunted);
-      else threeBetThresh -= 0.03;
+        ctx.noteLayer?.(
+          threeBetThresh !== beforeV60
+            ? 'v60_cash_pressure_facing_open'
+            : 'v60_cash_pressure_facing_open_superseded'
+        );
+      } else {
+        threeBetThresh -= 0.03;
+        ctx.noteLayer?.('v60_cash_pressure_facing_open');
+      }
     }
     threeBetThresh = phase6CapBar(threeBetThresh);
     callThresh = phase6CapBar(callThresh);
@@ -1970,6 +2019,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // discipline still rules, and a credible re-raiser read still wins.
     const cash3 = cAggro && (ctx.effectiveStackBB ?? stackBB) <= 100;
     if (cash3) {
+      ctx.noteLayer?.('v60_cash_pressure_opener_vs_three_bet');
       // V73: the per-seat continue width already owns the call.
       if (!v73) callThresh = phase6CapBar(Math.min(callThresh, t53(ip ? 0.66 : 0.72, 'call')));
       fourBetThresh = phase6CapBar(fourBetThresh - 0.015);
@@ -1999,6 +2049,25 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       strength >= t53(0.42, 'commitCall')
     ) {
       return { a: 'call' };
+    }
+
+    // Dan 2026-11-06: suited aces 4-bet a single 3-bet (see the header of
+    // OMAHA_SUITED_ACES_FOUR_BET_MAX_BB).
+    if (
+      ctx.omahaSuitedAcesFourBet === true &&
+      ctx.isOmaha &&
+      ctx.isPotLimit &&
+      raises === 2 &&
+      toCall > 0 &&
+      toCall <= stack * 0.25 &&
+      (ctx.effectiveStackBB ?? stackBB) <= OMAHA_SUITED_ACES_FOUR_BET_MAX_BB &&
+      ctx.satellite?.locked !== true
+    ) {
+      return {
+        a: 'raiseTo',
+        to: ploRaiseTo(ctx.sizingMultiplier, potRaiseTo, rand),
+        receipt: 'plo_suited_aces_four_bet',
+      };
     }
 
     if (strength >= fourBetThresh) {
@@ -2067,6 +2136,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // 250bb is QQ+/AK at best, and QQ is already a coin flip against the
     // range that builds it.
     if (raises >= 3) {
+      // Dan 2026-11-06: a suited aces raiser re-raised again keeps its chips
+      // in at a price it can take; it never raises and then folds.
+      if (
+        ctx.omahaSuitedAcesFourBet === true &&
+        ctx.isOmaha &&
+        toCall > 0 &&
+        investedShare >= 0.12 &&
+        guardOdds <= OMAHA_SUITED_ACES_CONTINUE_ODDS
+      ) {
+        return { a: 'call', receipt: 'plo_suited_aces_four_bettor_continues' };
+      }
       // ═══ DEEP 5-BET DISCIPLINE (Dan 2026-10-25) ═══════════════════════
       // Facing a 4-bet with 60bb+ effective in a tournament, only AA and KK
       // put the stack in. Measured over 30 hours before this: 70 tournament

@@ -137,3 +137,16 @@ if "${PSQL[@]}" -f "$FIXTURE/tournament-share-assert.sql" > "$WORK/tournament-be
 fi
 grep -q 'Mikey tournament 100 must show 50' "$WORK/tournament-before.log" || { cat "$WORK/tournament-before.log"; exit 1; }
 "${PSQL[@]}" -f "$ROOT/supabase/migrations/20261106055718_all_earned_rake_includes_tournament_shares.sql" -f "$FIXTURE/tournament-share-assert.sql"
+
+# Roster reads the club boundary once, preserving the real reader's output.
+"${PSQL[@]}" -f "$FIXTURE/roster-cutoff-setup.sql"
+if "${PSQL[@]}" -f "$FIXTURE/roster-cutoff-cost.sql" > "$WORK/roster-before.log" 2>&1; then
+ echo 'FAIL: repeated cutoff regression unexpectedly passed before fix' >&2; exit 1
+fi
+grep -q 'roster cutoff must be read once' "$WORK/roster-before.log"
+ROSTER_MIGRATION="$ROOT/supabase/migrations/20261106180446_roster_fee_shares_read_the_launch_cutoff_once.sql"
+"${PSQL[@]}" -f "$ROSTER_MIGRATION" -f "$FIXTURE/roster-cutoff-cost.sql" -f "$FIXTURE/roster-cutoff-assert.sql"
+if "${PSQL[@]}" -f "$ROSTER_MIGRATION" > "$WORK/roster-replay.log" 2>&1; then
+ echo 'FAIL: drifted/repeated roster migration accepted' >&2; exit 1
+fi
+grep -q 'ROSTER_FEE_CUTOFF_PREIMAGE_CHANGED' "$WORK/roster-replay.log"

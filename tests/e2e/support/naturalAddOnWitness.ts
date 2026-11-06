@@ -1,3 +1,5 @@
+import type { Locator, Page } from '@playwright/test';
+
 export const ADDON_TABLE_CAP = 8;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 export type AddOnTable = { id: string; status: string; tournament_id: string };
@@ -37,6 +39,25 @@ export function completeAddOnRoster(
     throw new Error('UNKNOWN: natural add-on live roster is empty or exceeds eight tables');
   return live;
 }
+/** Only before opening: retire departed consumers before admitting new ones.
+ * The caller keeps its original observation deadline; readiness is renewed
+ * only after every changed-roster subscription supplies its real snapshot. */
+export async function synchronizeAddOnObservers(
+  currentIds: readonly string[],
+  nextIds: readonly string[],
+  readyAt: number,
+  operations: { open: (id: string) => Promise<unknown>; close: (id: string) => Promise<unknown> },
+  now: () => number = Date.now
+): Promise<{ ids: string[]; readyAt: number }> {
+  const ids = [...nextIds].sort();
+  if (!ids.length || ids.length > ADDON_TABLE_CAP || new Set(ids).size !== ids.length)
+    throw new Error('UNKNOWN: invalid bounded live observer roster');
+  const removed = currentIds.filter((id) => !ids.includes(id));
+  const added = ids.filter((id) => !currentIds.includes(id));
+  await Promise.all(removed.map((id) => operations.close(id)));
+  await Promise.all(added.map((id) => operations.open(id)));
+  return { ids, readyAt: removed.length || added.length ? now() : readyAt };
+}
 export function addOnWindow(row: Record<string, unknown>) {
   const start = Date.parse(String(row.addon_period_started_at || ''));
   const end = Date.parse(String(row.addon_period_ends_at || ''));
@@ -60,6 +81,70 @@ export function countdownSeconds(text: string): number {
   if (!match || Number(match[2]) > 59)
     throw new Error('UNKNOWN: rendered add-on countdown is unreadable');
   return Number(match[1]) * 60 + Number(match[2]);
+}
+/** Capture the rendered value and its clock in the same browser task. A slow
+ * protocol response must not age the text before we compare its deadline. */
+export async function readAddOnCountdown(timer: Pick<Locator, 'evaluate'>, endsAt: number) {
+  const sample = await timer.evaluate((element) => ({
+    text: element.textContent ?? '',
+    at: Date.now(),
+    visibility: document.visibilityState,
+  }));
+  const receivedAt = Date.now();
+  const seconds = countdownSeconds(sample.text);
+  return {
+    ...sample,
+    receivedAt,
+    seconds,
+    driftSeconds: Math.abs(seconds - Math.ceil((endsAt - sample.at) / 1000)),
+  };
+}
+/** One browser task captures the entire rendered card. Do not age early
+ * locator reads through dozens of queued protocol round trips. */
+export async function readAddOnCard(page: Pick<Page, 'evaluate'>) {
+  const sample = await page.evaluate(() => {
+    const dialog = document.querySelector('.break-screen');
+    const text = (element: Element | null) =>
+      element?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    const visible = (element: Element | null) => {
+      if (!element) return false;
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return (
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        style.visibility !== 'collapse' &&
+        box.width > 0 &&
+        box.height > 0
+      );
+    };
+    const labelVisible = (label: string) => {
+      const matches = [...(dialog?.querySelectorAll('*') ?? [])].filter(
+        (element) =>
+          text(element) === label && ![...element.children].some((child) => text(child) === label)
+      );
+      return matches.length === 1 && visible(matches[0]);
+    };
+    const stat = (label: string) =>
+      [...(dialog?.querySelectorAll('.break-screen__stat') ?? [])]
+        .find((element) => text(element.querySelector('.break-screen__stat-label')) === label)
+        ?.querySelector('.break-screen__stat-value') ?? null;
+    const timer = dialog?.querySelector('[role="timer"]') ?? null;
+    return {
+      at: Date.now(),
+      visibility: document.visibilityState,
+      dialogVisible: visible(dialog),
+      titleVisible: labelVisible('Add-On Break'),
+      closingVisible: labelVisible('Add-On Closes In'),
+      pausedVisible: labelVisible('All Tables Paused'),
+      cost: text(stat('Add-On Cost')),
+      chips: stat('Chips Received')?.getAttribute('title') ?? null,
+      text: text(timer),
+      timerCount: dialog?.querySelectorAll('[role="timer"]').length ?? 0,
+      count: text(dialog?.querySelector('[aria-label="Players Who Took Add-On"]') ?? null),
+    };
+  });
+  return { ...sample, receivedAt: Date.now() };
 }
 // These deployed RPCs read public/table context without purchasing or reserving anything.
 const OBSERVER_READ_RPCS = new Set([
@@ -119,4 +204,24 @@ export function forbiddenAddOnParticipation(
   return /\/(?:action|buyin|buy-in|cashout|cash-out|addchips|rebuy|leave|seat-move|seat-change|register|transfer-chips|mint-chips)$/.test(
     path
   );
+}
+
+/** A reload's first value is not evidence of an update on the original page. */
+export function hasNaturalAddOnIncrement(
+  tableIds: string[],
+  changes: { tableId: string; at: number; count: number }[],
+  signals: { tableId: string; at: number }[],
+  originalPageEnds: Record<string, number>
+): boolean {
+  return tableIds.some((id) => {
+    const samples = changes.filter(
+      (sample) => sample.tableId === id && sample.at < (originalPageEnds[id] ?? Infinity)
+    );
+    return samples.some(
+      (sample, index) =>
+        index > 0 &&
+        sample.count > samples[index - 1].count &&
+        signals.some((signal) => signal.tableId === id && signal.at <= sample.at)
+    );
+  });
 }

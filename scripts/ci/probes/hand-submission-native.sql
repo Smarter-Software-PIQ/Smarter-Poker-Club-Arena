@@ -141,6 +141,47 @@ SET LOCAL SESSION AUTHORIZATION service_role;
 SELECT public.fn_ca_retain_hand_submission(pg_temp.submission_request());
 RESET SESSION AUTHORIZATION;
 SELECT pg_temp.submission_assert((SELECT count(*)=1 FROM smarter_private.hand_submissions),'service role owns exact public retention replay');
+-- The original writer may retry a confirmed lane rollback with the SAME
+-- retained request. This subtransaction restores the original fixture for
+-- successor/unknown-outcome tests below; no production operation is invoked.
+DO $original_lane_rollback$
+DECLARE r jsonb; original jsonb; accepted jsonb;
+BEGIN
+ BEGIN
+  SELECT request INTO original FROM smarter_private.hand_submissions;
+  CREATE FUNCTION pg_temp.original_lane_contention() RETURNS trigger LANGUAGE plpgsql AS $fault$
+   BEGIN RAISE EXCEPTION 'F06_RETRY_CANONICAL_LANE' USING ERRCODE='55P03'; END $fault$;
+  CREATE TRIGGER zz_original_lane_contention BEFORE INSERT ON public.hand_projection_outbox
+   FOR EACH ROW EXECUTE FUNCTION pg_temp.original_lane_contention();
+  r:=pg_temp.commit_submission();
+  PERFORM pg_temp.submission_assert(r->>'success'='false' AND r->>'atomic_hand_commit'='false'
+   AND r->>'reason'='atomic_hand_rolled_back' AND r->>'sqlstate'='55P03'
+   AND r->>'table_id'='86100000-0000-0000-0000-000000000001'
+   AND r->>'hand_number'='8600001' AND r->>'commit_hash' ~ '^[0-9a-f]{64}$',
+   'original lane rollback returns exact canonical retry envelope');
+  PERFORM pg_temp.submission_assert(NOT EXISTS(SELECT 1 FROM public.hand_atomic_commits
+    WHERE table_id='86100000-0000-0000-0000-000000000001')
+   AND NOT EXISTS(SELECT 1 FROM public.hand_history WHERE id='86400000-0000-0000-0000-000000000001')
+   AND (SELECT sum(stack)=20 FROM public.table_seats WHERE table_id='86100000-0000-0000-0000-000000000001')
+   AND (SELECT request=original FROM smarter_private.hand_submissions),
+   'original lane rollback preserves money and immutable retained request');
+  DROP TRIGGER zz_original_lane_contention ON public.hand_projection_outbox;
+  accepted:=pg_temp.commit_submission();
+  PERFORM pg_temp.submission_assert(accepted->>'success'='true' AND accepted->>'atomic_hand_commit'='true'
+   AND accepted->>'submission_id'='86400000-0000-0000-0000-000000000001'
+   AND accepted->>'snapshot_completed'='true'
+   AND (SELECT request=original FROM smarter_private.hand_submissions),
+   'same original owner commits same retained request after lane clears');
+  r:=pg_temp.commit_submission();
+  PERFORM pg_temp.submission_assert(r->>'success'='true' AND r->>'submission_id'=accepted->>'submission_id'
+   AND (SELECT count(*)=1 FROM public.hand_atomic_commits WHERE table_id='86100000-0000-0000-0000-000000000001')
+   AND (SELECT count(*)=1 FROM public.hand_history WHERE id='86400000-0000-0000-0000-000000000001')
+   AND (SELECT sum(stack)=20 FROM public.table_seats WHERE table_id='86100000-0000-0000-0000-000000000001')
+   AND NOT EXISTS(SELECT 1 FROM smarter_private.hand_submission_handoffs),
+   'original lane retry and replay create one conserved commit without successor claim');
+  RAISE EXCEPTION 'restore original lane fixture' USING ERRCODE='P9001';
+ EXCEPTION WHEN SQLSTATE 'P9001' THEN NULL; END;
+END $original_lane_rollback$;
 DO $unknown$
 DECLARE r jsonb;
 BEGIN

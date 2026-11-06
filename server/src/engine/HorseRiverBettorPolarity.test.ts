@@ -127,13 +127,29 @@ describe('V62 equity shape (sampler)', () => {
 
   it('does nothing before the river or without the river-polar mark', () => {
     seedFastRandom(1);
-    const a = simulateEquity(cards('AsKd'), cards('Kh9h7c6s'), 1, NLH, 3000, [[0.3, 1]], false, undefined, [
-      read(0.75, { riverPolar: true, lastStage: 'turn' }),
-    ]);
+    const a = simulateEquity(
+      cards('AsKd'),
+      cards('Kh9h7c6s'),
+      1,
+      NLH,
+      3000,
+      [[0.3, 1]],
+      false,
+      undefined,
+      [read(0.75, { riverPolar: true, lastStage: 'turn' })]
+    );
     seedFastRandom(1);
-    const b = simulateEquity(cards('AsKd'), cards('Kh9h7c6s'), 1, NLH, 3000, [[0.3, 1]], false, undefined, [
-      read(0.75, { lastStage: 'turn' }),
-    ]);
+    const b = simulateEquity(
+      cards('AsKd'),
+      cards('Kh9h7c6s'),
+      1,
+      NLH,
+      3000,
+      [[0.3, 1]],
+      false,
+      undefined,
+      [read(0.75, { lastStage: 'turn' })]
+    );
     expect(a).toBe(b);
   });
 });
@@ -171,10 +187,31 @@ function river(variant: string, hole: string, board: string, bet: number, mode =
   ];
   for (const st of ['flop', 'turn']) {
     history.push({ stage: st, seat: 1, userId: 'hero', action: 'check', amount: 0, timestamp: 3 });
-    history.push({ stage: st, seat: 2, userId: 'villain', action: 'check', amount: 0, timestamp: 4 });
+    history.push({
+      stage: st,
+      seat: 2,
+      userId: 'villain',
+      action: 'check',
+      amount: 0,
+      timestamp: 4,
+    });
   }
-  history.push({ stage: 'river', seat: 1, userId: 'hero', action: 'check', amount: 0, timestamp: 5 });
-  history.push({ stage: 'river', seat: 2, userId: 'villain', action: 'bet', amount: bet, timestamp: 6 });
+  history.push({
+    stage: 'river',
+    seat: 1,
+    userId: 'hero',
+    action: 'check',
+    amount: 0,
+    timestamp: 5,
+  });
+  history.push({
+    stage: 'river',
+    seat: 2,
+    userId: 'villain',
+    action: 'bet',
+    amount: bet,
+    timestamp: 6,
+  });
   return {
     hero: players[0],
     gs: {
@@ -269,5 +306,45 @@ describe('V62 in the decision: the river bettor is sampled polar', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('V62 river-bettor class takes the board pair out (2026-11-06)', () => {
+  it('a paired board does not turn one private pair into two pair or better', async () => {
+    const { v62RiverBettorClass } = await import('./HorseEval.js');
+    const paired = cards('KcKs9d7h2s');
+    // v62ValueClass (still used by V66 / V67) reads these as two pair+.
+    expect(v62ValueClass(cards('9h8d'), paired, false)).toBe(3);
+    expect(v62RiverBettorClass(cards('9h8d'), paired, false)).toBe(1); // nines under the kings
+    expect(v62RiverBettorClass(cards('ThTd'), paired, false)).toBe(1); // underpair
+    expect(v62RiverBettorClass(cards('AhAd'), paired, false)).toBe(2); // overpair
+    expect(v62RiverBettorClass(cards('Kh3d'), paired, false)).toBe(3); // trips
+    expect(v62RiverBettorClass(cards('9h7d'), paired, false)).toBe(3); // two private pairs
+    expect(v62RiverBettorClass(cards('9h9d'), paired, false)).toBe(3); // full house
+    expect(v62RiverBettorClass(cards('Ah3d'), paired, false)).toBe(0); // board only
+    // a low board pair: the private pair that matches the top card is top pair
+    expect(v62RiverBettorClass(cards('KhQd'), cards('9c9sKd7h2s'), false)).toBe(2);
+  });
+
+  it('an unpaired board classes exactly as v62ValueClass', async () => {
+    const { v62RiverBettorClass } = await import('./HorseEval.js');
+    const board = cards('Kc7s2d4h9s');
+    for (const h of ['Kh7d', '7h7d', 'AhKd', 'AhAd', '9h8d', 'JhJd', 'AhQd', '5h3d']) {
+      expect(v62RiverBettorClass(cards(h), board, false)).toBe(
+        v62ValueClass(cards(h), board, false)
+      );
+    }
+  });
+
+  it('the stratum index built for a river bettor fills the pair strata on a paired board', async () => {
+    const { v62RiverBettorClass } = await import('./HorseEval.js');
+    const board = cards('KcKs9d7h2s');
+    const hero = cards('Ah9h');
+    const legacy = buildV62StratumIndex(null, board, hero, false);
+    const fixed = buildV62StratumIndex(null, board, hero, false, v62RiverBettorClass);
+    expect(legacy[1].length + legacy[2].length).toBeLessThan(fixed[1].length + fixed[2].length);
+    expect(fixed[3].length).toBeLessThan(legacy[3].length);
+    const total = (ix: number[][]) => ix.reduce((a, l) => a + l.length, 0);
+    expect(total(fixed)).toBe(total(legacy));
   });
 });

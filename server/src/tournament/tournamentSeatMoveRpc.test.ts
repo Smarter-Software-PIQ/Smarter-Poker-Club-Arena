@@ -66,38 +66,56 @@ describe('atomic tournament seat move transport', () => {
     });
   });
 
-  it.each(['PGRST202', 'PGRST203'])(
-    'treats the pre-execution %s function routing failure as refused',
+  it.each(['PGRST202', 'PGRST203', '55P03', '40001', '40P01', '42501', 'P0001'])(
+    'treats a definitive %s database response as refused',
     async (code) => {
       const fetchReceipt = vi.fn();
       vi.stubGlobal('fetch', fetchReceipt);
-      rpc.mockResolvedValue({ data: null, error: { code, message: 'function routing failed' } });
+      rpc.mockResolvedValue({ data: null, error: { code, message: 'database refused the move' } });
       await expect(moveTournamentPlayerAtomically(input)).rejects.toBeInstanceOf(
         TournamentSeatMoveRefusedError
       );
       expect(rpc).toHaveBeenCalledTimes(2);
+      expect(rpc.mock.calls[0]).toEqual(rpc.mock.calls[1]);
       expect(fetchReceipt).not.toHaveBeenCalled();
     }
   );
 
-  it.each(['lost response', 'retained identity'])(
-    'keeps %s ambiguous even when function routing now refuses execution',
-    async (mode) => {
+  it.each(
+    ['PGRST202', '55P03', '40001', '40P01', '42501'].flatMap((code) =>
+      ['lost response', 'retained identity'].map((mode) => [code, mode])
+    )
+  )('keeps %s after %s ambiguous despite a later definitive refusal', async (code, mode) => {
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-service-role-key');
+    const fetchReceipt = vi.fn().mockResolvedValue(new Response('null', { status: 200 }));
+    vi.stubGlobal('fetch', fetchReceipt);
+    if (mode === 'lost response') {
+      rpc.mockResolvedValueOnce({ data: null, error: { message: 'response lost' } });
+    }
+    rpc.mockResolvedValue({
+      data: null,
+      error: { code, message: 'database refused after attempted move' },
+    });
+    await expect(
+      moveTournamentPlayerAtomically(input, {
+        outcomeWasAlreadyUnknown: mode === 'retained identity',
+      })
+    ).rejects.toBeInstanceOf(TournamentSeatMoveOutcomeUnknownError);
+    expect(fetchReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['08006', '53300', '57014', '57P01', '58030', 'XX000', '', '55P03x'])(
+    'keeps a potentially interrupted %s move unknown',
+    async (code) => {
       vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'test-service-role-key');
       const fetchReceipt = vi.fn().mockResolvedValue(new Response('null', { status: 200 }));
       vi.stubGlobal('fetch', fetchReceipt);
-      if (mode === 'lost response') {
-        rpc.mockResolvedValueOnce({ data: null, error: { message: 'response lost' } });
-      }
-      rpc.mockResolvedValue({
-        data: null,
-        error: { code: 'PGRST202', message: 'function unavailable after attempted move' },
-      });
-      await expect(
-        moveTournamentPlayerAtomically(input, {
-          outcomeWasAlreadyUnknown: mode === 'retained identity',
-        })
-      ).rejects.toBeInstanceOf(TournamentSeatMoveOutcomeUnknownError);
+      rpc.mockResolvedValue({ data: null, error: { code, message: 'unconfirmed outcome' } });
+      await expect(moveTournamentPlayerAtomically(input)).rejects.toBeInstanceOf(
+        TournamentSeatMoveOutcomeUnknownError
+      );
+      expect(rpc).toHaveBeenCalledTimes(2);
+      expect(rpc.mock.calls[0]).toEqual(rpc.mock.calls[1]);
       expect(fetchReceipt).toHaveBeenCalledTimes(1);
     }
   );

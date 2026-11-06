@@ -90,7 +90,14 @@ describe('post-deploy E2E concurrency', () => {
         new RegExp(`${spec.replaceAll('.', '\\.')}[\\s\\S]{0,120}--workers=1 --retries=0`)
       );
     }
-    expect(workflow).toContain('--reporter=line,json --workers=2 --retries=0');
+    const sweep = workflow.slice(
+      workflow.indexOf('run_suite sweep.json'),
+      workflow.indexOf('sweep_rc=$?')
+    );
+    expect(sweep).toContain('production-mobile-lobby-chrome.spec.ts');
+    expect(sweep).toContain('production-row-channel-owners.spec.ts');
+    expect(sweep).toContain('--reporter=line,json --workers=1 --retries=0');
+    expect(sweep).not.toContain('--workers=2');
   });
 
   it('hard-deletes disposable realtime fixtures without restoring cosmetics first', () => {

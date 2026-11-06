@@ -4487,6 +4487,7 @@ export class TournamentManager extends TournamentManagerEliminations {
   // awaitsTournamentMoveClaim() is therefore false for that exact result.
   private readonly gapBalanceClaimedSources = new Map<string, ServerTableEngine>();
   private boundaryBalanceRequested = false;
+  private boundaryBalanceAwaitingSweep = false;
 
   private fenceGapBalanceSource(tableId: string): void {
     const engine = this.tableEngines.get(tableId);
@@ -4535,11 +4536,18 @@ export class TournamentManager extends TournamentManagerEliminations {
   }
 
   protected override onEliminationSweepSettled(): void {
+    this.boundaryBalanceAwaitingSweep = false;
     if (this.boundaryBalanceRequested) this.drainBoundaryBalance();
   }
 
   private drainBoundaryBalance(): void {
-    if (this.boundaryBalanceInFlight || this.isProcessingEliminations || !this.running) return;
+    if (
+      this.boundaryBalanceInFlight ||
+      this.boundaryBalanceAwaitingSweep ||
+      this.isProcessingEliminations ||
+      !this.running
+    )
+      return;
     this.boundaryBalanceInFlight = true;
     /**
      * A BOUNDARY BALANCE THAT DOES NOT SETTLE IS SEEN (2026-11-06).
@@ -4579,6 +4587,9 @@ export class TournamentManager extends TournamentManagerEliminations {
         while (this.boundaryBalanceRequested && this.running) {
           this.boundaryBalanceRequested = false;
           await this.balanceParkedGapSources();
+          // Finish the owned move before handing over. New park edges must
+          // not extend this drain ahead of a sweep that already yielded to it.
+          if (this.boundaryBalanceOwesSweep) break;
         }
       } catch (error) {
         reportError(error, 'Tournament.boundary_balance_failed', {
@@ -4591,6 +4602,9 @@ export class TournamentManager extends TournamentManagerEliminations {
         this.boundaryBalanceStartedAt = 0;
         if (this.boundaryBalanceOwesSweep) {
           this.boundaryBalanceOwesSweep = false;
+          // Preserve the turn until the admitted sweep settles; an edge in
+          // the scheduler gap must not immediately reacquire the manager.
+          this.boundaryBalanceAwaitingSweep = true;
           if (this.running) this.requestEliminationSweep('boundary_balance_settled');
         }
       }

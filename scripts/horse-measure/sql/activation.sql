@@ -6,6 +6,12 @@
 -- the upgrade is not active. A row whose label says 'expected 0' is a guard
 -- counter: it should stay at zero. Read-only (one SELECT).
 --
+-- V15 boats rows (2026-11-06): 'v15_boat_dominated' fires when a PLO5 cash
+-- full house reads as beaten by a bigger boat or quads, 'v15_boat_gate' when
+-- that boat, raised after betting, calls instead of re-raising. A dominated
+-- boat facing a raise is rare, so a low count is expected; zero over several
+-- days with decide_omaha flowing means the default did not reach the engine.
+--
 -- V31 rows (2026-11-06): 'v31_certified_<node role>' fires once per horse
 -- decision that a certified V31 solver cell answered and the engine executed
 -- as sampled (HorseLogic.ts, noteFire after legalize). The facing roles
@@ -14,6 +20,12 @@
 -- public.gto_v31_serving_bindings holds an open row for the serving engine
 -- commit, so 'v31_certified_skip_empty_store' is the counter that must fall
 -- to zero when V31 is live.
+--
+-- Skill result rows (2026-11-06): each default-off skill says what happened
+-- to its result once it is selected. 'applied' means the result changed the
+-- action; 'considered' means it was evaluated and the same choice stood;
+-- 'superseded' means another owner decided the spot. All three stay at zero
+-- while the skill is unselected (no selection file ships).
 SELECT x.feature, x.upgrade, coalesce(sum(t.fires), 0) AS fires,
        count(DISTINCT t.day) AS days_seen, min(t.day) AS first_day, max(t.day) AS last_day
 FROM (VALUES
@@ -21,6 +33,15 @@ FROM (VALUES
   ('v61_river_one_pair_shade', 'V61'),
   ('v63_large_river_bet_shade', 'V63'),
   ('v64_river_raise_needs_two_pair', 'V64'),
+  ('barrel_continuation_outlook_applied', 'barrelContinuationOutlook: carried turn outlook changed the river barrel (expected 0 until selected)'),
+  ('barrel_continuation_outlook_considered', 'barrelContinuationOutlook: outlook read, same choice (expected 0 until selected)'),
+  ('barrel_continuation_outlook_superseded', 'barrelContinuationOutlook: an earlier river owner decided first (expected 0 until selected)'),
+  ('small_pot_near_nut_value_applied', 'smallPotNearNutRiverValue: its value raise reached the final action (expected 0 until selected)'),
+  ('small_pot_near_nut_value_considered', 'smallPotNearNutRiverValue: in domain, original gate already raised (expected 0 until selected)'),
+  ('small_pot_near_nut_value_superseded', 'smallPotNearNutRiverValue: a later owner replaced its raise (expected 0 until selected)'),
+  ('v53_plo_icm_applied', 'v53PloTourneyIcm: ICM shifts changed the preflop choice (expected 0 until selected)'),
+  ('v53_plo_icm_considered', 'v53PloTourneyIcm: shifts priced, same choice (expected 0 until selected)'),
+  ('v53_plo_icm_superseded', 'v53PloTourneyIcm: a later owner replaced the changed choice (expected 0 until selected)'),
   ('v65_turn_one_pair_shade', 'V65'),
   ('v66_bet_raised_one_pair', 'V66'),
   ('v67_river_bet_raised_one_pair', 'V67'),
@@ -44,6 +65,42 @@ FROM (VALUES
   ('hybrid_v1_cash_grinder_decided', 'Hybrid v1 cash grinder'),
   ('hybrid_v1_tournament_tricky_decided', 'Hybrid v1 tournament tricky'),
   ('cash_nlh_three_bet_size', 'cash NLH 3-bet size'),
+  ('river_nuts_wager', 'river nuts (#7780, #7788)'),
+  ('near_pot_wager_full_pot', 'river nuts (#7780, #7788)'),
+  ('river_nuts_wager_already_full', 'river nuts (#7780, #7788)'),
+  ('river_nuts_wager_superseded', 'river nuts (#7780, #7788)'),
+  ('omaha_implied_credit_draw', 'Omaha implied credit (#7876)'),
+  ('omaha_implied_credit_withheld', 'Omaha implied credit (#7876)'),
+  ('omaha_board_blocked_nut_draw', 'Omaha draw blockers (#8220)'),
+  ('plo8_low_outlook_read', 'PLO8 outlook (#9351)'),
+  ('plo8_low_outlook_considered', 'PLO8 outlook (#9351)'),
+  ('closed_table_hand_memory_released', 'closed-table memory release (#9351)'),
+  ('exploit_hydrator_boot_replayed', 'exploit hydrator (#7734)'),
+  ('exploit_hydrator_boot_replayed_empty', 'exploit hydrator (#7734)'),
+  ('exploit_hydrator_boot_replay_read_stopped', 'exploit hydrator (#7734)'),
+  ('wager_bound_opponent_read', 'reads bound to the wager (#8847)'),
+  ('wager_bound_opponent_read_past_short_all_in', 'reads bound to the wager (#8847)'),
+  ('wager_bound_pressure_read', 'reads bound to the wager (#8847)'),
+  ('lightning_horse_fast_fold', 'Lightning fast fold (#7958, #7993)'),
+  ('lightning_horse_fast_fold_considered', 'Lightning fast fold (#7958, #7993)'),
+  ('river_call_showdown_learned', 'river caller showdown read (#8160, #8214)'),
+  ('river_call_light_read', 'river caller showdown read (#8160, #8214)'),
+  ('river_call_light_read_considered', 'river caller showdown read (#8160, #8214)'),
+  ('river_last_to_act_counted', 'conditional river counters (#8386)'),
+  ('range_read_big_bet_counted', 'range reads (#8563)'),
+  ('range_read_capped_all_in_not_big_bet', 'range reads (#8563)'),
+  ('hu_cash_matched_commitment', 'heads-up cash matched commitment (#8464)'),
+  ('hu_cash_matched_commitment_covered', 'heads-up cash matched commitment (#8464)'),
+  ('hu_cash_matched_commitment_wager', 'heads-up cash matched commitment (#8464)'),
+  ('lightning_original_hand_bound', 'Lightning hand binding (#8065)'),
+  ('lightning_original_hand_unbound', 'Lightning hand binding (#8065)'),
+  ('horse_history_cache_entry_bound_evicted', 'worker memory bounds (#9387 family)'),
+  ('horse_history_retention_refused', 'worker memory bounds (#9387 family)'),
+  ('v60_cash_pressure_facing_open', 'V60 cash pressure (#8694)'),
+  ('v60_cash_pressure_facing_open_superseded', 'V60 cash pressure (#8694)'),
+  ('v60_cash_pressure_opener_vs_three_bet', 'V60 cash pressure (#8694)'),
+  ('v15_boat_dominated', 'V15 boats (default on in PLO5 cash since 2026-11-06)'),
+  ('v15_boat_gate', 'V15 boats: dominated boat called a raise (PLO5 cash)'),
   ('v62_river_bettor_polarity', 'V62 (opt-in: expected 0)'),
   ('horse_turn_resolved_without_decision', 'clock-forced horse turn (expected 0)'),
   ('horse_turn_resolved_without_decision_brain_pending', 'clock-forced horse turn, brain decision was in flight (expected 0)'),
@@ -62,7 +119,17 @@ FROM (VALUES
   ('v31_certified_probe', 'V31 solver cell applied: probe'),
   ('v31_certified_barrel', 'V31 solver cell applied: barrel'),
   ('v31_certified_execution_mismatch', 'V31 solver cell sampled but legalized away (expected 0)'),
-  ('v31_certified_skip_empty_store', 'V31 solver store empty, no serving binding (expected 0 once bound)')
+  ('v31_certified_skip_empty_store', 'V31 solver store empty, no serving binding (expected 0 once bound)'),
+  ('plan_fingerprint_recorded', 'Items 21 and 23 plan fingerprint (recorded)'),
+  ('plan_fingerprint_continued_on_blank', 'Items 21 and 23 plan fingerprint (met, blank)'),
+  ('plan_fingerprint_improved_on_good_card', 'Items 21 and 23 plan fingerprint (met, good)'),
+  ('plan_fingerprint_checked_scare_card', 'Items 21 and 23 plan fingerprint (met, scare)'),
+  ('plan_fingerprint_aborted_multiway_contender_shift', 'Items 21 and 23 plan fingerprint (withdrawn: contender)'),
+  ('plan_fingerprint_aborted_stack_exposure_shift', 'Items 21 and 23 plan fingerprint (withdrawn: exposure)'),
+  ('plan_fingerprint_absent', 'Items 21 and 23 plan fingerprint (plan carried none)'),
+  ('opponent_memory_donor_fresh', 'Item 12 donor staleness (fresh)'),
+  ('opponent_memory_donor_stale', 'Item 12 donor staleness (stale)'),
+  ('opponent_memory_donor_expired', 'Item 12 donor staleness (expired)')
 ) AS x(feature, upgrade)
 LEFT JOIN public.horse_brain_telemetry t ON t.feature = x.feature AND t.day >= :START_DAY::date
 GROUP BY x.feature, x.upgrade

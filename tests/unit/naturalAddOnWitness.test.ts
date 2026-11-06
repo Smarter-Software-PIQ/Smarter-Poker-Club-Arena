@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Locator, Page } from '@playwright/test';
 import {
   admitNaturalAddOn,
   completeAddOnRoster,
+  synchronizeAddOnObservers,
   addOnWindow,
   countdownSeconds,
+  readAddOnCountdown,
+  readAddOnCard,
+  hasNaturalAddOnIncrement,
   forbiddenAddOnParticipation,
   suppressedObserverReward,
 } from '../e2e/support/naturalAddOnWitness';
@@ -154,5 +159,205 @@ describe('natural add-on observation admission', () => {
         new URL('https://db.example/rest/v1/rpc/fn_get_tournament')
       )
     ).toBe(false);
+  });
+});
+
+describe('countdown samples retain their browser observation time', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  it.each([0, 10])(
+    'keeps %s seconds of actual drift despite a delayed protocol response',
+    async (drift) => {
+      const browserAt = Date.parse('2026-11-06T16:11:10Z');
+      const end = browserAt + 50_000;
+      let now = browserAt;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      vi.stubGlobal('document', { visibilityState: 'visible' });
+      const timer = {
+        evaluate: async (capture: (element: { textContent: string }) => unknown) => {
+          const sample = capture({ textContent: `0:${50 - drift}` });
+          // The DOM is read first; the runner receives that result ten seconds later.
+          await Promise.resolve();
+          now += 10_000;
+          return sample;
+        },
+      } as unknown as Pick<Locator, 'evaluate'>;
+      const sample = await readAddOnCountdown(timer, end);
+      expect(sample.at).toBe(browserAt);
+      expect(sample.receivedAt - sample.at).toBe(10_000);
+      expect(sample.visibility).toBe('visible');
+      expect(sample.driftSeconds).toBe(drift);
+      if (drift === 0) {
+        // The former cross-process timestamp comparison creates a false ten-second drift.
+        expect(Math.abs(sample.seconds - Math.ceil((end - sample.receivedAt) / 1000))).toBe(10);
+        expect(sample.driftSeconds).toBeLessThanOrEqual(3);
+      } else expect(sample.driftSeconds).toBeGreaterThan(3);
+    }
+  );
+});
+
+describe('natural increment evidence remains independent of reconnect', () => {
+  const changes = [
+    { tableId: id, at: 100, count: 30 },
+    { tableId: id, at: 200, count: 31 },
+  ];
+  const signals = [{ tableId: id, at: 150 }];
+  it('accepts a signal-backed increment late in the original page lifetime', () => {
+    expect(hasNaturalAddOnIncrement([id], changes, signals, {})).toBe(true);
+    expect(hasNaturalAddOnIncrement([id], changes, signals, { [id]: 201 })).toBe(true);
+  });
+  it('never treats a reload or initial count as a natural increment', () => {
+    expect(hasNaturalAddOnIncrement([id], changes, signals, { [id]: 200 })).toBe(false);
+    expect(hasNaturalAddOnIncrement([id], changes.slice(0, 1), signals, {})).toBe(false);
+    expect(hasNaturalAddOnIncrement([id], changes, [], {})).toBe(false);
+  });
+});
+
+describe('pre-opening live roster synchronization', () => {
+  it('closes retired contexts before subscribing additions and records actual readiness', async () => {
+    const calls: string[] = [];
+    let clock = 100;
+    let release!: () => void;
+    const snapshot = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const sync = synchronizeAddOnObservers(
+      ['old', 'kept'],
+      ['new', 'kept'],
+      50,
+      {
+        close: async (id) => {
+          calls.push(`close:${id}`);
+        },
+        open: async (id) => {
+          calls.push(`open:${id}`);
+          await snapshot;
+        },
+      },
+      () => clock
+    );
+    await vi.waitFor(() => expect(calls).toEqual(['close:old', 'open:new']));
+    let finished = false;
+    void sync.then(() => {
+      finished = true;
+    });
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    clock = 200;
+    release();
+    expect(await sync).toEqual({ ids: ['kept', 'new'], readyAt: 200 });
+  });
+  it('keeps readiness on an unchanged live roster and advances it after removal', async () => {
+    const operations = { open: vi.fn(async () => {}), close: vi.fn(async () => {}) };
+    expect(
+      await synchronizeAddOnObservers(['a', 'b'], ['b', 'a'], 10, operations, () => 99)
+    ).toEqual({ ids: ['a', 'b'], readyAt: 10 });
+    expect(operations.open).not.toHaveBeenCalled();
+    expect(operations.close).not.toHaveBeenCalled();
+    expect(await synchronizeAddOnObservers(['a', 'b'], ['b'], 10, operations, () => 99)).toEqual({
+      ids: ['b'],
+      readyAt: 99,
+    });
+    expect(operations.close).toHaveBeenCalledWith('a');
+  });
+  it('never declares readiness after a failed added snapshot or an invalid roster', async () => {
+    const operations = {
+      open: vi.fn(async () => {
+        throw new Error('snapshot missing');
+      }),
+      close: vi.fn(async () => {}),
+    };
+    await expect(synchronizeAddOnObservers(['a'], ['a', 'b'], 10, operations)).rejects.toThrow(
+      'snapshot missing'
+    );
+    operations.open.mockClear();
+    for (const ids of [[], ['a', 'a'], Array.from({ length: 9 }, (_, i) => String(i))])
+      await expect(synchronizeAddOnObservers(['a'], ids, 10, operations)).rejects.toThrow(
+        'bounded'
+      );
+    expect(operations.open).not.toHaveBeenCalled();
+    expect(operations.close).not.toHaveBeenCalled();
+  });
+});
+
+describe('atomic add-on card evidence', () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.restoreAllMocks();
+  });
+  function fixture() {
+    document.body.innerHTML = `<div class="break-screen">
+      <h2>Add-On Break</h2><span>Add-On Closes In</span><span>All Tables Paused</span>
+      <span role="timer">0:44</span>
+      <div class="break-screen__stat"><span class="break-screen__stat-label">Add-On Cost</span><span class="break-screen__stat-value">35</span></div>
+      <div class="break-screen__stat"><span class="break-screen__stat-label">Chips Received</span><span class="break-screen__stat-value" title="20,000">20K</span></div>
+      <span aria-label="Players Who Took Add-On">1,234</span>
+    </div>`;
+    // happy-dom has no layout engine; supply measurable boxes while exercising
+    // the real DOM selectors and computed visibility styles.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 100,
+      height: 20,
+    } as DOMRect);
+    return { evaluate: vi.fn(async (capture: () => unknown) => capture()) };
+  }
+  it('captures labels, price, chips, timer, count and browser time in one evaluation', async () => {
+    const page = fixture();
+    vi.spyOn(Date, 'now').mockReturnValue(12345);
+    const sample = await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>);
+    expect(page.evaluate).toHaveBeenCalledTimes(1);
+    expect(sample).toMatchObject({
+      at: 12345,
+      receivedAt: 12345,
+      dialogVisible: true,
+      titleVisible: true,
+      closingVisible: true,
+      pausedVisible: true,
+      cost: '35',
+      chips: '20,000',
+      text: '0:44',
+      timerCount: 1,
+      count: '1,234',
+    });
+  });
+  it('does not accept missing, hidden, collapsed or zero-area labels', async () => {
+    const page = fixture();
+    const title = document.querySelector('h2')!;
+    title.style.visibility = 'hidden';
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+    title.style.visibility = 'collapse';
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+    title.style.visibility = 'visible';
+    title.style.display = 'none';
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+    title.style.display = 'block';
+    vi.spyOn(title, 'getBoundingClientRect').mockReturnValue({ width: 0, height: 20 } as DOMRect);
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+    title.remove();
+    expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
+      false
+    );
+  });
+  it('retains missing values and refuses duplicate exact labels instead of fabricating proof', async () => {
+    const page = fixture();
+    document.querySelector('[role="timer"]')!.remove();
+    document.querySelector('[aria-label="Players Who Took Add-On"]')!.remove();
+    document
+      .querySelector('.break-screen')!
+      .insertAdjacentHTML('beforeend', '<h3>Add-On Break</h3>');
+    const sample = await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>);
+    expect(sample.titleVisible).toBe(false);
+    expect(sample.text).toBe('');
+    expect(sample.count).toBe('');
   });
 });

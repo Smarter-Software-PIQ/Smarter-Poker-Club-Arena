@@ -11,7 +11,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'feature-ablation-offline-placeholder';
 const args = new Map<string, string>();
 for (const a of process.argv.slice(2)) {
   const m =
-    /^--(experiment|variant|profile|seed|pairs|start-pair|proposed-owner-head|output|inspect)=(.+)$/.exec(
+    /^--(experiment|variant|profile|seed|pairs|start-pair|proposed-owner-head|output|inspect|hero-candidate-style|hero-reference-style)=(.+)$/.exec(
       a
     );
   if (!m || args.has(m[1])) throw new Error('Unknown/duplicate development argument');
@@ -22,7 +22,7 @@ for (const key of ['experiment', 'variant', 'profile', 'seed', 'pairs', 'output'
 const { hydrateFrozenFeatureAblationStores } =
   await import('../benchmark/FeatureAblationStores.js');
 const { createFeatureAblationWorker } = await import('../benchmark/FeatureAblationWorker.js');
-const { runFeatureAblationDevelopment, ablationPilotMoments } =
+const { runFeatureAblationDevelopment, ablationPilotMoments, assertDevelopmentAblationArms } =
   await import('../benchmark/FeatureAblationLeague.js');
 const { PLO6_V24_DEVELOPMENT_DESIGN, plo6V24DevelopmentSpec, plo6V24DevelopmentProfile } =
   await import('../benchmark/Plo6V24Qualification.js');
@@ -83,11 +83,21 @@ try {
     pairs = Number(args.get('pairs')),
     startPair = Number(args.get('start-pair') ?? 0),
     experiment = args.get('experiment');
+  const styleContrast =
+    experiment === 'hero_personality'
+      ? {
+          kind: 'hero_style_development' as const,
+          candidate: args.get('hero-candidate-style') as import('../types.js').HorseStyle,
+          reference: args.get('hero-reference-style') as import('../types.js').HorseStyle,
+        }
+      : undefined;
+  if (!styleContrast && (args.has('hero-candidate-style') || args.has('hero-reference-style')))
+    throw Error('Hero styles require the development personality experiment');
   if (isSeparateRiverTarget(experiment)) assertSeparateRiverSeedSeparation();
   const allowed =
     experiment === 'v24'
       ? PLO6_V24_DEVELOPMENT_DESIGN.developmentSeeds
-      : experiment === 'v53'
+      : experiment === 'v53' || experiment === 'hero_personality'
         ? V53_PRESSURE_DEVELOPMENT_SEEDS
         : isIncrementalTarget(experiment)
           ? incrementalDevelopmentDesign(experiment).developmentSeeds
@@ -135,8 +145,22 @@ try {
           : pressureDevelopmentProfiles(args.get('variant')! as 'plo6')
         ).find((p) => p.id === args.get('profile'));
   if (!physicalProfile) throw new Error('Unknown declared development profile');
+  if (styleContrast)
+    assertDevelopmentAblationArms({
+      id: 'hero_personality-development-v1',
+      profile: physicalProfile,
+      brain: {
+        id: 'inspection-only',
+        decide() {
+          throw Error('Inspection never deals');
+        },
+      },
+      candidate: {},
+      reference: {},
+      heroStyleContrast: styleContrast,
+    });
   const warmRecords =
-    experiment === 'v53' && args.get('inspect') !== 'true'
+    (experiment === 'v53' || experiment === 'hero_personality') && args.get('inspect') !== 'true'
       ? buildPressureWarmRecords({
           variant: args.get('variant')! as 'plo6',
           seats: physicalProfile.seats,
@@ -152,12 +176,12 @@ try {
   const history = {
     kind: isIncrementalTarget(experiment)
       ? incrementalHistoryVersion(experiment)
-      : experiment === 'v53'
+      : experiment === 'v53' || experiment === 'hero_personality'
         ? 'fixed_public_warm_v1'
         : 'fresh_empty_public_v1',
     warmSeed: isIncrementalTarget(experiment)
       ? incrementalDevelopmentDesign(experiment).warmSeed
-      : experiment === 'v53'
+      : experiment === 'v53' || experiment === 'hero_personality'
         ? V53_PRESSURE_WARM_SEED
         : null,
     ...(isIncrementalTarget(experiment)
@@ -198,6 +222,7 @@ try {
       .update('\0');
   }
   const manifest = {
+    ...(styleContrast ? { heroStyleContrast: styleContrast } : {}),
     schema: 'horse-feature-ablation-development-manifest-v1',
     mode: args.get('inspect') === 'true' ? 'baseline_inspection_no_deals' : 'development',
     baselineKind: isIncrementalTarget(experiment)
@@ -222,11 +247,23 @@ try {
     history,
     authority,
     authoritySha256: sha(JSON.stringify(authority)),
-    design: isIncrementalTarget(experiment)
-      ? incrementalDevelopmentDesign(experiment)
-      : experiment === 'v24'
-        ? PLO6_V24_DEVELOPMENT_DESIGN
-        : V53_PRESSURE_DEVELOPMENT_DESIGN,
+    design: styleContrast
+      ? {
+          id: 'hero_personality-development-v1',
+          contrast: styleContrast,
+          sharedFlags: 'unchanged source defaults in both arms',
+          population: 'current_horse_production_styles',
+          physicalProfile,
+          developmentSeeds: V53_PRESSURE_DEVELOPMENT_SEEDS,
+          reservedHeldoutSeeds: V53_PRESSURE_RESERVED_HOLDOUT_SEEDS,
+          warmSeed: V53_PRESSURE_WARM_SEED,
+          qualification: 'not eligible; no locked personality contract',
+        }
+      : isIncrementalTarget(experiment)
+        ? incrementalDevelopmentDesign(experiment)
+        : experiment === 'v24'
+          ? PLO6_V24_DEVELOPMENT_DESIGN
+          : V53_PRESSURE_DEVELOPMENT_DESIGN,
     observation:
       'brain evaluations including corrective re-evaluations, not accepted final layer use',
     promotionEligible: false,
@@ -272,8 +309,16 @@ try {
         return packet;
       }
     );
-    const spec =
-      experiment === 'v24'
+    const spec = styleContrast
+      ? {
+          id: 'hero_personality-development-v1',
+          profile: physicalProfile,
+          brain,
+          candidate: {},
+          reference: {},
+          heroStyleContrast: styleContrast,
+        }
+      : experiment === 'v24'
         ? plo6V24DevelopmentSpec(args.get('profile')!, brain)
         : isIncrementalTarget(experiment)
           ? incrementalDevelopmentSpec(

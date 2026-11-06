@@ -19,6 +19,8 @@
  */
 export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, string>> =
   Object.freeze({
+    'src/engine/HorseNonBottomRiverValue.ts':
+      'the exact non-bottom high-only Omaha river initiative eligibility; downstream equity, utility and legal bounds remain authoritative',
     'src/engine/HorseCheckedAggressor.ts':
       'the actual prior aggressor current-street check that releases the reference initiative gate without changing value pricing or legal sizing',
     'src/engine/HorseFeatureAuthority.ts':
@@ -37,6 +39,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'boundary: the Phase 14 worker-local corrective consumer; absent a separately admitted functional capability it preserves action and RNG, and it never stacks on an applied prior candidate',
     'src/engine/HorseRiverNuts.ts':
       'the final river-nuts raise and full-pot near-pot wager invariants after all strategy owners',
+    'src/engine/HorseOmahaCurrentNuts.ts':
+      'the final Omaha flop/turn current-nuts raise (exact public nuts with a redraw or untieable; Dan 2026-11-06), right after the river-nuts raise',
     'src/engine/HorseTournamentShoveDiscipline.ts':
       'the final tournament preflop shove-depth wager rule (no deep open or re-raise shove) after all strategy owners',
     'src/engine/HorseCallDeductions.ts':
@@ -66,6 +70,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the NLH premium-aggression and dominated-hand 3-bet fold rules applied to the final decision after every other layer (Dan 2026-10-25)',
     'src/engine/HorsePloPairedBoardFold.ts':
       'the PLO4/PLO5/PLO6 paired-board fold applied to the final decision after every other layer (Dan 2026-10-25)',
+    'src/engine/HorseContinuationPlanInvalidation.ts':
+      'the Items 21 and 23 multi-street plan contender and stack-exposure fingerprint and its continuation verdict, consulted by the reference barrel plan (activated 2026-11-05)',
     'src/engine/HorseOmahaBigBetCalls.ts':
       'the V81 PLO4/PLO5 big-bet call fold in measured losing cells, applied in the final wager rules right after the paired-board fold (Phase 4, 2026-11-02)',
     'src/engine/HorseShortAllInCallFloor.ts':

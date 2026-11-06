@@ -19,7 +19,7 @@ Output: <out>/<schema>.<table>.csv and <out>/manifest.json
 import json, os, re, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
-OUT = sys.argv[1]
+OUT = sys.argv[1] if len(sys.argv) > 1 else None
 SCHEMAS = ("public", "smarter_private", "ops")
 ROW_CAP = 25000
 BYTE_CAP = 20 * 1024 * 1024
@@ -48,6 +48,33 @@ def copy_out(select_sql, path):
                            env=ENV, stdout=f, stderr=subprocess.PIPE, text=True, timeout=180)
     if r.returncode:
         raise RuntimeError(r.stderr.strip()[:300])
+
+
+class SeedEligibilityError(RuntimeError):
+    pass
+
+
+def playable_memberships(where):
+    """Exclude only immutable, empty retired history, never playable members."""
+    invalid = f"({where}) and coalesce(is_bot,false) and not public.fn_ca_house_board_allows_automation(club_id)"
+    safe = """membership_lifecycle_status <> 'active'
+      and coalesce(chip_balance,0)=0 and coalesce(held_chips,0)=0
+      and exists (select 1 from public.clubs c where c.id=club_members.club_id and c.lifecycle_status='retired')
+      and not exists (select 1 from public.tables t where t.club_id=club_members.club_id
+                      and t.status in ('waiting','running','active'))
+      and not exists (select 1 from public.table_seats s join public.tables t on t.id=s.table_id
+                      where t.club_id=club_members.club_id and s.left_at is null)"""
+    rows = q(f"select club_id,user_id,coalesce(({safe}),false) from public.club_members where {invalid} order by club_id,user_id")
+    if any(eligible != 't' for _, _, eligible in rows):
+        raise SeedEligibilityError('invalid automation membership is playable, funded, seated, or not retired')
+    exclusions = [{'clubId': club, 'userId': user,
+                   'reason': 'nonplayable_empty_retired_club_membership'} for club, user, _ in rows]
+    # The eligibility predicate is repeated in the export, so a concurrent
+    # change cannot silently exclude a newly active/funded member.
+    if not rows:
+        return where, exclusions
+    identities = ",".join("('%s'::uuid,'%s'::uuid)" % (club.replace("'", "''"), user.replace("'", "''")) for club, user, _ in rows)
+    return f"({where}) and not ((club_id,user_id) in ({identities}) and (coalesce(is_bot,false) and not public.fn_ca_house_board_allows_automation(club_id)) and coalesce(({safe}),false))", exclusions
 
 
 def main():
@@ -101,23 +128,36 @@ def main():
                 where = " and ".join(f'("{c}" is null or "{c}" in {horses})' for c in person_cols[key])
             else:
                 where = "true"
+            exclusions = []
+            if key == ("public", "club_members"):
+                where, exclusions = playable_memberships(where)
             if int(nbytes) > BYTE_CAP and key not in (("public", "profiles"), ("public", "tables"), ("public", "table_seats"), ("public", "clubs"), ("public", "unions"), ("public", "union_clubs")):
+                if key == ("public", "club_members"):
+                    raise SeedEligibilityError("club_members exceeds the seed byte budget")
                 return ("skipped", {"table": name, "why": f"large_{int(nbytes)//1048576}_MB"})
             if key not in person_cols and key not in (("public", "profiles"), ("public", "clubs"), ("public", "unions"), ("public", "union_clubs")) and int(est) > ROW_CAP:
+                if key == ("public", "club_members"):
+                    raise SeedEligibilityError("club_members exceeds the seed row budget")
                 return ("skipped", {"table": name, "why": f"large_{est}_rows"})
-            if int(nbytes) <= 16384 and int(est) <= 0 and key not in (("public", "profiles"),):
+            if int(nbytes) <= 16384 and int(est) <= 0 and key not in (("public", "profiles"), ("public", "club_members")):
                 return None  # empty table
             count = int(q(f'select count(*) from "{s}"."{t}" where {where}')[0][0])
             if count > ROW_CAP * 4:
+                if key == ("public", "club_members"):
+                    raise SeedEligibilityError("club_members exceeds the filtered seed row budget")
                 return ("skipped", {"table": name, "why": f"filtered_still_{count}_rows"})
             if count == 0:
-                return None
-            if not (os.path.exists(out) and os.path.getsize(out) > 0 and os.path.exists(out + ".done")):
+                return ("skipped", {"table": name, "why": "no_playable_memberships", "excludedRows": exclusions, "excludedRowCount": len(exclusions)}) if exclusions else None
+            if key == ("public", "club_members") or not (os.path.exists(out) and os.path.getsize(out) > 0 and os.path.exists(out + ".done")):
                 copy_out(f'select * from "{s}"."{t}" where {where}', out)
                 open(out + ".done", "w").close()
-            return ("copied", {"table": name, "rows": count,
+            return ("copied", {"table": name, "rows": count, "excludedRows": exclusions, "excludedRowCount": len(exclusions),
                                "personFilter": person_cols.get(key, ["is_horse"] if key == ("public", "profiles") else [])})
-        except Exception as exc:  # one table never stops the bundle
+        except SeedEligibilityError:
+            raise
+        except Exception as exc:  # optional non-membership tables retain their existing policy
+            if key == ("public", "club_members"):
+                raise SeedEligibilityError("club_members extraction failed") from exc
             return ("skipped", {"table": name, "why": "error: " + str(exc)[:160]})
 
     with ThreadPoolExecutor(max_workers=4) as pool:

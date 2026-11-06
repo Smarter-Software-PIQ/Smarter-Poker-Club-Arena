@@ -274,7 +274,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
    */
   private readonly bustRefusalStreak = new Map<string, number>();
   /** The close of a bounty only PKO at two players; see bountyOnlyFinalTwo.ts. */
-  private readonly bountyOnlyFinalTwo: FinalTwoState = { parked: false, refused: false };
+  private readonly bountyOnlyFinalTwo: FinalTwoState = {
+    parked: false,
+    refused: false,
+    retryCount: 0,
+    firstRetryAt: null,
+  };
 
   /**
    * ═════════════════════════════════════════════════════════════════════════
@@ -1822,6 +1827,17 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               for (const engine of this.tableEngines.values()) engine.resumeDealing();
             },
             report: (error, tag) => reportError(error, tag),
+            // The watch (fn_ca_bounty_only_final_two_watch) reads this so a
+            // refused close is not raised as a missed one.
+            recordRefusal: async (reason) => {
+              const { error } = await supabase
+                .from('ca_bounty_only_final_two_refusals')
+                .upsert(
+                  { tournament_id: this.tournamentId, reason: reason.slice(0, 500) },
+                  { onConflict: 'tournament_id' }
+                );
+              if (error) throw new Error(error.message);
+            },
           });
           if (sweepStopped()) return;
           if (finalTwo === 'closed') remainingCount = 1;
@@ -2291,6 +2307,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               // pays nothing for finishing position, so it has no money bubble.
               // Its lifecycle ladder must never start hand-for-hand; clear any
               // latch an earlier manager left behind and keep tables dealing.
+              // Same definition as isBountyOnlyPkoRow (kept inline: this stage
+              // is executed verbatim by BountyOnlyPkoHasNoBubble.test.ts). A
+              // mystery bounty event is never bounty only: its chests pay in
+              // the money, so its bubble keeps hand-for-hand.
               const pkoRow = this.tournamentCache as Record<string, unknown> | null;
               const pkoNum = (v: unknown) => {
                 const x = Number(v);
@@ -2298,6 +2318,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               };
               const bountyOnlyPko =
                 pkoRow?.is_pko === true &&
+                pkoRow.is_mystery_bounty !== true &&
                 pkoNum(pkoRow.buy_in_amount) <= 0 &&
                 pkoNum(pkoRow.guaranteed_prize) <= 0 &&
                 pkoNum(pkoRow.prize_pool) <= 0;
@@ -6147,12 +6168,37 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         )
           return 'pending';
         if (state.state === 'unresolved') return 'pending';
-        // The held original's own players are still owed that hand: only a
-        // continuing field releases it. A qualifying field never settles over
-        // a retained original it would have to close (unchanged behaviour).
+        /*
+         * A QUALIFYING FIELD SETTLES OVER A HAND THAT NEVER STARTED (2026-11-06).
+         *
+         * A continuing field releases a held original: its players are owed
+         * that hand, and it plays the moment the boundary lifts. A qualifying
+         * field used to answer 'pending' here instead, on every sweep, for as
+         * long as the table held that original - and the table held it for
+         * exactly as long as the boundary did, because the boundary forbids
+         * starting it. Nothing else could move either one: a rebuild replays
+         * the same retained original into the same wait. The satellite froze
+         * with its winners decided.
+         *
+         * A held original is, by its own predicate, a hand that never started:
+         * no card dealt, no blind posted, no chip moved, no writer in flight
+         * (isPreparedOriginalHeldAtTerminalCloseout). The qualifier state the
+         * settlement reads is the committed one, which that hand never touched,
+         * so the field it would have been dealt to has already finished. Its
+         * F06 permit cannot be cancelled as never_started (retention was
+         * attempted, and fn_f06_cancel_prepared_hand refuses any permit with
+         * retained start evidence), so it is disposed of the way every terminal
+         * event disposes of a held original: the boundary keeps it held through
+         * the settlement, and the committed cleanup stops its dealer and closes
+         * its table without it ever starting.
+         *
+         * Every held original must still be exactly that shape now, after the
+         * second read; one that changed (it started, or lost its gate) keeps
+         * the boundary for every field, exactly as before.
+         */
         if (
           heldPreparedOriginals.size > 0 &&
-          (state.state !== 'continuing' ||
+          ((state.state !== 'continuing' && state.state !== 'qualifying') ||
             owned.some(
               ({ tableId, engine }) =>
                 heldPreparedOriginals.has(tableId) &&
@@ -7223,6 +7269,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               winner_id: winnerId,
               outcome_unknown: outcomeUnknown,
               proven_refusal: provenRefusal,
+              error: (satErr instanceof Error ? satErr.message : String(satErr)).slice(0, 2048),
+              error_name: satErr instanceof Error ? satErr.name.slice(0, 128) : 'NonError',
             }
           );
         } catch (alertErr) {
@@ -7295,6 +7343,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             winner_id: winnerId,
             outcome_unknown: outcomeUnknown,
             proven_refusal: provenRefusal,
+            error: (settlementErr instanceof Error
+              ? settlementErr.message
+              : String(settlementErr)
+            ).slice(0, 2048),
+            error_name:
+              settlementErr instanceof Error ? settlementErr.name.slice(0, 128) : 'NonError',
           }
         );
       } catch (alertErr) {

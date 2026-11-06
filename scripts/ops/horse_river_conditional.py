@@ -24,11 +24,18 @@ def price_checked_to_river(request):
     not their provenance. Raises are refused rather than silently ignored.
     """
     context = request.get('context', {})
+    captured_costs = request.get('costModel') == 'captured-chip-rake-v1'
+    if request.get('costModel') not in (None, 'captured-chip-rake-v1'):
+        raise ValueError('unsupported_cost_model')
     required = {'mode': 'cash', 'street': 'river', 'structure': 'pot_limit',
                 'boardCount': 1, 'playersInHand': 2, 'dealtCount': 2,
                 'closingAction': True, 'toCallUnits': 0, 'rakeUnits': 0,
                 'feesUnits': 0, 'anteUnits': 0, 'deadUnits': 0,
                 'sidePots': False, 'bombPot': False, 'allInOrFold': False}
+    if captured_costs:
+        required.pop('rakeUnits')
+        if 'rakeUnits' in context:
+            raise ValueError('captured_rake_is_branch_specific')
     for key, expected in required.items():
         if key not in context or type(context[key]) is not type(expected) or context[key] != expected:
             raise ValueError('unsupported_context:' + key)
@@ -56,6 +63,10 @@ def price_checked_to_river(request):
     for bet in bets:
         if type(bet) is not int or bet <= 0 or bet > min(pot, hero_stack) or (bet < minimum and bet != hero_stack):
             raise ValueError('illegal_bet_size')
+    terminals = provenance = None
+    if captured_costs:
+        from horse_river_captured_costs import captured_terminal_prices
+        terminals, provenance = captured_terminal_prices(request)
     rows = request.get('range')
     if not isinstance(rows, list) or not rows or len(rows) > 4096:
         raise ValueError('finite_full_holding_range_required')
@@ -68,7 +79,7 @@ def price_checked_to_river(request):
             raise ValueError('duplicate_range_holding')
         seen.add(holding)
         equity = Fraction(str(share(hero, holding, board, variant)))
-        if equity == Fraction(1, 2) and pot % 2:
+        if not captured_costs and equity == Fraction(1, 2) and pot % 2:
             raise ValueError('odd_chip_tie_ownership_required')
         weight = _number(row.get('weight'))
         if weight <= 0:
@@ -76,7 +87,8 @@ def price_checked_to_river(request):
         responses = row.get('responses', {})
         if set(responses) != {str(b) for b in bets}:
             raise ValueError('size_specific_response_required')
-        total += weight; check += weight * equity * pot
+        outcome = 'win' if equity == 1 else 'tie' if equity == Fraction(1, 2) else 'loss'
+        total += weight; check += weight * (terminals[(0, outcome)] if captured_costs else equity * pot)
         for bet in bets:
             response = responses[str(bet)]
             if set(response) != {'fold', 'call', 'raise'}:
@@ -89,7 +101,8 @@ def price_checked_to_river(request):
             # Opponent cannot match more than its stack. Excess is returned,
             # so only the matched portion is a new investment on a call.
             matched = min(bet, other_stack)
-            values[bet] += weight * (f * pot + c * (equity * (pot + 2 * matched) - matched))
+            values[bet] += weight * (f * terminals[(bet, 'fold')] + c * terminals[(bet, outcome)] if captured_costs
+                                     else f * pot + c * (equity * (pot + 2 * matched) - matched))
             fold_rates[bet] += weight * f
     def number(x):
         return {'value': float(x), 'exact': str(x)}
@@ -102,6 +115,9 @@ def price_checked_to_river(request):
               'conditionalOnDeclaredRangeAndResponse': True,
               'originalRuntimeAuthenticated': False, 'qualified': False,
               'gtoVerified': False, 'activationAllowed': False}
+    if captured_costs:
+        result['model'] = 'declared-hu-omaha-river-captured-chip-rake-v1'
+        result['capturedAccounting'] = provenance
     return result
 
 

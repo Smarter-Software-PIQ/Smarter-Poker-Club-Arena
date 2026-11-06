@@ -64,16 +64,23 @@ CONTAINER = os.environ.get("TM_CONTAINER", "club-arena-engine")
 TEST_INPUT = os.path.join(BASE, "test-input.json")
 LOCK = os.path.join(BASE, "run.lock")
 CHI = ZoneInfo("America/Chicago")
-MONITOR_VERSION = "1.1.0"
+MONITOR_VERSION = "1.2.0"
 
 INTERVAL_S = 180
-CLAUDE_HEARTBEAT_MAX_S = 1800   # no chat has read the handoff for 30 min while incidents are open
+CLAUDE_HEARTBEAT_MAX_S = 1800   # informational only since 1.2.0: latest.json reports the handoff as unattended
+# A record whose symptom has not been observed for this long, and that nobody has claimed, is moved
+# to CLEARED_STAGE by the checker (10 clean cycles at 180 s). CLEARED is not Closed: it says the
+# symptom stopped without a recorded fix, so the record stays listed for root-cause review and any
+# recurrence reopens it.
+CLEAR_AFTER_S = 1800
+CLEARED_STAGE = "Cleared, no fix recorded"
 
 # Incident stages, in order. "Reopened" is a transition (recorded in stage_history), not a
 # stage: a reopened record returns to "Detected".
 STAGES = ["Detected", "Investigating", "Fix implemented", "Pushed/merged", "Deployed",
           "Production fix verified", "Phase 2 hardening", "Hardening deployed and verified", "Closed"]
 STAGE_INDEX = {s: i for i, s in enumerate(STAGES)}
+TERMINAL_STAGES = {"Closed", CLEARED_STAGE}
 MISSED_GAP_S = 300
 WINDOW_HOURS = 24
 # Per-state thresholds (seconds)
@@ -273,6 +280,29 @@ def docker_logs(since_s):
 
 
 # ----------------------------------------------------------------- classification
+def _num(v):
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def prize_pool_zero_is_a_defect(t):
+    """A running event with a prize pool of 0 is a defect, except a bounty-only knockout.
+
+    A bounty-only PKO / Mystery Bounty (no guarantee, every chip in the bounty pool) legitimately runs
+    and finishes with a place prize pool of 0 (#9617, #9620, migration bounty_only_pko_ends_with_two_players):
+    flagging it raised a permanent false critical on every Midday and Midnight Free Buy. A guaranteed event,
+    or any event with nothing in its bounty pool either, still flags.
+    """
+    if _num(t.get("prize_pool")) > 0:
+        return False
+    knockout = bool(t.get("is_pko")) or bool(t.get("is_mystery_bounty"))
+    if knockout and _num(t.get("guaranteed_prize")) <= 0 and _num(t.get("bounty_pool")) > 0:
+        return False
+    return True
+
+
 def fmt_of(t):
     tt = (t.get("tournament_type") or "").upper()
     if tt == "SPIN":
@@ -374,7 +404,7 @@ def run_cycle(prev_state):
     cols = ("id,name,status,tournament_type,satellite_target_id,satellite_target,start_time,started_at,ended_at,"
             "current_players,max_players,min_players,table_size,prize_pool,prize_pool_finalized,free_buy,"
             "guaranteed_prize,on_break,break_started_at,break_ends_at,action_time_seconds,late_reg_mins,"
-            "current_level,updated_at,satellite_seats,created_at")
+            "current_level,updated_at,satellite_seats,created_at,is_pko,is_mystery_bounty,bounty_pool")
     horizon = iso(now + dt.timedelta(hours=1))
     running = supa.get("tournaments", {"select": cols, "status": "eq.RUNNING", "order": "start_time,id"})
     registering = supa.get("tournaments", {"select": cols, "status": "eq.REGISTERING",
@@ -713,10 +743,11 @@ def run_cycle(prev_state):
                       f"{len(alive)} players left (table size {size}) but still spread over {len(tables)} tables", t,
                       details={"players": len(alive), "tables": len(tables), "table_size": size})
         # --- prize pool
-        if since_start > 600 and len(ps) >= 2 and float(t.get("prize_pool") or 0) <= 0:
+        if since_start > 600 and len(ps) >= 2 and prize_pool_zero_is_a_defect(t):
             c.add("prize_pool_zero", "critical", "Running event shows a prize pool of 0", t,
                   details={"prize_pool": t.get("prize_pool"), "prize_pool_finalized": t.get("prize_pool_finalized"),
-                           "free_buy": t.get("free_buy"), "guaranteed_prize": t.get("guaranteed_prize")})
+                           "free_buy": t.get("free_buy"), "guaranteed_prize": t.get("guaranteed_prize"),
+                           "is_pko": t.get("is_pko"), "bounty_pool": t.get("bounty_pool")})
         # --- lease / ownership
         if lease == "skip":
             pass
@@ -938,6 +969,10 @@ def slim(rec):
 # truth for a finding across Claude chat sessions: the checker opens it at first sight, keeps
 # last_seen / times_seen / resolved_at current, reopens it when a resolved symptom returns, and
 # NEVER deletes or closes it. Only an explicit `incident <fp> --stage Closed` closes a record.
+# Since 1.2.0 the checker moves an UNCLAIMED record still at Detected to CLEARED_STAGE once its
+# symptom has been absent for CLEAR_AFTER_S, writing the evidence (last seen, minutes clean, release)
+# into stage_history. That is a statement that the symptom stopped, never that it was fixed; a
+# recurrence reopens the record, and claimed records are left to their owner.
 # The checker's own operator-absence finding (no_claude_session) gets no record and is not
 # counted as an incident, so it cannot keep itself alive.
 NO_RECORD_SYMPTOMS = {"no_claude_session"}
@@ -982,7 +1017,7 @@ def list_incidents(open_only=False):
 
 
 def incident_is_open(rec):
-    return rec.get("stage") != "Closed"
+    return rec.get("stage") not in TERMINAL_STAGES
 
 
 def _history(stage, now, by, note):
@@ -1041,7 +1076,7 @@ def sync_incidents(fstate, seen_this_cycle, now, cycle_no):
             continue
         changed = False
         if seen:
-            if rec.get("resolved_at") is not None or rec.get("stage") == "Closed":
+            if rec.get("resolved_at") is not None or rec.get("stage") in TERMINAL_STAGES:
                 was = rec.get("stage")
                 reopen_incident(rec, now, CHECKER_ACTOR,
                                 f"symptom observed again by cycle {cycle_no} (record was at stage {was}); "
@@ -1061,16 +1096,52 @@ def sync_incidents(fstate, seen_this_cycle, now, cycle_no):
             changed = True
         if changed:
             save_incident(rec)
+    cleared = clear_quiet_incidents(fstate, now, cycle_no)
     open_recs = list_incidents(open_only=True)
     by_stage = {}
     for r in open_recs:
         by_stage[r["stage"]] = by_stage.get(r["stage"], 0) + 1
     return {"created_this_cycle": created, "reopened_this_cycle": reopened,
-            "symptom_resolved_this_cycle": resolved,
+            "symptom_resolved_this_cycle": resolved, "cleared_this_cycle": cleared,
             "open_count": len(open_recs), "open_production": sum(1 for r in open_recs if not r.get("test")),
             "unclaimed": sum(1 for r in open_recs if not r.get("owner")),
             "symptom_active": sum(1 for r in open_recs if r.get("resolved_at") is None),
             "by_stage": by_stage}
+
+
+def clear_quiet_incidents(fstate, now, cycle_no):
+    """Move unclaimed Detected records whose symptom has been absent for CLEAR_AFTER_S to CLEARED_STAGE."""
+    cleared = []
+    for rec in list_incidents(open_only=True):
+        if rec.get("stage") != "Detected" or rec.get("owner"):
+            continue
+        fp = rec["fingerprint"]
+        f = fstate.get(fp) or {}
+        if f.get("status") == "open":
+            continue
+        quiet_since = parse_ts(rec.get("resolved_at")) or parse_ts(f.get("resolved_at"))
+        if quiet_since is None and not f:
+            # the finding is no longer tracked at all (pruned or never resolved in this state file):
+            # the last time the checker saw it is the only honest anchor
+            quiet_since = parse_ts(rec.get("last_seen_utc"))
+        if quiet_since is None:
+            continue
+        clean_s = int((now - quiet_since).total_seconds())
+        if clean_s < CLEAR_AFTER_S:
+            continue
+        note = (f"checker: symptom not observed for {clean_s // 60} min ({clean_s // INTERVAL_S} clean cycles) "
+                f"since {iso(quiet_since)}; last seen {rec.get('last_seen_utc')}; release at last sight "
+                f"{f.get('releaseSha') or rec.get('release_sha_first_seen')}. No fix is recorded: the root cause "
+                f"is not established. A recurrence reopens this record.")
+        rec["stage"] = CLEARED_STAGE
+        rec["cleared_at"] = iso(now)
+        if rec.get("resolved_at") is None:
+            rec["resolved_at"] = iso(quiet_since)
+        rec.setdefault("stage_history", []).append(_history(CLEARED_STAGE, now, CHECKER_ACTOR, note))
+        rec["last_cycle"] = cycle_no
+        save_incident(rec)
+        cleared.append(fp)
+    return cleared
 
 
 def advance_incident(fp, stage, by, note, pr=None, migration=None, release=None, owner=None, now=None):
@@ -1197,8 +1268,21 @@ def handoff_text(now=None):
             if hist:
                 h = hist[-1]
                 lines.append(f"    last note ({h.get('stage')} by {h.get('by')} at {h.get('at_utc')}): {h.get('note')}")
+    cleared = [r for r in list_incidents() if r.get("stage") == CLEARED_STAGE]
+    if cleared:
+        lines.append("")
+        lines.append(f"CLEARED WITHOUT A RECORDED FIX: {len(cleared)} (symptom stopped; root cause not established; "
+                     f"a recurrence reopens the record)")
+        for r in cleared[:20]:
+            lines.append(f"- {r['fingerprint']}  [{r.get('severity')}] {r.get('symptom')}  "
+                         f"{r.get('tournament_name') or '-'}  last seen {r.get('last_seen_chicago')}  "
+                         f"cleared {r.get('cleared_at')}")
+        if len(cleared) > 20:
+            lines.append(f"  ... and {len(cleared) - 20} more (python3 tournament_monitor.py incidents)")
     lines.append("")
-    lines.append("STAGES (in order): " + " -> ".join(STAGES) + "   (Reopened returns a record to Detected)")
+    lines.append("STAGES (in order): " + " -> ".join(STAGES) + "   (Reopened returns a record to Detected; "
+                 f"the checker moves an unclaimed Detected record to '{CLEARED_STAGE}' after "
+                 f"{CLEAR_AFTER_S // 60} min without the symptom)")
     lines.append("COMMANDS (run on the engine host, in /opt/tournament-monitor):")
     fp_example = incidents[0]["fingerprint"] if incidents else "<fingerprint>"
     lines.append(f"  claim:    python3 tournament_monitor.py incident {fp_example} --stage Investigating "
@@ -1323,21 +1407,12 @@ def main():
             c.candidates[-1]["log_excerpt"] = []
             c.candidates[-1]["releaseSha"] = c.release_sha
 
-    # operator absence: no chat session has read the incident handoff while incidents are open.
-    # Counted from the records on disk as this cycle starts (this cycle's sync runs after reconcile).
+    # Operator presence is REPORTED (latest.json claude_session), never raised as a finding (1.2.0).
+    # The only way to keep a chat reading on a timer would be the Claude scheduler, which CLAUDE.md
+    # 10.85 forbids agents to use; a finding that no agent may legitimately clear is a permanent false alarm.
     hb_age, hb_rec = claude_heartbeat_age(start)
     open_before = list_incidents(open_only=True)
     open_before_prod = [r for r in open_before if not r.get("test")]
-    if open_before_prod and (hb_age is None or hb_age > CLAUDE_HEARTBEAT_MAX_S):
-        c.add("no_claude_session", "warning",
-              f"no Claude session has read the incident handoff for more than {CLAUDE_HEARTBEAT_MAX_S // 60} minutes "
-              f"while {len(open_before_prod)} incident(s) are open"
-              + (" (never read)" if hb_age is None else f" (last read {hb_age // 60} min ago)"),
-              None, details={"claude_heartbeat_age_s": hb_age, "open_incidents": len(open_before_prod),
-                             "unclaimed_incidents": sum(1 for r in open_before_prod if not r.get("owner")),
-                             "last_reader": (hb_rec or {}).get("by")})
-        c.candidates[-1]["log_excerpt"] = []
-        c.candidates[-1]["releaseSha"] = c.release_sha
 
     end = now_utc()
     opened, updated, resolved, transitions, pending = reconcile(c, fstate, prev, end)

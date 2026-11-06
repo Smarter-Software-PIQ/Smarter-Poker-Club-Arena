@@ -3587,6 +3587,7 @@ printf '%s\n' '[engine-release-transaction] FATAL: target is stale; protected ma
           `#!/usr/bin/env bash
 set -euo pipefail
 case "\${1:-}:\${2:-}" in
+  restart-parked-committed-owner:--engine-lock-fd) echo not-needed ;;
   resolve-failed-routine:--engine-lock-fd) echo not-needed ;;
   resolve-terminal-routine-failures:--engine-lock-fd) echo not-needed ;;
   check-routine-owner:--run-id) [ "${foreignRoutineOwner ? 1 : 0}" = 0 ] || exit 1; echo none ;;

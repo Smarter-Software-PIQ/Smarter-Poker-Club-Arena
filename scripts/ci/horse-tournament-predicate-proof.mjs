@@ -1567,7 +1567,7 @@ export function inspectOriginalTurnGapRecords(input, batch, api) {
         acceptedAction.userId !== target.actorId ||
         acceptedAction.seat !== target.seat ||
         acceptedAction.amount !== action.amount ||
-        !['nlh', 'plo4', 'plo5', 'plo6', 'plo8'].includes(s.gameState.gameVariant) ||
+        !['nlh', 'plo4', 'plo5', 'plo6', 'plo8', 'flh', 'flo8'].includes(s.gameState.gameVariant) ||
         !['cash', 'tournament'].includes(s.gameState.gameMode)
       )
         return unknown('stored_fields_unavailable');

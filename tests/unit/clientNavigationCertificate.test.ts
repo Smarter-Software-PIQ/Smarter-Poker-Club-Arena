@@ -140,7 +140,9 @@ describe('closed client navigation recovery certificate', () => {
     expect(selected.env.E2E_REQUIRE_AUTH).toBe('1');
     for (const command of ['create', 'prepare-staff', 'prepare-template-staff', 'cleanup']) {
       const step = client.steps.find(
-        (s: any) => s.run === `node scripts/ci/production-e2e-account.mjs ${command}`
+        (s: any) =>
+          s.run === `node scripts/ci/production-e2e-account.mjs ${command}` &&
+          (command !== 'cleanup' || s.id === 'account_cleanup')
       );
       expect(step).toBeDefined();
       expect(step.if).not.toContain("client_navigation != 'true'");

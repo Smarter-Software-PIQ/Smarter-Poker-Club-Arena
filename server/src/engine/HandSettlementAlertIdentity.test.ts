@@ -181,95 +181,98 @@ describe('the original request identity survives both hand-failure reports', () 
     expect(mocks.obligations).not.toHaveBeenCalled();
   });
 
-  it('preserves the retry budget and original request UUID on a transient rollback', async () => {
-    const { engine, players } = cashTable();
-    engine.sleep = vi.fn().mockResolvedValue(undefined);
-    engine.getEngineLeaseAuthority = () => ({
-      verified: true,
-      generation: '30000000-0000-4000-8000-000000000001',
-      scope: 'cash',
-    });
-    // Exercise the actual retry owner. These independent observations must not
-    // start projection workers or write stats in a source-only fixture.
-    vi.spyOn(handProjection, 'wakeHandProjection').mockResolvedValue({
-      projected: 0,
-      alreadyCompleted: 0,
-      deferred: 0,
-      failed: 0,
-    });
-    vi.spyOn(handFacts, 'writeHandFacts').mockResolvedValue({
-      version: 2,
-      facts: [{}],
-      transfers: [],
-    });
-    vi.spyOn(horseReviews, 'recordHorseHandReviews').mockResolvedValue(undefined);
-    vi.spyOn(horseDecision, 'getLiveHorseDecisionWorker').mockReturnValue({
-      observeCompletedHand: vi.fn().mockResolvedValue(undefined),
-    } as any);
-    mocks.commit.mockImplementation(realLogHandHistory);
-    const attempts: any[] = [];
-    const payloads: any[] = [];
-    const originals: any[] = [];
-    mocks.rpc.mockImplementation(async (name, payload) => {
-      if (name === 'fn_ca_retain_hand_submission') {
-        originals.push(structuredClone(payload.p_request));
+  it.each(['40001', '40P01', '55P03'])(
+    'preserves the retry budget and original request UUID on rollback %s',
+    async (sqlstate) => {
+      const { engine, players } = cashTable();
+      engine.sleep = vi.fn().mockResolvedValue(undefined);
+      engine.getEngineLeaseAuthority = () => ({
+        verified: true,
+        generation: '30000000-0000-4000-8000-000000000001',
+        scope: 'cash',
+      });
+      // Exercise the actual retry owner. These independent observations must not
+      // start projection workers or write stats in a source-only fixture.
+      vi.spyOn(handProjection, 'wakeHandProjection').mockResolvedValue({
+        projected: 0,
+        alreadyCompleted: 0,
+        deferred: 0,
+        failed: 0,
+      });
+      vi.spyOn(handFacts, 'writeHandFacts').mockResolvedValue({
+        version: 2,
+        facts: [{}],
+        transfers: [],
+      });
+      vi.spyOn(horseReviews, 'recordHorseHandReviews').mockResolvedValue(undefined);
+      vi.spyOn(horseDecision, 'getLiveHorseDecisionWorker').mockReturnValue({
+        observeCompletedHand: vi.fn().mockResolvedValue(undefined),
+      } as any);
+      mocks.commit.mockImplementation(realLogHandHistory);
+      const attempts: any[] = [];
+      const payloads: any[] = [];
+      const originals: any[] = [];
+      mocks.rpc.mockImplementation(async (name, payload) => {
+        if (name === 'fn_ca_retain_hand_submission') {
+          originals.push(structuredClone(payload.p_request));
+          return {
+            data: {
+              retained: true,
+              submission_id: payload.p_request.p_hand_row.id,
+              request_hash: 'b'.repeat(64),
+            },
+            error: null,
+          };
+        }
+        if (name !== 'fn_ca_commit_hand_submission') return { data: null, error: null };
+        const original = originals[0];
+        attempts.push(structuredClone(payload));
+        payloads.push(payload);
+        if (attempts.length === 1) {
+          engine.tableInfo.big_blind = 999;
+          return {
+            data: {
+              success: false,
+              atomic_hand_commit: false,
+              reason: 'atomic_hand_rolled_back',
+              sqlstate,
+              error: 'F06_RETRY_CANONICAL_LANE',
+              table_id: original.p_table_id,
+              hand_number: original.p_hand_number,
+              commit_hash: 'a'.repeat(64),
+            },
+            error: null,
+          };
+        }
         return {
           data: {
-            retained: true,
-            submission_id: payload.p_request.p_hand_row.id,
-            request_hash: 'b'.repeat(64),
+            success: true,
+            atomic_hand_commit: true,
+            history_id: original.p_hand_row.id,
+            submission_id: original.p_hand_row.id,
+            submission_hash: 'b'.repeat(64),
+            snapshot_completed: true,
+            post_commit_obligations: true,
           },
           error: null,
         };
-      }
-      if (name !== 'fn_ca_commit_hand_submission') return { data: null, error: null };
-      const original = originals[0];
-      attempts.push(structuredClone(payload));
-      payloads.push(payload);
-      if (attempts.length === 1) {
-        engine.tableInfo.big_blind = 999;
-        return {
-          data: {
-            success: false,
-            atomic_hand_commit: false,
-            reason: 'atomic_hand_rolled_back',
-            sqlstate: '40001',
-            error: 'F06_RETRY_CANONICAL_LANE',
-            table_id: original.p_table_id,
-            hand_number: original.p_hand_number,
-            commit_hash: 'a'.repeat(64),
-          },
-          error: null,
-        };
-      }
-      return {
-        data: {
-          success: true,
-          atomic_hand_commit: true,
-          history_id: original.p_hand_row.id,
-          submission_id: original.p_hand_row.id,
-          submission_hash: 'b'.repeat(64),
-          snapshot_completed: true,
-          post_commit_obligations: true,
-        },
-        error: null,
-      };
-    });
-    await engine.postHandTasks(players, 1);
-    expect(mocks.commit).toHaveBeenCalledTimes(1);
-    expect(attempts).toHaveLength(2);
-    expect(attempts[1]).toEqual(attempts[0]);
-    expect(payloads[1]).toBe(payloads[0]);
-    expect(originals).toHaveLength(1);
-    expect(originals[0].p_hand_row.id).toBe(mocks.commit.mock.calls[0][0].handId);
-    expect(attempts[1].p_submission_id).toBe(originals[0].p_hand_row.id);
-    expect(originals[0].p_hand_row.big_blind).toBe(2);
-    expect(engine.sleep).not.toHaveBeenCalled();
-    expect(engine.killForRestart).not.toHaveBeenCalled();
-    expect(mocks.obligations).toHaveBeenCalledTimes(1);
-    expect(reported(source)).toHaveLength(0);
-    expect(reported(historySource)).toHaveLength(0);
-  });
+      });
+      await engine.postHandTasks(players, 1);
+      expect(mocks.commit).toHaveBeenCalledTimes(1);
+      expect(attempts).toHaveLength(2);
+      expect(attempts[1]).toEqual(attempts[0]);
+      expect(payloads[1]).toBe(payloads[0]);
+      expect(originals).toHaveLength(1);
+      expect(originals[0].p_hand_row.id).toBe(mocks.commit.mock.calls[0][0].handId);
+      expect(attempts[1].p_submission_id).toBe(originals[0].p_hand_row.id);
+      expect(originals[0].p_hand_row.big_blind).toBe(2);
+      expect(engine.sleep).not.toHaveBeenCalled();
+      expect(engine.killForRestart).not.toHaveBeenCalled();
+      expect(mocks.obligations).toHaveBeenCalledTimes(1);
+      expect(reported(source)).toHaveLength(0);
+      expect(reported(historySource)).toHaveLength(0);
+    }
+  );
 
   it('does not certify missing protocol-2 obligations or attach the DTO to transport alerts', async () => {
     const { engine, players } = cashTable();

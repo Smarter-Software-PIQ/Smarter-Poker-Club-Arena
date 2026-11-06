@@ -188,6 +188,59 @@ const normalizeCashDecisionAddition = (job: { steps: Array<Record<string, unknow
   job.steps.splice(start, 1);
 };
 
+const tournamentLockSteps = [
+  {
+    name: 'Receipt replay releases locks and player statistics keep key order',
+    id: 'replay_locks_and_player_stats_keys',
+    if: 'matrix.shard == 7',
+    env: {
+      PG_BIN: '/usr/lib/postgresql/17/bin',
+    },
+    run: 'mkdir -p "$RUNNER_TEMP/replay_locks_and_player_stats_keys"\npython3 -B scripts/qualification/replay-locks-and-player-stats-keys.py \\\n  --work "$RUNNER_TEMP/replay_locks_and_player_stats_keys/cluster" \\\n  --out "$RUNNER_TEMP/replay_locks_and_player_stats_keys/result.json" \\\n  > "$RUNNER_TEMP/replay_locks_and_player_stats_keys/run.log" 2>&1\n',
+  },
+  {
+    name: 'Retain Receipt replay releases locks and player statistics keep key order',
+    if: 'always() && matrix.shard == 7 && contains(fromJSON(\'["success", "failure", "cancelled"]\'), steps.replay_locks_and_player_stats_keys.outcome)',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'replay_locks_and_player_stats_keys-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: '${{ runner.temp }}/replay_locks_and_player_stats_keys/result.json\n${{ runner.temp }}/replay_locks_and_player_stats_keys/run.log\n${{ runner.temp }}/replay_locks_and_player_stats_keys/cluster/pg/postgres.log\n',
+      'if-no-files-found': 'error',
+      'retention-days': 7,
+    },
+  },
+  {
+    name: 'Commission and tournament writers preserve measured lock order',
+    id: 'chip_deadlocks',
+    if: 'matrix.shard == 7',
+    env: {
+      PG_BIN: '/usr/lib/postgresql/17/bin',
+    },
+    run: 'mkdir -p "$RUNNER_TEMP/chip_deadlocks"\npython3 -B scripts/qualification/chip-deadlocks.py \\\n  --work "$RUNNER_TEMP/chip_deadlocks/cluster" \\\n  --out "$RUNNER_TEMP/chip_deadlocks/result.json" \\\n  > "$RUNNER_TEMP/chip_deadlocks/run.log" 2>&1\n',
+  },
+  {
+    name: 'Retain Commission and tournament writers preserve measured lock order',
+    if: 'always() && matrix.shard == 7 && contains(fromJSON(\'["success", "failure", "cancelled"]\'), steps.chip_deadlocks.outcome)',
+    uses: 'actions/upload-artifact@v4',
+    with: {
+      name: 'chip_deadlocks-${{ github.run_id }}-${{ github.run_attempt }}',
+      path: '${{ runner.temp }}/chip_deadlocks/result.json\n${{ runner.temp }}/chip_deadlocks/run.log\n${{ runner.temp }}/chip_deadlocks/cluster/pg/postgres.log\n',
+      'if-no-files-found': 'error',
+      'retention-days': 7,
+    },
+  },
+];
+const normalizeTournamentLockAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const start = job.steps.findIndex((step) => step.name === tournamentLockSteps[0].name);
+  for (const step of tournamentLockSteps)
+    expect(job.steps.filter((actual) => actual.name === step.name)).toHaveLength(1);
+  expect(job.steps[start - 1]?.name).toBe('Retain original Breakfast witness qualification');
+  expect(job.steps.slice(start, start + 4)).toStrictEqual(tournamentLockSteps);
+  expect(job.steps[start + 4]?.name).toBe('Stall closure requires an exact recorded hand');
+  // Validate only this exact addition before preserving every existing workflow fingerprint.
+  job.steps.splice(start, 4);
+};
+
 const stallProgressStep = {
   name: 'Stall closure requires an exact recorded hand',
   if: 'matrix.shard == 7',
@@ -349,6 +402,27 @@ const normalizeSweepGatePendingWorkAddition = (job: { steps: Array<Record<string
   job.steps.splice(index, 1);
 };
 
+const realtimeReviveRecordedStep = {
+  name: 'A realtime revive is recorded on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-realtime-revive-is-recorded.py',
+};
+const normalizeRealtimeReviveRecordedAddition = (job: {
+  steps: Array<Record<string, unknown>>;
+}) => {
+  const index = job.steps.findIndex((step) => step.name === realtimeReviveRecordedStep.name);
+  expect(job.steps.filter((step) => step.name === realtimeReviveRecordedStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(sweepGatePendingWorkStep.name);
+  expect(job.steps[index]).toStrictEqual(realtimeReviveRecordedStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (2026-11-06: a forced realtime revive
+  // is recorded durably), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -357,8 +431,28 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     });
   }
 
+  it.each(['missing', 'duplicate', 'reordered', 'skip', 'continue', 'command', 'artifact'])(
+    'refuses a %s tournament lock qualification mutation',
+    (mutation) => {
+      const job = structuredClone(ci.jobs.accounting_postgres);
+      const index = job.steps.findIndex(
+        (step: { id?: string }) => step.id === 'replay_locks_and_player_stats_keys'
+      );
+      if (mutation === 'missing') job.steps.splice(index, 1);
+      if (mutation === 'duplicate') job.steps.splice(index, 0, structuredClone(job.steps[index]));
+      if (mutation === 'reordered')
+        [job.steps[index], job.steps[index + 2]] = [job.steps[index + 2], job.steps[index]];
+      if (mutation === 'skip') job.steps[index].if = 'false';
+      if (mutation === 'continue') job.steps[index]['continue-on-error'] = true;
+      if (mutation === 'command') job.steps[index].run = 'true';
+      if (mutation === 'artifact') job.steps[index + 1].with['if-no-files-found'] = 'ignore';
+      expect(() => normalizeTournamentLockAddition(job)).toThrow();
+    }
+  );
+
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    normalizeTournamentLockAddition(normalized.jobs.accounting_postgres);
     normalizeCashQueueFeedbackAddition(normalized.jobs.accounting_postgres);
     const priorQualificationBudgets = {
       changes: 5,
@@ -470,6 +564,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     chicagoSteps.splice(chicagoIndex, 1);
 
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
+    normalizeRealtimeReviveRecordedAddition(normalized.jobs.accounting_postgres);
     normalizeSweepGatePendingWorkAddition(normalized.jobs.accounting_postgres);
     normalizeBountyOnlyFinalTwoWatchAddition(normalized.jobs.accounting_postgres);
     normalizeBountyOnlyFinalTwoAddition(normalized.jobs.accounting_postgres);

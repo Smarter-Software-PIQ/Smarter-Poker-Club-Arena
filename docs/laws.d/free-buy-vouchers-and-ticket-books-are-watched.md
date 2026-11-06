@@ -1,0 +1,3 @@
+# tests/free-buy-vouchers-and-ticket-books-are-watched.law.test.ts
+
+Within 15 minutes, a finalized guaranteed event funded above or below H = max(0, G - C), a finalized Free Buy without a guarantee whose promo differs from V (one chip per first entry), and any Free Buy ticket book defect (a day counter that disagrees with its live redemptions, a spent ticket with no entry, a ticket kept on a cancelled event, an entry with no ticket, a Midway Free Buy with no format) raise one financial alert each, money findings critical, and close with their alert when no longer true. The watch never moves a chip (owner, 2026-11-05).

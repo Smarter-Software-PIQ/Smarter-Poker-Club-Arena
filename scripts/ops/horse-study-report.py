@@ -37,6 +37,28 @@ def run(source,output,river_opportunities=False):
     excluded_ids={str(uuid.UUID(x)) for x in exclusion_config}
     if len(excluded_ids)!=len(exclusion_config):raise ValueError('duplicate_exclusion_id')
     profiles={r['id']:r for r in read_rows(source/'profiles.jsonl.gz')}
+    snapshots={};snapshot_sources=[]
+    for path in sorted(source.glob('snapshot-own-originals-*.jsonl.gz')):
+        receipt_path=path.with_name(path.name.removesuffix('.jsonl.gz')+'.receipt.json')
+        receipt=json.loads(receipt_path.read_text())
+        if receipt.get('readOnly') is not True or not isinstance(receipt.get('querySha256'),str) or len(receipt['querySha256'])!=64:
+            raise ValueError('snapshot_query_receipt_required')
+        proof={'file':path.name,'sha256':receipt['sha256'],'querySha256':receipt['querySha256'],
+               'receiptSha256':hashlib.sha256(receipt_path.read_bytes()).hexdigest()}
+        snapshot_sources.append(proof)
+        for ordinal,row in enumerate(read_rows(path)):
+            snapshots.setdefault(row.get('hand_id'),{}).setdefault(row.get('hero_id'),[]).append((row,{**proof,'row':ordinal}))
+    discards={};discard_sources=[]
+    for path in sorted(source.glob('remaining-own-delivery-*.jsonl.gz')):
+        receipt_path=path.with_name(path.name.removesuffix('.jsonl.gz')+'.receipt.json')
+        receipt=json.loads(receipt_path.read_text())
+        if receipt.get('readOnly') is not True or not isinstance(receipt.get('querySha256'),str) or len(receipt['querySha256'])!=64:
+            raise ValueError('own_discard_query_receipt_required')
+        proof={'file':path.name,'sha256':receipt['sha256'],'querySha256':receipt['querySha256'],
+               'receiptSha256':hashlib.sha256(receipt_path.read_bytes()).hexdigest()}
+        discard_sources.append(proof)
+        for ordinal,row in enumerate(read_rows(path)):
+            discards.setdefault(row.get('hand_id'),{}).setdefault(row.get('hero_id'),[]).append((row,{**proof,'row':ordinal}))
     enriched={}
     for path in sorted(source.glob('enrichment-*.jsonl.gz')):
         for r in read_rows(path):
@@ -82,7 +104,7 @@ def run(source,output,river_opportunities=False):
                 for f in (accepted.get('stats_facts') or {}).get('facts',[]):
                     if f.get('hole_cards'):facts[f['user_id']]=f['hole_cards']
                 roster=(extra.get('roster') or {}).get('actors')
-                report=analyze_hand(hand,profiles,facts,roster,excluded_ids)
+                report=analyze_hand(hand,profiles,facts,roster,excluded_ids,snapshots.get(hand['id']),discards.get(hand['id']))
                 report['acquisition']={'acceptedSourcePresent':bool(extra.get('accepted_facts')),
                     'historicalRosterPresent':bool(roster),'participantIndexPresent':hand['id'] in indices,
                     'lightningHandIds':sorted(lightning.get(hand['id'],[]))}
@@ -95,6 +117,8 @@ def run(source,output,river_opportunities=False):
                 put_hand(connection,report,domain)
                 for d in decisions:
                     counts['decisions']+=1
+                    recovery=d.get('snapshotOwnCardRecovery')
+                    if recovery:counts['snapshotOwnCardsAccepted' if recovery['accepted'] else 'snapshotOwnCardsWithheld']+=1
                     stage=d['informationSet']['tournamentStage']['phase']
                     stages[domain+'/'+stage]+=1
                     for g in d['gaps']:gaps[g]+=1
@@ -131,6 +155,7 @@ def run(source,output,river_opportunities=False):
     if integrity!=[('ok',)] or foreign:raise ValueError('study_database_integrity_failed')
     summary={'schemaVersion':1,'status':'preliminary_decision_inventory',
         'excludedSubjectIds':sorted(excluded_ids),'exclusionsSha256':hashlib.sha256(exclusion_bytes).hexdigest(),
+        'snapshotOwnCardSources':snapshot_sources,'originalOwnDiscardSources':discard_sources,
         'uniqueHistoryRows':len(seen),'indexedUniqueHands':len(indices),
         'indexedWithoutHistory':len(set(indices)-seen),'historyWithoutIndex':len(seen-set(indices)),
         'lightningSourceUniqueHands':len({h for group in lightning.values() for h in group}),

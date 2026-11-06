@@ -1,9 +1,15 @@
 import { expect, devices, type Browser, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import type { TemporaryCustomizationAccount } from './temporaryCustomizationAccount';
+import { enrollPreferenceBrowser } from './preferenceBrowserEnrollment';
+
+const ownedPreferencePages = new WeakMap<Page, TemporaryCustomizationAccount>();
 
 /** A fresh authenticated device completes the actual first-run agreement UI. */
 export async function acknowledgePreferenceWelcome(page: Page): Promise<void> {
+  const account = ownedPreferencePages.get(page);
+  if (!account) throw new Error('Preference browser must belong to this disposable account flow');
+  await enrollPreferenceBrowser(page, account);
   const dialog = page.getByRole('dialog', { name: 'Welcome To Poker Arena', exact: true });
   await expect(dialog).toBeVisible({ timeout: 45_000 });
   const agreement = dialog.getByRole('checkbox', {
@@ -64,7 +70,9 @@ export async function openFreshPreferenceDevice(
   expect(state.origins.flatMap((entry) => entry.localStorage.map((item) => item.name))).toEqual([
     'smarter-poker-auth',
   ]);
-  return { context, page: await context.newPage(), client, ownerId };
+  const page = await context.newPage();
+  ownedPreferencePages.set(page, account);
+  return { context, page, client, ownerId };
 }
 
 /** Global signout is safe only for this case's distinct, owned disposable account. */

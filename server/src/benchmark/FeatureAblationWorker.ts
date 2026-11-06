@@ -2,7 +2,7 @@
  * original independent observer view, issue owner and accepted-effect path.
  * No authority injection, database loader, persistence, journal or timer. */
 import { HORSE_POLICY_ORDER } from '../engine/HorsePolicyGraph.js';
-import type { ActionRecord, HorseDecision } from '../types.js';
+import type { ActionRecord, HorseDecision, HorseStyle } from '../types.js';
 import { drainFires, restoreFires } from '../engine/BrainTelemetry.js';
 import {
   horsePlanAcceptanceFromController,
@@ -40,6 +40,7 @@ export interface FeatureAblationWorkerReceipt {
   observerReads: HorseObserverReadReceipt | null;
   decisionKey: string;
   actorSeat: number;
+  inputStyle: HorseStyle;
   inputFlags: {
     v24PloDefense?: boolean;
     v53Pressure?: boolean;
@@ -501,6 +502,7 @@ export function createFeatureAblationWorker(
           observerReads: readReceipt,
           decisionKey: request.decisionKey,
           actorSeat: player.seat,
+          inputStyle: style,
           inputFlags: {
             ...(request.opts?.smallPotNearNutRiverValue === undefined
               ? {}

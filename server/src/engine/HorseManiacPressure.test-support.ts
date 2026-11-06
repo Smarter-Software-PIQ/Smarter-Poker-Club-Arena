@@ -49,6 +49,9 @@ export interface PressureOptions {
    *  pins written before it ablate it; its own law is
    *  HorseOmahaSemiBluffNeedsDraw.test.ts. */
   semiBluffNeedsDraw?: boolean;
+  /** The 2026-11-06 Omaha current-nuts raise changes the same stream; its
+   *  own law is HorseOmahaCurrentNuts.test.ts. */
+  currentNutsRaise?: boolean;
 }
 
 /** New public investment after hero's latest raise changes the continuation question.
@@ -308,6 +311,7 @@ export function playManiacPressure(
             mindObservationHand: { version: 1 as const, tableId: table, handNumber: hand + 1 },
             ...(options.pairedBoardFold === false ? { ploPairedBoardFold: false } : {}),
             ...(options.semiBluffNeedsDraw === false ? { v74OmahaSemiBluffNeedsDraw: false } : {}),
+            ...(options.currentNutsRaise === false ? { omahaCurrentNutsRaise: false } : {}),
           }
         );
         const act = decision.action;

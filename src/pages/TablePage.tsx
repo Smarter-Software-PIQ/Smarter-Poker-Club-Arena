@@ -731,8 +731,11 @@ import {
   claimMysteryLiveAnnouncement,
   mysteryChestsLiveFromRow,
   mysteryChestsOnlyFromRow,
+  observeHead,
   seatBountyBadge,
   seatedPlayersSignature,
+  seatsNeedLedgerHeadPoll,
+  type HeadObservation,
 } from '../utils/mysteryBountyTable';
 import { ActionErrorToast, ActionErrorData } from '../components/table/ActionErrorToast';
 import { TableModalsLayer } from '../components/table/TableModalsLayer';
@@ -1154,8 +1157,13 @@ if (!_win.__pokerLocks) {
 const ENGINE_LOSS_TOAST_DELAY_MS = 15_000;
 /** A bust's bounty settles in the elimination sweep a few seconds after the hand ends. */
 const BOUNTY_SETTLE_REREAD_MS = 8_000;
-/** The last-resort head poll when no knockout, seat or hand change has re-read them. */
-const BOUNTY_HEAD_POLL_MS = 10_000;
+/**
+ * The last-resort head poll when no knockout, seat or hand change has re-read
+ * them. It runs only while a seat lacks the engine's own head (the engine
+ * reads the ledger after every knockout and hand and retries a failed read),
+ * and never faster than every 30s (2026-11-06).
+ */
+const BOUNTY_HEAD_POLL_MS = 30_000;
 /** Stable empty roster for the profile sync at an anonymous table (2026-09-07). */
 const NO_SEATED_IDS: readonly (string | undefined)[] = [];
 
@@ -1882,6 +1890,17 @@ function LiveTablePage({
      generation; a read that started under an older generation is discarded
      and read again, so a stale head can never overwrite a settled one. */
   const bountyMapGenRef = useRef(0);
+  /* THE FRESHER HEAD WINS (2026-11-06). The engine's head and the bountyMap
+     are both copies of the ledger. When the engine's own heads read fails it
+     keeps publishing the older head, so the engine cannot always outrank a
+     map a knockout or ledger read updated since. These record, on this
+     client's clock, when each source's current value for a player was first
+     seen; the seat badge shows whichever changed last (seatBountyBadge). */
+  const engineHeadSeenRef = useRef<Map<string, HeadObservation>>(new Map());
+  const mapHeadSeenRef = useRef<Map<string, HeadObservation>>(new Map());
+  /* Whether some seat still lacks the engine's head; the slow poll reads the
+     ledger only then (seatsNeedLedgerHeadPoll). Written at render. */
+  const seatsNeedLedgerHeadsRef = useRef(true);
 
   /**
    * The chest on screen, with whatever is known about it right now.
@@ -15633,7 +15652,12 @@ function LiveTablePage({
                head shows on the next snapshot rather than up to 30s later. */
             bountyMapRefreshRef.current = refreshBountyMap;
             if (bountyMapPollTimer) clearInterval(bountyMapPollTimer);
-            bountyMapPollTimer = setInterval(() => void refreshBountyMap(), BOUNTY_HEAD_POLL_MS);
+            bountyMapPollTimer = setInterval(() => {
+              // Every seat carries the engine's head: its own reads keep them
+              // true, so this poll would only repeat them.
+              if (!seatsNeedLedgerHeadsRef.current) return;
+              void refreshBountyMap();
+            }, BOUNTY_HEAD_POLL_MS);
           } else if (tournData?.spin_multiplier) {
             setTableState((prev) => ({
               ...prev,
@@ -17590,13 +17614,21 @@ function LiveTablePage({
      the old head. The engine's own hand counter is on the same socket as the
      cards, so each new hand in a bounty event reads the ledger heads at once
      and again after the previous hand's busts have settled. */
+  /* 2026-11-06: only while a seat lacks the engine's own head. When every
+     seat carries it, the engine re-reads the ledger after each hand and each
+     knockout (and retries a failed read), so two client reads per hand per
+     viewer only repeated that. The knockout broadcast, seat change and rejoin
+     reads above still run. */
   const bountyHandNumber = tableState.handNumber ?? 0;
+  const seatsNeedLedgerHeads = seatsNeedLedgerHeadPoll(tableState.players);
+  seatsNeedLedgerHeadsRef.current = seatsNeedLedgerHeads;
   useEffect(() => {
     if (!tableState.isBountyTournament || !(bountyHandNumber > 0)) return;
+    if (!seatsNeedLedgerHeads) return;
     void bountyMapRefreshRef.current?.();
     const settled = setTimeout(() => void bountyMapRefreshRef.current?.(), BOUNTY_SETTLE_REREAD_MS);
     return () => clearTimeout(settled);
-  }, [bountyHandNumber, tableState.isBountyTournament]);
+  }, [bountyHandNumber, tableState.isBountyTournament, seatsNeedLedgerHeads]);
 
   // The engine socket is replaceable. Its broadcasts are not. Whenever a
   // replacement becomes authoritative, recover any still-open add-on window
@@ -24095,7 +24127,10 @@ function LiveTablePage({
            The stamps are their own state and reach SeatSlot as their own prop. */
         const players = prev.players.map((p) => {
           if (!p || !p.id) return p;
-          const shouldBeOut = sittingOut.has(p.id);
+          // The DB flag describes a voluntary sit-out, not an engine entry
+          // hold. Only an authoritative waiting-list update admits that seat.
+          const shouldBeOut =
+            sittingOut.has(p.id) || (prev.waitingForBBUserIds ?? []).includes(p.id);
           /* Never repaint a seat whose status is telling a more urgent story.
              An all-in seat is all-in first; a folded seat has already acted
              this hand. Sitting out is the resting state underneath both, and
@@ -29066,6 +29101,7 @@ function LiveTablePage({
                the pot pill by exactly that lift. */
             const collectDy =
               collectOffset.y + (!markerSize.railBets && pos.y >= 100 && pos.x === 50 ? 30 : 0);
+            const headSeenNow = Date.now();
             const seatBounty = seatBountyBadge({
               isBountyTournament: Boolean(tableState.isBountyTournament),
               mysteryChestsLive,
@@ -29074,6 +29110,18 @@ function LiveTablePage({
               playerStatus: player?.status,
               bountyMap: tableState.bountyMap,
               engineBounty: player?.bounty,
+              engineSeenAt: observeHead(
+                engineHeadSeenRef.current,
+                player?.id,
+                player?.bounty,
+                headSeenNow
+              ),
+              mapSeenAt: observeHead(
+                mapHeadSeenRef.current,
+                player?.id,
+                player?.id ? tableState.bountyMap?.[player.id] : undefined,
+                headSeenNow
+              ),
             });
 
             return (

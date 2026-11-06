@@ -26,6 +26,7 @@ import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.j
  */
 import { HorseLogic, type HorseGameStateV2 } from '../engine/HorseLogic.js';
 import { riverNutsRaise } from '../engine/HorseRiverNuts.js';
+import { noteFire } from '../engine/BrainTelemetry.js';
 import { resolveHorseHybridProfile } from '../engine/HorseHybridProfile.js';
 import { horseVariantRulesFor } from '../engine/VariantRules.js';
 import {
@@ -171,6 +172,10 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
     straddleActive: false,
     format: 'cash' as const,
   } as unknown as HorseGameStateV2;
+  // Receipt (#8065): this Lightning decision carries its original hand and lease.
+  // A turn without a coordinate is counted too, so a missing binding is visible.
+  if (turn.handJournalCoordinate) noteFire('lightning_original_hand_bound');
+  else noteFire('lightning_original_hand_unbound');
   const snapshot: LiveHorseDecisionSnapshot = {
     handJournalContext: captureHorseHandJournalContext(turn.actions),
     ...(turn.handJournalCoordinate ? { handJournalCoordinate: turn.handJournalCoordinate } : {}),

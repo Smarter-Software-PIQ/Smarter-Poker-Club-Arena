@@ -16,10 +16,10 @@ describe('certified original incarnation recovery', () => {
   it('reconstructs only proven retired custody and preserves unknown or newer incarnations', () => {
     const result = spawnSync('python3', ['tests/operations/certified-incarnation-recovery.py'], {
       encoding: 'utf8',
-      timeout: 60_000,
+      timeout: 115_000,
     });
     expect(result.error, result.stdout + result.stderr).toBeUndefined();
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toContain('Ran 14 tests');
-  }, 65_000);
+    expect(result.stderr).toContain('Ran 17 tests');
+  }, 120_000);
 });

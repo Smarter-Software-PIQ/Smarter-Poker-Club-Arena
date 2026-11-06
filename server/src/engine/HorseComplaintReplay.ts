@@ -279,13 +279,19 @@ export function stateAt(hand: ExtractedHand | ComplaintFixture, node: ComplaintA
   const ts = pn.tournamentStage ?? undefined;
   const humans = hand.players.filter((p) => !p.isHorse).map((p) => `p${p.seat}`);
   const gs = {
+    // The live engine stamps every decision state (ServerTableEngineTurns);
+    // the final wager rules (riverNutsRaise, omahaCurrentNutsRaise) read it.
+    stateSchemaVersion: 1,
     players,
     communityCards: parseBoard(pn.boards?.[0]),
     ...(pn.boards?.[1] !== undefined ? { communityCards2: parseBoard(pn.boards[1]) } : {}),
     ...(pn.boards?.[2] !== undefined ? { communityCards3: parseBoard(pn.boards[2]) } : {}),
     ...(pn.boardCount !== undefined ? { boardCount: pn.boardCount } : {}),
     ...(pn.bombPot !== undefined ? { bombPot: pn.bombPot } : {}),
-    ...(pn.allInOrFold !== undefined ? { allInOrFold: pn.allInOrFold } : {}),
+    // AoF: the live state always carries a boolean (ServerTableEngineTurns
+    // sets tableInfo?.all_in_or_fold === true), so a node recorded before the
+    // field existed replays as an ordinary table, false, never undefined.
+    allInOrFold: pn.allInOrFold === true,
     ...(pn.fixedBetSize !== undefined ? { fixedBetSize: pn.fixedBetSize } : {}),
     ...(pn.wagersCapped !== undefined ? { wagersCapped: pn.wagersCapped } : {}),
     ...(pn.asset !== undefined ? { asset: pn.asset } : {}),

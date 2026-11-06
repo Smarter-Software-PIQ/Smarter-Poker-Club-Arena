@@ -52,10 +52,17 @@ const {
   LIGHTNING_HORSE_FAST_FOLD_TEMPO_MAX,
 } = await import('./LightningHorse.js');
 const { buildHost, formedHand, flush } = kit;
+const { drainFires, enableBrainTelemetry } = await import('../engine/BrainTelemetry.js');
+const receipts = (): Record<string, number> => {
+  const out: Record<string, number> = {};
+  for (const r of drainFires()) out[r.feature] = r.fires;
+  return out;
+};
 
 const hosts: any[] = [];
 afterEach(async () => {
   for (const h of hosts.splice(0)) await h.abort('test_complete').catch(() => undefined);
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -118,7 +125,10 @@ async function scriptedHand(base: number, script: Script, deps: Record<string, u
           : undefined;
     return {
       ...result,
-      decision: { ...result.decision, action: want, amount, thinkTime },
+      // The script owns this decision. Brain receipts describe a different
+      // wager and can legitimately restore its baseline at the host door.
+      // Keep the lane envelope, but never attach those receipts to a script.
+      decision: { action: want, amount, thinkTime },
     };
   });
   start = Date.now();
@@ -225,6 +235,8 @@ describe('the menu a seat would hold (HandController asIfToAct, read-only)', () 
 describe('a Lightning horse that is already folding folds right away (the host)', () => {
   it("folds at the deal at a person's look-and-press time, through the Lightning Fold door, as the horse", async () => {
     fake();
+    enableBrainTelemetry();
+    drainFires();
     const random = () => 0.5;
     const t = await scriptedHand(4100, () => 'fold', { random });
     const { sb, bb, btn } = t.formed;
@@ -282,6 +294,11 @@ describe('a Lightning horse that is already folding folds right away (the host)'
     expect(byPlayer.get(bb)?.foldType).toBe('none');
     expect(byPlayer.get(bb)?.won).toBeGreaterThan(0);
     expect(byPlayer.get(btn)?.contributed).toBe(0);
+    // Layer receipts (2026-11-05): both fast folds and every bound decision counted.
+    const fired = receipts();
+    expect(fired.lightning_horse_fast_fold).toBe(2);
+    expect(fired.lightning_horse_fast_fold_considered).toBeUndefined();
+    expect(fired.lightning_original_hand_bound).toBeGreaterThanOrEqual(2);
   });
 
   it('uses the same door a person uses: handlePlayerAction fast_fold with the hand context', async () => {
@@ -313,6 +330,25 @@ describe('a Lightning horse that is already folding folds right away (the host)'
 
   it('a free check is never folded: checked-to streets are checked, not folded', async () => {
     fake();
+    // A scripted action must not inherit an unrelated policy receipt: the
+    // real host correctly withdraws a stale receipt to its own baseline.
+    const { HorseLogic } = await import('../engine/HorseLogic.js');
+    const decide = HorseLogic.decide;
+    vi.spyOn(HorseLogic, 'decide').mockImplementation(
+      (...args) =>
+        ({
+          ...decide(...args),
+          ...(args[1].stage === 'preflop'
+            ? {}
+            : {
+                correctivePolicy: {
+                  applied: true,
+                  domain: 'unavailable-fixture-policy',
+                  baseline: { action: 'raise', amount: args[1].minRaiseTo ?? 4 },
+                },
+              }),
+        }) as any
+    );
     // Preflop everybody calls or checks; after that the policy says fold
     // everywhere, and nobody ever bets.
     const t = await scriptedHand(4200, (snap) =>
@@ -325,7 +361,10 @@ describe('a Lightning horse that is already folding folds right away (the host)'
     for (const user of t.formed.players) {
       const post = actionsBy(t, user).filter((a) => a.stage !== 'preflop');
       expect(post.length).toBeGreaterThan(0);
-      expect(post.every((a) => a.action === 'check')).toBe(true);
+      expect(
+        post.every((a) => a.action === 'check'),
+        JSON.stringify(post)
+      ).toBe(true);
     }
     // No early look ever happened after preflop: nobody owed anything.
     const earlyAfterPreflop = t.horseLane.calls.filter(
@@ -337,6 +376,8 @@ describe('a Lightning horse that is already folding folds right away (the host)'
 
   it('a horse whose first look was not a fold decides afresh at its turn, on its own clock', async () => {
     fake();
+    enableBrainTelemetry();
+    drainFires();
     const formed = formedHand(3, 4300);
     const t = await scriptedHand(4300, (snap, early) => {
       const me = snap.player.user_id;
@@ -364,6 +405,9 @@ describe('a Lightning horse that is already folding folds right away (the host)'
     expect(acts[0].origin).toBe('horse_policy');
     expect(t.h.foldTypes.get(sb)).toBe('normal');
     expect(t.calls.fastFold.find((f) => f.playerId === sb)?.foldType).toBe('normal');
+    // Layer receipt (2026-11-05): the small blind's early look was priced and
+    // did not fold, so the fast fold was considered and not acted.
+    expect(receipts().lightning_horse_fast_fold_considered).toBeGreaterThanOrEqual(1);
   });
 
   it("a horse account's own client taking the seat stops an early look's fold", async () => {

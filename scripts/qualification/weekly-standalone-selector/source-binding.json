@@ -326,8 +326,8 @@
       "sha256": "aef92500e63a4e1cd6632b8616ec1c1d138f2ff09f464368baeef185ca93fb1b"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 140043,
-      "sha256": "0e86381eb722804e6262cb2ba60745c946963583d28741847d0b4d855301a31e"
+      "bytes": 142840,
+      "sha256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2681,5 +2681,19 @@
   },
   "cashQueueNativeInputComposition20261106": {
     "reason": "Exact accounting projection includes the cash queue native step; no historical financial inputs, assertions or verdicts changed."
+  },
+  "realtimeReviveRecordedNativeInput20261106": {
+    "reason": "Exact accounting projection includes the realtime revive recorded native step (scripts/ci/test-realtime-revive-is-recorded.py, accounting shard 1); no historical financial inputs, assertions or verdicts changed."
+  },
+  "tournamentLockRegressionEnforcement20261106": {
+    "reason": "Add the existing replay/player-stat and commission-lock native proofs to required accounting shard7, preserving all prior commands, assertions and budgets. Refresh the exact accounting execution projection and its dependent current source bindings only. No financial source, historical result, installation or live certification restamped.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previousSHA256": "10fdfc1c72ae5dcacb7c6590b52e54d8784a8dcbd36ce3c1f08b806f141f17eb",
+        "currentSHA256": "cca8f10289bc29ec6d992f25d3b1390c99229074a7c73179474cd4ae5296b689"
+      }
+    ],
+    "historicalEvidenceRestamped": false
   }
 }

@@ -226,16 +226,39 @@ const inside = (path: string) => {
   const r = relative(realpathSync(root), realpathSync(path));
   return r === '' || (!r.startsWith('..') && !isAbsolute(r));
 };
+/** Closed boundary labels only: never error messages, paths, identities or inputs.
+ * A label identifies the operation that failed, not its underlying cause. */
+type PrivateReplayFailureStage =
+  | 'arguments'
+  | 'output_preflight'
+  | 'input_read'
+  | 'request_validation'
+  | 'protected_control'
+  | 'journal_acquisition'
+  | 'journal_identity'
+  | 'finalize_validation'
+  | 'local_source_runtime'
+  | 'accepted_case_selection'
+  | 'journal_recheck'
+  | 'credential_removal'
+  | 'private_input_write'
+  | 'offline_execution'
+  | 'replay_output_validation'
+  | 'source_postcheck'
+  | 'private_input_cleanup';
+
 export async function runV56PrivateReplay(
   mode: string,
   inputPath: string,
   outputPath: string,
   env: Readonly<Record<string, string | undefined>> = process.env
 ): Promise<{ code: number; output: string }> {
+  let failureStage: PrivateReplayFailureStage = 'arguments';
   const no = (reason: string) => ({
     version: 1,
     status: 'unavailable',
     reason,
+    failureStage,
     qualified: false,
     activationAllowed: false,
   });
@@ -247,19 +270,24 @@ export async function runV56PrivateReplay(
       inside(join(outputPath, '..'))
     )
       throw Error();
+    failureStage = 'output_preflight';
     try {
       lstatSync(outputPath);
       throw Error('existing_output');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw Error();
     }
+    failureStage = 'input_read';
     const ingress = readPrivateCorrectiveJson(inputPath, 512 * 1024);
     const request = mode === 'finalize' && object(ingress) ? ingress.request : ingress;
+    failureStage = 'request_validation';
     if (!v56PrivateRequestIsValid(request) || request.providerRunId !== env.GITHUB_RUN_ID)
       throw Error();
+    failureStage = 'protected_control';
     const beforeMain = control(request.sourceRelease);
     const reader = createAuthenticatedHorseJournalReader(env),
       keys = [...new Set(request.cases.map((c) => c.handKey))];
+    failureStage = 'journal_acquisition';
     const before = await reader(mode === 'replay' ? keys : []);
     if (
       !isAuthenticatedHorseJournalBatch(before) ||
@@ -267,9 +295,11 @@ export async function runV56PrivateReplay(
       before.runtime.arch !== 'x64'
     )
       throw Error();
+    failureStage = 'journal_identity';
     const instance = (before as unknown as { instanceId?: string }).instanceId;
     if (!instance || !/^[A-Za-z0-9-]{1,100}$/.test(instance)) throw Error();
     if (mode === 'finalize') {
+      failureStage = 'finalize_validation';
       if (
         !object(ingress) ||
         Object.keys(ingress).sort().join(',') !== 'pending,request' ||
@@ -312,6 +342,7 @@ export async function runV56PrivateReplay(
         activationAllowed: false,
       };
     else {
+      failureStage = 'local_source_runtime';
       if (
         git(['rev-parse', 'HEAD']) !== request.sourceRelease ||
         git(['status', '--porcelain', '--untracked-files=normal']) ||
@@ -320,9 +351,11 @@ export async function runV56PrivateReplay(
         before.runtime.arch !== process.arch
       )
         throw Error();
+      failureStage = 'accepted_case_selection';
       const cases = selectV56AcceptedCases(before.recordsByHand, request.cases);
       // Second authenticated snapshot is acquired before permanently dropping the
       // job's SSH key. No credential is available to the offline replay child.
+      failureStage = 'journal_recheck';
       const after = await reader([]);
       if (
         !isAuthenticatedHorseJournalBatch(after) ||
@@ -331,10 +364,12 @@ export async function runV56PrivateReplay(
         evidenceDigest(after.runtime) !== evidenceDigest(before.runtime)
       )
         throw Error();
+      failureStage = 'credential_removal';
       const key = env.HORSE_REVIEW_SSH_KEY_PATH;
       if (!key) throw Error();
       unlinkSync(key);
       const privateInput = join(outputPath + '.input.json');
+      failureStage = 'private_input_write';
       writePrivateCorrectiveResult(
         privateInput,
         JSON.stringify({ version: 1, cases }),
@@ -343,6 +378,7 @@ export async function runV56PrivateReplay(
       try {
         const childEnv: NodeJS.ProcessEnv = { TZ: 'UTC' };
         for (const k of ['PATH', 'HOME', 'TMPDIR', 'LANG']) if (env[k]) childEnv[k] = env[k];
+        failureStage = 'offline_execution';
         const output = execFileSync(
           process.execPath,
           ['server/scripts/phase15-exact-replay.mjs', '--v56-cases'],
@@ -356,6 +392,7 @@ export async function runV56PrivateReplay(
             env: childEnv,
           }
         );
+        failureStage = 'replay_output_validation';
         const parsed: unknown = JSON.parse(output);
         if (
           !v56PublicReplayIsSanitized(
@@ -366,6 +403,7 @@ export async function runV56PrivateReplay(
           parsed.sourceSha256 !== createHash('sha256').update(request.sourceRelease).digest('hex')
         )
           throw Error();
+        failureStage = 'source_postcheck';
         // The maintained CLI validates each closed sanitized child result. Its
         // whole output is committed privately; never raw input or driver errors.
         if (
@@ -388,7 +426,13 @@ export async function runV56PrivateReplay(
           activationAllowed: false,
         };
       } finally {
-        unlinkSync(privateInput);
+        // Preserve an earlier failure boundary unless cleanup itself fails.
+        try {
+          unlinkSync(privateInput);
+        } catch {
+          failureStage = 'private_input_cleanup';
+          throw Error();
+        }
       }
     }
   } catch {
@@ -402,6 +446,11 @@ export async function runV56PrivateReplay(
   return {
     code: result.status === 'unavailable' ? 2 : 0,
     output:
-      JSON.stringify({ status: result.status, qualified: false, activationAllowed: false }) + '\n',
+      JSON.stringify({
+        status: result.status,
+        qualified: false,
+        activationAllowed: false,
+        ...(result.status === 'unavailable' ? { failureStage } : {}),
+      }) + '\n',
   };
 }

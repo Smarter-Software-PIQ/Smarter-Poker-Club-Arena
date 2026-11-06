@@ -1787,6 +1787,12 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 -B scripts/ci/test-sweep-gate-pending-bounty-work.py
+      - name: A realtime revive is recorded on native PostgreSQL
+        if: matrix.shard == 1
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 -B scripts/ci/test-realtime-revive-is-recorded.py
       - name: Owner alerts preserve the actual finding through the real PostgreSQL trigger
         if: matrix.shard == 1
         env:
@@ -3648,6 +3654,52 @@ jobs:
         with:
           name: breakfast-original-witness-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/breakfast-original-witness-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Receipt replay releases locks and player statistics keep key order
+        id: replay_locks_and_player_stats_keys
+        if: matrix.shard == 7
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          mkdir -p "$RUNNER_TEMP/replay_locks_and_player_stats_keys"
+          python3 -B scripts/qualification/replay-locks-and-player-stats-keys.py \
+            --work "$RUNNER_TEMP/replay_locks_and_player_stats_keys/cluster" \
+            --out "$RUNNER_TEMP/replay_locks_and_player_stats_keys/result.json" \
+            > "$RUNNER_TEMP/replay_locks_and_player_stats_keys/run.log" 2>&1
+      - name: Retain Receipt replay releases locks and player statistics keep key order
+        if: always() && matrix.shard == 7 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.replay_locks_and_player_stats_keys.outcome)
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay_locks_and_player_stats_keys-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/replay_locks_and_player_stats_keys/result.json
+            ${{ runner.temp }}/replay_locks_and_player_stats_keys/run.log
+            ${{ runner.temp }}/replay_locks_and_player_stats_keys/cluster/pg/postgres.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Commission and tournament writers preserve measured lock order
+        id: chip_deadlocks
+        if: matrix.shard == 7
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          mkdir -p "$RUNNER_TEMP/chip_deadlocks"
+          python3 -B scripts/qualification/chip-deadlocks.py \
+            --work "$RUNNER_TEMP/chip_deadlocks/cluster" \
+            --out "$RUNNER_TEMP/chip_deadlocks/result.json" \
+            > "$RUNNER_TEMP/chip_deadlocks/run.log" 2>&1
+      - name: Retain Commission and tournament writers preserve measured lock order
+        if: always() && matrix.shard == 7 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.chip_deadlocks.outcome)
+        uses: actions/upload-artifact@v4
+        with:
+          name: chip_deadlocks-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/chip_deadlocks/result.json
+            ${{ runner.temp }}/chip_deadlocks/run.log
+            ${{ runner.temp }}/chip_deadlocks/cluster/pg/postgres.log
           if-no-files-found: error
           retention-days: 7
 

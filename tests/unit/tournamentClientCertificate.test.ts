@@ -201,3 +201,16 @@ describe('closed tournament acceptance selection', () => {
       expect(workflow.jobs[name].if).toContain("tournament_only != 'true'");
   });
 });
+
+it('prepares isolated staff and template access before the first browser setup can join clubs', () => {
+  const steps = workflow.jobs['production-e2e'].steps;
+  const firstBrowser = steps.findIndex((step: any) => /npx playwright test/.test(step.run ?? ''));
+  expect(firstBrowser).toBeGreaterThan(-1);
+  for (const command of ['prepare-staff', 'prepare-template-staff']) {
+    const prepare = steps.findIndex(
+      (step: any) => step.run === `node scripts/ci/production-e2e-account.mjs ${command}`
+    );
+    expect(prepare).toBeGreaterThan(-1);
+    expect(prepare, `${command} must precede browser global setup`).toBeLessThan(firstBrowser);
+  }
+});

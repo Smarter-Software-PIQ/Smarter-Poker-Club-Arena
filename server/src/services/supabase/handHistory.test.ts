@@ -314,6 +314,87 @@ beforeEach(() => {
   }));
 });
 
+describe('confirmed original hand lane rollback', () => {
+  const rollback = (input: ReturnType<typeof obligationsParams>, changes = {}) => ({
+    data: {
+      success: false,
+      atomic_hand_commit: false,
+      reason: 'atomic_hand_rolled_back',
+      sqlstate: '55P03',
+      error: 'F06_RETRY_CANONICAL_LANE',
+      table_id: input.tableId,
+      hand_number: input.handNumber,
+      commit_hash: 'a'.repeat(64),
+      ...changes,
+    },
+    error: null,
+  });
+
+  it('exhausts exactly two bounded waits without rebuilding or projecting the original', async () => {
+    vi.useFakeTimers();
+    try {
+      const input = obligationsParams();
+      atomicRpcResults = [rollback(input), rollback(input), rollback(input)];
+      const pending = logHandHistory(input).catch((error: Error) => error);
+      await vi.advanceTimersByTimeAsync(249);
+      expect(rpcCalls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(rpcCalls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(rpcCalls).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(String(await pending)).toContain(
+        'atomic hand commit refused (atomic_hand_rolled_back)'
+      );
+      expect(rpcCalls).toHaveLength(3);
+      expect(rpcCalls.every((call) => call.args === rpcCalls[0].args)).toBe(true);
+      expect(retentionCalls).toHaveLength(1);
+      expect(input.assertLeaseAuthority).toHaveBeenCalledTimes(4);
+      expect(mockWakeHandProjection).not.toHaveBeenCalled();
+      expect(mockObserveCompletedHand).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { atomic_hand_commit: true },
+    { reason: 'payload_mismatch' },
+    { table_id: '22222222-2222-2222-2222-222222222222' },
+    { hand_number: 123 },
+    { commit_hash: 'unproved' },
+    { sqlstate: '23514' },
+  ])('refuses a noncanonical or permanent rollback immediately: %j', async (changes) => {
+    const input = obligationsParams();
+    atomicRpcResults = [rollback(input, changes)];
+    await expect(logHandHistory(input)).rejects.toThrow('atomic hand commit refused');
+    expect(rpcCalls).toHaveLength(1);
+    expect(retentionCalls).toHaveLength(1);
+    expect(mockWakeHandProjection).not.toHaveBeenCalled();
+  });
+
+  it('reasserts the original lease before retrying a confirmed lane rollback', async () => {
+    vi.useFakeTimers();
+    try {
+      const input = obligationsParams();
+      atomicRpcResults = [rollback(input)];
+      const pending = logHandHistory(input).catch((error: Error) => error);
+      await vi.advanceTimersByTimeAsync(0);
+      input.assertLeaseAuthority.mockImplementation(() => {
+        throw new Error('atomic hand commit refused (lease_proof_expired)');
+      });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(String(await pending)).toContain('lease_proof_expired');
+      expect(rpcCalls).toHaveLength(1);
+      expect(retentionCalls).toHaveLength(1);
+      expect(mockWakeHandProjection).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('logHandHistory - worker-owned completed-hand observation', () => {
   it.each([
     undefined,

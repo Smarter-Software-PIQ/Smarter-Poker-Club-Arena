@@ -56,7 +56,10 @@ import {
   anonReadableDefiners,
 } from '../scripts/ci/check-definer-authorization.mjs';
 import { offenders as moneyTriggerOffenders } from '../scripts/ci/check-money-trigger-declared.mjs';
-import { offenders as bandAidOffenders } from '../scripts/ci/check-no-new-band-aids.mjs';
+import {
+  unjustifiedPeriodicWork,
+  offenders as bandAidOffenders,
+} from '../scripts/ci/check-no-new-band-aids.mjs';
 import { offenders as unqualifiedOffenders } from '../scripts/ci/check-unqualified-writes.mjs';
 import { offenders as leaseOffenders } from '../scripts/ci/check-lease-lock-strength.mjs';
 
@@ -131,6 +134,24 @@ describe('a manifest row is a claim that has to hold', () => {
     );
     expect(classifyMigration(file, { repo: root }).state).toBe('recorded');
     expect(classifyMigration(file, { repo: root }).manifestMatched).toBe(true);
+  });
+
+  it('keeps a changed historical schedule subject to the periodic-work rule', () => {
+    const name = '20261105172610_schedule_recording.sql';
+    const path = `${MIGRATIONS}/${name}`;
+    const sql = "select cron.schedule('recording-test', '*/15 * * * *', 'select 1');";
+    const root = fixture(
+      { [name]: sql },
+      {
+        recordings: [{ version: '20261105172610', file: path, md5: md5(sql) }],
+      }
+    );
+    expect(unjustifiedPeriodicWork(path, sql)).not.toBeNull();
+    expect(classifyMigration(path, { repo: root }).manifestMatched).toBe(true);
+    writeFileSync(join(root, path), sql.replace('select 1', 'select 2'));
+    expect(classifyMigration(path, { repo: root }).manifestMatched).not.toBe(true);
+    expect(partitionMigrations([path], { repo: root }).judge).toEqual([path]);
+    expect(unjustifiedPeriodicWork(path, readFileSync(join(root, path), 'utf8'))).not.toBeNull();
   });
 
   it('is refused the moment the file is edited', () => {

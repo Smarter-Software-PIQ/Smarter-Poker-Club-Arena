@@ -407,6 +407,38 @@ def reference_case_metadata(raw, expected):
             value[key] = item
         return value
     value = json.loads(raw.decode('utf-8', errors='strict'), object_pairs_hook=unique_object)
+    if isinstance(value, dict) and type(value.get('version')) is int and value['version'] == 9:
+        if set(value) != {'version','sourceRelease','probe','cases','window','roster','expectedInstanceId'} or value['probe'] != 'fleet_slice':
+            raise ValueError('reference_cases_refused')
+        roster=value['roster']; window=value['window']
+        uuid=r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+        if (not isinstance(roster,dict) or set(roster)!={'digest','total','horseIds'}
+                or not isinstance(roster['digest'],str) or not re.fullmatch(r'[0-9a-f]{64}',roster['digest'])
+                or type(roster['total']) is not int or not 1<=roster['total']<=50000
+                or not isinstance(roster['horseIds'],list) or not 1<=len(roster['horseIds'])<=min(64,roster['total'])
+                or any(not isinstance(x,str) or not re.fullmatch(uuid,x) for x in roster['horseIds'])
+                or len(set(roster['horseIds']))!=len(roster['horseIds'])
+                or not isinstance(value['expectedInstanceId'],str) or not re.fullmatch(r'[A-Za-z0-9-]{1,100}',value['expectedInstanceId'])
+                or not isinstance(window,dict) or set(window)!={'startUtc','endUtc'}):
+            raise ValueError('reference_cases_refused')
+        stamps=[]
+        for key in ('startUtc','endUtc'):
+            v=window[key]
+            if not isinstance(v,str) or not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z',v): raise ValueError('reference_cases_refused')
+            stamps.append(datetime.datetime.fromisoformat(v.replace('Z','+00:00')))
+        if not 0<(stamps[1]-stamps[0]).total_seconds()<=86400 or stamps[1]>datetime.datetime.now(datetime.timezone.utc):
+            raise ValueError('reference_cases_refused')
+        if not isinstance(value['cases'],list): raise ValueError('reference_cases_refused')
+        for c in value['cases']:
+            if not isinstance(c,dict) or set(c)!={'handKey','tableId','handId','handNumber','leaseGeneration'}: raise ValueError('reference_cases_refused')
+        reference_cases(json.dumps({'version':2,'sourceRelease':value['sourceRelease'],
+            'cases':[{**c,'decisionRecordSha256':None} for c in value['cases']]}).encode('utf-8'),expected)
+        return value
+    if isinstance(value, dict) and type(value.get('version')) is int and value['version'] == 8:
+        if set(value) != {'version','sourceRelease','probe','cases'} or value['probe'] != 'river_value':
+            raise ValueError('reference_cases_refused')
+        reference_case_metadata(json.dumps({**value,'version':5,'probe':'cash_turn_fold'}).encode('utf-8'),expected)
+        return value
     if isinstance(value, dict) and type(value.get('version')) is int and value['version'] == 7:
         if set(value) != {'version','sourceRelease','probe','cases'} or value['probe'] != 'original_turn_gap':
             raise ValueError('reference_cases_refused')
@@ -439,6 +471,150 @@ def reference_case_metadata(raw, expected):
                                      'cases': value['cases']}).encode('utf-8'), expected)
         return value
     return reference_cases(raw, expected)
+
+
+def sanitize_fleet_slice_result(result,value):
+    def refuse(): raise ValueError('fleet_slice_result_refused')
+    fixed={'version':9,'probe':'fleet_slice','rawRecordsExported':False,'replayVerified':False,
+        'causalReplayVerified':False,'strategyApplicationVerified':False,'completePopulation':False,
+        'activationAllowed':False,'rosterAuthority':'externally_supplied_unverified',
+        'windowClock':'engine_record_and_decision_timestamps','crossClockCutoffVerified':False,
+        'actionScope':'accepted_horse_policy_actions_for_supplied_roster'}
+    if not isinstance(result,dict) or any(type(result.get(k)) is not type(v) or result[k]!=v for k,v in fixed.items()): refuse()
+    if set(result)==set(fixed)|{'status','reason'}:
+        if result['status']!='unknown' or result['reason'] not in ('input_refused','journal_source_or_shape_mismatch'): refuse()
+        return result
+    keys=set(fixed)|{'status','sourceRelease','expectedInstanceId','window','rosterDigest','rosterTotal','selectedHorseHashes','selectedHands','inspectedHands','boundReached','hands'}
+    hex64=lambda x:isinstance(x,str) and re.fullmatch(r'[0-9a-f]{64}',x) is not None
+    count=lambda x:type(x) is int and 0<=x<=4096
+    hashes=[hashlib.sha256(x.encode('utf-8')).hexdigest() for x in value['roster']['horseIds']]
+    if (set(result)!=keys or len(json.dumps(result,separators=(',',':')).encode('utf-8'))>32768
+        or result['sourceRelease']!=value['sourceRelease'] or result['expectedInstanceId']!=value['expectedInstanceId']
+        or result['window']!=value['window'] or result['rosterDigest']!=value['roster']['digest']
+        or type(result['rosterTotal']) is not int or result['rosterTotal']!=value['roster']['total']
+        or result['selectedHorseHashes']!=hashes or type(result['boundReached']) is not bool
+        or type(result['selectedHands']) is not int or result['selectedHands']!=len(value['cases'])
+        or type(result['inspectedHands']) is not int or not 0<=result['inspectedHands']<=result['selectedHands']
+        or not isinstance(result['hands'],list) or len(result['hands'])!=result['inspectedHands']): refuse()
+    for h,t in zip(result['hands'],value['cases']):
+        if (not isinstance(h,dict) or set(h)!={'handKey','status','reason','selectedActions','inspectedActions','acceptedRecordHash','rows'}
+            or h['handKey']!=t['handKey'] or h['status'] not in ('unknown','observed','partial')
+            or h['reason']!={'unknown':'capture_unavailable','observed':'selected_actions_inspected','partial':'selected_actions_unverified'}[h['status']]
+            or not count(h['selectedActions']) or not count(h['inspectedActions']) or h['inspectedActions']>h['selectedActions']
+            or (h['acceptedRecordHash'] is not None and not hex64(h['acceptedRecordHash']))
+            or (h['status']!='unknown' and h['acceptedRecordHash'] is None)
+            or not isinstance(h['rows'],list) or len(h['rows'])>len(hashes)): refuse()
+        seen=set()
+        for r in h['rows']:
+            counts={'acceptedActions','sourceWitnesses','selectionMatched','qualifyingRiver','acceptedValueBets','acceptedAllIns','acceptedChecks','exactMemoryReads'}
+            if (not isinstance(r,dict) or set(r)!=counts|{'horseHash','contexts','gaps','witnessDigest'}
+                or r['horseHash'] not in hashes or r['horseHash'] in seen
+                or any(not count(r[k]) for k in counts) or r['acceptedActions']<1
+                or not 0<=r['sourceWitnesses']<=r['acceptedActions']
+                or r['selectionMatched']>r['sourceWitnesses'] or r['qualifyingRiver']>r['selectionMatched']
+                or r['acceptedValueBets']+r['acceptedAllIns']+r['acceptedChecks']>r['qualifyingRiver']
+                or r['exactMemoryReads']>r['sourceWitnesses']
+                or (r['witnessDigest'] is not None and not hex64(r['witnessDigest']))
+                or (r['sourceWitnesses']>0)!=(r['witnessDigest'] is not None)
+                or not isinstance(r['gaps'],dict) or not set(r['gaps'])<={'original_join_unavailable','outside_window','exact_memory_unavailable','river_eligibility_unavailable'}
+                or any(not count(n) or n<1 for n in r['gaps'].values())
+                or not isinstance(r['contexts'],list) or len(r['contexts'])>r['sourceWitnesses']): refuse()
+            seen.add(r['horseHash']); contexts=set()
+            for c in r['contexts']:
+                if (not isinstance(c,dict) or set(c)!={'variant','mode','format','speed','ante','dealtCount','exactMemoryReads','sourceWitnesses'}
+                    or c['variant'] not in ('nlh','plo4','plo5','plo6','plo8','flh','flo8') or c['mode'] not in ('cash','tournament')
+                    or c['format'] not in (None,'cash','mtt','sng','spin')
+                    or c['speed'] not in (None,'table','lightning') or c['ante'] not in (None,'none','individual','big_blind')
+                    or (c['speed'] is None)!=(c['ante'] is None)
+                    or (c['dealtCount'] is not None and (type(c['dealtCount']) is not int or not 2<=c['dealtCount']<=10))
+                    or not count(c['sourceWitnesses']) or c['sourceWitnesses']<1 or not count(c['exactMemoryReads'])
+                    or c['exactMemoryReads']>c['sourceWitnesses'] or (c['exactMemoryReads']>0 and c['speed'] is None)): refuse()
+                key=(c['variant'],c['mode'],c['format'],c['speed'],c['ante'],c['dealtCount'])
+                if key in contexts: refuse()
+                contexts.add(key)
+            if sum(c['sourceWitnesses'] for c in r['contexts'])!=r['sourceWitnesses'] or sum(c['exactMemoryReads'] for c in r['contexts'])!=r['exactMemoryReads']: refuse()
+        if sum(r['acceptedActions'] for r in h['rows'])!=h['inspectedActions']: refuse()
+        if h['status']=='observed' and (h['inspectedActions']!=h['selectedActions'] or any(r['sourceWitnesses']!=r['acceptedActions'] for r in h['rows'])): refuse()
+    complete=not result['boundReached'] and result['inspectedHands']==result['selectedHands'] and all(h['status']=='observed' for h in result['hands'])
+    if result['status']!=('observed' if complete else 'partial'): refuse()
+    return result
+
+
+def validate_river_policy_trace(v):
+    def no(): raise ValueError('river_policy_trace_refused')
+    actions={'fold','check','call','bet','raise','all_in','discard'}
+    selections={'none','shadow_change','selected','controller_accepted','withdrawn_before_acceptance'}
+    reasons={'reference_retained','heads_up_position_stab','heads_up_button_open','off','invalid_mode','variant_outside_pack','multiboard_owned_by_phase13','canonical_state_unavailable','seat_count_outside_pack','blind_seats_unavailable','private_state_rejected','invalid_geometry','invalid_wager_geometry','depth_or_ante_outside_pack','rake_schedule_unavailable','invalid_cards','invalid_equity_evidence','proposal_outside_legal_menu'}
+    if not isinstance(v,dict) or set(v)!={'scope','decisionOwnership','executionOwnership','omahaVariant','decisionGraph','executionGraph','executionPhase11Selection'} or v['scope']!='outer_receipts_only': no()
+    if v['executionPhase11Selection'] is not None and v['executionPhase11Selection'] not in selections: no()
+    for k in ('decisionOwnership','executionOwnership'):
+        p=v[k]
+        if p is not None and (not isinstance(p,dict) or set(p)!={'owner','mode','outcome','reason'}
+            or p['owner'] not in ('reference','phase10','phase11','phase12') or p['mode'] not in ('reference','off','shadow','candidate')
+            or p['outcome'] not in ('reference','disabled','computed','outside_domain','unavailable') or (p['reason'] is not None and p['reason'] not in reasons)): no()
+    p=v['omahaVariant']
+    if p is not None and (not isinstance(p,dict) or set(p)!={'mode','eligible','fired','changed','applied','reason','baselineAction','proposalAction','finalAction','selection','selectionRefusal'}
+        or p['mode'] not in ('off','shadow','candidate') or p['reason'] not in reasons
+        or any(type(p[k]) is not bool for k in ('eligible','fired','changed','applied'))
+        or any(p[k] not in actions for k in ('baselineAction','proposalAction','finalAction'))
+        or (p['selection'] is not None and p['selection'] not in selections)
+        or p['selectionRefusal'] not in (None,'illegal_candidate')): no()
+    nodes={'reference','reference_legality','variant_policy','tournament_utility','tournament_continuation','variant_utility_guard','joint_policy','corrective_policy','wager_rules','timing'}
+    for k in ('decisionGraph','executionGraph'):
+        p=v[k]
+        if p is None: continue
+        if (not isinstance(p,dict) or set(p)!={'version','finalAction','transitions'}
+            or p['version'] not in ('horse-policy-order-v1','horse-policy-order-v2','horse-policy-order-v3')
+            or p['finalAction'] not in actions or not isinstance(p['transitions'],list) or len(p['transitions'])>10): no()
+        seen=set()
+        for t in p['transitions']:
+            if (not isinstance(t,dict) or set(t)!={'node','before','after','changed'} or t['node'] not in nodes or t['node'] in seen
+                or (t['before'] is not None and t['before'] not in actions) or t['after'] not in actions or type(t['changed']) is not bool): no()
+            seen.add(t['node'])
+
+
+def sanitize_river_value_result(result, value):
+    def refuse(): raise ValueError('river_value_result_refused')
+    reasons = {'input_refused','journal_source_or_shape_mismatch','journal_missing_or_bounds','record_binding_or_duplicate',
+        'accepted_hand_missing_or_ambiguous','accepted_hand_binding_mismatch','accepted_action_not_observed',
+        'matching_pair_missing','matching_pair_ambiguous','execution_binding_mismatch','hand_not_reconciled',
+        'input_binding_unavailable','stored_fields_unavailable','record_or_validator_unavailable','output_bound',
+        'selection_not_matched','outside_river_value_context','outside_initiative_context','eligibility_unavailable','outside_nonbottom_context'}
+    fixed={'version':8,'probe':'river_value','rawRecordsExported':False,'replayVerified':False,'causalReplayVerified':False,'gtoVerified':False,'activationAllowed':False}
+    if not isinstance(result,dict) or any(type(result.get(k)) is not type(v) or result[k]!=v for k,v in fixed.items()): refuse()
+    if set(result)==set(fixed)|{'status','reason'}:
+        if result['status']!='unknown' or result['reason'] not in reasons: refuse()
+        return result
+    if (set(result)!=set(fixed)|{'status','sourceRelease','cases'} or result['sourceRelease']!=value['sourceRelease']
+        or not isinstance(result['cases'],list) or len(result['cases'])!=len(value['cases']) or len(json.dumps(result).encode())>8192): refuse()
+    for c,t in zip(result['cases'],value['cases']):
+        if not isinstance(c,dict) or c.get('handKey')!=t['handKey']: refuse()
+        if c.get('status')=='unknown':
+            if set(c)!={'handKey','status','reason'} or c['reason'] not in reasons: refuse()
+            continue
+        if (set(c)!={'handKey','status','actionOrdinal','variant','mode','initiative','actions','recordHashes','inputDigest','readFrameDigest','policyComparisons','policyTrace','baselineAttribution','guards'}
+            or c['status']!='observed' or type(c['actionOrdinal']) is not int or c['actionOrdinal']!=t['actionOrdinal']
+            or c['variant'] not in ('plo4','plo5','plo6') or c['mode'] not in ('cash','tournament')
+            or c['initiative'] not in ('aggressor_checked','nonbottom_aggressor_pending')): refuse()
+        if (not isinstance(c['actions'],dict) or set(c['actions'])!={'captured','selected','executed','accepted'}
+            or any(a not in ('fold','check','call','bet','raise','all_in') for a in c['actions'].values())): refuse()
+        if (not isinstance(c['recordHashes'],dict) or set(c['recordHashes'])!={'decision','execution','accepted'}
+            or any(not isinstance(h,str) or not re.fullmatch('[0-9a-f]{64}',h) for h in [*c['recordHashes'].values(),c['inputDigest'],c['readFrameDigest']])
+            or (t['decisionRecordSha256'] is not None and c['recordHashes']['decision']!=t['decisionRecordSha256'])): refuse()
+        guards={'recordHashesVerified','originalHandBound','uniqueOriginalPair','wholeHandReconciled','canonicalInputAndReadFrameBound'}
+        if not isinstance(c['guards'],dict) or set(c['guards'])!=guards or any(v is not True for v in c['guards'].values()): refuse()
+        validate_river_policy_trace(c['policyTrace'])
+        ps=c['policyComparisons']
+        if not isinstance(ps,list) or len(ps)>7: refuse()
+        owners=set()
+        for q in ps:
+            if (not isinstance(q,dict) or set(q)!={'owner','selectedMatchesReference','selectedMatchesCandidate'}
+                or q['owner'] not in ('phase8','phase8Guard','phase10','phase11','phase12','phase13','phase14') or q['owner'] in owners
+                or type(q['selectedMatchesReference']) is not bool or type(q['selectedMatchesCandidate']) is not bool): refuse()
+            owners.add(q['owner'])
+        if c['baselineAttribution']!=('receipt_comparison_only' if ps else 'unavailable'): refuse()
+    if result['status']!=('observed' if all(c['status']=='observed' for c in result['cases']) else 'unknown'): refuse()
+    return result
 
 
 def sanitize_original_turn_gap_result(result, value):
@@ -493,7 +669,7 @@ def sanitize_original_turn_gap_result(result, value):
         if (set(c)!={'handKey','status','actionOrdinal','variant','mode','stage','recordHashes','inputDigest','readFrameDigest',
                      'actions','amounts','comparisons','selection','phase14','guards','executionStatus','contextSource','originalWitnessWithdrawals'} or c['status']!='observed'
             or type(c['actionOrdinal']) is not int or c['actionOrdinal']!=original['actionOrdinal']
-            or c['variant'] not in ('nlh','plo4','plo5','plo6','plo8') or c['mode'] not in ('cash','tournament')
+            or c['variant'] not in ('nlh','plo4','plo5','plo6','plo8','flh','flo8') or c['mode'] not in ('cash','tournament')
             or c['stage'] not in ('preflop','flop','turn','river') or c['executionStatus'] not in ('intended','coerced') or c['contextSource']!='captured_original_snapshot'): reject()
         if (not isinstance(c['recordHashes'],dict) or set(c['recordHashes'])!={'decision','execution','accepted'}
             or any(not isinstance(h,str) or not re.fullmatch('[0-9a-f]{64}',h) for h in [*c['recordHashes'].values(),c['inputDigest'],c['readFrameDigest']])
@@ -822,6 +998,10 @@ process.exit(0);
 
 ACCEPTED_ALL_IN_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api', 'loadInstalledAcceptedAllInExecutionApi').replace('inspectDecision8464Records', 'inspectAcceptedAllInExecutionRecords')
 
+FLEET_SLICE_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api()', 'loadInstalledFleetSliceApi(loadInstalledRiverValueApi,loadInstalledOriginalTurnGapApi)').replace('inspectDecision8464Records(input,batch,api)', 'inspectHorseFleetSlice(input,batch,api,inspectOriginalTurnGapRecords,inspectRiverValueRecords)')
+
+RIVER_VALUE_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api()', 'loadInstalledRiverValueApi(loadInstalledOriginalTurnGapApi)').replace('inspectDecision8464Records(input,batch,api)', 'inspectRiverValueRecords(input,batch,api,inspectOriginalTurnGapRecords)')
+
 ORIGINAL_TURN_GAP_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api', 'loadInstalledOriginalTurnGapApi').replace('inspectDecision8464Records', 'inspectOriginalTurnGapRecords')
 
 CASH_TURN_FOLD_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api', 'loadInstalledCashTurnFoldApi').replace('inspectDecision8464Records', 'inspectCashTurnFoldRecords')
@@ -918,15 +1098,24 @@ def reference_diagnostic(value):
         return diagnostic_failure('sanitizer', 'result_refused')
 
 def decision_case_diagnostic(value):
-    if value.get('version') not in (4,5,6,7):
+    if value.get('version') not in (4,5,6,7,8,9):
         return reference_diagnostic(value)
     try:
         diagnostic_js = REFERENCE_DIAGNOSTIC_JS
-        if value.get('version') in (4,5,6,7):
+        if value.get('version') in (4,5,6,7,8,9):
             helper = globals().get('TOURNAMENT_PREDICATE_JS', '')
             if not helper or len(helper.encode('utf-8')) > 65536:
                 raise ValueError('decision_helper_unavailable')
             diagnostic_js = helper + '\n' + DECISION_8464_ADAPTER
+            if value.get('version') in (8,9):
+                river = globals().get('RIVER_VALUE_JS', '')
+                if not river or len(river.encode('utf-8')) > 16384:
+                    raise ValueError('river_helper_unavailable')
+                diagnostic_js = helper + '\n' + river + '\n' + RIVER_VALUE_ADAPTER
+                if value.get('version') == 9:
+                    fleet = globals().get('FLEET_SLICE_JS','')
+                    if not fleet or len(fleet.encode('utf-8'))>16384: raise ValueError('fleet_helper_unavailable')
+                    diagnostic_js = helper+'\n'+river+'\n'+fleet+'\n'+FLEET_SLICE_ADAPTER
             if value.get('version') == 6:
                 diagnostic_js = helper + '\n' + ACCEPTED_ALL_IN_ADAPTER
             if value.get('version') == 7:
@@ -954,7 +1143,9 @@ def decision_case_diagnostic(value):
                     or diagnostic['stage'] not in DIAGNOSTIC_CHILD_STAGES or diagnostic['code'] != 'exception'):
                 raise ValueError()
             return result
-        return (sanitize_original_turn_gap_result(result,value) if value.get('version') == 7 else
+        return (sanitize_fleet_slice_result(result,value) if value.get('version') == 9 else
+                sanitize_river_value_result(result,value) if value.get('version') == 8 else
+                sanitize_original_turn_gap_result(result,value) if value.get('version') == 7 else
                 sanitize_accepted_all_in_result(result,value) if value.get('version') == 6
                 else sanitize_cash_turn_fold_result(result,value) if value.get('version') == 5
                 else sanitize_decision_8464_result(result, value))
@@ -1411,7 +1602,12 @@ def tournament_host_script():
     helper = Path(__file__).with_name('horse-tournament-predicate-proof.mjs').read_text(encoding='utf-8')
     if not helper or len(helper.encode('utf-8')) > 65536:
         raise ValueError('tournament_helper_unavailable')
-    return 'TOURNAMENT_PREDICATE_JS = ' + repr(helper) + '\n' + Path(__file__).read_text(encoding='utf-8')
+    river = Path(__file__).with_name('horse-river-value-proof.mjs').read_text(encoding='utf-8')
+    if not river or len(river.encode('utf-8')) > 16384:
+        raise ValueError('river_helper_unavailable')
+    fleet = Path(__file__).with_name('horse-fleet-slice-proof.mjs').read_text(encoding='utf-8')
+    if not fleet or len(fleet.encode('utf-8'))>16384: raise ValueError('fleet_helper_unavailable')
+    return 'FLEET_SLICE_JS = '+repr(fleet)+'\n'+'TOURNAMENT_PREDICATE_JS = ' + repr(helper) + '\nRIVER_VALUE_JS = ' + repr(river) + '\n' + Path(__file__).read_text(encoding='utf-8')
 
 
 def merge_worker_receipt_errors(target, addition):
@@ -1898,6 +2094,11 @@ def sanitize_restart_evidence(state, restarts, raw_events):
     return result
 
 
+def fleet_runtime_identity_matches(value,before,after):
+    return (before==after and before.get('health')=='ok'
+        and before.get('instanceId')==value['expectedInstanceId'])
+
+
 def main(expected, selected_cases=None, selected_tournament_cases=None):
     if not re.fullmatch(r'[0-9a-f]{40}', expected):
         raise RuntimeError('expected_sha_refused')
@@ -1906,6 +2107,8 @@ def main(expected, selected_cases=None, selected_tournament_cases=None):
     if selected_tournament_cases is not None:
         selected_tournament_cases = tournament_cases(json.dumps(selected_tournament_cases).encode('utf-8'), expected)
     before = identity(expected)
+    if selected_cases is not None and selected_cases.get('version') == 9 and before['instanceId'] != selected_cases['expectedInstanceId']:
+        raise RuntimeError('fleet_instance_mismatch')
     tournament_observations = tournament_diagnostic(selected_tournament_cases) if selected_tournament_cases is not None else None
     original_cases = decision_case_diagnostic(selected_cases) if selected_cases is not None else None
     raw = bounded_command(['docker', 'logs', '--since', '45m', '--tail', '10000', '--timestamps', CONTAINER])
@@ -1928,6 +2131,8 @@ def main(expected, selected_cases=None, selected_tournament_cases=None):
     if any(before[key] != after[key] for key in ('containerId', 'imageId')):
         raise RuntimeError('engine_changed_during_read')
     runtime_stable = before == after
+    if selected_cases is not None and selected_cases.get('version') == 9 and not fleet_runtime_identity_matches(selected_cases,before,after):
+        original_cases = {'status':'unknown','reason':'runtime_identity_unverified'}
     if tournament_observations is not None and (not runtime_stable or before['health'] != 'ok' or before['instanceId'] is None):
         tournament_observations = {'status': 'unknown', 'reason': 'runtime_identity_unverified'}
     print(json.dumps({'schemaVersion': 1, 'observedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'engineSha': expected, 'instanceId': before['instanceId'], 'identityBefore': before, 'identityAfter': after, 'runtimeStable': runtime_stable, 'windowMinutes': 45, 'tailLimit': 10000, 'events': events, 'restarts': restarts, 'processSignals': process_signals(raw), 'workerReceiptErrors': worker_receipt_errors(raw), 'tournamentYields': tournament_yields(raw), 'bookingCapRefusals': booking_cap_refusals(raw), 'referenceCases': original_cases, 'tournamentCases': tournament_observations, 'processHistory': history, 'archivedProcessHistory': archives, 'kernelOom': kernel, 'autoheal': autoheal, 'coverage': read_metadata(raw), 'rawLogsExported': False, 'readOnly': True}, sort_keys=True))

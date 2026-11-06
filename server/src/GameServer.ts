@@ -3945,10 +3945,13 @@ export class GameServer {
 
   /**
    * Ask whether rebuilding this tournament may cure its stall. False means a
-   * previous rebuild already returned to the very same stall: the caller does
-   * NOT rebuild, and this raises one critical incident per window naming both
-   * rebuilds, so the event is escalated instead of re-adopted into the same
-   * wait. The event, its tables and every chip stay exactly as they are.
+   * previous rebuild already returned to the very same stall and its backoff
+   * (2, 4, then 8 minutes, repeatedRecoveryLedger.ts) has not run out: the
+   * caller does not rebuild on this pass, and this raises one critical
+   * incident per window naming both rebuilds. Once the backoff runs out the
+   * answer is true again, so a stall no rebuild has cured is retried at a
+   * falling rate and never left standing still (2026-11-06). The event, its
+   * tables and every chip stay exactly as they are while it is held.
    */
   private mayRebuildTournamentForStall(
     tournamentId: string,
@@ -3959,13 +3962,29 @@ export class GameServer {
   ): boolean {
     const ledger = (this.repeatedTournamentRecoveries ??= new RepeatedRecoveryLedger());
     ledger.prune(nowMs);
-    const decision = ledger.decide(tournamentId, signature, by, nowMs, lastProgressAtMs);
-    if (decision.kind === 'rebuild') return true;
     const alerted = (this.repeatedTournamentRecoveryAlertedAt ??= new Map());
+    // The page cadence map is bounded like the ledger: an entry older than
+    // the window can no longer suppress anything.
+    for (const [id, at] of alerted)
+      if (nowMs - at >= REPEATED_RECOVERY_WINDOW_MS) alerted.delete(id);
+    const decision = ledger.decide(tournamentId, signature, by, nowMs, lastProgressAtMs);
+    if (decision.kind === 'rebuild') {
+      if (decision.repeatedRebuilds)
+        reportError(
+          new Error(
+            `Tournament ${tournamentId} is still in the same stall (${signature}) after its ` +
+              `backoff; ${by} rebuilds it again (repeat rebuild ${decision.repeatedRebuilds})`
+          ),
+          'GameServer.tournament_repeated_recovery_retried',
+          { tournamentId, signature, repeatedRebuilds: decision.repeatedRebuilds }
+        );
+      return true;
+    }
     const message =
       `Tournament ${tournamentId} was rebuilt by ${decision.previousBy} at ` +
       `${new Date(decision.previousAtMs).toISOString()} and is back in exactly the same stall ` +
-      `(${signature}); ${by} will not rebuild it again into the same wait`;
+      `(${signature}); ${by} holds the next rebuild until ` +
+      `${new Date(decision.retryAtMs).toISOString()} instead of rebuilding into the same wait`;
     const last = alerted.get(tournamentId);
     // Named once per window, like the page: a refusal repeated on every sweep
     // is the same fact, and a line per pass is how the one that changed is buried.
@@ -3976,6 +3995,7 @@ export class GameServer {
         signature,
         previousBy: decision.previousBy,
         repeats: decision.repeats,
+        retryAtMs: decision.retryAtMs,
       });
       void raiseFinancialAlert(
         'critical',

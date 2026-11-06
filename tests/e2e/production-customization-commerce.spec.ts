@@ -7,8 +7,10 @@ import {
   type Page,
 } from '@playwright/test';
 
+import { enrollCustomizationBrowser } from './support/customizationBrowserEnrollment';
 import { ensureAcceptedTerms } from './support/ensureAcceptedTerms';
 import { ensurePlayableProfile } from './support/ensurePlayableProfile';
+import { pageSaveAccepted } from './support/preferenceSaveProof';
 import {
   cleanupTemporaryCustomizationAccount,
   CLEANUP_FREEZE_ALLOWANCE_MS,
@@ -27,6 +29,7 @@ import {
 const CERTIFICATION_ENABLED = process.env.CUSTOMIZATION_COMMERCE_CERTIFICATION === '1';
 const RESPONSE_TIMEOUT = 60_000;
 const EXPECTED_PREMIUM_STOREFRONT_SKUS = 67;
+const studioOwners = new WeakMap<Page, string>();
 
 type Appearance = {
   table: string;
@@ -129,9 +132,7 @@ async function deployedStorefrontFeatures(studio: Locator): Promise<string[]> {
   ] as const) {
     // The visible label includes a choice count, so an exact accessible-name
     // lookup for just "Places & Rooms" / "Skins" can never match production.
-    const button = studio.getByRole('button', { name: new RegExp(`^${group.name}\\b`) });
-    await button.click();
-    await expect(button).toHaveAttribute('aria-pressed', 'true');
+    await activateBackgroundGroup(studio, group.name);
     await collectVisibleSurface(`Scenes / ${group.name}`, group.count, 'studio:background_id:');
   }
 
@@ -188,7 +189,8 @@ async function expectPersistedAppearance(
 async function signInTemporaryAccount(
   context: BrowserContext,
   baseURL: string,
-  account: TemporaryCustomizationAccount
+  account: TemporaryCustomizationAccount,
+  approvingPage?: Page
 ): Promise<Page> {
   const page = await context.newPage();
   await page.addInitScript(() => {
@@ -245,6 +247,7 @@ async function signInTemporaryAccount(
   );
   expect(await signedInUser.jsonValue()).toBe(account.id);
   await signedInUser.dispose();
+  studioOwners.set(page, account.id);
 
   await page.evaluate(() => localStorage.setItem('club_arena_welcome_accepted', 'true'));
   // The canonical lobby is intentionally a standalone full-bleed route. It
@@ -259,6 +262,9 @@ async function signInTemporaryAccount(
   if (page.url().includes('/auth')) {
     throw new Error(`Temporary customization account ${account.id} did not remain signed in.`);
   }
+  // Sign-in may finish on the shared site's landing route. Enrollment belongs
+  // to the Club Arena boot, so observe it only after entering this layout.
+  await enrollCustomizationBrowser(page, account, approvingPage);
   await ensureAcceptedTerms(page);
   await ensurePlayableProfile(page);
   await expect(page.getByRole('button', { name: 'Open Menu' }).first()).toBeVisible({
@@ -280,10 +286,56 @@ async function openStudio(page: Page): Promise<Locator> {
   return studio;
 }
 
+async function selectStudioPreference(
+  studio: Locator,
+  control: Locator,
+  attribute: 'aria-selected' | 'aria-pressed',
+  key: string,
+  value: string
+) {
+  if ((await control.getAttribute(attribute)) === 'true') return;
+  const ownerId = studioOwners.get(studio.page());
+  if (!ownerId) throw new Error('Table Studio preference proof has no verified account owner.');
+  // ARIA changes optimistically. Only the account's acknowledgement permits
+  // the next gesture; a stale-device conflict must remain a visible failure.
+  const saved = studio
+    .page()
+    .waitForResponse((response) => pageSaveAccepted(response, ownerId, key, value), {
+      timeout: RESPONSE_TIMEOUT,
+    });
+  await control.click();
+  await saved;
+  await expect(control).toHaveAttribute(attribute, 'true');
+}
+
 async function activateCategory(studio: Locator, name: string) {
-  const tab = studio.getByRole('tab', { name, exact: true });
-  await tab.click();
-  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  const values: Record<string, string> = {
+    Looks: 'themes',
+    Tables: 'table',
+    Scenes: 'background',
+    Buttons: 'button',
+    Cards: 'cards',
+    Decks: 'decks',
+  };
+  const value = values[name];
+  if (!value) throw new Error(`Unknown Table Studio category: ${name}`);
+  await selectStudioPreference(
+    studio,
+    studio.getByRole('tab', { name, exact: true }),
+    'aria-selected',
+    'tableStudio.tab:global',
+    value
+  );
+}
+
+async function activateBackgroundGroup(studio: Locator, name: string) {
+  await selectStudioPreference(
+    studio,
+    studio.getByRole('button', { name: new RegExp(`^${name}\\b`) }),
+    'aria-pressed',
+    'tableStudio.backgroundGroup:global',
+    name === 'Skins' ? 'skins' : 'places-rooms'
+  );
 }
 
 async function openPurchase(studio: Locator, category: string, assetName: string) {
@@ -302,7 +354,7 @@ async function openPurchase(studio: Locator, category: string, assetName: string
 async function applyAsset(studio: Locator, category: string, assetName: string) {
   await activateCategory(studio, category);
   if (category === 'Scenes') {
-    await studio.getByRole('button', { name: /^Places & Rooms/ }).click();
+    await activateBackgroundGroup(studio, 'Places & Rooms');
   }
   const asset = studio.getByRole('button', { name: assetName, exact: true });
   await expect(asset).toBeEnabled({ timeout: RESPONSE_TIMEOUT });
@@ -343,7 +395,7 @@ async function expectNoLockedAssets(studio: Locator) {
 
   await activateCategory(studio, 'Scenes');
   for (const group of ['Places & Rooms', 'Skins']) {
-    await studio.getByRole('button', { name: new RegExp(`^${group}`) }).click();
+    await activateBackgroundGroup(studio, group);
     await expect
       .poll(
         () =>
@@ -445,10 +497,10 @@ test.describe('production Table Studio commerce certification', () => {
       expect(await deployedStorefrontFeatures(firstStudio)).toEqual(
         skus.map((sku) => sku.feature).sort()
       );
-      const secondPage = await signInTemporaryAccount(secondDevice, baseURL, buyer);
+      const secondPage = await signInTemporaryAccount(secondDevice, baseURL, buyer, firstPage);
       const secondStudio = await openStudio(secondPage);
 
-      // Two independent devices press Buy against the same permanent SKU.
+      // Two independent paired browsers press Buy against the same permanent SKU.
       // Both requests must reach the RPC; one buys and one reconciles ownership.
       const firstDialog = await openPurchase(firstStudio, 'Tables', 'Neon City');
       const secondDialog = await openPurchase(secondStudio, 'Tables', 'Neon City');
@@ -572,19 +624,21 @@ test.describe('production Table Studio commerce certification', () => {
       // owner-filtered Realtime subscription must remove every lock without a reload.
       await expectNoLockedAssets(secondStudio);
 
-      await applyAsset(firstStudio, 'Looks', 'Neon Ice');
-      await expectAppearance(secondStudio, {
+      // Keep the device that just changed the shared tab/group preferences
+      // as writer. The first device stays open to prove live appearance delivery.
+      await applyAsset(secondStudio, 'Looks', 'Neon Ice');
+      await expectAppearance(firstStudio, {
         table: 'ice_cavern',
         background: 'galaxy',
         button: 'blue-crystal',
         cards: 'classic_blue',
         faceDeck: 'neon-circuit',
       });
-      await applyAsset(firstStudio, 'Tables', 'Neon City');
-      await applyAsset(firstStudio, 'Scenes', 'Las Vegas');
-      await applyAsset(firstStudio, 'Buttons', 'Amethyst Chip');
-      await applyAsset(firstStudio, 'Cards', 'Premium Gold');
-      await applyAsset(firstStudio, 'Decks', 'Neon Circuit');
+      await applyAsset(secondStudio, 'Tables', 'Neon City');
+      await applyAsset(secondStudio, 'Scenes', 'Las Vegas');
+      await applyAsset(secondStudio, 'Buttons', 'Amethyst Chip');
+      await applyAsset(secondStudio, 'Cards', 'Premium Gold');
+      await applyAsset(secondStudio, 'Decks', 'Neon Circuit');
       await expectPersistedAppearance(environment, buyer.id, FINAL_APPEARANCE);
       await expectAppearance(firstStudio, FINAL_APPEARANCE);
       await expectAppearance(secondStudio, FINAL_APPEARANCE);

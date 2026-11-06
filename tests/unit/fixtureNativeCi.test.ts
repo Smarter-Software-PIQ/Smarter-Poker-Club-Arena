@@ -739,6 +739,9 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/build-f06-stopped-bank-custody.py',
     'scripts/ci/probes/f06-shared-hand-lane/stopped-bank-fixture.sql',
     'scripts/ci/probes/f06-shared-hand-lane/stopped_bank_qualification.py',
+    'scripts/ci/probes/f06-shared-hand-lane/stopped_cancelled_qualification.py',
+    'scripts/ci/probes/f06-shared-hand-lane/stopped-cancelled-preimage.json',
+    'supabase/migrations/20261106160107_a_stopped_bank_capture_retains_its_acknowledged_preparation_.sql',
     'scripts/ci/schema-manifest.d/f06-stopped-bank-custody.json',
     'supabase/migrations/20260919032212_stopped_mtt_banks_survive_their_original_owner_transfer.sql',
     'scripts/ci/probes/f06-retired-origin-authority.sql',
@@ -787,6 +790,7 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/satellite_qualifier_concurrency.py',
     'scripts/ci/satellite_entry_club_native.py',
     'scripts/ci/ordinary_terminal_transport.py',
+    'scripts/ci/zero_pool_terminal_native.py',
     'scripts/ci/terminal_original_request_native.py',
     'scripts/ci/fixtures/terminal-original-request/custody-preimage.sql',
     'scripts/ci/fixtures/terminal-original-request/deal-consent.sql',
@@ -809,6 +813,13 @@ describe('required CI owns native fixture verification', () => {
       server: true,
       tests: true,
     });
+  });
+
+  it.each([
+    'scripts/ci/fixtures/tournament-abort/diamond/diamond_abort_native.py',
+    'scripts/ci/fixtures/tournament-abort/diamond/authenticated-payout-guards.json',
+  ])('runs existing accounting for authenticated Diamond payout input %s', (path) => {
+    expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
   });
 
   it('executes satellite settlement and retains exact receipts in accounting', () => {

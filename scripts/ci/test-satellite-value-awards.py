@@ -177,6 +177,30 @@ def main():
   e.sql(db,properties,label='single-properties-after')
   e.sql(db,file=single_scene,label='single-new-green',seconds=180)
   e.sql(db,file=composed,label='funded-value-ticket-cases',seconds=180)
+  # Reproduce the installed roster/terminal counter contract mismatch with
+  # real paid target admissions and the actual bust-trigger decrement.
+  live_owners=json.loads((fixture/'live-field-owners.json').read_text())
+  for owner in live_owners:
+   if hashlib.md5(owner['definition'].encode()).hexdigest()!=owner['definition_md5']:
+    raise ValueError('live field owner capture changed')
+   e.sql(db,owner['definition'],label='live-field-owner-'+owner['proname'])
+  live_scene=output/'live-field-cases.sql'
+  live_scene.write_text(seed+'\n'+(fixture/'live-field-cases.sql').read_text()+"\nSET CONSTRAINTS ALL IMMEDIATE; ROLLBACK;\n")
+  code,_,error=e.sql(db,file=live_scene,label='live-field-old-red',seconds=180,check=False)
+  if code==0 or 'malformed aggregate or escrow state' not in error:
+   raise ValueError('expected running target counter refusal absent: '+error[-3500:])
+  single_live_scene=output/'single-live-field-cases.sql'
+  single_live=(fixture/'live-field-cases.sql').read_text().replace("pg_temp.qualifier_case('live_field',2,false)","pg_temp.single_value_case('live_field',1,false)").replace('public.fn_settle_satellite_qualifiers(s,q)','public.fn_settle_satellite_tournament(s,q[1])')
+  single_live_scene.write_text(one_seed+creator+'\n'+single_live+"\nSET CONSTRAINTS ALL IMMEDIATE; ROLLBACK;\n")
+  code,_,error=e.sql(db,file=single_live_scene,label='single-live-field-old-red',seconds=180,check=False)
+  if code==0 or 'malformed aggregate or escrow state' not in error:
+   raise ValueError('expected single running target refusal absent: '+error[-3500:])
+  live_candidate=next((root/'supabase/migrations').glob('*_satellite_settlement_uses_the_running_live_field_count.sql'))
+  e.sql(db,file=live_candidate,label='live-field-exact-migration',seconds=30)
+  code,_,error=e.sql(db,file=live_candidate,label='live-field-replay-refused',seconds=30,check=False)
+  if code==0 or 'SATELLITE_LIVE_FIELD_PREIMAGE_CHANGED' not in error: raise ValueError('migration replay must refuse changed source')
+  e.sql(db,file=live_scene,label='live-field-new-green',seconds=180)
+  e.sql(db,file=single_live_scene,label='single-live-field-new-green',seconds=180)
   qualify_concurrent_consumption(e,root,native,db,output,seed,scene.read_text(),diamond_seed,(fixture/'native-diamond-cases.sql').read_text())
   e.report.update(passed=True,status='passed')
  finally:

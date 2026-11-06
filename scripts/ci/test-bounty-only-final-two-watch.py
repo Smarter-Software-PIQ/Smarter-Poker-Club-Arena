@@ -214,3 +214,7 @@ finally:
     shutil.rmtree(work, ignore_errors=True)
     shutil.rmtree(sock, ignore_errors=True)
     tcp_guard.close()
+
+# The follow-up (20261106105853: the watch alerts only a real miss) is proved on
+# its own fresh cluster, from this same CI step.
+subprocess.run(['python3', '-B', str(ROOT / 'scripts/ci/test-bounty-only-final-two-watch-real-misses.py')], check=True, timeout=300)
