@@ -62,3 +62,27 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/ops -p test_ho
 ```
 
 The maintained Horse study test wrapper also discovers this Python test. Tests cover manually known showdown/economic cases, weighted ranges, response sensitivity, size/card/context refusals, short calls and private CLI behavior. They do not independently qualify the underlying evaluator, calibrate a response model or authorize activation. Every output retains `qualified`, `gtoVerified` and `activationAllowed` as false.
+
+## Captured chip-rake comparison
+
+The optional `costModel: "captured-chip-rake-v1"` binds `capturedOriginal.informationSet`
+to its exact `informationSha256`, and requires `capturedDeductions` to equal the
+original node's captured deduction configuration. Omit `context.rakeUnits` in this
+mode: rake depends on each terminal pot, not a single constant. All other original
+scope restrictions remain. Only two dealt, active seats, equal original investments,
+zero ante/dead chips, a checked-to button on the river, chips with 0.01 units,
+and high-only PLO4/5/6 are supported. BBJ collection must be inapplicable.
+
+The finite terminal bridge uses the repository's installed root `esbuild` in memory
+(no output bundle/cache), and calls `prepareJointPots`, `settleJointScores`, and
+`applyJointDeductions`. It retains their uncalled refunds, heads-up rake-rate ceiling,
+player-count cap, gross-pot odd-cent allocation, and subsequent single-board rake
+scaling. It does not replace these with a split of the net pot. Source-file hashes,
+original information hash, deductions and every terminal price are returned.
+
+Only public amounts, seats and deduction rules enter that bridge. Full hypothetical
+holdings remain in the independent Python Omaha evaluator. A hash validates supplied
+bytes, not authenticity; `originalRuntimeAuthenticated`, `qualified`, `gtoVerified`
+and `activationAllowed` stay false. Explicit range weights and size-specific responses
+remain assumptions. Raises, facing bets, tournament utility, split-low, multiway,
+antes/dead money and omitted original context remain refused.

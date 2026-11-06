@@ -281,7 +281,9 @@ export function incrementalDevelopmentDesign(target: IncrementalTarget) {
 }
 export function incrementalHistoryVersion(target?: IncrementalTarget) {
   if (target === 'small_pot_near_nut_value_raise')
-    return `${target}-physical-public-node-warm-v3-${NEAR_NUT_WARM_PUBLIC_HANDS}`;
+    // v4: the union of the #9624 bound change (v2) and the #9663 corpus
+    // change (v3); a cache warmed under either alone must not be reused.
+    return `${target}-physical-public-node-warm-v4-${NEAR_NUT_WARM_PUBLIC_HANDS}`;
   if (isSeparateRiverTarget(target)) return `${target}-physical-public-node-warm-v1`;
   return target === 'pressure_package'
     ? 'five-flag-pressure-package-warm-v1'

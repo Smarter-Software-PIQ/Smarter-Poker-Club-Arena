@@ -286,6 +286,7 @@ describe('atomic add-on card evidence', () => {
   afterEach(() => {
     document.body.replaceChildren();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
   function fixture() {
     document.body.innerHTML = `<div class="break-screen">
@@ -301,7 +302,14 @@ describe('atomic add-on card evidence', () => {
       width: 100,
       height: 20,
     } as DOMRect);
-    return { evaluate: vi.fn(async (capture: () => unknown) => capture()) };
+    return {
+      evaluate: vi.fn(
+        async (
+          capture: (expected?: { cost: string; chips: string }) => unknown,
+          expected?: { cost: string; chips: string }
+        ) => capture(expected)
+      ),
+    };
   }
   it('captures labels, price, chips, timer, count and browser time in one evaluation', async () => {
     const page = fixture();
@@ -347,6 +355,52 @@ describe('atomic add-on card evidence', () => {
     expect((await readAddOnCard(page as unknown as Pick<Page, 'evaluate'>)).titleVisible).toBe(
       false
     );
+  });
+  it('accepts readiness within five browser seconds despite a delayed protocol response', async () => {
+    const page = fixture();
+    vi.useFakeTimers();
+    const title = document.querySelector('h2')!;
+    title.style.visibility = 'hidden';
+    setTimeout(() => {
+      title.style.visibility = 'visible';
+    }, 3900);
+    const delayed = {
+      evaluate: async (capture: (expected: unknown) => Promise<unknown>, expected: unknown) => {
+        const sample = await capture(expected);
+        await new Promise((resolve) => setTimeout(resolve, 3600));
+        return sample;
+      },
+    };
+    const pending = readAddOnCard(delayed as Pick<Page, 'evaluate'>, {
+      cost: '35',
+      chips: '20,000',
+    });
+    await vi.advanceTimersByTimeAsync(7600);
+    const sample = await pending;
+    expect(sample.readinessPassed).toBe(true);
+    expect(sample.readinessElapsedMs).toBe(3900);
+    expect(sample.receivedAt - sample.readinessStartedAt).toBeGreaterThan(5000);
+    expect(sample.readinessSamples[0].ready).toBe(false);
+    expect(sample.readinessSamples.at(-1)?.ready).toBe(true);
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+  it('still rejects a DOM that becomes ready after the five-second browser deadline', async () => {
+    const page = fixture();
+    vi.useFakeTimers();
+    const title = document.querySelector('h2')!;
+    title.style.visibility = 'hidden';
+    setTimeout(() => {
+      title.style.visibility = 'visible';
+    }, 5100);
+    const pending = readAddOnCard(page as unknown as Pick<Page, 'evaluate'>, {
+      cost: '35',
+      chips: '20,000',
+    });
+    await vi.advanceTimersByTimeAsync(5200);
+    const sample = await pending;
+    expect(sample.readinessPassed).toBe(false);
+    expect(sample.readinessElapsedMs).toBe(5000);
+    expect(sample.titleVisible).toBe(false);
   });
   it('retains missing values and refuses duplicate exact labels instead of fabricating proof', async () => {
     const page = fixture();

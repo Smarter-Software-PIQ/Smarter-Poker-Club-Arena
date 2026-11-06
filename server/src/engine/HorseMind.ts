@@ -14,11 +14,14 @@ import {
   opponentMemoryKey,
   validOpponentProfile,
   type DurableOpponentProfile,
-  blendOpponentMemory,
+  blendOpponentMemoryWithExpiry,
+  computeDonorHandClockStaleness,
+  OPPONENT_MEMORY_THIN_HANDS,
   opponentMemoryDonors,
   opponentProfileVersion,
   type MemoryMode,
   type MemorySize,
+  type MemoryVariant,
 } from './HorseOpponentMemory.js';
 import {
   respectWinner,
@@ -76,6 +79,10 @@ import type { Card, SeatPlayer, ActionRecord } from '../types.js';
 import { RANK_VALUES } from './PokerEngine.js';
 import type { OppPostflopRead } from './HorseEval.js';
 import { horseDecisionEffectsAreValid, horseMindHandKey } from './HorseDecisionEffects.js';
+import {
+  computeContinuationContenderFingerprint,
+  type ContinuationContenderFingerprint,
+} from './HorseContinuationPlanInvalidation.js';
 import { horseMindHandIdentityKey, type HorseMindHandIdentity } from './HorseMindHandIdentity.js';
 import {
   mergeHorseObservationWindows,
@@ -345,6 +352,10 @@ export interface HorseMindSandbox {
   /** 2026-10-16 opponent exploit: decayed per-(scope, player) counters,
    *  keyed `${scope}|${userId}`. Memory only, never flushed to the DB. */
   exploit: Map<string, ExploitCounters>;
+  /** Items 21 and 23 (2026-11-05): the contender and stack-exposure
+   *  fingerprint a planned barrel expects to meet on the next street, keyed
+   *  like outlooks. Absent only on predecessor snapshots. */
+  planFingerprints?: Map<string, ContinuationContenderFingerprint>;
 }
 
 /** V23: what hero decided AT BET TIME it would do about a raise. */
@@ -378,6 +389,20 @@ export type HorseMindDecisionEffect =
       userId: string;
       street: string;
       plan: RaiseResponsePlan;
+    }
+  | {
+      /** Items 21 and 23: the next-street state the planned barrel expects
+       * (every live contender including hero, effective stack and pot in
+       * chips after the planned wager is matched once). Public information
+       * only: seat occupancy and chip counts. */
+      type: 'plan_fingerprint';
+      handKey: string;
+      userId: string;
+      street: string;
+      contenderIds: string[];
+      effectiveStackChips: number;
+      potChips: number;
+      bigBlindChips: number;
     };
 
 export interface CapturedHorseMindDecision<T> {
@@ -495,6 +520,11 @@ export class HorseMind {
   private static decisionMode: MemoryMode = 'cash';
   private static durableOpponentMemory = false;
   private static durableOpponentVersions = new Map<string, number>();
+  /** Item 12 (2026-11-05): the player's pooled hand clock (OpponentStats.hands
+   *  in this process) at the moment each durable row was last imported. A
+   *  donor bucket's staleness is the distance from this mark to the player's
+   *  current clock, never `exact.observed_hands - donor.observed_hands`. */
+  private static durableOpponentImportClock = new Map<string, number>();
   private static decisionVariant: string | null = null;
   /** dedupe of processed ActionRecords across repeated decide() calls */
   private static seenActions = new Set<string>();
@@ -774,6 +804,8 @@ export class HorseMind {
           const before = { ...row };
           row.riverLastToActOpps = (row.riverLastToActOpps ?? 0) + inc.opportunities;
           row.riverLastToActBets = (row.riverLastToActBets ?? 0) + inc.bets;
+          // Receipt (#8386): a last-to-act river opportunity was counted.
+          noteFire('river_last_to_act_counted');
           row.sourceWindow = observeHorseObservationWindow(
             before.sourceWindow,
             action.timestamp,
@@ -881,6 +913,15 @@ export class HorseMind {
     }>,
     scope: ReadScope
   ): void {
+    // Item 12 opportunity-scoped decay (decayAndAddOpportunityScoped) stays
+    // OFF here on purpose (2026-11-05): it freezes a player's postflop
+    // statistics on every hand that offers no such spot, so a maniac who
+    // turns into a nit (folding preflop, no postflop opportunities) stayed
+    // read as a maniac indefinitely. That contradicts the registered law
+    // HorseManiacPressure.law.test.ts (a style change is seen within 25
+    // hands, both ways). Reconciling the two is a strategy decision the
+    // Item 12 design never settled; see
+    // docs/changelog/2026-11-05-dormant-decision-readiness-layers-activated.md.
     for (const [userId, increments] of exploitHandIncrements(actions))
       observeExploitRow(this.exploitCounters, `${scope}|${userId}`, increments, EXPLOIT_ROW_CAP);
   }
@@ -951,19 +992,54 @@ export class HorseMind {
       this.exploitCounters.delete(key);
       this.exploitCounters.set(key, { ...p.counters });
       this.durableOpponentVersions.set(key, version);
+      this.durableOpponentImportClock.set(key, this.stats.get(p.user_id)?.hands ?? 0);
       applied++;
     }
     while (this.exploitCounters.size > EXPLOIT_ROW_CAP) {
       const key = this.exploitCounters.keys().next().value!;
       this.exploitCounters.delete(key);
       this.durableOpponentVersions.delete(key);
+      this.durableOpponentImportClock.delete(key);
     }
     if (this.durableOpponentVersions.size > EXPLOIT_ROW_CAP)
       for (const key of this.durableOpponentVersions.keys()) {
-        if (!this.exploitCounters.has(key)) this.durableOpponentVersions.delete(key);
+        if (!this.exploitCounters.has(key)) {
+          this.durableOpponentVersions.delete(key);
+          this.durableOpponentImportClock.delete(key);
+        }
         if (this.durableOpponentVersions.size <= EXPLOIT_ROW_CAP) break;
       }
     return applied;
+  }
+
+  private static blendDurableRead(
+    userId: string,
+    variant: MemoryVariant,
+    size: MemorySize
+  ): ExploitCounters | undefined {
+    const exact = this.exploitCounters.get(
+      opponentMemoryKey(userId, variant, this.decisionMode, size)
+    );
+    const donorKeys = opponentMemoryDonors(this.decisionMode, size).map(([mode, donorSize]) =>
+      opponentMemoryKey(userId, variant, mode, donorSize)
+    );
+    const donors = donorKeys.map((key) => this.exploitCounters.get(key));
+    const handClock = this.stats.get(userId)?.hands ?? 0;
+    let donorClock = handClock;
+    for (const key of donorKeys) {
+      const mark = this.durableOpponentImportClock.get(key);
+      if (mark !== undefined && mark < donorClock) donorClock = mark;
+    }
+    const staleness = computeDonorHandClockStaleness(donorClock, handClock);
+    const blended = blendOpponentMemoryWithExpiry(exact, donors, staleness);
+    const consultedDonor =
+      !(exact && exact.hands >= OPPONENT_MEMORY_THIN_HANDS) && donors.some((row) => !!row);
+    if (consultedDonor) {
+      if (blended === exact) noteFire('opponent_memory_donor_expired');
+      else if (staleness > 0) noteFire('opponent_memory_donor_stale');
+      else noteFire('opponent_memory_donor_fresh');
+    }
+    return blended;
   }
 
   static opponentRead(userId: string): OpponentExploitRead | null {
@@ -973,14 +1049,11 @@ export class HorseMind {
     const size = scope.split(':')[1] as MemorySize;
     // A NEW TABLE IS NOT A NEW PLAYER (2026-10-24): a thin or missing exact
     // context borrows the nearest one this worker knows (blendOpponentMemory).
-    const durable = variant
-      ? blendOpponentMemory(
-          this.exploitCounters.get(opponentMemoryKey(userId, variant, this.decisionMode, size)),
-          opponentMemoryDonors(this.decisionMode, size).map(([mode, donorSize]) =>
-            this.exploitCounters.get(opponentMemoryKey(userId, variant, mode, donorSize))
-          )
-        )
-      : undefined;
+    // Item 12 (2026-11-05): the borrowed bucket is weighed by how long ago it
+    // was last refreshed on this player's own hand clock
+    // (blendOpponentMemoryWithExpiry: 120-hand half-life, and a taper to zero
+    // as the exact row reaches its own thin line, so there is no step at 12).
+    const durable = variant ? this.blendDurableRead(userId, variant, size) : undefined;
     // A KNOWN MANIAC IS A MANIAC AT EVERY TABLE SIZE (2026-10-25): the same
     // game's sibling table size, read against ITS own envelope, may
     // corroborate a statistic this size already places past every horse.
@@ -1206,6 +1279,8 @@ export class HorseMind {
     this.dirtyScoped.clear();
     this.exploitCounters.clear();
     this.durableOpponentVersions.clear();
+    this.durableOpponentImportClock.clear();
+    this.planFingerprints.clear();
     this.durableOpponentMemory = false;
     this.decisionMode = 'cash';
     this.decisionScope = null;
@@ -1462,6 +1537,13 @@ export class HorseMind {
         );
       } else if (effect.type === 'raise_plan') {
         this.noteRaisePlan(effect.handKey, effect.userId, effect.street, effect.plan);
+      } else if (effect.type === 'plan_fingerprint') {
+        this.notePlanFingerprint(effect.handKey, effect.userId, effect.street, {
+          contenderIds: [...effect.contenderIds],
+          effectiveStackChips: effect.effectiveStackChips,
+          potChips: effect.potChips,
+          bigBlindChips: effect.bigBlindChips,
+        });
       } else {
         const neverEffect: never = effect;
         throw new Error(`HorseMind.applyDecisionEffects: unknown effect ${String(neverEffect)}`);
@@ -1483,6 +1565,7 @@ export class HorseMind {
       scoped: new Map(),
       dirtyScoped: new Set(),
       exploit: new Map(),
+      planFingerprints: new Map(),
     };
   }
 
@@ -1563,6 +1646,12 @@ export class HorseMind {
             good: new Set(outlook.good),
             scare: new Set(outlook.scare),
           });
+        const fingerprint = this.planFingerprints.get(streetKey);
+        if (fingerprint)
+          (view.planFingerprints ??= new Map()).set(streetKey, {
+            ...fingerprint,
+            activeContenderIds: [...fingerprint.activeContenderIds],
+          });
       }
     }
     return view;
@@ -1595,6 +1684,7 @@ export class HorseMind {
       scoped: this.scoped,
       dirtyScoped: this.dirtyScoped,
       exploit: this.exploitCounters,
+      planFingerprints: this.planFingerprints,
     };
     this.stats = sandbox.stats;
     // A sandbox built before the exploit layer (or by a caller that only
@@ -1610,6 +1700,9 @@ export class HorseMind {
     this.plans = sandbox.plans;
     this.raisePlans = sandbox.raisePlans;
     this.outlooks = sandbox.outlooks;
+    // A snapshot taken before the fingerprint layer reads as "no plan
+    // fingerprint", never as the live map.
+    this.planFingerprints = sandbox.planFingerprints ?? new Map();
     this.sandboxDepth = 1;
     this.decisionScope = null;
     this.decisionVariant = null;
@@ -1625,6 +1718,7 @@ export class HorseMind {
       this.plans = live.plans;
       this.raisePlans = live.raisePlans;
       this.outlooks = live.outlooks;
+      this.planFingerprints = live.planFingerprints;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;
@@ -1701,6 +1795,9 @@ export class HorseMind {
     let pot = forced ? 0 : (initial?.pot ?? (bigBlind > 0 ? bigBlind * 1.5 : 3));
     let curStreet: string = 'preflop';
     let newestStreetBigBet = false;
+    // Receipt only (#8563): a capped all-in call of 20bb or more on the
+    // newest street, which the range read refuses to count as a big bet.
+    let newestStreetCappedAllIn = false;
     let streetBets = new Map<string, number>(initial?.streetBets);
     let price = Math.max(bigBlind > 0 ? bigBlind : 0, ...streetBets.values());
     const userBySeat = new Map(history.map((entry) => [entry.seat, entry.userId]));
@@ -1709,6 +1806,7 @@ export class HorseMind {
       if (a.stage !== curStreet) {
         curStreet = a.stage;
         newestStreetBigBet = false;
+        newestStreetCappedAllIn = false;
         streetBets = new Map();
         price = 0;
       }
@@ -1752,6 +1850,12 @@ export class HorseMind {
       // existing 20bb street-total threshold and newest-street scope.
       if (a.userId === userId && isAggr && a.amount >= 20 * (bigBlind > 0 ? bigBlind : 1)) {
         newestStreetBigBet = true;
+      } else if (
+        a.userId === userId &&
+        kind === 'all_in' &&
+        a.amount >= 20 * (bigBlind > 0 ? bigBlind : 1)
+      ) {
+        newestStreetCappedAllIn = true;
       }
 
       if (a.stage !== 'preflop') {
@@ -1975,6 +2079,10 @@ export class HorseMind {
       // V16: the newest street's large AGGRESSIVE wager, classified above
       // against its actual price rather than the all_in action label alone.
       if (newestStreetBigBet) readOut.bigBet = true;
+      // Receipt (#8563): the big-bet read classified the newest street's
+      // wager against its price, or refused a capped all-in call as one.
+      if (newestStreetBigBet) noteFire('range_read_big_bet_counted');
+      else if (newestStreetCappedAllIn) noteFire('range_read_capped_all_in_not_big_bet');
     }
 
     lo = Math.max(0, Math.min(0.9, lo));
@@ -2191,6 +2299,81 @@ export class HorseMind {
     if (o.good.has(cardKey)) return 'good';
     if (o.scare.has(cardKey)) return 'scare';
     return 'blank';
+  }
+
+  /** The full outlook the bet on `street` recorded (copies), for the
+   *  multi-street plan evaluation; undefined when none was recorded. */
+  static outlookCards(
+    handKey: string | null,
+    userId: string,
+    street: string
+  ): { good: string[]; scare: string[] } | undefined {
+    if (!handKey) return undefined;
+    const o = this.outlooks.get(`${handKey}|${userId}|${street}`);
+    if (!o) return undefined;
+    return { good: [...o.good], scare: [...o.scare] };
+  }
+
+  /**
+   * ═══ ITEMS 21 AND 23 PLAN FINGERPRINT (2026-11-05) ═══
+   * Beside the barrel plan and its outlook, the bet records the next-street
+   * state it expects: which players are still contending (hero included),
+   * and the effective stack and pot once the wager is matched once. The next
+   * street compares what actually arrived against it
+   * (evaluateMultiStreetBarrelContinuation): a contender the plan never
+   * expected, or a stack-to-pot exposure far from the planned one, withdraws
+   * the plan before it fires. Written through the effect sink like every
+   * other intent, so it lands only for the accepted wager. Bounded like the
+   * other plan maps.
+   */
+  private static planFingerprints = new Map<string, ContinuationContenderFingerprint>();
+
+  static notePlanFingerprint(
+    handKey: string | null,
+    userId: string,
+    street: string,
+    expected: {
+      contenderIds: readonly string[];
+      effectiveStackChips: number;
+      potChips: number;
+      bigBlindChips: number;
+    }
+  ): void {
+    if (!handKey) return;
+    if (this.decisionEffectSink) {
+      this.decisionEffectSink.push({
+        type: 'plan_fingerprint',
+        handKey,
+        userId,
+        street,
+        contenderIds: [...expected.contenderIds],
+        effectiveStackChips: expected.effectiveStackChips,
+        potChips: expected.potChips,
+        bigBlindChips: expected.bigBlindChips,
+      });
+      return;
+    }
+    if (this.planFingerprints.size > this.MAX_PLANS)
+      evictOldest(this.planFingerprints, this.MAX_PLANS);
+    this.planFingerprints.set(
+      `${handKey}|${userId}|${street}`,
+      computeContinuationContenderFingerprint(
+        expected.contenderIds,
+        expected.effectiveStackChips,
+        expected.potChips,
+        expected.bigBlindChips
+      )
+    );
+  }
+
+  /** The fingerprint the wager on `street` recorded, or undefined. */
+  static planFingerprintOf(
+    handKey: string | null,
+    userId: string,
+    street: string
+  ): ContinuationContenderFingerprint | undefined {
+    if (!handKey) return undefined;
+    return this.planFingerprints.get(`${handKey}|${userId}|${street}`);
   }
 
   /**
@@ -2789,6 +2972,8 @@ export class HorseMind {
           const s = touch(sample.userId);
           s.riverCallSD++;
           if (sample.weak) s.riverCallSDWeak++;
+          // Receipt (#8160, #8214): a shown river call taught the caller read.
+          noteFire('river_call_showdown_learned');
         }
       }
       mirror();

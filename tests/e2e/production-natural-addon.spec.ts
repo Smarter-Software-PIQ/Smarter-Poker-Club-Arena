@@ -260,26 +260,15 @@ test('every captured natural add-on table renders its public minute', async ({
     window: NonNullable<ReturnType<typeof addOnWindow>>,
     phase: string
   ) {
-    let sample: Awaited<ReturnType<typeof readAddOnCard>>;
-    await expect
-      .poll(
-        async () => {
-          sample = await readAddOnCard(page);
-          evidence.cardSamples ??= [];
-          evidence.cardSamples.push({ tableId, phase, ...sample });
-          return (
-            sample.dialogVisible &&
-            sample.titleVisible &&
-            sample.closingVisible &&
-            sample.pausedVisible &&
-            sample.cost === window.cost.toLocaleString('en-US') &&
-            sample.chips === window.chips.toLocaleString('en-US')
-          );
-        },
-        { timeout: 5000, message: `Add-on card is not ready for ${tableId} at ${phase}` }
-      )
-      .toBe(true);
-    const current = sample!;
+    const current = await readAddOnCard(page, {
+      cost: window.cost.toLocaleString('en-US'),
+      chips: window.chips.toLocaleString('en-US'),
+    });
+    evidence.cardSamples ??= [];
+    evidence.cardSamples.push({ tableId, phase, ...current });
+    expect(current.readinessPassed, `Add-on card is not ready for ${tableId} at ${phase}`).toBe(
+      true
+    );
     expect(current.titleVisible).toBe(true);
     expect(current.closingVisible).toBe(true);
     expect(current.pausedVisible).toBe(true);

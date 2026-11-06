@@ -6,6 +6,7 @@
  * that the runbook and the secret-backup script are present, name the one
  * component that lives on a single disk, and never leak a value.
  */
+import { createHash } from 'node:crypto';
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -114,7 +115,14 @@ function standbyShell(body: string, files: Record<string, unknown> = {}) {
   }
 }
 const validCopy = {
-  'database.json': { restoredAt: '2026-11-06T17:00:00Z', restoreErrors: 0, restoreValidated: true },
+  'database.json': {
+    restoredAt: '2026-11-06T17:00:00Z',
+    restoreErrors: 0,
+    restoreValidated: true,
+    ownersSha256: createHash('sha256')
+      .update(readFileSync(root('server/standby/standby-owners.sql')))
+      .digest('hex'),
+  },
   'seed.json': { seededAt: '2026-11-06T17:01:00Z', tablesFailed: 0 },
 };
 
@@ -148,10 +156,55 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     ).toBe(true);
   });
 
+  it('aligns standalone sequences after owning tables without broadening grants', () => {
+    const sql = readFileSync(root('server/standby/standby-owners.sql'), 'utf8');
+    expect(sql).toContain("c.relkind IN ('r','p','v','m','f','S')");
+    expect(sql).toContain("ORDER BY (c.relkind = 'S'), n.nspname, c.relname");
+    expect(sql).toContain("WHEN 'S' THEN 'SEQUENCE'");
+    expect(sql).not.toMatch(/GRANT\s/i);
+  });
+
+  it.each(['success', 'ssh-failure', 'tee-failure'])(
+    'retains a certificate verdict under bash errexit (%s)',
+    (mode) => {
+      const workflow = readFileSync(root('.github/workflows/backup-engine.yml'), 'utf8');
+      const start = workflow.indexOf(
+        '          if ssh -i ~/.ssh/standby -o ServerAliveInterval=30'
+      );
+      const end = workflow.indexOf('          exit 0', start);
+      const body = workflow.slice(start, end);
+      const result = standbyShell(`
+      cd "$STATE_DIR"
+      STANDBY_HOST=fixture SHA=fixture GITHUB_OUTPUT="$STATE_DIR/output"
+      ssh() { printf '%s\\n' '{"reasons":["fixture_refusal"]}'; [ '${mode}' != ssh-failure ]; }
+      tee() { command tee "$@"; [ '${mode}' != tee-failure ]; }
+      ${body}
+      cat "$GITHUB_OUTPUT" certificate.json
+    `);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(mode === 'success' ? 'rc=0' : 'rc=1');
+      expect(result.stdout.trim()).toMatch(/\{"reasons":\["fixture_refusal"\]\}$/);
+    }
+  );
+
+  it('passes Docker a supported epoch timestamp while retaining log read failures', () => {
+    const result = standbyShell(`
+      docker() { [ "$1" = logs ] && [ "$2" = --since ] && [ "$3" = 1793999125 ] || return 19; echo healthy; }
+      count_fatal_logs 1793999125 fixture
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('0');
+  });
+
   it('admits only a zero-error restore with its successful seed', () => {
     expect(standbyShell('assert_valid_copy', validCopy).status).toBe(0);
     for (const files of [
       {},
+      { ...validCopy, 'database.json': { ...validCopy['database.json'], ownersSha256: undefined } },
+      {
+        ...validCopy,
+        'database.json': { ...validCopy['database.json'], ownersSha256: '0'.repeat(64) },
+      },
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreErrors: 7 } },
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreValidated: false } },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], tablesFailed: 1 } },
@@ -162,6 +215,44 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
     ])
       expect(standbyShell('assert_valid_copy', files).status).not.toBe(0);
   });
+
+  it.each(['matching', 'missing', 'changed'])(
+    'refresh selection binds the exact owner source (%s)',
+    (mode) => {
+      const workflow = readFileSync(root('.github/workflows/backup-engine.yml'), 'utf8');
+      const stamp = workflow
+        .split('\n')
+        .find((line) => line.trimStart().startsWith('stamp=$(ssh'))!;
+      const database = {
+        ...validCopy['database.json'],
+        ownersSha256:
+          mode === 'matching'
+            ? validCopy['database.json'].ownersSha256
+            : mode === 'missing'
+              ? undefined
+              : '0'.repeat(64),
+      };
+      const result = standbyShell(
+        `
+      STANDBY_HOST=fixture
+      owners_sha='${validCopy['database.json'].ownersSha256}'
+      ssh() {
+        local command="\${@: -1}"
+        local prefix=/var/lib/club-arena-standby
+        command="\${command//$prefix/$STATE_DIR}"
+        bash -c "$command"
+      }
+      ${stamp}
+      printf '%s' "$stamp"
+    `,
+        { ...validCopy, 'database.json': database }
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toBe(
+        mode === 'matching' ? validCopy['database.json'].restoredAt : '1970-01-01T00:00:00Z'
+      );
+    }
+  );
 
   it.each(['restore', 'owners', 'role', 'extension'])(
     'propagates %s failure and invalidates the previous receipt even under a conditional caller',
@@ -180,6 +271,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       }
       docker() {
         case "$*" in
+          *'sha256sum /tmp/owners.sql'*) printf '%064d  /tmp/owners.sql\n' 0; return 0;;
           *'pg_restore --list'*) echo '5; 2615 2200 SCHEMA - public postgres'; return 0;;
           *'pg_restore -U'*) [ '${fault}' != restore ] || return 19;;
           *'-f /tmp/owners.sql'*) [ '${fault}' != owners ] || return 19;;
@@ -304,6 +396,7 @@ with patch.object(subprocess, 'run', side_effect=[SimpleNamespace(stdout='"expec
       sha256sum() { echo fixture; }
       docker() {
         case "$*" in
+          *'sha256sum /tmp/owners.sql'*) printf '%064d  /tmp/owners.sql\\n' 0;;
           *'pg_restore --list'*) printf '%s\\n' '5; 2615 2200 SCHEMA - public postgres' '6; 1259 1 TABLE public existing postgres' '7; 2606 2 CHECK CONSTRAINT public existing historical_not_valid postgres' '8; 2606 3 FK CONSTRAINT public existing existing_fk postgres' '9; 0 0 COMMENT public CONSTRAINT historical_not_valid ON existing postgres';;
         esac
         return 0
@@ -370,6 +463,8 @@ with patch.object(subprocess, 'run', side_effect=[SimpleNamespace(stdout='"expec
       'name: Publish the verdict on the exact commit\n        if: always()'
     );
     expect(workflow).toContain('restoreValidated');
+    expect(workflow).toContain('sha256sum server/standby/standby-owners.sql');
+    expect(workflow).toContain('ownersSha256');
     expect(workflow).toContain('tablesFailed');
   });
 });

@@ -1791,6 +1791,8 @@ export class LightningHandHost {
           // already folding: it waits for its turn and decides afresh.
           spent();
           retireHorseExecutionWitness(witness, 'turn_abandoned');
+          // Receipt (#7958, #7993): the early look was priced and did not fold.
+          noteFire('lightning_horse_fast_fold_considered');
           return;
         }
         // Already folding: the fold lands when a person who looked at the
@@ -1868,6 +1870,9 @@ export class LightningHandHost {
       }
     );
     if (!out.success) return false;
+    // Receipt (#7958, #7993): an already-folding horse pressed Lightning Fold
+    // at a person's look-and-press time.
+    noteFire('lightning_horse_fast_fold');
     return true;
   }
 

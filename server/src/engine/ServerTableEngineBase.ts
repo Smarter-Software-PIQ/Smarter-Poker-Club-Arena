@@ -1,5 +1,6 @@
 import { broadcastTimeBankActivation } from '../services/timeBankBroadcast.js';
 import { cashRakeScope } from '../config/cashRakePolicy.js';
+import { noteFire } from './BrainTelemetry.js';
 import { isPreExecutionDbUnavailable } from './committedSeatStackRead.js';
 import { SeatSitOutPersistence } from './SeatSitOutPersistence.js';
 import { randomUUID } from 'node:crypto';
@@ -4993,6 +4994,8 @@ export abstract class ServerTableEngineBase {
     this.currentHandInsuranceSettlements.length = 0;
     this.currentHandTimerLog.length = 0;
     this.currentHandNotificationLog.length = 0;
+    // Receipt (#9351): a closed table released its per-hand memory.
+    noteFire('closed_table_hand_memory_released');
     return true;
   }
 

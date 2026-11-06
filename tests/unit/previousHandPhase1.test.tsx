@@ -17,6 +17,7 @@ import {
   HAND_HISTORY_PAGE,
   HAND_HISTORY_STALE_MS,
   handDeepLink,
+  handShareLink,
   prependHand,
   mergeHandHistoryPages,
   shouldRefetchHandHistory,
@@ -25,6 +26,7 @@ import HandHistoryPanel from '@/components/table/HandHistoryPanel';
 import { HandDetailModal } from '@/components/table/HandDetailModal';
 import { adaptServiceHandToPanel } from '@/lib/handHistoryAdapter';
 import { routerBasenameFrom } from '@/lib/appBase';
+import { decodeHandFromUrl } from '@/components/table/ShareHand';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '../../', p), 'utf8');
 afterEach(cleanup);
@@ -108,6 +110,14 @@ describe('a saved hand lands in the list', () => {
   });
 });
 
+describe('the link a player sends', () => {
+  it('carries the hand in the address, under the app base path', () => {
+    expect(handShareLink('v4~abc', 'https://smarter.poker')).toBe(
+      'https://smarter.poker/hub/club-arena/replay?h=v4~abc'
+    );
+  });
+});
+
 describe('the deep link', () => {
   it('opens the archive on the hand, under the app base path', () => {
     expect(handDeepLink('abc-123', 'https://smarter.poker')).toBe(
@@ -127,10 +137,12 @@ describe('the deep link', () => {
     ).toBe(true);
   });
 
-  it('is what the modal copies, and the archive reads', () => {
-    expect(read('src/components/table/HandDetailModal.tsx')).toContain(
-      "copyText('link', handDeepLink(hand.id))"
-    );
+  it('is what the archive reads, and is NOT what the modal copies', () => {
+    // 2026-11-06: the archive deep link only opens for players dealt into the
+    // hand (RLS). Copied and sent to a friend it opened HIS OWN history.
+    const modal = read('src/components/table/HandDetailModal.tsx');
+    expect(modal).not.toContain('handDeepLink(');
+    expect(modal).toContain('handShareLink(encodeHand(panelHandToShareable(');
     const page = read('src/pages/HandHistoryPage.tsx');
     expect(page).toContain("const linkedHandId = searchParams.get('hand');");
     expect(page).toContain('handHistoryService.getHand(linkedHandId)');
@@ -318,7 +330,20 @@ describe('the surfaces', () => {
     fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
     await Promise.resolve();
     expect(writeText).toHaveBeenCalledTimes(1);
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('/hand-history?hand=h-1'));
+    const copied = (writeText.mock.calls[0] as unknown as [string])[0];
+    // The SENDER's hand, inside the link: it opens for anyone who taps it and
+    // can never fall back to the recipient's own hand history.
+    expect(copied).toContain('/hub/club-arena/replay?h=');
+    expect(copied).not.toContain('/hand-history');
+    const decoded = decodeHandFromUrl(new URL(copied).searchParams.get('h') ?? '');
+    expect(decoded).not.toBeNull();
+    expect(String(decoded?.handNumber)).toBe('7');
+  });
+
+  it("a link to another player's hand opens on a note, never on the viewer's own list", () => {
+    const page = read('src/pages/HandHistoryPage.tsx');
+    expect(page).toContain('That Hand Belongs To Another Player');
+    expect(page).toContain("{linkedHandId && linkedState === 'missing' ? null : (");
   });
 
   it('reaches an older saved bomb through the loaded-page boundary', async () => {

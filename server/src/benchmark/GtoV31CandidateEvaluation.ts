@@ -27,7 +27,15 @@ export interface GtoV31EvaluationScenario {
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
-const TOTAL_PAIRS = 5_000;
+/**
+ * TEN TIMES THE HANDS (2026-11-06). At 5,000 pairs per family the cash card
+ * rested on ~130 candidate decisions, and single pots swung up to 85 bb: R7's
+ * league/cash verdict turned on two hands. At 50,000 pairs the same cards
+ * carry ~1,300 cash decisions and a standard error ~3.2x smaller (R7 offline:
+ * paired cash se 2.37 -> 0.63). The database floor (>= 10,000 hands) and the
+ * 2-standard-error verdict are unchanged; only the evidence grows.
+ */
+const TOTAL_PAIRS = 50_000;
 
 const tournamentContext = (
   tournament: NonNullable<LeagueGameContext['tournament']>,
@@ -42,7 +50,7 @@ const tournamentContext = (
 function candidateArms(
   datasetChecksum: string,
   kind: GtoV31EvaluationKind
-): Pick<LeagueMatchup, 'a' | 'b'> {
+): Pick<LeagueMatchup, 'a' | 'b' | 'moodClock'> {
   if (!HEX64.test(datasetChecksum) || datasetChecksum === '0'.repeat(64)) {
     throw new Error('a sealed V31 dataset checksum is required');
   }
@@ -50,15 +58,22 @@ function candidateArms(
   // side effect. The league card deliberately leaves the full brain enabled
   // inside HorseLeague's private sandboxes, so it measures the candidate in
   // the same decision stack production uses without touching live memory.
+  //
+  // Both kinds stamp the mood hour from the deal seed (HorseLeague
+  // moodClock). Without it a certification verdict depended on the UTC hour
+  // the job happened to run: R7's league/cash -3.575 bb/100 (epoch 4, 19:40Z)
+  // reproduces exactly only with the mood clock pinned to hour 19.
   if (kind === 'paired_replay') {
     return {
       a: { gtoV31DatasetChecksum: datasetChecksum, mind: false, telemetry: false },
       b: { mind: false, telemetry: false },
+      moodClock: 'deal_seed',
     };
   }
   return {
     a: { gtoV31DatasetChecksum: datasetChecksum },
     b: {},
+    moodClock: 'deal_seed',
   };
 }
 
