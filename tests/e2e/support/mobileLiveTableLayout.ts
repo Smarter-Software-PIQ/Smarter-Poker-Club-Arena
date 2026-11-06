@@ -53,7 +53,18 @@ export async function certifyMobileLiveTableLayout(
           timeout: 10_000,
           message: `${width}px live mobile table containment`,
         })
-        .toEqual([]);
+        .toEqual([])
+        .catch(async (error) => {
+          const failed = await read();
+          console.log(`MOBILE_LIVE_TABLE_LAYOUT_FAILED ${JSON.stringify(failed)}`);
+          await attachMobileProof(
+            testInfo,
+            `${proofTag}-${width}-failure-measurements`,
+            Buffer.from(JSON.stringify(failed)),
+            'application/json'
+          );
+          throw error;
+        });
       const measured = await read();
       expect(
         measured.occupied,
@@ -272,6 +283,14 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
     visible
   );
   const violations: string[] = [];
+  let crownProof: {
+    gap: number;
+    maximumGap: number;
+    scale: number;
+    cardWidth: number;
+    chromeBottom: number;
+    plateTop: number | null;
+  } | null = null;
   // EVERY PLAYER IN HIS OWN CHAIR (Dan 2026-11-05: Mongo's BigWade drawn below
   // Cali_Duncan; Danimal's right-hand chairs drawn on top of the left-hand
   // ones). Seat numbers run clockwise round the ring and rotating for the hero
@@ -687,12 +706,45 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
       source
     )?.[1];
     const gap = box(head).top + box(head).height * ((file && crowns[file]) || 0) - box(table).top;
-    if (gap < -12 * scale || gap > 2 * scale)
+    // The phone uses a 600px layout viewport. Its top shown hand reserves a
+    // full card-height lane below the jackpot before the player plate, as the
+    // real-component portrait matrix already requires. Bound that lane rather
+    // than applying the wider desktop's crown crop to a compact showdown.
+    const chrome = Array.from(table.querySelectorAll('.bbj-widget, .bbj-mini-plate'))
+      .filter(visible)
+      .map((node) => box(node).bottom);
+    const chromeBottom = chrome.length
+      ? Math.max(...chrome)
+      : box(table).top +
+        (parseFloat(getComputedStyle(table).getPropertyValue('--sp-bbj-plate-h')) || 0);
+    const cardHeight = Math.max(
+      ((cardWidth * 92) / 64) * scale,
+      ...Array.from(
+        head.closest('.seat-wrapper')?.querySelectorAll('.seat__cards--revealed .seat__card') || []
+      )
+        .filter(visible)
+        .map((card) => box(card).height)
+    );
+    const cardLaneGap =
+      innerWidth <= 768 && capPlate && cardWidth > 0
+        ? chromeBottom - box(table).top + cardHeight + 9 * scale
+        : 0;
+    const maximumGap = Math.max(2 * scale, cardLaneGap + 2 * scale);
+    crownProof = {
+      gap,
+      maximumGap,
+      scale,
+      cardWidth,
+      chromeBottom,
+      plateTop: capPlate ? box(capPlate).top : null,
+    };
+    if (gap < -12 * scale || gap > maximumGap)
       violations.push('Six-Max Crown Does Not Meet The Top Bar');
   } else if (topGap !== null && (topGap < -1 || topGap > gapLimit))
     violations.push('Top Player Does Not Sit Immediately Below Mini BBJ');
   return {
     violations,
+    crownProof,
     occupied: plates.length,
     width: innerWidth,
     plateWidths: plates.map((plate) => box(plate).width),
