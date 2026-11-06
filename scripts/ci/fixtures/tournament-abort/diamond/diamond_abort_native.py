@@ -57,6 +57,93 @@ def event_sql(tid,label,free=False):
 def charge(uid,tid,kind,gross,prize,fee,key):
     return "SELECT public.fn_poker_diamond_tournament_charge('"+uid+"','"+tid+"','"+kind+"',"+str(gross)+','+str(prize)+',0,'+str(fee)+",gen_random_uuid(),'"+key+"');"
 
+def authenticated_payout_guard(e,db,root):
+    """Real payer/wallet/profile boundary, not a full authenticated rebuy proof.
+
+    The fixture owner calls the actual private payer with the player's JWT,
+    exactly the context its SECURITY DEFINER callers preserve. No named fake
+    caller or EXECUTE grant is added. The separate browser call stays denied.
+    """
+    capture=HERE/'authenticated-payout-guards.json'
+    migration=root/'supabase/migrations/20261022145452_a_diamond_bounty_paid_during_a_rebuy_reaches_the_winner_s_wa.sql'
+    rows=json.loads(capture.read_text())['functions']
+    for row in rows:
+        if hashlib.md5(row['definition'].encode()).hexdigest()!=row['definition_md5']:
+            raise AssertionError('authenticated payout guard capture changed')
+    e.report.setdefault('source_sha256',{}).update({str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [capture,migration,Path(__file__)]})
+    def run(label,sql,check=True):
+        return e.sql(db,sql,label='diamond-authenticated-payout-'+label,check=check)
+    run('current-guards','\n'.join(r['definition']+';' for r in rows))
+    run('actual-trigger',"""DO $$BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='public.profiles'::regclass
+ AND tgfoid='public.fn_guard_profile_privileged_columns()'::regprocedure AND tgenabled='O')
+ THEN RAISE EXCEPTION 'real profile guard trigger absent';END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_proc WHERE oid='public.fn_poker_diamond_tournament_pay(uuid,numeric,text,text,uuid,text)'::regprocedure
+ AND prosecdef AND proowner='postgres'::regrole)
+ THEN RAISE EXCEPTION 'real private payer ownership differs';END IF;END$$;""")
+    tid='da300000-0000-4000-8000-000000000007'
+    scene=event_sql(tid,'authenticated-bounty-wallet-boundary')
+    for n,uid in enumerate([U1,U2]):
+        scene+="SELECT public.fn_poker_diamond_tournament_charge('"+uid+"','"+tid+"','entry',20,13,5,2,gen_random_uuid(),'authenticated-bounty-entry-"+str(n)+"');"
+    run('funded-scene',scene+'COMMIT;')
+    claims="BEGIN;SELECT set_config('request.jwt.claims','{\"role\":\"authenticated\",\"sub\":\""+U1+"\"}',true),set_config('request.jwt.claim.role','authenticated',true),set_config('request.jwt.claim.sub','"+U1+"',true);DO $$BEGIN IF public.fn_is_service_context() IS DISTINCT FROM false THEN RAISE EXCEPTION 'authenticated JWT bypassed the guard';END IF;END$$;"
+    pay="SELECT public.fn_poker_diamond_tournament_pay('"+U2+"',5,'authenticated-bounty-wallet','bounty','"+tid+"','Synthetic authenticated bounty');"
+    def money():
+        _,out,_=run('money',"SELECT jsonb_build_object("+
+          "'profiles',(SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM profiles p),"+
+          "'custody',(SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM poker_diamond_custody c),"+
+          "'ledger',(SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM poker_diamond_tournament_ledger l),"+
+          "'journal',(SELECT jsonb_agg(to_jsonb(j) ORDER BY id) FROM diamond_transactions j),"+
+          "'keys',(SELECT jsonb_agg(to_jsonb(k) ORDER BY key) FROM wallet_credit_idempotency k),"+
+          "'escrow',(SELECT jsonb_agg(to_jsonb(x) ORDER BY tournament_id) FROM tournament_escrow x));")
+        return json.loads(out.strip())
+    before=money()
+    guard=next(r for r in rows if r['proname']=='fn_guard_profile_privileged_columns')
+    admission="     -- A Diamond bounty paid to the winner (also from a rebuy that settles the bust first).\n     OR v_stack ~ 'function (public[.])?fn_poker_diamond_tournament_pay[(]'\n"
+    if guard['definition'].count(admission)!=1:raise AssertionError('exact payout admission seam changed')
+    # Counterfactual current guard without the single Oct22 admission, not a
+    # claim that every unrelated byte equals the historical production image.
+    run('red-guard',guard['definition'].replace(admission,'')+';')
+    code,_,err=run('red','\\set VERBOSITY verbose\n'+claims+pay+'COMMIT;',False)
+    if code==0 or '42501' not in err or 'profiles.diamonds is server-managed and cannot be modified by role postgres' not in err:
+        raise AssertionError('actual payout did not reproduce profile guard refusal: '+err)
+    if money()!=before:raise AssertionError('refused payout leaked wallet, custody, journal, escrow or key')
+    run('exact-source-fix',migration.read_text())
+    _,post,_=run('guard-postimage',"SELECT md5(pg_get_functiondef('public.fn_guard_profile_privileged_columns()'::regprocedure));")
+    if post.strip()!=guard['definition_md5']:raise AssertionError('exact migration did not restore current guard')
+    run('green-rollback',claims+pay+'ROLLBACK;')
+    if money()!=before:raise AssertionError('successful payout rollback changed money')
+    run('green',claims+pay+'COMMIT;')
+    after=money()
+    old_wallet={p['id']:p['diamonds'] for p in before['profiles']}
+    new_wallet={p['id']:p['diamonds'] for p in after['profiles']}
+    if new_wallet!={uid:value+(5 if uid==U2 else 0) for uid,value in old_wallet.items()}:
+        raise AssertionError('bounty did not credit exactly the winner by five')
+    run('independent-banks',"""DO $$BEGIN
+ IF (SELECT bounty_balance=5 AND prize_balance=26 AND fee_balance=4 FROM public.fn_poker_diamond_tournament_escrow('"""+tid+"""')) IS DISTINCT FROM true
+ OR public.fn_poker_diamond_tournament_custody('"""+tid+"""')<>35
+ OR (SELECT count(*) FROM public.poker_diamond_tournament_ledger WHERE idempotency_key='poker-tournament-pay:authenticated-bounty-wallet' AND kind='bounty' AND amount=5 AND bounty_part=5 AND prize_part=0 AND fee_part=0 AND wallet_journal_id IS NOT NULL)<>1
+ THEN RAISE EXCEPTION 'independent bounty bank/custody/journal oracle failed';END IF;END$$;""")
+    run('replay',claims+pay+'COMMIT;')
+    if money()!=after:raise AssertionError('payout replay changed money')
+    # Do not grant browser access to reach a private helper. Test actual ACLs.
+    code,_,err=run('browser-private-payer',claims+'SET LOCAL ROLE authenticated;'+pay+'COMMIT;',False)
+    if code==0 or 'permission denied for function fn_poker_diamond_tournament_pay' not in err:
+        raise AssertionError('browser private payer access was not refused: '+err)
+    code,_,err=run('unnamed-privileged-write',claims+"UPDATE public.profiles SET diamonds=diamonds+1 WHERE id='"+U2+"';COMMIT;",False)
+    if code==0 or 'profiles.diamonds is server-managed' not in err:
+        raise AssertionError('authenticated JWT admitted unnamed privileged write: '+err)
+    code,_,err=run('browser-privileged-write',claims+"SET LOCAL ROLE authenticated;UPDATE public.profiles SET diamonds=diamonds+1 WHERE id='"+U1+"';COMMIT;",False)
+    # This retained financial catalog refuses at its table ACL before the
+    # trigger. The owner-plus-authenticated-JWT case above exercises the guard.
+    if code==0 or 'permission denied for table profiles' not in err:
+        raise AssertionError('browser privileged profile write was not refused at the table ACL: '+err)
+    if money()!=after:raise AssertionError('authorization refusal changed money')
+    e.report['authenticated_diamond_payout_guard']={'scope':'actual private payer -> wallet -> profile under authenticated JWT; not complete rebuy API',
+      'red_refused_and_rolled_back':True,'exact_migration_postimage':guard['definition_md5'],
+      'green_rollback':True,'winner_credit':5,'remaining_bounty':5,'replay_unchanged':True,
+      'browser_private_payer_denied':True,'unnamed_privileged_write_denied':True,'browser_privileged_write_denied':True}
+
 def run_diamond_cases(e,db,root):
     from tournament_abort_native import prepare_quiesced
     cases=[]
@@ -128,6 +215,7 @@ def run_diamond_cases(e,db,root):
         cases.extend([label+'-rollback',label+'-commit',label+'-replay'])
     run('diamond-receipt-immutable',"DO $$ DECLARE refused boolean:=false;BEGIN BEGIN UPDATE smarter_private.diamond_tournament_abort_receipts SET receipt=receipt WHERE tournament_id='da300000-0000-4000-8000-000000000001';EXCEPTION WHEN SQLSTATE '55000' THEN refused:=true;END;IF NOT refused THEN RAISE EXCEPTION 'receipt mutable';END IF;END $$;")
     run('diamond-helper-owner-only',"DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_proc p,LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='smarter_private.diamond_tournament_abort_refunds(uuid,uuid)'::regprocedure AND a.grantee<>'postgres'::regrole) THEN RAISE EXCEPTION 'private helper exposed';END IF;END $$;")
+    authenticated_payout_guard(e,db,root)
     run('diamond-local-switches-closed',"UPDATE public.ca_arena_settings SET tournaments_enabled=false,cash_games_enabled=false WHERE id=1;")
     e.report['diamond_abort_cases']=cases+['immutable-receipt','owner-only-helper','local-switches-closed']
     return e.report['diamond_abort_cases']
