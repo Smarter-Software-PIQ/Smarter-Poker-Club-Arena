@@ -4177,7 +4177,17 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             // original occupies it (it needs a between-hands boundary), so
             // parking here for it alone is a deadlock. Play the original; the
             // move claims at the boundary the hand produces.
-            !this.isNextHandPausedOnlyByUnclaimedTournamentMove()
+            //
+            // "Alone" includes hand-for-hand (2026-11-06). The predicate below
+            // ignores a plain hand-for-hand pause (pauseAfterHand() without
+            // beforeNextHand), so an unclaimed move used to let this original
+            // start while the other tables waited for the round: a hand dealt
+            // outside hand-for-hand. Such a table waits for the round's
+            // release instead; resumeDealing() lifts it, because an unclaimed
+            // move on a retained original never blocks that release
+            // (tournamentMoveHoldsRelease), and the original then plays inside
+            // the round.
+            (this.handForHandPaused || !this.isNextHandPausedOnlyByUnclaimedTournamentMove())
           ) {
             // Keep the retained prepared controller at the same existing
             // physical owner gate. Polled floor/admin/Cluster locks are not

@@ -10,9 +10,11 @@
  * replayed the original into the same wait.
  *
  * Pinned here: a table holding exactly that shape counts as parked for the
- * boundary, so a continuing field releases it; anything else - a started
- * hand, a qualifying field, a held original that changed - keeps the
- * boundary exactly as before.
+ * boundary, so a continuing field releases it and a qualifying field settles
+ * over it (2026-11-06: the hand never started, so the field it would have
+ * been dealt to has already finished; the committed cleanup stops its dealer
+ * with the hand still held). Anything else - a started hand, an unresolved
+ * field, a held original that changed - keeps the boundary exactly as before.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -109,13 +111,18 @@ describe('a retained prepared original held at the qualifier boundary', () => {
     expect(parked.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
   });
 
-  it('a qualifying field never settles over a held original', async () => {
+  it('a qualifying field whose held original changed before settlement never settles', async () => {
     const held = table({ parks: false, heldOriginal: true });
     const { m } = heldBoundary(held);
-    rpc.read.mockResolvedValue({
+    const QUALIFYING = {
       state: 'qualifying',
       fullTicketCount: 8,
       qualifierIds: Array.from({ length: 8 }, (_, i) => id(100 + i)),
+    };
+    rpc.read.mockImplementationOnce(async () => QUALIFYING);
+    rpc.read.mockImplementationOnce(async () => {
+      held.state.held = false;
+      return QUALIFYING;
     });
     expect(await m.checkSatelliteQualifierCompletion()).toBe('pending');
     expect(rpc.settle).not.toHaveBeenCalled();

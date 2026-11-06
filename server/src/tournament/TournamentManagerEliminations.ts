@@ -6147,12 +6147,37 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         )
           return 'pending';
         if (state.state === 'unresolved') return 'pending';
-        // The held original's own players are still owed that hand: only a
-        // continuing field releases it. A qualifying field never settles over
-        // a retained original it would have to close (unchanged behaviour).
+        /*
+         * A QUALIFYING FIELD SETTLES OVER A HAND THAT NEVER STARTED (2026-11-06).
+         *
+         * A continuing field releases a held original: its players are owed
+         * that hand, and it plays the moment the boundary lifts. A qualifying
+         * field used to answer 'pending' here instead, on every sweep, for as
+         * long as the table held that original - and the table held it for
+         * exactly as long as the boundary did, because the boundary forbids
+         * starting it. Nothing else could move either one: a rebuild replays
+         * the same retained original into the same wait. The satellite froze
+         * with its winners decided.
+         *
+         * A held original is, by its own predicate, a hand that never started:
+         * no card dealt, no blind posted, no chip moved, no writer in flight
+         * (isPreparedOriginalHeldAtTerminalCloseout). The qualifier state the
+         * settlement reads is the committed one, which that hand never touched,
+         * so the field it would have been dealt to has already finished. Its
+         * F06 permit cannot be cancelled as never_started (retention was
+         * attempted, and fn_f06_cancel_prepared_hand refuses any permit with
+         * retained start evidence), so it is disposed of the way every terminal
+         * event disposes of a held original: the boundary keeps it held through
+         * the settlement, and the committed cleanup stops its dealer and closes
+         * its table without it ever starting.
+         *
+         * Every held original must still be exactly that shape now, after the
+         * second read; one that changed (it started, or lost its gate) keeps
+         * the boundary for every field, exactly as before.
+         */
         if (
           heldPreparedOriginals.size > 0 &&
-          (state.state !== 'continuing' ||
+          ((state.state !== 'continuing' && state.state !== 'qualifying') ||
             owned.some(
               ({ tableId, engine }) =>
                 heldPreparedOriginals.has(tableId) &&
