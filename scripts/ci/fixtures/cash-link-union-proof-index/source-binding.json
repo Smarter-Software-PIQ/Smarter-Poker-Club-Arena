@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "scope": "Fixed-width Boolean proof gate Btree and exact two-index recovery; native63 includes actual original non-inlined SQL-function cold95/100percent\u00d71/20percent weeks, complete bags/metadata and COST1 counters; source65/generation/table contracts unchanged; no production capacity claim",
+  "scope": "Fixed-width Boolean proof gate Btree and exact two-index recovery; native63 includes actual original non-inlined SQL-function cold95/100percent×1/20percent weeks, complete bags/metadata and COST1 counters; source65/generation/table contracts unchanged; no production capacity claim",
   "sourceFiles": {
     "scripts/ci/fixtures/cash-link-union-proof-index/qualification-evidence.json": "6211a82f7b772faae51d7192b7a4a25e4867365a43de75bb5eef67b44cf2dd14",
     "scripts/ci/fixtures/cash-link-union-proof-index/README.md": "489cf40fe24148bf995b8a36d601dd6c06d73f10519a58d1f4b99fb5e9409a1c",
@@ -15,7 +15,7 @@
     ".github/workflows/unpaid-lightning-funding-contracts.yml": "61789751ea646f39e5572f7ae7fb6ab84d70e506ba76ab26989c5f160065405d",
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "0ce886c016fd8a6bfb14a31c7f65c7ebf461599ed98b6d1df3fc74d99f89a78c",
-    "scripts/ci/apply-recorded-migration.mjs": "0dd358e7bffd316e32a55c691125b6a21f08d9fb076c86624f4c3fec425e7c81",
+    "scripts/ci/apply-recorded-migration.mjs": "8ffe6a2fbd68bb9cafc05f79ac1b15787d5be106522a352ae5178ba0ad9775db",
     ".github/workflows/apply-merged-migration.yml": "32a882652058f3be483b2ca81a9624310f29178bd4b9579d62003e2e290fdbef",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
@@ -51,5 +51,12 @@
       "after": "0ce886c016fd8a6bfb14a31c7f65c7ebf461599ed98b6d1df3fc74d99f89a78c",
       "review": "Exact identity step includes transaction budget argument; all missing/reordered step negatives remain. No assertion removed."
     }
+  },
+  "installBudgetCostRule20261107": {
+    "path": "scripts/ci/apply-recorded-migration.mjs",
+    "before": "0dd358e7bffd316e32a55c691125b6a21f08d9fb076c86624f4c3fec425e7c81",
+    "after": "8ffe6a2fbd68bb9cafc05f79ac1b15787d5be106522a352ae5178ba0ad9775db",
+    "review": "Eight added lines only: one import of scripts/ci/migration-cost-shape.mjs and, directly after the unchanged transaction-shape refusal, a refusal (via the existing refused()) of a migration from 20261107200000 on that reads chip_ledger by an idempotency_key LIKE prefix in its code or @live-proof lines. Nothing removed or reordered; it runs before any connection, so it can only refuse earlier and send nothing. Every file merged before 20261107200000 takes exactly the old path. Same rule as the merge check tests/unit/aMigrationFitsTheInstallBudget.test.ts. No financial, native-fixture or production qualification is restamped or claimed.",
+    "reason": "2026-11-07: 20261107133350 (#9860) died at 12.2 s on such a scan (41,340 ms for two rows) inside the 12 s install budget with nothing committed."
   }
 }
