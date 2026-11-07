@@ -1,0 +1,16 @@
+plo5 cash standard pairs=800 bb100=-11.44 se=12.15 div=4 bluffs=3 folded=2 232s
+plo5 cash stations pairs=1500 bb100=7.95 se=6.76 div=3 bluffs=2 folded=1 194s
+plo5 cash folders pairs=1500 bb100=2.29 se=1.84 div=2 bluffs=3 folded=3 120s
+plo5 cash mixed pairs=800 bb100=3.06 se=3.06 div=1 bluffs=2 folded=2 119s
+plo5 tournament standard pairs=800 bb100=6.38 se=4.18 div=3 bluffs=3 folded=3 153s
+plo5 tournament stations pairs=1500 bb100=0.00 se=0.00 div=0 bluffs=1 folded=1 154s
+plo5 tournament folders pairs=1500 bb100=-0.11 se=1.03 div=3 bluffs=4 folded=3 105s
+plo5 tournament mixed pairs=800 bb100=-3.19 se=3.19 div=1 bluffs=2 folded=1 81s
+plo6 cash standard pairs=600 bb100=-2.17 se=6.39 div=8 bluffs=4 folded=3 121s
+plo6 cash stations pairs=1200 bb100=-0.29 se=0.29 div=1 bluffs=1 folded=0 183s
+plo6 cash folders pairs=1200 bb100=-1.50 se=2.27 div=4 bluffs=3 folded=2 111s
+plo6 cash mixed pairs=600 bb100=16.82 se=12.86 div=4 bluffs=3 folded=3 84s
+plo6 tournament standard pairs=600 bb100=-11.75 se=7.64 div=8 bluffs=2 folded=1 83s
+plo6 tournament stations pairs=1200 bb100=-0.83 se=0.61 div=2 bluffs=2 folded=0 139s
+plo6 tournament folders pairs=1200 bb100=0.87 se=3.98 div=5 bluffs=4 folded=2 110s
+plo6 tournament mixed pairs=600 bb100=0.00 se=0.00 div=0 bluffs=0 folded=0 80s

@@ -1871,21 +1871,33 @@ describe('HorseLogic V8 - O8 quarter brake + NLH raise bluffs', () => {
       const a = mk();
       if (
         ['raise', 'all_in'].includes(
-          HorseLogic.decide(a.hero, a.gs, 'balanced', {}, {
-            v9Mood: false,
-            v64RiverRaiseNeedsTwoPair: false,
-          }).action
+          HorseLogic.decide(
+            a.hero,
+            a.gs,
+            'balanced',
+            {},
+            {
+              v9Mood: false,
+              v64RiverRaiseNeedsTwoPair: false,
+            }
+          ).action
         )
       )
         v8Raises++;
       const b = mk();
       if (
         ['raise', 'all_in'].includes(
-          HorseLogic.decide(b.hero, b.gs, 'balanced', {}, {
-            v8Nlh: false,
-            v9Mood: false,
-            v64RiverRaiseNeedsTwoPair: false,
-          }).action
+          HorseLogic.decide(
+            b.hero,
+            b.gs,
+            'balanced',
+            {},
+            {
+              v8Nlh: false,
+              v9Mood: false,
+              v64RiverRaiseNeedsTwoPair: false,
+            }
+          ).action
         )
       )
         offRaises++;

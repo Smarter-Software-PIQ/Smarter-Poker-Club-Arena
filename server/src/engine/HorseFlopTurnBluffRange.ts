@@ -86,7 +86,13 @@ import type { OmahaDrawInfo } from './HorseEval.js';
 
 export type FlopTurnBluffLine = 'cbet' | 'barrel' | 'delayed' | 'probe' | 'stab' | 'none';
 export type FlopTurnBluffSelection =
-  'strongDraw' | 'pairDraw' | 'weakDraw' | 'backdoor' | 'overcards' | 'blocker' | 'junk';
+  | 'strongDraw'
+  | 'pairDraw'
+  | 'weakDraw'
+  | 'backdoor'
+  | 'overcards'
+  | 'blocker'
+  | 'junk';
 
 /** Hands with at least this much equity are bet by the value ladder. */
 export const FT_BLUFF_VALUE_EQUITY = 0.52;
@@ -384,8 +390,7 @@ export function flopTurnSelection(spot: FlopTurnBluffSpot): {
   // not a bluff candidate (it represents nothing the board allows); only the
   // nut-flush blocker is.
   const flushSuit = SUITS.find((s) => board.filter((c) => c.suit === s).length >= 3);
-  if (flushSuit)
-    return { selection: r.blocker ? 'blocker' : 'junk', showdownValue: false };
+  if (flushSuit) return { selection: r.blocker ? 'blocker' : 'junk', showdownValue: false };
   if (board.length === 3 && (r.backdoorFlush || r.backdoorStraight) && r.overcards >= 1)
     return { selection: 'backdoor', showdownValue: false };
   if (r.overcards >= 2) return { selection: 'overcards', showdownValue: false };
