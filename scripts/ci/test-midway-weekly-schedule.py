@@ -62,6 +62,10 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
           THEN RAISE EXCEPTION 'Affordability saw a stale guarantee'; END IF; RETURN NEW; END$$;
          CREATE TRIGGER tournaments_guarantee_affordable_ins BEFORE INSERT ON tournaments FOR EACH ROW EXECUTE FUNCTION affordability_witness();''')
         sql('CREATE TRIGGER owner_board BEFORE INSERT OR UPDATE OR DELETE ON tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_tournament_schedule_board_is_hard_coded();')
+        # Every configured feeder must resolve an active canonical target by
+        # the same exact name used by the serving scheduler's target lookup.
+        missing_targets=sql("SELECT feeder.name FROM tournament_schedules feeder WHERE feeder.active AND feeder.config ? 'satelliteTargetName' AND NOT EXISTS (SELECT 1 FROM tournament_schedules target WHERE target.active AND target.name=feeder.config->>'satelliteTargetName' AND target.union_id=feeder.union_id)")
+        assert not missing_targets,missing_targets
         assert sql('SELECT sum(cardinality(days_of_week)*cardinality(start_times_utc)) FROM tournament_schedules WHERE active')=='378'
         counts=sql('SELECT d,count(*) FROM tournament_schedules CROSS JOIN LATERAL unnest(days_of_week) d WHERE active GROUP BY d ORDER BY d')
         assert counts.splitlines()==['0|61','1|49','2|49','3|50','4|51','5|57','6|61']
