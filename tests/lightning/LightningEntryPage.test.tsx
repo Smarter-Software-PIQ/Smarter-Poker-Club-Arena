@@ -16,6 +16,8 @@ const NEXT_ANCHOR = '55555555-5555-4555-8555-555555555555';
 const USER = '66666666-6666-4666-8666-666666666666';
 
 const rpc = vi.fn();
+/** The database's freeze row (fn_maintenance_break_state); empty = entry open. */
+const freeze = { rows: [] as unknown[] };
 const tablesRead = vi.fn();
 const metadataRead = vi.fn();
 const gameRow = {
@@ -32,7 +34,12 @@ const gameRow = {
 };
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
-    rpc: (...a: unknown[]) => rpc(...a),
+    /* No maintenance break: the page's freeze read (useEntryFreeze, the
+       banner) sees open entry; every other call goes to this file's mock. */
+    rpc: (...a: unknown[]) =>
+      a[0] === 'fn_maintenance_break_state'
+        ? Promise.resolve({ data: freeze.rows, error: null })
+        : rpc(...a),
     from: (table: string) => {
       if (table === 'tables') tablesRead();
       const chain: Record<string, unknown> = {};
@@ -64,6 +71,7 @@ vi.mock('../../src/lightning/lightningJoinBuyIn', () => ({
 }));
 
 import LightningEntryPage from '../../src/pages/LightningEntryPage';
+import { __resetEntryFreezeForTests } from '../../src/hooks/useEntryFreeze';
 import {
   fetchMyLightningSession,
   getLightningEntryIntent,
@@ -98,6 +106,8 @@ beforeEach(() => {
   localStorage.clear();
   for (const method of Object.values(toast)) method.mockClear();
   resetLightningRegistryForTests();
+  __resetEntryFreezeForTests();
+  freeze.rows = [];
   rpc.mockReset();
   tablesRead.mockReset();
   metadataRead.mockReset();
@@ -300,6 +310,34 @@ describe('the Lightning route', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /join lightning/i })).toBeTruthy()
     );
+  });
+
+  /* Dan 2026-11-07 13:20 Chicago: eleven Join Lightning taps during a freeze,
+     each answered "We Could Not Open The Buy-In Right Now". */
+  it('during a freeze Join says when it opens and cannot be tapped', async () => {
+    freeze.rows = [{ phase: 'recovering', remaining_ms: 47_000, reason: 'x' }];
+    rpc.mockResolvedValue({ data: null, error: null });
+    renderAt(`/lightning/${CLUSTER}`);
+    const door = await screen.findByRole('button', { name: /opens in 0:4\d/i });
+    expect((door as HTMLButtonElement).disabled).toBe(true);
+    // The banner is up (engine break or the database's release boundary).
+    expect(screen.getByRole('status').textContent).toMatch(/Maintenance|New Seats Open In/);
+    expect(rejoinSeat).not.toHaveBeenCalled();
+  });
+
+  it('a freeze that starts as the player taps is a refusal with its time, not a failure', async () => {
+    rpc.mockResolvedValue({ data: null, error: null });
+    renderAt(`/lightning/${CLUSTER}`);
+    const door = await screen.findByRole('button', { name: /join lightning/i });
+    freeze.rows = [{ phase: 'counting_down', remaining_ms: 47_000, reason: 'x' }];
+    rejoinSeat.mockRejectedValue({ code: 'P0001', message: 'PLATFORM_FROZEN' });
+    fireEvent.click(door);
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+    const said = String(toast.warning.mock.calls[0][0]);
+    expect(said).toMatch(/Seats Reopen In About 4\d Seconds\./);
+    expect(said).not.toMatch(/Could Not Open/);
+    expect(buyInContext).not.toHaveBeenCalled();
+    await screen.findByRole('button', { name: /opens in 0:4\d/i });
   });
 
   it('refuses a malformed Cluster id without asking the database', () => {

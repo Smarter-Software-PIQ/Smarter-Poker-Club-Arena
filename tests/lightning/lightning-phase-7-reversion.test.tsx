@@ -38,7 +38,12 @@ const gameRow: Record<string, unknown> = {
 };
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
-    rpc: (...a: unknown[]) => rpc(...a),
+    /* No maintenance break: the page's freeze read (useEntryFreeze, the
+       banner) sees open entry; every other call goes to this file's mock. */
+    rpc: (...a: unknown[]) =>
+      a[0] === 'fn_maintenance_break_state'
+        ? Promise.resolve({ data: [], error: null })
+        : rpc(...a),
     from: () => {
       const chain: Record<string, unknown> = {};
       for (const m of ['select', 'eq', 'in', 'limit']) chain[m] = () => chain;
