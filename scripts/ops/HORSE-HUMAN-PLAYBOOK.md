@@ -1,6 +1,6 @@
 # Horse playbook for decisions against humans
 
-The study cutoff is **12:35 UTC on November 7, 2026**. Six private volumes contain 42,444 retained histories, 36,657 eligible hands and 313,562 Horse decisions. A hand qualifies through eligible human participation. For advice about a human opponent, check that a human still had a stake or could respond at the decision. Original Horse cards remain missing on 10,077 decisions. Those decisions can establish public action, price and legality. Their hand strength remains unknown.
+The six-volume baseline cutoff is **12:35 UTC on November 7, 2026**. Six private volumes contain 42,444 retained histories, 36,657 eligible hands and 313,562 Horse decisions. A hand qualifies through eligible human participation. For advice about a human opponent, check that a human still had a stake or could respond at the decision. Original Horse cards remain missing on 10,077 decisions. Those decisions can establish public action, price and legality. Their hand strength remains unknown.
 
 ## Omaha coverage
 
@@ -50,6 +50,26 @@ Evaluate both halves with the same opposing four-card holding. In these 35 cases
 The sixth volume adds 307 hands and 2,237 decisions, including 125 river decisions. Eight river decisions faced an eligible human wager. Seven were heads-up, and each had both profitable and unprofitable calls relative to folding among the 990 legal human holdings. Three calls matched the recorded fees and four Horses folded. The eighth decision was multiway. The observed price and range composition determine whether a call is justified.
 
 On one flop the Horse's all-in with pocket aces was an effective call for 12.15. The human's unmatched 1.64 returned. The enumerated call gained over folding against 1,072 of 1,081 legal human holdings and lost against nine, averaging all 990 legal turn-river runouts for each holding. Use the actual matched amount and captured fees. How often the human raised each holding remains unknown.
+
+## Decisions observed after the six-volume baseline
+
+By 23:20 UTC on November 7 the private index contained 42,938 retained histories, 37,065 eligible hands and 316,741 Horse decisions. The earlier tables retain their original denominators. The following decisions came from human-facing cash play with a big-blind ante.
+
+**PLO5 and PLO6 card comparisons.** For 22,020 human-facing postflop decisions we compared the Horse with every legal holding of one opponent using exactly two hole cards and three board cards. The sample contains 11,665 flop, 6,818 turn and 3,537 river decisions. For the flop and turn decisions, 804,252 possible next cards were classified by the Horse’s resulting made hand. A stronger made hand can still be drawing thin. Use the next-card distribution alongside the remaining stacks, players and price.
+
+| Mode | PLO5 decisions | PLO6 decisions |
+| --- | ---: | ---: |
+| Ordinary cash | 17,351 | 2,088 |
+| Lightning cash | 1,678 | 93 |
+| Tournament | 331 | 479 |
+
+The comparison required a confirmed single board and ordinary pot-limit pot. Another 3,566 human-facing postflop decisions fell outside those confirmed conditions. Each count concerns one opponent at a time. Multiway decision EV also depends on overlapping card removal, action order and side pots. For tournaments the payout calculation remains separate.
+
+**PLO6 river value.** After a human and a Horse checked, a Horse bet 13 into 33 with fours full of sevens. Against one player's 4,496,388 possible six-card holdings, 3,670,896 lost to the Horse, 101,680 tied and 723,812 won. In another hand a human checked and a Horse bet 23 into 23 with nines full of eights. It beat 4,266,507 possible holdings and lost to 229,881. Both actions satisfy the checked-to non-bottom full-house rule. To compare sizes, estimate which worse holdings pay each size and which better holdings raise. Uniform holding counts alone cannot supply those response frequencies.
+
+**PLO4 Lightning against an all-in raise.** A Horse led 24.43 into 24.43 with a full house. The human raised all-in to 70.86. The Horse's recorded raise to 204.87 returned 134.01 uncalled, with nobody else able to respond. The Horse contested exactly 46.43 more chips, the price of calling. Use matched contributions and the amount returned when grading value raises, or this hand incorrectly rewards aggression that collected no additional chips.
+
+**PLO4 Lightning river bluff candidate.** After a human checked, a Horse bet 15.75 into 15.75 with one pair on a board where it blocked eight of the 16 two-card combinations that made the nut straight. The execution receipt confirmed the chosen bet and a live read of prior human history. It did not record bluff intent. A zero-equity pot-sized bluff breaks even at 50% folds before deductions. With showdown value, compare the bet with checking and count the better hands that fold. The human's eventual call cannot establish whether the bet was profitable.
 
 ## Tournament pressure
 
