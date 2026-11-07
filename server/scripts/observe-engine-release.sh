@@ -252,6 +252,24 @@ COMPLETED_ATTESTATION="$("$CONTROL_DIR/engine-release-seal.py" attest-result \
   --sha "$SHA" --run-id "$RUN_ID")" \
   || die 'terminally retired release has no valid exact result receipt'
 
+if [ "$RESULT_PREEXISTED" = 0 ]; then
+  # Recovery can finish and retire its native metadata between observer polls.
+  # A cached predecessor invocation must not overrule the fsynced completion.
+  # Only after complete run retirement may an empty native ID use that result's
+  # validated original producer; a present native ID must still attest itself.
+  CURRENT_INVOCATION="$(systemctl show "$UNIT" -p InvocationID --value 2>/dev/null)" \
+    || die 'retired release invocation could not be read'
+  if [ -z "$CURRENT_INVOCATION" ]; then
+    INVOCATION_ID="$("$CONTROL_DIR/engine-release-seal.py" attest-result \
+      --sha "$SHA" --run-id "$RUN_ID" --completion-invocation-id)" \
+      || die 'retired release has no attested completion invocation'
+  else
+    INVOCATION_ID="$CURRENT_INVOCATION"
+  fi
+  [[ "$INVOCATION_ID" =~ ^[0-9a-f]{32}$ ]] \
+    || die 'retired release invocation is invalid'
+fi
+
 DESIRED_SHA="$("$CONTROL_DIR/engine-release-seal.py" get desired-sha)"
 DESIRED_IMAGE="$("$CONTROL_DIR/engine-release-seal.py" get desired-image-id)"
 ACTUAL_SHA="$(docker container inspect -f '{{index .Config.Labels "sp.release.sha"}}' "$CONTAINER")"
