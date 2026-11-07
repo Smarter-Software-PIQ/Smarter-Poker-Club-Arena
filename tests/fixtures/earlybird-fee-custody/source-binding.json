@@ -2,7 +2,7 @@
   "migration": "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql",
   "repository_files": {
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48",
+    "scripts/qualification/ci-accounting-inputs.json": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "tests/fixtures/earlybird-fee-custody/setup.sql": "ac34d5f9432bd6c4ede4072439e66a6f93c7ffc0f5df53ca5a42d6d72c01e573",
     "tests/fixtures/earlybird-fee-custody/funding-scope.json": "342424a2012da6b9f987e5265d772e59f610dac74c4b5c89d1a718c8ec13e8ff",
@@ -167,6 +167,13 @@
       "from": "235ee2868de8a5151295cc68084d408bbd5e07d259f30f7da1b20d5d71b4d85f",
       "to": "c16ab19b2c102a1be186923c89ea0f3ca2d83d58eebaf3fcf00784134f096dfe",
       "why": "Reviewed the sole additive exclusion for SHA-pinned immutable old EED maintenanceThawV3.ts bootstrap fixture. All earlier exclusions, financial sources, fixtures, assertions and historical qualification states are unchanged. This pin records source identity only, not financial or production proof."
+    },
+    {
+      "on": "2026-11-07",
+      "file": "scripts/qualification/ci-accounting-inputs.json",
+      "from": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48",
+      "to": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c",
+      "why": "Reviewed additive five-line accounting shard 4 invocation of the exact-source leaderboard extrema PostgreSQL regression. All existing commands, assertions, financial inputs, timeouts and historical qualification outcomes remain unchanged. Generated execution projection only; source identity is not financial execution or production proof."
     }
   ],
   "union_doors_candidate_20260925": "Restamped for 20260925145748. scripts/dev/test-full-weekly-accounting-activation.sh now applies that migration in the existing pnl-evidence hooks chain, immediately after 20260921023420 and before hooks-regression.sql, and hooks-regression.sql gains assertions for what it changes: the square-up refuses a recorded ECO that does not equal round(-eco_rate*eco_base,2) (the old comparison had become the record against itself and could never fire), keeping both existing refusals; and the closed union send door credits the one owner it resolves from clubs.owner_id instead of every role=owner row, carries the house authorization check, an idempotency key and one club-declaring chip_ledger leg, and records its audit row against wallet='chip_balance' rather than the 'main' that union_wallet_transactions_wallet_check has never permitted. No fixture body owned by these bindings changed and no role gains a key. Diff read before restamping.",
