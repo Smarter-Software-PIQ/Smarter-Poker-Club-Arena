@@ -318,8 +318,8 @@
       "sha256": "3f5650d78cbb5e171283ce9ddff00afd1f5a697c39be251d6557e93bdda94c91"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 145858,
-      "sha256": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e"
+      "bytes": 146139,
+      "sha256": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2795,6 +2795,19 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previous": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c",
         "current": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "finalizedPoolFreezeArmingProof20261107": {
+    "reason": "Reviewed finalized-pool freeze arming proof (2026-11-07): the accounting workflow gains one shard-1 step, \"The finalized-pool freeze refuses what arming it would refuse\", running scripts/ci/test-finalized-pool-freeze-arming.py beside the existing bounty-guarantee proof with the same PG_BIN and TMPDIR environment. Read structurally, the regenerated projection differs in exactly one place: jobs/accounting_postgres gains those 7 lines (2368 -> 2375). No existing suite command, matrix.shard routing, environment, timeout, artifact or financial input changes, and the new suite reads no financial input - it boots its own private PostgreSQL. Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "files",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e",
+        "current": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8"
       }
     ],
     "historicalEvidenceRestamped": false,
