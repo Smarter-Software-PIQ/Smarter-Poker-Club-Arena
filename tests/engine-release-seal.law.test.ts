@@ -727,8 +727,8 @@ if [ "$kind" = image ]; then
   esac
   exit 0
 fi
-[ "$kind" = container ] && [ "$ref" = sp-autoheal ] && [ "$format" = '{{.State.Status}}' ] \
-  && { printf 'running\\n'; exit 0; }
+[ "$kind" = container ] && [ "$ref" = sp-autoheal ] && [ "$format" = '{{.Id}} {{.State.Status}}' ] \
+  && { printf '%s running\\n' '${'e'.repeat(64)}'; exit 0; }
 [ "$kind" = container ] && [ "$ref" = club-arena-engine ] || exit 1
 case "$format" in
   '{{json .}}'|'') printf '{"Image":"%s","State":{"Status":"running"}}\\n' '${A_IMAGE}' ;;
@@ -860,10 +860,11 @@ if [ "$kind" = container ] && [ "$action" = inspect ] && [ "$ref" = club-arena-e
   exit 0
 fi
 if [ "$kind" = container ] && [ "$action" = inspect ] && [ "$ref" = sp-autoheal ]; then
-  printf '%s\\n' "$(tr -d '\\n' < "$FAKE_AUTOHEAL_STATE")"
+  [ "$format" = '{{.Id}} {{.State.Status}}' ] || exit 1
+  printf '%s %s\\n' '${'e'.repeat(64)}' "$(tr -d '\\n' < "$FAKE_AUTOHEAL_STATE")"
   exit 0
 fi
-if [ "$kind" = start ] && [ "$action" = sp-autoheal ]; then
+if [ "$kind" = start ] && [ "$action" = '${'e'.repeat(64)}' ]; then
   printf 'running\\n' > "$FAKE_AUTOHEAL_STATE"
 fi
 if [ "$kind" = start ] && [ "$action" = club-arena-engine ]; then
@@ -1362,6 +1363,7 @@ case "$*" in
     if [ "$count" = 1 ]; then echo '${firstInvocation}'; else printf '%s' "\${TEST_TERMINAL_INVOCATION:-}"; fi ;;
   is-enabled*) exit 1 ;;
   *ActiveState*) echo inactive ;;
+  *ExecMainStatus*) echo 0 ;;
   *Result*) echo success ;;
   *) exit 92 ;;
 esac
@@ -1392,12 +1394,17 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
       ...['id', 'systemctl', 'docker', 'curl'].map((name) => join(bin, name)),
     ])
       chmodSync(path, 0o755);
+    // Keep the twelve observations' original total process budget. A single
+    // loaded invocation may spend more of it parsing the real seal evidence.
+    const observerDeadline = performance.now() + 12 * 5000;
     const observe = (overrides: NodeJS.ProcessEnv = {}) => {
       rmSync(calls, { force: true });
       rmSync(nativeCalls, { force: true });
-      return spawnSync('bash', [observerPath, '--sha', B_SHA, '--run-id', '307-1'], {
+      const remaining = Math.floor(observerDeadline - performance.now());
+      expect(remaining).toBeGreaterThan(0);
+      const result = spawnSync('bash', [observerPath, '--sha', B_SHA, '--run-id', '307-1'], {
         encoding: 'utf8',
-        timeout: 5000,
+        timeout: remaining,
         env: {
           ...baseEnv,
           ...overrides,
@@ -1407,6 +1414,9 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
           ENGINE_RELEASE_IMAGE_LEASE_ROOT: join(sandbox, 'leases'),
         },
       });
+      expect(result.error).toBeUndefined();
+      expect(Number.isInteger(result.status)).toBe(true);
+      return result;
     };
     const recovered = observe();
     expect(recovered.status, recovered.stderr).toBe(0);
@@ -1430,7 +1440,12 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
       value.completionRuntime.invocationId = invalid;
       writeFileSync(resultPath, JSON.stringify(value));
       const unknownProducer = observe();
-      expect(unknownProducer.status).not.toBe(0);
+      expect(unknownProducer.status, unknownProducer.stderr).toBe(1);
+      expect(unknownProducer.stderr).toContain(
+        invalid === firstInvocation
+          ? 'retired release has no attested completion invocation'
+          : 'terminally retired release has no valid exact result receipt'
+      );
     }
     writeFileSync(resultPath, receipt);
     for (const field of ['runId', 'sha', 'imageId', 'controlSha']) {
@@ -1444,7 +1459,11 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
               ? A_IMAGE
               : 'invalid';
       writeFileSync(resultPath, JSON.stringify(invalid));
-      expect(observe().status).not.toBe(0);
+      const changedReceipt = observe();
+      expect(changedReceipt.status, changedReceipt.stderr).toBe(1);
+      expect(changedReceipt.stderr).toContain(
+        'terminally retired release has no valid exact result receipt'
+      );
     }
     writeFileSync(resultPath, receipt);
   });
@@ -2099,7 +2118,7 @@ describe('every host mutation path obeys the durable release authority', () => {
     const publicRecheck = transaction.indexOf('PRECOMMIT_PUBLIC_INSTANCE=', prove);
     const commit = transaction.indexOf('"$RELEASE_SEAL" commit', publicRecheck);
     const promote = transaction.indexOf('docker update --restart always', commit);
-    const autoheal = transaction.indexOf('docker start sp-autoheal', commit);
+    const autoheal = transaction.indexOf('docker start "$AUTOHEAL_ID"', commit);
     expect(prove).toBeGreaterThan(0);
     expect(publicRecheck).toBeGreaterThan(prove);
     expect(commit).toBeGreaterThan(publicRecheck);
@@ -2799,7 +2818,7 @@ describe('every host mutation path obeys the durable release authority', () => {
       'PREPARE_OUTPUT="$(bounded_break_command',
       lockedCertificate
     );
-    const cutover = transaction.indexOf('docker stop -t 15 sp-autoheal', prepare);
+    const cutover = transaction.indexOf('docker stop -t 15 "$AUTOHEAL_ID"', prepare);
     expect(certificate).toBeGreaterThan(0);
     expect(lock).toBeGreaterThan(certificate);
     expect(lockedCertificate).toBeGreaterThan(lock);
@@ -3140,7 +3159,7 @@ sys.exit(int(os.environ.get('FAKE_GIT_ARCHIVE_FAILURE', '0')))
       freshness
     );
     const prepare = transaction.indexOf('PREPARE_OUTPUT="$(bounded_break_command', certificate);
-    const autohealFence = transaction.indexOf('docker stop -t 15 sp-autoheal', prepare);
+    const autohealFence = transaction.indexOf('docker stop -t 15 "$AUTOHEAL_ID"', prepare);
     const start = transaction.indexOf('ENGINE_UP_LOCK_HELD=1', autohealFence);
     expect(lock).toBeGreaterThan(0);
     expect(freshness).toBeGreaterThan(lock);

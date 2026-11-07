@@ -91,9 +91,11 @@ fstatSync(fd){const s=fs.fstatSync(fd);s.uid=Number(process.env.FIXTURE_NATIVE_U
 readFileSync(p,e){if(p==='/proc/1/stat')return '1 (node) '+Array.from({length:20},(_,i)=>i===19?(process.env.FIXTURE_TICKS||'157263255'):'0').join(' ');return fs.readFileSync(p,e)}};
 vm.runInNewContext(code,{require(n){return n==='node:fs'?fake:require(n)},process:{argv:['node',expected],stdout:process.stdout}});
 ''')
-        self.executable(self.bin / 'docker', '#!' + sys.executable + '''
-import json,os,pathlib,subprocess,sys
-p=pathlib.Path(os.environ['FIXTURE_ROOT']);a=sys.argv[1:]
+        # Most Docker reads in this fixture are constant. Avoid loading the
+        # process launcher and filesystem libraries for every short inspection.
+        self.executable(self.bin / 'docker', '#!' + sys.executable + ''' -S
+import json,os,sys
+a=sys.argv[1:];root=os.environ['FIXTURE_ROOT']
 if a==['info']:sys.exit(0)
 if a[:2]==['image','inspect']:
  if '{{json .Config.Env}}' in a:print(json.dumps(['GIT_COMMIT_SHA=''' + EED + '''']))
@@ -103,9 +105,13 @@ if a[:2]==['container','ls']:
  sys.exit(0)
 if a[:2]==['container','inspect']:
  if os.environ.get('FIXTURE_ABSENT'):sys.exit(1)
- d=json.loads((p/'current.json').read_text());fmt=a[a.index('-f')+1] if '-f' in a else ''
+ fmt=a[a.index('-f')+1] if '-f' in a else ''
+ if a[-1]=='sp-autoheal' and fmt=='{{.Id}} {{.State.Status}}':
+  print('e'*64+' running');sys.exit(0)
+ with open(os.path.join(root,'current.json')) as f:d=json.load(f)
  if fmt.startswith('{"containerId"'):
-  counter=p/'reads';count=int(counter.read_text())+1 if counter.exists() else 1;counter.write_text(str(count))
+  from pathlib import Path
+  counter=Path(root)/'reads';count=int(counter.read_text())+1 if counter.exists() else 1;counter.write_text(str(count))
   if os.environ.get('FIXTURE_CHANGED_BOOKEND') and count>=2:d['hostPid']+=1
   print(json.dumps(d));sys.exit(0)
  vals={'{{.State.Status}}':'running','{{.Image}}':d['containerImageId'],'{{.HostConfig.RestartPolicy.Name}}':'always'}
@@ -116,9 +122,9 @@ if a[:2]==['container','inspect']:
  sys.exit(0)
 if a[0]=='exec':
  if os.environ.get('FIXTURE_EXEC_UNKNOWN'):sys.exit(4)
- i=a.index('-e');r=subprocess.run(['node',str(p/'native.cjs'),a[i+1],a[i+2],str(p)]);sys.exit(r.returncode)
+ i=a.index('-e');os.execvp('node',['node',os.path.join(root,'native.cjs'),a[i+1],a[i+2],root])
 if a[0]=='stop':
- with (p/'stop.log').open('a') as f:f.write(a[-1]+'\\n')
+ with open(os.path.join(root,'stop.log'),'a') as f:f.write(a[-1]+'\\n')
  sys.exit(0)
 if a[0] in ('start','update'):sys.exit(0)
 sys.exit(5)

@@ -95,19 +95,17 @@ print(values[0])
 [ "$DESIRED_IMAGE_SOURCE" = "$DESIRED_SHA" ] \
   || die 'sealed desired image source differs from its durable seal'
 
-autoheal_status() {
-  bounded_recovery_command 5 docker container inspect \
-    -f '{{.State.Status}}' "$AUTOHEAL_CONTAINER" 2>/dev/null || printf 'absent\n'
-}
-
 ensure_autoheal_running() {
-  local status
-  status="$(autoheal_status)"
+  local before container_id status
+  before="$(bounded_recovery_command 5 docker container inspect -f '{{.Id}} {{.State.Status}}' "$AUTOHEAL_CONTAINER")" || return 1
+  container_id="${before%% *}"
+  status="${before#* }"
+  [[ "$container_id" =~ ^[0-9a-f]{64}$ ]] || return 1
   [ "$status" = running ] && return 0
   log "$AUTOHEAL_CONTAINER is '$status' during exact desired recovery - starting it"
-  bounded_recovery_command 10 docker start "$AUTOHEAL_CONTAINER" >/dev/null 2>&1 \
-    || return 1
-  [ "$(autoheal_status)" = running ]
+  bounded_recovery_command 10 docker start "$container_id" >/dev/null 2>&1 \
+    || log 'autoheal start response uncertain; checking original container'
+  [ "$(bounded_recovery_command 5 docker container inspect -f '{{.Id}} {{.State.Status}}' "$AUTOHEAL_CONTAINER")" = "$container_id running" ]
 }
 
 recreate() {

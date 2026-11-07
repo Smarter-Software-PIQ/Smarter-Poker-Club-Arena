@@ -2713,7 +2713,7 @@ restore_certified_checkpoint_autoheal() {
   [ "$(bounded_break_command 5 docker container inspect -f '{{.Id}}' sp-autoheal)" = "$CERTIFIED_AUTOHEAL_ID" ] \
     || die 'certified census autoheal owner changed before restoration'
   bounded_break_command 10 docker start "$CERTIFIED_AUTOHEAL_ID" >/dev/null \
-    || die 'certified census autoheal restoration is unconfirmed'
+    || echo '[engine-release-transaction] autoheal start response uncertain; checking certified container' >&2
   [ "$(bounded_break_command 5 docker container inspect -f '{{.Id}} {{.State.Status}}' sp-autoheal)" = "$CERTIFIED_AUTOHEAL_ID running" ] \
     || die 'certified census autoheal restoration did not verify'
   CERTIFIED_AUTOHEAL_FENCED=0
@@ -3850,9 +3850,10 @@ MUTATION_STARTED=1
 assert_time_remaining
 assert_break_proof_time
 
-bounded_break_command 10 docker container inspect sp-autoheal >/dev/null
-bounded_break_command 20 docker stop -t 15 sp-autoheal >/dev/null
-[ "$(bounded_break_command 10 docker container inspect -f '{{.State.Status}}' sp-autoheal)" = exited ] \
+AUTOHEAL_ID="$(bounded_break_command 10 docker container inspect -f '{{.Id}}' sp-autoheal)"
+[[ "$AUTOHEAL_ID" =~ ^[0-9a-f]{64}$ ]] || die 'autoheal container identity is unknown'
+bounded_break_command 20 docker stop -t 15 "$AUTOHEAL_ID" >/dev/null
+[ "$(bounded_break_command 10 docker container inspect -f '{{.Id}} {{.State.Status}}' sp-autoheal)" = "$AUTOHEAL_ID exited" ] \
   || die 'autoheal did not stop before the compatibility trial'
 
 # The replacement consumes the same absolute candidate-proof deadline as its
@@ -3971,11 +3972,13 @@ bounded_break_command 10 "$RELEASE_SEAL" attest-commit \
 
 bounded_break_command 10 docker tag "$TARGET_IMAGE_ID" "$IMAGE_REPO:current"
 bounded_break_command 10 docker update --restart always "$CONTAINER" >/dev/null
-bounded_break_command 10 docker start sp-autoheal >/dev/null
+bounded_break_command 10 docker start "$AUTOHEAL_ID" >/dev/null \
+  || echo '[engine-release-transaction] autoheal start response uncertain; checking original container' >&2
 [ "$(bounded_break_command 10 \
   docker container inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTAINER")" = always ]
 [ "$(bounded_break_command 10 \
-  docker container inspect -f '{{.State.Status}}' sp-autoheal)" = running ]
+  docker container inspect -f '{{.Id}} {{.State.Status}}' sp-autoheal)" = "$AUTOHEAL_ID running" ] \
+  || die 'original autoheal container did not verify running'
 FINAL_LOCAL_INSTANCE="$(health_instance 'http://127.0.0.1:8080/health')" \
   || die 'sealed engine failed final local health proof'
 FINAL_PUBLIC_INSTANCE="$(health_instance "$PUBLIC_URL/health?nocache=$(date +%s%N)")" \
