@@ -53,19 +53,28 @@ step "independent_award" {
    RAISE NOTICE 'INDEPENDENT_AWARD_SETTLED';
  END $award$;
 }
+step "peer_award" {
+ DO $award$ DECLARE r jsonb;
+ BEGIN
+   r:=public.fn_settle_satellite_qualifiers(md5('l04:peer:source')::uuid,
+     ARRAY[md5('l04:peer:user:1')::uuid]);
+   IF r->>'receipt_version' IS DISTINCT FROM '3' THEN RAISE EXCEPTION 'same-target peer failed: %',r; END IF;
+   RAISE NOTICE 'SAME_TARGET_PEER_SETTLED';
+ END $award$;
+}
 step "effects" {
  RESET ROLE;
  DO $proof$
  BEGIN
    IF (SELECT count(*) FROM public.tournament_satellite_settlements WHERE tournament_id IN
-        (md5('l04:race:source')::uuid,md5('l04:independent:source')::uuid)) <> 2
+        (md5('l04:race:source')::uuid,md5('l04:independent:source')::uuid,md5('l04:peer:source')::uuid)) <> 3
       OR (SELECT count(*) FROM public.tournament_escrow WHERE tournament_id IN
-        (md5('l04:race:source')::uuid,md5('l04:independent:source')::uuid)
-        AND prize_balance=0 AND prize_out=105 AND closed_at IS NOT NULL) <> 2 THEN
-     RAISE EXCEPTION 'both funded cohorts must settle and close escrow';
+        (md5('l04:race:source')::uuid,md5('l04:independent:source')::uuid,md5('l04:peer:source')::uuid)
+        AND prize_balance=0 AND prize_out=105 AND closed_at IS NOT NULL) <> 3 THEN
+     RAISE EXCEPTION 'all three funded cohorts must settle and close escrow';
    END IF;
    RAISE NOTICE 'BLOCKED_TARGET_EXACT_EFFECTS';
  END $proof$;
 }
-permutation "hold_row" "blocked_award" "independent_award" "release_target" "same_award" "effects"
-permutation "hold_hand_key" "blocked_award" "independent_award" "release_target" "same_award" "effects"
+permutation "hold_row" "blocked_award" "independent_award" "release_target" "same_award" "peer_award" "effects"
+permutation "hold_hand_key" "blocked_award" "independent_award" "release_target" "same_award" "peer_award" "effects"

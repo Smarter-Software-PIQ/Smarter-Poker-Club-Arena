@@ -53,11 +53,11 @@ END $fault$;
 CREATE TRIGGER native_qualifier_final_close BEFORE UPDATE ON public.tables
  FOR EACH ROW EXECUTE FUNCTION pg_temp.qualifier_refuse_final_close();
 
-CREATE FUNCTION pg_temp.qualifier_case(case_name text,survivors integer,settle_now boolean DEFAULT true) RETURNS jsonb LANGUAGE plpgsql AS $case$
+CREATE FUNCTION pg_temp.qualifier_case(case_name text,survivors integer,settle_now boolean DEFAULT true, shared_target_case text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql AS $case$
 DECLARE
- club uuid:=md5('l04:'||case_name||':club')::uuid;
+ club uuid:=md5('l04:'||coalesce(shared_target_case,case_name)||':club')::uuid;
  source_id uuid:=md5('l04:'||case_name||':source')::uuid;
- target_id uuid:=md5('l04:'||case_name||':target')::uuid;
+ target_id uuid:=md5('l04:'||coalesce(shared_target_case,case_name)||':target')::uuid;
  v_table_id uuid:=md5('l04:'||case_name||':table')::uuid;
  u uuid; session_id uuid; request_id uuid; i integer; q uuid[]; r jsonb; first_receipt jsonb;
  before_money jsonb; after_money jsonb; refused boolean; event_row public.tournaments%ROWTYPE;
@@ -66,7 +66,9 @@ BEGIN
  -- Opening wallets/identities and authored future-format event are explicit
  -- fixtures, not production data and not a forged creator acceptance test.
  PERFORM set_config('session_replication_role','replica',true);
- INSERT INTO public.clubs(id,club_id,name) VALUES(club,CASE WHEN survivors=2 THEN 993001 ELSE 993002 END,'Native Qualifier '||case_name);
+ IF shared_target_case IS NULL THEN
+  INSERT INTO public.clubs(id,club_id,name) VALUES(club,CASE WHEN survivors=2 THEN 993001 ELSE 993002 END,'Native Qualifier '||case_name);
+ END IF;
  INSERT INTO public.tournaments(id,name,buy_in_amount,buy_in_fee,starting_chips,start_time,status,
    current_players,max_players,min_players,current_level,club_id,prize_pool,total_rake,bounty_pool,
    entry_contract_locked,is_rebuy,is_reentry,rebuy_levels,late_reg_levels,late_reg_mins,
@@ -74,7 +76,8 @@ BEGIN
  VALUES(target_id,'Native Qualifier Target '||case_name,45,5,1000,clock_timestamp()+interval '1 day','REGISTERING',
    0,NULL,3,0,club,0,0,0,false,false,false,0,0,0,'MTT','freezeout','mtt-v2',NULL,NULL,NULL),
   (source_id,'Native Qualifier Source '||case_name,26.25,0,1000,clock_timestamp()+interval '1 hour','REGISTERING',
-   0,NULL,3,0,club,0,0,0,false,false,false,0,0,0,'SATELLITE','satellite','mtt-v2',target_id,target_id,2);
+   0,NULL,3,0,club,0,0,0,false,false,false,0,0,0,'SATELLITE','satellite','mtt-v2',target_id,target_id,2)
+ ON CONFLICT (id) DO NOTHING;
  FOR i IN 1..4 LOOP
   u:=md5('l04:'||case_name||':user:'||i)::uuid;
   session_id:=md5('l04:'||case_name||':session:'||i)::uuid;

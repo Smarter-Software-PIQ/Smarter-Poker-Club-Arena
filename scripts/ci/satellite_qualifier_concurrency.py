@@ -158,6 +158,9 @@ SELECT pg_temp.qualifier_case('race',2,false);
 COMMIT;
 BEGIN;
 SELECT pg_temp.qualifier_case('independent',1,false);
+COMMIT;
+BEGIN;
+SELECT pg_temp.qualifier_case('peer',1,false,'race');
 DROP TRIGGER native_qualifier_final_close ON public.tables;
 COMMIT;
 """)
@@ -174,7 +177,7 @@ COMMIT;
         notices = re.findall(r'NOTICE:\s+(\w+)\s*$',out+'\n'+err,re.M)
         if (code or re.search(r'(ERROR|FATAL|PANIC):',out+'\n'+err) or '<waiting ...>' in out
                 or notices != ['BLOCKED_AWARD_REFUSED','INDEPENDENT_AWARD_SETTLED',
-                               'BLOCKED_AWARD_SETTLED','BLOCKED_TARGET_EXACT_EFFECTS']):
+                               'BLOCKED_AWARD_SETTLED','SAME_TARGET_PEER_SETTLED','BLOCKED_TARGET_EXACT_EFFECTS']):
             raise RuntimeError(name+' did not prove unrelated progress and original funded recovery')
         e.discard(db)
         e.report['races'].append({'case':name,'unrelated_funded_settlement':True,
