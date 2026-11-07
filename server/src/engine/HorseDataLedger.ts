@@ -915,6 +915,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V82'
   ),
   flag(
+    'huBbDefendsToPrice',
+    "2026-11-07 default OFF: heads-up no-limit hold'em cash, the big blind facing the only open (no limp, no caller, open <= 6bb, 20-150bb effective) continues every hand whose all-in equity against the opener's measured range (opponent read RFI/PFR width when engaged, else the V70 heads-up open target 72% cash / 76% ante; equity table HorseHuBbDefence.HU_BB_EQUITY, Monte Carlo, scripts/generate-hu-bb-defence-equity.ts), times a 0.8 out-of-position realisation, covers the rake-aware pot odds; measured before (real HorseLogic.decide, live cash Hybrid persona, 80bb, 4,000 samples per class): the SB opens 71.3% and the BB folds 57.4% to it (T6s, 96s, Q9o, K5o fold) because two-handed tables never reach the V72 per-seat defence and the V11 heads-up bar (t(0.30) less 0.06, V34 floor 0.30) reads neither the price nor the opener's width; widen-only (a fold becomes a call), 3-bets, six-max, tournaments, Omaha, short deck, pot and fixed limit unchanged; league hu_bb_defends_to_price; docs/changelog/2026-11-07-horse-hu-bb-defends-to-its-price.md",
+    'HuBbPrice'
+  ),
+  flag(
     'v77SeatAwareJams',
     "2026-11-02 (Burls via Dan: \"JAMMING ALL IN TOO MUCH, THEY AREN'T CONSIDERING THE UTG OR EARLY POSITION OPENERS\") the no-limit hold'em push/fold jam over exactly one open is tightened by the OPENER'S V70 per-seat open width (dealt-census indexed, ante-aware, HorseGtoVs3BetRanges.openWidth): the bar rises by 0.3 per unit of width the opener's seat does not open against the 40% late reference, capped at +0.10 (an under-the-gun ~12% width lands the 12-15bb bar at ~0.80, the same early bar the Phase 6 reshove node uses at 20bb); measured before (24 h to 2026-11-02 00:21 UTC, 439,087 facing-one-open spots): tournament jam rate 6.82% over an early open vs 8.11% over a late one at <=15bb, 3.53% vs 7.14% at 15-25bb; tighten-only (a 40%+ button or blind width keeps today's bar exactly); first-in jams (V71/V27), the facing-3-bet bar, the HorseTournamentShoveDiscipline caps and Omaha untouched; explicit off arm keeps the seat-blind bar",
     'V77'
@@ -4146,6 +4151,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic decideInternal after wager_rules',
     'the near-nut candidate chose a value raise and a later owner replaced it',
     'Small-pot near-nut value'
+  ),
+  receipt(
+    'hu_bb_defends_to_price',
+    'HorsePreflop via HorseLogic (huBbDefendsToPrice)',
+    'default-off huBbDefendsToPrice: heads-up big blind facing the only open called a hand the V11 heads-up bars folded, because its realised equity against the opener range covered the price',
+    'HuBbPrice'
   ),
   receipt(
     'barrel_continuation_outlook_applied',

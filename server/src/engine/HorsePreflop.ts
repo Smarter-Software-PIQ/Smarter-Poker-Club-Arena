@@ -34,6 +34,7 @@ import { potLimitRaiseTo } from './BettingStructure.js';
 import { completePreflopCommitment } from './HorseContinuation.js';
 import { nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
 import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
+import { huBbRequiredEquity } from './HorseHuBbDefence.js';
 import {
   tournamentMZone,
   tournamentNextLevelProjectionApplies,
@@ -57,7 +58,8 @@ export interface PreflopIntent {
     | 'v76_retired_four_bet_bluff'
     | 'cash_nlh_three_bet_size'
     | 'plo_suited_aces_four_bet'
-    | 'plo_suited_aces_four_bettor_continues';
+    | 'plo_suited_aces_four_bettor_continues'
+    | 'hu_bb_defends_to_price';
 }
 
 /** Layers that report through PreflopCtx.noteLayer (receipt only). */
@@ -205,6 +207,13 @@ export interface PreflopCtx {
    *  one raise; its presence turns on the seat-aware jam tighten at the
    *  push/fold node (see V77 below). */
   openerOpenWidthPct?: number;
+  /** HU BB DEFENDS TO ITS PRICE (2026-11-07, flag huBbDefendsToPrice,
+   *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero the
+   *  big blind facing the only open. `equity` is this class's all-in equity
+   *  against the opener's measured range. Present only with the flag on and
+   *  the spot in scope; a fold of the heads-up defence becomes a call when
+   *  the realised equity covers the price. Absent = unchanged. */
+  huBbPrice?: { equity: number };
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
    *  ante). NOT per-player: multiplying this by the seat count is the bug of
@@ -1874,6 +1883,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     callBar = phase6CapBar(callBar);
 
     if ((def72 ? def72.strength : strength) >= callBar && priceOK) return { a: 'call' };
+    // HU BB DEFENDS TO ITS PRICE (flag huBbDefendsToPrice, default off): the
+    // bars above fold ~57% of hands heads-up to a 2.5-3bb open laying 3.2:1.
+    // A hand whose equity against the opener's measured range, after the
+    // out-of-position realisation discount, covers the price continues.
+    // Widen-only: 3-bets and every call above are unchanged.
+    if (ctx.huBbPrice && position === 'bb' && callers === 0 && priceOK && toCall > 0) {
+      const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
+      if (ctx.huBbPrice.equity >= huBbRequiredEquity(odds)) {
+        return { a: 'call', receipt: 'hu_bb_defends_to_price' };
+      }
+    }
     if (def72) {
       // V72: the big blind closes the action at the best price of the orbit,
       // so (as the V34 floor below did for the buckets) its defence is its

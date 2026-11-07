@@ -1140,15 +1140,9 @@ export async function runMatchup(
     };
     const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
     const evenIsA = (s: number) =>
-      withLearning(
-        withDealMood(withEvidence(s % 2 === 0 ? matchup.a : matchup.b), moodMs),
-        learn
-      );
+      withLearning(withDealMood(withEvidence(s % 2 === 0 ? matchup.a : matchup.b), moodMs), learn);
     const evenIsB = (s: number) =>
-      withLearning(
-        withDealMood(withEvidence(s % 2 === 0 ? matchup.b : matchup.a), moodMs),
-        learn
-      );
+      withLearning(withDealMood(withEvidence(s % 2 === 0 ? matchup.b : matchup.a), moodMs), learn);
     const hasMods =
       matchup.modsA !== undefined || matchup.modsB !== undefined || hybrid !== undefined;
     // Same persona at the same seat in both passes; only the arm swaps.
@@ -1496,6 +1490,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // ring pots that have come down to two players.
   { name: 'hu_v16_overlay', seats: 2, pairs: 6000, a: { v16Hu: true }, b: {} },
   { name: 'v16_hu_overlay_6max', pairs: 6000, a: { v16Hu: true }, b: {} },
+  // 2026-11-07 HU BB DEFENDS TO ITS PRICE (HorseHuBbDefence), default OFF,
+  // so arm A turns it on (the v16Hu pattern). Heads-up 80bb with the live
+  // cash Hybrid persona and the deal-seeded mood clock: the measured spot
+  // (the big blind folded 57.4% to a 71.3% small-blind open). Both seats play
+  // both arms across the duplicate pair. Six-max never reaches the flag
+  // (two dealt in only), so no six-max card is added. Promoted only after
+  // the nightly league confirms it across runs.
+  {
+    name: 'hu_bb_defends_to_price',
+    seats: 2,
+    stackBB: 80,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { huBbDefendsToPrice: true },
+    b: {},
+  },
   /*
    * v16_ratio_rescale is NOT on the card (2026-09-05). Measured 2026-09-04:
    * 0.00 bb100 with 0.00 stderr over 12,000 hands - the flag changed no

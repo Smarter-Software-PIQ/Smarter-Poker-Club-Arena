@@ -140,6 +140,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the V71 chip-EV Nash jam-or-fold table (169 thresholds per seat count and ante level)',
     'src/engine/HorseGtoDefenceRanges.ts':
       "the V72 Hold'em single-open defence by defender and opener seat: continue orders, value bars and bluff mix",
+    'src/engine/HorseHuBbDefence.ts':
+      "the default-off heads-up big blind price defence: each Hold'em class's equity against the heads-up open range by width, and the realisation the price is read with",
     'src/engine/HorseGtoVs3BetRanges.ts':
       "the V73 Hold'em opener's answer to one 3-bet: continue orders and widths as a share of the seat's own open",
     'src/engine/pineappleDiscardChoice.ts': 'the Pineapple discard',
