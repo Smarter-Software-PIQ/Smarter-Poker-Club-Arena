@@ -123,7 +123,7 @@ describe('public215 feature contract v2 (appended R8 categories)', () => {
     const t2 = compile(wire(), PUBLIC_HIST215_V2);
     const out = public215ContractVector(v1, t2);
     expect(out).toHaveLength(246);
-    expect(out.slice(0, 215)).toEqual(v1);
+    expect(out.slice(0, v1.length)).toEqual(v1);
     expect(out.slice(215).every((x) => x === 0)).toBe(true);
     expect(() => public215ContractVector(v1.slice(1), t1)).toThrow();
     expect(
