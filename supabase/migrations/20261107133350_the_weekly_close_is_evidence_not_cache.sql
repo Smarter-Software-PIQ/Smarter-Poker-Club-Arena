@@ -100,6 +100,22 @@
 -- job 272 is mid-tick on this exact book, so it can never wait on a close
 -- while holding that book's rows.
 --
+-- WHY THIS FILE WAS EDITED AFTER IT MERGED (2026-11-07). It merged in #9860
+-- and then could not install. Apply Merged Migration run 42384805393 REFUSED
+-- after 12,215 ms with "FATAL 25P04: terminating connection due to transaction
+-- timeout", inside this file's own
+-- `idempotency_key LIKE 'union_close:...:%'` read of chip_ledger. Nothing was
+-- committed, so the pruner stayed settlement-type-agnostic and the close row
+-- stayed deleted. Both prefix reads are now named-key equalities served by
+-- ux_chip_ledger_idempotency_key: 41,340 ms -> 0.202 ms, both measured
+-- read-only against production. Every guard, figure and source is unchanged
+-- and one guard is added. Editing the merged bytes is this estate's route for
+-- a migration that merged and was REFUSED on its first apply with nothing
+-- committed - #9520 did exactly this to 20261105034239 after its first apply
+-- was refused with 42601 - and NOT the "-- SUPERSEDED BY" marker, which
+-- check-migrations-are-live.mjs honours only for a file whose work another
+-- file in this directory already does.
+--
 -- (The annotation token itself is deliberately not written anywhere in this
 -- file, not even in prose: windowDeclaration() in
 -- scripts/ci/maintenance-window-migrations.mjs counts every line that merely
@@ -119,6 +135,7 @@ DECLARE
   v_ref   text;
   v_rake numeric; v_paid numeric; v_ret numeric; v_clubs int;
   v_basis jsonb; v_payout jsonb; v_r1 jsonb;
+  v_keys text[];
 BEGIN
   -- ------------------------------------------------------------------ --
   -- PRECONDITIONS. Refuse if production is not the thing that was       --
@@ -234,11 +251,48 @@ BEGIN
     FROM public.union_settlement_rounds
    WHERE union_id=c_union AND period_start=c_from AND period_end=c_to AND round_no=1;
 
+  -- EVERY LEDGER READ HERE IS AN INDEX EQUALITY, NEVER A PREFIX SCAN
+  -- (2026-11-07). chip_ledger carries 25.9M rows in 12 GB and the only index
+  -- on its key is ux_chip_ledger_idempotency_key, a plain btree in this
+  -- database's en_US.UTF-8 collation. A non-C collation cannot answer
+  -- LIKE 'prefix%' from a plain btree, so the read this block used to do -
+  -- idempotency_key LIKE 'union_close:'||c_sid::text||':%' - degraded to a
+  -- bitmap scan of the whole partial index and 408,577 heap blocks, removing
+  -- 572,752 rows by filter to return 2: measured read-only against production
+  -- on 2026-11-07, 41,340 ms. The applier sends this file as ONE transaction
+  -- under a transaction timeout, so that read alone blew it (run 42384805393,
+  -- 25P04 after 12,215 ms, in this exact statement).
+  --
+  -- So the keys are NAMED instead of matched. Each candidate is built the way
+  -- fn_union_weekly_rakeback_close built it - 'union_close:<settlement>:' and
+  -- a club id - over the clubs THIS BOOK names in its own settlement_periods
+  -- rows for the exact week, together with the union's current roster, plus
+  -- the ':retained' leg. = ANY(text[]) over those is one index equality per
+  -- key: measured 0.202 ms, 5 buffers, Index Scan using
+  -- ux_chip_ledger_idempotency_key. The ledger legs remain the only source of
+  -- every figure; no total is hard-coded and none is recomputed.
+  --
+  -- NO INDEX IS CREATED HERE. A text_pattern_ops index over a 12 GB live money
+  -- journal cannot be built inside this apply transaction without holding the
+  -- journal, which the "NOT A WINDOW MIGRATION" note above promises not to do.
+  -- An equality read needs no new index.
+  SELECT coalesce(array_agg(DISTINCT 'union_close:'||c_sid::text||':'||cid::text), '{}'::text[])
+    INTO v_keys
+    FROM (SELECT club_id AS cid
+            FROM public.settlement_periods
+           WHERE union_id=c_union AND start_at=c_from AND end_at=c_to
+             AND club_id IS NOT NULL
+          UNION
+          SELECT club_id
+            FROM public.union_clubs
+           WHERE union_id=c_union) roster;
+  v_keys := v_keys || ('union_close:'||c_sid::text||':retained');
+
   SELECT jsonb_object_agg(to_entity_id::text,(metadata->>'rake_basis')::numeric),
          jsonb_object_agg(to_entity_id::text,amount)
     INTO v_basis, v_payout
     FROM public.chip_ledger
-   WHERE idempotency_key LIKE 'union_close:'||c_sid::text||':%'
+   WHERE idempotency_key = ANY(v_keys)
      AND to_type='club_treasury';
 
   IF v_r1 IS NULL THEN
@@ -266,13 +320,29 @@ BEGIN
     RAISE EXCEPTION 'EVIDENCE_NOT_CACHE: the retained ledger leg disagrees with round 1';
   END IF;
   IF (SELECT round(sum(amount),2) FROM public.chip_ledger
-       WHERE idempotency_key LIKE 'union_close:'||c_sid::text||':%'
+       WHERE idempotency_key = ANY(v_keys)
          AND to_type='club_treasury') IS DISTINCT FROM v_paid THEN
     RAISE EXCEPTION 'EVIDENCE_NOT_CACHE: the club ledger legs do not sum to the payout';
   END IF;
   IF (SELECT count(*) FROM jsonb_object_keys(v_payout)) IS DISTINCT FROM v_clubs THEN
     RAISE EXCEPTION 'EVIDENCE_NOT_CACHE: % club legs for % clubs paid',
       (SELECT count(*) FROM jsonb_object_keys(v_payout)), v_clubs;
+  END IF;
+
+  -- THE NAMED KEY SET MISSED NOTHING. The two guards above already refuse a
+  -- key set that found too few legs - the payout would not sum, the club count
+  -- would not match - but neither can say WHICH leg is missing. This asks from
+  -- the other side, through ix_chip_ledger_settlement: an equality on
+  -- settlement_id that reads only this settlement's own rows, measured
+  -- read-only against production at 0.176 ms. A union_close leg of this
+  -- settlement outside the named set - a club paid that week and since dropped
+  -- from both its own settlement_periods row and the union roster - refuses by
+  -- name rather than restoring a partial basis.
+  IF EXISTS (SELECT 1 FROM public.chip_ledger
+              WHERE settlement_id = c_sid::text
+                AND idempotency_key LIKE 'union_close:'||c_sid::text||':%'
+                AND NOT (idempotency_key = ANY(v_keys))) THEN
+    RAISE EXCEPTION 'EVIDENCE_NOT_CACHE: a union_close leg of % is outside the named roster key set', c_sid;
   END IF;
   IF NOT EXISTS(SELECT 1 FROM public.settlement_periods
                  WHERE union_id=c_union AND start_at=c_from AND end_at=c_to
