@@ -393,7 +393,7 @@ cmd_certify() {
   [ "$sv" = "$sha" ] || record "serving_sha_mismatch:${sv:-none}"
 
   # The 4 AM cutover rehearsed: the live serving release swaps to this one.
-  local serving
+  local serving="" rollback_seconds=null forward_seconds=null SWAP_ADOPTION_SECONDS
   if [ "$verdict" = pass ]; then
     if ! serving=$(curl -fsS -m 10 https://engine.smarter.poker/health | health_field releaseSha) \
        || ! [[ "$serving" =~ ^[0-9a-f]{40}$ ]]; then
@@ -403,7 +403,15 @@ cmd_certify() {
         # Exercise the predecessor against the database after candidate boot.
         # End on the candidate for the crash and soak checks below.
         if trial_swap "$sha" "$serving" >/dev/null; then
-          trial_swap "$serving" "$sha" >/dev/null || record "swap_rehearsal_failed_from_${serving:0:12}"
+          rollback_seconds=$SWAP_ADOPTION_SECONDS
+          if [ "$rollback_seconds" -gt 135 ]; then
+            record 'rollback_rehearsal_exceeded_reserve'
+          fi
+          if trial_swap "$serving" "$sha" >/dev/null; then
+            forward_seconds=$SWAP_ADOPTION_SECONDS
+          else
+            record "swap_rehearsal_failed_from_${serving:0:12}"
+          fi
         else
           record "rollback_rehearsal_failed_to_${serving:0:12}"
         fi
@@ -462,6 +470,7 @@ cmd_certify() {
 import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+       "rehearsedServingSha": "$serving", "rollbackAdoptionSeconds": $rollback_seconds, "forwardAdoptionSeconds": $forward_seconds,
        "bootSeconds": ${boot1:--1}, "crashRecoverySeconds": ${boot2:--1}, "soakSeconds": $soak, "restartPolicy": "unless-stopped", "crashRestartsBefore": ${restart_before:--1}, "crashRestartsAfter": ${restart_after:--1},
        "standbyScriptSha256": "$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)",
        "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},
