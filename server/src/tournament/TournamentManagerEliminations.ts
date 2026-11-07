@@ -12,6 +12,7 @@ import nodeCrypto from 'node:crypto';
 import {
   readDurableTerminalRequest,
   adoptDurableTerminalRequest,
+  SatelliteTerminalPrepareBusyError,
 } from './terminalDurableRequest.js';
 import { UUID_SHAPE as UUID } from '../lib/uuidShape.js';
 import { isMaintenanceFrozen, isTerminalSettlementFrozen } from '../maintenance/freezeState.js';
@@ -6444,6 +6445,14 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             await this.cleanupCommittedSatelliteQualifiers(receipt);
             return 'complete';
           } catch (error) {
+            if (error instanceof SatelliteTerminalPrepareBusyError) {
+              // Keep every dealer parked; only the existing owner retries admission.
+              this.tournamentFinished = false;
+              this.requestUrgentEliminationSweepAfter(
+                TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS
+              );
+              return 'pending';
+            }
             if (error instanceof SatelliteSettlementRefusedError) {
               this.tournamentFinished = false;
               reportError(error, 'Tournament.satellite_qualifiers_refused', {
@@ -7477,6 +7486,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       try {
         receipt = await this.processSatelliteAwards(tournament, winnerId);
       } catch (satErr) {
+        if (satErr instanceof SatelliteTerminalPrepareBusyError) {
+          this.tournamentFinished = false;
+          this.requestUrgentEliminationSweepAfter(TournamentManagerBase.UNRESOLVED_BUST_RETRY_MS);
+          return;
+        }
         const provenRefusal = satErr instanceof SatelliteSettlementRefusedError;
         const outcomeUnknown =
           satErr instanceof SatelliteSettlementOutcomeUnknownError || !provenRefusal;

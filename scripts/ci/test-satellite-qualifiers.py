@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
 from satellite_qualifier_fixture import compose, module, sha, function_sql
-from satellite_qualifier_concurrency import qualify as qualify_concurrency, qualify_readers, validate_entry_club_result
+from satellite_qualifier_concurrency import qualify as qualify_concurrency, qualify_readers, qualify_blocked_target, validate_entry_club_result
 from satellite_entry_club_native import qualify as qualify_entry_club
 
 def main():
@@ -249,6 +249,7 @@ def main():
         manifest['source_sha256'].update(qualify_terminal_transport(e,root,db,output,probe))
         qualify_concurrency(e,root,native,db,output,qualifier_probe)
         qualify_readers(e,root,native,db,output,qualifier_probe)
+        qualify_blocked_target(e,root,native,db,output,qualifier_probe)
         from fixed_sng_satellite_financial import qualify as qualify_fixed_sng
         manifest['source_sha256'].update(qualify_fixed_sng(e,root,db,output))
         from fixed_sng_horse_plan_native import qualify as qualify_horse_plan
