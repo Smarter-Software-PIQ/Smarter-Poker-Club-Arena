@@ -172,11 +172,11 @@ it.each(['open', 'match'])(
     expect(await (await response).text()).toBe('network');
   }
 );
-it('cached shell retains the original bounded freshness race against slow network', async () => {
+it('cached shell is only used after a bounded failed network read', async () => {
   vi.useFakeTimers();
   const f = fixture({ cache: { match: vi.fn(async () => fresh()) }, fetch: vi.fn(never) });
   const { response } = f.request(shell);
-  await vi.advanceTimersByTimeAsync(300);
+  await vi.advanceTimersByTimeAsync(8000);
   expect(await (await response).text()).toBe('cached');
 });
 it('shell cache write rejection cannot hide a genuine fresh shell', async () => {
@@ -270,5 +270,25 @@ it('keeps a shell delivered during the offline-cache lookup ahead of the offline
   const { response } = f.request(shell);
   await vi.advanceTimersByTimeAsync(360);
   expect(await (await response).text()).toBe('saved shell');
+  expect(f.fetch).toHaveBeenCalledTimes(1);
+});
+
+it('waits for current HTML on an ordinary slow connection instead of booting cached HTML', async () => {
+  vi.useFakeTimers();
+  const f = fixture({
+    cache: { match: vi.fn(async () => fresh()) },
+    fetch: vi.fn(
+      () => new Promise((resolve) => setTimeout(() => resolve(new Response('current build')), 1200))
+    ),
+  });
+  const { response } = f.request(shell);
+  let delivered = false;
+  void response.then(() => {
+    delivered = true;
+  });
+  await vi.advanceTimersByTimeAsync(301);
+  expect(delivered).toBe(false);
+  await vi.advanceTimersByTimeAsync(899);
+  expect(await (await response).text()).toBe('current build');
   expect(f.fetch).toHaveBeenCalledTimes(1);
 });

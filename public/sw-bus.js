@@ -109,59 +109,14 @@ async function trimCache(cacheName, maxEntries) {
 }
 
 /**
- * CACHE-FIRST navigation, revalidated in the background.
- *
- * 2026-08-24 — this was network-first with a 3.5s deadline, and that deadline
- * was being paid by every single entry into Club Arena. Tapping the tile in
- * the World Hub blocked on a full HTML round trip to Vercel before one byte of
- * the app could start, even though a byte-identical shell was already sitting
- * in this cache from install. On a phone that is 300-800ms of nothing, and it
- * is the first thing the player experiences.
- *
- * The shell is now returned from cache immediately — no network in the
- * critical path at all — and a fresh copy is fetched alongside it to update
- * the cache for next time.
- *
- * WHY A STALE SHELL IS SAFE HERE, which is the whole question:
- *
- *  - The shell and the exact hashed chunks it references are precached
- *    TOGETHER, in the same deploy-versioned cache, by the install handler
- *    below. A cached shell can therefore always resolve its own scripts from
- *    cache-first even after the server has rotated to new filenames.
- *  - trimCache above will not evict that set, which is what would otherwise
- *    break this the moment a session touched 400 chunks.
- *  - A new deploy ships a new sw-bus.js (DEPLOY_TS changes), so the browser
- *    installs a new SW and precaches the NEW shell + chunks. It takes over
- *    when no tab is open, or when an open tab's update gate hands over to it
- *    just before reloading (see the install handler). Until then the old
- *    worker's freshness race still serves the new shell from the network.
- *  - When the background revalidation shows the shell has changed under a
- *    still-current SW, clients are told, so the app can refresh itself at a
- *    moment of its own choosing rather than mid-hand (see SHELL_UPDATED).
- *
- * ── THE BOUNDED FRESHNESS RACE (Dan 2026-08-29) ────────────────────────────
- *
- * Pure cache-first had a visible cost Dan ordered stopped: open Club Arena
- * right after a deploy (which, at this repo's deploy cadence, is MOST opens)
- * and the app boots the one-deploy-old shell, then SHELL_UPDATED lands and
- * useShellUpdateGate hard-reloads the page seconds after it painted. Dan:
- * "it like glitches and reloads... it looks like broken code."
- *
- * So the revalidation fetch — which was already being made on every
- * navigation — is now given a short, fixed budget to answer BEFORE the
- * cached shell is returned. If the network wins, the session boots the
- * CURRENT shell and there is nothing to reload later: no glitch at all.
- * If the budget expires first, the cached shell is served exactly as
- * before and the gate remains the (verified) fallback.
- *
- * This is NOT the 2026-08-24 network-first regression coming back:
- *  - the deadline is SHELL_FRESH_RACE_MS, not 3500ms, and on expiry the
- *    answer is the instant cached shell, never a spinner;
- *  - offline rejects the fetch immediately, so the offline path costs ~0ms;
- *  - the request was already on the wire for revalidation — the race adds
- *    no network traffic, only a bounded wait for work already in flight.
+ * Read current HTML before committing a navigation. The old 300ms cache race
+ * booted stale HTML on normal mobile connections, then the page update gate
+ * rebooted the rendered app. A real entry now awaits the network; cache is an
+ * offline/failed-read fallback, never a speculative first paint.
+ * Immutable chunks retain their cache-first path below.
  */
-const SHELL_FRESH_RACE_MS = 300;
+const SHELL_NETWORK_TIMEOUT_MS = 8000;
+const CACHE_LOOKUP_TIMEOUT_MS = 300;
 
 // Cache storage is optional. Bound open + match together with the existing
 // freshness allowance so unavailable storage cannot hold a real request forever.
@@ -178,7 +133,7 @@ async function lookupCachedResponse(cacheName, request) {
         return result;
       }).catch(() => result),
       new Promise((resolve) => {
-        timer = setTimeout(() => resolve(result), SHELL_FRESH_RACE_MS);
+        timer = setTimeout(() => resolve(result), CACHE_LOOKUP_TIMEOUT_MS);
       }),
     ]);
   } finally {
@@ -204,62 +159,40 @@ async function shellFromCache(event) {
   const lookup = await lookupCachedResponse(CACHE_NAME, SHELL_KEY);
   const { cache, cached } = lookup;
 
-  const revalidate = fetch(event.request, { cache: 'no-cache' })
+  let timer;
+  const network = fetch(event.request, { cache: 'no-cache' })
     .then((response) => {
-      if (!response || !response.ok || !cache) return response;
-      const stored = response.clone();
-      const compared = response.clone();
-      keepOptionalCacheWork(event, async () => {
-        // Comparison and persistence never hold the genuine network response.
-        let changed = false;
-        if (cached) {
-          try {
-            const [before, after] = await Promise.all([cached.clone().text(), compared.text()]);
-            changed = before !== after;
-          } catch {
-            /* comparison is best-effort */
-          }
-        }
-        await cache.put(SHELL_KEY, stored);
-        if (changed) {
-          const clients = await sw.clients.matchAll({ type: 'window' });
-          clients.forEach((c) => c.postMessage({ type: 'SHELL_UPDATED' }));
-        }
-      });
+      if (response?.ok && cache) {
+        const stored = response.clone();
+        keepOptionalCacheWork(event, () => cache.put(SHELL_KEY, stored));
+      }
       return response;
     })
     .catch(() => null);
-
-  if (cached) {
-    // The bounded freshness race — see the block comment above. The fetch is
-    // already in flight for revalidation; give it SHELL_FRESH_RACE_MS to land
-    // so a post-deploy entry can boot the current shell instead of booting
-    // stale and being reloaded out from under the player seconds later.
-    const fresh = await Promise.race([
-      revalidate,
-      new Promise((resolve) => setTimeout(resolve, SHELL_FRESH_RACE_MS)),
+  let fresh;
+  try {
+    fresh = await Promise.race([
+      network,
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), SHELL_NETWORK_TIMEOUT_MS);
+      }),
     ]);
-    if (fresh && fresh.ok) {
-      // The genuine network response is ready; optional persistence continues
-      // independently. Its body is unconsumed — only clones were retained.
-      return fresh;
-    }
-    // Keep the revalidation alive past the response we are about to return.
-    event.waitUntil(revalidate);
-    return cached;
+  } finally {
+    clearTimeout(timer);
   }
+  // Finish this same request/cache write if the offline fallback won. No
+  // broadcast can reboot the document that has already been handed back.
+  event.waitUntil(network);
+  if (fresh?.ok) return fresh;
+  if (cached) return cached;
 
-  // Nothing cached yet (first ever visit, or the cache was cleared): this is
-  // the only path that waits on the network, and it is once per device.
-  const fresh = await revalidate;
-  if (fresh && fresh.ok) return fresh;
   // Do not discard a genuine shell that the original cache read delivered
   // after admission timed out. No second read, request, or extra delay.
   if (lookup.cached) return lookup.cached;
   const { cached: offline } = await lookupCachedResponse(CACHE_NAME, '/hub/club-arena/offline.html');
   if (lookup.cached) return lookup.cached;
   if (offline) return offline;
-  return fresh || fetch(event.request);
+  return fresh || Response.error();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -288,11 +221,10 @@ sw.addEventListener('fetch', (event) => {
   // the table and lobby feel slow) were never cached by this SW at all.
   const isMedia = /\.(png|jpg|jpeg|webp|avif|svg|gif|ico|mp4|webm|woff2?)$/i.test(url.pathname);
 
-  // Navigations into Club Arena: CACHE-FIRST, revalidated in the background.
+  // Navigations into Club Arena: current HTML first, cache only on failure.
   // The shell HTML is precached at install time TOGETHER with the chunks it
   // references (same versioned cache), so what we serve is always internally
-  // consistent. See shellFromCache above for why serving a shell that may be
-  // one deploy old is the right trade here.
+  // consistent even when an offline entry needs the saved shell.
   const isClubArenaNav =
     (event.request.mode === 'navigate' || event.request.destination === 'document') &&
     (url.pathname === '/hub/club-arena' || url.pathname.startsWith('/hub/club-arena/')) &&

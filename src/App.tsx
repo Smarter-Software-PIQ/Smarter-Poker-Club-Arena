@@ -416,11 +416,8 @@ function FullApp() {
     inTabLobbyActive,
     inTabLobbyClubId
   );
-  /* The listener the service worker has always been posting SHELL_UPDATED to
-     and never had. Without it a cache-first shell — and the exact hashed
-     chunks it names — is served for the life of the session, so a player can
-     run a days-old bundle while production serves the fix. Applies the update
-     only away from a table and only with the tab visible; see the hook. */
+  // Freshness is observed here; current HTML is selected before entry by the
+  // service worker. An update must never reboot a page after it has appeared.
   useShellUpdateGate();
   useEffect(() => installPlayerSessionRevocationEvents(), []);
   /* And the reader for what that gate emits (2026-08-30). The gate has been

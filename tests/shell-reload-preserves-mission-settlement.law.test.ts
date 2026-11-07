@@ -166,7 +166,7 @@ describe('shell reload preserves mission settlement', () => {
     });
     expect(isShellReloadBlocked()).toBe(false);
   });
-  it('rechecks a claim acquired after arming but before the settle timer', async () => {
+  it('never reboots a mission page before or after a claim lease', async () => {
     const entry = document.createElement('meta');
     entry.content = '/assets/index-old.js';
     document.head.appendChild(entry);
@@ -199,11 +199,11 @@ describe('shell reload preserves mission settlement', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(8_000);
     });
-    expect(reload).toHaveBeenCalledTimes(1);
+    expect(reload).not.toHaveBeenCalled();
     unmount();
     entry.remove();
   });
-  it('rechecks a lease acquired during worker handover and adopts only after release on the existing poll', async () => {
+  it('never activates a waiting worker while a mission settlement is pending', async () => {
     const entry = document.createElement('meta');
     entry.content = '/assets/index-old.js';
     document.head.appendChild(entry);
@@ -231,7 +231,7 @@ describe('shell reload preserves mission settlement', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(getRegistration).toHaveBeenCalledTimes(2);
+    expect(getRegistration).toHaveBeenCalledTimes(1);
     const release = holdShellReload();
     await act(async () => {
       registration.resolve(undefined);
@@ -244,7 +244,7 @@ describe('shell reload preserves mission settlement', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(reload).toHaveBeenCalledTimes(1);
+    expect(reload).not.toHaveBeenCalled();
     unmount();
     entry.remove();
   });

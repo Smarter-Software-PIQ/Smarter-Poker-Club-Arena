@@ -7,7 +7,7 @@
  * 15-minute idle check. The route change now stays due until a probe runs.
  * None of this reloads anything: a stale answer only arms the same gate.
  */
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/core/MasterBus', () => ({ masterBus: { emit: vi.fn() } }));
@@ -81,6 +81,44 @@ describe('useShellUpdateGate poll', () => {
     await vi.advanceTimersByTimeAsync(STALE_CHECK_IDLE_MS * 2);
     expect(probes).toHaveBeenCalled();
     expect(navigator.serviceWorker.getRegistration).toHaveBeenCalledTimes(probes.mock.calls.length);
+  });
+
+  it.each([
+    '/hub/club-arena/clubs/a',
+    '/hub/club-arena/clubs/a/table-management',
+    '/hub/club-arena/clubs/a/members',
+    '/hub/club-arena/clubs/a/operations',
+    '/hub/club-arena/clubs/a/cashier',
+    '/hub/club-arena/table/a',
+  ])('keeps %s mounted across a newer deploy, navigation and resume', async (path) => {
+    window.history.replaceState(null, '', path);
+    const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {});
+    const postMessage = vi.fn();
+    vi.mocked(navigator.serviceWorker.getRegistration).mockResolvedValue({
+      update: vi.fn().mockResolvedValue(undefined),
+      waiting: { postMessage },
+    } as unknown as ServiceWorkerRegistration);
+    probes.mockResolvedValue('<script src="/assets/index-new.js"></script>');
+    const hook = renderHook(() => useShellUpdateGate());
+    const listeners = vi.mocked(navigator.serviceWorker.addEventListener).mock.calls;
+    const message = listeners.find(([type]) => type === 'message')![1] as (
+      event: MessageEvent
+    ) => void;
+    const controller = listeners.find(([type]) => type === 'controllerchange')![1] as () => void;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+      message(new MessageEvent('message', { data: { type: 'SHELL_UPDATED' } }));
+      controller();
+      window.dispatchEvent(new Event('focus'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('pageshow'));
+      window.history.replaceState(null, '', '/hub/club-arena/clubs/b');
+      await vi.advanceTimersByTimeAsync(STALE_CHECK_IDLE_MS * 2);
+    });
+    expect(reload).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalled();
+    hook.unmount();
+    reload.mockRestore();
   });
 
   it('stops polling on unmount', async () => {
