@@ -41,6 +41,22 @@ vi.mock('../services/supabase/client.js', () => ({
   maintenanceSupabase: {},
 }));
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
+// The exact-nuts river rule (HorseRiverNuts) correctly turns a river check
+// into a value bet for whoever holds the nuts. These hands deal unseeded
+// cards, so the free-check case below failed intermittently in CI (PR #9739,
+// run 42293682343: board 3s Ks 6s As 8c, the nut flush bet 6 on the river)
+// while asserting that nobody bets. That case is about free checks, not the
+// nuts rule (pinned in HorsePremiumBoardStrength.test.ts), so it switches the
+// rule off for itself only; every other case keeps the real rule.
+const nutsRule = vi.hoisted(() => ({ neutral: false }));
+vi.mock('../engine/HorseRiverNuts.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../engine/HorseRiverNuts.js')>();
+  return {
+    ...real,
+    riverNutsRaise: (...args: Parameters<typeof real.riverNutsRaise>) =>
+      nutsRule.neutral ? args[0] : real.riverNutsRaise(...args),
+  };
+});
 const kit = await import('../testing/lightningHostTestKit.js');
 const {
   lightningHorseIsAlreadyFolding,
@@ -61,6 +77,7 @@ const receipts = (): Record<string, number> => {
 
 const hosts: any[] = [];
 afterEach(async () => {
+  nutsRule.neutral = false;
   for (const h of hosts.splice(0)) await h.abort('test_complete').catch(() => undefined);
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -330,6 +347,7 @@ describe('a Lightning horse that is already folding folds right away (the host)'
 
   it('a free check is never folded: checked-to streets are checked, not folded', async () => {
     fake();
+    nutsRule.neutral = true;
     // A scripted action must not inherit an unrelated policy receipt: the
     // real host correctly withdraws a stale receipt to its own baseline.
     const { HorseLogic } = await import('../engine/HorseLogic.js');
