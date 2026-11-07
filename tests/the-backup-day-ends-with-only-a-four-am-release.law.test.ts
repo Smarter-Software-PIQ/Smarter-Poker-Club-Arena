@@ -5,6 +5,10 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 import { afterAll, describe, expect, it } from 'vitest';
+// A pre-push hook exports GIT_DIR and friends; a step reading a disposable
+// fixture repository must not be pointed at the repository being pushed.
+const hookFreeEnv = (): NodeJS.ProcessEnv =>
+  Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
 function planShell(script: string, env: NodeJS.ProcessEnv, cwd?: string) {
   const dir = mkdtempSync(resolve(tmpdir(), 'backup-plan-'));
   const output = resolve(dir, 'github-output');
@@ -12,7 +16,7 @@ function planShell(script: string, env: NodeJS.ProcessEnv, cwd?: string) {
     const result = spawnSync('bash', ['-c', script], {
       encoding: 'utf8',
       cwd,
-      env: { ...process.env, ...env, GITHUB_OUTPUT: output },
+      env: { ...hookFreeEnv(), ...env, GITHUB_OUTPUT: output },
     });
     let emitted = '';
     try {
@@ -416,12 +420,13 @@ git() { echo unexpected-main-read >&2; return 99; }
     /** A repo whose engine identity is readable at every commit after C0. */
     function fixture(options: { scriptFrom?: 'c1' } = {}) {
       const dir = mkdtempSync(resolve(tmpdir(), 'engine-identity-'));
+      const cleanEnv = hookFreeEnv();
       const git = (...args: string[]) => {
         const r = spawnSync('git', args, {
           cwd: dir,
           encoding: 'utf8',
           env: {
-            ...process.env,
+            ...cleanEnv,
             GIT_AUTHOR_NAME: 't',
             GIT_AUTHOR_EMAIL: 't@t',
             GIT_COMMITTER_NAME: 't',
@@ -480,6 +485,7 @@ git() { echo unexpected-main-read >&2; return 99; }
         spawnSync('bash', ['scripts/ci/engine-source-identity.sh', sha, ...extra], {
           cwd: dir,
           encoding: 'utf8',
+          env: cleanEnv,
         });
       return { dir, git, write, commit, shas, identity };
     }

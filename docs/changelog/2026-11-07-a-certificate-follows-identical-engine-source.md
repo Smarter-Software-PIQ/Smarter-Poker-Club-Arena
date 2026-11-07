@@ -136,3 +136,26 @@ different identity; refuses on failure, error, unreadable statuses, an
 unwritable status and an unreadable candidate; passes over ancestors that
 predate the script; push-only eligibility after the superseded check;
 dispatch, schedule and workflow_run never inherit.
+
+## Found on the way: a hook's `GIT_DIR` was failing other people's tests
+
+Pushing this branch from a Mac worktree was refused by eleven cases in
+`server/src/benchmark/phase8StrengthAssemble.test.ts` and
+`IncrementalPressureQualification.test.ts`, and by the new fixture tests
+here, all with `fatal: this operation must be run in a work tree`. None of
+those tests was wrong and none of them was touched. Git exports `GIT_DIR`
+(from a linked worktree, `GIT_COMMON_DIR` too) to every hook, and the
+pre-push hook selects every server test that mentions `.github/workflows`
+for a workflow-only change; a `git` spawned from `server/` or from a
+fixture under `$TMPDIR` then follows the pointer at this repository's
+metadata and refuses. Several law tests had each learned to strip `GIT_*`
+themselves; the benchmark readers had not, so the trap stayed one level up
+(CLAUDE.md 10.86 rule 4).
+
+`.husky/pre-push` now unsets `GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+GIT_PREFIX` before its first check. The hook's own git finds the tree from
+its working directory. Pinned in
+`tests/the-mac-push-runs-the-checks-like-ci.law.test.ts`: the block exists,
+names the four variables, precedes the first guard, and `git rev-parse
+--show-toplevel` still resolves after it with a hostile `GIT_DIR` set.
