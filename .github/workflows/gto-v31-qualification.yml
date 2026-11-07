@@ -11,7 +11,8 @@ run-name: V31 qualification ${{ inputs.operation || 'admission contracts' }} ${{
 #   (identical execution and replay digests, every certification table re-run
 #   a win or a tie; one loss retires it for good). Run by the V31 lane after a
 #   daily update; a passed round lets promote bind and load that engine.
-# After every successful engine release (workflow_run below, no timer) the
+# After every completed engine release run, whatever its verdict (a run can
+# activate the engine and fail a later job), (workflow_run below, no timer) the
 # recheck-after-release job reads production and dispatches `recheck` for a
 # contract v3 playbook the new serving engine still needs; with no such
 # playbook it does nothing (scripts/ci/gto-v31-recheck-dispatch.mjs).
@@ -84,7 +85,7 @@ jobs:
       - run: node --test scripts/ci/gto-v31-qualification.test.mjs scripts/ci/v31-decision-closure.test.mjs scripts/ci/v31-execution-fingerprint.test.mjs scripts/ci/v31-atomic-promotion.test.mjs scripts/ci/gto-v31-recheck-dispatch.test.mjs
   recheck-after-release:
     name: Dispatch the strict re-check a new serving engine needs
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
