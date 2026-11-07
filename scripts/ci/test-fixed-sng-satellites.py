@@ -106,6 +106,72 @@ with tempfile.TemporaryDirectory(prefix='sng-satellite-',dir=parent) as folder:
                 assert remainder<ticket*100,'never award a third seat instead of the refund'
         sql(f"UPDATE tournaments SET game_type='PLO6' WHERE id='{target}';")
         assert json.loads(sql(prefix+f"SELECT fn_ensure_fixed_sng_satellite('{target}',9)")[0])['reason']=='target_unavailable','nine-handed six-card Omaha refused'
+        # Exercise the production expiry authority on boards created by the real creator.
+        sql("""CREATE SCHEMA smarter_private;
+          ALTER TABLE tournaments ADD COLUMN started_at timestamptz, ADD COLUMN prize_pool_finalized boolean;
+          CREATE TABLE tournament_players(tournament_id uuid);
+          CREATE TABLE tables(id uuid, tournament_id uuid);
+          CREATE TABLE table_seats(table_id uuid, left_at timestamptz);
+          CREATE TABLE cancellations(id uuid PRIMARY KEY);
+          CREATE FUNCTION smarter_private.cancellation_lane(uuid) RETURNS void LANGUAGE sql AS $$
+            SELECT pg_advisory_xact_lock(hashtextextended($1::text,0)) $$;
+          CREATE FUNCTION atomic_cancel_tournament(uuid,uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
+            BEGIN INSERT INTO cancellations VALUES($1); UPDATE tournaments SET status='CANCELLED' WHERE id=$1;
+            RETURN jsonb_build_object('fully_settled',true); END $$;
+          CREATE FUNCTION fn_ca_tournament_cancellation_receipt(uuid,uuid) RETURNS jsonb LANGUAGE sql AS $$
+            SELECT jsonb_build_object('fully_settled',true) FROM cancellations WHERE id=$1 $$;""")
+        sql((root/'supabase/migrations/20261107190511_fixed_sng_satellite_target_expiry.sql').read_text())
+        for seats in [6,9]:
+            board=sql(f"SELECT id FROM tournaments WHERE satellite_target_id='{target}' AND max_players={seats}")[0]
+            expiry=f"SELECT fn_ca_expire_empty_fixed_sng_satellite('{board}')"
+            def expire():
+                return json.loads(sql(prefix+expiry)[0])
+            sql(f"UPDATE tournaments SET start_time=now()-interval '6 hours' WHERE id='{board}'; UPDATE tournaments SET start_time=now()+interval '1 day' WHERE id='{target}'")
+            assert expire()['reason']=='target_still_open','old empty feeder stays available'
+            sql(f"UPDATE tournaments SET start_time=now()-interval '1 minute' WHERE id='{target}'; INSERT INTO tournament_players VALUES('{board}');")
+            assert expire()['reason']=='not_empty_registering','the current registration protects the roster'
+            sql(f"DELETE FROM tournament_players; UPDATE tournaments SET start_time=now()+interval '1 hour' WHERE id='{target}';")
+            assert expire()['reason']=='target_still_open','target rescheduling is read at the decision'
+            # The target owner holds an uncommitted edit while the expiry owner
+            # inspects it. NOWAIT must preserve the board without waiting or settling.
+            raced=sql(prefix+f"""CREATE EXTENSION IF NOT EXISTS dblink;
+              SELECT dblink_connect('editor','host=127.0.0.1 port={port} dbname=postgres');
+              SELECT dblink_exec('editor','BEGIN');
+              SELECT dblink_exec('editor',$edit$UPDATE tournaments SET start_time=now()-interval '1 minute' WHERE id='{target}'$edit$);
+              {expiry};
+              SELECT dblink_exec('editor','ROLLBACK');
+              SELECT dblink_disconnect('editor');""")[0]
+            assert '"busy"' in raced and expire()['reason']=='target_still_open'
+            assert sql("SET ROLE authenticated; "+expiry,False)[2]!=0,'browser cannot expire a feeder'
+            sql(f"UPDATE tournaments SET start_time=now()-interval '1 minute' WHERE id='{target}';")
+            assert expire()['fully_settled'] and expire()['fully_settled'],'exact receipt replay'
+            assert sql(f"SELECT count(*) FROM cancellations WHERE id='{board}'")[0]=='1'
+        # Reconstruct the exact target-binding trigger from its two versioned migrations.
+        guard=definition('20261017004440_satellites_seat_bounty_targets.sql','fn_ca_guard_new_satellite_target')
+        edit=next(line for line in candidate.splitlines() if line.startswith("  ('public.fn_ca_guard_new_satellite_target()'"))
+        guard=guard.replace(edit.split('$old$')[1],edit.split('$new$')[1])
+        sql(guard)
+        sql("""CREATE TABLE clubs(id uuid,asset text);
+          CREATE FUNCTION fn_poker_diamond_tournament(uuid) RETURNS boolean LANGUAGE sql AS $$SELECT false$$;
+          CREATE FUNCTION fn_ca_diamond_satellite_target_accepts_new_feeder(uuid) RETURNS boolean LANGUAGE sql AS $$SELECT false$$;
+          ALTER TABLE tournaments ADD COLUMN is_bounty boolean DEFAULT false, ADD COLUMN is_pko boolean DEFAULT false,
+          ADD COLUMN is_mystery_bounty boolean DEFAULT false, ADD COLUMN is_premium_spin boolean DEFAULT false;
+          CREATE TRIGGER a2_tournaments_new_satellite_target BEFORE INSERT OR UPDATE OF satellite_target_id,satellite_target,
+            is_bounty,is_pko,is_mystery_bounty,is_premium_spin,variant,tournament_type,club_id,union_id ON tournaments
+            FOR EACH ROW EXECUTE FUNCTION fn_ca_guard_new_satellite_target();""")
+        bind=f"""INSERT INTO tournaments(club_id,union_id,name,tournament_type,variant,satellite_target_id,start_time)
+          VALUES('{owner}','{owner}','Scheduled feeder','SATELLITE','satellite','{target}',now()+interval '10 minutes')"""
+        sql(bind)  # Baseline allowed a feeder after this target already closed.
+        sql((root/'supabase/migrations/20261107191221_validate_satellite_schedule_on_target_binding.sql').read_text())
+        assert 'SATELLITE_NEW_TARGET_SCHEDULE_UNAVAILABLE' in sql(bind,False)[1]
+        sql(f"UPDATE tournaments SET start_time=now()+interval '4 hours' WHERE id='{target}'")
+        sql(bind)
+        sql(f"UPDATE tournaments SET start_time=now()+interval '5 minutes',late_reg_mins=0 WHERE id='{target}'")
+        assert 'SATELLITE_NEW_TARGET_SCHEDULE_UNAVAILABLE' in sql(bind,False)[1]
+        sql(f"UPDATE tournaments SET status='CANCELLED' WHERE id='{target}'")
+        assert 'SATELLITE_NEW_TARGET_SCHEDULE_UNAVAILABLE' in sql(bind,False)[1]
+        assert sql("SELECT count(*) FROM tournaments WHERE name='Scheduled feeder'")[0]=='2'
+        print('PASS: live-target retention, rescheduling, concurrent entrant, target expiry and replay')
         print('PASS: real creation, fixed formats, exact10% rake, two seats plus full refund/residue, duplicate identity and refusal boundaries')
     finally:
         run('pg_ctl','-D',str(scratch/'data'),'-m','immediate','stop')

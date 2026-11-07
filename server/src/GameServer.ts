@@ -47,6 +47,7 @@ import {
 } from './tournament/emptyPastStartEvent.js';
 import { projectTournamentAdmission } from './tournament/tournamentAdmission.js';
 import {
+  isFixedSngSatellite,
   isPersistedUnlimitedMtt,
   isPersistedSeatFirst,
   readPersistedTournamentFormatContract,
@@ -9110,6 +9111,10 @@ export class GameServer {
           current_players: number;
           min_players: number | null;
           max_players: number | null;
+          table_size: number | null;
+          satellite_seats: number | null;
+          satellite_target_id: string | null;
+          satellite_target: string | null;
           format_contract: unknown;
           variant: string | null;
           tournament_type: string | null;
@@ -9125,7 +9130,7 @@ export class GameServer {
             let q = supabase
               .from('tournaments')
               .select(
-                'format_contract, id, name, start_time, current_players, min_players, max_players, variant, tournament_type, buy_in_amount, bounty_amount, buy_in_fee, free_buy, guaranteed_prize, prize_pool, prize_pool_finalized'
+                'format_contract, id, name, start_time, current_players, min_players, max_players, variant, tournament_type, buy_in_amount, bounty_amount, buy_in_fee, free_buy, guaranteed_prize, prize_pool, prize_pool_finalized, table_size, satellite_seats, satellite_target_id, satellite_target'
               )
               .eq('status', 'REGISTERING')
               .order('id', { ascending: true })
@@ -9625,6 +9630,8 @@ export class GameServer {
                 ),
               })
             ) {
+              const fixedSatellite =
+                tournament.format_contract === 'sng-v1' && isFixedSngSatellite(tournament);
               const askedAt = emptyClock?.cancelAskedAt ?? 0;
               if (now - askedAt >= EMPTY_PAST_START_CANCEL_RETRY_MS) {
                 this.launchEmptyEventCancel(tournament.id, generation, async () => {
@@ -9634,10 +9641,16 @@ export class GameServer {
                     misses: settled?.misses ?? 0,
                     cancelAskedAt: now,
                   });
-                  const { error: cancelError } = await supabase.rpc('atomic_cancel_tournament', {
-                    p_tournament_id: tournament.id,
-                    p_admin_id: null,
-                  });
+                  // A fixed feeder's start_time opens its fill window. Only its target
+                  // going away can expire the board. Recheck target and roster under lock.
+                  const { data: receipt, error: cancelError } = fixedSatellite
+                    ? await supabase.rpc('fn_ca_expire_empty_fixed_sng_satellite', {
+                        p_tournament_id: tournament.id,
+                      })
+                    : await supabase.rpc('atomic_cancel_tournament', {
+                        p_tournament_id: tournament.id,
+                        p_admin_id: null,
+                      });
                   if (cancelError) {
                     reportError(
                       new Error(
@@ -9650,6 +9663,7 @@ export class GameServer {
                     );
                     return;
                   }
+                  if (fixedSatellite && receipt?.fully_settled !== true) return;
                   console.log(
                     `[GameServer] Cancelled "${tournament.name}" (${String(tournament.id).slice(
                       0,
@@ -9660,8 +9674,9 @@ export class GameServer {
                   );
                   await this.recordPastStartTopUpOutcome(tournament.id, null);
                 });
+                continue;
               }
-              continue;
+              if (!fixedSatellite) continue;
             }
 
             /* At most every 45 s (the ramp's MTT_PRESTART_TICK_MS), and an event

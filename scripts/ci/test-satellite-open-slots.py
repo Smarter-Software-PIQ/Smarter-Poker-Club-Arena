@@ -127,6 +127,31 @@ END$$;""")
   assert q('SELECT '+proof+';')=='t'
   cases+=['paid_normalization_refuses_without_persisting_draw_or_claim','planning_normalization_persists','repeat_planning_retains_draw','real_planner_definition_hash_acl_restored']
   q("SET ROLE anon;SELECT smarter_private.sng_horse_open_slots(NULL,NULL,NULL,NULL);",'permission denied');cases.append('private_helper_denies_public')
+  # The target edits below happen after a human has registered. Keep both the
+  # planner's first eligibility check and random candidate selection covered.
+  paid_board='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  union='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+  target_id='cccccccc-cccc-cccc-cccc-cccccccccccc'
+  human='12345678-0000-4000-9000-000000000001'
+  query=f"SELECT smarter_private.sng_horse_plan('{paid_board}',false)"
+  q(f"UPDATE tournaments SET status='CANCELLED' WHERE id='{target_id}'; INSERT INTO profiles VALUES('{human}',false); INSERT INTO tournament_players VALUES('{paid_board}','{human}','registered',now());")
+  assert json.loads(q(query))['reason']=='target_unavailable'
+  q((R/'supabase/migrations/20261107191210_preserve_registered_satellite_horse_slot_eligibility.sql').read_text())
+  # Use a fixed open instant/slot after qualification to avoid depending on the machine clock.
+  improved=json.loads(q("SELECT to_json(pg_get_functiondef('smarter_private.sng_horse_plan(uuid,boolean)'::regprocedure));"))
+  q(improved.replace('clock_timestamp()', "TIMESTAMPTZ '2026-11-04 19:01:00+00'"))
+  q(f"""UPDATE smarter_private.sng_horse_days SET slots=jsonb_build_array(
+       jsonb_build_object('slot',0,'due','2026-11-04T19:00Z','expires','2026-11-04T19:20Z'),
+       jsonb_build_object('slot',1,'due','2026-11-04T21:00Z','expires','2026-11-04T21:20Z'),
+       jsonb_build_object('slot',2,'due','2026-11-04T23:00Z','expires','2026-11-04T23:20Z'))
+       WHERE union_id='{union}' AND local_day='2026-11-04';""")
+  r=json.loads(q(query));assert r['ok'] and r['reason']=='preseed',r
+  assert q(f"SELECT slots->0->>'tournament_id' FROM smarter_private.sng_horse_days WHERE union_id='{union}' AND local_day='2026-11-04'")==paid_board
+  assert q(f"SELECT count(*) FROM smarter_private.sng_horse_claims WHERE tournament_id='{paid_board}'")=='0'
+  q(f"DELETE FROM tournament_players WHERE tournament_id='{paid_board}'")
+  assert json.loads(q(query))['reason']=='target_unavailable'
+  q(improved)
+  cases+=['human_registration_survives_target_cancellation','random_selection_preserves_daily_budget','empty_board_blocked_after_target_cancel']
   hashes=json.loads(q("SELECT jsonb_object_agg(proname,md5(pg_get_functiondef(p.oid))) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='smarter_private' AND proname IN('sng_horse_plan','sng_horse_open_slots');"))
   print(json.dumps({'passed':cases,'count':len(cases),'migration':M.name,'hashes':hashes},indent=2))
  finally:run([pg/'pg_ctl','-D',data,'-m','immediate','-w','stop'])
