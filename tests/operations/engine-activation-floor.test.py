@@ -1182,7 +1182,9 @@ echo CHECKPOINT_MUST_NOT_RUN
         body = source[build:dispatch]
         for forbidden in ('install-engine-supervisor.sh', 'install-engine-intake.sh', 'launch-engine-release.sh', 'engine-release-recover', 'recovery-window'):
             self.assertNotIn(forbidden, body)
-        self.assertIn('build-engine-image.sh', body)
+        self.assertNotIn('build-engine-image.sh', body)
+        self.assertIn('get desired-image-id', body)
+        self.assertIn('PREPARED_IMAGE', body)
         segment = source[dispatch:source.index('- name: Remove exact staging', dispatch)]
         self.assertLess(segment.index('engine-release-activation-floor.py" admit'), segment.index('"$STAGE/server/scripts/install-engine-intake.sh"'))
         cleanup = source[source.index('- name: Remove exact staging'):source.index('\n  record-receipt:')]

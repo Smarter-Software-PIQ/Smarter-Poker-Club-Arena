@@ -116,3 +116,11 @@ Run the applicable local prechecks on the final candidate before push, as requir
 ## Access prerequisites and continued ownership
 
 Check required provider access, reporter identity and secret-store metadata before dependent hosted work. Follow the owner policy for necessary credential repairs without another human approval. A missing input or tool-required handoff applies only to the steps that require it: continue local checks, integration, other running checks and independent publication yourself. Do not stop at a pending question or intermediate milestone; retain the exact owning operation and finish all executable work. Never print secrets or substitute a different reporter to satisfy a trusted check.
+
+### Daytime release preparation
+
+A protected-main engine push starts `engine-release-prequalification.yml`. Its four server shards exercise the exact candidate, including the retained historical qualification once. A separate runner builds the candidate image from the committed server tree, transfers its digest-only archive to the pinned Hetzner host, and verifies the sealed rollback image is the running container’s image and is present locally. The host rejects a conflicting candidate tag or insufficient disk space. This workflow never dispatches a release or changes a running container.
+
+Use `python3 -B scripts/ci/read-engine-prequalification.py --repo Smarter-Software-PIQ/Smarter-Poker-Club-Arena --target TARGET_SHA --control CONTROL_SHA --cutoff EPOCH` from a checkout with authenticated protected-main history and read-only Actions access. A successful result identifies the production candidate and rollback image IDs, server tree, target and control SHAs, and qualification run and attempt. Exit 3 means the candidate lacks eligible evidence. Exit 2 means the verifier could not establish provenance.
+
+The receiver verifies the selected control against its actual protected control and requires the latest successful qualification to have finished by 03:30 Chicago. Missing shards, a superseding attempt, changed release inputs or a mismatch between the prepared and installed image identities prevents handoff. The exact Backup certificate and fresh production database-door checks remain mandatory. A failed preparation leaves the current engine serving and the candidate waits for a future eligible window.
