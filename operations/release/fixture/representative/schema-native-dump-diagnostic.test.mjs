@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto';
 import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
 import {dumpSnapshot,databaseConfiguration,catalogueDefinitionCounts} from '../schema-snapshot.mjs';
+import { fileURLToPath } from 'node:url';
 
 test('definition count is derived only from already captured private metadata without publishing definitions',()=>{
   const proof=catalogueDefinitionCounts({catalogue_text:JSON.stringify({functions:[['private-function','private-definition']]})});
@@ -275,7 +276,7 @@ test('actual native C producer and both independent decoders agree on compact wi
   const root=await mkdtemp(path.join(process.env.TMPDIR ?? process.env.RUNNER_TEMP,'compact-native-wire-'));
   try{
     const source=path.join(root,'wire.c'),binary=path.join(root,'wire');
-    const helper=new URL('../native-dump-diagnostic.c',import.meta.url).pathname;
+    const helper=fileURLToPath(new URL('../native-dump-diagnostic.c',import.meta.url));
     await writeFile(source,'#include <stdbool.h>\n#include <stdlib.h>\nstatic void pg_fatal(const char *format,...) {(void)format;_Exit(71);}\n#include '+JSON.stringify(helper)+'\nint main(void){ca_diag_init();ca_diag_object_begin(1);ca_diag_query_begin();ca_diag_query_end();ca_diag_object_end();return 0;}\n');
     const built=spawnSync('cc',['-std=c11','-D_POSIX_C_SOURCE=200809L','-Wall','-Wextra','-Werror',source,'-o',binary],{encoding:'utf8',timeout:15000});
     assert.equal(built.status,0,built.stderr);
@@ -345,7 +346,7 @@ test('real D5 C producer and independent decoders preserve exact closed subtype 
   const root=await mkdtemp(path.join(process.env.TMPDIR ?? process.env.RUNNER_TEMP,'native-subtypes-'));
   try{
     const source=path.join(root,'producer.c'),binary=path.join(root,'producer');
-    const helper=new URL('../native-dump-diagnostic.c',import.meta.url).pathname;
+    const helper=fileURLToPath(new URL('../native-dump-diagnostic.c',import.meta.url));
     const code=`#include <stdbool.h>
 #include <stdlib.h>
 #include <time.h>

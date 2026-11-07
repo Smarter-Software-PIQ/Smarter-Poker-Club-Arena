@@ -28,6 +28,10 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+# Hang guard only: every subprocess here runs against fakes, so no assertion
+# depends on host speed, and a loaded host must not turn a slow pass into a
+# TimeoutExpired. A healthy child finishes far below it.
+HANG_GUARD_SECONDS = 120
 SOURCE = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
 BASH = next((b for b in ('/opt/homebrew/bin/bash', '/usr/local/bin/bash') if Path(b).exists()), 'bash')
 
@@ -147,7 +151,7 @@ exec(compile(code, "<hold>", "exec"), {{"__name__": "__main__"}})' "$2" "${{@:3}
 '''
         script = prefix + STATE + FUNCTIONS + body
         env = {**os.environ, **(env_extra or {})}
-        return subprocess.run([BASH, '-c', script], capture_output=True, text=True, timeout=60, env=env)
+        return subprocess.run([BASH, '-c', script], capture_output=True, text=True, timeout=HANG_GUARD_SECONDS, env=env)
 
     def calls_made(self):
         return [l for l in self.calls.read_text().splitlines() if not l.startswith('sleep')]

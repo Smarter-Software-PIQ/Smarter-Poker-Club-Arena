@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { Worker } from 'node:worker_threads';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import { buildSync } from 'esbuild';
+import { fileURLToPath } from 'node:url';
 
 const bundle = (path) => {
   const build = buildSync({
-    entryPoints: [new URL(path, import.meta.url).pathname],
+    entryPoints: [fileURLToPath(new URL(path, import.meta.url))],
     define: { 'import.meta.url': JSON.stringify(new URL(path, import.meta.url).href) },
     bundle: true,
     platform: 'node',

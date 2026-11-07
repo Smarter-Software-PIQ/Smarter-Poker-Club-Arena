@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 
 const socket = process.argv[2];
 assert(socket?.startsWith('/tmp/codex-throwables-db.') && socket.endsWith('/socket'), 'Only the task-owned local Unix socket is allowed');
@@ -23,7 +24,7 @@ async function connect(uid) {
   return c;
 }
 const db = await connect();
-const root = path.dirname(new URL(import.meta.url).pathname);
+const root = path.dirname(fileURLToPath(import.meta.url));
 const functions = fs.readFileSync(path.join(root, 'production-functions-20260908.sql'), 'utf8');
 await db.query(fs.readFileSync(path.join(root, 'local-schema.sql'), 'utf8'));
 await db.query(functions);

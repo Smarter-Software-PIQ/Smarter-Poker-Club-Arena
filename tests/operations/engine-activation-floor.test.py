@@ -11,6 +11,9 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+# Hang guard only for fixture subprocesses whose assertions never depend on
+# host speed. (The one wall-clock case keeps its own bounded `timeout=8`.)
+HANG_GUARD_SECONDS = 120
 BASH = '/opt/homebrew/bin/bash' if Path('/opt/homebrew/bin/bash').exists() else 'bash'
 HELPER = 'server/scripts/engine-release-activation-floor.py'
 MANIFEST = 'server/release/activation-floor.json'
@@ -260,7 +263,7 @@ recovery_window_reason() { echo no-emergency; }
             script = prefix + 'export -n SHA CONTROL_SHA\n' + function + '\ninitialise_phase1_cycle\n' + (
                 '[ "$PHASE1_POLICY_OWNED" = 1 ]\n'
                 '[ "$PHASE1_CYCLE_START" = 0 ]\necho owner-window-selected\n')
-            return subprocess.run([BASH, '-c', script], env=env, capture_output=True, text=True, timeout=10)
+            return subprocess.run([BASH, '-c', script], env=env, capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         result = invoke()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('owner-window-selected', result.stdout)
@@ -1223,7 +1226,7 @@ echo CHECKPOINT_MUST_NOT_RUN
             return subprocess.run([sys.executable, '-B', '-c', script,
                 str(ROOT / HELPER), 'publish', '--repo', str(self.repo),
                 '--target', target, '--control', control, '--deadline', str(deadline)],
-                capture_output=True, text=True, timeout=15)
+                capture_output=True, text=True, timeout=HANG_GUARD_SECONDS)
         for r in (self.record, self.owner_record()):
             for now in (r['preparationEpoch']-1, r['activationEpoch']-1,
                         r['activationEpoch'], r['expiresEpoch']+1):
@@ -1557,18 +1560,18 @@ with patch.object(m.os,'geteuid',return_value=0),patch.object(m,'require_engine_
         recover = [BASH, str(control/'engine-release-recover.sh'),'--run-id',run,'--mode','retryable']
         original = request.read_bytes()
         for bad in ('thaw','changed-runtime','foreign-unit'):
-            result = subprocess.run(recover,env={**env,'FIXTURE_CASE':bad},capture_output=True,text=True,timeout=20)
+            result = subprocess.run(recover,env={**env,'FIXTURE_CASE':bad},capture_output=True,text=True,timeout=HANG_GUARD_SECONDS)
             self.assertEqual(result.returncode,75,result.stdout+result.stderr)
             self.assertEqual(request.read_bytes(),original)
             self.assertFalse(list(results.iterdir()))
         for suffix in ('legacy-checkpoint-intent','break-deadline','main-inspector-retirement-intent','lightning-hold.json'):
             path=requests/(run+'.'+suffix);path.write_text('unknown')
-            result=subprocess.run(recover,env=env,capture_output=True,text=True,timeout=20)
+            result=subprocess.run(recover,env=env,capture_output=True,text=True,timeout=HANG_GUARD_SECONDS)
             self.assertNotEqual(result.returncode,0,result.stdout+result.stderr);path.unlink()
             self.assertEqual(request.read_bytes(),original)
         # A missing original reservation/entry is not no-entry success.
         reservation=state_root/('engine-recovery-window-'+run+'.json');saved=reservation.read_bytes();reservation.unlink()
-        result=subprocess.run(recover,env=env,capture_output=True,text=True,timeout=20)
+        result=subprocess.run(recover,env=env,capture_output=True,text=True,timeout=HANG_GUARD_SECONDS)
         self.assertEqual(result.returncode,75,result.stdout+result.stderr)
         reservation.write_bytes(saved);reservation.chmod(0o600)
         # Run the ACTUAL wrapper failure branch, including both real recoveries,
@@ -1577,7 +1580,7 @@ with patch.object(m.os,'geteuid',return_value=0),patch.object(m,'require_engine_
         start=wrapper.index('  # A permanent proof/application failure first restores')
         end=wrapper.index('\nfi\n\nRECOVERY_MODE=retryable',start)
         prefix='set -euo pipefail\nTRANSACTION_RC=1\nRUN_KEY='+shlex.quote(run)+'\nGENERATION='+shlex.quote(str(control))+'\nREQUEST_CONTROL_SHA='+self.sha+'\nCONTAINER=fixture\nREQUEST_LINES=('+shlex.quote(self.sha)+')\n'
-        result=subprocess.run([BASH,'-c',prefix+wrapper[start:end]],env=env,capture_output=True,text=True,timeout=30)
+        result=subprocess.run([BASH,'-c',prefix+wrapper[start:end]],env=env,capture_output=True,text=True,timeout=HANG_GUARD_SECONDS)
         self.assertEqual(result.returncode,1,result.stdout+result.stderr)
         self.assertIn('expired-original-announcement-thawed',result.stdout)
         self.assertFalse(request.exists());self.assertFalse((requests/(run+'.activation-entry')).exists())
@@ -1597,7 +1600,7 @@ with patch.object(m.os,'geteuid',return_value=0),patch.object(m,'require_engine_
             **{key:[] for key in ('candidates','held','already','unknown','resume_pending','released')},
             'refused':{},'resume_refused':{}}
         released.write_text(json.dumps(receipt));released.chmod(0o600)
-        result=subprocess.run(recover[:-1]+['terminal'],env=env,capture_output=True,text=True,timeout=20)
+        result=subprocess.run(recover[:-1]+['terminal'],env=env,capture_output=True,text=True,timeout=HANG_GUARD_SECONDS)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         self.assertFalse(request.exists());self.assertEqual(reservation.read_bytes(),saved)
         self.assertEqual((results/(run+'.json')).read_bytes(),saved_failure)

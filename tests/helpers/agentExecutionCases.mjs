@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { inputFingerprint, executionPlan } from '../../scripts/ci/agent-execution.mjs';
+import { fileURLToPath } from 'node:url';
 const temporary = fn => { const p = mkdtempSync(join(tmpdir(), 'execution-')); try { fn(p); } finally { rmSync(p, { recursive: true }); } };
 test('preview preserves legacy gates and reports clean/dirty independently', () => temporary(root => {
   execFileSync('git', ['init', '-q', root], {
@@ -32,7 +33,7 @@ test('pre-push signal handlers retain nonzero exit in EXIT receipt', () => {
 test('execution CLI exposes bounded explicit operations and rejects unknown requests', () => temporary(root => {
   const input = join(root, 'input.json');
   writeFileSync(input, JSON.stringify({ outcome: 'timeout', source: 'provider' }));
-  const cli = new URL('../../scripts/ci/agent-execution-cli.mjs', import.meta.url).pathname;
+  const cli = fileURLToPath(new URL('../../scripts/ci/agent-execution-cli.mjs', import.meta.url));
   const result = JSON.parse(execFileSync(process.execPath, [cli, 'failure', input], { encoding: 'utf8' }));
   assert.deepEqual(result, { action: 'readback', retry: false });
   assert.throws(() => execFileSync(process.execPath, [cli, 'release', input], { stdio: 'pipe' }));

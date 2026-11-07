@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 
 const fixtureImage =
   'node:22-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5';
@@ -316,7 +317,7 @@ let fixtureChurnObserved = false;
       'python3',
       [
         '-B',
-        new URL('./main-inspector-retirement-host-native.py', import.meta.url).pathname,
+        fileURLToPath(new URL('./main-inspector-retirement-host-native.py', import.meta.url)),
         hostRoot,
         container,
         inspected.Image,

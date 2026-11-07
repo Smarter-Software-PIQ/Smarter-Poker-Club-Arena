@@ -166,14 +166,16 @@ describe('forward releases remain valid when protected main advances', () => {
     const result = spawnSync(
       'python3',
       [resolve(__dirname, 'operations/engine-release-forward-admission.py')],
-      // Measured 20156ms solo. The child's own cap must clear the worst observed
-      // contention amplification (7.1x -> ~143s) or spawnSync SIGTERMs it and the
-      // assertion below sees status null, not 0. 210s is 10.4x measured, and stays
-      // BELOW the test budget so this guard reports the child's diagnostics first.
-      { encoding: 'utf8', timeout: 210_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
+      // Measured 20156ms solo. This is a HANG GUARD, not a speed budget: every
+      // case runs against a fake clock, fake health and a scratch repository, so
+      // nothing asserted depends on host speed. 210s (10.4x solo) was still
+      // exceeded by a passing run at load 69 on 2026-11-07, so the guard is now
+      // sized for a hang. It stays BELOW the test budget so a hang reports the
+      // child's diagnostics first.
+      { encoding: 'utf8', timeout: 600_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
     );
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-  }, 240_000);
+  }, 630_000);
 
   it('requires high-water ancestry for every normal target before admission', () => {
     expect(gate).toContain('"$RELEASE_SEAL" get high-water-sha');

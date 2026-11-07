@@ -13,6 +13,7 @@ import { dirname, join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gitEnvironmentForCwd } from '../scripts/ci/classify-ci-changes.mjs';
+import { pathToFileURL } from 'node:url';
 
 // Subprocess contract suite: every case drives the REAL workflow step bodies
 // (bash, git, curl, python3, jq) against a disposable history, so wall time
@@ -86,7 +87,7 @@ let seq = 0;
 function health(cwd: string, body: string) {
   const file = join(cwd, `health-${++seq}.json`);
   writeFileSync(file, body);
-  return `file://${file}`;
+  return pathToFileURL(file).href;
 }
 
 function detect(
@@ -275,7 +276,7 @@ describe('the detector: a release is owed until production holds it', () => {
     const foreign = 'f'.repeat(40);
     for (const url of [
       undefined, // no health URL at all
-      `file://${join(fx.cwd, 'does-not-exist.json')}`,
+      pathToFileURL(join(fx.cwd, 'does-not-exist.json')).href,
       health(fx.cwd, 'not json'),
       health(fx.cwd, JSON.stringify({ releaseSha: 'abc123' })),
       health(fx.cwd, JSON.stringify({ releaseSha: foreign })),
@@ -293,7 +294,7 @@ describe('the detector: a release is owed until production holds it', () => {
     const { out } = detect(fx, {
       before: engineBefore,
       after: engineAfter,
-      healthUrl: `file://${join(fx.cwd, 'never-read.json')}`,
+      healthUrl: pathToFileURL(join(fx.cwd, 'never-read.json')).href,
     });
     expect(out).toMatchObject({
       release_required: 'true',

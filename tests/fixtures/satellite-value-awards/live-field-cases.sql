@@ -33,4 +33,11 @@ BEGIN
  PERFORM pg_temp.qualifier_assert((SELECT seat_count=1 AND entry_ticket_count=1 FROM public.tournament_satellite_settlements WHERE tournament_id=s),'one new seat and one already-registered winner ticket');
  PERFORM pg_temp.qualifier_assert((SELECT current_players=3 FROM public.tournaments WHERE id=target) AND (SELECT count(*)=4 FROM public.tournament_players WHERE tournament_id=target),'live count increases once and total roster remains independently counted');
  PERFORM pg_temp.qualifier_assert(public.fn_settle_satellite_qualifiers(s,q)=receipt,'exact receipt replay does not add a second seat');
+ PERFORM pg_temp.qualifier_assert((SELECT count(*)=1
+   FROM public.tournament_players p
+   JOIN public.tables t ON t.id=p.table_id AND t.tournament_id=p.tournament_id
+   JOIN public.table_seats ts ON ts.table_id=t.id AND ts.user_id=p.user_id AND ts.seat_number=p.seat_number
+   WHERE p.tournament_id=target AND p.source_satellite_id=s AND p.status='playing'
+     AND ts.left_at IS NULL AND ts.stack=(SELECT starting_chips FROM public.tournaments WHERE id=target)),
+   'awarded registration resolves to its funded live chair after receipt replay');
 END $live_field$;

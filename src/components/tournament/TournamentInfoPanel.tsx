@@ -1,6 +1,4 @@
 import { readTournamentStandings } from '../../services/readTournamentStandings';
-import { pendingHouseShare } from '../../utils/tournamentPrizeFunding';
-import { useTournamentPrizeFunding } from '../../hooks/useTournamentPrizeFunding';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  TOURNAMENT INFO PANEL (2026-08-23)
@@ -317,43 +315,6 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
     );
   }, [fieldSize, isSatellite, payouts, t]);
   /**
-   * THE GUARANTEED MINIMUM UNDER EACH PRIZE (2026-11-07). While registration
-   * is open on a guaranteed event this tab priced each place on what the
-   * field had put into places alone, so it disagreed with Rewards on the
-   * same event. Same funding read, same pending house share, same ladder:
-   * places + what the house still adds at close. Only while the pool is
-   * open, never on a satellite, and only when the house still owes
-   * something.
-   */
-  const funding = useTournamentPrizeFunding(
-    t?.id ?? null,
-    t,
-    'TournamentInfoPanel.prize_funding_load_failed'
-  );
-  const pendingHouse = pendingHouseShare(funding);
-  const guaranteedLadderPool = useMemo<number | null>(() => {
-    if (
-      !t ||
-      !(num(t.guaranteed_prize) > 0) ||
-      t.prize_pool_finalized === true ||
-      isSatellite ||
-      !(pendingHouse > 0)
-    ) {
-      return null;
-    }
-    if (t.bubble_protection === true && fieldSize === null) return null;
-    return effectivePlaceLadderPool(
-      num(t.prize_pool) + pendingHouse,
-      t.guaranteed_prize,
-      payouts,
-      fieldSize ?? 0,
-      t.bubble_protection === true,
-      num(t.buy_in_amount),
-      isSatellite,
-      t.bounty_pool
-    );
-  }, [fieldSize, isSatellite, payouts, pendingHouse, t]);
-  /**
    * LEVEL DISPLAY IS 1-BASED, THE COLUMN IS NOT (2026-08-23).
    *
    * tournaments.current_level is a 0-BASED index into blind_structure — the
@@ -537,10 +498,6 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
                       placeLadderPool === null
                         ? null
                         : placePrize(placeLadderPool, payouts, p.place, unitCents);
-                    const guaranteed =
-                      guaranteedLadderPool === null || !(guaranteedLadderPool > 0)
-                        ? null
-                        : placePrize(guaranteedLadderPool, payouts, p.place, unitCents);
                     return (
                       <tr key={i}>
                         <td>{p.place}</td>
@@ -549,11 +506,6 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
                           <span className="tip__prize">
                             {amount === null ? '-' : compactChips(amount)}
                           </span>
-                          {guaranteed !== null && guaranteed > (amount ?? 0) && (
-                            <span className="tip__prize-gtd">
-                              Guaranteed {compactChips(guaranteed)}
-                            </span>
-                          )}
                         </td>
                       </tr>
                     );

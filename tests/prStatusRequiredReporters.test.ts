@@ -7,6 +7,7 @@ import {
   requiredContextProblems,
   stateForChecks,
 } from '../scripts/ci/pr-status.mjs';
+import { pathToFileURL } from 'node:url';
 
 const sha = 'a'.repeat(40);
 const authority = 4962039;
@@ -311,7 +312,7 @@ function cli(
       if (url.includes('/check-runs?')) return new Response(JSON.stringify(${JSON.stringify(response.body)}), {status:${response.status},headers:${JSON.stringify(response.headers || {})}});
       throw Error('Unexpected network target');
     };
-    await import(${JSON.stringify(`file://${tool}`)});
+    await import(${JSON.stringify(pathToFileURL(tool).href)});
   `;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
     encoding: 'utf8',

@@ -1,4 +1,5 @@
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
+import { useEntryFreeze, withFreezeTime } from '../hooks/useEntryFreeze';
 import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
 import {
@@ -860,8 +861,13 @@ function ClubHomePageContent({
     };
   }, [isAutomaticArena]);
   /* Undefined for every chip club, so their cards are untouched. */
+  /* A FROZEN DOOR SAYS WHEN IT OPENS (Dan 2026-11-07): every cash and
+     Lightning Join on the board shows "Opens In 0:47" while the database
+     refuses new entries; seated players keep Return To Game. */
+  const entryFreeze = useEntryFreeze();
   const arenaSeatsClosedLabel =
-    isAutomaticArena && arenaAccess?.cashGamesEnabled !== true ? 'Not Open Yet' : undefined;
+    (isAutomaticArena && arenaAccess?.cashGamesEnabled !== true ? 'Not Open Yet' : undefined) ??
+    entryFreeze.label;
   /* Diamond Phase 8: the arena's tournaments have their own switch, read from
      the same server entitlement, and the same label while it is off. */
   const arenaRegistrationClosedLabel =
@@ -4625,7 +4631,7 @@ function ClubHomePageContent({
           } catch (err) {
             if (!gameEntryScope.active) return;
             reportError(err, 'ClubHomePage.joinCashGame', { gameId });
-            toast.warning(joinGameRefusalText(err));
+            toast.warning(await withFreezeTime(joinGameRefusalText(err)));
           } finally {
             gameEntryScope.busy = false;
           }
@@ -5217,6 +5223,10 @@ function ClubHomePageContent({
       actionBusy,
       preparingCashTable,
       waitlistActionBusy,
+      /* The seats-closed label counts down during a freeze (2026-11-07); a
+         card context that missed it would hold "Opens In 0:47" forever. */
+      arenaSeatsClosedLabel,
+      arenaRegistrationClosedLabel,
     ]
   );
 

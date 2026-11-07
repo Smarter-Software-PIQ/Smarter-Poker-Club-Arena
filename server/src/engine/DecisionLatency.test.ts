@@ -18,6 +18,7 @@ import {
   latencyBucketEdges,
   peekDecisionLatency,
 } from './BrainTelemetry.js';
+import { fileURLToPath } from 'node:url';
 
 beforeEach(() => {
   enableBrainTelemetry();
@@ -124,7 +125,7 @@ describe('the shipped wiring - an instrument nobody calls measures nothing', () 
   it('the sole live worker times the complete decision', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(
-      new URL('./horseDecision/workerRuntime.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('./horseDecision/workerRuntime.ts', import.meta.url)),
       'utf8'
     );
     // The worker clock brackets its injected HorseLogic decision, including
@@ -140,11 +141,11 @@ describe('the shipped wiring - an instrument nobody calls measures nothing', () 
   it('the scope is the LIVE hand variant, never a guess off the snapshot', async () => {
     const { readFileSync } = await import('node:fs');
     const turns = readFileSync(
-      new URL('./ServerTableEngineTurns.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('./ServerTableEngineTurns.ts', import.meta.url)),
       'utf8'
     );
     const worker = readFileSync(
-      new URL('./horseDecision/workerRuntime.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('./horseDecision/workerRuntime.ts', import.meta.url)),
       'utf8'
     );
     // Production, first hour of the measurement (2026-08-29): all 14,326
@@ -162,7 +163,7 @@ describe('the shipped wiring - an instrument nobody calls measures nothing', () 
   it('the flush sends both streams through the atomic retryable batch publisher', async () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(
-      new URL('../services/BrainTelemetryFlush.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('../services/BrainTelemetryFlush.ts', import.meta.url)),
       'utf8'
     );
     expect(src).toContain('drainDecisionLatency()');

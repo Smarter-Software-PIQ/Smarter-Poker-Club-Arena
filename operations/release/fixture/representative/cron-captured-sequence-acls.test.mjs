@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as module from '../cron-captured-sequence-acls.mjs';
+import { fileURLToPath } from 'node:url';
 const {cronCapturedSequenceAclInstallSql: install, cronCapturedSequenceAclObservationSql: observe} = module;
 const file = name => readFile(new URL(`../${name}`, import.meta.url), 'utf8');
 test('captured cron sequence configuration has only two owner-only privilege targets', async () => {
@@ -70,7 +71,7 @@ test('new SQL guards cross the actual closed producer and independent decoder wi
   });
   const invalid = good.map(row => ({...row,extra:'PRIVATE_CANARY_SQL'}));
   const code = "import importlib.util,json,sys;spec=importlib.util.spec_from_file_location('smoke',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);good,bad=json.load(sys.stdin);assert all(len(m.native_failures(json.dumps(row)))==1 for row in good);assert all(m.native_failures(json.dumps(row))==[] for row in bad);print('cron guards decoded')";
-  const result = spawnSync('python3',['-B','-c',code,new URL('../../ci/fixture-smoke.py',import.meta.url).pathname],
+  const result = spawnSync('python3',['-B','-c',code,fileURLToPath(new URL('../../ci/fixture-smoke.py',import.meta.url))],
     {input:JSON.stringify([good,invalid]),encoding:'utf8',timeout:10000});
   assert.equal(result.status,0,result.stderr);
   assert.match(result.stdout,/cron guards decoded/);

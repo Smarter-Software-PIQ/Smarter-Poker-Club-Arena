@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { withFreezeTime } from '../../hooks/useEntryFreeze';
 import { joinCashGame, joinGameRefusalText, waitlistedText } from '../../services/cashGameLobby';
 
 /** A spectator's seat tap enters the game before opening its purchase door.
@@ -64,7 +65,9 @@ export function useCashSeatEntry({
       }
     } catch (error) {
       if (scope.active) {
-        notify(joinGameRefusalText(error));
+        const text = await withFreezeTime(joinGameRefusalText(error));
+        if (!scope.active) return;
+        notify(text);
         showWaitlist();
       }
     } finally {

@@ -17,12 +17,13 @@ from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
 from satellite_qualifier_fixture import compose, module, sha, function_sql
-from satellite_qualifier_concurrency import qualify as qualify_concurrency, qualify_readers, validate_entry_club_result
+from satellite_qualifier_concurrency import qualify as qualify_concurrency, qualify_readers, qualify_blocked_target, validate_entry_club_result
 from satellite_entry_club_native import qualify as qualify_entry_club
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument('--peak-only', action='store_true', help='run the shared 59-table and funded satellite contour')
     parser.add_argument('--evidence', type=Path, required=True)
     parser.add_argument('--pg-bin', type=Path, required=True)
     args = parser.parse_args()
@@ -206,58 +207,64 @@ def main():
         e.sql(db,file=opening,label='synthetic-structural-opening',seconds=60)
         manifest['source_sha256'].update(qualify_entry_club(e,root,db,output,probe))
         (output/'source-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
-        before=e.snapshot(db,'before-data')
-        before_catalog=e.catalog_snapshot(db,'before-catalog')
-        code,out,err=e.sql(db,file=output/'probe.sql',label='actual-funded-v2-control',seconds=180,check=False)
-        after=e.snapshot(db,'after-data')
-        after_catalog=e.catalog_snapshot(db,'after-catalog')
-        e.report.update(sql_exit_code=code,data_rollback=before==after,catalog_rollback=before_catalog==after_catalog)
-        (output/'case-output.txt').write_text(out)
-        (output/'case-errors.txt').write_text(err)
-        if code or any(s in err for s in ['ERROR:','FATAL:','PANIC:','WARNING:']):
-            raise RuntimeError('current satellite control refused; inspect the original error')
-        if before!=after or before_catalog!=after_catalog:
-            raise RuntimeError('current satellite case changed durable fixture state')
-        receipt=[x.split('=',1)[1] for x in out.splitlines() if x.startswith('SATELLITE_FULL_NATIVE_EVIDENCE=')]
-        if len(receipt)!=1 or out.splitlines().count('L04_CURRENT_V2_PRESERVATION_PASS')!=1:
-            raise RuntimeError('current satellite control final evidence missing')
-        e.report['native_evidence']=json.loads(receipt[0])
-        if len(re.findall('NOTICE:  PASS ',err)) != 20:
-            raise RuntimeError('exact legacy preservation assertion count differs')
-        code,out,err=e.sql(db,file=qualifier_probe,label='actual-funded-v3-cohort',seconds=180,check=False)
-        after=e.snapshot(db,'cohort-after-data')
-        after_catalog=e.catalog_snapshot(db,'cohort-after-catalog')
-        e.report.update(cohort_sql_exit_code=code,cohort_data_rollback=before==after,cohort_catalog_rollback=before_catalog==after_catalog)
-        (output/'cohort-output.txt').write_text(out)
-        (output/'cohort-errors.txt').write_text(err)
-        if code or any(s in err for s in ['ERROR:','FATAL:','PANIC:','WARNING:']):
-            raise RuntimeError('cohort satellite control refused; inspect the original error')
-        if before!=after or before_catalog!=after_catalog:
-            raise RuntimeError('cohort satellite case changed durable fixture state')
-        receipt=[x.split('=',1)[1] for x in out.splitlines() if x.startswith('SATELLITE_QUALIFIER_NATIVE_EVIDENCE=')]
-        if len(receipt)!=1 or out.splitlines().count('SATELLITE_QUALIFIERS_NATIVE_PASS')!=1:
-            raise RuntimeError('cohort satellite final evidence missing')
-        e.report['cohort_native_evidence']=json.loads(receipt[0])
-        e.report['cohort_assertions']=len(re.findall('NOTICE:  QUALIFIER PASS:',err))
-        if e.report['cohort_assertions'] != 67:
-            raise RuntimeError('exact cohort assertion count differs')
-        from ordinary_terminal_transport import qualify as qualify_ordinary_transport
-        manifest['source_sha256'].update(qualify_ordinary_transport(e,root,output))
-        from terminal_original_request_native import qualify as qualify_original_terminal
-        manifest['source_sha256'].update(qualify_original_terminal(e,root,output,db,probe,qualifier_probe))
-        from satellite_terminal_transport import qualify as qualify_terminal_transport
-        manifest['source_sha256'].update(qualify_terminal_transport(e,root,db,output,probe))
-        qualify_concurrency(e,root,native,db,output,qualifier_probe)
-        qualify_readers(e,root,native,db,output,qualifier_probe)
-        from fixed_sng_satellite_financial import qualify as qualify_fixed_sng
-        manifest['source_sha256'].update(qualify_fixed_sng(e,root,db,output))
-        from fixed_sng_horse_plan_native import qualify as qualify_horse_plan
-        manifest['source_sha256'].update(qualify_horse_plan(e,root,db,output))
+        if args.peak_only:
+            from satellite_peak_thaw import qualify as qualify_peak
+            qualify_blocked_target(e,root,native,db,output,qualifier_probe)
+            e.report['peak_thaw'] = qualify_peak(e,root,db,output,qualifier_probe)
+        else:
+            before=e.snapshot(db,'before-data')
+            before_catalog=e.catalog_snapshot(db,'before-catalog')
+            code,out,err=e.sql(db,file=output/'probe.sql',label='actual-funded-v2-control',seconds=180,check=False)
+            after=e.snapshot(db,'after-data')
+            after_catalog=e.catalog_snapshot(db,'after-catalog')
+            e.report.update(sql_exit_code=code,data_rollback=before==after,catalog_rollback=before_catalog==after_catalog)
+            (output/'case-output.txt').write_text(out)
+            (output/'case-errors.txt').write_text(err)
+            if code or any(s in err for s in ['ERROR:','FATAL:','PANIC:','WARNING:']):
+                raise RuntimeError('current satellite control refused; inspect the original error')
+            if before!=after or before_catalog!=after_catalog:
+                raise RuntimeError('current satellite case changed durable fixture state')
+            receipt=[x.split('=',1)[1] for x in out.splitlines() if x.startswith('SATELLITE_FULL_NATIVE_EVIDENCE=')]
+            if len(receipt)!=1 or out.splitlines().count('L04_CURRENT_V2_PRESERVATION_PASS')!=1:
+                raise RuntimeError('current satellite control final evidence missing')
+            e.report['native_evidence']=json.loads(receipt[0])
+            if len(re.findall('NOTICE:  PASS ',err)) != 20:
+                raise RuntimeError('exact legacy preservation assertion count differs')
+            code,out,err=e.sql(db,file=qualifier_probe,label='actual-funded-v3-cohort',seconds=180,check=False)
+            after=e.snapshot(db,'cohort-after-data')
+            after_catalog=e.catalog_snapshot(db,'cohort-after-catalog')
+            e.report.update(cohort_sql_exit_code=code,cohort_data_rollback=before==after,cohort_catalog_rollback=before_catalog==after_catalog)
+            (output/'cohort-output.txt').write_text(out)
+            (output/'cohort-errors.txt').write_text(err)
+            if code or any(s in err for s in ['ERROR:','FATAL:','PANIC:','WARNING:']):
+                raise RuntimeError('cohort satellite control refused; inspect the original error')
+            if before!=after or before_catalog!=after_catalog:
+                raise RuntimeError('cohort satellite case changed durable fixture state')
+            receipt=[x.split('=',1)[1] for x in out.splitlines() if x.startswith('SATELLITE_QUALIFIER_NATIVE_EVIDENCE=')]
+            if len(receipt)!=1 or out.splitlines().count('SATELLITE_QUALIFIERS_NATIVE_PASS')!=1:
+                raise RuntimeError('cohort satellite final evidence missing')
+            e.report['cohort_native_evidence']=json.loads(receipt[0])
+            e.report['cohort_assertions']=len(re.findall('NOTICE:  QUALIFIER PASS:',err))
+            if e.report['cohort_assertions'] != 67:
+                raise RuntimeError('exact cohort assertion count differs')
+            from ordinary_terminal_transport import qualify as qualify_ordinary_transport
+            manifest['source_sha256'].update(qualify_ordinary_transport(e,root,output))
+            from terminal_original_request_native import qualify as qualify_original_terminal
+            manifest['source_sha256'].update(qualify_original_terminal(e,root,output,db,probe,qualifier_probe))
+            from satellite_terminal_transport import qualify as qualify_terminal_transport
+            manifest['source_sha256'].update(qualify_terminal_transport(e,root,db,output,probe))
+            qualify_concurrency(e,root,native,db,output,qualifier_probe)
+            qualify_readers(e,root,native,db,output,qualifier_probe)
+            qualify_blocked_target(e,root,native,db,output,qualifier_probe)
+            from fixed_sng_satellite_financial import qualify as qualify_fixed_sng
+            manifest['source_sha256'].update(qualify_fixed_sng(e,root,db,output))
+            from fixed_sng_horse_plan_native import qualify as qualify_horse_plan
+            manifest['source_sha256'].update(qualify_horse_plan(e,root,db,output))
+            validate_entry_club_result(e.report.get('entry_club'))
         (output/'source-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
         for path,digest in manifest['source_sha256'].items():
             if sha(root/path)!=digest:
                 raise RuntimeError('input changed during execution: '+path)
-        validate_entry_club_result(e.report.get('entry_club'))
         e.report['status']='passed'
         e.report['failure']=None
         e.discard(db)

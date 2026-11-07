@@ -34,6 +34,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(__dirname, '..');
+// Hang guards only (see the suites below); a healthy run is far below them.
+const SUITE_CHILD_GUARD_MS = 300_000; // each test's own budget is 330 s
 const SCRIPTS = join(ROOT, 'server', 'scripts');
 const read = (name: string): string => readFileSync(join(SCRIPTS, name), 'utf8');
 
@@ -188,32 +190,35 @@ describe('Lightning is held for the engine cutover', () => {
     expect(helper).not.toMatch(/print\([^)]*service_key/);
   });
 
-  // Keep each group inside the existing case deadline. Discover the native
-  // catalogue so that future exit paths enter one of the two disjoint groups.
-  it.each([0, 1])('walks Lightning hold exit paths with a fake clock (group %i)', (index) => {
-    const suite = join(ROOT, 'tests', 'operations', 'lightning-hold-exit-paths.test.py');
-    const result = spawnSync(
-      'python3',
-      [
-        '-B',
-        '-c',
+  // Split the discovered exit paths and the upstream suite budget equally.
+  it.each([0, 1])(
+    'walks Lightning hold exit paths with a fake clock (group %i)',
+    (index) => {
+      const suite = join(ROOT, 'tests', 'operations', 'lightning-hold-exit-paths.test.py');
+      const result = spawnSync(
+        'python3',
         [
-          'import runpy, sys, unittest',
-          'case = runpy.run_path(sys.argv[1])["LightningHoldExitPaths"]',
-          'names = unittest.defaultTestLoader.getTestCaseNames(case)',
-          'assert len(names) >= 9',
-          'selected = names[int(sys.argv[2])::2]',
-          'result = unittest.TextTestRunner().run(unittest.TestSuite(case(name) for name in selected))',
-          'sys.exit(0 if result.wasSuccessful() and result.testsRun == len(selected) and not result.skipped else 1)',
-        ].join('\n'),
-        suite,
-        String(index),
-      ],
-      { cwd: ROOT, encoding: 'utf8', timeout: 60_000 }
-    );
-    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-    expect(result.stderr).toMatch(/Ran \d+ tests[\s\S]*\nOK\n?$/);
-  });
+          '-B',
+          '-c',
+          [
+            'import runpy, sys, unittest',
+            'case = runpy.run_path(sys.argv[1])["LightningHoldExitPaths"]',
+            'names = unittest.defaultTestLoader.getTestCaseNames(case)',
+            'assert len(names) >= 9',
+            'selected = names[int(sys.argv[2])::2]',
+            'result = unittest.TextTestRunner().run(unittest.TestSuite(case(name) for name in selected))',
+            'sys.exit(0 if result.wasSuccessful() and result.testsRun == len(selected) and not result.skipped else 1)',
+          ].join('\n'),
+          suite,
+          String(index),
+        ],
+        { cwd: ROOT, encoding: 'utf8', timeout: SUITE_CHILD_GUARD_MS / 2 }
+      );
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      expect(result.stderr).toMatch(/Ran \d+ tests[\s\S]*\nOK\n?$/);
+    },
+    330_000 / 2
+  );
 
   it('passes its own unit tests', () => {
     const result = spawnSync(
@@ -222,10 +227,10 @@ describe('Lightning is held for the engine cutover', () => {
       {
         cwd: ROOT,
         encoding: 'utf8',
-        timeout: 60_000,
+        timeout: SUITE_CHILD_GUARD_MS,
       }
     );
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stderr).toMatch(/\nOK\n?$/);
-  });
+  }, 330_000);
 });

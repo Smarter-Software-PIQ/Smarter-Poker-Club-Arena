@@ -32,6 +32,7 @@
  *   import { portFor } from './scripts/ci/e2e-port.mjs';
  *   node scripts/ci/e2e-port.mjs 4173     # prints the port for this runner
  */
+import { pathToFileURL } from 'node:url';
 
 const SLOTS = 300; // 300 * 10 = a 3000-port window above the base
 
@@ -88,7 +89,7 @@ export function portFor(base) {
 }
 
 // CLI: `node scripts/ci/e2e-port.mjs 4173`
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const base = Number(process.argv[2]);
   if (!Number.isFinite(base)) {
     console.error('usage: node scripts/ci/e2e-port.mjs <base-port>');

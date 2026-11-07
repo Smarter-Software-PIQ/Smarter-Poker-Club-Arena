@@ -30,6 +30,7 @@
 import { createHash } from 'node:crypto';
 import { closureDigest, scanSource, treeBlobs } from './v31-decision-closure.mjs';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 export const EXECUTION_FINGERPRINT_PROTOCOL = 'smarter-poker.v31-execution-fingerprint.v1';
 
@@ -148,7 +149,7 @@ export function executionDifferences(a, b) {
   return [...files, ...boundary, ...b.errors.map((e) => `closure-error ${e}`)];
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [repo = '.', ...shas] = process.argv.slice(2);
   const out = {};
   for (const sha of shas) {

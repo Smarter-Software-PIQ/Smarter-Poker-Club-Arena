@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
 import {assertPreflightParity} from '../../native/schema-preflight.mjs';
 import {nativeFailureDiagnostic, recordCatalogueParityFailure} from '../runtime-files.mjs';
+import { fileURLToPath } from 'node:url';
 const stage = 'fixture-preflight-schema-preflight-catalogue-parity';
 const keys = ['access','roles','memberships','functions','columns','policies','constraints','triggers','indexes','rls'];
 const payload = rows => ({encoding:'postgres-jsonb-text-sha256/v1',catalogue_digest:rows.length ? 'b'.repeat(64) : 'a'.repeat(64),
@@ -71,7 +72,7 @@ test('independent Python decoder accepts only exact closed bounded records and r
     change(row=>row.parity.sections[0][3]=100001), change(row=>row.parity.sections[0][3]=2),
   ];
   const code="import importlib.util,json,sys;spec=importlib.util.spec_from_file_location('smoke',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);rows=json.load(sys.stdin);assert len(m.native_failures(json.dumps(rows[0])))==1;assert all(m.native_failures(json.dumps(row))==[] for row in rows[1:]);assert m.native_failures(' '*2049+json.dumps(rows[0]))==[];print('closed decoder passed')";
-  const result=spawnSync('python3',['-B','-c',code,new URL('../../ci/fixture-smoke.py',import.meta.url).pathname],{input:JSON.stringify([good,...invalid]),encoding:'utf8',timeout:10000});
+  const result=spawnSync('python3',['-B','-c',code,fileURLToPath(new URL('../../ci/fixture-smoke.py',import.meta.url))],{input:JSON.stringify([good,...invalid]),encoding:'utf8',timeout:10000});
   assert.equal(result.status,0,result.stderr);
   assert.match(result.stdout,/closed decoder passed/);
 });
@@ -126,6 +127,6 @@ test('stratified eight-sample witness retains every changed section and exact 38
   }
   // The independent decoder must accept the same v1 protocol with no relaxation.
   const code="import importlib.util,json,sys;spec=importlib.util.spec_from_file_location('smoke',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);row=json.load(sys.stdin);out=m.native_failures(json.dumps(row));assert len(out)==1 and out[0]['parity']==row['parity'];print('stratified decoder passed')";
-  const decoded=spawnSync('python3',['-B','-c',code,new URL('../../ci/fixture-smoke.py',import.meta.url).pathname],{input:JSON.stringify(row),encoding:'utf8',timeout:10000});
+  const decoded=spawnSync('python3',['-B','-c',code,fileURLToPath(new URL('../../ci/fixture-smoke.py',import.meta.url))],{input:JSON.stringify(row),encoding:'utf8',timeout:10000});
   assert.equal(decoded.status,0,decoded.stderr);
 });

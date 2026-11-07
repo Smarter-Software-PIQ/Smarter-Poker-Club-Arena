@@ -43,6 +43,8 @@ import {
 } from './services/TournamentRetirementCustody.js';
 import {
   EMPTY_PAST_START_CANCEL_RETRY_MS,
+  isCancellationLaneBusy,
+  laneBusyCancelAskedAt,
   shouldCancelEmptyPastStartEvent,
 } from './tournament/emptyPastStartEvent.js';
 import { projectTournamentAdmission } from './tournament/tournamentAdmission.js';
@@ -3846,6 +3848,12 @@ export class GameServer {
    * at 19:52 while TournamentNeverStarted paged. A cancel is one RPC that
    * seats nobody and moves no chip; it has its own single-flight lane,
    * bounded by the number of empty events, which is small by construction.
+   *
+   * ONE AT A TIME ACROSS THE PROCESS (2026-11-07). The database admits one
+   * cancellation at a time through its exclusive terminal-settlement lane, so
+   * launching every empty event at once only produced refusals (~30 at
+   * 20:05:12 UTC). A second event waits for the next pass; see
+   * tournament/emptyPastStartEvent.ts (EMPTY_PAST_START_LANE_BUSY_RETRY_MS).
    */
   private readonly emptyEventCancelsInFlight = new Map<string, Promise<void>>();
 
@@ -3863,7 +3871,7 @@ export class GameServer {
     if (
       !canStart() ||
       this.tournamentTopUpsInFlight.has(tournamentId) ||
-      this.emptyEventCancelsInFlight.has(tournamentId)
+      this.emptyEventCancelsInFlight.size > 0
     ) {
       return false;
     }
@@ -4072,7 +4080,10 @@ export class GameServer {
   private startTime: number = Date.now();
 
   // Server-side services (replaces browser-based DealerPage services)
-  private horseFleet = new HorseFleetManager();
+  private horseFleet = new HorseFleetManager({
+    /* Where a horse sits reads the button of the hand being dealt (HorseSeatChoice). */
+    buttonSeatOf: (tableId) => this.getTableEngine(tableId)?.getCurrentButtonSeat() ?? null,
+  });
   /** Operation Table Stakes, Slice 6: the tables of a must-move game open,
    *  feed, break and sleep on their own. Leader-only, like the fleet. */
   private clusterController = new ClusterController({
@@ -9651,6 +9662,21 @@ export class GameServer {
                         p_tournament_id: tournament.id,
                         p_admin_id: null,
                       });
+                  if (cancelError && isCancellationLaneBusy(cancelError)) {
+                    // The lane's try-lock refused before any write: not a failure,
+                    // just not now. Ask again in a minute, one event at a time.
+                    const busy = this.pastStartTopUpClock.get(tournament.id);
+                    this.pastStartTopUpClock.set(tournament.id, {
+                      at: busy?.at ?? now,
+                      misses: busy?.misses ?? 0,
+                      cancelAskedAt: laneBusyCancelAskedAt(now),
+                    });
+                    console.log(
+                      `[GameServer] empty past-start event ${String(tournament.id).slice(0, 8)} ` +
+                        `waits for the cancellation lane (${cancelError.message}); asking again in a minute`
+                    );
+                    return;
+                  }
                   if (cancelError) {
                     reportError(
                       new Error(
