@@ -30,23 +30,29 @@ describe('horse release verification kit', () => {
     expect(r.out).toContain('ok');
   });
 
-  it.each(['ladder', 'seat-jams', 'v78', 'v79', 'four-bet-fold', 'reshove', 'omaha-calls'])(
-    '%s renders one read-only statement with literal window bounds',
-    (mode) => {
-      const r = run('sql', mode, '2026-11-03T00:00:00Z', '2026-11-03T04:00:00Z');
-      expect(r.status, r.err).toBe(0);
-      expect(r.out).not.toMatch(/:START|:END/);
-      expect(r.out).toContain("'2026-11-03T00:00:00Z'::timestamptz");
-      expect(r.out).toContain("'2026-11-03T04:00:00Z'::timestamptz");
-      expect(WRITE.test(body(r.out))).toBe(false);
-      const statements = body(r.out)
-        .split(';')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      expect(statements).toHaveLength(1);
-      expect(statements[0]).toMatch(/^(with|select)\b/i);
-    }
-  );
+  it.each([
+    'ladder',
+    'seat-jams',
+    'v78',
+    'v79',
+    'four-bet-fold',
+    'reshove',
+    'omaha-calls',
+    'omaha-river-reraise-calls',
+  ])('%s renders one read-only statement with literal window bounds', (mode) => {
+    const r = run('sql', mode, '2026-11-03T00:00:00Z', '2026-11-03T04:00:00Z');
+    expect(r.status, r.err).toBe(0);
+    expect(r.out).not.toMatch(/:START|:END/);
+    expect(r.out).toContain("'2026-11-03T00:00:00Z'::timestamptz");
+    expect(r.out).toContain("'2026-11-03T04:00:00Z'::timestamptz");
+    expect(WRITE.test(body(r.out))).toBe(false);
+    const statements = body(r.out)
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toMatch(/^(with|select)\b/i);
+  });
 
   it('activation renders with the liveness control and every upgrade receipt', () => {
     const r = run('sql', 'activation', '2026-11-03');
@@ -61,6 +67,7 @@ describe('horse release verification kit', () => {
       'v79_top_pair_weak_kicker',
       'v80_top_pair_strong_kicker',
       'v81_omaha_big_bet_call_fold',
+      'v84_omaha_river_reraise_call_fold',
       'plan_fingerprint_recorded',
       'plan_fingerprint_aborted_stack_exposure_shift',
       'opponent_memory_donor_stale',

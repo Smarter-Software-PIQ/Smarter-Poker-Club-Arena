@@ -124,6 +124,18 @@ with its window; none is a profitability claim.
   v81-omaha-call-cells.txt. After V81 these cells' call counts should fall to
   near zero and `v81_omaha_big_bet_call_fold` should fire.
 
+- V84 Omaha river re-raise calls (2026-11-07), current engine: PLO4/PLO5/PLO6
+  horse river calls of a raise made AFTER the horse's own river bet or raise
+  (`sql omaha-river-reraise-calls` in 12-hour slices, then the same
+  `omaha-call-cells.ts`); same EV, classification and exclusions as V81; day A
+  2026-11-05 16:00 to 11-06 16:00 UTC, day B 11-06 16:00 to 11-07 16:00 UTC,
+  wager >= 0.9 pot. Only the unpaired second-nut flush was admitted: -100.8
+  [-159.5, -42.0] n 12 / -93.0 [-130.3, -55.6] n 15 (all 27 calls lost). The
+  other cells were too thin or straddled one day. Full outputs:
+  docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt. After V84 this
+  cell's call count should fall to near zero and
+  `v84_omaha_river_reraise_call_fold` should fire.
+
 ### After a release
 
 1. Confirm `releaseSha` on `/health` contains the candidate, the release

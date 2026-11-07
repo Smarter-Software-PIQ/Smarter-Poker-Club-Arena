@@ -281,7 +281,13 @@ import {
   restoreFastRandom,
 } from './HorseEval.js';
 import { anteOrbitCostBB } from './AnteMath.js';
-import { callLargeRiverBoatWager, v81Cell, v81StreetWager } from './HorseOmahaBigBetCalls.js';
+import {
+  callLargeRiverBoatWager,
+  v81Cell,
+  v81StreetWager,
+  v84Cell,
+  v84HeroWageredStreet,
+} from './HorseOmahaBigBetCalls.js';
 import { ploPairedBoardMustFold, ploPairedBoardRiverMustCheck } from './HorsePloPairedBoardFold.js';
 import {
   riverBluffEligibility,
@@ -2569,6 +2575,11 @@ export interface HorseDecideOpts {
    *  the equity estimate says (hand 3374459). Default on; explicit false
    *  restores the near-lock escape on the river. */
   v15RiverNoNearLock?: boolean;
+  /** V84 (2026-11-07): PLO4/PLO5/PLO6 river CALLS of a >= 0.9-pot raise
+   *  after the horse's own river bet or raise fold in the measured cell
+   *  (HorseOmahaBigBetCalls.v84Cell): an unpaired-board second-nut flush.
+   *  Default on; explicit false keeps today. */
+  v84OmahaRiverReraiseCalls?: boolean;
   /** V83 (2026-11-06): a postflop aggression factor above 2.5 reads as a
    *  maniac (callDownMod 1.2, which also switches off every one-pair fold
    *  and shade layer) only when the bettor's big river bets have NOT shown
@@ -4265,10 +4276,13 @@ function shortAllInCallFloorOutsideGraph(
 }
 
 /**
- * V81 (2026-11-02, Phase 4): PLO4/PLO5 big-bet call discipline. Runs in the
- * policy graph's wager_rules node right after the paired-board fold, so the
- * signed graph records the fold; see HorseOmahaBigBetCalls.ts for the
- * evidence and the exact cells.
+ * V81 (2026-11-02, Phase 4): PLO4/PLO5 big-bet call discipline, and V84
+ * (2026-11-07): the same discipline for a PLO4/PLO5/PLO6 river call of a
+ * raise after the horse's own river bet or raise. Runs in the policy graph's
+ * wager_rules node right after the paired-board fold, so the signed graph
+ * records the fold; see HorseOmahaBigBetCalls.ts for the evidence and the
+ * exact cells. The two rule sets are disjoint (V81 needs no chips of the
+ * horse's in this street, V84 needs its own wager) and switch off separately.
  */
 function omahaBigBetCallFold(
   decision: HorseDecision,
@@ -4277,7 +4291,9 @@ function omahaBigBetCallFold(
   opts: HorseDecideOpts
 ): HorseDecision {
   try {
-    if (opts.v81OmahaBigBetCalls === false) return decision;
+    const v81On = opts.v81OmahaBigBetCalls !== false;
+    const v84On = opts.v84OmahaRiverReraiseCalls !== false;
+    if (!v81On && !v84On) return decision;
     const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
     const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
     const toCall = Number.isFinite(gs.toCall)
@@ -4302,7 +4318,7 @@ function omahaBigBetCallFold(
     const bb = gs.bigBlind > 0 ? gs.bigBlind : 1;
     const effectiveBB = Math.min(stack + heroBet, (bettor.stack ?? 0) + (bettor.bet ?? 0)) / bb;
     const tournament = isTournamentMode(gs);
-    const cell = v81Cell({
+    const shared = {
       variant: String(gs.gameVariant ?? ''),
       street,
       hole: player.cards ?? [],
@@ -4322,14 +4338,23 @@ function omahaBigBetCallFold(
         : variantInfo(gs.gameVariant).isHiLo,
       multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
       bombPot: gs.bombPot === true,
-      heroHasStreetChips: heroBet > 0.005,
       // MEASURED postflop over-bluffer only: in PLO every opponent is
       // PRESUMED a preflop maniac (HorseOpponentExploit, Dan 2026-10-27),
       // and a presumption is not evidence about who over-bets the river.
       bettorOverBluffs: isPostflopManiac(HorseMind.opponentRead(bettor.user_id)),
-    });
-    if (cell === null) return decision;
-    if (telemetryOn(opts)) noteFire('v81_omaha_big_bet_call_fold');
+    };
+    const v81 = v81On ? v81Cell({ ...shared, heroHasStreetChips: heroBet > 0.005 }) : null;
+    const v84 =
+      v81 === null && v84On && faced.bettorSeat !== player.seat
+        ? v84Cell({
+            ...shared,
+            heroWageredStreet:
+              heroBet > 0.005 && v84HeroWageredStreet(gs.actionHistory, street, player.seat),
+          })
+        : null;
+    if (v81 === null && v84 === null) return decision;
+    if (telemetryOn(opts))
+      noteFire(v81 !== null ? 'v81_omaha_big_bet_call_fold' : 'v84_omaha_river_reraise_call_fold');
     const folded: HorseDecision = { ...decision, action: 'fold' };
     delete folded.amount;
     return folded;
