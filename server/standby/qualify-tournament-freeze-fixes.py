@@ -111,6 +111,60 @@ def readback():
     return result
 
 
+def needs_funded_satellite_proof(repo, sha):
+    # Historical sealed revisions still use their original qualification.
+    # Resolve the protected introduction, so deleting the migration or probe
+    # from a later candidate cannot opt that candidate out of the new proof.
+    git = ['git', '-C', str(repo)]
+    award_migration = ('supabase/migrations/20261107190137_'
+                       'a_blocked_satellite_target_releases_the_shared_finish_lane.sql')
+    award_merge = run([*git, 'log', '--first-parent', '--diff-filter=A', '--format=%H',
+                       'origin/main', '--', award_migration])
+    if not re.fullmatch('[0-9a-f]{40}', award_merge):
+        raise RuntimeError('cannot uniquely identify protected satellite settlement introduction')
+    hand_merge = '2524e3cd537006a011b5c57f726763feaa80529b'
+    for commit in (hand_merge, award_merge):
+        try:
+            run([*git, 'merge-base', '--is-ancestor', commit, sha])
+        except subprocess.CalledProcessError as error:
+            if error.returncode == 1:
+                return False
+            raise
+    return True
+
+
+def verified_satellite_thaw(result):
+    if result.get('status') != 'passed':
+        raise RuntimeError('satellite qualifier failed')
+    races = result['races']
+    if (sorted(r['case'] for r in races) != ['hold_hand_key', 'hold_row']
+            or any(r[key] is not True for r in races for key in (
+                'unrelated_funded_settlement', 'original_funded_recovery', 'database_removed'))
+            or any(result['cleanup'][key] is not True for key in ('stopped', 'removed'))):
+        raise RuntimeError('funded target isolation or cleanup proof missing')
+    peak = result['peak_thaw']
+    if (peak['events'], peak['tables'], peak['postcommits']) != (10, 59, 59) or not (
+            0 < peak['slowestSeconds'] <= 158):
+        raise RuntimeError('peak hand receipts differ from the observed footprint')
+    awards = peak['concurrentResult']
+    sources = awards['sources']
+    if (not awards['targetId'] or len(sources) != 2
+            or len({s['sourceId'] for s in sources if s['sourceId']}) != 2
+            or sorted(s['qualifiers'] for s in sources) != [1, 2]
+            or any(s['awards'] != 2 for s in sources)
+            or any(s['targetId'] != awards['targetId'] or s['escrowClosed'] is not True
+                   or s['usableAwards'] != s['awards'] or not 0 < s['elapsedSeconds'] <= 148
+                   for s in sources)):
+        raise RuntimeError('two funded sources did not settle usable awards into the same target')
+    witness = awards['overlapWitness']
+    committed = datetime.datetime.fromisoformat(witness['committedAt'])
+    if (not witness['handId'] or any(
+            not datetime.datetime.fromisoformat(s['beganAt']) <= committed <=
+            datetime.datetime.fromisoformat(s['committedAt']) for s in sources)):
+        raise RuntimeError('peak hand did not commit during both funded finish intervals')
+    return peak
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('sha')
@@ -122,6 +176,19 @@ def main():
     before = identity(args.sha)
     for commit in MERGES:
         run(['git', '-C', str(repo), 'merge-base', '--is-ancestor', commit, args.sha])
+    require_satellite_thaw = needs_funded_satellite_proof(repo, args.sha)
+    tests = list(TESTS)
+    if require_satellite_thaw:
+        tests.extend([
+            'src/tournament/aBoundaryTheAuthorityDoesNotNeedIsNotHeld.law.test.ts',
+            'src/tournament/aBustFarFromTheTicketsDoesNotFreezeTheSatellite.law.test.ts',
+            'src/tournament/PreparedOriginalSuccessorDrain.test.ts',
+            'src/tournament/anEmptyPastStartEventIsCancelled.test.ts',
+            'src/tournament/terminalDurableRequest.test.ts',
+            'src/tournament/aQualifierRefusedByABreakFinishesTheBreak.law.test.ts',
+            'src/aTableThatCannotBeAdmittedIsStalled.test.ts',
+            'src/observability/tournamentStallExposure.test.ts',
+        ])
     (state / 'qualifications').mkdir(exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix=args.sha + '-', dir=state / 'qualifications'))
     scratch = output / 'scratch'
@@ -134,11 +201,12 @@ def main():
               'scope': 'Exact-source branch tests and disposable native probes on backup host; '
                        'not failure injection into running engine or production gameplay proof',
               'migrationHistory': 'not required: schema export excludes supabase_migrations',
-              'tests': TESTS}
+              'tests': tests}
     report['qualificationScriptSha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     tags = []
     containers = ['freeze-node-' + output.name, 'freeze-hand-' + output.name,
-                  'freeze-f06-' + output.name]
+                  'freeze-f06-' + output.name, 'freeze-satellite-' + output.name, 'freeze-awards-' + output.name,
+                  'freeze-feeders-' + output.name]
     try:
         report['restoredFunctionBefore'] = readback()
         archive = scratch / 'source.tar'
@@ -167,13 +235,13 @@ def main():
         run(['docker', 'run', '--rm', '--name', containers[0], '--network', 'none', '--cpus', '2', '--memory', '4g',
              '--mount', 'type=bind,source=' + str(output) + ',target=/evidence',
              '-e', 'VITEST_MAX_THREADS=2', node_tag, 'node', 'node_modules/vitest/vitest.mjs',
-             'run', *TESTS, '--reporter=json', '--outputFile=/evidence/runtime-tests.json'],
+             'run', *tests, '--reporter=json', '--outputFile=/evidence/runtime-tests.json'],
             log=output / 'runtime-tests.log')
         result = json.loads((output / 'runtime-tests.json').read_text())
         executed = {r['name'].removeprefix('/source/server/') for r in result.get('testResults', [])}
         if (not result.get('success') or result.get('numFailedTests')
                 or result.get('numPendingTests') or not result.get('numPassedTests')
-                or executed != set(TESTS)):
+                or executed != set(tests)):
             raise RuntimeError('focused test verdict is not a passing executed result')
         report['sourceBranchTests'] = {'passed': result['numPassedTests'], 'failed': result['numFailedTests']}
         pg_image = run(['docker', 'inspect', '-f', '{{.Image}}', DATABASE])
@@ -185,8 +253,9 @@ def main():
                           pg_image, '-u', 'postgres']))
         pg_gid = int(run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'id',
                           pg_image, '-g', 'postgres']))
+        native_packages = 'python3 nodejs' if require_satellite_thaw else 'python3'
         (source / 'Qualification.pg').write_text(
-            'FROM ' + pg_reference + '\nUSER root\nRUN apk add --no-cache python3\n'
+            'FROM ' + pg_reference + f'\nUSER root\nRUN apk add --no-cache {native_packages}\n'
             'COPY --chown=postgres:postgres . /source\nUSER postgres\nWORKDIR /source\n'
             'ENV PG_BIN=/nix/var/nix/profiles/default/bin\nENTRYPOINT ["python3"]\n')
         run(['docker', 'build', '--platform', pg_platform, '-f', 'Qualification.pg', '-t', native_tag, '.'],
@@ -208,6 +277,34 @@ def main():
                 or f06.get('ownedClusterRemoved') is not True
                 or f06.get('stoppedCancelled', {}).get('passed') is not True):
             raise RuntimeError('native source verdict missing or failed')
+        if require_satellite_thaw:
+            run([*common, '--name', containers[3], native_tag, 'scripts/ci/test-satellite-qualifiers.py',
+                 '--peak-only', '--pg-bin', '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/satellite'],
+                log=output / 'satellite-native.log')
+            funded = json.loads((evidence / 'satellite/result.json').read_text())
+            for path in ('scripts/ci/tournament_peak_thaw.py', 'scripts/ci/satellite_peak_thaw.py'):
+                if funded['source_sha256'].get(path) != hashlib.sha256((source / path).read_bytes()).hexdigest():
+                    raise RuntimeError('funded rehearsal source identity differs: ' + path)
+            report['fundedSatelliteThaw'] = verified_satellite_thaw(funded)
+            run([*common, '--name', containers[4], '-e', 'TMPDIR=/evidence', native_tag, 'scripts/ci/test-satellite-value-awards.py',
+                 '--pg-bin', '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/awards'],
+                log=output / 'satellite-awards.log')
+            awards = json.loads((evidence / 'awards/report.json').read_text())
+            if (awards.get('passed') is not True or awards.get('status') != 'passed'
+                    or sorted((r['asset'], r['release']) for r in awards['races']) != [
+                        ('chips', 'commit'), ('chips', 'rollback'), ('diamonds', 'commit'), ('diamonds', 'rollback')]
+                    or any(r['single_consumption'] is not True or r['exact_funded_rails'] is not True
+                           for r in awards['races'])
+                    or not any(c['label'] == 'single-live-field-new-green' and c['exit_code'] == 0
+                               for c in awards['commands'])):
+                raise RuntimeError('funded running-target chair or ticket evidence missing')
+            report['usableAwardCases'] = [r['case'] for r in awards['races']]
+            run([*common, '--name', containers[5], '-e', 'TMPDIR=/evidence', native_tag,
+                 'scripts/ci/test-fixed-sng-satellites.py'], log=output / 'satellite-feeders.log')
+            if 'PASS: live-target retention, rescheduling, concurrent entrant, target expiry and replay' not in (
+                    output / 'satellite-feeders.log').read_text().splitlines():
+                raise RuntimeError('missing feeder expiry and target schedule proof')
+            report['fixedFeederSchedulePassed'] = True
         report['nativeHandAssertions'] = hand['assertions']
         report['nativeF06Cases'] = len(f06['cases'])
         report['restoredFunctionAfter'] = readback()
