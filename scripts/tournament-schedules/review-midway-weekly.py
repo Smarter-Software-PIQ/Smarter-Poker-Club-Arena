@@ -302,6 +302,10 @@ def candidate_from_workbook(path, base):
                     continue
                 if not values.get('C'):
                     continue
+                if values.get('L') != 'Midway Union':
+                    raise ValueError(f'{name} row {row.attrib["r"]}: L scope must be Midway Union')
+                if values.get('O') not in (None, '') and values['O'] != values.get('D'):
+                    raise ValueError(f'{name} row {row.attrib["r"]}: O configured guarantee must equal D guarantee')
                 identity = values.get('U')
                 if not identity:
                     raise ValueError(f'{name} row {row.attrib["r"]}: hidden U Schedule ID is required')

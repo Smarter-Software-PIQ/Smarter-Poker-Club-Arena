@@ -77,7 +77,7 @@ class ReviewTests(unittest.TestCase):
         event['days'] = [0]
         base['profiles'] = {event['blindProfile']: base['profiles'][event['blindProfile']]}
         b = base['profiles'][event['blindProfile']][0]
-        row = dict(A='Sunday', B=8/24, C=event['name'], D=250, E='Fixed Bounty', F='Yes', G='Yes', H=5.5, I=5000, J=f"{b['durationMinutes']} min; starts {b['smallBlind']}/{b['bigBlind']}", K=12, M='NLH', N='Yes', P=event['blindProfile'], U=event['id'])
+        row = dict(A='Sunday', B=8/24, C=event['name'], D=250, E='Fixed Bounty', F='Yes', G='Yes', H=5.5, I=5000, J=f"{b['durationMinutes']} min; starts {b['smallBlind']}/{b['bigBlind']}", K=12, L='Midway Union', O=250, M='NLH', N='Yes', P=event['blindProfile'], U=event['id'])
         row.update(changes or {})
         def xmlrow(index, values):
             cells = []
@@ -105,6 +105,12 @@ class ReviewTests(unittest.TestCase):
             base = self.workbook_fixture(path)
             candidate = review.candidate_from_workbook(path, base)
             self.assertEqual(review.review(candidate, base)['changes'], [])
+            base = self.workbook_fixture(path, {'O': 251})
+            with self.assertRaisesRegex(ValueError, 'O configured guarantee must equal D'):
+                review.candidate_from_workbook(path, base)
+            base = self.workbook_fixture(path, {'L': 'Other Union'})
+            with self.assertRaisesRegex(ValueError, 'L scope must be Midway Union'):
+                review.candidate_from_workbook(path, base)
             base = self.workbook_fixture(path, {'H': 6})
             with self.assertRaisesRegex(ValueError, 'explicit terms.buy_in_amount'):
                 review.candidate_from_workbook(path, base)
