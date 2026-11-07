@@ -100,11 +100,20 @@ SELECT g.user_id,
      ORDER BY l.to_entity_id, l.created_at
   ) g
   LEFT JOIN public.profiles p ON p.id = g.user_id
-  LEFT JOIN public.chip_transactions t
-         ON t.to_user_id = g.user_id
-        AND t.transaction_type = 'promo_disbursement'
-        AND t.created_at >= '2026-11-04'
-        AND t.amount = 25
+  -- THE FIRST PAYMENT'S TRANSACTION, NOT WHICHEVER THE PLANNER REACHED FIRST.
+  -- The 32 double-paid members have TWO promo_disbursement rows each, so a
+  -- plain join fans out and records a nondeterministic id - and the duplicate
+  -- is the one that was reversed, so the row that stands is the earliest.
+  LEFT JOIN LATERAL (
+    SELECT t.id
+      FROM public.chip_transactions t
+     WHERE t.to_user_id = g.user_id
+       AND t.transaction_type = 'promo_disbursement'
+       AND t.created_at >= '2026-11-04'
+       AND t.amount = 25
+     ORDER BY t.created_at
+     LIMIT 1
+  ) t ON true
  WHERE NOT EXISTS (SELECT 1 FROM public.sp_signup_welcome_back_awards a
                     WHERE a.user_id = g.user_id)
 ON CONFLICT (user_id) DO NOTHING;
