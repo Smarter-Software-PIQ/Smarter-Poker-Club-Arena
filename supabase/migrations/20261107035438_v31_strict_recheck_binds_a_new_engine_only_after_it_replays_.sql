@@ -107,7 +107,7 @@ CREATE TABLE public.gto_v31_execution_anchors (
   CONSTRAINT gto_v31_execution_anchors_corpus_addressed CHECK (corpus_sha256 = encode(sha256(corpus_gzip),'hex'))
 );
 CREATE INDEX gto_v31_execution_anchors_dataset_idx ON public.gto_v31_execution_anchors (dataset_id);
-REVOKE ALL ON public.gto_v31_execution_anchors FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.gto_v31_execution_anchors FROM PUBLIC, anon, authenticated, service_role;
 ALTER TABLE public.gto_v31_execution_anchors ENABLE ROW LEVEL SECURITY;
 
 -- 2. Re-check rounds: one new engine, one verdict.
@@ -138,7 +138,7 @@ CREATE UNIQUE INDEX gto_v31_recheck_rounds_one_pass
   ON public.gto_v31_recheck_rounds (epoch_id, serving_commit) WHERE outcome = 'passed';
 CREATE UNIQUE INDEX gto_v31_recheck_rounds_one_retirement
   ON public.gto_v31_recheck_rounds (dataset_id) WHERE outcome = 'retired';
-REVOKE ALL ON public.gto_v31_recheck_rounds FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.gto_v31_recheck_rounds FROM PUBLIC, anon, authenticated, service_role;
 ALTER TABLE public.gto_v31_recheck_rounds ENABLE ROW LEVEL SECURITY;
 
 -- 3. Provenance guards.

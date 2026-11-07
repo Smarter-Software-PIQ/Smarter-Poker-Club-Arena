@@ -169,8 +169,10 @@ def scenario(cluster, text, behavioural=False):
         for role in ['anon', 'authenticated', 'service_role']:
             assert db.sql(f"SELECT has_function_privilege('{role}','public.{fn}','EXECUTE')") == 'f', (fn, role)
     for table in ['gto_v31_execution_anchors', 'gto_v31_recheck_rounds']:
-        for role in ['anon', 'authenticated']:
-            assert db.sql(f"SELECT has_table_privilege('{role}','public.{table}','SELECT')") == 'f', (table, role)
+        # Reached only through the SECURITY DEFINER functions: no role reads or writes them directly.
+        for role in ['anon', 'authenticated', 'service_role']:
+            for priv in ['SELECT', 'INSERT', 'UPDATE', 'DELETE']:
+                assert db.sql(f"SELECT has_table_privilege('{role}','public.{table}','{priv}')") == 'f', (table, role, priv)
 
     # ── v2 datasets: promotion and binding exactly as before ──
     assert db.sql(f"SELECT evaluation_contract FROM gto_v31_datasets WHERE dataset_id='{legacy}'") == 'gto_v31_candidate.v2'
