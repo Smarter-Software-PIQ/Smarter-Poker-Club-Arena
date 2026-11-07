@@ -17,6 +17,7 @@ Players' browsers report errors to a first-party sink. Sentry is retired and mus
 - `LEAVE_NOT_CONFIRMED` (or the engine's code), source `SeatLeaveIntent.*`: a leave was refused or failed.
 - `TypeError`, `UNCAUGHT_ERROR`, source `window.onerror`: an uncaught exception.
 - source `main.Unhandled_promise_rejection_caught`: an unhandled promise rejection.
+- `PLATFORM_FROZEN` (also `55006`, and `P0001` with a `PLATFORM_FROZEN` message from builds before 2026-11-07): a real player's entry, buy-in or chip move was refused by the maintenance freeze. Nothing moved. These are not counted toward `ClientErrorSpike`; they have their own gauges, `poker_client_freeze_refusals_10m` and `poker_client_freeze_refusal_users_10m`, and the info alert `PlayersRefusedDuringFreeze` (a record in `operational_alert_events`, never a page). Match them to the freeze in `public.engine_maintenance_thaws`.
 - Anything else: the error's own code (a Postgres or PostgREST code) or name, with `source` naming the `reportError` call site.
 
 ## When it fires

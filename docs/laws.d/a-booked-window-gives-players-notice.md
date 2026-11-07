@@ -1,0 +1,3 @@
+# tests/a-booked-window-gives-players-notice.law.test.ts
+
+Dan, 2026-11-07: every owner maintenance window booked from 2026-11-07 21:00 UTC (engine or database) carries playerNoticeAt at least 20 minutes before notBefore; only a certifiedRecoveryProfile emergency window is exempt. src/utils/ownerMaintenanceNotices.json is exactly the output of scripts/generate-owner-maintenance-notices.mjs, and bookedMaintenanceNotice / bookedMaintenanceNoticeText in src/utils/maintenanceSchedule.ts turn it into the banner sentence from the notice instant until the window closes, in Chicago time, never naming a fixed minute.

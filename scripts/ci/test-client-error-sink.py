@@ -20,6 +20,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261003080431_players_errors_reach_a_first_party_sink.sql'
+# A freeze refusal is counted by name (2026-11-07): installed over the sink, exercised below.
+FREEZE_MIGRATION = ROOT / 'supabase/migrations/20261107210000_a_freeze_refusal_is_counted_by_name.sql'
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=Path, default=ROOT / 'artifacts/client-error-sink')
 args = parser.parse_args()
@@ -37,6 +39,7 @@ results = {'scope': 'client error sink: identity, grants, rate limits, scrubbing
                     'isolated fixture, not whole-schema qualification', 'cases': [], 'passed': False}
 U1 = '00000000-0000-4000-8000-0000000000e1'
 U2 = '00000000-0000-4000-8000-0000000000e2'
+U3 = '00000000-0000-4000-8000-0000000000e3'  # a horse
 
 FIXTURE = """
 CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS;
@@ -47,6 +50,8 @@ GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 -- Supabase's default privileges: new tables and functions are granted to the browser roles.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
+-- profiles.is_horse, as public.profiles carries it in production.
+CREATE TABLE public.profiles (id uuid PRIMARY KEY, is_horse boolean NOT NULL DEFAULT false);
 CREATE SCHEMA cron;
 CREATE TABLE cron.job (jobid serial PRIMARY KEY, jobname text UNIQUE, schedule text, command text, active boolean DEFAULT true);
 CREATE FUNCTION cron.schedule(n text, s text, c text) RETURNS bigint LANGUAGE sql AS $$
@@ -108,6 +113,7 @@ try:
     require(r.returncode == 0, r.stderr)
     run('fixture', FIXTURE)
     run('install', MIGRATION.read_text())
+    run('install-freeze-counted', FREEZE_MIGRATION.read_text())
 
     # Grants: the browser roles reach the one door and nothing else.
     run('grants', """SELECT
@@ -163,6 +169,22 @@ try:
         "SELECT client_errors_10m || ':' || client_error_users_10m || ':' || client_error_top_code_users_10m || ':' || client_error_top_code FROM public.fn_client_error_health();",
         'TEST_CODE:300:300:15\n300:15:15:TEST_CODE')
     run('reset-caps', RESET)
+
+    # A freeze refusal is counted by name: PLATFORM_FROZEN, 55006 and a P0001
+    # whose message is PLATFORM_FROZEN all count; a horse never does; the
+    # spike's top code ignores them.
+    run('freeze-horse', "INSERT INTO public.profiles (id, is_horse) VALUES ('" + U3 + "', true), ('" + U1 + "', false);")
+    run('freeze-reports', as_role('authenticated', U1) + report(2, '{"code":"PLATFORM_FROZEN"}') + report(1) + "RESET ROLE;\n" +
+        as_role('authenticated', U2) + report(1, '{"code":"P0001","message":"PLATFORM_FROZEN"}') + "RESET ROLE;\n" +
+        as_role('authenticated', U3) + report(1, '{"code":"55006"}'), '2\n1\n1\n1')
+    run('freeze-health', as_role('service_role') +
+        "SELECT client_errors_10m || ':' || client_error_users_10m || ':' || client_error_top_code_users_10m || ':' || "
+        "client_error_top_code || ':' || freeze_refusals_10m || ':' || freeze_refusal_users_10m FROM public.fn_client_error_health();",
+        '5:3:1:TEST_CODE:3:2')
+    run('freeze-still-service-only', """SELECT NOT has_function_privilege('anon', 'public.fn_client_error_health()', 'EXECUTE')
+      AND NOT has_function_privilege('authenticated', 'public.fn_client_error_health()', 'EXECUTE')
+      AND has_function_privilege('service_role', 'public.fn_client_error_health()', 'EXECUTE');""", 't')
+    run('reset-freeze', RESET + " TRUNCATE public.profiles;")
 
     # Malformed input stores nothing and never raises.
     run('malformed', as_role('authenticated', U1) +
