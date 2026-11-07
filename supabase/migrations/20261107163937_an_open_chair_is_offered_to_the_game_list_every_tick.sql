@@ -27,6 +27,8 @@
 -- as a person does (CLAUDE.md 10.5). Each call is its own subtransaction, so an
 -- offer that refuses can never fail the tick. Nothing else in the tick changes.
 --
+-- @live-proof: (position('AN OPEN CHAIR IS OFFERED TO THE LIST' in pg_get_functiondef('public.fn_cash_cluster_tick(uuid,integer)'::regprocedure)) > 0)
+--
 -- Wrap ALL DDL for one change in ONE transaction: every DDL statement fires
 -- Supabase's schema-cache reload, which takes ~28s on this database, and ten
 -- loose statements mean ten reloads (club-arena CLAUDE.md, production DDL policy).
