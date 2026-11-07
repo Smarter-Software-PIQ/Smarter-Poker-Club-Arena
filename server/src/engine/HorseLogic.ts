@@ -2593,10 +2593,12 @@ export interface HorseDecideOpts {
    *  turn dominated flushes and paired-board straights. Default on;
    *  explicit false keeps today. */
   v81OmahaBigBetCalls?: boolean;
-  /** V15 river raise gate without the near-lock escape (2026-11-07): a
-   *  non-nut Omaha flush or straight facing a river wager calls, whatever
-   *  the equity estimate says (hand 3374459). Default on; explicit false
-   *  restores the near-lock escape on the river. */
+  /** V15 river raise gate without the near-lock escape (2026-11-07): an
+   *  Omaha flush with a live higher flush rank on an unpaired board, in a
+   *  high-only single-board game, facing a river wager calls, whatever the
+   *  equity estimate says (hand 3374459). Every other non-nut flush or
+   *  straight keeps the near-lock escape. Default on; explicit false
+   *  restores the near-lock escape for that class too. */
   v15RiverNoNearLock?: boolean;
   /** V84 (2026-11-07): PLO4/PLO5/PLO6 river CALLS of a >= 0.9-pot raise
    *  after the horse's own river bet or raise fold in the measured cell
@@ -12084,13 +12086,36 @@ export class HorseLogic {
       // non-nut flush or straight facing a river wager calls, whatever the
       // equity estimate says. Flop and turn keep the near-lock reading,
       // because there a dominated made hand can still improve.
+      //
+      // Scope (pre-activation review, same day): only the demonstrated class
+      // loses the escape - a flush with at least one live higher flush rank
+      // (higherFlushRanks >= 1) on an UNPAIRED board, in a high-only,
+      // single-board game. Every other non-nut-class hand keeps the near-lock
+      // reading on the river exactly as before: paired-board flushes (nut or
+      // not), non-nut straights, nut straights on a three-flush board, hi-lo
+      // (PLO8 / FLO8, where the low half and the quarter read decide the
+      // raise) and multi-board pots (the class is read from one board). The
+      // horses' own river raises in those classes measured raise against
+      // fold on 2026-11-05 and 11-06 were never negative on both days with
+      // 10 or more hands (non-nut straights +15.3 n 16 / +9.6 n 11; the rest
+      // under 10 raises a day or none), so none is admitted;
+      // docs/horse-measure/2026-11-07/v15-river-raise-scope.md.
       // Pinned by HorseV15RiverRaiseGate.test.ts.
+      const riverNoNearLock15 =
+        isRiver &&
+        opts.v15RiverNoNearLock !== false &&
+        cat === 6 &&
+        nuts15 != null &&
+        nuts15.higherFlushRanks >= 1 &&
+        !boardPaired15 &&
+        !vi.isHiLo &&
+        !multiBoard36;
       if (
         useV15 &&
         vi.isOmaha &&
         (cat === 5 || cat === 6) &&
         !nutClass15 &&
-        ((isRiver && opts.v15RiverNoNearLock !== false) || eq15 - dominationPenalty < 0.85)
+        (riverNoNearLock15 || eq15 - dominationPenalty < 0.85)
       ) {
         if (tele15) noteFire('v15_raise_gate');
         return { action: 'call', amount: toCall, thinkTime: 0 };
