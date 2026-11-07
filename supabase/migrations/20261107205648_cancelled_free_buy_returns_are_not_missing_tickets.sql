@@ -1,6 +1,7 @@
 -- Exact cancellation returns tickets while preserving the historical roster.
 -- Exclude that closed entry only from the missing-ticket finding. The watch's
 -- cancelled-event ticket check and existing finding/alert closure remain intact.
+-- @live-proof: position('AND fb.status <> ''CANCELLED''' IN pg_get_functiondef('public.fn_ca_free_buy_funding_watch()'::regprocedure)) > 0
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='8s';
