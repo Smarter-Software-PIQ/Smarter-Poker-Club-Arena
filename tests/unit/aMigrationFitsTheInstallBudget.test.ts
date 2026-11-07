@@ -79,7 +79,9 @@ describe('a migration fits the install budget', () => {
     const costAt = applier.indexOf('const risks = migrationCostRisks(file, sql);');
     expect(shapeAt).toBeGreaterThan(0);
     expect(costAt).toBeGreaterThan(shapeAt);
-    expect(applier.slice(costAt, costAt + 120)).toContain('refused(');
+    // The refusal sits inside the same if-block as the cost question.
+    const block = applier.slice(costAt, applier.indexOf('}', costAt));
+    expect(block).toContain('if (risks.length) refused(');
     expect(costAt).toBeLessThan(applier.indexOf('client.connect('));
   });
 });
