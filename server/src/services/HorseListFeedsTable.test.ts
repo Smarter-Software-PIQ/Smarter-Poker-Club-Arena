@@ -59,6 +59,8 @@ describe('a table is filled from its list, in order', () => {
     expect(ask).toBeGreaterThan(read);
     expect(gate).toBeGreaterThan(ask);
     expect(choose).toBeGreaterThan(gate);
-    expect(src.slice(gate, gate + 300)).toContain("diag.withheld = 'list_feeds_table'");
+    expect(src.slice(gate, src.indexOf('continue;', gate))).toContain(
+      "diag.withheld = 'list_feeds_table'"
+    );
   });
 });
