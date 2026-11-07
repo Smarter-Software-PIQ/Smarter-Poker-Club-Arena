@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Card, GameVariant } from '../types.js';
+import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import { HorseLogic } from './HorseLogic.js';
 import { checkedToNonBottomRiverBoat } from './HorseNonBottomRiverValue.js';
 import { omahaBoatPosition, omahaBoatsAbove, seedFastRandom } from './HorseEval.js';
@@ -302,6 +303,9 @@ it.each([
     const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, v9Timing: false });
     expect(d.policyFallback).toBeUndefined();
     expect(d.policyOwnership).toBeDefined();
+    expect(
+      horseDecisionReceiptRefusal(d, state.gameVariant, { player: hero, gameState: state })
+    ).toBeNull();
     expect(d.action).toBe('bet');
     expect(d.amount).toBeGreaterThanOrEqual(bb);
     expect(d.amount).toBeLessThanOrEqual(pot);
@@ -398,6 +402,9 @@ it.each(['original', 'stack-capped', 'unbeatable'] as const)(
     const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, v9Timing: false });
     expect(d.policyFallback).toBeUndefined();
     expect(d.policyOwnership).toBeDefined();
+    expect(
+      horseDecisionReceiptRefusal(d, state.gameVariant, { player: hero, gameState: state })
+    ).toBeNull();
     if (kind === 'unbeatable') expect(['raise', 'all_in']).toContain(d.action);
     else if (kind === 'stack-capped')
       expect(d).toMatchObject({ action: 'all_in', amount: undefined });
@@ -446,3 +453,40 @@ it('flats the 54-into-54 top boat that changed the historical PLO6 neutrality co
   expect(decision.policyFallback).toBeUndefined();
   expect(decision).toMatchObject({ action: 'call', amount: 54 });
 });
+
+it.each(['plo4', 'plo5'] as const)(
+  'admits a %s pot-bet boat call at the worker boundary',
+  (variant) => {
+    const { hero, state } = originalBoatFacingPotBet();
+    state.gameVariant = variant;
+    hero.cards = hero.cards.slice(0, Number(variant.at(-1)));
+    seedFastRandom(1);
+    const decision = HorseLogic.decide(
+      hero,
+      state,
+      'balanced',
+      {},
+      { mind: false, v9Timing: false }
+    );
+    expect(decision.policyGraph?.transitions.find((t) => t.node === 'wager_rules')).toMatchObject({
+      before: { action: 'all_in' },
+      after: { action: 'call', amount: 35.25 },
+      changed: true,
+    });
+    expect(
+      horseDecisionReceiptRefusal(decision, variant, { player: hero, gameState: state })
+    ).toBeNull();
+    expect(
+      horseDecisionReceiptRefusal(decision, variant, {
+        player: hero,
+        gameState: { ...state, toCall: 34 },
+      })
+    ).toBe('policy_graph');
+    expect(
+      horseDecisionReceiptRefusal(decision, variant, {
+        player: { ...hero, cards: [] },
+        gameState: state,
+      })
+    ).toBe('policy_graph');
+  }
+);
