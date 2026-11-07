@@ -31,6 +31,7 @@ import {
   type Phase6ReferenceRoute,
 } from './HorsePhase6Attribution.js';
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
+import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
@@ -13432,6 +13433,26 @@ export class HorseLogic {
       ? Math.max(0, gs.contestablePot as number)
       : gs.pot;
     const bigRiverCall = stage === 'river' && toCall > pricePot * 0.5;
+    // THE SIZE OF THE DECISION (owner 2026-11-07): longer on big pots, big
+    // bets, the river and all-ins; quick on a preflop fold or a small-pot
+    // check. No randomness is drawn here (horseDecisionGravity is pure), so the
+    // PRNG stream is what it was; the caller still caps every duration at the
+    // action clock and the time bank a person has.
+    const heroSeat = gs.players.find((p) => p.user_id === tempoSeed);
+    let opponentStack = 0;
+    for (const p of gs.players) {
+      if (p === heroSeat || p.is_folded) continue;
+      opponentStack = Math.max(opponentStack, Number(p.stack) || 0);
+    }
+    const { gravity, easy } = decisionGravity({
+      stage,
+      action: d.action,
+      toCall,
+      pot: pricePot,
+      heroStack: Number(heroSeat?.stack) || 0,
+      opponentStack,
+      amount: d.amount,
+    });
 
     // Per-horse TEMPO, stable for the life of the horse: some people are just
     // fast and some are just deliberate, and that is most of what makes a
@@ -13454,6 +13475,10 @@ export class HorseLogic {
     let wBank = 0.012 + (bigRiverCall ? 0.04 : 0) + (difficulty > 0.6 ? 0.02 : 0);
     if (bigRiverCall) wSnap *= 0.25;
     if (difficulty > 0.5) wSnap *= 0.5;
+    wSnap *= 1 - 0.7 * gravity;
+    if (easy) wSnap *= 1.35;
+    wTank += 0.4 * gravity;
+    if (gravity > 0.6) wBank += 0.03 * gravity;
     // A deliberate horse tanks more and snaps less; a fast one does the
     // reverse. This is what stops every seat sharing one rhythm.
     // Strong, not decorative. A quick horse should visibly be a quick horse
@@ -13492,6 +13517,8 @@ export class HorseLogic {
     // mode still differ.
     think *= 0.6 + tempo * 0.85;
     if (difficulty > 0) think *= 1 + difficulty * 0.35;
+    think *= 1 + 0.45 * gravity;
+    if (easy) think *= 0.85;
     // V24: this 20% discount is for CHECKING a free flop preflop, not for
     // folding to a raise - it was half of how folds reached 180ms.
     if (simple && stage === 'preflop' && !facingBet) think *= 0.8;

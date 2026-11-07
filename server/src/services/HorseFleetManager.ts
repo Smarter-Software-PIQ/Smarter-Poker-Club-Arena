@@ -72,6 +72,7 @@ import { seatBoosts, takeOpenOrders } from './StableHandPlanBus.js';
 import { stakeForBand } from './StableHandController.js';
 import { fetchAllRows } from './supabase/pagination.js';
 import { planHorseQueues, type HorseQueueAsk } from './HorseGameQueue.js';
+import { availableNow, regularSeatWeight } from './HorseRegulars.js';
 import {
   allocateBuyers,
   FEEDER_BUYERS_TO_GO_LIVE,
@@ -131,7 +132,6 @@ import {
   horseCashMinimum,
   gameLaneFor,
   horseHash,
-  isActiveNow,
   isNightParkedTable,
   isRetiringTable,
   occupancyTargetFor,
@@ -3713,7 +3713,12 @@ export class HorseFleetManager {
             diag.candidates = candidateHorses.length;
             diag.sittable = sittable.length;
           }
-          let pool = sittable.filter((h) => isActiveNow(h.id, hourUTC));
+          /* REGULARS (2026-11-07): a horse inside its own weekly pattern is
+             awake as well as one inside the old daily window - a superset of
+             the pool this line drew before, so no table can go short for a
+             schedule. Who among them sits is ordered by regularSeatWeight. */
+          const regularsNowMs = Date.now();
+          let pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));
           /* How many were awake before any rule widened the hour, for the
              `asleep` and `hour_widened` counters below. */
           const awake = pool.length;
@@ -3826,6 +3831,8 @@ export class HorseFleetManager {
                 gameId: String(table.cluster_id),
                 waitTarget: target.waitTarget,
                 pool: pool.map((h) => h.id),
+                variant: table.game_variant,
+                bigBlind: Number(table.big_blind),
               });
             }
             clusterPools.push(clusterPool);
@@ -3859,7 +3866,12 @@ export class HorseFleetManager {
             pool.map((h) => {
               const at = horseTables.get(h.id)?.size || 0;
               const towardFour = at > 0 && at < MAX_TABLES_PER_HORSE ? 4 : 1;
-              return { h, w: Math.random() * towardFour };
+              /* A regular in its hours, at its home game, is drawn first;
+                 an ordering only, so the count seated is unchanged. */
+              return {
+                h,
+                w: Math.random() * towardFour * regularSeatWeight(h.id, table, regularsNowMs),
+              };
             }),
             table,
             getPloPerformance()
