@@ -2,7 +2,7 @@
   "migration": "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql",
   "repository_files": {
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c",
+    "scripts/qualification/ci-accounting-inputs.json": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "tests/fixtures/earlybird-fee-custody/setup.sql": "ac34d5f9432bd6c4ede4072439e66a6f93c7ffc0f5df53ca5a42d6d72c01e573",
     "tests/fixtures/earlybird-fee-custody/funding-scope.json": "342424a2012da6b9f987e5265d772e59f610dac74c4b5c89d1a718c8ec13e8ff",
@@ -848,6 +848,19 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previous": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b",
         "current": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "finalTwoCloseHeldPlaceTwoNativeProof20261107": {
+    "reason": "Reviewed the accounting projection change (2026-11-07): the accounting_postgres job gains one additive proof step, \"The final two close never dies on a held place two on native PostgreSQL\", on matrix.shard 1 with the same PG_BIN and TMPDIR environment as its neighbours, running python3 -B scripts/ci/test-final-two-close-held-place-two.py. The stored projection differs in exactly one key, jobs.accounting_postgres, by those six added lines; no existing suite command, environment, timeout, artifact, shard routing or financial input changes. Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "repository_files",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c",
+        "current": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e"
       }
     ],
     "historicalEvidenceRestamped": false,
