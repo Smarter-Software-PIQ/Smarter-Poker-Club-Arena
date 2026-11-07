@@ -4,6 +4,7 @@
  * the shipped generator (HorseLogic.decide), whose durations the engine still
  * caps at the action clock and the time bank a person has.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { HorseLogic } from './HorseLogic.js';
@@ -156,5 +157,14 @@ describe('the shipped generator takes longer on big decisions', () => {
     expect(median(big.times)).toBeGreaterThan(median(easy.times) * 1.8);
     // The bank is reached for on big decisions, not on easy ones.
     expect(big.bank).toBeGreaterThan(easy.bank);
+  });
+});
+
+describe('the ablation reproduces the think time recorded before', () => {
+  it('decisionGravityTiming false gives the pre-2026-11-07 timing; on differs on a big spot', () => {
+    // Pinned against the V54 golden (HorseV54RiverBluff.test.ts) with the flag off.
+    const src = readFileSync(new URL('./HorseLogic.ts', import.meta.url), 'utf8');
+    expect(src).toContain('opts.decisionGravityTiming !== false');
+    expect(src).toMatch(/const \{ gravity, easy \} = useGravity\s*\?\s*decisionGravity\(/);
   });
 });

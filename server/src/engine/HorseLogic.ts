@@ -1903,6 +1903,9 @@ export interface HorseDecideOpts {
   /** ablation hooks (benchmarks only) — each defaults to the v9 master flag */
   v9Sizing?: boolean;
   v9Timing?: boolean;
+  /** Ablation hook: the 2026-11-07 decision-size timing (horseDecisionGravity).
+   *  Default on; false reproduces the think time recorded before it. */
+  decisionGravityTiming?: boolean;
   v9Mood?: boolean;
   /** disable the V10 strategy layer: range-advantage c-bets, SPR-scaled
    *  commitment / pot control, river blocker bluff-catching, rake-aware pot
@@ -6163,7 +6166,8 @@ export class HorseLogic {
         params,
         toCall,
         (opts.v9Timing ?? opts.v9) !== false,
-        player.user_id
+        player.user_id,
+        opts.decisionGravityTiming !== false
       );
       return { decision };
     }).decision;
@@ -13378,7 +13382,9 @@ export class HorseLogic {
     toCall: number,
     useTiming: boolean = true,
     /** stable per-horse string (the user id) — gives each horse its own tempo */
-    tempoSeed: string = ''
+    tempoSeed: string = '',
+    /** the 2026-11-07 decision-size timing; false is the ablation */
+    useGravity: boolean = true
   ): number {
     // ── V14 TEMPO (Dan 2026-08-23, binding) ────────────────────────────────
     // "TIMING ON STREETS MUST BE MORE RANDOM. Most horses are making their
@@ -13444,15 +13450,17 @@ export class HorseLogic {
       if (p === heroSeat || p.is_folded) continue;
       opponentStack = Math.max(opponentStack, Number(p.stack) || 0);
     }
-    const { gravity, easy } = decisionGravity({
-      stage,
-      action: d.action,
-      toCall,
-      pot: pricePot,
-      heroStack: Number(heroSeat?.stack) || 0,
-      opponentStack,
-      amount: d.amount,
-    });
+    const { gravity, easy } = useGravity
+      ? decisionGravity({
+          stage,
+          action: d.action,
+          toCall,
+          pot: pricePot,
+          heroStack: Number(heroSeat?.stack) || 0,
+          opponentStack,
+          amount: d.amount,
+        })
+      : { gravity: 0, easy: false };
 
     // Per-horse TEMPO, stable for the life of the horse: some people are just
     // fast and some are just deliberate, and that is most of what makes a

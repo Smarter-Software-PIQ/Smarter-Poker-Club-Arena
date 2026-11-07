@@ -235,6 +235,8 @@ export const HORSE_REFERENCE_DECISION_BOUNDARY: readonly string[] = Object.freez
 export const HORSE_REFERENCE_DECISION_EXCLUDED: Readonly<Record<string, string>> = Object.freeze({
   'src/services/errorReporter.ts': 'reports a thrown decision; the safety net, not a decision',
   'src/engine/BrainTelemetry.ts': 'fire counters and latency telemetry; no value a decision reads',
+  'src/engine/horseDecisionGravity.ts':
+    'shapes think time only (how long to wait), after the action and amount are chosen; never an action or amount',
   'src/engine/HorsePolicyGraph.ts':
     'runs the owners in order and records what each returned; the decision is each step value',
   'src/engine/HorsePhase6Attribution.ts':
