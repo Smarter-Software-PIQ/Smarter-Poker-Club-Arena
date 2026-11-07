@@ -12,7 +12,17 @@ import * as diagnostic from '../../../../scripts/ci/horse-tournament-predicate-p
 import * as riverDiagnostic from '../../../../scripts/ci/horse-river-value-proof.mjs';
 // @ts-expect-error standalone maintained host helper
 import * as fleetDiagnostic from '../../../../scripts/ci/horse-fleet-slice-proof.mjs';
-import { omahaQuickCategory } from '../../engine/HorseEval.js';
+// @ts-expect-error standalone maintained host helper
+import { inspectOriginalWagerRules } from '../../../../scripts/ci/horse-original-wager-proof.mjs';
+import {
+  horsePolicyOrderForVersion,
+  HORSE_POLICY_ORDER,
+  HORSE_POLICY_GRAPH_VERSION,
+} from '../../engine/HorsePolicyGraph.js';
+import { checkedToNonBottomRiverBoat } from '../../engine/HorseNonBottomRiverValue.js';
+import { hasRiverNuts } from '../../engine/HorseRiverNuts.js';
+import { v81StreetWager } from '../../engine/HorseOmahaBigBetCalls.js';
+import { omahaBoatPosition, omahaQuickCategory } from '../../engine/HorseEval.js';
 import * as records from '../../services/horseDecisionJournal/record.js';
 import * as binding from '../../engine/HorseDecisionHandBinding.js';
 import * as review from '../../services/horseDecisionJournal/review.js';
@@ -890,8 +900,13 @@ it('uses the existing child transport with the v7 installed API and strict sanit
   expect(JSON.parse(r.stdout)).toEqual(out);
 });
 
-function riverFixture(checked = true, action = 'bet', mutate?: (g: any, hero: any) => void) {
-  const f = fixture(action, undefined, undefined, (hero, g) => {
+function riverFixture(
+  checked = true,
+  action = 'bet',
+  mutate?: (g: any, hero: any) => void,
+  change?: (x: any) => void
+) {
+  const f = fixture(action, change, undefined, (hero, g) => {
     const card = (s: string) => ({
       rank: s[0],
       suit: ({ c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' } as any)[s[1]],
@@ -1424,3 +1439,124 @@ for (const variant of ['flh', 'flo8'] as const)
     out.hands[0].rows[0].contexts[0].variant = 'unknown_limit';
     expect(fleetPython(f, out).status).not.toBe(0);
   });
+
+function originalWagerFixture(facing: boolean, mismatch = false) {
+  const action = facing ? 'call' : 'bet';
+  const f = riverFixture(
+    true,
+    action,
+    (g, h) => {
+      if (facing) {
+        const bettor = g.players[1];
+        for (const p of g.players) p.bet = 0;
+        bettor.bet = 20;
+        g.pot = 40;
+        g.toCall = 20;
+        g.currentBet = 20;
+        g.actionHistory = [
+          {
+            seat: bettor.seat,
+            userId: bettor.user_id,
+            stage: 'river',
+            action: 'bet',
+            amount: 20,
+            timestamp: 1,
+          },
+        ];
+      }
+    },
+    ({ capture, w }) => {
+      const before = { action: facing ? 'fold' : 'check', amount: null },
+        after = { action, amount: 20 };
+      let previous: any = null;
+      const graph = {
+        version: HORSE_POLICY_GRAPH_VERSION,
+        transitions: HORSE_POLICY_ORDER.map((node) => {
+          const next = node === 'wager_rules' || node === 'timing' ? after : before;
+          const t = {
+            node,
+            before: previous,
+            after: next,
+            changed: previous !== null && previous !== next,
+            elapsedMs: 0,
+          };
+          previous = next;
+          return t;
+        }),
+        finalAction: after,
+      };
+      capture.decision.policyGraph = graph;
+      w.policyGraph = structuredClone(graph);
+      if (mismatch) w.policyGraph.transitions.at(-2).before.amount = 17;
+    }
+  );
+  f.input.version = 10;
+  f.input.probe = 'original_wager_rules';
+  return f;
+}
+const wagerInspect = (f: any) =>
+  inspectOriginalWagerRules(
+    f.input,
+    f.batch,
+    {
+      ...api,
+      checkedToNonBottomRiverBoat,
+      omahaQuickCategory,
+      omahaBoatPosition,
+      hasRiverNuts,
+      horsePolicyOrderForVersion,
+      v81StreetWager,
+    },
+    diagnostic.inspectOriginalTurnGapRecords
+  );
+function wagerTransport(input: unknown, result: unknown) {
+  return spawnSync(
+    'python3',
+    [
+      '-B',
+      '-c',
+      `import runpy,sys,json,pathlib
+m=runpy.run_path(sys.argv[1]); d=json.loads(sys.stdin.read()); inp=d['input']; root=pathlib.Path(sys.argv[1]).parent
+assert m['reference_case_metadata'](json.dumps(inp).encode(),inp['sourceRelease'])==inp
+f=m['decision_case_diagnostic']; g=f.__globals__
+for name,file in [('ORIGINAL_WAGER_JS','horse-original-wager-proof.mjs'),('RIVER_VALUE_JS','horse-river-value-proof.mjs'),('TOURNAMENT_PREDICATE_JS','horse-tournament-predicate-proof.mjs')]: g[name]=(root/file).read_text()
+def transport(args,**kwargs):
+ assert 'report=inspectOriginalWagerRules(input,batch,api,inspectOriginalTurnGapRecords)' in args[8]
+ assert 'const api=await loadInstalledOriginalWagerApi(loadInstalledOriginalTurnGapApi,loadInstalledRiverValueApi)' in args[8]
+ assert json.loads(kwargs['input_bytes'])==inp
+ return json.dumps(d['result'])
+g['bounded_command']=transport
+print(json.dumps(f(inp)))`,
+      resolve('../scripts/ci/inspect-tournament-refill.py'),
+    ],
+    { input: JSON.stringify({ input, result }), encoding: 'utf8' }
+  );
+}
+it.each([false, true])(
+  'v10 verifies both original graphs and accepted wager, facing=%s',
+  (facing) => {
+    const f = originalWagerFixture(facing),
+      out = wagerInspect(f);
+    expect(out.cases[0]).toMatchObject({
+      status: 'observed',
+      opportunity: facing ? 'facing_opening_pot_bet' : 'checked_to',
+      wagerRules: {
+        before: { action: facing ? 'fold' : 'check', amount: null },
+        after: { action: facing ? 'call' : 'bet', amount: 20 },
+        changed: true,
+      },
+    });
+    const transport = wagerTransport(f.input, out);
+    expect(transport.status, transport.stderr).toBe(0);
+    expect(JSON.parse(transport.stdout)).toEqual(out);
+    if (facing) {
+      const malformed = structuredClone(out);
+      malformed.cases[0].wagerRules.before.cards = ['private'];
+      expect(JSON.parse(wagerTransport(f.input, malformed).stdout).status).toBe('unknown');
+    }
+  }
+);
+it('v10 refuses divergent signed graph observations', () => {
+  const f = originalWagerFixture(true, true);
+  expect(wagerInspect(f).cases[0].status).toBe('unknown');
+});
