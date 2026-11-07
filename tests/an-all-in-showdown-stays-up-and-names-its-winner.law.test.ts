@@ -29,15 +29,26 @@ describe('an all-in showdown stays on the felt two seconds longer', () => {
     expect(HAND_COMPLETION.ALL_IN_SHOWDOWN_EXTRA_MS).toBe(2000);
   });
 
-  it('adds exactly two seconds to a showdown, heads-up or multiway', () => {
+  /* Dan 2026-11-06 ("HANDS NEED TO START A FEW SECONDS AFTER THE LAST HAND
+     IS OVER"): the all-in two seconds and the 2026-10-26 winning-card 1.5 s
+     are one display beat, the longer of the two, not their sum. An all-in
+     still holds two full seconds past the read and the push. */
+  it('holds two full seconds past the read and the push, heads-up or multiway', () => {
+    const H = HAND_COMPLETION;
+    const push = H.BETS_SWEEP_MS + H.POT_PUSH_MS + H.MUCK_MS + H.POST_PUSH_PAUSE_MS;
     for (const hands of [2, 3, 6, 9]) {
+      const read = Math.min(
+        H.SHOWDOWN_READ_MAX_MS,
+        H.SHOWDOWN_READ_BASE_MS + Math.max(0, hands - 2) * H.SHOWDOWN_READ_PER_EXTRA_HAND_MS
+      );
       const base = handCompletionHoldMs({ wentToShowdown: true, showdownHands: hands });
       const allIn = handCompletionHoldMs({
         wentToShowdown: true,
         showdownHands: hands,
         allInShowdown: true,
       });
-      expect(allIn - base).toBe(2000);
+      expect(allIn).toBe(read + push + 2000);
+      expect(allIn - base).toBe(2000 - H.WINNING_CARDS_EXTRA_MS);
     }
   });
 

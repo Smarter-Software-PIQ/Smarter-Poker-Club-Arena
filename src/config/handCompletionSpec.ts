@@ -393,8 +393,25 @@ export const HAND_COMPLETION = {
    * silently. They are not read by the engine from here: the engine's pacing
    * tests grep those fields as literals, and a value is a value.
    */
-  ALL_IN_STREET_PAUSE_MS: 1400,
-  ALL_IN_PRE_SHOWDOWN_PAUSE_MS: 1200,
+  /*
+   * Dan 2026-11-06: "PLAYERS ARE ALSO COMPLAINING ABOUT THE AMOUNT OF TIME ITS
+   * TAKING INBETWEEN HANDS DURING THE TOURNAMENTS ... HANDS NEED TO START A
+   * FEW SECONDS AFTER THE LAST HAND IS OVER."
+   *
+   * Measured on production that evening (hand_history, tournaments, 2 hours):
+   * last action to next deal was 4.7 s on a fold win and 21.1 s on a preflop
+   * all-in, 11.6 s of it the run-out. Each street already gets Dan's 1.75 s
+   * reveal gate (ALL_IN_STREET_REVEAL_MS, the card face up and read before the
+   * equity moves); the pause AFTER it was another 1.4 s, and the river another
+   * 1.2 s, with the 2 s all-in showdown hold still to come. The street pause
+   * goes to exactly Dan's binding floor, 1400 -> 1000 ("WAIT ONE FULL SECOND
+   * BEFORE PUTTING OUT THE NEXT STREET EACH TIME", 2026-08-28, pinned by
+   * tests/unit/bombPotGuards.test.ts); the river's pause before the pot ships,
+   * which no ruling sets, is halved 1200 -> 600. Every street still lands, is
+   * seen, then re-prices, in that order; the reveal gate itself is unchanged.
+   */
+  ALL_IN_STREET_PAUSE_MS: 1000,
+  ALL_IN_PRE_SHOWDOWN_PAUSE_MS: 600,
   /** prepare + squeeze + reveal + settle of the all-in card profile. */
   ALL_IN_SQUEEZE_SNAP_RESERVE_MS: 400,
   /** Beat after the consent panel closes before the first card turns. */
@@ -523,7 +540,16 @@ export function handCompletionHoldMs(opts: HandCompletionOpts): number {
     return t.doneAt + push + allInTail;
   }
 
-  return read + push + allInTail + H.WINNING_CARDS_EXTRA_MS;
+  /*
+   * ONE EXTRA DISPLAY BEAT, NOT TWO (Dan 2026-11-06, "HANDS NEED TO START A
+   * FEW SECONDS AFTER THE LAST HAND IS OVER"). The all-in two seconds
+   * (2026-10-24) and the winning-card second and a half (2026-10-26) are both
+   * "keep the tabled hands and the lit winning five up longer after the
+   * winner is named". Summed, an all-in showdown held 3.5 s of that on top of
+   * the read and the push. The longer of the two covers both asks: an all-in
+   * still gets its full two seconds, every other showdown its 1.5.
+   */
+  return read + push + Math.max(allInTail, H.WINNING_CARDS_EXTRA_MS);
 }
 
 /**
