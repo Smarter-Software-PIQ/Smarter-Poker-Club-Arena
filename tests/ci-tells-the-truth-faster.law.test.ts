@@ -131,6 +131,9 @@ describe('the PostgreSQL accounting qualification runs as seven shards of one jo
     'Checkout',
     'Setup Node 22',
     'Install server test dependencies',
+    // Common since 2026-11-07: no suite may rely on another's root install
+    // (tests/accounting-shard-prerequisites.law.test.ts).
+    'Install root test dependencies',
     'Install PostgreSQL 17 tools without a default database service',
   ]);
   const shardsOf = (step: Step) =>

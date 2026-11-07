@@ -41,6 +41,18 @@ const backupSequenceStep = {
   if: 'matrix.shard == 4',
   run: 'python3 -B scripts/verification-harness/standby-sequence-owners.py --pg-bin /usr/lib/postgresql/17/bin --scratch-root "${{ runner.temp }}"',
 };
+const rootInstallStep = {
+  name: 'Install root test dependencies',
+  run: 'npm ci --ignore-scripts',
+};
+const normalizeRootInstallAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === rootInstallStep.name);
+  expect(job.steps.filter((step) => step.name === rootInstallStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(rootInstallStep);
+  expect(job.steps[index - 1]?.name).toBe('Install server test dependencies');
+  // Common setup since 2026-11-07; every other command stays fingerprinted.
+  job.steps.splice(index, 1);
+};
 const normalizeBackupSequenceAddition = (job: { steps: Array<Record<string, unknown>> }) => {
   const index = job.steps.findIndex((step) => step.name === backupSequenceStep.name);
   expect(job.steps.filter((step) => step.name === backupSequenceStep.name)).toHaveLength(1);
@@ -493,6 +505,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
     normalizeTournamentLockAddition(normalized.jobs.accounting_postgres);
+    normalizeRootInstallAddition(normalized.jobs.accounting_postgres);
     normalizeBackupSequenceAddition(normalized.jobs.accounting_postgres);
     normalizeCashQueueFeedbackAddition(normalized.jobs.accounting_postgres);
     const priorQualificationBudgets = {
@@ -655,6 +668,14 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       ['Full weekly accounting activation, rollback and concurrent authority', 2, 6],
       ['Preserve weekly accounting qualification evidence', 2, 6],
       ['Certified V31 PostgreSQL 17 behavior gate', 4, 7],
+      // November 7 rebalance (run 42345829378): shard 1 suites with no
+      // server-header compile, moved unchanged.
+      ['Agent statements isolate clubs and use posted evidence', 1, 6],
+      ['Deleted cashier accounts conserve their bank returns', 1, 6],
+      ['Cashier withdrawn authority retains original operation receipts', 1, 6],
+      ['Cashier statements follow the trade ledger scope and export what is on screen', 1, 6],
+      ['Spin expiry lock order and committed refund contracts', 1, 5],
+      ['Retain Spin expiry PostgreSQL evidence', 1, 5],
       // November 6 rebalance (run 42338709472): unchanged suites and their
       // evidence steps moved off the 34-minute shard 3 and 25-minute shard 1.
       ['Backed payout discovery preserves every conservation term', 3, 2],
