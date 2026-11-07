@@ -200,6 +200,12 @@ mapfile() {
         '#!/bin/sh\n[ "${3:-}" = --weekly-payout-only ] || exit 3\necho database-proves-no-weekly-owner\n'
       );
       chmodSync(join(generation, 'engine-release-inflight-hands.py'), 0o755);
+      // This exact source calls no door that a queued window migration
+      // creates: the in-break window-door list is empty (2026-11-07).
+      writeFileSync(
+        join(generation, 'engine-release-window-doors.py'),
+        '#!/usr/bin/env python3\nimport sys\nassert sys.argv[1:2] == ["list"]\nprint("")\n'
+      );
 
       writeFileSync(
         join(generation, 'engine-release-seal.py'),
