@@ -6040,7 +6040,45 @@ export class HorseLogic {
         shortAllInDeadCheckEquity(player, gs, vi)
       );
       if (floored !== ruled && tele) noteFire('short_all_in_call_floor');
-      return { decision: riverBluffCheckRaise(floored, player, gs, opts) };
+      const finalWager = riverBluffCheckRaise(floored, player, gs, opts);
+      // An earlier initiative release still allowed the final strategy to check
+      // middle boats. Price a missed value bet against the controller's menu.
+      if (
+        finalWager.action === 'check' &&
+        gs.stage === 'river' &&
+        gs.stateSchemaVersion === 1 &&
+        !gs.wagersCapped &&
+        gs.toCall === 0 &&
+        Number.isFinite(gs.pot) &&
+        gs.pot > 0 &&
+        Number.isFinite(gs.minRaiseTo) &&
+        gs.minRaiseTo! > 0 &&
+        Number.isFinite(gs.maxRaiseTo) &&
+        gs.maxRaiseTo! >= gs.minRaiseTo! &&
+        gs.maxRaiseTo! <= player.bet + player.stack + 0.005 &&
+        gs.players.some(
+          (p) =>
+            p.seat !== player.seat &&
+            !p.is_folded &&
+            !p.is_sitting_out &&
+            !p.is_all_in &&
+            p.stack > 0
+        ) &&
+        checkedToNonBottomRiverBoat(player, gs)
+      ) {
+        const amount = Math.min(
+          gs.maxRaiseTo!,
+          Math.max(gs.minRaiseTo!, Math.round(gs.pot * 50) / 100)
+        );
+        const legal = this.legalize(
+          { action: 'bet', amount, thinkTime: finalWager.thinkTime },
+          player,
+          gs,
+          vi
+        );
+        return { decision: { ...finalWager, action: legal.action, amount: legal.amount } };
+      }
+      return { decision: finalWager };
     }).decision;
     // smallPotNearNutRiverValue receipt: the raise it chose reached the final
     // action (applied) or a later owner replaced it (superseded).
