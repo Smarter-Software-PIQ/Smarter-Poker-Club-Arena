@@ -1,193 +1,153 @@
+/**
+ * Tournament Ranking "Mine Only" reads ONE club, in ONE call.
+ *
+ * Dan 2026-11-06: "THE 'MINE ONLY' TAKES TOO LONG TO APPEAR ... KINGFISH SHOULD
+ * ONLY BE SHOWN THE DOWNLINES INSIDE OF THE CLUB HES CURRENTLY INSIDE OF, (SAME
+ * WITH AGENTS AND EVERYTHING ELSE) IT SHOULD ONLY SHOW THE CURRENT CLUBS
+ * DOWNLINES THAT ARE STILL INSIDE THE CLUB."
+ *
+ * The slow version walked the whole union and pulled every staffed club's full
+ * roster page by page (~16.6 s for KingFish). These pins keep it to the single
+ * scoped reader, keyed on the club the viewer is inside.
+ */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-function abortable<T>(promise: Promise<T>) {
-  return Object.assign(promise, { abortSignal: () => promise });
-}
-
-const api = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), page: vi.fn(), report: vi.fn() }));
+const api = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), result: vi.fn(), report: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({ supabase: api }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: api.report }));
 import { useDownlineIds } from '../../src/components/tournament/details/useDownlineIds';
 
-function membership(role = 'super_agent') {
-  const query = {
-    abortSignal: vi.fn().mockReturnThis(),
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    in: vi
-      .fn()
-      .mockImplementation((_column, clubs) =>
-        Promise.resolve({ data: clubs.map((club_id: string) => ({ club_id, role })), error: null })
-      ),
-  };
-  api.from.mockReturnValue(query);
-}
-
 beforeEach(() => {
   vi.resetAllMocks();
-  membership();
-  api.rpc.mockImplementation((name, parameters) =>
-    name === 'fn_club_scope_ids'
-      ? abortable(Promise.resolve({ data: [parameters.p_club_id], error: null }))
-      : {
-          abortSignal: vi.fn().mockReturnThis(),
-          select: vi.fn().mockReturnThis(),
-          order: vi.fn().mockReturnThis(),
-          range: api.page,
-        }
-  );
-  api.page.mockResolvedValue({ data: [], error: null });
+  api.rpc.mockImplementation(() => ({ abortSignal: () => api.result() }));
+  api.result.mockResolvedValue({ data: [], error: null });
 });
 afterEach(cleanup);
 
-describe('tournament Mine Only uses the authorized complete roster downline', () => {
-  it('includes nested players and playing agents from the roster, excluding the viewer', async () => {
-    api.page.mockResolvedValue({
-      data: ['direct', 'nested-player', 'nested-agent', 'viewer'].map((user_id) => ({ user_id })),
+describe('tournament Mine Only reads the current club downline', () => {
+  it('asks the scoped reader once, for the tournament and the club the viewer is inside', async () => {
+    api.result.mockResolvedValue({
+      data: ['direct', 'nested-player', 'nested-agent'],
       error: null,
     });
-    const { result } = renderHook(() => useDownlineIds('viewer', 'club'));
+    const { result } = renderHook(() => useDownlineIds('viewer', 'event', 'kings'));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect([...result.current.downlineIds]).toEqual(['direct', 'nested-player', 'nested-agent']);
     expect(result.current.carriesDownline).toBe(true);
-    expect(api.rpc).toHaveBeenCalledWith('ca_club_member_downline', {
-      p_club_id: 'club',
-      p_user_id: 'viewer',
-    });
-    expect(api.from.mock.calls).toEqual([['club_members']]);
-    expect(api.rpc.mock.results[1].value.select).toHaveBeenCalledWith('user_id');
-    expect(api.rpc.mock.results[1].value.order).toHaveBeenCalledWith('user_id', {
-      ascending: true,
-    });
-  });
-
-  it.each(['owner', 'co_owner', 'admin'])(
-    'includes the whole authorized club for %s, beyond directly assigned players',
-    async (role) => {
-      membership(role);
-      api.page.mockResolvedValue({
-        data: ['direct-player', 'other-agent', 'other-agent-player', 'viewer'].map((user_id) => ({
-          user_id,
-        })),
-        error: null,
-      });
-      const { result } = renderHook(() => useDownlineIds('viewer', 'club'));
-      await waitFor(() => expect(result.current.loading).toBe(false));
-      expect([...result.current.downlineIds]).toEqual([
-        'direct-player',
-        'other-agent',
-        'other-agent-player',
-      ]);
-      expect(api.rpc).toHaveBeenCalledWith('ca_club_members_overview', { p_club_id: 'club' });
-    }
-  );
-
-  it('resolves linked union clubs, applies each club role, and deduplicates shared members', async () => {
-    const query = {
-      abortSignal: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
-        data: [
-          { club_id: 'anchor', role: 'owner' },
-          { club_id: 'nested', role: 'agent' },
-          { club_id: 'unrelated', role: 'player' },
-        ],
-        error: null,
-      }),
-    };
-    api.from.mockReturnValue(query);
-    api.rpc.mockImplementation((name, parameters) => {
-      if (name === 'fn_club_scope_ids')
-        return abortable(Promise.resolve({ data: ['anchor', 'nested', 'unrelated'], error: null }));
-      const page =
-        parameters.p_club_id === 'anchor' ? ['direct', 'shared'] : ['nested-player', 'shared'];
-      return {
-        abortSignal: vi.fn().mockReturnThis(),
-        select: vi.fn().mockReturnThis(),
-        order: vi.fn().mockReturnThis(),
-        range: vi
-          .fn()
-          .mockResolvedValue({ data: page.map((user_id) => ({ user_id })), error: null }),
-      };
-    });
-    const { result } = renderHook(() => useDownlineIds('viewer', 'anchor', 'union'));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect([...result.current.downlineIds]).toEqual(['direct', 'shared', 'nested-player']);
     expect(api.rpc.mock.calls).toEqual([
-      ['fn_club_scope_ids', { p_club_id: 'union' }],
-      ['ca_club_members_overview', { p_club_id: 'anchor' }],
-      ['ca_club_member_downline', { p_club_id: 'nested', p_user_id: 'viewer' }],
+      ['ca_tournament_my_downline_ids', { p_tournament_id: 'event', p_club_id: 'kings' }],
     ]);
+    expect(api.from).not.toHaveBeenCalled();
   });
 
-  it('exhausts pages instead of dropping players beyond the API row cap', async () => {
-    api.page
-      .mockResolvedValueOnce({
-        data: Array.from({ length: 500 }, (_, i) => ({ user_id: `p${i}` })),
-        error: null,
-      })
-      .mockResolvedValueOnce({ data: [{ user_id: 'last-descendant' }], error: null });
-    const { result } = renderHook(() => useDownlineIds('viewer', 'club'));
-    await waitFor(() => expect(result.current.downlineIds.size).toBe(501));
-    expect(api.page.mock.calls).toEqual([
-      [0, 499],
-      [500, 999],
-    ]);
-    expect(result.current.downlineIds.has('last-descendant')).toBe(true);
+  it('never walks the union or pulls a full roster', async () => {
+    const { result } = renderHook(() => useDownlineIds('viewer', 'event', 'kings'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const names = api.rpc.mock.calls.map(([name]) => name);
+    expect(names).not.toContain('fn_club_scope_ids');
+    expect(names).not.toContain('ca_club_members_overview');
+    expect(names).not.toContain('ca_club_member_downline');
   });
 
-  it('retains the plain-player role gate', async () => {
-    membership('player');
-    const { result } = renderHook(() => useDownlineIds('viewer', 'club'));
+  it('asks nothing when the viewer is not inside a club', async () => {
+    const { result } = renderHook(() => useDownlineIds('viewer', 'event', null));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(api.rpc).not.toHaveBeenCalled();
+    expect(result.current.carriesDownline).toBe(false);
+  });
+
+  it('never counts the viewer as their own downline', async () => {
+    api.result.mockResolvedValue({ data: ['viewer', 'mine'], error: null });
+    const { result } = renderHook(() => useDownlineIds('viewer', 'event', 'kings'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect([...result.current.downlineIds]).toEqual(['mine']);
+  });
+
+  it('a plain player (empty answer) carries no downline and shows no Mine Only', async () => {
+    const { result } = renderHook(() => useDownlineIds('viewer', 'event', 'kings'));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.carriesDownline).toBe(false);
-    expect(api.rpc.mock.calls.map(([name]) => name)).toEqual(['fn_club_scope_ids']);
-  });
-
-  it('does not publish a partial downline when a later page fails', async () => {
-    api.page
-      .mockResolvedValueOnce({
-        data: Array.from({ length: 500 }, (_, i) => ({ user_id: `p${i}` })),
-        error: null,
-      })
-      .mockResolvedValueOnce({ data: null, error: new Error('refused') });
-    const { result } = renderHook(() => useDownlineIds('viewer', 'club'));
-    await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.downlineIds.size).toBe(0);
-    expect(result.current.carriesDownline).toBe(false);
-    expect(api.report).toHaveBeenCalled();
   });
 
-  it('refuses malformed or repeating pages instead of claiming a complete result', async () => {
-    api.page.mockResolvedValue({
-      data: [{ user_id: 'duplicate' }, { user_id: 'duplicate' }],
-      error: null,
+  it('refuses a failed or malformed answer instead of claiming one', async () => {
+    api.result.mockResolvedValueOnce({ data: null, error: new Error('refused') });
+    const { result, rerender } = renderHook(({ club }) => useDownlineIds('viewer', 'event', club), {
+      initialProps: { club: 'a' },
     });
-    const { result } = renderHook(() => useDownlineIds('viewer', 'club'));
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.downlineIds.size).toBe(0);
     expect(result.current.carriesDownline).toBe(false);
+    expect(api.report).toHaveBeenCalledTimes(1);
+    api.result.mockResolvedValueOnce({ data: ['ok', 42], error: null });
+    rerender({ club: 'b' });
+    await waitFor(() => expect(api.report).toHaveBeenCalledTimes(2));
+    expect(result.current.downlineIds.size).toBe(0);
   });
 
-  it('clears the previous club and ignores its late response after switching', async () => {
+  it('clears the previous club and ignores its late answer after switching clubs', async () => {
     let resolveOld!: (value: unknown) => void;
-    api.page
+    api.result
       .mockImplementationOnce(
         () =>
-          new Promise((resolve) => {
-            resolveOld = resolve;
+          new Promise((r) => {
+            resolveOld = r;
           })
       )
-      .mockResolvedValue({ data: [{ user_id: 'new-player' }], error: null });
-    const { result, rerender } = renderHook(({ club }) => useDownlineIds('viewer', club), {
-      initialProps: { club: 'old' },
+      .mockResolvedValue({ data: ['felt-player'], error: null });
+    const { result, rerender } = renderHook(({ club }) => useDownlineIds('viewer', 'event', club), {
+      initialProps: { club: 'kings' },
     });
-    await waitFor(() => expect(api.page).toHaveBeenCalledTimes(1));
-    rerender({ club: 'new' });
-    await waitFor(() => expect(result.current.downlineIds.has('new-player')).toBe(true));
-    await act(async () => resolveOld({ data: [{ user_id: 'old-player' }], error: null }));
-    expect([...result.current.downlineIds]).toEqual(['new-player']);
+    await waitFor(() => expect(api.result).toHaveBeenCalledTimes(1));
+    rerender({ club: 'felt' });
+    await waitFor(() => expect(result.current.downlineIds.has('felt-player')).toBe(true));
+    await act(async () => resolveOld({ data: ['kings-player'], error: null }));
+    expect([...result.current.downlineIds]).toEqual(['felt-player']);
+  });
+});
+
+describe('the Ranking tab passes the club the viewer is inside', () => {
+  const tab = readFileSync(
+    resolve(__dirname, '../../src/components/tournament/details/RankingTab.tsx'),
+    'utf8'
+  );
+  it('keys Mine Only on the route club, else the entered club - never the union', () => {
+    expect(tab).toMatch(/useParams<\{ clubId\?: string \}>\(\)\.clubId/);
+    expect(tab).toMatch(/useUserStore\(\(s\) => s\.currentClubId\)/);
+    expect(tab).toMatch(
+      /useDownlineIds\(\s*currentUserId,\s*tournament\?\.id,\s*routeClubId \|\| enteredClubId\s*\)/
+    );
+    expect(tab).not.toMatch(/useDownlineIds\([^)]*union_id/);
+  });
+});
+
+describe('the server reader stays scoped to one club and members still in it', () => {
+  const sql = readFileSync(
+    resolve(
+      __dirname,
+      '../../supabase/migrations/20261107032055_tournament_ranking_mine_only_reads_the_current_club_downline.sql'
+    ),
+    'utf8'
+  );
+  it('requires the club to be in the tournament scope and the viewer to be in the club', () => {
+    expect(sql).toMatch(
+      /p_club_id = ANY \(public\.fn_club_scope_ids\(coalesce\(t\.union_id, t\.club_id\)\)\)/
+    );
+    expect(sql).toMatch(
+      /cm\.user_id = auth\.uid\(\)\s+AND cm\.membership_lifecycle_status = 'active'/
+    );
+  });
+  it('returns only active members of that one club, never deleted profiles or the viewer', () => {
+    expect(sql).toMatch(
+      /ON cm\.club_id = p_club_id\s+AND cm\.user_id = c\.uid\s+AND cm\.membership_lifecycle_status = 'active'/
+    );
+    expect(sql).toMatch(/pr\.status IS DISTINCT FROM 'deleted'/);
+    expect(sql).toMatch(/c\.uid <> auth\.uid\(\)/);
+  });
+  it('staff see the club; agent tiers see their subtree; players see nothing', () => {
+    expect(sql).toMatch(/v\.rk >= 80 AND cm\.club_id = p_club_id/);
+    expect(sql).toMatch(/v\.rk BETWEEN 20 AND 79/);
   });
 });
