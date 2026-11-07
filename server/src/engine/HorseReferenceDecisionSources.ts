@@ -81,7 +81,7 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/HorseContinuationPlanInvalidation.ts':
       'the Items 21 and 23 multi-street plan contender and stack-exposure fingerprint and its continuation verdict, consulted by the reference barrel plan (activated 2026-11-05)',
     'src/engine/HorseOmahaBigBetCalls.ts':
-      'the V81 PLO4/PLO5 big-bet call fold in measured losing cells, applied in the final wager rules right after the paired-board fold (Phase 4, 2026-11-02)',
+      'the V81 PLO4/PLO5 big-bet call fold and the V84 PLO4/PLO5/PLO6 river re-raise call fold in measured losing cells, applied in the final wager rules right after the paired-board fold (Phase 4, 2026-11-02; V84 2026-11-07)',
     'src/engine/HorseShortAllInCallFloor.ts':
       'the tournament short all-in call floor (under 3BB shove, 20BB+ horse calls), the last action rule after every other layer (Dan 2026-10-26)',
     'src/engine/HorseOmahaImpliedDraw.ts':

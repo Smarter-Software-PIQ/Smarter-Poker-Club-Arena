@@ -250,7 +250,6 @@ const PLO_STACKOFF_BB = 100;
 const CAT_ONE_PAIR = 2;
 const CAT_TRIPS = 4;
 const CAT_FULL_HOUSE = 7;
-const CAT_QUADS = 8;
 
 /** Does the board carry a pair (or better) of any rank? */
 export function boardHasPair(board: Card[]): boolean {
@@ -263,14 +262,22 @@ export function boardHasPair(board: Card[]): boolean {
 }
 
 /**
- * Omaha: is hero's full house the NUT full house on this board? Enumerates
+ * Omaha: is hero's full house the TOP full house on this board? Enumerates
  * every two-card holding from the cards hero cannot see (52 minus the board
- * minus hero's hole cards) and asks whether any of them makes a bigger full
- * house or quads - two hole cards and three board cards, the Omaha rule,
- * which is exactly what scoreOmahaHiPartial does with a two-card hand. A
- * straight flush also beats a boat but is a different leak and is ignored
- * here. ~800 evaluations of a five-card board; only called for a made boat
- * with a full stack in, a few hundred hands a day.
+ * minus hero's hole cards) and asks whether any of them makes a bigger FULL
+ * HOUSE - two hole cards and three board cards, the Omaha rule, which is
+ * exactly what scoreOmahaHiPartial does with a two-card hand. ~800
+ * evaluations of a five-card board; only called for a made boat with a full
+ * stack in, a few hundred hands a day.
+ *
+ * ── QUADS AND STRAIGHT FLUSHES ARE COOLERS (2026-11-07) ──
+ * This used to count a possible QUADS as a bigger boat, so the best full
+ * house on any paired board (quads are live on every paired board) was
+ * tagged plo_underfull_stackoff. A boat that only quads or a straight flush
+ * beats is not an under-full: there is no better full house to have held,
+ * so there is no under-full decision to measure. The 2026-11-06 review of the
+ * twenty biggest losses raised it on 3363822 (that hand stays tagged: hero's
+ * boat was aces full of THREES, and Ad 7x makes aces full of sevens).
  */
 export function omahaBoatIsNut(hole: Card[], board: Card[]): boolean {
   const heroScore = scoreOmahaHiPartial(hole, board);
@@ -293,7 +300,7 @@ export function omahaBoatIsNut(hole: Card[], board: Card[]): boolean {
       const s = scoreOmahaHiPartial(combo, board);
       if (s <= heroScore) continue;
       const cat = Math.floor(s / 0x100000);
-      if (cat === CAT_FULL_HOUSE || cat === CAT_QUADS) return false;
+      if (cat === CAT_FULL_HOUSE) return false;
     }
   }
   return true;
@@ -884,6 +891,53 @@ export function detectLeaks(row: {
           // paired board would be a boat or quads, never trips); on an
           // unpaired board it can only be a set.
           flag(boardHasPair(boardAt) ? 'plo_naked_trips_stackoff' : 'plo_set_stackoff');
+        }
+        // ── A SET OR TRIPS STACKED OFF ON A WET BOARD (2026-11-07) ──
+        // The 2026-11-06 review of the twenty biggest losses found review
+        // 3370600 with no tag at all: bottom set of twos five-bet the turn on
+        // 2h Ts 9h 3s with no flush draw and lost 595bb when the Ks put
+        // three spades on the board. plo_set_stackoff reads its threats on
+        // the commit-street board only, and that turn shows two of each
+        // suit and no three-rank straight window, so it stood down.
+        //
+        // set_on_wet_board_stackoff, all of:
+        //  - the stack went in on the TURN or RIVER (commitStreet; a flop
+        //    commit with a set is a different, much stronger decision);
+        //  - hero held exactly three of a kind at the commit street (set or
+        //    trips) and had not filled up by the river (a full house or
+        //    better on the river is a different hand). A river straight that
+        //    still lost to the flush (review 3364887) keeps the tag: the
+        //    decision was made with a set;
+        //  - the board shows three to a flush or three to a straight, read
+        //    on the board as of the commit street OR on the river board. A
+        //    turn commit is a bet that the draws on the board miss; whether
+        //    they arrived is the situation measured, and the mirror
+        //    (`_won`) carries the other side so the audit ranks it by EV;
+        //  - hero had no redraw of its own when it committed: on a turn
+        //    commit no flush draw (nut or dominated) and fewer than eight
+        //    straight outs by omahaDrawQuality, the same test
+        //    plo_toppair_no_redraw_stackoff uses. The full-house redraw every
+        //    set carries is not counted: it is the set's own, never a reason
+        //    to tag or untag. A river commit has no redraw by definition.
+        // It overlaps plo_set_stackoff and plo_naked_trips_stackoff on a
+        // board that was already wet at the commit street (reviews 3364887
+        // and 3370281 carry both). Those two are read by HorseLogic's
+        // PLO_STACKOFF_TAGS and are deliberately left untouched; this tag is
+        // measurement only and steers nothing.
+        if (commit === 'turn' || commit === 'river') {
+          const finalCat = omahaNutStatus(row.holeCards, row.board).category;
+          const atRiver = omahaBoardThreats(row.board);
+          const wet =
+            threats.flushLive || threats.straightLive || atRiver.flushLive || atRiver.straightLive;
+          let redraw = false;
+          if (boardAt.length < 5) {
+            const draw = omahaDrawQuality(row.holeCards, boardAt, vi.isHiLo);
+            redraw = draw.nutFlushDraw || draw.dominatedFlushDraw || draw.straightOuts >= 8;
+          }
+          // Hi-lo: a made low, or a low draw on a turn commit, is half the
+          // pot, the same rule plo_toppair_no_redraw_stackoff applies.
+          if (vi.isHiLo && omahaLowLive(row.holeCards, boardAt)) redraw = true;
+          if (finalCat < CAT_FULL_HOUSE && wet && !redraw) flag('set_on_wet_board_stackoff');
         }
       } else if (st.category === CAT_FULL_HOUSE) {
         // ── THE PLO UNDER-FULL (2026-09-05) ──

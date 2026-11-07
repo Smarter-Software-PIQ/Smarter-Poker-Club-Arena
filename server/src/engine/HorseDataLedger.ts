@@ -477,6 +477,12 @@ export const TAG_CONSUMERS: LedgerEntry[] = [
     'split from plo_naked_trips on an unpaired board; recorded for investigation; no validated causal adjustment reader',
     'V40'
   ),
+  tag(
+    'set_on_wet_board_stackoff',
+    'measurement',
+    'Omaha set or trips with no redraw committed 100bb+ on the turn or river on a board showing three to a flush or a straight (at the commit street or on the river); added from the 2026-11-06 biggest-losses review (3370600); no validated causal adjustment reader',
+    'V40'
+  ),
 
   // ── V49 FREQUENCY LEAKS. Emitted by SQL over horse_daily_play, read by the
   // nightly audit (fn_audit_frequency_leaks) and by the panel card. The same
@@ -872,6 +878,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v81OmahaBigBetCalls',
     "2026-11-02 (Phase 4, Omaha leak program) PLO4/PLO5 turn/river CALLS of a wager the horse did not start fold only in measured cells (HorseOmahaBigBetCalls.v81Cell; hand classified at the decision with omahaNutStatus; the wager measured exactly as the evidence was by v81StreetWager: chips the last bettor added over the pot just before it, >= 0.9): river straight on a flush board, non-nut straight, paired-board straight, 3rd-nut-or-worse flush, nut or 2nd-nut flush on a paired board, 2nd-nut flush (PLO5 only), two pair; turn paired-board straight and cash 3rd-nut-or-worse flush. Decision EV of the horses' own calls (net + chips already in, bb; chops fractional; later streets included; old engine eed06fe5, 47,806 calls over two days, CIs clustered by hand) below zero on BOTH days in every admitted cell, and no variant or format slice with n >= 10 above zero on either day (e.g. river non-nut straight -48.9 and -36.8bb, river two pair -44.2 and -40.6bb); outputs in docs/horse-measure/2026-11-02/v81-omaha-call-cells.txt; not admitted: turn flush-board or non-nut straights, turn two pair, 0.5-0.9 pot, sets, full houses, nut straights, unpaired nut flushes, one pair; excluded: heads-up tables, bounty events, 20bb or less, chips already in this street, hi-lo, multi-board, bomb pots, a bettor measured as a postflop over-bluffer, unreconcilable street history; complements the live paired-board fold (committing calls); runs in wager_rules after the paired-board fold; limits: only the horses' calls are observed, ICM not modelled, the price ignores players to act behind; explicit off arm keeps today",
     'V81'
+  ),
+  flag(
+    'v15RiverNoNearLock',
+    "2026-11-07 (completed 2026-11-06 audit, hand 3374459) the V15 raise gate's near-lock escape (eq15 - dominationPenalty >= 0.85) no longer applies on the river: a non-nut Omaha flush or straight facing a river wager calls instead of raising, because the equity read there is the Monte Carlo against the bettor's estimated range (0.91-1.00 for the K-high flush with the As live, 60 of 60 seeds) and on the river nothing is left to draw; the K-high flush raised 43 of 60 seeds before; flop and turn keep the near-lock reading; the nut flush and nut straight are outside the gate; receipt v15_raise_gate; explicit off arm restores the river near-lock escape",
+    'V15'
+  ),
+  flag(
+    'v84OmahaRiverReraiseCalls',
+    "2026-11-07 (hand 3359656: PLO6 tournament, Kd-high flush with no Ad on 9d 7d 2d 4s 6s bet 2,858 into 4,090, raised to 12,664, called 9,806, lost 587bb) PLO4/PLO5/PLO6 river CALLS of a raise of 0.9 pot or more after the horse's OWN river bet or raise (the spot V81 leaves out with chips already in this street) fold only in the measured cell (HorseOmahaBigBetCalls.v84Cell, same classification and wager measure as V81): an unpaired-board second-nut flush. Decision EV of the horses' own calls (net + chips already in, bb; hand_history + ca_hand_facts, every PLO hand, CIs clustered by hand) day A 2026-11-05/06 -100.8 [-159.5, -42.0] n 12, day B 2026-11-06/07 -93.0 [-130.3, -55.6] n 15, all 27 calls lost, no variant or format slice positive on either day; admission is V81's rule plus a floor of 10 hands per day; not admitted: paired-board second-nut flush (n 2 and 4), two pair, flush-board / non-nut / paired-board straights (each straddles one day), nut straights and full houses (win); excluded as V81: heads-up tables, bounty events, 20bb or less, hi-lo, multi-board, bomb pots, a bettor measured as a postflop over-bluffer, unreconcilable street history; outputs in docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt; limits: only the horses' calls are observed, ICM not modelled; explicit off arm keeps today",
+    'V84'
   ),
   flag(
     'v83AggressionNeedsBluffs',
@@ -2645,6 +2661,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (V81)',
     'PLO4/PLO5 turn/river call of a 0.9-pot+ wager in a measured losing cell: folded',
     'V81',
+    'decide_omaha'
+  ),
+  receipt(
+    'v84_omaha_river_reraise_call_fold',
+    'HorseLogic (V84)',
+    "PLO4/PLO5/PLO6 river call of a 0.9-pot+ raise after the horse's own river bet or raise, in a measured losing cell: folded",
+    'V84',
     'decide_omaha'
   ),
   receipt(
