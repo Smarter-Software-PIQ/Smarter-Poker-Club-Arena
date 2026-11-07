@@ -657,9 +657,27 @@ describe('ThemeSettingsModal hardening', () => {
       data: { success: true; cost: number };
       error: null;
     }>();
-    mocks.rpc
-      .mockImplementationOnce(() => accountAPurchase.promise)
-      .mockImplementationOnce(() => accountBPurchase.promise);
+    mocks.rpc.mockImplementation((name, args) => {
+      if (name === 'fn_purchase_feature_v2') {
+        if (args.p_user_id === 'account-a') return accountAPurchase.promise;
+        if (args.p_user_id === 'account-b') return accountBPurchase.promise;
+      }
+      if (name === 'fn_save_page_preferences') {
+        return Promise.resolve({
+          data: {
+            results: args.p_changes.map((change: { field: string; value: unknown }) => ({
+              ...change,
+              status: 'applied',
+              revision: 1,
+            })),
+          },
+          error: null,
+        });
+      }
+      throw new Error(`Unexpected RPC in purchase ownership proof: ${name}`);
+    });
+    const purchaseCalls = () =>
+      mocks.rpc.mock.calls.filter(([name]) => name === 'fn_purchase_feature_v2');
     const onClose = vi.fn();
     const { rerender } = render(
       <ThemeSettingsModal isOpen onClose={onClose} userId="account-a" isVip={false} />
@@ -671,7 +689,7 @@ describe('ThemeSettingsModal hardening', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Tables' }));
     fireEvent.click(screen.getByRole('button', { name: 'Neon City, Purchase Or VIP Required' }));
     fireEvent.click(await screen.findByRole('button', { name: /Buy For 350/ }));
-    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(purchaseCalls()).toHaveLength(1));
 
     rerender(<ThemeSettingsModal isOpen onClose={onClose} userId="account-b" isVip={false} />);
     expect(screen.queryByRole('dialog', { name: 'Unlock Neon City' })).not.toBeInTheDocument();
@@ -682,7 +700,17 @@ describe('ThemeSettingsModal hardening', () => {
     fireEvent.click(accountBNeon);
     const accountBBuy = await screen.findByRole('button', { name: /Buy For 350/ });
     fireEvent.click(accountBBuy);
-    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledTimes(2));
+    // Flush the real pending tab preference while both purchases are unresolved.
+    act(() => window.dispatchEvent(new Event('pagehide')));
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith(
+        'fn_save_page_preferences',
+        expect.objectContaining({
+          p_changes: [expect.objectContaining({ field: 'tableStudio.tab:global', value: 'table' })],
+        })
+      )
+    );
+    await waitFor(() => expect(purchaseCalls()).toHaveLength(2));
     await waitFor(() => expect(accountBBuy).toBeDisabled());
 
     await act(async () => {
@@ -708,10 +736,10 @@ describe('ThemeSettingsModal hardening', () => {
     );
     expect(mocks.applyAppearance).toHaveBeenCalledTimes(1);
     expect(mocks.toast.success).toHaveBeenCalledWith('Neon City Purchased And Applied');
-    expect(mocks.rpc.mock.calls[0]?.[1]).toEqual(
+    expect(purchaseCalls()[0]?.[1]).toEqual(
       expect.objectContaining({ p_user_id: 'account-a', p_request_id: expect.any(String) })
     );
-    expect(mocks.rpc.mock.calls[1]?.[1]).toEqual(
+    expect(purchaseCalls()[1]?.[1]).toEqual(
       expect.objectContaining({ p_user_id: 'account-b', p_request_id: expect.any(String) })
     );
   });
