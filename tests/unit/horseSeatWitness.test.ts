@@ -224,3 +224,23 @@ it('awaits initial avatar readiness before the cash outage and geometry checks',
   expect(cash.indexOf('await context.setOffline(true)')).toBeGreaterThan(ready);
   expect(cash.indexOf('await certifyMobileLiveTableLayout(')).toBeGreaterThan(ready);
 });
+
+it('retains the same cash Horse journal in the successful mobile proof and inline report', () => {
+  const source = readFileSync('tests/e2e/production-live-table-realtime.spec.ts', 'utf8');
+  const witness = source.slice(source.indexOf('const attachHorseWitness = async'));
+  const beforeValidation = witness.slice(0, witness.indexOf('expect(evidence.dropped'));
+  const file = /writeFileSync\(\s*testInfo\.outputPath\('([^']+)'\),\s*(\w+),?\s*\)/.exec(
+    beforeValidation
+  );
+  expect(file).not.toBeNull();
+  expect(beforeValidation).toContain('body: ' + file![2] + ',');
+  expect(beforeValidation).toContain('const ' + file![2] + ' = JSON.stringify(');
+  const workflow = readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8');
+  const uploader = workflow
+    .split('- name: Retain The Verified Mobile Table Screens And Measurements')[1]
+    .split('- name:')[0];
+  expect(uploader).toContain("if: always() && steps.live.outputs.ready == 'true'");
+  expect(uploader).toContain('name: mobile-live-table-proof');
+  expect(uploader).toContain('test-results/live-table-realtime/**/mobile-live-table-*');
+  expect(file![1]).toMatch(/^mobile-live-table-[^/]+\.json$/);
+});
