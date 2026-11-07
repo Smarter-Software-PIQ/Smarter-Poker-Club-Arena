@@ -234,6 +234,9 @@ describe('The guarantee includes bounties, never rake', () => {
     // it already put in, and what it still adds.
     expect(container.textContent).toContain('250 House Funded');
     expect(container.textContent).toContain('Already Put In 155 And Adds 95 More');
+    expect(container.textContent).toContain('Paid By Players');
+    expect(container.textContent).toContain('0 Of 250 · 155 Promo In The Pool');
+    expect(container.textContent).not.toContain('Credited Toward The Guarantee');
     expect(container.textContent).not.toContain('250 Overlay');
   });
   it('shows no guaranteed figure once the pool is finalized', async () => {

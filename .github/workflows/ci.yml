@@ -1471,6 +1471,11 @@ jobs:
     # pg_cron. Predicted maximum ~1530s (shard 1, unchanged) instead of
     # 1967s; shard 3 drops to ~1294s with Lightning whole and the
     # isolation-tester suites kept with their tool.
+    # November 7 run 42345829378 then measured shard 1 at 29.4m against 13-20m
+    # everywhere else. Root dependencies became common setup (above), and the
+    # Spin expiry proof (1->5) and the cashier statement family (1->6, order
+    # kept) moved unchanged; none compiles against the server headers, which
+    # tests/accounting-shard-prerequisites.law.test.ts now enforces.
     # tests/ci-tells-the-truth-faster.law.test.ts pins the split:
     # every suite step belongs to exactly one shard.
     strategy:
@@ -1492,6 +1497,12 @@ jobs:
       - name: Install server test dependencies
         working-directory: server
         run: npm ci
+      - name: Install root test dependencies
+        # Every accounting shard installs the root lockfile itself, so no
+        # suite can depend on another suite's install having run earlier on
+        # its shard. Run 42344546975 proved On-time starts silently resolved
+        # typescript through the scoped launch reset's own npm ci.
+        run: npm ci --ignore-scripts
       - name: Install PostgreSQL 17 tools without a default database service
         env:
           PG_CI_SHARD: ${{ matrix.shard }}
@@ -2433,22 +2444,22 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/test-credit-invoice-payment.sh
       - name: Agent statements isolate clubs and use posted evidence
-        if: matrix.shard == 1
+        if: matrix.shard == 6
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/test-agent-accounting-statements.sh
       - name: Deleted cashier accounts conserve their bank returns
-        if: matrix.shard == 1
+        if: matrix.shard == 6
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-cashier-deleted-accounts.py --output artifacts/cashier-deleted-accounts
       - name: Cashier withdrawn authority retains original operation receipts
-        if: matrix.shard == 1
+        if: matrix.shard == 6
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-cashier-authority-exact-intent-postgres.py --output artifacts/cashier-authority-recovery
       - name: Cashier statements follow the trade ledger scope and export what is on screen
-        if: matrix.shard == 1
+        if: matrix.shard == 6
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/test-cashier-statements.sh
@@ -3484,13 +3495,13 @@ jobs:
 
       - name: Spin expiry lock order and committed refund contracts
         id: spin_expiry_postgres
-        if: matrix.shard == 1
+        if: matrix.shard == 5
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-spin-expiry-postgres.py
 
       - name: Retain Spin expiry PostgreSQL evidence
-        if: always() && matrix.shard == 1 && steps.spin_expiry_postgres.outcome != 'skipped'
+        if: always() && matrix.shard == 5 && steps.spin_expiry_postgres.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: spin-expiry-postgres-${{ github.run_id }}-${{ github.run_attempt }}

@@ -1,4 +1,8 @@
-import { checkedToNonBottomBoat, checkedToNonBottomRiverBoat } from './HorseNonBottomRiverValue.js';
+import {
+  checkedToNonBottomBoat,
+  checkedToNonBottomRiverBoat,
+  checkedToOnePairAboveFlush,
+} from './HorseNonBottomRiverValue.js';
 import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
@@ -6059,8 +6063,7 @@ export class HorseLogic {
         player,
         gs
       );
-      // An earlier initiative release still allowed the final strategy to check
-      // middle boats. Price a missed value bet against the controller's menu.
+      // Price missed checked-to turn boat and river value against the controller's menu.
       if (
         finalWager.action === 'check' &&
         (gs.stage === 'turn' || gs.stage === 'river') &&
@@ -6082,7 +6085,7 @@ export class HorseLogic {
             !p.is_all_in &&
             p.stack > 0
         ) &&
-        checkedToNonBottomBoat(player, gs)
+        (checkedToNonBottomBoat(player, gs) || checkedToOnePairAboveFlush(player, gs))
       ) {
         const amount = Math.min(
           gs.maxRaiseTo!,

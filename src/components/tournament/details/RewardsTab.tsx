@@ -1022,9 +1022,15 @@ export default function RewardsTab({
         {hasGuarantee && currentFunding && !guaranteeMet && effectivePool > 0 && (
           <div className="rw-gtd">
             <div className="rw-gtd__row">
-              <span className="rw-gtd__label">Credited Toward The Guarantee</span>
+              {/* A Free Buy's entries are paid with promo tickets, which are
+                  house money, not player payments: "0 Of 250" credited read
+                  as if nothing was happening. Say who paid what. */}
+              <span className="rw-gtd__label">
+                {housePostedEarly ? 'Paid By Players' : 'Credited Toward The Guarantee'}
+              </span>
               <span className="rw-gtd__figure">
                 {chips(collectedPool)} Of {chips(guarantee)}
+                {housePostedEarly && ` · ${chips(housePostedNow)} Promo In The Pool`}
               </span>
             </div>
             <div className="tl-meter" aria-hidden="true">

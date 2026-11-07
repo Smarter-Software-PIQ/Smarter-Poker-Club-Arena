@@ -287,6 +287,30 @@ describe('post-deploy E2E concurrency', () => {
         jobs,
       });
 
+      it('A: the actual 42346558084 payload, with its unexpanded skipped test matrix, is a non-verdict', () => {
+        // Read verbatim from the provider (read-publisher-jobs.mjs): when
+        // nothing is built the matrix never expands, so the job carries the
+        // bare name. Certificate 42347060347 threw "received 0" on it.
+        const actual = [
+          completed('publish-needed'),
+          completed('client-publication / Validate The Selected Client Publication Source'),
+          completed('client-publication / admit'),
+          completed('build-record-gateway', 'skipped'),
+          completed('production', 'skipped'),
+          completed('client-publication / build-and-store', 'skipped'),
+          completed('client-publication / client-tests', 'skipped'),
+          completed('client-publication / production', 'skipped'),
+        ];
+        const result = verdict(payloadOf(actual), 'success');
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.output).toBe('');
+        // An executed (non-skipped) test job means something was built.
+        const ran = actual.map((job) =>
+          job.name === 'client-publication / client-tests' ? completed(job.name) : job
+        );
+        expect(verdict(payloadOf(ran), 'success').status).toBe(1);
+      });
+
       it('A: a publisher that decided no publish was needed is a non-verdict', () => {
         const result = verdict(payloadOf(notNeeded), 'success');
         expect(result.status, result.stderr).toBe(0);

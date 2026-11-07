@@ -24,9 +24,10 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 // opt-out; this suite still exercises its own policy layer and real controls.
 // This frozen historical corpus predates the non-bottom river initiative exception.
 // Preserve its original policy/RNG baseline; connected current-policy cases live in HorseCheckedToValue.
-vi.mock('./HorseNonBottomRiverValue.js', () => ({
-  checkedToNonBottomRiverBoat: () => false,
+vi.mock('./HorseNonBottomRiverValue.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./HorseNonBottomRiverValue.js')>()),
   checkedToNonBottomBoat: () => false,
+  checkedToNonBottomRiverBoat: () => false,
 }));
 vi.mock('./HorseCheckedAggressor.js', () => ({
   priorAggressorCheckedThisStreet: () => false,
