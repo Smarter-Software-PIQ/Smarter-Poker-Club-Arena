@@ -2,6 +2,7 @@ import { DiamondTournamentPolicyClosedError } from '../services/cashTablePlayEli
 import { ELIMINATION_SWEEP_STUCK_MS } from './eliminationLock.js';
 import { TournamentAbortBoundary, type AbortBoundaryRequest } from './TournamentAbortBoundary.js';
 import { noteTerminalFinishClub } from './terminalSettlementRpc.js';
+import type { SatelliteQualifierState } from './satelliteQualifierRpc.js';
 import { F06HandPermit } from '../services/F06HandPermit.js';
 import {
   claimHandContinuation,
@@ -2069,6 +2070,11 @@ export abstract class TournamentManagerBase {
   }
 
   protected holdSatelliteQualifierBoundary(): void {
+    if (!this.satelliteQualifierBoundaryPending) {
+      this.satelliteQualifierBoundaryHeldSinceMs = Date.now();
+      this.satelliteQualifierBoundaryPagedAt = 0;
+      this.satelliteQualifierBoundaryPagedReason = null;
+    }
     this.satelliteQualifierBoundaryPending = true;
     this.satelliteQualifierBoundaryGeneration++;
     for (const [tableId, engine] of this.tableEngines) {
@@ -2080,23 +2086,221 @@ export abstract class TournamentManagerBase {
     this.declareConsolidationOutstanding(true);
   }
 
-  /** A positive authoritative continuation releases only this exact generation. */
+  /**
+   * A RELEASE IS NEVER REFUSED FOR A DEALER THE BOUNDARY NO LONGER OWNS
+   * (2026-11-07).
+   *
+   * This used to answer false - and so keep every table parked - whenever one
+   * recorded dealer was stopped or had been replaced since the hold. The
+   * boundary forbids starting a hand, so nothing it waited for could happen:
+   * a dealer that dies under a held boundary is replaced by a recovery that
+   * re-holds (a new generation), and until that lands no bust can arrive to
+   * move the generation either. Four production satellites froze this way or
+   * its siblings between 2026-09-28 and 2026-11-06 (CHECKPOINT-satellite-
+   * boundary-liveness). The identity test belonged to the SETTLEMENT - the
+   * payer must see one parked, unchanged field - and the settlement still
+   * runs it; a release to CONTINUE needs only to lift the fence from every
+   * dealer this manager owns.
+   *
+   * Only this exact generation is released (a newer hold wins), and only a
+   * running manager. The fence is lifted from every recorded dealer that is
+   * still ours and running, and from every dealer this manager owns now
+   * (a replacement or an expansion table that was fenced after the record);
+   * a dealer we no longer own is left alone.
+   */
   protected releaseSatelliteQualifierBoundary(generation: number): boolean {
     if (generation !== this.satelliteQualifierBoundaryGeneration || !this.isRunning()) return false;
-    for (const [tableId, engine] of this.satelliteQualifierEngines) {
-      if (
-        this.tableEngines.get(tableId) !== engine ||
-        this.gameServer.getTableEngine(tableId) !== engine ||
-        !engine.isRunning()
-      )
-        return false;
-    }
     this.satelliteQualifierBoundaryPending = false;
-    for (const engine of this.satelliteQualifierEngines.values())
-      engine.releaseTerminalCloseoutPause();
+    this.satelliteQualifierBoundaryHeldSinceMs = 0;
+    if (this.satelliteQualifierBoundaryPagedAt !== 0) this.closeSatelliteBoundaryHeldPage();
+    this.satelliteQualifierBoundaryPagedAt = 0;
+    this.satelliteQualifierBoundaryPagedReason = null;
+    const released = new Set<ServerTableEngine>();
+    const lift = (tableId: string, engine: ServerTableEngine): void => {
+      if (released.has(engine)) return;
+      if (this.tableEngines.get(tableId) !== engine) return;
+      if (this.gameServer.getTableEngine(tableId) !== engine) return;
+      if (!engine.isRunning()) return;
+      released.add(engine);
+      try {
+        engine.releaseTerminalCloseoutPause();
+      } catch (error) {
+        reportError(error, 'Tournament.satellite_qualifier_boundary_release_failed', {
+          tournamentId: this.tournamentId,
+          tableId,
+        });
+      }
+    };
+    for (const [tableId, engine] of this.satelliteQualifierEngines) lift(tableId, engine);
+    for (const [tableId, engine] of this.tableEngines) lift(tableId, engine);
     this.satelliteQualifierEngines.clear();
     this.advanceHandForHandBarrier();
     return true;
+  }
+
+  /**
+   * A BOUNDARY THE AUTHORITY DOES NOT NEED IS NOT HELD (2026-11-07).
+   *
+   * The qualifier boundary exists for one instant: the hand whose busts can
+   * bring the live field down to the full-ticket count. fn_get_satellite_
+   * qualifier_state is the authority on that. It answers entry_open while the
+   * prize pool is not finalized - no ticket can be decided until it is - and
+   * it answers continuing or unresolved with the live field and the ticket
+   * count. When that live field is more than SATELLITE_BUBBLE_MARGIN above
+   * the tickets, no single hand can reach them (the same margin the bust
+   * watermark trusts: every bust of a hand is counted at its completion, so
+   * a two-bust hand that lands on the tickets still holds). Nothing about
+   * the field is decided by holding, so holding is only a way to freeze.
+   *
+   * Satellite 30 (cc250e58, 2026-11-07 02:34-04:05 UTC): 47 players, entry
+   * open, every table parked for a boundary the authority answered
+   * entry_open to on every sweep, held for ninety minutes by a retained hand
+   * that the boundary itself forbade starting. The hourly break freed it.
+   * That answer must free it, on the first read, before any table is asked
+   * to park: see checkSatelliteQualifierCompletion.
+   */
+  static readonly SATELLITE_BUBBLE_MARGIN = 1;
+
+  protected satelliteBoundaryIsUnneeded(state: SatelliteQualifierState): boolean {
+    if (state.state === 'entry_open') return true;
+    if (state.state === 'continuing' || state.state === 'unresolved') {
+      return (
+        state.qualifierIds.length >
+        state.fullTicketCount + TournamentManagerBase.SATELLITE_BUBBLE_MARGIN
+      );
+    }
+    return false;
+  }
+
+  /**
+   * A HELD BOUNDARY THAT CANNOT DECIDE PAGES ITS REASON (2026-11-07).
+   *
+   * While the field is at its tickets the boundary is right to hold: the
+   * payer needs one parked field, and a hand dealt past the bubble can cost
+   * a player the ticket he has already won. A hold that lasts longer than
+   * SATELLITE_BOUNDARY_PAGE_AFTER_MS without reaching a decision is a
+   * stall with every table in the event parked behind it. Every 'pending'
+   * answer names why, and the first one past the bound raises one critical
+   * alert per event carrying that reason, refreshed when the reason changes
+   * or every SATELLITE_BOUNDARY_PAGE_EVERY_MS, so the sentence that used to
+   * reach only this process's console ("held original", "dealer missing",
+   * "settlement refused") reaches the Production Alerts board within a
+   * minute. A maintenance freeze is not a stall and is never paged.
+   *
+   * A hand still in flight at the bubble is the one wait the boundary is
+   * built for (hand-for-hand), and a long all-in runout with time banks can
+   * pass a minute; that reason pages only after
+   * SATELLITE_BOUNDARY_HAND_IN_FLIGHT_PAGE_AFTER_MS. A hand that is itself
+   * frozen is the turn watchdog's stall, named by the table, not this page.
+   */
+  static readonly SATELLITE_BOUNDARY_PAGE_AFTER_MS = 60_000;
+  static readonly SATELLITE_BOUNDARY_HAND_IN_FLIGHT_PAGE_AFTER_MS = 5 * 60_000;
+  static readonly SATELLITE_BOUNDARY_PAGE_EVERY_MS = 5 * 60_000;
+  protected satelliteQualifierBoundaryHeldSinceMs = 0;
+  protected satelliteQualifierBoundaryPagedAt = 0;
+  protected satelliteQualifierBoundaryPagedReason: string | null = null;
+  protected satelliteQualifierBoundaryLastPendingReason: string | null = null;
+
+  /** Ms the current qualifier boundary has been held; 0 when none is held. */
+  protected satelliteBoundaryHeldMs(now: number = Date.now()): number {
+    if (!this.satelliteQualifierBoundaryPending || this.satelliteQualifierBoundaryHeldSinceMs === 0)
+      return 0;
+    return Math.max(0, now - this.satelliteQualifierBoundaryHeldSinceMs);
+  }
+
+  protected noteSatelliteBoundaryPending(reason: string, now: number = Date.now()): void {
+    this.satelliteQualifierBoundaryLastPendingReason = reason;
+    const heldMs = this.satelliteBoundaryHeldMs(now);
+    const bound = reason.endsWith('_hand_in_flight')
+      ? TournamentManagerBase.SATELLITE_BOUNDARY_HAND_IN_FLIGHT_PAGE_AFTER_MS
+      : TournamentManagerBase.SATELLITE_BOUNDARY_PAGE_AFTER_MS;
+    if (heldMs < bound) return;
+    if (isMaintenanceFrozen()) return;
+    const pagedAt = this.satelliteQualifierBoundaryPagedAt;
+    const reasonChanged = pagedAt !== 0 && this.satelliteQualifierBoundaryPagedReason !== reason;
+    if (
+      pagedAt !== 0 &&
+      !reasonChanged &&
+      now - pagedAt < TournamentManagerBase.SATELLITE_BOUNDARY_PAGE_EVERY_MS
+    )
+      return;
+    const firstPage = pagedAt === 0;
+    this.satelliteQualifierBoundaryPagedAt = now;
+    this.satelliteQualifierBoundaryPagedReason = reason;
+    const seconds = Math.round(heldMs / 1000);
+    const message =
+      `Satellite ${this.tournamentId} has every table parked behind its qualifier boundary for ${seconds} s ` +
+      `and the sweep cannot decide the field: ${reason}. No hand deals until this is resolved.`;
+    const dedupeKey = `satellite-boundary-held:${this.tournamentId}`;
+    const context = {
+      tournament_id: this.tournamentId,
+      held_seconds: seconds,
+      held_since: new Date(this.satelliteQualifierBoundaryHeldSinceMs).toISOString(),
+      pending_reason: reason,
+      boundary_generation: this.satelliteQualifierBoundaryGeneration,
+      tables: this.tableEngines.size,
+    };
+    // Detached from the sweep, but owned by its lifecycle: teardown drains it.
+    void this.trackLifecycleJob(
+      raiseFinancialAlert(
+        'critical',
+        'Tournament.satellite_boundary_held',
+        message,
+        context,
+        dedupeKey,
+        this.tournamentId
+      ).then(async (raised) => {
+        // The dedupe door returns the one open row unchanged, so a refresh
+        // rewrites that row with the current reason; the keys the door and
+        // the inbox read (channel, dedupe_key, entity_id) are kept.
+        if (firstPage || !raised.alertId) return;
+        const { error } = await supabase
+          .from('financial_alerts')
+          .update({
+            message,
+            context: {
+              ...context,
+              channel: 'server_rpc',
+              dedupe_key: dedupeKey,
+              entity_id: this.tournamentId,
+            },
+          })
+          .eq('id', raised.alertId)
+          .eq('source', 'Tournament.satellite_boundary_held')
+          .eq('resolved', false);
+        if (error) throw new Error(`satellite_boundary_held_refresh_failed: ${error.message}`);
+      })
+    ).catch((error) =>
+      reportError(error, 'Tournament.satellite_boundary_held_page_failed', {
+        tournamentId: this.tournamentId,
+      })
+    );
+  }
+
+  /** The page closes itself the moment the boundary lifts; the sweep is the evidence. */
+  protected closeSatelliteBoundaryHeldPage(): void {
+    const at = new Date().toISOString();
+    // Detached from the sweep, but owned by its lifecycle: teardown drains it.
+    void this.trackLifecycleJob(
+      Promise.resolve(
+        supabase
+          .from('financial_alerts')
+          .update({
+            resolved: true,
+            resolved_at: at,
+            resolution: `the qualifier boundary lifted at ${at} and the field is dealing again`,
+          })
+          .eq('source', 'Tournament.satellite_boundary_held')
+          .eq('context->>dedupe_key', `satellite-boundary-held:${this.tournamentId}`)
+          .eq('resolved', false)
+      ).then(({ error }: { error: { message?: string } | null }) => {
+        if (error) throw new Error(`satellite_boundary_held_close_failed: ${error.message}`);
+      })
+    ).catch((error) =>
+      reportError(error, 'Tournament.satellite_boundary_held_close_failed', {
+        tournamentId: this.tournamentId,
+      })
+    );
   }
 
   /**

@@ -50,10 +50,14 @@ function harness() {
   });
   m.satelliteQualifierBoundaryPending = true;
   m.satelliteQualifierBoundaryGeneration = 4;
+  // Two players for one ticket: inside the bubble margin, so the boundary is
+  // held through the park and admits the pending table from inside it
+  // (2026-11-07: a field more than one player above its tickets is released
+  // on the first read, and the later expansion stage admits the table).
   rpc.read.mockResolvedValue({
     state: 'continuing',
     fullTicketCount: 1,
-    qualifierIds: Array.from({ length: 30 }, (_, n) => id(n + 100)),
+    qualifierIds: Array.from({ length: 2 }, (_, n) => id(n + 100)),
   });
   const query: any = {
     select: () => query,

@@ -35,10 +35,14 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')
 const EVENT = id(1);
 const HELD = id(3);
 const PARKED = id(4);
+// Nine players for eight tickets: inside the bubble margin, so the boundary
+// walks every table through the two-phase park (2026-11-07: a field more
+// than one player above its tickets is released on the first read instead,
+// see aBoundaryTheAuthorityDoesNotNeedIsNotHeld.law.test.ts).
 const CONTINUING = {
   state: 'continuing',
   fullTicketCount: 8,
-  qualifierIds: Array.from({ length: 40 }, (_, i) => id(100 + i)),
+  qualifierIds: Array.from({ length: 9 }, (_, i) => id(100 + i)),
 };
 
 function table(opts: { parks: boolean; heldOriginal: boolean }) {
@@ -131,7 +135,7 @@ describe('a retained prepared original held at the qualifier boundary', () => {
     expect(m.satelliteQualifierBoundaryPending).toBe(true);
   });
 
-  it('an unresolved field keeps the boundary', async () => {
+  it('an unresolved field at its tickets keeps the boundary', async () => {
     const held = table({ parks: false, heldOriginal: true });
     const { m } = heldBoundary(held);
     rpc.read.mockResolvedValue({ ...CONTINUING, state: 'unresolved' });

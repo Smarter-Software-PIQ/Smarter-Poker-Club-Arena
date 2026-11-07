@@ -18,7 +18,7 @@ import { isMaintenanceFrozen, isTerminalSettlementFrozen } from '../maintenance/
 import { supabase } from '../services/supabase.js';
 import { fetchAllRows } from '../services/supabase/pagination.js';
 import { raiseFinancialAlert } from '../services/financialAlerts.js';
-import { reportError, reportWarning } from '../services/errorReporter.js';
+import { describeError, reportError, reportWarning } from '../services/errorReporter.js';
 import {
   mysteryChestHoldMs,
   mysteryChestPostRevealMs,
@@ -6055,8 +6055,14 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     'legacy' | 'continue' | 'pending' | 'complete'
   > {
     if (!this.isCohortSatellite()) return 'legacy';
-    if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
+    // Every 'pending' names its reason. A boundary held past its bound pages
+    // that reason (noteSatelliteBoundaryPending); nothing else reads it.
+    const pending = (reason: string): 'pending' => {
+      this.noteSatelliteBoundaryPending(reason);
       return 'pending';
+    };
+    if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
+      return pending('manager_not_running_or_frozen_or_out_of_budget');
     const known = this.satelliteContinuation;
     this.satelliteContinuation = null;
     if (
@@ -6118,9 +6124,40 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       };
       if (await cleanCommitted()) return 'complete';
       if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
-        return 'pending';
+        return pending('manager_not_running_or_frozen_or_out_of_budget_after_read');
       if (state.state === 'qualifying' && !this.satelliteQualifierBoundaryPending)
         this.holdSatelliteQualifierBoundary();
+
+      /*
+       * THE AUTHORITY, NOT THE PARK, LIFTS A BOUNDARY IT DOES NOT NEED
+       * (2026-11-07, Satellite 30 cc250e58).
+       *
+       * A held boundary used to walk every table through the two-phase park
+       * below whatever the first read said, and only then release. Each step
+       * of that walk has a way to answer 'pending' - a dealer missing, a
+       * dealer replaced, a retained original that never started, a table a
+       * break has not closed - and each has frozen a satellite for hours,
+       * because the boundary itself forbids the hand whose completion the
+       * walk was waiting for (2026-09-28, 2026-10-12, 2026-11-05, 2026-11-06).
+       *
+       * The first read already settles the one question the boundary exists
+       * to ask. entry_open: no ticket can be decided while the prize pool is
+       * not finalized. continuing or unresolved with the live field more than
+       * SATELLITE_BUBBLE_MARGIN above the tickets: no single hand can reach
+       * them (satelliteBoundaryIsUnneeded). In both the boundary is lifted
+       * here, before any table is asked to park, and the field deals. The
+       * next bust re-holds it synchronously at hand completion if the field
+       * has moved inside the margin, exactly as the watermark rule already
+       * does. A field at or near its tickets, and a qualifying field, keep
+       * the two-phase park and the settlement untouched.
+       *
+       * The release is generation-exact: a bust that held a newer boundary
+       * during the read keeps it, and the next sweep reads again.
+       */
+      if (this.satelliteQualifierBoundaryPending && this.satelliteBoundaryIsUnneeded(state)) {
+        if (!this.releaseSatelliteQualifierBoundary(readGeneration))
+          return pending('boundary_held_again_during_authoritative_read');
+      }
 
       if (this.satelliteQualifierBoundaryPending) {
         const generation = this.satelliteQualifierBoundaryGeneration;
@@ -6147,8 +6184,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             shouldContinue: currentBoundary,
           }
         );
-        if (!inventory.complete || !currentBoundary() || inventory.rows.length === 0)
-          return 'pending';
+        if (!inventory.complete || !currentBoundary())
+          return pending('table_inventory_unreadable_or_boundary_moved');
+        if (inventory.rows.length === 0) return pending('no_running_or_waiting_table_rows');
         const tables = inventory.rows;
         const owned = tables.map((table: { id: string }) => ({
           tableId: table.id,
@@ -6160,7 +6198,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         >();
         for (const { tableId, engine } of owned) {
           if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
-            return 'pending';
+            return pending('manager_not_running_or_frozen_or_out_of_budget_while_parking');
           /*
            * A BREAK SOURCE THE BOUNDARY CANNOT PARK FINISHES ITS BREAK
            * (2026-10-12).
@@ -6199,17 +6237,19 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             // complete field; an absent receipt or failed RPC grants nothing.
             this.noteEliminationSweepStep('checkDynamicTableExpansion');
             await this.checkDynamicTableExpansion();
-            return 'pending';
+            return pending(`table_${tableId.slice(0, 8)}_has_no_dealer_yet`);
           }
           if (!engine?.isRunning() || this.gameServer.getTableEngine(tableId) !== engine)
-            return 'pending';
+            return pending(`table_${tableId.slice(0, 8)}_dealer_stopped_or_replaced`);
           // A retained original that never started is held at this same gate
           // and moves no chip until the boundary releases it; waiting for it
           // to empty was a circular wait (2026-11-05, Satellite 25 fbb86b2a).
           if (!(await engine.parkForTerminalCloseout(0))) {
-            if (!engine.isPreparedOriginalHeldAtTerminalCloseout()) return 'pending';
+            if (!engine.isPreparedOriginalHeldAtTerminalCloseout())
+              return pending(`table_${tableId.slice(0, 8)}_hand_in_flight`);
             const original = engine.getF06RetainedPermit()?.binding;
-            if (!original?.permit_id || !original.hand_number) return 'pending';
+            if (!original?.permit_id || !original.hand_number)
+              return pending(`table_${tableId.slice(0, 8)}_held_original_has_no_permit_identity`);
             heldPreparedOriginals.set(engine, original);
           }
         }
@@ -6217,11 +6257,20 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         // second serialized read owns cohort membership for this boundary.
         state = await readState();
         if (await cleanCommitted()) return 'complete';
+        if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
+          return pending('manager_not_running_or_frozen_or_out_of_budget_after_second_read');
+        if (generation !== this.satelliteQualifierBoundaryGeneration)
+          return pending('boundary_held_again_during_second_read');
+        /*
+         * A field the second read proves clear of its tickets (entry open, or
+         * more than the margin above them) is released below with no further
+         * test: the dealer-identity and held-original proofs that follow
+         * protect the PAYER, and no payer runs for a field that continues
+         * (2026-11-07). Everything at or inside the margin keeps every proof.
+         */
+        const fieldContinues = this.satelliteBoundaryIsUnneeded(state);
         if (
-          !this.isRunning() ||
-          isMaintenanceFrozen() ||
-          !this.eliminationMutationAllowed() ||
-          generation !== this.satelliteQualifierBoundaryGeneration ||
+          !fieldContinues &&
           owned.some(
             ({ tableId, engine }) =>
               this.tableEngines.get(tableId) !== engine ||
@@ -6229,8 +6278,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               !engine?.isRunning()
           )
         )
-          return 'pending';
-        if (state.state === 'unresolved') return 'pending';
+          return pending('dealer_stopped_or_replaced_during_second_read');
+        if (!fieldContinues && state.state === 'unresolved')
+          return pending('field_unresolved_at_its_tickets');
         /*
          * A QUALIFYING FIELD SETTLES OVER A HAND THAT NEVER STARTED (2026-11-06).
          *
@@ -6264,14 +6314,16 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
          * second read; one that changed (it started, or lost its gate) keeps
          * the boundary for every field, exactly as before.
          */
-        for (const [engine, original] of heldPreparedOriginals) {
-          const current = engine.getF06RetainedPermit()?.binding;
-          if (
-            !engine.isPreparedOriginalHeldAtTerminalCloseout() ||
-            current?.permit_id !== original.permit_id ||
-            current.hand_number !== original.hand_number
-          )
-            return 'pending';
+        if (!fieldContinues) {
+          for (const [engine, original] of heldPreparedOriginals) {
+            const current = engine.getF06RetainedPermit()?.binding;
+            if (
+              !engine.isPreparedOriginalHeldAtTerminalCloseout() ||
+              current?.permit_id !== original.permit_id ||
+              current.hand_number !== original.hand_number
+            )
+              return pending('held_original_changed_shape_during_second_read');
+          }
         }
         if (state.state === 'qualifying') {
           this.tournamentFinished = true;
@@ -6322,7 +6374,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
                 );
                 return 'continue';
               }
-              return 'pending';
+              return pending(`qualifier_settlement_refused: ${error.message.slice(0, 160)}`);
             }
             reportError(error, 'Tournament.satellite_qualifiers_outcome_unknown');
             this.fenceUnknownTerminalOutcome('Tournament.satellite_qualifiers_stop_failed');
@@ -6336,7 +6388,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             } catch (alertError) {
               reportError(alertError, 'Tournament.satellite_qualifiers_alert_failed');
             }
-            return 'pending';
+            return pending('qualifier_settlement_outcome_unknown_dealers_fenced');
           }
         }
         // A single-ticket event keeps the proven v2 payer and remains parked
@@ -6347,11 +6399,22 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           state.qualifierIds.length <= 1
         )
           return 'legacy';
-        if (!this.releaseSatelliteQualifierBoundary(generation)) return 'pending';
+        if (!this.releaseSatelliteQualifierBoundary(generation))
+          return pending('boundary_release_refused_generation_moved');
       }
       if (state.state === 'unresolved') {
+        /*
+         * An unresolved answer far from the tickets is not a bubble question
+         * (2026-11-07): a bust the elimination stage has not recorded yet, a
+         * knockout still pending, a post-commit still finishing somewhere in
+         * the event. Each of those has its own stage and its own alert; none
+         * is decided by parking every table, and parking for one 47 players
+         * from the tickets froze the whole event. Inside the margin the
+         * field is held exactly as before.
+         */
+        if (this.satelliteBoundaryIsUnneeded(state)) return 'continue';
         this.holdSatelliteQualifierBoundary();
-        return 'pending';
+        return pending('field_unresolved_at_its_tickets');
       }
       const answer =
         state.state === 'continuing' && state.fullTicketCount < 2 ? 'legacy' : 'continue';
@@ -6369,7 +6432,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       // Nor can it vouch for the field: every bust holds until a fresh read.
       this.satelliteFieldWatermark = null;
       reportError(error, 'Tournament.satellite_qualifiers_state_unavailable');
-      return 'pending';
+      return pending(`qualifier_state_unreadable: ${describeError(error).slice(0, 160)}`);
     }
   }
 

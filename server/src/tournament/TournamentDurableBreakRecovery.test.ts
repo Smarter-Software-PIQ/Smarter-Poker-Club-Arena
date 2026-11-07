@@ -300,10 +300,13 @@ describe('a held satellite boundary finishes its already moved table break', () 
       f.manager.retireManagedTableFromHandForHand = (
         TournamentManagerBase.prototype as any
       ).retireManagedTableFromHandForHand.bind(f.manager);
+      // Eight players for seven tickets: inside the bubble margin, so the
+      // boundary stays held through the break (2026-11-07: a field more than
+      // one player above its tickets is released on the first read instead).
       satelliteRpc.read.mockResolvedValue({
         state: 'continuing',
         fullTicketCount: 7,
-        qualifierIds: Array.from({ length: 9 }, (_, index) => id(100 + index)),
+        qualifierIds: Array.from({ length: 8 }, (_, index) => id(100 + index)),
       });
       const query: any = {
         select: () => query,

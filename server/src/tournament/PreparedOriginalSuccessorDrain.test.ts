@@ -234,8 +234,24 @@ it.each([
   await parked;
 });
 
+/*
+ * 2026-11-07: a field the authority says is not at its tickets (entry open, or
+ * more than one player above them) lifts the boundary on the FIRST read, so
+ * the physical recheck of a held original belongs to the field at its
+ * tickets. Nine players for eight tickets keeps the two-phase park this law
+ * is about; the entry-open first-read release is pinned separately below.
+ */
+const AT_THE_TICKETS = {
+  state: 'continuing' as const,
+  fullTicketCount: 8,
+  qualifierIds: Array.from(
+    { length: 9 },
+    (_, i) => `aaaaaaaa-0000-4000-8000-${String(100 + i).padStart(12, '0')}`
+  ),
+};
+
 it.each(['same', 'different permit', 'started', 'uncertain', 'replaced dealer'] as const)(
-  'the entry-open qualifier rechecks the physical prepared original (%s)',
+  'the qualifier boundary at its tickets rechecks the physical prepared original (%s)',
   async (scenario) => {
     const { engine, controller } = fixture();
     const event = 'aaaaaaaa-0000-4000-8000-000000000002';
@@ -257,7 +273,7 @@ it.each(['same', 'different permit', 'started', 'uncertain', 'replaced dealer'] 
     };
     vi.spyOn(supabase, 'from').mockReturnValue(query);
     vi.spyOn(qualifiers, 'readSatelliteQualifierState')
-      .mockResolvedValueOnce({ state: 'entry_open' })
+      .mockResolvedValueOnce(AT_THE_TICKETS)
       .mockImplementationOnce(async () => {
         if (scenario === 'different permit') {
           engine.f06CurrentPermit = {
@@ -270,7 +286,7 @@ it.each(['same', 'different permit', 'started', 'uncertain', 'replaced dealer'] 
         } else if (scenario === 'started') controller.start();
         else if (scenario === 'uncertain') engine.preparedOriginalRetentionUnconfirmed = true;
         else if (scenario === 'replaced dealer') manager.tableEngines.delete(engine.tableId);
-        return { state: 'entry_open' };
+        return AT_THE_TICKETS;
       });
     manager.holdSatelliteQualifierBoundary();
     const parked = engine.awaitPauseGate();
@@ -288,3 +304,34 @@ it.each(['same', 'different permit', 'started', 'uncertain', 'replaced dealer'] 
     }
   }
 );
+
+it('an entry-open answer lifts the boundary on the first read, held original and all', async () => {
+  const { engine } = fixture();
+  const event = 'aaaaaaaa-0000-4000-8000-000000000002';
+  const manager: any = new TournamentManager(event, {} as GameServer);
+  manager.running = true;
+  manager.isCohortSatellite = () => true;
+  manager.eliminationMutationAllowed = () => true;
+  manager.tableEngines.set(engine.tableId, engine);
+  manager.gameServer.getTableEngine = () => manager.tableEngines.get(engine.tableId);
+  manager.advanceHandForHandBarrier = vi.fn();
+  manager.declareConsolidationOutstanding = vi.fn();
+  const settle = vi.spyOn(qualifiers, 'requestSatelliteQualifierReceipt');
+  const read = vi
+    .spyOn(qualifiers, 'readSatelliteQualifierState')
+    .mockResolvedValue({ state: 'entry_open' });
+  manager.holdSatelliteQualifierBoundary();
+  const parked = engine.awaitPauseGate();
+  try {
+    expect(await manager.checkSatelliteQualifierCompletion()).toBe('continue');
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(engine.terminalCloseoutPaused).toBe(false);
+    expect(manager.satelliteQualifierBoundaryPending).toBe(false);
+    expect(settle).not.toHaveBeenCalled();
+  } finally {
+    engine.running = false;
+    engine.releaseTerminalCloseoutPause();
+    engine.resumeDealing();
+    await parked;
+  }
+});
