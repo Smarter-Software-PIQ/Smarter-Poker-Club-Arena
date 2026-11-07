@@ -186,13 +186,15 @@ test('both club views keep receiving rows and one survives the other unmounting'
               if (new URL(candidate.url()).pathname !== '/rest/v1/rpc/ca_club_member_detail')
                 return false;
               const body = candidate.request().postDataJSON();
-              return body?.p_club_id === CLUB_ID && body?.p_user_id === target.id;
+              if (body?.p_club_id !== CLUB_ID || body?.p_user_id !== target.id) return false;
+              detailStatus = candidate.status();
+              // The member service can retry a statement timeout within its read budget.
+              return candidate.ok() || detailStatus === 401 || detailStatus === 403;
             },
             { timeout: 45_000 }
           ),
           editor.goto(`clubs/${CLUB_ID}/members/${target.id}`, { waitUntil: 'domcontentloaded' }),
         ]);
-        detailStatus = response.status();
         expect(response.ok(), 'The reserved target detail read must succeed').toBe(true);
         const detail = await response.json();
         expect(detail?.identity?.user_id === target.id).toBe(true);

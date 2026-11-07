@@ -16,7 +16,11 @@ it('delivers real rows from an isolated target and retires it on every outcome',
     browser.indexOf('const originalNickname')
   );
   expect(readiness).toContain("'/rest/v1/rpc/ca_club_member_detail'");
-  expect(readiness).toContain('body?.p_club_id === CLUB_ID && body?.p_user_id === target.id');
+  expect(readiness).toContain('body?.p_club_id !== CLUB_ID || body?.p_user_id !== target.id');
+  expect(readiness).toContain('detailStatus = candidate.status()');
+  expect(readiness).toContain(
+    'return candidate.ok() || detailStatus === 401 || detailStatus === 403'
+  );
   expect(readiness.indexOf('editor.waitForResponse')).toBeLessThan(
     readiness.indexOf('editor.goto')
   );
