@@ -13,6 +13,10 @@ import { noteFire } from '../engine/BrainTelemetry.js';
 import { makeOwnPublicHistoryPacket } from '../engine/horseDecision/ownPublicHistory.js';
 import { shownRiverCallSamples } from '../engine/HorseRiverCallEvidence.js';
 import { reportThrottled } from './errorReporter.js';
+import {
+  publicMemoryDomainIsValid,
+  publicMemoryDomainKey,
+} from '../engine/HorsePublicMemoryDomain.js';
 
 // Native PG17 qualification checks this against the exact installed function.
 export const HORSE_OWN_PUBLIC_HISTORY_DEFINITION_MD5 = '3a2ea02c1c36661b37ef51d328c92fce';
@@ -39,8 +43,7 @@ export async function readHorseOwnPublicHistory(
   context: HorseObserverReadContext,
   report?: HorseHistoryLoadReporter
 ): Promise<unknown> {
-  // The installed v1 reader has no per-hand original speed/ante provenance.
-  if (!horseObserverReadContextIsValid(context) || context.version !== 1) return null;
+  if (!horseObserverReadContextIsValid(context)) return null;
   // A diagnostic callback cannot change the read result or introduce an error.
   const failed: HorseHistoryLoadReporter = (reason) => {
     try {
@@ -74,11 +77,21 @@ export async function readHorseOwnPublicHistory(
       );
       return null;
     }
+    // The installed reader answers the unpartitioned (version 1) context. A
+    // version-2 request is the same observer, variant, format and dealt count
+    // under one speed/ante domain; the partition is proved per hand below.
+    const readContext = horseObserverReadContextKey({
+      version: 1,
+      observerId: context.observerId,
+      variant: context.variant,
+      format: context.format,
+      dealtCount: context.dealtCount,
+    });
     if (
       Object.keys(data).length !== 2 ||
       data.definitionMd5 !== HORSE_OWN_PUBLIC_HISTORY_DEFINITION_MD5 ||
       !data.window ||
-      horseObserverReadContextKey(data.window.context) !== horseObserverReadContextKey(context)
+      horseObserverReadContextKey(data.window.context) !== readContext
     ) {
       noteFire('horse_observer_history_source_mismatch');
       failed('provider_source_mismatch');
@@ -92,12 +105,16 @@ export async function readHorseOwnPublicHistory(
       failed('provider_invalid_window');
       return null;
     }
+    if (context.version === 2 && !packet.hands.length)
+      return { ...data.window, context: structuredClone(context) };
     if (!packet.hands.length) return data.window;
     const window = structuredClone(data.window);
     try {
       const { data: rows, error: categoryError } = await supabase
         .from('hand_history')
-        .select('id,game_variant,showdown,community_cards2,community_cards3,rit_boards')
+        .select(
+          'id,game_variant,showdown,community_cards2,community_cards3,rit_boards,public_memory_domain'
+        )
         .in(
           'id',
           packet.hands.map((h) => h.handId)
@@ -106,6 +123,13 @@ export async function readHorseOwnPublicHistory(
         .abortSignal(deadline);
       if (categoryError || !Array.isArray(rows)) throw Error('public categories unavailable');
       const byId = new Map(rows.map((row) => [row.id, row]));
+      for (const hand of window.hands) {
+        // Each hand's own original speed/ante rules travel with it. A hand
+        // whose row is missing or whose domain is absent stays untagged and a
+        // partitioned (version 2) window excludes it below.
+        const domain = byId.get(hand.handId)?.public_memory_domain;
+        if (publicMemoryDomainIsValid(domain)) hand.publicMemoryDomain = domain;
+      }
       for (const hand of window.hands) {
         const row = byId.get(hand.handId);
         if (
@@ -132,6 +156,24 @@ export async function readHorseOwnPublicHistory(
         'Public river-call evidence unavailable'
       );
     }
+    if (context.version === 2) {
+      // Partition the window to this context's domain (#9693). Hands that do
+      // not prove this speed/ante are dropped, never guessed; a dropped hand
+      // marks the window capped because the observer's history is wider.
+      const key = publicMemoryDomainKey(context.publicMemoryDomain);
+      const hands = window.hands.filter(
+        (hand: { publicMemoryDomain?: unknown }) =>
+          publicMemoryDomainKey(hand.publicMemoryDomain) === key
+      );
+      noteFire(
+        hands.length === window.hands.length
+          ? 'horse_observer_history_domain_complete'
+          : 'horse_observer_history_domain_partitioned'
+      );
+      window.capped = window.capped || hands.length !== window.hands.length;
+      window.hands = hands;
+      window.context = structuredClone(context);
+    }
     if (
       context.format === 'cash' &&
       context.dealtCount >= 3 &&
@@ -144,7 +186,7 @@ export async function readHorseOwnPublicHistory(
             p_variant: context.variant,
             p_dealt_count: context.dealtCount,
             p_before: before,
-            p_hands: riverNodeBindings(packet),
+            p_hands: riverNodeBindings(window),
           })
           .abortSignal(deadline);
         const enriched = nodeError ? null : attachRiverNodeSidecar(window, sidecar, Date.now());

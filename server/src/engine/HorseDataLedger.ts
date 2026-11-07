@@ -2503,6 +2503,54 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-05'
   ),
   receipt(
+    'horse_observer_history_domain_complete',
+    'services/HorseOwnPublicHistory version-2 (speed/ante) own-history load',
+    'every hand the installed reader returned carried this context\'s original speed/ante domain, so the partitioned window kept them all (#9693)',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_observer_history_domain_partitioned',
+    'services/HorseOwnPublicHistory version-2 (speed/ante) own-history load',
+    'at least one returned hand carried no domain or another domain and was excluded from the partitioned window, which is then capped (#9693); legacy hands before 2026-11-06 fall here',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_ok',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'a saved exact speed/ante domain profile batch was read and validated for a completed hand (the legacy horse_opponent_memory_read_ok reader is not on this path once the hand carries its domain)',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_ms_*',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'latency bucket of each validated exact read, the same edges as horse_opponent_memory_read_ms_*',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_failed',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'the exact read failed in transport or the query; classified by the legacy reader rules',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_timeout',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'the exact read was aborted, timed out or canceled by the database (57014)',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_busy',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'the shared read admission refused the exact read as busy',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_invalid',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'the database answered but the rows failed receipt validation (wrong domain, actor, context or shape); no legacy fallback',
+    '2026-11-07'
+  ),
+  receipt(
     'v60_cash_pressure_facing_open',
     'HorsePreflop via HorseLogic (V60 #8694)',
     'NLH cash facing one open: the V60 value 3-bet bar and re-steal volume were applied',
