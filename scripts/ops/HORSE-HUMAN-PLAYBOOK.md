@@ -1,31 +1,51 @@
 # Horse playbook for decisions against humans
 
-The study cutoff is **07:20 UTC on November 7, 2026**. Five private volumes contain 42,099 retained histories, 36,312 eligible hands and 311,025 Horse decisions. A hand qualifies through eligible human participation. For advice about a human opponent, check that a human still had a stake or could respond at the decision. Original Horse cards remain missing on 9,157 decisions. Those decisions can establish public action, price and legality. Their hand strength remains unknown.
+The study cutoff is **12:35 UTC on November 7, 2026**. Six private volumes contain 42,444 retained histories, 36,657 eligible hands and 313,562 Horse decisions. A hand qualifies through eligible human participation. For advice about a human opponent, check that a human still had a stake or could respond at the decision. Original Horse cards remain missing on 10,077 decisions. Those decisions can establish public action, price and legality. Their hand strength remains unknown.
 
 ## Omaha coverage
 
 Counts are Horse decisions. Lightning counts are part of the cash column.
 
-| Variant | Cash | Of which Lightning | Tournament |
-| --- | ---: | ---: | ---: |
-| PLO4 | 31,391 | 8,689 | 4,453 |
-| PLO5 | 58,985 | 7,187 | 1,117 |
-| PLO6 | 6,080 | 660 | 1,704 |
-| PLO8 | 679 | 0 | 3,293 |
-| FLO8 | 906 | 0 | 0 |
+| Variant |   Cash | Of which Lightning | Tournament |
+| ------- | -----: | -----------------: | ---------: |
+| PLO4    | 31,691 |              8,989 |      4,453 |
+| PLO5    | 58,985 |              7,187 |      1,117 |
+| PLO6    |  6,080 |                660 |      1,704 |
+| PLO8    |    679 |                  0 |      3,293 |
+| FLO8    |    906 |                  0 |          0 |
 
 Keep the hole-card count, betting structure, board count, ante payer and speed format in the decision key. In Omaha exactly two hole cards and three board cards make each hand. For split pots evaluate high and qualifying low separately, including scoops, ties and quartered pots. In FLO8 use the legal fixed bet sizes and raise caps. The retained high-low river analysis enumerated opposing holdings on 408 single-board decisions and one double-board decision. Shared cards constrain the two boards. These exact physical comparisons do not establish an opponent's betting range.
 
 ## Decisions to change or preserve
 
-| Situation | Action and evidence |
-| --- | --- |
-| Checked-to river, middle or top full house | In high-only single-board play with a human able to respond, Horses checked 22 of 104 opportunities. Regular PLO5 cash supplied 16 checks in 57 opportunities. Route legal value bets through the final wager rules. Identify bottom full and trip-board under-full separately. Preserve the opening-check distinction and require a legal bet. [Checked-to correction](https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/pull/9766) |
-| Facing a pot-sized or bigger opening river bet | Among 25 beatable non-bottom boats on non-trip boards, Horses called nine times, folded once, raised six times and shoved beyond the call price nine times. Take the legal stack-capped call for the qualifying hand. Preserve separate rules for unbeatable hands and trip-board under-fulls. [Large-wager correction](https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/pull/9772) |
-| Near-nut flush checked to on the river | A PLO5 check with only one superior legal opposing hole pair reproduced in the chooser. The correction selects a value bet in that fixture and preserves the existing pot bets in two controls. Its protected merge followed the corpus cutoff. [Near-nut flush correction](https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/pull/9826) |
-| Turn after a human called the flop | In 46 qualifying spots, Horses bet 42 times, shoved twice and checked twice. Both checks were top full houses in Lightning cash with a BB ante. One was the current nuts in PLO4. Assess turn bets with a river still to come. Record redraws and the same caller’s ability to continue. |
-| Lightning and BB ante | Reconstruct the ante contribution, live blind, pot, effective stacks and legal minimum and maximum before comparing sizes. Track Lightning and BB ante independently. Use a matched domain when estimating calls, raises or folds. The two turn checks above are evidence for a specific value correction; they cannot set a universal Lightning aggression multiplier. |
-| River bluff with a nut blocker | In 15 opportunities with one pair or less, a lone nut-flush blocker and a human able to wager, Horses opened with two bets and two jams. Eleven checked. For each legal size compare fold gains and called outcomes to checking, allowing for showdown share, higher hands removed, worse hands blocked, effective stacks and costs. Bound uncertain response frequencies. The 15 actions establish actual bluff candidates, not a profitable target frequency. |
+| Situation                                      | Action and evidence                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Checked-to river, middle or top full house     | In high-only single-board play with a human able to respond, Horses checked 22 of 104 opportunities. Regular PLO5 cash supplied 16 checks in 57 opportunities. Route legal value bets through the final wager rules. Identify bottom full and trip-board under-full separately. Preserve the opening-check distinction and require a legal bet. [Checked-to correction](https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/pull/9766)                    |
+| Facing a pot-sized or bigger opening river bet | Among 25 beatable non-bottom boats on non-trip boards, Horses called nine times, folded once, raised six times and shoved beyond the call price nine times. Take the legal stack-capped call for the qualifying hand. Preserve separate rules for unbeatable hands and trip-board under-fulls. [Large-wager correction](https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/pull/9772)                                                                    |
+| Near-nut flush checked to on the river         | A PLO5 check with only one superior legal opposing hole pair reproduced in the chooser. The correction selects a value bet in that fixture and preserves the existing pot bets in two controls. [Near-nut flush correction](https://github.com/Smarter-Poker/Smarter-Poker-Club-Arena/pull/9826)                                                                                                                                                                |
+| Turn after a human called the flop             | In 46 qualifying spots, Horses bet 42 times, shoved twice and checked twice. Both checks were top full houses in Lightning cash with a BB ante. One was the current nuts in PLO4. Assess turn bets with a river still to come. Record redraws and the same caller’s ability to continue.                                                                                                                                                                        |
+| Lightning and BB ante                          | Reconstruct the ante contribution, live blind, pot, effective stacks and legal minimum and maximum before comparing sizes. Track Lightning and BB ante independently. Use a matched domain when estimating calls, raises or folds. The two turn checks above are evidence for a specific value correction; they cannot set a universal Lightning aggression multiplier.                                                                                         |
+| River bluff with a nut blocker                 | In 15 opportunities with one pair or less, a lone nut-flush blocker and a human able to wager, Horses opened with two bets and two jams. Eleven checked. For each legal size compare fold gains and called outcomes to checking, allowing for showdown share, higher hands removed, worse hands blocked, effective stacks and costs. Bound uncertain response frequencies. The 15 actions establish actual bluff candidates, not a profitable target frequency. |
+
+## High-only value betting and river sizing
+
+**PLO5 and PLO6.** Of 84 checked-to middle or top full houses across 81 hands, Horses bet 62 times, went all-in twice and checked 20 times. Eighty decisions were in cash and four in tournaments. Every check left at least one opponent to act. Fifteen checked through, an eligible human opened twice, and another Horse opened three times. Open for value in this high-only spot. For a check, compare a half-pot opening within the original legal bounds. Only four of the 20 checks had an earlier pool comparison matching the rules, position, opponents' roles and size band, with at most two earlier hands each. None had an exact-size comparison involving the same set of human opponents. A missed opening is observable. Chips a human would have paid remain uncertain.
+
+**PLO4 Lightning cash with a big-blind ante.** The sixth volume adds 38 hands and 300 decisions. Original cards were available for all 103 postflop decisions and missing on 105 of 197 preflop decisions. For the 87 flop and turn decisions the analysis checked all 3,880 possible next-card cases. A made-hand improvement still needs an opponent redraw assessment. Only four of 16 river decisions involved a human able to respond. The Horses checked three times and bet once. None of the four involved a near-nut hand, full house or response to a human river wager.
+
+A two-pair lead of 4.40 into 19.68 illustrates the sizing decision. The Horse blocked four of 16 board-nut pairs. Before that hand, the public histories contained zero comparable first-to-act leads of quarter-pot or smaller. Across all sizes in the same position the pool folded nine times, called eight times and raised twice. A separate fold-or-call sensitivity used the captured rake and jackpot fees, half of worse hands calling, 10% of better hands folding and tied hands always calling. Relative to a check-through the bet gained 0.03 chips under a hypothetical 49% weaker, 2% tied and 49% stronger range. It lost 1.02 chips at 25% weaker, 2% tied and 73% stronger. In the second range the bet needed better hands to fold more than 16.2% of the time. A human could also bet after a check or raise the lead. Price those branches separately. Observed overall folds cannot identify the fraction of better hands that fold.
+
+## Pot-limit Omaha eight-or-better
+
+Across 302 PLO8 river decisions, 106 still had a human able to wager, two had only an all-in eligible human, and 194 followed all eligible humans folding. Of 35 checked-to opportunities, nine were cash. The 26 tournament records included 20 pre-money, three in the money and three with unknown stage. Horses checked 31 times, bet three times and went all-in once. Twenty-one checks closed the action. Of ten that left action behind, nine checked through and one drew a human bet.
+
+Evaluate both halves with the same opposing four-card holding. In these 35 cases every Horse could be scooped by at least one legal holding and 18 could receive exactly one quarter. None held an unbeatable high or low. For a fully matched heads-up bet compared with checking through, winning one quarter costs half the additional bet before fees. Winning half breaks even on the added chips, while a scoop gains the entire matched bet. Evaluate which weaker high or low hands will actually call. For a double board remove every exposed card from the common deck. For the 15 multiway opportunities use a joint opponent range. More players can share the low, and pairwise shares cannot price that pot.
+
+## No-limit hold'em Lightning cash
+
+The sixth volume adds 307 hands and 2,237 decisions, including 125 river decisions. Eight river decisions faced an eligible human wager. Seven were heads-up, and each had both profitable and unprofitable calls relative to folding among the 990 legal human holdings. Three calls matched the recorded fees and four Horses folded. The eighth decision was multiway. The observed price and range composition determine whether a call is justified.
+
+On one flop the Horse's all-in with pocket aces was an effective call for 12.15. The human's unmatched 1.64 returned. The enumerated call gained over folding against 1,072 of 1,081 legal human holdings and lost against nine, averaging all 990 legal turn-river runouts for each holding. Use the actual matched amount and captured fees. How often the human raised each holding remains unknown.
 
 ## Tournament pressure
 
