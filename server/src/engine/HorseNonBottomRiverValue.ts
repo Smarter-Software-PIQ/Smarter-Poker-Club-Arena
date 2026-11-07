@@ -27,7 +27,6 @@ function checkedToOmahaValueStreet(player: SeatPlayer, gs: HorseGameStateV2): bo
     gs.currentBet !== 0 ||
     Math.max(0, gs.currentBet - player.bet) !== 0 ||
     !gs.legalActions?.includes('bet') ||
-    board.some((card) => board.filter((other) => other.rank === card.rank).length >= 3) ||
     !gs.actionHistory?.some(
       (a) => a.stage === gs.stage && a.action === 'check' && a.userId !== player.user_id
     )
@@ -36,7 +35,7 @@ function checkedToOmahaValueStreet(player: SeatPlayer, gs: HorseGameStateV2): bo
   return true;
 }
 
-/** Reachable lower boats establish rank position. Singleton ranks and trip boards do not qualify. */
+/** Reachable lower boats establish rank position. Bottom and singleton ranks have no reachable lower boat. */
 export function checkedToNonBottomBoat(player: SeatPlayer, gs: HorseGameStateV2): boolean {
   return (
     checkedToOmahaValueStreet(player, gs) &&

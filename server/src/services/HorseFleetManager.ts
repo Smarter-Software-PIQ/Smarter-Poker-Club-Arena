@@ -22,6 +22,7 @@ import {
  */
 
 import { horseSitsWithAutoTopUp } from './HorseTopUpStyle.js';
+import { horseSeatPicker, seatChoiceMoment } from './HorseSeatChoice.js';
 import { tableHeldByRetainedHand } from '../engine/retainedHandHolds.js';
 import { compareCashPopulation, isHoldemOrPlo } from './CashHorseAllocation.js';
 import { supabase, seedingSupabase } from './supabase.js';
@@ -71,7 +72,9 @@ import { beatVerdict, lastBeatAt } from './StableHandBeats.js';
 import { seatBoosts, takeOpenOrders } from './StableHandPlanBus.js';
 import { stakeForBand } from './StableHandController.js';
 import { fetchAllRows } from './supabase/pagination.js';
-import { planHorseQueues, type HorseQueueAsk } from './HorseGameQueue.js';
+import { gamesFedByTheirList, listFeedsTable } from './HorseListFeedsTable.js';
+import { planHorseQueues, type HorseQueueAsk, type HorseQueueGameInfo } from './HorseGameQueue.js';
+import { availableNow, regularSeatWeight } from './HorseRegulars.js';
 import {
   allocateBuyers,
   FEEDER_BUYERS_TO_GO_LIVE,
@@ -131,7 +134,6 @@ import {
   horseCashMinimum,
   gameLaneFor,
   horseHash,
-  isActiveNow,
   isNightParkedTable,
   isRetiringTable,
   occupancyTargetFor,
@@ -606,6 +608,26 @@ export class HorseFleetManager {
     return lightning !== null && !lightning.has(table.cluster_id);
   }
 
+  /**
+   * WHERE A HORSE SITS (HorseSeatChoice): the button of the hand each table
+   * is dealing, read from GameServer's engine. Unknown (null) when the table
+   * has no engine here or has not dealt yet; the choice then ignores position.
+   */
+  private readonly buttonSeatOf: (tableId: string) => number | null;
+
+  constructor(opts: { buttonSeatOf?: (tableId: string) => number | null } = {}) {
+    this.buttonSeatOf = opts.buttonSeatOf ?? (() => null);
+  }
+
+  private buttonSeat(tableId: string): number | null {
+    try {
+      const seat = Number(this.buttonSeatOf(tableId));
+      return Number.isInteger(seat) && seat > 0 ? seat : null;
+    } catch {
+      return null;
+    }
+  }
+
   private isRunning = false;
   private seedInterval: ReturnType<typeof setInterval> | null = null;
   /**
@@ -929,6 +951,33 @@ export class HorseFleetManager {
   }
 
   /**
+   * The games with anyone 'waiting' on their list (HorseListFeedsTable).
+   * Null when the read fails or is incomplete: the caller then seats as before.
+   */
+  private async gamesWithWaitingList(shouldContinue?: () => boolean): Promise<Set<string> | null> {
+    try {
+      const page = await fetchAllRows<{ id: string; game_id: string }>(
+        (cursor, want) => {
+          let q = supabase
+            .from('cash_game_waitlist')
+            .select('id, game_id')
+            .eq('status', 'waiting')
+            .order('id', { ascending: true })
+            .limit(want);
+          if (cursor) q = q.gt('id', cursor);
+          return q;
+        },
+        { label: 'HorseFleet.gamesWithWaitingList', maxRows: 50_000, shouldContinue }
+      );
+      if (!page.complete) return null;
+      return new Set(page.rows.map((r) => String(r.game_id)));
+    } catch (err) {
+      reportError(err, 'HorseFleet.gamesWithWaitingList');
+      return null;
+    }
+  }
+
+  /**
    * KEEP THE HORSE LINES ON FULL GAMES (Dan 2026-11-06). One read of the horse
    * rows on `cash_game_waitlist`, then a batched cancel and at most one insert
    * per game. Planned by HorseGameQueue.planHorseQueues; read the rules there.
@@ -944,7 +993,9 @@ export class HorseFleetManager {
     humansWaitingByTable: ReadonlyMap<string, number>,
     horseIdSet: ReadonlySet<string>,
     disabledGameIds: ReadonlySet<string>,
-    shouldContinue?: () => boolean
+    shouldContinue?: () => boolean,
+    /** Tables each horse holds, including the seats this cycle just took. */
+    horseTables?: ReadonlyMap<string, ReadonlySet<string>>
   ): Promise<void> {
     try {
       const page = await fetchAllRows<{
@@ -972,8 +1023,23 @@ export class HorseFleetManager {
       const gameTables: Array<{ gameId: string; maxPlayers: number; seated: number }> = [];
       const seatedByGame = new Map<string, Set<string>>();
       const humanWaitingGameIds = new Set<string>();
+      /* SEVERAL LISTS, AND SEATED MEANS OFF THE OTHERS (owner 2026-11-07):
+         the variant and stakes of each game, and every horse seated anywhere.
+         See HorseGameQueue.planHorseQueues. */
+      const gameInfo = new Map<string, HorseQueueGameInfo>();
+      const seatedAnywhere = new Set<string>();
+      for (const seats of seatsByTable.values()) {
+        for (const s of seats) seatedAnywhere.add(String(s.user_id));
+      }
+      for (const [horseId, at] of horseTables ?? []) if (at.size > 0) seatedAnywhere.add(horseId);
       for (const t of tables) {
         if (!t?.cluster_id) continue;
+        if (!gameInfo.has(String(t.cluster_id))) {
+          gameInfo.set(String(t.cluster_id), {
+            variant: t.game_variant ?? null,
+            bigBlind: Number(t.big_blind) || null,
+          });
+        }
         if (t.lifecycle && t.lifecycle !== 'live' && t.lifecycle !== 'opening') continue;
         const gameId = String(t.cluster_id);
         const seats = seatsByTable.get(t.id) ?? [];
@@ -999,6 +1065,8 @@ export class HorseFleetManager {
         humanWaitingGameIds,
         seatedByGame,
         nowMs: Date.now(),
+        gameInfo,
+        seatedAnywhere,
       });
       for (let i = 0; i < plan.cancel.length; i += 200) {
         if (shouldContinue?.() === false) return;
@@ -2606,6 +2674,19 @@ export class HorseFleetManager {
       await this.pruneHorseWaitlist(horseIdSet, readIsCurrent);
       if (!readIsCurrent()) return;
 
+      /* A TABLE IS FILLED FROM ITS LIST, IN ORDER (owner 2026-11-07). A game
+         with anyone on its list, or a breaking table still holding players,
+         takes no horse straight into its chairs: the tick calls the list one
+         name at a time and must-move draws the breaking table first. See
+         HorseListFeedsTable. An unread list fails open to direct seating. */
+      const listFedGames = gamesFedByTheirList({
+        waitingGameIds: await this.gamesWithWaitingList(readIsCurrent),
+        tables,
+        seatsByTable,
+        lightningGames: cashPlanLightningGames,
+      });
+      if (!readIsCurrent()) return;
+
       /* WHERE EACH HORSE IS ALREADY REPRESENTING A CLUB, per scope. The seat
          it holds decides its wallet for a second seat in the same union
          (fn_seat_club_for_user_membership_unchecked, Dan 2026-08-21 "one club
@@ -3713,7 +3794,12 @@ export class HorseFleetManager {
             diag.candidates = candidateHorses.length;
             diag.sittable = sittable.length;
           }
-          let pool = sittable.filter((h) => isActiveNow(h.id, hourUTC));
+          /* REGULARS (2026-11-07): a horse inside its own weekly pattern is
+             awake as well as one inside the old daily window - a superset of
+             the pool this line drew before, so no table can go short for a
+             schedule. Who among them sits is ordered by regularSeatWeight. */
+          const regularsNowMs = Date.now();
+          let pool = sittable.filter((h) => availableNow(h.id, regularsNowMs));
           /* How many were awake before any rule widened the hour, for the
              `asleep` and `hour_widened` counters below. */
           const awake = pool.length;
@@ -3826,6 +3912,8 @@ export class HorseFleetManager {
                 gameId: String(table.cluster_id),
                 waitTarget: target.waitTarget,
                 pool: pool.map((h) => h.id),
+                variant: table.game_variant,
+                bigBlind: Number(table.big_blind),
               });
             }
             clusterPools.push(clusterPool);
@@ -3833,6 +3921,14 @@ export class HorseFleetManager {
             nextEligible.set(table.id, pool.length);
           }
           if (countOnly) continue;
+          /* Its list feeds it (HorseListFeedsTable): the pool and the line
+             ask above are kept, only the direct seating is withheld. */
+          if (listFeedsTable(table, listFedGames)) {
+            beat.withheldTables++;
+            if (firstTableWithheld === null) firstTableWithheld = 'list_feeds_table';
+            if (diag) diag.withheld = 'list_feeds_table';
+            continue;
+          }
 
           /* FOUR TABLES IS THE TARGET, NOT THE CEILING (Dan 2026-09-02).
              "THEY SHOULD BE PLAYING 4 TABLES AT ONCE."
@@ -3859,7 +3955,12 @@ export class HorseFleetManager {
             pool.map((h) => {
               const at = horseTables.get(h.id)?.size || 0;
               const towardFour = at > 0 && at < MAX_TABLES_PER_HORSE ? 4 : 1;
-              return { h, w: Math.random() * towardFour };
+              /* A regular in its hours, at its home game, is drawn first;
+                 an ordering only, so the count seated is unchanged. */
+              return {
+                h,
+                w: Math.random() * towardFour * regularSeatWeight(h.id, table, regularsNowMs),
+              };
             }),
             table,
             getPloPerformance()
@@ -3903,6 +4004,17 @@ export class HorseFleetManager {
             seatNumber: number;
             verdict: Extract<SitVerdict, { ok: true }>;
           }> = [];
+          /* WHERE EACH ONE SITS (2026-11-07): a chair among the open ones,
+             chosen like a person would (HorseSeatChoice), not the lowest
+             number. Only WHICH open chair - whether a horse sits is decided
+             above and below, unchanged. */
+          const seatPicker = horseSeatPicker({
+            tableId: String(table.id),
+            moment: seatChoiceMoment(),
+            maxSeats: table.max_players,
+            occupied: occupiedNumbers,
+            buttonSeat: this.buttonSeat(String(table.id)),
+          });
           for (let i = 0; i < selectedHorses.length; i++) {
             const horse = selectedHorses[i];
             const verdict = sitVerdictFor(horse.id, table, sitCtx);
@@ -3916,7 +4028,9 @@ export class HorseFleetManager {
               noteSkip(diag, verdict.reason);
               continue;
             }
-            cleared.push({ horse, seatNumber: emptySeats[i], verdict });
+            const chair = seatPicker.take(String(horse.id));
+            if (chair === null) break;
+            cleared.push({ horse, seatNumber: chair, verdict });
           }
 
           /* NO LONE HORSE (2026-09-05). An EMPTY cluster table is seated to
@@ -4051,10 +4165,9 @@ export class HorseFleetManager {
           };
 
           const seatedIdsHere = new Set<string>();
-          const freedChairs: number[] = [];
           for (const { horse, seatNumber, verdict } of cleared) {
             if (await seatOne(horse, seatNumber, verdict)) seatedIdsHere.add(horse.id);
-            else freedChairs.push(seatNumber);
+            else seatPicker.release(seatNumber);
           }
 
           /* ── NO LONE HORSE, JUDGED ON THE OUTCOME (2026-09-06) ─────────────
@@ -4073,14 +4186,9 @@ export class HorseFleetManager {
              is spent. Same verdict, same door, same bookkeeping. */
           if (table.cluster_id && currentCount === 0 && seated === 1 && seatBudget > 0) {
             const tried = new Set(cleared.map((c) => c.horse.id));
-            const chairs = [...freedChairs];
-            for (let s = 1; s <= table.max_players && chairs.length < 2; s++) {
-              if (!occupiedNumbers.has(s) && !cleared.some((c) => c.seatNumber === s))
-                chairs.push(s);
-            }
             let secondDrawTried = 0;
             for (const h of pool) {
-              if (seated >= 2 || seatBudget <= 0 || chairs.length === 0) break;
+              if (seated >= 2 || seatBudget <= 0 || seatPicker.open().length === 0) break;
               if (tried.has(h.id)) continue;
               tried.add(h.id);
               secondDrawTried++;
@@ -4090,8 +4198,10 @@ export class HorseFleetManager {
                 noteSkip(diag, v.reason);
                 continue;
               }
-              const chair = chairs.shift()!;
+              const chair = seatPicker.take(String(h.id));
+              if (chair === null) break;
               if (await seatOne(h, chair, v)) seatedIdsHere.add(h.id);
+              else seatPicker.release(chair);
             }
             if (seated === 1) {
               loneSeatLeft++;
@@ -4174,7 +4284,8 @@ export class HorseFleetManager {
           humansWaitingByTable,
           horseIdSet,
           disabledGameIds,
-          readIsCurrent
+          readIsCurrent,
+          horseTables
         );
       }
       // The only place the census is stamped: a cycle that returned early
@@ -5124,13 +5235,16 @@ export class HorseFleetManager {
 
         const used = taken.get(table.id) ?? new Set<number>();
         const maxSeats = Number(table.max_players) || 9;
-        let seatNumber = -1;
-        for (let s = 1; s <= maxSeats; s++) {
-          if (!used.has(s)) {
-            seatNumber = s;
-            break;
-          }
-        }
+        /* The chair is chosen like a person would (HorseSeatChoice), never
+           simply the lowest number; the offer itself decided THAT it sits. */
+        const seatNumber =
+          horseSeatPicker({
+            tableId: String(table.id),
+            moment: seatChoiceMoment(),
+            maxSeats,
+            occupied: used,
+            buttonSeat: this.buttonSeat(String(table.id)),
+          }).take(String(offer.user_id)) ?? -1;
         if (seatNumber < 0) continue;
 
         // Same wallet rule as the seeding loop: a horse answers a seat call

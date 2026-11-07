@@ -35,6 +35,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { GAMEPLAY_WAIT_MS } from './await-engine-gameplay.mjs';
 import { readReadyEngineSha, UNKNOWN_EXIT_CODE } from './production-e2e-provenance.mjs';
+import { pathToFileURL } from 'node:url';
 
 const POLL_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -100,7 +101,7 @@ async function main() {
   process.exitCode = UNKNOWN_EXIT_CODE;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     console.error(`[read-engine-release] ${error.message}`);
     process.exit(1);

@@ -19,8 +19,9 @@ it('doubles only the declared qualification envelopes and preserves production o
       'css-beats-e2e': 60,
       'diamond-playfield-e2e': 50,
     },
+    'engine-release-prequalification.yml': { qualify: 80, prestage: 45 },
     'auto-deploy-hetzner.yml': {
-      preflight: 80,
+      preflight: 10,
       deploy: 210,
       'engine-doors': 10,
       'record-receipt': 4,

@@ -52,10 +52,11 @@
  */
 
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
-import { resolve, relative } from 'node:path';
+import { resolve, relative, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const ALLOWLIST_PATH = resolve(
-  new URL('.', import.meta.url).pathname,
+  dirname(fileURLToPath(import.meta.url)),
   'e2e-may-skip-entirely.json'
 );
 

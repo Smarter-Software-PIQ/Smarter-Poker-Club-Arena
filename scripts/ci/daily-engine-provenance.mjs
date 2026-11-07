@@ -1,4 +1,5 @@
 import { msUntilNextAnnouncement } from './await-engine-gameplay.mjs';
+import { pathToFileURL } from 'node:url';
 
 /** Expected queue only, never evidence that an unshipped change is live. */
 export function queuedDailyRelease(health, oldestUnservedAt, now = Date.now()) {
@@ -20,7 +21,7 @@ export function queuedDailyRelease(health, oldestUnservedAt, now = Date.now()) {
   const dueAt = announcement + 2 * 60_000 + 15 * 60_000;
   return now < dueAt ? { dueAt, oldestUnservedAt: first, status: 'queued' } : null;
 }
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let body = '';
   for await (const chunk of process.stdin) body += chunk;
   let queued = null;

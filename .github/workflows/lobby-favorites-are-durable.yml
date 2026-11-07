@@ -43,10 +43,7 @@ jobs:
           sudo install -d /usr/share/postgresql-common/pgdg
           # Retried: on 2026-11-05 this key download dropped mid-transfer on
           # several jobs at once, failing them before any test ran.
-          sudo curl --fail --silent --show-error --location \
-            --retry 5 --retry-all-errors --retry-delay 5 \
-            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
           codename="$(. /etc/os-release && printf '%s' "$VERSION_CODENAME")"
           printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' \
             "$codename" > "$pg_sources/pgdg.sources"

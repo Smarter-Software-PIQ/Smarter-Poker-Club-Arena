@@ -215,6 +215,58 @@ export function horseCashPlanSecondTables(
   return out;
 }
 
+/**
+ * A TABLE THE CLUSTER TICK BREAKS IS NOT WALKED OUT OF (owner 2026-11-07).
+ *
+ * When a game stops being picked for a second table, horseCashPlanSecondTables
+ * drops that table and the rotator used to stand every horse at it up in the
+ * same pass - the table emptied at once, as if everybody quit together. The
+ * cluster tick now BREAKS such a table the way a card room does
+ * (20261107195847): 'table_break_started', then 'break' moves onto open chairs
+ * in roster order, the same notice people get, and anyone without a chair
+ * stays dealt in and is first for the next one.
+ *
+ * So a horse at a table of a game horses may play (its Main 1 is allowed), a
+ * table that is not the Main 1 and is live, opening or already breaking,
+ * stays seated and is moved by the break. Forbidden variants and the stake
+ * ceiling still send it home (horseCashGameAllowed), and Lightning games are
+ * never in here (their tables are the Lightning pool). No new leave: a horse
+ * held here leaves only through the moves the tick plans (a forced move keeps
+ * its stack) or through the ordinary rotation door, engine.leaveTable, which
+ * applies the hit-and-run rule to every voluntary leave.
+ */
+export function horseCashPlanTablesAwaitingBreak(
+  tables: ReadonlyArray<CashPlanTable>,
+  primaryTables: ReadonlySet<string>,
+  primaryAllowed: (primary: CashPlanTable) => boolean,
+  lightningGames: ReadonlySet<string> | null,
+  nowMs: number = Date.now()
+): ReadonlySet<string> {
+  const primaryByGame = new Map<string, CashPlanTable>();
+  for (const t of tables) {
+    if (typeof t.id === 'string' && primaryTables.has(t.id) && typeof t.cluster_id === 'string')
+      primaryByGame.set(t.cluster_id, t);
+  }
+  const allowedGame = new Map<string, boolean>();
+  const out = new Set<string>();
+  for (const t of tables) {
+    if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string') continue;
+    if (primaryTables.has(t.id)) continue;
+    if (lightningGames === null || lightningGames.has(t.cluster_id)) continue;
+    if (t.lifecycle !== 'live' && t.lifecycle !== 'opening' && t.lifecycle !== 'breaking') continue;
+    if (!Number.isFinite(nowMs) || !horseCashGameAllowed(t, nowMs)) continue;
+    const primary = primaryByGame.get(t.cluster_id);
+    if (!primary) continue;
+    let ok = allowedGame.get(t.cluster_id);
+    if (ok === undefined) {
+      ok = primaryAllowed(primary);
+      allowedGame.set(t.cluster_id, ok);
+    }
+    if (ok) out.add(t.id);
+  }
+  return out;
+}
+
 /** The Lightning games in which a person is playing right now, at any of
  * their tables (a seat is the Lightning pool's anchor, so a pooled person is
  * counted here too). Sitting-out and departing chairs do not start a game.

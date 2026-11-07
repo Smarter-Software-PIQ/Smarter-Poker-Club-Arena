@@ -37,6 +37,11 @@ const imageBuilder = resolve(ROOT, 'server/scripts/build-engine-image.sh');
 const protocolV1 = read('server/scripts/engine-release-protocol-v1.schema');
 const protocolV1Digest = createHash('sha256').update(protocolV1).digest('hex');
 
+// A hang guard for one synchronous child that runs only against fakes. It is
+// never a speed budget: a correct child on a host at load 60+ must not be
+// killed by it, so no test below can fail for lack of spare CPU.
+const CHILD_HANG_GUARD_MS = 60_000;
+
 const A_SHA = 'a'.repeat(40);
 const B_SHA = 'b'.repeat(40);
 const C_SHA = 'c'.repeat(40);
@@ -419,8 +424,11 @@ esac
   // This integration case executes two seal commands, two successful launches
   // and nine rejected launches. Budget each synchronous child independently;
   // one default five-second test budget cannot cover their aggregate runtime.
+  // Each budget is a HANG GUARD: every child runs against fakes and the case
+  // asserts exit status, signal and output, never speed. 5 s per child was
+  // exceeded by a correct engine-up at load 69 (2026-11-07, ETIMEDOUT).
   const restartPolicyCommandCount = 2 + 2 + 9;
-  const restartPolicyCommandTimeoutMs = 5_000;
+  const restartPolicyCommandTimeoutMs = CHILD_HANG_GUARD_MS;
   const restartPolicyTestTimeoutMs =
     (restartPolicyCommandCount + 1) * restartPolicyCommandTimeoutMs;
 
@@ -1240,6 +1248,7 @@ printf '%s\\n%s' '{"running":true,"releaseSha":"${A_SHA}","liveness":"ok","insta
     ).toBe(`2 ${B_SHA} ${B_IMAGE} 305`);
   });
 
+  // Twelve observer runs, each bounded by the child hang guard: 13 x 60 s.
   it('observes a recovered completion after systemd retires its invocation between polls', () => {
     runSeal([
       'bootstrap-running',
@@ -1362,6 +1371,7 @@ case "$*" in
     if [ "$count" = 1 ]; then echo '${firstInvocation}'; else printf '%s' "\${TEST_TERMINAL_INVOCATION:-}"; fi ;;
   is-enabled*) exit 1 ;;
   *ActiveState*) echo inactive ;;
+  *ExecMainStatus*) echo 0 ;;
   *Result*) echo success ;;
   *) exit 92 ;;
 esac
@@ -1392,12 +1402,17 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
       ...['id', 'systemctl', 'docker', 'curl'].map((name) => join(bin, name)),
     ])
       chmodSync(path, 0o755);
+    // Keep the twelve observations' original total process budget. A single
+    // loaded invocation may spend more of it parsing the real seal evidence.
+    const observerDeadline = performance.now() + 12 * 5000;
     const observe = (overrides: NodeJS.ProcessEnv = {}) => {
       rmSync(calls, { force: true });
       rmSync(nativeCalls, { force: true });
-      return spawnSync('bash', [observerPath, '--sha', B_SHA, '--run-id', '307-1'], {
+      const remaining = Math.floor(observerDeadline - performance.now());
+      expect(remaining).toBeGreaterThan(0);
+      const result = spawnSync('bash', [observerPath, '--sha', B_SHA, '--run-id', '307-1'], {
         encoding: 'utf8',
-        timeout: 5000,
+        timeout: Math.min(remaining, CHILD_HANG_GUARD_MS),
         env: {
           ...baseEnv,
           ...overrides,
@@ -1407,6 +1422,9 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
           ENGINE_RELEASE_IMAGE_LEASE_ROOT: join(sandbox, 'leases'),
         },
       });
+      expect(result.error).toBeUndefined();
+      expect(Number.isInteger(result.status)).toBe(true);
+      return result;
     };
     const recovered = observe();
     expect(recovered.status, recovered.stderr).toBe(0);
@@ -1430,7 +1448,12 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
       value.completionRuntime.invocationId = invalid;
       writeFileSync(resultPath, JSON.stringify(value));
       const unknownProducer = observe();
-      expect(unknownProducer.status).not.toBe(0);
+      expect(unknownProducer.status, unknownProducer.stderr).toBe(1);
+      expect(unknownProducer.stderr).toContain(
+        invalid === firstInvocation
+          ? 'retired release has no attested completion invocation'
+          : 'terminally retired release has no valid exact result receipt'
+      );
     }
     writeFileSync(resultPath, receipt);
     for (const field of ['runId', 'sha', 'imageId', 'controlSha']) {
@@ -1444,10 +1467,14 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
               ? A_IMAGE
               : 'invalid';
       writeFileSync(resultPath, JSON.stringify(invalid));
-      expect(observe().status).not.toBe(0);
+      const changedReceipt = observe();
+      expect(changedReceipt.status, changedReceipt.stderr).toBe(1);
+      expect(changedReceipt.stderr).toContain(
+        'terminally retired release has no valid exact result receipt'
+      );
     }
     writeFileSync(resultPath, receipt);
-  });
+  }, 780_000);
 
   it('reconstructs a durable per-run result after a crash between seal commit and result write', () => {
     runSeal([

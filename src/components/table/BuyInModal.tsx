@@ -10,6 +10,7 @@
  * - Account balance display
  */
 
+import { withFreezeTime } from '../../hooks/useEntryFreeze';
 import { isFixedLimitVariant } from '../../lib/bettingStructure';
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { haptic, soundService } from '../../services/SoundService';
@@ -331,7 +332,8 @@ export function BuyInModal({
       }
       const confirmed = await onConfirm(clampedBuyIn, autoRebuy);
       if (confirmed && typeof confirmed === 'object' && confirmed.status === 'rejected') {
-        setConfirmError(confirmed.message);
+        /* A frozen door says when it opens (Dan 2026-11-07). */
+        setConfirmError(await withFreezeTime(confirmed.message));
       } else if (confirmed === false) {
         setConfirmError('Buy-In Not Yet Confirmed.');
         reportError(new Error('Buy-In Not Yet Confirmed.'), 'BuyInModal.buy_in_not_confirmed', {

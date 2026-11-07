@@ -218,6 +218,41 @@ export function scoreGtoV31CellPlan(
  * the densest cells by their weakest kind. The score assumes the plan's tables
  * are the probed tables (pairs per table follow their count).
  */
+/**
+ * An eligible-cell file restricts which cells a proposal may pick (R8: only
+ * the street/texture classes whose board space can supply the per-context
+ * recipe of 57 training boards and 8 holdout candidates). The file lists
+ * `eligible: [{street, texture_class}]`; a cell is eligible when its street
+ * and texture are listed. Anything malformed is refused, never ignored.
+ */
+export function gtoV31EligibleCellFilter(
+  file: unknown
+): (cell: GtoV31DemandCellContext) => boolean {
+  const fail = (why: string): never => {
+    throw new Error('GTO_V31_ELIGIBLE_CELLS_' + why);
+  };
+  if (!file || typeof file !== 'object' || Array.isArray(file)) fail('FILE');
+  const eligible = (file as { eligible?: unknown }).eligible;
+  if (!Array.isArray(eligible) || eligible.length === 0) fail('LIST');
+  const allowed = new Set<string>();
+  for (const entry of eligible as unknown[]) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail('ENTRY');
+    const e = entry as Record<string, unknown>;
+    const keys = Object.keys(e).sort().join(',');
+    if (
+      keys !== 'street,texture_class' ||
+      !['flop', 'turn', 'river'].includes(e.street as string) ||
+      typeof e.texture_class !== 'string' ||
+      !/^[ABML][mtr][pu][cd]$/.test(e.texture_class)
+    )
+      fail('ENTRY');
+    const key = `${e.street}|${e.texture_class}`;
+    if (allowed.has(key)) fail('DUPLICATE');
+    allowed.add(key);
+  }
+  return (cell) => allowed.has(`${cell.street}|${cell.texture}`);
+}
+
 export function proposeGtoV31CellPlan(
   demand: GtoV31Demand,
   options: {

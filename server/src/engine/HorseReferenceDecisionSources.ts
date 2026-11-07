@@ -81,7 +81,7 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/HorseContinuationPlanInvalidation.ts':
       'the Items 21 and 23 multi-street plan contender and stack-exposure fingerprint and its continuation verdict, consulted by the reference barrel plan (activated 2026-11-05)',
     'src/engine/HorseOmahaBigBetCalls.ts':
-      'the V81 PLO4/PLO5 big-bet call fold in measured losing cells, applied in the final wager rules right after the paired-board fold (Phase 4, 2026-11-02)',
+      'the V81 PLO4/PLO5 big-bet call fold and the V84 PLO4/PLO5/PLO6 river re-raise call fold in measured losing cells, applied in the final wager rules right after the paired-board fold (Phase 4, 2026-11-02; V84 2026-11-07)',
     'src/engine/HorseShortAllInCallFloor.ts':
       'the tournament short all-in call floor (under 3BB shove, 20BB+ horse calls), the last action rule after every other layer (Dan 2026-10-26)',
     'src/engine/HorseOmahaImpliedDraw.ts':
@@ -140,6 +140,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the V71 chip-EV Nash jam-or-fold table (169 thresholds per seat count and ante level)',
     'src/engine/HorseGtoDefenceRanges.ts':
       "the V72 Hold'em single-open defence by defender and opener seat: continue orders, value bars and bluff mix",
+    'src/engine/HorseHuBbDefence.ts':
+      "the default-off heads-up big blind price defence: each Hold'em class's equity against the heads-up open range by width, and the realisation the price is read with",
     'src/engine/HorseGtoVs3BetRanges.ts':
       "the V73 Hold'em opener's answer to one 3-bet: continue orders and widths as a share of the seat's own open",
     'src/engine/pineappleDiscardChoice.ts': 'the Pineapple discard',
@@ -235,6 +237,8 @@ export const HORSE_REFERENCE_DECISION_BOUNDARY: readonly string[] = Object.freez
 export const HORSE_REFERENCE_DECISION_EXCLUDED: Readonly<Record<string, string>> = Object.freeze({
   'src/services/errorReporter.ts': 'reports a thrown decision; the safety net, not a decision',
   'src/engine/BrainTelemetry.ts': 'fire counters and latency telemetry; no value a decision reads',
+  'src/engine/horseDecisionGravity.ts':
+    'shapes think time only (how long to wait), after the action and amount are chosen; never an action or amount',
   'src/engine/HorsePolicyGraph.ts':
     'runs the owners in order and records what each returned; the decision is each step value',
   'src/engine/HorsePhase6Attribution.ts':

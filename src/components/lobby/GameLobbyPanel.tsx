@@ -1,5 +1,4 @@
-import { payoutSharePercent, pendingHouseShare } from '../../utils/tournamentPrizeFunding';
-import { useTournamentPrizeFunding } from '../../hooks/useTournamentPrizeFunding';
+import { payoutSharePercent } from '../../utils/tournamentPrizeFunding';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * GAME LOBBY PANEL — the selected game's dedicated lobby (Lobby V2)
@@ -742,56 +741,15 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
       tournament.prize_pool_finalized === true
     );
   }, [panelIsSatellite, panelPayouts, tournament, tournamentFieldSize]);
-  /**
-   * THE GUARANTEED MINIMUM UNDER EACH PROJECTED PLACE (2026-11-07). The
-   * Projected column priced every place on what the field had put into
-   * places, so on a guaranteed event still registering it read 1,196 for
-   * first while Rewards, on the same event, read 1,196 and "Guaranteed
-   * 1,856". The same funding read Rewards uses, the same pending house share
-   * (what the house adds at close if the field does not close the guarantee)
-   * and the same ladder: places + house share, priced by the one rule. Only
-   * while the pool is open, never on a satellite, and only when the house
-   * still owes something.
-   */
-  const panelFunding = useTournamentPrizeFunding(
-    tournament?.id ?? null,
-    tournament,
-    'GameLobbyPanel.prize_funding_load_failed'
-  );
-  const panelPendingHouse = pendingHouseShare(panelFunding);
-  const panelGuaranteedLadderPool = useMemo<number | null>(() => {
-    if (
-      !tournament ||
-      !(Number(tournament.guaranteed_prize) > 0) ||
-      tournament.prize_pool_finalized === true ||
-      panelIsSatellite ||
-      !(panelPendingHouse > 0)
-    ) {
-      return null;
-    }
-    if (tournament.bubble_protection === true && tournamentFieldSize === null) return null;
-    return effectivePlaceLadderPool(
-      (Number(tournament.prize_pool) || 0) + panelPendingHouse,
-      tournament.guaranteed_prize,
-      panelPayouts,
-      tournamentFieldSize ?? 0,
-      tournament.bubble_protection === true,
-      Number(tournament.buy_in_amount) || 0,
-      panelIsSatellite,
-      tournament.bounty_pool
-    );
-  }, [panelIsSatellite, panelPayouts, panelPendingHouse, tournament, tournamentFieldSize]);
-  /* The Projected column exists when there is a ladder to price: the places
-     pool, or the guaranteed one while the house share is pending. A zero
-     pool with a guarantee alone used to open the column and print nothing
-     useful in it. */
-  const panelShowsProjected =
-    (panelPlaceLadderPool !== null && panelPlaceLadderPool > 0) ||
-    (panelGuaranteedLadderPool !== null && panelGuaranteedLadderPool > 0);
+  /* The Prize column exists when there is an actual places pool to price.
+     NO PROJECTED PAYOUTS (Dan, 2026-11-07): each place is priced on the
+     prize pool as it stands right now, never on money the house has not yet
+     put in. */
+  const panelShowsPrize = panelPlaceLadderPool !== null && panelPlaceLadderPool > 0;
 
   /**
    * THE UNIT THIS EVENT PAYS IN, read from the arena `getTournament` embedded
-   * rather than assumed. The projected ladder below is the surface the Diamond
+   * rather than assumed. The prize ladder below is the surface the Diamond
    * build programme named as still speaking chips for a Diamond event, and
    * this is what it speaks instead: `computePlacePrize` snaps every share to
    * this unit and `formatPrizeAtUnit` prints it at the same one, so a player
@@ -1346,7 +1304,7 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                             <tr>
                               <th>Place</th>
                               <th>Share</th>
-                              {panelShowsProjected && <th>Projected</th>}
+                              {panelShowsPrize && <th>Prize</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -1354,60 +1312,29 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                               <tr key={p.place}>
                                 <td>{p.place}</td>
                                 <td>{payoutSharePercent(p.percentage, panelPayouts)}%</td>
-                                {panelShowsProjected &&
-                                  (() => {
-                                    /* The bubble promise is reserved before the
-                                        place ladder is projected. Display the
-                                        same cent-rounded amount settlement uses. */
-                                    const projected =
-                                      panelPlaceLadderPool === null || !(panelPlaceLadderPool > 0)
-                                        ? null
-                                        : placePrize(
-                                            panelPlaceLadderPool,
-                                            panelPayouts,
-                                            p.place,
-                                            panelUnitCents
-                                          );
-                                    const guaranteed =
-                                      panelGuaranteedLadderPool === null ||
-                                      !(panelGuaranteedLadderPool > 0)
-                                        ? null
-                                        : placePrize(
-                                            panelGuaranteedLadderPool,
-                                            panelPayouts,
-                                            p.place,
-                                            panelUnitCents
-                                          );
-                                    return (
-                                      <td>
-                                        <span className="glp__projected">
-                                          {projected === null
-                                            ? '-'
-                                            : formatPrizeAtUnit(projected, panelUnitCents)}
-                                        </span>
-                                        {guaranteed !== null && guaranteed > (projected ?? 0) && (
-                                          <span className="glp__projected-gtd">
-                                            Guaranteed{' '}
-                                            {formatPrizeAtUnit(guaranteed, panelUnitCents)}
-                                          </span>
-                                        )}
-                                      </td>
-                                    );
-                                  })()}
+                                {panelShowsPrize && (
+                                  <td>
+                                    <span className="glp__prize">
+                                      {formatPrizeAtUnit(
+                                        placePrize(
+                                          panelPlaceLadderPool ?? 0,
+                                          panelPayouts,
+                                          p.place,
+                                          panelUnitCents
+                                        ),
+                                        panelUnitCents
+                                      )}
+                                    </span>
+                                  </td>
+                                )}
                               </tr>
                             ))}
                           </tbody>
                         </table>
                       </div>
-                      <p className="glp__note">
-                        Projected Amounts Are Estimates From The Current Prize Pool, Not Final
-                        Payouts.
-                        {panelGuaranteedLadderPool !== null &&
-                          ` Guaranteed Figures Include The ${formatPrizeAtUnit(
-                            panelPendingHouse,
-                            panelUnitCents
-                          )} The House Adds If The Field Does Not Close The Guarantee.`}
-                      </p>
+                      {panelShowsPrize && (
+                        <p className="glp__note">Amounts Update Live With The Prize Pool.</p>
+                      )}
                     </>
                   ) : (
                     <p className="glp__note">

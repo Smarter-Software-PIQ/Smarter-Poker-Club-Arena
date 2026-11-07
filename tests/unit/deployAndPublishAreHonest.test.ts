@@ -235,24 +235,18 @@ describe('engine deployment reports what actually happened', () => {
     const release = uncommented(job(deploy, 'deploy'));
     const receipt = uncommented(job(deploy, 'record-receipt'));
 
-    // A GitHub job is the runner isolation boundary: server dependency scripts
-    // and tests finish in preflight before the root-authorized job can start.
-    expect(preflight).toMatch(/^ {2}preflight:/);
-    expect(preflight).toMatch(/^ {4}runs-on: ubuntu-latest$/m);
-    expect(preflight).toMatch(/^ {8}working-directory: server$/m);
-    expect(preflight).toMatch(/^\s+npm ci --no-audit --no-fund\s*$/m);
-    expect(preflight).toMatch(/^\s+npm run build\s*$/m);
-    // All four partitions must finish before the matrix dependency releases
-    // either privileged job. No conditional/excluded shard or ignored failure.
-    expect(preflight).toMatch(
-      /^ {4}strategy:\n {6}fail-fast: false\n {6}max-parallel: 4\n {6}matrix:\n {8}shard: \[1, 2, 3, 4\]$/m
+    const shards = uncommented(
+      job(read('.github/workflows/engine-release-prequalification.yml'), 'qualify')
     );
-    expect(preflight).toMatch(/^ {10}RELEASE_TEST_SHARD: \$\{\{ matrix\.shard \}\}$/m);
-    expect(preflight).toMatch(
-      /^\s+npm test -- --exclude src\/engine\/RetainedHistoricalCheckpointQualification\.test\.ts --shard="\$RELEASE_TEST_SHARD\/4"\s*$/m
-    );
-    // The whole matrix belongs only to deployment events. Withdrawal has no
-    // image authority; every actual deployment still executes all four shards.
+    expect(shards).toMatch(/^ {4}runs-on: ubuntu-24.04$/m);
+    expect(shards).toMatch(/^ {8}working-directory: server$/m);
+    expect(shards).toMatch(/^\s+npm ci --no-audit --no-fund\s*$/m);
+    expect(shards).toMatch(/^\s+npm run build\s*$/m);
+    expect(shards).toMatch(/shard: \[1, 2, 3, 4\]/);
+    expect(shards).toContain('--shard="$RELEASE_TEST_SHARD/4"');
+    expect(shards).not.toMatch(/secrets\.|continue-on-error|exclude:/);
+    expect(preflight).toContain('scripts/ci/read-engine-prequalification.py');
+    expect(preflight).not.toContain('npm test');
     const eventGate = "    if: github.event.action == 'deploy-club-arena-engine'";
     expect(preflight.split('\n').filter((line) => line === eventGate)).toHaveLength(1);
     expect(preflight.replace(eventGate, '')).not.toMatch(

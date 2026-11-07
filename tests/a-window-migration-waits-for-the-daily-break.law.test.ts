@@ -18,8 +18,14 @@
  *      again inside the transaction it sends.
  *   2. Single transaction: one BEGIN/COMMIT per file, the history row inside
  *      it, nothing that manages its own transaction.
- *   3. No retry loop: one attempt per file, the first refusal stops the run,
- *      the wait is one bounded wait for one window, no new schedule.
+ *   3. No retry loop: one attempt per file, a refused file is skipped alone
+ *      (named, still queued) while the files behind it are still sent once
+ *      each, only UNKNOWN stops the run, the wait is one bounded wait for one
+ *      window, no new schedule. Since 2026-11-07 a file may name the hot
+ *      relations it locks ("-- @locks: public.clubs"); the installer sends
+ *      undeclared files first, then declared files grouped by shared relation
+ *      oldest first, and a skipped file's line names the relation it lost.
+ *      The declaration orders; it never widens a timeout or earns a retry.
  *   4. The override reason is supplied by the route and recorded by the
  *      existing DDL guard; the file may not supply its own.
  *   5. It refuses rather than waits: 1 s lock_timeout, 5 s statements, an 8 s
@@ -54,6 +60,12 @@ import {
   overrideReason,
   dailyWindows,
   windowToServe,
+  LOCKS_ANNOTATION,
+  windowLocks,
+  orderWindowQueue,
+  lostRelationsFromRefusal,
+  isLockTimeoutRefusal,
+  lostDeclaredRelations,
 } from '../scripts/ci/maintenance-window-migrations.mjs';
 
 const root = process.cwd();
@@ -77,6 +89,101 @@ describe('a window migration declares itself exactly', () => {
       windowDeclaration(`${WINDOW_ANNOTATION}\n${WINDOW_ANNOTATION}\nBEGIN;\nCOMMIT;`)
     ).toThrow();
     expect(declaresMaintenanceWindow('-- @install-window: nightly\n')).toBe(false);
+  });
+});
+
+describe('a window migration names the lock it needs, for ordering only (2026-11-07)', () => {
+  const locked = (locks: string, body = 'ALTER TABLE public.clubs ADD COLUMN x int;') =>
+    `-- x\n${WINDOW_ANNOTATION}\n${LOCKS_ANNOTATION} ${locks}\nBEGIN;\n${body}\nCOMMIT;\n`;
+
+  it('parses one schema-qualified comma-separated @locks line and refuses anything looser', () => {
+    expect(LOCKS_ANNOTATION).toBe('-- @locks:');
+    expect(windowLocks(fixture)).toEqual([]);
+    expect(windowLocks(locked('public.clubs, public.tables'))).toEqual([
+      'public.clubs',
+      'public.tables',
+    ]);
+    expect(windowLocks(locked('Public.Clubs,public.clubs'))).toEqual(['public.clubs']);
+    // A header comment that merely mentions @locks is not a declaration.
+    expect(windowLocks(`-- the @locks line is optional\n${fixture}`)).toEqual([]);
+    for (const bad of ['nonsense', 'clubs', 'public.clubs tables', '', 'public.clubs;']) {
+      expect(() => windowLocks(locked(bad)), bad).toThrow();
+      expect(() => validateWindowMigration(FILE, locked(bad)), bad).toThrow();
+    }
+    expect(() =>
+      windowLocks(`${locked('public.clubs')}${LOCKS_ANNOTATION} public.tables\n`)
+    ).toThrow();
+    expect(validateWindowMigration(FILE, locked('public.clubs'))).toBe(true);
+    // Undeclared is allowed: the file is independent and its order is unchanged.
+    expect(validateWindowMigration(FILE, fixture, { preamble: [] })).toBe(true);
+  });
+
+  it('sends undeclared files first by version, then declared files grouped by shared relation', () => {
+    const order = orderWindowQueue([
+      { file: '20990101000005_e.sql', locks: ['public.tables'] },
+      { file: '20990101000004_d.sql', locks: [] },
+      { file: '20990101000003_c.sql', locks: ['public.hand_history'] },
+      { file: '20990101000002_b.sql', locks: ['public.clubs', 'public.tables'] },
+      { file: '20990101000001_a.sql', locks: ['public.clubs'] },
+      { file: '20990101000006_f.sql', locks: [] },
+    ]).map((e) => e.file.slice(15, 16));
+    // d, f declare nothing; a-b-e share clubs/tables (oldest a); c is alone.
+    expect(order).toEqual(['d', 'f', 'a', 'b', 'e', 'c']);
+    // Nothing declared: the order is exactly today's oldest-first order.
+    expect(
+      orderWindowQueue([
+        { file: '20990101000002_b.sql', locks: [] },
+        { file: '20990101000001_a.sql', locks: [] },
+      ]).map((e) => e.file)
+    ).toEqual(['20990101000001_a.sql', '20990101000002_b.sql']);
+  });
+
+  it('names the relation a refused file lost, from the refusal text or the declared holder', () => {
+    expect(
+      lostRelationsFromRefusal(
+        '[apply] ERROR 55P03: could not obtain lock on relation "public.clubs"'
+      )
+    ).toEqual(['public.clubs']);
+    expect(lostRelationsFromRefusal('could not obtain lock on relation "tables"')).toEqual([
+      'public.tables',
+    ]);
+    expect(lostRelationsFromRefusal('[apply] ERROR 55000: install_window_closed')).toEqual([]);
+    expect(
+      isLockTimeoutRefusal('[apply] ERROR 55P03: canceling statement due to lock timeout')
+    ).toBe(true);
+    expect(isLockTimeoutRefusal('[apply] ERROR 55000: x')).toBe(false);
+    expect(
+      lostDeclaredRelations(['public.clubs', 'public.tables'], [{ relation: 'public.tables' }])
+    ).toEqual(['public.tables']);
+    expect(lostDeclaredRelations(['public.clubs', 'public.tables'], [])).toEqual([
+      'public.clubs',
+      'public.tables',
+    ]);
+    expect(lostDeclaredRelations([], [{ relation: 'public.tables' }])).toEqual([]);
+  });
+
+  it('the installer orders by the declaration, captures the refusal and changes nothing else', () => {
+    // Ordering happens after every file passed the static rules (a bad @locks
+    // is "REFUSED before waiting") and before the preflight-only exit.
+    const order = installer.indexOf('queued = orderWindowQueue(');
+    expect(order).toBeGreaterThan(installer.indexOf('REFUSED before waiting'));
+    expect(order).toBeLessThan(installer.indexOf("args.includes('--preflight-only')"));
+    const loop = installer.slice(installer.indexOf('for (const f of queued) {\n  const started'));
+    // The applier's stderr is captured to read the refusal and re-emitted whole.
+    expect(loop).toContain("stdio: ['ignore', 'inherit', 'pipe']");
+    expect(loop).toContain('if (refusalText) process.stderr.write(refusalText);');
+    // The declaration never reaches the applier: same flags, same transaction.
+    expect(loop).not.toMatch(/--locks|declared.*APPLIER|APPLIER.*declared/);
+    expect(installer).not.toMatch(/lock_timeout\s*[=:]|SET\s+(LOCAL\s+)?statement_timeout/i);
+    // The quiet-moment wait still reads the SQL, not the declaration.
+    expect(loop).toContain('await awaitQuietMoment(f, targets);');
+    // The skip line and the verdict name the lost relation.
+    expect(loop).toContain(
+      "(relations.length ? ` Lost its lock on ${relations.join(', ')}.` : '')"
+    );
+    expect(loop).toContain(
+      "`${skipped.map((s) => `\\`${s}\\`${lostNote(s)}`).join(', ')}; installed ${installed.length}: `"
+    );
   });
 });
 
@@ -415,7 +522,8 @@ describe('explicit database-only owner-window continuation', () => {
     const workflow = parse(read('.github/workflows/stage-engine-release.yml'));
     expect(workflow.on.workflow_dispatch.inputs.owner_window_id.required).toBe(true);
     expect(workflow.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
-    expect(workflow.jobs.signal.needs).toBe('detect');
+    expect(workflow.jobs.selection.needs).toBe('detect');
+    expect(workflow.jobs.signal.needs).toEqual(['detect', 'selection']);
     const job = workflow.jobs['window-migrations'];
     expect(job.if).toContain("github.ref == 'refs/heads/main'");
     expect(job.if).toContain('always()');

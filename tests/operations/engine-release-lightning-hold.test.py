@@ -20,6 +20,10 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+# Hang guard only: every subprocess here runs against fakes, so no assertion
+# depends on host speed, and a loaded host must not turn a slow pass into a
+# TimeoutExpired. A healthy child finishes far below it.
+HANG_GUARD_SECONDS = 120
 SCRIPT = ROOT / "server" / "scripts" / "engine-release-lightning-hold.py"
 
 spec = importlib.util.spec_from_file_location("lightning_hold", SCRIPT)
@@ -352,7 +356,7 @@ def door(url,p):
 h.pause('https://kuklfnapbkmacvwxktbh.supabase.co',door,'123-1',Path(sys.argv[2]))
 '''
         result = subprocess.run([sys.executable, "-B", "-c", source, str(SCRIPT),
-                                 str(self.hold_file), str(effect), C1], timeout=5)
+                                 str(self.hold_file), str(effect), C1], timeout=HANG_GUARD_SECONDS)
         self.assertEqual(result.returncode, 91)
         self.assertEqual(self.read()["unknown"], [C1])
         request = json.loads(effect.read_text())

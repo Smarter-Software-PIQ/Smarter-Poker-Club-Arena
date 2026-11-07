@@ -112,6 +112,135 @@ export function declaresMaintenanceWindow(sql) {
   }
 }
 
+/*
+ * ===========================================================================
+ *  A WINDOW MIGRATION NAMES THE LOCK IT NEEDS (2026-11-07)
+ * ===========================================================================
+ *
+ * Since 2026-11-07 a refused file is skipped alone and the queue behind it
+ * still installs, so the order the installer sends files in now decides which
+ * files a single lost lock can take down with it. A window migration may say,
+ * on a header line of its own, which hot relations its writer-blocking lock
+ * needs:
+ *
+ *     -- @locks: public.clubs, public.tables
+ *
+ * Schema-qualified relation names, comma separated, nothing else. The line is
+ * ADVISORY FOR ORDERING ONLY: it never widens a timeout, never earns a retry
+ * and never changes the transaction the applier sends. The installer sends the
+ * files that declare nothing first (oldest version first), then the files that
+ * declare locks, grouped so that files sharing a relation are adjacent and
+ * oldest first inside the group. A refused file is still skipped alone; its
+ * SKIPPED line and the run's verdict now name the relation it lost when the
+ * applier's refusal says which one (`could not obtain lock on relation "..."`),
+ * or, for a lock_timeout refusal (55P03), the declared relation a live
+ * transaction still held at the refusal.
+ *
+ * An unparseable @locks value is a static refusal before any wait, like every
+ * other header the installer reads: a typo must not quietly reorder the queue.
+ */
+export const LOCKS_ANNOTATION = '-- @locks:';
+const LOCKS_LINE = /^--[ \t]*@locks:[ \t]*(.*?)[ \t]*$/gm;
+const RELATION = /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * The relations a window file declares with `-- @locks:`, lower-cased and
+ * de-duplicated, in declaration order; [] when the file declares none. Throws
+ * on a malformed declaration (two lines, an empty list, an unqualified or
+ * otherwise unparseable name).
+ */
+export function windowLocks(sql) {
+  const text = String(sql);
+  const found = [...text.matchAll(LOCKS_LINE)].map((m) => m[1]);
+  const loose = text.split('\n').filter((line) => /^--[ \t]*@locks/i.test(line));
+  if (found.length === 0 && loose.length === 0) return [];
+  if (found.length !== 1 || loose.length !== 1)
+    throw new Error(
+      `a locks declaration must be exactly one line "${LOCKS_ANNOTATION} schema.relation[, schema.relation...]"`
+    );
+  const parts = found[0]
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0 || parts.some((p) => !RELATION.test(p)))
+    throw new Error(
+      `"${LOCKS_ANNOTATION} ${found[0]}" is not a comma-separated list of schema-qualified relations`
+    );
+  return [...new Set(parts.map((p) => p.toLowerCase()))];
+}
+
+/**
+ * The order the installer sends a queue in. `entries` is [{ file, locks }]
+ * with `locks` from windowLocks. Files declaring no locks come first, oldest
+ * version first (their order among themselves is unchanged). Files declaring
+ * locks follow, grouped so that files sharing any relation (transitively) are
+ * adjacent; groups are ordered by their oldest member, files inside a group by
+ * version. Pure, deterministic, and never drops or duplicates a file.
+ */
+export function orderWindowQueue(entries) {
+  const byVersion = (a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
+  const independent = entries.filter((e) => !e.locks || e.locks.length === 0).sort(byVersion);
+  const locked = entries.filter((e) => e.locks && e.locks.length > 0).sort(byVersion);
+  // Union-find over relations: two files sharing a relation share a group.
+  const parent = new Map();
+  const find = (x) => {
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)));
+      x = parent.get(x);
+    }
+    return x;
+  };
+  const union = (a, b) => parent.set(find(a), find(b));
+  for (const e of locked) {
+    for (const rel of e.locks) if (!parent.has(rel)) parent.set(rel, rel);
+    for (const rel of e.locks.slice(1)) union(e.locks[0], rel);
+  }
+  const groups = new Map();
+  for (const e of locked) {
+    const root = find(e.locks[0]);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(e);
+  }
+  const ordered = [...groups.values()]
+    .map((g) => g.sort(byVersion))
+    .sort((a, b) => byVersion(a[0], b[0]))
+    .flat();
+  return [...independent, ...ordered];
+}
+
+/**
+ * The relation a refused window install lost, read from the applier's own
+ * stderr: PostgreSQL's NOWAIT refusal names it outright. A lock_timeout
+ * refusal (55P03 "canceling statement due to lock timeout") does not, so the
+ * caller then names the declared relation a live transaction still held
+ * (lostDeclaredRelations). Returns [] when the text names nothing.
+ */
+export function lostRelationsFromRefusal(stderrText) {
+  const out = new Set();
+  for (const m of String(stderrText).matchAll(
+    /could not obtain lock on relation "((?:[A-Za-z_][A-Za-z0-9_]*\.)?[A-Za-z_][A-Za-z0-9_]*)"/g
+  ))
+    out.add((m[1].includes('.') ? m[1] : `public.${m[1]}`).toLowerCase());
+  return [...out];
+}
+
+/** True when the applier's stderr reports a lock_timeout refusal. */
+export function isLockTimeoutRefusal(stderrText) {
+  return /\b55P03\b/.test(String(stderrText));
+}
+
+/**
+ * For a 55P03 refusal: the declared relations a conflicting transaction held
+ * at the refusal (from QUIET_HOLDERS_QUERY's holders), or, when nothing
+ * readable singles one out, every declared relation.
+ */
+export function lostDeclaredRelations(declared, holders) {
+  if (!declared || declared.length === 0) return [];
+  const held = new Set((holders || []).map((h) => String(h.relation).toLowerCase()));
+  const named = declared.filter((r) => held.has(r));
+  return named.length > 0 ? named : [...declared];
+}
+
 /** Blank comments and dollar-quoted bodies' tags are kept; only `--` text goes. */
 const uncommented = (sql) => String(sql).replace(/--[^\n]*/g, ' ');
 
@@ -130,6 +259,11 @@ function durationMs(raw) {
 export function validateWindowMigration(file, sql, opts = {}) {
   if (windowDeclaration(sql) !== 'daily-maintenance')
     throw new Error(`${file} does not declare "${WINDOW_ANNOTATION}"`);
+  try {
+    windowLocks(sql);
+  } catch (e) {
+    throw new Error(`${file}: ${e.message}`);
+  }
   if (opts.preamble && opts.preamble.length > 0)
     throw new Error(
       `${file}: a window migration cannot carry CREATE INDEX CONCURRENTLY; build the index in an ordinary migration first`

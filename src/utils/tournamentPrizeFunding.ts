@@ -115,15 +115,15 @@ export interface PendingHouseFunding {
 }
 
 /**
- * WHAT THE HOUSE STILL ADDS AT CLOSE (2026-11-07), one rule for every
- * projected ladder. `house_due` is the database's own answer; when a row
+ * WHAT THE HOUSE STILL ADDS AT CLOSE (2026-11-07): the live overlay sentence
+ * beside the guarantee. It is never added to a place prize (no projected
+ * payouts, Dan 2026-11-07). `house_due` is the database's own answer; when a row
  * predates it, it is the whole obligation (house_required, or the overlay
  * when that is missing too) less what the house has already posted. A Free
  * Buy's promo chips are already in prize_pool (house_posted), so adding the
  * whole share again would price a 250 guarantee at 405. Paid events post
  * nothing before close, so for them this equals the overlay. `null` funding
- * (unread, failed, or keyed to an older pool) is zero: no floor is shown
- * rather than a guessed one.
+ * (unread, failed, or keyed to an older pool) is zero, never a guessed one.
  */
 export function pendingHouseShare(funding: PendingHouseFunding | null | undefined): number {
   if (!funding) return 0;

@@ -21,6 +21,7 @@ import {
   v31HandKey,
   type GtoPostflopV31Row,
 } from './GtoPostflopV31.js';
+import { fileURLToPath } from 'node:url';
 
 const SUITS: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
 function cards(value: string): Card[] {
@@ -373,7 +374,12 @@ describe('V31 certification and lookup', () => {
     expect(replaceGtoPostflopV31Evaluation([sixth])).toBe(1);
     expect(gtoPostflopV31EvaluationCount('3'.repeat(64))).toBe(0);
     expect(gtoV31StoreIsEmpty('3'.repeat(64))).toBe(true);
-    for (const checksum of ['2'.repeat(64), '4'.repeat(64), '5'.repeat(64), sixth.dataset_checksum]) {
+    for (const checksum of [
+      '2'.repeat(64),
+      '4'.repeat(64),
+      '5'.repeat(64),
+      sixth.dataset_checksum,
+    ]) {
       expect(gtoPostflopV31EvaluationCount(checksum)).toBe(1);
     }
     // One more: 4 is now the oldest.
@@ -1226,11 +1232,11 @@ describe('V31 reaches the full horse decision path', () => {
 
   it('the worker owns the loader and the loader reads only the certified RPC', () => {
     const worker = readFileSync(
-      new URL('./horseDecision/workerRuntime.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('./horseDecision/workerRuntime.ts', import.meta.url)),
       'utf8'
     );
     const loader = readFileSync(
-      new URL('../services/GtoPostflopV31Loader.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('../services/GtoPostflopV31Loader.ts', import.meta.url)),
       'utf8'
     );
     expect(worker).toContain('startGtoPostflopV31Loader()');

@@ -13,6 +13,9 @@ import { join } from 'node:path';
 import {
   EMPTY_PAST_START_CANCEL_AFTER_MS,
   EMPTY_PAST_START_CANCEL_RETRY_MS,
+  EMPTY_PAST_START_LANE_BUSY_RETRY_MS,
+  isCancellationLaneBusy,
+  laneBusyCancelAskedAt,
   shouldCancelEmptyPastStartEvent,
   type EmptyPastStartEvent,
 } from './emptyPastStartEvent.js';
@@ -135,7 +138,8 @@ describe('the discovery loop wiring', () => {
       source.indexOf('private launchEmptyEventCancel('),
       source.indexOf('private pastStartTopUpClock: Map<string, PastStartTopUpClock>')
     );
-    expect(lane).toContain('this.emptyEventCancelsInFlight.has(tournamentId)');
+    // One cancel at a time across the process (2026-11-07), which also covers this event.
+    expect(lane).toContain('this.emptyEventCancelsInFlight.size > 0');
     expect(lane).toContain('this.tournamentTopUpsInFlight.has(tournamentId)');
     expect(lane).not.toContain('PAST_START_TOP_UP_CONCURRENCY');
     expect(lane).toContain('!isMaintenanceFrozen()');
@@ -183,5 +187,66 @@ describe('the discovery loop wiring', () => {
     expect(source.indexOf('this.tournamentRecurring.topUpWithHorses(', start)).toBeGreaterThan(
       start
     );
+  });
+});
+
+/**
+ * ONE EMPTY-EVENT CANCEL AT A TIME, AND A BUSY LANE IS "NOT NOW" (2026-11-07).
+ * ~30 atomic_cancel_tournament calls at 20:05:12 UTC, all but one refused
+ * CANCELLATION_GLOBAL_LANE_BUSY (55P03) by the exclusive terminal-settlement
+ * lane, each reported as an error and parked for thirty minutes together.
+ */
+describe('the cancellation lane', () => {
+  const source = readFileSync(join(process.cwd(), 'src/GameServer.ts'), 'utf8');
+  const start = source.indexOf('AN EVENT NOBODY ENTERED IS CANCELLED (2026-10-15)');
+  const branch = source.slice(start, source.indexOf('/* At most every 45 s', start));
+  const lane = source.slice(
+    source.indexOf('private launchEmptyEventCancel('),
+    source.indexOf('private pastStartTopUpClock: Map<string, PastStartTopUpClock>')
+  );
+
+  it('recognises only the lane try-lock refusals, by code and exact name', () => {
+    expect(
+      isCancellationLaneBusy({ code: '55P03', message: 'CANCELLATION_GLOBAL_LANE_BUSY' })
+    ).toBe(true);
+    expect(isCancellationLaneBusy({ code: '55P03', message: 'CANCELLATION_BARRIER_BUSY' })).toBe(
+      true
+    );
+    // A different refusal, or the right name under the wrong code, keeps its report.
+    expect(
+      isCancellationLaneBusy({ code: '55000', message: 'CANCELLATION_GLOBAL_LANE_BUSY' })
+    ).toBe(false);
+    expect(
+      isCancellationLaneBusy({ code: '55000', message: 'CANCELLATION_EVENT_AUTHORITY_INCOMPLETE' })
+    ).toBe(false);
+    expect(isCancellationLaneBusy({ code: '55P03', message: 'lock not available' })).toBe(false);
+    expect(isCancellationLaneBusy(null)).toBe(false);
+    expect(isCancellationLaneBusy('CANCELLATION_GLOBAL_LANE_BUSY')).toBe(false);
+  });
+
+  it('asks a busy lane again after a minute, through the same thirty-minute gate', () => {
+    expect(EMPTY_PAST_START_LANE_BUSY_RETRY_MS).toBe(60 * 1000);
+    const now = Date.parse('2026-11-07T20:05:12Z');
+    const askedAt = laneBusyCancelAskedAt(now);
+    const gateOpen = (at: number) => at - askedAt >= EMPTY_PAST_START_CANCEL_RETRY_MS;
+    expect(gateOpen(now)).toBe(false);
+    expect(gateOpen(now + EMPTY_PAST_START_LANE_BUSY_RETRY_MS - 1)).toBe(false);
+    expect(gateOpen(now + EMPTY_PAST_START_LANE_BUSY_RETRY_MS)).toBe(true);
+  });
+
+  it('starts no second cancel while one is in flight anywhere in the process', () => {
+    expect(lane).toContain('this.emptyEventCancelsInFlight.size > 0');
+    expect(lane).not.toContain('this.emptyEventCancelsInFlight.has(tournamentId)\n');
+  });
+
+  it('handles a busy lane before the error report, quietly, and keeps the report for everything else', () => {
+    const busy = branch.indexOf('if (cancelError && isCancellationLaneBusy(cancelError)) {');
+    const report = branch.indexOf("'GameServer.empty_past_start_event_cancel_refused'");
+    expect(busy).toBeGreaterThan(-1);
+    expect(report).toBeGreaterThan(busy);
+    const busyArm = branch.slice(busy, branch.indexOf('if (cancelError) {', busy));
+    expect(busyArm).toContain('cancelAskedAt: laneBusyCancelAskedAt(now),');
+    expect(busyArm).not.toContain('reportError(');
+    expect(busyArm).toContain('return;');
   });
 });

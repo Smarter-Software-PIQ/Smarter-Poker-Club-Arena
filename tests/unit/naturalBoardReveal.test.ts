@@ -248,6 +248,36 @@ it('the actual rAF observer captures natural same-hand turn and river through th
   expect(result.verdict).toBe('qualified');
   expect(JSON.stringify(result)).not.toContain('PUBLIC');
 });
+it('continues beyond six completed receipts and stops at the finite twelve-receipt cap', () => {
+  installNaturalBoardReveal(10000);
+  for (let hand = 42; hand < 48; hand++) {
+    document.querySelector('.header-hand-number')!.textContent = `#${hand}`;
+    document.querySelector('.community-cards__container')!.innerHTML = card() + card() + card();
+    frame();
+    frame();
+    for (const _to of [4, 5]) {
+      add();
+      finished = false;
+      angle = 0;
+      currentTime = 0;
+      frame();
+      finished = true;
+      angle = 180;
+      currentTime = 350;
+      frame();
+      if (window.__naturalBoardReveal!.receipts.length === 6) {
+        frame();
+        expect(window.__naturalBoardReveal!.diagnostics.stopReason).toBeNull();
+      }
+      frame();
+    }
+  }
+  expect(window.__naturalBoardReveal!.receipts).toHaveLength(12);
+  expect(
+    window.__naturalBoardReveal!.receipts.every((receipt) => receipt.outcome === 'complete')
+  ).toBe(true);
+  expect(window.__naturalBoardReveal!.diagnostics.stopReason).toBe('receipt-cap');
+});
 it('records the old first bare-face opportunity as a violation even if a squeeze appears later', () => {
   installNaturalBoardReveal(10000);
   frame();

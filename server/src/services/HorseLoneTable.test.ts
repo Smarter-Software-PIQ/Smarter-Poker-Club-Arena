@@ -172,7 +172,7 @@ describe('THE WIRING (source contract)', () => {
   });
 
   it('the fleet asks the sit verdict for every selected horse BEFORE the first buy-in and refuses a lone seat', () => {
-    const verdictAt = FLEET.indexOf('cleared.push({ horse, seatNumber: emptySeats[i], verdict })');
+    const verdictAt = FLEET.indexOf('cleared.push({ horse, seatNumber: chair, verdict })');
     const refusalAt = FLEET.indexOf('refusesLoneSeat({');
     const seatAt = FLEET.indexOf('for (const { horse, seatNumber, verdict } of cleared)');
     expect(verdictAt).toBeGreaterThan(0);

@@ -162,7 +162,7 @@ describe('auto-deploy-hetzner.yml requires the Backup Engine certificate', () =>
     expect(steps.indexOf(gate)).toBe(target + 1);
     expect(gate.env.CERTIFIED_SHA).toBe('${{ steps.target.outputs.sha }}');
     expect(gate.env.GH_TOKEN).toBe('${{ github.token }}');
-    expect(preflight.permissions).toEqual({ contents: 'read', statuses: 'read' });
+    expect(preflight.permissions).toEqual({ contents: 'read', statuses: 'read', actions: 'read' });
     expect(gate.run).toContain('repos/$REPO/commits/$CERTIFIED_SHA/statuses');
     expect(gate.run).toContain('select(.context == "backup-engine/certified")');
     expect(gate.run).toContain('::error title=Backup Engine certificate gate::');
@@ -224,4 +224,12 @@ describe('auto-deploy-hetzner.yml requires the Backup Engine certificate', () =>
     expect(refused.stdout).toContain('::error title=Backup Engine certificate gate::');
     expect(refused.calls).toBe('');
   });
+});
+
+it('refuses missing, superseded and incompatible daytime qualification evidence', () => {
+  const result = spawnSync('python3', ['-B', 'tests/operations/engine-prequalification.test.py'], {
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+  expect(result.status, result.stderr).toBe(0);
 });

@@ -10,6 +10,7 @@ import {
 } from '../engine/GtoPostflopV31.js';
 import type { V31DemandSpot } from '../engine/HorseV31CertifiedPolicy.js';
 import {
+  gtoV31EligibleCellFilter,
   proposeGtoV31CellPlan,
   recordGtoV31Demand,
   scoreGtoV31CellPlan,
@@ -337,6 +338,39 @@ describe('R8 density pre-flight: scoring and proposal', () => {
     const all = proposeGtoV31CellPlan(demand(), { maxCells: 10 });
     expect(all.keys).toEqual(['A', 'C', 'B']);
     expect(proposeGtoV31CellPlan(demand(), { maxCells: 0 }).keys).toEqual([]);
+  });
+
+  it('an eligible-cell file restricts the proposal to listed street/texture classes', () => {
+    const d = demand();
+    d.cells.A = { potType: 'srp', street: 'turn', texture: 'Brud' } as never;
+    d.cells.B = { potType: 'srp', street: 'flop', texture: 'Brud' } as never;
+    d.cells.D = { potType: 'srp', street: 'turn', texture: 'Mtud' } as never;
+    const only = gtoV31EligibleCellFilter({
+      format: 'r8_eligible_cells_v1',
+      eligible: [{ street: 'turn', texture_class: 'Brud' }],
+    });
+    expect(proposeGtoV31CellPlan(d, { maxCells: 10, inScope: only }).keys).toEqual(['A']);
+    expect(proposeGtoV31CellPlan(d, { maxCells: 10 }).keys).toContain('B');
+    // without the filter the proposal is unchanged
+    expect(proposeGtoV31CellPlan(d, { maxCells: 10 }).keys).toEqual(
+      proposeGtoV31CellPlan(d, { maxCells: 10, inScope: () => true }).keys
+    );
+    for (const bad of [
+      null,
+      [],
+      { eligible: [] },
+      { eligible: [{ street: 'flop' }] },
+      { eligible: [{ street: 'preflop', texture_class: 'Brud' }] },
+      { eligible: [{ street: 'flop', texture_class: 'Xrud' }] },
+      { eligible: [{ street: 'flop', texture_class: 'Brud', extra: 1 }] },
+      {
+        eligible: [
+          { street: 'flop', texture_class: 'Brud' },
+          { street: 'flop', texture_class: 'Brud' },
+        ],
+      },
+    ])
+      expect(() => gtoV31EligibleCellFilter(bad)).toThrow(/GTO_V31_ELIGIBLE_CELLS_/);
   });
 
   it('does not starve a sparse table for a dense one', () => {

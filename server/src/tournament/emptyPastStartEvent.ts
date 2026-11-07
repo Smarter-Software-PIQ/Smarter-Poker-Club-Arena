@@ -39,6 +39,46 @@ export const EMPTY_PAST_START_CANCEL_AFTER_MS = 30 * 60 * 1000;
 /** A refused cancellation is a stable answer; ask again at most this often. */
 export const EMPTY_PAST_START_CANCEL_RETRY_MS = 30 * 60 * 1000;
 
+/**
+ * ONE EMPTY-EVENT CANCEL AT A TIME, AND A BUSY LANE IS "NOT NOW" (2026-11-07).
+ *
+ * atomic_cancel_tournament admits a cancellation through the platform's one
+ * exclusive terminal-settlement lane (smarter_private.cancellation_lane): a
+ * try-lock that refuses with SQLSTATE 55P03 CANCELLATION_GLOBAL_LANE_BUSY or
+ * CANCELLATION_BARRIER_BUSY rather than queue ahead of hand settlement. The
+ * discovery pass used to launch every eligible empty event at once, so all but
+ * one were refused by construction, and every refused event then waited the
+ * full EMPTY_PAST_START_CANCEL_RETRY_MS - together, so they collided again.
+ * Measured 2026-11-07 20:05:12 UTC: ~30 refusals in 100 ms from the engine,
+ * each reported as an error, while 41 empty Midway Union Sit & Go boards sat
+ * up to eight hours past start and were cancelled about one per pass.
+ *
+ * Now the engine asks one cancel at a time across the process, and a busy
+ * lane - a refusal that committed nothing - is asked again after
+ * EMPTY_PAST_START_LANE_BUSY_RETRY_MS instead of thirty minutes, without an
+ * error report. Every other refusal keeps the thirty-minute clock and its
+ * report.
+ */
+export const EMPTY_PAST_START_LANE_BUSY_RETRY_MS = 60 * 1000;
+
+const LANE_BUSY_REFUSALS = ['CANCELLATION_GLOBAL_LANE_BUSY', 'CANCELLATION_BARRIER_BUSY'];
+
+/** True only for the cancellation lane's own try-lock refusal (55P03, by name). */
+export function isCancellationLaneBusy(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (code !== '55P03' || typeof message !== 'string') return false;
+  return LANE_BUSY_REFUSALS.some((name) => message.trim() === name);
+}
+
+/**
+ * The cancelAskedAt to store after a busy-lane refusal at nowMs, so the
+ * thirty-minute retry gate opens EMPTY_PAST_START_LANE_BUSY_RETRY_MS later.
+ */
+export function laneBusyCancelAskedAt(nowMs: number): number {
+  return nowMs - EMPTY_PAST_START_CANCEL_RETRY_MS + EMPTY_PAST_START_LANE_BUSY_RETRY_MS;
+}
+
 export interface EmptyPastStartEvent {
   seatFirst: boolean;
   poolFinalized: boolean;
