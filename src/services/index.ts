@@ -164,7 +164,7 @@ export { achievementTriggerService } from './AchievementTriggerService';
 
 // Payout Engine (ICM, dynamic templates, overlay detection)
 export { payoutEngine } from './PayoutEngine';
-export type { PayoutEntry, PayoutTemplate, ICMResult, OverlayStatus } from './PayoutEngine';
+export type { PayoutEntry, PayoutTemplate, ICMResult } from './PayoutEngine';
 
 // Session Stats (real-time P&L, VPIP/PFR, trajectory)
 export { sessionStatsService } from './SessionStatsService';

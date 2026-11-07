@@ -180,6 +180,81 @@ describe('R8 density pre-flight: the demand hook', () => {
   });
 });
 
+/** The fixture spot reached through a preflop line instead of a limped pot. */
+function decidePreflop(
+  preflop: Array<[number, 'call' | 'raise' | 'check', number]>,
+  opts: Record<string, unknown>
+) {
+  const { hero, gs } = spot();
+  gs.actionHistory = [
+    ...preflop.map(([seat, action, amount], i) => ({
+      stage: 'preflop',
+      seat,
+      userId: seat === 1 ? 'hero' : 'villain',
+      action,
+      amount,
+      timestamp: -10 + i,
+      ...(action === 'raise' ? { isFullRaise: true } : {}),
+    })),
+    ...gs.actionHistory,
+  ];
+  seedFastRandom(0xabc);
+  return HorseLogic.decide(
+    hero as never,
+    gs as never,
+    'balanced',
+    {},
+    {
+      mind: false,
+      telemetry: false,
+      gtoV31DatasetChecksum: CHECKSUM,
+      ...opts,
+    }
+  );
+}
+
+describe('V31 key: a limp-raised pot is not a single-raised pot', () => {
+  const SRP_CELL: GtoPostflopV31Row = { ...CELL, pot_type: 'srp' };
+
+  it('a raise-first-in single-raised pot is keyed srp and answered by the srp cell', () => {
+    replaceGtoPostflopV31Evaluation([SRP_CELL]);
+    const spots: V31DemandSpot[] = [];
+    // Heads-up: the button (seat 2) opens, the big blind (hero) calls.
+    decidePreflop(
+      [
+        [2, 'raise', 300],
+        [1, 'call', 300],
+      ],
+      { onV31Demand: (s: V31DemandSpot) => spots.push(s) }
+    );
+    expect(spots).toHaveLength(1);
+    expect(spots[0]).toMatchObject({ potType: 'srp', hit: true });
+  });
+
+  it('a limped-then-raised pot never matches an srp cell', () => {
+    replaceGtoPostflopV31Evaluation([SRP_CELL]);
+    const spots: V31DemandSpot[] = [];
+    // Heads-up: the button (seat 2) completes, the big blind (hero) raises, the button calls.
+    decidePreflop(
+      [
+        [2, 'call', 100],
+        [1, 'raise', 300],
+        [2, 'call', 300],
+      ],
+      { onV31Demand: (s: V31DemandSpot) => spots.push(s) }
+    );
+    expect(spots).toHaveLength(1);
+    expect(spots[0].potType).toBe('lrp');
+    expect(spots[0].hit).toBe(false);
+    // The density pre-flight keys it apart from the srp cell too.
+    const asked = gtoV31DemandCell(spots[0])!;
+    const srp = gtoV31DemandCell({ ...spots[0], potType: 'srp' })!;
+    expect(asked.key).not.toBe(srp.key);
+    expect(asked.key.split('|')[5]).toBe('lrp');
+    expect(asked.key.split('|')).toHaveLength(13);
+  });
+});
+
 function demand(): GtoV31Demand {
   // Two tables: the contract plays max(10,000, ceil(50,000 / 2)) = 25,000 pairs each.
   return {

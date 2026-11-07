@@ -94,6 +94,7 @@ const BRAIN_SOURCE = BRAIN_FILES.map(read).join('\n');
 const RECEIPT_ONLY_FILES = [
   'engine/ServerTableEngineBase.ts',
   'engine/horseDecision/ownPublicHistory.ts',
+  'services/HorseExactOpponentMemory.ts',
   'services/HorseExploitHydrator.ts',
   'lightning/LightningHandHost.ts',
   'lightning/LightningHorse.ts',

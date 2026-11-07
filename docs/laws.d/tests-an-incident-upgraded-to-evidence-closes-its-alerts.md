@@ -1,0 +1,3 @@
+# tests/an-incident-upgraded-to-evidence-closes-its-alerts.law.test.ts
+
+`zz_ca_incident_resolution_reaches_the_alerts` fires on `status` OR `closure_basis`, so an already-resolved incident upgraded from `aged_out_unverified` to evidence reaches `fn_ca_incident_resolution_reaches_the_alerts` whatever its writer's SET list; the function itself (md5 `0d6c1f30fd1d9e1caebdfb9e9f2fd27e`, untouched) still refuses to propagate an age-out. The migration also closes the three `fn_ca_cron_failure_watch` alerts stranded on 2026-10-28 by a `closure_basis`-only upgrade, each re-checked against its `verified_remeasured` incident, and moves no chips.

@@ -405,7 +405,9 @@ export default function DetailOverviewTab({
         : formatPrizeAtUnit(n, overviewUnitCents)
     } ${moneyWordAtUnit(overviewUnitCents)}`;
 
-  /* ── Prize pool: the stored pool is authoritative, the guarantee is a floor. ── */
+  /* ── Prize pool: the stored pool is authoritative. The total is places plus
+     bounties, net of rake; the guarantee is never printed as the pool, and
+     the house share still owed is shown on its own (guaranteeShortfall). ── */
   const prize = useMemo(() => {
     return {
       effective: effectivePrizePool(

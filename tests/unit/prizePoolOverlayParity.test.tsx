@@ -136,3 +136,60 @@ describe('the lobby card shows the overlay beside the pool, never inside it', ()
     expect(screen.queryByText(/Overlay$/)).toBeNull();
   });
 });
+
+describe('a guaranteed satellite prints the field, not its guarantee (2026-11-07)', () => {
+  // The production 2.5K GTD 40 Chip Bounty Freezeout row at 46 entries, read
+  // as a satellite feeding a Main Event. Until today useSatellites mapped
+  // `prizePool: guaranteed_prize || prize_pool`, so this card said "2,500"
+  // and never showed the 660 the house still owed.
+  const row = {
+    format_contract: 'mtt-v2',
+    id: 'sat-gtd',
+    name: '40 Chip Bounty Freezeout 2.5K',
+    status: 'REGISTERING',
+    tournament_type: 'MTT',
+    satellite_target_id: 'main-event',
+    buy_in_amount: 36,
+    buy_in_fee: 4,
+    guaranteed_prize: 2500,
+    prize_pool: 1196,
+    bounty_pool: 460,
+    total_rake: 184,
+    prize_pool_finalized: false,
+    is_bounty: true,
+    bounty_amount: 10,
+    starting_chips: 10000,
+    blind_structure: [],
+    current_players: 46,
+    max_players: 1000,
+    start_time: '2099-10-23T13:00:00Z',
+  };
+
+  it('maps the places pool, bounty pool and rake separately from the guarantee', () => {
+    const card = mapSatelliteRowToCard(row);
+    expect(card.prizePool).toBe(1196);
+    expect(card.bountyPool).toBe(460);
+    expect(card.totalRake).toBe(184);
+    expect(card.guaranteedPrize).toBe(2500);
+    expect(displayTotalPool(card.prizePool, card.guaranteedPrize, card.bountyPool)).toBe(1656);
+    expect(guaranteeShortfall(card.guaranteedPrize, card.prizePool, card.bountyPool, card.totalRake)).toBe(
+      660
+    );
+  });
+
+  it('the satellite card reads the 1,656 total pool (compact 1.6K), GTD, and 660 overlay; never 2.5K as the pool', () => {
+    render(<TournamentLobbyCard tournament={mapSatelliteRowToCard(row)} knownRegistration={false} />);
+    const pool = screen.getByText('Total Pool').parentElement!.textContent!;
+    // The card compacts chips; 1,656 prints as 1.6K and 2,500 would print as 2.5K.
+    expect(pool).toContain('1.6K');
+    expect(pool).toContain('GTD');
+    expect(screen.getByText('660 Overlay')).toBeTruthy();
+    expect(pool).not.toContain('2.5K');
+  });
+
+  it('a satellite with no guarantee prints the pool it collected', () => {
+    const card = mapSatelliteRowToCard({ ...row, guaranteed_prize: null, bounty_pool: 0 });
+    expect(card.prizePool).toBe(1196);
+    expect(card.guaranteedPrize).toBeUndefined();
+  });
+});
