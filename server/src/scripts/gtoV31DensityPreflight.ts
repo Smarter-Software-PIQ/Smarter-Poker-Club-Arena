@@ -14,9 +14,15 @@
  *
  * --target (default 450) is the expected decisions per run the proposal aims
  * for before spending the rest of the budget on density.
+ *
+ * --eligible=<file> with --eligible-sha256=<hex> (both or neither) restricts
+ * the proposal to the cells that file lists as eligible (gtoV31EligibleCellFilter);
+ * scoring, demand and the ceiling are unchanged. Without it nothing changes.
  */
-import { writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 import {
+  gtoV31EligibleCellFilter,
   proposeGtoV31CellPlan,
   recordGtoV31Demand,
   scoreGtoV31CellPlan,
@@ -39,6 +45,19 @@ async function main(): Promise<void> {
   );
   const pots = new Set(arg('pots', 'srp').split(','));
   const out = arg('out', '');
+  const eligiblePath = arg('eligible', '');
+  const eligibleSha = arg('eligible-sha256', '');
+  if (!eligiblePath !== !eligibleSha)
+    throw new Error('--eligible and --eligible-sha256 go together');
+  let eligible:
+    | ((c: Parameters<ReturnType<typeof gtoV31EligibleCellFilter>>[0]) => boolean)
+    | null = null;
+  if (eligiblePath) {
+    const bytes = readFileSync(eligiblePath);
+    if (createHash('sha256').update(bytes).digest('hex') !== eligibleSha)
+      throw new Error('--eligible file does not match --eligible-sha256');
+    eligible = gtoV31EligibleCellFilter(JSON.parse(bytes.toString('utf8')));
+  }
   const demand = await recordGtoV31Demand({
     family: 'cash',
     tables,
@@ -48,7 +67,7 @@ async function main(): Promise<void> {
   const proposal = proposeGtoV31CellPlan(demand, {
     maxCells,
     targetDecisions: target,
-    inScope: (c) => pots.has(c.potType),
+    inScope: (c) => pots.has(c.potType) && (!eligible || eligible(c)),
   });
   const everything = scoreGtoV31CellPlan(
     demand,
@@ -63,6 +82,7 @@ async function main(): Promise<void> {
       probePairsPerTable: pairs,
       maxCells,
       targetDecisionsPerRun: target,
+      ...(eligiblePath ? { eligibleCells: { path: eligiblePath, sha256: eligibleSha } } : {}),
     },
     distinctCellsAsked: Object.keys(demand.cells).length,
     unkeyable: demand.unkeyable,
