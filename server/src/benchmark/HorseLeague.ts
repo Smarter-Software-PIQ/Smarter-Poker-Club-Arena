@@ -71,6 +71,7 @@ import { SUITS, RANKS, validateAction, calculateBettingState } from '../engine/P
 import {
   HUMAN_CALIBRATED_POPULATION_ID,
   humanCalibratedDecide,
+  type HumanCalibratedProfile,
   type HumanCalibratedSpot,
 } from './HumanCalibratedPopulation.js';
 import {
@@ -300,6 +301,40 @@ export interface LeagueHumanField {
   isHuman: (seatIdx: number) => boolean;
   /** Accumulates the population's responses per decision node. */
   responses?: Record<string, Record<string, number>>;
+  /** 2026-11-07 (RiverBluffBaselineLeague): the calibrated profile a field
+   *  seat plays, for a field that seats more than one tendency (a station, an
+   *  over-folder). Absent, or undefined for a seat: the population's own
+   *  calibrated profile for the variant, as every card before it. Calibrated
+   *  (non-V53) fields only. */
+  profileOf?: (seatIdx: number) => Readonly<HumanCalibratedProfile> | undefined;
+}
+
+/**
+ * 2026-11-07: a read-only observer of one dealt hand (RiverBluffBaselineLeague).
+ * It sees every action the street engine applied, after validation, and the
+ * settlement; it never changes a decision, consumes no randomness and is
+ * absent on every pre-existing path.
+ */
+export interface LeagueHandObserver {
+  onAction?: (e: {
+    seatIdx: number;
+    stage: HandStage;
+    action: string;
+    /** bet/raise/all-in: the street total wagered to; call: chips added */
+    amount: number;
+    /** pot before the action */
+    pot: number;
+    toCall: number;
+    /** live (unfolded) players before the action, the actor included */
+    liveBefore: number;
+  }) => void;
+  onEnd?: (e: {
+    endedByFolds: boolean;
+    folded: boolean[];
+    cards: Card[][];
+    board: Card[];
+    net: number[];
+  }) => void;
 }
 
 /**
@@ -405,7 +440,9 @@ export function playHand(
   /** 2026-11-06: false skips the settlement observation (observe +
    *  observeHandComplete) into the sandbox, so memory never learns
    *  (LeagueMatchup.memoryLearning). Default true: the pre-existing path. */
-  learn: boolean = true
+  learn: boolean = true,
+  /** 2026-11-07: read-only hand observer; absent on every existing path. */
+  observer?: LeagueHandObserver
 ): number[] {
   const SEATS = numSeats;
   if (humanField && !(leagueFieldVariants(humanField.population) ?? []).includes(gameVariant)) {
@@ -565,7 +602,7 @@ export function playHand(
         humanField?.isHuman(i) === true && humanField.population === V53_PRESSURE_POPULATION_ID
           ? pressureFieldDecision(humanField, p, gs, currentBet, lastRaise, toCall)
           : humanField?.isHuman(i) === true
-            ? humanFieldDecision(humanField, p, stage, boardCards, gameVariant, {
+            ? humanFieldDecision(humanField, i, p, stage, boardCards, gameVariant, {
                 pot,
                 currentBet,
                 lastRaise,
@@ -613,6 +650,25 @@ export function playHand(
 
       ts++;
       acted.add(i);
+      if (observer?.onAction) {
+        const liveBefore = live().length;
+        const potBefore = pot;
+        const amt =
+          action === 'call'
+            ? Math.min(toCall, p.stack)
+            : action === 'all_in'
+              ? p.bet + p.stack
+              : amount;
+        observer.onAction({
+          seatIdx: i,
+          stage,
+          action,
+          amount: amt,
+          pot: potBefore,
+          toCall,
+          liveBefore,
+        });
+      }
       if (action === 'fold') {
         p.is_folded = true;
         history.push({
@@ -860,7 +916,15 @@ export function playHand(
     }
   }
 
-  return seats.map((s, i) => winnings[i] - s.contributed);
+  const net = seats.map((s, i) => winnings[i] - s.contributed);
+  observer?.onEnd?.({
+    endedByFolds: live().length === 1,
+    folded: seats.map((s) => s.player.is_folded),
+    cards: seats.map((s) => s.player.cards),
+    board,
+    net,
+  });
+  return net;
 }
 
 /**
@@ -872,6 +936,7 @@ export function playHand(
  */
 function humanFieldDecision(
   field: LeagueHumanField,
+  seatIdx: number,
   p: SeatPlayer,
   stage: HandStage,
   board: Card[],
@@ -917,7 +982,8 @@ function humanFieldDecision(
     maxRaiseTo: canWager ? maxTo : null,
     wholeChips: false,
   };
-  const d = humanCalibratedDecide(spot);
+  const profile = field.profileOf?.(seatIdx);
+  const d = profile ? humanCalibratedDecide(spot, profile) : humanCalibratedDecide(spot);
   if (field.responses) {
     const tally = (field.responses[d.node] ??= {});
     tally[d.action] = (tally[d.action] ?? 0) + 1;
