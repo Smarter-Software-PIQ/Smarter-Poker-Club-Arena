@@ -1,5 +1,6 @@
 import React, { useState, memo } from 'react';
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { CardImage, type Card } from '../../../src/components/table/CardImage';
 import { useDeckImages } from '../../../src/hooks/useDeckImages';
 import { useTableArt } from '../../../src/hooks/useTableArt';
@@ -37,9 +38,9 @@ function Table() {
   const ready = useDeckImages(style);
   const art = useTableArt('', '', true, 'test', ready);
   Object.assign(window, {
-    nextHand: () => setHand((h) => h + 1),
-    setCardLoading: setLoading,
-    changeDeck: () => setStyle('2color'),
+    nextHand: () => flushSync(() => setHand((h) => h + 1)),
+    setCardLoading: (value: 'eager' | 'lazy') => flushSync(() => setLoading(value)),
+    changeDeck: () => flushSync(() => setStyle('2color')),
   });
   return (
     <div className="table-page" data-ready={String(art.reveal)} style={{ position: 'relative' }}>
