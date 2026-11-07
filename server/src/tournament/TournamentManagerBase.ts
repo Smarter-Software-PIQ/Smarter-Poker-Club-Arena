@@ -4731,6 +4731,54 @@ export abstract class TournamentManagerBase {
    * with cards in the air still holds the countdown, and an inspection that
    * throws is still not proof.
    */
+  /**
+   * HOW MANY TABLES ARE STILL FINISHING (Dan 2026-11-07). While a break waits
+   * on the last hand, every table that has already finished shows a waiting
+   * card; it now says how many tables are still playing, so one slow decision
+   * reads as "Waiting On 1 Table" rather than an unexplained wait.
+   */
+  breakWaitProgress(): { tablesFinishing: number; tablesTotal: number } {
+    const engines = Array.from(this.tableEngines.values());
+    let tablesFinishing = 0;
+    for (const e of engines) {
+      let parked = false;
+      try {
+        parked = e.isParkedBetweenHands() || (e.isMaintenancePaused() && e.isBetweenHands());
+      } catch {
+        parked = false;
+      }
+      if (!parked) tablesFinishing++;
+    }
+    return { tablesFinishing, tablesTotal: engines.length };
+  }
+
+  private lastPublishedBreakWait: string | null = null;
+
+  /**
+   * Publish the waiting progress to every table of this tournament, only when
+   * it changed. Presentation only: it never decides when the countdown starts.
+   */
+  async publishBreakWaitProgress(): Promise<void> {
+    if (!this.onBreak || this.breakCountdownStarted) return;
+    const progress = this.breakWaitProgress();
+    const key = `${this.synchronizedBreakStartGeneration}:${progress.tablesFinishing}/${progress.tablesTotal}`;
+    if (key === this.lastPublishedBreakWait) return;
+    this.lastPublishedBreakWait = key;
+    await this.broadcast('break_wait', progress);
+  }
+
+  /**
+   * THE 03:55 BREAK IS LONGER, AND SAYS WHY (Dan 2026-11-07). A tournament
+   * break that overlaps the daily engine update ends when the update ends
+   * (MaintenanceBreak.tournamentBreakEndsAt), so it runs about ten minutes.
+   * GameServer marks it before the countdown starts and the countdown event
+   * carries `extendedFor: 'daily_update'` so the break card can say so.
+   */
+  private breakExtendedForDailyUpdate = false;
+  markBreakExtendedForDailyUpdate(extended: boolean): void {
+    this.breakExtendedForDailyUpdate = extended;
+  }
+
   areAllTablesParked(): boolean {
     const engines = Array.from(this.tableEngines.values());
     if (engines.length === 0) return true;
@@ -4904,6 +4952,7 @@ export abstract class TournamentManagerBase {
       breakDurationMinutes: Math.round(breakDurationMs / 60000),
       breakEndsAt: endsAt,
       synchronized: true,
+      ...(this.breakExtendedForDailyUpdate ? { extendedFor: 'daily_update' } : {}),
     });
     if (
       !this.lifecycleIsCurrent(lifecycle) ||

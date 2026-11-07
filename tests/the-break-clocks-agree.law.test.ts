@@ -540,11 +540,14 @@ describe('the break scorecard grades only what the break controls', () => {
   });
 });
 
-// Four actual shell children each retain their 5s deadline. Allow a separate
-// 20s envelope for 16 isolated Git fixtures and canonical state/control work;
-// the outer test also covers the Git-context lookup and 5s for collection/teardown.
-const hourlyCycleQualificationTimeoutMs = 4 * 5_000 + 20_000;
-const hourlyCycleGitContextTimeoutMs = 5_000;
+// Four actual shell children each retain their own 5s deadline inside the
+// qualification script; that is the deadline under test and it is unchanged.
+// The envelope below only bounds the Python harness (16 isolated Git fixtures
+// plus canonical state/control work). It is 3x the measured-under-contention
+// budget because the full pre-push suite runs it beside hundreds of other
+// spawns; a slow box must report diagnostics, not a kill (2026-11-07).
+const hourlyCycleQualificationTimeoutMs = 3 * (4 * 5_000 + 20_000);
+const hourlyCycleGitContextTimeoutMs = 15_000;
 
 it(
   'qualifies the global Phase1 cycle in isolated canonical state and actual shell admission',

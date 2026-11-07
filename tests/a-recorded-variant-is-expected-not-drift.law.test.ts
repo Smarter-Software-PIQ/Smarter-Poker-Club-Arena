@@ -49,8 +49,11 @@ const VARIANTS = resolve(ROOT, '.github/estate-variants');
 const sandboxes: string[] = [];
 // The real multi-repository shell audit measured 24.3s in the 321-file push
 // suite. Bound the child at 45s and reserve 15s for reporting and cleanup.
-const AUDIT_CHILD_TIMEOUT_MS = 45_000;
-const AUDIT_TEST_TIMEOUT_MS = 60_000;
+// Load headroom (2026-11-07): under the full pre-push suite on a busy box
+// the audit has been killed at 45s. The child now gets 3x that bound and the
+// case 30s more for reporting and cleanup. Every assertion is unchanged.
+const AUDIT_CHILD_TIMEOUT_MS = 135_000;
+const AUDIT_TEST_TIMEOUT_MS = AUDIT_CHILD_TIMEOUT_MS + 30_000;
 
 /** base64 of "guard\n" - what every healthy repo returns for every file. */
 const GUARD_B64 = 'Z3VhcmQK';

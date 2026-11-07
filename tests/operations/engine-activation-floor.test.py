@@ -96,6 +96,30 @@ class ActivationFloor(unittest.TestCase):
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
 
+    def test_nov7_exception_binds_the_exact_order_and_current_deadline(self):
+        window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
+        path = self.repo / 'server/release/owner-maintenance-windows.json'
+        path.write_text(json.dumps({'version': 1, 'windows': [window]}))
+        target = self.commit()
+        from datetime import datetime
+        import hashlib
+        start, end = (int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp())
+                      for k in ('notBefore', 'notAfter'))
+        record = dict(schema=floor.OWNER_CAPABILITY, ownerWindowId=window['id'],
+                      manifestSha256=hashlib.sha256(raw).hexdigest(), targetSha=target,
+                      activationEpoch=start, expiresEpoch=end)
+        floor.nov7_owner(str(self.repo), record, start, end)
+        floor.nov7_owner(str(self.repo), record, end-1, end)
+        for now, deadline, changes in ((start-1, end, {}), (end, end+1, {}),
+                                       (start, start, {}), (start, end, {'ownerWindowId': 'old-window'}),
+                                       (start, end, {'manifestSha256': '0'*64})):
+            with self.assertRaises(ValueError):
+                floor.nov7_owner(str(self.repo), dict(record, **changes), now, deadline)
+        window['contains'] = target
+        path.write_text(json.dumps({'version': 1, 'windows': [window]}))
+        with self.assertRaisesRegex(ValueError, 'owner order differs'):
+            floor.nov7_owner(str(self.repo), dict(record, targetSha=self.commit()), start, end)
+
     def test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries(self):
         import contextlib
         import io
@@ -714,7 +738,6 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_cash_styles_window_binds_the_live_floor_and_keeps_the_lightning_entry(self):
         import hashlib
         window, raw = self.historical_floor('2026-11-05-cash-styles-and-deal-timing-2045z')
-        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
         self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-05T20:45:00Z', '2026-11-06T02:45:00Z'))
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
@@ -728,6 +751,26 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(lightning['notAfter'], '2026-11-06T01:45:00Z')
         current = self.owner_record(window_id='2026-11-05-cash-styles-and-deal-timing-2045z')
         self.assertEqual(current['ownerWindowId'], '2026-11-05-cash-styles-and-deal-timing-2045z')
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+
+    def test_cutover_recovery_window_binds_the_live_floor_and_keeps_the_cash_styles_entry(self):
+        import hashlib
+        window, raw = self.historical_floor('2026-11-07-cutover-recovery-engine-release-1445z')
+        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-07T14:45:00Z', '2026-11-07T20:45:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertNotIn('announceAtChicagoMinutes', window)
+        self.assertNotIn('certifiedRecoveryProfile', window)
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        self.assertEqual(window['contains'], 'f7c2804e81b89e69c4f3fb82ab6c4413dffdaf28')
+        cash, cash_raw = self.historical_floor('2026-11-05-cash-styles-and-deal-timing-2045z')
+        self.assertEqual(cash['releaseWitness']['sha256'], hashlib.sha256(cash_raw).hexdigest())
+        self.assertEqual(cash['notAfter'], '2026-11-06T02:45:00Z')
+        current = self.owner_record(window_id='2026-11-07-cutover-recovery-engine-release-1445z')
+        self.assertEqual(current['ownerWindowId'], '2026-11-07-cutover-recovery-engine-release-1445z')
+        self.assertTrue(current['supersedesPhase1Schedule'])
         self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):

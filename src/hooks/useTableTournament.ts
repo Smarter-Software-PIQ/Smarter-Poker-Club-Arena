@@ -29,6 +29,11 @@ export interface TournamentBreakState {
   phase?: 'last_hand' | 'counting_down';
   /** Absolute end of the break, epoch ms; null during the last-hand window. */
   breakEndsAtMs?: number | null;
+  /** Tables of this tournament still finishing their last hand (Dan 2026-11-07). */
+  tablesFinishing?: number | null;
+  tablesTotal?: number | null;
+  /** The break overlaps the daily engine update and ends when it ends. */
+  extendedForDailyUpdate?: boolean;
   /** Blind level the break interrupted, as broadcast by the server. */
   level?: number;
   nextLevel?: {

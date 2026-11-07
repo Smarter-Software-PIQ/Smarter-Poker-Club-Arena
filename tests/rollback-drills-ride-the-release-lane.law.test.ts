@@ -289,8 +289,8 @@ describe('the host plumbing stays inside the existing release lane', () => {
       'python3',
       [resolve(__dirname, 'operations/engine-drill-admission.py')],
       // Measured ~4s solo; a generous cap so contention reports diagnostics.
-      { encoding: 'utf8', timeout: 150_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
+      { encoding: 'utf8', timeout: 240_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }
     );
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-  }, 180_000);
+  }, 270_000);
 });

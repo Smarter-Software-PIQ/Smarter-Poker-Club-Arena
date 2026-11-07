@@ -151,7 +151,7 @@ it('permits engine recovery after known completion without an extra hour', () =>
     { encoding: 'utf8', timeout: 90000 }
   );
   expect(result.status, result.stdout + result.stderr).toBe(0);
-  expect(result.stderr).toContain('Ran 8 tests');
+  expect(result.stderr).toContain('Ran 11 tests');
   expect(result.stderr).not.toMatch(/skipped=/);
 });
 
