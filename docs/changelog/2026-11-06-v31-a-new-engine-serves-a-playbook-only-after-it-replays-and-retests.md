@@ -73,12 +73,17 @@ and no round can ever open for it again.
 
 R7's 107 sealed public-hist215 cells (read from production, read-only)
 went through the recording pass in an evaluator worker thread, as the
-evaluator runs, at 500 pairs per table over all 19 v3 tables:
+evaluator runs, over all 19 v3 tables:
 
-- 299 certified decisions were recorded.
-- All 299 replayed to exactly the recorded decision; none was unfaithful.
-- The digest was identical after the gzip store round trip.
-- The stored corpus was 38 KB.
+- **At the anchor's own 2,000 pairs per table:** 1,376 certified decisions
+  were recorded, and all 1,376 replayed to exactly the recorded decision
+  (0 unfaithful). The corpus passes the anchor rule. The digest was
+  identical after the gzip store round trip. Stored corpus: 181 KB; the run
+  took 11.9 minutes.
+- **At 500 pairs:** 299 of 299 decisions were faithful (38 KB).
+
+On the main thread these public-hist215 cells miss with `worker_required`
+by design, which is why the evaluator always runs in a worker.
 
 (R7 is a v2 dataset and is never anchored; this is evidence for the replay
 path only.)
