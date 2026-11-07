@@ -88,6 +88,7 @@ import {
   refreshPloRoster,
   rosterExemptClub,
 } from './HorsePloRoster.js';
+import { horseSitOutPlan } from './HorseSitOutChoice.js';
 
 const CYCLE_MS = 90_000; // examine the floor every 90s
 const GLOBAL_DEPARTURES_PER_CYCLE = 4;
@@ -98,10 +99,9 @@ const MEAN_SESSION_MINUTES = 75;
 const TOPUP_MIN_MINUTES = 8; // no instant top-ups after sitting down
 const TOPUP_STACK_FRAC = 0.45; // top up when below 45% of a standard buy-in
 const TOPUP_PROB = 0.25; // per eligible horse per cycle
-const BREAK_PROB = 0.35; // chance ONE horse somewhere takes a short break per cycle
-const BREAK_MIN_MS = 2 * 60_000;
 /**
- * A BREAK ENDS BEFORE THE EVICTION CLOCK DOES (2026-09-09).
+ * A BREAK ENDS BEFORE THE EVICTION CLOCK DOES (2026-09-09). The rate and the
+ * lengths now live in HorseSitOutChoice (SIT_OUT_RATE, SIT_OUT_LONG_MS).
  *
  * This was five minutes, and DisconnectEngine.SITOUT_MAX_MS - the "2 orbits
  * or 5 minutes, whichever is first" rule Dan set on 2026-08-25 - is ALSO five
@@ -114,7 +114,6 @@ const BREAK_MIN_MS = 2 * 60_000;
  * a few minutes watched it vanish instead. Three minutes plus a cycle of
  * slack is four and a half, inside the clock with room to spare.
  */
-const BREAK_MAX_MS = 3 * 60_000;
 
 /** What `leaveTable` answers. `code` / `stay_remaining_ms` are the stay
  *  clock's refusal (ChipContinuity); a caller that ignores them re-asks a
@@ -375,6 +374,21 @@ export class HorseSessionRotator {
     engine: RotatorEngine
   ): [] | [{ confirmHandCount: true }] {
     return this.owesHands(tableId, userId, engine) ? [{ confirmHandCount: true }] : [];
+  }
+
+  /** HIT AND RUN: hands this seat still owes in profit, as the engine reads it now. */
+  private handsOwed(
+    tableId: string,
+    userId: string,
+    engine: RotatorEngine | null | undefined = undefined
+  ): number {
+    try {
+      const e = engine === undefined ? this.getEngine(tableId) : engine;
+      return Math.max(0, Number(e?.hitRunHandsOwed?.(userId) ?? 0) || 0);
+    } catch {
+      // Unreadable: treated as owing, so nothing discretionary runs on it.
+      return 1;
+    }
   }
 
   /** The engine's live answer: this seat still owes hands in profit. */
@@ -1534,39 +1548,48 @@ export class HorseSessionRotator {
         } catch (err) {
           reportError(err, 'HorseSessionRotator.leave');
         }
-      } else if (
-        // V8 SHORT BREAKS: at most ONE horse anywhere per cycle steps away
-        // for 2-3 minutes (dealt out via the engine's deferred sit-out, then
-        // sits back in). Only at well-populated tables so the game never
-        // suffers, and never the table's only action.
-        !breakTaken &&
-        engine.sitOut &&
-        best &&
-        // Not already on break at THIS table (re-setting would silently
-        // extend the sit-out and reset the sit-back clock), and not already
-        // sitting out for any other reason.
-        !this.breaks.has(HorseSessionRotator.breakKey(tableId, best.seat.user_id)) &&
-        best.seat.is_sitting_out !== true &&
-        tableSeats.length >= (humanPresent ? 6 : 5) &&
-        this.breaks.size < 2 &&
-        Math.random() < BREAK_PROB / Math.max(1, byTable.size)
-      ) {
-        try {
-          const res = engine.sitOut(best.seat.user_id, true);
-          if (res.success) {
-            breakTaken = true;
-            departedThisCycle.add(`${tableId}:${best.seat.user_id}`);
-            this.breaks.set(HorseSessionRotator.breakKey(tableId, best.seat.user_id), {
-              tableId,
-              userId: best.seat.user_id,
-              sitBackAt: Date.now() + BREAK_MIN_MS + Math.random() * (BREAK_MAX_MS - BREAK_MIN_MS),
-            });
-            console.log(
-              `[SessionRotator] horse=${best.seat.user_id.slice(0, 8)} short break at table=${tableId.slice(0, 8)}`
-            );
+      } else if (engine.sitOut && best) {
+        /* STEPPING AWAY (HorseSitOutChoice, 2026-11-07): a hand or two, or a
+           few minutes, through the engine's own sit-out (deferred to the hand
+           end, the person's missed-blind rules on return). At most one horse
+           anywhere per cycle and two at once, only at well-populated tables,
+           and NEVER a seat still owing hands in profit: a sit-out the clock
+           ends is a cash-out, and that would be a hit-and-run leave. */
+        const seat = best.seat;
+        const plan = horseSitOutPlan({
+          horseId: seat.user_id,
+          tableId,
+          moment: Math.floor(Date.now() / CYCLE_MS),
+          draw: Math.random,
+          seatsAtTable: tableSeats.length,
+          humanPresent,
+          handsOwed: this.handsOwed(tableId, seat.user_id, engine),
+          sittingOut: seat.is_sitting_out === true,
+          leaving: HorseSessionRotator.isLeaving(seat),
+          onBreakHere: this.breaks.has(HorseSessionRotator.breakKey(tableId, seat.user_id)),
+          breaksOnFloor: this.breaks.size,
+          breakTakenThisCycle: breakTaken,
+          tablesOnFloor: byTable.size,
+        });
+        if (plan) {
+          try {
+            const res = engine.sitOut(seat.user_id, true);
+            if (res.success) {
+              breakTaken = true;
+              departedThisCycle.add(`${tableId}:${seat.user_id}`);
+              this.breaks.set(HorseSessionRotator.breakKey(tableId, seat.user_id), {
+                tableId,
+                userId: seat.user_id,
+                sitBackAt: Date.now() + plan.durationMs,
+              });
+              console.log(
+                `[SessionRotator] horse=${seat.user_id.slice(0, 8)} sits out (${plan.kind}) ` +
+                  `at table=${tableId.slice(0, 8)}`
+              );
+            }
+          } catch (err) {
+            reportError(err, 'HorseSessionRotator.break');
           }
-        } catch (err) {
-          reportError(err, 'HorseSessionRotator.break');
         }
       }
     }

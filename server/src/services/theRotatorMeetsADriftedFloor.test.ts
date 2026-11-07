@@ -40,6 +40,7 @@ import { DisconnectEngine } from '../engine/DisconnectEngine.js';
 import { clearHorseStakeBands, setHorseStakeBands, stakeBandAllows } from './HorseBehavior.js';
 import { rebuyStopLossReached, atRebuyStopLoss } from './HorseRebuyPolicy.js';
 import { bankrollPolicyFor } from './HorseBankroll.js';
+import { SIT_OUT_LONG_MS, SIT_OUT_SHORT_MS } from './HorseSitOutChoice.js';
 
 const REPO = resolve(__dirname, '../../..');
 const read = (p: string) => readFileSync(resolve(REPO, p), 'utf8');
@@ -102,11 +103,13 @@ describe("1 + 2: the session ledger is the horse's own rows, this sitting only",
 });
 
 describe('3: a break ends before the eviction clock does', () => {
-  it('BREAK_MAX_MS plus one cycle of slack is inside SITOUT_MAX_MS', () => {
-    const breakMax = constant(ROT, 'BREAK_MAX_MS');
+  it('the longest sit-out plus one cycle of slack is inside SITOUT_MAX_MS', () => {
+    // The lengths moved to HorseSitOutChoice (2026-11-07).
+    const breakMax = SIT_OUT_LONG_MS[1];
     const cycle = constant(ROT, 'CYCLE_MS');
     expect(breakMax + cycle).toBeLessThan(DisconnectEngine.SITOUT_MAX_MS);
-    expect(constant(ROT, 'BREAK_MIN_MS')).toBeLessThan(breakMax);
+    expect(SIT_OUT_SHORT_MS[1]).toBeLessThan(breakMax);
+    expect(ROT).toContain('sitBackAt: Date.now() + plan.durationMs');
   });
 });
 
@@ -194,7 +197,9 @@ describe('7 + 8: a seat already leaving, or inside a stay clock, is not asked ag
     expect(topups).toMatch(
       /if \(HorseSessionRotator\.isLeaving\(seat\) \|\| seat\.is_sitting_out === true\) continue;/
     );
-    expect(ROT).toMatch(/best\.seat\.is_sitting_out !== true &&/);
+    // The sit-out decision (HorseSitOutChoice) is told both.
+    expect(ROT).toMatch(/sittingOut: seat\.is_sitting_out === true,/);
+    expect(ROT).toMatch(/leaving: HorseSessionRotator\.isLeaving\(seat\),/);
   });
 });
 
