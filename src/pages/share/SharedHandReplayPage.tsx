@@ -65,6 +65,8 @@ import { reportError } from '../../utils/errorReporter';
 import { SpadeConsole } from '../../components/console/SpadeConsole';
 import { normalizeInviteCode } from '../../lib/inviteCode';
 import { hasLocalSession } from '../../lib/authUtils';
+import { signInUrl, toWebPath } from '../../lib/signIn';
+import { IS_NATIVE_BUILD } from '../../lib/appBase';
 import './SharedHandReplayPage.css';
 
 function sourceFrom(hand: ShareableHand): ReplaySource | null {
@@ -199,7 +201,15 @@ export default function SharedHandReplayPage({
   const here =
     typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '/';
   const showJoin = !hasLocalSession();
-  const signupHref = invite ? `/i/${invite}` : `/auth/signup?redirect=${encodeURIComponent(here)}`;
+  /* Sign-in goes through the one seam (src/lib/signIn.ts), which knows the
+     web page from the native app's. In the native app the World Hub's /i/
+     door and signup page are not in the bundle, so Create Account opens the
+     in-app signup there. */
+  const signupHref = IS_NATIVE_BUILD
+    ? signInUrl(here, { signup: true })
+    : invite
+      ? `/i/${invite}`
+      : `/auth/signup?redirect=${encodeURIComponent(toWebPath(here))}`;
 
   return (
     <div className="shared-replay">
@@ -216,7 +226,7 @@ export default function SharedHandReplayPage({
           plates={{
             secondary: {
               label: 'Sign In',
-              href: `/auth/login?redirect=${encodeURIComponent(here)}`,
+              href: signInUrl(here),
             },
             primary: { label: 'Create Account', href: signupHref },
           }}
