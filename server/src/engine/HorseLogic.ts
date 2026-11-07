@@ -294,6 +294,13 @@ import {
   RIVER_BLUFF_PRIOR_VALUE_SHARE,
 } from './HorseRiverBluffRange.js';
 import {
+  flopTurnBluffEligibility,
+  flopTurnBluffProbability,
+  flopTurnBluffSize,
+  flopTurnRaiseEligibility,
+  flopTurnRaiseProbability,
+} from './HorseFlopTurnBluffRange.js';
+import {
   multiwayRiverBluffEligibility,
   multiwayRiverBluffProbability,
   multiwayRiverBluffSize,
@@ -340,6 +347,7 @@ import {
   captureV31ReplayState,
   decideV31Certified,
   type V31CertifiedInput,
+  type V31DemandSpot,
   type V31ReplayState,
 } from './HorseV31CertifiedPolicy.js';
 // The release gate's execution-match rule lives with the V31 consult; kept
@@ -2132,6 +2140,12 @@ export interface HorseDecideOpts {
    * make exactly the same decisions.
    */
   onV31ReplayState?: (state: V31ReplayState) => void;
+  /**
+   * Offline R8 density pre-flight hook (GtoV31DensityPreflight.ts). Never set
+   * by the live engine. Receives every spot the certified playbook is asked
+   * about, even with no playbook loaded; the decision is unchanged.
+   */
+  onV31Demand?: (spot: V31DemandSpot) => void;
   /** ENABLE V32: facing-a-bet defence from the solver's own betting range.
    *  DEFAULT OFF since 2026-10-16: v32_facing_defense (heads-up NLH)
    *  measured -0.31 +/- 0.15 bb/100 over 41 nightly league runs. League arm
@@ -2459,6 +2473,12 @@ export interface HorseDecideOpts {
    *  draws first, reads reshaping it (a station fewer, a folder more), never
    *  zero without a read. Disable to ablate (default: enabled). */
   riverBluffBaseline?: boolean;
+  /** Baseline flop and turn bluff and semi-bluff range (2026-11-07,
+   *  HorseFlopTurnBluffRange.ts): qualified draws, backdoors, overcards and
+   *  blockers bet or raise at the solved frequency for their class on a line
+   *  that tells a story; reads reshape it and never switch it off. Default
+   *  on; false ablates it. */
+  flopTurnBluffBaseline?: boolean;
   /** Out-of-position river leads (2026-11-07, HorseRiverBluffRange.ts): first
    *  to act on the river into the turn bettor, bluff-lead the rivers that
    *  complete the caller's draws (blockers first), rarely the blanks, never
@@ -10157,6 +10177,119 @@ export class HorseLogic {
           noteFire(`river_bluff_multiway_skip_${eligMw.reason}`);
         }
       }
+      // ═══ BASELINE FLOP AND TURN BLUFF RANGE (2026-11-07) ═══════════════════
+      // The river's owner instruction applies to every street: nothing may
+      // block or shut off a bluff for a qualified candidate. Below this point
+      // a flop or turn draw met the V29/V30 class-mean cells (blind to this
+      // board's draw), the V7 one-and-done give-up (80% check without a
+      // recorded plan), a semi-bluff roll of about a quarter, and in Omaha the
+      // V38 EV engine, whose MDF folder makes every bluff worth zero: a PLO4
+      // wrap on a blank turn after a called c-bet bet 0 of 200 times. This
+      // owns the flop/turn spot with no showdown value, a qualified hand
+      // (draw, backdoor and overcard, blocker) and a line that tells a story,
+      // bets at the solved frequency for that class, reads reshaping it, or
+      // checks. See HorseFlopTurnBluffRange.ts. Spots it does not own fall
+      // through unchanged.
+      if (
+        (street === 'flop' || street === 'turn') &&
+        (opts.flopTurnBluffBaseline ?? true) !== false
+      ) {
+        const eligFt = flopTurnBluffEligibility({
+          omaha: vi.isOmaha,
+          potLimit: vi.isPotLimit,
+          hiLo: vi.isHiLo,
+          fixedLimit: vi.isFixedLimit,
+          shortDeck: vi.isShortDeck,
+          multiBoard: multiBoard36,
+          bombPot: gs.bombPot === true,
+          satelliteLocked: sat37.active,
+          holeCount: vi.holeCount,
+          hole: player.cards,
+          board,
+          history: gs.actionHistory ?? [],
+          heroId: player.user_id,
+          opponentIds: opponents.map((o) => o.user_id),
+          opponentsCanRespond: opponents.every(
+            (o) => !o.is_all_in && !o.is_sitting_out && o.stack > 0
+          ),
+          equity,
+          category: cat,
+          inPosition: ip,
+          initiative,
+          omahaDraw: vi.isOmaha ? drawInfo40() : null,
+        });
+        if (eligFt.eligible) {
+          let effFt = 0;
+          for (const o of opponents) {
+            const os = (isFinite(o.stack) ? o.stack : 0) + (isFinite(o.bet) ? o.bet : 0);
+            if (os > effFt) effFt = os;
+          }
+          effFt = Math.min(stack, effFt);
+          let stationFt = false;
+          let ftcFt: number | null = null;
+          if (useMind) {
+            try {
+              if (opponents.length === 1) {
+                stationFt = isStation(HorseMind.opponentRead(opponents[0].user_id));
+                if (opts.v16Reads !== false && (eligFt.line === 'cbet' || eligFt.line === 'barrel'))
+                  ftcFt = HorseMind.foldToCbetOf(opponents[0].user_id);
+              }
+            } catch {
+              /* reads are best-effort: no read is the baseline */
+            }
+          }
+          const pFt = flopTurnBluffProbability({
+            eligibility: eligFt,
+            omaha: vi.isOmaha,
+            opponents: opponents.length,
+            inPosition: ip,
+            rangesFavorOpponent:
+              runoutFavorsOpponent === true || rangeAdvantage?.disadvantage === true,
+            rangeAdvantage: boardFavorsAggressor === true,
+            scareUnblocked: dangered,
+            stackToPot: pot > 0 ? effFt / pot : 10,
+            reads: { station: stationFt, foldToCbet: ftcFt, bluffMod: exploit.bluffMod },
+            icmRisk: isTournamentMode(gs) ? risk : 0,
+          });
+          const sizeFt = flopTurnBluffSize({
+            potLimit: vi.isPotLimit,
+            street: street === 'flop' ? 'flop' : 'turn',
+            line: eligFt.line,
+            selection: eligFt.selection,
+            dryRangeBoard: boardFavorsAggressor === true && wetness < 0.45,
+            pot,
+            effectiveStack: effFt,
+            u: fastRandom(),
+          });
+          if (sizeFt.sizeFrac > 0 && fastRandom() < pFt) {
+            planBarrel(equity);
+            const betFt = this.betSize(
+              planHandKey,
+              pot,
+              sizeFt.sizeFrac,
+              player,
+              gs,
+              vi,
+              { ...params, sizingMultiplier: 1 },
+              false
+            );
+            const placedFt = betFt.action === 'bet' || betFt.action === 'all_in';
+            if (tele15 && placedFt)
+              noteFire(`ft_bluff_baseline_${eligFt.line}_${eligFt.selection}`);
+            else if (tele15) noteFire('ft_bluff_baseline_illegal');
+            return betFt;
+          }
+          if (tele15) noteFire('ft_bluff_baseline_check');
+          return { action: 'check', thinkTime: 0 };
+        } else if (
+          tele15 &&
+          eligFt.reason !== 'showdown_value' &&
+          eligFt.reason !== 'domain' &&
+          eligFt.reason !== 'unqualified'
+        ) {
+          noteFire(`ft_bluff_baseline_skip_${eligFt.reason}`);
+        }
+      }
       // ═══ V29/V30 GTO OPEN NODES (Dan 2026-08-29): the betting mix comes
       // from the solver ═══ Heads-up hold'em with the betting lead: the
       // check / bet_small / bet_big mix is the class-mean of the PioSolver
@@ -11900,12 +12033,123 @@ export class HorseLogic {
       return { action: 'call', amount: toCall, thinkTime: 0 };
     }
 
+    // ═══ BASELINE SEMI-BLUFF RAISE (2026-11-07) ══════════════════════════
+    // The roll below is bluffFreq x aggression x 0.5: about 8% for a flush
+    // draw facing a flop c-bet, out of position or in. Solved heads-up pots
+    // check-raise a flop flush draw about a third of the time and raise it in
+    // position about a quarter. A qualified draw (HorseFlopTurnBluffRange)
+    // raises at that class frequency, reads reshaping it, the V53 pressure
+    // mix as a floor; V78 still refuses a raise that commits without a jam.
+    let ftRaiseOwned = false;
+    if (
+      (street === 'flop' || street === 'turn') &&
+      (opts.flopTurnBluffBaseline ?? true) !== false &&
+      !planCallOnly23 &&
+      !v66Class
+    ) {
+      const eligFr = flopTurnRaiseEligibility({
+        omaha: vi.isOmaha,
+        potLimit: vi.isPotLimit,
+        hiLo: vi.isHiLo,
+        fixedLimit: vi.isFixedLimit,
+        shortDeck: vi.isShortDeck,
+        multiBoard: multiBoard36,
+        bombPot: gs.bombPot === true,
+        satelliteLocked: sat37.active,
+        holeCount: vi.holeCount,
+        hole: player.cards,
+        board,
+        history: gs.actionHistory ?? [],
+        heroId: player.user_id,
+        opponentIds: opponents.map((o) => o.user_id),
+        opponentsCanRespond: opponents.some(
+          (o) => !o.is_all_in && !o.is_sitting_out && o.stack > 0
+        ),
+        equity,
+        category: cat,
+        inPosition: ip,
+        initiative,
+        omahaDraw: vi.isOmaha ? drawInfo40() : null,
+        potFrac,
+        raisedAfterAggr,
+        stackOverCall: toCall > 0 ? (stack - toCall) / toCall : 0,
+      });
+      if (eligFr.eligible) {
+        ftRaiseOwned = true;
+        let stationFr = false;
+        let bettorFr: string | null = null;
+        for (const a of gs.actionHistory ?? []) {
+          if (
+            a.stage === street &&
+            a.userId !== player.user_id &&
+            (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
+          )
+            bettorFr = a.userId;
+        }
+        if (useMind && bettorFr) {
+          try {
+            stationFr = isStation(HorseMind.opponentRead(bettorFr));
+          } catch {
+            /* reads are best-effort: no read is the baseline */
+          }
+        }
+        const dFr = vi.isOmaha ? drawInfo40() : null;
+        let pFr = flopTurnRaiseProbability({
+          eligibility: eligFr,
+          street: street === 'flop' ? 'flop' : 'turn',
+          inPosition: ip,
+          opponents: opponents.length,
+          potFrac,
+          nutDraw: !!dFr && (dFr.nutFlushDraw || dFr.nutStraightOuts >= 9),
+          reads: { station: stationFr, foldToCbet: null, bluffMod: exploit.bluffMod },
+          icmRisk: isTournamentMode(gs) ? risk : 0,
+        });
+        // The V53 read against a credibly aggressive bettor is a floor.
+        if (pressure53 && !stationFr) {
+          pFr = Math.max(
+            pFr,
+            Math.min(
+              0.6,
+              params.bluffFreq *
+                params.aggression *
+                bluffScale *
+                0.5 *
+                omahaDrawMod() *
+                pressure53.semiBluffMul
+            )
+          );
+        }
+        if (fastRandom() < pFr) {
+          const raiseToFr = currentBet + (pot + toCall) * (0.75 + fastRandom() * 0.25);
+          if (
+            !multiBoard36 &&
+            this.v78CommitsWithoutJam(raiseToFr * params.sizingMultiplier, player, gs, vi, opts)
+          ) {
+            if (tele15) noteFire('v78_no_committing_bluff_raise');
+          } else {
+            planBarrel(equity);
+            if (tele15) noteFire(`ft_semibluff_raise_${eligFr.selection}`);
+            return this.raiseTo(planHandKey, raiseToFr * params.sizingMultiplier, player, gs, vi);
+          }
+        } else if (tele15) noteFire('ft_semibluff_raise_call_or_fold');
+      } else if (
+        tele15 &&
+        eligFr.reason !== 'showdown_value' &&
+        eligFr.reason !== 'domain' &&
+        eligFr.reason !== 'unqualified'
+      ) {
+        noteFire(`ft_semibluff_raise_skip_${eligFr.reason}`);
+      }
+    }
+
     // Semi-bluff raise with big draws (flop/turn only, not into a crowd,
     // gated by the target's fold tendency + our blockers). V4: pure draws
     // only — made hands in the band call instead of bloating the pot.
     // V8: Omaha raise semi-bluffs demand draw QUALITY too.
     if (
       !planCallOnly23 &&
+      // The baseline above owned this qualified draw and has had its roll.
+      !ftRaiseOwned &&
       // V66: a one-pair or air hand whose own bet was just raised is priced
       // as a call or a fold; it does not re-raise as a semi-bluff.
       !v66Class &&

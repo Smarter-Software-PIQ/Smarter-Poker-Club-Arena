@@ -2346,6 +2346,26 @@ export abstract class TournamentManagerBase {
     if (this.onBreak || this.stageEndPause || this.handForHandActive) return;
     if (this.addOnDrainPending || (this.addOnBreakActive && this.addOnBreakOwnsPause)) return;
     if (this.mysteryActivationBoundaryPending) return;
+    /**
+     * THE CLOSE AT TWO IS A PAUSE AUTHORITY TOO (2026-11-07).
+     *
+     * closeBountyOnlyPkoAtTwo parks every table, then re-arms the park as an
+     * untilResumed CLAIM once they are all parked, because a hand dealt after
+     * the close would seat a player who has already finished second. Arming a
+     * claim on an ALREADY PARKED dealer republishes its park edge
+     * (pauseAfterHand -> notifyParkedPauseReadyIfDrained ->
+     * offerExistingPauseReadyEdge), so this method was handed that claim in the
+     * same tick it was armed, found none of the authorities above holding the
+     * table - a bounty only PKO has no money bubble, so hand-for-hand is never
+     * active on one - and released it. The table then dealt on through the
+     * close and the runner-up lost the head Dan's rule says he keeps.
+     *
+     * The close is a living owner while it holds its park, exactly like a
+     * break, and it gives the park back itself: on a rule refusal, or when its
+     * bounded retries run out, it calls release() (bountyOnlyFinalTwo.ts), so
+     * no claim is left here with nobody behind it.
+     */
+    if (this.bountyOnlyFinalTwoOwnsPause()) return;
     try {
       engine.resumeDealing();
     } catch (err) {
@@ -3655,6 +3675,29 @@ export abstract class TournamentManagerBase {
   protected bustAwaitsItsStage(): void {}
 
   /**
+   * A hand just left a player at zero, and in a bounty only PKO it may have
+   * left exactly two players - which Dan's rule says is the end of the event,
+   * both survivors keeping the bounty on their own head. The elimination
+   * manager parks the table so no further hand can be dealt before the close
+   * is recorded or refused; the base manager owns no close and holds nothing.
+   * See holdBountyOnlyFinalTwoBoundary there.
+   */
+  protected holdBountyOnlyFinalTwoBoundary(
+    _engine: ServerTableEngine,
+    _finalStacks: readonly { user_id: string; stack: number }[]
+  ): void {}
+
+  /**
+   * Whether the close of a bounty only PKO at two players is holding its park
+   * right now. While it is, it owns every pause it armed on these tables and
+   * releases them itself. The base manager owns no close, so it holds nothing.
+   * See releaseManagedTablePauseIfUnowned.
+   */
+  protected bountyOnlyFinalTwoOwnsPause(): boolean {
+    return false;
+  }
+
+  /**
    * A hand just left a player at zero, which opens that player's rebuy offer.
    * The elimination manager answers open horse offers at once (see
    * answerHorseRebuyOffersNow); the base manager has no rebuy input.
@@ -4046,6 +4089,9 @@ export abstract class TournamentManagerBase {
         }
         if (this.mysteryActivationMayOpenOnBust(finalStacks)) this.holdMysteryActivationBoundary();
         if (this.bustAwaitingSinceMs === 0) this.bustAwaitingSinceMs = Date.now();
+        // A bounty only PKO is over at two players: stop the next deal here,
+        // at the boundary, before any scheduled sweep can be late for it.
+        this.holdBountyOnlyFinalTwoBoundary(engine, finalStacks);
         this.declareFieldDecidedIfOneStackRemains(finalStacks);
         this.askForConsolidationIfSpread({ engine, finalStacks });
         this.bustAwaitsItsStage();
@@ -4685,6 +4731,54 @@ export abstract class TournamentManagerBase {
    * with cards in the air still holds the countdown, and an inspection that
    * throws is still not proof.
    */
+  /**
+   * HOW MANY TABLES ARE STILL FINISHING (Dan 2026-11-07). While a break waits
+   * on the last hand, every table that has already finished shows a waiting
+   * card; it now says how many tables are still playing, so one slow decision
+   * reads as "Waiting On 1 Table" rather than an unexplained wait.
+   */
+  breakWaitProgress(): { tablesFinishing: number; tablesTotal: number } {
+    const engines = Array.from(this.tableEngines.values());
+    let tablesFinishing = 0;
+    for (const e of engines) {
+      let parked = false;
+      try {
+        parked = e.isParkedBetweenHands() || (e.isMaintenancePaused() && e.isBetweenHands());
+      } catch {
+        parked = false;
+      }
+      if (!parked) tablesFinishing++;
+    }
+    return { tablesFinishing, tablesTotal: engines.length };
+  }
+
+  private lastPublishedBreakWait: string | null = null;
+
+  /**
+   * Publish the waiting progress to every table of this tournament, only when
+   * it changed. Presentation only: it never decides when the countdown starts.
+   */
+  async publishBreakWaitProgress(): Promise<void> {
+    if (!this.onBreak || this.breakCountdownStarted) return;
+    const progress = this.breakWaitProgress();
+    const key = `${this.synchronizedBreakStartGeneration}:${progress.tablesFinishing}/${progress.tablesTotal}`;
+    if (key === this.lastPublishedBreakWait) return;
+    this.lastPublishedBreakWait = key;
+    await this.broadcast('break_wait', progress);
+  }
+
+  /**
+   * THE 03:55 BREAK IS LONGER, AND SAYS WHY (Dan 2026-11-07). A tournament
+   * break that overlaps the daily engine update ends when the update ends
+   * (MaintenanceBreak.tournamentBreakEndsAt), so it runs about ten minutes.
+   * GameServer marks it before the countdown starts and the countdown event
+   * carries `extendedFor: 'daily_update'` so the break card can say so.
+   */
+  private breakExtendedForDailyUpdate = false;
+  markBreakExtendedForDailyUpdate(extended: boolean): void {
+    this.breakExtendedForDailyUpdate = extended;
+  }
+
   areAllTablesParked(): boolean {
     const engines = Array.from(this.tableEngines.values());
     if (engines.length === 0) return true;
@@ -4858,6 +4952,7 @@ export abstract class TournamentManagerBase {
       breakDurationMinutes: Math.round(breakDurationMs / 60000),
       breakEndsAt: endsAt,
       synchronized: true,
+      ...(this.breakExtendedForDailyUpdate ? { extendedFor: 'daily_update' } : {}),
     });
     if (
       !this.lifecycleIsCurrent(lifecycle) ||

@@ -54,6 +54,8 @@ export interface PressureOptions {
   currentNutsRaise?: boolean;
   /** false ablates the 2026-11-06 baseline river bluff range */
   riverBluffBaseline?: boolean;
+  /** false ablates the 2026-11-07 baseline flop/turn bluff range */
+  flopTurnBluffBaseline?: boolean;
 }
 
 /** New public investment after hero's latest raise changes the continuation question.
@@ -315,6 +317,7 @@ export function playManiacPressure(
             ...(options.semiBluffNeedsDraw === false ? { v74OmahaSemiBluffNeedsDraw: false } : {}),
             ...(options.currentNutsRaise === false ? { omahaCurrentNutsRaise: false } : {}),
             ...(options.riverBluffBaseline === false ? { riverBluffBaseline: false } : {}),
+            ...(options.flopTurnBluffBaseline === false ? { flopTurnBluffBaseline: false } : {}),
           }
         );
         const act = decision.action;

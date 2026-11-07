@@ -7680,7 +7680,17 @@ export class GameServer {
      *
      * takesSynchronizedBreaks() is now the single gate, and the only opt-out
      * it honours is the explicit per-tournament `synchronized_breaks` column
-     * (2026-08-22 parity) — never the format.
+     * (2026-08-22 parity) — never the format.     *
+     * SUPERSEDED THE SAME DAY, AND STILL IN FORCE (checked 2026-11-07): a Spin,
+     * a Sit & Go and a Heads-Up never take the :55 break. Their levels are
+     * three minutes or less and the whole game is over inside ten, so the
+     * break swallowed them (68 Spins stopped inside the window, measured
+     * 2026-08-28). tournament/breakEligibility.ts is the binding rule, the
+     * `tournaments_short_formats_never_break` trigger forces the column to
+     * false, and takesSynchronizedBreaks() reads that predicate. At the 12:55
+     * UTC break of 2026-11-07 every one of the 59 Spins and Heads-Ups dealt
+     * straight through (median gap 4.5 s) and every MTT broke. That is the
+     * design, not a missed break.
      */
     const breakEngines: TournamentManager[] = [];
     for (const tm of this.tournamentEngines.values()) {
@@ -7732,7 +7742,7 @@ export class GameServer {
      * by another's timer.
      */
     console.log(
-      `[GameServer] ═══ LAST HAND ═══ Announcing final hand on ${breakEngines.length} tournament(s) (MTT / Spin / Heads-Up) - each tournament's break starts when its own last hand finishes`
+      `[GameServer] ═══ LAST HAND ═══ Announcing final hand on ${breakEngines.length} tournament(s) - each tournament's break starts when its own last hand finishes`
     );
 
     /**
@@ -7868,6 +7878,7 @@ export class GameServer {
         : countdownEndsAt;
     this.breakCountdownStarted = true;
     try {
+      tm.markBreakExtendedForDailyUpdate?.(this.breakEndsWithMaintenance);
       await tm.beginBreakCountdown(countdownEndsAt - countdownStartsAt, countdownEndsAt);
     } catch (err: any) {
       reportError(err, 'GameServer.Failed_to_begin_break_countdown');
@@ -8162,6 +8173,11 @@ export class GameServer {
       if (managers.some((tm) => !tm.isRunning())) return false;
       const waitingOn = managers.filter((tm) => !tm.areAllTablesParked());
       if (waitingOn.length === 0) return true;
+      for (const tm of waitingOn) {
+        // Presentation only (Dan 2026-11-07): tells the finished tables how
+        // many are still playing. Never awaited, never decides the countdown.
+        void tm.publishBreakWaitProgress?.().catch(() => undefined);
+      }
       const waitedMs = Date.now() - startedAt;
       const names = waitingOn
         .slice(0, 8)

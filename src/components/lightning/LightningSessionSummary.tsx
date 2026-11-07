@@ -20,6 +20,7 @@ import {
   lightningChipsText,
   type LightningSessionSummary as Summary,
 } from '../../lightning/lightningSessionApi';
+import { useFitText } from '../lobby/game-cards/useFitText';
 import { SpadeConsole } from '../console/SpadeConsole';
 import {
   closeLightningSessionSummary,
@@ -28,6 +29,7 @@ import {
 import { lightningJoinRoute } from '../../lightning/lightningLobby';
 import { writeLightningPrefs } from '../../lightning/lightningPrefs';
 import { masterBus } from '../../core/MasterBus';
+import { titleCase } from '../../utils/titleCase';
 import { reportError } from '../../utils/errorReporter';
 import LightningStatsGrid from './LightningStatsGrid';
 import LightningRecentHands from './LightningRecentHands';
@@ -87,6 +89,37 @@ export function useLightningSessionSummary(
   return { summary, failed };
 }
 
+/** A result leads the recap, on the same glass as the session statistics. */
+function LightningResult({ summary, name }: { summary: Summary; name?: string | null }) {
+  const net = summary.net;
+  const value = lightningChipsText(net, true);
+  const ref = useFitText<HTMLSpanElement>(value, 1, 0.35);
+  return (
+    <div
+      className="lightning-result"
+      data-result={net === null ? 'unknown' : net < 0 ? 'loss' : net > 0 ? 'win' : 'even'}
+    >
+      <span className="lightning-result__label">
+        {net === null
+          ? 'Session Result'
+          : net < 0
+            ? 'Session Loss'
+            : net > 0
+              ? 'Session Profit'
+              : 'Break Even'}
+      </span>
+      <span className="lightning-result__well">
+        <span ref={ref} className="lightning-result__value">
+          {value}
+        </span>
+      </span>
+      <span className="lightning-result__caption">
+        {titleCase(name || 'Lightning Session Results')}
+      </span>
+    </div>
+  );
+}
+
 export interface LightningSessionSummaryCardProps {
   poolSessionId: string;
   clusterId: string;
@@ -111,7 +144,10 @@ export function LightningSessionSummaryCard({
       <p className="lightning-summary__eyebrow">Lightning</p>
       <p className="lightning-summary__title">{name ? `${name} Session` : 'Session'}</p>
       {summary ? (
-        <LightningStatsGrid stats={summary} mode="summary" />
+        <>
+          <LightningResult summary={summary} name={name} />
+          <LightningStatsGrid stats={summary} mode="summary" />
+        </>
       ) : (
         <p className="lightning-sheet__quiet">
           {failed ? 'We Could Not Load This Session Right Now.' : 'One Moment...'}
@@ -162,7 +198,6 @@ export function LightningSessionSummaryHost() {
     return () => window.removeEventListener('keydown', onKey);
   }, [req]);
   if (!req) return null;
-  const net = summary?.net ?? null;
   const body = (
     <div
       className="lightning-sheet__overlay"
@@ -178,11 +213,10 @@ export function LightningSessionSummaryHost() {
       >
         <SpadeConsole
           eyebrow="Lightning"
-          title={req.name ? `${req.name} Session` : 'Session'}
+          title="Session Results"
           titleId="lightning-summary-title"
-          pill={net === null ? 'Session' : lightningChipsText(net, true)}
-          pillInk={net === null || net === 0 ? 'muted' : net > 0 ? 'green' : 'red'}
-          crest="flat"
+          pill="Complete"
+          pillInk="blue"
           onClose={closeLightningSessionSummary}
           plates={{
             secondary: {
@@ -208,7 +242,10 @@ export function LightningSessionSummaryHost() {
             data-cluster={req.clusterId}
           >
             {summary ? (
-              <LightningStatsGrid stats={summary} mode="summary" />
+              <>
+                <LightningResult summary={summary} name={req.name} />
+                <LightningStatsGrid stats={summary} mode="summary" />
+              </>
             ) : (
               <p className="lightning-sheet__quiet">
                 {failed ? 'We Could Not Load This Session Right Now.' : 'One Moment...'}

@@ -158,7 +158,15 @@ export interface CashGameLobby {
    */
   front_table_id?: string | null;
   must_move_list: LobbyListEntry[];
-  waitlist: { waiting: number };
+  waitlist: {
+    waiting: number;
+    /**
+     * The names behind the count, in join order (2026-11-07,
+     * 20261107140215): live rows only, up to 30, horses and people alike.
+     * Absent on a payload read before that migration.
+     */
+    players?: LobbyWaitEntry[];
+  };
   seat_changes_requested: number;
   me: LobbyMe | null;
   as_of: string;
@@ -267,6 +275,35 @@ export interface MustMoveListRow {
   name: string;
   tableLabel: string;
   me: boolean;
+}
+
+/** One name on a game's waiting list, as fn_cash_game_lobby returns it. */
+export interface LobbyWaitEntry {
+  position: number;
+  user_id: string;
+  alias: string | null;
+}
+
+export interface WaitingListRow {
+  key: string;
+  position: number;
+  name: string;
+  me: boolean;
+}
+
+/** The waiting list as the lobby prints it: join order, a name for everyone. */
+export function waitingListRows(
+  list: ReadonlyArray<LobbyWaitEntry> | null | undefined,
+  viewerId: string | null | undefined
+): WaitingListRow[] {
+  return [...(list ?? [])]
+    .sort((a, b) => Number(a.position) - Number(b.position))
+    .map((e) => ({
+      key: e.user_id,
+      position: Number(e.position),
+      name: (e.alias ?? '').trim() || 'Player',
+      me: Boolean(viewerId && e.user_id === viewerId),
+    }));
 }
 
 export function mustMoveListRows(

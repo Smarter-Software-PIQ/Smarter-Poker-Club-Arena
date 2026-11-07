@@ -187,34 +187,85 @@ export function chicagoHourAt(nowMs: number): number {
   return Number.isFinite(h) ? h % 24 : 12;
 }
 
-export type RoomBand = 'evening' | 'day' | 'late' | 'early';
+export type RoomBand = 'peak' | 'evening' | 'day' | 'late' | 'early' | 'dawn';
 
-/** 18-23 evening, 10-17 day, 0-3 late night, 4-9 early morning. */
+const chicagoDowFmt = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  weekday: 'short',
+});
+const ISO_DOW: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+
+/** ISO day of week (1 Monday ... 7 Sunday) in Chicago at `nowMs`. */
+export function chicagoIsoDowAt(nowMs: number): number {
+  return ISO_DOW[chicagoDowFmt.format(new Date(nowMs))] ?? 3;
+}
+
+/**
+ * The room's band at `nowMs`, Chicago time (2026-11-07, with a weekend):
+ *   peak     Friday and Saturday 18-23, and Saturday and Sunday 0-3 (those nights)
+ *   evening  any other day 18-23
+ *   day      10-17
+ *   dawn     Monday to Thursday 4-9
+ *   early    Friday to Sunday 4-9
+ *   late     any other 0-3
+ * The SQL twin is fn_cash_game_second_table_picked (20261107124911).
+ */
 export function roomBandAt(nowMs: number): RoomBand {
   const h = chicagoHourAt(nowMs);
+  const d = chicagoIsoDowAt(nowMs);
+  if ((d === 5 || d === 6) && h >= 18) return 'peak';
+  if ((d === 6 || d === 7) && h < 4) return 'peak';
   if (h >= 18) return 'evening';
   if (h >= 10) return 'day';
-  if (h >= 4) return 'early';
+  if (h >= 4) return d <= 4 ? 'dawn' : 'early';
   return 'late';
 }
 
 /** Full / short fractions per band; the rest of the room is sporadic. */
 export const CASH_SHAPE_MIX: Readonly<Record<RoomBand, { full: number; short: number }>> =
   Object.freeze({
+    peak: { full: 0.55, short: 0.33 },
     evening: { full: 0.5, short: 0.35 },
     day: { full: CASH_FULL_FRACTION, short: CASH_SHORT_FRACTION },
     late: { full: 0.3, short: 0.45 },
     early: { full: 0.25, short: 0.45 },
+    dawn: { full: 0.22, short: 0.45 },
   });
 
 /** Share of games (percent) that may hold a second table, per band. The SQL
  *  twin is fn_cash_game_second_table_picked (20261107070717). */
 export const SECOND_TABLE_RATE: Readonly<Record<RoomBand, number>> = Object.freeze({
+  peak: 70,
   evening: 60,
   day: 50,
   late: 30,
   early: 20,
+  dawn: 15,
 });
+
+/** Games most players play: NLH and PLO4/5/6 from 0.25 to 2 big blind. */
+const POPULAR_VARIANTS = new Set(['nlh', 'plo4', 'plo5', 'plo6']);
+/** Games few players play, whatever the stakes. */
+const NICHE_VARIANTS = new Set(['flh', 'flo8', 'plo8', 'short_deck', 'pineapple']);
+
+/**
+ * The second-table rate for one game in one band (2026-11-07): popular games
+ * x1.3 (cap 90), niche games and big blinds of 5+ a quarter, everything else
+ * the band's rate. Integer arithmetic, exactly as the SQL twin computes it.
+ */
+export function secondTableRateFor(
+  band: RoomBand,
+  bigBlind: number | null | undefined,
+  variant: string | null | undefined
+): number {
+  const base = SECOND_TABLE_RATE[band];
+  const bb = Number(bigBlind) || 0;
+  const v = String(variant ?? '').toLowerCase();
+  if (bb >= 5 || NICHE_VARIANTS.has(v)) return Math.floor((base + 2) / 4);
+  if (bb >= 0.25 && bb <= 2 && POPULAR_VARIANTS.has(v))
+    return Math.min(90, Math.floor((base * 13 + 5) / 10));
+  return base;
+}
 
 /**
  * May this game hold a second table right now? The exact twin of
@@ -223,10 +274,17 @@ export const SECOND_TABLE_RATE: Readonly<Record<RoomBand, number>> = Object.free
  * below the band's rate. The engine must agree with the tick, or it would seat
  * a table the tick will never open or keep feeding one it no longer wants.
  */
-export function secondTablePicked(gameId: string, nowMs: number = Date.now()): boolean {
+export function secondTablePicked(
+  gameId: string,
+  nowMs: number = Date.now(),
+  bigBlind: number | null = null,
+  variant: string | null = null
+): boolean {
   const bucket = Math.floor(nowMs / 1000 / 10_800);
   const hex = createHash('md5').update(`${gameId}:second_table:${bucket}`).digest('hex');
-  return parseInt(hex.slice(0, 8), 16) % 100 < SECOND_TABLE_RATE[roomBandAt(nowMs)];
+  return (
+    parseInt(hex.slice(0, 8), 16) % 100 < secondTableRateFor(roomBandAt(nowMs), bigBlind, variant)
+  );
 }
 
 /** Stakes most players play: the lines there run longest. */
@@ -672,13 +730,13 @@ export function occupancyTargetFor(
     seatTarget = max;
     // A queue re-rolled on the sub-bucket, longest where the demand is
     // (2026-11-07): two to five at the popular stakes in the evening and the
-    // day, one to three elsewhere, one shorter before dawn. Never longer than
+    // day, one to three elsewhere, one shorter overnight and before dawn. Never longer than
     // the table itself (a heads-up table does not carry a four-deep list).
     const band = roomBandAt(nowMs);
     const popular = isPopularStake(bigBlind);
     let lo = popular ? 2 : 1;
     let hi = popular ? MAX_HORSE_WAIT : 3;
-    if (band === 'late' || band === 'early') {
+    if (band === 'late' || band === 'early' || band === 'dawn') {
       lo = 1;
       hi = Math.max(1, hi - 1);
     }

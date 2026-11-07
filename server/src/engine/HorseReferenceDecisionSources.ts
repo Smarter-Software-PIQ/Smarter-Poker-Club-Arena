@@ -21,6 +21,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
   Object.freeze({
     'src/engine/HorseNonBottomRiverValue.ts':
       'the checked-to high-only Omaha turn and river boat eligibility for legal value wagers and the river initiative release',
+    'src/engine/HorseFlopTurnBluffRange.ts':
+      'the baseline flop/turn bluff and semi-bluff range (2026-11-07): eligibility, line, selection, class frequency and size for a flop or turn with no showdown value',
     'src/engine/HorseRiverBluffRange.ts':
       'the baseline heads-up river bluff range (Dan 2026-11-06): eligibility, line, blockers, balanced frequency and size for a river with no showdown value',
     'src/engine/HorseMultiwayRiverBluff.ts':

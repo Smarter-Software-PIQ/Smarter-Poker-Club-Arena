@@ -47,6 +47,7 @@ import {
   lobbyTableChips,
   lobbyTableLabel,
   mustMoveListRows,
+  waitingListRows,
   pendingMoveNotice,
   requestSeatChange,
   seatChangeOutcomeText,
@@ -501,7 +502,33 @@ export function MustMoveLobbyModal({
                 ))}
               </section>
 
-              {/* ─── The must-move list (never on a Classic game) ─── */}
+              {/* ─── The waiting list: the names behind the count (2026-11-07) ─── */}
+              {(lobby.waitlist?.players?.length ?? 0) > 0 && (
+                <section className="mml-list">
+                  <div className="mml-section-title">Waiting List</div>
+                  <div className="mml-list-note">
+                    Players Waiting For A Seat In This Game. Number 1 Is Offered The Next Open
+                    Seat.
+                  </div>
+                  <ol className="mml-list-rows" aria-label="Waiting List, In Join Order">
+                    {waitingListRows(lobby.waitlist?.players, me?.user_id).map((row) => (
+                      <li
+                        key={row.key}
+                        className={`mml-list-row${row.me ? ' mml-list-row--me' : ''}`}
+                        aria-current={row.me ? 'true' : undefined}
+                      >
+                        <span className="mml-list-pos">{row.position}</span>
+                        <span className="mml-list-name">
+                          {row.name}
+                          {row.me && <span className="mml-list-you">You</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              )}
+
+              {/* ─── The must-move list (every game, Dan 2026-11-07) ─── */}
               {!neverMoves && (
                 <section className="mml-list">
                   <div className="mml-section-title">Must Move List</div>

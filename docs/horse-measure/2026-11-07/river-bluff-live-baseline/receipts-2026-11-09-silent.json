@@ -1,0 +1,89 @@
+[
+  {
+    "receipts": {
+      "days": ["2026-11-09", "2026-11-09"],
+      "rows": [
+        [
+          "2026-11-09",
+          "bet",
+          "river_bluff_baseline_bet_bombPot",
+          "other games (#9837): bomb pot",
+          0
+        ],
+        [
+          "2026-11-09",
+          "bet",
+          "river_bluff_baseline_bet_fixedLimit",
+          "other games (#9837): fixed limit",
+          0
+        ],
+        [
+          "2026-11-09",
+          "bet",
+          "river_bluff_baseline_bet_multiBoard",
+          "other games (#9837): multi-board",
+          0
+        ],
+        [
+          "2026-11-09",
+          "bet",
+          "river_bluff_baseline_bet_shortDeck",
+          "other games (#9837): short deck",
+          0
+        ],
+        ["2026-11-09", "bet", "river_bluff_baseline_blocker", "baseline HU (#9803): blocker", 0],
+        [
+          "2026-11-09",
+          "bet",
+          "river_bluff_baseline_blockerAndDraw",
+          "baseline HU (#9803): blocker and draw",
+          0
+        ],
+        [
+          "2026-11-09",
+          "bet",
+          "river_bluff_baseline_freeroll",
+          "baseline HU (#9803): hi-lo freeroll",
+          0
+        ],
+        ["2026-11-09", "bet", "river_bluff_baseline_junk", "baseline HU (#9803): junk", 0],
+        [
+          "2026-11-09",
+          "bet",
+          "river_bluff_baseline_missedDraw",
+          "baseline HU (#9803): missed draw",
+          0
+        ],
+        ["2026-11-09", "bet", "river_bluff_checkraise_selected", "river check-raise bluff", 0],
+        ["2026-11-09", "bet", "river_bluff_hilo_freeroll", "hi-lo (#9838): freeroll", 0],
+        ["2026-11-09", "bet", "river_bluff_hilo_scoop", "hi-lo (#9838): scoop", 0],
+        [
+          "2026-11-09",
+          "bet",
+          "river_bluff_multiway_selected_3way",
+          "multiway (#9842): three-way",
+          0
+        ],
+        [
+          "2026-11-09",
+          "bet",
+          "river_bluff_multiway_selected_4way",
+          "multiway (#9842): four-way",
+          0
+        ],
+        ["2026-11-09", "bet", "river_lead_bluff_leadBlank", "OOP lead (#9838): blank river", 0],
+        [
+          "2026-11-09",
+          "bet",
+          "river_lead_bluff_leadDraw",
+          "OOP lead (#9838): draw-completing river",
+          0
+        ],
+        ["2026-11-09", "bet", "v53_river_bluff", "V53 river bluff", 0],
+        ["2026-11-09", "bet", "v53_river_scare_bluff", "V53 river scare bluff", 0],
+        ["2026-11-09", "bet", "v54_river_bluff", "V54 river bluff", 0]
+      ],
+      "section": "river_bluff_receipts"
+    }
+  }
+]

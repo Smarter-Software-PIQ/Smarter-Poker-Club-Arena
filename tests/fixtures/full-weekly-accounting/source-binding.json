@@ -567,7 +567,7 @@
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
-    "tests/fixtures/legacy-fee-finality/source-binding.json": "5fd75f723517157ba8c11feeb8832371997679ac98b16d65f9dc5ab0a9b600c1",
+    "tests/fixtures/legacy-fee-finality/source-binding.json": "985621221a813a8025e0d27463569c1e8de30f7fd4712b3221597fe8242257c0",
     "tests/fixtures/sep8-spin-custody/build-candidate.py": "dc929d5df9801fbeb26c1b331fd3836b22069726e00d86c4f75401ab2b55fd4a",
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/player-finality.sql": "627be40d0634d483e2cdc421055e8eb72f9d95c22e36ab81e659b725a9db1b6e",
@@ -585,7 +585,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "9930fbb5c4bd54595bd1e017e51d7bf6e000be05b74be7ba371ab46ff2eceec4",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "024aa4b2bd7ee1ef7650b8862d5e5bd0ecb57cf453557feb608cd4a1e7f40f8d",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -625,7 +625,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "f6d411627dccc5edeae8a48e4ceedf15f38dfe3989c83f3117b580f567248043",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "1c50c2172cd57748ee33f9b61348c911d3db4609580e58c27f01ca3fd3131b12",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -638,7 +638,7 @@
     "scripts/ci/test-commission-club-history-postgres.py": "599055bb43ca0137bdde9c9d60dca9a4e8c6f1cf729ff849190ca74ff90b8bf3",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c"
+    "scripts/qualification/ci-accounting-inputs.json": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -8201,6 +8201,68 @@
         "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
         "previous": "81cf89fc26745f2f8f607dc86fc7bd8fd4fd1f161b1b13fb3a5823292a342542",
         "current": "7c8aa4e3f1b35258e80718d985720b572418c7a9b434aad0e098bbf214bc8254"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "finalTwoCloseHeldPlaceTwoNativeProof20261107": {
+    "reason": "Reviewed the accounting projection change (2026-11-07): the accounting_postgres job gains one additive proof step, \"The final two close never dies on a held place two on native PostgreSQL\", on matrix.shard 1 with the same PG_BIN and TMPDIR environment as its neighbours, running python3 -B scripts/ci/test-final-two-close-held-place-two.py. The stored projection differs in exactly one key, jobs.accounting_postgres, by those six added lines; no existing suite command, environment, timeout, artifact, shard routing or financial input changes. Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "repository_fixtures",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c",
+        "current": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e"
+      },
+      {
+        "section": "repository_fixtures",
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previous": "f6d411627dccc5edeae8a48e4ceedf15f38dfe3989c83f3117b580f567248043",
+        "current": "86fbf7e24660eade1228a8788251b69f362d48d8a0ee71938ca26d38253eac0e"
+      },
+      {
+        "section": "repository_fixtures",
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previous": "5fd75f723517157ba8c11feeb8832371997679ac98b16d65f9dc5ab0a9b600c1",
+        "current": "87b8b4c741b424e84ae3a91fb692bb5f6cbdfa7dbe15cb2708393adc8f5eaba0"
+      },
+      {
+        "section": "repository_fixtures",
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous": "9930fbb5c4bd54595bd1e017e51d7bf6e000be05b74be7ba371ab46ff2eceec4",
+        "current": "d2858761aec2763052021db08afa24a2f154353e6f414598fc4f8ffddbd3623a"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "finalizedPoolFreezeArmingProof20261107": {
+    "reason": "Reviewed finalized-pool freeze arming proof (2026-11-07): the accounting workflow gains one shard-1 step, \"The finalized-pool freeze refuses what arming it would refuse\", running scripts/ci/test-finalized-pool-freeze-arming.py beside the existing bounty-guarantee proof with the same PG_BIN and TMPDIR environment. Read structurally, the regenerated projection differs in exactly one place: jobs/accounting_postgres gains those 7 lines (2368 -> 2375). No existing suite command, matrix.shard routing, environment, timeout, artifact or financial input changes, and the new suite reads no financial input - it boots its own private PostgreSQL. Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "repository_fixtures",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e",
+        "current": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8"
+      },
+      {
+        "section": "repository_fixtures",
+        "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
+        "previous": "86fbf7e24660eade1228a8788251b69f362d48d8a0ee71938ca26d38253eac0e",
+        "current": "1c50c2172cd57748ee33f9b61348c911d3db4609580e58c27f01ca3fd3131b12"
+      },
+      {
+        "section": "repository_fixtures",
+        "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
+        "previous": "87b8b4c741b424e84ae3a91fb692bb5f6cbdfa7dbe15cb2708393adc8f5eaba0",
+        "current": "985621221a813a8025e0d27463569c1e8de30f7fd4712b3221597fe8242257c0"
+      },
+      {
+        "section": "repository_fixtures",
+        "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
+        "previous": "d2858761aec2763052021db08afa24a2f154353e6f414598fc4f8ffddbd3623a",
+        "current": "024aa4b2bd7ee1ef7650b8862d5e5bd0ecb57cf453557feb608cd4a1e7f40f8d"
       }
     ],
     "historicalEvidenceRestamped": false,

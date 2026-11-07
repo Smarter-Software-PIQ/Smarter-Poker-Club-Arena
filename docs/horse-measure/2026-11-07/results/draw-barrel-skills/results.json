@@ -1,0 +1,1037 @@
+{
+ "schema": "draw-barrel-skill-measurement-v1",
+ "engine": "main 132201536",
+ "seed": 20261107,
+ "note": "bb100 is arm A (skill on) minus arm B (production), per 100 hero hands; ci95 = bb100 +/- 1.96 se. pressure = flop/turn hero raises facing a bet [won without a call, total]; riverBarrels = river bets after hero turn aggression [folded out, total].",
+ "league": {
+  "comboDrawPressure": [
+   {
+    "seats": 2,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "folders",
+    "pairs": 2000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 30.09,
+     "pressure": [
+      0,
+      15
+     ],
+     "riverBarrels": [
+      6,
+      11
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": 30.09,
+     "pressure": [
+      0,
+      15
+     ],
+     "riverBarrels": [
+      6,
+      11
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 2,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "mixed",
+    "pairs": 2000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 54.39,
+     "pressure": [
+      1,
+      18
+     ],
+     "riverBarrels": [
+      20,
+      62
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": 54.39,
+     "pressure": [
+      1,
+      18
+     ],
+     "riverBarrels": [
+      20,
+      62
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 2,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "standard",
+    "pairs": 2000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": -2.05,
+     "pressure": [
+      27,
+      41
+     ],
+     "riverBarrels": [
+      31,
+      45
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": -2.05,
+     "pressure": [
+      27,
+      41
+     ],
+     "riverBarrels": [
+      31,
+      45
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 2,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "stations",
+    "pairs": 2000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 225.57,
+     "pressure": [
+      0,
+      19
+     ],
+     "riverBarrels": [
+      4,
+      135
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": 225.57,
+     "pressure": [
+      0,
+      19
+     ],
+     "riverBarrels": [
+      4,
+      135
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 2,
+    "variant": "plo4",
+    "format": "cash",
+    "pool": "standard",
+    "pairs": 1000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": -0.75,
+     "pressure": [
+      13,
+      18
+     ],
+     "riverBarrels": [
+      5,
+      10
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": -0.75,
+     "pressure": [
+      13,
+      18
+     ],
+     "riverBarrels": [
+      5,
+      10
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "folders",
+    "pairs": 5000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 31.6,
+     "pressure": [
+      2,
+      53
+     ],
+     "riverBarrels": [
+      15,
+      27
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": 31.6,
+     "pressure": [
+      2,
+      53
+     ],
+     "riverBarrels": [
+      15,
+      27
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "standard",
+    "pairs": 5000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 6.31,
+     "pressure": [
+      27,
+      47
+     ],
+     "riverBarrels": [
+      35,
+      52
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": 6.31,
+     "pressure": [
+      27,
+      47
+     ],
+     "riverBarrels": [
+      35,
+      52
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "stations",
+    "pairs": 5000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 441.32,
+     "pressure": [
+      0,
+      48
+     ],
+     "riverBarrels": [
+      2,
+      206
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": 441.32,
+     "pressure": [
+      0,
+      48
+     ],
+     "riverBarrels": [
+      2,
+      206
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "plo4",
+    "format": "cash",
+    "pool": "folders",
+    "pairs": 800,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": -53.9,
+     "pressure": [
+      1,
+      10
+     ],
+     "riverBarrels": [
+      1,
+      2
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": -53.9,
+     "pressure": [
+      1,
+      10
+     ],
+     "riverBarrels": [
+      1,
+      2
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "plo4",
+    "format": "cash",
+    "pool": "standard",
+    "pairs": 800,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": -14.19,
+     "pressure": [
+      3,
+      11
+     ],
+     "riverBarrels": [
+      9,
+      11
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": -14.19,
+     "pressure": [
+      3,
+      11
+     ],
+     "riverBarrels": [
+      9,
+      11
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "plo4",
+    "format": "cash",
+    "pool": "stations",
+    "pairs": 800,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 139.8,
+     "pressure": [
+      0,
+      9
+     ],
+     "riverBarrels": [
+      0,
+      11
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": 139.8,
+     "pressure": [
+      0,
+      9
+     ],
+     "riverBarrels": [
+      0,
+      11
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   }
+  ],
+  "barrelContinuationOutlook": [
+   {
+    "seats": 2,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "folders",
+    "pairs": 2000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 30.09,
+     "pressure": [
+      0,
+      15
+     ],
+     "riverBarrels": [
+      6,
+      11
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": 30.09,
+     "pressure": [
+      0,
+      15
+     ],
+     "riverBarrels": [
+      6,
+      11
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 2,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "mixed",
+    "pairs": 2000,
+    "bb100": -0.7,
+    "se": 0.7,
+    "ci95": [
+     -2.072,
+     0.672
+    ],
+    "divergentPairs": 1,
+    "armA": {
+     "bb100": 53.69,
+     "pressure": [
+      1,
+      18
+     ],
+     "riverBarrels": [
+      19,
+      61
+     ],
+     "skillFires": {
+      "barrel_continuation_outlook_superseded": 4,
+      "barrel_continuation_outlook_considered": 1
+     }
+    },
+    "armB": {
+     "bb100": 54.39,
+     "pressure": [
+      1,
+      18
+     ],
+     "riverBarrels": [
+      20,
+      62
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 2,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "standard",
+    "pairs": 2000,
+    "bb100": 0.6,
+    "se": 0.6,
+    "ci95": [
+     -0.576,
+     1.776
+    ],
+    "divergentPairs": 1,
+    "armA": {
+     "bb100": -1.45,
+     "pressure": [
+      27,
+      41
+     ],
+     "riverBarrels": [
+      32,
+      46
+     ],
+     "skillFires": {
+      "barrel_continuation_outlook_superseded": 3,
+      "barrel_continuation_outlook_considered": 2
+     }
+    },
+    "armB": {
+     "bb100": -2.05,
+     "pressure": [
+      27,
+      41
+     ],
+     "riverBarrels": [
+      31,
+      45
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 2,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "stations",
+    "pairs": 2000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 225.57,
+     "pressure": [
+      0,
+      19
+     ],
+     "riverBarrels": [
+      4,
+      135
+     ],
+     "skillFires": {
+      "barrel_continuation_outlook_superseded": 1
+     }
+    },
+    "armB": {
+     "bb100": 225.57,
+     "pressure": [
+      0,
+      19
+     ],
+     "riverBarrels": [
+      4,
+      135
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 2,
+    "variant": "plo4",
+    "format": "cash",
+    "pool": "standard",
+    "pairs": 1000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": -0.75,
+     "pressure": [
+      13,
+      18
+     ],
+     "riverBarrels": [
+      5,
+      10
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": -0.75,
+     "pressure": [
+      13,
+      18
+     ],
+     "riverBarrels": [
+      5,
+      10
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "folders",
+    "pairs": 5000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 31.6,
+     "pressure": [
+      2,
+      53
+     ],
+     "riverBarrels": [
+      15,
+      27
+     ],
+     "skillFires": {
+      "barrel_continuation_outlook_considered": 1
+     }
+    },
+    "armB": {
+     "bb100": 31.6,
+     "pressure": [
+      2,
+      53
+     ],
+     "riverBarrels": [
+      15,
+      27
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "standard",
+    "pairs": 5000,
+    "bb100": -0.05,
+    "se": 0.05,
+    "ci95": [
+     -0.148,
+     0.048
+    ],
+    "divergentPairs": 1,
+    "armA": {
+     "bb100": 6.26,
+     "pressure": [
+      27,
+      47
+     ],
+     "riverBarrels": [
+      35,
+      53
+     ],
+     "skillFires": {
+      "barrel_continuation_outlook_considered": 3,
+      "barrel_continuation_outlook_superseded": 2
+     }
+    },
+    "armB": {
+     "bb100": 6.31,
+     "pressure": [
+      27,
+      47
+     ],
+     "riverBarrels": [
+      35,
+      52
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "nlh",
+    "format": "cash",
+    "pool": "stations",
+    "pairs": 5000,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 441.32,
+     "pressure": [
+      0,
+      48
+     ],
+     "riverBarrels": [
+      2,
+      206
+     ],
+     "skillFires": {
+      "barrel_continuation_outlook_superseded": 2
+     }
+    },
+    "armB": {
+     "bb100": 441.32,
+     "pressure": [
+      0,
+      48
+     ],
+     "riverBarrels": [
+      2,
+      206
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "plo4",
+    "format": "cash",
+    "pool": "folders",
+    "pairs": 800,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": -53.9,
+     "pressure": [
+      1,
+      10
+     ],
+     "riverBarrels": [
+      1,
+      2
+     ],
+     "skillFires": {
+      "barrel_continuation_outlook_superseded": 1
+     }
+    },
+    "armB": {
+     "bb100": -53.9,
+     "pressure": [
+      1,
+      10
+     ],
+     "riverBarrels": [
+      1,
+      2
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "plo4",
+    "format": "cash",
+    "pool": "mixed",
+    "pairs": 800,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 23.28,
+     "pressure": [
+      3,
+      9
+     ],
+     "riverBarrels": [
+      3,
+      10
+     ],
+     "skillFires": {
+      "barrel_continuation_outlook_superseded": 1
+     }
+    },
+    "armB": {
+     "bb100": 23.28,
+     "pressure": [
+      3,
+      9
+     ],
+     "riverBarrels": [
+      3,
+      10
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "plo4",
+    "format": "cash",
+    "pool": "standard",
+    "pairs": 800,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": -14.19,
+     "pressure": [
+      3,
+      11
+     ],
+     "riverBarrels": [
+      9,
+      11
+     ],
+     "skillFires": {
+      "barrel_continuation_outlook_considered": 1,
+      "barrel_continuation_outlook_superseded": 1
+     }
+    },
+    "armB": {
+     "bb100": -14.19,
+     "pressure": [
+      3,
+      11
+     ],
+     "riverBarrels": [
+      9,
+      11
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   },
+   {
+    "seats": 6,
+    "variant": "plo4",
+    "format": "cash",
+    "pool": "stations",
+    "pairs": 800,
+    "bb100": 0,
+    "se": 0,
+    "ci95": [
+     0,
+     0
+    ],
+    "divergentPairs": 0,
+    "armA": {
+     "bb100": 139.8,
+     "pressure": [
+      0,
+      9
+     ],
+     "riverBarrels": [
+      0,
+      11
+     ],
+     "skillFires": {}
+    },
+    "armB": {
+     "bb100": 139.8,
+     "pressure": [
+      0,
+      9
+     ],
+     "riverBarrels": [
+      0,
+      11
+     ]
+    },
+    "illegalActions": 0,
+    "truncatedStreets": 0,
+    "brainExceptionFallbacks": 0
+   }
+  ]
+ },
+ "developmentPilots": {
+  "barrel_continuation_outlook-plo4-2dealt-100bb": {
+   "experimentId": "barrel_continuation_outlook-development-v1",
+   "profileId": "barrel_continuation_outlook-plo4-6max-2dealt-100bb",
+   "populationId": "barrel_continuation_overstab_stress_v1",
+   "seed": 27401101,
+   "pairs": 576,
+   "changedPairs": 1,
+   "candidateNetCents": 91241,
+   "referenceNetCents": 91241,
+   "candidateHeroActionContrastPairs": 1,
+   "protocolErrors": 0,
+   "brainExceptions": 0,
+   "illegalActions": 0,
+   "conservationErrors": 0,
+   "cardErrors": 0,
+   "truncatedHands": 0,
+   "settlementMismatches": 0,
+   "pairedReplayMismatches": 0,
+   "candidateSkillFires": {
+    "v53_pressure_barrel": 131,
+    "v39_outlook_recorded": 87,
+    "v39_outlook_blank": 49,
+    "v53_pressure_value_raise": 7,
+    "v39_outlook_scare": 10,
+    "v39_outlook_good": 33,
+    "barrel_continuation_outlook_superseded": 6,
+    "barrel_continuation_outlook_accepted": 3,
+    "barrel_continuation_outlook_considered": 2
+   },
+   "referenceSkillFires": {
+    "v53_pressure_barrel": 131,
+    "v39_outlook_recorded": 84,
+    "v39_outlook_blank": 47,
+    "v53_pressure_value_raise": 7,
+    "v39_outlook_scare": 9,
+    "v39_outlook_good": 32
+   },
+   "promotionEligible": false,
+   "revision": "132201536891e581e41cd515a0c8daa984bbd462",
+   "dirty": true
+  },
+  "combo_draw_pressure-plo4-2dealt-100bb": {
+   "experimentId": "combo_draw_pressure-development-v1",
+   "profileId": "combo_draw_pressure-plo4-6max-2dealt-100bb",
+   "populationId": "incremental_public_overstab_stress_v1",
+   "seed": 27301101,
+   "pairs": 576,
+   "changedPairs": 0,
+   "candidateNetCents": 161408,
+   "referenceNetCents": 161408,
+   "candidateHeroActionContrastPairs": 0,
+   "protocolErrors": 0,
+   "brainExceptions": 0,
+   "illegalActions": 0,
+   "conservationErrors": 0,
+   "cardErrors": 0,
+   "truncatedHands": 0,
+   "settlementMismatches": 0,
+   "pairedReplayMismatches": 0,
+   "candidateSkillFires": {
+    "v53_pressure_barrel": 270,
+    "v39_outlook_recorded": 118,
+    "v39_outlook_good": 52,
+    "v39_outlook_blank": 58,
+    "v39_outlook_scare": 16,
+    "v53_pressure_value_raise": 20,
+    "v53_pressure_semibluff_raise": 1
+   },
+   "referenceSkillFires": {
+    "v53_pressure_barrel": 270,
+    "v39_outlook_recorded": 118,
+    "v39_outlook_good": 52,
+    "v39_outlook_blank": 58,
+    "v39_outlook_scare": 16,
+    "v53_pressure_value_raise": 20,
+    "v53_pressure_semibluff_raise": 1
+   },
+   "promotionEligible": false,
+   "revision": "132201536891e581e41cd515a0c8daa984bbd462",
+   "dirty": true
+  }
+ }
+}

@@ -202,6 +202,12 @@ export interface LobbyTournamentRow {
   bounty_amount?: number | null;
   is_pko?: boolean | null;
   is_mystery_bounty?: boolean | null;
+  /**
+   * All In Or Fold (tournaments column since 20260822100000). Read by the
+   * freeroll second title (freeBuyKindLabel): a Free Buy running AoF must say
+   * so under its name (Dan 2026-11-07).
+   */
+  all_in_or_fold?: boolean | null;
   /* Same four flags as a cash row, plus is_pinned, which is what actually
      holds a tournament at the top of the board. */
   is_vip_only?: boolean | null;

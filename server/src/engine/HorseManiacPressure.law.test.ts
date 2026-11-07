@@ -113,9 +113,14 @@ describe('against a seat that pots every street', () => {
   // (an Omaha semi-bluff raise needs a draw) is postflop-only and never
   // reaches a preflop decision, but it changes the RNG stream and therefore
   // which hands are dealt where; ablate it here. Its own law is
-  // HorseOmahaSemiBluffNeedsDraw.test.ts.
+  // HorseOmahaSemiBluffNeedsDraw.test.ts. The 2026-11-07 baseline flop/turn
+  // bluff range is postflop-only too and moves the same stream (it took the
+  // unchanged-line preflop raise-fold tally from 3 to 5 with every preflop
+  // decision rule untouched); it is ablated for the same reason, and its own
+  // law is HorseFlopTurnBluffRange.law.test.ts.
   const plo = playManiacPressure('plo4', 'cash', 'potter', HANDS, undefined, undefined, {
     semiBluffNeedsDraw: false,
+    flopTurnBluffBaseline: false,
   });
 
   it('recognises it in real time in hold em and in Omaha', () => {

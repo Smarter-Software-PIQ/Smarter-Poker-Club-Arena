@@ -83,4 +83,31 @@ describe('horses stand in line on a full game (Dan 2026-11-06)', () => {
       expect(p).toBeLessThanOrEqual(55 * 60_000);
     }
   });
+
+  it('a horse that gives up on one line puts its name down at another game first', () => {
+    const rows = [
+      { id: 'gone', game_id: 'g2', user_id: 'h9', created_at: iso(queuePatienceMs('gone')) },
+    ];
+    const plan = planHorseQueues({
+      ...base,
+      asks: [{ gameId: 'g1', waitTarget: 2, pool: ['h1', 'h2', 'h3', 'h9'] }],
+      tables: [...fullG1, { gameId: 'g2', maxPlayers: 2, seated: 2 }],
+      rows,
+    });
+    expect(plan.cancel).toEqual(['gone']);
+    expect(plan.add).toEqual([{ game_id: 'g1', user_id: 'h9' }]);
+  });
+
+  it('never straight back into the line it just left', () => {
+    const rows = [
+      { id: 'gone', game_id: 'g1', user_id: 'h9', created_at: iso(queuePatienceMs('gone')) },
+    ];
+    const plan = planHorseQueues({
+      ...base,
+      asks: [{ gameId: 'g1', waitTarget: 2, pool: ['h9'] }],
+      tables: fullG1,
+      rows,
+    });
+    expect(plan.add).toEqual([]);
+  });
 });

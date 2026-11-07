@@ -11,7 +11,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'feature-ablation-offline-placeholder';
 const args = new Map<string, string>();
 for (const a of process.argv.slice(2)) {
   const m =
-    /^--(experiment|variant|profile|seed|pairs|start-pair|proposed-owner-head|output|inspect|trace-plans|hero-candidate-style|hero-reference-style)=(.+)$/.exec(
+    /^--(experiment|variant|profile|seed|pairs|start-pair|proposed-owner-head|output|inspect|trace-plans|hero-candidate-style|hero-reference-style|field)=(.+)$/.exec(
       a
     );
   if (!m || args.has(m[1])) throw new Error('Unknown/duplicate development argument');
@@ -113,6 +113,13 @@ try {
     throw new Error('Invalid inspection mode');
   if (!Number.isSafeInteger(startPair) || startPair < 0 || startPair + pairs > 576)
     throw new Error('Development continuation outside declared 576-pair pilot');
+  // 2026-11-07: an incremental target may be measured against the production
+  // horse field instead of its declared stress population (development only,
+  // fresh empty public history), so a candidate is shown not to cost anything
+  // where its stress opponent is absent.
+  const productionField = args.get('field') === 'current_horse_production_styles';
+  if (args.has('field') && (!productionField || !isIncrementalTarget(experiment)))
+    throw Error('Only an incremental target may swap to the production horse field');
   const tracePlans = args.get('trace-plans');
   if (
     tracePlans !== undefined &&
@@ -176,7 +183,7 @@ try {
           seats: physicalProfile.seats,
           seed: V53_PRESSURE_WARM_SEED,
         })
-      : isIncrementalTarget(experiment) && args.get('inspect') !== 'true'
+      : isIncrementalTarget(experiment) && args.get('inspect') !== 'true' && !productionField
         ? buildIncrementalWarmRecords(
             args.get('variant')! as 'plo6',
             physicalProfile.seats,
@@ -184,11 +191,13 @@ try {
           )
         : [];
   const history = {
-    kind: isIncrementalTarget(experiment)
-      ? incrementalHistoryVersion(experiment)
-      : experiment === 'v53' || experiment === 'hero_personality'
-        ? 'fixed_public_warm_v1'
-        : 'fresh_empty_public_v1',
+    kind: productionField
+      ? 'fresh_empty_public_v1'
+      : isIncrementalTarget(experiment)
+        ? incrementalHistoryVersion(experiment)
+        : experiment === 'v53' || experiment === 'hero_personality'
+          ? 'fixed_public_warm_v1'
+          : 'fresh_empty_public_v1',
     warmSeed: isIncrementalTarget(experiment)
       ? incrementalDevelopmentDesign(experiment).warmSeed
       : experiment === 'v53' || experiment === 'hero_personality'
@@ -260,6 +269,7 @@ try {
     history,
     authority,
     authoritySha256: sha(JSON.stringify(authority)),
+    field: productionField ? 'current_horse_production_styles' : 'declared_population',
     design: styleContrast
       ? {
           id: 'hero_personality-development-v1',
@@ -337,12 +347,15 @@ try {
       : experiment === 'v24'
         ? plo6V24DevelopmentSpec(args.get('profile')!, brain)
         : isIncrementalTarget(experiment)
-          ? incrementalDevelopmentSpec(
-              experiment,
-              args.get('variant')! as 'plo6',
-              args.get('profile')!,
-              brain
-            )
+          ? {
+              ...incrementalDevelopmentSpec(
+                experiment,
+                args.get('variant')! as 'plo6',
+                args.get('profile')!,
+                brain
+              ),
+              ...(productionField ? { population: undefined } : {}),
+            }
           : pressureDevelopmentSpec(args.get('variant')! as 'plo6', args.get('profile')!, brain);
     await writeFile(resolve(out, 'warm-public-history.json'), JSON.stringify(warmRecords) + '\n', {
       flag: 'wx',

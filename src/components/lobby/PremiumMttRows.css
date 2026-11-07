@@ -137,6 +137,28 @@
 .has-premium-chassis .lt-tournament-heading__name {
   color: #fff;
 }
+/* A free roll's second title (Dan 2026-11-07): the name face stacks the
+   title over the event line it is running; the fitter still measures the
+   title against the same zone width. */
+.has-premium-chassis .lt-tournament-heading__name:has(.lt-tournament-heading__format) {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  row-gap: 0.5cqw;
+}
+.has-premium-chassis .lt-tournament-heading__format {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(8px, 2.2cqw, 15px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #45adff;
+  text-shadow: 0 1px 0 #000;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .has-premium-chassis .lt-tournament-heading__guarantee {
   position: absolute;
   /* Native plaque glass: x1330..1843, y217..354 after the y125 head crop. */

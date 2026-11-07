@@ -1657,17 +1657,24 @@ describe('HorseMind V7 - size-aware reads + counter-adaptation + plans', () => {
       dealerSeat: 2,
       actionHistory: hist,
     });
+    // 9c-8c on K-7-2-5 is a gutshot: since 2026-11-07 the baseline flop/turn
+    // bluff range owns a qualified draw's turn barrel at its class frequency,
+    // so a one-and-done plan no longer checks it 80% of the time (that give-up
+    // was the defect; HorseFlopTurnBluffRange.ts). The V7 plan still governs
+    // every unqualified hand; this pins the plan MECHANISM, so it isolates the
+    // later layer.
+    const V7 = { flopTurnBluffBaseline: false } as const;
     const n = 150;
     let planned = 0;
     let unplanned = 0;
     for (let i = 0; i < n; i++) {
       HorseMind.notePlan(key, 'horse-2', true);
       const a = mkTurn();
-      if (['bet', 'all_in'].includes(HorseLogic.decide(a.players[0], a, 'balanced').action))
+      if (['bet', 'all_in'].includes(HorseLogic.decide(a.players[0], a, 'balanced', {}, V7).action))
         planned++;
       HorseMind.notePlan(key, 'horse-2', false);
       const b = mkTurn();
-      if (['bet', 'all_in'].includes(HorseLogic.decide(b.players[0], b, 'balanced').action))
+      if (['bet', 'all_in'].includes(HorseLogic.decide(b.players[0], b, 'balanced', {}, V7).action))
         unplanned++;
     }
     expect(planned).toBeGreaterThan(unplanned + 25); // plans mean something
@@ -1864,21 +1871,33 @@ describe('HorseLogic V8 - O8 quarter brake + NLH raise bluffs', () => {
       const a = mk();
       if (
         ['raise', 'all_in'].includes(
-          HorseLogic.decide(a.hero, a.gs, 'balanced', {}, {
-            v9Mood: false,
-            v64RiverRaiseNeedsTwoPair: false,
-          }).action
+          HorseLogic.decide(
+            a.hero,
+            a.gs,
+            'balanced',
+            {},
+            {
+              v9Mood: false,
+              v64RiverRaiseNeedsTwoPair: false,
+            }
+          ).action
         )
       )
         v8Raises++;
       const b = mk();
       if (
         ['raise', 'all_in'].includes(
-          HorseLogic.decide(b.hero, b.gs, 'balanced', {}, {
-            v8Nlh: false,
-            v9Mood: false,
-            v64RiverRaiseNeedsTwoPair: false,
-          }).action
+          HorseLogic.decide(
+            b.hero,
+            b.gs,
+            'balanced',
+            {},
+            {
+              v8Nlh: false,
+              v9Mood: false,
+              v64RiverRaiseNeedsTwoPair: false,
+            }
+          ).action
         )
       )
         offRaises++;

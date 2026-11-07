@@ -680,6 +680,32 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
         print(json.dumps(c,sort_keys=True))
 
 
+# Written under SealLock before the per-run reservation. An interrupted write
+# consumes the exception conservatively. Existing release recovery reads keep
+# their original run identity and never request a second announcement.
+NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-07-cutover-recovery-engine-release-1445z.json'
+NOV7_PREDECESSOR = '92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4'
+
+
+def require_nov7_reservation_authority(args, target, stamp):
+    # The installed seal and its policy reader belong to the same pinned control generation.
+    deadline = getattr(args, 'deadline', None)
+    expiry = int(datetime.fromisoformat('2026-11-07T20:45:00+00:00').timestamp())
+    if (type(deadline) is not int or stamp + 420000 > min(deadline, expiry) * 1000
+            or not 330 <= (stamp // 1000) % 3600 <= 2940):
+        die('Nov 7 announcement cannot fit the authorized window')
+    helper = Path(__file__).resolve().with_name('engine-release-activation-floor.py')
+    result = subprocess.run([sys.executable, '-B', str(helper), 'nov7-owner', '--repo', args.repo,
+                             '--target', target, '--control', args.control_sha, '--deadline', str(deadline)],
+                            timeout=15, stdout=subprocess.DEVNULL)
+    if result.returncode:
+        die('Nov 7 protected target and control authority unavailable')
+
+
+def nov7_claim(run_id, target, control, stamp):
+    return {'runId': run_id, 'sha': target, 'controlSha': valid_sha(control), 'announcedAt': stamp}
+
+
 def cmd_bind_recovery_window(args: argparse.Namespace) -> None:
     """Observe the original reserved recovery promise; never reserve or slide it."""
     raw = sys.stdin.read(1048577)
@@ -699,6 +725,13 @@ def cmd_bind_recovery_window(args: argparse.Namespace) -> None:
                 or reservation['announcedAt'] != args.announced_at
                 or not RECOVERY_CAUSE_RE.fullmatch(str(reservation.get('cause') or ''))):
             die('recovery promise differs from its original reservation')
+        if getattr(args, 'nov7_owner', False):
+            claim = json.loads((STATE_DIR / NOV7_OWNER_CLAIM).read_text())
+            if (claim != nov7_claim(run_id, target, control, args.announced_at)
+                    or state['desired']['sha'] != NOV7_PREDECESSOR
+                    or reservation.get('cause') != 'urgent'
+                    or (h.get('maintenance') or {}).get('phase') != 'counting_down'):
+                die('Nov 7 release does not own the original predecessor and countdown')
         m = h.get('maintenance') if isinstance(h, dict) else None
         p = m.get('presentation') if isinstance(m, dict) else None
         if (not isinstance(h, dict) or h.get('releaseSha') != state['desired']['sha']
@@ -2728,6 +2761,16 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
             print("unavailable")
             return
         path = STATE_DIR / f"engine-recovery-window-{run_id}.json"
+        nov7 = getattr(args, 'nov7_owner', False)
+        if nov7:
+            valid_sha(args.control_sha)
+            if (state['desired']['sha'] != NOV7_PREDECESSOR or args.cause != 'urgent'
+                    or args.scheduled_cycle_start is not None or getattr(args, 'certified_policy', None)):
+                die('Nov 7 release predecessor or cause differs')
+            if os.path.lexists(STATE_DIR / NOV7_OWNER_CLAIM) or os.path.lexists(path):
+                # Known or unknown outcome: observe the original reservation.
+                print('unavailable')
+                return
         if path.exists():
             value = json.loads(path.read_text(encoding="utf-8"))
             if (value.get("sha") != target or value.get("runId") != run_id
@@ -2811,6 +2854,9 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
         if certified is not None:
             value['certifiedRecovery'] = certified
         recovery_window_ends_at(value)
+        if nov7:
+            require_nov7_reservation_authority(args, target, announced_at)
+            write_json_atomic(STATE_DIR / NOV7_OWNER_CLAIM, nov7_claim(run_id, target, args.control_sha, announced_at))
         write_json_atomic(path, value)
         audit_once("recovery_window_reserved", state, f"recovery_window:{run_id}", window=value)
         print(value["announcedAt"])
@@ -4137,6 +4183,12 @@ def cmd_attest_result(args: argparse.Namespace) -> None:
         desired = state["desired"]
         if desired["sha"] != value["sha"] or desired["imageId"] != value["imageId"]:
             die("durable result no longer matches the sealed desired release")
+        if getattr(args, "completion_invocation_id", False):
+            producer = value["completionRuntime"]["invocationId"]
+            if producer not in value["invocationIds"]:
+                die("durable result does not attest its completion invocation")
+            print(producer)
+            return
         print(
             " ".join(
                 str(value[key])
@@ -4615,6 +4667,7 @@ def parser() -> argparse.ArgumentParser:
     recovery_binding.add_argument('--control-sha', required=True)
     recovery_binding.add_argument('--announced-at', type=int, required=True)
     recovery_binding.add_argument('--promise-floor-proof')
+    recovery_binding.add_argument('--nov7-owner', action='store_true')
     recovery_binding.set_defaults(handler=cmd_bind_recovery_window)
     restoring = commands.add_parser('restoration-needed')
     restoring.add_argument('--repo', required=True)
@@ -4702,6 +4755,8 @@ def parser() -> argparse.ArgumentParser:
     recovery_window.add_argument("--control-sha")
     recovery_window.add_argument("--certified-policy")
     recovery_window.add_argument("--predecessor-sha")
+    recovery_window.add_argument("--deadline", type=int)
+    recovery_window.add_argument("--nov7-owner", action="store_true")
     recovery_window.add_argument("--include-eligibility", action="store_true")
     recovery_window.set_defaults(handler=cmd_reserve_recovery_window)
 
@@ -4725,6 +4780,7 @@ def parser() -> argparse.ArgumentParser:
     attest_result.add_argument("--sha", required=True)
     attest_result.add_argument("--run-id", required=True)
     attest_result.add_argument("--invocation-id")
+    attest_result.add_argument("--completion-invocation-id", action="store_true")
     attest_result.set_defaults(handler=cmd_attest_result)
 
     diagnostic_read_command = commands.add_parser("diagnostic-read")

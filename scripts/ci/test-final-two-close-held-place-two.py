@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+"""Private PostgreSQL proof of 20261107130652 (the final two close never dies on a held place two).
+
+The close of a bounty only PKO (fn_ca_bounty_only_pko_final_two, 20261106010426)
+stamps the runner-up into finishing place 2. tournament_players carries the live
+trigger tournament_place_collision_watch, which raises SQLSTATE 23505 for any
+stamp of a place another entrant already holds, and place 2 is held for a moment
+by the bounty rebuy step's temporary position. The whole attempt therefore died
+instead of answering, and the event played past two players - which cost the
+runner-up the bounty on his own head (production: ca_bounty_only_final_two held
+zero rows for all time; the one real attempt, c1b3fa5a at 2026-11-07 09:20:13Z,
+failed exactly this way).
+
+This runs the EXACT migrations over a minimal schema that carries a faithful
+copy of the live collision trigger (public.trg_tournament_place_collision,
+md5(prosrc) 5269c4504db2708b7f34efc8a99eb253, read 2026-11-07), and proves:
+
+  * the authority's definition in 20261106010426 is byte for byte the one
+    20261107130652 guards as its preimage;
+  * BEFORE the fix, a held place 2 kills the close with 23505;
+  * AFTER it, the same field is answered finishing_place_two_is_held, with the
+    holder and the runner-up named, and NOTHING moves: no credit, no obligation,
+    no pool change, no close row, and the runner-up is still playing;
+  * once the transient place is cleared the same field closes normally - the
+    runner-up is paid exactly his own head, once, and recorded in place 2, and
+    what is left of the pool is exactly the winner's own head;
+  * the refusal is returned BEFORE the payer runs (a typed RETURN commits, so a
+    refusal after the head was paid would leave a paid runner-up still playing);
+  * re-applying the migration refuses on its own preimage guard.
+"""
+from pathlib import Path
+import json, os, shutil, subprocess, tempfile
+
+ROOT = Path(__file__).resolve().parents[2]
+BASE = ROOT / 'supabase/migrations/20261106010426_bounty_only_pko_ends_with_two_players.sql'
+FIX = ROOT / 'supabase/migrations/20261107130652_the_final_two_close_never_dies_on_a_held_place_two.sql'
+PREIMAGE = '32ef0b2af5e91401d50068b520ceda55'
+PG = Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
+work = Path(tempfile.mkdtemp(prefix='held-place-', dir=os.environ.get('TMPDIR')))
+sock = Path(tempfile.mkdtemp(prefix='s-', dir=os.environ.get('CA_PG_SOCKET_ROOT', os.environ.get('TMPDIR'))))
+port = str(39000 + (os.getpid() + 71) % 9000)
+started = False
+
+
+def run(args, sql=None, timeout=120):
+    r = subprocess.run([str(a) for a in args], input=sql, text=True, capture_output=True, timeout=timeout)
+    if r.returncode:
+        raise RuntimeError(r.stderr)
+    return r.stdout
+
+
+def q(sql):
+    return run([PG / 'psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-h', sock, '-p', port, '-U', 'postgres', '-d', 'w'], sql)
+
+
+def j(sql):
+    return json.loads(q(sql).strip())
+
+
+def must_fail(sql, needle):
+    try:
+        q(sql)
+    except RuntimeError as error:
+        assert needle in str(error), str(error)
+        return str(error)
+    raise AssertionError('expected a refusal containing %r' % needle)
+
+
+SCHEMA = r"""
+CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+CREATE TABLE public.tournaments(
+  id uuid PRIMARY KEY, name text, status text, is_pko boolean, is_mystery_bounty boolean,
+  buy_in_amount numeric, guaranteed_prize numeric, prize_pool numeric,
+  bounty_pool numeric(15,2), bounty_pool_paid numeric(15,2), prize_pool_finalized boolean);
+CREATE TABLE public.tournament_players(
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid, user_id uuid,
+  status text, chips numeric, current_bounty numeric(15,2), bounty_winnings numeric(15,2),
+  position integer, eliminated_at timestamptz, registered_at timestamptz);
+CREATE TABLE public.tournament_knockout_candidates(tournament_id uuid, state text);
+CREATE TABLE public.tournament_obligations(
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid, kind text, place integer,
+  user_id uuid, amount_owed numeric(15,2), amount_paid numeric(15,2), source text);
+CREATE TABLE public.ca_settle_sources(source text PRIMARY KEY, note text, added_at timestamptz DEFAULT now());
+CREATE TABLE public.ca_money_rpc_registry(proname text PRIMARY KEY, status text NOT NULL, notes text);
+CREATE TABLE public.test_credits(user_id uuid, amount numeric(15,2), kind text, source text, description text);
+CREATE TABLE public.tournament_place_collisions(
+  id bigserial PRIMARY KEY, tournament_id uuid, place integer, user_id uuid,
+  existing_user_id uuid, db_role text, application text, created_at timestamptz DEFAULT now());
+CREATE FUNCTION public.fn_caller_is_engine() RETURNS boolean LANGUAGE sql
+  AS $$ SELECT COALESCE(current_setting('test.engine', true), '1') = '1' $$;
+CREATE FUNCTION public.fn_ca_lock_settlement_lane_global() RETURNS void LANGUAGE sql AS $$ SELECT $$;
+CREATE FUNCTION public.fn_tournament_has_unsettled_bounties(p uuid) RETURNS boolean LANGUAGE sql
+  AS $$ SELECT EXISTS (SELECT 1 FROM public.tournament_obligations o
+                        WHERE o.tournament_id = p AND o.kind = 'bounty' AND o.amount_paid < o.amount_owed) $$;
+-- The single payer's contract: a cumulative user-keyed total; pays the difference.
+CREATE FUNCTION public.fn_settle_tournament_obligation(
+  p_tournament_id uuid, p_kind text, p_place integer, p_user_id uuid, p_amount numeric,
+  p_source text, p_description text DEFAULT NULL, p_adjustment_id uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_prior numeric := 0; v_pay numeric;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.ca_settle_sources s WHERE s.source = lower(p_source)) THEN
+    RETURN jsonb_build_object('ok', false, 'paid', 0, 'refused_reason', 'unknown_source');
+  END IF;
+  SELECT amount_paid INTO v_prior FROM public.tournament_obligations
+   WHERE tournament_id = p_tournament_id AND kind = p_kind AND place IS NULL AND user_id = p_user_id;
+  v_prior := COALESCE(v_prior, 0);
+  v_pay := round(p_amount - v_prior, 2);
+  IF v_pay <= 0 THEN RETURN jsonb_build_object('ok', true, 'paid', 0); END IF;
+  DELETE FROM public.tournament_obligations
+   WHERE tournament_id = p_tournament_id AND kind = p_kind AND place IS NULL AND user_id = p_user_id;
+  INSERT INTO public.tournament_obligations(tournament_id, kind, place, user_id, amount_owed, amount_paid, source)
+  VALUES (p_tournament_id, p_kind, NULL, p_user_id, p_amount, p_amount, p_source);
+  INSERT INTO public.test_credits VALUES (p_user_id, v_pay, p_kind, p_source, p_description);
+  RETURN jsonb_build_object('ok', true, 'paid', v_pay);
+END $$;
+-- A faithful copy of the live place-collision trigger: this is the raise the
+-- close used to die on, and the reason the fix has to answer instead.
+CREATE FUNCTION public.trg_tournament_place_collision() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  v_existing uuid;
+BEGIN
+  IF NEW.position IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.position IS NOT DISTINCT FROM OLD.position THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT tp.user_id INTO v_existing
+    FROM tournament_players tp
+   WHERE tp.tournament_id = NEW.tournament_id
+     AND tp.position = NEW.position
+     AND tp.user_id <> NEW.user_id
+   LIMIT 1;
+
+  IF v_existing IS NOT NULL THEN
+    INSERT INTO tournament_place_collisions
+      (tournament_id, place, user_id, existing_user_id, db_role, application)
+    VALUES
+      (NEW.tournament_id, NEW.position, NEW.user_id, v_existing,
+       current_user, current_setting('application_name', true));
+
+    RAISE EXCEPTION
+      'finishing place % in tournament % is already held by % - refusing to stamp % on it (a contested place is paid TWICE, the prize idempotency key includes the user id)',
+      NEW.position, NEW.tournament_id, v_existing, NEW.user_id
+      USING ERRCODE = '23505';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER tournament_place_collision_watch BEFORE INSERT OR UPDATE OF "position"
+  ON public.tournament_players FOR EACH ROW EXECUTE FUNCTION trg_tournament_place_collision();
+"""
+
+T = '7e000000-0000-0000-0000-0000000000%02d'
+A, B, C = ('aa000000-0000-0000-0000-000000000001', 'bb000000-0000-0000-0000-000000000002',
+           'cc000000-0000-0000-0000-000000000003')
+
+
+def event(n, pool, paid, players, **over):
+    t = T % n
+    cols = dict(status="'RUNNING'", is_pko='true', is_mystery_bounty='false', buy_in_amount='0',
+                guaranteed_prize='0', prize_pool='0', prize_pool_finalized='true')
+    cols.update(over)
+    q(f"""INSERT INTO tournaments(id,name,bounty_pool,bounty_pool_paid,{','.join(cols)})
+          VALUES ('{t}','Free Buy {n}',{pool},{paid},{','.join(cols.values())});""")
+    for i, (uid, status, chips, head, won) in enumerate(players):
+        q(f"""INSERT INTO tournament_players(tournament_id,user_id,status,chips,current_bounty,bounty_winnings,registered_at)
+              VALUES ('{t}','{uid}','{status}',{chips},{head},{won},'2026-11-05 20:00:00+00'::timestamptz + interval '{i} minutes');""")
+    return t
+
+
+def close(t):
+    return j(f"SELECT public.fn_ca_bounty_only_pko_final_two('{t}')::text;")
+
+
+def row(t, uid):
+    return q(f"""SELECT status||'|'||COALESCE(position::text,'')||'|'||current_bounty||'|'||bounty_winnings
+                   FROM tournament_players WHERE tournament_id='{t}' AND user_id='{uid}';""").strip()
+
+
+def money(t):
+    """Everything this close could have moved, as one comparable string."""
+    return '|'.join(x.strip() for x in (
+        q("SELECT count(*)::text FROM test_credits;"),
+        q("SELECT count(*)::text FROM tournament_obligations;"),
+        q(f"SELECT bounty_pool_paid::text FROM tournaments WHERE id='{t}';"),
+        q(f"SELECT count(*)::text FROM ca_bounty_only_final_two WHERE tournament_id='{t}';")))
+
+
+def held(t, uid, place):
+    """Another entrant transiently holds a finishing place (the bounty rebuy step)."""
+    q(f"UPDATE tournament_players SET position={place} WHERE tournament_id='{t}' AND user_id='{uid}';")
+
+
+try:
+    shutil.rmtree(work / 'data', ignore_errors=True)
+    run([PG / 'initdb', '-D', work / 'data', '-U', 'postgres', '-A', 'trust', '--no-locale'])
+    run([PG / 'pg_ctl', '-D', work / 'data', '-l', work / 'postgres.log', '-o', f'-k {sock} -p {port} -h 127.0.0.1', '-w', 'start'])
+    started = True
+    run([PG / 'createdb', '-h', sock, '-p', port, '-U', 'postgres', 'w'])
+    q(SCHEMA)
+    q(BASE.read_text())
+
+    # The file the fix guards is the definition the base migration installs.
+    live = q("SELECT md5(pg_get_functiondef('public.fn_ca_bounty_only_pko_final_two(uuid)'::regprocedure));").strip()
+    assert live == PREIMAGE, 'preimage drifted: %s' % live
+
+    # ── BEFORE THE FIX ───────────────────────────────────────────────────────
+    # Three entrants, two live, and the third transiently holds place 2.
+    t1 = event(1, 12, 5.25, [(A, 'playing', 5000, 4.50, 3.50), (B, 'playing', 3000, 2.25, 1.25),
+                             (C, 'eliminated', 0, 0, 0.50)])
+    held(t1, C, 2)
+    before = money(t1)
+    err = must_fail(f"SELECT public.fn_ca_bounty_only_pko_final_two('{t1}');", 'is already held by')
+    assert '23505' in err or 'already held by' in err, err
+    assert money(t1) == before, 'the dead attempt moved something'
+    assert row(t1, B) == 'playing||2.25|1.25', row(t1, B)
+
+    # ── AFTER THE FIX ────────────────────────────────────────────────────────
+    q(FIX.read_text())
+    r = close(t1)
+    assert r == {'ok': False, 'reason': 'finishing_place_two_is_held',
+                 'held_by': C, 'runner_up_user_id': B, 'live': 2}, r
+    assert money(t1) == before, 'the refusal moved something'
+    assert row(t1, B) == 'playing||2.25|1.25', row(t1, B)
+    assert row(t1, C) == 'eliminated|2|0.00|0.50', row(t1, C)
+    # The refusal comes before the payer, which a typed RETURN would commit.
+    body = q("SELECT pg_get_functiondef('public.fn_ca_bounty_only_pko_final_two(uuid)'::regprocedure);")
+    assert 0 < body.index('finishing_place_two_is_held') < body.index('fn_settle_tournament_obligation(')
+
+    # The money core clears the temporary place; the same field then closes.
+    q(f"UPDATE tournament_players SET position=4 WHERE tournament_id='{t1}' AND user_id='{C}';")
+    r = close(t1)
+    assert r['ok'] and r['winner_user_id'] == A and r['runner_up_user_id'] == B, r
+    assert float(r['runner_up_head']) == 2.25 and float(r['winner_head']) == 4.50, r
+    assert row(t1, B) == 'eliminated|2|0.00|3.50', row(t1, B)
+    assert row(t1, A) == 'playing||4.50|3.50', row(t1, A)
+    credits = q("SELECT user_id||'|'||amount||'|'||kind||'|'||source FROM test_credits;").split()
+    assert credits == [f'{B}|2.25|bounty_residual|fn_ca_bounty_only_pko_final_two'], credits
+    left = q(f"SELECT bounty_pool - bounty_pool_paid FROM tournaments WHERE id='{t1}';").strip()
+    assert left == '4.50', left  # exactly the winner's own head: the terminal residual
+    again = close(t1)
+    assert again.get('replayed') is True and again['runner_up_user_id'] == B, again
+    assert q("SELECT count(*) FROM test_credits;").strip() == '1'
+
+    # A place 2 the runner-up ALREADY holds is not a collision.
+    t2 = event(2, 10, 6.00, [(A, 'playing', 4000, 2.50, 0.50), (B, 'playing', 3000, 1.50, 1.50)])
+    held(t2, B, 2)
+    r = close(t2)
+    assert r['ok'] and r['runner_up_user_id'] == B, r
+    assert row(t2, B) == 'eliminated|2|0.00|3.00', row(t2, B)
+
+    # Every other refusal is unchanged, and still moves nothing.
+    paid_before = q("SELECT count(*) FROM test_credits;").strip()
+    t3 = event(3, 9, 3.00, [(A, 'playing', 10, 2, 1), (B, 'playing', 10, 2, 1), (C, 'playing', 10, 2, 1)])
+    assert close(t3) == {'ok': False, 'reason': 'field_is_not_two', 'live': 3}
+    t4 = event(4, 6, 2.00, [(A, 'playing', 10, 2, 1), (B, 'playing', 0, 2, 1)])
+    assert close(t4)['reason'] == 'a_live_stack_is_empty'
+    t5 = event(5, 6, 1.00, [(A, 'playing', 10, 2, 1), (B, 'playing', 10, 2, 1)])
+    assert close(t5)['reason'] == 'heads_do_not_match_the_open_pool'
+    t6 = event(6, 6, 2.00, [(A, 'playing', 10, 2, 1), (B, 'playing', 10, 2, 1)], prize_pool='25')
+    assert close(t6)['reason'] == 'not_a_bounty_only_pko'
+    assert q("SELECT count(*) FROM test_credits;").strip() == paid_before
+
+    # A held place 2 refuses before the engine authority check is weakened, and
+    # the grants and ownership the base migration set are unchanged.
+    must_fail(f"SET test.engine = '0'; SELECT public.fn_ca_bounty_only_pko_final_two('{t5}');", 'requires engine authority')
+    grants = q("""SELECT has_function_privilege('authenticated','public.fn_ca_bounty_only_pko_final_two(uuid)','execute')
+                  ||'|'||has_function_privilege('anon','public.fn_ca_bounty_only_pko_final_two(uuid)','execute')
+                  ||'|'||has_function_privilege('service_role','public.fn_ca_bounty_only_pko_final_two(uuid)','execute')
+                  ||'|'||has_table_privilege('authenticated','public.ca_bounty_only_final_two','select');""").strip()
+    assert grants == 'false|false|true|false', grants
+
+    # The fix refuses to run twice: its preimage is no longer the live body.
+    must_fail(FIX.read_text(), 'FINAL_TWO_CLOSE_PREIMAGE_CHANGED')
+    print('final two close with a held place 2: answered, not died; nothing moved; the cleared field closes once - OK')
+finally:
+    if started:
+        run([PG / 'pg_ctl', '-D', work / 'data', '-m', 'immediate', '-w', 'stop'])
+    shutil.rmtree(work, ignore_errors=True)
+    shutil.rmtree(sock, ignore_errors=True)

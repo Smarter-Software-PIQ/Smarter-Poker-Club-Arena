@@ -177,6 +177,10 @@ describe('accepted action origin is an executor fact, not a roster inference', (
       expect(h.controller.performAction(1, 'call', undefined, origin)).toBe(true);
       expect(h.events[0].origin).toBe(origin);
       expect(h.controller.getState().actionHistory[0]).not.toHaveProperty('origin');
+      if (origin === 'forced')
+        expect(h.controller.getState({ includeActionOrigins: true }).actionHistory[0].origin).toBe(
+          'forced'
+        );
     }
   );
 

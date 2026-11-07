@@ -1,0 +1,179 @@
+diff --git a/server/src/benchmark/RiverBluffBaselineLeague.ts b/server/src/benchmark/RiverBluffBaselineLeague.ts
+index abfd9b974..52784b6df 100644
+--- a/server/src/benchmark/RiverBluffBaselineLeague.ts
++++ b/server/src/benchmark/RiverBluffBaselineLeague.ts
+@@ -39,7 +39,7 @@
+  * HorseLeague's playHand is the street engine, validation and settlement;
+  * this file adds nothing to how a hand is played.
+  */
+-import type { Card } from '../types.js';
++import type { Card, HandStage } from '../types.js';
+ import type { HorseDecideOpts, HorseProfileMods } from '../engine/HorseLogic.js';
+ import type { HorseStyle } from '../types.js';
+ import { HORSE_HYBRID_PROFILES } from '../engine/HorseHybridProfile.js';
+@@ -169,6 +169,24 @@ export interface RblmArmStats {
+   baselineBluffNetBB: number;
+   /** baseline eligible spots that checked */
+   baselineChecks: number;
++  /** flop/turn raises the hero made facing a bet (semi-bluff pressure) */
++  pressureRaises: number;
++  /** ... that won the pot without another card or a showdown */
++  pressureRaisesFolded: number;
++  /** net bb of the hands containing such a raise */
++  pressureRaiseNetBB: number;
++  /** river bets in hands where the hero bet or raised the turn (a barrel) */
++  riverBarrels: number;
++  riverBarrelsFolded: number;
++  /** every telemetry receipt the hero's decisions carried, by feature */
++  heroFires: Record<string, number>;
++}
++
++/** The arm pair a cell plays. Defaults to the baseline ablation; a skill
++ *  qualification passes its own (arm A = the candidate, arm B = production). */
++export interface RblmArmPair {
++  a: HorseDecideOpts;
++  b: HorseDecideOpts;
+ }
+ 
+ export interface RblmCellResult {
+@@ -213,6 +231,12 @@ function emptyArm(): RblmArmStats {
+     baselineBreakEvenSum: 0,
+     baselineBluffNetBB: 0,
+     baselineChecks: 0,
++    pressureRaises: 0,
++    pressureRaisesFolded: 0,
++    pressureRaiseNetBB: 0,
++    riverBarrels: 0,
++    riverBarrelsFolded: 0,
++    heroFires: {},
+   };
+ }
+ 
+@@ -238,6 +262,12 @@ interface HandTrace {
+   baselineCheck: boolean;
+   fieldResponses: number;
+   fieldFolds: number;
++  /** street of the hero's last flop/turn raise facing a bet, if any */
++  pressureStage: HandStage | null;
++  pressureRaised: boolean;
++  /** a later street was dealt after that raise */
++  pressureCalled: boolean;
++  turnAggression: boolean;
+ }
+ 
+ function playArm(
+@@ -276,13 +306,26 @@ function playArm(
+     baselineCheck: false,
+     fieldResponses: 0,
+     fieldFolds: 0,
++    pressureStage: null,
++    pressureRaised: false,
++    pressureCalled: false,
++    turnAggression: false,
+   };
+   let heroRiverBetPending = false;
+   let heroCards: Card[] = [];
+   const observer: LeagueHandObserver = {
+     onAction: (e) => {
++      if (trace.pressureStage && e.stage !== trace.pressureStage) trace.pressureCalled = true;
+       if (e.seatIdx === RBLM_HERO_SEAT) {
+         const fires = drainFires();
++        for (const f of fires) stats.heroFires[f.feature] = (stats.heroFires[f.feature] ?? 0) + 1;
++        const aggressive = e.action === 'bet' || e.action === 'raise' || e.action === 'all_in';
++        if (aggressive && e.stage === 'turn') trace.turnAggression = true;
++        if (aggressive && e.toCall > 0 && (e.stage === 'flop' || e.stage === 'turn')) {
++          trace.pressureStage = e.stage;
++          trace.pressureRaised = true;
++          trace.pressureCalled = false;
++        }
+         const baselineBet = fires.some(
+           (f) =>
+             f.feature.startsWith('river_bluff_baseline_') &&
+@@ -338,6 +381,15 @@ function playArm(
+         }
+       }
+       if (trace.baselineCheck) stats.baselineChecks++;
++      if (trace.pressureRaised) {
++        stats.pressureRaises++;
++        if (heroLive && e.endedByFolds && !trace.pressureCalled) stats.pressureRaisesFolded++;
++        stats.pressureRaiseNetBB += e.net[RBLM_HERO_SEAT] / BB;
++      }
++      if (trace.riverBet && trace.turnAggression) {
++        stats.riverBarrels++;
++        if (trace.riverBet.foldedOut) stats.riverBarrelsFolded++;
++      }
+     },
+   };
+   drainFires();
+@@ -376,7 +428,8 @@ export async function runRiverBluffBaselineCell(
+   pool: RblmPool,
+   pairs: number,
+   seed: number,
+-  seats: RblmSeats = RBLM_SEATS
++  seats: RblmSeats = RBLM_SEATS,
++  arms: RblmArmPair = RBLM_ARMS
+ ): Promise<RblmCellResult> {
+   const t0 = Date.now();
+   const counters: { illegal: number; truncated: number; brainFallback?: number } = {
+@@ -400,7 +453,7 @@ export async function runRiverBluffBaselineCell(
+       const handSeed = (seed ^ (p * 2654435761)) >>> 0 || 1;
+       const dealerSeat = (p % seats) + 1;
+       const ra = playArm(
+-        RBLM_ARMS.a,
++        arms.a,
+         sbA,
+         handSeed,
+         dealerSeat,
+@@ -413,7 +466,7 @@ export async function runRiverBluffBaselineCell(
+         p
+       );
+       const rb = playArm(
+-        RBLM_ARMS.b,
++        arms.b,
+         sbB,
+         handSeed,
+         dealerSeat,
+diff --git a/server/src/scripts/riverBluffBaselineLeague.ts b/server/src/scripts/riverBluffBaselineLeague.ts
+index f5f543d9d..24ace80bf 100644
+--- a/server/src/scripts/riverBluffBaselineLeague.ts
++++ b/server/src/scripts/riverBluffBaselineLeague.ts
+@@ -17,7 +17,7 @@ import { resolve } from 'node:path';
+ 
+ const args = new Map<string, string>();
+ for (const a of process.argv.slice(2)) {
+-  const m = /^--(variants|formats|pools|pairs|standard-pairs|seed|seats|output)=(.+)$/.exec(a);
++  const m = /^--(variants|formats|pools|pairs|standard-pairs|seed|seats|output|skill)=(.+)$/.exec(a);
+   if (!m || args.has(m[1])) throw new Error(`Unknown or duplicate argument: ${a}`);
+   args.set(m[1], m[2]);
+ }
+@@ -42,6 +42,12 @@ const standardPairs = perVariant('standard-pairs');
+ const seed = Number(args.get('seed') ?? 20261107);
+ const seats = Number(args.get('seats') ?? 6);
+ if (seats !== 2 && seats !== 6) throw new Error('--seats is 2 or 6');
++// --skill=<flag>: arm A is production with that flag on, arm B is production.
++// Without it the cell ablates the river bluff baseline (arm B turns it off).
++const skill = args.get('skill');
++const SKILLS = ['comboDrawPressure', 'barrelContinuationOutlook'];
++if (skill && !SKILLS.includes(skill)) throw new Error(`--skill is one of ${SKILLS.join(', ')}`);
++const arms = skill ? { a: { [skill]: true }, b: {} } : undefined;
+ const out = resolve(args.get('output') ?? 'scratch/river-bluff-baseline');
+ await mkdir(out, { recursive: true });
+ enableBrainTelemetry();
+@@ -59,7 +65,8 @@ for (const v of variants) {
+         pool as (typeof RBLM_POOLS)[number],
+         n,
+         seed,
+-        seats as 2 | 6
++        seats as 2 | 6,
++        arms
+       );
+       const tag = seats === 2 ? 'hu_' : '';
+       await writeFile(
+@@ -69,6 +76,7 @@ for (const v of variants) {
+       console.log(
+         `${seats}max ${v} ${f} ${pool} pairs=${n} bb100=${r.bb100.toFixed(2)} se=${r.stderr.toFixed(2)} ` +
+           `div=${r.divergentPairs} bluffs=${r.armA.baselineBluffs} folded=${r.armA.baselineBluffsFolded} ` +
++          `illegal=${r.illegalActions} trunc=${r.truncatedStreets} fb=${r.brainExceptionFallbacks} ` +
+           `${(r.durationMs / 1000).toFixed(0)}s`
+       );
+     }

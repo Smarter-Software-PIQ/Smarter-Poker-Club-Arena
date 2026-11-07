@@ -94,3 +94,19 @@ it('never blocks a live turn indefinitely when saved appearance cannot load', as
   expect(result.current.skinSrc).toBe('');
   expect(result.current.backgroundSrc).toBe('');
 });
+
+it('keeps complete table art covered until the selected deck decodes, with the existing live-turn deadline', async () => {
+  vi.useFakeTimers();
+  const { result, rerender } = renderHook(
+    ({ deckReady }) => useTableArt('', '', true, 'card-ready-test', deckReady),
+    { initialProps: { deckReady: false } }
+  );
+  await act(async () => {});
+  expect(result.current.reveal).toBe(false);
+  rerender({ deckReady: true });
+  expect(result.current.reveal).toBe(true);
+  rerender({ deckReady: false });
+  expect(result.current.reveal).toBe(false);
+  await act(() => vi.advanceTimersByTimeAsync(TABLE_ART_MAX_COVER_MS));
+  expect(result.current.reveal).toBe(true);
+});

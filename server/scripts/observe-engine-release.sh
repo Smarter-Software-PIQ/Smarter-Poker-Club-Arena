@@ -29,6 +29,37 @@ systemd_outcome_is_retryable() {
   esac
 }
 
+# THE HOST HAS ALREADY DECLARED THIS TRANSACTION DEAD (2026-11-07)
+# install-engine-supervisor.sh installs a bounded-restarts drop-in on the
+# release unit: "Five failed starts in 20 minutes is a dead transaction:
+# systemd parks it in failed state so it stops counting as a live owner
+# instead of looping every 30 s forever". Once that bound trips, systemd
+# reports Result=start-limit-hit and refuses every further start ("Start
+# request repeated too quickly"), so NO RestartSec wait is pending and the
+# enabled unit is no longer an authority that can still finish.
+# Run 42190145714-1 (target a6a4dd17) is the measured case: the unit exited
+# 75/TEMPFAIL five times, systemd parked it at 10:09:40Z with the restart
+# counter at 6, and this observer went on polling until its 10,200s budget
+# expired at 11:57:30Z - reporting a bare "exceeded the observation deadline
+# while retrying" with no cause, 108 minutes after the host had given up.
+# Treating a parked unit as terminal falls through to the branch below, which
+# prints the invocation journal and names the real result.
+unit_start_limit_parked() {
+  [ "${1:-}" = start-limit-hit ]
+}
+
+# Keep the exact invocation's cause in Actions whenever observation ends
+# without a receipt. The terminal branch below already prints it; the two
+# deadline refusals printed nothing at all, which is what made four
+# consecutive release failures unreadable from CI and sent their alert to
+# "read the host release journal" by hand.
+print_unit_journal() {
+  [[ "${1:-}" =~ ^[0-9a-f]{32}$ ]] || return 0
+  timeout --signal=TERM --kill-after=1s 5s \
+    journalctl "_SYSTEMD_INVOCATION_ID=$1" --no-pager -o cat -n 400 \
+    || echo '[observe-engine-release] unit journal unavailable within its bounded read' >&2
+}
+
 fail_if_terminal_failure() {
   local attestation failure_result failure_sha failure_control failure_invocation
   local failure_status recovered_sha recovered_image extra
@@ -142,17 +173,21 @@ if [ -z "$COMPLETED_ATTESTATION" ]; then
     MAIN_STATUS="$(systemctl show "$UNIT" -p ExecMainStatus --value 2>/dev/null || true)"
     case "$ACTIVE_STATE" in
       activating|active|deactivating)
-        [ "$(date +%s)" -lt "$DEADLINE" ] || die 'release unit exceeded the observation deadline'
+        [ "$(date +%s)" -lt "$DEADLINE" ] \
+          || { print_unit_journal "$INVOCATION_ID"
+               die 'release unit exceeded the observation deadline'; }
         sleep 15
         ;;
       inactive|failed)
         if systemd_outcome_is_retryable "$RESULT" "$MAIN_STATUS" \
+          && ! unit_start_limit_parked "$RESULT" \
           && systemctl is-enabled "$UNIT" 2>/dev/null | grep -qx enabled; then
           # Do not turn the intentional transient status into a false terminal
           # CI failure during RestartSec. The enabled exact unit remains the
           # authority and the shared observer deadline still bounds it.
           [ "$(date +%s)" -lt "$DEADLINE" ] \
-            || die 'release unit exceeded the observation deadline while retrying'
+            || { print_unit_journal "$INVOCATION_ID"
+                 die 'release unit exceeded the observation deadline while retrying'; }
           sleep 15
           continue
         fi
@@ -216,6 +251,24 @@ done
 COMPLETED_ATTESTATION="$("$CONTROL_DIR/engine-release-seal.py" attest-result \
   --sha "$SHA" --run-id "$RUN_ID")" \
   || die 'terminally retired release has no valid exact result receipt'
+
+if [ "$RESULT_PREEXISTED" = 0 ]; then
+  # Recovery can finish and retire its native metadata between observer polls.
+  # A cached predecessor invocation must not overrule the fsynced completion.
+  # Only after complete run retirement may an empty native ID use that result's
+  # validated original producer; a present native ID must still attest itself.
+  CURRENT_INVOCATION="$(systemctl show "$UNIT" -p InvocationID --value 2>/dev/null)" \
+    || die 'retired release invocation could not be read'
+  if [ -z "$CURRENT_INVOCATION" ]; then
+    INVOCATION_ID="$("$CONTROL_DIR/engine-release-seal.py" attest-result \
+      --sha "$SHA" --run-id "$RUN_ID" --completion-invocation-id)" \
+      || die 'retired release has no attested completion invocation'
+  else
+    INVOCATION_ID="$CURRENT_INVOCATION"
+  fi
+  [[ "$INVOCATION_ID" =~ ^[0-9a-f]{32}$ ]] \
+    || die 'retired release invocation is invalid'
+fi
 
 DESIRED_SHA="$("$CONTROL_DIR/engine-release-seal.py" get desired-sha)"
 DESIRED_IMAGE="$("$CONTROL_DIR/engine-release-seal.py" get desired-image-id)"

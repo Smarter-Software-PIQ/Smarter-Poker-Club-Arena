@@ -4005,7 +4005,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     // callback's reduced argument is useful for dispatch, but is not the
     // canonical decision state and must not be the source of poker rules.
     if (!handControllerRef) return;
-    const state = handControllerRef.getState();
+    const state = handControllerRef.getState({ includeActionOrigins: true });
     const tournamentHand = this.isTournamentTable();
     const originalMemoryBlinds = handControllerRef.getBlindSnapshot();
     // refreshBlinds may already describe the next level while this controller

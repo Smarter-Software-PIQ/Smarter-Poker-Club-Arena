@@ -475,6 +475,26 @@ const normalizeRealtimeReviveRecordedAddition = (job: {
   job.steps.splice(index, 1);
 };
 
+const heldPlaceTwoStep = {
+  name: 'The final two close never dies on a held place two on native PostgreSQL',
+  if: 'matrix.shard == 1',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'python3 -B scripts/ci/test-final-two-close-held-place-two.py',
+};
+const normalizeHeldPlaceTwoAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === heldPlaceTwoStep.name);
+  expect(job.steps.filter((step) => step.name === heldPlaceTwoStep.name)).toHaveLength(1);
+  expect(job.steps[index - 1]?.name).toBe(realtimeReviveRecordedStep.name);
+  expect(job.steps[index]).toStrictEqual(heldPlaceTwoStep);
+  expect(job.steps[index + 1]?.name).toBe(
+    'Owner alerts preserve the actual finding through the real PostgreSQL trigger'
+  );
+  // Enforce the exact added native gate (2026-11-07: a transiently held
+  // finishing place 2 is answered, not raised as 23505, so a bounty only PKO
+  // really ends at two), preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 describe('required CI uses a closed standard hosted capacity recovery', () => {
   for (const [name, job, standard] of jobs) {
     it(name + ' permits only its fixed standard hosted OS', () => {
@@ -570,6 +590,28 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
           'https://www.postgresql.org/media/keys/ACCC4CF8.asc'
         )
     );
+    const freezeArmingStep = {
+      name: 'The finalized-pool freeze refuses what arming it would refuse',
+      if: 'matrix.shard == 1',
+      env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+      run: 'python3 -B scripts/ci/test-finalized-pool-freeze-arming.py',
+    };
+    const freezeArmingSteps = normalized.jobs.accounting_postgres.steps;
+    const freezeArmingIndex = freezeArmingSteps.findIndex(
+      (step: { name: string }) => step.name === freezeArmingStep.name
+    );
+    expect(
+      freezeArmingSteps.filter((step: { name: string }) => step.name === freezeArmingStep.name)
+    ).toHaveLength(1);
+    expect(freezeArmingSteps[freezeArmingIndex]).toStrictEqual(freezeArmingStep);
+    expect(freezeArmingSteps[freezeArmingIndex - 1]?.name).toBe(
+      'Tournament guarantees include funded bounties'
+    );
+    expect(freezeArmingSteps[freezeArmingIndex + 1]?.name).toBe(
+      'Cash top-up retries read their original receipt'
+    );
+    // Enforce the exact added freeze proof before retaining the bounty neighbours.
+    freezeArmingSteps.splice(freezeArmingIndex, 1);
     const bountyStep = {
       name: 'Tournament guarantees include funded bounties',
       if: 'matrix.shard == 1',
@@ -636,6 +678,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     chicagoSteps.splice(chicagoIndex, 1);
 
     normalizeTournamentCreateRequest(normalized.jobs.accounting_postgres);
+    normalizeHeldPlaceTwoAddition(normalized.jobs.accounting_postgres);
     normalizeRealtimeReviveRecordedAddition(normalized.jobs.accounting_postgres);
     normalizeSweepGatePendingWorkAddition(normalized.jobs.accounting_postgres);
     normalizeBountyOnlyFinalTwoWatchAddition(normalized.jobs.accounting_postgres);

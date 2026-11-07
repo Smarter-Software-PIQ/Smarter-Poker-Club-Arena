@@ -604,7 +604,7 @@ export interface ActionRecord {
   isFullRaise?: boolean;
   /** Accepted-hand learning metadata, omitted from controller/UI history. */
   publicNode?: import('./engine/HorsePublicActionNode.js').HorsePublicActionNode;
-  /** Durable history only; unknown/forced/fallback actions cannot train a voluntary model. */
+  /** Accepted source for durable history and controller fold/forced observations. */
   origin?: AcceptedActionOrigin;
 }
 

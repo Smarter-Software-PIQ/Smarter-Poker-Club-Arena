@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   validateSelection,
+  acceptedSharedRead,
   summarizeDecision,
   sanitizeInspectionFailure,
 } from '../../scripts/ci/inspect-horse-opponent-reads.mjs';
@@ -22,6 +23,22 @@ test('accepts only a finite closed data selection, with no command or path overr
     { ...selection, handKeys: ['../private'] },
   ])
     assert.throws(() => validateSelection(p));
+});
+test('bounds all targets together and permits exactly one selected opponent per original hand', () => {
+  const target = { handKey: selection.handKeys[0], opponentId: id };
+  const batch = { sourceSha: selection.sourceSha, targets: [target] };
+  assert.deepEqual(validateSelection(batch), batch);
+  for (const targets of [
+    [],
+    [target, target],
+    [{ ...target, command: 'x' }],
+    [{ ...target, opponentId: 'x' }],
+    Array.from({ length: 17 }, (_, i) => ({
+      ...target,
+      handKey: i.toString(16).padStart(64, '0'),
+    })),
+  ])
+    assert.throws(() => validateSelection({ ...batch, targets }));
 });
 test('emits only selected public counters and scalar execution receipts, never private cards or raw frames', () => {
   const secret = 'NEVER_EXPORT_THIS';
@@ -71,6 +88,60 @@ test('emits only selected public counters and scalar execution receipts, never p
     summarizeDecision({}, capture, view, '22222222-2222-4222-8222-222222222222', true),
     null
   );
+});
+test('attributes an exact pooled read only to its reconciled original selected and accepted action', () => {
+  const context = {
+    version: 2,
+    variant: 'plo4',
+    format: 'cash',
+    dealtCount: 6,
+    publicMemoryDomain: { version: 1, speed: 'lightning', ante: 'big_blind' },
+  };
+  const pooledPublicProfiles = {
+    digest: 'b'.repeat(64),
+    source: 'accepted_hand_public_profiles',
+  };
+  const capture = {
+    observerReads: { context, pooledPublicProfiles },
+    decision: { action: 'raise', amount: 10 },
+  };
+  const execution = {
+    executionStatus: 'intended',
+    executedAction: 'raise',
+    selected: { action: 'raise', amount: 10 },
+    handAnchor: {},
+  };
+  const hand = { actions: [] };
+  const check = (c, e, status, used = true, bound = true) =>
+    acceptedSharedRead(
+      c,
+      e,
+      hand,
+      { status },
+      () => used,
+      () => (bound ? { status: 'bound', actionOrdinal: 5 } : { status: 'unavailable' })
+    );
+  assert.deepEqual(check(capture, execution, 'reconciled'), {
+    actionOrdinal: 5,
+    profileDigest: pooledPublicProfiles.digest,
+    profileSource: pooledPublicProfiles.source,
+    variant: 'plo4',
+    format: 'cash',
+    dealtCount: 6,
+    speed: 'lightning',
+    ante: 'big_blind',
+  });
+  for (const args of [
+    [capture, execution, 'incomplete'],
+    [capture, execution, 'reconciled', false],
+    [capture, execution, 'reconciled', true, false],
+    [capture, { ...execution, executionStatus: 'not_executed' }, 'reconciled'],
+    [capture, { ...execution, handAnchor: { earlyLook: true } }, 'reconciled'],
+    [{ ...capture, decision: { action: 'raise', amount: 9 } }, execution, 'reconciled'],
+    [{ ...capture, decision: { action: 'call' } }, execution, 'reconciled'],
+    [{ ...capture, observerReads: { context: { version: 1 } } }, execution, 'reconciled'],
+  ])
+    assert.equal(check(...args), null);
 });
 test('runs only from an explicit default-branch dispatch, through pinned provider SSH, without a release route', () => {
   const y = readFileSync(
@@ -164,21 +235,17 @@ test('actual CLI reports the failing bounded stage and preserves successful outp
   const cwd = mkdtempSync(join(tmpdir(), 'horse-read-diagnostic-'));
   const script = new URL('../../scripts/ci/inspect-horse-opponent-reads.mjs', import.meta.url)
     .pathname;
-  const run = (stage, journal = 'unused-synthetic-directory') =>
-    spawnSync(
-      process.execPath,
-      [script, Buffer.from(JSON.stringify(selection)).toString('base64')],
-      {
-        cwd,
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          GIT_COMMIT_SHA: selection.sourceSha,
-          HORSE_DECISION_JOURNAL_DIR: journal,
-          FIXTURE_FAILURE: stage,
-        },
-      }
-    );
+  const run = (stage, journal = 'unused-synthetic-directory', input = selection) =>
+    spawnSync(process.execPath, [script, Buffer.from(JSON.stringify(input)).toString('base64')], {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_COMMIT_SHA: selection.sourceSha,
+        HORSE_DECISION_JOURNAL_DIR: journal,
+        FIXTURE_FAILURE: stage,
+      },
+    });
   const refused = (result, reason) => {
     assert.equal(result.status, 1);
     assert.equal(result.stdout, '');
@@ -243,6 +310,22 @@ test('actual CLI reports the failing bounded stage and preserves successful outp
     assert.equal(result.completePopulation, false);
     assert.equal(result.hands.length, 1);
     assert.equal(result.hands[0].decisions[0].action, 'fold');
+    const other = 'c'.repeat(64);
+    const batch = run('', undefined, {
+      sourceSha: selection.sourceSha,
+      targets: [selection.handKeys[0], other].map((handKey) => ({ handKey, opponentId: id })),
+    });
+    assert.equal(batch.status, 0, batch.stderr);
+    assert.deepEqual(JSON.parse(batch.stdout), {
+      scope: 'selected_accepted_shared_reads',
+      sourceSha: selection.sourceSha,
+      completePopulation: false,
+      hands: [selection.handKeys[0], other].map((handKey) => ({
+        handKey,
+        reconciled: false,
+        witnesses: [],
+      })),
+    });
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

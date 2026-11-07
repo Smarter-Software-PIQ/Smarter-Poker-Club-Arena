@@ -456,3 +456,113 @@
   font-size: 0.74rem;
   letter-spacing: 0.04em;
 }
+
+/* The painted console owns the only frame. The global -dialog selector
+   otherwise adds a second metallic shell behind its transparent corners. */
+.lightning-summary-dialog[role='dialog'] {
+  padding: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: #e4e7ec;
+  animation: lightningResultEnter 320ms ease-out both;
+}
+
+.lightning-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1cqw;
+  padding: 2cqw 0 5cqw;
+  text-align: center;
+}
+.lightning-result__label,
+.lightning-result__caption {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: #45adff;
+  font-size: 3cqw;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.lightning-result__caption {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: #9aa5b3;
+  font-size: 2.6cqw;
+  letter-spacing: 0.06em;
+}
+.lightning-result__well {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.lightning-result__value {
+  display: block;
+  max-width: 100%;
+  font-size: calc(13cqw * var(--fit, 1));
+  line-height: 1.15;
+  font-weight: 900;
+  white-space: nowrap;
+  color: #e4e7ec;
+  text-shadow:
+    0 1px 0 #fff,
+    0 3px 2px #050607;
+}
+.lightning-result[data-result='loss'] .lightning-result__value {
+  color: #ff5b6e;
+  text-shadow: 0 1px 0 #050607;
+}
+.lightning-result[data-result='unknown'] .lightning-result__value {
+  color: #9aa5b3;
+}
+.lightning-summary .lightning-stats {
+  gap: 0 4cqw;
+}
+.lightning-summary .lightning-stats__row {
+  padding: 2.6cqw 0;
+  gap: 0.5cqw;
+  border-top: 1px solid #000;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+}
+.lightning-summary .lightning-stats__label {
+  color: #45adff;
+  font-size: 2.8cqw;
+  font-weight: 700;
+}
+.lightning-summary .lightning-stats__value {
+  color: #e4e7ec;
+  font-size: 4.7cqw;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 0 #050607;
+}
+.lightning-summary .lightning-stats__value--down {
+  color: #ff5b6e;
+}
+.lightning-summary .lightning-sheet__quiet {
+  font-size: 3.7cqw;
+  text-align: center;
+  padding: 4cqw 0;
+}
+@keyframes lightningResultEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lightning-summary-dialog[role='dialog'] {
+    animation: none;
+  }
+}

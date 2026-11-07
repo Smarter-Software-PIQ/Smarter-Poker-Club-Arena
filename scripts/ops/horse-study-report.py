@@ -71,7 +71,7 @@ def run(source,output,river_opportunities=False):
     indices={}
     for path in sorted(source.glob('participants-*.jsonl.gz')):
         for r in read_rows(path):indices.setdefault(r['hand_id'],set()).add(r['user_id'])
-    counts=Counter();domains=Counter();stages=Counter();gaps=Counter();findings=Counter();seen=set();strategic_candidates=Counter();rules=Counter();river_counts=Counter()
+    counts=Counter(included=0, decisions=0);domains=Counter();stages=Counter();gaps=Counter();findings=Counter();seen=set();strategic_candidates=Counter();rules=Counter();river_counts=Counter()
     recovered=[]
     for path in sorted(source.glob('missing-recovery-*.jsonl.gz')):
         for r in read_rows(path):

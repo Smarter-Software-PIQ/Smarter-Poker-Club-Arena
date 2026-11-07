@@ -1,0 +1,36 @@
+name: Horse public memory
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/horse-public-memory.yml
+      - scripts/ci/test-horse-exact-public-memory.py
+      - supabase/migrations/20260906113554_the_atomic_hand_insert_lets_the_defaults_apply_and_proves_it.sql
+      - supabase/migrations/20260908042100_an_accepted_hand_is_one_commit_and_stats_leave_the_hot_path.sql
+      - supabase/migrations/20261023183513_durable_variant_scoped_horse_opponent_memory.sql
+      - supabase/migrations/20261024023547_horse_opponent_bounded_original_request_reads.sql
+      - supabase/migrations/20261106091733_horse_public_memory_exact_rule_domains.sql
+      - supabase/migrations/20261107160549_horse_memory_excludes_forced_folds.sql
+concurrency:
+  group: horse-public-memory-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL 17 on the disposable runner
+        run: |
+          set -euo pipefail
+          if [[ -x /usr/lib/postgresql/17/bin/initdb ]]; then exit 0; fi
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-17
+      - name: Verify accepted public actions and cold profile reads
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-horse-exact-public-memory.py --scratch "$RUNNER_TEMP" --output "$RUNNER_TEMP/horse-exact-memory-evidence"

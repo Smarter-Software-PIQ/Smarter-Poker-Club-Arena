@@ -1,9 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { gitFixtureEnvironment } from '../helpers/gitFixtureEnvironment';
+
+// Load headroom (2026-11-07): each case builds and pushes real Git fixtures.
+// Under the full pre-push suite the first case took 48s against the 30s
+// default, so the per-case timeout is raised. The rest of that time was the
+// helper's own wait for the Mac's load to fall (15s steps, up to 900s): a
+// fixture push has no gate worth protecting, so the helper runs with that
+// wait off below. Every assertion is unchanged.
+vi.setConfig({ testTimeout: 120_000 });
 
 // scripts/agent-push.sh: push through the remote NAME, then prove the remote
 // ref equals HEAD. See docs/changelog/2026-11-05-agent-push-verifies-the-remote-ref.md.
@@ -37,7 +45,11 @@ const git = (cwd: string, ...args: string[]) => {
 };
 
 const push = (cwd: string, extra: NodeJS.ProcessEnv = {}) =>
-  spawnSync('bash', [helper], { cwd, env: { ...env(), ...extra }, encoding: 'utf8' });
+  spawnSync('bash', [helper], {
+    cwd,
+    env: { ...env(), AGENT_PUSH_LOAD_WAIT_SECONDS: '0', ...extra },
+    encoding: 'utf8',
+  });
 
 const remoteRef = (branch: string) =>
   spawnSync(

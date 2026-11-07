@@ -1,3 +1,10 @@
+import {
+  installHorseSeatPaints,
+  initialAvatarPaint,
+  seatAuthority,
+  horseSeatDatabase,
+  type SeatPaints,
+} from './support/horseSeatWitness';
 import { mttPaidAuthority } from './support/mttPaidAuthority';
 import {
   installNaturalBoardReveal,
@@ -2251,6 +2258,20 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
       ).toBeVisible();
 
       const navigationStartedAt = Date.now();
+      const horseDatabase = horseSeatDatabase(candidate.id);
+      const initialSeats = await horseDatabase.leases();
+      await page.addInitScript(installHorseSeatPaints, candidate.id);
+      await page.evaluate(installHorseSeatPaints, candidate.id);
+      let horsePaints: SeatPaints | undefined;
+      let initialReady: SeatPaints['initialReady'];
+      let cashFailure: unknown;
+      let horseUntil = 0;
+      const stopHorsePaints = async () => {
+        if (!horsePaints) {
+          horsePaints = await page.evaluate(() => window.__horseSeatPaints?.());
+          horseUntil = Date.now();
+        }
+      };
       // Read only the isolated spectator's observation cache, never auth tokens.
       const readPublicStatsCache = () =>
         page.evaluate(() => {
@@ -2290,6 +2311,43 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
             .matchingFrames({ direction: 'received', tableId, since: interval.since })
             .filter((frame) => frame.at <= until),
         });
+      };
+
+      const attachHorseWitness = async () => {
+        try {
+          await stopHorsePaints();
+          if (!horsePaints) throw new Error('Horse spectator paint observation unavailable');
+          const evidence = await horseDatabase.finish(
+            initialSeats,
+            { ...horsePaints, initialReady },
+            journal.matchingFrames({ direction: 'received', tableId, since: navigationStartedAt }),
+            navigationStartedAt,
+            horseUntil
+          );
+          const horseJournal = JSON.stringify({
+            tableId,
+            engine: EXPECTED_ENGINE_SHA,
+            from: navigationStartedAt,
+            until: horseUntil,
+            ...evidence,
+          });
+          writeFileSync(
+            testInfo.outputPath('mobile-live-table-horse-seat-continuity.json'),
+            horseJournal
+          );
+          await testInfo.attach('horse-seat-continuity', {
+            body: horseJournal,
+            contentType: 'application/json',
+          });
+          expect(evidence.dropped, 'seat paint overflow').toBe(0);
+          expect(evidence.violations, 'Horse seat continuity').toEqual([]);
+        } catch (error) {
+          await testInfo.attach('horse-seat-witness-error', {
+            body: String(error),
+            contentType: 'text/plain',
+          });
+          if (!cashFailure) throw error;
+        }
       };
 
       try {
@@ -2370,6 +2428,28 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           page.locator('.header-hand-number, .table-brand__hand').first(),
           'the selected table had no already-running hand number'
         ).toContainText(/\d+/, { timeout: 10_000 });
+
+        // Prove natural image readiness before the network fault and the layout
+        // checks, which later request eager images for their own geometry proof.
+        await expect
+          .poll(
+            async () => {
+              const paint = await page.evaluate(() => window.__readHorseSeatPaint?.());
+              const frames = journal.matchingFrames({
+                direction: 'received',
+                tableId,
+                since: navigationStartedAt,
+              });
+              const roster = seatAuthority(frames.filter((f) => paint && f.at <= paint.at)).at(-1);
+              initialReady = initialAvatarPaint(paint, roster?.seats ?? []);
+              return Boolean(initialReady);
+            },
+            {
+              timeout: 10_000,
+              message: 'occupied avatars did not load naturally on the initial cash table',
+            }
+          )
+          .toBe(true);
 
         await installLiveTablePresentationJournal(page);
         await installMobileAwardJournal(page);
@@ -2634,6 +2714,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           }).toPass({ timeout: 10_000 });
           await expectNoOpponentHud(page);
           // Reuse only these existing connected observations; reload begins a new owner.
+          await stopHorsePaints();
           await stopBoardInterval();
           await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
           await expect(page.locator('.table-surface')).toBeVisible({ timeout: 20_000 });
@@ -2655,6 +2736,9 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         } finally {
           if (offline) await context.setOffline(false).catch(() => {});
         }
+      } catch (error) {
+        cashFailure = error;
+        throw error;
       } finally {
         await stopBoardInterval();
         const boardEvidence = naturalBoardRevealIntervalsEvidence(boardIntervals, tableId);
@@ -2676,6 +2760,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           ),
           contentType: 'application/json',
         });
+        await attachHorseWitness();
       }
     } finally {
       const walletProof = walletRequests.stop();

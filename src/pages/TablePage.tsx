@@ -586,6 +586,7 @@ import { useUserTableSettings } from '../hooks/useUserTableSettings';
 import { NATIVE_PAUSE_EVENT, NATIVE_RESUME_EVENT, isNativeAppActive } from '../lib/nativeResume';
 import { useUserThemeSettings } from '../hooks/useUserThemeSettings';
 import { useTableArt } from '../hooks/useTableArt';
+import { useDeckImages } from '../hooks/useDeckImages';
 import { useProtectedCardLayout } from '../hooks/useProtectedCardLayout';
 import PineappleDiscard from '../components/table/PineappleDiscard';
 import GameServerAPI, {
@@ -10405,7 +10406,8 @@ function LiveTablePage({
   const tableBackgroundUrl = resolveBackground(
     tableState.isFinalTable ? 'final_table_broadcast' : v8Theme.background_id || 'midnight'
   );
-  const tableArt = useTableArt(tableSkinUrl, tableBackgroundUrl, themeReady, themeScope);
+  const deckReady = useDeckImages(userSettings.fourColorDeck ? '4color' : '2color');
+  const tableArt = useTableArt(tableSkinUrl, tableBackgroundUrl, themeReady, themeScope, deckReady);
 
   /**
    * Dan 2026-08-20 — THE CARDS TAB NEVER APPLIED ANYTHING.
@@ -16563,17 +16565,41 @@ function LiveTablePage({
                 const p = data.payload || {};
                 const endsAtMs = p.breakEndsAt ? Date.parse(p.breakEndsAt) : NaN;
                 const hasEnd = Number.isFinite(endsAtMs);
+                const countingDown = hasEnd || p.phase === 'counting_down';
                 setTournamentBreak((prev: any) => ({
                   active: true,
                   // Keep the last known next level: only the :55 event carries it.
                   nextLevel: p.nextLevel ?? prev?.nextLevel,
                   level: typeof p.level === 'number' ? p.level : prev?.level,
-                  phase: hasEnd || p.phase === 'counting_down' ? 'counting_down' : 'last_hand',
+                  phase: countingDown ? 'counting_down' : 'last_hand',
+                  // The waiting count belongs to the last-hand window only.
+                  tablesFinishing: countingDown ? null : (prev?.tablesFinishing ?? null),
+                  tablesTotal: countingDown ? null : (prev?.tablesTotal ?? null),
+                  extendedForDailyUpdate:
+                    p.extendedFor === 'daily_update' ||
+                    (prev?.active === true && prev?.extendedForDailyUpdate === true),
                   breakEndsAtMs: hasEnd ? endsAtMs : null,
                   timeRemaining: hasEnd
                     ? Math.max(0, Math.round((endsAtMs - Date.now()) / 1000))
                     : (p.breakDurationMinutes || p.durationMinutes || 5) * 60,
                 }));
+              } else if (data?.type === 'break_wait') {
+                /* HOW MANY TABLES ARE STILL FINISHING (Dan 2026-11-07). Only
+                   meaningful in the last-hand window; ignored once counting. */
+                const p = data.payload || {};
+                const finishing = Number(p.tablesFinishing);
+                const total = Number(p.tablesTotal);
+                if (Number.isFinite(finishing) && finishing >= 0) {
+                  setTournamentBreak((prev: any) =>
+                    prev?.active && prev.phase !== 'counting_down'
+                      ? {
+                          ...prev,
+                          tablesFinishing: finishing,
+                          tablesTotal: Number.isFinite(total) ? total : null,
+                        }
+                      : prev
+                  );
+                }
               } else if (data?.type === 'break_ended' || data?.type === 'BREAK_END') {
                 setTournamentBreak({
                   active: false,
@@ -29647,6 +29673,7 @@ function LiveTablePage({
                   }
                   showStackInBB={effectiveShowStackInBB}
                   showAvatar={v8Settings.show_avatars}
+                  avatarLoading={isVisible ? 'eager' : 'lazy'}
                   showBadges={v8Settings.show_badges}
                   gesturesEnabled={v8Settings.gestures_enabled}
                   onSit={() => handleSeatClick(seatNumber)}
@@ -32086,7 +32113,17 @@ function LiveTablePage({
         }}
         // Tournament Break
         tableAnchorRef={tableScalerRef}
-        tournamentBreak={tournamentBreak as any}
+        tournamentBreak={
+          /* The 03:55 break overlaps the daily engine update and ends with it;
+             a page that missed the countdown event still knows from the
+             maintenance state it already watches. */
+          (tournamentBreak.active &&
+          tournamentBreak.phase === 'counting_down' &&
+          maintenanceBreak.active &&
+          !tournamentBreak.extendedForDailyUpdate
+            ? { ...tournamentBreak, extendedForDailyUpdate: true }
+            : tournamentBreak) as any
+        }
         // Announcement
         announcement={announcement}
         /* Stable identity — see handleDismissAnnouncement. An inline arrow here

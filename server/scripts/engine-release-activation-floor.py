@@ -23,6 +23,12 @@ CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 CERTIFIED_START = 1793833200
 CERTIFIED_END = 1793854800
 
+# The owner authorized only this single exception to the daily schedule (#9857).
+NOV7_OWNER_ID = '2026-11-07-cutover-recovery-engine-release-1445z'
+NOV7_MANIFEST_DIGEST = '54189b2503872b25b79f1ea68bf6f16e617fe14586311207e1a7801645df548b'
+NOV7_ORDER_DIGEST = 'a9d1e596b8ff0e156128c019815ec07f14c4bc898c21154ff4441751b7c99493'
+
+
 
 
 def phase1_policy(repo, target, control):
@@ -160,6 +166,20 @@ def policy(repo, target, control):
             'manifestSha256': hashlib.sha256(raw).hexdigest(), 'clientPublicationEpoch': int(publication.timestamp()),
             'preparationEpoch': int(preparation.timestamp()),
             'activationEpoch': int(activation.timestamp()), 'expiresEpoch': int(expiry.timestamp())}
+
+
+def nov7_owner(repo, record, now, deadline):
+    if (not record or record['schema'] != OWNER_CAPABILITY
+            or record['ownerWindowId'] != NOV7_OWNER_ID
+            or record['manifestSha256'] != NOV7_MANIFEST_DIGEST
+            or not record['activationEpoch'] <= now < min(record['expiresEpoch'], deadline)):
+        raise ValueError('November 7 owner cutover is unavailable')
+    # policy() already bound the target and control to the same exact window list.
+    windows = json.loads(git(repo, 'show', record['targetSha'] + ':server/release/owner-maintenance-windows.json'))
+    order = next(item for item in windows['windows'] if item.get('id') == NOV7_OWNER_ID)
+    canonical = json.dumps(order, sort_keys=True, separators=(',', ':')).encode()
+    if hashlib.sha256(canonical).hexdigest() != NOV7_ORDER_DIGEST:
+        raise ValueError('November 7 owner order differs')
 
 
 def effective(record, now):
@@ -361,7 +381,7 @@ def checkpoint_no_action(record, root, state_root, run_id):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('prepare', 'admit', 'wait', 'publish', 'entry', 'entry-check', 'disposition', 'reservation', 'announcement-entry', 'checkpoint-no-action'))
+    parser.add_argument('mode', choices=('nov7-owner', 'prepare', 'admit', 'wait', 'publish', 'entry', 'entry-check', 'disposition', 'reservation', 'announcement-entry', 'checkpoint-no-action'))
     parser.add_argument('--repo', required=True)
     parser.add_argument('--target', required=True)
     parser.add_argument('--control', required=True)
@@ -380,6 +400,9 @@ def main():
             print('announced' if prior.get('phase') == 'announcement' else 'entered')
             return
     record = policy(args.repo, args.target, args.control)
+    if args.mode == 'nov7-owner':
+        nov7_owner(args.repo, record, int(time.time()), args.deadline)
+        return
     # AN EXPIRED OWNER WINDOW RETURNS RELEASES TO THE STANDING SCHEDULE
     # (Dan, 2026-11-05: "HARD CODE FIX THIS AT ITS ROOT CAUSE SO IT STOPS
     # HAPPENING"). A later owner window only takes precedence over the standing

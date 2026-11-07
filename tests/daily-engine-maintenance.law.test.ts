@@ -1,11 +1,17 @@
 import { queuedDailyRelease } from '../scripts/ci/daily-engine-provenance.mjs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
+
+// Load headroom (2026-11-07): this file spawns dozens of real bash/python
+// fixtures with no deadline of their own, so under the full pre-push suite a
+// case can pass 30s on wall clock alone. Raise only the per-case timeout for
+// this file; no assertion, fixture or production deadline changes.
+vi.setConfig({ testTimeout: 120_000 });
 
 const root = process.cwd();
 const workflow = parse(
@@ -958,7 +964,7 @@ it('binds a distinct qualified next-break carrier and preserves Diamond operator
     createHash('sha256')
       .update(raw.slice(raw.indexOf('  "databaseWindows"')))
       .digest('hex')
-  ).toBe('fc9bcc487d7b45bfdac4f0cd5df04b05a69d192a536e76373279a82aaf9b1a16');
+  ).toBe('f769f2641bc463068047433b0cae2eb0f87487e17e4ac3fce78094685a5e12c3');
   const entry = doc.windows[60];
   expect(entry.contains).toBe('280303d1e569344c837780b0605f95c5b00e687b');
   expect(entry.notBefore).toBe('2026-10-31T03:53:00Z');
@@ -1026,7 +1032,7 @@ it('binds the bounded-census correction without extending or retrying its failed
     createHash('sha256')
       .update(raw.slice(raw.indexOf('  "databaseWindows"')))
       .digest('hex')
-  ).toBe('fc9bcc487d7b45bfdac4f0cd5df04b05a69d192a536e76373279a82aaf9b1a16');
+  ).toBe('f769f2641bc463068047433b0cae2eb0f87487e17e4ac3fce78094685a5e12c3');
   const entry = doc.windows[61];
   expect(entry.contains).toBe('976850bec328ac8b80d47603f18fcba81e05534f');
   expect(entry.notBefore).toBe('2026-10-31T05:04:00Z');
@@ -1169,7 +1175,7 @@ it('binds the independent Horse input correction to one new qualified tournament
     createHash('sha256')
       .update(raw.slice(raw.indexOf('  "databaseWindows"')))
       .digest('hex')
-  ).toBe('fc9bcc487d7b45bfdac4f0cd5df04b05a69d192a536e76373279a82aaf9b1a16');
+  ).toBe('f769f2641bc463068047433b0cae2eb0f87487e17e4ac3fce78094685a5e12c3');
   const entry = doc.windows[63];
   expect(entry.contains).toBe('2f9ca8db67acdcdeb02e0da8c261570d2d87e2e9');
   expect(entry.notBefore).toBe('2026-10-31T05:10:00Z');
@@ -1266,7 +1272,7 @@ it('binds the manually resumed MTT continuation without renewing any historical 
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '619968f7c34ca5326b75e25534b3225d84de963434d7a0d593641683177de3c4'
+    '6118ae43eb578b4d93ef13e0625875cf560da4f704ac25f5cec12cf8437dc36c'
   );
   for (const boundary of [
     'NEW manual continuation',
@@ -1329,7 +1335,7 @@ it('binds the noon manual continuation while preserving the expired unpushed car
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    'f499756ebeb29a45be5466e1167ab4103d5ecda9c96804d50f97491a4eba71cd'
+    '130547b912b1ef63fe5922d74ad2285bace40ba3644e6d3e4832b8cee38370bb'
   );
   for (const boundary of [
     'NEW manual continuation',
@@ -1397,7 +1403,7 @@ it('binds the owner-ordered next :55 Horse V63-V69 activation without renewing a
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '16233155deae24949189d45819a3dfc27c113ede2ca8d06ef0c013c3a2a96da6'
+    '273bbc41e3171f9cadb2cb5a099592d089961f101ed535e0a3be40a693b2b0a8'
   );
   for (const boundary of [
     'YOU CAN DEPLOY AT THE NEXT :55 BREAK, YOU DO NOT HAVE TO WAIT UNTIL 4AM GET THAT DONE NOW',
@@ -1466,7 +1472,7 @@ it('binds the owner-ordered drained :55 activation of Horse V63-V70 without rene
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    'ec9f916225ba0d9d3b5f4261c3c5c2eafe45f68b44459f3ca7ed07ac184ed2a3'
+    '910bd4636c79373e179a196dcb522863aaf5e5baddde7f17a02f5086d6183d44'
   );
   for (const boundary of [
     'YOU CAN DEPLOY AT THE NEXT :55 BREAK, YOU DO NOT HAVE TO WAIT UNTIL 4AM GET THAT DONE NOW',
@@ -1541,7 +1547,7 @@ it('binds the owner-ordered drained engine crash-loop activation that falls back
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    '3772efbb5c21ad25f34f1650d189f6de003a5be7e69fd58e7f4c6ac4796f7748'
+    '72d711b1861d66009241b7462125a628399954490dba225c6c4c83276d28fe45'
   );
   for (const boundary of [
     'FINISH UP ANY AND ALL REMAINING WORK',
@@ -1633,7 +1639,7 @@ it('binds the owner-ordered window that unblocks the engine door and installs it
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    'e1054bddcc254594634fb6e64d0151e2d1d1c099f4a6fc4cb3b8074f8fe67834'
+    '78b888ab2267ed16238f169d3bc2dbe44183c88d73f3fa636e8be4c58c96c8fc'
   );
   for (const boundary of [
     'FIX ANY AND ALL BLOCKERS NOW AND FINISH THIS UP, PUSH AND PUBLISH EVERYTHING',
@@ -1705,7 +1711,7 @@ it('binds the owner-ordered fresh-engine crash-boundary window without renewing 
   expect(start).toBeGreaterThan(0);
   const historical = raw.slice(0, start) + raw.slice(end);
   expect(createHash('sha256').update(historical).digest('hex')).toBe(
-    'adce89f5cb41beade2ee414179f1d37e48f3f23146f1efd2a16b7c9a0fb9bfbe'
+    '15ef47e664543a8fb5f246e781a6ecc1b4df458ebf504909ff3fa788d45e5a03'
   );
   for (const boundary of [
     'YOU DECIDE WHATS BEST, AND HOW TO RESOLVE THE ISSUES.',
@@ -1838,7 +1844,13 @@ it('appends only the November2 join-only continuation without changing protected
 });
 
 it('appends only the post-census continuation without changing protected authorization bytes', () => {
-  const raw = windowsBeforeLaterEngineWindows();
+  const currentRaw = windowsBeforeLaterEngineWindows();
+  // The 2026-11-07 cutover-recovery database entries' own proofs verify the later tail.
+  const laterDbStart = currentRaw.indexOf(
+    ',\n    {\n      "id": "2026-11-07-cutover-recovery-db-hit-and-run"'
+  );
+  expect(laterDbStart).toBeGreaterThan(0);
+  const raw = currentRaw.slice(0, laterDbStart) + currentRaw.slice(currentRaw.lastIndexOf('\n  ]'));
   const id = '2026-11-02-attention14-post-census-migrations';
   const start = raw.indexOf(',\n    {\n      "id": "' + id + '"');
   expect(start).toBeGreaterThan(0);
@@ -1987,7 +1999,7 @@ it('binds the owner-ordered Phase 1 hourly :55 cutover window without renewing a
     createHash('sha256')
       .update(raw.slice(0, start) + raw.slice(end))
       .digest('hex')
-  ).toBe('e1f6c9de4e3cab23c28c184617a428cfc305372172435365e0da600d1463c1cb');
+  ).toBe('caba5b309c6cae5f45a5a462c462be94e00b598d70233169ecb3f989a5326c40');
   for (const boundary of [
     'GET THESE DONE NOW',
     'BUT ONLY AT THE :55 BREAK',
@@ -2007,4 +2019,25 @@ it('binds the owner-ordered Phase 1 hourly :55 cutover window without renewing a
     '40s',
   ])
     expect(entry.ownerOrder).toContain(boundary);
+});
+
+it('binds the two remaining Midway files only to the November 7 database window', () => {
+  const doc = JSON.parse(
+    readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8')
+  );
+  const entry = doc.databaseWindows.pop();
+  expect(entry).toMatchObject({
+    id: '2026-11-07-midway-remaining-two-join',
+    contains: '977ff6ae4d68fd9ce39877ebf16ae1e626d29c01',
+    notBefore: '2026-11-07T14:45:00Z',
+    notAfter: '2026-11-07T20:45:00Z',
+    migrations: [
+      '20261106004812_a_built_midway_free_buy_refuses_a_shape_its_schedule_does_no.sql',
+      '20261107041342_a_scheduled_midway_free_buy_keeps_its_promised_guarantee.sql',
+    ],
+  });
+  expect(entry.ownerOrder).toContain('request_database_break=false');
+  expect(createHash('sha256').update(JSON.stringify(doc)).digest('hex')).toBe(
+    'c853bd1d3347bb2e6daed07fe042ecc2341b49857dbf77c327272fb0aea39de3'
+  );
 });

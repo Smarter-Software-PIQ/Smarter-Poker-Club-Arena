@@ -492,6 +492,11 @@ export interface TableModalsLayerProps {
     phase?: 'last_hand' | 'counting_down';
     /** The server's real end, epoch ms, once this tournament's five minutes have started. */
     breakEndsAtMs?: number | null;
+    /** Tables still finishing their last hand, while the break waits (Dan 2026-11-07). */
+    tablesFinishing?: number | null;
+    tablesTotal?: number | null;
+    /** The break overlaps the daily engine update and ends when it ends. */
+    extendedForDailyUpdate?: boolean;
     nextLevel?: {
       level: number;
       smallBlind: number;
@@ -1467,6 +1472,10 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           tournamentId={tournamentId ?? null}
           heroUserId={userId ?? null}
           nextLevel={tournamentBreak.nextLevel}
+          tablesFinishing={addOnBreakNotice ? null : (tournamentBreak.tablesFinishing ?? null)}
+          extendedForDailyUpdate={
+            !addOnBreakNotice && tournamentBreak.extendedForDailyUpdate === true
+          }
         />
       )}
 

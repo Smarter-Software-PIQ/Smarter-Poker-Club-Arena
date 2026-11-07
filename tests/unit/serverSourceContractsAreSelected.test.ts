@@ -14,7 +14,12 @@ const hook = readFileSync(join(ROOT, '.husky/pre-push'), 'utf8');
 const marker = '\nSERVER_VITEST="$CA_TREE_TOP/server/node_modules/.bin/vitest"';
 const serverGate = hook.slice(hook.indexOf(marker));
 
-function gate(files: Record<string, string>, runnerExit = 0) {
+function gate(
+  files: Record<string, string>,
+  runnerExit = 0,
+  failingLaw = 'HorseDataLedger',
+  changed: string[] = Object.keys(files)
+) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ca-source-contracts-')));
   try {
     writeFileSync(join(dir, 'server-package'), '');
@@ -29,7 +34,7 @@ function gate(files: Record<string, string>, runnerExit = 0) {
     writeFileSync(
       runner,
       '#!/bin/bash\nprintf "%s\\n" "$*" >> "$TRACE"\n' +
-        'case "$*" in *HorseDataLedger*) exit "$CONTRACT_EXIT";; esac\nexit 0\n',
+        'case "$*" in run*"$FAILING_LAW"*) exit "$CONTRACT_EXIT";; esac\nexit 0\n',
       { mode: 0o755 }
     );
     const trace = join(dir, 'trace');
@@ -39,10 +44,11 @@ function gate(files: Record<string, string>, runnerExit = 0) {
       env: {
         PATH: process.env.PATH || '/usr/bin:/bin',
         CA_TREE_TOP: dir,
-        FILES: Object.keys(files).join('\n'),
+        FILES: changed.join('\n'),
         SERVER_DEPENDENCY_MODE: 'local',
         TRACE: trace,
         CONTRACT_EXIT: String(runnerExit),
+        FAILING_LAW: failingLaw,
       },
     });
     let calls = '';
@@ -90,6 +96,91 @@ describe('server source-contract laws are selected before a push', () => {
     expect(calls).toContain(
       'related --run src/engine/Turns.ts --exclude src/engine/HorseDataLedger.test.ts --passWithNoTests'
     );
+  });
+
+  // PR #9817 (2026-11-07): two new engine files imported into HorseLogic pushed
+  // green and failed hosted CI on the reference decision sources law.
+  const DIGEST_LAWS = [
+    'src/engine/HorseReferenceDecisionSources.test.ts',
+    'src/engine/aHashedPolicySourceShipsInTheEngineImage.law.test.ts',
+    'src/engine/HorsePhase10Authority.test.ts',
+    'src/engine/HorsePhase11PolicyDigest.test.ts',
+    'src/engine/HorsePhase12PolicyDigest.test.ts',
+    'src/engine/HorsePhase13PolicyDigest.test.ts',
+  ];
+  const digestTree = (extra: Record<string, string>) => ({
+    ...Object.fromEntries(DIGEST_LAWS.map((law) => [`server/${law}`, '// law\n'])),
+    'server/src/engine/HorseLogic.ts':
+      "import { decideV31Certified } from './HorseV31CertifiedPolicy.js';\n" +
+      "import {\n  workerThing,\n} from './horseDecision/workerThing.js';\n",
+    'server/src/engine/HorseReferenceDecisionSources.ts':
+      "export const R = { 'src/engine/GtoPostflopV31.ts': 'the V31 solver consult' };\n",
+    ...extra,
+  });
+  const digestRun = `run ${DIGEST_LAWS.join(' ')}`;
+
+  it('runs the decision-digest laws for a change to HorseLogic itself', () => {
+    const r = gate(
+      digestTree({ 'server/src/engine/HorseLogic.ts': "import { a } from './NewFile.js';\n" }),
+      0,
+      'HorseDataLedger',
+      ['server/src/engine/HorseLogic.ts']
+    );
+    expect(r.status).toBe(0);
+    expect(r.calls.trim().split('\n')).toContain(digestRun);
+  });
+
+  it('runs them for a changed file HorseLogic imports, including a nested one', () => {
+    for (const changed of [
+      'server/src/engine/HorseV31CertifiedPolicy.ts',
+      'server/src/engine/horseDecision/workerThing.ts',
+    ]) {
+      const r = gate(digestTree({ [changed]: 'export const x = 1;\n' }), 0, 'HorseDataLedger', [
+        changed,
+      ]);
+      expect(r.status, changed).toBe(0);
+      expect(r.calls.trim().split('\n'), changed).toContain(digestRun);
+    }
+  });
+
+  it('runs them for a listed reference decision source and for the list itself', () => {
+    for (const changed of [
+      'server/src/engine/GtoPostflopV31.ts',
+      'server/src/engine/HorseReferenceDecisionSources.ts',
+    ]) {
+      const r = gate(digestTree({ [changed]: "export const x = 'v';\n" }), 0, 'HorseDataLedger', [
+        changed,
+      ]);
+      expect(r.calls.trim().split('\n'), changed).toContain(digestRun);
+    }
+  });
+
+  it('does not run them for an engine file outside the decision closure', () => {
+    const r = gate(
+      digestTree({ 'server/src/engine/Rules.ts': 'export const x = 1;\n' }),
+      0,
+      'HorseDataLedger',
+      ['server/src/engine/Rules.ts']
+    );
+    expect(r.status).toBe(0);
+    expect(r.calls).not.toContain('HorseReferenceDecisionSources');
+  });
+
+  it('a failing digest law blocks the push', () => {
+    const tree = digestTree({
+      'server/src/engine/HorseV31CertifiedPolicy.ts': 'export const x = 1;\n',
+    });
+    const r = gate(tree, 1, 'HorseReferenceDecisionSources', [
+      'server/src/engine/HorseV31CertifiedPolicy.ts',
+    ]);
+    expect(r.status).toBe(1);
+    expect(r.output).toContain('BLOCKED: a source-contract law over your server change failed.');
+  });
+
+  it('every digest law the hook names exists in the server', () => {
+    for (const law of DIGEST_LAWS) expect(hook).toContain(law);
+    for (const law of DIGEST_LAWS)
+      expect(() => readFileSync(join(ROOT, 'server', law))).not.toThrow();
   });
 
   it('the ledger law still reads every fired telemetry key from source', () => {

@@ -1,4 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 let GameServer: (typeof import('./GameServer.js'))['GameServer'];
 let TournamentManagerBase: (typeof import('./tournament/TournamentManagerBase.js'))['TournamentManagerBase'];
@@ -528,7 +530,11 @@ describe('The tournament break ends with the maintenance break', () => {
     for (const participant of [first, second]) {
       expect(participant.broadcast).toHaveBeenCalledWith(
         'tournament_break_started',
-        expect.objectContaining({ breakEndsAt: new Date(onTheHour).toISOString() })
+        expect.objectContaining({
+          breakEndsAt: new Date(onTheHour).toISOString(),
+          // The card says why this break runs past five minutes (Dan 2026-11-07).
+          extendedFor: 'daily_update',
+        })
       );
     }
 
@@ -560,6 +566,10 @@ describe('The tournament break ends with the maintenance break', () => {
         'tournament_break_started',
         expect.objectContaining({ breakDurationMinutes: 5 })
       );
+      const started = participant.broadcast.mock.calls.find(
+        ([type]: [string]) => type === 'tournament_break_started'
+      );
+      expect(started?.[1]).not.toHaveProperty('extendedFor');
     }
     await vi.advanceTimersByTimeAsync(fiveMinutesAfterParking - Date.now() - 1);
     expect(first.resumeFromBreak).not.toHaveBeenCalled();
@@ -728,5 +738,58 @@ describe('Synchronized Break After A Restart', () => {
     vi.setSystemTime(new Date('2026-09-10T12:54:59.000Z'));
     before.catchUpSynchronizedBreakAtBoot();
     expect(before.triggerSynchronizedBreak).not.toHaveBeenCalled();
+  });
+});
+
+describe('break wait progress (Dan 2026-11-07)', () => {
+  function engine(parked: boolean) {
+    return {
+      isParkedBetweenHands: () => parked,
+      isMaintenancePaused: () => false,
+      isBetweenHands: () => parked,
+    };
+  }
+
+  it('counts the tables still finishing and publishes only when the count changes', async () => {
+    const tm = manager('waiting');
+    const engines = [engine(true), engine(false), engine(false)];
+    tm.tableEngines = new Map(engines.map((e, i) => [`t${i}`, e]));
+    expect(tm.breakWaitProgress()).toEqual({ tablesFinishing: 2, tablesTotal: 3 });
+    await tm.publishBreakWaitProgress();
+    await tm.publishBreakWaitProgress();
+    expect(tm.broadcast).toHaveBeenCalledTimes(1);
+    expect(tm.broadcast).toHaveBeenCalledWith('break_wait', { tablesFinishing: 2, tablesTotal: 3 });
+    tm.tableEngines.set('t1', engine(true));
+    await tm.publishBreakWaitProgress();
+    expect(tm.broadcast).toHaveBeenLastCalledWith('break_wait', {
+      tablesFinishing: 1,
+      tablesTotal: 3,
+    });
+  });
+
+  it('counts a table whose inspection throws as still finishing, and stays quiet once counting', async () => {
+    const tm = manager('counting');
+    tm.tableEngines = new Map([
+      [
+        't0',
+        {
+          isParkedBetweenHands: () => {
+            throw new Error('gone');
+          },
+        },
+      ],
+    ]);
+    expect(tm.breakWaitProgress()).toEqual({ tablesFinishing: 1, tablesTotal: 1 });
+    tm.breakCountdownStarted = true;
+    await tm.publishBreakWaitProgress();
+    expect(tm.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('the server publishes progress while it waits, for the tournaments still waiting', () => {
+    const src = readFileSync(join(__dirname, 'GameServer.ts'), 'utf8');
+    const at = src.indexOf('const waitingOn = managers.filter((tm) => !tm.areAllTablesParked());');
+    expect(at).toBeGreaterThan(-1);
+    const next = src.indexOf('await this.sleep(500);', at);
+    expect(src.slice(at, next)).toMatch(/tm\.publishBreakWaitProgress\?\.\(\)/);
   });
 });

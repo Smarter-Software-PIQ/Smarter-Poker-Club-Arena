@@ -324,6 +324,43 @@ export function tournamentSignals(entry: LobbyEntry): TournamentSignal[] {
   return out;
 }
 
+/**
+ * ═══ A FREE ROLL SAYS WHICH EVENT IT IS, UNDER ITS TITLE (Dan 2026-11-07) ═══
+ *
+ * Dan, verbatim: "THE FREE ROLLS STIL DO NOT SAY WHAT KIND OF FREE ROLL THEY
+ * ARE UNDERNEATH THEM. LIKE THIS ONE SHOULD SAY, 'PROGRESSIVE KNOCKOUT' OTHER
+ * ONES SHOULD SAY, 'MYSTERY BOUNTY' OR 'ALL IN OR FOLD' ETC. ADD THE
+ * SECONDARY TITLE UNDER THE MAIN TITLE FOR THE NAME OF THE TOURNAMENT THE
+ * FREE ROLL IS RUNNING." (And 2026-11-06: every Free Buy card says which Free
+ * Buy event it is, for all freerolls every day.)
+ *
+ * The words come from the same recorded facts that pick the card's format
+ * icon and medallions (tournamentMedallions → tournamentSignals), so the
+ * second title can never disagree with the badge beside it. Every freeroll
+ * gets a line: one with no bounty family, no satellite and no clock tier is,
+ * by the Free Buy law (utils/freeBuy.ts), a rebuy-and-add-on event, and says
+ * so rather than printing nothing.
+ */
+export function freeBuyKindLabel(entry: LobbyEntry): string | null {
+  if (entry.kind !== 'mtt') return null;
+  const signals = tournamentSignals(entry);
+  if (!signals.includes('freeroll')) return null;
+  const keys = new Set(entry.rules.map((r) => r.key));
+  const row = entry.raw as LobbyTournamentRow;
+  const parts: string[] = [];
+  if (signals.includes('pko')) parts.push('Progressive Knockout');
+  else if (signals.includes('mystery')) parts.push('Mystery Bounty');
+  else if (signals.includes('bounty')) parts.push('Bounty');
+  if (signals.includes('satellite')) parts.push('Satellite');
+  if (row.all_in_or_fold === true) parts.push('All In Or Fold');
+  if (keys.has('hyper')) parts.push('Hyper');
+  else if (keys.has('turbo')) parts.push('Turbo');
+  else if (keys.has('slow')) parts.push('Slow');
+  else if (keys.has('deepstack')) parts.push('Deepstack');
+  if (parts.length === 0) parts.push('Rebuy & Add-On');
+  return parts.join(' · ');
+}
+
 /** The live clock line: "Starts In 4:31", "Late Reg Ends In 12:03" or "Add-On Ends In 0:42". */
 export function tournamentClockLine(
   entry: LobbyEntry,
@@ -925,6 +962,7 @@ function TournamentHeadingRow({
         : (entry.kind === 'spin' || entry.kind === 'sng') && entry.capacity > 0
           ? `${entry.capacity} Seats`
           : `${entry.buyInLabel} Buy-In`;
+  const freeBuyKind = freeBuyKindLabel(entry);
   const titleRef = useFitText<HTMLSpanElement>(heading, 1, 0.5, { wrapBelow: 0.84, maxLines: 2 });
   const headingCellRef = useRef<HTMLTableCellElement>(null);
   useLayoutEffect(() => {
@@ -990,6 +1028,9 @@ function TournamentHeadingRow({
             <span ref={titleRef} className="premium-lobby-title-fit">
               {heading}
             </span>
+            {/* Dan 2026-11-07: a free roll prints which event it is running
+                as a second title under the name (freeBuyKindLabel). */}
+            {freeBuyKind && <span className="lt-tournament-heading__format">{freeBuyKind}</span>}
             {playerState && <PlayerStateChip state={playerState} heading />}
           </span>
           <strong className="lt-tournament-heading__guarantee">
