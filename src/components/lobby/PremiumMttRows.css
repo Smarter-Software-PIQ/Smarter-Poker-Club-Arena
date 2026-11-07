@@ -147,17 +147,22 @@
   row-gap: 0.5cqw;
 }
 .has-premium-chassis .lt-tournament-heading__format {
-  max-width: 100%;
-  overflow: hidden;
-  font-size: clamp(8px, 2.2cqw, 15px);
+  /* Dan 2026-11-07: "BLUE FONTS NEED TO BE LARGER. THEY ARE TOO SMALL. THEY
+     SHOULD BE THE SAME SIZE OR SLIGHTLY SMALLER THEN THE WHITE 'TITLE FONT'".
+     The title prints at clamp(11px, 3.4cqw, 26px) times its fit; this line
+     tracks it one notch under, scaled by the same title fit and by its own
+     fitter (HeadingFormatLine) so a long combination shrinks to its face
+     instead of losing its last words. No ellipsis clamp: the fitter lands
+     within a fraction of a pixel, and text-overflow at that equality eats
+     the final glyph (the 87.09px trap in useFitText's header). */
+  font-size: calc(clamp(10px, 3.1cqw, 23px) * var(--premium-title-fit, 1) * var(--fit, 1));
   font-weight: 700;
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #45adff;
   text-shadow: 0 1px 0 #000;
   white-space: nowrap;
-  text-overflow: ellipsis;
 }
 .has-premium-chassis .lt-tournament-heading__guarantee {
   position: absolute;
