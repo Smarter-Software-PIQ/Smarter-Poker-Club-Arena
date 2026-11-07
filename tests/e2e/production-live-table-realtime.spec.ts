@@ -1,3 +1,4 @@
+import { mttPaidAuthority } from './support/mttPaidAuthority';
 import {
   installNaturalBoardReveal,
   naturalBoardRevealIntervalsEvidence,
@@ -1369,59 +1370,7 @@ async function observeTournamentBoard(
             const row = Array.isArray(body) ? body[0] : body;
             if (row?.id !== hudScope.tournamentId)
               throw new Error('Paid witness requires the exact tournament row');
-            const omitted = (classification: string) => ({
-              expected: null,
-              ladder: row.payout_structure,
-              classification,
-              error: null,
-            });
-            if (row.prize_pool_finalized !== true) return omitted('unfinalized-omission');
-            if (
-              String(row.tournament_type).toUpperCase() === 'SATELLITE' ||
-              row.satellite_target_id
-            )
-              return omitted('satellite-omission');
-            let ladder = row.payout_structure;
-            if (typeof ladder === 'string') {
-              try {
-                ladder = JSON.parse(ladder);
-              } catch {
-                return omitted('invalid-ladder-omission');
-              }
-            }
-            if (!Array.isArray(ladder) || ladder.length === 0)
-              return omitted('invalid-ladder-omission');
-            const positions = new Set<number>();
-            for (const entry of ladder) {
-              if (!entry || typeof entry !== 'object' || Array.isArray(entry))
-                return omitted('invalid-ladder-omission');
-              const scalar = (value: unknown) =>
-                typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')
-                  ? Number(value)
-                  : NaN;
-              const place = scalar(entry?.place);
-              const percent = scalar(entry?.percentage);
-              if (
-                !Number.isInteger(place) ||
-                place < 1 ||
-                place > 2_147_483_647 ||
-                !Number.isFinite(percent) ||
-                percent <= 0 ||
-                !Number.isSafeInteger(Math.round(percent * 100)) ||
-                Math.round(percent * 100) <= 0
-              )
-                return omitted('invalid-ladder-omission');
-              positions.add(place);
-            }
-            const places = [...positions].sort((a, b) => a - b);
-            if (places.some((place, index) => place !== index + 1))
-              return omitted('gapped-ladder-omission');
-            return {
-              expected: places.length,
-              ladder,
-              classification: 'positive-count-witness',
-              error: null,
-            };
+            return mttPaidAuthority(row);
           })
           .catch((error: unknown) => ({ expected: null, ladder: null, error: String(error) }))
       : null;
