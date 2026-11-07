@@ -435,7 +435,7 @@ describe('durable opponent memory with real PostgreSQL', () => {
     ).toEqual([{ horse_exploit_dealt_count: null }]);
   });
 
-  it('SQL action counting matches the live parser, including calls and short all-ins', async () => {
+  it('pre-cutoff SQL counting matches the legacy parser, including calls and short all-ins', async () => {
     const actions = [
       { userId: uid, action: 'bb', stage: 'preflop' },
       { userId: other, action: 'call', stage: 'preflop' },
@@ -453,7 +453,7 @@ describe('durable opponent memory with real PostgreSQL', () => {
     const sql = (
       await client.query('select fn_horse_exploit_increments($1) value', [JSON.stringify(actions)])
     ).rows[0].value;
-    expect(sql).toEqual(Object.fromEntries(exploitHandIncrements(actions)));
+    expect(sql).toEqual(Object.fromEntries(exploitHandIncrements(actions, true)));
   });
 
   it('matches every recorded public-action hand and reconstructs each game context', async () => {
@@ -465,7 +465,8 @@ describe('durable opponent memory with real PostgreSQL', () => {
     ).rows;
     const expected = new Map<string, ReturnType<typeof freshExploitCounters>>();
     for (const [index, h] of publicActions.hands.entries()) {
-      const increments = exploitHandIncrements(h.actions);
+      // These recorded hands exercise the historical SQL schema before origin filtering.
+      const increments = exploitHandIncrements(h.actions, true);
       expect(sql[index].value).toEqual(Object.fromEntries(increments));
       const size = h.dealt <= 2 ? 'hu' : h.dealt <= 5 ? 'short' : 'full';
       const key = `${h.variant}:${size}`;
