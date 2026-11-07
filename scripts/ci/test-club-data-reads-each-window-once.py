@@ -354,11 +354,11 @@ try:
     run(psql("live"), window_fix.replace("COMMIT;", "ROLLBACK;"))
     require(q("live", "SELECT to_regprocedure('public.fn_ca_club_data_fact_window(uuid[],date,date)') IS NULL") == "t", "rollback leaves no partial helper or caller edit")
     run(psql("live"), window_fix)
-    require(normalize_screen_clocks(q("live", screen_probe)) == original_screens, "full screens and previous comparisons unchanged for owner, agent downline, ordinary club, union, filters and empty dates")
+    require(normalize_screen_clocks(q("live", screen_probe)) == original_screens, "full screens and previous comparisons unchanged for owner, agent downline, ordinary club, union, NULL scope, filters and empty dates")
     # An ordinary club must keep its existing indexed page reads; a private
     # helper which fetches the full window would lose game-key pushdown.
     poisoned = "CREATE OR REPLACE FUNCTION public.fn_ca_club_data_fact_window(p_clubs uuid[],p_from date,p_through date) RETURNS SETOF public.ca_stats_club_data_fact_ct LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path=public AS $$ BEGIN RAISE EXCEPTION 'unexpected window helper invocation'; END $$;"
-    ordinary_probe = f"SELECT set_config('test.uid','{owner}',false); SELECT ca_club_data_screen('{ordinary}',CURRENT_DATE-27,CURRENT_DATE);"
+    ordinary_probe = f"SELECT set_config('test.uid','{owner}',false); SELECT ca_club_data_screen('{ordinary}',CURRENT_DATE-27,CURRENT_DATE); SELECT ca_club_data_screen(NULL,CURRENT_DATE-27,CURRENT_DATE);"
     run(psql("live"), "BEGIN;" + poisoned + ordinary_probe + "ROLLBACK;")
     run(psql("live"), "BEGIN;" + poisoned + f"SELECT set_config('test.uid','{owner}',false); SELECT ca_club_data_screen('{kings}',CURRENT_DATE-27,CURRENT_DATE);", expect_fail="unexpected window helper invocation")
     require(True, "ordinary scopes never invoke the full-window helper; Kings uses it")

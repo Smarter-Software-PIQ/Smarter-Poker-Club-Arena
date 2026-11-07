@@ -56,10 +56,10 @@ DECLARE
  old text := 'public.ca_stats_club_data_fact_ct ';
  replacement text := $replacement$(
    SELECT * FROM public.fn_ca_club_data_fact_window(public.fn_ca_club_data_clubs(p_club_id),v_start,v_end)
-    WHERE p_club_id='a41434bb-8d0c-400a-8f0d-e8b3d65afed4'::uuid
+    WHERE p_club_id IS NOT DISTINCT FROM 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'::uuid
    UNION ALL
    SELECT * FROM public.ca_stats_club_data_fact_ct
-    WHERE p_club_id<>'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'::uuid
+    WHERE p_club_id IS DISTINCT FROM 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'::uuid
  ) $replacement$;
 BEGIN
  IF (length(definition)-length(replace(definition,old,'')))/length(old) <> 8 THEN
