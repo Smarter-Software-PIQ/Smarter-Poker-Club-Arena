@@ -318,6 +318,86 @@ try:
     must_fail("SET ROLE service_role; UPDATE smarter_private.free_buy_rollout_entries SET in_install_gap=false", 'permission denied')
     must_fail(RO_MIG.read_text(), 'Inspected definition changed')
     print('PASS: the record is append-only for every role; a second install is refused', flush=True)
+
+    # ── 20261107041909: funding accuracy is a digest line, and a prize promo
+    #    posted while registration is open is watched. ─────────────────────
+    PROD_WATCH_MD5 = '44fc0264d2fc445ab2a9b696468d7add'
+    got = q("SELECT md5(pg_get_functiondef('public.fn_ca_free_buy_funding_watch()'::regprocedure))").strip()
+    assert got == PROD_WATCH_MD5, got
+    print('PASS: the watch rebuilt from the merged migrations is byte-identical to production (%s)' % got, flush=True)
+
+    DG_MIG = ROOT / 'supabase/migrations/20261107041909_free_buy_and_guarantee_funding_is_in_the_daily_digest_and_ea.sql'
+    q(DG_MIG.read_text())
+    print('PASS: exact digest and early-prize-promo migration installed', flush=True)
+
+    # Two unfinalized mystery Free Buys. EP1: a sign-up head with a prize part
+    # after the cutoff went live (reported), one with prize_part 0 (silent),
+    # and a pre-cutoff legacy head with a prize part (silent: the record of
+    # how the rollout funded it). EP2: its cutoff funding is posted while the
+    # event is still open (reported), then the event finalizes (closes).
+    EP1, EP2 = '50000000-0000-0000-0000-0000000000e1', '50000000-0000-0000-0000-0000000000e2'
+    for e in (EP1, EP2):
+        free_buy(e, 'mystery', 2, 0, status='REGISTERING')
+        q(f"UPDATE tournaments SET prize_pool_finalized=false WHERE id='{e}'")
+
+    def head(eid, key, amount, prize, at="now()"):
+        q(f"""INSERT INTO chip_ledger(performed_by,from_type,from_entity_id,from_label,to_type,to_entity_id,to_label,
+                amount,category,tournament_id,idempotency_key,status,created_at,metadata)
+              VALUES('{ACTOR}','union_wallet','{U}','union_wallets.promo_wallet','prize_liability','{eid}',
+                'tournament_escrow.prize_balance',{amount},'promo_send','{eid}','{key}','posted',{at},
+                jsonb_build_object('kind','midway_free_buy_promo_head','prize_part',{prize},'bounty_part',{amount}-{prize}))""")
+    head(EP1, f'tourney:{EP1}:promo_head:early', 1, 0.5)
+    head(EP1, f'tourney:{EP1}:promo_head:bounty', 0.5, 0)
+    head(EP1, f'tourney:{EP1}:promo_head:legacy', 1, 1, at="'2026-11-06 21:05:26+00'")
+    head(EP2, f'tourney:{EP2}:promo_head:b1', 0.5, 0)
+    head(EP2, f'tourney:{EP2}:promo_head:b2', 0.5, 0)
+    head(EP2, f'tourney:{EP2}:free_buy_cutoff_funding', 1, 1)
+    q("SELECT fn_ca_free_buy_funding_watch()")
+    early = q("""SELECT right(tournament_id::text,2)||':'||(detail->>'idempotency_key') FROM ca_free_buy_watch_findings
+                  WHERE kind='early_prize_promo' AND cleared_at IS NULL ORDER BY 1""").split()
+    assert early == [f'e1:tourney:{EP1}:promo_head:early', f'e2:tourney:{EP2}:free_buy_cutoff_funding'], early
+    sev = q("SELECT string_agg(DISTINCT severity, ',') FROM financial_alerts WHERE context->>'kind'='early_prize_promo'").strip()
+    assert sev == 'critical', sev
+    print('PASS: a prize promo posted while registration is open is found (a late prize head, an early cutoff leg), critical', flush=True)
+    print('PASS: a bounty-only head and a pre-cutoff legacy prize head are not reported', flush=True)
+
+    q(f"UPDATE tournaments SET prize_pool_finalized=true WHERE id='{EP2}'")
+    r = json.loads(q("SELECT fn_ca_free_buy_funding_watch()").strip())
+    assert r['closed'] == 1, r
+    left = q("SELECT right(tournament_id::text,2) FROM ca_free_buy_watch_findings WHERE kind='early_prize_promo' AND cleared_at IS NULL").split()
+    assert left == ['e1'], left
+    # EP2 is now a finalized mystery Free Buy holding V = 2 (two 0.50 bounty heads + 1 at cutoff): exact.
+    assert q(f"SELECT count(*) FROM ca_free_buy_watch_findings WHERE tournament_id='{EP2}' AND cleared_at IS NULL").strip() == '0'
+    print('PASS: once the event finalizes its cutoff leg is no longer early, and V = 2 is exact', flush=True)
+
+    # The digest line. Every fixture event starts today (Central).
+    q(f"""INSERT INTO smarter_private.free_buy_ticket_days(user_id,gaming_day,used)
+          VALUES('d0000000-0000-0000-0000-000000000005','{DAY}',5)""")
+    d = json.loads(q(f"SET ROLE service_role; SELECT fn_sp_digest_free_buy_funding('{DAY}')").strip())
+    byid = {e['tournament_id'][-4:]: e for e in d['free_buy']}
+    assert byid['0250']['verdict'] == 'exact' and byid['0250']['required'] == 250 and byid['0250']['promo'] == 250, byid['0250']
+    assert byid['0340']['verdict'] == 'exact' and byid['0340']['required'] == 340, byid['0340']
+    assert byid['0340']['promo'] == 250 and byid['0340']['house'] == 90 and byid['0340']['player_coverage'] == 160, byid['0340']
+    assert byid['0590']['verdict'] == 'over' and byid['0590']['variance'] == 250, byid['0590']
+    assert byid['0004']['verdict'] == 'over' and byid['0002']['verdict'] == 'exact', (byid['0004'], byid['0002'])
+    assert byid['00e2']['verdict'] == 'exact' and byid['00e1']['verdict'] == 'pending', (byid['00e2'], byid['00e1'])
+    assert 'cccc' not in byid and 'fee0' not in byid, sorted(byid)
+    off = sorted(e['tournament_id'][-4:] + ':' + e['verdict'] for e in d['off'])
+    assert off == ['0004:over', '0005:under', '0113:over', '0210:under', '0590:over'], off
+    assert (d['over'], d['under']) == (3, 2), d
+    assert d['events'] == d['exact'] + d['over'] + d['under'] + d['pending'], d
+    assert d['tickets']['players_at_limit'] == 1 and d['tickets']['allotment'] == 5, d['tickets']
+    open_now = int(q("SELECT count(*) FROM ca_free_buy_watch_findings WHERE cleared_at IS NULL").strip())
+    assert d['open_findings']['total'] == open_now and d['open_findings']['by_kind'].get('early_prize_promo') == 1, d['open_findings']
+    print('PASS: the digest line reads exact, over, under and pending per event, keeps promo, house and player parts apart', flush=True)
+    print('PASS: it reports the gaming day tickets (one player used all five) and every open watch finding', flush=True)
+
+    must_fail(f"SET ROLE authenticated; SELECT fn_sp_digest_free_buy_funding('{DAY}')", 'permission denied')
+    ledger_rows = q("SELECT count(*) FROM chip_ledger").strip()
+    q(f"SELECT fn_sp_digest_free_buy_funding('{DAY}'); SELECT fn_ca_free_buy_funding_watch();")
+    assert q("SELECT count(*) FROM chip_ledger").strip() == ledger_rows
+    must_fail(DG_MIG.read_text(), 'Inspected definition changed')
+    print('PASS: players cannot read the digest line; neither function writes a ledger row; a second install is refused', flush=True)
 finally:
     if started:
         run([PG / 'pg_ctl', '-D', work / 'data', '-m', 'immediate', '-w', 'stop'])

@@ -1,0 +1,6 @@
+{
+  "_owner": "fix/free-buy-funding-is-in-the-digest",
+  "_comment": "Migration 20261107041909: the daily digest's Free Buy and guarantee funding line.",
+  "tables": [],
+  "functions": ["fn_sp_digest_free_buy_funding"]
+}
