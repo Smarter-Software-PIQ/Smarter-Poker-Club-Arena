@@ -110,6 +110,17 @@ Once the gameplay evidence workflow is published, `post-deploy-e2e.yml` records 
 
 On November 7 the original receiver reported failure after the recovery invocation sealed. Reattach the protected observer to the original run using `observe-engine-release.sh --sha "$candidate" --run-id 42389189340-1` on the release host through the scoped observer procedure. Match its `ENGINE_RELEASE_SHA` and `ENGINE_RELEASE_RESULT=sealed` to the receipt and public health. A failed observer alone does not authorize another cutover. [Observer correction](https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9892)
 
+For an already recovered sealed operation whose Actions receiver remains failed,
+run the reporting-only **Report Recovered Engine Seal** workflow on protected main
+with `original_run` and `original_attempt`. It reads the original failed attempt,
+the immutable host result and fresh health, then publishes a separate
+**Recovered Engine Release Seal** check on the original target SHA. That check
+links to the original failed attempt and the retained recovery evidence. The
+original Actions conclusion and append-only failure receipt remain unchanged.
+A later serving release is shown separately; a historical seal never claims that
+its old instance is still serving. This workflow cannot dispatch a cutover,
+restart an engine, write the database or replay a payment.
+
 A successful receiver triggers a fresh Backup through the supported workflow. Inspect the resulting restore validation, seed failure count and final exact-SHA certificate. If the receiver concluded failure despite a verified seal, the release owner first checks for an existing refresh in the Backup queue. After proving the exact SHA is still serving, the owner can submit the supported Backup-only recovery once:
 
 ```sh
