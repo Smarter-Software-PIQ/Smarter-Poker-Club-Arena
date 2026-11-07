@@ -26,12 +26,9 @@
  *
  * ── THE RULES, EACH ONE A MIRROR OF THE DOOR THAT WILL SEAT THEM ──────────
  *
- *  - Only games whose tick does not open tables for the list. An ordinary
- *    must-move game (must_move, cluster_mode 'must_move') counts the list as
- *    buyers and opens a feeder; counting it again here would stand a horse up
- *    for a person who is about to get a whole table (double count). A
- *    Lightning Cluster stands down, and a manual game (must_move false) is
- *    refused by the tick as 'manual_game': neither opens anything.
+ *  - Every enabled game (2026-11-06; see gameListNeedsYield). This used to
+ *    skip ordinary must-move games because their tick opens a feeder, and
+ *    the owner's table-supply cut left that tick unable to open any.
  *  - Only an enabled game. `fn_offer_open_seat` offers nothing in a disabled
  *    one, so a chair opened there would be refilled, not taken.
  *  - Never a horse. A horse in the count makes a horse stand up for a horse.
@@ -114,9 +111,20 @@ export function tickServesGameList(g: GameWaitGame): boolean {
   return g.must_move === true && (g.cluster_mode ?? null) === 'must_move';
 }
 
-/** A list this module answers: an enabled game whose tick does not serve it. */
+/**
+ * A list this module answers: EVERY enabled game (2026-11-06).
+ *
+ * It used to skip an ordinary must-move game on the grounds that its tick opens
+ * a feeder for the list. Since the owner's table-supply cut (October 26, then
+ * 0.2x from November 2) `fn_cash_cluster_tick` allows floor((cap_mains+1)*0.2)
+ * tables, which is ONE for every game, so the tick could open nothing and
+ * nothing stood a horse up either. Measured 2026-11-06 20:40 CDT: three people
+ * on Classic game lists behind full horse tables, the oldest for nineteen
+ * hours. A person waiting is now always owed a chair; where the tick does open
+ * a table as well, the cost is one horse standing a hand early.
+ */
 export function gameListNeedsYield(g: GameWaitGame): boolean {
-  return g.enabled === true && !tickServesGameList(g);
+  return g.enabled === true;
 }
 
 /**

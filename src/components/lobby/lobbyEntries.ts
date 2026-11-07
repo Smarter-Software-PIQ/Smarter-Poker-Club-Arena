@@ -1094,6 +1094,24 @@ export function cashStatus(t: LobbyTableRow, waiting = 0): { key: LobbyStatusKey
   return { key: 'open', label: 'Seats Available' };
 }
 
+/**
+ * A running must-move game says what a player would see walking past it
+ * (Dan 2026-11-06): its waiting list first ("Waitlist 3"), then a second
+ * table ("2 Tables"), otherwise "Running". The KEY stays 'running' on purpose:
+ * a game's door is Join Game, which queues the player on the game's own list,
+ * and the 'waitlist' key would swap it for the single-table Join Waitlist
+ * button. A Lightning game never has a list (Dan 2026-10-24); the caller
+ * passes 0 for it.
+ */
+export function clusterRunningStatus(
+  tables: number,
+  waiting: number
+): { key: LobbyStatusKey; label: string } {
+  if (waiting > 0) return { key: 'running', label: `Waitlist ${waiting}` };
+  if (tables > 1) return { key: 'running', label: `${tables} Tables` };
+  return { key: 'running', label: 'Running' };
+}
+
 export function tournamentStatus(
   t: LobbyTournamentRow,
   now = Date.now()
@@ -1558,7 +1576,7 @@ export function cashEntry(t: LobbyTableRow, waiting = 0): LobbyEntry {
       : modeClosedLabel
         ? { key: 'closed' as LobbyStatusKey, label: modeClosedLabel }
         : gamePlayers > 0
-          ? { key: 'running' as LobbyStatusKey, label: 'Running' }
+          ? clusterRunningStatus(figures?.tables ?? 1, lightningStatus ? 0 : waiting)
           : { key: 'open' as LobbyStatusKey, label: 'Seats Available' }
     : cashStatus(t, waiting);
   /* Dan 2026-08-25: the lobby used to print tables.max_buy_in raw, which on 42
