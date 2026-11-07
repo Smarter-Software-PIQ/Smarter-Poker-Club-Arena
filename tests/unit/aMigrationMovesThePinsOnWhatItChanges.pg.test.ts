@@ -27,6 +27,7 @@ const bin = [
   process.env.PG_BIN,
   '/opt/homebrew/opt/postgresql@17/bin',
   '/opt/homebrew/bin',
+  '/usr/lib/postgresql/18/bin',
   '/usr/lib/postgresql/17/bin',
   '/usr/lib/postgresql/16/bin',
   '/usr/bin',
