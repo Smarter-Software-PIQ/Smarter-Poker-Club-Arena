@@ -62,6 +62,9 @@ import HandReplay, { type ReplaySource } from '../../components/replay/HandRepla
 import { replayFromShareable, shareUserId } from '../../lib/shareHandModel';
 import { clipSourceFrom, readClipPayload, type ClipPayload } from '../../lib/clipMode';
 import { reportError } from '../../utils/errorReporter';
+import { SpadeConsole } from '../../components/console/SpadeConsole';
+import { normalizeInviteCode } from '../../lib/inviteCode';
+import { hasLocalSession } from '../../lib/authUtils';
 import './SharedHandReplayPage.css';
 
 function sourceFrom(hand: ShareableHand): ReplaySource | null {
@@ -170,10 +173,46 @@ export default function SharedHandReplayPage() {
   }
 
   const hero = hand?.players.find((p) => p.isHero);
+  /*
+   * PLAY WHERE THIS HAND WAS PLAYED (2026-11-06). A shared hand is usually
+   * opened by a friend with no account. A signed-out viewer is offered Create
+   * Account through the SENDER's own Share & Invite code (`&i=`, added by the
+   * sender's Link and Share), which is the one door that credits the sender
+   * and places the new player in their downline. Without a code it is plain
+   * signup; either way Sign In and Create Account return here afterwards.
+   * Signed-in players see nothing extra.
+   */
+  const invite = normalizeInviteCode(params.get('i'));
+  const here =
+    typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '/';
+  const showJoin = !hasLocalSession();
+  const signupHref = invite ? `/i/${invite}` : `/auth/signup?redirect=${encodeURIComponent(here)}`;
 
   return (
     <div className="shared-replay">
       <HandReplay source={source} />
+      {showJoin && (
+        <SpadeConsole
+          className="shared-replay__join"
+          eyebrow="Smarter.Poker"
+          title="Play This Game"
+          titleAs="h2"
+          subtitle={hero ? `${hero.name} Invited You` : 'Private Poker Clubs'}
+          pill="Join"
+          pillInk="blue"
+          plates={{
+            secondary: {
+              label: 'Sign In',
+              href: `/auth/login?redirect=${encodeURIComponent(here)}`,
+            },
+            primary: { label: 'Create Account', href: signupHref },
+          }}
+        >
+          <p className="shared-replay__join-body">
+            Cash Games, Tournaments And Spins With Your Friends.
+          </p>
+        </SpadeConsole>
+      )}
       <footer className="shared-replay__footer">
         {hero ? `Shared From ${hero.name}'s Hand History · ` : ''}Smarter Poker
       </footer>

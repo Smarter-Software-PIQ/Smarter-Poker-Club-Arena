@@ -64,6 +64,7 @@ import { handFlagService, type HandFlag } from '../services/HandFlagService';
 import { toPokerStarsFile } from '../utils/pokerStarsExport';
 import { openInBrowser } from '../lib/openExternal';
 import { downloadBlob } from '../utils/downloadCsv';
+import { useSenderInviteCode } from '../hooks/useSenderInviteCode';
 import { isDiamondHandHistoryScope } from '../utils/clubScopedPath';
 import {
   DIAMOND_HAND_HISTORY_PARAM,
@@ -132,6 +133,10 @@ function formatDate(ts: number): string {
 function signed(n: number, dp = 2): string {
   return `${n > 0 ? '+' : n < 0 ? '-' : ''}${money(Math.abs(n), dp)}`;
 }
+
+/** The reply an old-link recipient sends back (Ask For A Share Link). */
+export const SHARE_LINK_REQUEST =
+  'That hand link only opens for players who were in the hand. Can you send it again with the Share button in Club Arena? That one opens for anyone.';
 
 export default function HandHistoryPage() {
   useEffect(() => {
@@ -213,6 +218,10 @@ export default function HandHistoryPage() {
   } | null>(null);
   const detailHand = detailSelection?.scope === archiveScope ? detailSelection.hand : null;
   const [shareHand, setShareHand] = useState<ShareableHand | null>(null);
+  /* The table the shared hand was dealt on: the sender's invite code is the
+     one for that table's club (useSenderInviteCode). */
+  const [shareTableId, setShareTableId] = useState<string | null>(null);
+  const shareInvite = useSenderInviteCode(shareTableId, userId, !!shareHand);
   const [visible, setVisible] = useState<Record<string, boolean>>({});
   const firstPageSequenceRef = useRef(0);
   const firstReadPendingRef = useRef<{ scope: string; sequence: number } | null>(null);
@@ -851,6 +860,32 @@ export default function HandHistoryPage() {
    * this fixes. Show My Hands drops the link and brings everything back.
    */
   const showingForeignLink = !!linkedHandId && linkedState === 'missing';
+  /*
+   * ASK FOR A SHARE LINK (2026-11-06). An old archive link cannot say who sent
+   * it: the hand is unreadable to this viewer, and naming its players would
+   * reveal who was in it. So the button hands the viewer a ready reply to
+   * paste back into the conversation the link came from: on a phone straight
+   * into the share sheet, elsewhere onto the clipboard.
+   */
+  const askForShareLink = useCallback(async () => {
+    const text = SHARE_LINK_REQUEST;
+    const phone =
+      typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+    if (phone && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ text });
+        return;
+      } catch (error) {
+        if ((error as { name?: string } | null)?.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success('Request Copied, Paste It Back To Whoever Sent The Link');
+    } catch {
+      toast.error('Could Not Copy The Request');
+    }
+  }, [toast]);
 
   return (
     <div className="hand-history-page" data-arena-surface="play">
@@ -1015,6 +1050,9 @@ export default function HandHistoryPage() {
             That Hand Belongs To Another Player, So It Cannot Open Here. Ask Them To Send It With
             The Share Button, Which Opens Their Hand For Anyone.
           </span>
+          <button type="button" onClick={() => void askForShareLink()}>
+            Ask For A Share Link
+          </button>
           <button type="button" onClick={() => navigate('/hand-history', { replace: true })}>
             Show My Hands
           </button>
@@ -1265,9 +1303,12 @@ export default function HandHistoryPage() {
                         <button
                           type="button"
                           className="share-btn"
-                          onClick={() =>
-                            setShareHand(panelHandToShareable(hand, hand.tableName || 'Club Arena'))
-                          }
+                          onClick={() => {
+                            setShareTableId(hand.tableId ?? null);
+                            setShareHand(
+                              panelHandToShareable(hand, hand.tableName || 'Club Arena')
+                            );
+                          }}
                         >
                           Share
                         </button>
@@ -1329,6 +1370,7 @@ export default function HandHistoryPage() {
             }}
             onShare={(hand) => {
               try {
+                setShareTableId(hand.tableId ?? null);
                 setShareHand(panelHandToShareable(hand, hand.tableName || 'Club Arena'));
                 setDetailSelection(null);
               } catch (error) {
@@ -1373,6 +1415,7 @@ export default function HandHistoryPage() {
           /* The archive shares a stored record: its id is the hand_history
              row, which is what Share As Video renders from. */
           handId={shareHand.id}
+          inviteCode={shareInvite}
         />
       )}
     </div>
