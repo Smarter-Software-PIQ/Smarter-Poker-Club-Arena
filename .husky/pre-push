@@ -764,6 +764,7 @@ $FILES"
     TSC="$(git rev-parse --show-toplevel)/node_modules/.bin/tsc"
     if [ "$CLIENT_DEPENDENCY_MODE" != local ]; then
       echo "[club-arena pre-push] BLOCKED: required local compiler dependencies are incomplete."
+      echo "  remedy: (cd \"$CA_TREE_TOP\" && npm ci --ignore-scripts --no-audit --no-fund)"
       FAIL=1
     elif [ -x "$TSC" ]; then
       echo "[club-arena pre-push] type-checking src/ ..."
@@ -1077,6 +1078,7 @@ NODE_TESTS=$(printf '%s\n' $NODE_TESTS | sort -u)
 if [ -n "$CHANGED_TESTS$CHANGED_SRC$NODE_TESTS" ]; then
   if [ "$CLIENT_DEPENDENCY_MODE" != local ]; then
     echo "[club-arena pre-push] BLOCKED: required local client dependencies are incomplete."
+    echo "  remedy: (cd \"$CA_TREE_TOP\" && npm ci --ignore-scripts --no-audit --no-fund)"
     echo "  Prepare locked dependencies in an owned workspace, run the checks and retry."
     echo "  Do not mutate shared dependencies or use hosted CI as the first test attempt."
     FAIL=1
@@ -1125,6 +1127,7 @@ if echo "$FILES" | grep -qE '^server/(src/.*\.ts|tsconfig[^/]*\.json|package(-lo
   SERVER_TSC="$CA_TREE_TOP/server/node_modules/.bin/tsc"
   if [ "$SERVER_DEPENDENCY_MODE" != local ] || [ ! -x "$SERVER_TSC" ]; then
     echo "[club-arena pre-push] BLOCKED: the required local server compiler is unavailable."
+    echo "  remedy: (cd \"$CA_TREE_TOP/server\" && npm ci --ignore-scripts --no-audit --no-fund)"
     FAIL=1
   elif ! (cd server && "$SERVER_TSC" --noEmit); then
     echo "[club-arena pre-push] BLOCKED: the server does not type-check."
@@ -1195,6 +1198,7 @@ if [ -f server/package.json ]; then
 
   if [ -n "$SRV_TESTS$SRV_SRC" ] && [ "$SERVER_DEPENDENCY_MODE" != local ]; then
     echo "[club-arena pre-push] BLOCKED: required local server dependencies are incomplete."
+    echo "  remedy: (cd \"$CA_TREE_TOP/server\" && npm ci --ignore-scripts --no-audit --no-fund)"
     FAIL=1
   elif [ -n "$SRV_TESTS$SRV_SRC" ] && [ ! -x "$SERVER_VITEST" ]; then
     echo ""
