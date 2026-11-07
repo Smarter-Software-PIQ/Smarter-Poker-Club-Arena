@@ -14,6 +14,7 @@ import {
   type HorseDecisionReadFrame,
 } from './HorseDecisionReadFrame.js';
 import { FCA_HERO, FCA_OPP, playFcaPhase } from './HorseFastCalldownRead.test-support.js';
+import { composeFastCalldownWindows, observeFastCalldownRiver } from './HorseFastCalldownRead.js';
 import type { SeatPlayer } from '../types.js';
 
 const players = [{ user_id: FCA_HERO }, { user_id: FCA_OPP }] as SeatPlayer[];
@@ -76,6 +77,24 @@ describe('fast call-down read through the decision read frame', () => {
     expect(
       encodeHorseDecisionReads(decodeHorseDecisionReads(frame, players, null), players, null)
     ).toEqual(frame);
+  });
+
+  it('composes a mirrored river window onto the live one exactly', () => {
+    // Live: 30 folds then 3 calls (every hand a river spot). Another shard
+    // learns the next 2 calls from a fresh row and the mirror composes them.
+    playFcaPhase('fold', 30);
+    playFcaPhase('call', 3);
+    const live = { ...HorseMind.getStats(FCA_OPP)! };
+    const fresh = { rvOpps: 0, rvCalls: 0 };
+    observeFastCalldownRiver(fresh, true);
+    observeFastCalldownRiver(fresh, true);
+    const composed = composeFastCalldownWindows(live, fresh)!;
+    playFcaPhase('call', 2);
+    const owner = HorseMind.getStats(FCA_OPP)!;
+    expect(composed.rvOpps).toBeCloseTo(owner.rvOpps!, 10);
+    expect(composed.rvCalls).toBeCloseTo(owner.rvCalls!, 10);
+    // No window on the hand: the live window is untouched.
+    expect(composeFastCalldownWindows(live, {})).toBeNull();
   });
 
   it.each(['missing', 'calls_over_opps', 'negative', 'empty', 'v9_with_window'])(

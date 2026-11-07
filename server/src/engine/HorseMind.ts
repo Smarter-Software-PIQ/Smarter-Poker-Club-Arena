@@ -1466,10 +1466,13 @@ export class HorseMind {
         // older than it reads 0, so keep the larger like the V43 reads.
         riverCallSD: keep(existing?.riverCallSD, num(r.riverCallSD)),
         riverCallSDWeak: keep(existing?.riverCallSDWeak, num(r.riverCallSDWeak)),
-        // Memory only: a hydrate never carries it, and never erases it.
+        // Memory only: a hydrate never carries it, and never erases it. A
+        // mirrored shard's import (mindMirror) carries it for a new row.
         ...(existing?.rvOpps !== undefined
           ? { rvOpps: existing.rvOpps, rvCalls: existing.rvCalls ?? 0 }
-          : {}),
+          : r.rvOpps !== undefined
+            ? { rvOpps: num(r.rvOpps), rvCalls: Math.min(num(r.rvCalls), num(r.rvOpps)) }
+            : {}),
       });
       applied++;
     }

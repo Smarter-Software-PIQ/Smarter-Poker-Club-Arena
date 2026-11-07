@@ -121,6 +121,28 @@ export function observeFastCalldownRiver(
   window.rvCalls = finite(window.rvCalls ?? 0) * FAST_CALLDOWN_RIVER_DECAY + (called ? 1 : 0);
 }
 
+/**
+ * Compose a river recency window another shard learned from a FRESH row
+ * (HorseMindMirror) onto the live one, exactly as if the live row had
+ * observed those river opportunities itself. A fresh window after n
+ * opportunities holds rvOpps = (1 - d^n) / (1 - d), so the live window's
+ * weight after them is d^n = 1 - rvOpps * (1 - d); the hand's own counts
+ * then add on top. Null when the hand carries no window (live unchanged).
+ */
+export function composeFastCalldownWindows(
+  live: { rvOpps?: number; rvCalls?: number } | undefined,
+  hand: { rvOpps?: number; rvCalls?: number }
+): { rvOpps: number; rvCalls: number } | null {
+  if (hand.rvOpps === undefined) return null;
+  const handOpps = finite(hand.rvOpps);
+  const handCalls = Math.min(finite(hand.rvCalls ?? 0), handOpps);
+  const weight = Math.max(0, 1 - handOpps * (1 - FAST_CALLDOWN_RIVER_DECAY));
+  return {
+    rvOpps: finite(live?.rvOpps ?? 0) * weight + handOpps,
+    rvCalls: finite(live?.rvCalls ?? 0) * weight + handCalls,
+  };
+}
+
 interface WindowJudgement {
   mean: number;
   n: number;
