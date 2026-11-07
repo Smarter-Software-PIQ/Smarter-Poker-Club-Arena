@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import unittest
 import tempfile
+import subprocess
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location(
@@ -14,6 +15,40 @@ spec.loader.exec_module(qualification)
 
 
 class QualificationAdmission(unittest.TestCase):
+    def test_funded_proof_selection_distinguishes_history_from_unreadable_history(self):
+        merged = 'a' * 40
+        with patch.object(qualification, 'run', side_effect=[merged, '', '']):
+            self.assertTrue(qualification.needs_funded_satellite_proof('/repo', merged))
+        for sequence in ([merged, subprocess.CalledProcessError(1, 'git')],
+                         [merged, '', subprocess.CalledProcessError(1, 'git')]):
+            with patch.object(qualification, 'run', side_effect=sequence):
+                self.assertFalse(qualification.needs_funded_satellite_proof('/repo', merged))
+        with patch.object(qualification, 'run', return_value=''), self.assertRaises(RuntimeError):
+            qualification.needs_funded_satellite_proof('/repo', merged)
+        with patch.object(qualification, 'run', side_effect=[merged, subprocess.CalledProcessError(128, 'git')]):
+            with self.assertRaises(subprocess.CalledProcessError):
+                qualification.needs_funded_satellite_proof('/repo', merged)
+
+    def test_funded_thaw_requires_four_usable_awards_on_one_target(self):
+        sources = [dict(sourceId=str(i), targetId='shared', escrowClosed=True, qualifiers=i + 1,
+                        awards=2, usableAwards=2, elapsedSeconds=1.2,
+                        beganAt='2026-11-07T19:00:00+00:00', committedAt='2026-11-07T19:00:01+00:00') for i in range(2)]
+        races = [dict(case=c, unrelated_funded_settlement=True, original_funded_recovery=True,
+                      database_removed=True) for c in ('hold_row', 'hold_hand_key')]
+        result = {'status': 'passed', 'cleanup': {'stopped': True, 'removed': True}, 'races': races, 'peak_thaw': {
+            'events': 10, 'tables': 59, 'postcommits': 59, 'slowestSeconds': 2.56,
+            'concurrentResult': {'targetId': 'shared', 'sources': sources, 'overlapWitness': {
+                'handId': 'hand', 'committedAt': '2026-11-07T19:00:00.5+00:00'}}}}
+        self.assertEqual(qualification.verified_satellite_thaw(result), result['peak_thaw'])
+        for field, wrong in [('targetId', 'different'), ('escrowClosed', False), ('usableAwards', 1),
+                             ('elapsedSeconds', 149), ('sourceId', '0'), ('qualifiers', 1),
+                             ('beganAt', '2026-11-07T19:00:00.9+00:00')]:
+            with self.subTest(field=field), patch.dict(sources[1], {field: wrong}):
+                with self.assertRaises(RuntimeError):
+                    qualification.verified_satellite_thaw(result)
+        with patch.dict(result['peak_thaw'], {'postcommits': 58}), self.assertRaises(RuntimeError):
+            qualification.verified_satellite_thaw(result)
+
     def test_postgres_build_resolves_the_running_image_by_repository_digest_and_platform(self):
         image = 'sha256:' + 'a' * 64
         reference = 'public.ecr.aws/supabase/postgres@sha256:' + 'b' * 64
