@@ -27,9 +27,15 @@ export function normalizeSharedHandToken(value: unknown): string | null {
   return SHARED_HAND_TOKEN_RE.test(v) ? v : null;
 }
 
-/** The address a short link is sent as. */
+/**
+ * The address a short link is sent as: smarter.poker/h/<token>, the World Hub
+ * page that draws the link preview (hand number, board, pot) for messaging
+ * apps and sends a person straight on to /hub/club-arena/h/<token>, the route
+ * that opens the hand. The arena route keeps working on its own, so a link
+ * sent before this change still opens.
+ */
 export function shortHandUrl(token: string, origin?: string): string {
-  return `${origin ?? publicOrigin()}/hub/club-arena/h/${token}`;
+  return `${origin ?? publicOrigin()}/h/${token}`;
 }
 
 export interface SharedHandPreview {

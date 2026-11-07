@@ -98,8 +98,9 @@ describe('the service', () => {
     expect(normalizeSharedHandToken('AbCd2345')).toBe('AbCd2345');
     expect(normalizeSharedHandToken('AbCd234l')).toBeNull(); // l is excluded
     expect(normalizeSharedHandToken('../etc')).toBeNull();
+    // The World Hub preview page, which sends a person on to /hub/club-arena/h/.
     expect(shortHandUrl('AbCd2345', 'https://smarter.poker')).toBe(
-      'https://smarter.poker/hub/club-arena/h/AbCd2345'
+      'https://smarter.poker/h/AbCd2345'
     );
   });
 
@@ -278,9 +279,7 @@ describe('Link and the sender’s controls, on the real popup', () => {
     await new Promise((r) => setTimeout(r, 0));
     fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    expect((writeText.mock.calls[0] as unknown as [string])[0]).toMatch(
-      /\/hub\/club-arena\/h\/AbCd2345$/
-    );
+    expect((writeText.mock.calls[0] as unknown as [string])[0]).toMatch(/\/h\/AbCd2345$/);
     expect(rpc).toHaveBeenCalledWith('fn_ca_shared_hand_mark_sent', { p_token: 'AbCd2345' });
     await screen.findByText(/Shared . 0 Views/);
     fireEvent.click(screen.getByRole('button', { name: 'Stop Sharing' }));
