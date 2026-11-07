@@ -142,7 +142,8 @@ describe('the deep link', () => {
     // hand (RLS). Copied and sent to a friend it opened HIS OWN history.
     const modal = read('src/components/table/HandDetailModal.tsx');
     expect(modal).not.toContain('handDeepLink(');
-    expect(modal).toMatch(/handShareLink\(\s*encodeHand\(panelHandToShareable\(/);
+    expect(modal).toContain('encodeHand(panelHandToShareable(');
+    expect(modal).toContain('return handShareLink(encoded, undefined, senderInvite);');
     expect(modal).toContain('senderInvite');
     const page = read('src/pages/HandHistoryPage.tsx');
     expect(page).toContain("const linkedHandId = searchParams.get('hand');");

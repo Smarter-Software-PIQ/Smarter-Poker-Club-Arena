@@ -52,7 +52,7 @@ import RealTimeResultPanel from './RealTimeResultPanel';
 import SessionAnalytics from './SessionAnalytics';
 import { sessionStatsService } from '../../services/SessionStatsService';
 import SettingsPanel from './SettingsPanel';
-import ShareHand from './ShareHand';
+import ShareHand, { encodeHand } from './ShareHand';
 import AddOnModal from './AddOnModal';
 import RebuyModal from './RebuyModal';
 import TournamentBreakScreen from './TournamentBreakScreen';
@@ -550,6 +550,8 @@ export interface TableModalsLayerProps {
 import React from 'react';
 import { useToast } from '../common/Toast';
 import { useSenderInviteCode } from '../../hooks/useSenderInviteCode';
+import { useSharedHandShortLink } from '../../hooks/useSharedHandShortLink';
+import { previewFromShareable } from '../../services/SharedHandLinkService';
 
 function TableModalsLayerImpl(props: TableModalsLayerProps) {
   const {
@@ -782,6 +784,21 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
   /* The sender's Share & Invite code for this table's club, read while the
      Share sheet is open so its link can credit them (useSenderInviteCode). */
   const shareInvite = useSenderInviteCode(tableId, userId, !!(showShareHand && sharedHandData));
+  const shareSource = React.useMemo(() => {
+    if (!showShareHand || !sharedHandData) return null;
+    try {
+      return { encoded: encodeHand(sharedHandData), preview: previewFromShareable(sharedHandData) };
+    } catch (error) {
+      reportError(error, 'TableModalsLayer.shareSource');
+      return null;
+    }
+  }, [showShareHand, sharedHandData]);
+  const shareShort = useSharedHandShortLink(
+    shareSource?.encoded ?? null,
+    shareInvite,
+    shareSource?.preview ?? null,
+    !!shareSource && !!userId
+  );
 
   /**
    * ─── LEAVE NOTICE: THROUGH THE TOAST LAYER (audit 2026-08-25) ─────────────
@@ -1380,6 +1397,8 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           hand={sharedHandData}
           handId={sharedHandId}
           inviteCode={shareInvite}
+          shortUrl={shareShort.url}
+          onShared={shareShort.markSent}
         />
       )}
 

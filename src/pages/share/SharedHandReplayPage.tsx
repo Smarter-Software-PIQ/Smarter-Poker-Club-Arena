@@ -112,9 +112,22 @@ function clipSourceOf(payload: ClipPayload): ReplaySource | null {
   }
 }
 
-export default function SharedHandReplayPage() {
+/**
+ * A short link (`/h/<token>`, ShortHandReplayPage) resolves its token to the
+ * same payload and invite code and renders this page with them; the long link
+ * reads them from its own query.
+ */
+export interface SharedHandReplayPageProps {
+  encodedOverride?: string | null;
+  inviteOverride?: string | null;
+}
+
+export default function SharedHandReplayPage({
+  encodedOverride,
+  inviteOverride,
+}: SharedHandReplayPageProps = {}) {
   const [params] = useSearchParams();
-  const encoded = params.get('h');
+  const encoded = encodedOverride ?? params.get('h');
   const clipRequested = params.get('clip') === '1';
 
   /* Read once per mount: the renderer injects the payload before any script
@@ -182,7 +195,7 @@ export default function SharedHandReplayPage() {
    * signup; either way Sign In and Create Account return here afterwards.
    * Signed-in players see nothing extra.
    */
-  const invite = normalizeInviteCode(params.get('i'));
+  const invite = normalizeInviteCode(inviteOverride ?? params.get('i'));
   const here =
     typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '/';
   const showJoin = !hasLocalSession();
