@@ -1084,6 +1084,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "54189b2503872b25b79f1ea68bf6f16e617fe14586311207e1a7801645df548b"
       }
+    },
+    {
+      "id": "2026-11-07-horse-fold-provenance-engine-1800z",
+      "ownerOrder": "The owner directed Horse study chat 01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430 to coordinate with the Engine Cutover and Update Stats chat and \"GET THIS DONE NOW, NOT AT 4AM\". One earliest-certified worker cutover after the separate provenance migration commits. Use the exact Backup Engine certificate, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, sealed freeze and rollback reserve, single-use claim, production identity verification and healthy thaw.",
+      "contains": "a741f36c35f2d0fa602aa80ca67126480d330b2c",
+      "notBefore": "2026-11-07T18:00:00Z",
+      "notAfter": "2026-11-08T00:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "d25f21c7ceebc9ea58a9e13f64ad591e0628f11c37d1559970dcef85d9847deb"
+      }
     }
   ],
   "databaseWindows": [
@@ -1192,6 +1206,14 @@
         "20261106004812_a_built_midway_free_buy_refuses_a_shape_its_schedule_does_no.sql",
         "20261107041342_a_scheduled_midway_free_buy_keeps_its_promised_guarantee.sql"
       ]
+    },
+    {
+      "id": "2026-11-07-horse-fold-provenance-db-1800z",
+      "ownerOrder": "The owner directed Horse study chat 01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430 to coordinate with the Engine Cutover and Update Stats chat and \"GET THIS DONE NOW, NOT AT 4AM\". One database-only break for the migration listed below. Read the migration ledger, preserve transaction and lock budgets and certify its atomic archive and corrected reducers before the worker cutover.",
+      "contains": "a741f36c35f2d0fa602aa80ca67126480d330b2c",
+      "notBefore": "2026-11-07T18:00:00Z",
+      "notAfter": "2026-11-08T00:00:00Z",
+      "migrations": ["20261107160549_horse_memory_excludes_forced_folds.sql"]
     }
   ]
 }

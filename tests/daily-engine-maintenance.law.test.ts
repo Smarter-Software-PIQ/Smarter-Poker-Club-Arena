@@ -949,7 +949,7 @@ it('binds the renewed MTT outage delivery without extending or rewriting earlier
 });
 
 it('binds a distinct qualified next-break carrier and preserves Diamond operator closure', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-10-31-mtt-action-outage-qualified-next-break';
   const marker = ',\n    {\n      "id": "' + id + '"';
@@ -1017,7 +1017,7 @@ it('binds a distinct qualified next-break carrier and preserves Diamond operator
 });
 
 it('binds the bounded-census correction without extending or retrying its failed predecessor', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-10-31-mtt-bounded-census-recovery-next-break';
   const marker = ',\n    {\n      "id": "' + id + '"';
@@ -1160,7 +1160,7 @@ it('binds a distinct Cashier original-cohort census carrier while preserving his
 });
 
 it('binds the independent Horse input correction to one new qualified tournament-aligned activation', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-10-31-horse-input-attribution-qualified-next-55';
   const marker = ',\n    {\n      "id": "' + id + '"';
@@ -1234,7 +1234,7 @@ it('binds the independent Horse input correction to one new qualified tournament
 });
 
 it('binds the manually resumed MTT continuation without renewing any historical window', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-10-31-mtt-manual-safe-drain-continuation';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1297,7 +1297,7 @@ it('binds the manually resumed MTT continuation without renewing any historical 
 });
 
 it('binds the noon manual continuation while preserving the expired unpushed carrier', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-10-31-mtt-manual-noon-safe-drain-continuation';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1360,7 +1360,7 @@ it('binds the noon manual continuation while preserving the expired unpushed car
 });
 
 it('binds the owner-ordered next :55 Horse V63-V69 activation without renewing any historical window', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-10-31-horse-v63-v69-next-55';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1429,7 +1429,7 @@ it('binds the owner-ordered next :55 Horse V63-V69 activation without renewing a
 });
 
 it('binds the owner-ordered drained :55 activation of Horse V63-V70 without renewing any historical window', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-10-31-horse-v63-v70-drained-next-55';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1499,7 +1499,7 @@ it('binds the owner-ordered drained :55 activation of Horse V63-V70 without rene
 });
 
 it('binds the owner-ordered drained engine crash-loop activation that falls back to the daily break', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-11-01-engine-crashloop-fix-daily-fallback';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1576,7 +1576,7 @@ it('binds the owner-ordered drained engine crash-loop activation that falls back
 });
 
 it('binds the owner-ordered window that unblocks the engine door and installs its window migration', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-11-01-v74-door-unblock-and-window-migration';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1667,7 +1667,7 @@ it('binds the owner-ordered window that unblocks the engine door and installs it
 });
 
 it('binds the owner-ordered fresh-engine crash-boundary window without renewing any historical window', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-11-01-fresh-engine-crash-boundary';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -1749,6 +1749,14 @@ const LATER_ENGINE_WINDOWS = [
   '2026-11-02-fresh-engine-window-after-seal-unbrick',
   '2026-11-02-phase1-plo-horse-hourly-55-cutover',
 ];
+function registryBeforeHorseDatabaseWindow(): string {
+  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const start = raw.indexOf(',\n    {\n      "id": "2026-11-07-horse-fold-provenance-db-1800z"');
+  expect(start).toBeGreaterThan(0);
+  const end = raw.indexOf('\n  ]\n}', start);
+  expect(end).toBeGreaterThan(start);
+  return raw.slice(0, start) + raw.slice(end);
+}
 function windowsBeforeLaterEngineWindows(
   raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8')
 ): string {
@@ -1952,7 +1960,7 @@ it('binds the owner-ordered fresh-engine window re-armed after the seal unbrick 
 });
 
 it('binds the owner-ordered Phase 1 hourly :55 cutover window without renewing any historical window', () => {
-  const raw = readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8');
+  const raw = registryBeforeHorseDatabaseWindow();
   const doc = JSON.parse(raw);
   const id = '2026-11-02-phase1-plo-horse-hourly-55-cutover';
   const entry = doc.windows.find((w: { id: string }) => w.id === id);
@@ -2025,6 +2033,9 @@ it('binds the two remaining Midway files only to the November 7 database window'
   const doc = JSON.parse(
     readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8')
   );
+  // Reconstruct the exact registry selected before the Horse provenance booking.
+  expect(doc.databaseWindows.pop().id).toBe('2026-11-07-horse-fold-provenance-db-1800z');
+  expect(doc.windows.pop().id).toBe('2026-11-07-horse-fold-provenance-engine-1800z');
   const entry = doc.databaseWindows.pop();
   expect(entry).toMatchObject({
     id: '2026-11-07-midway-remaining-two-join',
