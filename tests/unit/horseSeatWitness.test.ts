@@ -134,3 +134,41 @@ it('rejects a stale database sit-out badge on an authoritative playing seat', ()
   );
   expect(result.violations).toContain('horse/3: badge mismatch');
 });
+
+const pendingPaint = (at: number) => ({
+  at,
+  seats: [{ ...atSeat, avatar: false, avatarPending: true }],
+});
+it('separates an eager first download from losing a previously painted avatar', () => {
+  const result = inspect([pendingPaint(100), paint(3692)], [expected(0, 1, 1)]);
+  expect(result.violations).toEqual([]);
+  expect(result.status.waiting).toBe('OBSERVED');
+});
+it('never gives a loaded avatar a new hydration allowance across hands or reconnect', () => {
+  const result = inspect(
+    [paint(100), pendingPaint(3000), paint(3016)],
+    [expected(0, 1, 1), expected(3000, 2, 2)]
+  );
+  expect(result.violations).toContain('horse/3: avatar missing');
+});
+it('rejects an eager avatar that never finishes loading', () => {
+  expect(inspect([pendingPaint(100)], [expected(0, 1, 1)]).violations).toContain(
+    'horse/3: avatar never observed'
+  );
+});
+it('still rejects initial missing art without an eager pending request', () => {
+  expect(inspect([paint(100, false), paint(3692)], [expected(0, 1, 1)]).violations).toContain(
+    'horse/3: avatar missing'
+  );
+});
+it('still detects a missing chair while its first image is pending', () => {
+  expect(
+    inspect([pendingPaint(100), { at: 3000, seats: [] }, paint(6000)], [expected(0, 1, 1)])
+      .violations
+  ).toContain('horse/3: seat missing');
+});
+it('still detects a wrong badge after a pending image becomes visible', () => {
+  expect(
+    inspect([pendingPaint(100), paint(3692, true, null)], [expected(0, 1, 1)]).violations
+  ).toContain('horse/3: badge mismatch');
+});

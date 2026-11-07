@@ -4,7 +4,7 @@ import type { EngineFrame } from './liveTableRealtime';
 
 type Badge = 'waiting' | 'sitting-out' | null;
 type Seat = { id: string; seat: number; badge: Badge };
-type Paint = { at: number; seats: (Seat & { avatar: boolean })[] };
+type Paint = { at: number; seats: (Seat & { avatar: boolean; avatarPending?: boolean })[] };
 type Authority = {
   at: number;
   socket: number;
@@ -59,6 +59,7 @@ export function installHorseSeatPaints(table: string) {
         seat: Number(el.dataset.seatNum),
         badge,
         avatar: !!(img?.complete && img.naturalWidth && visible(img)) || visible(rig),
+        avatarPending: !!img && !img.complete && img.loading === 'eager',
       };
     });
     const signature = JSON.stringify(seats);
@@ -171,6 +172,14 @@ export function inspectHorseSeats(
     if (!loaded && history.length && paints.changes.length)
       violations.add(lease.user_id + '/' + lease.seat_number + ': durable avatar never observed');
   }
+  // An eager image still downloading on its first paint is not a lost avatar.
+  // Keep that one-way hydration boundary separate from continuity: once art
+  // has painted, neither a new hand nor reconnect earns another allowance.
+  const firstAvatar = new Map<string, number>();
+  for (const p of changes)
+    for (const s of p.seats)
+      if (s.avatar && !firstAvatar.has(s.id + '/' + s.seat))
+        firstAvatar.set(s.id + '/' + s.seat, p.at);
   const seen = new Set<string>();
   const witnessed = {
     waiting: false,
@@ -191,6 +200,13 @@ export function inspectHorseSeats(
     for (const s of state.seats) {
       const key = s.id + '/' + s.seat;
       const prior = prev.get(key);
+      if (
+        !firstAvatar.has(key) &&
+        changes.some((p) =>
+          p.seats.some((r) => r.id === s.id && r.seat === s.seat && r.avatarPending)
+        )
+      )
+        violations.add(key + ': avatar never observed');
       let matched = false;
       let lastMatchedAt = 0;
       for (const [i, p] of changes.entries()) {
@@ -203,10 +219,12 @@ export function inspectHorseSeats(
         const dbOut = durable.some(
           (r) => r.user_id === s.id && r.seat_number === s.seat && r.is_sitting_out
         );
-        const valid =
-          painted?.avatar &&
-          (painted.badge === s.badge ||
-            (s.dbMaySitOut && dbOut && painted.badge === 'sitting-out'));
+        const badgeMatches =
+          painted?.badge === s.badge ||
+          (s.dbMaySitOut && dbOut && painted?.badge === 'sitting-out');
+        const valid = painted?.avatar && badgeMatches;
+        const hydrating =
+          painted?.avatarPending && badgeMatches && start < (firstAvatar.get(key) ?? Infinity);
         if (valid) {
           matched = true;
           lastMatchedAt = start;
@@ -214,6 +232,7 @@ export function inspectHorseSeats(
           if (s.badge === 'waiting') witnessed.waiting = true;
           if (s.badge === 'sitting-out') witnessed.sittingOut = true;
         } else if (
+          !hydrating &&
           (matched ||
             (seen.has(key) && (p.at >= state.at || prior?.seat.badge === s.badge)) ||
             stop - start >= 2000) &&
