@@ -1,0 +1,3 @@
+# tests/a-recycled-welcome-board-is-still-an-unused-board.law.test.ts
+
+2026-11-07: an earlier welcome-board generation that the 3 AM lobby close cancelled, with no entrant and a cancellation receipt that moved nothing, is history and not a second board. The welcome unwind (the owner's Retire Club door) no longer calls it ambiguous, and a stale certification fixture that holds only such history retires with its records through fn_ca_retire_stale_welcome_fixture_with_history (service role, reserved fixtures only), keeping its identity as owner of record. One past entrant, seat, hand or refund still refuses, exactly as before (migration 20261107211612).

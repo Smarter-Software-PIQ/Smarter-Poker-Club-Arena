@@ -2,7 +2,7 @@
   "_owner": "codex/approved-earned-commission-documents-20261028",
   "_qualification": "Native48 includes real canonical document and connected early-return trigger execution. Canonical definitions/catalog and synthetic data only. Production proof remains separate.",
   "sources": {
-    ".github/workflows/approved-agent-adjustment.yml": "904c44cac85b0e3186deb76f45712daa3423afb245de079d992f10a8016a679c",
+    ".github/workflows/approved-agent-adjustment.yml": "a3775752eeedf62ca94997541cb57a0a834b3d3e8319b117a1c72e4d8b12c068",
     "docs/changelog/2026-10-28-approved-agent-adjustments-execute-once.md": "bf2fef786c25299e45b7c19abc3c8bfb6c3dd797597bcea6c816113c512039b4",
     "docs/laws.d/approved-agent-adjustments-settle-once.md": "c0f740b374055a8efa6d5ae37f969d9cefa892445675d503a341bba34b6bed24",
     "scripts/ci/schema-manifest.d/approved-agent-adjustment.json": "bdb7712e06c3b15ff22e34dd960d239b9c1e2ca5f29a6f08908706b9e4b1ffc4",
@@ -29,5 +29,15 @@
     "scripts/qualification/approved-agent-adjustment/fixtures/correction-delivery-owner.json": "7eb8f4533ff2e1cddbaa6f4d8a1e9d81c409beaef04e9ec0089de2eb819be756",
     "scripts/qualification/approved-agent-adjustment/fixtures/correction-delivery-closure.json": "0ab156ae516bf6b71fd64a478a36bdfed02f68abdcb9f0a9453ce2325677c74d",
     "scripts/qualification/approved-agent-adjustment/fixtures/correction-invoice-triggers.json": "5f0235362c467a0d82812d44a7be6bbe412346ccea6946511989615c8051d6aa"
+  },
+  "postgresSigningKeyFromCheckout20261107": {
+    "paths": {
+      ".github/workflows/approved-agent-adjustment.yml": {
+        "before": "904c44cac85b0e3186deb76f45712daa3423afb245de079d992f10a8016a679c",
+        "after": "a3775752eeedf62ca94997541cb57a0a834b3d3e8319b117a1c72e4d8b12c068"
+      }
+    },
+    "review": "The only change in this workflow is the PostgreSQL apt signing-key download (a three-line sudo curl of ACCC4CF8.asc from www.postgresql.org) replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8, sha256 0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76). Same destination path, same apt verification of every package; triggers, jobs, steps, commands and qualification inputs are otherwise byte-identical. No financial, native or production qualification is restamped or claimed.",
+    "reason": "2026-11-07: the key download failed with curl (55) SSL EOF in at least 11 jobs before any test ran, including a backup-engine certification run."
   }
 }

@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
             for key,value in event['terms'].items():
                 types.setdefault(key,'text')
                 if value is not None: types[key]='boolean' if isinstance(value,bool) else 'numeric' if isinstance(value,(int,float)) else 'text'
-        types.update(id='uuid',club_id='uuid',union_id='uuid',schedule_id='uuid',satellite_target_id='uuid',satellite_target='uuid',status='text',start_time='timestamptz',started_at='timestamptz',current_level='integer',blind_level_state='jsonb',blind_structure='text',prize_pool_finalized='boolean',format_contract='text',max_players='integer',starting_chips='integer',late_reg_levels='integer',late_reg_mins='integer')
+        types.update(id='uuid',club_id='uuid',union_id='uuid',schedule_id='uuid',satellite_target_id='uuid',satellite_target='uuid',status='text',start_time='timestamptz',started_at='timestamptz',current_level='integer',blind_level_state='jsonb',blind_structure='text',prize_pool_finalized='boolean',format_contract='text',max_players='integer',starting_chips='integer',late_reg_levels='integer',late_reg_mins='integer',addon_break_minutes='integer NOT NULL DEFAULT 1')
         sql('CREATE TABLE tournaments('+','.join(k+' '+v for k,v in types.items())+'); CREATE TABLE tables(id uuid,tournament_id uuid,small_blind numeric,big_blind numeric,ante numeric,stakes text);')
         sql((fixture/'blind-number.sql').read_text()+';')
         sql((fixture/'clock-helpers.sql').read_text())
@@ -113,6 +113,15 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
              AND NEW.guaranteed_prize IS DISTINCT FROM (fn_ca_midway_weekly_terms(NEW.schedule_id)->>'guaranteed_prize')::numeric
           THEN RAISE EXCEPTION 'Affordability saw a stale guarantee'; END IF; RETURN NEW; END$$;
          CREATE TRIGGER tournaments_guarantee_affordable_ins BEFORE INSERT ON tournaments FOR EACH ROW EXECUTE FUNCTION affordability_witness();''')
+        # The installed source wrote NULL into a production NOT NULL column
+        # when add-ons were disabled. Reproduce23502 before the followup.
+        disabled=next(e for e in document['events'] if e['id']=='a70c1028-1600-4000-9000-000000000001')
+        try: insert_event('88888888-8888-4888-8888-888888888888',disabled['id'])
+        except RuntimeError as error: assert 'addon_break_minutes' in str(error) and 'not-null constraint' in str(error),str(error)
+        else: raise AssertionError('installed null add-on clock unexpectedly satisfied NOT NULL')
+        followup=next((root/'supabase/migrations').glob('*midway_disabled_addons_keep_the_required_break_clock.sql'))
+        sql(followup.read_text().replace('BEGIN;\n',"BEGIN;\nSET LOCAL application_name='apply-recorded-migration';\nSET LOCAL transaction_timeout='12s';\n",1))
+        assert sql("SELECT count(*) FROM tournament_schedules WHERE active AND config->'midwayWeeklyTerms'->'addon_break_minutes'='null'::jsonb")=='0'
         # Every configured feeder must resolve an active canonical target by
         # the same exact name used by the serving scheduler's target lookup.
         missing_targets=sql("SELECT feeder.name FROM tournament_schedules feeder WHERE feeder.active AND feeder.config ? 'satelliteTargetName' AND NOT EXISTS (SELECT 1 FROM tournament_schedules target WHERE target.active AND target.name=feeder.config->>'satelliteTargetName' AND target.union_id=feeder.union_id)")
