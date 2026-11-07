@@ -22,16 +22,26 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getMyInviteLink } from '../services/ClubInviteService';
 import { normalizeInviteCode } from '../lib/inviteCode';
+import { reportError } from '../utils/errorReporter';
 
 const ACTIVE = ['active', 'approved', 'automatic'];
 
 async function clubForTable(tableId: string): Promise<string | null> {
-  const { data } = await supabase.from('tables').select('club_id').eq('id', tableId).maybeSingle();
+  const { data, error } = await supabase
+    .from('tables')
+    .select('club_id')
+    .eq('id', tableId)
+    .maybeSingle();
+  if (error) {
+    // Could not tell which club hosts the table: fall back to the sender's own.
+    reportError(error, 'useSenderInviteCode.clubForTable');
+    return null;
+  }
   return (data as { club_id?: string | null } | null)?.club_id ?? null;
 }
 
 async function ownActiveClub(userId: string): Promise<string | null> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('club_members')
     .select('club_id, joined_at')
     .eq('user_id', userId)
@@ -39,6 +49,11 @@ async function ownActiveClub(userId: string): Promise<string | null> {
     .order('joined_at', { ascending: true })
     .limit(1)
     .maybeSingle();
+  if (error) {
+    // Could not read the sender's clubs: share without a code rather than guess.
+    reportError(error, 'useSenderInviteCode.ownActiveClub');
+    return null;
+  }
   return (data as { club_id?: string | null } | null)?.club_id ?? null;
 }
 
