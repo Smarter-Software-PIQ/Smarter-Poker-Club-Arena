@@ -272,12 +272,6 @@ import {
   type KillNextSnapshot,
   type KillTableRule,
 } from '../utils/killPot';
-import type { HeroLeaveClock } from '../lib/chipContinuity';
-import {
-  heroLeaveIsLocked,
-  heroLeaveRemainingMs,
-  leaveAvailableLabel,
-} from '../lib/chipContinuity';
 import { useSeatedProfileSync, type SeatedProfileChange } from '../hooks/useSeatedProfileSync';
 import { createSeatIdentityOverrides } from '../lib/seatIdentityOverrides';
 import { bettingStructureFor, isFixedLimitVariant } from '../lib/bettingStructure';
@@ -668,7 +662,14 @@ import { CASH_TEMPLATES, cashTemplateKey } from '../config/cashGames';
 import HeroVpipTracker from '../components/table/HeroVpipTracker';
 import HitRunLeaveConfirm from '../components/table/HitRunLeaveConfirm';
 import { useHeroHandCount } from '../hooks/useHeroHandCount';
-import { blindOffLeaveText, fetchMyHandsOwed } from '../lib/hitAndRun';
+import HitRunCountPill from '../components/table/HitRunCountPill';
+import { useHandsAddedByDouble } from '../hooks/useHeroHandCount';
+import {
+  blindOffLeaveText,
+  charlesRuleText,
+  fetchMyHandsOwed,
+  noteHandsOwedAt,
+} from '../lib/hitAndRun';
 import { TournamentHUD } from '../components/tournament/TournamentHUD';
 import { EquityBadgeLayer, type EquityBadge } from '../components/table/EquityBadgeLayer';
 import type { EquitySpot } from '../lib/equityBadgePlacement';
@@ -2568,31 +2569,23 @@ function LiveTablePage({
     Record<string, import('../utils/mapEngineSnapshot').DisconnectFsmEntry>
   >({});
 
-  /* CHIP CONTINUITY (2026-09-04): the hero's stay clock as the engine last
-     published it. A cash player ahead of their buy-in stays seated until it
-     reaches zero; the leave control shows "Leave Available In M:SS" and the
-     server refuses the leave regardless of what this state says. The 1s tick
-     only re-renders the countdown; nothing here decides anything. */
-  const [heroLeave, setHeroLeave] = useState<HeroLeaveClock | null>(null);
   /* HIT AND RUN (owner 2026-11-06): the hero's hands still owed in profit as
      the engine's seat payload reports them (undefined: not reported), and the
      full-screen confirmation's count while it is open. */
-  const [heroHandsOwedEngine, setHeroHandsOwedEngine] = useState<number | null | undefined>(
-    undefined
-  );
+  const [heroHandsOwedEngine, setHeroHandsOwedEngine] = useState<
+    { owed: number | null; required: number | null } | undefined
+  >(undefined);
+  /* The hands owed as last read, for leave doors declared before the count's
+     own hook (the menu, the header back arrow, the felt's leave item). */
+  const heroHandsOwedRef = useRef<number | null>(null);
   const [hitRunConfirmHands, setHitRunConfirmHands] = useState<number | null>(null);
   const hitRunConfirmFromTabRef = useRef(false);
   /** Set by the confirmation's Leave for the one handleLeaveTable call it makes. */
   const hitRunConfirmedRef = useRef(false);
-  const [, setLeaveClockTick] = useState(0);
-  useEffect(() => {
-    if (!heroLeave?.running) return;
-    const id = setInterval(() => setLeaveClockTick((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [heroLeave?.running]);
-  const heroLeaveMs = heroLeaveRemainingMs(heroLeave, serverNow());
-  // `tableState` is declared further down; the tournament exemption is applied where it is used.
-  const heroLeaveLockedRaw = heroLeaveIsLocked(heroLeave, serverNow());
+
+  /* The ten-minute stay clock (2026-09-04) is retired: the minimum stay was
+     removed 2026-10-26 and the hit-and-run hand count (owner 2026-11-06) is
+     the one rule that keeps a player in profit seated. */
 
   // Phase 1.3 PR-C+D: server-side action rejection surfaced as a toast.
   // Set whenever submitAction resolves with success === false. Auto-cleared
@@ -2675,8 +2668,6 @@ function LiveTablePage({
       isBountyTournament: false,
     };
   });
-  /* CHIP CONTINUITY: tournaments have no stay clock. */
-  const heroLeaveLocked = !tableState.isTournament && heroLeaveLockedRaw;
 
   /**
    * Run the section-57 restore once this table is known to be a tournament
@@ -2918,8 +2909,11 @@ function LiveTablePage({
       : seatIdentityOverridesRef.current.apply(mapped.players);
     // Phase 1.2 PR-F: stash disconnect map for the top-level toast
     setDisconnectStates(mapped.disconnectStates);
-    setHeroLeave(mapped.heroLeave);
-    setHeroHandsOwedEngine(mapped.heroHandsOwed);
+    setHeroHandsOwedEngine(
+      mapped.heroHandsOwed === undefined
+        ? undefined
+        : { owed: mapped.heroHandsOwed, required: mapped.heroHandsRequired ?? null }
+    );
 
     // Dan 2026-08-24: Total Buy In restoration on refresh/seat-first.
     // totalBuyInRef is only updated by the manual buy-in modal, so it is 0 after a page refresh
@@ -5324,6 +5318,22 @@ function LiveTablePage({
   // the Session Complete card is published to SessionSummaryHost at the app
   // root (services/pendingSessionSummary) and renders in the lobby.
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  /**
+   * HIT AND RUN: every "Leave Table?" door. When hands are owed, the
+   * hand-count confirmation IS the question - the generic dialog is skipped,
+   * so the player answers once. handleLeaveTable still reads the database
+   * count itself before anything is sent, so a stale count never lets a
+   * leave through unasked.
+   */
+  const openLeaveConfirm = () => {
+    const owed = heroHandsOwedRef.current;
+    if (owed !== null && owed > 0) {
+      hitRunConfirmFromTabRef.current = false;
+      setHitRunConfirmHands(owed);
+      return;
+    }
+    setShowLeaveConfirm(true);
+  };
   const [showSessionHUD, setShowSessionHUD] = useState(false);
   const {
     sessionStartRef,
@@ -6023,7 +6033,7 @@ function LiveTablePage({
         handleTournamentAddOn();
         break;
       case 'LEAVE_TABLE':
-        setShowLeaveConfirm(true);
+        openLeaveConfirm();
         break;
       case 'LEAVE_TABLE_NEXT_HAND':
         void requestLeaveAtNextHand();
@@ -11902,7 +11912,7 @@ function LiveTablePage({
   }, [leaveAttentionSuppressed]);
 
   const stopLightningForLeave = useLightningLeaveStop(lightningRoom, userId);
-  const heroHandsOwed = useHeroHandCount({
+  const heroHandCount = useHeroHandCount({
     enabled:
       !!userId &&
       userId !== 'guest' &&
@@ -11911,8 +11921,19 @@ function LiveTablePage({
     tableId,
     lightningClusterId: lightningRoom?.clusterId ?? null,
     handNumber: tableState.handNumber ?? 0,
-    engineHands: heroHandsOwedEngine,
+    engine: heroHandsOwedEngine,
   });
+  const heroHandsOwed = heroHandCount.owed;
+  heroHandsOwedRef.current = heroHandsOwed;
+  useEffect(() => {
+    if (tableId) noteHandsOwedAt(tableId, heroHandsOwed);
+    return () => {
+      if (tableId) noteHandsOwedAt(tableId, null);
+    };
+  }, [tableId, heroHandsOwed]);
+  // THE CHARLES RULE (owner 2026-11-06): a double during the countdown adds
+  // hands. Said when it happens, so the count going up is never a surprise.
+  useHandsAddedByDouble(heroHandCount, (added) => toast.info(charlesRuleText(added)));
   /**
    * HIT AND RUN (owner 2026-11-06): every leave door asks first. Hands still
    * owed in profit at this seat (a Lightning room's: its anchor seat) open the
@@ -12353,10 +12374,6 @@ function LiveTablePage({
     onLeave: handleLeaveTable,
   });
   const requestLeaveAtNextHand = async () => {
-    if (heroLeaveLocked) {
-      toast.info(leaveAvailableLabel(heroLeaveMs));
-      return;
-    }
     const queued = await leaveNextHand.requestLeaveNextHand();
     if (queued) toast.info('You Will Leave The Table After This Hand.');
     else toast.warning(leaveNextHand.getError() || 'Could Not Queue Your Leave. Please Try Again.');
@@ -12550,9 +12567,9 @@ function LiveTablePage({
       }
       if (!forced?.success && forced?.error) {
         // Engine explicitly refused a REAL seated leave — chips are live, stay.
-        // CHIP CONTINUITY: a stay-clock refusal ("Leave Available In M:SS")
-        // is the rule working, not an error to report.
-        if (!/^Leave Available In /.test(forced.error)) {
+        // HIT AND RUN: a hand-count refusal ("N Hands Left Before You Can
+        // Leave") is the rule working, not an error to report.
+        if (!/ Before You Can Leave$/.test(forced.error)) {
           reportError(
             new Error(forced.error || 'force leave rejected'),
             'TablePage.handleForceLeaveTable.refused'
@@ -27416,7 +27433,7 @@ function LiveTablePage({
             onClick={() => {
               soundService.playButtonClick();
               if (tableState.heroSeat > 0) {
-                setShowLeaveConfirm(true);
+                openLeaveConfirm();
               } else {
                 navigate(-1);
               }
@@ -27678,13 +27695,10 @@ function LiveTablePage({
                     actions: [
                       {
                         id: 'leave',
-                        // CHIP CONTINUITY: the leave control carries the
-                        // countdown while the stay clock has time left.
-                        label: heroLeaveLocked ? leaveAvailableLabel(heroLeaveMs) : 'Leave Table',
+                        label: 'Leave Table',
                         icon: <LeaveTableIcon />,
-                        onClick: () => setShowLeaveConfirm(true),
-                        danger: !heroLeaveLocked,
-                        disabled: heroLeaveLocked,
+                        onClick: () => openLeaveConfirm(),
+                        danger: true,
                       },
                     ],
                   },
@@ -29762,6 +29776,11 @@ function LiveTablePage({
                   })
             }
           />
+          {/* HIT AND RUN: between Lightning hands the hero has no seat on this
+              felt for the tracker to stand beside; the count still shows. */}
+          {!tableState.isTournament && tableState.heroSeat <= 0 && !!lightningRoom && (
+            <HitRunCountPill hands={heroHandsOwed} />
+          )}
           {/* THE HERO'S VPIP TRACKER (Dan 2026-09-04): to the left of the
               hero, hero only, the judged figure. A sibling of the seats at
               the hero seat's own point; HeroVpipTracker.css pushes it left of
@@ -29770,8 +29789,6 @@ function LiveTablePage({
             tableId={tableId}
             heroSeated={tableState.heroSeat > 0}
             isTournament={tableState.isTournament}
-            leaveClockRemainingMs={heroLeaveLocked ? heroLeaveMs : null}
-            leaveClockRunning={heroLeave?.running === true}
             handsOwed={heroHandsOwed}
             handNumber={tableState.handNumber ?? 0}
             heroPos={
@@ -31703,7 +31720,6 @@ function LiveTablePage({
         showLeaveConfirm={showLeaveConfirm}
         onCloseLeaveConfirm={() => setShowLeaveConfirm(false)}
         onConfirmLeaveTable={handleLeaveTable}
-        leaveLockedLabel={heroLeaveLocked ? leaveAvailableLabel(heroLeaveMs) : null}
         // Session Stats
         showSessionStats={showSessionStats}
         sessionStatsRevision={engineWsStatus}

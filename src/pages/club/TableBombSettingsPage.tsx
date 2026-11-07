@@ -41,6 +41,9 @@ import PageBar from '../../components/help/PageBar';
 import { titleCase } from '../../utils/titleCase';
 import styles from './TableBombSettingsPage.module.css';
 
+/** Owner 2026-11-06: every timed bomb pot runs every thirty minutes. */
+const BOMB_POT_INTERVAL_MINUTES = 30;
+
 type TriggerMode = 'every_n_hands' | 'once_per_orbit' | 'timed' | 'bomb_pot_only';
 
 interface Draft {
@@ -230,7 +233,7 @@ export default function TableBombSettingsPage() {
         bomb_pot_trigger_mode: draft.mode,
         // Never the raw text: `::int` in the RPC raises on "2.5".
         bomb_pot_frequency: clampBombHandInterval(draft.frequency),
-        bomb_pot_interval_seconds: Math.round(draft.intervalMinutes * 60),
+        bomb_pot_interval_seconds: BOMB_POT_INTERVAL_MINUTES * 60,
         bomb_pot_board_count: draft.boards,
         bomb_pot_min_players: draft.minPlayers,
         bomb_pot_ante_multiplier: draft.anteBB,
@@ -460,16 +463,12 @@ export default function TableBombSettingsPage() {
                 <label className={styles.field}>
                   <span className={`${styles.label} sc-ink--blue`}>A Bomb Every</span>
                   <span className={styles.control}>
-                    <input
-                      type="number"
-                      className={styles.input}
-                      min={1}
-                      max={240}
-                      value={draft.intervalMinutes}
-                      onChange={(e) =>
-                        set('intervalMinutes', Math.max(1, Number(e.target.value) || 1))
-                      }
-                    />
+                    {/* Owner 2026-11-06: timed bomb pots run every thirty
+                        minutes on every table, so the wheel appears twice an
+                        hour. The interval is the rule, not a setting. */}
+                    <span className={styles.input} data-testid="bomb-interval-fixed">
+                      {BOMB_POT_INTERVAL_MINUTES}
+                    </span>
                     <span className={`${styles.suffix} sc-ink--muted`}>Minutes</span>
                   </span>
                 </label>

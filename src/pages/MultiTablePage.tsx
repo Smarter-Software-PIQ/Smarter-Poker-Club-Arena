@@ -6,6 +6,7 @@ import {
 import PlayerFollowSubscription, {
   type FollowDestination,
 } from '../components/table/PlayerFollowSubscription';
+import { handsOwedAt } from '../lib/hitAndRun';
 import {
   movePlayerFollow,
   readPlayerFollow,
@@ -2484,6 +2485,15 @@ export default function MultiTablePage() {
              stays on them, exactly as before - the pill closes when the seat
              is really released. */
           const remaining = tablesRef.current.filter((t) => t.id !== tabId);
+          /* HIT AND RUN (owner 2026-11-06): a seat that still owes hands in
+             profit is asked first, on its own table - so that table comes
+             forward and the lobby does not go up over the question. */
+          if (handsOwedAt(tabId) !== null) {
+            const idx = tablesRef.current.findIndex((t) => t.id === tabId);
+            if (idx >= 0) setActiveIndex(idx);
+            masterBus.emit('TABLE_MENU_ACTION', { tableId: tabId, action: 'FORCE_LEAVE_TABLE' });
+            break;
+          }
           if (remaining.length === 0) {
             const club = homeClubIdRef.current;
             const dest = club ? `/clubs/${club}` : '/';

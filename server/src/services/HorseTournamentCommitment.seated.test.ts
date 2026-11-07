@@ -21,10 +21,11 @@ import { HorseSessionRotator } from './HorseSessionRotator.js';
 const HORSE = 'horse';
 const TOURNEY = 'event';
 const TOURNEY_TABLE = 'event-table';
-function scenario(cashCount: number, minutes = 10) {
+function scenario(cashCount: number, minutes = 10, owed = 0) {
   const now = Date.now();
   const leaveTable = vi.fn(async () => ({ success: true }));
-  const getEngine = vi.fn(() => ({ leaveTable }) as any);
+  const hitRunHandsOwed = vi.fn(() => owed);
+  const getEngine = vi.fn(() => ({ leaveTable, hitRunHandsOwed }) as any);
   const rotator = new HorseSessionRotator(getEngine);
   Object.assign(rotator, { isRunning: true, lifecycleGeneration: 1 });
   const cash = Array.from({ length: cashCount }, (_, i) => ({
@@ -60,7 +61,7 @@ function scenario(cashCount: number, minutes = 10) {
       new Set(),
       1
     );
-  return { run, leaveTable, getEngine };
+  return { run, leaveTable, getEngine, rotator };
 }
 beforeEach(() => {
   state.rows = [];
@@ -90,5 +91,54 @@ describe('a bought tournament chair retains its pre-start cash-session timing', 
     state.frozen = true;
     expect(await s.run()).toBe(0);
     expect(s.leaveTable).not.toHaveBeenCalled();
+  });
+});
+
+describe('HIT AND RUN: a horse is a player (CLAUDE.md 10.5)', () => {
+  it('a horse owing hands leaves for its tournament the way a person would: it confirms the count', async () => {
+    const s = scenario(4, 10, 6);
+    expect(await s.run()).toBe(1);
+    expect(s.leaveTable).toHaveBeenCalledTimes(1);
+    expect(s.leaveTable).toHaveBeenCalledWith(HORSE, { confirmHandCount: true });
+    expect(s.getEngine).toHaveBeenCalledTimes(1);
+  });
+
+  it('an ordinary rotation never asks a seat that owes hands, and a refusal holds about a hand per owed hand', () => {
+    const s = scenario(1, 10, 3);
+    const r = s.rotator as any;
+    expect(r.isLeaveHeld('cash-0', HORSE)).toBe(true);
+    expect(r.isLeaveHeld('cash-0', HORSE, Date.now(), false)).toBe(false);
+    const quiet = scenario(1, 10, 0).rotator as any;
+    expect(quiet.isLeaveHeld('cash-0', HORSE)).toBe(false);
+    const before = Date.now();
+    quiet.noteLeaveResult('cash-0', HORSE, {
+      success: false,
+      code: 'LEAVE_LOCKED',
+      hands_remaining: 4,
+    });
+    const until = quiet.leaveHeld.get((HorseSessionRotator as any).breakKey('cash-0', HORSE));
+    expect(until).toBeGreaterThanOrEqual(
+      before + 4 * HorseSessionRotator.HIT_RUN_RETRY_MS_PER_HAND
+    );
+    expect(until).toBeLessThanOrEqual(
+      Date.now() + 4 * HorseSessionRotator.HIT_RUN_RETRY_MS_PER_HAND + 1_000
+    );
+  });
+
+  it('an engine without the count changes nothing', () => {
+    const r = new HorseSessionRotator(
+      () => ({ leaveTable: async () => ({ success: true }) }) as any
+    ) as any;
+    expect(r.isLeaveHeld('t', 'u')).toBe(false);
+    const throwing = new HorseSessionRotator(
+      () =>
+        ({
+          leaveTable: async () => ({ success: true }),
+          hitRunHandsOwed: () => {
+            throw new Error('x');
+          },
+        }) as any
+    ) as any;
+    expect(throwing.isLeaveHeld('t', 'u')).toBe(false);
   });
 });

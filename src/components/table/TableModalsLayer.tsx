@@ -422,12 +422,6 @@ export interface TableModalsLayerProps {
   showLeaveConfirm: boolean;
   onCloseLeaveConfirm: () => void;
   onConfirmLeaveTable: () => void;
-  /**
-   * CHIP CONTINUITY: "Leave Available In M:SS" while the hero's stay clock
-   * has time left; null when leaving is allowed. The confirm dialog shows it
-   * and disables its confirm button.
-   */
-  leaveLockedLabel?: string | null;
 
   // Session Stats (2nd SessionHUD slot at bottom)
   showSessionStats: boolean;
@@ -717,7 +711,6 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
     showLeaveConfirm,
     onCloseLeaveConfirm,
     onConfirmLeaveTable,
-    leaveLockedLabel = null,
     // Session stats
     showSessionStats,
     sessionStatsRevision,
@@ -1284,7 +1277,6 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         currentStackPending={heroStackPending}
         tableName={tableName || 'this table'}
         isTournament={isTournament}
-        lockedLabel={leaveLockedLabel}
         onConfirm={() => {
           onCloseLeaveConfirm();
           onConfirmLeaveTable();
