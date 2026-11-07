@@ -57,13 +57,17 @@ By 23:20 UTC on November 7 the private index contained 42,938 retained histories
 
 **PLO5 and PLO6 card comparisons.** For 22,020 human-facing postflop decisions we compared the Horse with every legal holding of one opponent using exactly two hole cards and three board cards. The sample contains 11,665 flop, 6,818 turn and 3,537 river decisions. For the flop and turn decisions, 804,252 possible next cards were classified by the Horse’s resulting made hand. A stronger made hand can still be drawing thin. Use the next-card distribution alongside the remaining stacks, players and price.
 
-| Mode | PLO5 decisions | PLO6 decisions |
-| --- | ---: | ---: |
-| Ordinary cash | 17,351 | 2,088 |
-| Lightning cash | 1,678 | 93 |
-| Tournament | 331 | 479 |
+| Mode           | PLO5 decisions | PLO6 decisions |
+| -------------- | -------------: | -------------: |
+| Ordinary cash  |         17,351 |          2,088 |
+| Lightning cash |          1,678 |             93 |
+| Tournament     |            331 |            479 |
 
-The comparison required a confirmed single board and ordinary pot-limit pot. Another 3,566 human-facing postflop decisions fell outside those confirmed conditions. Each count concerns one opponent at a time. Multiway decision EV also depends on overlapping card removal, action order and side pots. For tournaments the payout calculation remains separate.
+The comparison required a confirmed single board and ordinary pot-limit pot. Each count concerns one opponent at a time. Multiway decision EV also depends on overlapping card removal, action order and side pots. For tournaments the payout calculation remains separate.
+
+**Double-board PLO5 bomb pots.** The other 3,566 human-facing PLO5/PLO6 postflop decisions in this census came from cash bomb pots with two boards. Each opponent holds the same five cards on both boards. Removing the Horse’s cards and every exposed card on both boards, the study counted each legal opposing holding once and recorded the joint result. The cohort comprised 1,911 flop, 1,072 turn and 583 river decisions. Across the flop and turn there were 240,318 possible next-card outcomes counted separately by board. Evaluate scooping, splitting and being scooped before applying a single-board value rule. The single-board and double-board counts together cover all 25,586 human-facing PLO5/PLO6 postflop decisions identified in the processed volumes through this cutoff.
+
+**PLO8 before the river.** Exact current high/low comparisons covered 500 additional human-facing flop and turn decisions, 366 in tournaments and 134 in cash games. At 107 decisions the Horse could take exactly one quarter against at least one legal four-card holding. At 473 it could lose the whole pot to at least one holding. Neither statistic measures a human’s range or the frequency of a terminal outcome. Before raising for value, price what the Horse can win on each half, how often it shares the low, and whether it can improve on 22,595 next-card cases across these decisions. In tournaments, apply the resulting chip outcomes to the actual payout structure.
 
 **PLO6 river value.** After a human and a Horse checked, a Horse bet 13 into 33 with fours full of sevens. Against one player's 4,496,388 possible six-card holdings, 3,670,896 lost to the Horse, 101,680 tied and 723,812 won. In another hand a human checked and a Horse bet 23 into 23 with nines full of eights. It beat 4,266,507 possible holdings and lost to 229,881. Both actions satisfy the checked-to non-bottom full-house rule. To compare sizes, estimate which worse holdings pay each size and which better holdings raise. Uniform holding counts alone cannot supply those response frequencies.
 
