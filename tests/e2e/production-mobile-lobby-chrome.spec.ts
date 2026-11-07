@@ -1,3 +1,4 @@
+import { sameUnchangedLobbyOrder } from './support/lobbyFavoriteOrderProof';
 import {
   closedBoardEvidence,
   isLobbyCatalogResponse,
@@ -950,6 +951,17 @@ test.describe('the mobile lobby chrome on production', () => {
           start: Date.parse(element.getAttribute('data-start-time') ?? ''),
           pinned: element.matches('[data-featured="true"],.is-featured'),
           favorite: Boolean(element.querySelector('button[aria-label="Remove From Favorites"]')),
+          // Read the actual rendered sort inputs in the same DOM snapshot as order.
+          sortKey: JSON.stringify([
+            element.getAttribute('aria-label') ??
+              element.querySelector('button[aria-label^="Details: "]')?.getAttribute('aria-label'),
+            element.querySelector('[data-label="Buy-In"]')?.textContent?.trim(),
+            element
+              .querySelector('[data-label="Entries"],[data-label="Players"]')
+              ?.textContent?.trim(),
+            element.getAttribute('data-start-time'),
+            element.matches('[data-featured="true"],.is-featured'),
+          ]),
         }))
       );
     const chooseSort = async (label: string) => {
@@ -995,15 +1007,11 @@ test.describe('the mobile lobby chrome on production', () => {
     // (Dan 2026-11-05 17:07 Chicago), a starred scheduled MTT never jumps the
     // clock: it keeps its place in the board's chosen order. So a starred
     // board reads in the same order as the unstarred one under the same sort,
-    // with the chosen run marked. `reference` is a snapshot under that sort.
+    // with the chosen run marked. Live player-count changes may legitimately
+    // move other rows; compare peers whose rendered sort inputs stayed unchanged.
     type Snapshot = Awaited<ReturnType<typeof snapshot>>;
-    const sameOrder = (current: Snapshot, reference: Snapshot) => {
-      const inCurrent = new Set(current.map((row) => row.id));
-      const inReference = new Set(reference.map((row) => row.id));
-      const a = current.filter((row) => inReference.has(row.id)).map((row) => row.id);
-      const b = reference.filter((row) => inCurrent.has(row.id)).map((row) => row.id);
-      return a.length > 1 && a.join() === b.join();
-    };
+    const sameOrder = (current: Snapshot, reference: Snapshot) =>
+      sameUnchangedLobbyOrder(current, reference, chosen);
     const assertStarredInPlace = async (phase: string, reference?: Snapshot) => {
       await expect
         .poll(async () => {
@@ -1050,7 +1058,7 @@ test.describe('the mobile lobby chrome on production', () => {
       await expect(
         selected().getByRole('button', { name: 'Add To Favorites', exact: true })
       ).toBeVisible();
-      // Unstarred, the board reads exactly as it did before the star.
+      // Unstarred, unchanged peers retain their original relative order.
       await expect.poll(async () => sameOrder(await snapshot(), before)).toBe(true);
       expect((await snapshot()).filter((row) => row.favorite)).toEqual([]);
       // The unfavorite is the account's record too: after a reload the game is
