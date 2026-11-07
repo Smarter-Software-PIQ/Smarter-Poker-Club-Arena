@@ -122,6 +122,9 @@ export function usePlayerPreference<T>(
   const valueRef = useRef({ scope, value: current });
   valueRef.current = { scope, value: current };
   const revisionRef = useRef(0);
+  // The scope whose account value has been read (or that has no account).
+  // Until then, the shown value is only the device cache or the default.
+  const settledScopeRef = useRef<string | null>(userId ? null : scope);
   const pendingRef = useRef<{ owner: string; name: string; value: T; id: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -207,6 +210,7 @@ export function usePlayerPreference<T>(
             .eq('preference_key', scopedName)
             .maybeSingle();
           if (error) throw error;
+          if (active) settledScopeRef.current = scope;
           if (data)
             notePagePreferenceRevision(
               owner,
@@ -224,9 +228,12 @@ export function usePlayerPreference<T>(
           cache(owner, scopedName, data.value);
           setState({ scope, value: data.value as T });
         } catch (error) {
+          if (active) settledScopeRef.current = scope;
           reportError(error, 'usePlayerPreference.Load_failed');
         }
       });
+    } else {
+      settledScopeRef.current = scope;
     }
     return () => {
       active = false;
@@ -246,7 +253,13 @@ export function usePlayerPreference<T>(
           ? valueRef.current.value
           : read(owner, scopedName, fallbackRef.current);
       const value = typeof next === 'function' ? (next as (previous: T) => T)(previous) : next;
-      if (Object.is(previous, value)) return;
+      /* A gesture made before the account value arrives is still the player's
+         choice even when it matches the cached/default value on screen: it
+         claims the selection, so the late read cannot flip the page to the
+         account's older value (Players stayed on Advanced after tapping
+         Simple, post-deploy run 42370089738). Once the account value is
+         known, re-selecting the shown value is a no-op as before. */
+      if (Object.is(previous, value) && settledScopeRef.current === scope) return;
       revisionRef.current += 1;
       valueRef.current = { scope, value };
       cache(owner, scopedName, value);
