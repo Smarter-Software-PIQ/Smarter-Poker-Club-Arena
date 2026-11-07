@@ -80,6 +80,15 @@ Inclusion requires a merged PR, a comparison of `identical` or `ahead`, and zero
 
 The release owner follows [daily staging](.github/workflows/stage-engine-release.yml) and its [receiver](.github/workflows/auto-deploy-hetzner.yml). Use America/Chicago calendar dates across daylight-saving changes. The normal last-hand notice starts at 03:58. Activation requires the 04:00–04:05 window, confirmed drain and freeze, exact Backup success, production database compatibility, a verified rollback source and the full cutover reserve. Keep the serving engine when any required evidence is missing. A late request cannot claim tomorrow's slot. Read the original request and result before retrying an interrupted operation.
 
+When the daily selector is published, use the selection artifact from the original staging run to check what made the cutoff. A rerun must retain the original decision. Use a fresh evidence directory on the external evidence volume and a configured authenticated GitHub CLI. For example, with the Chicago release date and the original staging run ID set in the shell:
+
+```sh
+gh run download "$stage_run" -R "$repo" -n "daily-engine-selection-$chicago_date" -D "$evidence_dir"
+python3 -B scripts/ci/select-daily-engine.py --repo "$repo" --selection "$evidence_dir/daily-selection.json" --pr "$intended_pr" --migration "$migration_path"
+```
+
+The frozen report names the serving, target and control SHAs, the Chicago cutoff, and the exact preparation and Backup evidence. Inspect `selected`, `keep-serving` or `blocked` before acting. A deferred PR can still qualify for a later release. A blocked migration or unreadable receipt needs investigation. Confirm a migration's installation against its production ledger and runtime postcondition separately from its inclusion in Git.
+
 The November 7 daytime release used a dated one-time order. Future routine releases follow the daily window. The scheduling objectives are 15 minutes from 04:00 to resumed games and 30 minutes to verified seal and gameplay. Measure Backup refresh separately. A duration target grants no authority to shorten a safeguard.
 
 ### Verify the seal, gameplay and refreshed clone
