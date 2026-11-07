@@ -422,7 +422,7 @@ jobs:
           retention-days: 7
 
   selection:
-    name: Freeze the daily release evidence
+    name: Record the daily release evidence
     needs: detect
     if: needs.detect.outputs.release_required == 'true' && needs.detect.outputs.admission_allowed == 'true'
     runs-on: ubuntu-latest

@@ -159,7 +159,14 @@ def check_intent(report, repo, prs, migrations):
     target = report.get('targetSha')
     checked = []
     for number in prs:
-        pr = api(f'repos/{repo}/pulls/{number}')
+        if number <= 0:
+            raise ValueError('PR number must be positive')
+        try:
+            pr = api(f'repos/{repo}/pulls/{number}')
+        except (OSError, ValueError, subprocess.SubprocessError):
+            checked.append({'pr': number, 'headSha': None, 'mergeSha': None, 'state': 'blocked',
+                            'reason': 'GitHub PR identity unavailable'})
+            continue
         merged = pr.get('merge_commit_sha') if pr.get('merged_at') else None
         state = 'deferred'
         if not target:
@@ -183,7 +190,7 @@ def check_intent(report, repo, prs, migrations):
     for path in migrations:
         if not re.fullmatch(r'supabase/migrations/[A-Za-z0-9_.-]+\.sql', path):
             raise ValueError('migration must be an exact protected SQL path')
-        expected = git('ls-tree', report['controlSha'], '--', path)
+        expected = git('ls-tree', report['controlSha'], '--', path) if report.get('controlSha') else ''
         selected = git('ls-tree', target, '--', path) if target else ''
         state = 'blocked' if not expected or not target else 'included' if selected == expected else 'deferred'
         checked.append({'migration': path, 'intendedBlob': expected.split()[2] if expected else None,

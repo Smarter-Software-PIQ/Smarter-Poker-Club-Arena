@@ -81,7 +81,7 @@ def verify_selection(repo, rid, cutoff, qualification):
     require(projection(stage, release_authority=True) == projection(qualification["controlSha"], release_authority=True), "stage release controls changed after cutoff")
     jobs = api(f"repos/{repo}/actions/runs/{rid}/attempts/1/jobs?per_page=100")
     require(jobs["total_count"] == len(jobs["jobs"]), "selection jobs incomplete")
-    selected = [job for job in jobs["jobs"] if job["name"] == "Freeze the daily release evidence"]
+    selected = [job for job in jobs["jobs"] if job["name"] == "Record the daily release evidence"]
     require(len(selected) == 1 and selected[0]["run_id"] == int(rid)
             and selected[0]["head_sha"] == stage and selected[0]["run_attempt"] == 1
             and selected[0]["status"] == "completed" and selected[0]["conclusion"] == "success",

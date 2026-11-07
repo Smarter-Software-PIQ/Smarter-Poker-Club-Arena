@@ -87,6 +87,15 @@ class DailySelection(unittest.TestCase):
         self.assertEqual(report['outcome'], 'selected')
         self.assertEqual(report['deferredCandidates'][0]['sha'], newest)
 
+    def test_unavailable_intent_identity_keeps_other_items_reportable(self):
+        report = {'controlSha': None, 'targetSha': None, 'cutoffEpoch': 1}
+        with patch.object(mod, 'api', side_effect=mod.subprocess.CalledProcessError(1, ['gh'])), \
+             patch.object(mod, 'git', side_effect=AssertionError):
+            rows = mod.check_intent(report, 'o/r', [7], ['supabase/migrations/1_example.sql'])
+        self.assertEqual([row['state'] for row in rows], ['blocked', 'blocked'])
+        self.assertIsNone(rows[0]['headSha'])
+        self.assertIsNone(rows[1]['intendedBlob'])
+
     def test_pr_and_schema_report_distinguish_open_closed_and_newer_bytes(self):
         target, control = 'a'*40, 'b'*40
         def fetch(url):

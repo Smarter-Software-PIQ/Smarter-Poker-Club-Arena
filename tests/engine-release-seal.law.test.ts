@@ -1362,6 +1362,7 @@ case "$*" in
     if [ "$count" = 1 ]; then echo '${firstInvocation}'; else printf '%s' "\${TEST_TERMINAL_INVOCATION:-}"; fi ;;
   is-enabled*) exit 1 ;;
   *ActiveState*) echo inactive ;;
+  *ExecMainStatus*) echo 0 ;;
   *Result*) echo success ;;
   *) exit 92 ;;
 esac
@@ -1392,12 +1393,17 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
       ...['id', 'systemctl', 'docker', 'curl'].map((name) => join(bin, name)),
     ])
       chmodSync(path, 0o755);
+    // Keep the twelve observations' original total process budget. A single
+    // loaded invocation may spend more of it parsing the real seal evidence.
+    const observerDeadline = performance.now() + 12 * 5000;
     const observe = (overrides: NodeJS.ProcessEnv = {}) => {
       rmSync(calls, { force: true });
       rmSync(nativeCalls, { force: true });
-      return spawnSync('bash', [observerPath, '--sha', B_SHA, '--run-id', '307-1'], {
+      const remaining = Math.floor(observerDeadline - performance.now());
+      expect(remaining).toBeGreaterThan(0);
+      const result = spawnSync('bash', [observerPath, '--sha', B_SHA, '--run-id', '307-1'], {
         encoding: 'utf8',
-        timeout: 5000,
+        timeout: remaining,
         env: {
           ...baseEnv,
           ...overrides,
@@ -1407,6 +1413,9 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
           ENGINE_RELEASE_IMAGE_LEASE_ROOT: join(sandbox, 'leases'),
         },
       });
+      expect(result.error).toBeUndefined();
+      expect(Number.isInteger(result.status)).toBe(true);
+      return result;
     };
     const recovered = observe();
     expect(recovered.status, recovered.stderr).toBe(0);
@@ -1430,7 +1439,12 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
       value.completionRuntime.invocationId = invalid;
       writeFileSync(resultPath, JSON.stringify(value));
       const unknownProducer = observe();
-      expect(unknownProducer.status).not.toBe(0);
+      expect(unknownProducer.status, unknownProducer.stderr).toBe(1);
+      expect(unknownProducer.stderr).toContain(
+        invalid === firstInvocation
+          ? 'retired release has no attested completion invocation'
+          : 'terminally retired release has no valid exact result receipt'
+      );
     }
     writeFileSync(resultPath, receipt);
     for (const field of ['runId', 'sha', 'imageId', 'controlSha']) {
@@ -1444,7 +1458,11 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
               ? A_IMAGE
               : 'invalid';
       writeFileSync(resultPath, JSON.stringify(invalid));
-      expect(observe().status).not.toBe(0);
+      const changedReceipt = observe();
+      expect(changedReceipt.status, changedReceipt.stderr).toBe(1);
+      expect(changedReceipt.stderr).toContain(
+        'terminally retired release has no valid exact result receipt'
+      );
     }
     writeFileSync(resultPath, receipt);
   });

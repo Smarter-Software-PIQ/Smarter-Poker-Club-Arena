@@ -101,7 +101,7 @@ class Selection(unittest.TestCase):
         archive = data.getvalue()
         artifact = dict(id=7, name="daily-engine-selection-2026-11-08", expired=False,
                         size_in_bytes=len(archive), digest="sha256:"+hashlib.sha256(archive).hexdigest())
-        job = dict(name="Freeze the daily release evidence", run_id=22, run_attempt=1,
+        job = dict(name="Record the daily release evidence", run_id=22, run_attempt=1,
                    head_sha=run["head_sha"], status="completed", conclusion="success" if not pending else None)
         with patch.object(reader, "api", side_effect=[run, {"total_count":1, "jobs":[job]}, {"total_count":1,"artifacts":[artifact]}]), \
              patch.object(reader, "git", return_value=""), \

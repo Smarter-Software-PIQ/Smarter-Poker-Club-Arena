@@ -188,23 +188,31 @@ describe('Lightning is held for the engine cutover', () => {
     expect(helper).not.toMatch(/print\([^)]*service_key/);
   });
 
-  it('walks every exit path with a fake helper, health and clock', () => {
-    // The three shell functions, extracted verbatim: a non-qualifying break
-    // places nothing; a qualifying one places once; a passed break releases;
-    // a refused resume is one attempt per pass; a signalled exit is one
-    // attempt inside the stop clock; a retried run inherits the journal; a
-    // missing helper is NEVER ASKED.
+  // Keep each group inside the existing case deadline. Discover the native
+  // catalogue so that future exit paths enter one of the two disjoint groups.
+  it.each([0, 1])('walks Lightning hold exit paths with a fake clock (group %i)', (index) => {
+    const suite = join(ROOT, 'tests', 'operations', 'lightning-hold-exit-paths.test.py');
     const result = spawnSync(
       'python3',
-      ['-B', join(ROOT, 'tests', 'operations', 'lightning-hold-exit-paths.test.py')],
-      {
-        cwd: ROOT,
-        encoding: 'utf8',
-        timeout: 120_000,
-      }
+      [
+        '-B',
+        '-c',
+        [
+          'import runpy, sys, unittest',
+          'case = runpy.run_path(sys.argv[1])["LightningHoldExitPaths"]',
+          'names = unittest.defaultTestLoader.getTestCaseNames(case)',
+          'assert len(names) >= 9',
+          'selected = names[int(sys.argv[2])::2]',
+          'result = unittest.TextTestRunner().run(unittest.TestSuite(case(name) for name in selected))',
+          'sys.exit(0 if result.wasSuccessful() and result.testsRun == len(selected) and not result.skipped else 1)',
+        ].join('\n'),
+        suite,
+        String(index),
+      ],
+      { cwd: ROOT, encoding: 'utf8', timeout: 60_000 }
     );
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-    expect(result.stderr).toMatch(/Ran 9 tests[\s\S]*\nOK\n?$/);
+    expect(result.stderr).toMatch(/Ran \d+ tests[\s\S]*\nOK\n?$/);
   });
 
   it('passes its own unit tests', () => {
