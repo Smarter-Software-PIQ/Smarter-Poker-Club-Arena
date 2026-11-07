@@ -80,6 +80,8 @@ import { reportError } from '../../../utils/errorReporter';
 import { readCommittedTournamentBlinds } from '../../../utils/committedTournamentBlinds';
 import { isRecordedSatelliteQualifier } from '../../../utils/satelliteQualification';
 import { useDownlineIds } from './useDownlineIds';
+import { useParams } from 'react-router-dom';
+import { useUserStore } from '../../../stores/useUserStore';
 import {
   chips,
   chipsCompact,
@@ -524,10 +526,15 @@ function RankingTabForTournament({
    */
   const eventRunning = Boolean(onWatchPlayer);
 
+  // "Mine" means the club the viewer is INSIDE right now (Dan 2026-11-06):
+  // the club lobby's `:clubId`, else the club they entered through. Never the
+  // whole union, and never a club they are not currently in.
+  const routeClubId = useParams<{ clubId?: string }>().clubId;
+  const enteredClubId = useUserStore((s) => s.currentClubId);
   const { downlineIds, carriesDownline } = useDownlineIds(
     currentUserId,
-    tournament?.club_id,
-    tournament?.union_id
+    tournament?.id,
+    routeClubId || enteredClubId
   );
 
   // ── the pulse ───────────────────────────────────────────────────────────────

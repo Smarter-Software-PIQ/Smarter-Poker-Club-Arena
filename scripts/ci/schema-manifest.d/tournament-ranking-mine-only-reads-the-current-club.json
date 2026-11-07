@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/ranking-mine-only-current-club",
+  "_comment": "Migration 20261107032055: the tournament Ranking Mine Only reader, scoped to the club the viewer is inside.",
+  "functions": ["ca_tournament_my_downline_ids"]
+}

@@ -7,66 +7,62 @@
  * TOURNAMENT THEY SHOULD BE HIGHLIGHTED IN THE RANKINGS, TO EASILY SHOW THE
  * AGENT WHICH OF HIS PLAYERS ARE IN, AND HOW THEY ARE DOING."
  *
- * This hook answers exactly that and nothing else: given the signed-in player
- * and the club the tournament belongs to, it returns the set of user ids that
- * sit BENEATH that person, plus whether they carry a downline at all.
+ * Dan 2026-11-06: "THE 'MINE ONLY' TAKES TOO LONG TO APPEAR ... KINGFISH
+ * SHOULD ONLY BE SHOWN THE DOWNLINES INSIDE OF THE CLUB HES CURRENTLY INSIDE
+ * OF, (SAME WITH AGENTS AND EVERYTHING ELSE) IT SHOULD ONLY SHOW THE CURRENT
+ * CLUBS DOWNLINES THAT ARE STILL INSIDE THE CLUB."
  *
- * A union tournament's club_id may be only its anchor club. Resolve the
- * existing fn_club_scope_ids union/club scope, read the viewer's own roles in
- * those clubs, then use authorized roster readers for eligible memberships.
- * Staff oversee their club; agents carry their recursive membership subtree.
- * Plain players never fetch a roster. Request only user IDs, exhaust ordered
- * pages, deduplicate members across clubs, and never publish a partial set.
+ * ONE CLUB, ONE CALL. The club is the one the viewer is inside (the caller
+ * passes it: the route's `:clubId`, else the club they entered through). The
+ * server reader `ca_tournament_my_downline_ids` checks that club belongs to the
+ * tournament's scope, reads the viewer's role there, and returns user ids
+ * only: every active member for owner / co-owner / admin, the recursive agent
+ * subtree for super agent / agent / sub agent, nothing for a plain player.
+ * Members who left the club and deleted profiles are never returned.
+ *
+ * What this replaced, and why it was slow: a walk over the whole union scope
+ * that called the full roster reader (wallets, fees, hands, counts) for every
+ * club the viewer staffed, page by page, and kept only user_id - about 16.6 s
+ * for KingFish on a Midway Union event, measured 2026-11-07. It also unioned
+ * every club's players, which is the scope bug above. The new read is 2-8 ms.
+ *
+ * Never publish a partial or stale set: a failure or a deadline draws no
+ * highlight and no legend rather than a wrong claim.
  */
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
-import {
-  normaliseRole,
-  isAgentRole,
-  isClubStaff,
-  ROLE_RANK,
-  type ClubRole,
-} from '../../../types/clubRoles';
 import { reportError } from '../../../utils/errorReporter';
 import { runWithRequestDeadline } from '../../../utils/requestDeadline';
 
 export interface DownlineResult {
-  /** User ids beneath the viewer. Never contains the viewer themselves. */
+  /** User ids beneath the viewer in the current club. Never the viewer. */
   downlineIds: Set<string>;
-  /** True when the viewer carries a downline at all (agent tier or staff). */
+  /** True when the viewer has anyone beneath them in the current club. */
   carriesDownline: boolean;
-  /** The viewer's resolved club role, for a caller that wants to label it. */
-  viewerRole: ClubRole;
   /** True while the first resolution is still in flight. */
   loading: boolean;
 }
 
 const EMPTY_IDS: Set<string> = new Set();
 
-/** Stay below PostgREST's row cap; exhaust the authorized result. */
-const PAGE_SIZE = 500;
-
 export function useDownlineIds(
   userId: string | undefined | null,
-  clubId: string | undefined | null,
-  unionId?: string | null
+  tournamentId: string | undefined | null,
+  viewerClubId: string | undefined | null
 ): DownlineResult {
   const [downlineIds, setDownlineIds] = useState<Set<string>>(EMPTY_IDS);
-  const [carriesDownline, setCarriesDownline] = useState(false);
-  const [viewerRole, setViewerRole] = useState<ClubRole>('player');
   const [loading, setLoading] = useState(false);
-  const scopeKey = JSON.stringify([userId || null, clubId || null, unionId || null]);
+  const scopeKey = JSON.stringify([userId || null, tournamentId || null, viewerClubId || null]);
   const [snapshotScope, setSnapshotScope] = useState<string | null>(null);
+  const enabled = Boolean(userId && tournamentId && viewerClubId);
 
   useEffect(() => {
     setSnapshotScope(scopeKey);
-    // Nobody signed in, or a tournament with no club: there is no question to
-    // ask. Reset rather than leaving a previous viewer's downline on screen.
-    if (!userId || !clubId) {
-      setDownlineIds(EMPTY_IDS);
-      setCarriesDownline(false);
-      setViewerRole('player');
+    setDownlineIds(EMPTY_IDS);
+    // Nobody signed in, no tournament, or not inside a club: there is no
+    // "mine" to ask about.
+    if (!userId || !tournamentId || !viewerClubId) {
       setLoading(false);
       return;
     }
@@ -74,108 +70,31 @@ export function useDownlineIds(
     let cancelled = false;
     const controller = new AbortController();
     setLoading(true);
-    setDownlineIds(EMPTY_IDS);
-    setCarriesDownline(false);
-    setViewerRole('player');
 
     (async () => {
       try {
-        // Union events have an anchor club plus linked clubs. Resolve that
-        // maintained scope, then use only memberships belonging to this viewer.
-        const { data: scope, error: scopeError } = await runWithRequestDeadline(
+        const { data, error } = await runWithRequestDeadline(
           (signal) =>
             supabase
-              .rpc('fn_club_scope_ids', {
-                p_club_id: unionId || clubId,
+              .rpc('ca_tournament_my_downline_ids', {
+                p_tournament_id: tournamentId,
+                p_club_id: viewerClubId,
               })
               .abortSignal(signal),
           { signal: controller.signal }
         );
         if (cancelled) return;
-        if (scopeError) throw scopeError;
-        if (
-          !Array.isArray(scope) ||
-          !scope.length ||
-          scope.some((id) => typeof id !== 'string' || !id)
-        ) {
-          throw new Error('The Tournament Club Scope Was Incomplete');
+        if (error) throw error;
+        if (!Array.isArray(data) || data.some((id) => typeof id !== 'string' || !id)) {
+          throw new Error('The Downline Response Was Incomplete');
         }
-        const scopeIds = [...new Set<string>(scope)];
-        const memberships = new Map<string, ClubRole>();
-        for (let offset = 0; offset < scopeIds.length; offset += 60) {
-          const { data, error } = await runWithRequestDeadline(
-            (signal) =>
-              supabase
-                .from('club_members')
-                .select('club_id, role')
-                .abortSignal(signal)
-                .eq('user_id', userId)
-                .in('club_id', scopeIds.slice(offset, offset + 60)),
-            { signal: controller.signal }
-          );
-          if (cancelled) return;
-          if (error) throw error;
-          if (!Array.isArray(data)) throw new Error('The Membership Response Was Incomplete');
-          for (const member of data) {
-            if (!scopeIds.includes(member.club_id))
-              throw new Error('The Membership Scope Was Invalid');
-            const role = normaliseRole(member.role);
-            const prior = memberships.get(member.club_id) || 'player';
-            if (ROLE_RANK[role] >= ROLE_RANK[prior]) memberships.set(member.club_id, role);
-          }
-        }
-        const role = [...memberships.values()].reduce<ClubRole>(
-          (best, next) => (ROLE_RANK[next] > ROLE_RANK[best] ? next : best),
-          'player'
-        );
-        setViewerRole(role);
-        const eligible = [...memberships].filter(
-          ([, memberRole]) => isAgentRole(memberRole) || isClubStaff(memberRole)
-        );
-        const collected = new Set<string>();
-        for (const [memberClubId, memberRole] of eligible) {
-          // Staff oversee their club; agents see only their recursive subtree.
-          const staff = isClubStaff(memberRole);
-          const reader = staff ? 'ca_club_members_overview' : 'ca_club_member_downline';
-          const parameters: { p_club_id: string; p_user_id?: string } = staff
-            ? { p_club_id: memberClubId }
-            : { p_club_id: memberClubId, p_user_id: userId };
-          const seen = new Set<string>();
-          for (let offset = 0; ; offset += PAGE_SIZE) {
-            const { data, error } = await runWithRequestDeadline(
-              (signal) =>
-                supabase
-                  .rpc(reader, parameters)
-                  .abortSignal(signal)
-                  .select('user_id')
-                  .order('user_id', { ascending: true })
-                  .range(offset, offset + PAGE_SIZE - 1),
-              { signal: controller.signal }
-            );
-            if (cancelled) return;
-            if (error) throw error;
-            if (!Array.isArray(data)) throw new Error('The Downline Response Was Incomplete');
-            for (const row of data) {
-              if (typeof row.user_id !== 'string' || !row.user_id || seen.has(row.user_id)) {
-                throw new Error('The Downline Response Was Incomplete');
-              }
-              seen.add(row.user_id);
-              if (row.user_id !== userId) collected.add(row.user_id);
-            }
-            if (data.length < PAGE_SIZE) break;
-          }
-        }
-
-        if (cancelled) return;
+        const collected = new Set<string>(data as string[]);
+        collected.delete(userId);
         setDownlineIds(collected);
-        setCarriesDownline(eligible.length > 0);
       } catch (err) {
         if (cancelled) return;
         reportError(err, 'useDownlineIds.resolve');
-        // A downline we could not resolve is not a downline of nobody, but it
-        // is the only safe thing to draw: no highlight, no legend, no claim.
         setDownlineIds(EMPTY_IDS);
-        setCarriesDownline(false);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -185,18 +104,13 @@ export function useDownlineIds(
       cancelled = true;
       controller.abort();
     };
-  }, [userId, clubId, unionId, scopeKey]);
+  }, [userId, tournamentId, viewerClubId, scopeKey]);
 
-  // Effects run after paint; a new viewer/scope must never see the old roster.
+  // Effects run after paint; a new viewer/club must never see the old set.
   if (snapshotScope !== scopeKey) {
-    return {
-      downlineIds: EMPTY_IDS,
-      carriesDownline: false,
-      viewerRole: 'player',
-      loading: Boolean(userId && clubId),
-    };
+    return { downlineIds: EMPTY_IDS, carriesDownline: false, loading: enabled };
   }
-  return { downlineIds, carriesDownline, viewerRole, loading };
+  return { downlineIds, carriesDownline: downlineIds.size > 0, loading };
 }
 
 export default useDownlineIds;
