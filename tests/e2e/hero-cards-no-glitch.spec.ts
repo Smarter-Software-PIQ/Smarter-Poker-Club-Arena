@@ -117,6 +117,8 @@ test('the whole hand is on screen quickly, not trickled in', async ({ page: p })
 
 // Complete artwork must survive cold caches and remounts too.
 import { createServer, type ViteDevServer } from 'vite';
+import { installCardArtworkFrames, cardArtworkFramesEvidence } from './support/cardArtworkFrames';
+import { startCardArtworkRaster, CARD_ARTWORK_MAX_GAP_MS } from './support/cardArtworkRaster';
 
 test.describe('decoded card artwork', () => {
   let server: ViteDevServer;
@@ -189,5 +191,61 @@ test.describe('decoded card artwork', () => {
     expect(await complete()).toEqual(
       Array(7).fill({ complete: true, decoding: 'sync', local: true })
     );
+  });
+
+  test('first-visible observer correlates real board and public hole artwork with compositor crops', async ({
+    page,
+  }) => {
+    await page.addInitScript(installCardArtworkFrames, {
+      tableId: 'fixture',
+      deadline: Date.now() + 20_000,
+      maxFrameGapMs: CARD_ARTWORK_MAX_GAP_MS,
+    });
+    const raster = await startCardArtworkRaster(page);
+    try {
+      await page.route('**/__card-art-test', (route) =>
+        route.fulfill({
+          contentType: 'text/html',
+          body: (server as any).__cardTestHtml,
+        })
+      );
+      await page.goto(address, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+      await expect
+        .poll(() =>
+          page.evaluate(() => window.__cardArtworkFrames?.snapshot().eligibleTableFrames ?? 0)
+        )
+        .toBeGreaterThan(2);
+      await page.evaluate(() => (window as any).nextHand());
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              window.__cardArtworkFrames?.snapshot().exposures.filter((e) => e.natural).length ?? 0
+          )
+        )
+        .toBe(7);
+      const snapshot = await page.evaluate(() => window.__cardArtworkFrames!.stop());
+      const readiness = cardArtworkFramesEvidence(snapshot);
+      expect(readiness.verdict, JSON.stringify(readiness)).toBe('qualified');
+      const captures = await raster.capture(
+        snapshot.exposures
+          .filter((e) => e.natural)
+          .map((e) => ({
+            id: `${e.kind}-${e.id}-${e.sourceEpoch}-${e.visibilityEpoch}`,
+            firstEligibleAt: e.firstEligibleAt,
+            previousFrameAt: e.previousFrameAt,
+            bounds: e.bounds,
+          }))
+      );
+      expect(captures).toHaveLength(7);
+      for (const capture of captures) {
+        expect(capture.verdict, capture.reason).toBe('captured');
+        expect(capture.image!.subarray(1, 4).toString()).toBe('PNG');
+      }
+    } finally {
+      await page.evaluate(() => window.__cardArtworkFrames?.stop()).catch(() => undefined);
+      await raster.stop();
+    }
   });
 });
