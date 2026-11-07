@@ -118,65 +118,76 @@ test('the whole hand is on screen quickly, not trickled in', async ({ page: p })
 // Complete artwork must survive cold caches and remounts too.
 import { createServer, type ViteDevServer } from 'vite';
 
-let server: ViteDevServer;
-let address: string;
-test.beforeAll(async () => {
-  server = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
-  const html = await server.transformIndexHtml(
-    '/hub/club-arena/__card-art-test',
-    `
-<div id="root"></div><script type="module" src="/tests/e2e/fixtures/cardArtReady.tsx"></script>`
-  );
-  (server as any).__cardTestHtml = html;
-  await server.listen();
-  const info = server.httpServer!.address() as { port: number };
-  address = `http://127.0.0.1:${info.port}/hub/club-arena/__card-art-test`;
-});
-test.afterAll(async () => {
-  await server?.close();
-});
-
-test('cold cards are complete on first paint, subsequent hands and a deck change', async ({
-  page,
-}) => {
-  test.setTimeout(60_000);
-  await page.route('**/cards/*/*.webp', async (route) => {
-    await new Promise((resolve) =>
-      setTimeout(resolve, route.request().resourceType() === 'image' ? 6000 : 80)
-    );
-    await route.continue();
-  });
-  await page.route('**/__card-art-test', (route) =>
-    route.fulfill({ contentType: 'text/html', body: (server as any).__cardTestHtml })
-  );
-  page.on('pageerror', (error) => console.log(error.message));
-  await page.goto(address, { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
-  await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
-  const complete = () =>
-    page.evaluate(async () => {
-      await new Promise(requestAnimationFrame);
-      return Array.from(document.querySelectorAll<HTMLImageElement>('.card-image__img')).map(
-        (img) => ({
-          complete: img.complete && img.naturalWidth > 0,
-          decoding: img.decoding,
-          local: img.src.startsWith('blob:'),
-        })
-      );
+test.describe('decoded card artwork', () => {
+  let server: ViteDevServer;
+  let address: string;
+  test.beforeAll(async () => {
+    server = await createServer({
+      server: { host: '127.0.0.1', port: 0 },
+      logLevel: 'error',
+      optimizeDeps: { entries: ['tests/e2e/fixtures/cardArtReady.tsx'] },
+      // Same non-secret isolated configuration as the existing CI browser build.
+      define: {
+        'import.meta.env.VITE_SUPABASE_URL': JSON.stringify('https://example.supabase.co'),
+        'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify('card-art-fixture'),
+      },
     });
-  expect(await complete()).toEqual(
-    Array(7).fill({ complete: true, decoding: 'sync', local: true })
-  );
-  await page.context().setOffline(true);
-  await page.evaluate(() => (window as any).nextHand());
-  expect(await complete()).toEqual(
-    Array(7).fill({ complete: true, decoding: 'sync', local: true })
-  );
-  await page.context().setOffline(false);
-  await page.evaluate(() => (window as any).changeDeck());
-  await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
-  await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
-  expect(await complete()).toEqual(
-    Array(7).fill({ complete: true, decoding: 'sync', local: true })
-  );
+    const html = await server.transformIndexHtml(
+      '/hub/club-arena/__card-art-test',
+      `
+<div id="root"></div><script type="module" src="/tests/e2e/fixtures/cardArtReady.tsx"></script>`
+    );
+    (server as any).__cardTestHtml = html;
+    await server.listen();
+    const info = server.httpServer!.address() as { port: number };
+    address = `http://127.0.0.1:${info.port}/hub/club-arena/__card-art-test`;
+  });
+  test.afterAll(async () => {
+    await server?.close();
+  });
+
+  test('cold cards are complete on first paint, subsequent hands and a deck change', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.route('**/cards/*/*.webp', async (route) => {
+      await new Promise((resolve) =>
+        setTimeout(resolve, route.request().resourceType() === 'image' ? 6000 : 80)
+      );
+      await route.continue();
+    });
+    await page.route('**/__card-art-test', (route) =>
+      route.fulfill({ contentType: 'text/html', body: (server as any).__cardTestHtml })
+    );
+    page.on('pageerror', (error) => console.log(error.message));
+    await page.goto(address, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
+    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+    const complete = () =>
+      page.evaluate(async () => {
+        await new Promise(requestAnimationFrame);
+        return Array.from(document.querySelectorAll<HTMLImageElement>('.card-image__img')).map(
+          (img) => ({
+            complete: img.complete && img.naturalWidth > 0,
+            decoding: img.decoding,
+            local: img.src.startsWith('blob:'),
+          })
+        );
+      });
+    expect(await complete()).toEqual(
+      Array(7).fill({ complete: true, decoding: 'sync', local: true })
+    );
+    await page.context().setOffline(true);
+    await page.evaluate(() => (window as any).nextHand());
+    expect(await complete()).toEqual(
+      Array(7).fill({ complete: true, decoding: 'sync', local: true })
+    );
+    await page.context().setOffline(false);
+    await page.evaluate(() => (window as any).changeDeck());
+    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
+    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+    expect(await complete()).toEqual(
+      Array(7).fill({ complete: true, decoding: 'sync', local: true })
+    );
+  });
 });
