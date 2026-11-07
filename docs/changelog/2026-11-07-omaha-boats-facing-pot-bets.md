@@ -1,0 +1,3 @@
+# Call pot-sized opening river bets with non-bottom Omaha boats
+
+On a PLO6 cash river the Horse held nines full of tens and folded to a legal 35.25 bet into 35.25. The signed final wager rules now select the legal call when a non-bottom full house faces an opening river bet at least as large as the original pot in single-board high-only PLO4, PLO5 and PLO6. The rule reconstructs the original wager from public street actions and controller bets. It preserves existing calls, caps the price at the Horse’s remaining stack, and leaves mathematically unbeatable hands to the nuts rules. The trip-board discipline retains its existing decisions. This implements the owner’s action rule. Historical winnings do not establish the EV of the call.

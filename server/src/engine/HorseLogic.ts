@@ -277,7 +277,7 @@ import {
   restoreFastRandom,
 } from './HorseEval.js';
 import { anteOrbitCostBB } from './AnteMath.js';
-import { v81Cell, v81StreetWager } from './HorseOmahaBigBetCalls.js';
+import { callLargeRiverBoatWager, v81Cell, v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { ploPairedBoardMustFold, ploPairedBoardRiverMustCheck } from './HorsePloPairedBoardFold.js';
 import {
   holdemPremiumAggressionVerdict,
@@ -6040,7 +6040,11 @@ export class HorseLogic {
         shortAllInDeadCheckEquity(player, gs, vi)
       );
       if (floored !== ruled && tele) noteFire('short_all_in_call_floor');
-      const finalWager = riverBluffCheckRaise(floored, player, gs, opts);
+      const finalWager = callLargeRiverBoatWager(
+        riverBluffCheckRaise(floored, player, gs, opts),
+        player,
+        gs
+      );
       // An earlier initiative release still allowed the final strategy to check
       // middle boats. Price a missed value bet against the controller's menu.
       if (

@@ -307,3 +307,142 @@ it.each([
     expect(d.amount).toBeLessThanOrEqual(pot);
   }
 );
+
+// Public wager/seat history and the acting Horse's own cards from original
+// PLO6 decision 9ce1e582-62c8-415e-a8a7-1fcce96aad9d:16. No showdown inputs.
+function originalBoatFacingPotBet() {
+  const { state } = jointPolicyFixture('plo6', 1, 'cash', 'river');
+  const seats = [
+    [148.26, 0, 0.25],
+    [89.54, 0, 17.75],
+    [349.07, 0, 0],
+    [160.44, 0, 0],
+    [99.28, 0, 0],
+    [182.76, 35.25, 52.5],
+  ];
+  state.players = seats.map(([stack, bet, totalInvested], i) => ({
+    ...state.players[0],
+    user_id: `seat-${i + 1}`,
+    seat: i + 1,
+    stack,
+    bet,
+    totalInvested,
+    deadInvested: i === 1 ? 0.5 : 0,
+    cards: [],
+    is_folded: i !== 1 && i !== 5,
+    is_all_in: false,
+    is_sitting_out: false,
+  }));
+  const hero = state.players[1];
+  hero.cards = cards('5c 8d 9h 9s 7d Js');
+  Object.assign(state, {
+    heroSeat: 2,
+    currentPlayerSeat: 2,
+    dealtSeatIds: [1, 2, 3, 4, 5, 6],
+    stage: 'river',
+    communityCards: cards('9d 3h Qc Th Ts'),
+    dealerSeat: 6,
+    currentBet: 35.25,
+    pot: 70.5,
+    contestablePot: 70.5,
+    toCall: 35.25,
+    minRaiseTo: 70.5,
+    maxRaiseTo: 89.54,
+    bigBlind: 0.5,
+    smallBlind: 0.25,
+    ante: 0.5,
+    anteType: 'big_blind',
+    legalActions: ['fold', 'call', 'raise', 'all_in'],
+    pots: calculatePots(state.players),
+  });
+  const actions = [
+    [3, 'fold', 0, 'preflop'],
+    [4, 'fold', 0, 'preflop'],
+    [5, 'fold', 0, 'preflop'],
+    [6, 'raise', 2.25, 'preflop'],
+    [1, 'fold', 0, 'preflop'],
+    [2, 'call', 1.75, 'preflop'],
+    [2, 'check', 0, 'flop'],
+    [6, 'check', 0, 'flop'],
+    [2, 'bet', 3.28, 'turn'],
+    [6, 'raise', 15, 'turn'],
+    [2, 'call', 11.72, 'turn'],
+    [2, 'check', 0, 'river'],
+    [6, 'bet', 35.25, 'river'],
+  ] as const;
+  state.actionHistory = actions.map(([seat, action, amount, stage], timestamp) => ({
+    userId: `seat-${seat}`,
+    seat,
+    action,
+    amount,
+    stage,
+    timestamp,
+  }));
+  return { hero, state };
+}
+
+it.each(['original', 'stack-capped', 'unbeatable'] as const)(
+  'handles the %s pot-bet price at original decision 9ce1e582:16',
+  (kind) => {
+    const { hero, state } = originalBoatFacingPotBet();
+    if (kind === 'stack-capped') {
+      hero.stack = 20;
+      Object.assign(state, {
+        minRaiseTo: null,
+        maxRaiseTo: null,
+        legalActions: ['fold', 'call', 'all_in'],
+      });
+    }
+    if (kind === 'unbeatable') hero.cards = cards('5c 8d Td Tc 7d Js');
+    seedFastRandom(1);
+    const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, v9Timing: false });
+    expect(d.policyFallback).toBeUndefined();
+    expect(d.policyOwnership).toBeDefined();
+    if (kind === 'unbeatable') expect(['raise', 'all_in']).toContain(d.action);
+    else if (kind === 'stack-capped')
+      expect(d).toMatchObject({ action: 'all_in', amount: undefined });
+    else expect(d).toMatchObject({ action: 'call', amount: 35.25 });
+  }
+);
+
+it('flats the 54-into-54 top boat that changed the historical PLO6 neutrality corpus', () => {
+  const { hero, state } = jointPolicyFixture('plo6', 1, 'cash', 'river');
+  const seats = [
+    [356.04, 0, 24],
+    [34.49, 54, 78],
+    [63.56, 0, 0],
+    [387.19, 0, 6],
+  ];
+  for (const [i, p] of state.players.entries()) {
+    const [stack, bet, totalInvested] = seats[i];
+    Object.assign(p, { stack, bet, totalInvested, is_folded: i >= 2, is_all_in: false, cards: [] });
+  }
+  hero.cards = cards('Qd 3h 2s 5h 9d Qh');
+  Object.assign(state, {
+    communityCards: cards('6h 8d 6c 7h Qc'),
+    dealerSeat: 4,
+    currentBet: 54,
+    toCall: 54,
+    pot: 108,
+    contestablePot: 108,
+    minRaiseTo: 108,
+    maxRaiseTo: 216,
+    legalActions: ['fold', 'call', 'raise', 'all_in'],
+    pots: calculatePots(state.players),
+  });
+  state.actionHistory = [
+    { seat: 1, userId: hero.user_id, stage: 'river', action: 'check', amount: 0, timestamp: 1 },
+    {
+      seat: 2,
+      userId: state.players[1].user_id,
+      stage: 'river',
+      action: 'bet',
+      amount: 54,
+      timestamp: 2,
+    },
+  ];
+  seedFastRandom(1);
+  const decision = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, v9Timing: false });
+  expect(decision.policyFallback).toBeUndefined();
+  expect(decision).toMatchObject({ action: 'call', amount: 54 });
+});
