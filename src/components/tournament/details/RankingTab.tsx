@@ -81,6 +81,7 @@ import { readCommittedTournamentBlinds } from '../../../utils/committedTournamen
 import { isRecordedSatelliteQualifier } from '../../../utils/satelliteQualification';
 import { useDownlineIds } from './useDownlineIds';
 import { useParams } from 'react-router-dom';
+import { readClubContextParam } from '../../../utils/clubScopedPath';
 import { useUserStore } from '../../../stores/useUserStore';
 import {
   chips,
@@ -529,12 +530,18 @@ function RankingTabForTournament({
   // "Mine" means the club the viewer is INSIDE right now (Dan 2026-11-06):
   // the club lobby's `:clubId`, else the club they entered through. Never the
   // whole union, and never a club they are not currently in.
+  // The club lobby's `:clubId`, else the `?club=` every lobby link carries
+  // (withClubContext), else the club they entered through. Any of these may
+  // be a slug or number code; the hook resolves it to the club's id.
   const routeClubId = useParams<{ clubId?: string }>().clubId;
+  const linkClubId = readClubContextParam(
+    typeof window === 'undefined' ? '' : window.location.search
+  );
   const enteredClubId = useUserStore((s) => s.currentClubId);
   const { downlineIds, carriesDownline } = useDownlineIds(
     currentUserId,
     tournament?.id,
-    routeClubId || enteredClubId
+    routeClubId || linkClubId || enteredClubId
   );
 
   // ── the pulse ───────────────────────────────────────────────────────────────

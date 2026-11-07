@@ -34,6 +34,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { reportError } from '../../../utils/errorReporter';
 import { runWithRequestDeadline } from '../../../utils/requestDeadline';
+import { resolveClubUUIDStrict } from '../../../utils/clubIdResolver';
 
 export interface DownlineResult {
   /** User ids beneath the viewer in the current club. Never the viewer. */
@@ -73,12 +74,17 @@ export function useDownlineIds(
 
     (async () => {
       try {
+        // The club may arrive as a slug or number code (`/clubs/kings-club`,
+        // `?club=kings-club`). The reader takes the club's id; resolve it, and
+        // refuse rather than send a code the reader cannot match.
+        const clubUuid = await resolveClubUUIDStrict(viewerClubId, controller.signal);
+        if (cancelled) return;
         const { data, error } = await runWithRequestDeadline(
           (signal) =>
             supabase
               .rpc('ca_tournament_my_downline_ids', {
                 p_tournament_id: tournamentId,
-                p_club_id: viewerClubId,
+                p_club_id: clubUuid,
               })
               .abortSignal(signal),
           { signal: controller.signal }

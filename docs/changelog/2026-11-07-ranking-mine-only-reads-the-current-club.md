@@ -42,3 +42,12 @@ every club's players, so an owner of several clubs saw all of them as "his".
 - Tests: `tests/unit/tournamentDownlineIds.test.tsx` and
   `tests/unit/tournamentDownlineScopeDeadline.test.tsx` rewritten to pin the
   single scoped call; the old union-wide pins were the behaviour Dan replaced.
+
+## Follow-up: the club on the link, and slugs
+
+Live check after #9788: the club lobby's tournament links carry the current
+club as `?club=` (`withClubContext`), and `currentClubId` is not always set
+before the lobby is opened, so Ranking now reads the route `:clubId`, then
+`?club=`, then the entered club. Any of these can be a slug or number code
+(`/clubs/kings-club`), so the hook resolves it with `resolveClubUUIDStrict`
+and asks nothing when it cannot.

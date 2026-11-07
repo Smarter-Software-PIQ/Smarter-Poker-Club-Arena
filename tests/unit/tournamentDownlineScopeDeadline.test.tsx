@@ -16,6 +16,9 @@ vi.mock('../../src/lib/supabase', () => ({
   },
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: api.report }));
+vi.mock('../../src/utils/clubIdResolver', () => ({
+  resolveClubUUIDStrict: async (club: string) => club,
+}));
 import { useDownlineIds } from '../../src/components/tournament/details/useDownlineIds';
 const pending = () => new Promise(() => {});
 const flush = async () => {

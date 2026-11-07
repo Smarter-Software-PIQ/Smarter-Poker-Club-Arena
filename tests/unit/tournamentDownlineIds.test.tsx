@@ -15,8 +15,15 @@ import { resolve } from 'node:path';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), result: vi.fn(), report: vi.fn() }));
+const api = vi.hoisted(() => ({
+  from: vi.fn(),
+  rpc: vi.fn(),
+  result: vi.fn(),
+  report: vi.fn(),
+  resolve: vi.fn(),
+}));
 vi.mock('../../src/lib/supabase', () => ({ supabase: api }));
+vi.mock('../../src/utils/clubIdResolver', () => ({ resolveClubUUIDStrict: api.resolve }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: api.report }));
 import { useDownlineIds } from '../../src/components/tournament/details/useDownlineIds';
 
@@ -24,6 +31,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   api.rpc.mockImplementation(() => ({ abortSignal: () => api.result() }));
   api.result.mockResolvedValue({ data: [], error: null });
+  api.resolve.mockImplementation(async (club: string) => club);
 });
 afterEach(cleanup);
 
@@ -41,6 +49,30 @@ describe('tournament Mine Only reads the current club downline', () => {
       ['ca_tournament_my_downline_ids', { p_tournament_id: 'event', p_club_id: 'kings' }],
     ]);
     expect(api.from).not.toHaveBeenCalled();
+  });
+
+  it('resolves a slug club (/clubs/kings-club, ?club=kings-club) to its id before asking', async () => {
+    api.resolve.mockImplementation(async (club: string) =>
+      club === 'kings-club' ? 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4' : club
+    );
+    api.result.mockResolvedValue({ data: ['mine'], error: null });
+    const { result } = renderHook(() => useDownlineIds('viewer', 'event', 'kings-club'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(api.rpc.mock.calls).toEqual([
+      [
+        'ca_tournament_my_downline_ids',
+        { p_tournament_id: 'event', p_club_id: 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4' },
+      ],
+    ]);
+    expect([...result.current.downlineIds]).toEqual(['mine']);
+  });
+
+  it('a club that cannot be resolved asks nothing and claims nothing', async () => {
+    api.resolve.mockRejectedValue(new Error('Club identity could not be resolved'));
+    const { result } = renderHook(() => useDownlineIds('viewer', 'event', 'no-such-club'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(api.rpc).not.toHaveBeenCalled();
+    expect(result.current.carriesDownline).toBe(false);
   });
 
   it('never walks the union or pulls a full roster', async () => {
@@ -113,11 +145,14 @@ describe('the Ranking tab passes the club the viewer is inside', () => {
     resolve(__dirname, '../../src/components/tournament/details/RankingTab.tsx'),
     'utf8'
   );
-  it('keys Mine Only on the route club, else the entered club - never the union', () => {
+  it('keys Mine Only on the route club, else the link club, else the entered club - never the union', () => {
     expect(tab).toMatch(/useParams<\{ clubId\?: string \}>\(\)\.clubId/);
+    expect(tab).toMatch(
+      /readClubContextParam\(\s*typeof window === 'undefined' \? '' : window\.location\.search\s*\)/
+    );
     expect(tab).toMatch(/useUserStore\(\(s\) => s\.currentClubId\)/);
     expect(tab).toMatch(
-      /useDownlineIds\(\s*currentUserId,\s*tournament\?\.id,\s*routeClubId \|\| enteredClubId\s*\)/
+      /useDownlineIds\(\s*currentUserId,\s*tournament\?\.id,\s*routeClubId \|\| linkClubId \|\| enteredClubId\s*\)/
     );
     expect(tab).not.toMatch(/useDownlineIds\([^)]*union_id/);
   });
