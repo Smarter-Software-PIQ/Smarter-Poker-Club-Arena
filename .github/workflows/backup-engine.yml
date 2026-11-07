@@ -140,7 +140,7 @@ jobs:
                 echo "RETARGETED: pushed $sha is superseded by $head, the newest server commit on main; certifying $head instead."
                 { echo "### Backup Engine"; echo ""; echo "- RETARGETED \`$sha\` -> \`$head\` (newest server commit on main)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
                 sha="$head"
-                echo "control_sha=$head" >> "$GITHUB_OUTPUT"
+                retarget_control="$head"
               else
                 echo "main's newest server commit $head is not a descendant of $sha ($rel); certifying $sha as pushed"
               fi
@@ -175,6 +175,7 @@ jobs:
             [ "$served" = "$sha" ] || { echo 'Sealed release is no longer serving; refusing a stale clone refresh'; exit 1; }
             refresh=force
           fi
+          if [ -n "${retarget_control:-}" ]; then echo "control_sha=$retarget_control" >> "$GITHUB_OUTPUT"; fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "refresh=$refresh" >> "$GITHUB_OUTPUT"
 
