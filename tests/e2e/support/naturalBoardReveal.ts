@@ -153,7 +153,7 @@ export function installNaturalBoardReveal(deadline: number): void {
   window.__naturalBoardReveal = { receipts, diagnostics, stop };
   const tick = () => {
     if (stopped) return;
-    if (Date.now() >= deadline || (receipts.length >= 6 && !active)) {
+    if (Date.now() >= deadline || (receipts.length >= 12 && !active)) {
       stop(Date.now() >= deadline ? 'deadline' : 'receipt-cap');
       return;
     }
