@@ -42,7 +42,7 @@ import { useVIPStatus } from '../hooks/useVIP';
 import HandDetailView from '../components/handdetail/HandDetailView';
 import HandNoteEditor from '../components/handdetail/HandNoteEditor';
 import HandFlagControl from '../components/handdetail/HandFlagControl';
-import { ShareHand, type ShareableHand } from '../components/table/ShareHand';
+import { ShareHand, encodeHand, type ShareableHand } from '../components/table/ShareHand';
 import PageSkeleton from '../components/common/PageSkeleton';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { useIsMounted } from '../hooks/useIsMounted';
@@ -65,6 +65,8 @@ import { toPokerStarsFile } from '../utils/pokerStarsExport';
 import { openInBrowser } from '../lib/openExternal';
 import { downloadBlob } from '../utils/downloadCsv';
 import { useSenderInviteCode } from '../hooks/useSenderInviteCode';
+import { useSharedHandShortLink } from '../hooks/useSharedHandShortLink';
+import { previewFromShareable } from '../services/SharedHandLinkService';
 import { isDiamondHandHistoryScope } from '../utils/clubScopedPath';
 import {
   DIAMOND_HAND_HISTORY_PARAM,
@@ -222,6 +224,21 @@ export default function HandHistoryPage() {
      one for that table's club (useSenderInviteCode). */
   const [shareTableId, setShareTableId] = useState<string | null>(null);
   const shareInvite = useSenderInviteCode(shareTableId, userId, !!shareHand);
+  const shareSource = useMemo(() => {
+    if (!shareHand) return null;
+    try {
+      return { encoded: encodeHand(shareHand), preview: previewFromShareable(shareHand) };
+    } catch (error) {
+      reportError(error, 'HandHistoryPage.shareSource');
+      return null;
+    }
+  }, [shareHand]);
+  const shareShort = useSharedHandShortLink(
+    shareSource?.encoded ?? null,
+    shareInvite,
+    shareSource?.preview ?? null,
+    !!shareHand && !!userId
+  );
   const [visible, setVisible] = useState<Record<string, boolean>>({});
   const firstPageSequenceRef = useRef(0);
   const firstReadPendingRef = useRef<{ scope: string; sequence: number } | null>(null);
@@ -1416,6 +1433,8 @@ export default function HandHistoryPage() {
              row, which is what Share As Video renders from. */
           handId={shareHand.id}
           inviteCode={shareInvite}
+          shortUrl={shareShort.url}
+          onShared={shareShort.markSent}
         />
       )}
     </div>

@@ -17,6 +17,7 @@ const FOOTERLESS_ROUTE_PATTERNS: readonly RegExp[] = [
   /^\/auth(?:\/|$)/,
   /^\/share\/hand(?:\/|$)/,
   /^\/replay(?:\/|$)/,
+  /^\/h(?:\/|$)/,
   /^\/sim(?:\/|$)/,
   /^\/table(?:\/|$)/,
   /^\/health(?:\/|$)/,
