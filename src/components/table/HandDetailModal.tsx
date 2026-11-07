@@ -52,6 +52,7 @@
  * tablist, the subject-by-id pinning, every copy control.
  */
 
+import { copyToClipboard } from '../../lib/copyToClipboard';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
@@ -77,6 +78,8 @@ import {
 } from '../../utils/handFormat';
 import { handShareLink } from '../../lib/handHistoryLive';
 import { useSenderInviteCode } from '../../hooks/useSenderInviteCode';
+import { useSharedHandShortLink } from '../../hooks/useSharedHandShortLink';
+import { previewFromShareable } from '../../services/SharedHandLinkService';
 import { panelHandToShareable } from '../../lib/handHistoryAdapter';
 import { encodeHand } from './ShareHand';
 import { reportError } from '../../utils/errorReporter';
@@ -611,6 +614,29 @@ export function HandDetailModal({
   /* The sender's Share & Invite code, fetched while the hand is open so the
      Link tap can hand the phone's share sheet a finished link at once. */
   const senderInvite = useSenderInviteCode(hand?.tableId, heroId, isOpen);
+  /* The payload this hand is shared as, and the facts a link preview draws:
+     built once per hand, for the long link and the short one alike. */
+  const shareSource = useMemo(() => {
+    if (!hand) return null;
+    try {
+      const shareable = panelHandToShareable(hand, hand.tableName || 'Club Arena');
+      return { encoded: encodeHand(shareable), preview: previewFromShareable(shareable) };
+    } catch (error) {
+      reportError(error, 'HandDetailModal.shareSource');
+      return null;
+    }
+  }, [hand]);
+  /* SHORT LINKS (2026-11-06): the sender's token for this hand, reserved while
+     it is open, so Link sends smarter.poker/.../h/<token> at once. Until it
+     answers, or if it fails, Link sends the long link, which always works. */
+  const shortLink = useSharedHandShortLink(
+    shareSource?.encoded ?? null,
+    senderInvite,
+    shareSource?.preview ?? null,
+    isOpen && !!heroId
+  );
+  const [shareStatus, setShareStatus] = useState<'stopped' | 'failed' | null>(null);
+  useEffect(() => setShareStatus(null), [hand?.id]);
   const total = hands.length;
   const displayPos = total - index;
 
@@ -742,39 +768,33 @@ export function HandDetailModal({
    * the copy is refused rather than quietly handing out the archive link.
    */
   const sendableHandLink = (h: HandRecord): string | null => {
+    if (h.id === hand?.id && shortLink.url) return shortLink.url;
     try {
-      return handShareLink(
-        encodeHand(panelHandToShareable(h, h.tableName || 'Club Arena')),
-        undefined,
-        senderInvite
-      );
+      const encoded =
+        h.id === hand?.id && shareSource
+          ? shareSource.encoded
+          : encodeHand(panelHandToShareable(h, h.tableName || 'Club Arena'));
+      return handShareLink(encoded, undefined, senderInvite);
     } catch (error) {
       reportError(error, 'HandDetailModal.sendableHandLink');
       return null;
     }
   };
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const copyText = useCallback(async (kind: 'number' | 'link', text: string) => {
-    try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
-      else {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.setAttribute('readonly', '');
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
+  const copyText = useCallback(
+    async (kind: 'number' | 'link', text: string): Promise<boolean> => {
+      // Falls back to a selection copy when the Clipboard API is present but
+      // refused (an in-app webview, an embedded browser pane).
+      const ok = await copyToClipboard(text);
+      setCopied(ok ? kind : null);
+      if (ok) {
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
       }
-      setCopied(kind);
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
-    } catch {
-      setCopied(null);
-    }
-  }, []);
+      return ok;
+    },
+    []
+  );
   useEffect(
     () => () => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -790,7 +810,7 @@ export function HandDetailModal({
    * other refusal falls back to the copy so the tap is never lost.
    */
   const sendLink = useCallback(
-    async (h: HandRecord, link: string) => {
+    async (h: HandRecord, link: string): Promise<boolean> => {
       const phone =
         typeof window !== 'undefined' &&
         typeof window.matchMedia === 'function' &&
@@ -804,12 +824,12 @@ export function HandDetailModal({
           setCopied('sent');
           if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
           copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
-          return;
+          return true;
         } catch (error) {
-          if ((error as { name?: string } | null)?.name === 'AbortError') return;
+          if ((error as { name?: string } | null)?.name === 'AbortError') return false;
         }
       }
-      await copyText('link', link);
+      return copyText('link', link);
     },
     [copyText]
   );
@@ -1169,7 +1189,14 @@ export function HandDetailModal({
               aria-label="Copy Link To This Hand"
               onClick={() => {
                 const link = sendableHandLink(hand);
-                if (link) void sendLink(hand, link);
+                if (!link) return;
+                setShareStatus(null);
+                // Counted as sent only once the sheet sent it or the copy
+                // happened; a dismissed sheet or a refused copy sends nothing.
+                const short = link === shortLink.url;
+                void sendLink(hand, link).then((sent) => {
+                  if (sent && short) shortLink.markSent();
+                });
               }}
             >
               {copied === 'link' ? 'Copied' : copied === 'sent' ? 'Sent' : 'Link'}
@@ -1192,6 +1219,36 @@ export function HandDetailModal({
               Replay
             </button>
           </div>
+          {/* The sender's own view of a hand they sent: how many people opened
+              it, and the way to take it back. A stopped link opens nothing;
+              the next Link or Share makes a new one. */}
+          {(shareStatus || (shortLink.sent && shortLink.token)) && (
+            <div className="hdm-share-status" role="status">
+              {shareStatus === 'stopped' ? (
+                <span>Sharing Stopped. The Old Link No Longer Opens This Hand.</span>
+              ) : shareStatus === 'failed' ? (
+                <span>Could Not Stop Sharing. Try Again.</span>
+              ) : (
+                <>
+                  <span>
+                    Shared &middot; {shortLink.views.toLocaleString()}{' '}
+                    {shortLink.views === 1 ? 'View' : 'Views'}
+                  </span>
+                  <button
+                    type="button"
+                    className="hdm-share-status__stop"
+                    onClick={() => {
+                      void shortLink
+                        .revoke()
+                        .then((ok) => setShareStatus(ok ? 'stopped' : 'failed'));
+                    }}
+                  >
+                    Stop Sharing
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </SpadeConsole>
       </div>
     </div>

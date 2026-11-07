@@ -69,6 +69,29 @@
   line-height: 1.05;
 }
 
+/* Dan 2026-11-06: late registration prints on two lines - "Late Register",
+   then the countdown ("2 Levels Remaining") slightly smaller beneath it, no
+   brackets. Both sizes ride the same --fit so the pair shrinks together. */
+.tournament-register-button__text--stacked {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.08em;
+  font-size: calc(9.2cqw * var(--fit, 1));
+  line-height: 1.05;
+}
+
+.tournament-register-button__line,
+.tournament-register-button__subline {
+  display: block;
+  white-space: nowrap;
+}
+
+.tournament-register-button__subline {
+  font-size: 0.8em;
+  letter-spacing: 0.03em;
+}
+
 /* Dan 2026-11-01: the footer's register action wears this same plate, sized
    up so it reads as the page's primary action beside the quiet Share. The
    art keeps its 3:1 face; only the box grows. */

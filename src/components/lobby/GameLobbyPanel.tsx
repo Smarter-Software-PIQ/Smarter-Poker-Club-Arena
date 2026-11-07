@@ -1153,9 +1153,17 @@ export default function GameLobbyPanel(props: GameLobbyPanelProps) {
                         <div>
                           <dt>Late Reg</dt>
                           <dd>
+                            {/* An add-on event stays open through its add-on
+                                minute after the last entry level, and its
+                                minutes never close entry
+                                (fn_tournament_late_registration_open). */}
                             {Number(tournament.late_reg_levels) > 0
-                              ? `${tournament.late_reg_levels} Levels`
-                              : `${tournament.late_reg_mins} Min`}
+                              ? tournament.add_on_available === true
+                                ? `${tournament.late_reg_levels} Levels + Add-On`
+                                : `${tournament.late_reg_levels} Levels`
+                              : tournament.add_on_available === true
+                                ? 'Through The Add-On'
+                                : `${tournament.late_reg_mins} Min`}
                           </dd>
                         </div>
                       )}

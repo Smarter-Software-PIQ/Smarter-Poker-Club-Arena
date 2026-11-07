@@ -19,6 +19,7 @@ import {
 import { continuationEventId } from './PrivateHandContinuation.js';
 import {
   claimedContinuationChair,
+  handContinuationWriteRefusal,
   refreshClaimedContinuationChairs,
 } from '../services/supabase/handContinuation.js';
 import { getTournamentBrainContextSnapshot } from '../services/TournamentBrainContext.js';
@@ -4455,7 +4456,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                 ? 'original_replay_failed'
                 : 'hand_continuation_unproven';
               reportError(error, `ServerTableEngine.${this.tableId}.${phase}`);
-              this.killForRestart(phase);
+              const refusal = handContinuationWriteRefusal(error);
+              if (refusal) this.killForRestart(phase, true, undefined, `${phase}:${refusal}`);
+              else this.killForRestart(phase);
             },
             recovered
               ? () =>

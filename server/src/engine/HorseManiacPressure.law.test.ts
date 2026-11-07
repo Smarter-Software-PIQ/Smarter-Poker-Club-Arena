@@ -182,7 +182,11 @@ describe('a style change is seen in a handful of hands, both ways', () => {
       expect(firstFrom(t.maniacReadByHand, 0, true)).toBeLessThanOrEqual(8);
       expect(firstFrom(t.maniacReadByHand, 60, false)).toBeLessThanOrEqual(25);
     });
-    it(`${v}: a nit who turns into a maniac is read within 12 hands`, () => {
+    // Dan 2026-11-06: opportunity-scoped decay (Item 12) keeps a nit's rare
+    // pre-switch samples, which costs PLO4 two hands here (measured 14). He
+    // chose Item 12 and allowed 14 in PLO4; hold'em stays at 12.
+    const nitToManiacPin = v === 'plo4' ? 14 : 12;
+    it(`${v}: a nit who turns into a maniac is read within ${nitToManiacPin} hands`, () => {
       const t = playManiacPressure(v, 'cash', 'nit', 90, 11, 15, {
         switchAt: 60,
         then: 'potter',
@@ -191,7 +195,7 @@ describe('a style change is seen in a handful of hands, both ways', () => {
         currentNutsRaise: false,
       });
       expect(t.maniacReadByHand.slice(0, 60).some(Boolean)).toBe(false);
-      expect(firstFrom(t.maniacReadByHand, 60, true)).toBeLessThanOrEqual(12);
+      expect(firstFrom(t.maniacReadByHand, 60, true)).toBeLessThanOrEqual(nitToManiacPin);
     });
   }
 });

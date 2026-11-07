@@ -2260,8 +2260,9 @@
       "appliedToProductionAt": "2026-11-06T21:38:09Z",
       "recoveredOn": "2026-11-07",
       "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/tree/record/danimal-free-buy-make-good",
       "refusedBy": [],
-      "liveVerdict": "Production fn_ca_migration_text returned the exact file MD5. The adjustment is settled and its idempotency key identifies one 6.75-chip union-bank to player-wallet leg."
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261106213809') returns md5 3e257c8e4f72885f947200f67bdee4e2, identical to this file. The owner-approved (2026-11-06 15:36 CT) 6.75-chip make-good to Danimal for Afternoon Free Buy 74ba8130 is paid exactly once: one wallet_credit_idempotency row, one chip_ledger leg union_bank->player_wallet 6.75 at 2026-11-06T21:38:09Z, ca_manual_adjustments settled 6.75, one resolved financial_alerts row. check-definer-authorization, check-money-trigger-declared and check-no-new-band-aids raise no finding. No migration is replayed: the applier answers ALREADY-APPLIED for this version, and the body itself refuses a second run ('make-good already paid'). No production operation is dispatched by this recording."
     }
   ]
 }

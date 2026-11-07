@@ -181,8 +181,10 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    * starting equities before the first card lands.
    */
   protected allInFirstPauseMs = 2000;
-  protected allInStreetPauseMs = 1400;
-  protected allInPreShowdownPauseMs = 1200;
+  // Dan 2026-11-06: 1400 -> 1000 (his one-full-second floor) and 1200 -> 600;
+  // see ALL_IN_STREET_PAUSE_MS.
+  protected allInStreetPauseMs = 1000;
+  protected allInPreShowdownPauseMs = 600;
 
   /**
    * The reveal gate: how long a run-out street is given to actually appear
@@ -353,7 +355,8 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
   protected override killForRestart(
     reason: string,
     notifyOwner = true,
-    recoveryEventClass?: EngineRecoveryEventClass
+    recoveryEventClass?: EngineRecoveryEventClass,
+    recoveryDetail = reason
   ): void {
     const activeController = this.activeHandWaitRelease?.controller;
     if (activeController) {
@@ -367,7 +370,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         );
       }
     }
-    super.killForRestart(reason, notifyOwner, recoveryEventClass);
+    super.killForRestart(reason, notifyOwner, recoveryEventClass, recoveryDetail);
   }
 
   /**

@@ -65,7 +65,7 @@ import { cashBuyInLabel, cashBuyInRange } from '../../lib/cashBuyIn';
 import { spinMultiplierLabel } from '../../utils/spinReveal';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../utils/multiDaySchedule';
 import { lateRegEndMs } from './lateRegWindow';
-import { lateRegCountdownEndMs } from './lateRegWindow';
+import { lateRegCountdown } from './lateRegCountdown';
 import { SPIN_TIERS } from '../../config/spinSpec';
 import { tournamentRowUnitCents, type TournamentArenaEmbed } from '../tournament/details/types';
 import { DIAMOND_UNIT_CENTS } from '../../../server/src/tournament/tournamentUnit';
@@ -147,6 +147,11 @@ export interface LobbyTournamentRow {
   addon_from_start?: boolean | null;
   addon_period_started_at?: string | null;
   addon_period_ends_at?: string | null;
+  /** The event's own synchronized break, read by the lobby countdown (lateRegCountdown). */
+  on_break?: boolean | null;
+  break_ends_at?: string | null;
+  /** False opts a tournament out of the hourly break; absent means it takes them. */
+  synchronized_breaks?: boolean | null;
   format_contract?: unknown;
   id: string;
   name: string;
@@ -1128,6 +1133,14 @@ export function tournamentStatus(
           prize_pool_finalized: t.prize_pool_finalized,
           started_at: t.started_at,
           current_level: t.current_level,
+          /* An add-on event's entry is decided by its add-on window alone
+             (fn_tournament_late_registration_open). Leaving these out judged it
+             by its levels, so through the drain and the add-on minute the board
+             said Running while the database still admitted players. */
+          add_on_available: t.add_on_available,
+          addon_from_start: t.addon_from_start,
+          addon_period_started_at: t.addon_period_started_at,
+          addon_period_ends_at: t.addon_period_ends_at,
         },
         now
       )
@@ -2118,18 +2131,26 @@ export function mttPhaseText(entry: LobbyEntry, now: number): string | null {
     );
   if (started || entry.status === 'late_reg' || entry.status === 'running') {
     // Dan 2026-11-06: "ALWAYS SHOWS THE COUNT DOWN". The card counts to the
-    // best deadline the row supports (lateRegCountdownEndMs); the closed/open
-    // wording below still reads the strict deadline, so an estimate that has
-    // run out never announces Registration Closed on its own.
-    const countdown = lateRegCountdownEndMs(row);
-    if (countdown != null && countdown > now) {
-      const seconds = Math.max(0, Math.ceil((countdown - now) / 1000));
-      return `Late Reg Ends In ${Math.floor(seconds / 60)}:${(seconds % 60).toLocaleString('en-US', { minimumIntegerDigits: 2, useGrouping: false })}`;
+    // best deadline the row supports (lateRegCountdown: breaks, the daily
+    // freeze and an add-on event's closing minute included), and says which
+    // phase it is counting. The strict deadline still decides the wording once
+    // nothing is left to count, so an estimate never announces a close.
+    const countdown = lateRegCountdown(row, now);
+    const strict = lateRegEndMs(row);
+    const target =
+      countdown ??
+      (strict != null && strict > now ? { endMs: strict, phase: 'late_reg' as const } : null);
+    if (target) {
+      const seconds = Math.max(0, Math.ceil((target.endMs - now) / 1000));
+      const label = target.phase === 'add_on' ? 'Add-On Ends In' : 'Late Reg Ends In';
+      return `${label} ${Math.floor(seconds / 60)}:${(seconds % 60).toLocaleString('en-US', { minimumIntegerDigits: 2, useGrouping: false })}`;
     }
-    // The countdown is the strict deadline whenever there is one, so a strict
-    // deadline still ahead has already returned above.
-    const end = lateRegEndMs(row);
-    return end == null && isInLateRegistration(row, now) ? 'Late Reg Open' : 'Registration Closed';
+    if (strict == null && isInLateRegistration(row, now)) {
+      // Only an add-on event can be open with nothing to count: its entry
+      // levels are over and the engine is finishing hands before the minute.
+      return row.add_on_available === true ? 'Add-On Starting' : 'Late Reg Open';
+    }
+    return 'Registration Closed';
   }
   if (entry.status === 'registering' || entry.status === 'starting_soon') {
     const startMs = entry.startTime ? new Date(entry.startTime).getTime() : NaN;

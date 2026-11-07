@@ -53,6 +53,7 @@ import {
   type HorsePlanAcceptance,
 } from '../HorsePlanEffectReceipt.js';
 import { horsePhase6AttributionMismatch } from '../HorsePhase6Attribution.js';
+import { horseDecisionRefusalError } from './refusalContext.js';
 import { Worker } from 'node:worker_threads';
 import { HorseCommittedDecisionTracker } from '../HorseCommittedDecisionTracker.js';
 import { noteFire } from '../BrainTelemetry.js';
@@ -1960,7 +1961,7 @@ export class LiveHorseDecisionWorkerClient {
         this.refuseDecision(
           active,
           message,
-          new Error(`horse decision worker returned invalid policy receipt: ${receiptRefusal}`)
+          horseDecisionRefusalError(receiptRefusal, active.request, message.decision, false)
         );
         return;
       }
@@ -1972,7 +1973,7 @@ export class LiveHorseDecisionWorkerClient {
         this.refuseDecision(
           active,
           message,
-          new Error(`horse decision worker returned invalid policy receipt: ${phase6Mismatch}`)
+          horseDecisionRefusalError(phase6Mismatch, active.request, message.decision, true)
         );
         return;
       }
@@ -1983,7 +1984,7 @@ export class LiveHorseDecisionWorkerClient {
         this.refuseDecision(
           active,
           message,
-          new Error(`horse decision worker returned invalid policy receipt: ${phase7Mismatch}`)
+          horseDecisionRefusalError(phase7Mismatch, active.request, message.decision, false)
         );
         return;
       }

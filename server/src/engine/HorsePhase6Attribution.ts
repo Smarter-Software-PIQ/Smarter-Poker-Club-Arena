@@ -664,7 +664,18 @@ export function referenceReturnShape(r: HorsePhase6Attribution, snapshot: Phase6
         (action === 'fold' && toCall > 0))
     );
   if (action === 'fold') return amount === null;
-  if (action === 'call') return amount === call;
+  // THE MANIAC CALL-DOWN'S CALL IS ROUNDED TO CENTS (2026-11-07). The route
+  // returns the raw `min(toCall, stack)`, but the reference's maniac call-down
+  // (HorseLogic maniacCallDown) turns this route's fold into
+  // `Math.round(call * 100) / 100`. At cent stakes the subtraction is not
+  // exact - Lightning NLH 0.25/0.50, a 1.15 raise over a 0.25 small blind owes
+  // 0.8999999999999999 - so the rounded call missed this strict equality by
+  // one ulp and the decision was refused as reference_shape (hand cc8a59bb).
+  // Admit exactly that one deterministic rounding, on the one route it runs.
+  if (action === 'call')
+    return (
+      amount === call || (r.route === 'variant_price' && amount === Math.round(call * 100) / 100)
+    );
   if (r.route === 'variant_price' && action === 'raise')
     return v53PressureFourBetShape(amount, snapshot);
   if (r.route === 'chart_bb_defend') return false;
@@ -913,4 +924,124 @@ export function horsePhase6AttributionMatchesSnapshot(
   snapshot: Phase6Snapshot
 ): boolean {
   return horsePhase6AttributionMismatch(decision, snapshot) === null;
+}
+
+/** PUBLIC SHAPE OF A REFUSED REFERENCE RETURN (2026-11-07).
+ *
+ * A `reference_shape` refusal used to carry nothing but its name: 1 of
+ * 789,282 eligible decisions (Lightning NLH 0.25/0.50, hand cc8a59bb) could
+ * not be explained because neither the returned shape nor the shape the
+ * validator expected was recorded. This is the bounded diagnostic context the
+ * refusal now carries: the route, the returned action and amount, and every
+ * public input the shape check reads (prices, the hero's own stack and bet,
+ * the legal raise bounds, the V53 target, live player counts, mode).
+ *
+ * Public facts only. No hole card, no opponent read, no equity and no other
+ * player's identity is included; every field is a finite number, a boolean,
+ * null, or a short enumerated string. Flat, so a log line shows all of it. */
+export interface Phase6RefusalShape {
+  route: string | null;
+  action: string | null;
+  amount: number | null;
+  /** The call the strict check expects: min(currentBet - heroBet, heroStack). */
+  expectedCall: number | null;
+  /** That call rounded to cents, as the maniac call-down returns it. */
+  expectedCallCents: number | null;
+  /** The deterministic V53 4-bet target, rounded to cents. */
+  expectedRaiseTo: number | null;
+  minRaiseTo: number | null;
+  maxRaiseTo: number | null;
+  currentBet: number | null;
+  heroBet: number | null;
+  heroStack: number | null;
+  bigBlind: number | null;
+  /** Players not folded and not sitting out (all-in players count). */
+  livePlayers: number;
+  /** Other seats that could still answer a jam: live, not all in, chips behind,
+   * not the last raiser (the generic all-in check needs at least one). */
+  liveResponders: number;
+  preflopRaises: number;
+  lastRaiserIsAllIn: boolean | null;
+  legalRaise: boolean;
+  stage: string | null;
+  mode: 'tournament' | 'cash';
+  variant: string | null;
+  structure: string | null;
+}
+
+const short = (v: unknown): string | null =>
+  typeof v === 'string' && v.length > 0 ? v.slice(0, 32) : null;
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+export function horsePhase6RefusalShape(
+  decision: HorseDecision,
+  snapshot: Phase6Snapshot
+): Phase6RefusalShape | null {
+  try {
+    const s = snapshot.gameState,
+      p = snapshot.player,
+      r = decision.tournamentPreflopAttribution;
+    const history = (s.actionHistory || []).filter((a) => a.stage === 'preflop');
+    let raises = 0,
+      last = -1;
+    for (const a of history)
+      if (
+        a.action === 'raise' ||
+        a.action === 'bet' ||
+        (a.action === 'all_in' && a.isFullRaise !== undefined)
+      ) {
+        raises++;
+        last = a.seat;
+      }
+    const toCall = Math.max(0, s.currentBet - p.bet),
+      call = Math.min(toCall, p.stack);
+    const potLimit =
+      s.variantRules && s.bettingStructure !== undefined
+        ? s.bettingStructure === 'pot_limit'
+        : isPotLimitVariant((s.gameVariant || 'nlh').toLowerCase());
+    const bounds = s.minRaiseTo != null && s.maxRaiseTo != null && s.maxRaiseTo >= s.minRaiseTo;
+    const target = bounds
+      ? potLimit
+        ? s.maxRaiseTo!
+        : Math.min(s.maxRaiseTo!, Math.max(s.minRaiseTo!, s.currentBet * 2.3))
+      : null;
+    const raiser = last >= 0 ? s.players.find((x) => x.seat === last) : undefined;
+    const tournament = s.gameMode
+      ? s.gameMode === 'tournament'
+      : s.tournament != null || (s.bigBlind ?? 0) >= 10;
+    return {
+      route: short(r?.route),
+      action: short(r?.referenceProposal?.action),
+      amount: num(r?.referenceProposal?.amount),
+      expectedCall: num(call),
+      expectedCallCents: num(Math.round(call * 100) / 100),
+      expectedRaiseTo: target === null ? null : num(Math.round(target * 100) / 100),
+      minRaiseTo: num(s.minRaiseTo),
+      maxRaiseTo: num(s.maxRaiseTo),
+      currentBet: num(s.currentBet),
+      heroBet: num(p.bet),
+      heroStack: num(p.stack),
+      bigBlind: num(s.bigBlind),
+      livePlayers: s.players.filter((x) => !x.is_folded && (!x.is_sitting_out || x.is_all_in))
+        .length,
+      liveResponders: s.players.filter(
+        (x) =>
+          !x.is_folded &&
+          !x.is_sitting_out &&
+          !x.is_all_in &&
+          x.stack > 0 &&
+          x.seat !== p.seat &&
+          x.seat !== last
+      ).length,
+      preflopRaises: raises,
+      lastRaiserIsAllIn: raiser ? raiser.is_all_in === true : null,
+      legalRaise: s.legalActions?.includes('raise') === true,
+      stage: short(s.stage),
+      mode: tournament ? 'tournament' : 'cash',
+      variant: short(s.gameVariant),
+      structure: short(s.bettingStructure),
+    };
+  } catch {
+    return null;
+  }
 }

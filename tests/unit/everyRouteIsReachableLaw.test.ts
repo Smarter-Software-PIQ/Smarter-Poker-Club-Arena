@@ -89,6 +89,10 @@ const ALLOWED_ORPHANS: Record<string, string> = {
     "Us\" link (on the ad popup, say) is Dan's call, not a test's",
 
   // ── Developer and diagnostic surfaces, never advertised to players ───────
+  'h/:token':
+    'where a SHORT shared hand opens (2026-11-06) - Link and Share send ' +
+    '/hub/club-arena/h/<token> (smarter.poker/h/<token> after the preview page) to someone ' +
+    "outside the app; nothing inside the app links to another player's token by design.",
   replay:
     'where a SHARED hand opens - ShareHand builds /replay?h=<payload>, which carries the ' +
     'hand inside the link so a recipient needs no account and no database read',

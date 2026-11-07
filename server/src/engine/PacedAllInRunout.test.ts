@@ -64,7 +64,7 @@ function harness(startingBoardLength = 0) {
   });
 
   // Keep the test fast without removing the ordering the pacing creates. The
-  // real values are 2000/1400/1200 with a 1250ms reveal gate; what is under
+  // real values are 2000/1000/600 with a 1750ms reveal gate; what is under
   // test is the SEQUENCE and the fact that time passes between cards at all,
   // not the specific durations.
   engine.allInFirstPauseMs = 5;

@@ -213,9 +213,9 @@ describe('Link sends from a phone in one tap', () => {
     expect(modal).toContain("window.matchMedia('(pointer: coarse)').matches");
     expect(modal).toContain('await navigator.share({');
     expect(modal).toContain(
-      "if ((error as { name?: string } | null)?.name === 'AbortError') return;"
+      "if ((error as { name?: string } | null)?.name === 'AbortError') return false;"
     );
-    expect(modal).toContain('if (link) void sendLink(hand, link);');
+    expect(modal).toContain('void sendLink(hand, link).then((sent) => {');
     expect(modal).toContain('useSenderInviteCode(hand?.tableId, heroId, isOpen)');
     setPhone(false);
   });

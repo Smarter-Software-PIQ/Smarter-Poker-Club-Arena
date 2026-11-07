@@ -10,6 +10,7 @@
  * - Preview card
  */
 
+import { copyToClipboard } from '../../lib/copyToClipboard';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { haptic } from '../../services/SoundService';
 import { CardImage, type Card } from '../table/CardImage';
@@ -227,6 +228,14 @@ export interface ShareHandProps {
    * file, which also holds the hand codec, never loads a client.
    */
   inviteCode?: string | null;
+  /**
+   * The sender's short link for this hand (useSharedHandShortLink in the
+   * caller): sent in place of the long link once reserved. Null until then,
+   * and on any failure, when the long link is sent instead.
+   */
+  shortUrl?: string | null;
+  /** Called when the sender actually sends the link (copy, social, native). */
+  onShared?: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -736,6 +745,8 @@ export function ShareHand({
   clubName = 'Smarter Poker',
   handId = null,
   inviteCode = null,
+  shortUrl = null,
+  onShared,
 }: ShareHandProps) {
   const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [copied, setCopied] = useState(false);
@@ -755,9 +766,10 @@ export function ShareHand({
   // Generate shareable URL
   const shareUrl = useMemo(() => {
     const encoded = encodeHand(hand);
+    if (shortUrl) return shortUrl;
     const invite = normalizeInviteCode(inviteCode);
     return `${baseUrl}?h=${encoded}${invite ? `&i=${invite}` : ''}`;
-  }, [hand, baseUrl, inviteCode]);
+  }, [hand, baseUrl, inviteCode, shortUrl]);
 
   // Social share text
   const shareText = useMemo(() => {
@@ -774,15 +786,17 @@ export function ShareHand({
   // Copy link
   const handleCopy = useCallback(async () => {
     haptic.light();
-    try {
-      await navigator.clipboard.writeText(shareUrl);
+    // copyToClipboard falls back to a selection copy when the Clipboard API
+    // is present but refused, and only a copy that happened counts as sent.
+    if (await copyToClipboard(shareUrl)) {
+      onShared?.();
       setCopied(true);
       clearTimeout(copiedTimerRef.current!);
       copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      reportError(error, 'ShareHand.Copy_failed');
+    } else {
+      reportError(new Error('Clipboard refused and selection copy failed'), 'ShareHand.Copy_failed');
     }
-  }, [shareUrl]);
+  }, [shareUrl, onShared]);
 
   // Share to social platforms
   const handleSocialShare = useCallback(
@@ -798,8 +812,9 @@ export function ShareHand({
       };
 
       openInBrowser(urls[platform], 'width=600,height=400');
+      onShared?.();
     },
-    [shareUrl, shareText]
+    [shareUrl, shareText, onShared]
   );
 
   // Native share (mobile)
@@ -811,15 +826,20 @@ export function ShareHand({
           text: shareText,
           url: shareUrl,
         });
+        onShared?.();
       } catch (error) {
-        reportError(error, 'ShareHand.Share_failed');
+        if ((error as { name?: string } | null)?.name !== 'AbortError') {
+          reportError(error, 'ShareHand.Share_failed');
+        }
       }
     }
-  }, [shareText, shareUrl, clubName]);
+  }, [shareText, shareUrl, clubName, onShared]);
 
   // Embed code
   const embedCode = useMemo(() => {
-    return `<iframe src="${shareUrl}&embed=true" width="400" height="300" frameborder="0" allowfullscreen></iframe>`;
+    /* A short link has no query of its own, so the separator follows the URL. */
+    const sep = shareUrl.includes('?') ? '&' : '?';
+    return `<iframe src="${shareUrl}${sep}embed=true" width="400" height="300" frameborder="0" allowfullscreen></iframe>`;
   }, [shareUrl]);
 
   useEffect(() => {
@@ -914,6 +934,7 @@ export function ShareHand({
                 <input type="text" value={shareUrl} readOnly className="share-hand__url-input" />
                 <button
                   className={`share-hand__copy-btn ${copied ? 'share-hand__copy-btn--success' : ''}`}
+                  aria-label={copied ? 'Link Copied' : 'Copy Link'}
                   onClick={handleCopy}
                 >
                   {copied ? '' : ''}

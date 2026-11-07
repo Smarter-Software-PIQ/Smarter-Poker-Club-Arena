@@ -1,0 +1,11 @@
+{
+  "_owner": "20261107021555_short_share_links_for_hands.sql: short shared-hand links (smarter.poker/h/<token>). Table closed to anon/authenticated; reached only through the four doors.",
+  "tables": ["ca_shared_hands"],
+  "functions": [
+    "fn_ca_shared_hand_reserve",
+    "fn_ca_shared_hand_mark_sent",
+    "fn_ca_shared_hand_open",
+    "fn_ca_shared_hand_revoke",
+    "fn_ca_shared_hand_clean_preview"
+  ]
+}
