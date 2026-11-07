@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   read: null as Promise<any> | null,
   revision: 0,
   bases: [] as unknown[],
+  remote: null as null | { value: boolean; revision: number },
 }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
@@ -31,6 +32,12 @@ vi.mock('../../src/lib/supabase', () => ({
       const c = args.p_changes[0];
       state.bases.push(c.base);
       state.writes.push({ user_id: user, preference_key: c.field, value: c.value });
+      if (state.remote && (c.base == null || c.base < state.remote.revision)) {
+        return {
+          data: { ok: true, results: [{ field: c.field, status: 'conflict', ...state.remote }] },
+          error: null,
+        };
+      }
       if (state.error) return { data: null, error: state.error };
       state.revision += 1;
       return {
@@ -56,6 +63,7 @@ beforeEach(() => {
   state.row = null;
   state.writes = [];
   state.bases = [];
+  state.remote = null;
   state.error = null;
   state.read = null;
   useUserStore.setState({ user: { id: 'preference-a' } as any });
@@ -362,7 +370,55 @@ it('keeps a previously observed revision when Simple is selected during hydratio
   });
   await act(async () => {});
   act(() => view.result.current[1](true));
-  await act(async () => resolveRead({ data: { value: false, revision: 7 }, error: null }));
-  view.unmount();
+  state.remote = { value: false, revision: 7 };
+  await act(async () => resolveRead({ data: state.remote, error: null }));
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
   await waitFor(() => expect(state.bases).toEqual([3]));
+  expect(view.result.current[0]).toBe(false);
+  view.unmount();
+});
+
+it('keeps an explicit Simple click from a cached Advanced view during its first account read', async () => {
+  const key = 'roster:simpleMode:cold';
+  localStorage.setItem('ca_player_preference:preference-a:' + key, 'false');
+  state.remote = { value: false, revision: 9 };
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'cold'), {
+    wrapper,
+  });
+  await act(async () => {});
+  expect(view.result.current[0]).toBe(false);
+  act(() => view.result.current[1](true));
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  await act(async () => resolveRead({ data: state.remote, error: null }));
+  await waitFor(() => expect(state.bases).toEqual([9]));
+  expect(view.result.current[0]).toBe(true);
+  view.unmount();
+});
+
+it('accepts a newer remote choice made after the cold read used for a gesture', async () => {
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'later'), {
+    wrapper,
+  });
+  await act(async () => {});
+  act(() => view.result.current[1](true));
+  await act(async () => resolveRead({ data: { value: false, revision: 4 }, error: null }));
+  state.remote = { value: false, revision: 5 };
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  await waitFor(() => expect(view.result.current[0]).toBe(false));
+  expect(state.bases).toEqual([4]);
+  view.unmount();
 });

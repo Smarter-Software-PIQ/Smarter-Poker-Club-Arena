@@ -76,7 +76,11 @@ async function save(owner: string, name: string, value: unknown, id: string): Pr
   if (owner === 'guest' || useUserStore.getState().user?.id !== owner || isOffline()) return;
   const selectionKey = `${owner}:${name}`;
   const selection = latestSelections.get(selectionKey);
-  if (selection?.id === id && selection.baseline) await selection.baseline;
+  if (selection?.id === id && selection.baseline) {
+    // A lost first read gets the same bounded wait as a save. The journal's
+    // unbound base still goes through normal conflict checks if it times out.
+    await awaitPreferenceSave(selection.baseline.then(() => ({ error: null })));
+  }
   if (
     readTableSettingIntent(owner, `page:${name}`)?.id === id &&
     latestSelections.get(selectionKey)?.journaled !== false
@@ -220,7 +224,7 @@ export function usePlayerPreference<T>(
               scopedName,
               (data as { revision?: unknown }).revision
             );
-          const baseline = data ? (typeof data.revision === 'number' ? data.revision : null) : 0;
+          const baseline = typeof data?.revision === 'number' ? data.revision : null;
           if (
             !active ||
             revisionRef.current !== revision ||
@@ -275,8 +279,7 @@ export function usePlayerPreference<T>(
         return;
       const base = pagePreferenceRevision(owner, scopedName);
       const earlier = latestSelections.get(scope);
-      const needsInitialBase =
-        same || (held?.id === earlier?.id && earlier?.baseline !== undefined);
+      const needsInitialBase = !held || (held.id === earlier?.id && earlier.baseline !== undefined);
       revisionRef.current += 1;
       valueRef.current = { scope, value };
       cache(owner, scopedName, value);
