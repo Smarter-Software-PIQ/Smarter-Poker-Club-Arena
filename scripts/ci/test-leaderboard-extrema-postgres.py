@@ -8,7 +8,7 @@ a=p.parse_args()
 root=Path(__file__).resolve().parents[2]
 candidate=root/'supabase/migrations/20261107084902_leaderboard_snapshot_extrema_stop_at_first_eligible_date.sql'
 migration=candidate.read_text()
-before=re.search(r'v_old text := \$old\$(.*?)\$old\$;',migration,re.S).group(1)
+before=(root/'scripts/ci/fixtures/leaderboard-extrema-preimage.sql').read_text()
 schema="""
 CREATE TABLE profiles(id uuid PRIMARY KEY,status text);
 CREATE TABLE club_members(user_id uuid,club_id uuid,joined_at timestamptz);
