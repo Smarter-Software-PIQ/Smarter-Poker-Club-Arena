@@ -570,25 +570,23 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
         step.name === 'Install PostgreSQL 17 tools without a default database service'
     );
     const currentKeyBlock = [
-      '# Fetch the identical signing key from the package repository itself.',
-      '# The website host repeatedly terminated TLS before native tests ran.',
-      'sudo curl --fail --silent --show-error --location \\',
-      '  --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \\',
-      '  https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc',
+      '# The PGDG signing key is installed from the checkout (.github/pgdg); fetching',
+      '# it from either PGDG host failed with TLS EOFs before native tests ran.',
+      'sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc',
     ].join('\n');
     expect(keySetup.run.split(currentKeyBlock)).toHaveLength(2);
-    // Normalize only the exact separately enforced key-host correction. Every
-    // previous command, trust control and workflow fingerprint remains pinned.
+    // Normalize only the exact separately enforced key-source corrections
+    // (2026-11-02 package host; 2026-11-07 checkout, pinned by
+    // tests/the-postgres-signing-key-comes-from-the-checkout.law.test.ts) back to
+    // the original download. Every other command, trust control and workflow
+    // fingerprint remains pinned.
     keySetup.run = keySetup.run.replace(
       currentKeyBlock,
-      currentKeyBlock
-        .split('\n')
-        .slice(2)
-        .join('\n')
-        .replace(
-          'https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc',
-          'https://www.postgresql.org/media/keys/ACCC4CF8.asc'
-        )
+      [
+        'sudo curl --fail --silent --show-error --location \\',
+        '  --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \\',
+        '  https://www.postgresql.org/media/keys/ACCC4CF8.asc',
+      ].join('\n')
     );
     const freezeArmingStep = {
       name: 'The finalized-pool freeze refuses what arming it would refuse',
@@ -1368,6 +1366,21 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // Whole reviewed native workflow identity now includes the guarded manual
     // private-capture branch; every default stage and55m budget is asserted above.
     normalized.jobs['native-smoke']['runs-on'] = expression('ubuntu-24.04');
+    // The signing key is installed from the checkout (2026-11-07, pinned by
+    // tests/the-postgres-signing-key-comes-from-the-checkout.law.test.ts).
+    // Normalize exactly that one line back to the reviewed download; every
+    // other byte of the workflow stays fingerprinted.
+    const keyFromCheckout =
+      'sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc';
+    const keySteps = normalized.jobs['native-smoke'].steps.filter((step: { run?: string }) =>
+      step.run?.includes(keyFromCheckout)
+    );
+    expect(keySteps).toHaveLength(1);
+    expect(keySteps[0].run.split(keyFromCheckout)).toHaveLength(2);
+    keySteps[0].run = keySteps[0].run.replace(
+      keyFromCheckout,
+      'sudo curl --fail --silent --show-error --location --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc'
+    );
     expect(createHash('sha256').update(JSON.stringify(normalized)).digest('hex')).toBe(
       '13a3a555958b2a8bd92ba5a7a45083c0af0993c9f02b10e885c1d858aefa8afc'
     );

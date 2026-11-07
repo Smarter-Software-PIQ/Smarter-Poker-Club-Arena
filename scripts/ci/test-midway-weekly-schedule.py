@@ -50,17 +50,20 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         sql('CREATE TABLE tournaments('+','.join(k+' '+v for k,v in types.items())+'); CREATE TABLE tables(id uuid,tournament_id uuid,small_blind numeric,big_blind numeric,ante numeric,stakes text);')
         sql((fixture/'blind-number.sql').read_text()+';')
         sql((fixture/'clock-helpers.sql').read_text())
-        for name in ['fn_ca_tournament_lock_level_clock','fn_ca_schedule_level_clock_floor','fn_tournament_table_inherits_committed_blinds','fn_ca_tournament_level_clock_floor','fn_tournaments_creation_guard']:
+        for name in ['fn_ca_tournament_lock_level_clock','fn_ca_schedule_level_clock_floor','fn_tournament_table_inherits_committed_blinds','fn_ca_tournament_level_clock_floor','fn_tournaments_creation_guard','fn_ca_bounty_mtt_rebuys_until_registration_closes']:
             sql((fixture/(name+'.sql')).read_text()+';')
+        assert sql("SELECT md5(pg_get_functiondef('fn_ca_bounty_mtt_rebuys_until_registration_closes()'::regprocedure))")=='2e0b024e984523fc7f10cb856ed6406d'
+        assert sql("SELECT md5(pg_get_functiondef('fn_ca_mtt_blind_contract(text,integer)'::regprocedure))")=='4a13e21eba115284df84b1f8be2c83de'
+        sql('CREATE TRIGGER a3_bounty_mtt_rebuys_until_registration_closes BEFORE INSERT OR UPDATE OF is_bounty,is_pko,is_mystery_bounty,tournament_type,variant,satellite_target_id,is_rebuy,is_reentry,rebuy_cost,rebuy_chips,rebuy_levels,max_rebuys,max_reentries,late_reg_levels,buy_in_amount,buy_in_fee ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_bounty_mtt_rebuys_until_registration_closes();')
         sql('''CREATE TRIGGER tournament_schedule_level_clock_floor BEFORE INSERT OR UPDATE OF config ON tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_ca_schedule_level_clock_floor();
          CREATE TRIGGER tournaments_lock_level_clock BEFORE INSERT OR UPDATE OF blind_structure ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_lock_level_clock();
          CREATE TRIGGER zzzzzzzzzz_tournament_level_clock_floor BEFORE INSERT OR UPDATE ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_ca_tournament_level_clock_floor();
          CREATE TRIGGER table_inherits BEFORE INSERT ON tables FOR EACH ROW EXECUTE FUNCTION fn_tournament_table_inherits_committed_blinds();''')
         target=next(e for e in document['events'] if e['sourceName']=='Nightly 10K (NLH)')
         scope='fade0000-0000-0000-0000-000000000001'
-        def insert_event(event_id,schedule_id=target['id'],club=scope,status='REGISTERING',started='NULL'):
+        def insert_event(event_id,schedule_id=target['id'],club=scope,status='REGISTERING',started='NULL',buy_in=31.5,fee=3.5):
             sql(f"""INSERT INTO tournaments(id,schedule_id,club_id,union_id,name,status,started_at,current_level,tournament_type,variant,buy_in_amount,buy_in_fee,starting_chips,blind_structure,late_reg_levels,late_reg_mins,blind_speed)
-             VALUES('{event_id}','{schedule_id}','{club}','{club}','Old Terms','{status}',{started},0,'MTT','freezeout',31.5,3.5,30000,'[{{"level":1,"smallBlind":25,"bigBlind":50,"ante":0,"durationMinutes":8}}]',6,48,'standard');""")
+             VALUES('{event_id}','{schedule_id}','{club}','{club}','Old Terms','{status}',{started},0,'MTT','freezeout',{buy_in},{fee},30000,'[{{"level":1,"smallBlind":25,"bigBlind":50,"ante":0,"durationMinutes":8}}]',6,48,'standard');""")
         insert_event('11111111-1111-4111-8111-111111111111')
         before=sql("SELECT starting_chips||','||(blind_structure::jsonb->0->>'smallBlind')||'/'||(blind_structure::jsonb->0->>'bigBlind') FROM tournaments LIMIT 1")
         assert before!='10000,50/100', 'baseline must reproduce legacy terms'
@@ -122,6 +125,15 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         followup=next((root/'supabase/migrations').glob('*midway_disabled_addons_keep_the_required_break_clock.sql'))
         sql(followup.read_text().replace('BEGIN;\n',"BEGIN;\nSET LOCAL application_name='apply-recorded-migration';\nSET LOCAL transaction_timeout='12s';\n",1))
         assert sql("SELECT count(*) FROM tournament_schedules WHERE active AND config->'midwayWeeklyTerms'->'addon_break_minutes'='null'::jsonb")=='0'
+        # The real earlier a3 guard rejected the newly authored50/100 ladder
+        # before the canonical creation boundary could apply the current terms.
+        try: insert_event('99999999-1111-4111-8111-111111111111','a70c1028-1800-2500-9000-000000000001',buy_in=22.5,fee=2.5)
+        except RuntimeError as error: assert 'DAILY_6PM_AUTHORED_STRUCTURE_DRIFT' in str(error),str(error)
+        else: raise AssertionError('legacy6PM guard did not reproduce its authored structure refusal')
+        sixpm=next((root/'supabase/migrations').glob('*midway_weekly_terms_supersede_legacy_sixpm_defaults.sql'))
+        sql(sixpm.read_text())
+        insert_event('99999999-1111-4111-8111-111111111111','a70c1028-1800-2500-9000-000000000001',buy_in=22.5,fee=2.5)
+        assert sql("SELECT to_jsonb(t) @> fn_ca_midway_weekly_terms(t.schedule_id) FROM tournaments t WHERE id='99999999-1111-4111-8111-111111111111'")=='t'
         # Every configured feeder must resolve an active canonical target by
         # the same exact name used by the serving scheduler's target lookup.
         missing_targets=sql("SELECT feeder.name FROM tournament_schedules feeder WHERE feeder.active AND feeder.config ? 'satelliteTargetName' AND NOT EXISTS (SELECT 1 FROM tournament_schedules target WHERE target.active AND target.name=feeder.config->>'satelliteTargetName' AND target.union_id=feeder.union_id)")
