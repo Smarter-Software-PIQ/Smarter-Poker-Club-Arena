@@ -1098,6 +1098,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "d25f21c7ceebc9ea58a9e13f64ad591e0628f11c37d1559970dcef85d9847deb"
       }
+    },
+    {
+      "id": "2026-11-07-cash-room-realism-engine-2230z",
+      "ownerOrder": "Dan, the owner, in the round 3 realism chat (America/Chicago, 2026-11-07) ordered verbatim: \"COORDINATE WITH THE \\\"ENGINE CUTOVER AND UPDATE STATS\\\" CHAT TO GET THIS DONE NOW, NOT AT 4AM\" and at 13:47 \"GO AHEAD AND FULLY BUILD, FIX AND ENHANCE ALL OF THESE AND MAKE SURE THEY ARE FULLY WIRED IN AND TESTED BEFORE CLAIMING SUCCESS. YOU DECIDE THE BUILD ORDER.\" The listed horse cash-room realism items merged as #9930 (seat choice and sit-outs under the same hit-and-run rule) and #9929 (several lists, table fill order and visible table breaks). One earliest-certified worker cutover from serving 391f7bc0d57c71637bd4af5181f70520661e3593; no database migration. Use the exact Backup Engine certificate, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, sealed freeze and rollback reserve, single-use claim, production identity verification and healthy thaw.",
+      "contains": "4a7dfd6df7896f4faadd21df1ed0ead4e2d60997",
+      "notBefore": "2026-11-07T22:30:00Z",
+      "notAfter": "2026-11-08T04:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "4e75ef16ef642d53e69139e045cabd23064a5baa55a50d0e2f13c5272ce22769"
+      }
     }
   ],
   "databaseWindows": [

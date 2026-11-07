@@ -24,6 +24,7 @@ const groups = [
       'test_nov7_exception_binds_the_exact_order_and_current_deadline',
       'test_provenance_worker_and_database_windows_bind_the_same_corrective_release',
       'test_provenance_archive_gate_refuses_absent_and_unreadable_catalogs',
+      'test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry',
       'test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries',
       'test_earliest_certified_owner_policy_requires_explicit_unambiguous_authority',
       'test_later_owner_transaction_preserves_custody_without_reserving_hourly_cycle',
@@ -118,7 +119,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(53);
+  expect(selected).toHaveLength(54);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 420_000);
