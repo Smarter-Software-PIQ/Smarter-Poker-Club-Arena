@@ -702,6 +702,7 @@ import { ritAwardHighlights } from '../utils/ritAwardHighlights';
 import {
   handCompletionHoldMs,
   ritRevealTimelineMs,
+  showdownDisplayBeatMs,
   HAND_COMPLETION,
 } from '../config/handCompletionSpec';
 // SHOWDOWN POLISH 2026-08-25: pure, unit-tested presentation logic — award
@@ -3697,6 +3698,12 @@ function LiveTablePage({
    * sounds) for BUTTON_MOVE_MS x speed so the sequence reads: pot pushed →
    * one-second rest (engine hold, POST_PUSH_PAUSE_MS) → button glides to its
    * seat → cards fly.
+   *
+   * Dan 2026-11-06 superseded that order ("I ONLY CARE HOW LONG IT TAKES TO
+   * START THE NEXT HAND DEAL AFTER THE POT IS PUSHED"): the timer now waits
+   * HAND_COMPLETION.BUTTON_TO_DEAL_MS (0), so the cards fly from the centre
+   * while the puck glides. It stays a timer so both deal paths keep one
+   * scheduler and the Lightning hold reads the same number.
    */
   const dealStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -8450,7 +8457,7 @@ function LiveTablePage({
       beginDealHold();
       if (dealStartTimerRef.current) clearTimeout(dealStartTimerRef.current);
       const heardHere = dealSoundsAllowedRef.current;
-      const beatMs = Math.round(HAND_COMPLETION.BUTTON_MOVE_MS * getAnimationSpeed());
+      const beatMs = Math.round(HAND_COMPLETION.BUTTON_TO_DEAL_MS * getAnimationSpeed());
       if (lightningRoomRef.current) {
         setLightningDealPending(true);
         if (lightningDealPendingTimerRef.current)
@@ -8465,7 +8472,7 @@ function LiveTablePage({
         handNumber,
         phase: 'scheduled',
         speed: getAnimationSpeed(),
-        buttonDelayMs: Math.round(HAND_COMPLETION.BUTTON_MOVE_MS * getAnimationSpeed()),
+        buttonDelayMs: Math.round(HAND_COMPLETION.BUTTON_TO_DEAL_MS * getAnimationSpeed()),
       });
       dealStartTimerRef.current = setTimeout(() => {
         dealStartTimerRef.current = null;
@@ -21348,13 +21355,24 @@ function LiveTablePage({
             (tableStateRef.current.lastBetAmounts || []).some((a) => (a || 0) > 0) ||
             streetBetsRef.current.some((a) => (a || 0) > 0) ||
             collectingChipSeatsRef.current.some(Boolean);
-          let shipDelayMs = betsStillOnFelt ? 700 * getAnimationSpeed() : 0;
-          if (
-            handShowdownRef.current.wentToShowdown ||
-            tableStateRef.current.boardStage === 'showdown'
-          ) {
-            shipDelayMs += 1500 * getAnimationSpeed();
-          }
+          // Dan 2026-11-06 ("I ONLY CARE HOW LONG IT TAKES TO START THE NEXT
+          // HAND DEAL AFTER THE POT IS PUSHED TO THE WINNER"): both beats come
+          // from the shared spec, the same numbers the engine's hold counts.
+          // The sweep is the real pdCollect length (BETS_SWEEP_MS, was a
+          // hand-written 700), and the winner's display beat is spent BEFORE
+          // the ship (showdownDisplayBeatMs: 2 s on an all-in, 1.5 s otherwise;
+          // was a flat 1500 that left an all-in's extra half second sitting
+          // after the pot had landed).
+          let shipDelayMs = betsStillOnFelt
+            ? HAND_COMPLETION.BETS_SWEEP_MS * getAnimationSpeed()
+            : 0;
+          shipDelayMs +=
+            showdownDisplayBeatMs({
+              wentToShowdown:
+                handShowdownRef.current.wentToShowdown ||
+                tableStateRef.current.boardStage === 'showdown',
+              allInShowdown: handShowdownRef.current.allIn,
+            }) * getAnimationSpeed();
           // POKERBROS PARITY 2026-08-26: on a run-it-twice hand the engine
           // settles synchronously, so pot_win arrives while the boards are
           // still DEALING on the reveal timeline. The reference ships nothing
