@@ -1407,6 +1407,34 @@ groups:
   - name: tournament-work-scheduler
     interval: 15s
     rules:
+      # A BREAK THAT STARTS SLOW IS A NUMBER, NOT A SCREENSHOT (Dan 2026-11-07).
+      # poker_tournament_break_last_hand_wait_seconds is the slowest tournament
+      # of the most recent break: seconds from the :55 last-hand call until its
+      # tables had all finished their hand on screen and its countdown began.
+      # Threshold measured, not guessed: the last hand of the 40 Chip Bounty
+      # Freezeout ended 25-55 s after :55 at the 02:55, 03:55 and 04:55 UTC
+      # breaks of 2026-11-07, and a hand dealt at :54:59 runs up to ~70 s in
+      # hand_history; 120 s is a hand that sat on a time bank or a table that
+      # never parked. The gauge holds its value until the next break, so this
+      # reports once per slow break; -1 (no break yet) never matches.
+      - alert: TournamentBreakStartedSlow
+        expr: |
+          max(poker_tournament_break_last_hand_wait_seconds) > 120
+        for: 0m
+        labels:
+          severity: warning
+          component: tournament-break
+        annotations:
+          summary: 'A tournament took {{ $value }}s to finish its last hand before the break'
+          description: |
+            The slowest tournament of the most recent synchronized break waited
+            more than two minutes between the last-hand call and its countdown.
+            Its players watched "Waiting On N Tables" for that long. Read
+            /health breakLastHandWait for the break, then the engine log line
+            "synchronized break still waiting on" for the tournament ids, and
+            find the table whose hand did not finish or did not park.
+          runbook: 'https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/blob/main/docs/changelog/2026-11-07-break-start-follow-ups.md'
+
       - alert: TournamentEliminationSchedulerSaturated
         expr: |
           poker_tournament_elimination_scheduler_slots_inflight >= 4

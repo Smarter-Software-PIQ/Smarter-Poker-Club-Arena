@@ -27,6 +27,12 @@ import { parseJsonCached } from '../../utils/parseJsonCached';
 import { compactChips } from '../../utils/format';
 import { effectivePrizePool } from '../tournament/details/types';
 import { titleCase } from '../../utils/titleCase';
+import {
+  breakConsoleTitle,
+  breakCountdownLabel,
+  breakMiniState,
+  breakWaitingLabel,
+} from './breakScreenCopy';
 import { publicOrigin, IS_NATIVE_BUILD, isNativePlatform } from '../../lib/appBase';
 import './TournamentBreakScreen.css';
 
@@ -133,6 +139,10 @@ export interface TournamentBreakScreenProps {
   prizePool?: number;
   currency?: string;
   onDismiss?: () => void;
+  /** Tables of this tournament still finishing their last hand (Dan 2026-11-07). */
+  tablesFinishing?: number | null;
+  /** The break overlaps the daily engine update and ends when it ends. */
+  extendedForDailyUpdate?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -177,6 +187,8 @@ export function TournamentBreakScreen({
   prizePool: prizePoolProp,
   currency = '',
   onDismiss,
+  tablesFinishing = null,
+  extendedForDailyUpdate = false,
 }: TournamentBreakScreenProps) {
   const [minimized, setMinimized] = useState(false);
   useEffect(() => {
@@ -584,7 +596,11 @@ export function TournamentBreakScreen({
                 : 'Break: Waiting'}
           </span>
           <span className="break-screen__mini-state">
-            {countingDown ? 'Paused' : 'Finishing Hands'}
+            {addOnNotice
+              ? countingDown
+                ? 'Paused'
+                : 'Finishing Hands'
+              : breakMiniState(countingDown, extendedForDailyUpdate, tablesFinishing)}
           </span>
         </span>
       </button>
@@ -634,7 +650,7 @@ export function TournamentBreakScreen({
         />
         <SpadeConsole
           className="break-screen__content"
-          title={addOnNotice ? 'Add-On Break' : 'Tournament Break'}
+          title={breakConsoleTitle(!!addOnNotice, extendedForDailyUpdate)}
           onClose={() => setMinimized(true)}
           pill="Share"
           pillInk="gold"
@@ -662,8 +678,8 @@ export function TournamentBreakScreen({
                     ? 'Add-On Closes In'
                     : 'Last Hand Before The Add-On Period'
                   : countingDown
-                    ? 'Play Resumes In'
-                    : 'Waiting For Every Table To Finish'}
+                    ? breakCountdownLabel(extendedForDailyUpdate)
+                    : breakWaitingLabel(tablesFinishing)}
               </span>
               <span
                 className={`break-screen__time ${!countingDown ? 'break-screen__time--waiting' : ''}`}
