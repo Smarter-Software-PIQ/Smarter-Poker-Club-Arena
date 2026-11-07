@@ -1,9 +1,22 @@
 {
+  "deterministicBootstrapClubIds20261107": {
+    "reason": "Reviewed fixture-only repair after required accounting shard 6 collided on random club ID 62538: the four union-weekly bootstrap clubs now supply deterministic distinct five-digit IDs 99101, 99102, 99104, 99203. UUIDs, captured financial schema/defaults, source authority bodies, money values and assertions are unchanged. Refresh only these current composed input identities.",
+    "verification": "Unchanged scripts/dev/test-union-weekly-basis.py passed on a fresh private PostgreSQL 17.11 cluster: exit 0 and 94 PASS labels; cluster shutdown verified. No additional composed native suite was rerun.",
+    "changes": [
+      {
+        "path": "tests/fixtures/union-weekly-basis/source-binding.json",
+        "previousSHA256": "e3d2f70f9a3785da06ca6076e3ebe0c83991903cea894b4abc6406ea9c060385",
+        "currentSHA256": "0807c93c2acd4a03e5eb967e92c14c98b8cc1f1a1ea0ed1b11f2d2f96f89909e"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "contract": "exact-weekly-recompute-split-v1",
   "scope": "Native synthetic financial fixture, exact candidate and current observed stage dependencies; not production-scale or installation proof.",
   "repository_files": {
     "scripts/dev/test-union-weekly-basis.py": "bec0ca77f49087a1406c9dc465a21f1fe8760cdc176c34adb5247b3b4d8d5295",
-    "tests/fixtures/union-weekly-basis/source-binding.json": "e3d2f70f9a3785da06ca6076e3ebe0c83991903cea894b4abc6406ea9c060385",
+    "tests/fixtures/union-weekly-basis/source-binding.json": "0807c93c2acd4a03e5eb967e92c14c98b8cc1f1a1ea0ed1b11f2d2f96f89909e",
     "tests/fixtures/union-weekly-basis/regression.sql": "44064e6ace5baff1fb489b4d7c513107367068a56fbd868118d8215781c1e75f",
     "tests/fixtures/union-weekly-basis/raked-regression.sql": "1d5bdfa1fdf03a78f206099522f329f1292586b5267a3c9bff7ff13becc2803d",
     "tests/fixtures/weekly-recompute-split/current-stage-dependencies.json": "86c80627a994577a2b654ade9f2829f8f94e778de83450d12212b2f74f1c6b54",

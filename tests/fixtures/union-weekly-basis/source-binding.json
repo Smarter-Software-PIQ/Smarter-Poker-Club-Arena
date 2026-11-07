@@ -37,7 +37,7 @@
     "tests/fixtures/tournament-accounting-provenance/new-authority.sql": "44399c2cc4dabbcc8f921650d21a344edfbab2055e1ce6163287c461559b787a",
     "tests/fixtures/union-weekly-basis/README.md": "b722e09f7a923872066f19efd819899045badb6b0cbae97dd09163b7486661bd",
     "tests/fixtures/union-weekly-basis/accepted-document-relations.sql": "ff1493ba0e3dd7a3480029ab83dd522d29c03502d37ff05d74bc59dda20beaf3",
-    "tests/fixtures/union-weekly-basis/bootstrap.sql": "c0a5fdfbaf5ca0aa7751dc862bbb62d6bf52e819758eb9df45b0e8e13b07a1d1",
+    "tests/fixtures/union-weekly-basis/bootstrap.sql": "bbf133c8fdedf8654fc8887b6cf8ea80b30e483468f83d7e9ce8cf881ff2cee8",
     "tests/fixtures/union-weekly-basis/captured-cascade-preimage.json": "af70c7a63f87d3556cd876623b878e7aaacdcb858bcb4567e8e7ba46611e77ff",
     "tests/fixtures/union-weekly-basis/captured-cash-dependencies.json": "f6be64837e2e5db2f0329fdda009e6d09b72a386ccf876c49ae6a083fad624f4",
     "tests/fixtures/union-weekly-basis/captured-close-dependencies.json": "e696d389d3b69ff1b101d56d0b94beb6878faa2ea6113b31cbf6b1d7ec59a3a9",
