@@ -117,12 +117,19 @@ test('the whole hand is on screen quickly, not trickled in', async ({ page: p })
 
 // Complete artwork must survive cold caches and remounts too.
 import { createServer, type ViteDevServer } from 'vite';
+import { installCardArtworkFrames, cardArtworkFramesEvidence } from './support/cardArtworkFrames';
+import { startCardArtworkRaster, CARD_ARTWORK_MAX_GAP_MS } from './support/cardArtworkRaster';
 
 test.describe('decoded card artwork', () => {
+  // Reuse this group's one Vite server; concurrent optimizers are not card-load work.
+  test.describe.configure({ mode: 'default' });
   let server: ViteDevServer;
   let address: string;
   test.beforeAll(async () => {
+    expect(fs.existsSync(path.resolve('dist/cards/4color/clubs_2.webp'))).toBe(true);
     server = await createServer({
+      // CI already seals this build. Raw public/ has no generated WebP media.
+      publicDir: path.resolve('dist'),
       server: { host: '127.0.0.1', port: 0 },
       logLevel: 'error',
       optimizeDeps: { entries: ['tests/e2e/fixtures/cardArtReady.tsx'] },
@@ -162,7 +169,9 @@ test.describe('decoded card artwork', () => {
     page.on('pageerror', (error) => console.log(error.message));
     await page.goto(address, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
-    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true', {
+      timeout: 10_000,
+    });
     const complete = () =>
       page.evaluate(async () => {
         await new Promise(requestAnimationFrame);
@@ -185,9 +194,74 @@ test.describe('decoded card artwork', () => {
     await page.context().setOffline(false);
     await page.evaluate(() => (window as any).changeDeck());
     await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
-    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true', {
+      timeout: 10_000,
+    });
     expect(await complete()).toEqual(
       Array(7).fill({ complete: true, decoding: 'sync', local: true })
     );
+  });
+
+  test('first-visible observer correlates real board and public hole artwork with compositor crops', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.addInitScript(installCardArtworkFrames, {
+      tableId: 'fixture',
+      deadline: Date.now() + 50_000,
+      maxFrameGapMs: CARD_ARTWORK_MAX_GAP_MS,
+    });
+    const raster = await startCardArtworkRaster(page);
+    let passed = false;
+    try {
+      await page.route('**/__card-art-test', (route) =>
+        route.fulfill({
+          contentType: 'text/html',
+          body: (server as any).__cardTestHtml,
+        })
+      );
+      await page.goto(address, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true', {
+        timeout: 10_000,
+      });
+      await expect
+        .poll(() =>
+          page.evaluate(() => window.__cardArtworkFrames?.snapshot().eligibleTableFrames ?? 0)
+        )
+        .toBeGreaterThan(2);
+      await page.evaluate(() => (window as any).nextHand());
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              window.__cardArtworkFrames?.snapshot().exposures.filter((e) => e.natural).length ?? 0
+          )
+        )
+        .toBe(7);
+      const snapshot = await page.evaluate(() => window.__cardArtworkFrames!.stop());
+      const readiness = cardArtworkFramesEvidence(snapshot);
+      expect(readiness.verdict, JSON.stringify(readiness)).toBe('qualified');
+      const captures = await raster.capture(
+        snapshot.exposures
+          .filter((e) => e.natural)
+          .map((e) => ({
+            id: `${e.kind}-${e.id}-${e.sourceEpoch}-${e.visibilityEpoch}`,
+            firstEligibleAt: e.firstEligibleAt,
+            previousFrameAt: e.previousFrameAt,
+            bounds: e.bounds,
+          }))
+      );
+      expect(captures).toHaveLength(7);
+      for (const capture of captures) {
+        expect(capture.verdict, capture.reason).toBe('captured');
+        expect(capture.image!.subarray(1, 4).toString()).toBe('PNG');
+      }
+      passed = true;
+    } finally {
+      await page.evaluate(() => window.__cardArtworkFrames?.stop()).catch(() => undefined);
+      await raster.stop().catch((error) => {
+        if (passed) throw error; // Preserve the original failure if Playwright already closed the page.
+      });
+    }
   });
 });

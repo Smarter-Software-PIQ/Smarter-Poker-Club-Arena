@@ -6,14 +6,17 @@ import { useTableArt } from '../../../src/hooks/useTableArt';
 
 // Seats/boards stay mounted and memoized underneath the real table's art cover.
 const Cards = memo(({ style, hand }: { style: '4color' | '2color'; hand: number }) => (
-  <div key={hand}>
+  <div key={hand} style={{ display: 'flex', gap: 4 }}>
     {['A', 'K', 'Q', 'J', 'T', '9', '8'].map((rank, i) => (
-      <CardImage
-        key={i}
-        card={{ rank, suit: ['h', 'd', 'c', 's'][i % 4] } as Card}
-        loading="eager"
-        deckStyle={style}
-      />
+      <div key={i} className={i < 5 ? 'community-cards__card' : 'seat'}>
+        <div className={i < 5 ? undefined : 'seat__card seat__card--face'}>
+          <CardImage
+            card={{ rank, suit: ['h', 'd', 'c', 's'][i % 4] } as Card}
+            loading="eager"
+            deckStyle={style}
+          />
+        </div>
+      </div>
     ))}
   </div>
 ));
@@ -27,9 +30,19 @@ function Table() {
     changeDeck: () => setStyle('2color'),
   });
   return (
-    <div data-ready={String(art.reveal)}>
+    <div className="table-page" data-ready={String(art.reveal)} style={{ position: 'relative' }}>
+      <span className="header-hand-number">Hand #{hand + 1}</span>
+      {!art.reveal && (
+        <div
+          className="table-art-cover"
+          style={{ position: 'absolute', inset: 0, background: 'black', zIndex: 10 }}
+        >
+          Preparing Table
+        </div>
+      )}
       <Cards style={style} hand={hand} />
     </div>
   );
 }
+history.replaceState({}, '', '/hub/club-arena/table/fixture');
 createRoot(document.getElementById('root')!).render(<Table />);

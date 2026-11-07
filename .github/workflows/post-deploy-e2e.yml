@@ -2513,6 +2513,8 @@ jobs:
           if (!metadata.isFile() || metadata.size > 1048576) throw Error('Invalid or oversized natural board receipt');
           const r = JSON.parse(readFileSync(path, 'utf8'));
           if (r.kind !== 'scoped-natural-board-live/v1' || r.verdict !== 'qualified' || r.reveal?.verdict !== 'qualified' ||
+              r.artwork?.verdict !== 'qualified' || r.artwork?.raster?.verdict !== 'qualified' ||
+              r.artwork?.sameHand?.verdict !== 'qualified' ||
               r.fullReleaseCertificate !== false || r.productionParticipation !== false || r.interrupted !== false ||
               r.sourceSHA !== process.env.EXPECTED_CLIENT_SHA || r.before?.clientSHA !== r.sourceSHA ||
               r.before?.engineSHA !== process.env.EXPECTED_ENGINE_SHA || JSON.stringify(r.before) !== JSON.stringify(r.after) ||

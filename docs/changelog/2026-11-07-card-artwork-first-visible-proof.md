@@ -1,0 +1,5 @@
+# Live card artwork first-visible proof
+
+The existing natural cash spectator case now samples the first eligible visible animation frame for board and public showdown hole-card faces. It rejects missing, incomplete or non-local decoded artwork, then correlates each natural exposure with bounded Chromium compositor crops. The same natural hand must supply flop, turn, river and at least two distinct public hole faces. Private hero initial deals are covered by the existing real-component cold-cache, remount and deck-change regression, not claimed as live spectator participation.
+
+The existing scoped receipt consumer requires readiness, same-hand coverage, raster correlation and isolated-account cleanup together. Compositor evidence means the earliest retained raster correlated with the first-visible DOM interval; it does not claim every physical display frame. Resource timing and visible decoded-surface estimates are retained with their limits. No runtime tuning is made without a measured requirement.

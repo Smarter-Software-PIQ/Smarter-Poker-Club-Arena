@@ -15,6 +15,16 @@ import {
   installNaturalBoardReveal,
   naturalBoardRevealEvidence,
 } from './support/naturalBoardReveal';
+import {
+  installCardArtworkFrames,
+  cardArtworkFramesEvidence,
+  cardArtworkSameHandEvidence,
+} from './support/cardArtworkFrames';
+import {
+  startCardArtworkRaster,
+  CARD_ARTWORK_MAX_GAP_MS,
+  type CardArtworkRasterCapture,
+} from './support/cardArtworkRaster';
 import { isReadOnlySpectatorSocketType } from './support/spectatorSocketRead';
 
 const CLUB = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
@@ -28,7 +38,7 @@ test('one natural cash hand owes the full turn and river reveal', async ({
   context,
   request,
 }, info) => {
-  test.setTimeout(195_000);
+  test.setTimeout(285_000);
   const started = Date.now();
   const setupDeadline = started + 60_000;
   const sourceSHA = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -55,7 +65,60 @@ test('one natural cash hand owes the full turn and river reveal', async ({
     fullReleaseCertificate: false,
     productionParticipation: false,
     verdict: 'unknown',
-    observationLimitMs: 120_000,
+    observationLimitMs: 180_000,
+  };
+  let raster: Awaited<ReturnType<typeof startCardArtworkRaster>> | undefined;
+  const rasters = new Map<string, Omit<CardArtworkRasterCapture, 'image'> & { kind: string }>();
+  const rasterImages = new Map<string, Buffer>();
+  const artworkCapture = async (reveal: Awaited<ReturnType<typeof capture>>, stop = false) => {
+    const snapshot = await page.evaluate((stop) => {
+      const observer = window.__cardArtworkFrames;
+      return observer ? (stop ? observer.stop() : observer.snapshot()) : null;
+    }, stop);
+    if (!snapshot) return { verdict: 'unknown' as const, reason: 'missing-first-frame-observer' };
+    const fresh = snapshot.exposures.filter((entry) => entry.natural);
+    const keyed = fresh.map((entry) => ({
+      ...entry,
+      id: `${entry.kind}-${entry.id}-${entry.sourceEpoch}-${entry.visibilityEpoch}`,
+    }));
+    const pending = keyed.filter((entry) => rasters.get(entry.id)?.verdict !== 'captured');
+    if (raster && pending.length) {
+      for (const result of await raster.capture(pending)) {
+        const { image, ...metadata } = result;
+        const kind = keyed.find((entry) => entry.id === result.id)!.kind;
+        rasters.set(String(result.id), { ...metadata, kind });
+        if (image) rasterImages.set(String(result.id), image);
+      }
+    }
+    const readiness = cardArtworkFramesEvidence(snapshot);
+    const sameHand = cardArtworkSameHandEvidence(
+      snapshot,
+      reveal.receipts,
+      journal.matchingFrames({ direction: 'received', tableId: subject, since }),
+      subject
+    );
+    const captured = [...rasters.values()];
+    const rasterQualified =
+      fresh.length > 0 &&
+      captured.length === fresh.length &&
+      captured.every((entry) => entry.verdict === 'captured') &&
+      ['board', 'public-hole'].every((kind) => captured.some((entry) => entry.kind === kind));
+    return {
+      ...readiness,
+      sameHand,
+      verdict:
+        readiness.verdict === 'violation'
+          ? ('violation' as const)
+          : readiness.verdict === 'qualified' && rasterQualified && sameHand.verdict === 'qualified'
+            ? ('qualified' as const)
+            : ('unknown' as const),
+      raster: {
+        verdict: rasterQualified ? 'qualified' : 'unknown',
+        frames: captured,
+        limit:
+          'First observed visible rAF readiness correlated with earliest retained compositor raster; not every physical display frame.',
+      },
+    };
   };
   const identities = async () => {
     const urls = [
@@ -218,6 +281,13 @@ test('one natural cash hand owes the full turn and river reveal', async ({
     const selected = selectClassicCashCandidate(candidates, catalogue.rows);
     if (!selected) throw new Error('UNKNOWN: no occupied classic public cash subject');
     subject = selected.id;
+    await page.evaluate(installCardArtworkFrames, {
+      deadline: started + 255_000,
+      tableId: subject,
+      maxFrameGapMs: CARD_ARTWORK_MAX_GAP_MS,
+      maxExposures: 96,
+    });
+    raster = await startCardArtworkRaster(page);
     const row = page.locator(`[data-testid="lobby-game-row"][data-id="${subject}"]`);
     if (await row.isVisible()) {
       await row.getByRole('button', { name: /^Details:/ }).click();
@@ -248,7 +318,7 @@ test('one natural cash hand owes the full turn and river reveal', async ({
     );
     await page.bringToFront();
     // Reserve 30 seconds for final identity, raster and receipt work.
-    const deadline = Math.min(Date.now() + 120_000, started + 165_000);
+    const deadline = Math.min(Date.now() + 180_000, started + 255_000);
     since = Date.now();
     const originalTransports = journal.transportIdsOpenAt(since);
     expect(originalTransports).toHaveLength(1);
@@ -264,6 +334,7 @@ test('one natural cash hand owes the full turn and river reveal', async ({
         ),
       }));
       const current = await capture();
+      const artwork = await artworkCapture(current);
       const originalTransportsClosed = journal.areTransportsClosed(originalTransports);
       if (
         !state.visible ||
@@ -283,13 +354,32 @@ test('one natural cash hand owes the full turn and river reveal', async ({
         };
         break;
       }
-      if (current.verdict === 'qualified' || current.verdict === 'violation') break;
+      if (
+        current.verdict === 'violation' ||
+        artwork.verdict === 'violation' ||
+        (current.verdict === 'qualified' && artwork.verdict === 'qualified')
+      )
+        break;
       await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
     }
     const result = await capture(true);
     evidence.observationEndedAt = Date.now();
     evidence.reveal = result;
-    evidence.verdict = interrupted ? 'unknown' : result.verdict;
+    const artwork = await artworkCapture(result, true);
+    evidence.artwork = artwork;
+    evidence.verdict = interrupted
+      ? 'unknown'
+      : result.verdict === 'violation' || artwork.verdict === 'violation'
+        ? 'violation'
+        : result.verdict === 'qualified' && artwork.verdict === 'qualified'
+          ? 'qualified'
+          : 'unknown';
+    for (const [id, image] of rasterImages) {
+      await info.attach(`first-visible-public-card-${id}`, {
+        body: image,
+        contentType: 'image/png',
+      });
+    }
     evidence.interrupted = interrupted;
     // Only the PUBLIC board is imaged, after sampling has stopped. This is a
     // real raster/bounds witness of the final board, not first-frame pixel coverage.
@@ -309,7 +399,16 @@ test('one natural cash hand owes the full turn and river reveal', async ({
       'UNKNOWN is not a qualified same-hand turn and river observation'
     ).toBe('qualified');
   } finally {
-    await page.evaluate(() => window.__naturalBoardReveal?.stop()).catch(() => undefined);
+    await page
+      .evaluate(() => {
+        window.__naturalBoardReveal?.stop();
+        window.__cardArtworkFrames?.stop();
+      })
+      .catch(() => undefined);
+    await raster?.stop().catch((error) => {
+      evidence.rasterStopError = String(error);
+      evidence.verdict = 'unknown';
+    });
     evidence.refusedParticipation = writes;
     mkdirSync('e2e-report', { recursive: true });
     writeFileSync(

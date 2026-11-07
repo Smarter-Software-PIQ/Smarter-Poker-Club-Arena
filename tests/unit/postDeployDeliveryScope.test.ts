@@ -558,7 +558,7 @@ describe('one scoped natural board proof keeps its own finite account and verdic
     expect(workflow.jobs['post-deploy-verdict'].if).toContain("natural_board_reveal != 'true'");
     expect(
       readFileSync(join(root, 'tests/e2e/production-natural-board-reveal.spec.ts'), 'utf8')
-    ).toContain('started + 165_000');
+    ).toContain('started + 255_000');
     const cleanup = engine.steps.find((step: any) => step.id === 'tournament_account_cleanup');
     expect(cleanup.if).toContain('always()');
     expect(cleanup.run).toBe('node scripts/ci/production-e2e-account.mjs cleanup');
@@ -626,51 +626,64 @@ describe('one scoped natural board proof keeps its own finite account and verdic
     }
   });
 
-  it.each(['qualified', 'unknown', 'violation', 'changed-instance', 'cleanup-failed'])(
-    'executes the scoped receipt consumer for %s',
-    (mode) => {
-      const cwd = mkdtempSync(join(tmpdir(), 'ca-natural-board-receipt-'));
-      try {
-        mkdirSync(join(cwd, 'e2e-report'));
-        const identity = {
-          clientSHA: 'a'.repeat(40),
-          engineSHA: 'b'.repeat(40),
-          instance: '1-1234abcd',
-        };
-        const receipt = {
-          kind: 'scoped-natural-board-live/v1',
-          verdict: mode === 'unknown' || mode === 'violation' ? mode : 'qualified',
-          reveal: { verdict: 'qualified' },
-          fullReleaseCertificate: false,
-          productionParticipation: false,
-          interrupted: false,
-          sourceSHA: identity.clientSHA,
-          before: identity,
-          after: mode === 'changed-instance' ? { ...identity, instance: '1-00000000' } : identity,
-          refusedParticipation: [],
-        };
-        writeFileSync(join(cwd, 'e2e-report/natural-board-receipt.json'), JSON.stringify(receipt));
-        const consumer = engine.steps.find(
-          (step: any) =>
-            step.name === 'Require the scoped natural-board receipt and isolated cleanup'
-        );
-        const result = spawnSync('bash', ['-c', consumer.run], {
-          cwd,
-          encoding: 'utf8',
-          timeout: 10_000,
-          env: {
-            ...process.env,
-            CASE_OUTCOME: 'success',
-            CLEANUP_OUTCOME: mode === 'cleanup-failed' ? 'failure' : 'success',
-            EXPECTED_CLIENT_SHA: identity.clientSHA,
-            EXPECTED_ENGINE_SHA: identity.engineSHA,
-            GITHUB_STEP_SUMMARY: join(cwd, 'summary'),
-          },
-        });
-        expect(result.status, result.stderr).toBe(mode === 'qualified' ? 0 : 1);
-      } finally {
-        rmSync(cwd, { recursive: true, force: true });
-      }
+  it.each([
+    'qualified',
+    'unknown',
+    'violation',
+    'changed-instance',
+    'cleanup-failed',
+    'missing-artwork',
+    'missing-raster',
+    'mixed-hands',
+  ])('executes the scoped receipt consumer for %s', (mode) => {
+    const cwd = mkdtempSync(join(tmpdir(), 'ca-natural-board-receipt-'));
+    try {
+      mkdirSync(join(cwd, 'e2e-report'));
+      const identity = {
+        clientSHA: 'a'.repeat(40),
+        engineSHA: 'b'.repeat(40),
+        instance: '1-1234abcd',
+      };
+      const receipt = {
+        kind: 'scoped-natural-board-live/v1',
+        verdict: mode === 'unknown' || mode === 'violation' ? mode : 'qualified',
+        reveal: { verdict: 'qualified' },
+        artwork:
+          mode === 'missing-artwork'
+            ? undefined
+            : {
+                verdict: 'qualified',
+                raster: { verdict: mode === 'missing-raster' ? 'unknown' : 'qualified' },
+                sameHand: { verdict: mode === 'mixed-hands' ? 'unknown' : 'qualified' },
+              },
+        fullReleaseCertificate: false,
+        productionParticipation: false,
+        interrupted: false,
+        sourceSHA: identity.clientSHA,
+        before: identity,
+        after: mode === 'changed-instance' ? { ...identity, instance: '1-00000000' } : identity,
+        refusedParticipation: [],
+      };
+      writeFileSync(join(cwd, 'e2e-report/natural-board-receipt.json'), JSON.stringify(receipt));
+      const consumer = engine.steps.find(
+        (step: any) => step.name === 'Require the scoped natural-board receipt and isolated cleanup'
+      );
+      const result = spawnSync('bash', ['-c', consumer.run], {
+        cwd,
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          ...process.env,
+          CASE_OUTCOME: 'success',
+          CLEANUP_OUTCOME: mode === 'cleanup-failed' ? 'failure' : 'success',
+          EXPECTED_CLIENT_SHA: identity.clientSHA,
+          EXPECTED_ENGINE_SHA: identity.engineSHA,
+          GITHUB_STEP_SUMMARY: join(cwd, 'summary'),
+        },
+      });
+      expect(result.status, result.stderr).toBe(mode === 'qualified' ? 0 : 1);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
     }
-  );
+  });
 });
