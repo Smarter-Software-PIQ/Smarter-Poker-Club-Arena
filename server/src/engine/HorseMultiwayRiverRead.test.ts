@@ -189,7 +189,9 @@ it('dedupes the public line, preserves v8 absence and replays context-separated 
   for (const k of ['seenActions', 'handFlags', 'dirty', 'dirtyPairs', 'dirtyScoped'] as const)
     view[k].clear();
   const frame = encodeHorseDecisionReads(view, players, null);
-  expect(frame.version).toBe('horse-decision-reads-v9');
+  // The observed river hands also carry the fast call-down recency window
+  // (2026-11-07), so the frame is v10; the v9 lists travel inside it.
+  expect(frame.version).toBe('horse-decision-reads-v10');
   const replay = decodeHorseDecisionReads(frame, players, null);
   HorseMind.runInSandbox(replay, () => {
     HorseMind.setDecisionScope(readScopeOf('nlh', 3), 'nlh', 'cash');
@@ -203,7 +205,12 @@ it('dedupes the public line, preserves v8 absence and replays context-separated 
     expect(HorseMind.riverTripleCheckRaiseRead(id(1))).toBeNull();
   });
   expect(encodeHorseDecisionReads(replay, players, null)).toEqual(frame);
-  for (const map of [view.stats, view.scoped]) for (const row of map.values()) delete row.riverHu;
+  for (const map of [view.stats, view.scoped])
+    for (const row of map.values()) {
+      delete row.riverHu;
+      delete row.rvOpps;
+      delete row.rvCalls;
+    }
   const older = encodeHorseDecisionReads(view, players, null);
   expect(older.version).toBe('horse-decision-reads-v7');
   expect(
@@ -328,7 +335,7 @@ it('transports canonical reader sidecars into the actual worker independent read
     const capture = h.captures.at(-1)!;
     expect(horseRetainedPlanContext(capture, request).kind).toBe('current');
     expect(capture.observerReads).toMatchObject({ history: 'own_public_window', historyHands: 10 });
-    expect(JSON.stringify(capture)).toContain('horse-decision-reads-v9');
+    expect(JSON.stringify(capture)).toContain('horse-decision-reads-v10');
   } finally {
     await h.close();
   }

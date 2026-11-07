@@ -48,6 +48,8 @@ The read is wired into HorseLogic in two places:
 
 `riverFastCalldown: false` ablates it. Telemetry: `river_fast_calldown_station` and `river_fast_calldown_station_multiway`.
 
+**Read frames.** `HorseDecisionReadFrame` gains `horse-decision-reads-v10`: the river recency window (`rvOpps` / `rvCalls`) travels per row in `riverRecency` / `scopedRiverRecency`, so a second look at the same hand prices exactly the station read the first decision did. v10 is written only when a captured row carries the window; every earlier frame keeps its exact bytes, and a v9 body that carries the window is refused. The journal's allocation rules admit v10 like v4-v9. (The codec's field-coverage check is what required this: a new consumed statistic on `OpponentStats` must be considered explicitly in the frame.)
+
 ## Decisions
 
 - **No "risen from the long rate" condition on callingDown.** A simulation over stable Bernoulli callers showed that it removed almost no false reads: a 50% caller is read as calling down 2.8% of the time without it and 2.4% with it. It also switched the read off and on for a player still calling every river, once his lifetime rate caught up.
@@ -62,6 +64,7 @@ The read is wired into HorseLogic in two places:
 ## Proof
 
 - `server/src/engine/HorseFastCalldownRead.law.test.ts` (new law, `docs/laws.d/horse-fast-calldown-read.md`): the drop within 6 river opportunities in nlh and plo4 with and without blank hands, the ablated control, recovery within 6 folds, the lead and multiway layers, decision-for-decision neutrality for unknown players, null on no data, and no false read on a stable half-and-half caller.
+- `server/src/engine/HorseFastCalldownReadFrame.test.ts`: the v10 round trip replays the same read, predecessor bytes without the window, and refusal of malformed or mislabelled v10 bodies.
 - The existing engine laws pass, listed in the PR.
 
 Engine change: it takes effect only after a later certified 04:00 America/Chicago release.
