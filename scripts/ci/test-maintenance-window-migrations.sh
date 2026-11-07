@@ -458,7 +458,7 @@ pass 'second-file refusal preserves the first exact committed transaction'
 QUIET="$WORK/quiet"
 mkdir -p "$QUIET/supabase/migrations"
 printf -- '-- Fixture: a window migration whose table is busy when the window opens.\n-- @install-window: daily-maintenance\nBEGIN;\nALTER TABLE public.hand_history ADD COLUMN window_fixture_quiet integer;\nCOMMIT;\n' \
-  > "$QUIET/supabase/migrations/20991231000013_window_fixture_quiet_moment.sql"
+  > "$QUIET/supabase/migrations/20991231000015_window_fixture_quiet_moment.sql"
 hold_hand_history() { # $1 seconds; returns once the lock is granted
   as_pg "${SU[@]}" -c "BEGIN; LOCK TABLE public.hand_history IN ACCESS SHARE MODE; SELECT pg_sleep($1); COMMIT;" \
     >/dev/null 2>&1 &
@@ -486,13 +486,13 @@ release_holder
 echo "$out" > "$EVIDENCE/11a-quiet-moment.log"
 [ "$code" = 0 ] && grep -q 'INSTALLED 1 migration' <<<"$out" || fail "quiet-moment run: $code $out"
 grep -q 'quiet moment on public.hand_history (AccessExclusiveLock) after' <<<"$out" || fail "quiet-moment run did not wait: $out"
-[ "$(grep -c '^\[apply\] 20991231000013' <<<"$out")" = 1 ] || fail 'quiet-moment file was not sent exactly once'
+[ "$(grep -c '^\[apply\] 20991231000015' <<<"$out")" = 1 ] || fail 'quiet-moment file was not sent exactly once'
 [ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_quiet'")" = 1 ] \
   || fail 'quiet-moment column missing'
 pass 'a busy table is waited for, read-only, and the file installs on its one attempt'
 
 printf -- '-- Fixture: a window migration whose table stays busy past the bounded wait.\n-- @install-window: daily-maintenance\nBEGIN;\nALTER TABLE public.hand_history ADD COLUMN window_fixture_never_quiet integer;\nCOMMIT;\n' \
-  > "$QUIET/supabase/migrations/20991231000014_window_fixture_never_quiet.sql"
+  > "$QUIET/supabase/migrations/20991231000016_window_fixture_never_quiet.sql"
 su_sql 'SELECT public.fixture_open_window(240)' >/dev/null
 hold_hand_history 60
 t0=$(date +%s%N)
@@ -507,7 +507,7 @@ grep -q 'no quiet moment on public.hand_history (AccessExclusiveLock) within 120
 grep -q 'Held by: public.hand_history AccessShareLock' <<<"$out" || fail "never-quiet holder not named: $out"
 grep -q 'holders of public.hand_history after the refusal: public.hand_history AccessShareLock' <<<"$out" \
   || fail "refusal holder not named: $out"
-[ "$(grep -c '^\[apply\] 20991231000014' <<<"$out")" = 1 ] || fail 'never-quiet file was not sent exactly once'
+[ "$(grep -c '^\[apply\] 20991231000016' <<<"$out")" = 1 ] || fail 'never-quiet file was not sent exactly once'
 [ "$ms" -lt 30000 ] || fail "never-quiet run took ${ms} ms"
 [ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_never_quiet'")" = 0 ] \
   || fail 'never-quiet column was committed'
