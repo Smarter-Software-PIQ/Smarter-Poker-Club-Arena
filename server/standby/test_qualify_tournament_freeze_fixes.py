@@ -14,6 +14,24 @@ spec.loader.exec_module(qualification)
 
 
 class QualificationAdmission(unittest.TestCase):
+    def test_postgres_build_resolves_the_running_image_by_repository_digest_and_platform(self):
+        image = 'sha256:' + 'a' * 64
+        reference = 'public.ecr.aws/supabase/postgres@sha256:' + 'b' * 64
+        with patch.object(qualification, 'run', side_effect=[
+                f'{image} linux/amd64 {json.dumps([reference])}', f'{image} linux/amd64']) as inspect:
+            self.assertEqual(qualification.postgres_build_base(image), (reference, 'linux/amd64'))
+            self.assertEqual(inspect.call_args.args[0][-1], reference)
+        for digests, resolved in [([image], None), (['postgres:17'], None), ([], None),
+                                  ([reference], f'{image} linux/arm64'),
+                                  ([reference], 'sha256:' + 'c' * 64 + ' linux/amd64')]:
+            responses = [f'{image} linux/amd64 {json.dumps(digests)}']
+            if resolved:
+                responses.append(resolved)
+            with self.subTest(digests=digests, resolved=resolved), patch.object(
+                    qualification, 'run', side_effect=responses):
+                with self.assertRaisesRegex(RuntimeError, 'no immutable repository digest'):
+                    qualification.postgres_build_base(image)
+
     def test_running_label_cannot_substitute_for_health_identity(self):
         sha = 'a' * 40
         with patch.object(qualification, 'run', side_effect=['', '10.1.0.0/16', '', json.dumps([{'Config': {'Labels': {'com.smarterpoker.standby.sha': sha}}}])]), \

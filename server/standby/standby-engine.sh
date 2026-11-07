@@ -393,9 +393,18 @@ cmd_certify() {
   [ "$sv" = "$sha" ] || record "serving_sha_mismatch:${sv:-none}"
 
   # The 4 AM cutover rehearsed: the live serving release swaps to this one.
-  local serving; serving=$(curl -fsS -m 10 https://engine.smarter.poker/health 2>/dev/null | health_field releaseSha)
-  if [ "$verdict" = pass ] && [[ "$serving" =~ ^[0-9a-f]{40}$ ]] && [ "$serving" != "$sha" ] && declare -F trial_swap >/dev/null; then
-    trial_swap "$serving" "$sha" >/dev/null || record "swap_rehearsal_failed_from_${serving:0:12}"
+  local serving
+  if [ "$verdict" = pass ]; then
+    if ! serving=$(curl -fsS -m 10 https://engine.smarter.poker/health | health_field releaseSha) \
+       || ! [[ "$serving" =~ ^[0-9a-f]{40}$ ]]; then
+      record 'serving_baseline_unknown'
+    elif [ "$serving" != "$sha" ]; then
+      if declare -F trial_swap >/dev/null; then
+        trial_swap "$serving" "$sha" >/dev/null || record "swap_rehearsal_failed_from_${serving:0:12}"
+      else
+        record 'swap_rehearsal_unavailable'
+      fi
+    fi
   fi
   # An unexpected PID1 exit must recover through Docker's installed policy.
   # docker kill/stop is an intentional operator stop and suppresses that policy.
