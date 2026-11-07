@@ -123,11 +123,13 @@ describe('the tab X asks on its own table', () => {
     const mt = read('src/pages/MultiTablePage.tsx');
     const i = mt.indexOf('if (handsOwedAt(tabId) !== null) {');
     expect(i).toBeGreaterThan(0);
-    const block = mt.slice(i, i + 500);
+    // The owed branch runs before the last-table lobby branch, and ends at it.
+    const end = mt.indexOf('if (remaining.length === 0) {', i);
+    expect(end).toBeGreaterThan(i);
+    const block = mt.slice(i, end);
     expect(block).toContain('setActiveIndex(idx)');
     expect(block).toContain("action: 'FORCE_LEAVE_TABLE'");
     expect(block).toContain('break;');
-    expect(i).toBeLessThan(mt.indexOf('if (remaining.length === 0) {', i - 2000));
     expect(read('src/pages/TablePage.tsx')).toContain('noteHandsOwedAt(');
   });
 });
