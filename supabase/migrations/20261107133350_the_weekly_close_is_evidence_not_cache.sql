@@ -211,9 +211,15 @@ BEGIN
   COMMENT ON FUNCTION public.sp_prune_ca_settlements(integer, integer) IS
     'Batched retention prune for ca_settlements, which had no prune at all and was growing ~430 MB/day forever. Deletes only settlement_type = ''hand_stacks'' rows in state = ''final'' older than p_retain_days (default 30). NEVER deletes any other settlement type - a union_rakeback_close is the permanent evidence a weekly close paid, and deleting one froze the weekly accounting cascade for a week in September 2026 (see the migration that added this clause). NEVER deletes ''failed'' rows - those are evidence of the 7.7% settlement failure rate - and never a row still walking its state machine. Runs outside the settlement transaction and skips the maintenance freeze.';
 
-  REVOKE ALL ON FUNCTION public.sp_prune_ca_settlements(integer, integer) FROM PUBLIC;
-  REVOKE ALL ON FUNCTION public.sp_prune_ca_settlements(integer, integer) FROM anon;
-  REVOKE ALL ON FUNCTION public.sp_prune_ca_settlements(integer, integer) FROM authenticated;
+  -- One statement, every grantee named. A function is created with EXECUTE to
+  -- PUBLIC and anon is a member of PUBLIC, so a revoke that names anon without
+  -- naming PUBLIC reads correctly and changes nothing - the bug that cost PR
+  -- #4872 a day and is now law in
+  -- tests/a-revoke-from-anon-must-name-public.law.test.ts. Revoking PUBLIC on
+  -- its own line first was already correct here; writing the grantees together
+  -- keeps it correct statement by statement, which is what the law reads.
+  REVOKE ALL ON FUNCTION public.sp_prune_ca_settlements(integer, integer)
+    FROM PUBLIC, anon, authenticated;
   GRANT EXECUTE ON FUNCTION public.sp_prune_ca_settlements(integer, integer) TO service_role;
 
   -- ------------------------------------------------------------------ --
