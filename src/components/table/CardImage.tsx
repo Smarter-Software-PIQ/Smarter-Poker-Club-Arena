@@ -8,7 +8,8 @@
  * - 2-Color: Hearts/Diamonds (Red), Clubs/Spades (Black)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useSyncExternalStore } from 'react';
+import { decodedCardImageUrl, subscribeCardImages } from '../../utils/deckWarmer';
 import { MEDIA_BASE } from '../../utils/mediaBase';
 import { useDeckStyle } from '../../hooks/useDeckStyle';
 import './CardImage.css';
@@ -245,6 +246,12 @@ export function CardImage({
       ? normalizeFaceDeckId(tableFaceDeckId)
       : undefined;
   const imagePath = getCardImagePath(card, effectiveDeckStyle);
+  const preparedImagePath = useSyncExternalStore(
+    subscribeCardImages,
+    () => (imagePath === null ? '' : decodedCardImageUrl(imagePath)),
+    () => imagePath ?? ''
+  );
+  const localFaceReady = preparedImagePath.startsWith('blob:');
   const sizeClass = SIZE_CLASSES[size];
   /* `null` means the card could not be read at all. See getCardImagePath:
      showing a guessed card here would be worse than showing nothing. */
@@ -261,7 +268,7 @@ export function CardImage({
   useEffect(() => {
     setFallbackStep(0);
     setRetryCount(0);
-  }, [imagePath]);
+  }, [imagePath, preparedImagePath]);
   useEffect(() => {
     if (fallbackStep < 2 || retryCount >= 3 || imagePath === null) return;
     const timer = setTimeout(() => {
@@ -270,16 +277,22 @@ export function CardImage({
     }, 400);
     return () => clearTimeout(timer);
   }, [fallbackStep, retryCount, imagePath]);
-  const imgError = fallbackStep >= 2;
+  const imgError = fallbackStep >= 2 && !localFaceReady;
   // AUDIT 2026-08-25: this read `fallbackStep === 1 ? png : webp`, so at step 2
   // - the give-up state - the src flipped BACK to the .webp that had already
   // 404'd. The <img> is still mounted (hidden with display:none so the box keeps
   // its size), so the browser re-requested a URL known to be dead every time the
   // fallback rendered. Once we have moved past the WebP it never comes back.
   const baseEffectivePath =
-    imagePath === null ? '' : fallbackStep >= 1 ? imagePath.replace(/\.webp$/, '.png') : imagePath;
+    imagePath === null
+      ? ''
+      : localFaceReady
+        ? preparedImagePath
+        : fallbackStep >= 1
+          ? imagePath.replace(/\.webp$/, '.png')
+          : decodedCardImageUrl(imagePath);
   const effectivePath =
-    baseEffectivePath && retryCount > 0 && !imgError
+    baseEffectivePath && !localFaceReady && retryCount > 0 && !imgError
       ? `${baseEffectivePath}?r=${retryCount}`
       : baseEffectivePath;
 
