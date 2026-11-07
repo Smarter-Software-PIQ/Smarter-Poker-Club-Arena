@@ -80,6 +80,12 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
             event_id=f'30000000-0000-4000-8000-{i:012d}'
             insert_event(event_id,event['id'])
             assert sql("SELECT to_jsonb(t) @> fn_ca_midway_weekly_terms(t.schedule_id) FROM tournaments t WHERE id='"+event_id+"'")=='t',event['name']
+        # A whitespace-only JSON ladder difference preserves the accepted row
+        # and its claim instead of entering the refund/cancellation authority.
+        sql("UPDATE tournaments SET start_time='2026-11-10 01:00:00+00',blind_structure=jsonb_pretty(blind_structure::jsonb) WHERE id='22222222-2222-4222-8222-222222222222'")
+        sql("INSERT INTO tournament_schedule_spawns VALUES('matching-claim','22222222-2222-4222-8222-222222222222')")
+        assert 'already_matches' in sql("SELECT fn_ca_install_midway_weekly_occurrence('22222222-2222-4222-8222-222222222222')")
+        assert sql("SELECT spawn_key FROM tournament_schedule_spawns WHERE tournament_id='22222222-2222-4222-8222-222222222222'")=='matching-claim'
         sql("INSERT INTO tables VALUES(gen_random_uuid(),'22222222-2222-4222-8222-222222222222',25,50,0,'25/50')")
         assert sql('SELECT stakes FROM tables')=='50/100'
         insert_event('44444444-4444-4444-8444-444444444444',club='99999999-9999-4999-8999-999999999999',schedule_id='99999999-9999-4999-8999-999999999998')

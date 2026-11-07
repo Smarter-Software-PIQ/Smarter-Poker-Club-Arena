@@ -404,7 +404,8 @@ BEGIN
    AND extract(dow from t.start_time AT TIME ZONE 'America/Chicago')::integer=ANY(s.days_of_week)
    AND to_char(t.start_time AT TIME ZONE 'America/Chicago','HH24:MI')=ANY(s.start_times_utc)
  ORDER BY (s.id=t.schedule_id) DESC LIMIT 1;
- IF desired IS NOT NULL AND to_jsonb(t) @> desired THEN RETURN jsonb_build_object('action','already_matches','tournament_id',t.id); END IF;
+ IF desired IS NOT NULL AND (to_jsonb(t)-'blind_structure') @> (desired-'blind_structure')
+     AND t.blind_structure::jsonb = (desired->>'blind_structure')::jsonb THEN RETURN jsonb_build_object('action','already_matches','tournament_id',t.id); END IF;
  receipt:=public.atomic_cancel_tournament(t.id,NULL);
  IF coalesce((receipt->>'fully_settled')::boolean,false) IS NOT TRUE THEN RAISE EXCEPTION 'Exact cancellation did not settle: %',receipt; END IF;
  -- Release only the cancelled event's own claim, in its refund transaction.
