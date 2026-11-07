@@ -145,16 +145,19 @@ describe('MTT schedule upgrade', () => {
       late_reg_mins: 0,
       blind_structure: JSON.stringify(Array.from({ length: 10 }, () => ({ durationMinutes: 8 }))),
     });
-    expect(tournamentClockLine(e, now)?.text).toBe('Late Reg Ends In 75:30');
+    // 80 minutes of level clock from 17:55:30 crosses the 18:55 synchronized
+    // break (mtt-v1 takes it), which stops the clock ~10 minutes (measured
+    // 2026-11-07, see lateRegCountdown.ts): 19:25:30, 85:30 from 18:00.
+    expect(tournamentClockLine(e, now)?.text).toBe('Late Reg Ends In 85:30');
     expect(tournamentClockLine({ ...e, raw: { ...e.raw, started_at: null } }, now)).toBeNull();
     /* Re-pinned 2026-11-06. Dan: "FIX IT SO IT ALWAYS SHOWS THE COUNT DOWN".
        A later level with no stamp yet is estimated from the actual start plus
        the levels already played, instead of blanking the card. */
     expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: 1 } }, now)?.text).toBe(
-      'Late Reg Ends In 75:30'
+      'Late Reg Ends In 85:30'
     );
     expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: null } }, now)?.text).toBe(
-      'Late Reg Ends In 75:30'
+      'Late Reg Ends In 85:30'
     );
   });
   it('shows no live countdown for terminal events or missing start clocks', () => {
