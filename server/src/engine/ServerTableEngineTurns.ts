@@ -1,3 +1,4 @@
+import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { horseFeatureAcceptanceUsable } from './HorseFeatureAuthority.js';
 import { recheckHorsePhase8GuardBeforeAcceptance } from './HorsePhase8GuardAcceptance.js';
 import { liveHorsePhase8GuardAuthority } from './HorseTournamentCatastropheGuardAuthority.js';
@@ -4006,6 +4007,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     if (!handControllerRef) return;
     const state = handControllerRef.getState();
     const tournamentHand = this.isTournamentTable();
+    const originalMemoryBlinds = handControllerRef.getBlindSnapshot();
     // refreshBlinds may already describe the next level while this controller
     // still plays the dealt hand. Preserve the existing cash input contract.
     const handBlinds = tournamentHand
@@ -4160,6 +4162,11 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       // tiers, and rake-aware pot odds all switch on the real game mode.
       gameMode: this.isTournamentTable() ? ('tournament' as const) : ('cash' as const),
       ante: handBlinds.ante,
+      publicMemoryDomain: publicMemoryDomainFromRules(
+        'table',
+        originalMemoryBlinds.ante,
+        originalMemoryBlinds.bigBlindAnte
+      ),
       // Which ante STYLE — the brain's M depends on what an orbit costs, and
       // a big blind ante costs the table one ante per orbit, not one each.
       bigBlindAnte: handBlinds.bigBlindAnte,

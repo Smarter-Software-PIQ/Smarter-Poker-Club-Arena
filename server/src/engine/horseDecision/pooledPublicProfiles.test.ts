@@ -388,3 +388,58 @@ it('keeps Pineapple herd notes distinct from NLH before the first decision', () 
   expect(pool.read(request(other, 'cash', 'pineapple'))?.rows[0]?.variant).toBe('pineapple');
   expect(pool.read(request(other))).toBeNull();
 });
+
+describe('exact public rule domains', () => {
+  const tableDomain = { version: 1, speed: 'table', ante: 'none' } as const;
+  const lightningDomain = { version: 1, speed: 'lightning', ante: 'none' } as const;
+  function exactRequest(
+    domain:
+      | typeof tableDomain
+      | typeof lightningDomain
+      | { version: 1; speed: 'table'; ante: 'big_blind' }
+  ) {
+    const r = request();
+    r.gameState.publicMemoryDomain = domain;
+    return r;
+  }
+  function exactCompletion() {
+    const h = shared();
+    h.publicMemoryDomain = tableDomain;
+    h.observerParticipants!.contexts = [
+      horseObserverReadContextFromRequest(exactRequest(tableDomain))!,
+    ];
+    h.durableOpponentProfiles![0]!.public_memory_domain = tableDomain;
+    return h;
+  }
+  it('isolates speed and ante, preserving the original decision cutoff', () => {
+    const pool = new PooledPublicProfiles(() => 100);
+    expect(pool.observe(exactCompletion())).toBe(1);
+    expect(pool.read(exactRequest(tableDomain))?.rows).toHaveLength(1);
+    expect(pool.read(exactRequest(lightningDomain))).toBeNull();
+    expect(pool.read(exactRequest({ version: 1, speed: 'table', ante: 'big_blind' }))).toBeNull();
+    const old = exactRequest(tableDomain);
+    old.decisionTimeMs = 99;
+    expect(pool.read(old)).toBeNull();
+  });
+  it('never relabels legacy profiles as exact-domain rows', () => {
+    const pool = new PooledPublicProfiles(() => 100);
+    expect(pool.observe(shared())).toBe(1);
+    expect(pool.read(request())?.rows).toHaveLength(1);
+    expect(pool.read(exactRequest(tableDomain))).toBeNull();
+    const unknown = exactRequest(tableDomain);
+    unknown.gameState.publicMemoryDomain = null;
+    expect(pool.read(unknown)).toBeNull();
+  });
+  it('refuses v2 observation when accepted original rules are absent or mismatched', () => {
+    for (const domain of [undefined, lightningDomain]) {
+      const h = exactCompletion();
+      h.publicMemoryDomain = domain;
+      expect(new PooledPublicProfiles(() => 100).observe(h)).toBe(0);
+    }
+  });
+  it('requires matching profile context, not merely caller original routing', () => {
+    const h = exactCompletion();
+    h.durableOpponentProfiles![0]!.public_memory_domain = lightningDomain;
+    expect(new PooledPublicProfiles(() => 100).observe(h)).toBe(0);
+  });
+});

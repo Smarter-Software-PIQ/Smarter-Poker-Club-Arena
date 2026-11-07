@@ -296,6 +296,7 @@ function harness(intendedActionAccepted: boolean) {
     resumeFromWeeklyPayout: (owner: string) => controllerPause.release(owner),
     isParkedForWeeklyPayout: (owner: string) => controllerPause.stable(owner),
     getState: () => state,
+    getBlindSnapshot: () => ({ smallBlind: 1, bigBlind: 2, ante: 0, bigBlindAnte: false }),
     getAuthoritativeActionState: () => ({
       schemaVersion: 1,
       heroSeat: 1,

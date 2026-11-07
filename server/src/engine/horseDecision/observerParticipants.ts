@@ -1,3 +1,4 @@
+import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
 import {
   anchorHorseDecisionHand,
   horseCompletedHandKey,
@@ -20,7 +21,12 @@ export interface HorseObserverParticipants {
   contexts: HorseObserverReadContext[];
 }
 const signature = (c: HorseObserverReadContext) =>
-  JSON.stringify([c.variant, c.format, c.dealtCount]);
+  JSON.stringify([
+    c.variant,
+    c.format,
+    c.dealtCount,
+    ...(c.version === 2 ? [publicMemoryDomainKey(c.publicMemoryDomain)] : []),
+  ]);
 export function observerParticipantsBind(
   value: unknown,
   hand: CompletedHandObservation
@@ -43,6 +49,12 @@ export function observerParticipantsBind(
   let scope: string | undefined;
   for (const context of v.contexts) {
     if (!horseObserverReadContextIsValid(context) || ids.has(context.observerId)) return false;
+    if (
+      context.version === 2 &&
+      publicMemoryDomainKey(context.publicMemoryDomain) !==
+        publicMemoryDomainKey(hand.publicMemoryDomain)
+    )
+      return false;
     const sig = signature(context);
     if (scope !== undefined && scope !== sig) return false;
     ids.add(context.observerId);

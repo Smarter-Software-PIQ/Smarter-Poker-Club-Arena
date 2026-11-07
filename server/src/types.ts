@@ -1088,6 +1088,8 @@ export interface HorseDecision {
 export type BotDecision = HorseDecision;
 
 export interface HorseGameState {
+  /** Explicit original producer public rules; null means unavailable, absent is legacy. */
+  publicMemoryDomain?: import('./engine/HorsePublicMemoryDomain.js').HorsePublicMemoryDomain | null;
   players: SeatPlayer[];
   communityCards: Card[];
   /**

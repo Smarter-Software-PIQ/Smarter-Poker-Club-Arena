@@ -1,3 +1,8 @@
+import {
+  publicMemoryDomainIsValid,
+  publicMemoryDomainKey,
+  type HorsePublicMemoryDomain,
+} from './HorsePublicMemoryDomain.js';
 import type { LiveHorseDecisionSnapshot } from './horseDecision/protocol.js';
 const VARIANTS = [
   'nlh',
@@ -18,7 +23,8 @@ const memoryVariant = (value: unknown): ObserverVariant | null =>
 
 /** An individual observer's public-read partition. Unknown stays unavailable. */
 export interface HorseObserverReadContext {
-  readonly version: 1;
+  readonly version: 1 | 2;
+  readonly publicMemoryDomain?: HorsePublicMemoryDomain;
   readonly observerId: string;
   readonly variant: ObserverVariant;
   readonly format: 'cash' | 'mtt' | 'sng' | 'spin' | 'hu_sng';
@@ -29,10 +35,11 @@ export function horseObserverReadContextIsValid(value: unknown): value is HorseO
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const v = value as Record<string, unknown>;
   const keys = ['version', 'observerId', 'variant', 'format', 'dealtCount'];
+  if (v.version === 2) keys.push('publicMemoryDomain');
   return (
     Object.keys(v).length === keys.length &&
     keys.every((k) => Object.hasOwn(v, k)) &&
-    v.version === 1 &&
+    (v.version === 1 || (v.version === 2 && publicMemoryDomainIsValid(v.publicMemoryDomain))) &&
     typeof v.observerId === 'string' &&
     UUID.test(v.observerId) &&
     typeof v.variant === 'string' &&
@@ -51,6 +58,7 @@ export function horseObserverReadContextKey(value: unknown): string | null {
     value.variant,
     value.format,
     value.dealtCount,
+    ...(value.version === 2 ? [publicMemoryDomainKey(value.publicMemoryDomain)] : []),
   ]);
 }
 export function horseObserverReadContextFromRequest(
@@ -76,8 +84,13 @@ export function horseObserverReadContextFromRequest(
     (gs.format === 'cash' ? gs.gameMode !== 'cash' : gs.gameMode !== 'tournament')
   )
     return null;
+  if (Object.hasOwn(gs, 'publicMemoryDomain') && !publicMemoryDomainIsValid(gs.publicMemoryDomain))
+    return null;
   const value = {
-    version: 1,
+    version: publicMemoryDomainIsValid(gs.publicMemoryDomain) ? 2 : 1,
+    ...(publicMemoryDomainIsValid(gs.publicMemoryDomain)
+      ? { publicMemoryDomain: gs.publicMemoryDomain }
+      : {}),
     observerId: player.user_id?.toLowerCase(),
     variant,
     format: gs.format,

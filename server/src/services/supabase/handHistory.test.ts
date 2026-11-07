@@ -396,6 +396,25 @@ describe('confirmed original hand lane rollback', () => {
 });
 
 describe('logHandHistory - worker-owned completed-hand observation', () => {
+  it.each([
+    undefined,
+    null,
+    { version: 1 as const, speed: 'table' as const, ante: 'big_blind' as const },
+  ])(
+    'retains original public rules or explicit unknown without blocking acceptance: %j',
+    async (publicMemoryDomain) => {
+      acceptAtomicHand();
+      await logHandHistory({ ...identityParams(), publicMemoryDomain });
+      const row = rpcCalls[0].args.p_hand_row as Record<string, unknown>;
+      if (publicMemoryDomain) expect(row.public_memory_domain).toEqual(publicMemoryDomain);
+      else expect(row).not.toHaveProperty('public_memory_domain');
+      expect(mockObserveCompletedHand).toHaveBeenCalled();
+      expect(
+        (mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation).publicMemoryDomain
+      ).toEqual(publicMemoryDomain);
+    }
+  );
+
   it('preserves forced-post and return provenance in the accepted JSON and observation without changing money or order', async () => {
     const input = identityParams();
     const userId = input.actions[1].userId;

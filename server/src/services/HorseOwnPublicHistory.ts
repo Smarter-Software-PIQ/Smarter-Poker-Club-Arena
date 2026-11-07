@@ -39,7 +39,8 @@ export async function readHorseOwnPublicHistory(
   context: HorseObserverReadContext,
   report?: HorseHistoryLoadReporter
 ): Promise<unknown> {
-  if (!horseObserverReadContextIsValid(context)) return null;
+  // The installed v1 reader has no per-hand original speed/ante provenance.
+  if (!horseObserverReadContextIsValid(context) || context.version !== 1) return null;
   // A diagnostic callback cannot change the read result or introduce an error.
   const failed: HorseHistoryLoadReporter = (reason) => {
     try {

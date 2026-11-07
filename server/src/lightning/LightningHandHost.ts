@@ -1,3 +1,4 @@
+import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 import { recheckHorseFeaturesBeforeAcceptance } from '../engine/HorseFeatureAuthority.js';
 import { recheckHorseQualifiedBeforeAcceptance } from '../engine/HorseQualifiedAcceptance.js';
 
@@ -2914,6 +2915,12 @@ export class LightningHandHost {
       >[0]['perPotAwards'],
     });
     return {
+      horse_exploit_dealt_count: participants.length,
+      public_memory_domain: publicMemoryDomainFromRules(
+        'lightning',
+        this.hc?.getBlindSnapshot().ante,
+        this.hc?.getBlindSnapshot().bigBlindAnte
+      ),
       table_id: this.hostTableId,
       tournament_id: null,
       hand_number: this.handNumber,
@@ -3059,6 +3066,11 @@ export class LightningHandHost {
         handNumber: this.handNumber,
         leaseGeneration,
         handHistoryId,
+        publicMemoryDomain: publicMemoryDomainFromRules(
+          'lightning',
+          this.hc?.getBlindSnapshot().ante,
+          this.hc?.getBlindSnapshot().bigBlindAnte
+        ),
         variant: String(rules.game_variant || 'nlh'),
         bigBlind: Number(rules.big_blind) || 2,
         dealtCount: state.players.length,

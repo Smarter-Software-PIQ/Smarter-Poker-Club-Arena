@@ -12,6 +12,7 @@ import { KillPotSchedule } from './KillPot.ts';
 import { handRecordsDailyMissionEvents } from './dailyMissionEvents.ts';
 import { publicHandStatsFrame } from './presentation/publicHandStats.ts';
 import { PostHandStageTiming } from './PostHandStageTiming.ts';
+import { publicMemoryDomainIsValid, publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.ts';
 const readCurrent = (file) => fs.readFileSync(resolve(process.cwd(), 'src', file), 'utf8');
 const base = readCurrent('engine/ServerTableEngineBase.ts'),
   settlement = readCurrent('engine/ServerTableEngineSettlement.ts');
@@ -97,6 +98,8 @@ function harness(sequence, { rootB = false, onSleep, onRpc, retainSequence } = {
     handRecordsDailyMissionEvents,
     publicHandStatsFrame,
     PostHandStageTiming,
+    publicMemoryDomainIsValid,
+    publicMemoryDomainFromRules,
     handStackBefore,
     requireHandSeatGeneration,
     describeError: (e) => e?.message ?? String(e),
@@ -476,4 +479,28 @@ test('4453 diagnostic guard and final unproved-hand fence remain in current cand
     s.indexOf('ServerTableEngineBase.isRolledBackSerializationRefusal(err)') <
       s.indexOf("const semantic = message.includes('atomic hand commit refused')")
   );
+});
+
+
+test('original public rule domain is retained before a retry and never recaptured', async () => {
+  const blinds = { smallBlind: 1, bigBlind: 2, ante: 2, bigBlindAnte: true };
+  const h = harness([rollback(), accepted()], {
+    rootB: true,
+    onSleep: () => { blinds.ante = 0; blinds.bigBlindAnte = false; },
+  });
+  h.p.handController = { getBlindSnapshot: () => ({ ...blinds }) };
+  await h.run();
+  assert.equal(h.retainedRequests.length, 1);
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(h.retainedRequests[0].p_hand_row.public_memory_domain,
+    { version: 1, speed: 'table', ante: 'big_blind' });
+  assert.deepEqual(h.calls[0], h.calls[1]);
+});
+
+test('missing original controller rules preserve legacy accepted payload without inventing a domain', async () => {
+  const h = harness([accepted()], { rootB: true });
+  await h.run();
+  assert.equal(h.retainedRequests.length, 1);
+  assert.equal(Object.hasOwn(h.retainedRequests[0].p_hand_row, 'public_memory_domain'), false);
+  assert.equal(h.calls.length, 1);
 });

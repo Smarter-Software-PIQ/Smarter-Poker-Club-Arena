@@ -1,3 +1,4 @@
+import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { isMaximumHorseCashStake } from '../services/HorseBehavior.js';
 import { PostHandStageTiming } from './PostHandStageTiming.js';
 import { readCommittedSeatStacks } from './committedSeatStackRead.js';
@@ -1906,7 +1907,15 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
        first await can yield, and read ONLY the snapshot from here down. The
        Maps/arrays are copied shallowly: settlement only reads them, and
        nothing else mutates their elements after HAND_COMPLETE. */
+    const originalMemoryBlinds = this.handController?.getBlindSnapshot?.();
     const snap = {
+      publicMemoryDomain: originalMemoryBlinds
+        ? publicMemoryDomainFromRules(
+            'table',
+            originalMemoryBlinds.ante,
+            originalMemoryBlinds.bigBlindAnte
+          )
+        : null,
       handNumber: this.handCount,
       allInRunoutWitness: this.handController?.getAllInRunoutWitness?.() ?? null,
       variant: this.currentHandVariant,
@@ -2706,6 +2715,7 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         const commitAuthoritativeHand = () =>
           logHandHistory({
             tableId: this.tableId,
+            publicMemoryDomain: snap.publicMemoryDomain,
             handId: v_handId,
             seatGenerations: snap.seatGenerations,
             bombAwardUnits,
