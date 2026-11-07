@@ -89,7 +89,10 @@ describe('P12.2 Phase 12 policy digest', () => {
     // 35: conditional river position evidence is learned by HorseMind.
     // 37: exact-context river reads add their public parser and canonical pot arithmetic.
     // 39: the closure includes both original public domains and continuation-plan invalidation.
-    expect(closure).toHaveLength(39);
+    // 40 since 2026-11-07: HorseMind reads the fast call-down river window (HorseFastCalldownRead).
+    expect(closure).toHaveLength(40);
+    expect(closure).toContain('src/engine/HorseFastCalldownRead.ts');
+    expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseFastCalldownRead.ts');
     expect(closure).toContain('src/engine/HorsePublicMemoryDomain.ts');
     expect(closure).toContain('src/engine/HorseContinuationPlanInvalidation.ts');
     expect(closure).toContain('src/engine/HorseMultiwayRiverRead.ts');
