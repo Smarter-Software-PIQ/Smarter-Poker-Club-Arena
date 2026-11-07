@@ -340,6 +340,7 @@ import {
   captureV31ReplayState,
   decideV31Certified,
   type V31CertifiedInput,
+  type V31DemandSpot,
   type V31ReplayState,
 } from './HorseV31CertifiedPolicy.js';
 // The release gate's execution-match rule lives with the V31 consult; kept
@@ -2132,6 +2133,12 @@ export interface HorseDecideOpts {
    * make exactly the same decisions.
    */
   onV31ReplayState?: (state: V31ReplayState) => void;
+  /**
+   * Offline R8 density pre-flight hook (GtoV31DensityPreflight.ts). Never set
+   * by the live engine. Receives every spot the certified playbook is asked
+   * about, even with no playbook loaded; the decision is unchanged.
+   */
+  onV31Demand?: (spot: V31DemandSpot) => void;
   /** ENABLE V32: facing-a-bet defence from the solver's own betting range.
    *  DEFAULT OFF since 2026-10-16: v32_facing_defense (heads-up NLH)
    *  measured -0.31 +/- 0.15 bb/100 over 41 nightly league runs. League arm
