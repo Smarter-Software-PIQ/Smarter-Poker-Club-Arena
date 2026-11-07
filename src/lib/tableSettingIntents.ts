@@ -55,6 +55,22 @@ export function beginTableSettingIntent(
   return id;
 }
 
+/** Bind only this fresh intent to the initial read that was already in flight at the gesture. */
+export function bindInitialTableSettingRevision(
+  userId: string,
+  column: string,
+  id: string,
+  revision: number
+): void {
+  const intent = readTableSettingIntent(userId, column);
+  if (intent?.id !== id || intent.base !== null) return;
+  try {
+    localStorage.setItem(key(userId, column), JSON.stringify({ ...intent, base: revision }));
+  } catch {
+    // An unavailable journal keeps the normal revision-checked save path.
+  }
+}
+
 export function confirmTableSettingIntent(userId: string, column: string, id: string): void {
   if (readTableSettingIntent(userId, column)?.id !== id) return;
   try {

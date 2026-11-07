@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   error: null as unknown,
   read: null as Promise<any> | null,
   revision: 0,
+  bases: [] as unknown[],
 }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
@@ -28,13 +29,16 @@ vi.mock('../../src/lib/supabase', () => ({
       const user = useUserStore.getState().user?.id;
       if (fn !== 'fn_save_page_preferences') return { data: null, error: { message: fn } };
       const c = args.p_changes[0];
+      state.bases.push(c.base);
       state.writes.push({ user_id: user, preference_key: c.field, value: c.value });
       if (state.error) return { data: null, error: state.error };
       state.revision += 1;
       return {
         data: {
           ok: true,
-          results: [{ field: c.field, status: 'applied', revision: state.revision, value: c.value }],
+          results: [
+            { field: c.field, status: 'applied', revision: state.revision, value: c.value },
+          ],
         },
         error: null,
       };
@@ -45,11 +49,13 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 import { useUserStore } from '../../src/stores/useUserStore';
 import { usePlayerPreference } from '../../src/hooks/usePlayerPreference';
 import { readTableSettingIntent } from '../../src/lib/tableSettingIntents';
+import { notePagePreferenceRevision } from '../../src/lib/pagePreferenceSave';
 const wrapper = ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>;
 beforeEach(() => {
   localStorage.clear();
   state.row = null;
   state.writes = [];
+  state.bases = [];
   state.error = null;
   state.read = null;
   useUserStore.setState({ user: { id: 'preference-a' } as any });
@@ -309,4 +315,54 @@ it('resumes the same failed notification save on reconnect without remounting', 
     readTableSettingIntent('preference-a', 'page:NotificationsPage:reconnect-filter:global')
   ).toBeNull();
   view.unmount();
+});
+
+it('keeps an explicit Simple selection when the initial Advanced preference arrives late', async () => {
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'club'), {
+    wrapper,
+  });
+  await act(async () => {});
+  expect(view.result.current[0]).toBe(true);
+  act(() => view.result.current[1](true));
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  expect(state.writes).toEqual([]);
+  await act(async () => resolveRead({ data: { value: false, revision: 7 }, error: null }));
+  expect(view.result.current[0]).toBe(true);
+  await waitFor(() => expect(state.bases).toEqual([7]));
+  view.unmount();
+  await waitFor(() => expect(state.writes.map((row) => row.value)).toEqual([true]));
+});
+
+it('hydrates Advanced without a gesture and skips a repeated choice after hydration', async () => {
+  state.row = { value: false };
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'hydrated'), {
+    wrapper,
+  });
+  await waitFor(() => expect(view.result.current[0]).toBe(false));
+  act(() => view.result.current[1](false));
+  view.unmount();
+  await act(async () => {});
+  expect(state.writes).toEqual([]);
+});
+
+it('keeps a previously observed revision when Simple is selected during hydration', async () => {
+  notePagePreferenceRevision('preference-a', 'roster:simpleMode:known', 3);
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'known'), {
+    wrapper,
+  });
+  await act(async () => {});
+  act(() => view.result.current[1](true));
+  await act(async () => resolveRead({ data: { value: false, revision: 7 }, error: null }));
+  view.unmount();
+  await waitFor(() => expect(state.bases).toEqual([3]));
 });
