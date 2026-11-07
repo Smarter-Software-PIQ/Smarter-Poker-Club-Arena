@@ -13,6 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { sliceStatement } from './helpers/sourceWindow';
 import {
   HAND_COMPLETION as H,
   handCompletionHoldMs,
@@ -42,9 +43,9 @@ describe('the next deal follows the pushed pot', () => {
   });
 
   it('the client ships after the sweep and the display beat, from the shared spec', () => {
-    const at = table.indexOf('let shipDelayMs =');
-    expect(at).toBeGreaterThan(0);
-    const block = table.slice(at, at + 700);
+    expect(table).toContain('let shipDelayMs =');
+    const block =
+      sliceStatement(table, 'let shipDelayMs =') + sliceStatement(table, 'shipDelayMs +=');
     expect(block).toContain('HAND_COMPLETION.BETS_SWEEP_MS * getAnimationSpeed()');
     expect(block).toContain('showdownDisplayBeatMs(');
     expect(block).toContain('allInShowdown: handShowdownRef.current.allIn');
