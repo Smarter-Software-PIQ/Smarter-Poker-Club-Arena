@@ -64,6 +64,25 @@ and no round can ever open for it again.
   `promote` (including load-only re-binds) requires the certifying engine or
   a passed round; the serving closure is still proven closed and recorded.
 
+- **Baseline**: a re-check reproduces the certification's incumbent exactly
+  (`gtoV31RecheckIncumbent`). Re-checking the ACTIVE playbook never loads
+  the live store, which would hold the playbook itself and make every table
+  a meaningless tie.
+
+## Evidence on real cells
+
+R7's 107 sealed public-hist215 cells (read from production, read-only)
+went through the recording pass in an evaluator worker thread, as the
+evaluator runs, at 500 pairs per table over all 19 v3 tables:
+
+- 299 certified decisions were recorded.
+- All 299 replayed to exactly the recorded decision; none was unfaithful.
+- The digest was identical after the gzip store round trip.
+- The stored corpus was 38 KB.
+
+(R7 is a v2 dataset and is never anchored; this is evidence for the replay
+path only.)
+
 ## Tests
 
 - `GtoV31ReplayDigest.test.ts` (10) records through the real
