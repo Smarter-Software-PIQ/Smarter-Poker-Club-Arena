@@ -22,7 +22,7 @@ const horses = Array.from({ length: 400 }, (_, i) => `horse-${i}`);
 
 describe('the pure choice', () => {
   it('only ever answers an open chair, and null when none is open', () => {
-    for (const h of horses.slice(0, 100)) {
+    for (const h of horses.filter((_, i) => i % 4 === 0)) {
       const occupied = new Set([2, 5, 7]);
       const open = [1, 3, 4, 6, 8, 9];
       const seat = chooseHorseSeat({
@@ -113,7 +113,7 @@ describe('the pure choice', () => {
 
   it('two arrivals at an empty table usually sit apart (spread), sometimes beside', () => {
     let adjacent = 0;
-    for (const h of horses.slice(0, 200)) {
+    for (const h of horses.filter((_, i) => i % 2 === 0)) {
       const picker = horseSeatPicker({ tableId: 'spread', moment: 3, maxSeats: 9, occupied: [] });
       const a = picker.take(h)!;
       const b = picker.take(`${h}-second`)!;
