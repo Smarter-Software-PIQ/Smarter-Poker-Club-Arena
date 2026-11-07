@@ -589,7 +589,8 @@ $function$;
 SELECT pg_temp.v31_patch('public.fn_gto_v31_promote_dataset_epoch(uuid,text,text)'::regprocedure, ARRAY[
 $a$
   UPDATE public.gto_v31_evaluation_epochs
-     SET promoted_at=now(), promoted_serving_commit=p_serving_commit$a$,
+     SET promoted_at=now(), promoted_serving_commit=p_serving_commit
+   WHERE epoch_id=v_epoch.epoch_id;$a$,
 $b$
   -- Strict re-check (2026-11-06): a contract v3 playbook carries the anchor
   -- its certifying engine recorded, and is promoted onto a different serving
@@ -606,7 +607,8 @@ $b$
   END IF;
 
   UPDATE public.gto_v31_evaluation_epochs
-     SET promoted_at=now(), promoted_serving_commit=p_serving_commit$b$],
+     SET promoted_at=now(), promoted_serving_commit=p_serving_commit
+   WHERE epoch_id=v_epoch.epoch_id;$b$],
 '99e715108dc74232c1089b9e5c15c5dc');
 
 SELECT pg_temp.v31_patch('public.fn_gto_v31_bind_serving(uuid,text,text,text,text,text)'::regprocedure, ARRAY[
