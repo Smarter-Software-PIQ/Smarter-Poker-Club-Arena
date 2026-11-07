@@ -36,10 +36,14 @@ const EVENT = id(1);
 const BREAK = id(2);
 const SOURCE = id(3);
 const DESTINATION = id(4);
+// Eight players for seven tickets: inside the bubble margin, so the boundary
+// stays held through the two-phase park this law is about (2026-11-07: a
+// field more than one player above its tickets is released on the first
+// read instead, see aBoundaryTheAuthorityDoesNotNeedIsNotHeld.law.test.ts).
 const CONTINUING = {
   state: 'continuing',
   fullTicketCount: 7,
-  qualifierIds: [id(11), id(12), id(13), id(14), id(15), id(16), id(17), id(18), id(19)],
+  qualifierIds: [id(11), id(12), id(13), id(14), id(15), id(16), id(17), id(18)],
 };
 
 function engine(running: boolean) {

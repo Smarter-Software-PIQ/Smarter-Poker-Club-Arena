@@ -84,11 +84,13 @@ describe('a satellite that has busted nobody is not asked again under the whole 
     rpc.read.mockResolvedValue(continuing(15, 8));
     await m.checkSatelliteQualifierCompletion();
     m.holdSatelliteQualifierBoundary();
-    // While the boundary is held, every sweep asks.
+    // While the boundary is held at its tickets, every sweep asks. (Nine for
+    // eight: inside the bubble margin. 2026-11-07: an unresolved answer far
+    // from the tickets releases the boundary instead.)
     rpc.read.mockResolvedValue({
       state: 'unresolved',
       fullTicketCount: 8,
-      qualifierIds: field(14),
+      qualifierIds: field(9),
     });
     expect(await m.checkSatelliteQualifierCompletion()).toBe('pending');
     expect(rpc.read).toHaveBeenCalledTimes(2);

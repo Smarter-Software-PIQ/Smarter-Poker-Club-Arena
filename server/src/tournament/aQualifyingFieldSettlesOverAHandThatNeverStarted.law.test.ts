@@ -128,25 +128,34 @@ describe('a qualifying field over a retained original that never started', () =>
 });
 
 describe('an entry-open field over a retained original that never started', () => {
-  it('releases the original boundary after the second authoritative read without settlement', async () => {
+  /*
+   * 2026-11-07: an entry-open answer lifts the boundary on the FIRST read,
+   * before any table is asked to park (satelliteBoundaryIsUnneeded). The
+   * held original is released with every other dealer; there is no second
+   * read for a field the authority says cannot be decided yet.
+   */
+  it('releases the original boundary on the first authoritative read without settlement', async () => {
     const held = table({ parks: false, heldOriginal: true });
     const { m, parked } = heldBoundary(held);
     rpc.read.mockResolvedValue({ state: 'entry_open' });
     expect(await m.checkSatelliteQualifierCompletion()).toBe('continue');
-    expect(rpc.read).toHaveBeenCalledTimes(2);
+    expect(rpc.read).toHaveBeenCalledTimes(1);
     expect(m.satelliteQualifierBoundaryPending).toBe(false);
     expect(held.releaseTerminalCloseoutPause).toHaveBeenCalledTimes(1);
     expect(parked.releaseTerminalCloseoutPause).toHaveBeenCalledTimes(1);
     expect(m.advanceHandForHandBarrier).toHaveBeenCalledTimes(1);
     expect(rpc.settle).not.toHaveBeenCalled();
     expect(m.tournamentFinished).toBe(false);
+    // No table was asked to park for a boundary the authority does not need.
+    expect(held.parkForTerminalCloseout).not.toHaveBeenCalled();
+    expect(parked.parkForTerminalCloseout).not.toHaveBeenCalled();
   });
 
-  it('keeps the boundary when the original loses its unstarted gate during the second read', async () => {
+  it('a boundary held again during the read is kept for its own generation', async () => {
     const held = table({ parks: false, heldOriginal: true });
     const { m, parked } = heldBoundary(held);
-    rpc.read.mockResolvedValueOnce({ state: 'entry_open' }).mockImplementationOnce(async () => {
-      held.state.held = false;
+    rpc.read.mockImplementationOnce(async () => {
+      m.satelliteQualifierBoundaryGeneration += 1;
       return { state: 'entry_open' };
     });
     expect(await m.checkSatelliteQualifierCompletion()).toBe('pending');
@@ -156,12 +165,14 @@ describe('an entry-open field over a retained original that never started', () =
     expect(rpc.settle).not.toHaveBeenCalled();
   });
 
-  it('keeps the boundary if the second authoritative read becomes unresolved', async () => {
+  it('an unresolved answer at the tickets keeps the boundary', async () => {
     const held = table({ parks: false, heldOriginal: true });
     const { m, parked } = heldBoundary(held);
-    rpc.read
-      .mockResolvedValueOnce({ state: 'entry_open' })
-      .mockResolvedValueOnce({ state: 'unresolved' });
+    rpc.read.mockResolvedValue({
+      state: 'unresolved',
+      fullTicketCount: 8,
+      qualifierIds: Array.from({ length: 9 }, (_, i) => id(100 + i)),
+    });
     expect(await m.checkSatelliteQualifierCompletion()).toBe('pending');
     expect(m.satelliteQualifierBoundaryPending).toBe(true);
     expect(held.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
