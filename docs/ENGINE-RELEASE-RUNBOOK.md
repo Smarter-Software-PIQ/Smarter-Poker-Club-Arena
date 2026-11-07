@@ -124,7 +124,17 @@ Engine shard N/4` jobs and the accounting job joined by `Server Engine
    with the shell tokens removed, because the exported `GH_TOKEN` can push but
    is refused `mergePullRequest`:
    `env -u GH_TOKEN -u GITHUB_TOKEN gh pr merge <n> --squash --match-head-commit <sha>`.
-   The repository is `Smarter-Software-PIQ/Smarter-Poker-Club-Arena`.
+   The repository is `Smarter-Software-PIQ/Smarter-Poker-Club-Arena`. The
+   autopilot opens a PR for every pushed branch; find it with
+   `gh pr list --head <branch>` and replace its body rather than opening a
+   second one. Two Mac-only refusals and their causes (2026-11-07): a hook
+   that fails `fatal: this operation must be run in a work tree` in tests that
+   pass elsewhere means the canonical clone `~/Documents/club-arena/.git/config`
+   has `core.bare = true` again (repair: `git -C ~/Documents/club-arena config
+--local core.bare false`, as `scripts/prune-stale-worktrees.sh` prints); and
+   a pre-push run whose heavy suites die without a failure line is the machine
+   under other lanes' load (`uptime` load above 20): rerun the push, do not
+   weaken the test.
 8. **After the merge, record two run ids.** The push to main starts
    `stage-engine-release.yml` (job `detect` says whether a release is owed; the
    `signal` job sends nothing outside the 03:30-03:50 window) and, for a
@@ -233,6 +243,17 @@ prints `SUPERSEDED` to the job summary. Manual, nightly and post-seal runs are
 never superseded; an unreadable GitHub answer proceeds (CLAUDE.md 10.86).
 Fixed 2026-11-07 (#9906) after the post-seal refresh waited about 4.5 h behind
 stale certifications.
+
+A `cancelled` Backup run is a different thing and is not explained by this
+repository: nothing in `.github/` cancels `backup-engine.yml` (the only
+canceller, `scripts/ci/retire-superseded-pr-ci.mjs`, acts on `ci.yml` runs of
+pull requests), and `concurrency: backup-engine` with `cancel-in-progress:
+false` queues rather than cancels. Several push runs were found `cancelled` on
+2026-11-07 with no actor in the run's log. Treat one as "no verdict": the
+commit has no certificate, the selector walks past it, and
+`gh run view <id> --json conclusion,event,triggering_actor` plus the run's
+annotations are where to look before re-running it by hand (3.5). Do not
+write a retry loop for it (CLAUDE.md 10.12).
 
 ### 3.7 What a refused certificate means
 
@@ -429,9 +450,11 @@ shortens a safeguard.
    version. Keep it to DDL in one transaction; no own override, no freeze
    bypass, no longer timeouts, no sleeps, no advisory locks, no CONCURRENTLY
    preamble (`scripts/ci/maintenance-window-migrations.mjs` `validateWindowMigration`).
-   A `-- @locks:` declaration that names the relations and modes the file takes,
-   with installer ordering by it, is landing 2026-11-07 in another lane; verify
-   it exists on main before writing one.
+   A file whose lock is on a hot relation also names it on one header line,
+   `-- @locks: public.clubs, public.tables`: the installer sends undeclared
+   files first, then declared files grouped by shared relation, and a refusal
+   names the relation it lost (#9953, `docs/changelog/2026-11-07-a-window-migration-names-the-lock-it-needs.md`).
+   An unparseable `@locks` value is refused before the run waits.
 2. **Queue.** Merge through the protected PR. `apply-merged-migration.yml`
    refuses the file as QUEUED (nothing sent). Queued means on main and not in
    `schema_migrations`; there is no queue table.
@@ -511,21 +534,21 @@ timestamp, `dealableTableCount`, `stalledTableCount`, the leader heartbeat age
 
 ## 8. Read-only tools
 
-| Question                                         | Command                                                                                                                                                                                                                |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| What is serving right now?                       | `curl -fsS https://engine.smarter.poker/health \| jq '{releaseSha,instanceId,liveness,maintenance}'`                                                                                                                   |
-| Is this SHA certified?                           | `gh api repos/$repo/commits/<sha>/statuses?per_page=100 --jq '[.[]\|select(.context=="backup-engine/certified")][0]'`                                                                                                  |
-| Which SHA would tonight offer?                   | Walk `gh api "repos/$repo/commits?sha=main&per_page=60" --jq '.[].sha'` and take the first with `success` (what `stage-engine-release.yml` step `certified` does)                                                      |
-| Did today's preparation run, and who owned it?   | `gh run list --workflow stage-engine-release.yml -L 10`, then `gh run view <id> --log \| grep "Daily preparation"`                                                                                                     |
-| What did the receiver do?                        | `gh run view <id> --json jobs --jq '.jobs[]\|{name,conclusion}'`; `gh run view <id> --log-failed`                                                                                                                      |
-| Why did a job fail when the log host is blocked? | Run the same `gh` command in the host terminal (`AGENT-PLAYBOOK.md`); a log you could not read is UNKNOWN                                                                                                              |
-| Which window files are queued?                   | `grep -l "@install-window: daily-maintenance" supabase/migrations/*.sql`, minus versions present in `schema_migrations` (read through `execute_sql`)                                                                   |
-| Is a migration installed?                        | `SELECT version, name FROM supabase_migrations.schema_migrations WHERE version = '<v>'` through `execute_sql` (never `list_migrations`, section 2 rule 8)                                                              |
-| Is the platform frozen right now?                | `SELECT public.fn_platform_frozen()` and `SELECT * FROM public.engine_maintenance_break` through `execute_sql`                                                                                                         |
-| What is the PR's real check state?               | `node scripts/ci/pr-status.mjs <n>` (exit 3 UNKNOWN)                                                                                                                                                                   |
-| Which checks will my tree trigger?               | `node scripts/ci/execution-preview.mjs --working-tree`                                                                                                                                                                 |
-| Is my clone current?                             | `bash scripts/check-checkout-freshness.sh`                                                                                                                                                                             |
-| Evening read-only release plan                   | `node scripts/ops/release-plan.mjs` (pending on main) and workflow `evening-release-plan.yml` (pending on main) at 20:00 Chicago: landing 2026-11-07 in another lane; verify both exist on main before relying on them |
+| Question                                         | Command                                                                                                                                                                                                                          |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What is serving right now?                       | `curl -fsS https://engine.smarter.poker/health \| jq '{releaseSha,instanceId,liveness,maintenance}'`                                                                                                                             |
+| Is this SHA certified?                           | `gh api repos/$repo/commits/<sha>/statuses?per_page=100 --jq '[.[]\|select(.context=="backup-engine/certified")][0]'`                                                                                                            |
+| Which SHA would tonight offer?                   | Walk `gh api "repos/$repo/commits?sha=main&per_page=60" --jq '.[].sha'` and take the first with `success` (what `stage-engine-release.yml` step `certified` does)                                                                |
+| Did today's preparation run, and who owned it?   | `gh run list --workflow stage-engine-release.yml -L 10`, then `gh run view <id> --log \| grep "Daily preparation"`                                                                                                               |
+| What did the receiver do?                        | `gh run view <id> --json jobs --jq '.jobs[]\|{name,conclusion}'`; `gh run view <id> --log-failed`                                                                                                                                |
+| Why did a job fail when the log host is blocked? | Run the same `gh` command in the host terminal (`AGENT-PLAYBOOK.md`); a log you could not read is UNKNOWN                                                                                                                        |
+| Which window files are queued?                   | `grep -l "@install-window: daily-maintenance" supabase/migrations/*.sql`, minus versions present in `schema_migrations` (read through `execute_sql`)                                                                             |
+| Is a migration installed?                        | `SELECT version, name FROM supabase_migrations.schema_migrations WHERE version = '<v>'` through `execute_sql` (never `list_migrations`, section 2 rule 8)                                                                        |
+| Is the platform frozen right now?                | `SELECT public.fn_platform_frozen()` and `SELECT * FROM public.engine_maintenance_break` through `execute_sql`                                                                                                                   |
+| What is the PR's real check state?               | `node scripts/ci/pr-status.mjs <n>` (exit 3 UNKNOWN)                                                                                                                                                                             |
+| Which checks will my tree trigger?               | `node scripts/ci/execution-preview.mjs --working-tree`                                                                                                                                                                           |
+| Is my clone current?                             | `bash scripts/check-checkout-freshness.sh`                                                                                                                                                                                       |
+| What will tonight's 04:00 do, and why?           | `node scripts/ops/release-plan.mjs --summary` (exit 0 READY/NOTHING_OWED, 1 NOT_READY, 3 UNKNOWN); `evening-release-plan.yml` runs it at 20:00 Chicago and on dispatch, read-only, and goes red for NOT_READY or UNKNOWN (#9958) |
 
 The owner and token facts behind these commands: the repository is under
 `Smarter-Software-PIQ`; the exported `GH_TOKEN` reads and pushes but cannot
