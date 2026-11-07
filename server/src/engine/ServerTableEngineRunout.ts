@@ -355,7 +355,8 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
   protected override killForRestart(
     reason: string,
     notifyOwner = true,
-    recoveryEventClass?: EngineRecoveryEventClass
+    recoveryEventClass?: EngineRecoveryEventClass,
+    recoveryDetail = reason
   ): void {
     const activeController = this.activeHandWaitRelease?.controller;
     if (activeController) {
@@ -369,7 +370,7 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         );
       }
     }
-    super.killForRestart(reason, notifyOwner, recoveryEventClass);
+    super.killForRestart(reason, notifyOwner, recoveryEventClass, recoveryDetail);
   }
 
   /**

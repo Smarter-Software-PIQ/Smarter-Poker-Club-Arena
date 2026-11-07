@@ -132,6 +132,14 @@ export const HAND_CONTINUATION_RETRY_DELAYS_MS: readonly number[] = Object.freez
 type Sleep = (ms: number) => Promise<void>;
 const sleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Only this producer can attach a durable reason. Errors from controllers,
+// private payload encoding or event dispatch may contain arbitrary data.
+const writeRefusals = new WeakMap<Error, string>();
+
+export function handContinuationWriteRefusal(error: unknown): string | undefined {
+  return error instanceof Error ? writeRefusals.get(error) : undefined;
+}
+
 /**
  * One original write. Unknown acknowledgement retains this same sequence: a
  * transient failure repeats the byte-identical call (same sequence, payload
@@ -162,7 +170,11 @@ export async function retainHandContinuation(
   // object/message, receipt values or private capsule as diagnostic context.
   // Keep the original refusal and retry classification: SQLSTATE is text here,
   // not Error.code/cause, which would change the dealer's transient policy.
-  const unproven = (reason: string) => new Error(`Hand Continuation Write Is Unproven [${reason}]`);
+  const unproven = (reason: string) => {
+    const error = new Error(`Hand Continuation Write Is Unproven [${reason}]`);
+    writeRefusals.set(error, reason);
+    return error;
+  };
   const RPC = 'fn_f06_retain_hand_continuation';
   for (let attempt = 0; ; attempt++) {
     if (attempt > 0) {
