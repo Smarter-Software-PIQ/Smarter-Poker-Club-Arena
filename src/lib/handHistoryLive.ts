@@ -25,6 +25,7 @@
 
 export const HAND_HISTORY_PAGE = 50;
 import { publicOrigin } from './appBase';
+import { normalizeInviteCode } from './inviteCode';
 /** A list older than this refetches on open, in case an event was missed. */
 export const HAND_HISTORY_STALE_MS = 5 * 60_000;
 
@@ -105,9 +106,18 @@ const APP_BASE = '/hub/club-arena';
  * never fall back to the recipient's own records. `encoded` is
  * `encodeHand(...)` of the hand as the sender sees it.
  */
-export function handShareLink(encoded: string, origin?: string): string {
+export function handShareLink(
+  encoded: string,
+  origin?: string,
+  inviteCode?: string | null
+): string {
   const o = origin ?? publicOrigin();
-  return `${o}${APP_BASE}/replay?h=${encoded}`;
+  /* `i` rides BESIDE the payload, never inside it: the hand codec and every
+     link already sent are untouched, and a replay that ignores it still opens
+     the hand. It is the sender's own Share & Invite code (useSenderInviteCode),
+     which the replay offers a signed-out viewer as Create Account. */
+  const invite = normalizeInviteCode(inviteCode ?? null);
+  return `${o}${APP_BASE}/replay?h=${encoded}${invite ? `&i=${invite}` : ''}`;
 }
 
 export function handDeepLink(handId: string, origin?: string): string {

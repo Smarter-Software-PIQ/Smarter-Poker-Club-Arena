@@ -15,6 +15,7 @@ import { haptic } from '../../services/SoundService';
 import { CardImage, type Card } from '../table/CardImage';
 import './ShareHand.css';
 import { reportError } from '../../utils/errorReporter';
+import { normalizeInviteCode } from '../../lib/inviteCode';
 import { openInBrowser } from '../../lib/openExternal';
 import ShareAsVideoPanel from './ShareAsVideoPanel';
 
@@ -219,6 +220,13 @@ export interface ShareHandProps {
    * clip is rendered from the stored row and there is nothing to ask for.
    */
   handId?: string | null;
+  /**
+   * The sender's own Share & Invite code (useSenderInviteCode in the caller),
+   * carried beside the hand as `&i=` so the replay can offer a signed-out
+   * viewer Create Account through the sender's referral. Kept a prop so this
+   * file, which also holds the hand codec, never loads a client.
+   */
+  inviteCode?: string | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -727,6 +735,7 @@ export function ShareHand({
   baseUrl = 'https://smarter.poker/hub/club-arena/replay',
   clubName = 'Smarter Poker',
   handId = null,
+  inviteCode = null,
 }: ShareHandProps) {
   const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [copied, setCopied] = useState(false);
@@ -746,8 +755,9 @@ export function ShareHand({
   // Generate shareable URL
   const shareUrl = useMemo(() => {
     const encoded = encodeHand(hand);
-    return `${baseUrl}?h=${encoded}`;
-  }, [hand, baseUrl]);
+    const invite = normalizeInviteCode(inviteCode);
+    return `${baseUrl}?h=${encoded}${invite ? `&i=${invite}` : ''}`;
+  }, [hand, baseUrl, inviteCode]);
 
   // Social share text
   const shareText = useMemo(() => {

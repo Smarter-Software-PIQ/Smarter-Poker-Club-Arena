@@ -23,11 +23,11 @@
 import { supabase } from '../lib/supabase';
 import { publicOrigin } from '../lib/appBase';
 import { toWebPath } from '../lib/signIn';
+import { normalizeInviteCode } from '../lib/inviteCode';
 
 export const CLUB_INVITE_STORAGE_KEY = 'sp-club-invite';
 export const DEVICE_ID_STORAGE_KEY = 'sp-device-id';
 export const CLUB_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const CODE_RE = /^[A-HJ-NP-Z2-9]{7}$/;
 
 export interface InviteLink {
   code: string;
@@ -72,11 +72,7 @@ export interface ClaimResult {
   joinPath?: string | null;
 }
 
-export function normalizeInviteCode(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const v = value.trim().toUpperCase();
-  return CODE_RE.test(v) ? v : null;
-}
+export { normalizeInviteCode };
 
 /** The text that travels with the link in the OS share sheet, signed with the alias. */
 export function inviteShareText(

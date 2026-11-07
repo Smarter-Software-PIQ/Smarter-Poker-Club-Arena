@@ -70,6 +70,15 @@
   text-decoration: underline;
 }
 
+.shared-replay__join {
+  margin-top: 22px;
+}
+
+.shared-replay__join-body {
+  margin: 0;
+  text-align: center;
+}
+
 .shared-replay__footer {
   margin-top: 22px;
   text-align: center;

@@ -38,6 +38,25 @@ test.describe("A shared hand link opens the sender's hand", () => {
     await expect(page.locator('body')).not.toContainText('Yours');
   });
 
+  test.describe('a signed-out viewer', () => {
+    // A fresh context: no stored session, as a friend opening the link has.
+    test.use({ storageState: { cookies: [], origins: [] } });
+
+    test("is offered Create Account through the sender's invite code", async ({ page }) => {
+      await page.goto(`replay?h=${PAYLOAD}&i=HSTAAAA`, { waitUntil: 'domcontentloaded' });
+      await expect(page.getByText('Hand #56019216')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText('Mongo Invited You')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Create Account' })).toHaveAttribute(
+        'href',
+        '/i/HSTAAAA'
+      );
+      await expect(page.getByRole('link', { name: 'Sign In' })).toHaveAttribute(
+        'href',
+        /^\/auth\/login\?redirect=/
+      );
+    });
+  });
+
   test.describe('an old archive link to a hand the viewer was not dealt into', () => {
     test.skip(
       !process.env.SP_EMAIL || !process.env.SP_PASS,
@@ -53,6 +72,7 @@ test.describe("A shared hand link opens the sender's hand", () => {
         timeout: 30_000,
       });
       await expect(page.getByRole('button', { name: 'Show My Hands' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Ask For A Share Link' })).toBeVisible();
       await expect(page.locator('.hands-list')).toHaveCount(0);
       await expect(page.locator('.hh-summary')).toHaveCount(0);
       await expect(page.locator('.load-more-btn')).toHaveCount(0);

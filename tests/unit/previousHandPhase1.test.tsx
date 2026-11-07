@@ -142,7 +142,8 @@ describe('the deep link', () => {
     // hand (RLS). Copied and sent to a friend it opened HIS OWN history.
     const modal = read('src/components/table/HandDetailModal.tsx');
     expect(modal).not.toContain('handDeepLink(');
-    expect(modal).toContain('handShareLink(encodeHand(panelHandToShareable(');
+    expect(modal).toMatch(/handShareLink\(\s*encodeHand\(panelHandToShareable\(/);
+    expect(modal).toContain('senderInvite');
     const page = read('src/pages/HandHistoryPage.tsx');
     expect(page).toContain("const linkedHandId = searchParams.get('hand');");
     expect(page).toContain('handHistoryService.getHand(linkedHandId)');
@@ -340,10 +341,78 @@ describe('the surfaces', () => {
     expect(String(decoded?.handNumber)).toBe('7');
   });
 
+  describe('on a phone, Link opens the share sheet', () => {
+    const coarse = (on: boolean) =>
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: (q: string) => ({ matches: on && q === '(pointer: coarse)' }),
+      });
+    afterEach(() => {
+      coarse(false);
+      Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
+    });
+
+    it('hands the sheet the replay link and copies nothing', async () => {
+      coarse(true);
+      const share = vi.fn(() => Promise.resolve());
+      const writeText = vi.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      render(<HandDetailModal isOpen onClose={() => {}} hands={[record()]} heroId={HERO} />);
+      fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
+      await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+      const arg = (share.mock.calls[0] as unknown as [{ url: string; title: string }])[0];
+      expect(arg.url).toContain('/hub/club-arena/replay?h=');
+      expect(arg.title).toBe('Hand #7');
+      expect(writeText).not.toHaveBeenCalled();
+      await screen.findByText('Sent');
+    });
+
+    it('dismissing the sheet copies nothing behind it', async () => {
+      coarse(true);
+      const abort = Object.assign(new Error('dismissed'), { name: 'AbortError' });
+      const share = vi.fn(() => Promise.reject(abort));
+      const writeText = vi.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      render(<HandDetailModal isOpen onClose={() => {}} hands={[record()]} heroId={HERO} />);
+      fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
+      await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+      await Promise.resolve();
+      expect(writeText).not.toHaveBeenCalled();
+    });
+
+    it('a sheet that refuses for another reason falls back to the copy', async () => {
+      coarse(true);
+      const share = vi.fn(() => Promise.reject(new Error('NotAllowedError')));
+      const writeText = vi.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      render(<HandDetailModal isOpen onClose={() => {}} hands={[record()]} heroId={HERO} />);
+      fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    });
+
+    it('a desktop with a share sheet still copies', async () => {
+      coarse(false);
+      const share = vi.fn(() => Promise.resolve());
+      const writeText = vi.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      render(<HandDetailModal isOpen onClose={() => {}} hands={[record()]} heroId={HERO} />);
+      fireEvent.click(screen.getByLabelText('Copy Link To This Hand'));
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(share).not.toHaveBeenCalled();
+    });
+  });
+
   it("a link to another player's hand opens on a note, never on the viewer's own list", () => {
     const page = read('src/pages/HandHistoryPage.tsx');
     expect(page).toContain('That Hand Belongs To Another Player');
-    expect(page).toContain("const showingForeignLink = !!linkedHandId && linkedState === 'missing';");
+    expect(page).toContain(
+      "const showingForeignLink = !!linkedHandId && linkedState === 'missing';"
+    );
     // The list, Load More, the summary strip and the header figures are all
     // the VIEWER's records: none of them may sit beside someone else's link.
     expect(page).toContain('{showingForeignLink ? null : (');

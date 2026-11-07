@@ -549,6 +549,7 @@ export interface TableModalsLayerProps {
 
 import React from 'react';
 import { useToast } from '../common/Toast';
+import { useSenderInviteCode } from '../../hooks/useSenderInviteCode';
 
 function TableModalsLayerImpl(props: TableModalsLayerProps) {
   const {
@@ -778,6 +779,9 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
   // club default -> published schedule). Only queried while the Game Rules
   // modal is open, since this layer is mounted for the whole session.
   const effectiveRake = useEffectiveRake(tableId, blinds, gameType, showGameRules);
+  /* The sender's Share & Invite code for this table's club, read while the
+     Share sheet is open so its link can credit them (useSenderInviteCode). */
+  const shareInvite = useSenderInviteCode(tableId, userId, !!(showShareHand && sharedHandData));
 
   /**
    * ─── LEAVE NOTICE: THROUGH THE TOAST LAYER (audit 2026-08-25) ─────────────
@@ -1375,6 +1379,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           onClose={onCloseShareHand}
           hand={sharedHandData}
           handId={sharedHandId}
+          inviteCode={shareInvite}
         />
       )}
 

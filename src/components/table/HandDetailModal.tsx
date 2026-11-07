@@ -76,6 +76,7 @@ import {
   stamp,
 } from '../../utils/handFormat';
 import { handShareLink } from '../../lib/handHistoryLive';
+import { useSenderInviteCode } from '../../hooks/useSenderInviteCode';
 import { panelHandToShareable } from '../../lib/handHistoryAdapter';
 import { encodeHand } from './ShareHand';
 import { reportError } from '../../utils/errorReporter';
@@ -607,6 +608,9 @@ export function HandDetailModal({
     return 0;
   }, [hands, subjectId]);
   const { hand, privateState, refresh } = useHandReviewDetails(hands[index], heroId, isOpen);
+  /* The sender's Share & Invite code, fetched while the hand is open so the
+     Link tap can hand the phone's share sheet a finished link at once. */
+  const senderInvite = useSenderInviteCode(hand?.tableId, heroId, isOpen);
   const total = hands.length;
   const displayPos = total - index;
 
@@ -727,7 +731,7 @@ export function HandDetailModal({
    * this hand for anyone who was in it. A transient "Copied" on the button
    * itself, so the modal needs no toast layer of its own.
    */
-  const [copied, setCopied] = useState<'number' | 'link' | null>(null);
+  const [copied, setCopied] = useState<'number' | 'link' | 'sent' | null>(null);
   /*
    * SHARED HAND LINKS OPEN THE SENDER'S HAND (2026-11-06). This button used to
    * copy the archive deep link (`/hand-history?hand=<id>`). A player pastes it
@@ -739,7 +743,11 @@ export function HandDetailModal({
    */
   const sendableHandLink = (h: HandRecord): string | null => {
     try {
-      return handShareLink(encodeHand(panelHandToShareable(h, h.tableName || 'Club Arena')));
+      return handShareLink(
+        encodeHand(panelHandToShareable(h, h.tableName || 'Club Arena')),
+        undefined,
+        senderInvite
+      );
     } catch (error) {
       reportError(error, 'HandDetailModal.sendableHandLink');
       return null;
@@ -772,6 +780,38 @@ export function HandDetailModal({
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     },
     []
+  );
+  /*
+   * ONE TAP FROM LINK TO MESSAGES (2026-11-06). On a phone the Link button
+   * opens the system share sheet with the finished link, so sending a hand is
+   * one tap instead of copy, switch apps, paste. Everywhere else (a desktop,
+   * or a phone browser with no share sheet) it copies, as before. Dismissing
+   * the sheet is a choice, not a failure: nothing is copied behind it. Any
+   * other refusal falls back to the copy so the tap is never lost.
+   */
+  const sendLink = useCallback(
+    async (h: HandRecord, link: string) => {
+      const phone =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(pointer: coarse)').matches;
+      if (phone && typeof navigator.share === 'function') {
+        try {
+          await navigator.share({
+            title: h.handNumber ? `Hand #${h.handNumber}` : 'Poker Hand',
+            url: link,
+          });
+          setCopied('sent');
+          if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+          copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
+          return;
+        } catch (error) {
+          if ((error as { name?: string } | null)?.name === 'AbortError') return;
+        }
+      }
+      await copyText('link', link);
+    },
+    [copyText]
   );
 
   const sheetStyle: React.CSSProperties | undefined = dragY
@@ -1129,10 +1169,10 @@ export function HandDetailModal({
               aria-label="Copy Link To This Hand"
               onClick={() => {
                 const link = sendableHandLink(hand);
-                if (link) void copyText('link', link);
+                if (link) void sendLink(hand, link);
               }}
             >
-              {copied === 'link' ? 'Copied' : 'Link'}
+              {copied === 'link' ? 'Copied' : copied === 'sent' ? 'Sent' : 'Link'}
             </button>
             <button
               type="button"
