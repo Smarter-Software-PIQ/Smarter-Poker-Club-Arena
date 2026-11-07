@@ -322,6 +322,63 @@ try:
     require(assigned.get("e1") == 90 and assigned.get("e2") == 100, "assigned club includes its Horse fee on both games")
     run(psql("live"), metric_fix, expect_fail="preimage changed")
 
+    # Exercise the installed screen's attribution rules before changing its caller.
+    screen_fixture = ROOT / "tests/fixtures/club-data-player-totals/screen-before.sql"
+    run(psql("live"), screen_fixture.read_text())
+    alignment = (M / "20261106074830_club_data_selectable_ranges_and_player_totals.sql").read_text()
+    run(psql("live"), alignment[alignment.index("DO $align$"):alignment.index("END $align$;") + len("END $align$;")])
+    snapshot_fix = (M / "20261107085253_club_snapshot_reuses_attributed_window_facts.sql").read_text()
+    aggregate = snapshot_fix[snapshot_fix.index("WITH scoped_games AS"):snapshot_fix.index(" INTO v_cur,v_prev;")]
+    for parameter, literal in {"v_start": "DATE '2026-10-18'", "v_pstart": "DATE '2026-10-17'",
+                               "v_end": "DATE '2026-10-18'", "p_club_id": f"'{kings}'::uuid"}.items():
+        aggregate = aggregate.replace(parameter, literal)
+    plan = json.loads(q("live", "EXPLAIN (FORMAT JSON) " + aggregate))
+    require(json.dumps(plan).count('"Subplan Name": "CTE scoped_games"') == 1,
+            "native planner builds the attributed per-game aggregate once for both windows")
+    print("Native fixture aggregate estimated cost:", plan[0]["Plan"]["Total Cost"], flush=True)
+
+    # The second window has a completed MTT, signed fee, and its own cash
+    # result on the same table. The first already includes a running MTT and felt-only table.
+    finished = "00000000-0000-0000-0000-0000000000e5"
+    q("live", f"""INSERT INTO tournaments(id,club_id,name,tournament_type,status,start_time)
+                  VALUES ('{finished}','{kings}','Finished MTT','MTT','COMPLETED','2026-10-17');
+                  INSERT INTO ca_club_data_fact_ct(club_id,stat_date,kind,game_id,user_id,fee,winnings)
+                  VALUES ('{kings}','2026-10-17','TOURNAMENT','{finished}','{owner}',-3.25,9.75),
+                         ('{kings}','2026-10-17','CASH','00000000-0000-0000-0000-0000000000e3','{owner}',1,2);""")
+    cases = [(kings, "2026-10-18", "ALL"), (kings, "2026-10-17", "ALL"),
+             (kings, "2026-10-15", "ALL"), (J, "2026-10-18", "ALL"),
+             (ordinary, "2026-10-18", "ALL"), (kings, "2026-10-18", "MTT")]
+    # A single transaction keeps generated dates and live-seat activity identical.
+    select = " UNION ALL ".join(
+        f"SELECT {i} AS id, public.ca_club_data_snapshot_v2('{club}','{day}','{day}','{game}','ALL',NULL,50) AS payload"
+        for i, (club, day, game) in enumerate(cases))
+    # Refuse discarded screen construction in this transaction only. The old
+    # snapshot must enter it; the new attributed snapshot must return without it.
+    screen_sig = "public.ca_club_data_screen(uuid,date,date,text,text,text,integer)"
+    guard = f"""BEGIN; SELECT set_config('test.uid','{owner}',true);
+        DO $$ BEGIN EXECUTE replace(pg_get_functiondef('{screen_sig}'::regprocedure),
+          'IF v_scope IS NULL THEN', 'RAISE EXCEPTION ''discarded screen constructed''; IF v_scope IS NULL THEN');
+        END $$;
+        SELECT public.ca_club_data_snapshot_v2('{kings}','2026-10-18','2026-10-18'); ROLLBACK;"""
+    run(psql("live"), guard, expect_fail="discarded screen constructed")
+    body = snapshot_fix.removesuffix("COMMIT;\n").replace("BEGIN;","",1)
+    receipts = q("live", f"""BEGIN;
+        SELECT set_config('test.uid','{owner}',true);
+        CREATE TEMP TABLE reference AS {select};
+        {body}
+        SELECT bool_and(r.payload = candidate.payload) FROM reference r JOIN ({select}) candidate USING(id);
+        SELECT payload->'summary', payload->'previous' FROM reference WHERE id=0;
+        COMMIT;""").splitlines()
+    require(receipts[-2] == "t", "entire snapshot including rows, hand totals and deltas matches for both windows and fallback paths")
+    current, previous = map(json.loads, receipts[-1].split("|"))
+    require(current["running_mtt_fee"] == -4 and current["running_mtt_entries"] == -10 and
+            current["games"] == 3 and current["on_felt"] == 12 and current["live_games"] == 2 and
+            previous["mtt_fee"] == -3.25 and previous["mtt_winnings"] == 9.75 and previous["games"] == 2,
+            "signed running and finished MTTs, shared cash table, felt-only seat and Horse attribution reconcile")
+    run(psql("live"), guard)
+    print("PASS: the snapshot entered the discarded screen before installation and bypasses it after", flush=True)
+    run(psql("live"), snapshot_fix, expect_fail="preimage changed")
+
 finally:
     if started:
         run([PG / "pg_ctl", "-D", data, "-m", "fast", "-w", "stop"])
