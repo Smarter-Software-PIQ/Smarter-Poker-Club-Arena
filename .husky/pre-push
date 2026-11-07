@@ -177,35 +177,6 @@ if [ "$(uname -s)" = Darwin ]; then
       fi
       ;;
   esac
-  # BASH (2026-11-06). macOS ships bash 3.2; CI and engine-01 run bash 5.
-  # This runs before the Node step below, so Node 22 still ends up first.
-  # The release shell tests spawn `bash` from PATH, so on this Mac they ran
-  # the host transaction under 3.2, where an empty array under `set -u` is an
-  # unbound-variable error, and refused a change production would have run
-  # fine (#9630). When a bash 4 or newer is installed, the checks below get it
-  # first on PATH through a private directory that holds only that one link,
-  # so no other tool's resolution moves.
-  for CA_BASH in ${CA_BASH_CANDIDATES:-/opt/homebrew/bin/bash /usr/local/bin/bash}; do
-    [ -x "$CA_BASH" ] || continue
-    if [ "$("$CA_BASH" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)" -ge 4 ]; then
-      # The one-link shim must use the same external scratch as the tests.
-      # Refuse an unavailable/internal directory rather than falling back to /tmp.
-      CA_TMP_DEVICE=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $1}')
-      CA_ROOT_DEVICE=$(df -P / 2>/dev/null | awk 'END {print $1}')
-      CA_TMP_MOUNT=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $NF}')
-      case "$CA_TMP_MOUNT" in /Volumes/*) ;; *) CA_TMP_DEVICE="" ;; esac
-      if [ ! -d "${TMPDIR:-}" ] || [ ! -w "$TMPDIR" ] || [ -z "$CA_TMP_DEVICE" ] || [ -z "$CA_ROOT_DEVICE" ] || [ "$CA_TMP_DEVICE" = "$CA_ROOT_DEVICE" ]; then
-        echo "[club-arena pre-push] external scratch unavailable for Bash checks." >&2
-        exit 1
-      fi
-      CA_BASH_DIR=$(mktemp -d "$TMPDIR/club-arena-pre-push-bash.XXXXXX") || exit 1
-      if ! ln -s "$CA_BASH" "$CA_BASH_DIR/bash"; then rmdir "$CA_BASH_DIR"; exit 1; fi
-      PATH="$CA_BASH_DIR:$PATH"
-      export PATH
-      echo "[club-arena pre-push] running the shell checks on $("$CA_BASH" -c 'echo bash $BASH_VERSION'), the major CI uses."
-      break
-    fi
-  done
   # PYTHON (2026-11-07). macOS ships python3 3.9; CI runs 3.11 or newer.
   # Three checks that pass in CI refused a push from this Mac for one reason:
   # the guards spawn `python3` from PATH, and on a non-interactive PATH that
@@ -241,12 +212,55 @@ if [ "$(uname -s)" = Darwin ]; then
       echo "  for example:  brew install python@3.13"
       exit 1
     fi
+    # The shim must live on the same external scratch the Bash shim uses, and
+    # this block runs before that one, so it makes the same refusal rather than
+    # placing a link on the boot drive and leaking it when the next check exits.
+    CA_PY_TMP_DEVICE=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $1}')
+    CA_PY_ROOT_DEVICE=$(df -P / 2>/dev/null | awk 'END {print $1}')
+    CA_PY_TMP_MOUNT=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $NF}')
+    case "$CA_PY_TMP_MOUNT" in /Volumes/*) ;; *) CA_PY_TMP_DEVICE="" ;; esac
+    if [ ! -d "${TMPDIR:-}" ] || [ ! -w "$TMPDIR" ] || [ -z "$CA_PY_TMP_DEVICE" ] || [ -z "$CA_PY_ROOT_DEVICE" ] || [ "$CA_PY_TMP_DEVICE" = "$CA_PY_ROOT_DEVICE" ]; then
+      echo "[club-arena pre-push] external scratch unavailable for the Python shim." >&2
+      exit 1
+    fi
     CA_PY_DIR=$(mktemp -d "$TMPDIR/club-arena-pre-push-python.XXXXXX") || exit 1
     if ! ln -s "$CA_PY" "$CA_PY_DIR/python3"; then rmdir "$CA_PY_DIR"; exit 1; fi
     PATH="$CA_PY_DIR:$PATH"
     export PATH
     echo "[club-arena pre-push] running the Python guards on $("$CA_PY" -V 2>&1), the 3.11-or-newer CI uses (this PATH had $CA_PY_WAS)."
   fi
+  # This runs BEFORE the Bash shim below so that the bash shim stays
+  # FIRST on PATH: tests/the-mac-push-runs-the-checks-like-ci.law.test.ts
+  # pins the first PATH entry to the bash shim directory.
+  # BASH (2026-11-06). macOS ships bash 3.2; CI and engine-01 run bash 5.
+  # This runs before the Node step below, so Node 22 still ends up first.
+  # The release shell tests spawn `bash` from PATH, so on this Mac they ran
+  # the host transaction under 3.2, where an empty array under `set -u` is an
+  # unbound-variable error, and refused a change production would have run
+  # fine (#9630). When a bash 4 or newer is installed, the checks below get it
+  # first on PATH through a private directory that holds only that one link,
+  # so no other tool's resolution moves.
+  for CA_BASH in ${CA_BASH_CANDIDATES:-/opt/homebrew/bin/bash /usr/local/bin/bash}; do
+    [ -x "$CA_BASH" ] || continue
+    if [ "$("$CA_BASH" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)" -ge 4 ]; then
+      # The one-link shim must use the same external scratch as the tests.
+      # Refuse an unavailable/internal directory rather than falling back to /tmp.
+      CA_TMP_DEVICE=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $1}')
+      CA_ROOT_DEVICE=$(df -P / 2>/dev/null | awk 'END {print $1}')
+      CA_TMP_MOUNT=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $NF}')
+      case "$CA_TMP_MOUNT" in /Volumes/*) ;; *) CA_TMP_DEVICE="" ;; esac
+      if [ ! -d "${TMPDIR:-}" ] || [ ! -w "$TMPDIR" ] || [ -z "$CA_TMP_DEVICE" ] || [ -z "$CA_ROOT_DEVICE" ] || [ "$CA_TMP_DEVICE" = "$CA_ROOT_DEVICE" ]; then
+        echo "[club-arena pre-push] external scratch unavailable for Bash checks." >&2
+        exit 1
+      fi
+      CA_BASH_DIR=$(mktemp -d "$TMPDIR/club-arena-pre-push-bash.XXXXXX") || exit 1
+      if ! ln -s "$CA_BASH" "$CA_BASH_DIR/bash"; then rmdir "$CA_BASH_DIR"; exit 1; fi
+      PATH="$CA_BASH_DIR:$PATH"
+      export PATH
+      echo "[club-arena pre-push] running the shell checks on $("$CA_BASH" -c 'echo bash $BASH_VERSION'), the major CI uses."
+      break
+    fi
+  done
   CA_NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
   if [ "$CA_NODE_MAJOR" != 22 ]; then
     # The newest nvm 22.x, compared by version number, not by path text.
@@ -289,6 +303,10 @@ policy_precheck_result() {
   if [ -n "${CA_BASH_DIR:-}" ]; then
     rm -f -- "$CA_BASH_DIR/bash"
     rmdir -- "$CA_BASH_DIR" || policy_exit=1
+  fi
+  if [ -n "${CA_PY_DIR:-}" ]; then
+    rm -f -- "$CA_PY_DIR/python3"
+    rmdir -- "$CA_PY_DIR" || policy_exit=1
   fi
   node "$CA_TREE_TOP/docs/agent-policy/agent-policy.mjs" hook-report "$POLICY_PRECHECK_STARTED" "$policy_exit" || policy_exit=1
   exit "$policy_exit"
