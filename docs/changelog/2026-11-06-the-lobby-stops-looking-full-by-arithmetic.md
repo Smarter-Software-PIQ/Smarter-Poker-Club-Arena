@@ -54,3 +54,15 @@ GAME, AND ZERO PLAYERS ON THE WAITING LIST. FIX THIS AT ONCE."
 
 Engine changes activate only at the 04:00 America/Chicago window (owner
 direction 2026-11-06). The migration and the lobby publish as soon as they merge.
+
+## Follow-up: the second table gets seated
+
+After #9799's migration went live, three games opened a second table within a
+minute (NLH 1/2, NLH 0.50/1, PLO4 0.25/0.50 Classic) and every one sat at 0
+players. The November 4 union cash plan (`horseUnionCashTableAllowed`) admits
+horses only at a game's Main 1 "to prevent the fleet multiplying a slot into
+feeders". `horseCashPlanSecondTables` now names ONE second table per game
+(a feeder or a Main 2) whose Main 1 horses may sit at, and that table inherits
+its Main 1's answer in the fleet's seating, offer and rotator paths. The tick
+still allows at most two tables, and forbidden variants and the stake ceiling
+still apply.
