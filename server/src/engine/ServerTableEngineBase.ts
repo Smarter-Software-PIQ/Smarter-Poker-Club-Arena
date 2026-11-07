@@ -7256,7 +7256,8 @@ export abstract class ServerTableEngineBase {
   protected killForRestart(
     reason: string,
     notifyOwner = true,
-    recoveryEventClass?: EngineRecoveryEventClass
+    recoveryEventClass?: EngineRecoveryEventClass,
+    recoveryDetail = reason
   ): void {
     // Nested settlement catches and late watchdog callbacks describe the same
     // dead generation. Preserve its first cause and emit exactly one kill.
@@ -7280,7 +7281,7 @@ export abstract class ServerTableEngineBase {
     );
     this.recordRecoveryEvent(
       'watchdog_kill_rebuild',
-      reason,
+      recoveryDetail,
       recoveryEventClass ?? this.pendingRecoveryEventClass ?? AUTOMATIC_RECOVERY_EVENT_CLASS
     );
     this.fenceTerminalEngine(reason, notifyOwner);
