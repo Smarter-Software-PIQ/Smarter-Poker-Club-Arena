@@ -268,8 +268,14 @@ describe('LAW: bomb pots bluff on postflop stories only', () => {
 
   it('a preflop record is never a story in a bomb pot', () => {
     const rec = (userId: string, action: ActionRecord['action'], stage: string): ActionRecord =>
-      ({ seat: userId === 'hero' ? 1 : 3, userId, action, amount: 4, timestamp: 1, stage }) as
-        ActionRecord;
+      ({
+        seat: userId === 'hero' ? 1 : 3,
+        userId,
+        action,
+        amount: 4,
+        timestamp: 1,
+        stage,
+      }) as ActionRecord;
     // Hero "raised preflop", the opponent bet flop and turn, hero called
     // both: no postflop line hero can tell. Out of position: no stab either.
     const history = [
@@ -290,8 +296,25 @@ describe('LAW: bomb pots bluff on postflop stories only', () => {
       nutBlocker: false,
       riverHelpsHero: false,
     } as unknown as RiverBluffSpot;
-    expect(riverBluffLine(spot)).toBe('none');
-    expect(riverBluffLine({ ...spot, initiative: 'hero' })).toBe('none');
+    // Pin moved 2026-11-07 (HorseRiverLeadHiLo): calling the turn bet out of
+    // position is itself a POSTFLOP story (the out-of-position river lead),
+    // so the preflop-only question is asked with that lead line ablated.
+    const noLead = { ...spot, leadRange: false } as RiverBluffSpot;
+    expect(riverBluffLine(noLead)).toBe('none');
+    expect(riverBluffLine({ ...noLead, initiative: 'hero' })).toBe('none');
+    // With the lead line on, the story is the turn call, never the preflop
+    // raise: drop the turn and only the preflop raise is left - no story.
+    const board = [
+      { rank: 'K', suit: 'hearts' },
+      { rank: '9', suit: 'hearts' },
+      { rank: '6', suit: 'diamonds' },
+      { rank: '2', suit: 'clubs' },
+      { rank: 'A', suit: 'clubs' },
+    ] as RiverBluffSpot['board'];
+    expect(riverBluffLine({ ...spot, board })).toBe('leadBlank');
+    expect(
+      riverBluffLine({ ...spot, board, history: history.filter((a) => a.stage !== 'turn') })
+    ).toBe('none');
   });
 });
 

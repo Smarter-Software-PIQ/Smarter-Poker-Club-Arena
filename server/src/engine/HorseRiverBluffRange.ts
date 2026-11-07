@@ -60,8 +60,6 @@
  * satellite seat never bluffs (V37, it does not play big pots at all), and a
  * shove bluff under survival pressure is sized down to a non-shove bet.
  *
- * Hi-lo bluffs only for the high when no low is possible.
- *
  * ═══ THE OTHER GAMES (2026-11-07, docs/changelog/2026-11-07-river-bluff-other-games.md) ═══
  * Fixed limit, short deck, bomb pots and multi-board pots were excluded by
  * #9803. Each now has its own correct path, default on (opts per type):
@@ -90,6 +88,39 @@
  *    and by two-thirds on three"). Hero is a candidate only with no showdown
  *    value on any board; blockers and missed draws are read on every board
  *    and averaged; the frequency is divided by the number of boards.
+ *
+ * ═══ OUT-OF-POSITION RIVER LEADS (2026-11-07) ═══
+ * Hero is out of position, the opponent bet the turn, hero called, and hero
+ * is first to act on the river. Before this, everything but a scare card hero
+ * held the nut blocker for was checked. The lead lines:
+ *  - leadDraw: the river completed a flush (third card of a suit that showed
+ *    two on the turn) or a straight that was not possible on the turn. Those
+ *    are the draws the CALLER's range holds and the turn bettor's range holds
+ *    least, so the caller represents them; blockers carry the bluffs.
+ *  - leadBlank: any other river. Rare (a quarter of the barrel weight).
+ *  - Omaha on a paired board: no lead (Dan's paired-board rulings: a hand
+ *    without a full house does not put chips in on a paired board).
+ * A credible station is never bluff-led into (it keeps its fifth of the
+ * bluffs only where hero holds the betting lead). Value leads are passed by
+ * the V11 initiative gate on draw-completing rivers (riverLeadValuePass).
+ *
+ * ═══ HI-LO WITH A LOW POSSIBLE (2026-11-07) ═══
+ * Three or more distinct low ranks (8 or under) on the board split the pot.
+ * A bet with no high and no low is called by every low, so it wins only when
+ * the opponent holds neither half:
+ *  - freeroll: hero holds the nut low (no unseen two-card low beats it) and no
+ *    high (high share under 0.25). A bet called by a better high splits
+ *    exactly as a check would; a fold from that better high scoops. Bet at
+ *    RIVER_BLUFF_HILO_FREEROLL, scaled down by the chance hero is quartered.
+ *  - scoop: hero holds neither half. A bluff for the whole pot is a story
+ *    only when the opponent is unlikely to hold a low at all
+ *    (riverOpponentLowChance at most RIVER_BLUFF_HILO_MAX_OPP_LOW, counted
+ *    from the public cards and hero's own) and the line tells one; it bets the
+ *    balanced share times the chance the opponent has no low.
+ *  - low_giveaway: otherwise the opponent's likely low makes the bet a
+ *    half-pot giveaway, and hero checks (the layers below are not consulted).
+ *  - a low that is not the nut, or any high share of 0.25 or more, is
+ *    showdown value and left to the layers below.
  */
 import type { ActionRecord, Card } from '../types.js';
 import { RANK_VALUES } from './PokerEngine.js';
@@ -126,8 +157,20 @@ export const RIVER_BLUFF_LINE = {
   checkedThrough: 0.8,
   opponentGaveUp: 0.85,
   scare: 0.85,
+  /** out of position, leading into the turn bettor on a river that completed
+   *  the caller's draws */
+  leadDraw: 0.9,
+  /** the same lead on a river that completed nothing: rare */
+  leadBlank: 0.25,
 } as const;
 
+/** Hi-lo: the freeroll bet frequency with the nut low and no high. */
+export const RIVER_BLUFF_HILO_FREEROLL = 0.55;
+/** Hi-lo: a whole-pot bluff needs the opponent's low chance at most this. */
+export const RIVER_BLUFF_HILO_MAX_OPP_LOW = 0.5;
+/** V11 gate: how often a value hand leads a draw-completing river out of
+ *  position (the monster bar), and a strong hand under it. */
+export const RIVER_LEAD_VALUE_PASS = { monster: 0.6, strong: 0.3 } as const;
 /** The game types #9803 excluded, each with its own path (2026-11-07). */
 export type RiverBluffGameType = 'fixedLimit' | 'shortDeck' | 'bombPot' | 'multiBoard';
 
@@ -136,7 +179,7 @@ export const RIVER_BLUFF_STATION_FACTOR = 0.2;
 export const RIVER_BLUFF_FOLDER_MAX = 1.6;
 
 export type RiverBluffLine = keyof typeof RIVER_BLUFF_LINE | 'none';
-export type RiverBluffSelection = 'junk' | 'missedDraw' | 'blocker' | 'blockerAndDraw';
+export type RiverBluffSelection = 'junk' | 'missedDraw' | 'blocker' | 'blockerAndDraw' | 'freeroll';
 
 export interface RiverBluffSpot {
   omaha: boolean;
@@ -176,6 +219,14 @@ export interface RiverBluffSpot {
   barrelPlan: boolean;
   /** Omaha: how many earlier-street hero bets this opponent called */
   calledBarrels: number;
+  /** out-of-position lead lines (opts.riverLeadRange, default on) */
+  leadRange?: boolean;
+  /** hi-lo with a low possible (opts.riverBluffHiLo, default on) */
+  hiLoRange?: boolean;
+  /** hi-lo: hero's share of the high half against the read range */
+  hiShare?: number;
+  /** hi-lo: the fraction of runouts hero takes a quarter or less */
+  quarterShare?: number;
   /** Multi-board: every board (`board` is the style board, one of these). */
   boards?: Card[][];
   /** Multi-board: hero's equity on each board, in `boards` order. */
@@ -189,11 +240,20 @@ export interface RiverBluffSpot {
 
 export interface RiverBluffEligibility {
   eligible: boolean;
-  reason: 'eligible' | 'domain' | 'multiway' | 'cannot_respond' | 'showdown_value' | 'no_story';
+  reason:
+    | 'eligible'
+    | 'domain'
+    | 'multiway'
+    | 'cannot_respond'
+    | 'showdown_value'
+    | 'no_story'
+    | 'low_giveaway';
   line: RiverBluffLine;
   selection: RiverBluffSelection;
   missedDraw: boolean;
   unblocker: boolean;
+  /** hi-lo with a low possible: what the bet is */
+  hiLo?: { kind: 'freeroll' | 'scoop'; oppLowChance: number; quarterShare: number };
   /** How many boards the bluff must fold out (1 on a single board). */
   boardCount: number;
   /** The combo weight: RIVER_BLUFF_WEIGHTS of the selection (plus the
@@ -269,10 +329,7 @@ export function riverMissedDraw(
       if (h >= 1 && h + t === 4 && h + r < 5) return true;
     }
     const holeRanks = rs(hole);
-    if (
-      hasFourInWindow(rs([...hole, ...turn]), holeRanks) &&
-      !hasStraight(rs([...hole, ...board]))
-    )
+    if (hasFourInWindow(rs([...hole, ...turn]), holeRanks) && !hasStraight(rs([...hole, ...board])))
       return true;
     return false;
   }
@@ -425,6 +482,219 @@ function streetCheckedThrough(history: readonly ActionRecord[], stage: string): 
 const aggressive = (a: ActionRecord): boolean =>
   a.action === 'bet' || a.action === 'raise' || (a.action === 'all_in' && a.isFullRaise === true);
 
+function boardPaired(board: readonly Card[]): boolean {
+  const seen = new Set<string>();
+  for (const c of board) {
+    if (seen.has(c.rank)) return true;
+    seen.add(c.rank);
+  }
+  return false;
+}
+
+/** Every straight top two unseen hole ranks could make with this board. */
+function straightTops(board: readonly Card[], omaha: boolean): Set<number> {
+  const br = board.map(rank);
+  const out = new Set<number>();
+  for (let a = 2; a <= 14; a++) {
+    for (let b = a + 1; b <= 14; b++) {
+      if (!omaha) {
+        const hole2 = [{ rank: rankName(a) } as Card, { rank: rankName(b) } as Card];
+        const t = straightTop(rankSet([...board, ...hole2]));
+        if (t > 0) out.add(t);
+        continue;
+      }
+      for (let i = 0; i < br.length; i++)
+        for (let j = i + 1; j < br.length; j++)
+          for (let k = j + 1; k < br.length; k++) {
+            const rs = new Set<number>();
+            for (const r of [a, b, br[i], br[j], br[k]]) {
+              rs.add(r);
+              if (r === 14) rs.add(1);
+            }
+            if (rs.size >= 5) {
+              const t = straightTop(rs);
+              if (t > 0) out.add(t);
+            }
+          }
+    }
+  }
+  return out;
+}
+
+const rankName = (v: number): string => RANK_ORDER[v - 2];
+
+/**
+ * Did the river complete a draw the turn left open? A flush: the river is the
+ * third card of a suit that showed exactly two on the turn. A straight: a
+ * straight top two hole ranks make on the river board that no two hole ranks
+ * made on the turn board. Public cards only.
+ */
+export function riverCompletedDraw(
+  board: readonly Card[],
+  omaha: boolean
+): 'flush' | 'straight' | null {
+  if (board.length !== 5) return null;
+  const turn = board.slice(0, 4);
+  const river = board[4];
+  if (turn.filter((c) => c.suit === river.suit).length === 2) return 'flush';
+  const before = omaha ? straightTops(turn, true) : straightTops(turn, false);
+  for (const t of straightTops(board, omaha)) if (!before.has(t)) return 'straight';
+  return null;
+}
+
+/**
+ * The out-of-position lead spot: the last turn bet or raise was the
+ * opponent's, hero called it, and nobody has acted on the river yet.
+ */
+export function riverLeadSpot(
+  spot: Pick<RiverBluffSpot, 'history' | 'heroId' | 'opponentId'>
+): boolean {
+  let lastAggressor: string | null = null;
+  let heroCalled = false;
+  for (const a of spot.history) {
+    if (a.stage === 'river') return false;
+    if (a.stage !== 'turn') continue;
+    if (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') {
+      lastAggressor = a.userId;
+      heroCalled = false;
+    } else if (a.action === 'call' && a.userId === spot.heroId) heroCalled = true;
+  }
+  return lastAggressor === spot.opponentId && heroCalled;
+}
+
+/**
+ * The V11 gate's value-lead spot: out of position, first on the river, into
+ * the turn bettor, on a river that completed a draw (and, in Omaha, not on a
+ * paired board). The gate then lets a value hand through to the value
+ * ladder at RIVER_LEAD_VALUE_PASS instead of checking it.
+ */
+export function riverLeadValueSpot(spot: {
+  history: readonly ActionRecord[];
+  heroId: string;
+  opponentId: string;
+  board: readonly Card[];
+  omaha: boolean;
+}): boolean {
+  if (spot.board.length !== 5) return false;
+  if (spot.omaha && boardPaired(spot.board)) return false;
+  return riverLeadSpot(spot) && riverCompletedDraw(spot.board, spot.omaha) !== null;
+}
+
+/** Ace low: the rank values a low uses (A = 1, 2..8), or 0 for none. */
+const lowRank = (c: Card): number => {
+  const r = rank(c);
+  return r === 14 ? 1 : r <= 8 ? r : 0;
+};
+
+/** Compare two lows (descending rank lists): negative when a is better. */
+function compareLow(a: number[], b: number[]): number {
+  for (let i = 0; i < 5; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return 0;
+}
+
+/** The best 8-or-better low two hole ranks make with exactly three board
+ *  ranks (descending), or null. */
+function lowWith(r1: number, r2: number, boardLow: number[]): number[] | null {
+  if (r1 === r2 || r1 === 0 || r2 === 0) return null;
+  const rest = [...new Set(boardLow)].filter((r) => r !== r1 && r !== r2).sort((x, y) => x - y);
+  if (rest.length < 3) return null;
+  return [r1, r2, rest[0], rest[1], rest[2]].sort((x, y) => y - x);
+}
+
+function bestLow(hole: readonly Card[], board: readonly Card[]): number[] | null {
+  const bl = board.map(lowRank).filter((r) => r > 0);
+  let best: number[] | null = null;
+  for (let i = 0; i < hole.length; i++)
+    for (let j = i + 1; j < hole.length; j++) {
+      const l = lowWith(lowRank(hole[i]), lowRank(hole[j]), bl);
+      if (l && (!best || compareLow(l, best) < 0)) best = l;
+    }
+  return best;
+}
+
+/** Unseen copies of each low rank (index 1..8) given the board and hero. */
+function unseenLowCounts(hole: readonly Card[], board: readonly Card[]): number[] {
+  const n = [0, 4, 4, 4, 4, 4, 4, 4, 4];
+  for (const c of [...hole, ...board]) {
+    const r = lowRank(c);
+    if (r > 0) n[r]--;
+  }
+  return n;
+}
+
+/**
+ * Hi-lo: does hero hold the nut low? Hero's best low is at least as good as
+ * any low two unseen ranks make with this board (a tie is possible; that is
+ * the quarter, priced by the caller).
+ */
+export function riverHeroNutLow(hole: readonly Card[], board: readonly Card[]): boolean {
+  const mine = bestLow(hole, board);
+  if (!mine) return false;
+  const bl = board.map(lowRank).filter((r) => r > 0);
+  const n = unseenLowCounts(hole, board);
+  for (let a = 1; a <= 8; a++)
+    for (let b = a + 1; b <= 8; b++) {
+      if (n[a] <= 0 || n[b] <= 0) continue;
+      const l = lowWith(a, b, bl);
+      if (l && compareLow(l, mine) < 0) return false;
+    }
+  return true;
+}
+
+function choose(n: number, k: number): number {
+  if (k < 0 || k > n) return 0;
+  let r = 1;
+  for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
+  return r;
+}
+
+/**
+ * Hi-lo: the chance a random holding of `holeCount` unseen cards makes an
+ * 8-or-better low with this board. Exact over the public cards and hero's
+ * own (a combinatorial count over which low ranks the holding contains); the
+ * opponent's real range is played, not random, so the caller treats this as
+ * a floor and demands it be small.
+ */
+export function riverOpponentLowChance(
+  hole: readonly Card[],
+  board: readonly Card[],
+  holeCount: number
+): number {
+  const bl = board.map(lowRank).filter((r) => r > 0);
+  if (new Set(bl).size < 3) return 0;
+  const n = unseenLowCounts(hole, board);
+  const unseen = 52 - hole.length - board.length;
+  const lowUnseen = n.slice(1).reduce((x, y) => x + Math.max(0, y), 0);
+  const high = unseen - lowUnseen;
+  const total = choose(unseen, holeCount);
+  if (!(total > 0)) return 0;
+  let withLow = 0;
+  for (let mask = 1; mask < 256; mask++) {
+    const ranks: number[] = [];
+    for (let r = 1; r <= 8; r++) if (mask & (1 << (r - 1))) ranks.push(r);
+    if (ranks.length < 2 || ranks.length > holeCount) continue;
+    let low = false;
+    for (let i = 0; i < ranks.length && !low; i++)
+      for (let j = i + 1; j < ranks.length && !low; j++) low = !!lowWith(ranks[i], ranks[j], bl);
+    if (!low) continue;
+    // Coefficient of x^holeCount in prod_{r in ranks}((1+x)^n_r - 1) * (1+x)^high.
+    let poly = [1];
+    for (const r of ranks) {
+      const f: number[] = [];
+      for (let j = 0; j <= Math.max(0, n[r]); j++) f.push(j === 0 ? 0 : choose(n[r], j));
+      const next = new Array(Math.min(holeCount, poly.length + f.length - 2) + 1).fill(0);
+      for (let i = 0; i < poly.length; i++)
+        for (let j = 0; j < f.length; j++) if (i + j <= holeCount) next[i + j] += poly[i] * f[j];
+      poly = next;
+    }
+    let ways = 0;
+    for (let i = 0; i < poly.length; i++) ways += poly[i] * choose(high, holeCount - i);
+    withLow += ways;
+  }
+  return Math.max(0, Math.min(1, withLow / total));
+}
+
+/** Which story hero's line tells on this river, or 'none'. */
 /** Which story hero's line tells on this river, or 'none'. Every story is
  *  told by flop, turn and river actions alone (a preflop raise is never
  *  enough), which is what lets a bomb pot - no preflop street - use it. */
@@ -455,6 +725,16 @@ export function riverBluffLine(spot: RiverBluffSpot): RiverBluffLine {
   }
   // Hero checked behind (or nobody bet) the turn: both ranges are capped.
   if (streetCheckedThrough(h, 'turn')) return 'checkedThrough';
+  // Out of position, first to act, into the player who bet the turn.
+  if (
+    spot.leadRange !== false &&
+    !spot.inPosition &&
+    spot.board?.length === 5 &&
+    riverLeadSpot(spot)
+  ) {
+    if (spot.omaha && boardPaired(spot.board)) return 'none';
+    return riverCompletedDraw(spot.board, spot.omaha) ? 'leadDraw' : 'leadBlank';
+  }
   // The opponent bet the turn, hero called, and the opponent checked the
   // river to hero: they gave up. In position that is the classic stab.
   if (spot.initiative === 'opp' && spot.inPosition) {
@@ -467,7 +747,10 @@ export function riverBluffLine(spot: RiverBluffSpot): RiverBluffLine {
   return 'none';
 }
 
-function selectionOf(nutBlocker: boolean, missedDraw: boolean): RiverBluffSelection {
+function selectionOf(
+  nutBlocker: boolean,
+  missedDraw: boolean
+): Exclude<RiverBluffSelection, 'freeroll'> {
   return nutBlocker && missedDraw
     ? 'blockerAndDraw'
     : nutBlocker
@@ -536,11 +819,38 @@ export function riverBluffEligibility(spot: RiverBluffSpot): RiverBluffEligibili
     spot.hole.length !== spot.holeCount ||
     pathOff ||
     !multiBoardOk ||
-    (spot.hiLo && spot.lowPossible)
+    (spot.hiLo &&
+      spot.lowPossible &&
+      (spot.hiLoRange === false ||
+        spot.multiBoard ||
+        !(Number.isFinite(spot.hiShare) && spot.omaha)))
   )
     return out('domain');
   if (spot.opponentsLive !== 1) return out('multiway');
   if (!spot.opponentCanRespond) return out('cannot_respond');
+  if (spot.hiLo && spot.lowPossible) {
+    // The high half: a share of 0.25 or more is showdown value.
+    if (!((spot.hiShare as number) < RIVER_BLUFF_AIR_EQUITY)) return out('showdown_value');
+    const quarterShare = Number.isFinite(spot.quarterShare) ? (spot.quarterShare as number) : 0;
+    const lineHl = riverBluffLine(spot);
+    if (riverHeroNutLow(spot.hole, spot.board)) {
+      // Called by a better high it splits as a check would; a fold scoops.
+      return {
+        ...out('eligible', lineHl),
+        selection: 'freeroll',
+        hiLo: { kind: 'freeroll', oppLowChance: 0, quarterShare },
+      };
+    }
+    // A low that is not the nut still owns half of the pot often enough.
+    if (bestLow(spot.hole, spot.board) !== null) return out('showdown_value');
+    const oppLowChance = riverOpponentLowChance(spot.hole, spot.board, spot.holeCount);
+    if (oppLowChance > RIVER_BLUFF_HILO_MAX_OPP_LOW || lineHl === 'none')
+      return {
+        ...out('low_giveaway', lineHl),
+        hiLo: { kind: 'scoop', oppLowChance, quarterShare },
+      };
+    return { ...out('eligible', lineHl), hiLo: { kind: 'scoop', oppLowChance, quarterShare } };
+  }
   if (!(spot.equity < RIVER_BLUFF_AIR_EQUITY)) return out('showdown_value');
   // Multi-board: showdown value on ANY board is showdown value (that board
   // alone wins its share of the pot); the bluff needs air on every one.
@@ -608,15 +918,27 @@ export interface RiverBluffFrequencyInput {
 /** The probability this combo bluffs. Zero only outside the owned spot. */
 export function riverBluffProbability(input: RiverBluffFrequencyInput): number {
   const e = input.eligibility;
-  if (!e.eligible || e.line === 'none') return 0;
+  if (!e.eligible) return 0;
+  if (e.selection === 'freeroll') {
+    // No read lowers it: a station calls with a better high and splits.
+    let pf = RIVER_BLUFF_HILO_FREEROLL * Math.max(0, 1 - 2 * (e.hiLo?.quarterShare ?? 0));
+    if (input.icmRisk > 0) pf *= Math.max(0.25, 1 - 3 * input.icmRisk);
+    return Math.max(0, Math.min(RIVER_BLUFF_HILO_FREEROLL, pf));
+  }
+  if (e.line === 'none') return 0;
+  // Never bluff-lead into the turn bettor when he is a credible station.
+  if ((e.line === 'leadDraw' || e.line === 'leadBlank') && input.reads.station) return 0;
   const balanced = riverBluffBalancedProbability(input.sizeFrac, input.valueShare, input.airShare);
-  let p = balanced * e.selectionWeight * RIVER_BLUFF_LINE[e.line] * riverBluffReadFactor(input.reads);
+  let p =
+    balanced * e.selectionWeight * RIVER_BLUFF_LINE[e.line] * riverBluffReadFactor(input.reads);
+  // Hi-lo whole-pot bluff: it wins only when the opponent holds no low.
+  if (e.hiLo?.kind === 'scoop') p *= 1 - e.hiLo.oppLowChance;
   // The range that called two pot-sized barrels is condensed, not closed.
   if (input.omahaThirdBarrel) p *= 0.5;
   if (input.icmRisk > 0) p *= Math.max(0.25, 1 - 3 * input.icmRisk);
   p = Math.min(RIVER_BLUFF_MAX_PROBABILITY, p);
   // A credible over-folder read is a floor, never a ceiling.
-  if (!input.reads.station && input.reads.overFolderFrequency > p) {
+  if (!input.reads.station && !e.hiLo && input.reads.overFolderFrequency > p) {
     p = Math.min(0.9, input.reads.overFolderFrequency);
   }
   // A bluff must fold out every board (V36 rule 2): half on two boards, a
