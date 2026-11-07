@@ -82,7 +82,7 @@ describe('the engine deploy has one fail-closed Hetzner authority', () => {
     );
     expect(engineSignal).toMatch(/^\s{6}contents:\s*write\s*$/m);
     expect(engineSignalCode).toContain('GH_TOKEN: ${{ github.token }}');
-    expect(engineSignalCode).toContain('REF_SHA: ${{ needs.detect.outputs.target_sha }}');
+    expect(engineSignalCode).toContain('REF_SHA: ${{ needs.selection.outputs.sha }}');
     expect(engineSignalCode).toMatch(/\[\[ "\$REF_SHA" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
     expect(engineSignalCode).toContain('-f event_type=deploy-club-arena-engine');
     expect(engineSignalCode).toContain('-F "client_payload[ref_sha]=$REF_SHA"');

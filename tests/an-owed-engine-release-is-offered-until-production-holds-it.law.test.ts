@@ -445,7 +445,8 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(Object.keys(stage.on)).toEqual(['workflow_dispatch', 'push', 'schedule']);
     // Explicit dispatch is database-only: it cannot produce engine outputs.
     expect(stage.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
-    expect(stage.jobs.signal.needs).toBe('detect');
+    expect(stage.jobs.selection.needs).toBe('detect');
+    expect(stage.jobs.signal.needs).toEqual(['detect', 'selection']);
     expect(stage.on.schedule).toEqual([
       { cron: '31,35,39,43 8 * * *' },
       { cron: '31,35,39,43 9 * * *' },
@@ -470,15 +471,23 @@ describe('the offer is the existing release, not a second publisher', () => {
     );
     // Owner order 2026-11-05: the Backup Engine certifies every release first.
     expect(send.if).toBe(
-      "steps.offer.outputs.send == 'true' && steps.freeze.outputs.send == 'true'"
+      "steps.offer.outputs.send == 'true' && needs.selection.outputs.send == 'true'"
     );
-    const freeze = stage.jobs.signal.steps.find((s: { id?: string }) => s.id === 'freeze');
+    const freeze = stage.jobs.selection.steps.find((s: { id?: string }) => s.id === 'freeze');
     expect(freeze.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
     expect(freeze.run).toContain('scripts/ci/select-daily-engine.py');
     expect(freeze.run).toContain('[ "$GITHUB_RUN_ATTEMPT" = 1 ]');
-    expect(send.env.REF_SHA).toBe('${{ steps.freeze.outputs.sha }}');
+    expect(send.env.REF_SHA).toBe('${{ needs.selection.outputs.sha }}');
     expect(send.run).toContain('client_payload[control_sha]=$CONTROL_SHA');
-    expect(stage.jobs.signal.steps.indexOf(freeze)).toBeLessThan(
+    expect(stage.jobs.selection.permissions).toEqual({
+      actions: 'read',
+      statuses: 'read',
+      contents: 'read',
+    });
+    expect(stage.jobs.selection.outputs.sha).toBe('${{ steps.freeze.outputs.sha }}');
+    expect(offer.env.REF_SHA).toBe('${{ needs.selection.outputs.sha }}');
+    expect(offer.if).toBe("needs.selection.outputs.send == 'true'");
+    expect(stage.jobs.signal.steps.indexOf(offer)).toBeLessThan(
       stage.jobs.signal.steps.indexOf(send)
     );
     expect(offer.env.OFFER_REASON).toBe('${{ needs.detect.outputs.offer_reason }}');

@@ -421,38 +421,77 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  signal:
-    name: Dispatch The Exact Main SHA
+  selection:
+    name: Freeze the daily release evidence
     needs: detect
     if: needs.detect.outputs.release_required == 'true' && needs.detect.outputs.admission_allowed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 4
     permissions:
       actions: read
-      contents: write
+      contents: read
       statuses: read
+    outputs:
+      sha: ${{ steps.freeze.outputs.sha }}
+      send: ${{ steps.freeze.outputs.send }}
+      control: ${{ steps.freeze.outputs.control }}
     steps:
-      # A push that changed the engine is always sent: that path is unchanged.
-      # A release that is only still OWED (offer_reason=behind) is offered once
-      # per window: never while a receiver for the same SHA is still running
-      # (it is already waiting for its break), and never twice inside
-      # OFFER_INTERVAL_SECONDS. Fifty minutes is under one hourly break period,
-      # so every window can be offered, and over the ~15 minutes a receiver
-      # takes to fail its own preflight, so a build that cannot pass costs at
-      # most one test matrix an hour rather than one per merge.
-      - name: Decide whether an owed release still needs an offer
-        id: offer
+      - uses: actions/checkout@v4
+        if: needs.detect.outputs.daily_preparation == 'true'
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          sparse-checkout: |
+            scripts/ci
+            server/scripts
+      - name: Freeze the exact daily candidate and report inclusion
+        id: freeze
+        if: needs.detect.outputs.daily_preparation == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::Daily selection already attempted; retain the original decision."; exit 1; }
+          serving=$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health | jq -er .releaseSha)
+          python3 -B scripts/ci/select-daily-engine.py --repo "$GITHUB_REPOSITORY" --control "$GITHUB_SHA" \
+            --serving "$serving" --date "$RELEASE_DATE" --output daily-selection.json
+          jq -r '"sha=" + (.targetSha // ""), "control=" + (.controlSha // ""), "send=" + ((.outcome == "selected") | tostring)' daily-selection.json >> "$GITHUB_OUTPUT"
+      - name: Preserve the daily selection before offering the release
+        if: always() && steps.freeze.outcome != 'skipped' && hashFiles('daily-selection.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-engine-selection-${{ needs.detect.outputs.daily_preparation_date }}
+          path: daily-selection.json
+          if-no-files-found: error
+
+  signal:
+    name: Dispatch The Exact Main SHA
+    needs: [detect, selection]
+    if: needs.detect.outputs.release_required == 'true' && needs.detect.outputs.admission_allowed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Decide whether an owed release still needs an offer
+        id: offer
+        if: needs.selection.outputs.send == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DAILY_PREPARATION: ${{ needs.detect.outputs.daily_preparation }}
           OFFER_REASON: ${{ needs.detect.outputs.offer_reason }}
-          REF_SHA: ${{ needs.detect.outputs.target_sha }}
+          REF_SHA: ${{ needs.selection.outputs.sha }}
           REPO: ${{ github.repository }}
           OFFER_INTERVAL_SECONDS: '3000'
         run: |
           set -euo pipefail
           [[ "$REF_SHA" =~ ^[0-9a-f]{40}$ ]] \
             || { echo "::error::Protected-main push did not provide one full lowercase commit SHA."; exit 1; }
-          if [ "$OFFER_REASON" != behind ] && [ "$OFFER_REASON" != scheduled-cycle ]; then
+          # Every daily offer must respect an existing owner for the selected SHA.
+          # Other callers keep the prior event-driven offer semantics.
+          if [ "${DAILY_PREPARATION:-false}" != true ] && [ "$OFFER_REASON" != behind ] && [ "$OFFER_REASON" != scheduled-cycle ]; then
             echo "send=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -482,41 +521,12 @@ jobs:
           echo "Engine $REF_SHA is still owed and no receiver is offering it; offering it again."
           echo "send=true" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
-        if: steps.offer.outputs.send == 'true' && needs.detect.outputs.daily_preparation == 'true'
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          sparse-checkout: |
-            scripts/ci
-            server/scripts
-      - name: Freeze the exact daily candidate and report inclusion
-        id: freeze
-        if: steps.offer.outputs.send == 'true' && needs.detect.outputs.daily_preparation == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
-        run: |
-          set -euo pipefail
-          [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::Daily selection already attempted; retain the original decision."; exit 1; }
-          serving=$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health | jq -er .releaseSha)
-          python3 -B scripts/ci/select-daily-engine.py --repo "$GITHUB_REPOSITORY" --control "$GITHUB_SHA" \
-            --serving "$serving" --date "$RELEASE_DATE" --output daily-selection.json
-          jq -r '"sha=" + (.targetSha // ""), "control=" + (.controlSha // ""), "send=" + ((.outcome == "selected") | tostring)' daily-selection.json >> "$GITHUB_OUTPUT"
-      - name: Preserve the daily selection before offering the release
-        if: always() && steps.freeze.outcome != 'skipped' && hashFiles('daily-selection.json') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: daily-engine-selection-${{ needs.detect.outputs.daily_preparation_date }}
-          path: daily-selection.json
-          if-no-files-found: error
-
       - name: Send the immutable engine release request
-        if: steps.offer.outputs.send == 'true' && steps.freeze.outputs.send == 'true'
+        if: steps.offer.outputs.send == 'true' && needs.selection.outputs.send == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          REF_SHA: ${{ steps.freeze.outputs.sha }}
-          CONTROL_SHA: ${{ steps.freeze.outputs.control }}
+          REF_SHA: ${{ needs.selection.outputs.sha }}
+          CONTROL_SHA: ${{ needs.selection.outputs.control }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail

@@ -37,6 +37,7 @@ const groups = [
       'test_malformed_unknown_and_duplicate_metadata_refuse',
       'test_old_control_or_changed_parser_cannot_ignore_target',
       'test_control_must_share_exact_policy_and_preinstall_guard',
+      'test_changed_owner_history_only_falls_through_after_both_exact_orders_expire',
       'test_missing_manifest_is_explicit_legacy_removal_not_expiry',
     ],
   },
@@ -112,7 +113,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(53);
+  expect(selected).toHaveLength(54);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);
