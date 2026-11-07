@@ -66,12 +66,15 @@ test('the dispatch is exactly the recheck operation the qualification workflow a
   assert.throws(() => recheckDispatchBody(`${A};echo`));
 });
 
-test('only a successful protected-main engine release of this repository starts a decision', () => {
+test('every completed protected-main engine release of this repository starts a decision, whatever its verdict', () => {
   const ok = { eventName: 'workflow_run', repository: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena', repositoryId: '1132369872',
     workflowRun: { name: RELEASE_WORKFLOW_NAME, conclusion: 'success', head_branch: 'main' } };
   assert.equal(releaseEventAdmitted(ok), true);
+  // Run 42389189340 activated 40bc24676 and then failed a later job: the engine served anyway.
+  for (const conclusion of ['failure', 'cancelled', 'timed_out'])
+    assert.equal(releaseEventAdmitted({ ...ok, workflowRun: { ...ok.workflowRun, conclusion } }), true, conclusion);
   for (const bad of [{ eventName: 'push' }, { repository: 'someone/fork' }, { repositoryId: '1' },
-    { workflowRun: { ...ok.workflowRun, conclusion: 'failure' } }, { workflowRun: { ...ok.workflowRun, head_branch: 'feature' } },
+    { workflowRun: { ...ok.workflowRun, head_branch: 'feature' } },
     { workflowRun: { ...ok.workflowRun, name: 'Publish Club Arena' } }])
     assert.equal(releaseEventAdmitted({ ...ok, ...bad }), false);
 });
@@ -83,7 +86,7 @@ test('the workflow listens to the real release workflow, with no timer, and the 
   assert.ok(yml.includes(`  workflow_run:\n    workflows: ['${RELEASE_WORKFLOW_NAME}']\n    types: [completed]\n`));
   assert.ok(!/^\s*schedule:/m.test(yml), 'no timer');
   const job = yml.slice(yml.indexOf('  recheck-after-release:'), yml.indexOf('  qualify:'));
-  assert.match(job, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.doesNotMatch(job, /workflow_run\.conclusion/, 'the run verdict does not say whether the serving engine changed');
   assert.match(job, /github\.event\.workflow_run\.head_branch == 'main'/);
   assert.match(job, /actions: write/);
   assert.match(job, /node scripts\/ci\/gto-v31-recheck-dispatch\.mjs/);
