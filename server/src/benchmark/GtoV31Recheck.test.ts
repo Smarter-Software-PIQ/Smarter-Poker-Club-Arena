@@ -12,6 +12,7 @@ import {
   decodeGtoV31ReplayCorpus,
   encodeGtoV31ReplayCorpus,
   gtoV31ExecutionDigest,
+  gtoV31RecheckIncumbent,
   gtoV31RecheckMatchup,
 } from './GtoV31Recheck.js';
 
@@ -119,6 +120,38 @@ describe('V31 re-check: naming and recording', () => {
     }
     expect(tapped.memoryOff!.memoryLearning).toBe('off');
     expect(() => gtoV31V3WithReplayRecording(scenario, CHECKSUM, hook, 0)).toThrow(/pairs_invalid/);
+  });
+});
+
+describe('V31 re-check: the baseline', () => {
+  const cert = (...incumbents: Array<string | null>) =>
+    incumbents.map((incumbent_dataset_checksum) => ({ incumbent_dataset_checksum }));
+
+  it('re-checks against no playbook with the live store left empty', () => {
+    expect(gtoV31RecheckIncumbent(cert('legacy_v30', 'legacy_v30'), CHECKSUM)).toEqual({
+      incumbent: 'legacy_v30',
+      loadLiveStore: false,
+    });
+  });
+
+  it('re-checks against another playbook only through the live store', () => {
+    const other = '8'.repeat(64);
+    expect(gtoV31RecheckIncumbent(cert(other, other), CHECKSUM)).toEqual({
+      incumbent: other,
+      loadLiveStore: true,
+    });
+  });
+
+  it('never measures a playbook against itself, nor against a disputed or missing baseline', () => {
+    expect(() => gtoV31RecheckIncumbent(cert(CHECKSUM, CHECKSUM), CHECKSUM)).toThrow(
+      /against itself/
+    );
+    expect(() => gtoV31RecheckIncumbent(cert('legacy_v30', '8'.repeat(64)), CHECKSUM)).toThrow(
+      /disagree/
+    );
+    expect(() => gtoV31RecheckIncumbent(cert(null), CHECKSUM)).toThrow(/disagree/);
+    expect(() => gtoV31RecheckIncumbent([], CHECKSUM)).toThrow(/disagree/);
+    expect(() => gtoV31RecheckIncumbent(cert('incumbent'), CHECKSUM)).toThrow(/not a dataset/);
   });
 });
 

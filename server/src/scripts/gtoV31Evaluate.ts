@@ -53,6 +53,7 @@ import {
   decodeGtoV31ReplayCorpus,
   encodeGtoV31ReplayCorpus,
   gtoV31ExecutionDigest,
+  gtoV31RecheckIncumbent,
   gtoV31RecheckMatchup,
   recordGtoV31ReplayCorpus,
 } from '../benchmark/GtoV31Recheck.js';
@@ -591,9 +592,6 @@ async function recordExecutionAnchor(args: {
 
 /** --recheck: the strict re-check of a candidate or active v3 playbook on this engine. */
 async function recheck(datasetId: string, engineCommit: string): Promise<void> {
-  // The live store decides the incumbent arm exactly as at certification.
-  await loadGtoPostflopV31();
-  const incumbentNow = gtoPostflopV31Dataset()?.checksum ?? 'legacy_v30';
   const loaded = await loadGtoPostflopV31Evaluation(datasetId, { recheck: true });
   const status = await certificationStatus(datasetId);
   if (status.dataset_checksum !== loaded.checksum) {
@@ -618,13 +616,18 @@ async function recheck(datasetId: string, engineCommit: string): Promise<void> {
   if (anchor.engine_commit === engineCommit) {
     throw new Error('this is the certifying engine itself; it needs no re-check');
   }
-  for (const c of rs.certification) {
-    if (c.incumbent_dataset_checksum !== incumbentNow) {
-      throw new Error(
-        `${c.kind}/${c.family} was certified against ${c.incumbent_dataset_checksum} but this engine ` +
-          `would play against ${incumbentNow}; the re-check cannot reproduce its baseline`
-      );
-    }
+  // The baseline arm plays the live store, so it must hold exactly what it
+  // held at certification. Re-checking the ACTIVE playbook must never load
+  // the live store: it would hold the playbook itself, and the playbook would
+  // play itself to a meaningless tie.
+  const { incumbent, loadLiveStore } = gtoV31RecheckIncumbent(rs.certification, loaded.checksum);
+  if (loadLiveStore) await loadGtoPostflopV31();
+  const incumbentNow = gtoPostflopV31Dataset()?.checksum ?? 'legacy_v30';
+  if (incumbentNow !== incumbent) {
+    throw new Error(
+      `the playbook was certified against ${incumbent} but this engine would play against ` +
+        `${incumbentNow}; the re-check cannot reproduce its baseline`
+    );
   }
 
   // 1 + 2: both digests, before a single hand is dealt.

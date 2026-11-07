@@ -85,6 +85,31 @@ export function gtoV31RecheckMatchup(certificationMatchup: string, servingCommit
 }
 
 /**
+ * The baseline a re-check must reproduce. The candidate is measured against
+ * whatever the live store held at certification ('legacy_v30' = no playbook).
+ * Every receipt must agree; a playbook is never measured against itself, so
+ * re-checking the ACTIVE playbook keeps the live store empty (loading it would
+ * put the playbook itself in the baseline arm and every table would tie).
+ */
+export function gtoV31RecheckIncumbent(
+  certification: ReadonlyArray<{ incumbent_dataset_checksum: string | null }>,
+  datasetChecksum: string
+): { incumbent: string; loadLiveStore: boolean } {
+  const incumbents = [...new Set(certification.map((c) => c.incumbent_dataset_checksum))];
+  if (certification.length === 0 || incumbents.length !== 1 || !incumbents[0]) {
+    throw new Error(
+      'the certification receipts disagree on their incumbent; the re-check cannot reproduce it'
+    );
+  }
+  const incumbent = incumbents[0];
+  if (incumbent === datasetChecksum) throw new Error('a playbook is never measured against itself');
+  if (incumbent !== 'legacy_v30' && !HEX64.test(incumbent)) {
+    throw new Error('the certification incumbent is not a dataset checksum');
+  }
+  return { incumbent, loadLiveStore: incumbent !== 'legacy_v30' };
+}
+
+/**
  * The recording pass: every certification table of every family, both kinds,
  * with the certification seeds and GTO_V31_ANCHOR_RECORDING_PAIRS pairs each.
  */
