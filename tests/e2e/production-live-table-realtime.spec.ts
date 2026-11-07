@@ -1,3 +1,8 @@
+import {
+  installHorseSeatPaints,
+  horseSeatDatabase,
+  type SeatPaints,
+} from './support/horseSeatWitness';
 import { mttPaidAuthority } from './support/mttPaidAuthority';
 import {
   installNaturalBoardReveal,
@@ -2251,6 +2256,19 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
       ).toBeVisible();
 
       const navigationStartedAt = Date.now();
+      const horseDatabase = horseSeatDatabase(candidate.id);
+      const initialSeats = await horseDatabase.leases();
+      await page.addInitScript(installHorseSeatPaints, candidate.id);
+      await page.evaluate(installHorseSeatPaints, candidate.id);
+      let horsePaints: SeatPaints | undefined;
+      let cashFailure: unknown;
+      let horseUntil = 0;
+      const stopHorsePaints = async () => {
+        if (!horsePaints) {
+          horsePaints = await page.evaluate(() => window.__horseSeatPaints?.());
+          horseUntil = Date.now();
+        }
+      };
       // Read only the isolated spectator's observation cache, never auth tokens.
       const readPublicStatsCache = () =>
         page.evaluate(() => {
@@ -2290,6 +2308,38 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
             .matchingFrames({ direction: 'received', tableId, since: interval.since })
             .filter((frame) => frame.at <= until),
         });
+      };
+
+      const attachHorseWitness = async () => {
+        try {
+          await stopHorsePaints();
+          if (!horsePaints) throw new Error('Horse spectator paint observation unavailable');
+          const evidence = await horseDatabase.finish(
+            initialSeats,
+            horsePaints,
+            journal.matchingFrames({ direction: 'received', tableId, since: navigationStartedAt }),
+            navigationStartedAt,
+            horseUntil
+          );
+          await testInfo.attach('horse-seat-continuity', {
+            body: JSON.stringify({
+              tableId,
+              engine: EXPECTED_ENGINE_SHA,
+              from: navigationStartedAt,
+              until: horseUntil,
+              ...evidence,
+            }),
+            contentType: 'application/json',
+          });
+          expect(evidence.dropped, 'seat paint overflow').toBe(0);
+          expect(evidence.violations, 'Horse seat continuity').toEqual([]);
+        } catch (error) {
+          await testInfo.attach('horse-seat-witness-error', {
+            body: String(error),
+            contentType: 'text/plain',
+          });
+          if (!cashFailure) throw error;
+        }
       };
 
       try {
@@ -2634,6 +2684,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           }).toPass({ timeout: 10_000 });
           await expectNoOpponentHud(page);
           // Reuse only these existing connected observations; reload begins a new owner.
+          await stopHorsePaints();
           await stopBoardInterval();
           await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
           await expect(page.locator('.table-surface')).toBeVisible({ timeout: 20_000 });
@@ -2655,6 +2706,9 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         } finally {
           if (offline) await context.setOffline(false).catch(() => {});
         }
+      } catch (error) {
+        cashFailure = error;
+        throw error;
       } finally {
         await stopBoardInterval();
         const boardEvidence = naturalBoardRevealIntervalsEvidence(boardIntervals, tableId);
@@ -2676,6 +2730,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           ),
           contentType: 'application/json',
         });
+        await attachHorseWitness();
       }
     } finally {
       const walletProof = walletRequests.stop();
