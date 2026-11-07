@@ -2331,6 +2331,18 @@ abbr.lt-variant[title] {
 .lt-tournament-heading__name {
   font: inherit;
 }
+/* A free roll's second title (Dan 2026-11-07): which event it is running,
+   under the name. House blue, never gold (color ruling 2026-08-24). */
+.lt-tournament-heading__format {
+  display: block;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #45adff;
+}
 .lt-tournament-heading__guarantee {
   display: inline-block;
   margin-left: 6px;
