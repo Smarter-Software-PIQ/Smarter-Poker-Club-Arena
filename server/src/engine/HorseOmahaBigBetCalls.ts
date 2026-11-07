@@ -225,6 +225,52 @@ export function v81Cell(i: V81Input): string | null {
   return null;
 }
 
+/** A checked cash PLO6 river can return heads-up after seats behind fold.
+ * Recover only an affordable closing fold; never flatten a chosen value raise. */
+function checkedPlo6ClosingFold(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  bettorSeat: number
+): boolean {
+  if (
+    decision.action !== 'fold' ||
+    gs.gameVariant !== 'plo6' ||
+    gs.gameMode !== 'cash' ||
+    gs.wagersCapped !== false ||
+    gs.boardCount !== 1 ||
+    gs.currentPlayerSeat !== player.seat ||
+    player.stack <= gs.toCall! ||
+    !gs.legalActions?.includes('call')
+  )
+    return false;
+  const remaining = gs.players.filter((p) => p.seat !== player.seat && !p.is_folded);
+  if (
+    remaining.length !== 1 ||
+    remaining[0].seat !== bettorSeat ||
+    remaining[0].is_sitting_out ||
+    remaining[0].bet !== gs.currentBet ||
+    gs.players.some((p) => p.seat !== bettorSeat && p.bet !== 0)
+  )
+    return false;
+  const river = gs.actionHistory?.filter((a) => a.stage === 'river') ?? [];
+  const opening = river.findIndex((a) => a.action === 'bet' && a.seat === bettorSeat);
+  const before = river.slice(0, opening);
+  return (
+    opening >= 1 &&
+    before.every((a) => a.action === 'check' && a.amount === 0) &&
+    before.some((a) => a.seat === player.seat) &&
+    river
+      .slice(opening + 1)
+      .every(
+        (a) =>
+          a.action === 'fold' &&
+          a.amount === 0 &&
+          gs.players.some((p) => p.seat === a.seat && p.is_folded)
+      )
+  );
+}
+
 /** A high-only Omaha middle/top boat flats a pot-sized opening river bet.
  * Physical nuts retain their existing wager rule. Reconstruct the price from
  * the opening wager before any callers added chips to the current pot. */
@@ -272,7 +318,9 @@ export function callLargeRiverBoatWager(
     !faced ||
     faced.bettorSeat !== opener.seat ||
     faced.wager !== opener.amount ||
-    faced.wager + 0.000001 < faced.potBefore
+    (faced.wager + 0.000001 < faced.potBefore &&
+      (2 * faced.wager + 0.000001 < faced.potBefore ||
+        !checkedPlo6ClosingFold(decision, player, gs, opener.seat)))
   )
     return decision;
   const board = gs.communityCards ?? [];

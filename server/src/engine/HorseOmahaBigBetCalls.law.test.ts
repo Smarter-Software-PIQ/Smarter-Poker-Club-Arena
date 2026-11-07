@@ -15,7 +15,13 @@ import { HorseLogic } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
-import { omahaCallClass, v81Cell, v81StreetWager, type V81Input } from './HorseOmahaBigBetCalls.js';
+import {
+  callLargeRiverBoatWager,
+  omahaCallClass,
+  v81Cell,
+  v81StreetWager,
+  type V81Input,
+} from './HorseOmahaBigBetCalls.js';
 import { horseDecisionReceiptIsValid } from './horseDecision/responseValidation.js';
 import type { Card, CardRank, CardSuit, SeatPlayer } from '../types.js';
 
@@ -347,6 +353,61 @@ describe('V81 Omaha big-bet call discipline', () => {
       expect(decideMany(river('plo4', hole, board, 36, { flip: true }), {}, 15).acts).toEqual(
         decideMany(river('plo4', hole, board, 36), {}, 15).acts
       );
+    }
+  });
+});
+
+describe('closing a checked cash PLO6 river with a non-bottom boat', () => {
+  function checked(hole = '9d4hJd9cJh7h', board = '9hAdAs6d2c', size = 11) {
+    const { hero, gs } = river('plo6', hole, board, size);
+    return {
+      hero,
+      gs: {
+        ...gs,
+        stateSchemaVersion: 1,
+        boardCount: 1,
+        wagersCapped: false,
+        currentPlayerSeat: hero.seat,
+        pot: 22 + size,
+      } as unknown as Parameters<typeof callLargeRiverBoatWager>[2],
+    };
+  }
+  const fold = { action: 'fold', thinkTime: 0 } as const;
+
+  it('recovers the fold at half pot, preserving the voluntary call and raise', () => {
+    const { hero, gs } = checked();
+    expect(callLargeRiverBoatWager(fold, hero, gs)).toMatchObject({ action: 'call', amount: 11 });
+    for (const action of ['call', 'raise'] as const) {
+      const prior = { action, amount: action === 'call' ? 11 : 50, thinkTime: 0 };
+      expect(callLargeRiverBoatWager(prior, hero, gs)).toBe(prior);
+    }
+  });
+
+  it('keeps folds outside the hand, price and closing-action boundaries', () => {
+    const { hero, gs } = checked();
+    const noPriorCheck = gs.actionHistory!.filter(
+      (a) => a.stage !== 'river' || a.action !== 'check'
+    );
+    for (const other of [
+      { ...gs, gameMode: 'tournament' as const },
+      { ...gs, gameVariant: 'plo5' as const },
+      { ...gs, boardCount: 2 },
+      { ...gs, actionHistory: noPriorCheck },
+      { ...gs, currentPlayerSeat: 2 },
+      { ...gs, legalActions: ['fold' as const] },
+      { ...gs, players: gs.players.map((p) => ({ ...p, is_folded: false })) },
+      { ...gs, wagersCapped: true },
+      checked(undefined, undefined, 10.99).gs,
+    ])
+      expect(callLargeRiverBoatWager(fold, hero, other)).toBe(fold);
+    expect(callLargeRiverBoatWager(fold, { ...hero, stack: 11 }, gs)).toBe(fold);
+    for (const [hole, board] of [
+      ['2d2h4d4c7h8c', '9hAdAs6d2c'], // bottom full
+      ['AcAh4d4c7h8c', '9hAdAs6d2c'], // unbeatable quads
+      ['9d4hJd9cJh7h', 'AhAdAs6d2c'], // board trips
+    ]) {
+      const spot = checked(hole, board);
+      expect(callLargeRiverBoatWager(fold, spot.hero, spot.gs)).toBe(fold);
     }
   });
 });
