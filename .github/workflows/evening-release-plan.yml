@@ -1,0 +1,101 @@
+name: Evening Release Plan
+
+# WHAT 04:00 WOULD DO, READ AT 20:00 (owner request 2026-11-07).
+#
+# This workflow runs scripts/ops/release-plan.mjs, a report that assembles
+# from the live engine's /health, GitHub's branch, status, compare and run
+# reads, and one SELECT on schema_migrations exactly what the daily engine
+# preparation (stage-engine-release.yml) and the window-migrations installer
+# would select at 04:00 America/Chicago, and why: the serving SHA, the main
+# tip, the first-parent walk to the newest Backup-certified commit, the
+# server/** commits in between, the Backup lane, and every queued window
+# migration with its static validation.
+#
+# IT ONLY READS. permissions are contents/statuses/actions: read. It never
+# dispatches, cancels, reruns, writes a status, applies a migration or
+# touches a host; it is not a release timer and it does not advance, retry
+# or certify anything (CLAUDE.md 10.85 is satisfied: a report is not a
+# release path). tests/the-evening-plan-only-reads.law.test.ts pins that.
+#
+# ITS READER (CLAUDE.md 10.83, 10.86 rule 3). The job FAILS on NOT_READY and
+# on UNKNOWN, so a plan that cannot be read, or a 04:00 that would keep the
+# current engine while engine commits wait, turns this workflow red on main,
+# and scripts/ci/check-main-is-green.mjs (production-integrity-audit.yml)
+# raises the main-health issue naming it. READY and NOTHING_OWED are green.
+# The full plan is in the job summary and the uploaded JSON artifact.
+on:
+  schedule:
+    # 20:00 America/Chicago in both DST states (01 UTC is CDT, 02 UTC is CST);
+    # the odd minute stays off the congested :00. A late or missing delivery
+    # costs one evening's report and nothing else.
+    - cron: '7 1 * * *'
+    - cron: '7 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: read
+  actions: read
+
+# One report at a time; a second never overlaps the first.
+concurrency:
+  group: evening-release-plan
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: What Would 04:00 Do
+    # The schedule runs on the default branch; a dispatch from any other ref
+    # reports nothing, so the plan always describes protected main.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout protected main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Use the production Node major
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the Postgres client library
+        run: npm i pg@8 --no-save --no-audit --no-fund
+
+      - name: Assemble the plan (read-only)
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts/release-plan
+          node scripts/ops/release-plan.mjs --summary \
+            --json-out artifacts/release-plan/plan.json \
+            --ssl-root-cert scripts/ci/certificates/supabase-prod-ca-2021.crt
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          case "$code" in
+            0) echo 'Plan: READY or NOTHING_OWED.' ;;
+            1) echo '::error title=Evening release plan: NOT_READY::04:00 would keep the current engine or refuse a queued window migration; read the job summary.' ;;
+            *) echo "::error title=Evening release plan: UNKNOWN (exit $code)::a source could not be read; the plan is not known. Read the job summary." ;;
+          esac
+          exit 0
+
+      - name: Retain the plan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-plan-${{ github.run_id }}
+          path: artifacts/release-plan/plan.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail on NOT_READY or UNKNOWN so the red-main detector reads it
+        env:
+          CODE: ${{ steps.plan.outputs.code }}
+        run: |
+          [ "${CODE:-3}" = 0 ]
