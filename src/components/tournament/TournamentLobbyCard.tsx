@@ -68,7 +68,8 @@ import {
 } from '../../../server/src/tournament/mttStructureDescription';
 import { compactChips } from '../../utils/format';
 import { displayTotalPool } from '../../utils/tournamentPrizeFunding';
-import { spinCeilingMultiplier } from '../lobby/lobbyEntries';
+import { spinCeilingMultiplier, type LobbyTournamentRow } from '../lobby/lobbyEntries';
+import { lateRegCountdown as projectLateRegCountdown } from '../lobby/lateRegCountdown';
 import type { TournamentArenaEmbed } from './details/types';
 import { spinMultiplierLabel } from '../../utils/spinReveal';
 import { SpadeConsole, type ConsoleInk, type PlateButtonProps } from '../console/SpadeConsole';
@@ -77,6 +78,13 @@ import { DAY_COMPLETE_LABEL } from '../../utils/multiDaySchedule';
 
 interface Tournament extends TournamentEntryWindowRow {
   format_contract?: unknown;
+  /* The live late-reg countdown (lateRegCountdown) reads the level clock, the
+     structure and the event's own break, exactly as the lobby card does. */
+  level_started_at?: string | null;
+  blind_structure?: string | null;
+  synchronized_breaks?: boolean | null;
+  on_break?: boolean | null;
+  break_ends_at?: string | null;
   id: string;
   name: string;
   type: 'sng' | 'mtt' | 'satellite' | 'spin' | 'bounty' | 'pko' | 'mystery';
@@ -319,10 +327,8 @@ function TournamentLobbyCardInner({
   useEffect(() => {
     if (tournament.status === 'running' && hasLateReg) {
       updateLateRegCountdown();
-      const interval = setInterval(
-        updateLateRegCountdown,
-        tournament.add_on_available ? 1000 : 10000
-      );
+      // The countdown shows seconds, so it ticks every second for every event.
+      const interval = setInterval(updateLateRegCountdown, 1000);
       return () => clearInterval(interval);
     }
     setLateRegCountdown('');
@@ -341,6 +347,11 @@ function TournamentLobbyCardInner({
     tournament.addon_period_started_at,
     tournament.addon_period_triggered,
     tournament.addon_period_ends_at,
+    tournament.level_started_at,
+    tournament.blind_structure,
+    tournament.on_break,
+    tournament.break_ends_at,
+    tournament.synchronized_breaks,
   ]);
 
   const checkRegistration = async () => {
@@ -414,10 +425,26 @@ function TournamentLobbyCardInner({
   const updateLateRegCountdown = () => {
     const startedAt = tournament.started_at;
     const startedMs = startedAt ? new Date(startedAt).getTime() : null;
+    const nowMs = Date.now();
+    /* Dan 2026-11-06: "FIX IT SO IT ALWAYS SHOWS THE COUNT DOWN". The same
+       projection as the lobby card: breaks, the daily freeze and an add-on
+       event's closing minute included. */
+    const countdown = projectLateRegCountdown(tournament as unknown as LobbyTournamentRow, nowMs);
+    if (countdown) {
+      const seconds = Math.max(0, Math.ceil((countdown.endMs - nowMs) / 1000));
+      const clock = `${Math.floor(seconds / 60)}:${(seconds % 60).toLocaleString('en-US', { minimumIntegerDigits: 2, useGrouping: false })}`;
+      setLateRegActive(true);
+      setLateRegCountdown(
+        countdown.phase === 'add_on' ? `Add-On Ends In ${clock}` : `Ends In ${clock}`
+      );
+      return;
+    }
     if (tournament.add_on_available === true) {
-      const active = tournamentEntryWindowOpen(tournament, Date.now());
+      const active = tournamentEntryWindowOpen(tournament, nowMs);
       setLateRegActive(active);
-      setLateRegCountdown(active ? 'Open Through Add-On' : 'Closed');
+      // Open with nothing to count: the entry levels are over and the engine
+      // is finishing hands before the add-on minute opens.
+      setLateRegCountdown(active ? 'Add-On Starting' : 'Closed');
       return;
     }
     const next = lateRegState({
@@ -425,7 +452,7 @@ function TournamentLobbyCardInner({
       minutes: lateRegMinutes,
       currentLevel: tournament.current_level,
       startedAtMs: startedMs,
-      nowMs: Date.now(),
+      nowMs,
       finalized: tournament.prize_pool_finalized,
     });
     setLateRegActive(next.active);
@@ -955,8 +982,12 @@ function TournamentLobbyCardInner({
                 {tournament.status === 'running'
                   ? lateRegCountdown || 'Open'
                   : lateRegLevels > 0
-                    ? `Through Lvl ${lateRegLevels}`
-                    : `${lateRegMinutes} Min`}
+                    ? tournament.add_on_available === true
+                      ? `Through Lvl ${lateRegLevels} + Add-On`
+                      : `Through Lvl ${lateRegLevels}`
+                    : tournament.add_on_available === true
+                      ? 'Through The Add-On'
+                      : `${lateRegMinutes} Min`}
               </span>
             </div>
           )}

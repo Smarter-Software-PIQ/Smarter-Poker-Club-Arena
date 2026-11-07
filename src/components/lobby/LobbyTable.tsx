@@ -162,7 +162,9 @@ function ClockFace({ text }: { text: string }) {
   return (
     <span
       className="premium-lobby-clock"
-      data-clock-tone={label.startsWith('Late Reg') ? 'late' : 'start'}
+      data-clock-tone={
+        label.startsWith('Late Reg') || label.startsWith('Add-On') ? 'late' : 'start'
+      }
     >
       <span className="premium-lobby-clock__label">{label}</span>{' '}
       <strong className="premium-lobby-clock__value">{parts[2]}</strong>
@@ -322,7 +324,7 @@ export function tournamentSignals(entry: LobbyEntry): TournamentSignal[] {
   return out;
 }
 
-/** The live clock line: "Starts In 4:31" or "Late Reg Ends In 12:03". */
+/** The live clock line: "Starts In 4:31", "Late Reg Ends In 12:03" or "Add-On Ends In 0:42". */
 export function tournamentClockLine(
   entry: LobbyEntry,
   now: number
@@ -334,15 +336,17 @@ export function tournamentClockLine(
     !text ||
     text === 'Registration Closed' ||
     text === 'Late Reg Open' ||
+    text === 'Add-On Starting' ||
     text === 'Starting Soon'
   )
     return null;
   return {
-    tone: text.startsWith('Late Reg')
-      ? 'late'
-      : entry.status === 'starting_soon'
-        ? 'soon'
-        : 'start',
+    tone:
+      text.startsWith('Late Reg') || text.startsWith('Add-On')
+        ? 'late'
+        : entry.status === 'starting_soon'
+          ? 'soon'
+          : 'start',
     text,
   };
 }

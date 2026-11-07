@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isInLateRegistration } from '../src/utils/tournamentFilters';
-import { lateRegCountdownEndMs, lateRegEndMs } from '../src/components/lobby/lateRegWindow';
+import { lateRegEndMs } from '../src/components/lobby/lateRegWindow';
+import { lateRegCountdown } from '../src/components/lobby/lateRegCountdown';
 import type { LobbyTournamentRow } from '../src/components/lobby/lobbyEntries';
 const now = Date.parse('2026-11-06T02:44:00Z');
 const row = (changes: Record<string, unknown> = {}) => ({
@@ -43,7 +44,10 @@ describe('registration remains open through the actual add-on minute', () => {
      registration, because the add-on end is only stamped when the add-on
      minute begins. Before that minute the countdown runs to the level/clock
      boundary that opens it. Production row 66eb539e, 2026-11-07. */
-  it('counts down to the add-on boundary before the add-on minute is stamped', () => {
+  it('counts down to the add-on minute before it is stamped (no breaks taken)', () => {
+    // No format_contract: this fixture takes no synchronized break, so the
+    // walk is pure level clock. Break handling is pinned in lateRegCountdown.test.ts.
+    const now = Date.parse('2026-11-07T01:40:00Z');
     const tenK = addon({
       started_at: '2026-11-07T01:00:00+00:00',
       late_reg_mins: 90,
@@ -54,30 +58,22 @@ describe('registration remains open through the actual add-on minute', () => {
         Array.from({ length: 40 }, (_, i) => ({ level: i + 1, durationMinutes: 10 }))
       ),
     });
+    const end = (row: Record<string, unknown>, at = now) =>
+      lateRegCountdown(row as LobbyTournamentRow, at)?.endMs ?? null;
     // The strict deadline stays unknown: Details and the table never print a guess.
     expect(lateRegEndMs(tenK as LobbyTournamentRow)).toBeNull();
-    // The add-on minute opens when level 9 ends (02:35:01). The 90-minute clock
-    // (02:30) never closes an add-on event's entry, so it is not the deadline:
-    // on 2026-11-07 counting to it put "Late Reg Open" back on the card at 02:30.
-    expect(lateRegCountdownEndMs(tenK as LobbyTournamentRow)).toBe(
-      Date.parse('2026-11-07T02:35:01.264Z')
-    );
+    // Level 9 ends 02:35:01 and opens the 60-second add-on minute. The 90-minute
+    // clock (02:30) never closes an add-on event's entry: on 2026-11-07 counting
+    // to it put "Late Reg Open" back on the card at 02:30.
+    expect(end(tenK)).toBe(Date.parse('2026-11-07T02:36:01.264Z'));
     // The seating gap before the first level stamp estimates nine levels from the start.
-    expect(
-      lateRegCountdownEndMs({
-        ...tenK,
-        current_level: 0,
-        level_started_at: null,
-      } as LobbyTournamentRow)
-    ).toBe(Date.parse('2026-11-07T02:30:00Z'));
+    expect(end({ ...tenK, current_level: 0, level_started_at: null })).toBe(
+      Date.parse('2026-11-07T02:31:00Z')
+    );
     // A non-add-on event still closes at whichever of levels and minutes comes first.
-    expect(
-      lateRegCountdownEndMs({
-        ...tenK,
-        add_on_available: false,
-        late_reg_mins: 60,
-      } as LobbyTournamentRow)
-    ).toBe(Date.parse('2026-11-07T02:00:00Z'));
+    expect(end({ ...tenK, add_on_available: false, late_reg_mins: 60 })).toBe(
+      Date.parse('2026-11-07T02:00:00Z')
+    );
     // Once the add-on minute is stamped, its real end takes over.
     const stamped = {
       ...tenK,
@@ -85,21 +81,12 @@ describe('registration remains open through the actual add-on minute', () => {
       addon_period_started_at: '2026-11-07T02:30:05Z',
       addon_period_ends_at: '2026-11-07T02:31:05Z',
     };
-    expect(lateRegCountdownEndMs(stamped as LobbyTournamentRow)).toBe(
-      Date.parse('2026-11-07T02:31:05Z')
-    );
-    // Past the boundary with the minute still pending there is nothing to count to.
-    expect(lateRegCountdownEndMs({ ...tenK, current_level: 9 } as LobbyTournamentRow)).toBeNull();
-    expect(
-      lateRegCountdownEndMs({ ...tenK, prize_pool_finalized: true } as LobbyTournamentRow)
-    ).toBeNull();
-    expect(
-      lateRegCountdownEndMs({
-        ...tenK,
-        started_at: null,
-        level_started_at: null,
-      } as LobbyTournamentRow)
-    ).toBeNull();
+    expect(lateRegCountdown(stamped as LobbyTournamentRow, now)).toEqual({
+      endMs: Date.parse('2026-11-07T02:31:05Z'),
+      phase: 'add_on',
+    });
+    expect(end({ ...tenK, prize_pool_finalized: true })).toBeNull();
+    expect(end({ ...tenK, started_at: null, level_started_at: null })).toBeNull();
   });
   it('uses the actual end and closes exactly at it', () => {
     const t = addon({
