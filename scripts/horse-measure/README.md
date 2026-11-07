@@ -135,6 +135,15 @@ with its window; none is a profitability claim.
   docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt. After V84 this
   cell's call count should fall to near zero and
   `v84_omaha_river_reraise_call_fold` should fire.
+- Deep stack-offs by depth band (2026-11-07, measured, nothing admitted):
+  `sql deep-raise-continues` (NLH turn/river continues facing a bet and a
+  raise, 7-card class at the decision) and `sql deep-preflop` (KK/QQ in NLH,
+  AA in PLO5/PLO6, continuing facing a 4-bet or more, and every preflop
+  all-in), one UTC day per call, day A 2026-11-05, day B 2026-11-06, bands
+  <100 / 100-200 / 200-400 / 400+ bb effective at the deal against the last
+  raiser. No cell passed the V81 admission rule; the 400+ band holds at most
+  11 decisions per cell per day. Numbers and the four example hands:
+  docs/horse-measure/2026-11-07/deep-stack-cells.md.
 
 ### After a release
 

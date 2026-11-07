@@ -17,6 +17,8 @@ Usage:
   horse-release-verify.py sql reshove START END                 # <= ~1 day per call
   horse-release-verify.py sql omaha-calls START END             # <= ~4h per call; then omaha-call-cells.ts
   horse-release-verify.py sql omaha-river-reraise-calls START END  # <= ~6h per call; then omaha-call-cells.ts
+  horse-release-verify.py sql deep-raise-continues START END    # one UTC day per call; cells with CIs
+  horse-release-verify.py sql deep-preflop START END            # one UTC day per call; cells with CIs
   horse-release-verify.py slices START END HOURS                # print window slices
   horse-release-verify.py combine-v79 FILE [FILE ...]           # v79 slice outputs -> table
   horse-release-verify.py check                                 # read-only self-check
@@ -60,6 +62,8 @@ SQL = {
     'reshove': HERE / 'sql' / 'reshove-ev.sql',
     'omaha-calls': HERE / 'sql' / 'omaha-calls.sql',
     'omaha-river-reraise-calls': HERE / 'sql' / 'omaha-river-reraise-calls.sql',
+    'deep-raise-continues': HERE / 'sql' / 'deep-raise-continues.sql',
+    'deep-preflop': HERE / 'sql' / 'deep-preflop-premiums.sql',
 }
 WRITE_WORDS = re.compile(
     r'\b(insert|update|delete|drop|alter|create|grant|revoke|truncate|copy|vacuum|'
