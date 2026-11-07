@@ -74,7 +74,7 @@ function unsupportedVariant(variant: string): UnsupportedOpponentMemoryVariant {
   variantSchema.set(variant, { epoch: (state?.epoch ?? 0) + 1, retryAt: Date.now() + 60_000 });
   return new UnsupportedOpponentMemoryVariant(variant);
 }
-function queryError(
+export function queryError(
   prefix: string,
   error: { code?: string; name?: unknown; message?: unknown }
 ): Error & { code?: string } {
@@ -177,23 +177,34 @@ const validatedOpponentProfiles = createOpponentMemoryProfileCache();
  *   horse_opponent_memory_read_ms_{le50|le100|le250|le500|le1000|gt1000}
  *   horse_opponent_memory_read_cache_fallback  (answered from known profiles)
  */
-export function opponentMemoryLatencyBucket(ms: number): string {
-  if (!(ms >= 0)) return 'horse_opponent_memory_read_ms_unknown';
-  for (const edge of [50, 100, 250, 500, 1000])
-    if (ms <= edge) return `horse_opponent_memory_read_ms_le${edge}`;
-  return 'horse_opponent_memory_read_ms_gt1000';
+export type OpponentMemoryLatencyEdge =
+  'unknown' | 'le50' | 'le100' | 'le250' | 'le500' | 'le1000' | 'gt1000';
+export type OpponentMemoryFailureKind = 'incomplete' | 'timeout' | 'busy' | 'failed';
+/** The latency edge shared by every durable opponent-memory read receipt
+ * family (legacy horse_opponent_memory_read_ms_*, exact horse_exact_memory_read_ms_*). */
+export function opponentMemoryLatencyEdge(ms: number): OpponentMemoryLatencyEdge {
+  if (!(ms >= 0)) return 'unknown';
+  for (const edge of [50, 100, 250, 500, 1000] as const) if (ms <= edge) return `le${edge}`;
+  return 'gt1000';
 }
-export function opponentMemoryFailureFeature(error: unknown): string {
+export function opponentMemoryLatencyBucket(ms: number): string {
+  return `horse_opponent_memory_read_ms_${opponentMemoryLatencyEdge(ms)}`;
+}
+/** One classification of a failed durable read, shared by the legacy and the
+ * exact (speed/ante domain) readers so their receipts mean the same thing. */
+export function opponentMemoryFailureKind(error: unknown): OpponentMemoryFailureKind {
   const message = error instanceof Error ? error.message : String(error);
   const name = (error as { name?: unknown } | null)?.name;
-  if (error instanceof UnsupportedOpponentMemoryVariant)
-    return 'horse_opponent_memory_read_incomplete';
+  if (error instanceof UnsupportedOpponentMemoryVariant) return 'incomplete';
   if (name === 'TimeoutError' || name === 'AbortError' || /abort|timeout/i.test(message))
-    return 'horse_opponent_memory_read_timeout';
-  if (message.includes('57014')) return 'horse_opponent_memory_read_timeout';
-  if (message.includes('busy')) return 'horse_opponent_memory_read_busy';
-  if (message.includes('incomplete')) return 'horse_opponent_memory_read_incomplete';
-  return 'horse_opponent_memory_read_failed';
+    return 'timeout';
+  if (message.includes('57014')) return 'timeout';
+  if (message.includes('busy')) return 'busy';
+  if (message.includes('incomplete')) return 'incomplete';
+  return 'failed';
+}
+export function opponentMemoryFailureFeature(error: unknown): string {
+  return `horse_opponent_memory_read_${opponentMemoryFailureKind(error)}`;
 }
 
 /** One bounded read in the original hand/decision path. The database owns

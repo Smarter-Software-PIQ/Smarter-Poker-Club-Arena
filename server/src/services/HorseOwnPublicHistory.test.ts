@@ -284,13 +284,77 @@ it('diagnostic callback failure cannot change an existing null read outcome', as
   ).toBeNull();
 });
 
-it('refuses v2 history before IO when per-hand original rules are unavailable', async () => {
-  expect(
-    await readHorseOwnPublicHistory({
-      ...context,
-      version: 2,
-      publicMemoryDomain: { version: 1, speed: 'table', ante: 'none' },
-    })
-  ).toBeNull();
-  expect(fixture.rpc).not.toHaveBeenCalled();
+const tableNone = { version: 1, speed: 'table', ante: 'none' } as const;
+const domainContext: HorseObserverReadContext = {
+  ...context,
+  version: 2,
+  publicMemoryDomain: tableNone,
+};
+it('loads v2 history through the installed v1 reader and binds the window to the domain context', async () => {
+  const { hand, row } = withCalledHand();
+  fixture.categoryAbort.mockResolvedValue({
+    data: [{ ...row, public_memory_domain: tableNone }],
+    error: null,
+  });
+  const result: any = await readHorseOwnPublicHistory(domainContext);
+  expect(fixture.rpc).toHaveBeenCalledWith('fn_horse_own_public_history_read_v3', {
+    p_observer: context.observerId,
+    p_variant: 'nlh',
+    p_format: 'cash',
+    p_dealt_count: 2,
+    p_before: expect.any(String),
+  });
+  expect(fixture.select.mock.calls[0][0]).toContain('public_memory_domain');
+  expect(result.context).toEqual(domainContext);
+  expect(result.capped).toBe(false);
+  expect(result.hands).toHaveLength(1);
+  expect(result.hands[0]).toMatchObject({ handId: hand.handId, publicMemoryDomain: tableNone });
+  const { makeOwnPublicHistoryPacket } =
+    await import('../engine/horseDecision/ownPublicHistory.js');
+  expect(makeOwnPublicHistoryPacket(result, Date.now())).not.toBeNull();
+  // The provider's own window was not mutated.
+  expect(fixture.response.data.window.context).toEqual(context);
+});
+it.each([
+  ['legacy row without a domain', {}],
+  ['a different speed', { public_memory_domain: { ...tableNone, speed: 'lightning' } }],
+  ['a different ante', { public_memory_domain: { ...tableNone, ante: 'big_blind' } }],
+  ['a malformed domain', { public_memory_domain: { speed: 'table' } }],
+] as const)('a v2 window excludes a hand with %s and marks itself capped', async (_n, patch) => {
+  const { row } = withCalledHand();
+  fixture.categoryAbort.mockResolvedValue({ data: [{ ...row, ...patch }], error: null });
+  const telemetry = await import('../engine/BrainTelemetry.js');
+  telemetry.enableBrainTelemetry();
+  telemetry.drainFires();
+  const result: any = await readHorseOwnPublicHistory(domainContext);
+  expect(result.context).toEqual(domainContext);
+  expect(result.hands).toEqual([]);
+  expect(result.capped).toBe(true);
+  const fired = new Map(telemetry.drainFires().map((f) => [f.feature, f.fires]));
+  expect(fired.get('horse_observer_history_domain_partitioned')).toBe(1);
+  const { makeOwnPublicHistoryPacket } =
+    await import('../engine/horseDecision/ownPublicHistory.js');
+  expect(makeOwnPublicHistoryPacket(result, Date.now())).not.toBeNull();
+});
+it('a v2 read whose category rows are unavailable keeps no hand rather than guessing a domain', async () => {
+  withCalledHand();
+  fixture.categoryAbort.mockResolvedValue({ data: null, error: { message: 'unavailable' } });
+  const result: any = await readHorseOwnPublicHistory(domainContext);
+  expect(result.hands).toEqual([]);
+  expect(result.capped).toBe(true);
+});
+it('a v2 read of an empty window answers the domain context', async () => {
+  const result: any = await readHorseOwnPublicHistory(domainContext);
+  expect(result).toEqual({ ...fixture.response.data.window, context: domainContext });
+});
+it('a v1 read leaves hands untagged and unpartitioned', async () => {
+  const { row } = withCalledHand();
+  fixture.categoryAbort.mockResolvedValue({
+    data: [{ ...row, public_memory_domain: tableNone }],
+    error: null,
+  });
+  const result: any = await readHorseOwnPublicHistory(context);
+  expect(result.context).toEqual(context);
+  expect(result.hands).toHaveLength(1);
+  expect(result.hands[0].publicMemoryDomain).toEqual(tableNone);
 });
