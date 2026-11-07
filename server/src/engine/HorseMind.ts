@@ -94,7 +94,6 @@ import {
   barrelNarrowingScale,
   callDownRespectShift,
   exploitHandIncrements,
-  learnablePublicAction,
   freshExploitCounters,
   looseCallerWidth,
   maniacRaiseWidth,
@@ -643,7 +642,9 @@ export class HorseMind {
 
     for (let controllerOrdinal = 0; controllerOrdinal < history.length; controllerOrdinal++) {
       const a = history[controllerOrdinal];
-      if (a.action === 'fold' && !learnablePublicAction(a)) continue;
+      // Preserve compatibility of individual legacy reads. The shared exploit
+      // reducer separately requires positive source provenance for every fold.
+      if (a.action === 'fold' && a.origin === 'forced') continue;
       const preflop = a.stage === 'preflop';
       // V28: the street change must be observed BEFORE the stat update reads
       // streetBettor, or the first action of a new street is judged against
@@ -2940,7 +2941,7 @@ export class HorseMind {
       }
       if (openerId && threeBetIdx > openerIdx) {
         const reply = pre.slice(threeBetIdx + 1).find((a) => a.userId === openerId);
-        if (!(reply?.action === 'fold' && !learnablePublicAction(reply))) {
+        if (!(reply?.action === 'fold' && reply.origin === 'forced')) {
           const s = touch(openerId);
           s.f3bOpps++;
           if (reply?.action === 'fold') s.f3bFolds++;
@@ -2973,7 +2974,7 @@ export class HorseMind {
             const a = flop[i];
             if (a.userId === preAggr || responded.has(a.userId!)) continue;
             responded.add(a.userId!);
-            if (a.action === 'fold' && !learnablePublicAction(a)) continue;
+            if (a.action === 'fold' && a.origin === 'forced') continue;
             const s = touch(a.userId!);
             s.cbetOpps++;
             if (a.action === 'fold') s.cbetFolds++;
