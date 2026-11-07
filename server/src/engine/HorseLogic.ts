@@ -2602,7 +2602,8 @@ export interface HorseDecideOpts {
   v15RiverNoNearLock?: boolean;
   /** V84 (2026-11-07): PLO4/PLO5/PLO6 river CALLS of a >= 0.9-pot raise
    *  after the horse's own river bet or raise fold in the measured cell
-   *  (HorseOmahaBigBetCalls.v84Cell): an unpaired-board second-nut flush.
+   *  (HorseOmahaBigBetCalls.v84Cell): an unpaired-board second-nut flush,
+   *  when the call needs 0.13 of the pot after it or more.
    *  Default on; explicit false keeps today. */
   v84OmahaRiverReraiseCalls?: boolean;
   /** V83 (2026-11-06): a postflop aggression factor above 2.5 reads as a
@@ -4375,6 +4376,8 @@ function omahaBigBetCallFold(
             ...shared,
             heroWageredStreet:
               heroBet > 0.005 && v84HeroWageredStreet(gs.actionHistory, street, player.seat),
+            callPrice: Math.min(toCall, stack) / (pot + Math.min(toCall, stack)),
+            allInOrFold: gs.allInOrFold === true,
           })
         : null;
     if (v81 === null && v84 === null) return decision;
