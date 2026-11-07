@@ -1,0 +1,3 @@
+# tests/the-weekly-close-reads-rakeback-days-as-written.law.test.ts
+
+`fn_process_weekly_accounting_scope` reads every `rakeback_periods` date as a Los Angeles calendar day, the way `fn_calculate_cash_rakeback_periods` writes it, never as a UTC midnight: its orphan guard and its completion test each replace `AT TIME ZONE 'UTC'` with `AT TIME ZONE 'America/Los_Angeles'` (four anchored replacements), and `smarter_private.weekly_payout_eligible_scopes`'s md5 pin on the close moves from `023efba44914bad5d05e2538e951e59f` to the new postimage in the same transaction, so the payout engine never refuses on a stale hash. Midway's 2026-10-19 book had refused 190 times on the next week's six periods.
