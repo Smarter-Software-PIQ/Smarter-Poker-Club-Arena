@@ -9,13 +9,13 @@
  * lived in ONE definition, public.fn_cash_game_never_moves_players, read by the
  * tick, the balancer, the join door, the on-table lobby and the cash_seat_moves
  * trigger. 20261107070717 makes it answer false for every game and sets
- * must_move on every enabled game; the board mirror and the lobby card follow.
+ * must_move on every enabled game; the board's own mirror is deleted and the
+ * lobby card says MUST MOVE.
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { cashEntry, type LobbyTableRow } from '../src/components/lobby/lobbyEntries';
-import { cashGameNeverMovesPlayers } from '../src/config/classicNeverMovesPlayers';
 
 const MIGRATIONS = join(__dirname, '..', 'supabase', 'migrations');
 const FILE = '20261107070717_every_game_is_a_must_move_game_and_second_tables_follow_the_.sql';
@@ -39,9 +39,10 @@ describe('every game is a must-move game', () => {
     }
   });
 
-  it('the board mirror agrees: no game is exempt', () => {
-    for (const t of ['classic', 'Classic', 'madness', 'action', null])
-      expect(cashGameNeverMovesPlayers(t, null)).toBe(false);
+  it('the board keeps no Classic exception of its own', () => {
+    // The 2026-10-24 mirror (src/config/classicNeverMovesPlayers.ts) is gone:
+    // with no game exempt there is nothing left for the board to mirror.
+    expect(existsSync(join(__dirname, '..', 'src/config/classicNeverMovesPlayers.ts'))).toBe(false);
   });
 
   it('a Classic card says MUST MOVE like every other game', () => {
