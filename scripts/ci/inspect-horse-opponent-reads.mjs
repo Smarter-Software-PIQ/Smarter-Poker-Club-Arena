@@ -7,6 +7,29 @@ export function validateSelection(p) {
   const shape = p && Object.keys(p).sort().join(',');
   if (typeof p?.sourceSha !== 'string' || !/^[a-f0-9]{40}$/.test(p.sourceSha))
     throw Error('selection_refused');
+  if (shape === 'foldTargets,sourceSha') {
+    const targets = p.foldTargets;
+    if (
+      !Array.isArray(targets) ||
+      targets.length < 1 ||
+      targets.length > 16 ||
+      new Set(targets.map((t) => t?.handKey)).size !== targets.length ||
+      !targets.every(
+        (t) =>
+          t &&
+          Object.keys(t).sort().join(',') === 'handKey,ordinals' &&
+          typeof t.handKey === 'string' &&
+          /^[a-f0-9]{64}$/.test(t.handKey) &&
+          Array.isArray(t.ordinals) &&
+          t.ordinals.length > 0 &&
+          t.ordinals.length <= 10 &&
+          new Set(t.ordinals).size === t.ordinals.length &&
+          t.ordinals.every((n) => Number.isInteger(n) && n >= 0 && n < 1024)
+      )
+    )
+      throw Error('selection_refused');
+    return p;
+  }
   const batched = shape === 'sourceSha,targets';
   if (
     !batched &&
@@ -122,6 +145,76 @@ export function acceptedSharedRead(capture, execution, hand, review, usedPublicP
     ante: context.publicMemoryDomain.ante,
   };
 }
+// This projection reads only the acting Horse's snapshot. It returns counts,
+// a legal menu and price for an independently bound, zero-investment fold.
+export function lightningFoldStructure(capture, execution, hand, ordinals, bind) {
+  const s = capture.snapshot,
+    gs = s?.gameState,
+    player = s?.player;
+  const ctx = capture.observerReads?.context;
+  if (
+    s?.type !== 'DECIDE_FAST' ||
+    ctx?.variant !== 'plo4' ||
+    ctx.format !== 'cash' ||
+    ctx.publicMemoryDomain?.speed !== 'lightning' ||
+    gs?.stage !== 'preflop' ||
+    player?.bet !== 0 ||
+    capture.decision?.action !== 'fold' ||
+    execution?.executionStatus !== 'intended' ||
+    execution.executedAction !== 'fold' ||
+    execution.selected?.action !== 'fold' ||
+    execution.handAnchor?.earlyLook === true
+  )
+    return null;
+  const binding = bind(execution, hand);
+  if (binding.status !== 'bound' || !ordinals.includes(binding.actionOrdinal)) return null;
+  const cards = player.cards,
+    menu = gs.legalActions;
+  const ranks = '23456789TJQKA',
+    suits = ['clubs', 'diamonds', 'hearts', 'spades'];
+  if (
+    !Array.isArray(cards) ||
+    cards.length !== 4 ||
+    !cards.every(
+      (c) =>
+        c &&
+        typeof c.rank === 'string' &&
+        c.rank.length === 1 &&
+        ranks.includes(c.rank) &&
+        suits.includes(c.suit)
+    ) ||
+    new Set(cards.map((c) => c.rank + c.suit)).size !== 4 ||
+    !Array.isArray(menu) ||
+    !menu.includes('fold') ||
+    !menu.every((a) => ['fold', 'call', 'raise', 'all_in', 'check', 'bet'].includes(a)) ||
+    !Number.isFinite(gs.pot) ||
+    gs.pot < 0 ||
+    !Number.isFinite(gs.currentBet) ||
+    gs.currentBet <= 0
+  )
+    return null;
+  const distinct = new Set(cards.map((c) => ranks.indexOf(c.rank)));
+  const suitCounts = suits.map((suit) => cards.filter((c) => c.suit === suit).length);
+  const wheelRanks = new Set([...distinct, ...(distinct.has(12) ? [-1] : [])]);
+  const connected = Math.max(
+    ...Array.from(
+      { length: 10 },
+      (_, n) =>
+        Array.from({ length: 5 }, (_, k) => wheelRanks.has(n - 1 + k)).filter(Boolean).length
+    )
+  );
+  return {
+    actionOrdinal: binding.actionOrdinal,
+    action: 'fold',
+    pot: gs.pot,
+    toCall: gs.currentBet,
+    invested: 0,
+    legalActions: menu,
+    distinctRanks: distinct.size,
+    pairedSuits: suitCounts.filter((n) => n >= 2).length,
+    maxFiveRankWindow: connected,
+  };
+}
 const failureReasons = new Set([
   'selection_decode_failed',
   'selection_refused',
@@ -181,8 +274,10 @@ export async function inspect(p) {
     let bytes = 0;
     const started = Date.now();
     const targets =
-      p.targets ?? p.handKeys.map((handKey) => ({ handKey, opponentId: p.opponentId }));
-    for (const { handKey, opponentId } of targets) {
+      p.foldTargets ??
+      p.targets ??
+      p.handKeys.map((handKey) => ({ handKey, opponentId: p.opponentId }));
+    for (const { handKey, opponentId, ordinals } of targets) {
       stage = 'inspection_bound';
       if (Date.now() - started > 30000) throw Error('inspection_bound');
       stage = 'journal_read_failed';
@@ -195,6 +290,31 @@ export async function inspect(p) {
       const decisions = [];
       stage = 'record_decode_failed';
       const committed = records.filter((r) => r.kind === 'accepted_hand');
+      if (ordinals) {
+        const folds = [];
+        if (review.status === 'reconciled' && committed.length === 1) {
+          const original = JSON.parse(committed[0].body);
+          const same = records.filter((r) => r.sourceRelease === committed[0].sourceRelease);
+          const key = (r) => JSON.stringify([r.producerId, r.turnKey]);
+          const executed = new Map(
+            same.filter((r) => r.kind === 'execution').map((r) => [key(r), JSON.parse(r.body)])
+          );
+          bind ??= (await moduleAt('engine/HorseDecisionHandBinding.js'))
+            .bindHorseDecisionToCommittedHand;
+          for (const record of same.filter((r) => r.kind === 'decision')) {
+            const fold = lightningFoldStructure(
+              JSON.parse(record.body),
+              executed.get(key(record)),
+              original,
+              ordinals,
+              bind
+            );
+            if (fold) folds.push(fold);
+          }
+        }
+        hands.push({ handKey, reconciled: review.status === 'reconciled', folds });
+        continue;
+      }
       const hand =
         committed.length === 1 && committed[0].sourceRelease === p.sourceSha
           ? JSON.parse(committed[0].body)
@@ -266,7 +386,11 @@ export async function inspect(p) {
       }
     }
     return {
-      scope: p.targets ? 'selected_accepted_shared_reads' : 'selected_horse_opponent_reads',
+      scope: p.foldTargets
+        ? 'selected_lightning_fold_structures'
+        : p.targets
+          ? 'selected_accepted_shared_reads'
+          : 'selected_horse_opponent_reads',
       sourceSha: p.sourceSha,
       opponentId: p.opponentId,
       hands,
