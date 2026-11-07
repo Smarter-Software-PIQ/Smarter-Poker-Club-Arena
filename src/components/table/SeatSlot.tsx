@@ -492,6 +492,8 @@ export interface SeatSlotProps {
   noteColor?: string;
   /** Bible V8 §11.1: Show/hide player avatar images */
   showAvatar?: boolean;
+  /** Visible felt portraits load immediately; retained hidden tables may defer them. */
+  avatarLoading?: 'eager' | 'lazy';
   /** Bible V8 §11.1: Show/hide VIP/achievement badges */
   showBadges?: boolean;
   /** Bible V8 §11.1: Enable/disable gesture controls (tap peek, swipe) */
@@ -952,6 +954,7 @@ export const SeatSlot = memo(
       hasNote = false,
       noteColor,
       showAvatar = true,
+      avatarLoading = 'eager',
       gesturesEnabled = true,
       isCollectingChips = false,
       isDealing = false,
@@ -3378,17 +3381,16 @@ export const SeatSlot = memo(
                 /* Per-avatar size correction (--sp-bust-gain) is NOT set here.
                    It is declared on `.seat__avatar` above so the Rive rig and
                    the holo mask inherit the same value; see the note there. */
-                /* Hero eager + high priority: it is the largest avatar on the
-                   table (1.33x), always in view, and the one the player looks
-                   at first — `lazy` bought nothing there but a deferred request
-                   and a pop-in. Villains stay lazy ON PURPOSE: MultiTablePage
-                   keeps up to four tables mounted with the inactive ones
-                   display:none, and lazy is what stops 27 off-screen avatars
-                   from being fetched before the player has opened those tabs. */
+                /* WebKit can defer lazy portraits on the transformed felt until
+                   a viewport change. A visible table requests every portrait
+                   immediately, including spectators with no hero. TablePage
+                   keeps retained hidden tables lazy and updates this prop when
+                   they become visible. Hero and Lightning arrival overrides
+                   remain eager. */
                 /* An arriving Lightning opponent (`arrival`) is on the felt
                    in front of the player right now, so it loads at once: its
                    fade waits for this image (the arrival effect above). */
-                loading={player.isHero || props.arrival ? 'eager' : 'lazy'}
+                loading={player.isHero || props.arrival ? 'eager' : avatarLoading}
                 decoding="async"
                 fetchPriority={player.isHero ? 'high' : 'auto'}
                 onError={() => setFailedAvatarUrl(avatarUrl)}
@@ -4108,6 +4110,7 @@ export const SeatSlot = memo(
     if (prev.cardBack !== next.cardBack) return false;
     if (prev.secondsLeft !== next.secondsLeft) return false;
     if (prev.showAvatar !== next.showAvatar) return false;
+    if (prev.avatarLoading !== next.avatarLoading) return false;
     if (prev.showBadges !== next.showBadges) return false;
     if (prev.hasNote !== next.hasNote) return false;
     if (prev.noteColor !== next.noteColor) return false;
