@@ -590,6 +590,28 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
           'https://www.postgresql.org/media/keys/ACCC4CF8.asc'
         )
     );
+    const freezeArmingStep = {
+      name: 'The finalized-pool freeze refuses what arming it would refuse',
+      if: 'matrix.shard == 1',
+      env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+      run: 'python3 -B scripts/ci/test-finalized-pool-freeze-arming.py',
+    };
+    const freezeArmingSteps = normalized.jobs.accounting_postgres.steps;
+    const freezeArmingIndex = freezeArmingSteps.findIndex(
+      (step: { name: string }) => step.name === freezeArmingStep.name
+    );
+    expect(
+      freezeArmingSteps.filter((step: { name: string }) => step.name === freezeArmingStep.name)
+    ).toHaveLength(1);
+    expect(freezeArmingSteps[freezeArmingIndex]).toStrictEqual(freezeArmingStep);
+    expect(freezeArmingSteps[freezeArmingIndex - 1]?.name).toBe(
+      'Tournament guarantees include funded bounties'
+    );
+    expect(freezeArmingSteps[freezeArmingIndex + 1]?.name).toBe(
+      'Cash top-up retries read their original receipt'
+    );
+    // Enforce the exact added freeze proof before retaining the bounty neighbours.
+    freezeArmingSteps.splice(freezeArmingIndex, 1);
     const bountyStep = {
       name: 'Tournament guarantees include funded bounties',
       if: 'matrix.shard == 1',

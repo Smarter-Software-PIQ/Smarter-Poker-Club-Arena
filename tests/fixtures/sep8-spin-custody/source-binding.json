@@ -129,7 +129,7 @@
     "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e"
+    "scripts/qualification/ci-accounting-inputs.json": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -2100,6 +2100,19 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previous": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c",
         "current": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "finalizedPoolFreezeArmingProof20261107": {
+    "reason": "Reviewed finalized-pool freeze arming proof (2026-11-07): the accounting workflow gains one shard-1 step, \"The finalized-pool freeze refuses what arming it would refuse\", running scripts/ci/test-finalized-pool-freeze-arming.py beside the existing bounty-guarantee proof with the same PG_BIN and TMPDIR environment. Read structurally, the regenerated projection differs in exactly one place: jobs/accounting_postgres gains those 7 lines (2368 -> 2375). No existing suite command, matrix.shard routing, environment, timeout, artifact or financial input changes, and the new suite reads no financial input - it boots its own private PostgreSQL. Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "repository_files",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e",
+        "current": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8"
       }
     ],
     "historicalEvidenceRestamped": false,
