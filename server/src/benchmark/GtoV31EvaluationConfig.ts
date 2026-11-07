@@ -11,13 +11,15 @@ export function evaluationConfig(args: {
   family: GtoV31EvaluationFamily;
   scenarios: string[];
   engineCommit: string;
+  /** The dataset's contract (gto_v31_datasets.evaluation_contract); v2 when absent. */
+  contract?: 'gto_v31_candidate.v2' | 'gto_v31_candidate.v3';
 }) {
   return {
     ...gtoV31PolicyContractIdentity(args),
     ...(args.feature_contract_version !== undefined
       ? { feature_contract_version: args.feature_contract_version }
       : {}),
-    evaluation_contract: 'gto_v31_candidate.v2',
+    evaluation_contract: args.contract ?? 'gto_v31_candidate.v2',
     evaluation_kind: args.kind,
     game_family: args.family,
     dataset_checksum: args.datasetChecksum,

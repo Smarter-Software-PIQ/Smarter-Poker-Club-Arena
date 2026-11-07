@@ -25,6 +25,14 @@ import {
 import { gtoPostflopV31Dataset } from '../engine/GtoPostflopV31.js';
 import { evaluationConfig, evaluationMatchup } from '../benchmark/GtoV31EvaluationConfig.js';
 import {
+  GTO_V31_EVALUATION_CONTRACT_V3,
+  gtoV31V3Refusal,
+  gtoV31V3Tables,
+  runGtoV31EvaluationFamilyV3,
+  type GtoV31V3CellContext,
+  type GtoV31V3Component,
+} from '../benchmark/GtoV31EvaluationContractV3.js';
+import {
   loadGtoPostflopV31,
   loadGtoPostflopV31Evaluation,
 } from '../services/GtoPostflopV31Loader.js';
@@ -105,6 +113,94 @@ function snakeComponents(result: Awaited<ReturnType<typeof runGtoV31EvaluationFa
     candidate_execution_mismatches: component.candidateExecutionMismatches,
     candidate_node_roles: component.candidateNodeRoles,
   }));
+}
+
+/** v3 components: v2's ten fields, the executed cells and (league) the learning-off run. */
+function snakeComponentsV3(components: GtoV31V3Component[]) {
+  return components.map((c) => ({
+    scenario: c.scenario,
+    hands: c.hands,
+    bb100: c.bb100,
+    stderr: c.stderr,
+    duration_ms: c.durationMs,
+    illegal_actions: c.illegalActions,
+    truncated_streets: c.truncatedStreets,
+    candidate_policy_hits: c.candidatePolicyHits,
+    candidate_execution_mismatches: c.candidateExecutionMismatches,
+    candidate_node_roles: c.candidateNodeRoles,
+    candidate_cells: c.candidateCells,
+    ...(c.memoryOff
+      ? {
+          memory_off: {
+            hands: c.memoryOff.hands,
+            bb100: c.memoryOff.bb100,
+            stderr: c.memoryOff.stderr,
+            duration_ms: c.memoryOff.durationMs,
+            illegal_actions: c.memoryOff.illegalActions,
+            truncated_streets: c.memoryOff.truncatedStreets,
+            candidate_policy_hits: c.memoryOff.candidatePolicyHits,
+            candidate_execution_mismatches: c.memoryOff.candidateExecutionMismatches,
+            candidate_cells: c.memoryOff.candidateCells,
+          },
+        }
+      : {}),
+  }));
+}
+
+interface EvaluationPlan {
+  evaluation_contract: 'gto_v31_candidate.v2' | 'gto_v31_candidate.v3';
+  families: Partial<Record<GtoV31EvaluationFamily, { tables: string[]; cells: string[] }>>;
+}
+
+/**
+ * The database's plan for this dataset. v3 tables are derived twice, here
+ * from the loaded cells and in PostgreSQL from gto_v31_runtime_cells; any
+ * difference refuses before a single hand is dealt.
+ */
+async function evaluationPlan(
+  datasetId: string,
+  contexts: readonly GtoV31V3CellContext[]
+): Promise<EvaluationPlan> {
+  const { data, error } = await supabase.rpc('fn_gto_v31_evaluation_plan', {
+    p_dataset_id: datasetId,
+  });
+  // Before the contract v3 migration installs there is no plan RPC and no v3
+  // dataset can exist (the contract column arrives with it): contract v2.
+  if (error && (error.code === 'PGRST202' || /fn_gto_v31_evaluation_plan/.test(error.message ?? ''))) {
+    return { evaluation_contract: 'gto_v31_candidate.v2', families: {} };
+  }
+  if (error) throw new Error(error.message);
+  const plan = data as EvaluationPlan | null;
+  if (
+    !plan ||
+    (plan.evaluation_contract !== 'gto_v31_candidate.v2' &&
+      plan.evaluation_contract !== GTO_V31_EVALUATION_CONTRACT_V3) ||
+    !plan.families ||
+    typeof plan.families !== 'object'
+  ) {
+    throw new Error('the V31 evaluation plan is missing or malformed');
+  }
+  if (plan.evaluation_contract === GTO_V31_EVALUATION_CONTRACT_V3) {
+    for (const family of FAMILIES) {
+      const local = gtoV31V3Tables(family, contexts);
+      const remote = plan.families[family]?.tables ?? [];
+      if (canonicalJson(local) !== canonicalJson(remote)) {
+        throw new Error(
+          `${family}: the evaluator derives tables ${JSON.stringify(local)} but the database ` +
+            `derives ${JSON.stringify(remote)}; refusing to evaluate`
+        );
+      }
+      const localCells = contexts
+        .filter((c) => c.game_family === family)
+        .map((c) => c.cell_key_checksum)
+        .sort();
+      const remoteCells = [...(plan.families[family]?.cells ?? [])].sort();
+      if (canonicalJson(localCells) !== canonicalJson(remoteCells)) {
+        throw new Error(`${family}: the loaded cells differ from the database's cells`);
+      }
+    }
+  }
+  return plan;
 }
 
 function canonicalJson(value: unknown): string {
@@ -226,21 +322,71 @@ async function persistEvaluation(args: {
   epochNo: number;
   kind: GtoV31EvaluationKind;
   family: GtoV31EvaluationFamily;
+  /** v3: the family's derived tables and sealed cells; absent = contract v2. */
+  v3?: { tables: string[]; cells: string[] };
 }): Promise<void> {
   const runDate = new Date().toISOString().slice(0, 10);
   const matchup = evaluationMatchup(args.kind, args.family, args.datasetChecksum, args.epochNo);
-  const scenarios = buildGtoV31EvaluationScenarios(
-    args.family,
-    args.kind,
-    args.datasetChecksum
-  ).map((scenario) => scenario.key);
-  const configA = evaluationConfig({ ...args, scenarios });
+  const scenarios = args.v3
+    ? [...args.v3.tables]
+    : buildGtoV31EvaluationScenarios(args.family, args.kind, args.datasetChecksum).map(
+        (scenario) => scenario.key
+      );
+  const configA = evaluationConfig({
+    ...args,
+    scenarios,
+    contract: args.v3 ? GTO_V31_EVALUATION_CONTRACT_V3 : 'gto_v31_candidate.v2',
+  });
   const configB = {
     incumbent_dataset_checksum: args.incumbentChecksum,
     candidate: 'incumbent',
   };
   let resultId = await existingResult({ runDate, matchup, configA, configB });
-  if (resultId === null) {
+  if (resultId === null && args.v3) {
+    const { result, components, pairs } = await runGtoV31EvaluationFamilyV3({
+      family: args.family,
+      kind: args.kind,
+      datasetChecksum: args.datasetChecksum,
+      tables: args.v3.tables,
+      runSeed: seedFor(args.datasetChecksum, args.kind, args.family),
+    });
+    const refusal = gtoV31V3Refusal(args.kind, args.v3.tables, pairs, components, args.v3.cells);
+    if (refusal) {
+      throw new Error(`${args.kind}/${args.family} cannot certify under contract v3: ${refusal}`);
+    }
+    const { data, error } = await supabase
+      .from('horse_league_results')
+      .insert({
+        run_date: runDate,
+        matchup,
+        hands: result.hands,
+        bb100: result.bb100,
+        stderr: result.stderr,
+        config_a: configA,
+        config_b: configB,
+        duration_ms: result.durationMs,
+        illegal_actions: result.illegalActions + result.truncatedStreets,
+        truncated_streets: result.truncatedStreets,
+        candidate_policy_hits: result.candidatePolicyHits,
+        candidate_execution_mismatches: result.candidateExecutionMismatches,
+        candidate_node_roles: result.candidateNodeRoles,
+        candidate_benchmark_components: snakeComponentsV3(components),
+      })
+      .select('id')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error(`${args.kind}/${args.family} insert returned no evaluation receipt`);
+    resultId = Number((data as { id: number }).id);
+    const off = components.filter((c) => c.memoryOff);
+    console.log(
+      `[gto-v31-evaluate] v3 ${args.kind}/${args.family}: ${result.bb100.toFixed(4)} bb/100 ` +
+        `(se ${result.stderr.toFixed(4)}) over ${components.length} tables, ` +
+        `${result.candidatePolicyHits} candidate hits, ${result.candidateCells?.length ?? 0} cells` +
+        (off.length
+          ? `; memory off: ${off.map((c) => `${c.scenario} ${c.memoryOff!.bb100.toFixed(3)}`).join(', ')}`
+          : '')
+    );
+  } else if (resultId === null) {
     const result = await runGtoV31EvaluationFamily({
       family: args.family,
       kind: args.kind,
@@ -334,12 +480,23 @@ async function main(): Promise<void> {
     throw new Error(`dataset state ${status.state} cannot be evaluated`);
   }
   const epoch = openEpochFor(status, engineCommit);
+  const plan = await evaluationPlan(datasetId, loaded.contexts);
+  const v3 = plan.evaluation_contract === GTO_V31_EVALUATION_CONTRACT_V3;
+  // v3 certifies exactly the families the dataset has cells in.
+  const families = v3
+    ? FAMILIES.filter((family) => (plan.families[family]?.tables.length ?? 0) > 0)
+    : FAMILIES;
+  console.log(
+    `[gto-v31-evaluate] ${plan.evaluation_contract}: ${families
+      .map((f) => (v3 ? `${f} [${plan.families[f]!.tables.join(', ')}]` : f))
+      .join('; ')}`
+  );
   console.log(
     `[gto-v31-evaluate] ${GTO_V31_EVALUATION_EPOCH_PROTOCOL}: epoch ${epoch.epoch_no} pins ${engineCommit}`
   );
 
   for (const kind of KINDS) {
-    for (const family of FAMILIES) {
+    for (const family of families) {
       const prior = status.evaluations.find(
         (evaluation) =>
           evaluation.kind === kind &&
@@ -367,6 +524,7 @@ async function main(): Promise<void> {
         epochNo: epoch.epoch_no,
         kind,
         family,
+        ...(v3 ? { v3: plan.families[family]! } : {}),
       });
       status = await certificationStatus(datasetId);
       openEpochFor(status, engineCommit);

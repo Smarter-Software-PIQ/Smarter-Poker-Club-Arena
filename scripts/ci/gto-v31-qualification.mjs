@@ -80,6 +80,28 @@ export function epochAwareCommit(repo, sha) {
   return epochProtocolPresent(sources);
 }
 
+/**
+ * The families a dataset is certified in. Contract v2 (every dataset before
+ * 2026-11-06) certifies all four; contract v3 certifies exactly the families
+ * the dataset has cells in, which ca_gto_v31_certification_status reports as
+ * required_families. A v3 status without that list is refused.
+ */
+export function requiredFamilies(dataset) {
+  if (dataset?.evaluation_contract === 'gto_v31_candidate.v3') {
+    const families = dataset.required_families;
+    if (!Array.isArray(families) || families.length === 0 ||
+        families.some((f) => !FAMILIES.includes(f)) || new Set(families).size !== families.length)
+      throw new Error('A contract v3 dataset must report the families it is certified in');
+    return families;
+  }
+  return FAMILIES;
+}
+
+/** Replay/league receipts expected of one epoch: two per required family. */
+export function expectedReceipts(dataset) {
+  return KINDS.length * requiredFamilies(dataset).length;
+}
+
 /** Replay/league receipts of exactly one epoch; any receipt in it bound to another commit is refused. */
 export function epochReceipts(dataset, epoch) {
   const receipts = (dataset.evaluations ?? []).filter((r) => KINDS.includes(r.kind) && r.evaluation_epoch_id === epoch.epoch_id);
@@ -164,12 +186,14 @@ export function promotionPlan(dataset, id) {
   if (dataset.state !== 'candidate' || epoch.promoted_at)
     throw new Error('Promotion requires the exact already-qualified candidate');
   const receipts = epochReceipts(dataset, epoch);
-  const expected = new Set(KINDS.flatMap((kind) => FAMILIES.map((family) => `${kind}/${family}`)));
+  const families = requiredFamilies(dataset);
+  const expected = new Set(KINDS.flatMap((kind) => families.map((family) => `${kind}/${family}`)));
+  const needed = expected.size;
   for (const receipt of receipts)
     if (!['win', 'tie'].includes(receipt.verdict) || !expected.delete(`${receipt.kind}/${receipt.game_family}`))
-      throw new Error('Promotion requires eight distinct passing replay/league receipts of the evaluated epoch');
-  if (receipts.length !== 8 || expected.size)
-    throw new Error('Promotion requires eight distinct passing replay/league receipts of the evaluated epoch');
+      throw new Error(`Promotion requires ${needed} distinct passing replay/league receipts of the evaluated epoch`);
+  if (receipts.length !== needed || expected.size)
+    throw new Error(`Promotion requires ${needed} distinct passing replay/league receipts of the evaluated epoch`);
   if (!(dataset.evaluations ?? []).some((r) => r.kind === 'heldout' && r.game_family === 'all' && r.verdict === 'pass'))
     throw new Error('Promotion requires the held-out pass');
   return { mode: 'promote', epoch };
@@ -445,7 +469,7 @@ async function runEvaluation(selected, directory, contextPath) {
     receipt.datasetState = after.state;
     const final = pinOwner(after);
     if (after.dataset_checksum !== before.dataset_checksum || after.state !== 'candidate' || final?.epoch_id !== epoch.epoch_id ||
-        epochReceipts(after, final).length !== 8)
+        epochReceipts(after, final).length !== expectedReceipts(after))
       throw new Error('Evaluator returned without the expected durable candidate epoch');
     receipt.outcome = 'candidate';
   } catch (error) {
