@@ -64,3 +64,70 @@ function levelWindowEndMs(t: LobbyTournamentRow, cap: number, current: number): 
   }
   return end;
 }
+
+/**
+ * THE LOBBY CARD COUNTDOWN. Dan 2026-11-06, on the Nightly 10K (rebuy and
+ * add-on) reading "Late Reg Open" while the 25 Chip Daily Rebuy beside it
+ * counted down: "FIX IT SO IT ALWAYS SHOWS THE COUNT DOWN".
+ *
+ * `lateRegEndMs` above is the strict deadline: it answers null whenever it
+ * cannot prove one, and the Details tab and the at-table call to action rely
+ * on that so they never print an invented wall-clock time. A lobby card has a
+ * different job - it must keep a clock running. So this starts from the strict
+ * deadline and, only where that is null while late registration is still
+ * ahead, falls back to the best estimate the row supports:
+ *  - an add-on event has no `addon_period_ends_at` until its add-on minute
+ *    begins, so before that it counts to the level/clock boundary that opens
+ *    the add-on minute (whichever of the two closes first);
+ *  - a level clock with no stamp yet (the seating gap after the start, or a
+ *    row read between writes) is estimated from the actual start plus the
+ *    levels already played;
+ *  - an unreadable blind structure falls back to the configured minutes.
+ * A scheduled start that has not happened never supplies an estimate, and a
+ * finalized pool or a passed boundary still shows nothing.
+ */
+export function lateRegCountdownEndMs(t: LobbyTournamentRow): number | null {
+  const strict = lateRegEndMs(t);
+  if (strict !== null) return strict;
+  if (t.prize_pool_finalized === true) return null;
+  const window = tournamentEntryWindow(t);
+  if (window.mode === 'closed') return null;
+  if (window.mode === 'levels' && window.current >= window.cap) return null;
+  const begun = Date.parse(t.started_at ?? '');
+  if (!Number.isFinite(begun)) return null;
+  const clock =
+    window.minutes !== undefined && window.minutes > 0 ? begun + window.minutes * 60000 : null;
+  if (window.mode === 'minutes') return clock;
+  const levels = estimatedLevelWindowEndMs(t, window.cap, window.current, begun);
+  if (levels === null) return clock;
+  return clock === null ? levels : Math.min(levels, clock);
+}
+
+function estimatedLevelWindowEndMs(
+  t: LobbyTournamentRow,
+  cap: number,
+  current: number,
+  begun: number
+): number | null {
+  const structure = parseBlindStructure(t.blind_structure);
+  if (!structure || cap > structure.length) return null;
+  const minutesOf = (index: number): number | null => {
+    const m = blindLevelMinutes(structure, index + 1);
+    return Number.isFinite(m) && m > 0 ? m : null;
+  };
+  let end = Date.parse(t.level_started_at ?? '');
+  if (!Number.isFinite(end)) {
+    end = begun;
+    for (let index = 0; index < current; index++) {
+      const m = minutesOf(index);
+      if (m === null) return null;
+      end += m * 60000;
+    }
+  }
+  for (let index = current; index < cap; index++) {
+    const m = minutesOf(index);
+    if (m === null) return null;
+    end += m * 60000;
+  }
+  return end;
+}
