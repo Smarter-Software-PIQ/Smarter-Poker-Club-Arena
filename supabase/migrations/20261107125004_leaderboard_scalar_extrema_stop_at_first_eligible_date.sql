@@ -1,4 +1,4 @@
--- 20261107125004_leaderboard_scalar_snapshot_extrema_stop_at_first_eligible_date
+-- 20261107125004_leaderboard_scalar_extrema_stop_at_first_eligible_date
 --
 -- Reserved by scripts/reserve-migration-version.sh on 2026-11-07 12:50:04 UTC.
 --

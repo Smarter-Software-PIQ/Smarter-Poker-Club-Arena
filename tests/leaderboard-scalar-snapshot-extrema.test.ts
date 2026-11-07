@@ -13,7 +13,7 @@ const sibling = readFileSync(
   'utf8'
 );
 const sql = readFileSync(
-  'supabase/migrations/20261107125004_leaderboard_scalar_snapshot_extrema_stop_at_first_eligible_date.sql',
+  'supabase/migrations/20261107125004_leaderboard_scalar_extrema_stop_at_first_eligible_date.sql',
   'utf8'
 );
 const fixture = readFileSync('scripts/ci/fixtures/leaderboard-extrema-preimage.sql', 'utf8');
