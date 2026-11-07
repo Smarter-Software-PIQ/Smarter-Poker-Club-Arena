@@ -23,6 +23,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the checked-to high-only Omaha turn and river boat eligibility for legal value wagers and the river initiative release',
     'src/engine/HorseRiverBluffRange.ts':
       'the baseline heads-up river bluff range (Dan 2026-11-06): eligibility, line, blockers, balanced frequency and size for a river with no showdown value',
+    'src/engine/HorseMultiwayRiverBluff.ts':
+      'the multiway river bluff (Dan 2026-11-06): two or three opponents, nut blocker and field-capping line required, per-opponent decay and read product, polarized pot-limit-legal size',
     'src/engine/HorseCheckedAggressor.ts':
       'the actual prior aggressor current-street check that releases the reference initiative gate without changing value pricing or legal sizing',
     'src/engine/HorseFeatureAuthority.ts':

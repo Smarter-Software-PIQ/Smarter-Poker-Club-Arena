@@ -291,6 +291,8 @@ describe('LAW: limits and tournaments', () => {
     TIMEOUT
   );
 
+  // The baseline stays heads-up. Multiway rivers fall to the layers below,
+  // the first of which is now HorseMultiwayRiverBluff.ts (its own law).
   it(
     'multiway rivers are left to the layers below',
     () => {
