@@ -89,6 +89,20 @@ Of 10,567 PLO4/5/6/8 tournament decisions, 231 had a bubble stage in the origina
 
 All 213 one-paid heads-up decisions had two retained stacks, one regular prize, no bounty and no deal. Under equal-skill heads-up ICM, expected regular-prize share is linear in chip share. Eleven calls would have closed betting, with the amount matched and any uncalled excess priced separately. Of the 98 multi-place MTT decisions, 82 were PLO5 mystery-bounty, four PLO8 progressive-bounty and 12 non-bounty. None met the same heads-up terminal-call conditions. Use the actual payout steps, field stacks and available bounty values there. All four PLO8 decisions were preflop in one hand with seven remaining and six paid. At the short stack's call, five players still had claims on the pot. Include high, low, quartering, future betting and side-pot eligibility before pricing that call.
 
+### PLO8 short stack at seven left and six paid
+
+All seven final-table stacks were present in the four decisions from this progressive-knockout hand. The regular prize ladder paid 156.69, 90, 65.05, 51.68, 43.25 and 37.33. A short Horse faced a 7,000 raise with 9,420 chips and a 10,000 pot. Another Horse opened. A human remained able to act.
+
+Suppose the players behind fold, and a flat call checks through to showdown. Compare that 17,000 pot with folding or shoving the remaining stack and receiving a call for a 21,840 pot. Conditioning only on the short Horse’s original cards and the specified opener range gave the following regular-prize results.
+
+| Opener range                | Call chip change | Call regular-prize change | Called shove chip change | Called shove regular-prize change |
+| --------------------------- | ---------------: | ------------------------: | -----------------------: | --------------------------------: |
+| Uniform four-card holdings  |           +2,864 |                    +2.713 |                   +3,253 |                            +1.590 |
+| Contains an ace and a deuce |           +1,609 |                    +0.325 |                   +1,640 |                            −1.641 |
+| Contains at least two aces  |             −479 |                    −3.714 |                   −1,042 |                            −7.146 |
+
+Changes are relative to folding. With ace-deuce in the opener's hand, adding chips increased the short Horse’s expected chip count while reducing its expected regular prize compared with folding. Each range used 32,768 reproducible samples. The simultaneous 95% simulation half-widths were at most 0.299 regular-prize units for the call and 0.406 for the called shove. The opener covered the Horse, so the Horse could not win an immediate bounty in this heads-up branch. Other callers, future betting, opener folds and future bounty value can change the ranking.
+
 ### When the Horse lacked a recorded bubble stage
 
 Five legal decisions by one Horse across two hands in an NLH bounty MTT had no stage in the original public decision records. Frozen payouts, registration and elimination evidence later established that 25 remained and 24 places paid. Four decisions involved a human still able to act. On the fifth, the human had already folded and the Horse faced another Horse. Preserve this distinction when diagnosing play against humans.
