@@ -9,9 +9,13 @@ const wrapper = 'src/engine/RetainedHistoricalCheckpointQualification.test.ts';
 const ci = parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
 const receiver = parse(readFileSync('.github/workflows/auto-deploy-hetzner.yml', 'utf8'));
 
+const daytime = parse(
+  readFileSync('.github/workflows/engine-release-prequalification.yml', 'utf8')
+);
+
 it('executes the declared CI and receiver commands with exact-once historical coverage', () => {
   expect(ci.jobs.server_shards['timeout-minutes']).toBe(80);
-  expect(receiver.jobs.preflight['timeout-minutes']).toBe(80);
+  expect(daytime.jobs.qualify['timeout-minutes']).toBe(80);
   const folder = mkdtempSync(join(tmpdir(), 'retained-owner-routing-'));
   const log = join(folder, 'commands.log');
   const npm = join(folder, 'npm');
@@ -45,7 +49,7 @@ it('executes the declared CI and receiver commands with exact-once historical co
     expect(preparation.if).toBe('matrix.shard == 1');
     expect(preparation['continue-on-error']).toBeUndefined();
     expect(full.name).toBe('Full server test suite');
-    const release = receiver.jobs.preflight.steps.find(
+    const release = daytime.jobs.qualify.steps.find(
       (step: { name?: string }) => step.name === 'Compile and test the exact server tree'
     );
     expect(release['continue-on-error']).toBeUndefined();

@@ -328,6 +328,7 @@ git() { echo unexpected-main-read >&2; return 99; }
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain(`RETARGETED: pushed ${pushed} is superseded by ${newest}`);
       expect(result.stdout).toContain('sha=' + newest);
+      expect(result.stdout).toContain('control_sha=' + newest);
       expect(result.stdout).not.toContain('sha=' + pushed);
       expect(result.stdout).toContain('refresh=auto');
       expect(result.calls).toContain(`/compare/${pushed}...${newest}`);

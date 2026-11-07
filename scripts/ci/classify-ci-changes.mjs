@@ -119,6 +119,25 @@ const cssBeatInput =
 const all = () => ({ src: true, server: true, tests: true, phase4: true, fixture: true });
 const wide =
   /^(package(-lock)?\.json|vite\.config|vitest\.config|tsconfig|\.npmrc|\.nvmrc|\.node-version|\.github\/workflows\/|scripts\/ci\/(classify-ci-changes|fixture-native-gate|ui-test-selection|publisher-ui-selection-base)\.mjs)/;
+// A WORKFLOW THAT IS NOT ci.yml DOES NOT ADMIT THE BROWSER (2026-11-07).
+//
+// `wide` admitted every job for any file under .github/workflows/. That is
+// right for the server shards and the unit suite: dozens of tests under
+// tests/ and server/src read workflow files from disk and must run when one
+// changes. It was wrong for `src`, which gates only the Production Build, the
+// browser harness, CSS Beat (Chromium + WebKit, 10 shards x 2 partitions) and
+// the Diamond playfield - and none of those reads any workflow but ci.yml
+// (ci.yml is both their definition and what cssBeatJobInputs() parses). A pull
+// request touching backup-engine.yml, two laws and docs/laws.d/ paid the full
+// browser fan-out and went red on a flake in a suite its diff could not reach.
+//
+// So `src` keeps every other `wide` input exactly (package manifests, Vite,
+// vitest, tsconfig, the selection scripts) and, of the workflows, ci.yml only.
+// The required check names stay green the way they already do for a src:false
+// diff: the jobs skip and the ruleset counts the skip as satisfied; an
+// unreadable diff still runs everything (classification falls to all()).
+const wideClient =
+  /^(package(-lock)?\.json|vite\.config|vitest\.config|tsconfig|\.npmrc|\.nvmrc|\.node-version|\.github\/workflows\/ci\.yml$|scripts\/ci\/(classify-ci-changes|fixture-native-gate|ui-test-selection|publisher-ui-selection-base)\.mjs)/;
 const phase4 =
   /^(\.github\/workflows\/ci\.yml|scripts\/ci\/(?:classify-ci-changes\.mjs|test-v4-policy-metadata\.mjs$)|scripts\/ci\/probes\/horse-phase4-certified-solver\/|supabase\/migrations\/(?:20260909(165541|170039|170749|171644|172537|175000|180000)_|20261007043848_v4_policy_schema_is_immutable_input_metadata\.sql$|20261007043945_solver_v4_nodes_prove_complete_public_state\.sql$|20261007051641_v4_consumers_bind_the_immutable_policy_schema\.sql$)|server\/src\/(benchmark\/(HorseLeague|HorseSolverAgreementV31|GtoV31EvaluationConfig\.(?:test\.)?ts$)|scripts\/gtoV31Evaluate\.ts$|engine\/(GtoDecisionContext|GtoPostflopV31|GtoV31|HorseDataLedger|HorseLogic|LiveHorseDecisionWorkerHealth|horseDecision\/)|services\/GtoPostflopV31Loader))/;
 const breakfastWitness =
@@ -294,6 +313,7 @@ export function classifyChangedPaths(paths) {
   }
   const matches = (pattern) => paths.some((p) => pattern.test(p));
   const broad = matches(wide);
+  const broadClient = matches(wideClient);
   const privateRecordHosting =
     paths.includes('server/tsconfig.private-record-gateway.json') ||
     matches(
@@ -464,7 +484,7 @@ export function classifyChangedPaths(paths) {
   const devMatches = (pattern) => devPaths.some((p) => pattern.test(p));
   return {
     src:
-      broad ||
+      broadClient ||
       cashLobbyBrowser ||
       paths.some(cssBeatInput) ||
       buildProvenance ||
