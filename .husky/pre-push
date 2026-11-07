@@ -213,8 +213,12 @@ if [ "$(uname -s)" = Darwin ]; then
       CA_PUSH_TMP_PICKED=""
       for ca_root in ${CA_PUSH_TMP_ROOT:-${CA_PUSH_TMP_ROOTS:-/Volumes/SmarterWork/agent-work/.t /Volumes/SmarterWork/agent-work/extreme-capacity/.t}}; do
         if ca_root_why=$(ca_scratch_problem "$ca_root"); then
-          CA_PUSH_TMP_PICKED=$ca_root
-          break
+          # External is not enough: a root-owned stub on the drive is too.
+          if mkdir -p "$ca_root" 2>/dev/null && [ -w "$ca_root" ]; then
+            CA_PUSH_TMP_PICKED=$ca_root
+            break
+          fi
+          ca_root_why="$ca_root is external but cannot be created or written."
         fi
         ca_why="${ca_why:+$ca_why }$ca_root_why"
       done
@@ -239,6 +243,16 @@ if [ "$(uname -s)" = Darwin ]; then
     echo "[club-arena pre-push] BLOCKED: external scratch unavailable for TMPDIR. $ca_why" >&2
     exit 1
   fi
+  # RUNNER_TEMP (2026-11-07). Tests that run in CI write under RUNNER_TEMP and
+  # fall back to a fixed /Volumes/SmarterWork/agent-work path on this Mac,
+  # which is now a read-only stub (privateRecordHosting failed every push).
+  # Unless the caller gave a writable external one, they share this run's
+  # private scratch.
+  if [ -z "${RUNNER_TEMP:-}" ] || [ ! -d "$RUNNER_TEMP" ] || [ ! -w "$RUNNER_TEMP" ] \
+    || ! ca_scratch_problem "$RUNNER_TEMP" >/dev/null; then
+    RUNNER_TEMP=$TMPDIR
+  fi
+  export RUNNER_TEMP
   # BASH (2026-11-06). macOS ships bash 3.2; CI and engine-01 run bash 5.
   # This runs before the Node step below, so Node 22 still ends up first.
   # The release shell tests spawn `bash` from PATH, so on this Mac they ran

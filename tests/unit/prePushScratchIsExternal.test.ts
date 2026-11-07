@@ -137,8 +137,14 @@ describe('the default scratch falls back to a short external root', () => {
   const darwinStart = HOOK.indexOf('\n  case "${TMPDIR:-}" in');
   const pick = HOOK.slice(darwinStart, HOOK.indexOf('\n  esac', darwinStart) + 7);
 
+  const runnerTemp = HOOK.slice(
+    HOOK.indexOf('\n  if [ -z "${RUNNER_TEMP:-}" ]'),
+    HOOK.indexOf('\n  export RUNNER_TEMP') + 22
+  );
+
   function pickRoot(box: { dir: string; vols: string }, env: Record<string, string>) {
-    return spawnSync('bash', ['-c', `${HELPERS}\n${pick}\necho "TMPDIR=$TMPDIR"`], {
+    const script = `${HELPERS}\n${pick}\n${runnerTemp}\necho "TMPDIR=$TMPDIR"\necho "RUNNER_TEMP=$RUNNER_TEMP"`;
+    return spawnSync('bash', ['-c', script], {
       encoding: 'utf8',
       env: {
         ...process.env,
@@ -161,6 +167,40 @@ describe('the default scratch falls back to a short external root', () => {
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain(`TMPDIR=${second}/p.`);
     expect(existsSync(first)).toBe(false);
+  });
+
+  it('skips an external root that cannot be written, as the remounted stub is', () => {
+    const box = sandbox(['$V/Work', '$V/Work/agent-work/extreme']);
+    mkdirSync(join(box.vols, 'Work/agent-work/extreme'), { recursive: true });
+    const stub = join(box.vols, 'Work/locked');
+    mkdirSync(stub);
+    chmodSync(stub, 0o555);
+    try {
+      const first = join(stub, '.t');
+      const second = join(box.vols, 'Work/agent-work/extreme/.t');
+      const r = pickRoot(box, { CA_PUSH_TMP_ROOTS: `${first} ${second}` });
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout).toContain(`TMPDIR=${second}/p.`);
+    } finally {
+      chmodSync(stub, 0o755);
+    }
+  });
+
+  it('gives RUNNER_TEMP the run scratch unless a writable external one was given', () => {
+    const box = sandbox(['$V/Work']);
+    mkdirSync(join(box.vols, 'Work'), { recursive: true });
+    const root = join(box.vols, 'Work/.t');
+    const stale = pickRoot(box, { CA_PUSH_TMP_ROOTS: root, RUNNER_TEMP: join(box.dir, 'boot') });
+    expect(stale.status, stale.stderr).toBe(0);
+    const tmp = /TMPDIR=(.*)/.exec(stale.stdout)?.[1] ?? '';
+    expect(tmp.startsWith(`${root}/p.`)).toBe(true);
+    expect(stale.stdout).toContain(`RUNNER_TEMP=${tmp}\n`);
+    const unset = pickRoot(box, { CA_PUSH_TMP_ROOTS: root, RUNNER_TEMP: '' });
+    expect(unset.stdout).toMatch(new RegExp(`RUNNER_TEMP=${root.replace(/[.]/g, '\\.')}/p\\.`));
+    const given = join(box.vols, 'Work/runner');
+    mkdirSync(given);
+    const kept = pickRoot(box, { CA_PUSH_TMP_ROOTS: root, RUNNER_TEMP: given });
+    expect(kept.stdout).toContain(`RUNNER_TEMP=${given}\n`);
   });
 
   it('refuses with every reason when no root is external', () => {
