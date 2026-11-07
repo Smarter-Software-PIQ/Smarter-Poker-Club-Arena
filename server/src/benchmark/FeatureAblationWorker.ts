@@ -473,11 +473,16 @@ export function createFeatureAblationWorker(
             } else if (restores === 2 && state === canonical) restoreFastRandom(state);
             else throw Error('Unexpected worker RNG restore sequence');
           },
-          decide: (p, gs, s, mods, opts) =>
-            defaultHorseDecisionWorkerDependencies.decide(p, gs, s, mods, {
-              ...opts,
-              telemetry: collectEvaluationFires,
-            }),
+          decide: (p, gs, s, mods, opts, rangeCapture, planReadCapture) =>
+            defaultHorseDecisionWorkerDependencies.decide(
+              p,
+              gs,
+              s,
+              mods,
+              { ...opts, telemetry: collectEvaluationFires },
+              rangeCapture,
+              planReadCapture
+            ),
         });
       } finally {
         Date.now = wallClock;
