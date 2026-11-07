@@ -385,8 +385,11 @@ export function TournamentBreakScreen({
           currentLevel: index,
           blinds,
           // A guarantee moves no chips until registration closes (Dan,
-          // 2026-11-04), so a break during late registration shows the
-          // guarantee as the floor rather than the money collected so far.
+          // 2026-11-04), and the pool is what the field has paid net of
+          // rake, places plus bounties (Dan, 2026-11-06). A break during
+          // late registration shows that collected figure, never the
+          // guarantee as the pool; once finalized the stored pool already
+          // holds any funded overlay.
           prizePool: effectivePrizePool(
             Number(t.prize_pool) || 0,
             Number(t.guaranteed_prize) || 0,

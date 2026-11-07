@@ -629,3 +629,33 @@ it('keeps an explicit selection when an earlier deep link finishes late', async 
   expect(screen.getByTestId('payment-event').textContent).toBe('B');
   expect(screen.queryByText('Event Old')).toBeNull();
 });
+
+describe('the results list prints the TOTAL prize pool (2026-11-07)', () => {
+  // tournaments.prize_pool is the places pool net of bounty and rake. The 2.5K
+  // 40 Chip Bounty Freezeout paid 1,196 in places and 460 in bounties; the
+  // list used to print "1,196 Prize Pool" and never read bounty_pool at all.
+  it('reads bounty_pool and prints places plus bounties', async () => {
+    mocks.query.mockImplementation((table) =>
+      success(
+        table === 'tournaments'
+          ? [tournament('A', { prize_pool: 1196, bounty_pool: 460, is_bounty: true })]
+          : []
+      )
+    );
+    mount();
+    await screen.findByText('Event A');
+    expect(screen.getByText('1,656 Prize Pool')).toBeTruthy();
+    expect(screen.queryByText('1,196 Prize Pool')).toBeNull();
+    const eventRead = mocks.query.mock.calls.find(([table]) => table === 'tournaments')!;
+    expect(eventRead[1].select).toContain('bounty_pool');
+  });
+
+  it('an event with no bounty pool prints its places pool unchanged', async () => {
+    mocks.query.mockImplementation((table) =>
+      success(table === 'tournaments' ? [tournament('A', { prize_pool: 90, bounty_pool: null })] : [])
+    );
+    mount();
+    await screen.findByText('Event A');
+    expect(screen.getByText('90 Prize Pool')).toBeTruthy();
+  });
+});
