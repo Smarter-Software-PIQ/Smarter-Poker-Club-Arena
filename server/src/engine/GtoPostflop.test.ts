@@ -23,6 +23,7 @@ import { HorseLogic } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom, saveFastRandom } from './HorseEval.js';
 import type { Card, SeatPlayer, ActionRecord } from '../types.js';
+import { fileURLToPath } from 'node:url';
 
 const c = (rank: string, suit: string): Card => ({ rank, suit }) as Card;
 const H = (r: string) => c(r, 'hearts');
@@ -585,9 +586,9 @@ describe('the wiring - HorseLogic consults the open-node cells on every street',
 
   it('the loader is worker-owned and the V30 driver stays in the leader bootstrap', async () => {
     const { readFileSync } = await import('node:fs');
-    const idx = readFileSync(new URL('../index.ts', import.meta.url).pathname, 'utf8');
+    const idx = readFileSync(fileURLToPath(new URL('../index.ts', import.meta.url)), 'utf8');
     const worker = readFileSync(
-      new URL('./horseDecision/workerRuntime.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('./horseDecision/workerRuntime.ts', import.meta.url)),
       'utf8'
     );
     expect(worker).toContain('startGtoPostflopLoader()');

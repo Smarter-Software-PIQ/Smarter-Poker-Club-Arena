@@ -23,6 +23,7 @@ import {
   type LobbyTableRow,
   type LobbyTournamentRow,
 } from '../../src/components/lobby/lobbyEntries';
+import { pathToFileURL } from 'node:url';
 
 const OUT = '/tmp/lobby-shot';
 mkdirSync(OUT, { recursive: true });
@@ -341,7 +342,7 @@ it.skipIf(!haveBrowser)(
         viewport: { width: w, height: 1000 },
         deviceScaleFactor: 1,
       });
-      await page.goto(`file://${OUT}/lobby.html`);
+      await page.goto(pathToFileURL(`${OUT}/lobby.html`).href);
       await page.waitForTimeout(250);
 
       const report = await page.evaluate(() => {

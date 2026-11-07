@@ -32,6 +32,7 @@ import {
   SOLVER_POLICY_SCHEMA_SHA256,
   SOLVER_POLICY_VERSION,
 } from '../gto/SolverPolicyContract.js';
+import { fileURLToPath } from 'node:url';
 
 const c = (rank: string, suit: string): Card => ({ rank, suit }) as Card;
 
@@ -275,7 +276,7 @@ describe('the wiring - the brain actually plays the chart', () => {
   it('the loader is wired inside the sole live decision worker', async () => {
     const { readFileSync } = await import('node:fs');
     const worker = readFileSync(
-      new URL('./horseDecision/workerRuntime.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('./horseDecision/workerRuntime.ts', import.meta.url)),
       'utf8'
     );
     expect(worker).toContain('startGtoChartLoader()');

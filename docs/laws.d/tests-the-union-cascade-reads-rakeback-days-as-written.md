@@ -1,0 +1,3 @@
+# tests/the-union-cascade-reads-rakeback-days-as-written.law.test.ts
+
+`fn_union_settlement_cascade` reads every `rakeback_periods` date as a Los Angeles calendar day, the way `fn_calculate_cash_rakeback_periods` writes it, never as a UTC midnight: its orphan guard (`union_rakeback_wrong_club`) and its completion test (`union_player_obligations_remaining`) each replace `AT TIME ZONE 'UTC'` with `AT TIME ZONE 'America/Los_Angeles'` (four anchored, count-asserted replacements against preimage `9dadc71929579ecb5d525f975cce9b49`, postimage `a68664588b6e7f83806f10b122a2bccc`, metadata unchanged). After 20261107194020 fixed the weekly close's own reading, Midway's 2026-10-19 book stopped on this function's copy of the same refusal.

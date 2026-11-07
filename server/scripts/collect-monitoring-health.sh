@@ -191,6 +191,26 @@ except Exception as exc:
     sys.stderr.write(f"collect-monitoring-health: client error gauges skipped: {exc}\n")
     lines = []
     collected = 0
+# A FREEZE REFUSAL IS COUNTED BY NAME (2026-11-07, migration 20261107210000).
+# Real players refused by the maintenance freeze, read for the info alert
+# PlayersRefusedDuringFreeze. Optional on purpose: a database that predates the
+# migration has no such columns, and that must never drop the three gauges
+# above, so these two are rendered only when both columns are present.
+FREEZE_GAUGES = [
+    ("poker_client_freeze_refusals_10m", "freeze_refusals_10m",
+     "Entries refused by the maintenance freeze in real players' browsers in the last 10 minutes (occurrences; automated sessions and horses excluded)."),
+    ("poker_client_freeze_refusal_users_10m", "freeze_refusal_users_10m",
+     "Distinct real players refused by the maintenance freeze in the last 10 minutes."),
+]
+if collected:
+    try:
+        freeze_lines = []
+        for metric, column, help_text in FREEZE_GAUGES:
+            value = float(row[column])
+            freeze_lines += [f"# HELP {metric} {help_text}", f"# TYPE {metric} gauge", f"{metric} {value:g}"]
+        lines += freeze_lines
+    except Exception as exc:
+        sys.stderr.write(f"collect-monitoring-health: freeze refusal gauges skipped: {exc}\n")
 lines += [
     "# HELP poker_client_error_collect_ok 1 when the client error gauges were read this run, else 0.",
     "# TYPE poker_client_error_collect_ok gauge",

@@ -398,6 +398,32 @@ try:
     assert q("SELECT count(*) FROM chip_ledger").strip() == ledger_rows
     must_fail(DG_MIG.read_text(), 'Inspected definition changed')
     print('PASS: players cannot read the digest line; neither function writes a ledger row; a second install is refused', flush=True)
+    # A returned ticket on a cancelled event leaves the historical roster.
+    # The old watch mistakes that legitimate return for a live bypass.
+    CANCELLED_RETURN='60000000-0000-0000-0000-00000000cafe'
+    LIVE_BYPASS='60000000-0000-0000-0000-00000000beef'
+    free_buy(LIVE_BYPASS,'pko',1,0,tickets=False,status='REGISTERING')
+    q(f"UPDATE tournaments SET prize_pool_finalized=false WHERE id='{LIVE_BYPASS}'")
+    free_buy(CANCELLED_RETURN,'pko',1,0,status='CANCELLED')
+    q(f"UPDATE smarter_private.free_buy_ticket_redemptions SET returned_at=now() WHERE tournament_id='{CANCELLED_RETURN}'; UPDATE smarter_private.free_buy_ticket_days SET used=0 WHERE user_id IN (SELECT user_id FROM tournament_players WHERE tournament_id='{CANCELLED_RETURN}')")
+    q('SELECT fn_ca_free_buy_funding_watch()')
+    assert q(f"SELECT count(*) FROM ca_free_buy_watch_findings WHERE tournament_id='{CANCELLED_RETURN}' AND kind='entry_without_ticket' AND cleared_at IS NULL").strip()=='1'
+    live_bypass=q("SELECT count(*) FROM ca_free_buy_watch_findings WHERE tournament_id='30000000-0000-0000-0000-00000000e0e0' AND kind='entry_without_ticket' AND cleared_at IS NULL").strip()
+    assert live_bypass=='2'
+    assert q(f"SELECT count(*) FROM ca_free_buy_watch_findings WHERE tournament_id='{LIVE_BYPASS}' AND kind='entry_without_ticket' AND cleared_at IS NULL").strip()=='1'
+    retained_ticket=q("SELECT count(*) FROM ca_free_buy_watch_findings WHERE tournament_id='30000000-0000-0000-0000-00000000cccc' AND kind='ticket_on_cancelled_event' AND cleared_at IS NULL").strip()
+    assert retained_ticket=='1'
+    chips_before=q('SELECT count(*) FROM chip_ledger').strip()
+    RETURN_MIG=next((ROOT/'supabase/migrations').glob('*cancelled_free_buy_returns_are_not_missing_tickets.sql'))
+    q(RETURN_MIG.read_text())
+    q('SELECT fn_ca_free_buy_funding_watch()')
+    assert q(f"SELECT count(*) FROM ca_free_buy_watch_findings WHERE tournament_id='{CANCELLED_RETURN}' AND kind='entry_without_ticket' AND cleared_at IS NULL").strip()=='0'
+    assert q(f"SELECT count(*) FROM financial_alerts WHERE context->>'tournament_id'='{CANCELLED_RETURN}' AND context->>'kind'='entry_without_ticket' AND resolved AND resolved_at IS NOT NULL").strip()=='1'
+    assert q("SELECT count(*) FROM ca_free_buy_watch_findings WHERE tournament_id='30000000-0000-0000-0000-00000000e0e0' AND kind='entry_without_ticket' AND cleared_at IS NULL").strip()==live_bypass
+    assert q("SELECT count(*) FROM ca_free_buy_watch_findings WHERE tournament_id='30000000-0000-0000-0000-00000000cccc' AND kind='ticket_on_cancelled_event' AND cleared_at IS NULL").strip()==retained_ticket
+    assert q(f"SELECT count(*) FROM ca_free_buy_watch_findings WHERE tournament_id='{LIVE_BYPASS}' AND kind='entry_without_ticket' AND cleared_at IS NULL").strip()=='1'
+    assert q('SELECT count(*) FROM chip_ledger').strip()==chips_before
+    print('PASS: cancelled returned entry finding closes automatically; live bypass and cancelled unreturned ticket remain detected; no ledger writes',flush=True)
 finally:
     if started:
         run([PG / 'pg_ctl', '-D', work / 'data', '-m', 'immediate', '-w', 'stop'])

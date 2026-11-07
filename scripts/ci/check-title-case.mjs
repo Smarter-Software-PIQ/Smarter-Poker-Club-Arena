@@ -17,11 +17,12 @@
  * Run: node scripts/ci/check-title-case.mjs [--fix]
  */
 
-import { extname, join, resolve } from 'node:path';
+import { extname, join, resolve, dirname } from 'node:path';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('../../', import.meta.url).pathname;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../');
 const SRC = process.env.TITLE_CASE_SOURCE_DIR
   ? resolve(process.env.TITLE_CASE_SOURCE_DIR)
   : join(ROOT, 'src');
@@ -587,7 +588,7 @@ function htmlTextNodes(source) {
  * on 2026-08-31 - so the run is gated behind "was I executed?" and the module
  * is importable.
  */
-const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname);
+const isMain = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 if (!isMain) {
   // Imported for its rules; the caller runs nothing.
 } else {

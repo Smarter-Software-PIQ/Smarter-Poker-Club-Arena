@@ -1,4 +1,4 @@
-import { tournamentEntryDescription } from '../../utils/tournamentPrizeFunding';
+import { displayTotalPool, tournamentEntryDescription } from '../../utils/tournamentPrizeFunding';
 import {
   markTournamentEntered,
   tournamentSeatNavigationOptions,
@@ -2289,7 +2289,7 @@ export default function TournamentDetails({
         <FinalTableOverlay
           tournamentId={tournamentId}
           tournamentName={tournament.name || 'Tournament'}
-          prizePool={tournament.prize_pool || 0}
+          prizePool={displayTotalPool(tournament.prize_pool, null, tournament.bounty_pool)}
           /* The pool's unit, off the arena this row was read with - the same
              reading every tab on this page prices through (2026-09-21). */
           unitCents={tournamentRowUnitCents(tabProps.tournament)}

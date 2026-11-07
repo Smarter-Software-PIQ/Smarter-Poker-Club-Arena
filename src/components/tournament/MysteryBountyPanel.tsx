@@ -69,7 +69,7 @@ import {
 import { isHeadlineTier, mysteryBountyTierLabel } from '../../config/mysteryBountyTiers';
 import { moneyAdjectiveAtUnit } from '../../utils/format';
 import { SpadeConsole } from '../console/SpadeConsole';
-import { useMysteryBountyProjection } from '../../hooks/useMysteryBountyProjection';
+import { useMysteryBountyPoolSoFar } from '../../hooks/useMysteryBountyPoolSoFar';
 import styles from './MysteryBountyPanel.module.css';
 
 export interface MysteryBountyPanelProps {
@@ -188,9 +188,11 @@ export default function MysteryBountyPanel({
 
   /* Dan 2026-10-21: "ALL MYSTERY BOUNTY TOURNAMENTS NEED TO HAVE THE 'MYSTERY
      BOUNTY' AMOUNTS DISPLAYED IN THE REWARDS". Before the chests are sealed
-     the ladder is projected from the pool so far by the engine's own
-     builders (src/lib/mysteryBountyProjection.ts). */
-  const projected = useMysteryBountyProjection(
+     the panel shows the actual mystery pool so far, read live. It never
+     shows a projected ladder or chest count (Dan 2026-11-07: "NEVER EVER USE
+     'PROJECTED PAYOUTS' ANYWHERE AND EVER. YOU ONLY USE ACTUAL REAL TIME
+     TOTALS!"); the bounties are listed once the engine draws them. */
+  const poolSoFar = useMysteryBountyPoolSoFar(
     tournamentId,
     isMysteryBounty &&
       !isLoading &&
@@ -290,7 +292,8 @@ export default function MysteryBountyPanel({
    * with who won them). Nothing collapses behind a control any more.
    */
   const visibleTiers = tiers;
-  const showProjection = tiers.length === 0 && stage === 'pending' && projected !== null;
+  const notDrawnYet = tiers.length === 0 && stage === 'pending';
+  const showPoolSoFar = notDrawnYet && poolSoFar !== null && poolSoFar > 0;
 
   const visibleAwards = showAllAwards ? awards : awards.slice(0, COLLAPSED_AWARD_LIMIT);
 
@@ -361,10 +364,7 @@ export default function MysteryBountyPanel({
           <div className={styles.figure}>
             <span className="sc-label sc-ink--blue">Bounty Pool</span>
             <span className={`${styles.figureValue} sc-ink--silver`}>
-              {formatCents(
-                showProjection && projected ? projected.poolCents : inventory.poolCents,
-                unitCents
-              )}
+              {formatCents(showPoolSoFar ? (poolSoFar ?? 0) : inventory.poolCents, unitCents)}
             </span>
           </div>
           <div className={styles.figure}>
@@ -376,23 +376,15 @@ export default function MysteryBountyPanel({
           <div className={styles.figure}>
             <span className="sc-label sc-ink--blue">Still In Play</span>
             <span className={`${styles.figureValue} sc-ink--silver`}>
-              {formatCents(
-                showProjection && projected ? projected.poolCents : remainingCents(inventory),
-                unitCents
-              )}
+              {formatCents(showPoolSoFar ? (poolSoFar ?? 0) : remainingCents(inventory), unitCents)}
             </span>
           </div>
           <div className={styles.figure}>
             <span className="sc-label sc-ink--blue">Chests Left</span>
             <span className={`${styles.figureValue} sc-ink--silver`}>
-              {(showProjection && projected
-                ? projected.drawCount
-                : counts.remaining
-              ).toLocaleString('en-US')}{' '}
-              Of{' '}
-              {(showProjection && projected ? projected.drawCount : counts.original).toLocaleString(
-                'en-US'
-              )}
+              {notDrawnYet
+                ? 'Not Drawn Yet'
+                : `${counts.remaining.toLocaleString('en-US')} Of ${counts.original.toLocaleString('en-US')}`}
             </span>
           </div>
         </div>
@@ -404,42 +396,14 @@ export default function MysteryBountyPanel({
           <h4 className={`${styles.sectionTitle} sc-ink--silver`}>Mystery Bounty Prizes</h4>
           {pendingReveals > 0 ? (
             <span className={`${styles.sectionNote} sc-ink--blue`}>Updating</span>
-          ) : (
-            showProjection && (
-              <span className={`${styles.sectionNote} sc-ink--blue`}>Projected</span>
-            )
-          )}
+          ) : null}
         </div>
         <div className={styles.rows}>
-          {showProjection && projected ? (
-            <>
-              <div className={`${styles.empty} sc-copy sc-copy--center`}>
-                {projected.drawCount.toLocaleString('en-US')} Mystery Bounties From The Pool So Far.
-                Amounts Grow With Every Entry, Rebuy And Add-On Until The Ladder Is Sealed
-              </div>
-              {projected.tiers.map((t) => (
-                <div key={`${t.tier}:${t.amountCents}`} className={styles.tierRow}>
-                  <span className={styles.tierMain}>
-                    <span
-                      className={`${styles.tierAmount} ${
-                        isHeadlineTier(t.tier) ? 'sc-ink--gold' : 'sc-ink--silver'
-                      }`}
-                    >
-                      {formatCents(t.amountCents, unitCents)} x{t.count.toLocaleString('en-US')}
-                    </span>
-                    <span className={`${styles.tierName} sc-label sc-ink--blue`}>
-                      {mysteryBountyTierLabel(t.tier)}
-                    </span>
-                  </span>
-                  <span className={styles.tierCounts}>
-                    <span className={`${styles.tierRemaining} sc-ink--silver`}>
-                      {t.count.toLocaleString('en-US')} Available
-                    </span>
-                    <span className={`${styles.tierOriginal} sc-ink--muted`}>0 Paid Out</span>
-                  </span>
-                </div>
-              ))}
-            </>
+          {showPoolSoFar ? (
+            <div className={`${styles.empty} sc-copy sc-copy--center`}>
+              {formatCents(poolSoFar ?? 0, unitCents)} In The Mystery Bounty Pool So Far. The
+              Bounties Are Drawn From The Actual Pool When They Activate
+            </div>
           ) : tiers.length === 0 ? (
             <div className={`${styles.empty} sc-copy sc-copy--center`}>
               {isLoading

@@ -20,7 +20,11 @@
 #      sends nothing, and an open break installs every queued file once;
 #  11. the installer waits, read-only, for a quiet moment on a busy table and
 #      installs on its one attempt; a table busy past the bound is sent once,
-#      refused, and its holder named.
+#      refused, and its holder named;
+#  12. "-- @locks:" ordering: undeclared files are sent first, declared files
+#      follow by version grouped by relation, a file that loses its declared
+#      lock is skipped alone naming that relation while the others install,
+#      and an unparseable @locks value is refused before any wait.
 #
 # Usage: PG_BIN=/usr/lib/postgresql/17/bin bash scripts/ci/test-maintenance-window-migrations.sh
 # Needs node with `pg` resolvable from scripts/ci (CI: npm i pg@8 --no-save).
@@ -512,6 +516,95 @@ grep -q 'holders of public.hand_history after the refusal: public.hand_history A
 [ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_never_quiet'")" = 0 ] \
   || fail 'never-quiet column was committed'
 pass "a table busy past the bounded wait is sent once, refused, and its holder named (${ms} ms)"
+
+# 12. A window migration names the lock it needs (2026-11-07). Three queued
+# files: A declares no "-- @locks:" and carries the NEWEST version, B declares
+# public.clubs (held busy past the bounded wait, so its one attempt is
+# refused), C declares public.hand_history and is independent. The installer
+# sends A first (undeclared files go first), then B and C by version; B is
+# SKIPPED alone naming public.clubs, A and C install with exact history, the
+# run is red. Then a file whose @locks value cannot be parsed is REFUSED before
+# any wait.
+LOCKS="$WORK/locks"
+mkdir -p "$LOCKS/supabase/migrations"
+LOCKS_B=20991231000017_window_fixture_locks_clubs.sql
+LOCKS_C=20991231000018_window_fixture_locks_hand_history.sql
+LOCKS_A=20991231000019_window_fixture_locks_undeclared.sql
+printf -- '-- Fixture: declares the hot relation it locks; that relation stays busy.\n-- @install-window: daily-maintenance\n-- @locks: public.clubs\nBEGIN;\nALTER TABLE public.clubs ADD COLUMN window_fixture_locks_b integer;\nCOMMIT;\n' \
+  > "$LOCKS/supabase/migrations/$LOCKS_B"
+printf -- '-- Fixture: declares an independent hot relation.\n-- @install-window: daily-maintenance\n-- @locks: public.hand_history\nBEGIN;\nALTER TABLE public.hand_history ADD COLUMN window_fixture_locks_c integer;\nCOMMIT;\n' \
+  > "$LOCKS/supabase/migrations/$LOCKS_C"
+printf -- '-- Fixture: declares nothing, newest version; sent first all the same.\n-- @install-window: daily-maintenance\nBEGIN;\nALTER TABLE public.tables ADD COLUMN window_fixture_locks_a integer;\nCOMMIT;\n' \
+  > "$LOCKS/supabase/migrations/$LOCKS_A"
+hold_clubs() { # $1 seconds; returns once the lock is granted
+  as_pg "${SU[@]}" -c "BEGIN; LOCK TABLE public.clubs IN ACCESS SHARE MODE; SELECT pg_sleep($1); COMMIT;" \
+    >/dev/null 2>&1 &
+  HOLDER=$!
+  for _ in $(seq 1 50); do
+    held="$(su_sql "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+                    WHERE c.relname = 'clubs' AND l.granted AND l.pid <> pg_backend_pid()")"
+    [ "$held" -ge 1 ] && break
+    sleep 0.1
+  done
+  [ "$held" -ge 1 ] || fail 'could not hold the clubs fixture lock'
+  sleep 0.4
+}
+release_clubs_holder() {
+  kill "$HOLDER" 2>/dev/null || true
+  su_sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(%' AND query LIKE '%LOCK TABLE public.clubs%' AND pid <> pg_backend_pid()" >/dev/null
+  wait "$HOLDER" 2>/dev/null || true
+}
+su_sql 'SELECT public.fixture_open_window(240)' >/dev/null
+hold_clubs 60
+set +e
+out="$(installer "$LOCKS" "$NOW_OPEN" 2>&1)"; code=$?
+set -e
+release_clubs_holder
+echo "$out" > "$EVIDENCE/12-locks-order.log"
+[ "$code" = 1 ] || fail "locks-order run returned $code: $out"
+grep -q "send order: \`$LOCKS_A\`, \`$LOCKS_B\` (locks public.clubs), \`$LOCKS_C\` (locks public.hand_history)" <<<"$out" \
+  || fail "locks-order send order not reported: $out"
+line_a="$(grep -n "^\[apply\] $LOCKS_A\$" <<<"$out" | cut -d: -f1)"
+line_b="$(grep -n "^\[apply\] $LOCKS_B\$" <<<"$out" | cut -d: -f1)"
+line_c="$(grep -n "^\[apply\] $LOCKS_C\$" <<<"$out" | cut -d: -f1)"
+[ -n "$line_a" ] && [ -n "$line_b" ] && [ -n "$line_c" ] || fail 'locks-order did not send every file'
+[ "$line_a" -lt "$line_b" ] && [ "$line_b" -lt "$line_c" ] || fail "locks-order sent files out of order (A $line_a, B $line_b, C $line_c)"
+for file in "$LOCKS_A" "$LOCKS_B" "$LOCKS_C"; do
+  [ "$(grep -Fxc "[apply] $file" <<<"$out")" = 1 ] || fail "locks-order sent $file other than once"
+done
+grep -q "INSTALLED \`$LOCKS_A\`" <<<"$out" || fail 'locks-order did not install the undeclared file'
+grep -q "INSTALLED \`$LOCKS_C\`" <<<"$out" || fail 'locks-order did not install the independent declared file'
+grep -q "SKIPPED \`$LOCKS_B\`: REFUSED after .* Lost its lock on public.clubs\." <<<"$out" || fail "locks-order skip did not name the lost relation: $out"
+grep -q "REFUSED 1 of 3 migration(s) - skipped (rolled back, still queued for the next daily window): \`$LOCKS_B\` (lost public.clubs); installed 2: \`$LOCKS_A\`, \`$LOCKS_C\`" <<<"$out" \
+  || fail "locks-order verdict wording: $out"
+[ "$(su_sql "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version IN ('20991231000017','20991231000018','20991231000019')")" = 2 ] \
+  || fail 'locks-order history is not exactly A and C'
+[ "$(su_sql "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20991231000017'")" = 0 ] \
+  || fail 'the refused declared file reached history'
+for file in "$LOCKS_A" "$LOCKS_C"; do
+  [ "$(su_sql "SELECT statements[1]=pg_read_file('$LOCKS/supabase/migrations/$file') FROM supabase_migrations.schema_migrations WHERE version='${file:0:14}'")" = t ] \
+    || fail "locks-order history differs from exact source for $file"
+done
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_locks_b'")" = 0 ] \
+  || fail 'the refused declared file committed its column'
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name IN ('window_fixture_locks_a','window_fixture_locks_c')")" = 2 ] \
+  || fail 'A or C column missing'
+pass 'undeclared files go first, declared files follow by version, a lost lock is skipped alone and names its relation'
+
+BADLOCKS="$WORK/badlocks"
+mkdir -p "$BADLOCKS/supabase/migrations"
+printf -- '-- Fixture: an @locks value that is not a relation list.\n-- @install-window: daily-maintenance\n-- @locks: nonsense\nBEGIN;\nALTER TABLE public.clubs ADD COLUMN window_fixture_badlocks integer;\nCOMMIT;\n' \
+  > "$BADLOCKS/supabase/migrations/20991231000020_window_fixture_bad_locks.sql"
+set +e
+out="$(installer "$BADLOCKS" "$NOW_OPEN" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/12-bad-locks.log"
+[ "$code" = 1 ] && grep -q 'REFUSED before waiting' <<<"$out" || fail "bad @locks run: $code $out"
+grep -q 'not a comma-separated list of schema-qualified relations' <<<"$out" || fail "bad @locks reason: $out"
+! grep -q '^\[apply\] 20991231000020' <<<"$out" || fail 'bad @locks file was sent'
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_badlocks'")" = 0 ] \
+  || fail 'bad @locks file committed'
+pass 'an unparseable @locks line is refused before any wait and nothing is sent'
 
 su_sql "SELECT version || ' ' || name FROM supabase_migrations.schema_migrations ORDER BY version" \
   > "$EVIDENCE/history.txt"

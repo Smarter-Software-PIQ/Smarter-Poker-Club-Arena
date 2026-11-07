@@ -82,6 +82,13 @@ const TIMERS: ReadonlyArray<readonly [string, string]> = [
   // day; while the serving engine lacks #9233/#9314 it reads /health and the
   // git ancestry only and creates nothing.
   ['rabbit-hunt-certification.yml', '37 16 * * *'],
+  // Owner-requested read-only evening plan report (2026-11-07): what the
+  // 04:00 preparation would select, read at 20:00 America/Chicago (DST twin).
+  // It reads /health, GitHub and schema_migrations and writes nothing; it is
+  // a reader for the red-main detector, not a release timer
+  // (tests/the-evening-plan-only-reads.law.test.ts).
+  ['evening-release-plan.yml', '7 1 * * *'],
+  ['evening-release-plan.yml', '7 2 * * *'],
 ];
 
 /** Blank YAML `#` comments, quote-aware so a trailing note keeps its value. */
@@ -154,8 +161,8 @@ describe('no workflow gains a new timer', () => {
 
   it('the surface is the size it was measured at', () => {
     expect(found).toHaveLength(TIMERS.length);
-    expect(TIMERS).toHaveLength(17);
-    expect(new Set(TIMERS.map(([f]) => f)).size).toBe(13);
+    expect(TIMERS).toHaveLength(19);
+    expect(new Set(TIMERS.map(([f]) => f)).size).toBe(14);
   });
 
   it('schema-manifest-refresh keeps the two that three other laws bound it to', () => {

@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({
   inventory: vi.fn(),
   awards: vi.fn(),
   leaderboard: vi.fn(),
-  projection: vi.fn(),
+  poolSoFar: vi.fn(),
 }));
 vi.mock('../../src/services/MysteryBountyService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/services/MysteryBountyService')>()),
@@ -30,8 +30,8 @@ vi.mock('../../src/lib/supabase', () => ({ supabase: {} }));
 vi.mock('../../src/hooks/usePlayerPreference', () => ({
   usePlayerPreference: () => [false, vi.fn()],
 }));
-vi.mock('../../src/hooks/useMysteryBountyProjection', () => ({
-  useMysteryBountyProjection: (...args: unknown[]) => h.projection(...args),
+vi.mock('../../src/hooks/useMysteryBountyPoolSoFar', () => ({
+  useMysteryBountyPoolSoFar: (...args: unknown[]) => h.poolSoFar(...args),
 }));
 import MysteryBountyPanel from '../../src/components/tournament/MysteryBountyPanel';
 import { useMysteryBounty } from '../../src/hooks/useMysteryBounty';
@@ -102,7 +102,7 @@ it('does not turn an unread initial snapshot into pending or zero awards', async
   expect(screen.queryByText('Pending')).toBeNull();
   expect(screen.queryByText('0 Revealed')).toBeNull();
   expect(screen.queryByText('Nobody Has Won A Mystery Bounty Yet')).toBeNull();
-  expect(h.projection.mock.calls.every((call) => call[1] === false)).toBe(true);
+  expect(h.poolSoFar.mock.calls.every((call) => call[1] === false)).toBe(true);
 });
 it('explicit retry recovers a real empty snapshot after the initial read failed', async () => {
   h.inventory.mockRejectedValue(new Error('offline'));
@@ -132,5 +132,5 @@ it('keeps authoritative empty inventory distinct from an unread snapshot', async
   expect(screen.getByText('Pending')).toBeTruthy();
   expect(screen.getByText('0 Revealed')).toBeTruthy();
   expect(screen.queryByText('Mystery Bounty Data Unavailable')).toBeNull();
-  expect(h.projection.mock.calls.some((call) => call[1] === true)).toBe(true);
+  expect(h.poolSoFar.mock.calls.some((call) => call[1] === true)).toBe(true);
 });

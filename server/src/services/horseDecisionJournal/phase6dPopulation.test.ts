@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error The selector is a plain ES module script with no emitted declaration.
 import * as selector from '../../../scripts/phase6d-population.mjs';
+import { fileURLToPath } from 'node:url';
 const {
   CHAIN_LINKS,
   admitChain,
@@ -26,10 +27,12 @@ const {
   validateDeclaration,
 } = selector;
 
-const declarationPath = new URL(
-  '../../../../docs/evidence/phase6d/population-declaration-2026-09-26.json',
-  import.meta.url
-).pathname;
+const declarationPath = fileURLToPath(
+  new URL(
+    '../../../../docs/evidence/phase6d/population-declaration-2026-09-26.json',
+    import.meta.url
+  )
+);
 
 const loaded = loadDeclaration(declarationPath);
 const exactRequest = () => ({
@@ -359,10 +362,12 @@ describe('Phase 6D declaration enforcement', () => {
 });
 
 describe('Phase 6D serving-release declaration of 2026-09-27', () => {
-  const servingPath = new URL(
-    '../../../../docs/evidence/phase6d/population-declaration-2026-09-27.json',
-    import.meta.url
-  ).pathname;
+  const servingPath = fileURLToPath(
+    new URL(
+      '../../../../docs/evidence/phase6d/population-declaration-2026-09-27.json',
+      import.meta.url
+    )
+  );
   const serving = loadDeclaration(servingPath);
 
   it('admits the serving release only, over a window from its start minute', () => {

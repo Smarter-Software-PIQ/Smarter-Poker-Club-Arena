@@ -45,6 +45,7 @@
  * taking them", which is the only version of this that is an incident.
  */
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 
 export const ATTEMPTS_THRESHOLD = 3;
 export const SPAN_MINUTES_THRESHOLD = 120;
@@ -176,6 +177,6 @@ async function main() {
 }
 /* c8 ignore stop */
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main();
 }

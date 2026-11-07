@@ -27,9 +27,10 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DIR = join(ROOT, 'supabase', 'migrations');
 
 const sh = (args, ok = '') => {
@@ -97,6 +98,15 @@ writeFileSync(file, `-- ${version}_${slug}.sql
 -- Wrap ALL DDL for one change in ONE transaction: every DDL statement fires
 -- Supabase's schema-cache reload, which takes ~28s on this database, and ten
 -- loose statements mean ten reloads (club-arena CLAUDE.md, production DDL policy).
+--
+-- Needs ACCESS EXCLUSIVE (or SHARE / SHARE ROW EXCLUSIVE) on a hot table such as
+-- clubs, tables or hand_history? Then it waits for the daily 04:00 America/Chicago
+-- break (CLAUDE.md section 2 rule 10). Declare it with the rule's header line
+-- "install-window: daily-maintenance" (prefixed "-- @", on a line of its own),
+-- and optionally name the hot relations this file locks on a second header
+-- line "locks: public.clubs, public.tables" (same "-- @" prefix, comma
+-- separated, schema-qualified) so the installer sends files sharing a relation
+-- together. The locks line orders only; it never widens a timeout.
 
 BEGIN;
 

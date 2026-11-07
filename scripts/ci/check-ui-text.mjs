@@ -42,9 +42,10 @@
 
 import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join, extname, resolve } from 'node:path';
+import { join, extname, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('../../', import.meta.url).pathname;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../');
 /**
  * UI_TEXT_SOURCE_DIR points the scan at a throwaway tree, the same override
  * check-title-case has carried since it was written. It exists so the --fix

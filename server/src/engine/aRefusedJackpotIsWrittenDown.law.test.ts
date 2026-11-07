@@ -32,8 +32,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const settlement = readFileSync(join(here, 'ServerTableEngineSettlement.ts'), 'utf8');
 const bbjService = readFileSync(join(here, '..', 'services', 'supabase', 'bbj.ts'), 'utf8');
 
