@@ -60,6 +60,7 @@ import { join } from 'node:path';
 import { supersededBy } from './check-migrations-are-live.mjs';
 import { minutesBeforeBreakWindow } from './migration-concurrent-preamble.mjs';
 import { migrationTransactionShape } from './migration-transaction-shape.mjs';
+import { migrationCostRisks, isCostChecked } from './migration-cost-shape.mjs';
 
 import {
   recoveryRequest,
@@ -219,6 +220,13 @@ try {
 // shares, so a file the applier would refuse cannot merge.
 const shape = migrationTransactionShape(file, sql);
 if (!shape.ok) refused(shape.reason);
+// A migration that cannot finish inside the install budget is refused before
+// anything is sent (migration-cost-shape.mjs, shared with the merge check
+// tests/unit/aMigrationFitsTheInstallBudget.test.ts).
+if (isCostChecked(file)) {
+  const risks = migrationCostRisks(file, sql);
+  if (risks.length) refused(risks.join('\n'));
+}
 const preamble = shape.indexes;
 let serialJournalIndex;
 try {
