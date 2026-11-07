@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { sliceStatement } from './helpers/sourceWindow.js';
 
 // Owner rule 2026-11-05 (Dan): a bounty only PKO is over with two players
 // left, and both keep the bounty on their own head. Executed on PostgreSQL in
@@ -109,9 +110,7 @@ describe('a bounty only PKO ends with two players', () => {
     // the zero-stack hand edge, with the close's own bounded budget - never
     // untilResumed, so the engine's safety net can always lift it.
     const base = readFileSync('server/src/tournament/TournamentManagerBase.ts', 'utf8');
-    const hold = base.indexOf('isBountyOnlyPkoRow(this.tournamentCache)');
-    expect(hold).toBeGreaterThan(0);
-    const slice = base.slice(hold, hold + 400);
+    const slice = sliceStatement(base, 'isBountyOnlyPkoRow(this.tournamentCache)');
     expect(slice).toContain('this.tableEngines.size === 1');
     expect(slice).toContain('Number(player.stack) > 0).length <= 2');
     expect(slice).toContain(
