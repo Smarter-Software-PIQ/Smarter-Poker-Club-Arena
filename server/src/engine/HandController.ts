@@ -1382,6 +1382,7 @@ export class HandController {
       seat,
       userId: player.user_id,
       action,
+      ...(action === 'fold' ? { origin } : {}),
       amount: actualAmount,
       timestamp: Date.now(),
       stage: this.state.stage,
