@@ -30,7 +30,7 @@ def query(db,sql):
 
 try:
  run([PG/'initdb','-D',work/'data','-U','postgres','-A','trust','--no-locale'])
- run([PG/'pg_ctl','-D',work/'data','-l',work/'postgres.log','-o',f'-k {sock} -p {port} -h 127.0.0.1','-w','start']);started=True
+ run([PG/'pg_ctl','-D',work/'data','-l',work/'postgres.log','-o',f'-k {sock} -p {port} -h 127.0.0.1 -c max_prepared_transactions=1','-w','start']);started=True
  query('postgres','CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;')
  query('postgres','CREATE DATABASE rotation')
  db='rotation'
@@ -96,7 +96,26 @@ try:
  assert slot,'missing production schedule slot classifier'
  query(db,slot.group(0))
  guard_migration=ROOT/'supabase/migrations/20261106004812_a_built_midway_free_buy_refuses_a_shape_its_schedule_does_no.sql'
- query(db,guard_migration.read_text())
+ # Keep the ordinary reader lock across installer connections without timing races.
+ query(db,"BEGIN; LOCK TABLE public.tournaments IN ACCESS SHARE MODE; PREPARE TRANSACTION 'midway_reader';")
+ try:
+  query(db,guard_migration.read_text())
+ finally:
+  query(db,"ROLLBACK PREPARED 'midway_reader';")
+ print('PASS: fresh guard installs while a tournaments reader holds ACCESS SHARE',flush=True)
+ # A collision must leave the original trigger and its function version intact,
+ # including rolling back CREATE OR REPLACE FUNCTION earlier in this transaction.
+ guard_name='zzzzzzzzzzz_a_built_midway_free_buy_matches_its_schedule'
+ identity=f"""SELECT ROW(t.oid, t.xmin, p.oid, p.xmin)::text FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+ WHERE t.tgrelid='public.tournaments'::regclass AND t.tgname='{guard_name}'"""
+ original=query(db,identity).strip()
+ assert original,'guard was not installed'
+ try:
+  query(db,guard_migration.read_text()); raise AssertionError('existing trigger was replaced')
+ except RuntimeError as error:
+  assert guard_name in str(error) and 'already exists' in str(error),str(error)
+ assert query(db,identity).strip()==original,'failed installation changed the original trigger or function'
+ print('PASS: existing trigger collision preserves trigger and rolls back function replacement',flush=True)
  query(db,(ROOT/'supabase/migrations/20261107041342_a_scheduled_midway_free_buy_keeps_its_promised_guarantee.sql').read_text())
  print(query(db,(FIX/'scheduled-guarantee.sql').read_text()),flush=True)
  # Installed a second time it must refuse (its preimages are gone), changing nothing.

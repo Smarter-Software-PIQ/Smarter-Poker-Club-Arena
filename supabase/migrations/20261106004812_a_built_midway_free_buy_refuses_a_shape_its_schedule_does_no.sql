@@ -96,7 +96,6 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.fn_ca_a_built_midway_free_buy_matches_its_schedule() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS zzzzzzzzzzz_a_built_midway_free_buy_matches_its_schedule ON public.tournaments;
 CREATE TRIGGER zzzzzzzzzzz_a_built_midway_free_buy_matches_its_schedule
   AFTER INSERT OR UPDATE OF is_pko, is_bounty, is_mystery_bounty, all_in_or_fold, bounty_amount,
     guaranteed_prize, schedule_id, free_buy, union_id, club_id
