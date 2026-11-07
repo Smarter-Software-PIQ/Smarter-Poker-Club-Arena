@@ -1,3 +1,9 @@
+-- 20261107210000_a_freeze_refusal_is_counted_by_name
+--
+-- Version checked unique against origin/main and every local worktree on
+-- 2026-11-07 (scripts/reserve-migration-version.sh refused to run from this
+-- worktree's sibling list).
+--
 -- A FREEZE REFUSAL IS COUNTED BY NAME (Dan 2026-11-07).
 --
 -- At 19:20-19:21 UTC the owner's NLH and PLO Lightning joins were refused
@@ -24,6 +30,8 @@
 -- by the info alert PlayersRefusedDuringFreeze (infra/monitoring/alert-rules.yml).
 -- The three original columns keep their names, types and order, so the
 -- collector that reads them is unaffected.
+
+BEGIN;
 
 DROP FUNCTION public.fn_client_error_health();
 
@@ -68,3 +76,5 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.fn_client_error_health() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_client_error_health() TO service_role;
+
+COMMIT;
