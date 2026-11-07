@@ -247,13 +247,20 @@ describe('law 2: a field at its tickets keeps every proof', () => {
 
   it('a hand still in flight at the tickets keeps the boundary and names itself', async () => {
     const { m } = satelliteThirty();
+    m.satelliteQualifierBoundaryHeldSinceMs -=
+      TournamentManagerBase.SATELLITE_BOUNDARY_HAND_IN_FLIGHT_PAGE_AFTER_MS;
     m.tableEngines.get(HELD).state.held = false;
     rpc.read.mockResolvedValue(answer('continuing', 9, 8));
     expect(await m.checkSatelliteQualifierCompletion()).toBe('pending');
     expect(m.satelliteQualifierBoundaryPending).toBe(true);
-    expect(m.satelliteQualifierBoundaryLastPendingReason).toBe(
-      `table_${HELD.slice(0, 8)}_hand_in_flight`
-    );
+    expect(m.satelliteQualifierBoundaryLastPendingReason).toBe(`table_${HELD}_hand_in_flight`);
+    expect(alerts.raise.mock.calls[0][3]).toMatchObject({
+      blocked_table_id: HELD,
+      blocked_permit_id: id(5),
+      blocked_hand_number: '1',
+      expected_wake: 'hand_completion',
+      manager_lease_generation: id(9),
+    });
   });
 
   it('a qualifying field still settles through the payer, boundary held throughout', async () => {

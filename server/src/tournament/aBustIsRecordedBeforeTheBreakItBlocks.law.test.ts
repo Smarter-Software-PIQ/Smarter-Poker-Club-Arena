@@ -592,7 +592,10 @@ describe('every table records busts behind a blocked later-stage rewind', () => 
           return true;
         }),
         finishTournament: vi.fn(),
-        gameServer: { handTournamentToSuccessorGeneration: vi.fn() },
+        gameServer: {
+          getTableEngine: (tableId: string) => m.tableEngines.get(tableId),
+          handTournamentToSuccessorGeneration: vi.fn(),
+        },
       });
       for (let i = 0; i < 11; i++) {
         const engine = {
