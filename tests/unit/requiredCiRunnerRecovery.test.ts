@@ -655,6 +655,35 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       ['Full weekly accounting activation, rollback and concurrent authority', 2, 6],
       ['Preserve weekly accounting qualification evidence', 2, 6],
       ['Certified V31 PostgreSQL 17 behavior gate', 4, 7],
+      // November 6 rebalance (run 42338709472): unchanged suites and their
+      // evidence steps moved off the 34-minute shard 3 and 25-minute shard 1.
+      ['Backed payout discovery preserves every conservation term', 3, 2],
+      ['Concurrent hands preserve shared F06 custody lanes', 3, 2],
+      ['Retain F06 hand and generation disposition proof', 3, 2],
+      ['The accepted actor roster is produced inside the settlement transaction', 3, 6],
+      ['Retain accepted actor roster proof', 3, 6],
+      ['Superseded horse requests retire only their certified action copy', 3, 6],
+      ['Retain superseded horse action proof', 3, 6],
+      ['Horse settlement keys compact without losing replay or accounting proof', 3, 5],
+      ['Retain horse settlement key compaction proof', 3, 5],
+      [
+        'Adaptive raw horse facts become exact sufficient statistics after qualified retention',
+        3,
+        5,
+      ],
+      ['Retain adaptive raw retirement and consumer proof', 3, 5],
+      ['Atomic departures, ownership, rollback and concurrency', 3, 2],
+      ['Inventory seal preserves exact rows through bucket continuation', 3, 6],
+      ['Retain inventory seal PostgreSQL qualification', 3, 6],
+      ['Inventory pages commit before their immutable checkpoint header', 3, 6],
+      ['Retain committed-page inventory qualification', 3, 6],
+      ['Agent downline rake stays in overseer clubs', 3, 6],
+      ['Midway weekly promo pays each eligible club wallet once', 3, 5],
+      ['Retain Midway weekly promo native proof', 3, 5],
+      ['Initial weekly first week evaluates the calendar once per club', 3, 5],
+      ['Retain first week aggregate native transcripts', 3, 5],
+      ['Original inventory restoration admits only qualified finite financial evidence', 3, 6],
+      ['Retain original inventory restoration qualification', 3, 6],
     ] as const) {
       const selected = accounting.steps.filter((step: { name: string }) => step.name === name);
       expect(selected).toHaveLength(1);

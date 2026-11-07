@@ -326,8 +326,8 @@
       "sha256": "aef92500e63a4e1cd6632b8616ec1c1d138f2ff09f464368baeef185ca93fb1b"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143391,
-      "sha256": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c"
+      "bytes": 144525,
+      "sha256": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2268,7 +2268,9 @@
   },
   "closureMainIntegration20261101": {
     "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
-    "updatedCurrentInputs": [".github/workflows/ci.yml"],
+    "updatedCurrentInputs": [
+      ".github/workflows/ci.yml"
+    ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   },
@@ -2740,6 +2742,19 @@
           "sha256": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c",
           "bytes": 143391
         }
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "accountingShardRebalance20261106": {
+    "reason": "Reviewed accounting shard rebalance (run 42338709472 measured shards 1..7 at 1530/534/1967/992/728/683/170s). Thirteen unchanged suites and their evidence steps change only their matrix.shard routing (3->2, 3->5, 3->6); every command, environment, timeout, artifact and financial input is identical. The scoped launch reset stays on shard 1 (run 42344546975 proved its server-header build and root install are shard-1 prerequisites). Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "files",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c",
+        "current": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b"
       }
     ],
     "historicalEvidenceRestamped": false,

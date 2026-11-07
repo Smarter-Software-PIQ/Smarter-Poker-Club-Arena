@@ -25,13 +25,13 @@ describe('superseded horse action retention remains enforced', () => {
     expect(driver).toContain('AFTER certificate and payload never attempted');
   });
 
-  it('runs the real PostgreSQL proof once in required accounting shard three', () => {
+  it('runs the real PostgreSQL proof once in required accounting shard six', () => {
     const ci = parse(readFileSync('.github/workflows/ci.yml', 'utf8'));
     const steps = ci.jobs.accounting_postgres.steps.filter((step: { run?: string }) =>
       step.run?.includes('scripts/ci/test-superseded-horse-actions.py')
     );
     expect(steps).toHaveLength(1);
-    expect(steps[0].if).toBe('matrix.shard == 3');
+    expect(steps[0].if).toBe('matrix.shard == 6');
     expect(steps[0]['continue-on-error']).toBeUndefined();
     expect(steps[0].run).toContain('--pg-bin "$POKER_AUDIT_PG_BIN"');
     expect(steps[0].run).toContain('--evidence artifacts/superseded-horse-actions');
