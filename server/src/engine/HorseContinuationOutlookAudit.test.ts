@@ -67,7 +67,16 @@ function decide(flag: boolean | undefined, variant = 'nlh', seed = 1, extra: Hor
       f.gs as never,
       'balanced',
       {},
-      { telemetry: false, barrelContinuationOutlook: flag, ...extra }
+      // 9c-8c on K-7-2-5 is a gutshot the 2026-11-07 baseline flop/turn
+      // bluff range now owns before the V7 continuation; these tests pin the
+      // continuation and its outlook, so that later layer is isolated
+      // (HorseFlopTurnBluffRange.law.test.ts pins the baseline).
+      {
+        telemetry: false,
+        barrelContinuationOutlook: flag,
+        flopTurnBluffBaseline: false,
+        ...extra,
+      }
     )
   );
   return { ...f, ...captured, rng: saveFastRandom() };
@@ -230,7 +239,16 @@ describe('Omaha dirty-card outlook reaches the actual continuation chooser', () 
         straightFlushPossible: false,
       });
       const decision = HorseMind.captureDecisionEffects(() =>
-        HorseLogic.decide(f.hero, f.gs as never, 'balanced', {}, { telemetry: false })
+        // A-K-Q-J-T on 9-4-2-K is top pair with a wrap, which the baseline
+        // flop/turn bluff range owns since 2026-11-07; this pins the V7
+        // continuation's outlook path, so that later layer is isolated.
+        HorseLogic.decide(
+          f.hero,
+          f.gs as never,
+          'balanced',
+          {},
+          { telemetry: false, flopTurnBluffBaseline: false }
+        )
       );
       return { ...decision, outlook };
     };

@@ -975,6 +975,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V54'
   ),
   flag(
+    'flopTurnBluffBaseline',
+    'baseline flop and turn bluff and semi-bluff range (HorseFlopTurnBluffRange): qualified draws, backdoors, overcards and blockers bet, and draws raise, at the solved frequency for their class on a line that tells a story; reads reshape it and never switch it off; default on, false ablates (2026-11-07)',
+    'Flop/turn bluff baseline'
+  ),
+  flag(
     'riverBluffBaseline',
     'baseline heads-up river bluff range (HorseRiverBluffRange): air and missed draws on a coherent line bluff at the balanced rate for the bet size, blockers first, reads reshaping it and never zero without one; default on, false ablates (Dan 2026-11-06)',
     'River bluff baseline'
@@ -4141,6 +4146,19 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (V54)',
     'why a V54 river bluff did not fire: domain, tournament_context, multiway, multiboard, all_in, showdown_value, station, no_story, uncapped, no_blocker, short_stack, icm, illegal, frequency; opt-in (v54RiverBluff)',
     'V54'
+  ),
+  // No floor: fires on every qualified flop or turn candidate.
+  receipt(
+    'ft_bluff_baseline_*',
+    'HorseLogic not-facing-a-bet flop/turn (HorseFlopTurnBluffRange)',
+    'the baseline flop/turn bluff decided a qualified candidate: <line>_<selection> (a bet: cbet, barrel, delayed, probe or stab with strongDraw, pairDraw, weakDraw, backdoor, overcards or blocker), check (it checked at the class frequency) or illegal; skip_multiway, skip_cannot_respond and skip_no_story say why a flop or turn was left to the layers below',
+    'Flop/turn bluff baseline'
+  ),
+  receipt(
+    'ft_semibluff_raise_*',
+    'HorseLogic facing-a-bet flop/turn (HorseFlopTurnBluffRange)',
+    'the baseline semi-bluff raise decided a qualified draw facing a bet: strongDraw, pairDraw or weakDraw (a raise), call_or_fold (the draw did not raise and the call/fold layers priced it); skip_<reason> says why a draw was left to the layers below',
+    'Flop/turn bluff baseline'
   ),
   // No floor: fires on every heads-up river with air and a story.
   receipt(

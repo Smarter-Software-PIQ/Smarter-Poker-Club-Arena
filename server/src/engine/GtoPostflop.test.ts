@@ -395,6 +395,14 @@ describe('the wiring - HorseLogic consults the open-node cells on every street',
       ...over,
     });
 
+  // A9o on Q-J-T holds an open-ended straight draw (a king or an eight).
+  // Since 2026-11-07 the baseline flop/turn bluff range owns a qualified draw
+  // before the class-mean cell (the cell averages A9o over every board in its
+  // texture class and cannot see this one's draw; HorseFlopTurnBluffRange.ts).
+  // These tests pin the cell WIRING, so they isolate that later layer; the
+  // baseline's own law is HorseFlopTurnBluffRange.law.test.ts.
+  const CELL_ONLY = { flopTurnBluffBaseline: false } as const;
+
   it('a pure-bet cell makes the aggressor bet the flop, deterministically', () => {
     setGtoPostflop([
       {
@@ -410,7 +418,7 @@ describe('the wiring - HorseLogic consults the open-node cells on every street',
       },
     ] as never);
     for (let i = 0; i < 15; i++) {
-      const d = HorseLogic.decide(unmade(), gs() as never, 'balanced');
+      const d = HorseLogic.decide(unmade(), gs() as never, 'balanced', {}, CELL_ONLY);
       expect(d.action).toBe('bet');
     }
   });
@@ -428,7 +436,7 @@ describe('the wiring - HorseLogic consults the open-node cells on every street',
       },
     ] as never);
     for (let i = 0; i < 15; i++) {
-      const d = HorseLogic.decide(unmade(), gs() as never, 'balanced');
+      const d = HorseLogic.decide(unmade(), gs() as never, 'balanced', {}, CELL_ONLY);
       expect(d.action).toBe('check');
     }
   });
@@ -446,7 +454,7 @@ describe('the wiring - HorseLogic consults the open-node cells on every street',
       },
     ] as never);
     for (let i = 0; i < 15; i++) {
-      const d = HorseLogic.decide(unmade(), turnGs() as never, 'balanced');
+      const d = HorseLogic.decide(unmade(), turnGs() as never, 'balanced', {}, CELL_ONLY);
       expect(d.action).toBe('bet');
       // 0.24-0.32 of the 19 pot, before betSize's own rounding — assert the
       // band loosely: a block bet, never a barrel
@@ -468,7 +476,7 @@ describe('the wiring - HorseLogic consults the open-node cells on every street',
       },
     ] as never);
     for (let i = 0; i < 15; i++) {
-      const d = HorseLogic.decide(unmade(), turnGs() as never, 'balanced');
+      const d = HorseLogic.decide(unmade(), turnGs() as never, 'balanced', {}, CELL_ONLY);
       expect(d.action).toBe('check');
     }
   });
