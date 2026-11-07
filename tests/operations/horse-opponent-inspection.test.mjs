@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   validateSelection,
+  acceptedSharedRead,
   summarizeDecision,
   sanitizeInspectionFailure,
 } from '../../scripts/ci/inspect-horse-opponent-reads.mjs';
@@ -71,6 +72,60 @@ test('emits only selected public counters and scalar execution receipts, never p
     summarizeDecision({}, capture, view, '22222222-2222-4222-8222-222222222222', true),
     null
   );
+});
+test('attributes an exact pooled read only to its reconciled original selected and accepted action', () => {
+  const context = {
+    version: 2,
+    variant: 'plo4',
+    format: 'cash',
+    dealtCount: 6,
+    publicMemoryDomain: { version: 1, speed: 'lightning', ante: 'big_blind' },
+  };
+  const pooledPublicProfiles = {
+    digest: 'b'.repeat(64),
+    source: 'accepted_hand_public_profiles',
+  };
+  const capture = {
+    observerReads: { context, pooledPublicProfiles },
+    decision: { action: 'raise', amount: 10 },
+  };
+  const execution = {
+    executionStatus: 'intended',
+    executedAction: 'raise',
+    selected: { action: 'raise', amount: 10 },
+    handAnchor: {},
+  };
+  const hand = { actions: [] };
+  const check = (c, e, status, used = true, bound = true) =>
+    acceptedSharedRead(
+      c,
+      e,
+      hand,
+      { status },
+      () => used,
+      () => (bound ? { status: 'bound', actionOrdinal: 5 } : { status: 'unavailable' })
+    );
+  assert.deepEqual(check(capture, execution, 'reconciled'), {
+    actionOrdinal: 5,
+    profileDigest: pooledPublicProfiles.digest,
+    profileSource: pooledPublicProfiles.source,
+    variant: 'plo4',
+    format: 'cash',
+    dealtCount: 6,
+    speed: 'lightning',
+    ante: 'big_blind',
+  });
+  for (const args of [
+    [capture, execution, 'incomplete'],
+    [capture, execution, 'reconciled', false],
+    [capture, execution, 'reconciled', true, false],
+    [capture, { ...execution, executionStatus: 'not_executed' }, 'reconciled'],
+    [capture, { ...execution, handAnchor: { earlyLook: true } }, 'reconciled'],
+    [{ ...capture, decision: { action: 'raise', amount: 9 } }, execution, 'reconciled'],
+    [{ ...capture, decision: { action: 'call' } }, execution, 'reconciled'],
+    [{ ...capture, observerReads: { context: { version: 1 } } }, execution, 'reconciled'],
+  ])
+    assert.equal(check(...args), null);
 });
 test('runs only from an explicit default-branch dispatch, through pinned provider SSH, without a release route', () => {
   const y = readFileSync(
