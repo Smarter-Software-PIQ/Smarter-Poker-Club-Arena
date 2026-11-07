@@ -121,7 +121,7 @@ def prepare(root,out):
         obligations=obligations.replace(anchor,"'seat_id','86300000-0000-0000-0000-00000000000"+str(index)+"','seat_joined_at','2026-09-08T12:00:"+second+"+00:00',"+anchor)
         helpers=parts[0]+"CREATE FUNCTION pg_temp.atomic_hand_row()"+middle+"CREATE FUNCTION pg_temp.atomic_hand_obligations()"+obligations
     (out/"opening.sql").write_text(opening+"\nSET LOCAL session_replication_role = origin;\n"+helpers)
-    paths=[Path(__file__).relative_to(root),MIGRATION,PROBE,Path("scripts/ci/build-hand-submission-migration.py"),Path("scripts/ci/probes/hand-submission-authority.sql"),Path("scripts/ci/probes/hand-submission-disposition.spec"),Path("scripts/ci/probes/hand-submission-successor.sql"),Path("scripts/ci/probes/hand-submission-owner.spec"),Path("scripts/ci/probes/hand-submission-maintenance.spec"),Path("scripts/ci/fixtures/satellite-qualifiers/current-money-ddl-guard-20260917.json"),Path("scripts/ci/test-mtt-unlimited.py"),Path("scripts/ci/probes/atomic-tournament-hand-boundary.sql"),Path("scripts/ci/probes/atomic-terminal-rehearsal-fixture.sql"),Path("supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql")]+[p.relative_to(root) for p in (root/DATA).glob("*.json")]
+    paths=[Path(__file__).relative_to(root),Path("scripts/ci/tournament_peak_thaw.py"),MIGRATION,PROBE,Path("scripts/ci/build-hand-submission-migration.py"),Path("scripts/ci/probes/hand-submission-authority.sql"),Path("scripts/ci/probes/hand-submission-disposition.spec"),Path("scripts/ci/probes/hand-submission-successor.sql"),Path("scripts/ci/probes/hand-submission-owner.spec"),Path("scripts/ci/probes/hand-submission-maintenance.spec"),Path("scripts/ci/fixtures/satellite-qualifiers/current-money-ddl-guard-20260917.json"),Path("scripts/ci/test-mtt-unlimited.py"),Path("scripts/ci/probes/atomic-tournament-hand-boundary.sql"),Path("scripts/ci/probes/atomic-terminal-rehearsal-fixture.sql"),Path("supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql")]+[p.relative_to(root) for p in (root/DATA).glob("*.json")]
     m["source_sha256"].update({str(p):sha(root/p) for p in paths})
     (out/"source-manifest.json").write_text(json.dumps(m,indent=2)+"\n")
     return m
@@ -284,6 +284,10 @@ def main():
         if before!=e.snapshot(db,"after-data") or catalog!=e.catalog_snapshot(db,"after-catalog") or private!=private_snapshot(e,db,"after-private"):raise RuntimeError("full rollback differs")
         e.report.update(assertions=stderr.count("HAND SUBMISSION PASS:"),data_rollback=True,catalog_rollback=True,private_catalog_and_data_rollback=True)
         if stderr.count("HAND SUBMISSION PASS:")!=54:raise RuntimeError("exact assertion count differs")
+        from tournament_peak_thaw import qualify as qualify_peak_thaw
+        peak_db = e.database(db)
+        e.report['peak_thaw'] = qualify_peak_thaw(e, peak_db, out, root)
+        e.discard(peak_db)
         qualify_fences(e,root,db,native)
         qualify_owners(e,root,db,native)
         qualify_maintenance_first(e,root,db,native)
