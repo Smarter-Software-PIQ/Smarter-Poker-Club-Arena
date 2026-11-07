@@ -327,7 +327,12 @@ import { liveHorsePhase8Safety } from './HorsePhase8Safety.js';
 import { performance } from 'node:perf_hooks';
 import { chipStepFor, nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
 import { cellDepthIsPrimary, gtoV31ExecutionMatches, noteGtoMiss } from './HorseGtoExecution.js';
-import { decideV31Certified } from './HorseV31CertifiedPolicy.js';
+import {
+  captureV31ReplayState,
+  decideV31Certified,
+  type V31CertifiedInput,
+  type V31ReplayState,
+} from './HorseV31CertifiedPolicy.js';
 // The release gate's execution-match rule lives with the V31 consult; kept
 // exported here for every existing importer.
 export { gtoV31ExecutionMatches };
@@ -2111,6 +2116,13 @@ export interface HorseDecideOpts {
    * only after the ordinary V31 lookup, sample, and legalization path runs.
    */
   onGtoV31Decision?: (receipt: GtoV31DecisionReceipt) => void;
+  /**
+   * Offline replay-corpus hook (GtoV31ReplayDigest.ts). Never set by the live
+   * engine. Receives every certified decision with the inputs, RNG position
+   * and opponent read that produced it, so a later engine can be asked to
+   * make exactly the same decisions.
+   */
+  onV31ReplayState?: (state: V31ReplayState) => void;
   /** ENABLE V32: facing-a-bet defence from the solver's own betting range.
    *  DEFAULT OFF since 2026-10-16: v32_facing_defense (heads-up NLH)
    *  measured -0.31 +/- 0.15 bb/100 over 41 nightly league runs. League arm
@@ -9282,7 +9294,8 @@ export class HorseLogic {
     // V31 CERTIFIED DIRECT POLICY: HorseV31CertifiedPolicy.ts owns the whole
     // consult (eligibility, lookup, sampling, legalization, receipt). It
     // returns the certified decision, or null to fall through unchanged.
-    const v31Decision = decideV31Certified({
+    const v31Rng = opts.onV31ReplayState ? saveFastRandom() : 0;
+    const v31Input: V31CertifiedInput = {
       street,
       player,
       opponents,
@@ -9298,8 +9311,14 @@ export class HorseLogic {
       toCall,
       currentBet,
       legalize: (decision) => this.legalize(decision, player, gs, vi),
-    });
-    if (v31Decision) return v31Decision;
+    };
+    const v31Decision = decideV31Certified(v31Input);
+    if (v31Decision) {
+      if (opts.onV31ReplayState) {
+        opts.onV31ReplayState(captureV31ReplayState(v31Input, v31Rng, v31Decision));
+      }
+      return v31Decision;
+    }
 
     // ═══ V37 SATELLITE, POSTFLOP FALLBACK ═══ Certified exact satellite ICM
     // gets first refusal above.  The survival heuristic remains the fail-

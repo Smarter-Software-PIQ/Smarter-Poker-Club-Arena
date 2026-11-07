@@ -39,6 +39,7 @@ import {
   gtoV31UtilityContext,
 } from './GtoDecisionContext.js';
 import { aggressiveBettorPressure, riverFoldLowerBound } from './HorseOpponentExploit.js';
+import type { OpponentExploitRead } from './HorseOpponentExploit.js';
 import { cellDepthIsPrimary, gtoV31ExecutionMatches, noteGtoMiss } from './HorseGtoExecution.js';
 
 export interface V31CertifiedInput {
@@ -58,6 +59,101 @@ export interface V31CertifiedInput {
   currentBet: number;
   /** HorseLogic.legalize bound to this player, state and variant. */
   legalize: (decision: HorseDecision) => HorseDecision;
+  /**
+   * The V53 hand-off's opponent read. Absent (always, live) it is
+   * HorseMind.opponentRead; the replay digest passes the read that was
+   * recorded with the state, because horse memory is the surrounding brain,
+   * not the playbook's execution.
+   */
+  readOpponent?: (userId: string) => OpponentExploitRead | null;
+}
+
+/**
+ * One recorded certified decision, JSON-safe, for the replay digest
+ * (server/src/benchmark/GtoV31ReplayDigest.ts). Everything decideV31Certified
+ * reads is here: its inputs, the exact RNG position before the consult, the
+ * opponent read the V53 hand-off saw, and the decision it returned.
+ */
+export interface V31ReplayState {
+  schemaVersion: 1;
+  street: HandStage;
+  player: SeatPlayer;
+  opponents: SeatPlayer[];
+  gs: HorseGameStateV2;
+  vi: VariantInfo;
+  opts: Pick<
+    HorseDecideOpts,
+    'v53Pressure' | 'v31GtoSuitAware' | 'gtoV31DatasetChecksum' | 'v33DepthCeiling'
+  >;
+  useMind: boolean;
+  isRiver: boolean;
+  isTournament: boolean;
+  trustedTournament: HorseTrustedTournament;
+  pot: number;
+  toCall: number;
+  currentBet: number;
+  rng: number;
+  opponentRead: OpponentExploitRead | null;
+  decision: HorseDecision;
+}
+
+/** The fields of HorseDecideOpts the consult reads, and only those. */
+export const V31_REPLAY_OPTS = Object.freeze([
+  'v53Pressure',
+  'v31GtoSuitAware',
+  'gtoV31DatasetChecksum',
+  'v33DepthCeiling',
+] as const);
+
+function jsonCopy<T>(value: T): T {
+  return value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T);
+}
+
+/**
+ * Capture a certified decision for replay. Called only by an offline
+ * evaluator (opts.onV31ReplayState is never set live), after the consult
+ * returned `decision`, with the RNG position saved just before it. The copy
+ * is a JSON round trip, the same bytes the corpus stores, so a replay of the
+ * capture is a replay of what was stored.
+ */
+export function captureV31ReplayState(
+  input: V31CertifiedInput,
+  rng: number,
+  decision: HorseDecision
+): V31ReplayState {
+  const opts: V31ReplayState['opts'] = {};
+  for (const key of V31_REPLAY_OPTS) {
+    if (input.opts[key] !== undefined) Object.assign(opts, { [key]: input.opts[key] });
+  }
+  let opponentRead: OpponentExploitRead | null = null;
+  if ((input.opts.v53Pressure ?? true) !== false && input.useMind && input.opponents.length === 1) {
+    try {
+      opponentRead = input.readOpponent
+        ? input.readOpponent(input.opponents[0].user_id)
+        : HorseMind.opponentRead(input.opponents[0].user_id);
+    } catch {
+      opponentRead = null;
+    }
+  }
+  return jsonCopy({
+    schemaVersion: 1,
+    street: input.street,
+    player: input.player,
+    opponents: input.opponents,
+    gs: input.gs,
+    vi: input.vi,
+    opts,
+    useMind: input.useMind,
+    isRiver: input.isRiver,
+    isTournament: input.isTournament,
+    trustedTournament: input.trustedTournament,
+    pot: input.pot,
+    toCall: input.toCall,
+    currentBet: input.currentBet,
+    rng: rng >>> 0,
+    opponentRead,
+    decision,
+  });
 }
 
 export function decideV31Certified(input: V31CertifiedInput): HorseDecision | null {
@@ -77,6 +173,7 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
     toCall,
     currentBet,
     legalize,
+    readOpponent,
   } = input;
   // V31 CERTIFIED DIRECT POLICY. Node role, response semantics, both seats,
   // objective, stack depth, board texture and holding are all part of the
@@ -92,7 +189,9 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
   const v53SolverHandOff = (): boolean => {
     if ((opts.v53Pressure ?? true) === false || !useMind || opponents.length !== 1) return false;
     try {
-      const read = HorseMind.opponentRead(opponents[0].user_id);
+      const read = readOpponent
+        ? readOpponent(opponents[0].user_id)
+        : HorseMind.opponentRead(opponents[0].user_id);
       if (!read) return false;
       const target =
         aggressiveBettorPressure(read) !== null || (isRiver && riverFoldLowerBound(read) !== null);
