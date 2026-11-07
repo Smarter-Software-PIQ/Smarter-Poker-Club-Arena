@@ -86,8 +86,11 @@ import {
 } from './horseTournamentRebuyTiming.js';
 import { bindLatestKnockoutCandidates, knockoutCandidateReadIsComplete } from './bustOrder.js';
 import {
+  BOUNTY_ONLY_FINAL_TWO_PARK_MS,
+  bountyOnlyFinalTwoCloseIsOwed,
   closeBountyOnlyPkoAtTwo,
   isBountyOnlyPkoRow,
+  noteBountyOnlyFinalTwoField,
   type FinalTwoState,
 } from './bountyOnlyFinalTwo.js';
 
@@ -280,6 +283,104 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     retryCount: 0,
     firstRetryAt: null,
   };
+
+  /**
+   * ONE FORMAT TEST FOR EVERY DECISION ABOUT THE FINAL TWO.
+   *
+   * The bust pass (which latches the field decided), the finish stage (which
+   * enters the close) and the hand boundary (which refuses to deal on) must
+   * agree about whether this event ends at two, or one of them hands a head
+   * to the wrong player. All three read it here, from the cached row, exactly
+   * as the close's own gate always did.
+   */
+  private bountyOnlyPkoClosesAtTwo(): boolean {
+    return this.prizePoolFinalized && isBountyOnlyPkoRow(this.tournamentCache);
+  }
+
+  /**
+   * DID THE BATCH THIS PASS JUST RECORDED DECIDE THE FIELD?
+   *
+   * A decided field does not yield on the work budget before its finish stage
+   * (see completedStage), so this answer is what carries a bust straight into
+   * the close and the finish in ONE admission. Ordinarily a field is decided
+   * when one player is left; a bounty only PKO is decided at TWO, because its
+   * last deal is the hand that leaves two and the close at two is the whole
+   * remaining money decision.
+   *
+   * Measured on 2026-10-02: deferring a decided field's finish stage to a
+   * later admission cost a median 221 s (3 of 896 inside 15 s). The field at
+   * two in a bounty only PKO lasted 43.6 s on a turbo table dealing every
+   * ~10 s, so the close was never once reached in time - ca_bounty_only_final_two
+   * held zero rows for all time and all six completed events in the seven days
+   * to 2026-11-07 handed the runner-up's own head to the winner (105.87 chips).
+   *
+   * Rebought players were never in the batch, so they still count as playing.
+   */
+  protected bustPassDecidedTheField(playingCount: number, committedThisPass: number): boolean {
+    if (!(committedThisPass > 0)) return false;
+    const decidedAtOrBelow = this.bountyOnlyPkoClosesAtTwo() ? 2 : 1;
+    return playingCount - committedThisPass <= decidedAtOrBelow;
+  }
+
+  /**
+   * The close at two owns the park it armed until it gives it back itself (a
+   * rule refusal, or retries that outlasted their budget: both call release()).
+   * See releaseManagedTablePauseIfUnowned, which used to hand that claim back
+   * in the same tick the close armed it.
+   */
+  protected override bountyOnlyFinalTwoOwnsPause(): boolean {
+    return this.bountyOnlyFinalTwo.parked === true && this.bountyOnlyFinalTwo.refused !== true;
+  }
+
+  /**
+   * A BOUNTY ONLY PKO DEALS NO FURTHER HAND AT TWO PLAYERS (2026-11-07).
+   *
+   * The money protection, and the reason the two fixes above are not enough
+   * on their own: the close is reached by a scheduled sweep, and a sweep can
+   * always be late. A hand dealt while it is late ends the event at ONE
+   * player, and the runner-up's own head - which Dan's rule says he keeps -
+   * is moved onto the winner's head and paid to him by the terminal. That is
+   * what happened to all six completed bounty only PKOs in the seven days to
+   * 2026-11-07, 105.87 chips in all.
+   *
+   * So the hand boundary itself refuses the next deal: the hand that leaves
+   * two live stacks parks its table, and no later hand may start until the
+   * close has been recorded or refused. A scheduling miss can no longer cost
+   * a head.
+   *
+   * THE PARK IS BOUNDED, because a tournament must never freeze (owner rule).
+   * This is deliberately NOT the `untilResumed` claim that
+   * closeBountyOnlyPkoAtTwo arms once every table is parked and the authority
+   * is about to be asked: this hold carries the engine's own safety budget
+   * (BOUNTY_ONLY_FINAL_TWO_PARK_MS), so if the close is never reached at all
+   * the table resumes by itself and the event plays on heads up exactly as it
+   * did before this rule. The observed window at two was 43.6 s; the budget
+   * is 60 s, and the sweep is asked for through the decided lane immediately.
+   */
+  protected override holdBountyOnlyFinalTwoBoundary(
+    engine: ServerTableEngine,
+    finalStacks: readonly { user_id: string; stack: number }[]
+  ): void {
+    // A scheduling hint and a park: nothing here may ever stop the wake that
+    // follows it in the caller.
+    try {
+      if (!this.bountyOnlyPkoClosesAtTwo()) return;
+      if (this.bountyOnlyFinalTwo.closed === true || this.bountyOnlyFinalTwo.refused === true) {
+        return; // closed, or refused so the final two legitimately play on
+      }
+      // One table, and the stacks must describe the whole of it: a partial
+      // bust list cannot be read as the size of the field.
+      if (this.tableEngines.size !== 1) return;
+      if (finalStacks.length < engine.getOccupiedSeatNumbers().length) return;
+      if (finalStacks.filter((player) => Number(player.stack) > 0).length !== 2) return;
+      engine.pauseAfterHand(BOUNTY_ONLY_FINAL_TWO_PARK_MS, { beforeNextHand: true });
+      // The field is decided at two in this format, so the close and the
+      // finish are served from the decided lane in one admission.
+      this.requestDecidedEliminationSweep('bounty_only_pko_at_two');
+    } catch {
+      /* unknown shape: the ordinary bust wake still runs */
+    }
+  }
 
   /**
    * ═════════════════════════════════════════════════════════════════════════
@@ -1735,12 +1836,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           } finally {
             this.closeEliminationMutationBatch();
           }
-          // The bust that leaves one player standing decides the field. The
-          // finish stage is reached in this admission (see completedStage), and
-          // any later wake this manager receives is served from the decided
-          // lane. Rebought players were never in this batch, so they still
-          // count as playing here.
-          if (committedThisPass > 0 && playingCount - committedThisPass <= 1) {
+          // The bust that decided the field - one player left, or TWO in a
+          // bounty only PKO, which ends there (Dan 2026-11-05). The finish
+          // stage, and with it the close at two, is reached in this admission
+          // (see completedStage and bustPassDecidedTheField), and any later
+          // wake this manager receives is served from the decided lane.
+          if (this.bustPassDecidedTheField(playingCount, committedThisPass)) {
             lastBustRecordedThisPass = true;
             this.declareFieldDecided();
           }
@@ -1808,12 +1909,16 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         // pay the second player his head and record second place; the one
         // player left then finishes below exactly like any other winner, and
         // the terminal pays him his own head. See bountyOnlyFinalTwo.ts.
-        if (
-          !remainingErr &&
-          remainingCount === 2 &&
-          this.prizePoolFinalized &&
-          isBountyOnlyPkoRow(this.tournamentCache)
-        ) {
+        //
+        // The field at two is a LATCH, not this one read: see
+        // noteBountyOnlyFinalTwoField. A read that says 3 and then 1, with the
+        // hand that went through two in between, used to slip past this gate
+        // for ever.
+        const closesAtTwo = this.bountyOnlyPkoClosesAtTwo();
+        if (closesAtTwo && !remainingErr) {
+          noteBountyOnlyFinalTwoField(this.bountyOnlyFinalTwo, remainingCount);
+        }
+        if (closesAtTwo && bountyOnlyFinalTwoCloseIsOwed(this.bountyOnlyFinalTwo)) {
           this.noteEliminationSweepStep('db:fn_ca_bounty_only_pko_final_two');
           const finalTwo = await closeBountyOnlyPkoAtTwo({
             tournamentId: this.tournamentId,
@@ -2307,8 +2412,11 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               // pays nothing for finishing position, so it has no money bubble.
               // Its lifecycle ladder must never start hand-for-hand; clear any
               // latch an earlier manager left behind and keep tables dealing.
-              // Same definition as isBountyOnlyPkoRow (kept inline: this stage
-              // is executed verbatim by BountyOnlyPkoHasNoBubble.test.ts). A
+              // Same definition as pkoPaysNoFinishingPlaces (kept inline: this
+              // stage is executed verbatim by BountyOnlyPkoHasNoBubble.test.ts).
+              // NOT isBountyOnlyPkoRow, which also requires an open bounty pool
+              // because the close at two has heads to pay: an event with no
+              // bounty pool still has no money bubble. A
               // mystery bounty event is never bounty only: its chests pay in
               // the money, so its bubble keeps hand-for-hand.
               const pkoRow = this.tournamentCache as Record<string, unknown> | null;

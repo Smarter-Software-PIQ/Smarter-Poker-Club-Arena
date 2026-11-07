@@ -19,6 +19,7 @@ const freeRoll = {
   buy_in_amount: '0.00',
   guaranteed_prize: '0.00',
   prize_pool: '0.00',
+  bounty_pool: '323.00',
 };
 
 function table(parked: boolean) {
@@ -45,8 +46,13 @@ function setup(parked: boolean, answer: unknown, error: { message?: string } | n
 }
 
 describe('the bounty only PKO format', () => {
-  it('is a free, unguaranteed, non-mystery PKO with a zero place pool', () => {
+  it('is a free, unguaranteed, non-mystery PKO with a zero place pool and an open bounty pool', () => {
     expect(isBountyOnlyPkoRow(freeRoll)).toBe(true);
+    // The DB authority requires bounty_pool > 0 (20261106010426): without this
+    // clause a zero-bounty event parked every table and was then refused
+    // not_a_bounty_only_pko.
+    expect(isBountyOnlyPkoRow({ ...freeRoll, bounty_pool: '0.00' })).toBe(false);
+    expect(isBountyOnlyPkoRow({ ...freeRoll, bounty_pool: undefined })).toBe(false);
     expect(isBountyOnlyPkoRow({ ...freeRoll, prize_pool: '12.00' })).toBe(false);
     expect(isBountyOnlyPkoRow({ ...freeRoll, guaranteed_prize: '100' })).toBe(false);
     expect(isBountyOnlyPkoRow({ ...freeRoll, buy_in_amount: '5' })).toBe(false);
@@ -201,8 +207,21 @@ describe('the manager closes the field at two before it reads a winner', () => {
     const finish = source.indexOf("this.noteEliminationSweepStep('finishTournament');");
     expect(close).toBeGreaterThan(0);
     expect(finish).toBeGreaterThan(close);
+    // The field at two is LATCHED, not read afresh at the gate: a sweep that
+    // yields between the bust stage and the finish stage comes back long after
+    // the table has dealt through two (median 221 s; the field at two lasted
+    // 43.6 s), and `remainingCount === 2` was never once observed in
+    // production. The latch is offered every read and owes the close until it
+    // is closed or refused.
+    expect(source).toMatch(/const closesAtTwo = this\.bountyOnlyPkoClosesAtTwo\(\);/);
     expect(source).toMatch(
-      /remainingCount === 2 &&\s*this\.prizePoolFinalized &&\s*isBountyOnlyPkoRow\(this\.tournamentCache\)/
+      /noteBountyOnlyFinalTwoField\(this\.bountyOnlyFinalTwo, remainingCount\)/
+    );
+    expect(source).toMatch(
+      /if \(closesAtTwo && bountyOnlyFinalTwoCloseIsOwed\(this\.bountyOnlyFinalTwo\)\) \{/
+    );
+    expect(source).toContain(
+      'return this.prizePoolFinalized && isBountyOnlyPkoRow(this.tournamentCache);'
     );
     expect(source).toContain("if (finalTwo === 'closed') remainingCount = 1;");
     expect(source).toContain("else if (finalTwo !== 'refused') return;");

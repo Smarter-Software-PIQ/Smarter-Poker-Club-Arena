@@ -32,7 +32,8 @@ export interface PayoutSubject {
  */
 export function isBountyOnlyPko(t: PayoutSubject | null | undefined): boolean {
   // A mystery bounty event pays its chests in the money, never bounty only
-  // (same rule as the engine's isBountyOnlyPkoRow).
+  // (same rule as the engine's pkoPaysNoFinishingPlaces; the engine's
+  // isBountyOnlyPkoRow adds the open bounty pool its close at two needs).
   if (!t || t.is_pko !== true || t.is_mystery_bounty === true) return false;
   const n = (v: unknown) => {
     const x = Number(v);
