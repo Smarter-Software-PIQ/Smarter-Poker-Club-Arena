@@ -310,3 +310,35 @@ it('resumes the same failed notification save on reconnect without remounting', 
   ).toBeNull();
   view.unmount();
 });
+
+it('keeps a gesture that matches the shown value when the account read arrives later', async () => {
+  // Post-deploy run 42370089738: a fresh device shows the default (Simple),
+  // the player taps Simple, then the account's older Advanced arrives.
+  let reply!: (value: any) => void;
+  state.read = new Promise((resolve) => {
+    reply = resolve;
+  });
+  const { result, unmount } = renderHook(() => usePlayerPreference('roster:simpleMode', true), {
+    wrapper,
+  });
+  expect(result.current[0]).toBe(true);
+  act(() => result.current[1](true));
+  await act(async () => {
+    reply({ data: { value: false, revision: 3 }, error: null });
+  });
+  expect(result.current[0]).toBe(true);
+  unmount();
+  await waitFor(() => expect(state.writes.map((row) => row.value)).toEqual([true]));
+});
+
+it('treats re-selecting the shown value as a no-op once the account value is known', async () => {
+  state.row = { value: false };
+  const { result, unmount } = renderHook(() => usePlayerPreference('roster:simpleMode', true), {
+    wrapper,
+  });
+  await waitFor(() => expect(result.current[0]).toBe(false));
+  act(() => result.current[1](false));
+  unmount();
+  await act(async () => {});
+  expect(state.writes).toHaveLength(0);
+});
