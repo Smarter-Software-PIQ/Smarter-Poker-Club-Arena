@@ -30,4 +30,24 @@ class PublicRequestAssemblyTests(unittest.TestCase):
    raw=json.dumps(value,sort_keys=True,separators=(',',':')).encode()+b'\n';path.write_bytes(raw);f={'path':str(path),'sha256':hashlib.sha256(raw).hexdigest()}
    header,row=helper.cache_header_and_first(f);self.assertEqual(header,{k:v for k,v in value.items()if k!='rows'});self.assertEqual(row,{'target_id':'one'})
    with self.assertRaises(ValueError):helper.cache_header_and_first({**f,'sha256':'0'*64})
+ def request(self,**changes):
+  config={k:'x'for k in helper.REQUEST};config.update(format=helper.V1,source_namespace=helper.NAMESPACE);config.update(changes);return config
+ def fresh(self,**pin_changes):
+  pins={'contexts':100,'m1_per_context':57,'inventory_contract':'smarter-poker.r8-global-public-fold-inventory.DRAFT.v57','scenario_id_prefix':'r8f'};pins.update(pin_changes)
+  return self.request(format=helper.V2,source_namespace='12345678-1234-4234-8234-123456789abc',pins=pins)
+ def test_r7_config_keeps_r7_namespace_census_and_inventory_pins(self):
+  self.assertEqual(helper.request_pins(self.request()),{'contexts':107,'m1_per_context':57,'inventory_contract':'smarter-poker.r7-global-public-fold-inventory.DRAFT.v57','scenario_id_prefix':'r7f'})
+  for bad in [self.request(source_namespace='12345678-1234-4234-8234-123456789abc'),{**self.request(),'pins':{}},self.request(format='public_hist215_feature_request_assembly_v0')]:
+   with self.assertRaises(ValueError):helper.request_pins(bad)
+ def test_v2_config_supplies_fresh_pins_and_refuses_r7_reuse(self):
+  pins=helper.request_pins(self.fresh());self.assertEqual(pins['contexts']*pins['m1_per_context'],5700)
+  broken=self.fresh();del broken['pins']['contexts']
+  for bad in [broken,self.fresh(contexts=0),self.fresh(m1_per_context=1.5),self.fresh(scenario_id_prefix='x'),self.fresh(inventory_contract='other'),
+              self.fresh(scenario_id_prefix='r7f'),self.fresh(inventory_contract=helper.R7_PINS['inventory_contract']),
+              {**self.fresh(),'source_namespace':helper.NAMESPACE},{**self.fresh(),'source_namespace':'not-a-uuid'}]:
+   with self.assertRaises(ValueError):helper.request_pins(bad)
+ def test_fresh_ids_take_census_limit_and_prefix_from_the_plan(self):
+  ns='12345678-1234-4234-8234-123456789abc'
+  self.assertEqual(helper.fresh_ids(ns,5699,5700,'r8f')[0],'r8f.m1.12345678123442348234123456789abc.05699')
+  with self.assertRaises(ValueError):helper.fresh_ids(ns,5700,5700,'r8f')
 if __name__=='__main__':unittest.main()

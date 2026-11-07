@@ -830,3 +830,121 @@ it('counts the entry-bound eviction of its oldest entry (layer receipt, 2026-11-
   expect(drainFires()).toEqual([{ feature: 'horse_history_cache_entry_bound_evicted', fires: 1 }]);
   expect(cache.status().entries).toBe(1);
 });
+
+// #9693 follow-up (2026-11-07): a live decision context carries its original
+// speed/ante domain (version 2). Its own history loads when every hand proves
+// that domain; a legacy hand without one is never admitted into the partition.
+const tableNone = { version: 1, speed: 'table', ante: 'none' } as const;
+const domainContext = () => ({ ...context(), version: 2 as const, publicMemoryDomain: tableNone });
+const domainWindow = () => {
+  const source = window();
+  return {
+    ...source,
+    context: domainContext(),
+    hands: source.hands.map((h) => ({ ...h, publicMemoryDomain: tableNone })),
+  };
+};
+it('a version-2 context accepts a window whose every hand proves its speed/ante domain', () => {
+  const packet = makeOwnPublicHistoryPacket(domainWindow(), 200)!;
+  expect(packet).not.toBeNull();
+  expect(packet.hands[0].publicMemoryDomain).toEqual(tableNone);
+  expect(ownPublicHistoryIsValid(packet, domainContext(), 200)).toBe(true);
+  // The v1 unpartitioned context never reads a partitioned window and vice versa.
+  expect(ownPublicHistoryIsValid(packet, context(), 200)).toBe(false);
+  const retained = JSON.parse(horseJournalJson(packet));
+  expect(ownPublicHistoryIsValid(retained, domainContext(), 200)).toBe(true);
+});
+it("the digest covers each hand's domain", () => {
+  const packet = makeOwnPublicHistoryPacket(domainWindow(), 200)!;
+  const changed = structuredClone(packet);
+  changed.hands[0].publicMemoryDomain = { ...tableNone, ante: 'big_blind' };
+  expect(ownPublicHistoryIsValid(changed, domainContext(), 201)).toBe(false);
+});
+it.each(['legacy_untagged', 'other_speed', 'other_ante', 'malformed'])(
+  'a version-2 context refuses a window with a %s hand instead of guessing its rules',
+  (fault) => {
+    const source: any = domainWindow();
+    if (fault === 'legacy_untagged') delete source.hands[0].publicMemoryDomain;
+    if (fault === 'other_speed')
+      source.hands[0].publicMemoryDomain = { ...tableNone, speed: 'lightning' };
+    if (fault === 'other_ante')
+      source.hands[0].publicMemoryDomain = { ...tableNone, ante: 'individual' };
+    if (fault === 'malformed')
+      source.hands[0].publicMemoryDomain = { speed: 'table', ante: 'none' };
+    expect(makeOwnPublicHistoryPacket(source, 200)).toBeNull();
+  }
+);
+it('a version-2 context accepts an empty partitioned window', () => {
+  const packet = makeOwnPublicHistoryPacket({ ...domainWindow(), hands: [], capped: true }, 200);
+  expect(packet).not.toBeNull();
+  expect(ownPublicHistoryIsValid(packet, domainContext(), 200)).toBe(true);
+});
+it('a version-1 context keeps accepting untagged hands and tolerates a tagged one', () => {
+  expect(makeOwnPublicHistoryPacket(window(), 200)).not.toBeNull();
+  const tagged = { ...window(), hands: domainWindow().hands };
+  expect(makeOwnPublicHistoryPacket(tagged, 200)).not.toBeNull();
+  const malformed: any = window();
+  malformed.hands[0].publicMemoryDomain = { speed: 'table' };
+  expect(makeOwnPublicHistoryPacket(malformed, 200)).toBeNull();
+});
+it('the cache yields a version-2 packet to a version-2 snapshot (the live decision path since #9693)', async () => {
+  const cache = new HorseOwnPublicHistoryCache(
+    async () => domainWindow(),
+    () => 200
+  );
+  try {
+    expect(cache.forSnapshot(domainContext(), 200)).toBeUndefined();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const packet = cache.forSnapshot(domainContext(), 201)!;
+    expect(packet).toBeDefined();
+    expect(packet.context).toEqual(domainContext());
+    expect(cache.provenance(domainContext(), 201)).toMatchObject({
+      state: 'available',
+      reason: 'packet_ready',
+    });
+    // Another domain is another partition: nothing is shared across it.
+    const lightning = {
+      ...domainContext(),
+      publicMemoryDomain: { ...tableNone, speed: 'lightning' as const },
+    };
+    expect(cache.forSnapshot(lightning, 201)).toBeUndefined();
+  } finally {
+    cache.dispose();
+  }
+});
+it('a version-2 snapshot given a legacy untagged window stays explicitly unavailable', async () => {
+  const cache = new HorseOwnPublicHistoryCache(
+    async () => ({ ...window(), context: domainContext() }),
+    () => 200
+  );
+  try {
+    expect(cache.forSnapshot(domainContext(), 200)).toBeUndefined();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(cache.forSnapshot(domainContext(), 201)).toBeUndefined();
+    expect(cache.provenance(domainContext(), 201)).toMatchObject({
+      state: 'unavailable',
+      reason: 'invalid_window',
+    });
+  } finally {
+    cache.dispose();
+  }
+});
+it('the worker accepts a version-2 own-history packet and learns from it', () => {
+  const bank = new HorseObserverReads(2048, 4096, () => 50);
+  const request = decisionRequest();
+  request.gameState.publicMemoryDomain = tableNone;
+  expect(horseObserverReadContextFromRequest(request)).toEqual(domainContext());
+  request.ownPublicHistoryState = 'pending';
+  bank.run(request, () => {});
+  const next = {
+    ...request,
+    requestId: request.requestId + 1,
+    decisionTimeMs: request.decisionTimeMs + 1,
+    ownPublicHistory: makeOwnPublicHistoryPacket(domainWindow(), 200)!,
+  };
+  bank.run(next, () => {
+    expect(HorseMind.getStats(opponentId)).toMatchObject({ hands: 1, folds: 1 });
+  });
+  expect(bank.receipt(next)).toMatchObject({ version: 2, history: 'own_public_window' });
+  HorseMind.reset();
+});

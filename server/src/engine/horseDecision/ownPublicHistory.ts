@@ -22,6 +22,11 @@ import {
 } from '../HorseObserverReadContext.js';
 import type { ActionRecord } from '../../types.js';
 import {
+  publicMemoryDomainIsValid,
+  publicMemoryDomainKey,
+  type HorsePublicMemoryDomain,
+} from '../HorsePublicMemoryDomain.js';
+import {
   finalRiverCallers,
   riverCallCategoryIsUsable,
   type RiverCallSample,
@@ -101,6 +106,9 @@ export interface HorseOwnPublicHand {
   /** Per-hand public categories only. Absent means unavailable on older reads. */
   riverCalls?: RiverCallSample[];
   riverNodeEvidence?: 'captured' | 'unavailable';
+  /** The hand's own original speed/ante rules (hand_history.public_memory_domain).
+   * A version-2 context accepts only hands that prove its domain (#9693). */
+  publicMemoryDomain?: HorsePublicMemoryDomain;
 }
 export interface HorseOwnPublicHistoryWindow {
   version: 1;
@@ -121,14 +129,18 @@ function validWindow(value: unknown, availableAtMs: number): value is HorseOwnPu
     value.version !== 1 ||
     value.source !== 'original_dealt_public_v1' ||
     !horseObserverReadContextIsValid(value.context) ||
-    // Legacy historical packets do not prove speed/ante for each accepted hand.
-    value.context.version !== 1 ||
     typeof value.capped !== 'boolean' ||
     !Array.isArray(value.hands) ||
     value.hands.length > MAX_HANDS
   )
     return false;
   const context = value.context;
+  // A version-2 context is a speed/ante partition: every accepted hand must
+  // carry its own original domain and it must be this one. A legacy hand
+  // without a domain proves nothing about speed or ante and is never admitted
+  // into a partitioned window (#9693). A version-1 context is unpartitioned.
+  const domainKey =
+    context.version === 2 ? publicMemoryDomainKey(context.publicMemoryDomain) : null;
   const seen = new Set<string>();
   const coordinates = new Set<string>();
   let last = -1;
@@ -152,8 +164,10 @@ function validWindow(value: unknown, availableAtMs: number): value is HorseOwnPu
           'actions',
           'results',
         ],
-        ['riverCalls', 'riverNodeEvidence']
+        ['riverCalls', 'riverNodeEvidence', 'publicMemoryDomain']
       ) ||
+      (h.publicMemoryDomain !== undefined && !publicMemoryDomainIsValid(h.publicMemoryDomain)) ||
+      (domainKey !== null && publicMemoryDomainKey(h.publicMemoryDomain) !== domainKey) ||
       typeof h.handId !== 'string' ||
       !UUID.test(h.handId) ||
       seen.has(h.handId.toLowerCase()) ||

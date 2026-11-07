@@ -118,6 +118,17 @@ const LAYER_RECEIPTS: Array<{ layer: string; file: string; receipts: string[] }>
     receipts: ['horse_history_cache_entry_bound_evicted', 'horse_history_retention_refused'],
   },
   {
+    layer: 'exact public-memory read on completed hands (#9693)',
+    file: 'services/HorseExactOpponentMemory.ts',
+    receipts: [
+      'horse_exact_memory_read_ok',
+      'horse_exact_memory_read_failed',
+      'horse_exact_memory_read_timeout',
+      'horse_exact_memory_read_busy',
+      'horse_exact_memory_read_invalid',
+    ],
+  },
+  {
     layer: 'V60 cash pressure (#8694)',
     file: 'engine/HorseLogic.ts',
     receipts: [
@@ -167,6 +178,7 @@ describe('LAW: every live decision layer carries a receipt', () => {
       '#8065',
       '#9387',
       '#8694',
+      '#9693',
     ];
     const layers = LAYER_RECEIPTS.map((l) => l.layer).join(' ');
     for (const pr of named) expect(layers, `${pr} has no receipt line`).toContain(pr);

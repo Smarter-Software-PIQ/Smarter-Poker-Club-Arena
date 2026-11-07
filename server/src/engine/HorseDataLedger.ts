@@ -1004,6 +1004,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River bluff multiway'
   ),
   flag(
+    'riverFastCalldown',
+    'the fast call-down read (HorseFastCalldownRead): the river bluff layers (heads-up baseline, its leads, multiway) treat a player whose recent river calling has credibly risen as a station and price with his recent river fold rate; null without recent river evidence; default on, false ablates (2026-11-07)',
+    'River fast call-down'
+  ),
+  flag(
     'riverBluffFixedLimit',
     'fixed-limit path of the baseline river bluff range: the one fixed bet, so a low but real balanced share s/(1+s); default on, false restores the #9803 exclusion (2026-11-07)',
     'River bluff baseline'
@@ -2496,6 +2501,54 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'horseDecision/ownPublicHistory (#9387 family)',
     'the retention budget refused a history load',
     '2026-11-05'
+  ),
+  receipt(
+    'horse_observer_history_domain_complete',
+    'services/HorseOwnPublicHistory version-2 (speed/ante) own-history load',
+    'every hand the installed reader returned carried this context\'s original speed/ante domain, so the partitioned window kept them all (#9693)',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_observer_history_domain_partitioned',
+    'services/HorseOwnPublicHistory version-2 (speed/ante) own-history load',
+    'at least one returned hand carried no domain or another domain and was excluded from the partitioned window, which is then capped (#9693); legacy hands before 2026-11-06 fall here',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_ok',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'a saved exact speed/ante domain profile batch was read and validated for a completed hand (the legacy horse_opponent_memory_read_ok reader is not on this path once the hand carries its domain)',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_ms_*',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'latency bucket of each validated exact read, the same edges as horse_opponent_memory_read_ms_*',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_failed',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'the exact read failed in transport or the query; classified by the legacy reader rules',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_timeout',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'the exact read was aborted, timed out or canceled by the database (57014)',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_busy',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'the shared read admission refused the exact read as busy',
+    '2026-11-07'
+  ),
+  receipt(
+    'horse_exact_memory_read_invalid',
+    'services/HorseExactOpponentMemory completed-hand exact public-memory read',
+    'the database answered but the rows failed receipt validation (wrong domain, actor, context or shape); no legacy fallback',
+    '2026-11-07'
   ),
   receipt(
     'v60_cash_pressure_facing_open',
@@ -4183,6 +4236,19 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (HorseRiverBluffRange, V11 gate)',
     'out-of-position river leads into the turn bettor: bluff_leadDraw / bluff_leadBlank (a bluff lead on a draw-completing or blank river), skip_station (a candidate checked because the bettor is a credible station), value_pass (the V11 gate let a value hand lead a draw-completing river)',
     'River lead range'
+  ),
+  // No floor: fires only when a river opponent is read as calling down.
+  receipt(
+    'river_fast_calldown_station',
+    'HorseLogic not-facing-a-bet river, heads-up baseline site (HorseFastCalldownRead)',
+    'the fast call-down read made the heads-up river opponent a station for this decision: his recent river call rate is credibly above the edge',
+    'River fast call-down'
+  ),
+  receipt(
+    'river_fast_calldown_station_multiway',
+    'HorseLogic not-facing-a-bet river, multiway site (HorseFastCalldownRead)',
+    'the fast call-down read made one multiway river opponent a station for this decision',
+    'River fast call-down'
   ),
   receipt(
     'river_bluff_hilo_*',

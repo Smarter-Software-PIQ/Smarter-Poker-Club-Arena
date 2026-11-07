@@ -171,10 +171,14 @@ describe('GATE 2: under 50% of the guarantee paid in', () => {
 });
 
 describe('how many more players would close it', () => {
-  it('counts against the PRIZE side of the buy-in, not the total', () => {
+  it('counts the WHOLE player payment per entry (prize + bounty + rake) toward closing it', () => {
     const a = overlayFor(lastLevel({ prize_pool: 2000 }), NOW)!;
     expect(a.overlay).toBe(18000);
-    expect(a.entriesToClose).toBe(100); // 18000 / 180, not 18000 / 200 = 90
+    // The fixture charges 180 with no fee, so the whole payment is 180 and
+    // 18000 / 180 = 100. With a fee the divisor grows by it (perEntry in
+    // overlayAnnouncements.ts), because a buy-in guarantee credits the full
+    // qualifying payment, bounty and rake included (Dan, 2026-11-05).
+    expect(a.entriesToClose).toBe(100);
   });
 
   it('reports zero rather than infinity on a freeroll', () => {

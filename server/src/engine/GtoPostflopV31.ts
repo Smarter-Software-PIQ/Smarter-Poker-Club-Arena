@@ -40,6 +40,7 @@ import type {
   GtoV31NodeRole,
   GtoV31Position,
   GtoV31PotType,
+  GtoV31SealedPotType,
   GtoV31SizeBucket,
   GtoV31UtilityContext,
 } from './GtoDecisionContext.js';
@@ -101,7 +102,7 @@ export interface GtoPostflopV31Row extends GtoV31SourceSeal {
   objective: GtoV31Objective;
   utility_context: GtoV31UtilityContext;
   table_size: number;
-  pot_type: GtoV31PotType;
+  pot_type: GtoV31SealedPotType;
   hero_position: GtoV31Position;
   opponent_position: GtoV31Position;
   depth_bucket: number;
@@ -213,7 +214,7 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const POSITIONS = new Set(['UTG', 'UTG1', 'UTG2', 'UTG3', 'MP', 'HJ', 'CO', 'BTN', 'SB', 'BB']);
 const DEPTHS = new Set([10, 20, 40, 80, 150]);
-const POT_TYPES = new Set<GtoV31PotType>(['limped', 'srp', '3bet', '4bet_plus']);
+const POT_TYPES = new Set<GtoV31SealedPotType>(['limped', 'srp', '3bet', '4bet_plus']);
 const UTILITY_CONTEXTS = new Set<GtoV31UtilityContext>([
   'cash_ev',
   'chip_ev',

@@ -1,5 +1,5 @@
 /** Owner 2026-11-06: isolated Backup qualification, daily-only replacement. */
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -272,6 +272,126 @@ python3() {
       expect(result.stdout).not.toContain('SUPERSEDED');
       expect(result.stdout).toContain('sha=' + candidate);
     });
+  });
+  // 2026-11-07: the push run that does start certifies only what can still
+  // ship: main's newest server commit (the stage lane's offered tree), and
+  // never a commit that already carries a success certificate.
+  describe('a starting push run certifies the newest server commit, once', () => {
+    const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
+    const pushed = 'a'.repeat(40);
+    const newest = 'b'.repeat(40);
+    const base = {
+      INPUT_SHA: '',
+      INPUT_REFRESH: 'false',
+      GITHUB_SHA: pushed,
+      RUN_ID: '500',
+      GITHUB_REPOSITORY: 'o/r',
+    };
+    // A fake GitHub: no newer push run, main's newest server commit HEAD,
+    // compare status REL, and the certificate state per sha in CERT_<sha8>.
+    const fakeGh = (head: string, rel: string, certs: Record<string, string> = {}) =>
+      `gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$2" in
+    *actions/workflows/backup-engine.yml/runs*) echo 0 ;;
+    *'/commits?sha=main&path=server&per_page=1') echo '${head}' ;;
+    *'/compare/'*) echo '${rel}' ;;
+${Object.entries(certs)
+  .map(([sha, state]) => `    *'/commits/${sha}/statuses'*) echo '${state}' ;;`)
+  .join('\n')}
+    *'/statuses'*) echo missing ;;
+    *) return 1 ;;
+  esac
+}
+git() { echo unexpected-main-read >&2; return 99; }
+`;
+    function run(harness: string, env: Record<string, string>) {
+      const dir = mkdtempSync(resolve(tmpdir(), 'backup-calls-'));
+      const calls = resolve(dir, 'calls');
+      try {
+        const result = planShell(harness + plan, { ...env, CALLS: calls });
+        const log = existsSync(calls) ? readFileSync(calls, 'utf8') : '';
+        return { ...result, calls: log };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    it('reads the same server tree the stage lane offers', () => {
+      expect(stage.jobs.detect.steps.find((s: any) => s.id === 'change').run).toContain(
+        `TARGET_SHA=$(git log "$AFTER_SHA" -1 --format=%H -- 'server/**')`
+      );
+      expect(plan).toContain('commits?sha=main&path=server&per_page=1');
+      expect(plan).toContain('[ "$rel" = ahead ]');
+    });
+    it('(a) a stale push run certifies the newest server commit on main instead', () => {
+      const result = run(fakeGh(newest, 'ahead'), { ...base, EVENT: 'push' });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(`RETARGETED: pushed ${pushed} is superseded by ${newest}`);
+      expect(result.stdout).toContain('sha=' + newest);
+      expect(result.stdout).not.toContain('sha=' + pushed);
+      expect(result.stdout).toContain('refresh=auto');
+      expect(result.calls).toContain(`/compare/${pushed}...${newest}`);
+      expect(result.calls).toContain(`/commits/${newest}/statuses`);
+    });
+    it.each([
+      ['not a descendant', newest, 'diverged'],
+      ['unreadable compare', newest, ''],
+      ['unreadable main', 'HTTP 502', 'ahead'],
+      ['already the newest', pushed, 'identical'],
+    ])('keeps the pushed commit when %s', (_label, head, rel) => {
+      const result = run(fakeGh(head, rel), { ...base, EVENT: 'push' });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).not.toContain('RETARGETED');
+      expect(result.stdout).toContain('sha=' + pushed);
+    });
+    it('(b) workflow_dispatch with an explicit sha certifies exactly that sha', () => {
+      const result = run(fakeGh(newest, 'ahead', { [pushed]: 'success' }), {
+        ...base,
+        GITHUB_SHA: newest,
+        INPUT_SHA: pushed,
+        EVENT: 'workflow_dispatch',
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('sha=' + pushed);
+      expect(result.stdout).not.toContain('RETARGETED');
+      expect(result.stdout).not.toContain('ALREADY CERTIFIED');
+      expect(result.calls).toBe('');
+    });
+    it('(c) a target an earlier run already certified is not certified twice', () => {
+      for (const [head, rel] of [
+        [newest, 'ahead'],
+        [pushed, 'identical'],
+      ]) {
+        const result = run(fakeGh(head, rel, { [head]: 'success' }), { ...base, EVENT: 'push' });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain(`ALREADY CERTIFIED: ${head}`);
+        expect(result.stdout).toMatch(/\nsha=\n/);
+        expect(result.stdout).not.toContain('sha=' + head);
+        expect(result.stdout).not.toContain('refresh=auto');
+      }
+    });
+    it('(c) an older run with a newer push run queued retires without certifying', () => {
+      const result = run(fakeGh(newest, 'ahead').replace('runs*) echo 0', 'runs*) echo 1'), {
+        ...base,
+        EVENT: 'push',
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('SUPERSEDED: 1 newer push run(s)');
+      expect(result.stdout).toMatch(/\nsha=\n/);
+      expect(result.calls).not.toContain('/compare/');
+    });
+    it.each(['failure', 'pending', 'missing', 'HTTP 403'])(
+      'certifies again when the target certificate is %s',
+      (state) => {
+        const result = run(fakeGh(newest, 'ahead', { [newest]: state }), {
+          ...base,
+          EVENT: 'push',
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('sha=' + newest);
+        expect(result.stdout).not.toContain('ALREADY CERTIFIED');
+      }
+    );
   });
   it('serializes all Backup candidates and refreshes only after a successful sealed release', () => {
     expect(backup.concurrency).toEqual({

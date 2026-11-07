@@ -1,3 +1,4 @@
+import { composeFastCalldownWindows } from '../HorseFastCalldownRead.js';
 import { mergeMultiwayRiverStates } from '../HorseMultiwayRiverRead.js';
 /**
  * ONE FLOOR, ONE READ (2026-10-16).
@@ -91,9 +92,13 @@ export function addHandContribution(
       merged[field] = (base[field] ?? 0) / 2 + (delta[field] ?? 0);
   }
   const hu = mergeMultiwayRiverStates(live?.riverHu, hand.riverHu);
+  // The fast call-down river window (2026-11-07) decays per river
+  // opportunity: it composes, it does not add.
+  const recency = composeFastCalldownWindows(live, hand);
   return {
     ...(merged as Partial<OpponentStats>),
     ...(hu ? { riverHu: hu } : {}),
+    ...(recency ?? {}),
     sourceWindow: hand.sourceWindow,
   };
 }
