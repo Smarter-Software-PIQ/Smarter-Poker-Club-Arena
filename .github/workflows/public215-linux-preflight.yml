@@ -8,6 +8,12 @@ on:
       - scripts/ci/public215-linux-preflight.test.mjs
       - scripts/ci/public215-source-admission.mjs
       - scripts/ci/public215-source-admission.test.mjs
+      - server/scripts/assemble-public215-input-draft.py
+      - server/scripts/prepare-public215-feature-request.py
+      - server/scripts/assemble-public215-model-index.py
+      - server/scripts/test_assemble_public215_input_draft.py
+      - server/scripts/test_prepare_public215_feature_request.py
+      - server/scripts/test_assemble_public215_model_index.py
   workflow_dispatch:
     inputs:
       dataset:
@@ -44,6 +50,15 @@ jobs:
         with:
           node-version: 22
       - run: node --test scripts/ci/public215-linux-preflight.test.mjs scripts/ci/public215-source-admission.test.mjs
+      # The public215 assembly tools keep R7's exact pins for an R7 (v1) request
+      # and take every pin of a later dataset (v2) from that request's own config.
+      - name: Public215 assembly tool suites
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          python3 server/scripts/test_assemble_public215_input_draft.py
+          python3 server/scripts/test_prepare_public215_feature_request.py
+          python3 server/scripts/test_assemble_public215_model_index.py
   evidence:
     needs: contract
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872'
