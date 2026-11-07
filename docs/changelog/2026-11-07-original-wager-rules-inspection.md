@@ -1,0 +1,3 @@
+# Inspect the original river wager transition
+
+The private inspector accepts a v10 `original_wager_rules` selector with the existing source release and original hand coordinates. For a qualifying checked-to or pot-sized opening-bet Omaha full house, it returns the recorded action and amount before and after `wager_rules`. The original decision and execution graphs must agree, the selection must be intended, and the accepted action must reconcile to the same hand. The receipt describes the entire node, which may have applied multiple rules. It does not export cards, replay the decision or estimate EV.
