@@ -1,5 +1,5 @@
-# Exercise the scheduled Afternoon Free Buy guarantee in PostgreSQL
+# Preserve the guarantee promised by each Midway Free Buy schedule
 
-The native Midway rotation check now attempts to build a zero-guarantee PKO in an Afternoon slot promising a 500-chip All-In Or Fold event. It installs the production schedule classifier and guard migration. It verifies that both a bad insert and a later bad update raise the specific schedule constraint and leave the stored rows intact. A correct 500-chip event is admitted, and a started event keeps the terms its entrants played under when its schedule link is restored.
+The database guard checks the stored guarantee against the schedule after each new build or change to tournament terms. This covers a guarantee-only update to a correctly flagged Afternoon All-In Or Fold event. Started events retain their original terms.
 
-The same isolated check continues to exercise Horse and human registration funding and ledger conservation. It runs through the existing tournament registration funding check. This change adds test coverage and makes no production data changes.
+The existing PostgreSQL rotation check exercises the production guard after the normalizing triggers. It covers wrong-format inserts and updates, the 500-chip guarantee, and unchanged terms for started events alongside the existing Horse and human registration funding cases. The successor migration installs after the original guard in daily maintenance.

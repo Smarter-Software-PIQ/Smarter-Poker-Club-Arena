@@ -97,6 +97,7 @@ try:
  query(db,slot.group(0))
  guard_migration=ROOT/'supabase/migrations/20261106004812_a_built_midway_free_buy_refuses_a_shape_its_schedule_does_no.sql'
  query(db,guard_migration.read_text())
+ query(db,(ROOT/'supabase/migrations/20261107041342_a_scheduled_midway_free_buy_keeps_its_promised_guarantee.sql').read_text())
  print(query(db,(FIX/'scheduled-guarantee.sql').read_text()),flush=True)
  # Installed a second time it must refuse (its preimages are gone), changing nothing.
  try:

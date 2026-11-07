@@ -10,7 +10,7 @@ DECLARE
   before_row jsonb;
 BEGIN
   INSERT INTO tournament_schedules(id, name, config)
-  VALUES (slot, 'Afternoon Free Buy (NLH)', '{"midwayFreeBuyFormat":"midway-free-buy-aiof-v1"}');
+  VALUES (slot, 'Afternoon Free Buy (NLH)', '{"midwayFreeBuyFormat":"midway-free-buy-aiof-v1", "guaranteedPrize":500}');
 
   -- Reuse the synthetic PKO row whose registration terms the rotation froze.
   SELECT * INTO STRICT candidate FROM tournaments WHERE id='10000000-0000-0000-0000-000000000105';
@@ -28,6 +28,7 @@ BEGIN
   SELECT * INTO STRICT candidate FROM tournaments WHERE id='10000000-0000-0000-0000-000000000102';
   candidate.id := event;
   candidate.schedule_id := slot;
+  candidate.guaranteed_prize := 0; -- the live BEFORE INSERT must normalize this to 500
   INSERT INTO tournaments SELECT candidate.*;
   SELECT to_jsonb(t) INTO STRICT before_row FROM tournaments t WHERE id=event;
   IF fn_ca_midway_free_buy_slot_format(event) IS DISTINCT FROM 'aiof'
@@ -43,6 +44,16 @@ BEGIN
   END;
   IF (SELECT to_jsonb(t) FROM tournaments t WHERE id=event) IS DISTINCT FROM before_row THEN
     RAISE EXCEPTION 'failed reshape changed the stored event';
+  END IF;
+
+  BEGIN
+    UPDATE tournaments SET guaranteed_prize=0 WHERE id=event;
+    RAISE EXCEPTION 'guarantee-only UPDATE removed the promised 500 from a correctly flagged AIOF';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM NOT LIKE 'MIDWAY_FREE_BUY_GUARANTEE_DIFFERS_FROM_ITS_SCHEDULE:%' THEN RAISE; END IF;
+  END;
+  IF (SELECT to_jsonb(t) FROM tournaments t WHERE id=event) IS DISTINCT FROM before_row THEN
+    RAISE EXCEPTION 'failed guarantee-only edit changed the stored event';
   END IF;
 
   -- A historical event already started under PKO terms. Linking its original
