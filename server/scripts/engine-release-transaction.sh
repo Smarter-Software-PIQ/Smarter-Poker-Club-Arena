@@ -3263,12 +3263,12 @@ fi
 [ "$(date +%s)" -lt "$MUTATION_DEADLINE_EPOCH" ] \
   || die 'immutable release not-after epoch expired before new release mutation'
 source_target_is_current
-require_backup_certificate || die 'exact target Backup certificate is not currently successful; no cycle reserved'
 if [ -z "${DRILL_MODE:-}" ]; then
   read_prepared_image
   [ "$COMMITTED_IMAGE" = "$PREPARED_ROLLBACK_ID" ] || die 'sealed rollback image changed since daytime preparation'
   validate_candidate_image
 fi
+require_backup_certificate || die 'exact target Backup certificate is not currently successful; no cycle reserved'
 initialise_phase1_cycle
 if EXACT_INSTANCE="$(exact_runtime_instance)" && ! phase1_reset_required; then
   emit_already_released "$EXACT_INSTANCE"

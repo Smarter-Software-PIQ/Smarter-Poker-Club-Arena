@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from importlib.util import module_from_spec, spec_from_file_location
 import hashlib
 import io
+import os
 import json
 import subprocess
 import tempfile
@@ -82,7 +83,7 @@ class Evidence(unittest.TestCase):
 
 
 class Selection(unittest.TestCase):
-    def verify(self, *, altered=False, duplicate=False, late=False):
+    def verify(self, *, altered=False, duplicate=False, late=False, pending=False):
         repo = "Smarter-Software-PIQ/Smarter-Poker-Club-Arena"
         cutoff = int(datetime(2026, 11, 8, 9, 30, tzinfo=timezone.utc).timestamp())
         qualification = {"targetSha":"a"*40, "controlSha":"b"*40, "qualificationRunId":21}
@@ -100,14 +101,16 @@ class Selection(unittest.TestCase):
         archive = data.getvalue()
         artifact = dict(id=7, name="daily-engine-selection-2026-11-08", expired=False,
                         size_in_bytes=len(archive), digest="sha256:"+hashlib.sha256(archive).hexdigest())
-        with patch.object(reader, "api", side_effect=[run, {"total_count":1,"artifacts":[artifact]}]), \
+        job = dict(name="Freeze the daily release evidence", run_id=22, run_attempt=1,
+                   head_sha=run["head_sha"], status="completed", conclusion="success" if not pending else None)
+        with patch.object(reader, "api", side_effect=[run, {"total_count":1, "jobs":[job]}, {"total_count":1,"artifacts":[artifact]}]), \
              patch.object(reader, "git", return_value=""), \
              patch.object(reader.subprocess, "check_output", return_value=archive + (b"x" if altered else b"")):
             reader.verify_selection(repo, "22", cutoff, qualification)
 
     def test_verifies_stage_artifact_and_rejects_changed_archive_or_cutoff(self):
         self.verify()
-        for mismatch in ("altered","duplicate","late"):
+        for mismatch in ("altered","duplicate","late","pending"):
             with self.subTest(mismatch=mismatch), self.assertRaises(reader.Unqualified):
                 self.verify(**{mismatch: True})
 
@@ -116,7 +119,9 @@ class ControlInputs(unittest.TestCase):
     def test_real_git_projection_preserves_unrelated_changes_and_detects_release_inputs(self):
         with tempfile.TemporaryDirectory() as folder:
             def git(*args):
-                return subprocess.check_output(["git","-C",folder,*args],text=True).strip()
+                return subprocess.check_output(["git","-C",folder,*args], text=True, env={
+                    "PATH": os.environ["PATH"], "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM":"1",
+                }).strip()
             git("init","-q")
             def edit(path, text):
                 file = Path(folder)/path

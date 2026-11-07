@@ -18,7 +18,10 @@ PY
 )"
 (( deadline > $(date +%s) ))
 exec 9>/var/lock/club-arena-engine-build.lock
-flock -n 9
+wait_seconds=$((deadline - $(date +%s)))
+(( wait_seconds > 0 ))
+flock -w "$wait_seconds" 9 || { echo 'preparation deadline expired waiting for the image lock' >&2; exit 1; }
+(( deadline > $(date +%s) ))
 rollback() {
   local desired running
   desired="$(/usr/local/lib/club-arena/engine-control/engine-release-seal.py get desired-image-id)"

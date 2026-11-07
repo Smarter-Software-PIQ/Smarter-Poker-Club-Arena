@@ -73,6 +73,13 @@ def verify_selection(repo, rid, cutoff, qualification):
     protected(stage)
     git("merge-base", "--is-ancestor", qualification["controlSha"], stage)
     require(projection(stage) == projection(qualification["controlSha"]), "stage release controls changed after cutoff")
+    jobs = api(f"repos/{repo}/actions/runs/{rid}/attempts/1/jobs?per_page=100")
+    require(jobs["total_count"] == len(jobs["jobs"]), "selection jobs incomplete")
+    selected = [job for job in jobs["jobs"] if job["name"] == "Freeze the daily release evidence"]
+    require(len(selected) == 1 and selected[0]["run_id"] == int(rid)
+            and selected[0]["head_sha"] == stage and selected[0]["run_attempt"] == 1
+            and selected[0]["status"] == "completed" and selected[0]["conclusion"] == "success",
+            "selection job has not succeeded")
     chicago = datetime.fromtimestamp(cutoff, ZoneInfo("America/Chicago"))
     require((chicago.hour, chicago.minute, chicago.second) == (3, 30, 0), "invalid selection cutoff")
     name = "daily-engine-selection-" + chicago.date().isoformat()
