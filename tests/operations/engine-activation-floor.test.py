@@ -97,6 +97,14 @@ class ActivationFloor(unittest.TestCase):
         return floor.policy(str(self.repo), self.sha, self.sha)
 
     def test_changed_owner_history_only_falls_through_after_both_exact_orders_expire(self):
+        from datetime import datetime
+        stamp = lambda value: int(datetime.fromisoformat(value).timestamp())
+        start = stamp('2026-10-31T09:00:00+00:00')
+        next_cutoff = stamp('2026-11-01T09:30:00+00:00')
+        self.assertEqual(floor.daily_assessment_epoch(start, 0), next_cutoff)
+        self.assertEqual(floor.daily_assessment_epoch(next_cutoff + 60, next_cutoff), next_cutoff)
+        with self.assertRaisesRegex(ValueError, 'exact Chicago'):
+            floor.daily_assessment_epoch(next_cutoff, next_cutoff + 60)
         record = self.owner_record()
         target = self.sha
         path = self.repo / 'server/release/owner-maintenance-windows.json'

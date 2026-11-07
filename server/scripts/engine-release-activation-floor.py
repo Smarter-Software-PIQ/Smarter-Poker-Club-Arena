@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 MANIFEST = 'server/release/activation-floor.json'
@@ -55,6 +55,18 @@ def phase1_policy(repo, target, control):
 def git(repo, *args):
     return subprocess.run(['git', '-C', repo, *args], check=True, capture_output=True,
                           env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1'}, timeout=10).stdout
+
+
+def daily_assessment_epoch(now, cutoff):
+    zone = ZoneInfo('America/Chicago')
+    local = datetime.fromtimestamp(cutoff or now, zone)
+    boundary = local.replace(hour=3, minute=30, second=0, microsecond=0)
+    if cutoff:
+        if boundary.timestamp() != cutoff:
+            raise ValueError('daily compatibility requires the exact Chicago selection cutoff')
+    elif local > boundary:
+        boundary += timedelta(days=1)
+    return int(boundary.timestamp())
 
 
 def expired_control(repo, control, now):
@@ -409,7 +421,9 @@ def main():
             print('announced' if prior.get('phase') == 'announcement' else 'entered')
             return
     fresh = prior is None and args.mode in ('daily-compatibility', 'prepare', 'admit', 'wait', 'publish', 'entry', 'entry-check', 'announcement-entry')
-    record = policy(args.repo, args.target, args.control, fresh_at=int(time.time()) if fresh else None)
+    now = int(time.time())
+    as_of = daily_assessment_epoch(now, args.deadline) if args.mode == 'daily-compatibility' else now
+    record = policy(args.repo, args.target, args.control, fresh_at=as_of if fresh else None)
     if args.mode == 'nov7-owner':
         nov7_owner(args.repo, record, int(time.time()), args.deadline)
         return
@@ -433,7 +447,7 @@ def main():
         # a new order never retargets an announcement or an unknown outcome.
         later_owner = (prior is None and record is not None
                        and record.get('supersedesPhase1Schedule') is True
-                       and int(time.time()) < record['expiresEpoch'])
+                       and as_of < record['expiresEpoch'])
         if selected is not None and not later_owner:
             record = selected
     if args.mode not in ('checkpoint-no-action', 'reservation') and prior is None:
@@ -442,13 +456,13 @@ def main():
         # admission, entry and publication read reads an expired floor as no
         # floor.
         if record is None or record['schema'] != PHASE1_CAPABILITY:
-            record = effective(record, int(time.time()))
+            record = effective(record, as_of)
     if args.mode == 'daily-compatibility':
         # A compatibility receipt cannot authorize entry or reserve a window.
         inputs = [MANIFEST, HELPER, 'server/release/owner-maintenance-windows.json', 'server/scripts/engine-release-seal.py',
                   'server/src/maintenance/maintenanceSchedulePolicy.json']
         print(json.dumps({'schema': 1, 'targetSha': args.target, 'controlSha': args.control,
-                          'effectivePolicy': record, 'controlInputs': {
+                          'assessmentEpoch': as_of, 'effectivePolicy': record, 'controlInputs': {
                               path: git(args.repo, 'ls-tree', args.control, '--', path).decode().strip()
                               for path in inputs}}))
         return

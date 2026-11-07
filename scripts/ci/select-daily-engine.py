@@ -145,7 +145,7 @@ def select(args, report):
                 raise ValueError('prequalification identity differs')
             floor = subprocess.run([sys.executable, '-B', 'server/scripts/engine-release-activation-floor.py',
                                     'daily-compatibility', '--repo', '.', '--target', sha,
-                                    '--control', args.control, '--deadline', '0'], capture_output=True)
+                                    '--control', args.control, '--deadline', str(report['cutoffEpoch'])], capture_output=True)
             if floor.returncode:
                 report['deferredCandidates'].append({'sha': sha, 'reason': 'protected release controls differ'})
                 continue
