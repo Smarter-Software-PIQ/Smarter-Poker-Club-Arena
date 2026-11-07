@@ -165,6 +165,7 @@ describe('Mac workspaces never recreate the purged dependencies', () => {
           'git',
           `case "$*" in
           'rev-parse --path-format=absolute --git-common-dir') printf '%s/.git\\n' "$MAC_TEST_CLONE";;
+          *'config --file '*'/config --get core.bare') printf 'false\\n';;
           *'fetch origin main --quiet') exit 0;;
           *'show origin/main:scripts/agent-workspace.sh')
             if [ "$MAC_TEST_OLD_MAIN" = 1 ]; then printf '# old dependency provisioner\\n';
