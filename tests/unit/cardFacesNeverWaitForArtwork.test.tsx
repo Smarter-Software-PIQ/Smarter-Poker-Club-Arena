@@ -1,8 +1,18 @@
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render } from '@testing-library/react';
 import { CommunityCards } from '../../src/components/table/CommunityCards';
 import { CardImage, type Card } from '../../src/components/table/CardImage';
+
+import { decodedCardImageUrl } from '../../src/utils/deckWarmer';
+vi.mock('../../src/utils/deckWarmer', () => ({
+  decodedCardImageUrl: vi.fn((url: string) => url),
+  subscribeCardImages: () => () => {},
+}));
+afterEach(() => {
+  vi.useRealTimers();
+  vi.mocked(decodedCardImageUrl).mockImplementation((url) => url);
+});
 
 vi.mock('../../src/hooks/useDeckStyle', () => ({ useDeckStyle: () => '4color' }));
 
@@ -70,4 +80,15 @@ describe('known card faces never wait for artwork', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('[aria-label="Card Could Not Be Read"]')).not.toBeNull();
   });
+});
+
+it('uses warmed local artwork unchanged when an HTTP error retry is already armed', async () => {
+  vi.useFakeTimers();
+  const { container } = render(<CardImage card={{ rank: 'Q', suit: 'd' }} loading="eager" />);
+  const image = container.querySelector('img')!;
+  fireEvent.error(image);
+  fireEvent.error(image);
+  vi.mocked(decodedCardImageUrl).mockReturnValue('blob:https://smarter.poker/decoded-queen');
+  await act(() => vi.advanceTimersByTimeAsync(400));
+  expect(image.getAttribute('src')).toBe('blob:https://smarter.poker/decoded-queen');
 });

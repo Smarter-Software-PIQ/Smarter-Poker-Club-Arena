@@ -11,6 +11,14 @@ type DeckStyle = '4color' | '2color';
 const decoded = new Map<string, HTMLImageElement>();
 const pending = new Map<DeckStyle, Promise<void>>();
 const ready = new Set<DeckStyle>();
+const listeners = new Set<() => void>();
+
+export function subscribeCardImages(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
 
 export function deckImageUrls(style: DeckStyle): string[] {
   return SUITS.flatMap((suit) =>
@@ -81,6 +89,7 @@ export function prepareDeckImages(style: DeckStyle): Promise<void> {
         image = await decodeImage(url.replace(/\.webp$/, '.png'));
       }
       decoded.set(url, image);
+      listeners.forEach((listener) => listener());
     }
   };
   // Bound concurrent requests, but never stagger gameplay assets behind idle timers.
