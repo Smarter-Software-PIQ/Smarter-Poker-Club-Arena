@@ -42,3 +42,5 @@ echo "free-buy-cutoff: $passes checks passed"
 # Concurrency (owner, 2026-11-06): each eligible first entry is funded exactly
 # once under concurrent finalization, and the ticket books hold under races.
 python3 -B "$cases/06_concurrency.py" "$pgbin/psql" "$socket" "$port" postgres
+# Tickets an event will use (owner, 2026-11-06; migration 20261107043307).
+python3 -B "$cases/07_tickets_for_event.py" "$pgbin/psql" "$socket" "$port"

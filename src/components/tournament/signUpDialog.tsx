@@ -83,6 +83,7 @@ import { WalletService } from '../../services/WalletService';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { formatBuyIn, money, totalBuyIn } from '../../utils/buyIn';
 import { reportError } from '../../utils/errorReporter';
+import { freeBuyTicketCardValue, type FreeBuyTicketBook } from '../../utils/freeBuyTickets';
 import { formatPrizeAtUnit, moneyWordAtUnit } from '../../utils/format';
 import { CHIP_UNIT_CENTS, normalizeUnitCents } from '../../../server/src/tournament/tournamentUnit';
 const DiamondsToChipsButton = lazy(() => import('../games/DiamondsToChipsButton'));
@@ -143,6 +144,11 @@ export interface SignUpDialogOptions {
   isLateRegistration?: boolean;
   /** Exact noncash entry instrument selected by the server before this opens. */
   tournamentTicketId?: string | null;
+  /**
+   * The Free Buy ticket book this entry draws on (owner, 2026-11-06), read by
+   * the registration hook. Null or absent prints no ticket row.
+   */
+  freeBuyTickets?: FreeBuyTicketBook | null;
 }
 
 interface SignUpRequest {
@@ -490,6 +496,17 @@ export function SignUpHost() {
               <span className="signup-label sc-label sc-ink--blue">Entry Fee</span>
               <span className="signup-value sc-ink--silver">
                 {formatBuyIn(o.buyInAmount, o.buyInFee ?? 0, o)}
+              </span>
+            </div>
+          )}
+
+          {/* A free entry draws one of the player's five daily Free Buy
+              tickets, from the book of the event's own gaming day. */}
+          {o.freeBuyTickets?.applies && (
+            <div className="signup-row">
+              <span className="signup-label sc-label sc-ink--blue">Free Buy Ticket</span>
+              <span className="signup-value sc-ink--silver">
+                {freeBuyTicketCardValue(o.freeBuyTickets)}
               </span>
             </div>
           )}
