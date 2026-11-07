@@ -7,6 +7,7 @@ import test from 'node:test';
 import './protection-applicability.test.mjs';
 import './revision-boundaries.test.mjs';
 import './producer-boundary.test.mjs';
+import { fileURLToPath } from 'node:url';
 
 const workflow = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const lines = workflow.split('\n');
@@ -280,7 +281,7 @@ test('local coordinator reads supported REST metadata and refuses another reposi
     fs.writeFileSync(executable,'#!/bin/sh\nprintf "%s\\n" "$*" >> "$TRANSFER_CALLS"\nprintf \'{"nameWithOwner":"Smarter-Software-PIQ/Smarter-Poker-Club-Arena","databaseId":999}\\n\'\n');
     fs.chmodSync(executable,0o700);
     const calls=path.join(dir,'calls');
-    const result=spawnSync(process.execPath,[new URL('../scripts/ci/await-money-trigger-proof.mjs',import.meta.url).pathname],{cwd:dir,encoding:'utf8',env:{PATH:dir+path.delimiter+process.env.PATH,TRANSFER_CALLS:calls},timeout:5000});
+    const result=spawnSync(process.execPath,[fileURLToPath(new URL('../scripts/ci/await-money-trigger-proof.mjs',import.meta.url))],{cwd:dir,encoding:'utf8',env:{PATH:dir+path.delimiter+process.env.PATH,TRANSFER_CALLS:calls},timeout:5000});
     assert.notEqual(result.status,0);assert.match(result.stderr,/Wrong Club Arena repository identity/);
     assert.equal(fs.readFileSync(calls,'utf8').trim(),'api repos/{owner}/{repo} --jq {nameWithOwner:.full_name,databaseId:.id}');
   }finally{fs.rmSync(dir,{recursive:true,force:true})}

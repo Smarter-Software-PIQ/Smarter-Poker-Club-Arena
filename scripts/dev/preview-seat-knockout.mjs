@@ -43,7 +43,7 @@
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '../..');
@@ -777,7 +777,7 @@ try {
 }
 
 const tab = await browser.newPage({ viewport: { width: 1180, height: 900 }, deviceScaleFactor: 2 });
-await tab.goto(`file://${harness}`);
+await tab.goto(pathToFileURL(harness).href);
 await tab.waitForTimeout(600);
 
 for (const [ms] of BEATS) {

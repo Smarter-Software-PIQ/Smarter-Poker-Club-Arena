@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -24,8 +25,18 @@ import { describe, expect, it } from 'vitest';
  * Creation runs no process, opens no journal and binds no port, so it now
  * overlaps the unchanged 45 s SIGTERM grace. The replacement still STARTS only
  * after the old process has exited and been renamed away. This runs the real
- * script against a fake Docker whose stop and create each take two seconds.
+ * script against a fake Docker whose stop and create are a RENDEZVOUS: neither
+ * returns until the other has begun. Run in series, the first one waits out
+ * the rendezvous guard alone and records that it was serialized.
+ *
+ * (2026-11-07) The overlap used to be proved by wall time - two 2 s sleeps and
+ * "stop to start under 3.5 s". On a Mac at load 57 the same correct script took
+ * 4.8 s and failed. Concurrency is now proved by causality, which no amount of
+ * host load can fake or break. The timeouts below are only hang guards
+ * (rendezvous 60 s < child 150 s < each test's 240 s).
  */
+const RENDEZVOUS_GUARD_SECONDS = 60;
+const CHILD_HANG_GUARD_MS = 150_000;
 const root = process.cwd();
 const script = join(root, 'server/scripts/engine-up.sh');
 const sha = 'a'.repeat(40);
@@ -35,7 +46,7 @@ const containerId = 'f00dfeed'.repeat(8);
 interface Run {
   status: number | null;
   output: string;
-  elapsed: number;
+  serialized: boolean;
   calls: { at: number; pid: number; edge: 'begin' | 'end'; args: string }[];
 }
 
@@ -66,11 +77,20 @@ now() { perl -MTime::HiRes=time -e 'printf "%.0f\\n", time*1000'; }
 record() { local edge="$1"; shift; printf '%s' "$*" > '${calls}'/"$(now)-$$-$edge-$RANDOM"; }
 record begin "$@"
 finish() { record end "$@"; }
+# Announce this operation, then hold it in flight until the other has begun.
+# Only an engine-up that runs stop and create in series can exhaust the guard.
+rendezvous() {
+  : > '${state}'/"$1-in-flight"
+  while [ ! -e '${state}'/"$2-in-flight" ]; do
+    if [ "$SECONDS" -ge ${RENDEZVOUS_GUARD_SECONDS} ]; then : > '${state}/serialized'; return 0; fi
+    perl -e 'select(undef, undef, undef, 0.05)'
+  done
+}
 case "$1" in
   image) ;;
-  stop) sleep 2; : > '${state}/stopped' ;;
+  stop) rendezvous stop create; : > '${state}/stopped' ;;
   create)
-    sleep 2
+    rendezvous create stop
     if [ -n "\${FAKE_CREATE_FAIL:-}" ]; then finish "$@"; exit 1; fi
     finish "$@"; printf '%s\\n' '${containerId}'; exit 0 ;;
   rename)
@@ -106,10 +126,9 @@ exit 0
       );
       chmodSync(join(bin, 'timeout'), 0o755);
     }
-    const started = Date.now();
     const result = spawnSync('bash', [script], {
       encoding: 'utf8',
-      timeout: 20_000,
+      timeout: CHILD_HANG_GUARD_MS,
       env: {
         ...process.env,
         ...fake,
@@ -123,7 +142,6 @@ exit 0
         ENGINE_HORSE_JOURNAL_HOST_DIR: horses,
       },
     });
-    const elapsed = Date.now() - started;
     // A successful launch retires the renamed outgoing container in the
     // background; let that dump finish before reading and removing the sandbox.
     const deadline = Date.now() + 10_000;
@@ -152,7 +170,7 @@ exit 0
     return {
       status: result.status,
       output: `${result.stdout}\n${result.stderr}`,
-      elapsed,
+      serialized: existsSync(join(state, 'serialized')),
       calls: parsed,
     };
   } finally {
@@ -177,17 +195,18 @@ describe('engine-up creates the replacement while the outgoing engine drains', (
     for (const call of [stopBegin, stopEnd, createBegin, createEnd, publish, outgoing, start]) {
       expect(call, run.output).toBeDefined();
     }
-    // Overlap: creation began before the outgoing stop returned.
-    expect(createBegin.at).toBeLessThan(stopEnd.at);
-    // From the stop to the start: serial work is at least 4 s, the overlap ~2 s.
-    expect(start.at - stopBegin.at, run.output).toBeLessThan(3_500);
+    // Overlap: each was in flight while the other began, so the cutover pays
+    // max(stop, create). In series the rendezvous guard records `serialized`.
+    expect(run.serialized, run.output).toBe(false);
+    expect(createBegin.at).toBeLessThanOrEqual(stopEnd.at);
+    expect(stopBegin.at).toBeLessThanOrEqual(createEnd.at);
     // One process: the start follows the old exit and both renames.
     expect(start.at).toBeGreaterThanOrEqual(stopEnd.at);
     expect(publish.at).toBeGreaterThanOrEqual(outgoing.at);
     expect(start.at).toBeGreaterThanOrEqual(publish.at);
     expect(run.calls.some((call) => call.args.startsWith('run '))).toBe(false);
     expect(run.output).toContain(`[engine-up] started ${containerId.slice(0, 12)}`);
-  });
+  }, 240_000);
 
   it('creates with the complete canonical run-spec and the authorized image ID', () => {
     const run = runEngineUp();
@@ -214,7 +233,7 @@ describe('engine-up creates the replacement while the outgoing engine drains', (
     expect(
       find(run, 'begin', `rename ${create.match(/--name (\S+)/)![1]} club-arena-engine`)
     ).toBeDefined();
-  });
+  }, 240_000);
 
   it('a failed create waits for the outgoing stop, starts nothing and leaves recovery to the original owner', () => {
     const run = runEngineUp({ FAKE_CREATE_FAIL: '1' });
@@ -222,7 +241,7 @@ describe('engine-up creates the replacement while the outgoing engine drains', (
     expect(find(run, 'end', 'stop -t 45 club-arena-engine'), run.output).toBeDefined();
     expect(find(run, 'begin', 'start '), run.output).toBeUndefined();
     expect(find(run, 'begin', 'rename club-arena-engine-incoming-'), run.output).toBeUndefined();
-  });
+  }, 240_000);
 
   it('a prepared container that cannot take the serving name is removed, never started', () => {
     const run = runEngineUp({ FAKE_INCOMING_RENAME_FAIL: '1' });
@@ -233,7 +252,7 @@ describe('engine-up creates the replacement while the outgoing engine drains', (
       run.output
     ).toBeDefined();
     expect(find(run, 'begin', 'rm -f club-arena-engine-incoming-'), run.output).toBeUndefined();
-  });
+  }, 240_000);
 
   it('retires a never-started prepared container from an interrupted attempt before touching the engine', () => {
     const abandoned = 'club-arena-engine-incoming-0123456789ab-4242';
@@ -242,7 +261,7 @@ describe('engine-up creates the replacement while the outgoing engine drains', (
     const retired = find(run, 'begin', `rm ${abandoned}`)!;
     expect(retired, run.output).toBeDefined();
     expect(retired.at).toBeLessThanOrEqual(find(run, 'begin', 'stop -t 45')!.at);
-  });
+  }, 240_000);
 
   it('never removes a prepared name it does not own, and still replaces the engine', () => {
     const run = runEngineUp({ FAKE_ABANDONED: 'club-arena-engine-incoming-not-ours' });
@@ -253,5 +272,5 @@ describe('engine-up creates the replacement while the outgoing engine drains', (
       run.output
     ).toBeUndefined();
     expect(find(run, 'begin', 'start club-arena-engine'), run.output).toBeDefined();
-  });
+  }, 240_000);
 });

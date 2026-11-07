@@ -59,8 +59,9 @@
 import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join, extname, resolve } from 'node:path';
 import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = new URL('../../', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SRC = process.env.PAINTED_TEXT_SOURCE_DIR
   ? resolve(process.env.PAINTED_TEXT_SOURCE_DIR)
   : join(ROOT, 'src');

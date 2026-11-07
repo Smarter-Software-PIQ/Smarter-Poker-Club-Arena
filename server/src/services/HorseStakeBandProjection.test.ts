@@ -32,6 +32,7 @@ import {
   stakeBandForBigBlind,
   type HorseStakeBand,
 } from './HorseBehavior.js';
+import { fileURLToPath } from 'node:url';
 
 const ord = (b: HorseStakeBand) => STAKE_BAND_LADDER.indexOf(b);
 
@@ -49,10 +50,12 @@ function allFloors(): Array<Set<HorseStakeBand>> {
 }
 
 const MIGRATION = readFileSync(
-  new URL(
-    '../../../supabase/migrations/20260906093032_a_band_with_no_game_gets_no_horses.sql',
-    import.meta.url
-  ).pathname,
+  fileURLToPath(
+    new URL(
+      '../../../supabase/migrations/20260906093032_a_band_with_no_game_gets_no_horses.sql',
+      import.meta.url
+    )
+  ),
   'utf8'
 );
 
@@ -63,10 +66,12 @@ const MIGRATION = readFileSync(
  * touch; the pins below are the part that moved.
  */
 const HOST_MIGRATION = readFileSync(
-  new URL(
-    '../../../supabase/migrations/20260911163821_a_stake_band_is_projected_onto_the_games_the_horses_own_host_deals.sql',
-    import.meta.url
-  ).pathname,
+  fileURLToPath(
+    new URL(
+      '../../../supabase/migrations/20260911163821_a_stake_band_is_projected_onto_the_games_the_horses_own_host_deals.sql',
+      import.meta.url
+    )
+  ),
   'utf8'
 );
 

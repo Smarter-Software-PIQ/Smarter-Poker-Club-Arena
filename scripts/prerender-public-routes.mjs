@@ -55,9 +55,9 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(new URL('../', import.meta.url).pathname);
+const ROOT = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const DIST = path.resolve(ROOT, process.env.CA_DIST || 'dist');
 const PRERENDER_OUT = path.resolve(ROOT, 'dist-prerender');
 const WEB_BASE = '/hub/club-arena';
@@ -421,7 +421,7 @@ export function verifySharePreview(route, doc) {
 }
 
 const invokedDirectly =
-  process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname;
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) {
   main().catch((err) => {
     console.error(err.message || err);

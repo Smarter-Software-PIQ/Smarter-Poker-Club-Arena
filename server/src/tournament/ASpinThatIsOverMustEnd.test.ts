@@ -33,8 +33,9 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spinRevealToDealMs } from '../config/spinSpec.js';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const SERVER = readFileSync(join(here, '..', 'GameServer.ts'), 'utf8');
 /** Executable code only — never let a pin pass on the prose above it. */
 const CODE = SERVER.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');

@@ -22,8 +22,9 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(new URL('../', import.meta.url).pathname);
+const ROOT = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const WEB_BASE = '/hub/club-arena/';
 
 export function manifestBase(env = process.env) {
@@ -62,7 +63,7 @@ function main() {
   console.log(`[manifest] start_url, scope, id and ${stamped.icons.length} icon(s) stamped for base ${base}`);
 }
 
-const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname;
+const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) {
   try {
     main();

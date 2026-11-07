@@ -28,8 +28,9 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const DIR = join(ROOT, 'supabase', 'migrations');
 
 const sh = (args, ok = '') => {

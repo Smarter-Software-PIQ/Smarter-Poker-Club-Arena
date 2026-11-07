@@ -10,6 +10,7 @@ import {
   summarizeDecision,
   sanitizeInspectionFailure,
 } from '../../scripts/ci/inspect-horse-opponent-reads.mjs';
+import { fileURLToPath } from 'node:url';
 const id = '11111111-1111-4111-8111-111111111111';
 const selection = { sourceSha: 'a'.repeat(40), opponentId: id, handKeys: ['b'.repeat(64)] };
 test('accepts only a finite closed data selection, with no command or path overrides', () => {
@@ -233,8 +234,9 @@ test('untrusted errors cannot forge diagnostic codes or disclose their payload',
 });
 test('actual CLI reports the failing bounded stage and preserves successful output', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'horse-read-diagnostic-'));
-  const script = new URL('../../scripts/ci/inspect-horse-opponent-reads.mjs', import.meta.url)
-    .pathname;
+  const script = fileURLToPath(
+    new URL('../../scripts/ci/inspect-horse-opponent-reads.mjs', import.meta.url),
+  );
   const run = (stage, journal = 'unused-synthetic-directory', input = selection) =>
     spawnSync(process.execPath, [script, Buffer.from(JSON.stringify(input)).toString('base64')], {
       cwd,

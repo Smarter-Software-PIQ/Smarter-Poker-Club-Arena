@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { requireReadyEngineSha, UNKNOWN_EXIT_CODE } from './production-e2e-provenance.mjs';
+import { pathToFileURL } from 'node:url';
 
 // One prerequisite inside the existing certification job, never a release retry.
 // Allow the two-minute last-hand lead, five-minute break, v3 release tail,
@@ -248,7 +249,7 @@ export async function awaitEngineGameplay(
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
   (async () => {
     if (args.length !== 1) throw new Error('Usage: await-engine-gameplay.mjs <exact-engine-sha>');

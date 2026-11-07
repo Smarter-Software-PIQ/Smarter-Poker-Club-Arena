@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { inspectHost } from './private-record-gateway-inspect.mjs';
 import { gatewayMachineIdSha256 } from './private-record-gateway-host-identity.mjs';
+import { fileURLToPath } from 'node:url';
 const preimage = 'ca-static.smarter.poker {\n respond "retained static"\n}\n';
 const encoded = Buffer.from(preimage).toString('base64');
 function fixture(config = 'unrelated.example { respond "other" }\n' + preimage) {
@@ -120,7 +121,7 @@ test('CLI rejects extra path/command arguments with bounded JSON only', () => {
     execFileSync(
       process.execPath,
       [
-        new URL('./private-record-gateway-inspect.mjs', import.meta.url).pathname,
+        fileURLToPath(new URL('./private-record-gateway-inspect.mjs', import.meta.url)),
         encoded,
         '/etc/passwd',
       ],

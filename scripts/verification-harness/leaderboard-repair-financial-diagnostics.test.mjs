@@ -13,6 +13,7 @@ import {
 } from './leaderboard-repair-financial-diagnostics.mjs';
 
 import { buildCapturePayoutFixture } from './leaderboard-capture-payout-fixture-candidate.mjs';
+import { fileURLToPath } from 'node:url';
 
 const fixture = repairCases.map((name) => `${name}|t||`).join('\n');
 test('opening exact eight-case inventory and fixed stages, never partial or alternate modes', () => {
@@ -137,7 +138,7 @@ test('bounded regular nonsymlink read and CLI refusal never expose private error
     const result = spawnSync(
       process.execPath,
       [
-        new URL('./leaderboard-repair-financial-diagnostics.mjs', import.meta.url).pathname,
+        fileURLToPath(new URL('./leaderboard-repair-financial-diagnostics.mjs', import.meta.url)),
         'v2-payout',
         path,
       ],
