@@ -15,8 +15,7 @@ them had been paid twice and held 50.
 
 29 of the 32 still held the duplicate: 725 chips were returned to
 `union_wallets.promo_wallet`. 3 had already spent it (balances 20.55, 1.00 and
-0.00) and were left alone on the owner's ruling. Every member keeps exactly one
-25. No wallet went negative, the lowest balance is 0.00, and the books tally:
+0.00) and were left alone on the owner's ruling. Every member keeps exactly one 25. No wallet went negative, the lowest balance is 0.00, and the books tally:
 29 `reversal` legs totalling 725, 29 cashier rows, 29 union wallet credits, no
 `ca_ledger_invariant_findings` row and no refusal.
 
@@ -75,6 +74,37 @@ refused by the `:50-:03` DDL break window before it applied, and then dropped
 on reading the law rather than retried. Nothing of it reached production: no
 `fn_ca_duplicate_promo_audit`, no waiver table, no cron.
 `tests/the-welcome-back-promo-has-one-guard.law.test.ts` refuses both shapes.
+
+## The proof had to stay cheap
+
+`20261107130207` declares its own `-- @live-proof:` because it creates no
+persistent object - it drops two and writes rows - and
+`tests/a-merged-migration-must-be-live.law.test.ts` caught that on the first
+push. The proof checks both halves: the parallel guard is gone, and no member
+the ledger shows was paid is missing an awards row.
+
+That proof reads the promo legs with `created_at >= '2026-11-04'`, and
+`chip_ledger` is 26,065,062 rows with no index on `category` or `description`.
+Today that window is 438,631 rows; it only grows, for an answer that concerns
+160 of them. `20261107134957` adds a partial index on the union promo door's own
+leg shape, built with the sanctioned `CREATE INDEX CONCURRENTLY` preamble on the
+same grounds as `20260920185803` and `20260925205938`: a plain `CREATE INDEX`
+would hold ACCESS EXCLUSIVE on the money table for the whole build and stall
+live play, and a daily-window file's 1 s lock / 5 s statement / 8 s budget
+cannot fit a 26M-row build. The transaction refuses an INVALID leftover by name,
+because a failed concurrent build leaves an unusable index the planner ignores -
+which would look exactly like success.
+
+## One more defect found while auditing this work
+
+The backfill joined `chip_transactions` on `(to_user_id, type, amount)`, and the
+32 double-paid members have TWO `promo_disbursement` rows each. The join fanned
+out, `ON CONFLICT DO NOTHING` kept one arbitrarily, and the recorded
+`transaction_id` was nondeterministic - worse, it could name the duplicate,
+which is the payment that was reversed. A `LATERAL ... ORDER BY created_at
+LIMIT 1` now takes the earliest, which is the payment that stands. Proved in a
+rolled-back `DO` block: 95 rows inserted, 0 paid members left unguarded, 128
+awards rows total, no two rows sharing a transaction id.
 
 ## Rule 11
 
