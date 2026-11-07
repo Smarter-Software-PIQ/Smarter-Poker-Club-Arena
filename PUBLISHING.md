@@ -184,6 +184,8 @@ Check required provider access, reporter identity and secret-store metadata befo
 
 ### Daytime release preparation
 
+When the candidate differs from production, Backup rehearses both directions on its isolated database. It boots the candidate, swaps back to the serving revision, then swaps forward before crash and soak checks. Each swap compares occupied seat identities and chip stacks during the freeze and checks for resumed dealing after thaw. Failure in either direction disqualifies the candidate.
+
 A protected-main engine push starts `engine-release-prequalification.yml`. Its four server shards exercise the exact candidate, including the retained historical qualification once. A separate runner builds the candidate image from the committed server tree, transfers its digest-only archive to the pinned Hetzner host, and verifies the sealed rollback image is the running container’s image and is present locally. The host rejects a conflicting candidate tag or insufficient disk space. This workflow never dispatches a release or changes a running container.
 
 Use `python3 -B scripts/ci/read-engine-prequalification.py --repo Smarter-Software-PIQ/Smarter-Poker-Club-Arena --target TARGET_SHA --control CONTROL_SHA --cutoff EPOCH` from a checkout with authenticated protected-main history and read-only Actions access. A successful result identifies the production candidate and rollback image IDs, server tree, target and control SHAs, and qualification run and attempt. Exit 3 means the candidate lacks eligible evidence. Exit 2 means the verifier could not establish provenance.
