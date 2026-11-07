@@ -1,0 +1,16 @@
+nlh cash standard pairs=3000 bb100=6.27 se=2.14 div=21 bluffs=17 folded=15 172s
+nlh cash stations pairs=6000 bb100=-0.17 se=0.31 div=3 bluffs=2 folded=0 139s
+nlh cash folders pairs=6000 bb100=-0.11 se=0.52 div=10 bluffs=10 folded=8 100s
+nlh cash mixed pairs=3000 bb100=-0.07 se=0.07 div=1 bluffs=1 folded=0 97s
+nlh tournament standard pairs=3000 bb100=0.22 se=1.94 div=25 bluffs=19 folded=12 253s
+nlh tournament stations pairs=6000 bb100=-0.04 se=0.61 div=12 bluffs=3 folded=0 130s
+nlh tournament folders pairs=6000 bb100=0.08 se=0.41 div=7 bluffs=9 folded=7 83s
+nlh tournament mixed pairs=3000 bb100=2.77 se=1.30 div=9 bluffs=11 folded=8 96s
+plo4 cash standard pairs=1000 bb100=-2.10 se=3.99 div=6 bluffs=5 folded=2 192s
+plo4 cash stations pairs=2000 bb100=0.00 se=0.00 div=0 bluffs=0 folded=0 147s
+plo4 cash folders pairs=2000 bb100=5.13 se=4.14 div=4 bluffs=5 folded=4 105s
+plo4 cash mixed pairs=1000 bb100=1.25 se=0.90 div=2 bluffs=2 folded=2 94s
+plo4 tournament standard pairs=1000 bb100=-1.15 se=2.61 div=4 bluffs=2 folded=1 108s
+plo4 tournament stations pairs=2000 bb100=0.00 se=0.00 div=0 bluffs=0 folded=0 107s
+plo4 tournament folders pairs=2000 bb100=-0.01 se=2.99 div=4 bluffs=3 folded=2 89s
+plo4 tournament mixed pairs=1000 bb100=3.45 se=2.70 div=2 bluffs=2 folded=2 80s
