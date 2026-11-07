@@ -286,7 +286,7 @@ def main():
                 if funded['source_sha256'].get(path) != hashlib.sha256((source / path).read_bytes()).hexdigest():
                     raise RuntimeError('funded rehearsal source identity differs: ' + path)
             report['fundedSatelliteThaw'] = verified_satellite_thaw(funded)
-            run([*common, '--name', containers[4], native_tag, 'scripts/ci/test-satellite-value-awards.py',
+            run([*common, '--name', containers[4], '-e', 'TMPDIR=/evidence', native_tag, 'scripts/ci/test-satellite-value-awards.py',
                  '--pg-bin', '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/awards'],
                 log=output / 'satellite-awards.log')
             awards = json.loads((evidence / 'awards/report.json').read_text())
