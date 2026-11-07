@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { decodedCardImageUrl } from '../../utils/deckWarmer';
 import { MEDIA_BASE } from '../../utils/mediaBase';
 import { useDeckStyle } from '../../hooks/useDeckStyle';
 import './CardImage.css';
@@ -277,7 +278,11 @@ export function CardImage({
   // its size), so the browser re-requested a URL known to be dead every time the
   // fallback rendered. Once we have moved past the WebP it never comes back.
   const baseEffectivePath =
-    imagePath === null ? '' : fallbackStep >= 1 ? imagePath.replace(/\.webp$/, '.png') : imagePath;
+    imagePath === null
+      ? ''
+      : fallbackStep >= 1
+        ? imagePath.replace(/\.webp$/, '.png')
+        : decodedCardImageUrl(imagePath);
   const effectivePath =
     baseEffectivePath && retryCount > 0 && !imgError
       ? `${baseEffectivePath}?r=${retryCount}`

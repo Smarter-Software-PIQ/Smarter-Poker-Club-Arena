@@ -117,7 +117,8 @@ export function useTableArt(
   skinUrl: string,
   backgroundUrl: string,
   selectionReady = true,
-  selectionScope = 'default'
+  selectionScope = 'default',
+  deckReady = true
 ): TableArt {
   const both = () =>
     selectionReady && isTableImageDecoded(skinUrl) && isTableImageDecoded(backgroundUrl);
@@ -184,9 +185,9 @@ export function useTableArt(
           ? state.backgroundSrc
           : backgroundUrl
         : state.backgroundSrc,
-    ready: selectionReady && ready,
+    ready: selectionReady && ready && deckReady,
     // Preserve the existing gameplay deadline. A failed preference read may
     // leave neutral artwork, but must never conceal a seated player's turn.
-    reveal: (selectionReady && (ready || everReady)) || coverExpired,
+    reveal: (selectionReady && (ready || everReady) && deckReady) || coverExpired,
   };
 }

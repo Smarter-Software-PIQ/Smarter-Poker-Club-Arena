@@ -586,6 +586,7 @@ import { useUserTableSettings } from '../hooks/useUserTableSettings';
 import { NATIVE_PAUSE_EVENT, NATIVE_RESUME_EVENT, isNativeAppActive } from '../lib/nativeResume';
 import { useUserThemeSettings } from '../hooks/useUserThemeSettings';
 import { useTableArt } from '../hooks/useTableArt';
+import { useDeckImages } from '../hooks/useDeckImages';
 import { useProtectedCardLayout } from '../hooks/useProtectedCardLayout';
 import PineappleDiscard from '../components/table/PineappleDiscard';
 import GameServerAPI, {
@@ -10405,7 +10406,8 @@ function LiveTablePage({
   const tableBackgroundUrl = resolveBackground(
     tableState.isFinalTable ? 'final_table_broadcast' : v8Theme.background_id || 'midnight'
   );
-  const tableArt = useTableArt(tableSkinUrl, tableBackgroundUrl, themeReady, themeScope);
+  const deckReady = useDeckImages(userSettings.fourColorDeck ? '4color' : '2color');
+  const tableArt = useTableArt(tableSkinUrl, tableBackgroundUrl, themeReady, themeScope, deckReady);
 
   /**
    * Dan 2026-08-20 — THE CARDS TAB NEVER APPLIED ANYTHING.

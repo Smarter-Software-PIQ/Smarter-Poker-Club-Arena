@@ -22,10 +22,7 @@ import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
-const css = fs.readFileSync(
-  path.join(process.cwd(), 'src/components/table/SeatSlot.css'),
-  'utf8'
-);
+const css = fs.readFileSync(path.join(process.cwd(), 'src/components/table/SeatSlot.css'), 'utf8');
 
 const heroSeat = (cardCount: number) => `
   <div class="seat seat--hero seat--in-hand">
@@ -116,4 +113,77 @@ test('the whole hand is on screen quickly, not trickled in', async ({ page: p })
   for (const s of styles) {
     expect(parseFloat(s.duration)).toBeLessThanOrEqual(0.4);
   }
+});
+
+// Complete artwork must survive cold caches and remounts too.
+import { createServer, type ViteDevServer } from 'vite';
+
+let server: ViteDevServer;
+let address: string;
+test.beforeAll(async () => {
+  server = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
+  const html = await server.transformIndexHtml(
+    '/hub/club-arena/__card-art-test',
+    `
+<div id="root"></div><script type="module">
+      import React from '/hub/club-arena/node_modules/.vite/deps/react.js';
+      import ReactDOM from '/hub/club-arena/node_modules/.vite/deps/react-dom_client.js';
+      import { CardImage } from '/hub/club-arena/src/components/table/CardImage.tsx';
+      import { useDeckImages } from '/hub/club-arena/src/hooks/useDeckImages.ts';
+      import { useTableArt } from '/hub/club-arena/src/hooks/useTableArt.ts';
+      function Table() {
+        const [style, setStyle] = React.useState('4color');
+        const [hand, setHand] = React.useState(0);
+        const ready = useDeckImages(style);
+        const art = useTableArt('', '', true, 'test', ready);
+        window.nextHand = () => setHand(h => h + 1);
+        window.changeDeck = () => setStyle('2color');
+        return React.createElement('div', { 'data-ready': String(art.reveal) },
+          art.reveal ? React.createElement('div', { key: hand },
+            ...['A','K','Q','J','T','9','8'].map((rank, i) => React.createElement(CardImage,
+              { key: i, card: { rank, suit: ['h','d','c','s'][i % 4] }, loading: 'eager', deckStyle: style }))) : 'Preparing Table');
+      }
+      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(Table));
+    </script>`
+  );
+  (server as any).__cardTestHtml = html;
+  await server.listen();
+  const info = server.httpServer!.address() as { port: number };
+  address = `http://127.0.0.1:${info.port}/hub/club-arena/__card-art-test`;
+});
+test.afterAll(async () => {
+  await server?.close();
+});
+
+test('cold cards are complete on first paint, subsequent hands and a deck change', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.route('**/cards/*/*.webp', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await route.continue();
+  });
+  await page.route('**/__card-art-test', (route) =>
+    route.fulfill({ contentType: 'text/html', body: (server as any).__cardTestHtml })
+  );
+  page.on('pageerror', (error) => console.log(error.message));
+  await page.goto(address);
+  await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
+  await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+  const complete = () =>
+    page.evaluate(async () => {
+      await new Promise(requestAnimationFrame);
+      return Array.from(document.querySelectorAll<HTMLImageElement>('.card-image__img')).map(
+        (img) => ({ complete: img.complete && img.naturalWidth > 0, decoding: img.decoding })
+      );
+    });
+  expect(await complete()).toEqual(Array(7).fill({ complete: true, decoding: 'sync' }));
+  await page.context().setOffline(true);
+  await page.evaluate(() => (window as any).nextHand());
+  expect(await complete()).toEqual(Array(7).fill({ complete: true, decoding: 'sync' }));
+  await page.context().setOffline(false);
+  await page.evaluate(() => (window as any).changeDeck());
+  await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
+  await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+  expect(await complete()).toEqual(Array(7).fill({ complete: true, decoding: 'sync' }));
 });

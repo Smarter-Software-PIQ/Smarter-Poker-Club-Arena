@@ -1,67 +1,100 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  deckWarmer — Preload The Full Card Deck During Idle Time (PERF PASS 2026-08-22)
- * ═══════════════════════════════════════════════════════════════════════════════
- *
- * Every card image used to be fetched the first time it was dealt, so early
- * hands showed cards popping in one network round-trip at a time. A full deck
- * in the WebP variants is ~500KB total (52 x ~8-10KB) — small enough to warm
- * up-front during browser idle, after which the service worker's media cache
- * plus the long-lived Cache-Control headers make every deal instant, on every
- * visit, forever (until the art changes).
- *
- * Respects Data Saver and very slow connections. Runs once per session.
+/** Load and decode the selected deck before the table's existing art cover opens.
+ * Keep decoded images alive: a requested URL is not evidence of paint readiness.
+ * Each deck has one shared, bounded load; failed loads may be tried on next entry.
  */
-
 import { MEDIA_BASE } from './mediaBase';
 import { getDeckStyle } from '../hooks/useDeckStyle';
 
 const SUITS = ['hearts', 'diamonds', 'clubs', 'spades'] as const;
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'j', 'q', 'k', 'a'] as const;
+type DeckStyle = '4color' | '2color';
+const decoded = new Map<string, HTMLImageElement>();
+const pending = new Map<DeckStyle, Promise<void>>();
+const ready = new Set<DeckStyle>();
 
-let warmed = false;
-
-interface NetworkInformationLike {
-  saveData?: boolean;
-  effectiveType?: string;
+export function deckImageUrls(style: DeckStyle): string[] {
+  return SUITS.flatMap((suit) =>
+    RANKS.map((rank) => `${MEDIA_BASE}cards/${style}/${suit}_${rank}.webp`)
+  );
 }
 
-function connectionAllowsWarming(): boolean {
-  const conn = (navigator as { connection?: NetworkInformationLike }).connection;
-  if (!conn) return true;
-  if (conn.saveData) return false;
-  if (conn.effectiveType === 'slow-2g' || conn.effectiveType === '2g') return false;
-  return true;
-}
-
-/**
- * Warm the player's preferred deck (and the default card back) in the
- * background. Fire-and-forget; failures are silent — the normal per-card
- * load path (with its own PNG fallback) still applies at deal time.
- */
-export function warmDeckImages(): void {
-  if (warmed) return;
-  warmed = true;
-
-  if (!connectionAllowsWarming()) return;
-
-  const deckStyle = getDeckStyle();
-  const urls: string[] = [];
-  for (const suit of SUITS) {
-    for (const rank of RANKS) {
-      urls.push(`${MEDIA_BASE}cards/${deckStyle}/${suit}_${rank}.webp`);
-    }
+async function decodeImage(url: string): Promise<HTMLImageElement> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!response.ok) throw new Error('card_image_unavailable');
+  const blob = await response.blob();
+  if (!blob.size) throw new Error('empty_card_image');
+  // Render from the retained bytes, not a second HTTP/SW request on every mount.
+  // HTTP cache eviction or revalidation cannot replace a face mid-animation.
+  const localUrl = URL.createObjectURL(blob);
+  try {
+    return await new Promise((resolve, reject) => {
+      const image = new Image();
+      const timer = setTimeout(() => reject(new Error('card_image_timeout')), 8000);
+      const fail = (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      };
+      image.decoding = 'sync';
+      image.onload = () => {
+        if (!image.naturalWidth || !image.naturalHeight) {
+          fail(new Error('empty_card_image'));
+          return;
+        }
+        const decode = typeof image.decode === 'function' ? image.decode() : Promise.resolve();
+        void decode.then(() => {
+          clearTimeout(timer);
+          resolve(image);
+        }, fail);
+      };
+      image.onerror = () => fail(new Error('card_image_unavailable'));
+      image.src = localUrl;
+    });
+  } catch (error) {
+    URL.revokeObjectURL(localUrl);
+    throw error;
   }
+}
 
-  // Stagger gently: 4 per tick keeps the network free for real requests.
-  let i = 0;
-  const batch = () => {
-    for (let n = 0; n < 4 && i < urls.length; n++, i++) {
-      const img = new Image();
-      img.decoding = 'async';
-      img.src = urls[i];
+/** The renderer uses the exact decoded URL, including a successful PNG fallback. */
+export function decodedCardImageUrl(url: string): string {
+  return decoded.get(url)?.src ?? url;
+}
+
+export function isDeckReady(style: DeckStyle): boolean {
+  return ready.has(style);
+}
+
+export function prepareDeckImages(style: DeckStyle): Promise<void> {
+  if (ready.has(style)) return Promise.resolve();
+  const existing = pending.get(style);
+  if (existing) return existing;
+  const urls = deckImageUrls(style);
+  let next = 0;
+  const worker = async () => {
+    while (next < urls.length) {
+      const url = urls[next++];
+      if (decoded.has(url)) continue;
+      let image: HTMLImageElement;
+      try {
+        image = await decodeImage(url);
+      } catch {
+        image = await decodeImage(url.replace(/\.webp$/, '.png'));
+      }
+      decoded.set(url, image);
     }
-    if (i < urls.length) setTimeout(batch, 120);
   };
-  batch();
+  // Bound concurrent requests, but never stagger gameplay assets behind idle timers.
+  const run = Promise.allSettled(Array.from({ length: 6 }, worker)).then((results) => {
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+    ready.add(style);
+  });
+  pending.set(style, run);
+  void run.finally(() => pending.delete(style)).catch(() => {});
+  return run;
+}
+
+/** Optional lobby warming uses the same decoded cache as table entry. */
+export function warmDeckImages(): void {
+  void prepareDeckImages(getDeckStyle()).catch(() => {});
 }
