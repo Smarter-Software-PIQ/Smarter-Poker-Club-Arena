@@ -563,7 +563,8 @@ describe('standby seat proof observes the protected interval', () => {
       const result = standbyShell(`
         source '${root('server/standby/standby-trials.sh')}'
         cmd_run() { :; }; cmd_build() { :; }; wait_live() { :; }; wait_dealing() { :; }; wait_no_break() { :; }
-        maintenance_field() { echo 0; }; health() { echo fixture; }; health_field() { case "$1" in version) echo '${sha.slice(0, 8)}';; instanceId) echo candidate-instance;; liveness) echo ok;; *) echo '${sha}';; esac; }
+        maintenance_field() { echo 0; }
+        health() { echo '${JSON.stringify({ releaseSha: sha, version: sha.slice(0, 8), instanceId: 'candidate-instance', liveness: 'ok' })}'; }
         sleep() { :; }; docker() { if [ "$1" = inspect ]; then case "$*" in *'.Id'*) local n=0; [ ! -f "$STATE_DIR/inspect" ] || n=$(cat "$STATE_DIR/inspect"); echo $((n+1)) > "$STATE_DIR/inspect"; if [ '${mode}' = process-restart ] && [ "$n" -gt 0 ]; then echo '${'d'.repeat(64)} ${sha} true 1'; else echo '${'d'.repeat(64)} ${sha} true 0'; fi;; *) echo '${sha}';; esac; fi; }
         # Old proof would compare a pre-announcement A against post-thaw C.
         seat_fingerprint() { echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }
@@ -614,13 +615,24 @@ describe('standby adoption authority and timing', () => {
       const sha = 'a'.repeat(40);
       const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
       docker() { echo '${'d'.repeat(64)} ${mode === 'wrong-label' ? 'b'.repeat(40) : sha} true 0'; }
-      health() { echo fixture; }
-      health_field() { if [ "$1" = instanceId ]; then echo candidate-instance; elif [ "$1" = liveness ]; then echo ok; elif [ "$1" = version ]; then echo '${mode === 'wrong-version' ? 'bbbbbbbb' : 'aaaaaaaa'}'; else echo '${mode === 'wrong-health' ? 'b'.repeat(40) : sha}'; fi; }
+      health() { echo '${JSON.stringify({ releaseSha: mode === 'wrong-health' ? 'b'.repeat(40) : sha, version: mode === 'wrong-version' ? 'bbbbbbbb' : 'aaaaaaaa', instanceId: 'candidate-instance', liveness: 'ok' })}'; }
       swap_target_identity '${sha}'
     `);
       expect(result.status === 0).toBe(mode === 'exact');
     }
   );
+  it('consumes health JSON even when the pipeline producer is delayed', () => {
+    const sha = 'a'.repeat(40);
+    const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+      docker() { echo '${'d'.repeat(64)} ${sha} true 0'; }
+      health() { echo '${JSON.stringify({ releaseSha: sha, version: sha.slice(0, 8), instanceId: 'candidate-instance', liveness: 'ok' })}'; }
+      printf() { sleep 0.05; builtin printf "$@"; }
+      swap_target_identity '${sha}'
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout).instanceId).toBe('candidate-instance');
+  });
+
   it('reports unknown and reversed observations as null', () => {
     const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
       trial_elapsed 100 ''; echo; trial_elapsed '' 105; echo; trial_elapsed 105 100; echo; trial_elapsed 100 105
