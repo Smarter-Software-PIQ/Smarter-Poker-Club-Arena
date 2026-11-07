@@ -208,7 +208,8 @@ describe('the workflow asks before it hands the build to Hetzner', () => {
     const handoff = WF.indexOf(
       '- name: Dispatch the staged SHA through the durable Hetzner intake'
     );
-    const build = WF.indexOf('- name: Compile and test the exact server tree');
+    const build = WF.indexOf('- name: Require previously completed daytime qualification');
+    expect(build).toBeGreaterThan(-1);
     expect(doors).toBeGreaterThan(build);
     expect(doors).toBeLessThan(handoff);
     const step = WF.slice(doors, handoff);
