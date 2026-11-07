@@ -1,5 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
-import { inspectHorseSeats, seatAuthority, type SeatPaints } from '../e2e/support/horseSeatWitness';
+import {
+  initialAvatarPaint,
+  inspectHorseSeats,
+  seatAuthority,
+  type SeatPaints,
+} from '../e2e/support/horseSeatWitness';
 const atSeat = { id: 'horse', seat: 3, badge: 'waiting' as const };
 const horse = new Set(['horse']);
 const expected = (
@@ -171,4 +177,50 @@ it('still detects a wrong badge after a pending image becomes visible', () => {
   expect(
     inspect([pendingPaint(100), paint(3692, true, null)], [expected(0, 1, 1)]).violations
   ).toContain('horse/3: badge mismatch');
+});
+
+it('records readiness at the actual first complete six-Horse paint', () => {
+  const start = 1794069691159,
+    ready = 1794069694751;
+  const seats = Array.from({ length: 6 }, (_, i) => ({
+    id: 'horse-' + i,
+    seat: i + 1,
+    badge: null,
+  }));
+  const changes = [start, ready].map((at) => ({
+    at,
+    seats: seats.map((s) => ({ ...s, avatar: at === ready })),
+  }));
+  expect(initialAvatarPaint(changes[0], seats)).toBeUndefined();
+  expect(initialAvatarPaint(changes[1], seats)?.at).toBe(ready);
+});
+
+it('refuses late geometry-assisted readiness and an absent expected occupant', () => {
+  const seats = [{ ...atSeat }, { ...atSeat, id: 'other', seat: 4 }];
+  const paint = (at: number, avatar: boolean) => ({
+    at,
+    seats: seats.map((s) => ({ ...s, avatar })),
+  });
+  // Previous mobile trace: images remained lazy until the geometry helper 67s later.
+  const beforeFault = [paint(0, false), paint(9999, false)];
+  expect(beforeFault.some((p) => initialAvatarPaint(p, seats))).toBe(false);
+  expect(
+    initialAvatarPaint({ at: 100, seats: [{ ...atSeat, avatar: true }] }, seats)
+  ).toBeUndefined();
+  expect(initialAvatarPaint(paint(3592, true), seats)).toBeDefined();
+});
+
+it('awaits initial avatar readiness before the cash outage and geometry checks', () => {
+  const spec = readFileSync('tests/e2e/production-live-table-realtime.spec.ts', 'utf8');
+  const start = spec.indexOf("test('an already-running table stays live");
+  expect(start).toBeGreaterThan(-1);
+  const cash = spec.slice(start).split('\n  test(')[0];
+  const guard =
+    /await expect\s*\.poll\((?:(?!;\s*await expect)[\s\S])*?initialReady = initialAvatarPaint\([\s\S]*?\.toBe\(true\);/.exec(
+      cash
+    );
+  expect(guard).not.toBeNull();
+  const ready = guard!.index + guard![0].length;
+  expect(cash.indexOf('await context.setOffline(true)')).toBeGreaterThan(ready);
+  expect(cash.indexOf('await certifyMobileLiveTableLayout(')).toBeGreaterThan(ready);
 });

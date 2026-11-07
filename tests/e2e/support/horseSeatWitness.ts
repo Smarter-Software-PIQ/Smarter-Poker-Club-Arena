@@ -18,10 +18,11 @@ type Lease = {
   is_sitting_out: boolean;
 };
 type Exit = { user_id: string; seat_number: number; occurred_at: string };
-export type SeatPaints = { changes: Paint[]; dropped: number };
+export type SeatPaints = { changes: Paint[]; dropped: number; initialReady?: Paint };
 declare global {
   interface Window {
     __horseSeatPaints?: () => SeatPaints;
+    __readHorseSeatPaint?: () => Paint | undefined;
   }
 }
 
@@ -39,7 +40,6 @@ export function installHorseSeatPaints(table: string) {
     getComputedStyle(el).visibility !== 'hidden' &&
     getComputedStyle(el).opacity !== '0';
   const record = () => {
-    pending = 0;
     if (!location.pathname.endsWith('/table/' + table) || document.visibilityState !== 'visible')
       return;
     const felt = document.querySelector('.table-page');
@@ -63,19 +63,28 @@ export function installHorseSeatPaints(table: string) {
       };
     });
     const signature = JSON.stringify(seats);
-    if (signature === last) return;
-    last = signature;
-    if (changes.length < 512) changes.push({ at: Date.now(), seats });
-    else dropped++;
+    const paint = { at: Date.now(), seats };
+    if (signature !== last) {
+      last = signature;
+      if (changes.length < 512) changes.push(paint);
+      else dropped++;
+    }
+    return paint;
   };
   const schedule = () => {
-    if (!pending) pending = requestAnimationFrame(record);
+    if (!pending)
+      pending = requestAnimationFrame(() => {
+        pending = 0;
+        record();
+      });
   };
   const observer = new MutationObserver(schedule);
   observer.observe(document, { attributes: true, childList: true, subtree: true });
   document.addEventListener('load', schedule, true);
   schedule();
+  window.__readHorseSeatPaint = record;
   window.__horseSeatPaints = () => {
+    delete window.__readHorseSeatPaint;
     observer.disconnect();
     document.removeEventListener('load', schedule, true);
     cancelAnimationFrame(pending);
@@ -143,6 +152,15 @@ export function seatAuthority(frames: EngineFrame[]): Authority[] {
     last = signature;
   }
   return history;
+}
+
+export function initialAvatarPaint(paint: Paint | undefined, expected: Seat[]) {
+  if (!paint || expected.length < 2 || !paint.seats.every((s) => s.avatar)) return undefined;
+  return expected.every((s) =>
+    paint.seats.some((p) => p.id === s.id && p.seat === s.seat && p.avatar)
+  )
+    ? paint
+    : undefined;
 }
 
 export function inspectHorseSeats(
@@ -306,6 +324,7 @@ export function inspectHorseSeats(
     ),
     violations: [...violations],
     dropped: paints.dropped,
+    initialAvatarReadyAt: paints.initialReady?.at ?? null,
     changes,
     wire,
     exits: exits.filter((e) => horses.has(e.user_id)),
