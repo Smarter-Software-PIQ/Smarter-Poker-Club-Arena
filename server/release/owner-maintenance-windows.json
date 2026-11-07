@@ -1100,17 +1100,18 @@
       }
     },
     {
-      "id": "2026-11-07-horse-trip-board-value-engine-2120z",
-      "ownerOrder": "The owner instructed Horse study chat 01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430 to finish, publish and verify the checked-to PLO value fix now with the Engine Cutover and Update Stats owner. One earliest-certified engine replacement after the preceding fold provenance release is sealed. Require the exact Backup Engine certificate, normal announcement, hand-boundary drain, rollback reserve, single-use claim, serving identity and healthy thaw. There are no migrations in this window.",
+      "id": "2026-11-08-horse-trip-board-value-engine-0040z",
+      "ownerOrder": "The owner instructed Horse study chat 01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430 to finish, publish and verify the checked-to PLO value fix now with the Engine Cutover and Update Stats owner. One earliest-certified engine replacement after the preceding fold provenance release is sealed. Require the exact Backup Engine certificate, normal announcement, hand-boundary drain, rollback reserve, single-use claim, serving identity and healthy thaw. Publish the booked player notice and confirm at least twenty minutes of actual visible notice before the production announcement. There are no migrations in this window.",
       "contains": "6d38d2b466d66b374913b78fb42ca1291b7dc551",
-      "notBefore": "2026-11-07T21:20:00Z",
-      "notAfter": "2026-11-08T03:20:00Z",
+      "playerNoticeAt": "2026-11-07T23:30:00Z",
+      "notBefore": "2026-11-08T00:40:00Z",
+      "notAfter": "2026-11-08T06:40:00Z",
       "announcementPolicy": "earliest-certified",
       "supersedesPhase1Schedule": true,
       "migrations": [],
       "releaseWitness": {
         "path": "server/release/activation-floor.json",
-        "sha256": "ebbe8fb0de39a644537da526596a71ab45c9d638f09bf955791af1f60720ea1c"
+        "sha256": "61e57e772a5a1ab2a660bf7ddad75c2b7a25177218510a32ea129b4ad53ce9df"
       }
     }
   ],

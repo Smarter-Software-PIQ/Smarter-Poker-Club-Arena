@@ -2033,7 +2033,7 @@ it('binds the two remaining Midway files only to the November 7 database window'
   const doc = JSON.parse(
     readFileSync(join(root, 'server/release/owner-maintenance-windows.json'), 'utf8')
   );
-  expect(doc.windows.pop().id).toBe('2026-11-07-horse-trip-board-value-engine-2120z');
+  expect(doc.windows.pop().id).toBe('2026-11-08-horse-trip-board-value-engine-0040z');
   // Reconstruct the exact registry selected before the Horse provenance booking.
   expect(doc.databaseWindows.pop().id).toBe('2026-11-07-horse-fold-provenance-db-1800z');
   expect(doc.windows.pop().id).toBe('2026-11-07-horse-fold-provenance-engine-1800z');
