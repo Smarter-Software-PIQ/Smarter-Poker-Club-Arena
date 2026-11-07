@@ -58,6 +58,7 @@ DECLARE
  club uuid:=md5('l04:'||coalesce(shared_target_case,case_name)||':club')::uuid;
  source_id uuid:=md5('l04:'||case_name||':source')::uuid;
  target_id uuid:=md5('l04:'||coalesce(shared_target_case,case_name)||':target')::uuid;
+ hand_no bigint:=1000000+survivors+CASE WHEN shared_target_case IS NULL THEN 0 ELSE 10 END;
  v_table_id uuid:=md5('l04:'||case_name||':table')::uuid;
  u uuid; session_id uuid; request_id uuid; i integer; q uuid[]; r jsonb; first_receipt jsonb;
  before_money jsonb; after_money jsonb; refused boolean; event_row public.tournaments%ROWTYPE;
@@ -169,7 +170,7 @@ BEGIN
  -- A pending accepted hand must hold the cohort even if stack counts look final.
  PERFORM set_config('session_replication_role','replica',true);
  INSERT INTO public.hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result,committed_at)
- VALUES(v_table_id,1000000+survivors,md5('l04:'||case_name||':hand')::uuid,repeat('1',64),'{}',now());
+ VALUES(v_table_id,hand_no,md5('l04:'||case_name||':hand')::uuid,repeat('1',64),'{}',now());
  PERFORM set_config('session_replication_role','origin',true);
  EXECUTE 'SET LOCAL ROLE service_role';
  r:=public.fn_get_satellite_qualifier_state(source_id);
@@ -186,7 +187,7 @@ BEGIN
  INSERT INTO public.tournament_knockout_candidates(id,tournament_id,eliminated_user_id,
    table_id,seat_id,seat_joined_at,hand_id,hand_number,stack_before,stack_after,state)
  SELECT md5('l04:'||case_name||':candidate')::uuid,source_id,user_id,v_table_id,id,joined_at,
-   md5('l04:'||case_name||':hand')::uuid,1000000+survivors,1000,0,'pending'
+   md5('l04:'||case_name||':hand')::uuid,hand_no,1000,0,'pending'
  FROM public.table_seats WHERE id=md5('l04:'||case_name||':seat:4')::uuid;
  PERFORM set_config('session_replication_role','origin',true);
  EXECUTE 'SET LOCAL ROLE service_role';

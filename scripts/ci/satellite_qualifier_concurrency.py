@@ -166,7 +166,10 @@ COMMIT;
 """)
     spec = spec_path.read_text()
     body = re.sub(r'^permutation .+$', '', spec, flags=re.M)
-    for permutation in re.findall(r'^permutation .+$', spec, re.M):
+    permutations = re.findall(r'^permutation .+$', spec, re.M)
+    if [item.split('"')[1] for item in permutations] != ['hold_row','hold_hand_key']:
+        raise ValueError('both approved target contention permutations are required')
+    for permutation in permutations:
         name = permutation.split('"')[1]
         db = e.database(template)
         e.sql(db, file=migration, label=name+'-install-blocked-target-fix')
