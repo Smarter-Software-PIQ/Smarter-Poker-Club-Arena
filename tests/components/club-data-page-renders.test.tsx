@@ -2733,7 +2733,7 @@ describe('ClubDataPage', () => {
       if (fn === 'ca_club_data_snapshot_v2') {
         return { data: snapshotWithRows(snapshot.rows, 250), error: null };
       }
-      if (fn === 'ca_club_game_page') {
+      if (fn === 'ca_club_game_page' && args?.p_sort === 'fee') {
         expect(args?.p_limit).toBe(200);
         return {
           data: gamePageFor(args, {
@@ -2746,9 +2746,26 @@ describe('ClubDataPage', () => {
           error: null,
         };
       }
+      // Before the operator picks Highest Fee, the Recent first paint asks for
+      // its 100-row continuation (the warm-up, and the auto-loader, because
+      // this fixture's first page is short). Answer those as Recent pages.
+      // They used to fall into the ranked branch, whose p_limit expectation
+      // threw; coldRead retried them 350 ms later, and on a loaded runner a
+      // retry landed between the two ranked-call counts below (publish runs
+      // 42334976144, 42335895370, 42337309644).
+      if (fn === 'ca_club_game_page') {
+        return {
+          data: gamePageFor(args, { rows: [], has_more: false, next_cursor: null }),
+          error: null,
+        };
+      }
       if (fn === 'ca_club_union_invoices') return { data: [], error: null };
       return { data: null, error: null };
     });
+    const rankedPageCalls = () =>
+      rpcMock.mock.calls.filter(
+        ([fn, args]) => fn === 'ca_club_game_page' && args?.p_sort === 'fee'
+      );
 
     render(<ClubDataPage />);
     fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
@@ -2764,20 +2781,15 @@ describe('ClubDataPage', () => {
     expect(rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2')).toHaveLength(
       snapshotsBeforeSort
     );
-    expect(
-      rpcMock.mock.calls.some(([fn, args]) => fn === 'ca_club_game_page' && args?.p_sort === 'fee')
-    ).toBe(true);
-    const rankedCallsBeforeClick = rpcMock.mock.calls.filter(
-      ([fn]) => fn === 'ca_club_game_page'
-    ).length;
+    expect(rankedPageCalls()).toHaveLength(1);
     fireEvent.click(loadMore);
 
     // Two hundred ledger rows render after the page lands; under a loaded CI
     // runner that took longer than the default 1s (publish run 38981365558).
     await screen.findByRole('button', { name: 'Load More Games - 200 Of 250' }, { timeout: 5000 });
-    expect(rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_game_page')).toHaveLength(
-      rankedCallsBeforeClick
-    );
+    // The second hundred came from the first ranked read: no ranked request
+    // was repeated. Counted by sort, so an unrelated Recent read cannot move it.
+    expect(rankedPageCalls()).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Refresh Club Ledger' }));
     await waitFor(() =>
       expect(rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2')).toHaveLength(
