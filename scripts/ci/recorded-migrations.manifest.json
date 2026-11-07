@@ -2251,6 +2251,17 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9712",
       "refusedBy": [],
       "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text confirms the exact file md5. fn_definer_exposure_audit returned no finding for the declared relaunch, announcement, campaign or post-commit functions. No migration is replayed and no production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261106213809",
+      "name": "the_house_pays_danimal_the_missed_afternoon_free_buy_guarantee",
+      "file": "supabase/migrations/20261106213809_the_house_pays_danimal_the_missed_afternoon_free_buy_guarantee.sql",
+      "md5": "3e257c8e4f72885f947200f67bdee4e2",
+      "appliedToProductionAt": "2026-11-06T21:38:09Z",
+      "recoveredOn": "2026-11-07",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "refusedBy": [],
+      "liveVerdict": "Production fn_ca_migration_text returned the exact file MD5. The adjustment is settled and its idempotency key identifies one 6.75-chip union-bank to player-wallet leg."
     }
   ]
 }
