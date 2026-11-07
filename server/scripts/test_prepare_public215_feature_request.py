@@ -46,6 +46,19 @@ class PublicRequestAssemblyTests(unittest.TestCase):
               self.fresh(scenario_id_prefix='r7f'),self.fresh(inventory_contract=helper.R7_PINS['inventory_contract']),
               {**self.fresh(),'source_namespace':helper.NAMESPACE},{**self.fresh(),'source_namespace':'not-a-uuid'}]:
    with self.assertRaises(ValueError):helper.request_pins(bad)
+ def test_feature_schema_is_the_declared_descriptor_sha_for_both_contracts(self):
+  class Codec:
+   FEATURE_DESCRIPTOR_SHA256='0'*63+'1'
+   def feature_contract(self,v):return ('c37e7aa2b2dde3f71cde7d224594de637ab66c928c6dffd94661fec3f7ac80c4',246)
+  c=Codec()
+  self.assertEqual(helper.feature_schema(c,'holdem-public-hist215-v1'),'0'*63+'1')
+  self.assertEqual(helper.feature_schema(c,'holdem-public-hist215-v2'),'c37e7aa2b2dde3f71cde7d224594de637ab66c928c6dffd94661fec3f7ac80c4')
+  with self.assertRaises(ValueError):helper.feature_schema(c,'holdem-public-hist215-v3')
+  # The descriptor sha is written into metadata and request; the cache schema
+  # (a dict read later in assemble) must never take its place.
+  src=Path(helper.__file__).read_text()
+  self.assertEqual(src.count("'feature_schema_checksum':feature_schema_sha"),2)
+  self.assertEqual(src.count("feature_schema_sha=feature_schema(codec,plan_pins['feature_contract_version'])"),1)
  def test_fresh_ids_take_census_limit_and_prefix_from_the_plan(self):
   ns='12345678-1234-4234-8234-123456789abc'
   self.assertEqual(helper.fresh_ids(ns,5699,5700,'r8f')[0],'r8f.m1.12345678123442348234123456789abc.05699')
