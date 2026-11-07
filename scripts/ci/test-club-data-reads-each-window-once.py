@@ -322,6 +322,57 @@ try:
     require(assigned.get("e1") == 90 and assigned.get("e2") == 100, "assigned club includes its Horse fee on both games")
     run(psql("live"), metric_fix, expect_fail="preimage changed")
 
+    # Initial screen and previous-period comparison must use the same exact
+    # attribution projection, filtering identity keys before numeric heap rows.
+    q("live", "CREATE TABLE ca_horse_fleet_register(horse_id uuid,retired_at timestamptz)")
+    retired = (M / "20261102231943_retired_horses_and_the_lightning_pilot_retire.sql").read_text()
+    view_start = retired.index("CREATE OR REPLACE VIEW public.ca_stats_club_data_fact_ct AS")
+    run(psql("live"), retired[view_start:retired.index(";", view_start) + 1])
+    run(psql("live"), (ROOT / "tests/fixtures/club-data-player-totals/screen-before.sql").read_text())
+    run(psql("live"), (M / "20261106074830_club_data_selectable_ranges_and_player_totals.sql").read_text())
+    require(q("live", "SELECT md5(pg_get_functiondef('public.ca_club_data_screen(uuid,date,date,text,text,text,integer)'::regprocedure))") == "157cd46995a6f1b1248b8240a7d08b78", "window candidate starts from exact current production screen")
+    run(psql("live"), (FIXTURE2.parent / "window-attribution.sql").read_text())
+    screen_probe = (FIXTURE2.parent / "window-screen-probe.sql").read_text()
+    def normalize_screen_clocks(output):
+        normalized = []
+        for line in output.splitlines():
+            if line.startswith('{'):
+                screen = json.loads(line)
+                generated = screen.pop('generated_at')
+                for row in screen['rows']:
+                    # Felt-only activity is intentionally this invocation's now().
+                    if row['activity_at'] == generated:
+                        row['activity_at'] = '<invocation time>'
+                line = screen
+            normalized.append(line)
+        return normalized
+    original_screens = normalize_screen_clocks(q("live", screen_probe))
+    window_fix = (M / "20261107085333_club_data_filters_attribution_keys_before_numeric_rows.sql").read_text()
+    run(psql("live", user="authenticator"), "SET ROLE authenticated;" + window_fix, expect_fail="maintained installer")
+    run(psql("live"), "BEGIN; ALTER FUNCTION public.ca_club_data_screen(uuid,date,date,text,text,text,integer) SET work_mem='1MB';" + window_fix[window_fix.index("DO $guard$"):], expect_fail="preimage changed")
+    run(psql("live"), "BEGIN; CREATE OR REPLACE VIEW public.ca_stats_club_data_fact_ct AS SELECT * FROM public.ca_club_data_fact_ct;" + window_fix[window_fix.index("DO $guard$"):], expect_fail="preimage changed")
+    run(psql("live"), window_fix.replace("COMMIT;", "ROLLBACK;"))
+    require(q("live", "SELECT to_regprocedure('public.fn_ca_club_data_fact_window(uuid[],date,date)') IS NULL") == "t", "rollback leaves no partial helper or caller edit")
+    run(psql("live"), window_fix)
+    require(normalize_screen_clocks(q("live", screen_probe)) == original_screens, "full screens and previous comparisons unchanged for owner, agent downline, ordinary club, union, filters and empty dates")
+    # An ordinary club must keep its existing indexed page reads; a private
+    # helper which fetches the full window would lose game-key pushdown.
+    poisoned = "CREATE OR REPLACE FUNCTION public.fn_ca_club_data_fact_window(p_clubs uuid[],p_from date,p_through date) RETURNS SETOF public.ca_stats_club_data_fact_ct LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path=public AS $$ BEGIN RAISE EXCEPTION 'unexpected window helper invocation'; END $$;"
+    ordinary_probe = f"SELECT set_config('test.uid','{owner}',false); SELECT ca_club_data_screen('{ordinary}',CURRENT_DATE-27,CURRENT_DATE);"
+    run(psql("live"), "BEGIN;" + poisoned + ordinary_probe + "ROLLBACK;")
+    run(psql("live"), "BEGIN;" + poisoned + f"SELECT set_config('test.uid','{owner}',false); SELECT ca_club_data_screen('{kings}',CURRENT_DATE-27,CURRENT_DATE);", expect_fail="unexpected window helper invocation")
+    require(True, "ordinary scopes never invoke the full-window helper; Kings uses it")
+    run(psql("live"), (FIXTURE2.parent / "window-attribution-proof.sql").read_text())
+    require(True, "EXCEPT ALL projection parity: current/previous, scope arrays, reassignment, retired, missing profiles and duplicate source keys")
+    helper = "public.fn_ca_club_data_fact_window(uuid[],date,date)"
+    require(q("live", f"SELECT NOT prosecdef AND proconfig=ARRAY['search_path=public'] FROM pg_proc WHERE oid='{helper}'::regprocedure") == "t", "helper remains invoker with explicit search path")
+    for role in ("anon", "authenticated", "service_role"):
+        require(q("live", f"SELECT NOT has_function_privilege('{role}','{helper}','EXECUTE')") == "t", f"{role} cannot execute the private helper")
+    run(psql("live", user="authenticator"), f"SET ROLE authenticated; SELECT * FROM {helper.split('(')[0]}(ARRAY['{kings}'::uuid],CURRENT_DATE-27,CURRENT_DATE);", expect_fail="permission denied")
+    run(psql("live", user="authenticator"), f"SET ROLE authenticated; SELECT set_config('test.uid','00000000-0000-0000-0000-00000000ffff',false); SELECT ca_club_data_screen('{kings}');", expect_fail="not authorized")
+    run(psql("live"), window_fix, expect_fail="preimage changed")
+    require(True, "private direct-access, original caller authorization and replay refusal retained")
+
 finally:
     if started:
         run([PG / "pg_ctl", "-D", data, "-m", "fast", "-w", "stop"])
