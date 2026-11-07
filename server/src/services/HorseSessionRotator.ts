@@ -1,6 +1,7 @@
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
+  horseCashPlanSecondTables,
   horseUnionCashTableAllowed,
   lightningGamesWithPlayingHumans,
   playingHumansAtCashTable,
@@ -1087,6 +1088,23 @@ export class HorseSessionRotator {
       horseIds,
       lightningGameIds
     );
+    /* A game's second table follows its Main 1 (Dan 2026-11-06). */
+    const cashPlanSecondTables = horseCashPlanSecondTables(
+      [...byTable.entries()].map(([id, tableSeats]) => ({
+        ...((tableSeats[0] as any)?.tables ?? {}),
+        id,
+      })),
+      cashPlanPrimaryTables,
+      (primary) =>
+        horseUnionCashTableAllowed(
+          primary,
+          playingHumansAtCashTable(byTable.get(String(primary.id)) ?? [], horseIds),
+          Date.now(),
+          cashPlanPrimaryTables,
+          lightningGameIds,
+          lightningHumanGames
+        )
+    );
     for (const [tableId, tableSeats] of byTable) {
       if (!this.lifecycleIsCurrent(generation)) return;
       const t = (tableSeats[0] as any)?.tables;
@@ -1106,7 +1124,8 @@ export class HorseSessionRotator {
           Date.now(),
           cashPlanPrimaryTables,
           lightningGameIds,
-          lightningHumanGames
+          lightningHumanGames,
+          cashPlanSecondTables
         );
       for (const seat of tableSeats) {
         const uid = String(seat.user_id ?? '');

@@ -111,9 +111,23 @@ export function horseUnionCashTableAllowed(
   nowMs: number,
   primaryTables: ReadonlySet<string>,
   lightningGames: ReadonlySet<string> | null = null,
-  lightningHumanGames: ReadonlySet<string> | null = null
+  lightningHumanGames: ReadonlySet<string> | null = null,
+  secondTables: ReadonlySet<string> | null = null
 ): boolean {
   if (table.tournament_id != null || table.is_spins === true) return true;
+  /* A GAME'S SECOND TABLE (Dan 2026-11-06: "THERE SHOULD BE SOME GAMES WITH
+     TWO TABLES RUNNING"). The cluster tick opens it only when every seat of a
+     game is taken and allows at most two tables per game; it inherits its
+     Main 1's answer, computed by horseCashPlanSecondTables. Forbidden variants
+     and the stake ceiling still apply. */
+  if (
+    secondTables !== null &&
+    secondTables.has(String(table.id ?? '')) &&
+    Number.isFinite(nowMs) &&
+    horseCashGameAllowed(table, nowMs)
+  ) {
+    return true;
+  }
   if (table.union_id !== plan.unionId && table.club_id !== plan.unionId) return true;
   if (!Number.isFinite(nowMs)) return false;
   if (nowMs < HORSE_UNION_CASH_PLAN_START_MS) return true;
@@ -149,6 +163,40 @@ export function horseUnionCashTableAllowed(
     primaryTables.has(String(table.id ?? '')) &&
     scheduledHorseCashGames(nowMs).has(gameId)
   );
+}
+
+/**
+ * The second table of each game whose Main 1 horses may sit at (Dan
+ * 2026-11-06). At most ONE per game - a feeder or a Main 2, live or opening,
+ * lowest id - so the fleet can never multiply a slot past the two tables the
+ * cluster tick allows. `primaryAllowed` is the caller's own answer for the
+ * game's Main 1, so the second table follows it exactly.
+ */
+export function horseCashPlanSecondTables(
+  tables: ReadonlyArray<CashPlanTable>,
+  primaryTables: ReadonlySet<string>,
+  primaryAllowed: (primary: CashPlanTable) => boolean
+): ReadonlySet<string> {
+  const primaryByGame = new Map<string, CashPlanTable>();
+  for (const t of tables) {
+    if (typeof t.id === 'string' && primaryTables.has(t.id) && typeof t.cluster_id === 'string')
+      primaryByGame.set(t.cluster_id, t);
+  }
+  const chosen = new Map<string, string>();
+  for (const t of tables) {
+    if (typeof t.id !== 'string' || typeof t.cluster_id !== 'string') continue;
+    if (primaryTables.has(t.id)) continue;
+    if (t.lifecycle !== 'live' && t.lifecycle !== 'opening') continue;
+    if (!(t.role === 'feeder' || (t.role === 'main' && Number(t.main_index) === 2))) continue;
+    const current = chosen.get(t.cluster_id);
+    if (current === undefined || t.id < current) chosen.set(t.cluster_id, t.id);
+  }
+  const out = new Set<string>();
+  for (const [gameId, tableId] of chosen) {
+    const primary = primaryByGame.get(gameId);
+    if (primary && primaryAllowed(primary)) out.add(tableId);
+  }
+  return out;
 }
 
 /** The Lightning games in which a person is playing right now, at any of

@@ -1,6 +1,7 @@
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
+  horseCashPlanSecondTables,
   horseUnionCashTableAllowed,
   lightningGamesWithPlayingHumans,
   playingHumansAtCashTable,
@@ -2465,6 +2466,20 @@ export class HorseFleetManager {
         horseIdSet,
         cashPlanLightningGames
       );
+      /* A game's second table follows its Main 1 (Dan 2026-11-06). */
+      const cashPlanSecondTables = horseCashPlanSecondTables(
+        tables,
+        cashPlanPrimaryTables,
+        (primary) =>
+          horseUnionCashTableAllowed(
+            primary,
+            playingHumansAtCashTable(seatsByTable.get(String(primary.id)) ?? [], horseIdSet),
+            Date.now(),
+            cashPlanPrimaryTables,
+            cashPlanLightningGames,
+            cashPlanLightningHumanGames
+          )
+      );
       // V8: tables with a short-handed HUMAN seed first (never leave a human
       // stranded); everything else keeps its natural order. Precomputed rather
       // than recomputed inside the comparator - same predicate, same answer.
@@ -3045,7 +3060,8 @@ export class HorseFleetManager {
               Date.now(),
               cashPlanPrimaryTables,
               cashPlanLightningGames,
-              cashPlanLightningHumanGames
+              cashPlanLightningHumanGames,
+              cashPlanSecondTables
             )
           ) {
             beat.withheldTables++;
@@ -4954,6 +4970,20 @@ export class HorseFleetManager {
         horseIdSet,
         cashPlanLightningGames
       );
+      /* A game's second table follows its Main 1 (Dan 2026-11-06). */
+      const cashPlanSecondTables = horseCashPlanSecondTables(
+        tables,
+        cashPlanPrimaryTables,
+        (primary) =>
+          horseUnionCashTableAllowed(
+            primary,
+            playingHumansAtCashTable(seatsByTable.get(String(primary.id)) ?? [], horseIdSet),
+            Date.now(),
+            cashPlanPrimaryTables,
+            cashPlanLightningGames,
+            cashPlanLightningHumanGames
+          )
+      );
 
       /* PAGED (2026-09-09), like every other read of this queue in the file.
          A bare `.select()` is capped at db-max-rows (1,000) without erroring;
@@ -5043,7 +5073,8 @@ export class HorseFleetManager {
             Date.now(),
             cashPlanPrimaryTables,
             cashPlanLightningGames,
-            cashPlanLightningHumanGames
+            cashPlanLightningHumanGames,
+            cashPlanSecondTables
           )
         )
           continue;
