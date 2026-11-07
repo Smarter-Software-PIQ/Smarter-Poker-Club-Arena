@@ -32,6 +32,7 @@
 -- close relocates a provisional place 2) and the engine-side deal gate PR.
 -- Same audited door as 20261106213809 (Danimal): manual adjustment + union
 -- bank debit + idempotent credit + one ledger leg each.
+BEGIN;
 DO $settle$
 DECLARE
   c_mig constant text := '20261107134252_the_house_pays_uncle_zoe_and_priya_the_final_two_heads_the_c';
@@ -169,3 +170,4 @@ BEGIN
    WHERE id IN ('49b95c40-b055-462b-8b6e-bca96455d911', 'bffe6257-0c36-4365-bb44-ed356f4b080c')
      AND resolved IS NOT TRUE;
 END $settle$;
+COMMIT;
