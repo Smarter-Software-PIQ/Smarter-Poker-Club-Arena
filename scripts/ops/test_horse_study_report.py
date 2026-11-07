@@ -49,6 +49,21 @@ class ReportIntegrationTests(unittest.TestCase):
         self.assertIn('Verdict: unresolved',narrative)
         self.assertEqual(result['riverOpportunityCounts']['cash/plo5/table/open_bet_opportunities'],1)
 
+    def test_excluded_only_batch_preserves_history_and_zero_population(self):
+        human_id='10000000-0000-4000-8000-000000000001'
+        self.hand['players'][1]['userId']=human_id
+        self.write('flagged-2026-11-05',[self.hand])
+        self.write('profiles',[{'id':'horse','is_horse':True},{'id':human_id,'is_horse':False}])
+        (self.source/'exclusions.json').write_text(json.dumps([human_id]))
+        self.output.chmod(0o700)
+        result=report.run(self.source,self.output,river_opportunities=True)
+        self.assertEqual(result['counts']['excluded'],1)
+        self.assertEqual(result['counts']['decisions'],0)
+        manifest=json.loads((self.output/'implementation-playbook.json').read_text())
+        self.assertEqual(manifest['population'],{'histories':1,'includedHands':0,'decisions':0})
+        with closing(sqlite3.connect(self.output/'study.sqlite')) as db:
+            self.assertEqual(hand_review(db,'hand')['decisions'],[])
+
     def test_corrupt_input_is_not_certified(self):
         (self.source/'flagged-2026-11-05.jsonl.gz').write_bytes(b'changed')
         with self.assertRaisesRegex(ValueError,'source_digest_mismatch'):report.run(self.source,self.output)
