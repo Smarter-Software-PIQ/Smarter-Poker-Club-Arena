@@ -1,6 +1,8 @@
 # 2026-11-07 - The Critical Pager Can Finish Its Scan
 
-Found while tracing the 2026-11-07 Lightning join failures: `POST /rpc/fn_sp_critical_scan` returned 500 on every call (every five minutes, at :x0:45 and :x5:45) in the retained logs, from at least 2026-11-06 00:50 UTC to 2026-11-07 20:25 UTC, 483 calls. Postgres logged `canceling statement due to statement timeout` for each (service_role `statement_timeout` is 8 s). `sp_critical_pages` has no page after 2026-11-03 07:15 UTC. The pager that texts and emails the owner about ledger breaks, unexplained chip supply, stuck tournaments, payment failures and the Midway Free Buy board was blind.
+Found while tracing the 2026-11-07 Lightning join failures: `POST /rpc/fn_sp_critical_scan` (called every five minutes) failed with `canceling statement due to statement timeout` (service_role `statement_timeout` is 8 s) on 270 of 288 calls in the 24 hours to 2026-11-07 21:20 UTC (94%), counted from `edge_logs`, which record every status; at least 483 failures in the retained PostgREST logs back to 2026-11-06 00:50 UTC. The 18 calls that finished could still page (two Midway pages went out at 20:40 UTC), but on most five-minute ticks the pager that texts and emails the owner about ledger breaks, unexplained chip supply, stuck tournaments, payment failures and the Midway Free Buy board did not run to completion.
+
+Correction (same day): the first version of this note said every call failed and that no page had been recorded since 2026-11-03. PostgREST logs only failures, so the success count came from `edge_logs`; and the 20:40 pages were written after that first reading.
 
 ## Cause
 
@@ -13,5 +15,9 @@ Migration 20261107203405 builds `idx_chip_ledger_union_promo_runway_legs` concur
 ## Missed pages
 
 None found for the window: since 2026-11-05 18:00 UTC there are no ledger invariant findings, no supply snapshot past the 100-chip threshold, no tournament RUNNING over 12 hours and no failed Stripe webhook. Midway board findings will page on the first completed scan, as designed.
+
+## Installed
+
+Merged in #9944 (9be236f0c1c), applied by Apply Merged Migration run 42415069095 (success): `idx_chip_ledger_union_promo_runway_legs` valid and ready, 3.7 MB; `supabase_migrations.schema_migrations` holds 20261107203405. `fn_sp_midway_free_buy_watch()` measured 39 ms after install (3.7 s before). The pager's calls at 21:25:37 and 21:30:37 UTC returned 200.
 
 Law test: `tests/the-critical-pager-can-finish-its-scan.law.test.ts`.
