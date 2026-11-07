@@ -65,6 +65,7 @@ import { cashBuyInLabel, cashBuyInRange } from '../../lib/cashBuyIn';
 import { spinMultiplierLabel } from '../../utils/spinReveal';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../utils/multiDaySchedule';
 import { lateRegEndMs } from './lateRegWindow';
+import { lateRegCountdownEndMs } from './lateRegWindow';
 import { SPIN_TIERS } from '../../config/spinSpec';
 import { tournamentRowUnitCents, type TournamentArenaEmbed } from '../tournament/details/types';
 import { DIAMOND_UNIT_CENTS } from '../../../server/src/tournament/tournamentUnit';
@@ -2116,11 +2117,18 @@ export function mttPhaseText(entry: LobbyEntry, now: number): string | null {
       String(row.status).toUpperCase()
     );
   if (started || entry.status === 'late_reg' || entry.status === 'running') {
-    const end = lateRegEndMs(row);
-    if (end != null && end > now) {
-      const seconds = Math.max(0, Math.ceil((end - now) / 1000));
+    // Dan 2026-11-06: "ALWAYS SHOWS THE COUNT DOWN". The card counts to the
+    // best deadline the row supports (lateRegCountdownEndMs); the closed/open
+    // wording below still reads the strict deadline, so an estimate that has
+    // run out never announces Registration Closed on its own.
+    const countdown = lateRegCountdownEndMs(row);
+    if (countdown != null && countdown > now) {
+      const seconds = Math.max(0, Math.ceil((countdown - now) / 1000));
       return `Late Reg Ends In ${Math.floor(seconds / 60)}:${(seconds % 60).toLocaleString('en-US', { minimumIntegerDigits: 2, useGrouping: false })}`;
     }
+    // The countdown is the strict deadline whenever there is one, so a strict
+    // deadline still ahead has already returned above.
+    const end = lateRegEndMs(row);
     return end == null && isInLateRegistration(row, now) ? 'Late Reg Open' : 'Registration Closed';
   }
   if (entry.status === 'registering' || entry.status === 'starting_soon') {
