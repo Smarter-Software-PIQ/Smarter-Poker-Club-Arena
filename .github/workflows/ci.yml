@@ -1636,6 +1636,11 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-runtime-privilege-ddl-guard-postgres.py --pg-bin "$PG_BIN" --scratch-root "${{ runner.temp }}"
+      - name: Leaderboard snapshot extrema preserve filtered ranking results
+        if: matrix.shard == 4
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-leaderboard-extrema-postgres.py --scratch "${{ runner.temp }}"
       - name: Retention bounds retained prefixes before accounting guards
         if: matrix.shard == 4
         env:
