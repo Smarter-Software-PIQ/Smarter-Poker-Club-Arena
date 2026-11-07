@@ -68,9 +68,18 @@ describe('the database counts it on its own columns', () => {
 
 describe('the alarm reads it as a record, not a page', () => {
   it('PlayersRefusedDuringFreeze is info severity on the freeze user gauge', () => {
-    const block = RULES.slice(RULES.indexOf('- alert: PlayersRefusedDuringFreeze'));
-    expect(block).toMatch(/expr: poker_client_freeze_refusal_users_10m >= 1/);
-    expect(block.slice(0, 400)).toMatch(/severity: info/);
+    // The one rule, bounded by its own structure: from its `- alert:` line to
+    // the next rule or group, whichever comes first.
+    const start = RULES.indexOf('- alert: PlayersRefusedDuringFreeze');
+    expect(start).toBeGreaterThan(-1);
+    const rest = RULES.slice(start + 1);
+    const ends = ['\n      - alert:', '\n  - name:', '\n  # ═']
+      .map((marker) => rest.indexOf(marker))
+      .filter((at) => at >= 0);
+    const rule = RULES.slice(start, start + 1 + Math.min(...ends));
+    expect(rule).toMatch(/expr: poker_client_freeze_refusal_users_10m >= 1/);
+    expect(rule).toMatch(/severity: info/);
+    expect(rule).not.toMatch(/severity: (warning|critical)|page:/);
   });
 });
 
