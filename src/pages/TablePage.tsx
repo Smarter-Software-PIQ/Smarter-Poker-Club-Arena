@@ -663,10 +663,11 @@ import HeroVpipTracker from '../components/table/HeroVpipTracker';
 import HitRunLeaveConfirm from '../components/table/HitRunLeaveConfirm';
 import { useHeroHandCount } from '../hooks/useHeroHandCount';
 import HitRunCountPill from '../components/table/HitRunCountPill';
-import { useHandsAddedByDouble } from '../hooks/useHeroHandCount';
+import { useCountdownStarted, useHandsAddedByDouble } from '../hooks/useHeroHandCount';
 import {
   blindOffLeaveText,
   charlesRuleText,
+  countdownStartedText,
   fetchMyHandsOwed,
   noteHandsOwedAt,
 } from '../lib/hitAndRun';
@@ -11934,6 +11935,10 @@ function LiveTablePage({
   // THE CHARLES RULE (owner 2026-11-06): a double during the countdown adds
   // hands. Said when it happens, so the count going up is never a surprise.
   useHandsAddedByDouble(heroHandCount, (added) => toast.info(charlesRuleText(added)));
+  /* HIT AND RUN: the hand the countdown starts, the player is told at once. */
+  useCountdownStarted(heroHandCount, tableState.handNumber ?? 0, (hands) =>
+    toast.info(countdownStartedText(hands))
+  );
   /**
    * HIT AND RUN (owner 2026-11-06): every leave door asks first. Hands still
    * owed in profit at this seat (a Lightning room's: its anchor seat) open the

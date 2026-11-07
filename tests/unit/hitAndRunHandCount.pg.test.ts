@@ -323,6 +323,68 @@ it('counts ten hands in profit, adds ten per double, clears on losing the profit
       )
     ).toBe('false');
 
+    // A CLUB SETTING: the hosting club chooses 5, 10, 15 or 20 hands, or switches the count off.
+    const O = '77777777-7777-7777-7777-777777777777';
+    const R = '88888888-8888-8888-8888-888888888888';
+    sql(`ALTER TABLE tables ADD COLUMN club_id uuid;
+      UPDATE tables SET club_id='${CLUB}';
+      CREATE TABLE public.clubs(id uuid PRIMARY KEY, owner_id uuid);
+      INSERT INTO clubs VALUES ('${CLUB}','${O}');
+      CREATE FUNCTION public.fn_club_role(u uuid, c uuid) RETURNS text LANGUAGE sql
+        AS $$ SELECT CASE WHEN u='${O}' THEN 'owner' WHEN u='${R}' THEN 'member' END $$;
+      CREATE FUNCTION public.fn_ca_is_club_staff(c uuid, u uuid) RETURNS boolean LANGUAGE sql
+        AS $$ SELECT u='${O}' $$;
+      INSERT INTO table_seats(table_id,user_id,seat_number,stack) VALUES ('${T}','${R}',3,200);
+      INSERT INTO cash_player_session(player_id,scope_type,scope_id,table_id,baseline)
+        VALUES ('${R}','table','${T}','${T}',200);`);
+    sql(
+      readFileSync(
+        resolve(
+          root,
+          'supabase/migrations/20261107040516_clubs_choose_their_hand_count_before_leaving.sql'
+        ),
+        'utf8'
+      )
+    );
+    const asUser = (uid: string, q: string) =>
+      one(`SET test.uid='${uid}'; SELECT coalesce((${q})::text, 'null')`).split('\n').pop()!;
+    const setHr = (uid: string, on: boolean, hands: number) =>
+      JSON.parse(asUser(uid, `fn_set_club_hit_run('${CLUB}', ${on}, ${hands})`));
+    // The default is unchanged: on, ten.
+    expect(JSON.parse(asUser(R, `fn_club_hit_run_setting('${CLUB}')`))).toMatchObject({
+      enabled: true,
+      hands: 10,
+      can_edit: false,
+    });
+    expect(
+      asUser('99999999-9999-9999-9999-999999999999', `fn_club_hit_run_setting('${CLUB}')`)
+    ).toBe('null');
+    // Only staff may change it, and only to an offered number.
+    expect(setHr(R, true, 5)).toEqual({ ok: false, reason: 'not_a_club_admin' });
+    expect(setHr(O, true, 7)).toEqual({ ok: false, reason: 'hands_not_offered' });
+    expect(setHr('', true, 5)).toEqual({ ok: false, reason: 'not_signed_in' });
+    expect(setHr(O, true, 5)).toMatchObject({ ok: true, enabled: true, hands: 5 });
+    // Five hands, and five more per double.
+    expect(hand(R, 250)).toMatchObject({ hands_required: 5, hands_remaining: 5 });
+    expect(hand(R, 500)).toMatchObject({ hands_required: 10, hands_played: 1, hands_remaining: 9 });
+    expect(check(R)).toMatchObject({ allowed: false, hands_remaining: 9 });
+    // Switched off: every open countdown at the club's tables clears at once, and none starts.
+    expect(setHr(O, false, 5).countdowns_cleared).toBeGreaterThanOrEqual(1);
+    expect(check(R).allowed).toBe(true);
+    expect(hand(R, 600)).toMatchObject({
+      hands_required: 0,
+      hands_remaining: 0,
+      leave_locked: false,
+    });
+    // Back on at ten: the next hand in profit starts a fresh ten.
+    expect(setHr(O, true, 10)).toMatchObject({ ok: true });
+    expect(hand(R, 600)).toMatchObject({ hands_required: 10, hands_remaining: 10 });
+    expect(
+      one(
+        `SELECT has_function_privilege('anon','public.fn_set_club_hit_run(uuid,boolean,integer)','EXECUTE')::text`
+      )
+    ).toBe('false');
+
     // No session at all: allowed.
     expect(check('55555555-5555-5555-5555-555555555555').allowed).toBe(true);
   } finally {
