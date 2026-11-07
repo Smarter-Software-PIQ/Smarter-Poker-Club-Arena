@@ -6,7 +6,12 @@ SET LOCAL lock_timeout='1s';
 
 -- Drain accepted writers and cold readers before freezing the old aggregate epoch.
 -- Use the established cold-reader advisory lock. No history rows are scanned.
-SELECT pg_advisory_xact_lock(hashtextextended('horse-opponent-legacy-initialization:v1',0));
+DO $$
+BEGIN
+ IF NOT pg_try_advisory_xact_lock(hashtextextended('horse-opponent-legacy-initialization:v1',0)) THEN
+  RAISE EXCEPTION 'horse opponent profile initialization in progress' USING ERRCODE='55P03';
+ END IF;
+END $$;
 LOCK TABLE public.hand_history, public.hand_atomic_commits IN SHARE MODE;
 LOCK TABLE public.horse_exploit_profiles, public.horse_exact_profiles IN SHARE ROW EXCLUSIVE MODE;
 
