@@ -569,6 +569,10 @@ jobs:
             payload.jobs.every(entry => entry.status === 'completed' && (
               (['publish-needed', 'client-publication / admit', 'client-publication / Validate The Selected Client Publication Source'].includes(entry.name) && entry.conclusion === 'success') ||
               (['build-record-gateway', 'client-publication / build-and-store'].includes(entry.name) && entry.conclusion === 'skipped') ||
+              // With nothing built, the skipped test matrix never expands, so
+              // the provider reports one job with the bare matrix name
+              // (publisher 42346558084, certificate 42347060347).
+              (/^client-publication \/ client-tests(?: \(\d+\))?$/.test(entry.name) && entry.conclusion === 'skipped' && (entry.steps ?? []).length === 0) ||
               productionNeverStarted(entry)));
           const failedBeforeTransaction = process.env.SOURCE_CONCLUSION === 'failure' &&
             jobs.length === 0 && retained.length === 0 && payload.jobs.length > 0 && uniqueNames &&

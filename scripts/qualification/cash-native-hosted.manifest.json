@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 144525,
-      "sha256": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b"
+      "bytes": 145292,
+      "sha256": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77125,
@@ -7070,6 +7070,19 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previous": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c",
         "current": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "accountingShardPrerequisites20261107": {
+    "reason": "Reviewed accounting shard prerequisites change (2026-11-07): root dependencies become a common setup step on every accounting shard, and the Spin expiry proof (1->5) and the cashier statement family (1->6, order kept) change only their matrix.shard routing after run 42345829378 measured shard 1 at 29.4m. No suite command, environment, timeout, artifact or financial input changes. Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "files",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b",
+        "current": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
       }
     ],
     "historicalEvidenceRestamped": false,

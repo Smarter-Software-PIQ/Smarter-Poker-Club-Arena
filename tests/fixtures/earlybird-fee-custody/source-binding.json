@@ -2,7 +2,7 @@
   "migration": "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql",
   "repository_files": {
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b",
+    "scripts/qualification/ci-accounting-inputs.json": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "tests/fixtures/earlybird-fee-custody/setup.sql": "ac34d5f9432bd6c4ede4072439e66a6f93c7ffc0f5df53ca5a42d6d72c01e573",
     "tests/fixtures/earlybird-fee-custody/funding-scope.json": "342424a2012da6b9f987e5265d772e59f610dac74c4b5c89d1a718c8ec13e8ff",
@@ -828,6 +828,19 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previous": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c",
         "current": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "accountingShardPrerequisites20261107": {
+    "reason": "Reviewed accounting shard prerequisites change (2026-11-07): root dependencies become a common setup step on every accounting shard, and the Spin expiry proof (1->5) and the cashier statement family (1->6, order kept) change only their matrix.shard routing after run 42345829378 measured shard 1 at 29.4m. No suite command, environment, timeout, artifact or financial input changes. Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "repository_files",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b",
+        "current": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
       }
     ],
     "historicalEvidenceRestamped": false,
