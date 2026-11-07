@@ -179,11 +179,11 @@ describe('placePrize', () => {
 });
 
 describe('effectivePrizePool', () => {
-  it('floors the collected pool at the guarantee', () => {
-    // Detail's podium printed the RAW pool while Rewards printed this, so on a
-    // guaranteed event with an overlay the two tabs quoted different money for
-    // the same finish.
-    expect(effectivePrizePool(400, 1000)).toBe(1000);
+  it('is the collected place pool; a pending overlay is never stacked on it', () => {
+    // Detail's podium and Rewards share this one rule. Dan 2026-11-06: the
+    // pool is what the field paid in net of rake; the house overlay is shown
+    // beside the guarantee and enters the pool only once funded at close.
+    expect(effectivePrizePool(400, 1000)).toBe(400);
     expect(effectivePrizePool(1500, 1000)).toBe(1500);
   });
 

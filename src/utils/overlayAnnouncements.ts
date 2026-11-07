@@ -102,6 +102,8 @@ export interface OverlayCandidate {
   start_time: string;
   guaranteed_prize?: number | string | null;
   prize_pool?: number | string | null;
+  bounty_pool?: number | string | null;
+  total_rake?: number | string | null;
   current_players?: number | string | null;
   buy_in_amount?: number | string | null;
   buy_in_fee?: number | string | null;
@@ -171,14 +173,19 @@ export function overlayFor(
   const guarantee = num(t.guaranteed_prize);
   if (guarantee <= 0) return null; // no guarantee, no overlay, ever
 
-  const prizePool = num(t.prize_pool);
-  const overlay = Math.round((guarantee - prizePool) * 100) / 100;
+  /* A BUY-IN GUARANTEE COUNTS THE WHOLE PAYMENT (Dan, 2026-11-05/06): places
+     + bounties + rake are credited, so the overlay is guarantee - gross. The
+     place half alone overstated it (2,500 - 1,196 = 1,304 on a 46-entry
+     40-chip bounty event whose real overlay is 660). */
+  const prizePool = Math.max(0, num(t.prize_pool)) + Math.max(0, num(t.bounty_pool));
+  const credited = prizePool + Math.max(0, num(t.total_rake));
+  const overlay = Math.round((guarantee - credited) * 100) / 100;
   if (overlay <= 0) return null; // the field already covered it
 
   // GATE 2: the field has paid in less than half the guarantee. Stated the way
   // Dan stated it - against what is REGISTERED - rather than against the
   // shortfall, so the code reads as the rule does.
-  if (prizePool >= guarantee * MAX_REGISTERED_FRACTION) return null;
+  if (credited >= guarantee * MAX_REGISTERED_FRACTION) return null;
   // ...and never a trivial absolute amount, whatever the fraction says.
   if (overlay < MIN_OVERLAY_CHIPS) return null;
 
@@ -204,12 +211,10 @@ export function overlayFor(
 
   const tier: OverlayTier = 'live';
 
-  /* How many more entries would close the gap. The PRIZE side of the buy-in
-     is what reaches the pool - the fee is rake and never does - so using the
-     total here would understate the entries needed and overstate how close
-     the event is to covering itself. */
-  const prizeSide = num(t.buy_in_amount);
-  const entriesToClose = prizeSide > 0 ? Math.ceil(overlay / prizeSide) : 0;
+  /* How many more entries would close the gap. The whole payment (buy-in +
+     rake) is credited toward the guarantee, so each entry closes that much. */
+  const perEntry = num(t.buy_in_amount) + Math.max(0, num(t.buy_in_fee));
+  const entriesToClose = num(t.buy_in_amount) > 0 ? Math.ceil(overlay / perEntry) : 0;
 
   return {
     id: t.id,

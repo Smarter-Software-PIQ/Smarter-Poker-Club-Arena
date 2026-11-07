@@ -45,12 +45,14 @@ describe('a buy-in guarantee counts the whole player payment', () => {
   it('the owner examples: 13 x 40 against 500 needs zero; 10 x 40 needs 100', () => {
     expect(guaranteeShortfall(500, 13 * 26, 13 * 10, 13 * 4)).toBe(0);
     expect(guaranteeShortfall(500, 10 * 26, 10 * 10, 10 * 4)).toBe(100);
-    expect(effectivePrizePool(260, 500, 100, 40)).toBe(360);
+    // Places carry no pending overlay (Dan 2026-11-06); the house share is
+    // shown beside the guarantee and funded at close.
+    expect(effectivePrizePool(260, 500, 100, 40)).toBe(260);
     expect(effectivePrizePool(338, 500, 130, 52)).toBe(338);
   });
 
   it('a screen never stacks the guarantee on collected money', () => {
-    expect(displayTotalPool(41 * 27, 1500, 0, 41 * 3)).toBe(1377);
+    expect(displayTotalPool(41 * 27, 1500, 0, 41 * 3)).toBe(1107);
     expect(displayTotalPool(41 * 27, 1500, 0, 41 * 3)).not.toBe(2445);
   });
 

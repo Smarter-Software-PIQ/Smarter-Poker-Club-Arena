@@ -50,11 +50,15 @@ export function guaranteeShortfall(
 }
 
 /**
- * The prize money a guaranteed event's lobby prints beside "GTD": places +
- * bounties + any house funding still owed. It is never the advertised
- * guarantee stacked on collected money (the 2,445 the owner saw on a 1,500
- * guarantee, 2026-11-04), and never the guarantee itself once the field's
- * gross payments have met it: the rake is the room's, not prize money.
+ * THE TOTAL PRIZE POOL IS THE MONEY THE FIELD HAS PAID IN, NET OF RAKE
+ * (Dan, 2026-11-06): "the total prize pool should say 1656 and growing.
+ * 36x46 (rake is subtracted from prizepool)". Places + bounties, nothing
+ * else. The house's overlay is NOT stacked on top while the pool is still
+ * open: it is shown on its own beside the guarantee (guaranteeShortfall) and
+ * only enters the pool when it is actually funded at close, after which the
+ * finalized stored pool already contains it. The guarantee and rake
+ * arguments are kept so existing callers compile; they no longer move the
+ * figure.
  */
 export function displayTotalPool(
   prizePool: unknown,
@@ -63,9 +67,10 @@ export function displayTotalPool(
   rake: unknown = 0,
   finalized: unknown = false
 ): number {
-  const money = amount(prizePool) + amount(bountyPool);
-  if (finalized === true) return money;
-  return money + guaranteeShortfall(guarantee, prizePool, bountyPool, rake);
+  void guarantee;
+  void rake;
+  void finalized;
+  return amount(prizePool) + amount(bountyPool);
 }
 
 /** Fixed-bounty copy comes from charged terms, never an old schedule blurb. */
