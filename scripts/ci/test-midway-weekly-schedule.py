@@ -65,7 +65,24 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         before=sql("SELECT starting_chips||','||(blind_structure::jsonb->0->>'smallBlind')||'/'||(blind_structure::jsonb->0->>'bigBlind') FROM tournaments LIMIT 1")
         assert before!='10000,50/100', 'baseline must reproduce legacy terms'
         migration=next((root/'supabase/migrations').glob('*midway_weekly_tournaments_follow_the_owner_spreadsheet.sql'))
-        sql(migration.read_text())
+        # Historical inactive rows already satisfy retirement. Their exact
+        # row image must not be rewritten or revalidate zones during install.
+        sql("""INSERT INTO tournament_schedules(id,club_id,union_id,name,active,time_zone,config)
+          SELECT ('87000000-0000-4000-8000-'||lpad(i::text,12,'0'))::uuid,
+          'fade0000-0000-0000-0000-000000000001','fade0000-0000-0000-0000-000000000001',
+          'Inactive historical event '||i,false,'America/Chicago','{}' FROM generate_series(1,48) i;
+          CREATE TABLE inactive_history_updates(id uuid);
+          CREATE FUNCTION record_inactive_history_update() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN
+           IF OLD.id::text LIKE '87000000-%' THEN INSERT INTO inactive_history_updates VALUES(OLD.id); END IF;
+           RETURN NEW; END$$;
+          CREATE TRIGGER inactive_history_update_witness BEFORE UPDATE ON tournament_schedules
+           FOR EACH ROW EXECUTE FUNCTION record_inactive_history_update();""")
+        # Mirror the production applier's owning transaction identity and 12s
+        # bound; the migration retains its own 8s statement/1s lock limits.
+        installed=migration.read_text().replace('BEGIN;\n',"BEGIN;\nSET LOCAL application_name='apply-recorded-migration';\nSET LOCAL transaction_timeout='12s';\n",1)
+        sql(installed)
+        assert sql('SELECT count(*) FROM inactive_history_updates')=='0','inactive historical schedules were rewritten'
+
         sql('''CREATE TRIGGER tournaments_creation_guard BEFORE INSERT ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_tournaments_creation_guard();
          CREATE FUNCTION affordability_witness() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN
           IF NEW.club_id='fade0000-0000-0000-0000-000000000001'::uuid AND NEW.started_at IS NULL AND NEW.status='REGISTERING'

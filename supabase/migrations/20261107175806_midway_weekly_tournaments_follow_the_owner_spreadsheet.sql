@@ -423,6 +423,7 @@ GRANT EXECUTE ON FUNCTION public.fn_ca_install_midway_weekly_occurrence(uuid) TO
 
 UPDATE public.tournament_schedules SET active=false
 WHERE (club_id='fade0000-0000-0000-0000-000000000001'::uuid OR union_id='fade0000-0000-0000-0000-000000000001'::uuid)
+  AND active
  AND id NOT IN (SELECT (value->>'id')::uuid FROM jsonb_array_elements(public.fn_ca_midway_weekly_catalog()));
 
 -- Bound each original upsert statement while preserving one atomic transaction.
