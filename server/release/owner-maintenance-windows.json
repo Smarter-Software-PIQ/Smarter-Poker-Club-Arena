@@ -1172,9 +1172,7 @@
       "contains": "f7c2804e81b89e69c4f3fb82ab6c4413dffdaf28",
       "notBefore": "2026-11-07T13:05:00Z",
       "notAfter": "2026-11-07T19:05:00Z",
-      "migrations": [
-        "20261106203853_hit_and_run_ten_hands_in_profit.sql"
-      ]
+      "migrations": ["20261106203853_hit_and_run_ten_hands_in_profit.sql"]
     },
     {
       "id": "2026-11-07-cutover-recovery-db-horse-exact-profiles",
@@ -1182,8 +1180,17 @@
       "contains": "f7c2804e81b89e69c4f3fb82ab6c4413dffdaf28",
       "notBefore": "2026-11-07T13:05:00Z",
       "notAfter": "2026-11-07T19:05:00Z",
+      "migrations": ["20261106091733_horse_public_memory_exact_rule_domains.sql"]
+    },
+    {
+      "id": "2026-11-07-midway-remaining-two-join",
+      "ownerOrder": "Dan directed the Satellite 30 handoff chat 01a1b40a-cbff-7650-b2b0-06e997d3eece to coordinate with Claude's cutover owner and finish the six queued migrations now. Four versions are already recorded. Claude's Engine cutover and update status chat owns the existing recovery operation. Use request_database_break=false to join its confirmed Deployment Recovery freeze for the two remaining Midway files in version order. Read history before dispatch. Retain one transaction per file, the original timeout and reserve checks, and stop on first refusal. A missing freeze or expired window leaves the migrations queued.",
+      "contains": "977ff6ae4d68fd9ce39877ebf16ae1e626d29c01",
+      "notBefore": "2026-11-07T14:45:00Z",
+      "notAfter": "2026-11-07T20:45:00Z",
       "migrations": [
-        "20261106091733_horse_public_memory_exact_rule_domains.sql"
+        "20261106004812_a_built_midway_free_buy_refuses_a_shape_its_schedule_does_no.sql",
+        "20261107041342_a_scheduled_midway_free_buy_keeps_its_promised_guarantee.sql"
       ]
     }
   ]
