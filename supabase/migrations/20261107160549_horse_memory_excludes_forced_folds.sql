@@ -15,13 +15,13 @@ DECLARE item record; def text; signature regprocedure;
 BEGIN
  FOR item IN SELECT * FROM (VALUES
   ('public.fn_horse_exploit_increments(jsonb,text)', $a$IF id IS NULL OR id='' OR act NOT IN$a$,
-   $b$IF (act='fold' AND coalesce(a->>'origin','') NOT IN ('player','pre_action','horse_policy')) OR id IS NULL OR id='' OR act NOT IN$b$),
+   $b$IF a->>'origin'='forced' OR (act='fold' AND coalesce(a->>'origin','') NOT IN ('player','pre_action','horse_policy')) OR id IS NULL OR id='' OR act NOT IN$b$),
   ('public.fn_horse_exploit_actor_increments(jsonb,text)', $a$action text,stage text,"isFullRaise" text) LOOP$a$,
    $b$action text,stage text,"isFullRaise" text,origin text) LOOP$b$),
   ('public.fn_horse_exploit_actor_increments(jsonb,text)', $a$IF a."userId" IS NULL OR$a$,
-   $b$IF (a.action='fold' AND coalesce(a.origin,'') NOT IN ('player','pre_action','horse_policy')) OR a."userId" IS NULL OR$b$),
+   $b$IF a.origin='forced' OR (a.action='fold' AND coalesce(a.origin,'') NOT IN ('player','pre_action','horse_policy')) OR a."userId" IS NULL OR$b$),
   ('public.fn_horse_exploit_profiles_read(text[],text,text,text)', $a$WHERE a->>'userId'=uid AND a->>'action' IN$a$,
-   $b$WHERE (a->>'action'<>'fold' OR a->>'origin' IN ('player','pre_action','horse_policy')) AND a->>'userId'=uid AND a->>'action' IN$b$)
+   $b$WHERE a->>'origin' IS DISTINCT FROM 'forced' AND (a->>'action'<>'fold' OR a->>'origin' IN ('player','pre_action','horse_policy')) AND a->>'userId'=uid AND a->>'action' IN$b$)
  ) edits(name,old_fragment,new_fragment) LOOP
   signature:=item.name::regprocedure;
   def:=pg_get_functiondef(signature);

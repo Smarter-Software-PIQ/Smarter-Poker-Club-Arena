@@ -262,11 +262,13 @@ export class HorseObserverReads {
           amount: a.amount,
           stage: a.stage,
           timestamp: a.timestamp,
-          ...(a.action === 'fold' &&
-          (a.origin === 'player' ||
-            a.origin === 'pre_action' ||
-            a.origin === 'horse_policy' ||
-            a.origin === 'forced')
+          ...(a.origin === 'forced' ||
+          (a.action === 'fold' &&
+            (a.origin === 'player' ||
+              a.origin === 'pre_action' ||
+              a.origin === 'horse_policy' ||
+              a.origin === 'unknown' ||
+              a.origin === 'horse_fallback'))
             ? { origin: a.origin }
             : {}),
           ...(a.isFullRaise === undefined ? {} : { isFullRaise: a.isFullRaise }),

@@ -87,6 +87,8 @@ try:
   if origin is not None:act['origin']=origin
   data="'"+json.dumps([act])+"'::jsonb"
   assert run('reducer-'+str(origin),"SELECT (fn_horse_exploit_increments("+data+") ? '"+human+"')::int||':'||(fn_horse_exploit_increments("+data+",'"+human+"') ? '"+human+"')::int;")==('1:1' if expected else '0:0')
+ forced_check=json.dumps([{'userId':human,'action':'check','stage':'river','origin':'forced'}])
+ assert run('forced-check-ignored',"SELECT fn_horse_exploit_increments('"+forced_check+"')='{}'::jsonb AND fn_horse_exploit_increments('"+forced_check+"','"+human+"')='{}'::jsonb;")=='t'
  # Two original legacy rows, one authenticated fold and one later forced fold.
  # Native BEFORE/AFTER triggers are disabled only in this isolated fixture to
  # represent rows predating the original durable-memory installation.

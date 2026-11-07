@@ -35,7 +35,7 @@ function folder(hands: number): ExploitCounters {
   const counters = freshExploitCounters();
   const inc = exploitHandIncrements([
     { userId: 'opener', action: 'raise', stage: 'preflop' },
-    { userId: uid, action: 'fold', stage: 'preflop' },
+    { userId: uid, action: 'fold', origin: 'player', stage: 'preflop' },
   ]).get(uid)!;
   for (let n = 0; n < hands; n++) decayAndAdd(counters, inc);
   return counters;

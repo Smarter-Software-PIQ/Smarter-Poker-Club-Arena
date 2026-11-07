@@ -68,11 +68,13 @@ export function completedHandActionsForMind(
       amount: a.amount,
       timestamp: a.timestamp as number,
       stage: a.stage as ActionRecord['stage'],
-      ...(a.action === 'fold' &&
-      (a.origin === 'player' ||
-        a.origin === 'pre_action' ||
-        a.origin === 'horse_policy' ||
-        a.origin === 'forced')
+      ...(a.origin === 'forced' ||
+      (a.action === 'fold' &&
+        (a.origin === 'player' ||
+          a.origin === 'pre_action' ||
+          a.origin === 'horse_policy' ||
+          a.origin === 'unknown' ||
+          a.origin === 'horse_fallback'))
         ? { origin: a.origin }
         : {}),
       ...(a.isFullRaise === undefined ? {} : { isFullRaise: a.isFullRaise }),
