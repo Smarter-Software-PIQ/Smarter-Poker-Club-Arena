@@ -13,6 +13,7 @@ IMAGE_BUILDER="$CONTROL_DIR/build-engine-image.sh"
 DATABASE_PROOF="$CONTROL_DIR/engine-release-database-proof.py"
 INFLIGHT_HANDS="$CONTROL_DIR/engine-release-inflight-hands.py"
 LIGHTNING_HOLD="$CONTROL_DIR/engine-release-lightning-hold.py"
+WINDOW_DOORS="$CONTROL_DIR/engine-release-window-doors.py"
 LEGACY_CHECKPOINT="$CONTROL_DIR/legacy-engine-checkpoint.sh"
 LEGACY_CHECKPOINT_SHA=2f4e33560bcd23bfb5cc731f31816b2c2e2847e5
 CHECKPOINT_758_SHA=758610f3f844406bbbaee2f5100ced36d84fb943
@@ -345,6 +346,45 @@ bounded_sleep() {
   fi
   [ "$requested" -le "$remaining" ] || requested="$remaining"
   sleep "$requested"
+}
+
+# THE WINDOW MIGRATION'S DOORS (2026-11-07): see the list taken before the
+# certificate loop below.
+# Runs only after the break admitted this release (certificate rc 0). Returns
+# 0 when every door is in pg_proc, 10 while this break's install is running.
+# Any other answer is a named refusal: a missing door never reaches prepare.
+window_doors_ready() {
+  [ "${WINDOW_DOORS_READY:-0}" != 1 ] || return 0
+  # The list is assigned before the certificate loop or the release dies; an
+  # empty list is a target with no window door, which reads nothing.
+  if [ -z "${WINDOW_DOOR_NAMES:-}" ]; then WINDOW_DOORS_READY=1; return 0; fi
+  local verdict rc
+  set +e
+  verdict="$(timeout --signal=TERM --kill-after=1s 30s \
+    python3 -B "$WINDOW_DOORS" status --env-file "$ENV_FILE" --names "$WINDOW_DOOR_NAMES")"
+  rc=$?
+  set -e
+  case "$rc" in
+    0)
+      WINDOW_DOORS_READY=1
+      echo "[engine-release-transaction] $verdict"
+      return 0
+      ;;
+    10)
+      [ "${WINDOW_DOORS_WAITING:-0}" = 1 ] || echo "[engine-release-transaction] waiting inside the break: $verdict"
+      WINDOW_DOORS_WAITING=1
+      return 10
+      ;;
+    1) die "WINDOW MIGRATION DOORS REFUSED: $verdict; nothing was prepared and the current engine keeps running" ;;
+    *) die "WINDOW MIGRATION DOORS REFUSED: UNKNOWN (status $rc) - ${verdict:-the helper gave no answer}; nothing was prepared and the current engine keeps running" ;;
+  esac
+}
+# The certificate budget passed while a door was still missing: the release
+# cannot be admitted in this break, and no later break is this one.
+refuse_unready_window_doors() {
+  if [ "${WINDOW_DOORS_WAITING:-0}" = 1 ] && [ "${WINDOW_DOORS_READY:-0}" != 1 ]; then
+    die "WINDOW MIGRATION DOORS REFUSED: the break's cutover budget passed while $WINDOW_DOOR_NAMES were not all in pg_proc; nothing was prepared and the current engine keeps running"
+  fi
 }
 
 validate_actor() {
@@ -3309,6 +3349,33 @@ if [ -z "${DRILL_MODE:-}" ] \
   DAILY_TRANSITION=1
 fi
 
+# THE WINDOW MIGRATION'S DOORS ARE RE-READ INSIDE THE BREAK (2026-11-07).
+# A door created by a queued "-- @install-window: daily-maintenance" migration
+# can only exist after that migration installs inside this same 04:00 break,
+# so the pre-break door check admits it on condition only
+# (scripts/ci/window-migration-doors.mjs). Here is the condition: once the
+# break admits this release, and before the engine lock, prepare or any
+# replacement, pg_proc must hold every such door this exact target calls.
+# While this break's window install job is still running the release waits,
+# inside the same certificate budget; a finished or absent install with a
+# door still missing refuses by name, and the current engine keeps running.
+# The list is derived from the target tree itself, so no request field and no
+# early-job output can widen or narrow it.
+set +e
+WINDOW_DOOR_NAMES="$(timeout --signal=TERM --kill-after=1s 60s \
+  python3 -B "$WINDOW_DOORS" list --repo "$REPO_DIR" --sha "$SHA")"
+WINDOW_DOOR_LIST_RC=$?
+set -e
+[ "$WINDOW_DOOR_LIST_RC" = 0 ] \
+  || die "WINDOW MIGRATION DOORS REFUSED: UNKNOWN - the window-migration doors of $SHA could not be listed (status $WINDOW_DOOR_LIST_RC); refusing before any cutover"
+[[ "$WINDOW_DOOR_NAMES" =~ ^([A-Za-z_][A-Za-z0-9_]*(,[A-Za-z_][A-Za-z0-9_]*)*)?$ ]] \
+  || die 'WINDOW MIGRATION DOORS REFUSED: UNKNOWN - the window-migration door list is malformed'
+WINDOW_DOORS_READY=0
+WINDOW_DOORS_WAITING=0
+[ -n "$WINDOW_DOOR_NAMES" ] || WINDOW_DOORS_READY=1
+if [ "$WINDOW_DOORS_READY" != 1 ]; then
+  echo "[engine-release-transaction] window-migration doors this build calls, re-read inside the break before any cutover: $WINDOW_DOOR_NAMES"
+fi
 # Built, fresh and about to wait at the certificate: say so for older targets.
 # Best effort by design - a marker that cannot be written only means an older
 # release keeps racing this one, which is the behaviour before 2026-09-27.
@@ -3411,6 +3478,7 @@ while :; do
     LEGACY_ENTRY_BREAK_END_EPOCH="$LEGACY_COUNTDOWN_END"
     legacy_entry_trace admitted verified
   elif [ "$CERTIFICATE_RC" -eq 2 ]; then
+    refuse_unready_window_doors
     note_missed_admission "${BREAK_REMAINING_MS:-0}"
     # A predecessor or image build can consume the beginning of this break.
     # No prepare or break deadline exists yet. Keep the original request's
@@ -3421,6 +3489,7 @@ while :; do
     continue
   fi
   if [ "$LEGACY_CHECKPOINT_REQUIRED" != 1 ] && [ "$CERTIFICATE_RC" -ne 0 ]; then
+    refuse_unready_window_doors
     request_recovery_window
     bounded_sleep 5
     continue
@@ -3435,6 +3504,15 @@ while :; do
     continue
   fi
   BREAK_DEFERRED_TO=''
+  # Inside the admitted break, after this break's window install and before
+  # the engine lock, prepare and any replacement: every window door exists.
+  WINDOW_DOORS_RC=0
+  window_doors_ready || WINDOW_DOORS_RC=$?
+  if [ "$WINDOW_DOORS_RC" -ne 0 ]; then
+    LEGACY_ENTRY_DEADLINE_MS=0
+    bounded_sleep 3
+    continue
+  fi
   acquire_engine_lock 'maintenance cutover'
   if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ]; then legacy_entry_trace locked verified; fi
   source_target_is_current

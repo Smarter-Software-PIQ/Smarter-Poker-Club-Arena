@@ -45,15 +45,26 @@
  * be inferred from pg_proc name presence, and unknown history is a refusal.
  * This is a read-only gate in this existing job, before durable host intake.
  *
+ * A WINDOW MIGRATION'S DOOR IS CONDITIONAL, NOT MISSING (2026-11-07). A door
+ * created by a queued "-- @install-window: daily-maintenance" migration can
+ * only appear inside the 04:00 break, after this check has run. Such a door is
+ * admitted on condition (verdict=conditional, named, never "ok") and the host
+ * transaction re-reads pg_proc for it inside the break before any cutover. See
+ * scripts/ci/window-migration-doors.mjs; every other missing door is refused
+ * exactly as before.
+ *
  * Usage:  node scripts/ci/check-engine-doors-exist.mjs
- * Exit:   0 proved / generic unreadable / generic rollback;
+ * Exit:   0 proved / conditional / generic unreadable / generic rollback;
  *         1 missing door or unproved continuation prerequisite
+ * Output: verdict=proved|conditional|unchecked|rollback, and for conditional
+ *         conditional=<names> and conditional_migrations=<files>
  */
 import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { classifyMissingDoors, windowMigrationCreators } from './window-migration-doors.mjs';
 
 const ROOT = process.cwd();
 const SCAN_ROOT = join(ROOT, 'server', 'src');
@@ -207,14 +218,17 @@ function continuationRequirements() {
   }));
 }
 
-async function liveFunctions(names, requirements) {
+async function liveFunctions(names, requirements, windowFiles = []) {
   // Test seam: a JSON array of the function names "production" has, so the
   // law test can run the real script end to end without a database.
   const fixture = process.env.ENGINE_DOORS_LIVE_FIXTURE;
   if (fixture) {
     const migrationFixture = process.env.ENGINE_DOORS_MIGRATIONS_FIXTURE;
     const checkpointFixture = process.env.ENGINE_DOORS_CHECKPOINT_FIXTURE;
+    const recordedFixture = process.env.ENGINE_DOORS_RECORDED_FIXTURE;
     return {
+      // Unknown history (no fixture) admits nothing conditionally.
+      windowRecorded: recordedFixture ? JSON.parse(readFileSync(recordedFixture, 'utf8')) : null,
       found: new Set(JSON.parse(readFileSync(fixture, 'utf8'))),
       migrations: migrationFixture ? JSON.parse(readFileSync(migrationFixture, 'utf8')) : [],
       checkpointFunctions: checkpointFixture
@@ -275,7 +289,26 @@ async function liveFunctions(names, requirements) {
         )
       ));
     }
-    return { found: new Set(rows.map((r) => r.proname)), migrations, checkpointFunctions };
+    // The window installer's own definition of "queued": no row by version or
+    // by name (or the 55-character truncated name). Read only when needed.
+    let windowRecorded = [];
+    if (windowFiles.length) {
+      ({ rows: windowRecorded } = await client.query(
+        `SELECT version, name FROM supabase_migrations.schema_migrations
+          WHERE version = ANY($1::text[]) OR name = ANY($2::text[]) OR name = ANY($3::text[])`,
+        [
+          windowFiles.map((f) => f.slice(0, 14)),
+          windowFiles.map((f) => f.slice(15, -4)),
+          windowFiles.map((f) => f.slice(15, -4).slice(0, 55)),
+        ]
+      ));
+    }
+    return {
+      found: new Set(rows.map((r) => r.proname)),
+      migrations,
+      checkpointFunctions,
+      windowRecorded,
+    };
   } catch (err) {
     return { unreadable: `production could not be asked: ${err?.message || err}` };
   } finally {
@@ -299,14 +332,30 @@ export function refusalText(kind, names = []) {
       : `${kind}${list.length ? ` ${list.join(', ')}` : ''}`;
   return text.replace(/[\r\n]+/g, ' ').slice(0, 400);
 }
-function emitRefusal(kind, names = []) {
+function emitOutput(lines) {
   const out = process.env.GITHUB_OUTPUT;
   if (!out) return;
   try {
-    appendFileSync(out, `refusal=${refusalText(kind, names)}\n`);
+    appendFileSync(
+      out,
+      lines
+        .map(
+          ([k, v]) =>
+            `${k}=${String(v)
+              .replace(/[\r\n]+/g, ' ')
+              .slice(0, 900)}\n`
+        )
+        .join('')
+    );
   } catch {
     /* the job log still names it */
   }
+}
+function emitRefusal(kind, names = []) {
+  emitOutput([
+    ['verdict', 'refused'],
+    ['refusal', refusalText(kind, names)],
+  ]);
 }
 
 async function main() {
@@ -330,7 +379,8 @@ async function main() {
   const requirements = continuationRequirements();
   const allow = existsSync(ALLOWLIST) ? JSON.parse(readFileSync(ALLOWLIST, 'utf8')) : {};
   const rollback = process.env.ROLLBACK_REQUESTED === 'true';
-  const live = await liveFunctions(names, requirements);
+  const windowFiles = [...windowMigrationCreators(ROOT).keys()];
+  const live = await liveFunctions(names, requirements, windowFiles);
   if (live.unreadable && (continuationTarget || retainedCheckpointTarget || mttDepthTarget)) {
     console.log(
       `::error title=CONTINUATION PREREQUISITES UNCHECKED::${live.unreadable}. Exact target migration histories and any selected frozen-checkpoint custody contract must be proved before this target enters Hetzner.`
@@ -342,9 +392,21 @@ async function main() {
     console.log(
       `::warning title=DATABASE DOORS UNCHECKED::${live.unreadable}. The ${names.length} functions this build calls were not verified against production.`
     );
+    emitOutput([['verdict', 'unchecked']]);
     return 0;
   }
-  const missing = names.filter((n) => !live.found.has(n) && !allow[n]);
+  const absent = names.filter((n) => !live.found.has(n) && !allow[n]);
+  // A rollback restores a build production already ran; it keeps the old
+  // reported-not-blocked policy and is never admitted on a window condition.
+  const window = rollback
+    ? { conditional: [], refused: absent, creators: new Map(), reasons: new Map() }
+    : classifyMissingDoors({
+        root: ROOT,
+        missing: absent,
+        recorded: live.windowRecorded ?? null,
+        mainRef: process.env.ENGINE_DOORS_MAIN_REF || 'refs/remotes/origin/main',
+      });
+  const missing = window.refused;
   let prerequisitesProved = true;
   const unproved = [];
   for (const expected of requirements) {
@@ -407,22 +469,42 @@ async function main() {
       'OK - frozen original attestation history and both exact read-only custody doors are installed.'
     );
   }
+  for (const name of window.conditional) {
+    console.log(
+      `::notice title=CONDITIONAL DATABASE DOOR::${name}() is called by ${doors.get(name).join(', ')} and does not exist in production yet. It is created by the queued daily-maintenance window migration ${window.creators.get(name).join(', ')} (byte-identical to protected main, not in schema_migrations), so it can only install inside the 04:00 break. Admitted on condition: inside the break, after the window install and before the cutover, the host transaction re-reads pg_proc and refuses the release if it is still missing.`
+    );
+  }
+  if (missing.length === 0 && window.conditional.length > 0) {
+    const files = [...new Set(window.conditional.flatMap((n) => window.creators.get(n)))];
+    console.log(
+      `CONDITIONAL - ${window.conditional.length} of ${names.length} database functions this build calls are missing in production, and every one is created by a queued daily-maintenance window migration (${files.join(', ')}). This is not a proof: the release is admitted only on the in-break pg_proc re-check.`
+    );
+    emitOutput([
+      ['verdict', 'conditional'],
+      ['conditional', window.conditional.join(',')],
+      ['conditional_migrations', files.join(',')],
+    ]);
+    return 0;
+  }
   if (missing.length === 0) {
     console.log(
       `OK - all ${names.length} database functions this build calls exist in production.`
     );
+    emitOutput([['verdict', 'proved']]);
     return 0;
   }
   const level = rollback ? 'warning' : 'error';
   for (const name of missing) {
+    const why = window.reasons.get(name);
     console.log(
-      `::${level} title=MISSING DATABASE DOOR::${name}() is called by ${doors.get(name).join(', ')} and does not exist in production. Apply its migration before this build ships.`
+      `::${level} title=MISSING DATABASE DOOR::${name}() is called by ${doors.get(name).join(', ')} and does not exist in production. ${why ? `It cannot be admitted on a window condition: ${why}. ` : ''}Apply its migration before this build ships.`
     );
   }
   if (rollback) {
     console.log(
       'Rollback: reported, not blocked. A rollback restores a build production already ran.'
     );
+    emitOutput([['verdict', 'rollback']]);
     return 0;
   }
   console.log(

@@ -284,8 +284,14 @@ jobs:
       contents: read
     # Phase 6: a refused door names itself in the deploy receipt's reason
     # (e.g. "missing database function fn_x()"), not only in a job log.
+    # A door created by a queued daily-maintenance window migration is a third,
+    # named outcome (verdict=conditional): it can only install inside the break,
+    # so the host transaction re-reads pg_proc for it there before any cutover.
     outputs:
       refusal: ${{ steps.doors.outputs.refusal || '' }}
+      verdict: ${{ steps.doors.outputs.verdict || '' }}
+      conditional: ${{ steps.doors.outputs.conditional || '' }}
+      conditional_migrations: ${{ steps.doors.outputs.conditional_migrations || '' }}
     steps:
       - name: Checkout the requested immutable commit
         uses: actions/checkout@v4
@@ -309,6 +315,10 @@ jobs:
         run: |
           set -euo pipefail
           npm ls pg >/dev/null 2>&1 || npm i pg@8 --no-save --no-audit --no-fund >/dev/null 2>&1 || true
+          # Protected main's bytes prove a queued window migration is the merged
+          # one. A failed fetch admits nothing conditionally; it never passes.
+          git fetch --no-tags --depth=1 origin '+refs/heads/main:refs/remotes/origin/main' \
+            || echo '::warning::protected main could not be fetched; no door can be admitted on a window condition'
           node scripts/ci/check-engine-doors-exist.mjs
 
   deploy:
@@ -635,9 +645,20 @@ jobs:
           RESULT_EMITTED=false
           name_release_exit() {
             local rc=$?
+            local doors=''
             if [ "$RESULT_EMITTED" != true ]; then
+              # A window-migration door the host found still missing inside
+              # the break names itself in the receipt, not only in a log.
+              if [ -r "$RUNNER_TEMP/engine-release-${RUN_KEY:-}.log" ]; then
+                doors="$(sed -n 's/.*FATAL: WINDOW MIGRATION DOORS REFUSED: //p' \
+                  "$RUNNER_TEMP/engine-release-${RUN_KEY:-}.log" | tail -1 | tr -d '\r' | cut -c1-300)"
+              fi
               echo "result=failed:$RELEASE_STAGE" >> "$GITHUB_OUTPUT"
-              echo "failed_stage=$RELEASE_STAGE (exit $rc)" >> "$GITHUB_OUTPUT"
+              if [ -n "$doors" ]; then
+                echo "failed_stage=$RELEASE_STAGE (exit $rc): window migration doors refused: $doors" >> "$GITHUB_OUTPUT"
+              else
+                echo "failed_stage=$RELEASE_STAGE (exit $rc)" >> "$GITHUB_OUTPUT"
+              fi
             fi
           }
           trap name_release_exit EXIT
@@ -1049,6 +1070,9 @@ jobs:
           RELEASE_RESULT: ${{ needs.deploy.outputs.release_result }}
           VERIFIED: ${{ needs.deploy.outputs.verified }}
           RUN_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+          DOORS_VERDICT: ${{ needs['engine-doors'].outputs.verdict }}
+          DOORS_CONDITIONAL: ${{ needs['engine-doors'].outputs.conditional }}
+          DOORS_CONDITIONAL_MIGRATIONS: ${{ needs['engine-doors'].outputs.conditional_migrations }}
         run: |
           set -euo pipefail
           {
@@ -1058,6 +1082,10 @@ jobs:
             echo "- Durable transaction: \`$RELEASE_RESULT\`"
             echo "- Independent exact-SHA proof: \`$VERIFIED\`"
             echo '- Image build: owned and bounded by the durable Hetzner transaction'
+            echo "- Production doors before the break: \`${DOORS_VERDICT:-unknown}\`"
+            if [ "$DOORS_VERDICT" = conditional ]; then
+              echo "- Admitted only on condition: \`$DOORS_CONDITIONAL\` from queued window migration(s) \`$DOORS_CONDITIONAL_MIGRATIONS\`, re-read in pg_proc inside the break before any cutover"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       # A run that ships nothing must say so where a person actually looks.
