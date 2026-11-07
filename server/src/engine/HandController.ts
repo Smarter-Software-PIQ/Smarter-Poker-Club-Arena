@@ -1388,7 +1388,11 @@ export class HandController {
       isFullRaise: isFullRaiseFlag,
       publicNode,
     });
-    this.state.actionHistory.push(record);
+    // Only worker history needs decision provenance. The retained receipt and
+    // nested public event record share the original public action shape.
+    this.state.actionHistory.push(
+      action === 'fold' || origin === 'forced' ? Object.freeze({ ...record, origin }) : record
+    );
 
     // Observe the exact clamped, validated and cent-snapped action before
     // broadcasts/advanceGame can change the current street or turn. A receipt
@@ -4267,13 +4271,21 @@ export class HandController {
       });
   }
 
-  getState(): GameState {
+  getState(options?: { includeActionOrigins?: boolean }): GameState {
     return {
       ...this.state,
       players: this.state.players.map((p) => ({ ...p, cards: [...p.cards] })),
       communityCards: [...this.state.communityCards],
       pots: this.state.pots.map((p) => ({ ...p, eligiblePlayers: [...p.eligiblePlayers] })),
-      actionHistory: [...this.state.actionHistory],
+      // Decision workers need accepted provenance to exclude automatic actions.
+      // Public state continues to expose the hand action without its executor.
+      actionHistory: options?.includeActionOrigins
+        ? [...this.state.actionHistory]
+        : this.state.actionHistory.map((entry) => {
+            if (entry.origin === undefined) return entry;
+            const { origin: _origin, ...publicAction } = entry;
+            return publicAction;
+          }),
     };
   }
 

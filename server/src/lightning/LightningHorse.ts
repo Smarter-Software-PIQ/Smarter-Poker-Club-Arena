@@ -96,7 +96,7 @@ export interface LightningHorseDecision {
 /** The physical engine's snapshot of this turn, for this horse. */
 export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorseDecisionSnapshot {
   const hc = turn.hc;
-  const state = hc.getState();
+  const state = hc.getState({ includeActionOrigins: true });
   const me = state.players.find((p) => p.seat === turn.seat);
   const auth = hc.getAuthoritativeActionState(turn.userId, { asIfToAct: turn.earlyLook === true });
   if (!me || !auth || !auth.canAct)

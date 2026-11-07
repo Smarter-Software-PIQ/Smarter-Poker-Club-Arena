@@ -127,7 +127,7 @@ describe('variant and session durable opponent reads', () => {
 
     // Now simulate 60 preflop fold hands with ZERO river opportunities
     const preflopFoldInc = exploitHandIncrements([
-      { userId: uid, action: 'fold', stage: 'preflop' },
+      { userId: uid, action: 'fold', origin: 'player', stage: 'preflop' },
     ]).get(uid)!;
     for (let i = 0; i < 60; i++) {
       decayAndAddOpportunityScoped(counters, preflopFoldInc);

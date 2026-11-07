@@ -642,6 +642,9 @@ export class HorseMind {
 
     for (let controllerOrdinal = 0; controllerOrdinal < history.length; controllerOrdinal++) {
       const a = history[controllerOrdinal];
+      // Preserve compatibility of individual legacy reads. The shared exploit
+      // reducer separately requires positive source provenance for every fold.
+      if (a.origin === 'forced') continue;
       const preflop = a.stage === 'preflop';
       // V28: the street change must be observed BEFORE the stat update reads
       // streetBettor, or the first action of a new street is judged against
@@ -950,8 +953,14 @@ export class HorseMind {
     // style's evidence at the fast rate so HorseManiacPressure.law.test.ts
     // still holds. See
     // docs/changelog/2026-11-06-opportunity-scoped-decay-with-style-shift-release.md.
-    for (const [userId, increments] of exploitHandIncrements(actions))
-      observeExploitRow(this.exploitCounters, `${scope}|${userId}`, increments, EXPLOIT_ROW_CAP, true);
+    for (const [userId, increments] of exploitHandIncrements(actions, true))
+      observeExploitRow(
+        this.exploitCounters,
+        `${scope}|${userId}`,
+        increments,
+        EXPLOIT_ROW_CAP,
+        true
+      );
   }
 
   /** The decayed exploit counters for (scope, player), for tests and the read frame. */
@@ -2848,6 +2857,7 @@ export class HorseMind {
       | Array<{
           userId?: string;
           action: string;
+          origin?: string;
           amount?: number;
           stage: string;
           /** V43: the engine stamps Date.now() on every record; the tempo
@@ -2930,12 +2940,11 @@ export class HorseMind {
         }
       }
       if (openerId && threeBetIdx > openerIdx) {
-        const s = touch(openerId);
-        s.f3bOpps++;
-        for (let i = threeBetIdx + 1; i < pre.length; i++) {
-          if (pre[i].userId !== openerId) continue;
-          if (pre[i].action === 'fold') s.f3bFolds++;
-          break; // the opener's FIRST response settles it
+        const reply = pre.slice(threeBetIdx + 1).find((a) => a.userId === openerId);
+        if (!(reply?.action === 'fold' && reply.origin === 'forced')) {
+          const s = touch(openerId);
+          s.f3bOpps++;
+          if (reply?.action === 'fold') s.f3bFolds++;
         }
       }
 
@@ -2965,6 +2974,7 @@ export class HorseMind {
             const a = flop[i];
             if (a.userId === preAggr || responded.has(a.userId!)) continue;
             responded.add(a.userId!);
+            if (a.origin === 'forced') continue;
             const s = touch(a.userId!);
             s.cbetOpps++;
             if (a.action === 'fold') s.cbetFolds++;
