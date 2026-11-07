@@ -454,3 +454,21 @@ it('treats re-selecting the shown value as a no-op once the account value is kno
   await act(async () => {});
   expect(state.writes).toHaveLength(0);
 });
+
+it('leaves an identity updater idle while the account preference is loading', async () => {
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'updater'), {
+    wrapper,
+  });
+  await act(async () => {});
+  act(() => view.result.current[1]((previous) => previous));
+  expect(readTableSettingIntent('preference-a', 'page:roster:simpleMode:updater')).toBeNull();
+  await act(async () => resolveRead({ data: { value: false, revision: 7 }, error: null }));
+  expect(view.result.current[0]).toBe(false);
+  view.unmount();
+  await act(async () => {});
+  expect(state.writes).toEqual([]);
+});

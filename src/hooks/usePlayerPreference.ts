@@ -278,7 +278,11 @@ export function usePlayerPreference<T>(
          account's older value (Players stayed on Advanced after tapping
          Simple, post-deploy run 42370089738). Once the account value is
          known, re-selecting the shown value is a no-op as before. */
-      if (Object.is(previous, value) && settledScopeRef.current === scope) return;
+      if (
+        Object.is(previous, value) &&
+        (typeof next === 'function' || settledScopeRef.current === scope)
+      )
+        return;
       const hydration = initialRead.current?.scope === scope ? initialRead.current : null;
       const column = `page:${scopedName}`;
       const held = readTableSettingIntent(owner, column);
