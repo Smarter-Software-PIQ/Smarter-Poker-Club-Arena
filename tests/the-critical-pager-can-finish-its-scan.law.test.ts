@@ -1,9 +1,9 @@
 /**
  * THE CRITICAL PAGER CAN FINISH ITS SCAN.
  *
- * 2026-11-07: fn_sp_critical_scan() returned 500 on every five-minute call
- * from at least 2026-11-06 00:50 UTC (statement timeout, service role 8 s).
- * The pager recorded no page after 2026-11-03. The cause was one read inside
+ * 2026-11-07: fn_sp_critical_scan() timed out (service role 8 s) on 270 of
+ * 288 five-minute calls in a day (edge_logs), and on at least 483 calls back
+ * to 2026-11-06 00:50 UTC. The cause was one read inside
  * fn_sp_midway_free_buy_watch(): the 7-day promo runway sum over chip_ledger,
  * 4.6 s alone, because the only usable index was to_entity_id and the union's
  * wallet row receives ~628k unrelated legs a week.
