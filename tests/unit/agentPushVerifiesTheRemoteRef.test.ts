@@ -1,9 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { gitFixtureEnvironment } from '../helpers/gitFixtureEnvironment';
+
+// Load headroom (2026-11-07): each case builds and pushes real Git fixtures.
+// Under the full pre-push suite the first case took 48s against the 30s
+// default. Raise only the per-case timeout; every assertion is unchanged.
+vi.setConfig({ testTimeout: 120_000 });
 
 // scripts/agent-push.sh: push through the remote NAME, then prove the remote
 // ref equals HEAD. See docs/changelog/2026-11-05-agent-push-verifies-the-remote-ref.md.
