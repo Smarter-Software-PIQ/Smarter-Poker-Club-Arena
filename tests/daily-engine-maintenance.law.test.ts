@@ -1,11 +1,17 @@
 import { queuedDailyRelease } from '../scripts/ci/daily-engine-provenance.mjs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
+
+// Load headroom (2026-11-07): this file spawns dozens of real bash/python
+// fixtures with no deadline of their own, so under the full pre-push suite a
+// case can pass 30s on wall clock alone. Raise only the per-case timeout for
+// this file; no assertion, fixture or production deadline changes.
+vi.setConfig({ testTimeout: 120_000 });
 
 const root = process.cwd();
 const workflow = parse(
