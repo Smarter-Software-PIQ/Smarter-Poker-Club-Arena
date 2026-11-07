@@ -29,6 +29,10 @@ window):
 - `owner-maintenance-windows.json`: one new engine entry, earliest-certified,
   `supersedesPhase1Schedule`, no migrations, 22:30Z to 04:30Z, `contains`
   `4a7dfd6df7`, release witness = sha256 of the new floor.
+- `playerNoticeAt` 22:10Z (twenty minutes before `notBefore`, the booked-window
+  notice law from #9952); `src/utils/ownerMaintenanceNotices.json` regenerated so
+  the client banner names the window. The release is dispatched only after the
+  client publication carrying that notice is live.
 - `activation-floor.json` moved to this window.
 - `engine-release-activation-floor.py` NOV7 owner id, floor digest and order
   digest; `engine-release-seal.py` claim name, predecessor `391f7bc0` and expiry;
