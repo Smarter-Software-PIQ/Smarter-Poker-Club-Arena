@@ -2263,6 +2263,78 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/tree/record/danimal-free-buy-make-good",
       "refusedBy": [],
       "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261106213809') returns md5 3e257c8e4f72885f947200f67bdee4e2, identical to this file. The owner-approved (2026-11-06 15:36 CT) 6.75-chip make-good to Danimal for Afternoon Free Buy 74ba8130 is paid exactly once: one wallet_credit_idempotency row, one chip_ledger leg union_bank->player_wallet 6.75 at 2026-11-06T21:38:09Z, ca_manual_adjustments settled 6.75, one resolved financial_alerts row. check-definer-authorization, check-money-trigger-declared and check-no-new-band-aids raise no finding. No migration is replayed: the applier answers ALREADY-APPLIED for this version, and the body itself refuses a second run ('make-good already paid'). No production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261107130545",
+      "name": "a_refused_league_matchup_is_not_a_broken_one",
+      "file": "supabase/migrations/20261107130545_a_refused_league_matchup_is_not_a_broken_one.sql",
+      "md5": "a2d0315fbad73fb992c5ce52c6c9df34",
+      "appliedToProductionAt": "2026-11-07T13:05:45Z",
+      "recoveredOn": "2026-11-07",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9858",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261107130545') returns md5 a2d0315fbad73fb992c5ce52c6c9df34, identical to this file. The file declares no function, trigger or grant; it edits fn_run_horse_daily_audit in place, which on production is SECURITY DEFINER with no anon or authenticated EXECUTE. No migration is replayed: the applier answers ALREADY-APPLIED for this version. No production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261107130621",
+      "name": "the_v31_solver_program_is_formally_parked",
+      "file": "supabase/migrations/20261107130621_the_v31_solver_program_is_formally_parked.sql",
+      "md5": "6875363500eda1b13181727e4687b51c",
+      "appliedToProductionAt": "2026-11-07T13:06:21Z",
+      "recoveredOn": "2026-11-07",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9858",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261107130621') returns md5 6875363500eda1b13181727e4687b51c, identical to this file. fn_audit_gto_v31_certified(date) on production: SECURITY DEFINER, no anon or authenticated EXECUTE. gto_v31_program_state: RLS on, no anon or authenticated SELECT. fn_definer_exposure_audit() returns no finding for either. No migration is replayed: the applier answers ALREADY-APPLIED for this version. No production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261107130745",
+      "name": "the_league_loop_defers_refusals_to_their_own_instrument",
+      "file": "supabase/migrations/20261107130745_the_league_loop_defers_refusals_to_their_own_instrument.sql",
+      "md5": "495250b7879ec9a3e51dd391801d8389",
+      "appliedToProductionAt": "2026-11-07T13:07:45Z",
+      "recoveredOn": "2026-11-07",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9858",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261107130745') returns md5 495250b7879ec9a3e51dd391801d8389, identical to this file. The file declares no function, trigger or grant; it edits fn_run_horse_daily_audit in place (SECURITY DEFINER, no anon or authenticated EXECUTE on production). No migration is replayed: the applier answers ALREADY-APPLIED for this version. No production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261107131013",
+      "name": "declare_the_cron_failure_watch_detector_receipt",
+      "file": "supabase/migrations/20261107131013_declare_the_cron_failure_watch_detector_receipt.sql",
+      "md5": "ebdf37511250f0adf53b482d638d8b46",
+      "appliedToProductionAt": "2026-11-07T13:10:13Z",
+      "recoveredOn": "2026-11-07",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9858",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261107131013') returns md5 ebdf37511250f0adf53b482d638d8b46, identical to this file. Declaration row only: no function, trigger or grant is created. The production text names 20261107131500 inside its declared_ref string, as installed; the recording keeps those bytes rather than correcting them. No migration is replayed: the applier answers ALREADY-APPLIED for this version. No production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261107140000",
+      "name": "the_two_hundred_k_rake_mark_is_measured_not_just_declared",
+      "file": "supabase/migrations/20261107140000_the_two_hundred_k_rake_mark_is_measured_not_just_declared.sql",
+      "md5": "be8c2c1d83bff6b277d4b604ffa759b7",
+      "appliedToProductionAt": "2026-11-07T14:00:00Z",
+      "recoveredOn": "2026-11-07",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9858",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261107140000') returns md5 be8c2c1d83bff6b277d4b604ffa759b7, identical to this file. fn_horse_cash_rake_pace(uuid,timestamptz) and fn_audit_horse_cash_rake_pace(date): SECURITY DEFINER, no anon or authenticated EXECUTE on production. horse_cash_rake_target: RLS on, no anon or authenticated SELECT. fn_definer_exposure_audit() returns no finding. No migration is replayed: the applier answers ALREADY-APPLIED for this version. No production operation is dispatched by this recording."
+    },
+    {
+      "version": "20261107140500",
+      "name": "a_proven_tournament_finish_stops_being_unknown",
+      "file": "supabase/migrations/20261107140500_a_proven_tournament_finish_stops_being_unknown.sql",
+      "md5": "124441ae68700f258368ba20d8cad22f",
+      "appliedToProductionAt": "2026-11-07T14:05:00Z",
+      "recoveredOn": "2026-11-07",
+      "recoveredFrom": "array_to_string(supabase_migrations.schema_migrations.statements, chr(10)), byte for byte",
+      "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9858",
+      "refusedBy": [],
+      "liveVerdict": "Recovered existing installed history only. fn_ca_migration_text('20261107140500') returns md5 124441ae68700f258368ba20d8cad22f, identical to this file. fn_ca_resolve_proven_tournament_finishes(): SECURITY DEFINER, no anon or authenticated EXECUTE on production; fn_definer_exposure_audit() returns no finding. Its hourly cron is retired by a later migration because #9879 (class 7 of fn_resolve_settled_financial_alerts) closes the same alarm on strictly stronger evidence. No migration is replayed: the applier answers ALREADY-APPLIED for this version. No production operation is dispatched by this recording."
     }
   ]
 }
