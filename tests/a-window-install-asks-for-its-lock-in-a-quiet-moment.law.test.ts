@@ -42,6 +42,7 @@ import {
   DOOR_INSTALL_DEADLINE_SECONDS,
   START_RESERVE_SECONDS,
   WINDOW_LOCK_TIMEOUT_MS,
+  WINDOW_SETTLE_SECONDS,
 } from '../scripts/ci/maintenance-window-migrations.mjs';
 
 const root = resolve(__dirname, '..');
@@ -144,6 +145,14 @@ describe('the deadline is derived from the break clocks', () => {
     // Measured 2026-11-07: 151 PostgREST reloads, max 5.9 s.
     expect(SCHEMA_CACHE_RELOAD_SECONDS).toBeGreaterThanOrEqual(6);
     expect(DOOR_INSTALL_DEADLINE_SECONDS).toBeGreaterThan(0);
+  });
+
+  it('leaves the queue time to install after the per-minute cron burst settles (#9848)', () => {
+    // The window opens WINDOW_SETTLE_SECONDS into the break. Six files took
+    // 0.5-1.0 s each to install (2026-11-02, 2026-11-04), so at least 6 s must
+    // remain before the door deadline. A longer settle would leave no window
+    // install able to feed the same morning's release: change both together.
+    expect(DOOR_INSTALL_DEADLINE_SECONDS - WINDOW_SETTLE_SECONDS).toBeGreaterThanOrEqual(6);
   });
 
   it('never waits past the door deadline, its own cap, or the window start reserve', () => {

@@ -98,7 +98,11 @@ the reason is written beside it.
 **Root cause 2.** Nothing bounded the installer against the release's
 admission budget.
 
-**Fix 2.** The installer's new wait (Risk 3) is bounded by
+**Fix 2.** #9848 (merged alongside this work) opens the window only
+`WINDOW_SETTLE_SECONDS` = 20 s into the break, after the per-minute pg_cron
+burst. That leaves 28 - 20 = 8 s for the queue to install and still feed the
+same morning's release; a law test now pins at least 6 s, the measured cost of
+six files. The installer's new wait (Risk 3) is bounded by
 `DOOR_INSTALL_DEADLINE_SECONDS` = 40 - 6 - 6 = 28 s into the break:
 
 - 40 s is the admission budget.
@@ -113,7 +117,9 @@ move. `tests/the-break-clocks-agree.law.test.ts` is untouched and passes.
 
 **Root cause.** `scripts/ci/install-window-migrations.mjs` sent each file at
 whatever instant the previous one finished, which was the top-of-the-hour
-pg_cron burst. A single 1 s `lock_timeout` attempt arriving in the middle of a
+pg_cron burst. #9848 moves the first attempt past that burst (20 s settle). It
+does not cover the holders that run through the whole break: the hand_history
+prune and the stall watch. A single 1 s `lock_timeout` attempt arriving in the middle of a
 multi-second reader transaction is refused. By design the first refusal holds
 every later file for a day.
 
