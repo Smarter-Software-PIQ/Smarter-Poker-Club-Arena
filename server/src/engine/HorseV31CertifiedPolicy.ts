@@ -97,6 +97,29 @@ export interface V31ReplayState {
   decision: HorseDecision;
 }
 
+/**
+ * One spot the certified playbook was asked about (R8 density pre-flight,
+ * GtoV31DensityPreflight.ts): exactly the lookup the consult makes, and
+ * whether a loaded cell answered it. gtoV31DemandCell turns it into the cell
+ * key a sealed cell for this spot would carry.
+ */
+export interface V31DemandSpot {
+  street: 'flop' | 'turn' | 'river';
+  family: GtoV31GameFamily;
+  objective: GtoV31Objective;
+  utilityContext: string;
+  tableSize: number;
+  potType: string;
+  heroPosition: string;
+  opponentPosition: string;
+  stackBB: number;
+  board: HorseGameStateV2['communityCards'];
+  nodeRole: string;
+  facingKind: string;
+  facingSizeBucket: string;
+  hit: boolean;
+}
+
 /** The fields of HorseDecideOpts the consult reads, and only those. */
 export const V31_REPLAY_OPTS = Object.freeze([
   'v53Pressure',
@@ -222,7 +245,11 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
     // river - is played by the exploit layer, not by a solver cell built
     // for a balanced opponent. Null read, no change (neutrality).
     !v53SolverHandOff();
-  const v31StoreEmpty = v31Eligible && gtoV31StoreIsEmpty(opts.gtoV31DatasetChecksum);
+  // An offline demand probe (opts.onV31Demand, never set live) consults past an
+  // empty store: it records which cell each spot asks for, and the empty store
+  // still misses, so the decision falls through exactly as below.
+  const v31StoreEmpty =
+    v31Eligible && !opts.onV31Demand && gtoV31StoreIsEmpty(opts.gtoV31DatasetChecksum);
   if (v31StoreEmpty && tele15) noteFire('v31_certified_skip_empty_store');
   if (v31Eligible && !v31StoreEmpty) {
     const opponent31 = opponents[0];
@@ -331,6 +358,36 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
             datasetChecksum: opts.gtoV31DatasetChecksum,
           })
         : null;
+    if (
+      opts.onV31Demand &&
+      context31 &&
+      family31 &&
+      objective31 &&
+      utility31 &&
+      heroSeat31 &&
+      opponentSeat31 &&
+      stackBB31 !== null &&
+      heroSeat31.tableSize === opponentSeat31.tableSize &&
+      gtoV31HasHeadsUpPostflopLine(gs.actionHistory, player.seat, opponent31.seat) &&
+      !tooDeep31
+    ) {
+      opts.onV31Demand({
+        street,
+        family: family31,
+        objective: objective31,
+        utilityContext: utility31,
+        tableSize: heroSeat31.tableSize,
+        potType: potType31,
+        heroPosition: heroSeat31.position,
+        opponentPosition: opponentSeat31.position,
+        stackBB: stackBB31,
+        board: structuredClone(gs.communityCards),
+        nodeRole: context31.nodeRole,
+        facingKind: context31.facingKind,
+        facingSizeBucket: context31.facingSizeBucket,
+        hit: direct31?.hit === true,
+      });
+    }
     if (direct31?.hit && stackBB31 !== null) {
       if (tele15 && !cellDepthIsPrimary(direct31.cell, stackBB31, direct31.depthBucket)) {
         noteFire('gto_depth_fallback');
