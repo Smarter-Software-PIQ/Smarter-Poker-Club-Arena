@@ -190,7 +190,13 @@ describe('the lobby comes first, the cash-out follows', () => {
     expect(from).toBeGreaterThan(-1);
     const body = multi.slice(from, multi.indexOf("case 'sitout'", from));
     const nav = body.indexOf('navigate(dest)');
-    const emit = body.indexOf("action: 'FORCE_LEAVE_TABLE'");
+    // HIT AND RUN (owner 2026-11-06): a seat owing hands is asked on its own
+    // table first (its FORCE_LEAVE_TABLE, with no lobby); every other last
+    // table still puts the lobby up before the cash-out is requested.
+    const owed = body.indexOf('if (handsOwedAt(tabId) !== null) {');
+    expect(owed).toBeGreaterThan(-1);
+    expect(owed).toBeLessThan(nav);
+    const emit = body.lastIndexOf("action: 'FORCE_LEAVE_TABLE'");
     expect(nav).toBeGreaterThan(-1);
     expect(emit).toBeGreaterThan(-1);
     expect(nav, 'the lobby goes up before the cash-out is even requested').toBeLessThan(emit);

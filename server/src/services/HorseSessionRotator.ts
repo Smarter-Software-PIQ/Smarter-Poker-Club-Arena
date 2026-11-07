@@ -124,11 +124,24 @@ export interface RotatorLeaveResult {
   immediate?: boolean;
   code?: 'LEAVE_LOCKED' | 'STALE_OCCUPANCY' | 'LIGHTNING_HAND_IN_PROGRESS';
   stay_remaining_ms?: number;
+  /** HIT AND RUN: hands still owed in profit (the refusal asks for confirmation). */
+  hands_remaining?: number;
+  needs_confirmation?: boolean;
 }
 
 /** Minimal engine surface the rotator needs (matches ServerTableEngine). */
 export interface RotatorEngine {
-  leaveTable(userId: string): RotatorLeaveResult | Promise<RotatorLeaveResult>;
+  leaveTable(
+    userId: string,
+    opts?: { confirmHandCount?: boolean }
+  ): RotatorLeaveResult | Promise<RotatorLeaveResult>;
+  /**
+   * HIT AND RUN (owner 2026-11-06): hands this seat still owes in profit
+   * before it may leave, as the engine's mirror reads it now. A horse is a
+   * player (CLAUDE.md 10.5): it stays to play them, exactly as a person who
+   * does not confirm an early leave does.
+   */
+  hitRunHandsOwed?(userId: string): number;
   /** V8: hand-boundary-safe top-up (queued mid-hand; wallet-debited). */
   addChips?(
     userId: string,
@@ -249,7 +262,17 @@ export class HorseSessionRotator {
   }
 
   /** Is this seat inside a stay clock the door already told us about? */
-  private isLeaveHeld(tableId: string, userId: string, now: number = Date.now()): boolean {
+  private isLeaveHeld(
+    tableId: string,
+    userId: string,
+    now: number = Date.now(),
+    /** False for the two departures that confirm the count (lone stand, tournament). */
+    countHands: boolean = true
+  ): boolean {
+    // HIT AND RUN: a seat still owing hands in profit is not asked to leave;
+    // asking would only be refused again (the person's version is the
+    // full-screen confirmation, which a horse that is not leaving never sees).
+    if (countHands && this.owesHands(tableId, userId)) return true;
     const until = this.leaveHeld.get(HorseSessionRotator.breakKey(tableId, userId));
     if (until === undefined) return false;
     if (until <= now) {
@@ -325,8 +348,45 @@ export class HorseSessionRotator {
       return;
     }
     if (result.code === 'LEAVE_LOCKED') {
-      const remaining = Math.max(0, Number(result.stay_remaining_ms) || 0);
+      // HIT AND RUN: owed hands are played, not waited out on a clock. A
+      // Lightning seat's count moves at its own settlements, so the door is
+      // asked again only after roughly one hand per owed hand has had time.
+      const hands = Math.max(0, Math.floor(Number(result.hands_remaining) || 0));
+      const remaining =
+        hands > 0
+          ? HorseSessionRotator.HIT_RUN_RETRY_MS_PER_HAND * hands
+          : Math.max(0, Number(result.stay_remaining_ms) || 0);
       this.leaveHeld.set(key, Date.now() + remaining + 1_000);
+    }
+  }
+
+  /** HIT AND RUN: roughly one hand's time per owed hand before asking again. */
+  static readonly HIT_RUN_RETRY_MS_PER_HAND = 20_000;
+
+  /**
+   * The leave door's extra argument for a departure that confirms the hand
+   * count (lone stand, tournament): none at all for a seat that owes nothing,
+   * so the ordinary call is unchanged.
+   */
+  private confirmIfOwed(
+    tableId: string,
+    userId: string,
+    engine: RotatorEngine
+  ): [] | [{ confirmHandCount: true }] {
+    return this.owesHands(tableId, userId, engine) ? [{ confirmHandCount: true }] : [];
+  }
+
+  /** The engine's live answer: this seat still owes hands in profit. */
+  private owesHands(
+    tableId: string,
+    userId: string,
+    engine: RotatorEngine | null | undefined = undefined
+  ): boolean {
+    try {
+      const e = engine === undefined ? this.getEngine(tableId) : engine;
+      return (e?.hitRunHandsOwed?.(userId) ?? 0) > 0;
+    } catch {
+      return false;
     }
   }
 
@@ -1436,7 +1496,7 @@ export class HorseSessionRotator {
         if (!best || p > best.p) best = { seat, p };
       }
 
-      if (best && Math.random() < best.p) {
+      if (best && Math.random() < best.p && !this.owesHands(tableId, best.seat.user_id, engine)) {
         try {
           const result = await engine.leaveTable(best.seat.user_id);
           if (!this.lifecycleIsCurrent(generation)) return;
@@ -1529,7 +1589,10 @@ export class HorseSessionRotator {
       // seat, humanPresent means the one seat is not a horse.)
       if (!horseIds.has(seat.user_id)) continue;
       // Already leaving, or inside a stay clock the door has named.
-      if (HorseSessionRotator.isLeaving(seat) || this.isLeaveHeld(tableId, seat.user_id, now))
+      if (
+        HorseSessionRotator.isLeaving(seat) ||
+        this.isLeaveHeld(tableId, seat.user_id, now, false)
+      )
         continue;
       if (!this.getEngine(tableId)) continue;
       const minutesSeated = (now - new Date(seat.joined_at).getTime()) / 60000;
@@ -1610,7 +1673,13 @@ export class HorseSessionRotator {
         // THE SAME DOOR A HUMAN USES. No hand can be in flight at a table of
         // one, so this cashes out immediately; if one somehow is, leaveTable
         // folds and cashes out at the hand boundary like any other leave.
-        const result = await engine.leaveTable(userId);
+        // HIT AND RUN: alone at the table there is nobody to have hit and run
+        // from; a person here confirms and is released at once, and so is a
+        // horse.
+        const result = await engine.leaveTable(
+          userId,
+          ...this.confirmIfOwed(c.tableId, userId, engine)
+        );
         if (!this.lifecycleIsCurrent(generation)) return stood;
         this.noteLeaveResult(c.tableId, userId, result);
         if (result.success) {
@@ -1745,7 +1814,8 @@ export class HorseSessionRotator {
         const uid = String(x.user_id ?? '');
         if (!bookingsByHorse.has(uid)) continue;
         if (departedThisCycle.has(`${tableId}:${uid}`)) continue;
-        if (HorseSessionRotator.isLeaving(x) || this.isLeaveHeld(tableId, uid, now)) continue;
+        if (HorseSessionRotator.isLeaving(x) || this.isLeaveHeld(tableId, uid, now, false))
+          continue;
         const joined = Date.parse(String(x.joined_at ?? ''));
         if (!cashSeatsByHorse.has(uid)) cashSeatsByHorse.set(uid, []);
         cashSeatsByHorse.get(uid)!.push({
@@ -1775,7 +1845,13 @@ export class HorseSessionRotator {
         const engine = this.getEngine(s.tableId);
         if (!engine) continue;
         try {
-          const result = await engine.leaveTable(uid);
+          // HIT AND RUN: a horse with a booked tournament leaves the way a
+          // person would - it confirms, and its cash seat is blinded off for
+          // the owed hands while it plays the tournament.
+          const result = await engine.leaveTable(
+            uid,
+            ...this.confirmIfOwed(s.tableId, uid, engine)
+          );
           if (!this.lifecycleIsCurrent(generation)) return left;
           this.noteLeaveResult(s.tableId, uid, result);
           if (result.success) {

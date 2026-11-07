@@ -242,13 +242,59 @@ wait_dealing() {  # wait until the engine reports hands dealt in its window
   return 1
 }
 
-wait_no_break() {  # do not start a trial inside the Backup's own scheduled break
-  local deadline=$(( $(date +%s) + 900 ))
-  while [ "$(date +%s)" -lt "$deadline" ]; do
-    local p; p=$(maintenance_field phase)
-    case "$p" in last_hand|counting_down|pausing) sleep 10 ;; *) frozen || return 0; sleep 10 ;; esac
+wait_pretrial_dealing() {
+  # The old sequential waits allowed 300 seconds for play plus 900 for maintenance.
+  local baseline current sha="$1"
+  baseline=$(swap_target_identity "$sha") || return 1
+  local start now previous eligible=0 was_playing=0 since h phase hands live db
+  start=$(date +%s); previous=$start; since=$((start + 1))
+  while :; do
+    now=$(date +%s)
+    (( now - start < 1200 )) || return 1
+    eligible=$((eligible + was_playing * (now - previous)))
+    (( eligible < 300 )) || return 1
+    previous=$now
+    h=$(health) || return 1
+    phase=$(printf '%s' "$h" | health_field maintenance.phase) || return 1
+    live=$(printf '%s' "$h" | health_field liveness) || return 1
+    case "$live" in ok|standby) ;; *) return 1 ;; esac
+    case "$phase" in last_hand|counting_down|pausing|idle) ;; *) return 1 ;; esac
+    # A single database snapshot also catches an announcement between health and SQL.
+    db=$(psql_db -At -v since="$since" <<'SQL_PRETRIAL'
+\set QUIET on
+SET statement_timeout='5s';
+WITH gate AS MATERIALIZED (SELECT public.fn_platform_frozen() AS frozen)
+SELECT CASE
+  WHEN frozen IS NULL THEN 'unknown'
+  WHEN frozen OR EXISTS (SELECT FROM public.engine_maintenance_break WHERE id)
+    THEN 'maintenance'
+  WHEN EXISTS (SELECT FROM public.hand_history WHERE created_at > to_timestamp(:'since'::bigint))
+    THEN 'hand'
+  ELSE 'waiting' END FROM gate;
+SQL_PRETRIAL
+    ) || return 1
+    case "$db" in maintenance|waiting|hand) ;; *) return 1 ;; esac
+    if [ "$phase" != idle ] || [ "$db" = maintenance ]; then
+      was_playing=0
+      since=0
+    else
+      was_playing=1
+      if [ "$since" = 0 ]; then
+        # Start a new evidence interval after observing the release.
+        since=$((now + 1))
+      elif [ "$db" = hand ]; then
+        hands=$(printf '%s' "$h" | health_field dealRate.handsInWindow) || return 1
+        if [[ "$hands" =~ ^[0-9]+$ ]] && [ "$hands" -gt 0 ]; then
+          current=$(swap_target_identity "$sha") || return 1
+          [ "$current" = "$baseline" ] || return 1
+          now=$(date +%s)
+          (( now - start < 1200 && eligible + now - previous < 300 ))
+          return
+        fi
+      fi
+    fi
+    sleep 5
   done
-  return 1
 }
 
 request_break() {  # a real recovery-window break, requested from inside the container
@@ -272,8 +318,7 @@ trial_break() {
   valid_sha "$sha"
   [ "$(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}}' "$CONTAINER" 2>/dev/null)" = "$sha" ] || cmd_run "$sha" || return 1
   wait_live 600 >/dev/null || { trial_verdict break fail ',"reason":"never_live"'; return 1; }
-  wait_dealing 300 || { trial_verdict break fail ',"reason":"never_dealt_before_break"'; return 1; }
-  wait_no_break || { trial_verdict break fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
+  wait_pretrial_dealing "$sha" || { trial_verdict break fail ',"reason":"never_dealt_before_break"'; return 1; }
   local seats_before
   t0=$(date +%s)
   request_break >/dev/null || { trial_verdict break fail ',"reason":"break_request_refused"'; return 1; }
@@ -295,8 +340,7 @@ trial_swap() {
   valid_sha "$from"; valid_sha "$to"
   cmd_run "$from" || return 1
   wait_live 600 >/dev/null || { trial_verdict swap fail ',"reason":"from_never_live"'; return 1; }
-  wait_dealing 300 || { trial_verdict swap fail ',"reason":"from_never_dealt"'; return 1; }
-  wait_no_break || { trial_verdict swap fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
+  wait_pretrial_dealing "$from" || { trial_verdict swap fail ',"reason":"from_never_dealt"'; return 1; }
   cmd_build "$to" >/dev/null || { trial_verdict swap fail ',"reason":"to_build_failed"'; return 1; }
   local seats_before count_before post_boot seat_owner target_id adoption_state
   t0=$(date +%s)
@@ -342,9 +386,8 @@ trial_table_kill() {
   valid_sha "$sha"
   [ "$(docker inspect -f '{{index .Config.Labels "com.smarterpoker.standby.sha"}}' "$CONTAINER" 2>/dev/null)" = "$sha" ] || cmd_run "$sha" || return 1
   wait_live 600 >/dev/null || { trial_verdict table-kill fail ',"reason":"never_live"'; return 1; }
-  wait_dealing 300 || { trial_verdict table-kill fail ',"reason":"never_dealt"'; return 1; }
+  wait_pretrial_dealing "$sha" || { trial_verdict table-kill fail ',"reason":"never_dealt"'; return 1; }
   restarts_before=$(docker inspect -f '{{.RestartCount}}' "$CONTAINER") || return 1
-  wait_no_break || { trial_verdict table-kill fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
   tok=$(fault_token)
   local seats_before; seats_before=$(seat_fingerprint)
   # Only an actively dealing horse-only table accepts a kill; try tables until n are down.

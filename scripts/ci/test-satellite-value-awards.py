@@ -201,6 +201,14 @@ def main():
   if code==0 or 'SATELLITE_LIVE_FIELD_PREIMAGE_CHANGED' not in error: raise ValueError('migration replay must refuse changed source')
   e.sql(db,file=live_scene,label='live-field-new-green',seconds=180)
   e.sql(db,file=single_live_scene,label='single-live-field-new-green',seconds=180)
+  refusal_scene=output/'target-refusals.sql'
+  refusal_scene.write_text(seed+diamond_seed+creator+diamond_creator+(fixture/'target-refusal-cases.sql').read_text()+"\nROLLBACK;\n")
+  code,_,error=e.sql(db,file=refusal_scene,label='target-refusal-old-red',seconds=180,check=False)
+  if code==0 or 'target refusal lacks expected invariant players_mismatch:' not in error:
+   raise ValueError('expected undifferentiated original refusal: '+error[-2500:])
+  diagnostic=next((root/'supabase/migrations').glob('*_satellite_refusals_identify_the_failed_target_invariant.sql'))
+  e.sql(db,file=diagnostic,label='target-refusal-migration')
+  e.sql(db,file=refusal_scene,label='target-refusal-new-green',seconds=180)
   qualify_concurrent_consumption(e,root,native,db,output,seed,scene.read_text(),diamond_seed,(fixture/'native-diamond-cases.sql').read_text())
   e.report.update(passed=True,status='passed')
  finally:

@@ -89,6 +89,7 @@ import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageS
 import { titleCase } from '../../utils/titleCase';
 import { compactChips } from '../../utils/format';
 import PageHelp from '../../components/help/PageHelp';
+import ClubHitRunPanel from './ClubHitRunPanel';
 import styles from './ClubDataPage.module.css';
 import {
   CLUB_GAMES_UNAVAILABLE_COPY,
@@ -1012,6 +1013,11 @@ export default function ClubDataPage() {
   const clubNameVersion = useRef(0);
   const gamesMoreRef = useRef(false);
   const snapshotRef = useRef<Snapshot | null>(null);
+  const verifiedGameSummaryRef = useRef<{
+    scope: string;
+    sort: GameSort;
+    snapshot: Snapshot;
+  } | null>(null);
   const gameCursorRef = useRef<PageCursor | null>(null);
   const prefetchedGamePageRef = useRef<PrefetchedGamePage | null>(null);
   const prefetchedGameRequestRef = useRef<PrefetchedGameRequest | null>(null);
@@ -1105,6 +1111,15 @@ export default function ClubDataPage() {
     [startDate, endDate, playerSort]
   );
   const gameScopeKey = [userId, clubUuid, gameCacheKey].join(':');
+  const gameSummaryScope = JSON.stringify([
+    userId,
+    clubUuid,
+    startDate,
+    endDate,
+    game,
+    stakes,
+    search,
+  ]);
   const playerScopeKey = [userId, clubUuid, playerCacheKey].join(':');
   const invoiceCacheKey = 'kind=invoices';
   const exportViewKey = [
@@ -1158,6 +1173,7 @@ export default function ClubDataPage() {
     setClubName('');
     setSnapshot(null);
     snapshotRef.current = null;
+    verifiedGameSummaryRef.current = null;
     setGameCursor(null);
     gameCursorRef.current = null;
     prefetchedGamePageRef.current = null;
@@ -1266,7 +1282,11 @@ export default function ClubDataPage() {
   }, [clubUuid, isHydrating, userId]);
 
   const load = useCallback(
-    async (showSpinner: boolean, preserveOnError = false): Promise<boolean> => {
+    async (
+      showSpinner: boolean,
+      preserveOnError = false,
+      allowSortSummary = false
+    ): Promise<boolean> => {
       if (!clubUuid || isHydrating || !userId || restoredGameKeyRef.current !== gameScopeKey)
         return false;
       // Pagination owns its cursor while it is in flight. A heartbeat is a
@@ -1300,30 +1320,46 @@ export default function ClubDataPage() {
         backgroundLedgerInFlight.current = true;
       }
       setGamesPageError(null);
+      // Sorting changes row order, not the verified totals. Reuse only the
+      // immediately preceding successful query's same-user/club/filter scope.
+      // A same-sort refresh (manual, heartbeat or realtime) always reads anew
+      // and retires this handoff before starting, including on failure.
+      const heldSummary = verifiedGameSummaryRef.current;
+      const sortOnlySummary =
+        allowSortSummary &&
+        gameSort !== 'recent' &&
+        heldSummary?.scope === gameSummaryScope &&
+        heldSummary.sort !== gameSort
+          ? heldSummary.snapshot
+          : null;
+      if (!sortOnlySummary) verifiedGameSummaryRef.current = null;
       try {
         // The snapshot already owns the optimized recent-row query. Running a
         // second 42k-row page sort beside it doubled cold database pressure and
         // could cancel both statements before the first paint. Recent is the
         // default view, so let one bounded RPC return its summary, count, and
-        // first 100 rows. Non-recent sorts still use the page RPC in parallel.
-        const snapshotRequest = coldRead(
-          () =>
-            supabase.rpc('ca_club_data_snapshot_v2', {
-              p_club_id: clubUuid,
-              p_start: startDate,
-              p_end: endDate,
-              p_game: game,
-              p_stakes: stakes,
-              p_search: search || null,
-              // Keep first paint inside the production-proven 100-row budget.
-              // The next Recent slice is warmed only after these rows settle,
-              // so a continuation can never make the initial ledger heavier.
-              p_limit: gameSort === 'recent' ? GAME_PAGE_SIZE : 1,
-            }),
-          'Club data request timed out',
-          3,
-          mountedRef
-        );
+        // first 100 rows. A fresh ranked scope still reads both contracts; a
+        // sort-only transition needs only the authenticated ranked-page RPC.
+        const snapshotRequest = sortOnlySummary
+          ? Promise.resolve({ data: sortOnlySummary, error: null })
+          : coldRead(
+              () =>
+                supabase.rpc('ca_club_data_snapshot_v2', {
+                  p_club_id: clubUuid,
+                  p_start: startDate,
+                  p_end: endDate,
+                  p_game: game,
+                  p_stakes: stakes,
+                  p_search: search || null,
+                  // Keep first paint inside the production-proven 100-row budget.
+                  // The next Recent slice is warmed only after these rows settle,
+                  // so a continuation can never make the initial ledger heavier.
+                  p_limit: gameSort === 'recent' ? GAME_PAGE_SIZE : 1,
+                }),
+              'Club data request timed out',
+              3,
+              mountedRef
+            );
         const pageRequest =
           gameSort === 'recent'
             ? Promise.resolve(null)
@@ -1455,6 +1491,11 @@ export default function ClubDataPage() {
           setError(null);
           setSnapshot(nextSnapshot);
           snapshotRef.current = nextSnapshot;
+          verifiedGameSummaryRef.current = {
+            scope: gameSummaryScope,
+            sort: gameSort,
+            snapshot: nextSnapshot,
+          };
           setGameCursor(nextCursor);
           gameCursorRef.current = nextCursor;
           setGamesHasMore(nextHasMore);
@@ -1577,6 +1618,7 @@ export default function ClubDataPage() {
       search,
       gameSort,
       expectedGameSnapshot,
+      gameSummaryScope,
       isHydrating,
       userId,
       gameCacheKey,
@@ -1642,7 +1684,7 @@ export default function ClubDataPage() {
   useEffect(() => {
     if (!clubUuid || isHydrating || !userId) return;
     const restored = restoredGameCacheHitRef.current;
-    void load(!restored, restored);
+    void load(!restored, restored, true);
   }, [load, clubUuid, gameCacheKey, isHydrating, userId]);
 
   // Players are fetched only when that tab is open. It is a second scan over
@@ -3578,6 +3620,8 @@ export default function ClubDataPage() {
 
         {/* ── The ledger: games and players ──────────────────────────────── */}
       </div>
+      {/* HIT AND RUN (owner 2026-11-06): members owing hands before leaving. */}
+      <ClubHitRunPanel clubId={clubUuid} className={styles.console} />
       <SpadeConsole
         eyebrow="Games And Players"
         title="Ledger"

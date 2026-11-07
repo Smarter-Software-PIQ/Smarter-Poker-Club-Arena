@@ -205,10 +205,11 @@ test('both club views keep receiving rows and one survives the other unmounting'
       { timeout: 45_000 }
     );
   } catch (error) {
-    await info.attach('row-editor-readiness.json', {
+    await info.attach('row-owner-editor-readiness.json', {
       body: JSON.stringify({ pathname: new URL(editor.url()).pathname, detailStatus }),
       contentType: 'application/json',
     });
+    await editor.close();
     throw error;
   }
   const originalNickname = await nickname.inputValue();

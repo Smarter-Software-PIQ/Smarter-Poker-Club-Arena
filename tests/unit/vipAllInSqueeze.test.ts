@@ -138,7 +138,8 @@ describe('the ceiling is derived from the server pacing, and the pacing is pinne
         Math.min(H.ALL_IN_STREET_PAUSE_MS, H.ALL_IN_PRE_SHOWDOWN_PAUSE_MS) -
         H.ALL_IN_SQUEEZE_SNAP_RESERVE_MS
     );
-    expect(ALL_IN_SQUEEZE_CEILING_MS).toBe(2550);
+    // 1750 + min(700, 600) - 400 since the 2026-11-06 run-out pause halving.
+    expect(ALL_IN_SQUEEZE_CEILING_MS).toBe(1950);
   });
   it('the spec copies of the two engine pauses equal the engine literals', () => {
     const runout = read('server/src/engine/ServerTableEngineRunout.ts');

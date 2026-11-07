@@ -52,7 +52,7 @@ import RealTimeResultPanel from './RealTimeResultPanel';
 import SessionAnalytics from './SessionAnalytics';
 import { sessionStatsService } from '../../services/SessionStatsService';
 import SettingsPanel from './SettingsPanel';
-import ShareHand from './ShareHand';
+import ShareHand, { encodeHand } from './ShareHand';
 import AddOnModal from './AddOnModal';
 import RebuyModal from './RebuyModal';
 import TournamentBreakScreen from './TournamentBreakScreen';
@@ -422,12 +422,6 @@ export interface TableModalsLayerProps {
   showLeaveConfirm: boolean;
   onCloseLeaveConfirm: () => void;
   onConfirmLeaveTable: () => void;
-  /**
-   * CHIP CONTINUITY: "Leave Available In M:SS" while the hero's stay clock
-   * has time left; null when leaving is allowed. The confirm dialog shows it
-   * and disables its confirm button.
-   */
-  leaveLockedLabel?: string | null;
 
   // Session Stats (2nd SessionHUD slot at bottom)
   showSessionStats: boolean;
@@ -550,6 +544,8 @@ export interface TableModalsLayerProps {
 import React from 'react';
 import { useToast } from '../common/Toast';
 import { useSenderInviteCode } from '../../hooks/useSenderInviteCode';
+import { useSharedHandShortLink } from '../../hooks/useSharedHandShortLink';
+import { previewFromShareable } from '../../services/SharedHandLinkService';
 
 function TableModalsLayerImpl(props: TableModalsLayerProps) {
   const {
@@ -717,7 +713,6 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
     showLeaveConfirm,
     onCloseLeaveConfirm,
     onConfirmLeaveTable,
-    leaveLockedLabel = null,
     // Session stats
     showSessionStats,
     sessionStatsRevision,
@@ -782,6 +777,21 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
   /* The sender's Share & Invite code for this table's club, read while the
      Share sheet is open so its link can credit them (useSenderInviteCode). */
   const shareInvite = useSenderInviteCode(tableId, userId, !!(showShareHand && sharedHandData));
+  const shareSource = React.useMemo(() => {
+    if (!showShareHand || !sharedHandData) return null;
+    try {
+      return { encoded: encodeHand(sharedHandData), preview: previewFromShareable(sharedHandData) };
+    } catch (error) {
+      reportError(error, 'TableModalsLayer.shareSource');
+      return null;
+    }
+  }, [showShareHand, sharedHandData]);
+  const shareShort = useSharedHandShortLink(
+    shareSource?.encoded ?? null,
+    shareInvite,
+    shareSource?.preview ?? null,
+    !!shareSource && !!userId
+  );
 
   /**
    * ─── LEAVE NOTICE: THROUGH THE TOAST LAYER (audit 2026-08-25) ─────────────
@@ -1284,7 +1294,6 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         currentStackPending={heroStackPending}
         tableName={tableName || 'this table'}
         isTournament={isTournament}
-        lockedLabel={leaveLockedLabel}
         onConfirm={() => {
           onCloseLeaveConfirm();
           onConfirmLeaveTable();
@@ -1380,6 +1389,8 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           hand={sharedHandData}
           handId={sharedHandId}
           inviteCode={shareInvite}
+          shortUrl={shareShort.url}
+          onShared={shareShort.markSent}
         />
       )}
 

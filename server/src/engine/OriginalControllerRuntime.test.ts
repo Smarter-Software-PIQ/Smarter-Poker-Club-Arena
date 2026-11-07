@@ -36,7 +36,10 @@ import { handleAction } from '../handlers/action.js';
 import { __resetRateLimiterForTests } from '../http/rateLimit.js';
 import { playerActionContext } from './PlayerActionContext.js';
 import { encodePrivateHandContinuation } from './PrivateHandContinuation.js';
-import { claimHandContinuation } from '../services/supabase/handContinuation.js';
+import {
+  claimHandContinuation,
+  retainHandContinuation,
+} from '../services/supabase/handContinuation.js';
 import * as freezeState from '../maintenance/freezeState.js';
 import type { HandConfig, HandEvent, SeatPlayer } from '../types.js';
 const config: HandConfig = {
@@ -333,6 +336,40 @@ it('holds an unknown retained write without publishing the controller batch', as
   expect(e.getActionContext()).toBeNull();
   e.activeHandWaitRelease.release('test_held_owner');
   await waiting;
+});
+
+it('records the classified original write refusal while retaining the same terminal fence', async () => {
+  const { e, emitted, roster } = fixture();
+  delete e.killForRestart;
+  e.recordRecoveryEvent = vi.fn();
+  const fence = vi.spyOn(e, 'fenceTerminalEngine').mockImplementation(() => {});
+  e.retainOriginalBatch = async (
+    original: typeof binding,
+    seats: Parameters<typeof retainHandContinuation>[2],
+    batch: Parameters<typeof retainHandContinuation>[3]
+  ) => {
+    if (batch.sequence > 0) {
+      await retainHandContinuation(
+        original,
+        original.lease_generation,
+        seats,
+        batch,
+        () => true,
+        async () => ({ data: null, error: { code: '42501', message: 'PRIVATE' } })
+      );
+    }
+  };
+  await e.runOriginalController(roster, e.handController, 42, Date.now(), {
+    started: false,
+    cause: null,
+  });
+  expect(e.recordRecoveryEvent).toHaveBeenCalledWith(
+    'watchdog_kill_rebuild',
+    'hand_continuation_unproven:transport_error sqlstate=42501',
+    'automatic_recovery'
+  );
+  expect(fence).toHaveBeenCalledWith('hand_continuation_unproven', true);
+  expect(emitted).toEqual([]);
 });
 
 it('preserves cash completion release after its existing event consumer rejects', async () => {

@@ -215,7 +215,7 @@ describe('Link sends from a phone in one tap', () => {
     expect(modal).toContain(
       "if ((error as { name?: string } | null)?.name === 'AbortError') return;"
     );
-    expect(modal).toContain('if (link) void sendLink(hand, link);');
+    expect(modal).toContain('void sendLink(hand, link);');
     expect(modal).toContain('useSenderInviteCode(hand?.tableId, heroId, isOpen)');
     setPhone(false);
   });

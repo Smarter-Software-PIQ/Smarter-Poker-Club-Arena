@@ -530,9 +530,10 @@ export default function RewardsTab({
     : null;
   const guarantee = num(t.guaranteed_prize);
   const hasGuarantee = guarantee > 0;
-  /* Stored places already include funded overlay. The combined guarantee
-     floors places only after subtracting bounties; escrow independently
-     distinguishes entry contributions from house funding. */
+  /* Places are what the field put into places (Dan, 2026-11-06: the total
+     prize pool is the buy-ins net of rake and the bounty pool comes straight
+     out of it). A pending overlay is never added here; once the pool is
+     finalized the stored places already include whatever the house funded. */
   const effectivePool = effectivePrizePool(
     t.prize_pool,
     t.guaranteed_prize,
@@ -794,7 +795,8 @@ export default function RewardsTab({
 
   /* The bounty half of what the field paid in. Zero on a non-bounty event. */
   const bountyShare = bounty ? Math.max(0, bounty.total) : 0;
-  /* Places (with any guarantee overlay the club funds) plus the bounty pool. */
+  /* Places plus the bounty pool: every buy-in, rebuy and add-on net of rake.
+     46 x 40-chip entries (26 / 10 / 4) read 1,656, never 1,656 + overlay. */
   const totalPrizePool = effectivePool + bountyShare;
 
   const composition = useMemo(() => {
@@ -1035,7 +1037,9 @@ export default function RewardsTab({
                   </span>
                 </li>
               )}
-              {overlay > 0 && (
+              {/* Only once funded: before close the overlay is not in the pool,
+                  it is the house's pending share shown beside the guarantee. */}
+              {overlay > 0 && isFinalised && (
                 <li className="rw-mix__row">
                   <span className="rw-mix__label">Club Overlay</span>
                   <span className="rw-mix__figure">{chips(overlay)}</span>

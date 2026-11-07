@@ -2007,6 +2007,54 @@ export abstract class TournamentManagerBase {
 
   protected satelliteQualifierBoundaryPending = false;
   protected satelliteQualifierBoundaryGeneration = 0;
+
+  /**
+   * A BUST FAR FROM THE TICKETS DOES NOT FREEZE THE SATELLITE (Dan 2026-11-06).
+   *
+   * Dan, verbatim: "PLAYERS ARE ALSO COMPLAINING ABOUT THE AMOUNT OF TIME ITS
+   * TAKING INBETWEEN HANDS DURING THE TOURNAMENTS ... HANDS NEED TO START A FEW
+   * SECONDS AFTER THE LAST HAND IS OVER. FIX WHAT EVER IS BLOCKING".
+   *
+   * What was blocking: every zero-stack hand in a cohort satellite armed
+   * holdSatelliteQualifierBoundary, which parks EVERY table in the event until
+   * every table has finished its current hand, then asks the qualifier state
+   * under the satellite answer lane, then releases. That is hand-for-hand on
+   * every bust from the first level onward. Measured on production
+   * 2026-11-06 (hand_history, 3 hours): the six-table "Satellite 5" events
+   * logged 60-94 between-hand gaps each of 15 s or more, averaging 34-61 s,
+   * against 4.6 s for an ordinary tournament hand.
+   *
+   * The database's own rule (fn_get_satellite_qualifier_state) is that the
+   * field qualifies only once the live field is at or under the full-ticket
+   * count. So the boundary only needs holding when this hand's busts could
+   * bring it there. The watermark is the last authoritative 'continuing'
+   * answer (live field, tickets); every bust reported since is subtracted. A
+   * bust is subtracted even when the read already counted it, and a rebuy is
+   * never added back, so the estimate can only run LOW - which holds the
+   * boundary sooner, never later. The skip needs the estimate more than one
+   * player above the tickets (the same margin the continuation reuse already
+   * trusts), a watermark younger than five minutes, and nothing held. Inside
+   * that margin, or with no fresh read, every bust holds exactly as before,
+   * and the bubble keeps its hand-for-hand.
+   */
+  protected satelliteBustsReported = 0;
+  protected satelliteFieldWatermark: {
+    liveField: number;
+    tickets: number;
+    readAt: number;
+    bustsAtRead: number;
+  } | null = null;
+  static readonly SATELLITE_FIELD_WATERMARK_MAX_AGE_MS = 5 * 60_000;
+
+  /** The live field this manager can prove, less every bust reported since its read. */
+  protected satelliteFieldIsFarFromItsTickets(now: number = Date.now()): boolean {
+    const w = this.satelliteFieldWatermark;
+    if (!w || this.satelliteQualifierBoundaryPending) return false;
+    if (!(now - w.readAt < TournamentManagerBase.SATELLITE_FIELD_WATERMARK_MAX_AGE_MS))
+      return false;
+    const estimate = w.liveField - (this.satelliteBustsReported - w.bustsAtRead);
+    return estimate > w.tickets + 1;
+  }
   private readonly satelliteQualifierEngines = new Map<string, ServerTableEngine>();
 
   private holdSatelliteQualifierEngine(tableId: string, engine: ServerTableEngine): void {
@@ -3781,9 +3829,16 @@ export abstract class TournamentManagerBase {
           const tableId = this.tableIdForManagedEngine(engine);
           if (!tableId || !this.isRunning() || this.gameServer.getTableEngine(tableId) !== engine)
             return;
+          // Every zero stack is counted before the decision, so a bust on
+          // another table that lands next sees this one already subtracted.
+          this.satelliteBustsReported += finalStacks.filter(
+            (player) => Number(player.stack) <= 0
+          ).length;
           // Stop the next deal before asynchronous elimination and HfH can
           // release the boundary. Other hands may finish; none may start.
-          this.holdSatelliteQualifierBoundary();
+          // Unless this hand provably cannot reach the tickets (see
+          // satelliteFieldWatermark): then the field keeps dealing.
+          if (!this.satelliteFieldIsFarFromItsTickets()) this.holdSatelliteQualifierBoundary();
         }
         if (this.mysteryActivationMayOpenOnBust(finalStacks)) this.holdMysteryActivationBoundary();
         if (this.bustAwaitingSinceMs === 0) this.bustAwaitingSinceMs = Date.now();

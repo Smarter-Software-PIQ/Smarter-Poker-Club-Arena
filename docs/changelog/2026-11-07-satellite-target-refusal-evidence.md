@@ -1,0 +1,1 @@
+Single-winner and cohort satellite settlement now record which target roster, pool, escrow or Diamond custody check refused a seat. The original P0404 and atomic rollback still apply. The existing financial alert receives the bounded invariant name in its refusal message.

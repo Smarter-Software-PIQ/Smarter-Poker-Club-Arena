@@ -317,6 +317,7 @@ const HandReplayerPage = lazyWithRetry(() => import('./pages/share/HandReplayerP
 // channel, and no such route existed — every shared link 404'd.
 const SharedBonusReplayPage = lazyWithRetry(() => import('./pages/share/SharedBonusReplayPage'));
 const SharedHandReplayPage = lazyWithRetry(() => import('./pages/share/SharedHandReplayPage'));
+const ShortHandReplayPage = lazyWithRetry(() => import('./pages/share/ShortHandReplayPage'));
 const SimPage = lazyWithRetry(() => import('./pages/SimPage'));
 
 // System Pages
@@ -801,6 +802,8 @@ function FullApp() {
               {/* Public Hand Replay — shareable link, no auth required */}
               <Route path="/share/hand/:handId" element={<HandReplayerPage />} />
               <Route path="/replay" element={<SharedHandReplayPage />} />
+              {/* Short shared-hand link (2026-11-06): token -> the same payload. */}
+              <Route path="/h/:token" element={<ShortHandReplayPage />} />
               <Route path="/bonus-replay/:shareId" element={<SharedBonusReplayPage />} />
 
               {/* Scenario Sim — deterministic UI regression playback, no auth */}

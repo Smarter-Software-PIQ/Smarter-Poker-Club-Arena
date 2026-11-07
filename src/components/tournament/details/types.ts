@@ -1,4 +1,3 @@
-import { guaranteeShortfall } from '../../../utils/tournamentPrizeFunding';
 import type { FollowTournamentPlayer } from '../../../utils/followTournamentPlayer';
 import type { SatelliteAwardView } from './useSatelliteAwards';
 /**
@@ -490,11 +489,18 @@ export function tournamentRowUnitCents(row: TournamentArenaEmbed | null | undefi
 }
 
 /**
- * The advertised prize pool: the collected pool, floored by the guarantee.
+ * The place-prize pool: what the field's payments put into places.
  *
  * Detail's podium used the raw `prize_pool` while Rewards used this, so on any
  * guaranteed event with an overlay the two tabs printed different money for
  * first place. One rule, one number (2026-08-26 audit).
+ *
+ * NO PENDING OVERLAY IS ADDED (Dan, 2026-11-06). The total prize pool is the
+ * buy-ins net of rake ("36x46"), and "the bounty pool is subtracted directly
+ * out of the total prizepool", so places = total - bounties = the stored
+ * place pool. The house's overlay is shown beside the guarantee and enters
+ * the pool only when it is funded at close; a finalized pool already holds
+ * it. Guarantee, bounty and rake arguments are kept for existing callers.
  */
 export function effectivePrizePool(
   poolValue: number | null | undefined,
@@ -503,13 +509,11 @@ export function effectivePrizePool(
   rakeValue: number | null | undefined = 0,
   finalized: boolean | null | undefined = false
 ): number {
-  const pool = finite(poolValue);
-  /* A BUY-IN GUARANTEE COUNTS THE WHOLE PAYMENT (Dan, 2026-11-05). The house
-     funds only max(0, guarantee - gross payments), where gross = places +
-     bounties + rake. A finalized pool already holds that funding. Callers
-     that do not yet pass the rake fall back to the place floor. */
-  if (finalized) return pool;
-  return pool + guaranteeShortfall(guaranteeValue, pool, bountyPool, rakeValue);
+  void guaranteeValue;
+  void bountyPool;
+  void rakeValue;
+  void finalized;
+  return finite(poolValue);
 }
 
 /**

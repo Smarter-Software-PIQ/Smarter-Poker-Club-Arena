@@ -1057,6 +1057,32 @@
   text-transform: uppercase;
   cursor: pointer;
 }
+.hdm-share-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2cqw;
+  padding: 0 0 2cqw;
+  color: #9aa4b2;
+  font:
+    700 clamp(11px, 2.6cqw, 15px) 'Roboto Condensed',
+    sans-serif;
+  text-transform: uppercase;
+}
+[role='dialog'] .hdm-share-status__stop {
+  padding: 4px 2px;
+  border: 0;
+  background: none;
+  color: #8bd7ff;
+  font: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.hdm-share-status__stop:focus-visible {
+  text-decoration: underline;
+}
+
 .hdm-actions > button:disabled {
   opacity: 0.5;
   cursor: default;

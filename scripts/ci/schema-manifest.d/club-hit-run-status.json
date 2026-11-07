@@ -1,0 +1,4 @@
+{
+  "_owner": "Club Data hit and run panel (owner 2026-11-06): created by supabase/migrations/20261107020241_club_data_shows_hit_and_run_countdowns.sql in the daily-maintenance window, after 20261106203853. Until then ClubHitRunPanel shows nothing owing.",
+  "functions": ["ca_club_hit_run_status"]
+}

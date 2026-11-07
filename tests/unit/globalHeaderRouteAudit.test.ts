@@ -29,6 +29,9 @@ const INTENTIONAL_EXCEPTIONS = [
   '/share/hand/:handId',
   '/bonus-replay/:shareId',
   '/replay',
+  // The short shared-hand link (2026-11-06): the same full-screen replay as
+  // /replay, opened by someone outside the app, often signed out.
+  '/h/:token',
   '/sim',
   '/dev/footer',
   '/dev/customization',
@@ -64,7 +67,7 @@ describe('the complete route manifest inherits one global header', () => {
     // +1 for diamond-staff-desk (2026-09-29): platform staff run Diamond games,
     // incidents, books and adjustments. Behind PlatformStaffGuard, in the shell.
     // +2: scoped and global Custom Welcome Message creation, both in AppLayout.
-    expect(allPaths).toHaveLength(159); // Includes the public, explicitly shared bonus replay. +1: cashier statements, +1: the Lightning route, +1: the Lightning operator dashboard, +1: the Club Data full report (2026-10-15), +1: the Share & Invite short link /i/:code (2026-10-15), +1: the rabbit hunt desk (2026-11-02)
+    expect(allPaths).toHaveLength(160); // Includes the public, explicitly shared bonus replay. +1: cashier statements, +1: the Lightning route, +1: the Lightning operator dashboard, +1: the Club Data full report (2026-10-15), +1: the Share & Invite short link /i/:code (2026-10-15), +1: the rabbit hunt desk (2026-11-02), +1: the short shared-hand link /h/:token (2026-11-06)
     expect(allPaths).toContain('clubs/:clubId/applicants');
     expect(allPaths).toContain('clubs/:clubId/create-table/:gameType');
     expect(allPaths).toContain('messages/clubs/:conversationId');

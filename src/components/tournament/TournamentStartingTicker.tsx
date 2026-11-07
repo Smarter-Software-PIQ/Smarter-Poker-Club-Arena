@@ -539,7 +539,7 @@ function TickerHost() {
               ? supabase
                   .from('tournaments')
                   .select(
-                    'format_contract, id, name, status, start_time, guaranteed_prize, prize_pool, current_players, buy_in_amount, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, started_at, current_level, max_players'
+                    'format_contract, id, name, status, start_time, guaranteed_prize, prize_pool, bounty_pool, total_rake, current_players, buy_in_amount, buy_in_fee, late_reg_levels, late_reg_mins, rebuy_levels, prize_pool_finalized, started_at, current_level, max_players'
                   )
                   .in('club_id', clubIds)
                   .eq('tournament_type', 'MTT')

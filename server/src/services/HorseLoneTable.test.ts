@@ -194,7 +194,11 @@ describe('THE WIRING (source contract)', () => {
     // The pass runs BEFORE the discretionary loop whose floor would skip a table at one.
     expect(loneAt).toBeLessThan(floorAt);
     const pass = ROTATOR.slice(ROTATOR.indexOf('private async standLoneHorses('));
-    expect(pass).toMatch(/await engine\.leaveTable\(userId\)/);
+    // HIT AND RUN (owner 2026-11-06): a lone horse owing hands confirms the
+    // count the way a person alone at a table would; the door is the same.
+    expect(pass).toMatch(
+      /await engine\.leaveTable\(\s*userId,\s*\.\.\.this\.confirmIfOwed\(c\.tableId, userId, engine\)/
+    );
     // No seat surgery: nothing in the pass writes table_seats.
     expect(pass.slice(0, pass.indexOf('private async considerSeatChanges'))).not.toMatch(
       /from\('table_seats'\)/

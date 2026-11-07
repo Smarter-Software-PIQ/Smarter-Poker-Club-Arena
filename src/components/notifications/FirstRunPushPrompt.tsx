@@ -111,6 +111,7 @@ const SUPPRESSED_ROUTES = [
   '/auth', // signed out, or mid sign-in: the subscribe endpoint would 401 anyway
   '/table', // the felt
   '/replay', // full-screen hand playback
+  '/h', // a short shared-hand link, the same playback
   '/sim',
   '/share', // a shared hand, often opened by somebody with no account
 ];
