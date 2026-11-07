@@ -23,14 +23,24 @@ import {
   runPsql,
 } from '../../scripts/ci/check-migrations-are-live.mjs';
 
-type Failure = Partial<{ code: string; status: number; stdout: string; stderr: string; message: string }>;
+type Failure = Partial<{
+  code: string;
+  status: number;
+  stdout: string;
+  stderr: string;
+  message: string;
+}>;
 
 const failure = (f: Failure) => Object.assign(new Error(f.message ?? 'spawnSync psql failed'), f);
 
 /** An execFileSync stand-in that fails `outcomes.length - 1` times, then answers. */
 function scripted(outcomes: Array<Failure | { out: string }>) {
   const calls: Array<{ bin: string; args: string[]; env: Record<string, string | undefined> }> = [];
-  const spawn = (bin: string, args: string[], options: { env: Record<string, string | undefined> }) => {
+  const spawn = (
+    bin: string,
+    args: string[],
+    options: { env: Record<string, string | undefined> }
+  ) => {
     calls.push({ bin, args, env: options.env });
     const next = outcomes[Math.min(calls.length - 1, outcomes.length - 1)];
     if ('out' in next) return next.out;
@@ -47,9 +57,27 @@ describe('a connection-phase failure is recognised by what libpq said, not guess
     [{ code: 'ETIMEDOUT' }],
     [{ code: 'ECONNRESET' }],
     [{ code: 'ECONNREFUSED' }],
-    [{ status: 2, stderr: 'psql: error: connection to server at "db" (1.2.3.4), port 6543 failed: timeout expired' }],
-    [{ status: 2, stderr: 'psql: error: connection to server at "db", port 6543 failed: server closed the connection unexpectedly' }],
-    [{ status: 1, stderr: 'psql: error: could not translate host name "db" to address: Name or service not known' }],
+    [
+      {
+        status: 2,
+        stderr:
+          'psql: error: connection to server at "db" (1.2.3.4), port 6543 failed: timeout expired',
+      },
+    ],
+    [
+      {
+        status: 2,
+        stderr:
+          'psql: error: connection to server at "db", port 6543 failed: server closed the connection unexpectedly',
+      },
+    ],
+    [
+      {
+        status: 1,
+        stderr:
+          'psql: error: could not translate host name "db" to address: Name or service not known',
+      },
+    ],
     [{ status: 1, stderr: 'ERROR:  08006: connection failure' }],
     [{ status: 1, stderr: 'FATAL:  08P01: protocol violation' }],
   ])('%j happened before any query was answered', (f) => {
@@ -94,7 +122,11 @@ describe('runPsql retries the connection phase a bounded number of times', () =>
   });
 
   it('answers after a lost handshake, logging each failed attempt', () => {
-    const { spawn, calls } = scripted([{ code: 'ETIMEDOUT' }, { code: 'ECONNRESET' }, { out: 'answer\n' }]);
+    const { spawn, calls } = scripted([
+      { code: 'ETIMEDOUT' },
+      { code: 'ECONNRESET' },
+      { out: 'answer\n' },
+    ]);
     const log: string[] = [];
     const result = runPsql(ARGS, { spawn, env, log: (m) => log.push(m) });
     expect(result).toEqual({ out: 'answer\n' });
@@ -125,7 +157,10 @@ describe('runPsql retries the connection phase a bounded number of times', () =>
   });
 
   it('never re-sends a query the server rejected, and hands the refusal back when asked to', () => {
-    const rejected = { status: 1, stderr: 'ERROR:  42883: function public.fn_x() does not exist\n' };
+    const rejected = {
+      status: 1,
+      stderr: 'ERROR:  42883: function public.fn_x() does not exist\n',
+    };
     const { spawn, calls } = scripted([rejected, { out: 'would be wrong\n' }]);
     const result = runPsql(ARGS, { spawn, env, log: () => {}, allowRefusal: true });
     expect(result).toEqual({ error: 'ERROR:  42883: function public.fn_x() does not exist' });
@@ -133,7 +168,10 @@ describe('runPsql retries the connection phase a bounded number of times', () =>
   });
 
   it('never re-sends a rejected query even when refusals are not allowed', () => {
-    const rejected = { status: 1, stderr: 'ERROR:  42883: function public.fn_x() does not exist\n' };
+    const rejected = {
+      status: 1,
+      stderr: 'ERROR:  42883: function public.fn_x() does not exist\n',
+    };
     const { spawn, calls } = scripted([rejected, { out: 'would be wrong\n' }]);
     expect(() => runPsql(ARGS, { spawn, env, log: () => {} })).toThrow();
     expect(calls).toHaveLength(1);

@@ -348,7 +348,10 @@ describe('the provisioner judges a node_modules by its payload', () => {
       expect(push).toContain(`remedy: (cd \\"$pkg\\" && ${remedy})`);
       // A warning, not a refusal: the hook decides whether the push touches
       // the package, and it is the gate that stays authoritative.
-      const block = push.slice(push.indexOf('for pkg in "$TREE_TOP"'), push.indexOf('done', push.indexOf('for pkg in "$TREE_TOP"')));
+      const block = push.slice(
+        push.indexOf('for pkg in "$TREE_TOP"'),
+        push.indexOf('done', push.indexOf('for pkg in "$TREE_TOP"'))
+      );
       expect(block).not.toContain('exit ');
     });
   });

@@ -238,14 +238,25 @@ export function isConnectionPhaseFailure(err) {
   if (!err || typeof err !== 'object') return false;
   // A server that produced output answered something; never retry past that.
   if (String(err.stdout || '').trim() !== '') return false;
-  if (/^(?:ETIMEDOUT|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|EPIPE)$/.test(String(err.code || '')))
+  if (
+    /^(?:ETIMEDOUT|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|EPIPE)$/.test(
+      String(err.code || '')
+    )
+  )
     return true;
   const stderr = String(err.stderr || '');
   // psql exits 2 when the connection could not be made, before any query.
-  if (err.status === 2 && /connection|could not connect|timeout expired|server closed the connection/i.test(stderr))
+  if (
+    err.status === 2 &&
+    /connection|could not connect|timeout expired|server closed the connection/i.test(stderr)
+  )
     return true;
   // libpq's connection-phase messages, however psql exited.
-  if (/^(?:psql: )?(?:error: )?(?:connection to server .* failed|could not connect to server|could not translate host name|server closed the connection unexpectedly|timeout expired)/im.test(stderr))
+  if (
+    /^(?:psql: )?(?:error: )?(?:connection to server .* failed|could not connect to server|could not translate host name|server closed the connection unexpectedly|timeout expired)/im.test(
+      stderr
+    )
+  )
     return true;
   // SQLSTATE class 08 is "connection exception" (VERBOSITY=verbose prints it).
   if (/^(?:ERROR|FATAL):\s+08[0-9A-Z]{3}:/m.test(stderr)) return true;
@@ -261,7 +272,13 @@ export function isConnectionPhaseFailure(err) {
  */
 export function runPsql(
   args,
-  { spawn = execFileSync, env = process.env, log = (m) => console.error(m), allowRefusal = false, retries = CONNECT_RETRIES } = {}
+  {
+    spawn = execFileSync,
+    env = process.env,
+    log = (m) => console.error(m),
+    allowRefusal = false,
+    retries = CONNECT_RETRIES,
+  } = {}
 ) {
   const bin = env.PSQL_BIN || 'psql';
   const childEnv = Object.assign({}, env);

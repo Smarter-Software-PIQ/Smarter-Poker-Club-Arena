@@ -51,7 +51,15 @@ describe('hero-cards-no-glitch waits for the reveal with the test budget', () =>
 
   it('the fixture reports the readiness state from the caches the hooks read', () => {
     expect(fixture).toContain('cardArtReadiness: () =>');
-    for (const field of ['reveal', 'artReady', 'deckReady', 'deckDecoded', 'deckTotal', 'deckPending', 'feltDecoded'])
+    for (const field of [
+      'reveal',
+      'artReady',
+      'deckReady',
+      'deckDecoded',
+      'deckTotal',
+      'deckPending',
+      'feltDecoded',
+    ])
       expect(fixture).toContain(`${field}:`);
     expect(fixture).toContain("from '../../../src/utils/deckWarmer'");
     expect(fixture).toMatch(/isTableImageDecoded/);
