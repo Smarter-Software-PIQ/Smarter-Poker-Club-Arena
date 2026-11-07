@@ -355,6 +355,8 @@ export type TournamentFormatIcon =
   | 'satellite'
   | 'freeroll'
   | 'bounty'
+  | 'pko'
+  | 'mystery'
   | 'freezeout'
   | 'hyper'
   | 'turbo'
@@ -367,10 +369,11 @@ export function tournamentFormatIcon(entry: LobbyEntry): TournamentFormatIcon | 
   if (entry.kind === 'cash') return null;
   const signals = tournamentSignals(entry);
   const keys = new Set(entry.rules.map((rule) => rule.key));
+  if (signals.includes('pko')) return 'pko';
+  if (signals.includes('mystery')) return 'mystery';
+  if (signals.includes('bounty')) return 'bounty';
   if (signals.includes('satellite')) return 'satellite';
   if (signals.includes('freeroll')) return 'freeroll';
-  if (signals.some((kind) => kind === 'bounty' || kind === 'pko' || kind === 'mystery'))
-    return 'bounty';
   if (keys.has('freezeout')) return 'freezeout';
   if (keys.has('hyper')) return 'hyper';
   if (keys.has('turbo')) return 'turbo';
@@ -383,6 +386,8 @@ const TOURNAMENT_ICON_LABELS: Record<TournamentFormatIcon, string> = {
   satellite: 'Satellite Tournament',
   freeroll: 'Freeroll Tournament',
   bounty: 'Bounty Tournament',
+  pko: 'Progressive Knockout Tournament',
+  mystery: 'Mystery Bounty Tournament',
   freezeout: 'Freezeout Tournament',
   hyper: 'Hyper Tournament',
   turbo: 'Turbo Tournament',
@@ -409,17 +414,29 @@ function TournamentFormatIcon({ entry }: { entry: LobbyEntry }) {
   const kind = tournamentFormatIcon(entry);
   if (!kind) return null;
   const label = TOURNAMENT_ICON_LABELS[kind];
+  const badgeFiles: Partial<Record<TournamentFormatIcon, string>> = {
+    pko: 'progressive-ko-v1.webp',
+    mystery: 'mystery-chest-v1.webp',
+    turbo: 'turbo-wordmark-v1.webp',
+  };
+  const badge = badgeFiles[kind];
   const art = entry.kind === 'spin' ? null : kind === 'bounty' ? 'target' : null;
   return (
     <span
       className="lt-tournament-icon"
       data-tournament-icon={kind}
-      data-lobby-symbol={art ?? undefined}
+      data-lobby-symbol={badge ? kind : (art ?? undefined)}
       role="img"
       aria-label={label}
       title={label}
     >
-      {kind === 'rebuy' && entry.kind !== 'spin' ? (
+      {badge ? (
+        <img
+          className="lt-format-badge"
+          src={`${import.meta.env.BASE_URL}game-card-icons/${badge}`}
+          alt=""
+        />
+      ) : kind === 'rebuy' && entry.kind !== 'spin' ? (
         <>
           <img
             className="lt-rebuy-addon-art"
