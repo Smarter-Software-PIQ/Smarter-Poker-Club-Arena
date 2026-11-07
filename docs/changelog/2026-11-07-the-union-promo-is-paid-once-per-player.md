@@ -29,7 +29,7 @@ declared as counterparty, so both account keys tally at commit. It was proved
 in a rolled-back `DO` block (11.5), then committed for one member and checked
 against the commit-time invariant before the other 28.
 
-## The cause, and the much larger exposure ahead of it
+## The cause
 
 `fn_sp_signup_welcome_back_run` (20261104145956) pays this promo and was never
 wrong. It skips any player with an `'awarded'` row in
@@ -43,10 +43,25 @@ awards row**, so the runner was blind to 95 of them. That is the duplicate
 mechanism exactly: the 9 members paid at 22:08 by a backfill were paid again at
 22:17 by the runner, which had no record of the first payment.
 
-The 725 already paid out was the smaller half. All 95 unguarded members are
-past the 24-hour mark and 53 sit inside the runner's since-launch window, so
-the next runs would have paid roughly **1,325 chips more** in duplicates, with
-the remaining 42 exposed the moment `p_since` is widened.
+## The forward exposure, measured rather than assumed
+
+**A correction, because the method was the error.** I first reported that the
+next runs would have paid roughly 1,325 more chips, from "95 unguarded, 53 in
+the since-launch window". That applied one of the runner's tests and not the
+other. The runner pays only a member who has **never played a hand**, and all
+53 of those in-window members have played, so none of them could be paid again
+today. `ca_hand_facts` is permanent, so their own play closes that exposure for
+good. Measured: **0 members would be re-paid now**, not 53.
+
+What remains is real but conditional. **33** of the 95 have never played a hand,
+and every one of them signed up **before 2026-10-19**, so the only thing keeping
+them out is the runner's `p_since` default. Widen `p_since` - exactly what an
+agent running a backfill reaches for, and what produced this incident - and
+those 33 are paid twice: **825 chips**.
+
+So the fix is worth having for a narrower and more honest reason than I first
+gave: it stops `p_since` being the only thing between 33 already-paid members
+and a duplicate.
 
 ## The fix
 

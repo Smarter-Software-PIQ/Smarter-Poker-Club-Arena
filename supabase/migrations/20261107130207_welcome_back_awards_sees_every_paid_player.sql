@@ -24,11 +24,23 @@
 -- next found one eligible it paid again - which is precisely what happened to
 -- the 9 members paid at 22:08 by a backfill and again at 22:17 by the runner.
 --
--- THE REAL EXPOSURE WAS AHEAD OF US, NOT BEHIND. All 95 unguarded members are
--- past the 24-hour mark and 53 sit inside the runner's since-launch window, so
--- the next runs would have paid out another ~1,325 chips of duplicates, with
--- the remaining 42 exposed the moment p_since is widened. This migration
--- closes that by making the existing guard see every member who has been paid.
+-- THE FORWARD EXPOSURE, MEASURED RATHER THAN ASSUMED. An earlier draft of this
+-- header said the next runs would have paid ~1,325 more chips. That was wrong,
+-- and the correction is worth recording because the method was the error: the
+-- count came from "95 unguarded, 53 in the since-launch window" without
+-- applying the runner's OTHER test. The runner pays only a member who has
+-- NEVER PLAYED A HAND, and all 53 of those in-window members have played, so
+-- none of them could be paid again today - and because ca_hand_facts is
+-- permanent, play closes their exposure for good. Measured now: 0 members
+-- would be re-paid.
+--
+-- What remains is real but conditional. 33 of the 95 have never played a hand,
+-- and every one of them signed up BEFORE 2026-10-19, so only the runner's
+-- p_since default keeps them out. Widen p_since - which is exactly what an
+-- agent running a backfill reaches for, and what produced this incident - and
+-- those 33 are paid a second time: 825 chips. This migration closes that by
+-- making the guard see every member who has been paid, so p_since stops being
+-- the only thing standing between them and a duplicate.
 --
 -- WHAT THIS DOES
 --   1. Drops ca_union_promo_campaign_claims and fn_ca_union_promo_grant_once
