@@ -35,8 +35,18 @@ say() { printf '[agent-push] %s\n' "$*" >&2; }
 # GH_TOKEN/GITHUB_TOKEN (they override gh's own login with whatever a parent
 # process exported). On a non-GitHub remote (tests use a local bare repo) the
 # rewrite simply never matches.
+#
+# ONLY WHEN gh HAS A LOGIN OF ITS OWN (2026-11-06). In a cloud agent session
+# the ambient GH_TOKEN IS the configured identity and gh has no stored login:
+# stripping it left the pre-push merged-branch guard unable to ask GitHub
+# anything, so every push from a cloud session was BLOCKED ("GitHub did not
+# identify the trusted destination repository"). Keep the token there.
+AMBIENT_TOKEN_STRIP=()
+if env -u GH_TOKEN -u GITHUB_TOKEN gh auth status >/dev/null 2>&1; then
+  AMBIENT_TOKEN_STRIP=(-u GH_TOKEN -u GITHUB_TOKEN)
+fi
 remote_git() {
-  env -u GH_TOKEN -u GITHUB_TOKEN git \
+  env ${AMBIENT_TOKEN_STRIP[@]+"${AMBIENT_TOKEN_STRIP[@]}"} git \
     -c url.https://github.com/.insteadOf=git@github.com: \
     -c url.https://github.com/.insteadOf=ssh://git@github.com/ \
     -c credential.helper= \

@@ -39,3 +39,6 @@ if printf '%s\n' "$out" | grep -q 'FAIL'; then echo 'free-buy-cutoff: FAILED' >&
 passes="$(printf '%s\n' "$out" | grep -c 'PASS')"
 [[ "$passes" -ge 16 ]] || { echo "free-buy-cutoff: expected 16 PASS lines, saw $passes" >&2; printf '%s\n' "$out" | tail -20 >&2; exit 1; }
 echo "free-buy-cutoff: $passes checks passed"
+# Concurrency (owner, 2026-11-06): each eligible first entry is funded exactly
+# once under concurrent finalization, and the ticket books hold under races.
+python3 -B "$cases/06_concurrency.py" "$pgbin/psql" "$socket" "$port" postgres

@@ -1,0 +1,25 @@
+{
+  "captured": "2026-11-06 production (kuklfnapbkmacvwxktbh)",
+  "daily_window_policy": {
+    "singleton": true,
+    "time_zone": "America/Chicago",
+    "window_end": "06:00:00"
+  },
+  "functions": [
+    {
+      "signature": "public.fn_ca_midway_free_buy_format(uuid)",
+      "md5": "f9522dffe07a3d8d446e5e3bebd11f68",
+      "definition": "CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_format(p_tournament_id uuid)\n RETURNS text\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\n SELECT CASE\n   WHEN t.is_pko AND NOT coalesce(t.is_mystery_bounty,false)\n        AND t.bounty_amount=1 AND t.guaranteed_prize=0 THEN 'pko'\n   WHEN coalesce(t.is_mystery_bounty,false) AND NOT coalesce(t.is_pko,false)\n        AND t.bounty_amount=0.50 THEN 'mystery'\n   WHEN NOT coalesce(t.is_bounty,false) AND NOT coalesce(t.is_pko,false)\n        AND NOT coalesce(t.is_mystery_bounty,false)\n        AND coalesce(t.all_in_or_fold,false) THEN 'aiof'\n   WHEN NOT coalesce(t.is_bounty,false) AND NOT coalesce(t.is_pko,false)\n        AND NOT coalesce(t.is_mystery_bounty,false)\n        AND NOT coalesce(t.all_in_or_fold,false) THEN 'regular'\n   END\n FROM public.tournaments t WHERE t.id=p_tournament_id\n  AND (t.union_id='fade0000-0000-0000-0000-000000000001'::uuid\n       OR t.club_id='fade0000-0000-0000-0000-000000000001'::uuid)\n  AND t.free_buy\n  AND upper(t.tournament_type)='MTT' AND t.buy_in_amount=0 AND t.buy_in_fee=0\n  AND t.satellite_target_id IS NULL AND lower(coalesce(t.variant,''))<>'satellite';\n$function$\n"
+    },
+    {
+      "signature": "smarter_private.free_buy_gaming_day(timestamp with time zone)",
+      "md5": "7c1193f698a2c1dc047c347353074dcc",
+      "definition": "CREATE OR REPLACE FUNCTION smarter_private.free_buy_gaming_day(p_at timestamp with time zone)\n RETURNS date\n LANGUAGE sql\n STABLE\n SET search_path TO 'pg_catalog', 'smarter_private'\nAS $function$\n SELECT ((coalesce(p_at, clock_timestamp()) AT TIME ZONE coalesce(p.time_zone, 'America/Chicago'))\n         - coalesce(p.window_end, time '06:00')::interval)::date\n   FROM (SELECT NULL::int AS one) z\n   LEFT JOIN smarter_private.daily_window_policy p ON p.singleton\n$function$\n"
+    },
+    {
+      "signature": "smarter_private.free_buy_ticket_redeem(uuid,uuid)",
+      "md5": "3e7bad4fd91a582ed5e5ea2f1c4f5643",
+      "definition": "CREATE OR REPLACE FUNCTION smarter_private.free_buy_ticket_redeem(p_tournament_id uuid, p_registration_id uuid)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public', 'smarter_private'\nAS $function$\nDECLARE v_user uuid; v_day date; v_start timestamptz; n integer;\nBEGIN\n IF public.fn_ca_midway_free_buy_format(p_tournament_id) IS NULL THEN RETURN; END IF;\n IF EXISTS (SELECT 1 FROM smarter_private.free_buy_ticket_redemptions r\n             WHERE r.registration_id = p_registration_id AND r.returned_at IS NULL) THEN\n  RETURN;  -- this registration already holds its ticket (replay)\n END IF;\n SELECT p.user_id INTO v_user FROM public.tournament_players p\n  WHERE p.id = p_registration_id AND p.tournament_id = p_tournament_id;\n IF v_user IS NULL THEN RAISE EXCEPTION 'A Free Buy ticket requires its exact registration'; END IF;\n SELECT coalesce(t.start_time, t.started_at) INTO v_start FROM public.tournaments t WHERE t.id = p_tournament_id;\n v_day := smarter_private.free_buy_gaming_day(v_start);\n INSERT INTO smarter_private.free_buy_ticket_days (user_id, gaming_day) VALUES (v_user, v_day)\n ON CONFLICT (user_id, gaming_day) DO NOTHING;\n UPDATE smarter_private.free_buy_ticket_days d SET used = d.used + 1\n  WHERE d.user_id = v_user AND d.gaming_day = v_day AND d.used < d.allotment;\n GET DIAGNOSTICS n = ROW_COUNT;\n IF n <> 1 THEN\n  RAISE EXCEPTION 'FREE_BUY_TICKETS_USED_TODAY: all five of today''s Free Buy tickets are used'\n   USING ERRCODE = 'P0001', HINT = 'Tickets cover first entries only; five per player per gaming day.';\n END IF;\n BEGIN\n  INSERT INTO smarter_private.free_buy_ticket_redemptions (registration_id, user_id, tournament_id, gaming_day)\n  VALUES (p_registration_id, v_user, p_tournament_id, v_day);\n EXCEPTION WHEN unique_violation THEN\n  RAISE EXCEPTION 'FREE_BUY_TICKET_ALREADY_USED_FOR_EVENT: one Free Buy ticket per player per event'\n   USING ERRCODE = 'P0001';\n END;\nEND $function$\n"
+    }
+  ]
+}
