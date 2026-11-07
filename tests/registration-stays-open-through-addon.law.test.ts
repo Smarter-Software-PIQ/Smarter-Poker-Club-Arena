@@ -56,11 +56,13 @@ describe('registration remains open through the actual add-on minute', () => {
     });
     // The strict deadline stays unknown: Details and the table never print a guess.
     expect(lateRegEndMs(tenK as LobbyTournamentRow)).toBeNull();
-    // Levels 4-9 end 02:35:01; the 90-minute clock ends 02:30, which is first.
+    // The add-on minute opens when level 9 ends (02:35:01). The 90-minute clock
+    // (02:30) never closes an add-on event's entry, so it is not the deadline:
+    // on 2026-11-07 counting to it put "Late Reg Open" back on the card at 02:30.
     expect(lateRegCountdownEndMs(tenK as LobbyTournamentRow)).toBe(
-      Date.parse('2026-11-07T02:30:00Z')
+      Date.parse('2026-11-07T02:35:01.264Z')
     );
-    // The seating gap before the first level stamp keeps the clock too.
+    // The seating gap before the first level stamp estimates nine levels from the start.
     expect(
       lateRegCountdownEndMs({
         ...tenK,
@@ -68,6 +70,14 @@ describe('registration remains open through the actual add-on minute', () => {
         level_started_at: null,
       } as LobbyTournamentRow)
     ).toBe(Date.parse('2026-11-07T02:30:00Z'));
+    // A non-add-on event still closes at whichever of levels and minutes comes first.
+    expect(
+      lateRegCountdownEndMs({
+        ...tenK,
+        add_on_available: false,
+        late_reg_mins: 60,
+      } as LobbyTournamentRow)
+    ).toBe(Date.parse('2026-11-07T02:00:00Z'));
     // Once the add-on minute is stamped, its real end takes over.
     const stamped = {
       ...tenK,

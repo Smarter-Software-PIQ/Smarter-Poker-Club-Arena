@@ -95,8 +95,16 @@ export function lateRegCountdownEndMs(t: LobbyTournamentRow): number | null {
   if (window.mode === 'levels' && window.current >= window.cap) return null;
   const begun = Date.parse(t.started_at ?? '');
   if (!Number.isFinite(begun)) return null;
+  // An add-on event's minute is opened by the LAST ENTRY LEVEL ending
+  // (TournamentManagerBase opens it "after level <late_reg_levels>"); its
+  // configured minutes never close entry. Measured 2026-11-07: the Nightly
+  // 10K's 90-minute clock ran out at 02:30 UTC with entry still open until
+  // level 9 ended, so counting to the clock showed "Late Reg Open" again.
+  const addOn = t.add_on_available === true;
   const clock =
-    window.minutes !== undefined && window.minutes > 0 ? begun + window.minutes * 60000 : null;
+    !addOn && window.minutes !== undefined && window.minutes > 0
+      ? begun + window.minutes * 60000
+      : null;
   if (window.mode === 'minutes') return clock;
   const levels = estimatedLevelWindowEndMs(t, window.cap, window.current, begun);
   if (levels === null) return clock;

@@ -38,3 +38,12 @@ no invented wall-clock time.
 Pins: the Nightly 10K row in
 `tests/registration-stays-open-through-addon.law.test.ts`; the level-stamp
 estimate re-pinned in `tests/unit/mttScheduleUpgrade.test.tsx`.
+
+## Follow-up the same night: an add-on event counts to its last entry level
+
+Read live at 02:34 UTC: the Nightly 10K's 90-minute clock had run out at 02:30
+with entry still open, because the engine opens the add-on minute only "after
+level <late_reg_levels>" (TournamentManagerBase), and the clock never closes an
+add-on event's entry. The first fix counted to the earlier of levels and clock,
+so the card went back to "Late Reg Open" at 02:30. `lateRegCountdownEndMs` now
+ignores the minutes for add-on events and counts to the level-window end.
