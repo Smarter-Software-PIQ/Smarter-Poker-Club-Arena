@@ -120,6 +120,46 @@ import { createServer, type ViteDevServer } from 'vite';
 import { installCardArtworkFrames, cardArtworkFramesEvidence } from './support/cardArtworkFrames';
 import { startCardArtworkRaster, CARD_ARTWORK_MAX_GAP_MS } from './support/cardArtworkRaster';
 
+/**
+ * WAIT FOR THE REVEAL WITH THE TEST'S OWN BUDGET, AND SAY WHAT WAS PENDING
+ * (2026-11-07). Each `toHaveAttribute('data-ready', 'true', { timeout })`
+ * below carried a fixed budget, failed once today on a cold runner and passed
+ * on the rerun, and its failure said only that the attribute was still
+ * "false". data-ready is useTableArt().reveal (see fixtures/cardArtReady.tsx),
+ * so what it was waiting on is knowable: the deck, the felt, or the cover
+ * expiry. This waits until the test's configured timeout would be reached
+ * (less a margin for the assertions that follow), never a second guess at a
+ * number, and fails with the fixture's readiness snapshot - which half was
+ * still pending and how many deck faces had decoded - instead of a bare
+ * timeout. The assertion is unchanged: data-ready must become "true".
+ */
+async function expectTableRevealed(
+  page: import('@playwright/test').Page,
+  startedAt: number,
+  what: string
+) {
+  const configured = test.info().timeout;
+  const margin = 5_000;
+  const remaining = configured - (Date.now() - startedAt) - margin;
+  const deadline = Date.now() + Math.max(remaining, 1_000);
+  const ready = page.locator('[data-ready]');
+  let attribute = await ready.getAttribute('data-ready');
+  while (attribute !== 'true' && Date.now() < deadline) {
+    await page.waitForTimeout(100);
+    attribute = await ready.getAttribute('data-ready');
+  }
+  if (attribute === 'true') return;
+  const readiness = await page
+    .evaluate(() => (window as any).cardArtReadiness?.() ?? 'fixture exposes no readiness')
+    .catch((error: Error) => `readiness unavailable: ${error.message}`);
+  expect(
+    attribute,
+    `${what}: data-ready stayed ${JSON.stringify(attribute)} for ${Math.round(
+      (Date.now() - startedAt) / 1000
+    )}s of a ${configured / 1000}s test budget; still pending: ${JSON.stringify(readiness)}`
+  ).toBe('true');
+}
+
 test.describe('decoded card artwork', () => {
   // Reuse this group's one Vite server; concurrent optimizers are not card-load work.
   test.describe.configure({ mode: 'default' });
@@ -157,6 +197,7 @@ test.describe('decoded card artwork', () => {
     page,
   }) => {
     test.setTimeout(60_000);
+    const startedAt = Date.now();
     await page.route('**/cards/*/*.webp', async (route) => {
       await new Promise((resolve) =>
         setTimeout(resolve, route.request().resourceType() === 'image' ? 6000 : 80)
@@ -169,9 +210,7 @@ test.describe('decoded card artwork', () => {
     page.on('pageerror', (error) => console.log(error.message));
     await page.goto(address, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
-    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true', {
-      timeout: 10_000,
-    });
+    await expectTableRevealed(page, startedAt, 'cold first paint');
     const complete = () =>
       page.evaluate(async () => {
         await new Promise(requestAnimationFrame);
@@ -194,9 +233,7 @@ test.describe('decoded card artwork', () => {
     await page.context().setOffline(false);
     await page.evaluate(() => (window as any).changeDeck());
     await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
-    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true', {
-      timeout: 10_000,
-    });
+    await expectTableRevealed(page, startedAt, 'deck change');
     expect(await complete()).toEqual(
       Array(7).fill({ complete: true, decoding: 'sync', local: true })
     );
@@ -206,6 +243,7 @@ test.describe('decoded card artwork', () => {
     page,
   }) => {
     test.setTimeout(60_000);
+    const startedAt = Date.now();
     await page.addInitScript(installCardArtworkFrames, {
       tableId: 'fixture',
       deadline: Date.now() + 50_000,
@@ -221,9 +259,7 @@ test.describe('decoded card artwork', () => {
         })
       );
       await page.goto(address, { waitUntil: 'domcontentloaded' });
-      await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true', {
-        timeout: 10_000,
-      });
+      await expectTableRevealed(page, startedAt, 'first-visible observer');
       await expect
         .poll(() =>
           page.evaluate(() => window.__cardArtworkFrames?.snapshot().eligibleTableFrames ?? 0)
