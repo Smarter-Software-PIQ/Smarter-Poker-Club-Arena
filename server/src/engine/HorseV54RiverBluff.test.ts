@@ -343,10 +343,17 @@ describe('V54 default off reproduces the brain before it, byte for byte', () => 
         // The November 7 multiway river bluff owns the golden's three-handed
         // spot (nlh_air_multiway) and is ablated for the same reason;
         // HorseMultiwayRiverBluff.law.test.ts pins it.
+        // The November 7 decision-size timing changes think time, which the
+        // golden records; it is ablated too and pinned in horseDecisionGravity.test.ts.
         const opts: HorseDecideOpts =
           flag === undefined
-            ? { riverBluffBaseline: false, riverBluffMultiway: false }
-            : { v54RiverBluff: flag, riverBluffBaseline: false, riverBluffMultiway: false };
+            ? { riverBluffBaseline: false, riverBluffMultiway: false, decisionGravityTiming: false }
+            : {
+                v54RiverBluff: flag,
+                riverBluffBaseline: false,
+                riverBluffMultiway: false,
+                decisionGravityTiming: false,
+              };
         const run = (key: string, lines: string[]) =>
           expect(digest(lines), key).toBe(golden[key].sha256);
         HorseMind.reset();

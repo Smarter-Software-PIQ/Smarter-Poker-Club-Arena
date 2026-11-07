@@ -60,7 +60,6 @@ import {
 } from './HorseGameWaitlistYield.js';
 import {
   cashTableFill,
-  isActiveNow,
   isNightParkedTable,
   isRetiringTable,
   pruneSeatChangeMemo,
@@ -68,6 +67,7 @@ import {
   wantsTableChange,
 } from './HorseBehavior.js';
 import { requestSeatChangeFor } from './supabase/seatChange.js';
+import { regularSessionEndFactor } from './HorseRegulars.js';
 import {
   bankrollPolicyFor,
   referenceBuyIn,
@@ -627,8 +627,6 @@ export class HorseSessionRotator {
         .filter((h) => (h.horse_status ?? '').trim().toLowerCase() === 'disabled')
         .map((h) => h.id)
     );
-    const hourUTC = new Date().getUTCHours();
-
     /**
      * BANKROLL CONTEXT (Dan 2026-08-31). Two rules below need money facts the
      * seat row does not carry:
@@ -1537,7 +1535,12 @@ export class HorseSessionRotator {
         else if (swing <= 0.35) p *= 1.8; // felted-ish — calling it a night
         if (minutes > 150) p *= 1.6; // long sessions wind down
         // V8: outside the horse's daily activity window, sessions end sooner.
-        if (!isActiveNow(seat.user_id, hourUTC)) p *= 1.6;
+        // REGULARS (2026-11-07): inside its weekly pattern a regular settles
+        // in (0.7); past it, inside the old window, it winds down (1.3);
+        // outside both, the 1.6 it always was. The departure is still this
+        // loop's ordinary leave below: owesHands and the engine's leave door
+        // (HIT AND RUN) decide whether a horse in profit may go.
+        p *= regularSessionEndFactor(seat.user_id, Date.now());
         // V8: rotation prefers horse-only tables — humans keep a stable game.
         if (humanPresent) p *= 0.5;
 

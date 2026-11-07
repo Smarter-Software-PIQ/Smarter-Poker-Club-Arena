@@ -355,7 +355,7 @@ describe('the fleet: one predicate, asked for the count and for the chair', () =
 
   it('the pool used for allocation AND for selection is the sittable pool', () => {
     expect(CODE).toMatch(
-      /let pool = sittable\.filter\(\s*\(h\) => isActiveNow\(h\.id, hourUTC\)\s*\);/
+      /let pool = sittable\.filter\(\s*\(h\) => availableNow\(h\.id, regularsNowMs\)\s*\);/
     );
     expect(CODE).toContain(
       'if (pool.length < emptySeats.length && humanNeedsRescue) pool = sittable;'
