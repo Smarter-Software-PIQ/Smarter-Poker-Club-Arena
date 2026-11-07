@@ -26,14 +26,24 @@
  *      the window either way.
  *   4. Sends each queued file, oldest version first, through
  *      apply-recorded-migration.mjs --maintenance-window: one transaction per
- *      file, one attempt per file. The first refusal stops the run; that file
- *      and every later one stay queued for the next day's window.
+ *      file, one attempt per file. A REFUSED file (its transaction rolled
+ *      back, nothing committed) is SKIPPED alone and stays queued for the
+ *      next day's window; the next queued file is still sent, because every
+ *      file carries its own window, lock and budget assertions. An UNKNOWN
+ *      outcome stops the run at once (2026-11-07; before that the first
+ *      refusal of any kind held every later file for a day).
  *
  * OUTCOMES (CLAUDE.md 10.86): 0 nothing queued or every queued file installed;
- * 1 refused, missed or the break never opened (still queued, nothing half
- * applied); 3 UNKNOWN - read schema_migrations before anything else. The job
- * summary names each file and its outcome; a red run on main is read by the
- * red-main detector in production-integrity-audit.yml (CLAUDE.md 10.83).
+ * 1 at least one file refused (named, still queued, nothing half applied), or
+ * missed, or the break never opened; 3 UNKNOWN - read schema_migrations before
+ * anything else. The job summary names each file and its outcome; a red run
+ * on main is read by the red-main detector in production-integrity-audit.yml
+ * (CLAUDE.md 10.83).
+ *
+ * ORDER. Queued files are sent oldest first, but a skipped file installs a
+ * day later than the files behind it. A window file that depends on an
+ * earlier window file must therefore assert its prerequisite itself (and
+ * fail loudly, which is a refusal) rather than assume the order held.
  */
 import { readOwnerMigrationWindow, ownerWindowState } from './owner-window-migration.mjs';
 import { readdirSync, readFileSync, appendFileSync } from 'node:fs';
@@ -230,6 +240,14 @@ say(`freeze confirmed at ${new Date(open.observed_at).toISOString()}: ${open.bre
 const passthrough = argValue('--ssl-root-cert')
   ? ['--ssl-root-cert', argValue('--ssl-root-cert')]
   : [];
+// A REFUSED file (exit 1) was rolled back by its own transaction and nothing
+// of it committed, so it is skipped alone and the rest of the queue keeps
+// installing: on 2026-11-07 one lock_timeout refusal held five unrelated files
+// for a day. Every file is still sent once and never retried. An UNKNOWN (exit
+// 3, a signal, a timeout) still stops the run at once: its outcome must be read
+// from schema_migrations before anything else is sent.
+const installed = [];
+const skipped = [];
 for (const f of queued) {
   const started = Date.now();
   const run = spawnSync(
@@ -246,19 +264,31 @@ for (const f of queued) {
   );
   const ms = Date.now() - started;
   if (run.status === 0) {
+    installed.push(f);
     say(`INSTALLED \`${f}\` (${ms} ms, override recorded in ca_break_window_migration_overrides)`);
     continue;
   }
-  const rest = queued.slice(queued.indexOf(f) + 1);
-  if (run.status === 1)
-    finish(
-      1,
-      `REFUSED \`${f}\` after ${ms} ms - rolled back, nothing committed, see the log above. ` +
-        `It${rest.length ? ` and ${rest.length} later migration(s)` : ''} stay queued for the next daily window. Not retried.`
+  if (run.status === 1) {
+    skipped.push(f);
+    say(
+      `SKIPPED \`${f}\`: REFUSED after ${ms} ms - rolled back, nothing committed, see the log above. ` +
+        'It stays queued for the next daily window. Not retried; the next queued file is sent.'
     );
+    continue;
+  }
+  const rest = queued.slice(queued.indexOf(f) + 1);
   finish(
     3,
-    `UNKNOWN \`${f}\` (exit ${run.status ?? run.signal}) - read schema_migrations for it before anything else. Not retried.`
+    `UNKNOWN \`${f}\` (exit ${run.status ?? run.signal}) - read schema_migrations for it before anything else. ` +
+      `Not retried; ${rest.length} later migration(s) were not sent` +
+      `${skipped.length ? `; skipped (refused, still queued): ${skipped.map((s) => `\`${s}\``).join(', ')}` : ''}.`
   );
 }
+if (skipped.length)
+  finish(
+    1,
+    `REFUSED ${skipped.length} of ${queued.length} migration(s) - skipped (rolled back, still queued for the next daily window): ` +
+      `${skipped.map((s) => `\`${s}\``).join(', ')}; installed ${installed.length}: ` +
+      `${installed.map((s) => `\`${s}\``).join(', ') || 'none'}. Not retried.`
+  );
 finish(0, `INSTALLED ${queued.length} migration(s) inside the daily maintenance freeze`);

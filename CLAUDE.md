@@ -321,9 +321,10 @@ supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS`, and each
     `lock_timeout`, 5 s statements and an 8 s budget asserted before COMMIT
     (well under the sentinel's 15 s), started only while the break is
     counting down with a confirmed freeze and at least 150 s before its end,
-    committed only with 100 s to spare before the thaw. A refusal rolls back,
-    stops the run, leaves the file queued for the next day and turns the run
-    red. "Queued" is simply "on main and not in schema_migrations"; never
+    committed only with 100 s to spare before the thaw. A refusal rolls that
+    file back alone, leaves it queued for the next day and turns the run red
+    naming it; the queued files behind it are still sent once each (since
+    2026-11-07; an UNKNOWN outcome still stops the run). "Queued" is simply "on main and not in schema_migrations"; never
     apply a declared file by hand or through the MCP. Window files may not
     set their own override, freeze bypass, longer timeouts, sleeps, blocking
     advisory locks or CONCURRENTLY preambles, and the freeze still refuses

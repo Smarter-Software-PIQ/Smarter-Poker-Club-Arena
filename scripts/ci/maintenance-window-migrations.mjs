@@ -44,9 +44,11 @@ import { ownerWindowPredicate } from './owner-window-migration.mjs';
  * exemption, and a short install cannot delay the thaw or the restart.
  *
  * NO RETRY LOOP (CLAUDE.md section 2 rules 2 and 9, 10.12). Each queued file is
- * sent at most once per window. A refusal stops the run, leaves the file
- * queued for the next day's window, and fails the job, which is read by its
- * summary and by the red-main detector (CLAUDE.md 10.83).
+ * sent at most once per window. A refusal rolls that file back, leaves it
+ * queued for the next day's window and fails the job naming it, while the
+ * files behind it are still sent once each (2026-11-07; one lock refusal used
+ * to hold every later file for a day). An UNKNOWN outcome stops the run. The
+ * job is read by its summary and by the red-main detector (CLAUDE.md 10.83).
  */
 
 export const WINDOW_ANNOTATION = '-- @install-window: daily-maintenance';
