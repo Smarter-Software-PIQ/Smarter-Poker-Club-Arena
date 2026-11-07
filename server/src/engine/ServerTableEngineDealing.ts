@@ -1218,25 +1218,6 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         await this.dealHand(activePlayers);
         this.consecutiveErrors = 0;
 
-        // Hand-for-hand / synchronized break: the hand just landed, so park
-        // NOW rather than waiting for the showdown display pause below. This
-        // is what makes areAllTablesParked() go true promptly, which is what
-        // starts the five minutes. Same gate as the top of the loop — see
-        // awaitPauseGate on the base class.
-        if (
-          (this.handForHandPaused ||
-            this.weeklyPayoutPauseOwners.size > 0 ||
-            this.maintenancePaused ||
-            this.finalTableDealPaused ||
-            this.terminalCloseoutPaused ||
-            this.tournamentMovePauseOwners.size > 0) &&
-          this.running
-        ) {
-          this.setLoopPhase('parked_for_pause');
-          if (this.maintenancePaused) await this.persistPresenceForRestart('parked');
-          await this.awaitPauseGate();
-        }
-
         // Bible V8 §4.23: Formal cleanup timing between hands.
         //
         // ── Dan 2026-08-18: "stop rushing the showdowns" ──
@@ -1356,6 +1337,40 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           this.armNextHandRest(
             Math.max(HAND_COMPLETION.NEXT_HAND_REST_MS, boardClearMs(wentToShowdown))
           );
+
+          // ── A BREAK NEVER STARTS IN THE MIDDLE OF A HAND (Dan 2026-11-06) ──
+          //
+          // "ANY AND ALL SCHEDULED BREAKS OR MAINTENANCE BREAKS MUST FINISH THE
+          //  CURRENT HAND THEY ARE ON, BEFORE THE BREAK STARTS. BREAKING IN THE
+          //  MIDDLE OF THE HAND MAKES THE PLATFORM 'FEEL BROKEN'."
+          //
+          // Hand-for-hand, the synchronized tournament break, the maintenance
+          // break and every other pause owner park HERE - after the hand is
+          // completed in the 2026-08-21 sense (winner shown, pot pushed with its
+          // total, cards mucked) AND after the hand-free broadcast above has
+          // cleared the felt. This park used to sit immediately after
+          // dealHand(), BEFORE both: settlement had run, but the completion
+          // display and the clean-state broadcast were deferred until the break
+          // ENDED. For the whole break every player and spectator looked at the
+          // last action of the hand frozen on the felt - bets in front, ALL IN
+          // badges, an unpushed pot, the winner's stack not yet credited -
+          // under a "Break: Paused" clock (40 Chip Bounty Freezeout Table 4,
+          // hand 56221104, 2026-11-07 03:55:25 UTC to 04:05). The table is
+          // parked only once the hand is visibly over, which is also what
+          // areAllTablesParked() waits for before a break's countdown begins.
+          if (
+            (this.handForHandPaused ||
+              this.weeklyPayoutPauseOwners.size > 0 ||
+              this.maintenancePaused ||
+              this.finalTableDealPaused ||
+              this.terminalCloseoutPaused ||
+              this.tournamentMovePauseOwners.size > 0) &&
+            this.running
+          ) {
+            this.setLoopPhase('parked_for_pause');
+            if (this.maintenancePaused) await this.persistPresenceForRestart('parked');
+            await this.awaitPauseGate();
+          }
 
           // ── Dan's Rebuy Pause (2026-08-24) ──
           // Give busted players 5 seconds to process the UI modal and hit rebuy before the next hand starts.
