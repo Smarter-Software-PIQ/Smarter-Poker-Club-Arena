@@ -1,38 +1,3 @@
--- ═══════════════════════════════════════════════════════════════════════════
--- A REFUSED LEAGUE MATCHUP IS NOT A BROKEN ONE (2026-11-07)
--- ═══════════════════════════════════════════════════════════════════════════
---
--- The 2026-11-06 audit reported three Critical flaws. Two of them were not
--- flaws. It read `hands = 0` on six league matchups (v16_ratio_rescale,
--- v18_exploit_size, v31_gto_suit_aware and three v55 arms) and called them
--- "league matchups that measured nothing". Every one of those rows carries
--- status = 'refused' and a refusal_reason that states, at length, why
--- self-play cannot answer the question and what would change that. The
--- v16Ratio row even ends with the sentence "Read this row, not the absence
--- of one, when deciding v16Ratio."
---
--- The audit could not read it. The league loop in fn_run_horse_daily_audit
--- selects matchup, bb100, stderr, illegal_actions, truncated_streets,
--- harness_corrected_actions, brain_exception_fallbacks and engine_sha - and
--- neither status, nor refusal_reason, nor hands. So a reasoned refusal and a
--- silent harness failure look identical to it, and BOTH are invisible: there
--- was no check anywhere for a matchup that was due to measure and dealt
--- nothing.
---
--- This gives the loop those three columns and splits the two cases:
---   * status = 'refused'       -> info, carrying the reason. Zero hands is
---     the documented outcome; no ablation or default change follows from it.
---   * not refused, hands = 0   -> CRITICAL. This is the case that had no
---     instrument at all: the harness was expected to deal and dealt nothing.
---   * the NEGATIVE verdict now also requires >= 1000 hands, so one divergent
---     pair in a probe (bb100 = stderr, which the v55 card has already
---     produced once) can never be promoted into a Critical "resolves
---     NEGATIVE". Every genuinely measured matchup on the card deals >= 8000.
---
--- Surgery, not a retype: the body is 30k of audited SQL, so it is edited in
--- place from pg_get_functiondef and nothing else in it can drift. Both
--- anchors are asserted present before the edit and gone after it.
-
 DO $mig$
 DECLARE
   v_def text;

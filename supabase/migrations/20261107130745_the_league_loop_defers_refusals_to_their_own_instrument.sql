@@ -19,7 +19,8 @@
 -- addition in would double-report all six every night, which is the same
 -- crying-wolf it was meant to cure.
 --
--- The emission is removed. What is kept, because nothing else covers it:
+-- The emission is removed. What is kept from that migration, because nothing
+-- else covers it:
 --   * the status/refusal_reason/hands columns on the loop;
 --   * the bare `continue` for a refused row, so it can never reach the
 --     NEGATIVE verdict on a one-pair probe;
