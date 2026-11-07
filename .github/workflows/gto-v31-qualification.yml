@@ -15,6 +15,9 @@ on:
       - scripts/ci/gto-v31-qualification.test.mjs
       - scripts/ci/v31-decision-closure.mjs
       - scripts/ci/v31-decision-closure.test.mjs
+      - scripts/ci/v31-execution-fingerprint.mjs
+      - scripts/ci/v31-execution-fingerprint.test.mjs
+      - server/src/engine/HorseV31CertifiedPolicy.ts
       - scripts/ci/v31-atomic-promotion-host.sh
       - scripts/ci/v31-atomic-promotion-container.mjs
       - scripts/ci/v31-atomic-promotion.test.mjs
@@ -62,7 +65,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test scripts/ci/gto-v31-qualification.test.mjs scripts/ci/v31-decision-closure.test.mjs scripts/ci/v31-atomic-promotion.test.mjs
+      - run: node --test scripts/ci/gto-v31-qualification.test.mjs scripts/ci/v31-decision-closure.test.mjs scripts/ci/v31-execution-fingerprint.test.mjs scripts/ci/v31-atomic-promotion.test.mjs
   qualify:
     needs: contract
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'evaluate' && github.ref == 'refs/heads/main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')

@@ -53,6 +53,11 @@ const ALL_SOURCE: string = walk(SRC)
 
 const BRAIN_FILES = [
   'engine/HorseLogic.ts',
+  // The V31 certified consult and the solver miss helpers moved verbatim out
+  // of HorseLogic.ts (2026-11-06) and fire the same receipts and read the
+  // same controls there.
+  'engine/HorseV31CertifiedPolicy.ts',
+  'engine/HorseGtoExecution.ts',
   'engine/HorsePreflop.ts',
   'engine/HorseMind.ts',
   'engine/HorseEval.ts',
