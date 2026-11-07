@@ -53,8 +53,8 @@ const QUALIFYING = {
   qualifierIds: [id(11), id(12), id(13), id(14), id(15), id(16)],
 };
 
-function manager() {
-  const m: any = new TournamentManager(EVENT, {} as any, id(9), performance.now() + 60000);
+function manager(generation = id(9)) {
+  const m: any = new TournamentManager(EVENT, {} as any, generation, performance.now() + 60000);
   m.running = true;
   m.eliminationSweepDeadlineAt = 0;
   m.requestUrgentEliminationSweepAfter = vi.fn();
@@ -159,6 +159,47 @@ describe('a qualifier settlement refused by a table break finishes the break', (
       expect.objectContaining({ tournamentId: EVENT, qualifierCount: 6 })
     );
   });
+
+  it.each(['first read', 'parked read', 'settlement'] as const)(
+    'a handoff during the %s leaves the bubble and receipt with the successor',
+    async (phase) => {
+      const { m, engine } = qualifyingSatellite();
+      const successor = manager(id(10));
+      const receipt = { qualifierIds: QUALIFYING.qualifierIds };
+      const retire = () => {
+        m.running = false;
+        return { state: 'completed', receipt };
+      };
+      delete m.isRunning; // Use the real retired-manager authority check for this case.
+      m.cleanupCommittedSatelliteQualifiers = vi.fn();
+      successor.isCohortSatellite = () => true;
+      successor.eliminationMutationAllowed = () => true;
+      successor.cleanupCommittedSatelliteQualifiers = vi.fn().mockResolvedValue(true);
+      const previousHand = vi.fn();
+      const dealer = Object.assign(engine, {
+        onHandComplete: previousHand,
+        onPauseReady: vi.fn(),
+        onRestartRequired: vi.fn(),
+      });
+      m.wireEliminationWake(dealer);
+      if (phase === 'first read') rpc.read.mockImplementationOnce(retire);
+      if (phase === 'parked read')
+        rpc.read.mockResolvedValueOnce(QUALIFYING).mockImplementationOnce(retire);
+      if (phase === 'settlement') rpc.settle.mockImplementationOnce(() => retire().receipt);
+      expect(await m.checkSatelliteQualifierCompletion()).toBe('pending');
+      const generation = m.satelliteQualifierBoundaryGeneration;
+      const reportBust = previousHand.mock.calls[0][0];
+      reportBust(TABLE, [{ userId: id(20), stack: 0 }]);
+      reportBust(TABLE, [{ userId: id(20), stack: 0 }]);
+      expect(m.satelliteQualifierBoundaryGeneration).toBe(generation);
+      expect(m.cleanupCommittedSatelliteQualifiers).not.toHaveBeenCalled();
+      rpc.read.mockResolvedValueOnce({ state: 'completed', receipt });
+      expect(await successor.checkSatelliteQualifierCompletion()).toBe('complete');
+      expect(successor.cleanupCommittedSatelliteQualifiers).toHaveBeenCalledWith(receipt);
+      expect(rpc.settle).toHaveBeenCalledTimes(phase === 'settlement' ? 1 : 0);
+      expect(engine.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
+    }
+  );
 
   it('re-arms an unsent busy cohort on its original held boundary', async () => {
     const { m, engine } = qualifyingSatellite();
