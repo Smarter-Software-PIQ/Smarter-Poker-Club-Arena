@@ -481,11 +481,22 @@ describe('standby seat proof observes the protected interval', () => {
       'arbitrary-owner',
       'semantic-change',
       'second-rotation',
+      'tail-incomplete',
+      'tail-foreign',
+      'tail-malformed',
+      'tail-early-unfrozen',
+      'tail-seat-mutation',
+      'tail-missing',
+      'tail-clock-crossing',
+      'tail-foreign-boundary',
       ...(trial === 'swap' ? ['process-restart'] : []),
     ])(`${trial} refuses invalid frozen evidence (%s)`, (mode) => {
       const sha = 'a'.repeat(40);
       const frozen = {
         frozen: true,
+        evidenceKind: 'active',
+        observedAt: '2026-11-06T22:13:12.000+00:00',
+        observationStartedAt: '2026-11-06T22:13:12.000+00:00',
         token: '1135e041-af7d-417b-9121-32e30090652a',
         declaredBy: trial === 'swap' ? 'bbbbbbbb' : sha.slice(0, 8),
         phase: 'counting_down',
@@ -504,12 +515,51 @@ describe('standby seat proof observes the protected interval', () => {
               declaredBy: sha.slice(0, 8),
             }
           : frozen;
+      const tail = {
+        ...successor,
+        evidenceKind: 'certified_tail',
+        phase: null,
+        reason: null,
+        observedAt: '2026-11-06T22:16:42.000+00:00',
+        activeReleaseAt: successor.releaseAt,
+        tailContractVersion: 3,
+        tailComplete: true,
+        tailRequiredSteps: true,
+      };
+      const badTail =
+        mode === 'tail-clock-crossing'
+          ? {
+              ...tail,
+              activeReleaseAt: null,
+              observationStartedAt: '2026-11-06T22:18:11.000+00:00',
+              observedAt: '2026-11-06T22:18:12.000+00:00',
+            }
+          : mode === 'tail-foreign-boundary'
+            ? { ...tail, activeReleaseAt: '2026-11-06T22:19:11.748+00:00' }
+            : mode === 'tail-incomplete'
+              ? { ...tail, tailRequiredSteps: false }
+              : mode === 'tail-foreign'
+                ? { ...tail, token: '4135e041-af7d-417b-9121-32e30090652a' }
+                : mode === 'tail-malformed'
+                  ? { ...tail, tailComplete: 'true' }
+                  : mode === 'tail-early-unfrozen'
+                    ? { ...tail, frozen: false }
+                    : mode === 'tail-seat-mutation'
+                      ? { ...tail, fingerprint: 'f'.repeat(32) }
+                      : { ...tail, evidenceKind: 'absent', token: null };
       const changed = { ...successor, fingerprint: 'c'.repeat(32) };
       const different = { ...successor, startedAt: '2026-11-06T22:13:12.748+00:00' };
       const arbitrary = { ...successor, declaredBy: 'cccccccc' };
       const semantic = { ...successor, reason: 'other' };
       const rotated = { ...successor, token: '3135e041-af7d-417b-9121-32e30090652a' };
-      const thawed = { ...changed, frozen: false, token: null, startedAt: null, releaseAt: null };
+      const thawed = {
+        ...changed,
+        frozen: false,
+        observedAt: '2026-11-06T22:18:12.000+00:00',
+        token: null,
+        startedAt: null,
+        releaseAt: null,
+      };
       const result = standbyShell(`
         source '${root('server/standby/standby-trials.sh')}'
         cmd_run() { :; }; cmd_build() { :; }; wait_live() { :; }; wait_dealing() { :; }; wait_no_break() { :; }
@@ -519,7 +569,7 @@ describe('standby seat proof observes the protected interval', () => {
         seat_fingerprint() { echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }
         request_break() { echo 0 > "$STATE_DIR/sample"; }
         psql_db() {
-          case "$*" in *'-v boundary='*) [ '${mode}' = receipt-refused ] && echo f || echo t; return 0;; esac
+          case "$*" in *'-v version='*) [ '${mode}' = receipt-refused ] && echo f || echo t; return 0;; esac
           local n; n=$(cat "$STATE_DIR/sample"); n=$((n+1)); echo "$n" > "$STATE_DIR/sample"
           if [ '${mode}' = unreadable ]; then return 19; fi
           if [ "$n" -eq 2 ]; then
@@ -532,6 +582,10 @@ describe('standby seat proof observes the protected interval', () => {
             esac
           fi
           if [ "$n" -eq 3 ] && [ '${mode}' = second-rotation ]; then printf '%s' '${JSON.stringify(rotated)}'; return 0; fi
+          if [ "$n" -eq 3 ]; then
+            case '${mode}' in tail-*) printf '%s' '${JSON.stringify(badTail)}';; *) printf '%s' '${JSON.stringify(tail)}';; esac
+            return 0
+          fi
           if [ "$n" -gt 1 ] && [ "$n" -lt 4 ]; then printf '%s' '${JSON.stringify(successor)}'; return 0; fi
           if [ "$n" -ge 4 ]; then printf '%s' '${JSON.stringify(thawed)}'; else printf '%s' '${JSON.stringify(frozen)}'; fi
         }
@@ -539,9 +593,16 @@ describe('standby seat proof observes the protected interval', () => {
       `);
       // Break has no engine boot and can legitimately release on its second sample.
       const passing =
-        mode === 'legitimate-boundary-activity' || (trial === 'break' && mode === 'early-thaw');
+        mode === 'legitimate-boundary-activity' ||
+        mode === 'tail-clock-crossing' ||
+        (trial === 'break' && mode === 'early-thaw');
       expect(result.status === 0, result.stderr + result.stdout).toBe(passing);
       if (passing) expect(result.stdout).toContain('"frozenSeatBoundary":');
+      if (mode.startsWith('tail-') && !passing) {
+        const verdict = JSON.parse(result.stdout.trim());
+        expect(verdict.rejectedSeatObservation.observation).toEqual(badTail);
+        expect(verdict.rejectedSeatObservation.reason).toContain('frozen_seat_boundary:');
+      }
     });
   }
 });
