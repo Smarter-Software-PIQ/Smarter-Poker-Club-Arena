@@ -666,6 +666,9 @@ import TournamentInfoPanel from '../components/tournament/TournamentInfoPanel';
 import HeroHubPanel from '../components/table/HeroHubPanel';
 import { CASH_TEMPLATES, cashTemplateKey } from '../config/cashGames';
 import HeroVpipTracker from '../components/table/HeroVpipTracker';
+import HitRunLeaveConfirm from '../components/table/HitRunLeaveConfirm';
+import { useHeroHandCount } from '../hooks/useHeroHandCount';
+import { blindOffLeaveText, fetchMyHandsOwed } from '../lib/hitAndRun';
 import { TournamentHUD } from '../components/tournament/TournamentHUD';
 import { EquityBadgeLayer, type EquityBadge } from '../components/table/EquityBadgeLayer';
 import type { EquitySpot } from '../lib/equityBadgePlacement';
@@ -2571,6 +2574,16 @@ function LiveTablePage({
      server refuses the leave regardless of what this state says. The 1s tick
      only re-renders the countdown; nothing here decides anything. */
   const [heroLeave, setHeroLeave] = useState<HeroLeaveClock | null>(null);
+  /* HIT AND RUN (owner 2026-11-06): the hero's hands still owed in profit as
+     the engine's seat payload reports them (undefined: not reported), and the
+     full-screen confirmation's count while it is open. */
+  const [heroHandsOwedEngine, setHeroHandsOwedEngine] = useState<number | null | undefined>(
+    undefined
+  );
+  const [hitRunConfirmHands, setHitRunConfirmHands] = useState<number | null>(null);
+  const hitRunConfirmFromTabRef = useRef(false);
+  /** Set by the confirmation's Leave for the one handleLeaveTable call it makes. */
+  const hitRunConfirmedRef = useRef(false);
   const [, setLeaveClockTick] = useState(0);
   useEffect(() => {
     if (!heroLeave?.running) return;
@@ -2906,6 +2919,7 @@ function LiveTablePage({
     // Phase 1.2 PR-F: stash disconnect map for the top-level toast
     setDisconnectStates(mapped.disconnectStates);
     setHeroLeave(mapped.heroLeave);
+    setHeroHandsOwedEngine(mapped.heroHandsOwed);
 
     // Dan 2026-08-24: Total Buy In restoration on refresh/seat-first.
     // totalBuyInRef is only updated by the manual buy-in modal, so it is 0 after a page refresh
@@ -11888,8 +11902,54 @@ function LiveTablePage({
   }, [leaveAttentionSuppressed]);
 
   const stopLightningForLeave = useLightningLeaveStop(lightningRoom, userId);
+  const heroHandsOwed = useHeroHandCount({
+    enabled:
+      !!userId &&
+      userId !== 'guest' &&
+      !tableState.isTournament &&
+      (tableState.heroSeat > 0 || !!lightningRoom),
+    tableId,
+    lightningClusterId: lightningRoom?.clusterId ?? null,
+    handNumber: tableState.handNumber ?? 0,
+    engineHands: heroHandsOwedEngine,
+  });
+  /**
+   * HIT AND RUN (owner 2026-11-06): every leave door asks first. Hands still
+   * owed in profit at this seat (a Lightning room's: its anchor seat) open the
+   * full-screen confirmation instead of leaving; nothing has been sent, no
+   * matchmaking stopped. Unreadable or none owed: null, the leave goes on and
+   * the engine's door still decides.
+   */
+  const handsOwedBeforeLeave = async (): Promise<number | null> => {
+    if (!tableId || !userId || userId === 'guest' || tableState.isTournament) return null;
+    let target: string = tableId;
+    if (lightningRoomRef.current) {
+      const anchor = await resolveLightningLeave();
+      if (!anchor || anchor === 'unreadable') return null;
+      target = anchor.anchorTableId;
+    } else if (Math.max(tableState.heroSeat, heroSeatRef.current) <= 0) {
+      return null;
+    }
+    return fetchMyHandsOwed(target);
+  };
   const handleLeaveTable = async () => {
     if (leaveRequestActiveRef.current) return;
+    const confirmedHandCount = hitRunConfirmedRef.current;
+    hitRunConfirmedRef.current = false;
+    if (!confirmedHandCount) {
+      leaveRequestActiveRef.current = true;
+      let owed: number | null = null;
+      try {
+        owed = await handsOwedBeforeLeave();
+      } finally {
+        leaveRequestActiveRef.current = false;
+      }
+      if (owed !== null) {
+        hitRunConfirmFromTabRef.current = false;
+        setHitRunConfirmHands(owed);
+        return;
+      }
+    }
     leaveRequestActiveRef.current = true;
     try {
       setLeaveAttentionSuppressed(true);
@@ -11897,7 +11957,9 @@ function LiveTablePage({
       leaveNextHand.cancelQueuedLeave();
       setLeaveNotice(null);
       leaveNavigatedRef.current = false;
-      if (!(await stopLightningForLeave())) {
+      // HIT AND RUN: a confirmed early leave is BLINDED OFF, so a Lightning
+      // seat must keep being matched (its hand host folds it). Never stop it.
+      if (!confirmedHandCount && !(await stopLightningForLeave())) {
         setLeaveAttentionSuppressed(false);
         toast.warning('Could Not Confirm Your Stop Request. Please Try Again.');
         return;
@@ -12022,11 +12084,37 @@ function LiveTablePage({
       try {
         const leaveTableId = lightningLeave ? lightningLeave.anchorTableId : tableId;
         const result = lightningLeave
-          ? await tableService.leaveTable(leaveTableId, lightningLeave.seatNumber, userId, {
-              seatNumber: lightningLeave.seatNumber,
-              occupancyId: lightningLeave.occupancyId,
-            })
-          : await tableService.leaveTable(tableId, tableState.heroSeat, userId);
+          ? await tableService.leaveTable(
+              leaveTableId,
+              lightningLeave.seatNumber,
+              userId,
+              {
+                seatNumber: lightningLeave.seatNumber,
+                occupancyId: lightningLeave.occupancyId,
+              },
+              confirmedHandCount
+            )
+          : await tableService.leaveTable(
+              tableId,
+              tableState.heroSeat,
+              userId,
+              undefined,
+              confirmedHandCount
+            );
+        if (result.success && result.blindOff) {
+          // HIT AND RUN: the seat stays, blinded off for the owed hands; the
+          // engine cashes it out when they are played. The tab stays too.
+          if (!lightningLeave) {
+            sittingOutIdsRef.current.add(String(userId));
+            setHeroSitsOutPerRow(true);
+            setSitOutNextHand(true);
+          }
+          onTableInfoUpdate?.({ isMyTurn: false, sittingOut: !lightningLeave });
+          goToLobbyKeepingSeat(
+            blindOffLeaveText(result.handsRemaining ?? hitRunConfirmHands ?? heroHandsOwed ?? 1)
+          );
+          return;
+        }
         if (result.success && (result.tournament || result.held)) {
           // Leaving an active tournament is a sit-out, not a cashout or a tab close.
           sittingOutIdsRef.current.add(String(userId));
@@ -12353,6 +12441,21 @@ function LiveTablePage({
   // Handle force leave (triggered by closing tab 'X' button or when already cashed out)
   const handleForceLeaveTable = async () => {
     if (leaveRequestActiveRef.current) return;
+    // HIT AND RUN: the tab's X is a leave door too; hands owed ask first.
+    {
+      leaveRequestActiveRef.current = true;
+      let owed: number | null = null;
+      try {
+        owed = await handsOwedBeforeLeave();
+      } finally {
+        leaveRequestActiveRef.current = false;
+      }
+      if (owed !== null) {
+        hitRunConfirmFromTabRef.current = true;
+        setHitRunConfirmHands(owed);
+        return;
+      }
+    }
     leaveNextHand.cancelQueuedLeave();
     const forceSummaryRoom = lightningRoomRef.current;
     leaveNavigatedRef.current = false;
@@ -29669,6 +29772,7 @@ function LiveTablePage({
             isTournament={tableState.isTournament}
             leaveClockRemainingMs={heroLeaveLocked ? heroLeaveMs : null}
             leaveClockRunning={heroLeave?.running === true}
+            handsOwed={heroHandsOwed}
             handNumber={tableState.handNumber ?? 0}
             heroPos={
               tableState.heroSeat > 0 ? (seatPositions[tableState.heroSeat - 1] ?? null) : null
@@ -31070,6 +31174,20 @@ function LiveTablePage({
         reason={maintenanceBreak.reason}
         minimized={maintenanceBreakClosed}
         onMinimize={() => setMaintenanceBreakClosed(true)}
+      />
+      {/* HIT AND RUN (owner 2026-11-06): the full-screen leave confirmation. */}
+      <HitRunLeaveConfirm
+        handsRemaining={hitRunConfirmHands}
+        onStay={() => {
+          setHitRunConfirmHands(null);
+          hitRunConfirmFromTabRef.current = false;
+        }}
+        onLeave={async () => {
+          setHitRunConfirmHands(null);
+          hitRunConfirmFromTabRef.current = false;
+          hitRunConfirmedRef.current = true;
+          await handleLeaveTable();
+        }}
       />
       <TableModalsLayer
         isActive={isActive}

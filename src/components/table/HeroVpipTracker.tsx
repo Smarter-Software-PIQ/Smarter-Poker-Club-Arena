@@ -24,6 +24,7 @@
  * a slow backstop timer. One small RPC per hand per human.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { HIT_RUN_COUNT_LABEL } from '../../lib/hitAndRun';
 import { supabase } from '../../lib/supabase';
 import VpipRequirementBadge from './VpipRequirementBadge';
 import './HeroVpipTracker.css';
@@ -168,6 +169,11 @@ interface Props {
   /** Existing engine stay-clock projection; no client-side lock decision. */
   leaveClockRemainingMs?: number | null;
   leaveClockRunning?: boolean;
+  /**
+   * HIT AND RUN (owner 2026-11-06): hands still owed in profit before the
+   * hero may leave, counted down after every completed hand. Null: none.
+   */
+  handsOwed?: number | null;
 }
 
 export default function HeroVpipTracker({
@@ -178,6 +184,7 @@ export default function HeroVpipTracker({
   heroPos,
   leaveClockRemainingMs = null,
   leaveClockRunning = false,
+  handsOwed = null,
 }: Props) {
   const enabled = Boolean(tableId) && heroSeated && !isTournament;
   const { status, freshness } = useHeroVpipStatus(tableId, enabled, handNumber);
@@ -187,6 +194,7 @@ export default function HeroVpipTracker({
   const showVpip = Boolean(status?.ok && status.seated && floor > 0);
   const showClock =
     leaveClockRunning && leaveClockRemainingMs !== null && leaveClockRemainingMs > 0;
+  const showHands = typeof handsOwed === 'number' && handsOwed > 0;
 
   useLayoutEffect(() => {
     const node = anchor.current;
@@ -243,9 +251,9 @@ export default function HeroVpipTracker({
       observer?.disconnect();
       mounts?.disconnect();
     };
-  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showClock]);
+  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showClock, showHands]);
 
-  if (!enabled || !heroPos || (!showVpip && !showClock)) return null;
+  if (!enabled || !heroPos || (!showVpip && !showClock && !showHands)) return null;
   const seconds = Math.max(0, Math.ceil((leaveClockRemainingMs ?? 0) / 1000));
   const clockText = `${Math.floor(seconds / 60)}:${seconds % 60 < 10 ? `0${seconds % 60}` : seconds % 60}`;
 
@@ -269,6 +277,12 @@ export default function HeroVpipTracker({
           around looking wired. */}
       {showVpip && (
         <VpipRequirementBadge minimumVpip={floor} currentVpip={vpip} status={freshness} />
+      )}
+      {showHands && (
+        <div className="hero-vpip__clock" data-testid="hero-hand-count">
+          <span>{HIT_RUN_COUNT_LABEL}</span>
+          <time aria-label={`${HIT_RUN_COUNT_LABEL} ${handsOwed}`}>{handsOwed}</time>
+        </div>
       )}
       {showClock && (
         <div className="hero-vpip__clock" data-testid="hero-profit-clock">

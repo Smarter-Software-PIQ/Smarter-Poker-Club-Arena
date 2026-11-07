@@ -4178,11 +4178,15 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     // the post-hand stack, never the pre-hand one.
     await runStep('chip_continuity', false, async () => {
       if (!isDiamondCash && !this.isTournamentTable()) {
+        // HIT AND RUN (owner 2026-11-06): every player dealt into this hand
+        // carries its id, and the database advances their ten-hand count once
+        // for it (blinded-off seats included: they were dealt in).
         await this.chipContinuity.evaluate(
           players.map((p) => ({
             user_id: p.user_id,
             stack: p.stack,
             active: this.isContinuityActive(p.user_id),
+            ...(snap.dealtStacks.has(p.user_id) ? { hand_id: v_handId } : {}),
           }))
         );
         if (!this.lifecycleCanMutate()) return;

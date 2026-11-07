@@ -1,6 +1,7 @@
 /**
- * Cash-session compatibility mirror. Owner direction 2026-10-26 removes the
- * minimum stay. Legacy clocks never lock a leave or appear in seat payloads.
+ * Cash-session mirror. Owner direction 2026-10-26 removed the time-based
+ * minimum stay; owner direction 2026-11-06 holds a winning player for ten
+ * hands in profit instead (the hit-and-run rule, see hitRunHandsRemaining).
  * The database still owns atomic cashout and the full-stack two-hour return
  * requirement. Session transitions continue for financial/session accounting.
  */
@@ -18,22 +19,44 @@ export function stayRemainingMs(
   return 0;
 }
 
-/** Cash leaves have no minimum stay, including legacy persisted sessions. */
-export function isLeaveLocked(
-  row: Pick<
-    CashSessionRow,
-    'baseline' | 'stack' | 'stay_remaining_ms' | 'stay_running' | 'stay_last_tick_at'
-  >,
-  stackNow: number,
-  nowMs: number
-): boolean {
-  // Owner direction 2026-10-26: cash leaves have no minimum stay.
-  // Ignore old persisted/mirrored clocks during the rolling deployment.
-  return false;
+/**
+ * HIT AND RUN (owner 2026-11-06): "ONCE A PLAYER 'IS IN PROFIT' AT A TABLE...
+ * THEY CAN NOT LEAVE THE TABLE UNTIL THEY PLAY 10 HANDS IN PROFIT", plus the
+ * Charles Rule (+10 hands per double while counting down). The database owns
+ * the count (fn_cash_session_evaluate advances it once per dealt hand); this
+ * is the synchronous reading of the mirror row against the engine's live
+ * stack. The time stay clock stays retired (owner 2026-10-26).
+ */
+export function hitRunHandsRemaining(
+  row: Pick<CashSessionRow, 'baseline' | 'hands_required' | 'hands_played' | 'hit_run_completed'>,
+  stackNow: number
+): number {
+  const required = Math.max(0, Math.floor(Number(row.hands_required) || 0));
+  const played = Math.max(0, Math.floor(Number(row.hands_played) || 0));
+  if (row.hit_run_completed === true || required <= 0 || played >= required) return 0;
+  if (!(Number(stackNow) > Number(row.baseline))) return 0;
+  return required - played;
 }
 
-/** "Leave Available In M:SS" - the only copy the leave control shows while locked. */
-export function leaveLabel(remainingMs: number): string {
+/** In profit and still owing hands at this stack. */
+export function isLeaveLocked(
+  row: Pick<CashSessionRow, 'baseline' | 'hands_required' | 'hands_played' | 'hit_run_completed'>,
+  stackNow: number,
+  _nowMs?: number
+): boolean {
+  return hitRunHandsRemaining(row, stackNow) > 0;
+}
+
+/** The leave control's label while hands are owed. Title Case, no em dash. */
+export function handsLeftLabel(hands: number): string {
+  const n = Math.max(0, Math.floor(hands));
+  return `${n} ${n === 1 ? 'Hand' : 'Hands'} Left Before You Can Leave`;
+}
+
+/** Legacy name kept for callers that still pass a clock: hands when known. */
+export function leaveLabel(remainingMs: number, handsRemaining?: number): string {
+  if (typeof handsRemaining === 'number' && handsRemaining > 0)
+    return handsLeftLabel(handsRemaining);
   const totalSec = Math.max(0, Math.ceil(remainingMs / 1000));
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
@@ -45,6 +68,14 @@ export interface ContinuitySeatFields {
   stay_remaining_ms: number;
   stay_running: boolean;
   leave_locked: boolean;
+  /**
+   * HIT AND RUN: hands still owed in profit (null when none are owed), the
+   * total owed this countdown (10 + 10 per double), and whether the player
+   * confirmed leaving and is being blinded off.
+   */
+  hit_run_hands_remaining: number | null;
+  hit_run_hands_required: number | null;
+  hit_run_blind_off: boolean;
 }
 
 export interface ChipContinuityDeps {
@@ -73,8 +104,21 @@ export class ChipContinuityTracker {
   /** The platform was frozen at the last sweep; the thaw shifted every clock. */
   private sawFrozen = false;
   private inflight: Promise<void> | null = null;
+  /** Players this engine is blinding off (their confirmed early leave). */
+  private readonly blindOff = new Set<string>();
 
   constructor(private readonly deps: ChipContinuityDeps) {}
+
+  /** HIT AND RUN: this engine holds the player's confirmed leave and blinds them off. */
+  markBlindOff(userId: string, on: boolean): void {
+    if (on) this.blindOff.add(userId);
+    else this.blindOff.delete(userId);
+    // The mirror carries the database's flag; keep it in step with what this
+    // engine just told the database, so a restore pass never re-holds a seat
+    // whose player sat back in.
+    const row = this.rows.get(userId);
+    if (row && row.blind_off !== on) this.rows.set(userId, { ...row, blind_off: on });
+  }
 
   /** The mirror row, if the database has ever answered for this player. */
   row(userId: string): CashSessionRow | undefined {
@@ -90,11 +134,11 @@ export class ChipContinuityTracker {
     userId: string,
     stackNow: number,
     nowMs = Date.now()
-  ): { locked: boolean; remainingMs: number } {
+  ): { locked: boolean; remainingMs: number; handsRemaining: number } {
     const row = this.rows.get(userId);
-    if (!row || !this.deps.isCash()) return { locked: false, remainingMs: 0 };
-    const remaining = stayRemainingMs(row, nowMs);
-    return { locked: isLeaveLocked(row, stackNow, nowMs), remainingMs: remaining };
+    if (!row || !this.deps.isCash()) return { locked: false, remainingMs: 0, handsRemaining: 0 };
+    const hands = hitRunHandsRemaining(row, stackNow);
+    return { locked: hands > 0, remainingMs: stayRemainingMs(row, nowMs), handsRemaining: hands };
   }
 
   /** Fields every state payload carries per seat. */
@@ -106,19 +150,27 @@ export class ChipContinuityTracker {
         stay_remaining_ms: 0,
         stay_running: false,
         leave_locked: false,
+        hit_run_hands_remaining: null,
+        hit_run_hands_required: null,
+        hit_run_blind_off: false,
       };
     }
     const remaining = stayRemainingMs(row, nowMs);
+    const hands = hitRunHandsRemaining(row, stackNow);
     return {
       session_baseline: row.baseline,
       stay_remaining_ms: remaining,
       stay_running: row.stay_running && remaining > 0 && stackNow > row.baseline,
-      leave_locked: isLeaveLocked(row, stackNow, nowMs),
+      leave_locked: hands > 0,
+      hit_run_hands_remaining: hands > 0 ? hands : null,
+      hit_run_hands_required: hands > 0 ? row.hands_required : null,
+      hit_run_blind_off: hands > 0 && this.blindOff.has(userId),
     };
   }
 
   /** The seat is gone (cashed out, evicted): forget the mirror. */
   forget(userId: string): void {
+    this.blindOff.delete(userId);
     this.rows.delete(userId);
     this.lastActive.delete(userId);
     this.departed.add(userId);

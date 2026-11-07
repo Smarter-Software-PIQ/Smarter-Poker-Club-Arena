@@ -375,6 +375,12 @@ export interface LightningHandHostDeps {
   /** A live socket in the player's room (the registry's presence). */
   isConnected?(playerId: string, roomId: string): boolean;
   /**
+   * HIT AND RUN (owner 2026-11-06): the players, of these pool sessions, whose
+   * confirmed early leave is being blinded off (fn_lightning_blind_off_players).
+   * Their seats are checked or folded on their turn. Absent or failing: none.
+   */
+  blindOffPlayers?(poolSessionIds: readonly string[]): Promise<ReadonlySet<string>>;
+  /**
    * The player's own authenticated client is controlling their seat (a live
    * socket in their room plus a client claim; LightningRegistry). For a
    * horse account this keeps the brain off the seat's turns. Absent: never.
@@ -723,6 +729,10 @@ export class LightningHandHost {
         this.participants.set(p.playerId, p);
         this.watching.set(p.playerId, p.poolSessionId);
       }
+      // HIT AND RUN: who of these is being blinded off. Read beside the deal,
+      // never awaited by it: a seat whose answer has not landed by its turn
+      // simply plays its ordinary clock this hand.
+      this.loadBlindOff(participants.map((p) => p.poolSessionId));
       this.rules = await rulesP;
       timing.mark('rules');
       const variantRefusal = this.checkVariant(this.rules);
@@ -1624,6 +1634,13 @@ export class LightningHandHost {
       );
     }
     this.offerHorseEarlyLooks(userId);
+    // HIT AND RUN: a blinded-off seat checks when it can and folds otherwise,
+    // on the same readable beat a pre-action gets.
+    if (this.blindOff.has(userId)) {
+      await this.sleep(350);
+      if (this.isTerminal() || this.hc !== hc || playerActionContext(hc) !== contextAtTurn) return;
+      if (this.actBlindOff(userId)) return;
+    }
     if (this.preActions.hasPreAction(this.timerKey, userId)) {
       // The seat lights up for a readable beat (the engine's 250 ms), then the
       // pre-action lands - armed for THIS hand only.
@@ -1883,6 +1900,36 @@ export class LightningHandHost {
   }
 
   /** Execute a queued pre-action now; true when it landed. */
+  /** HIT AND RUN: players whose seats this hand blinds off. */
+  private readonly blindOff = new Set<string>();
+
+  private loadBlindOff(poolSessionIds: readonly string[]): void {
+    const read = this.deps.blindOffPlayers;
+    if (!read || poolSessionIds.length === 0) return;
+    void read(poolSessionIds)
+      .then((ids) => {
+        if (this.isTerminal()) return;
+        for (const id of ids) if (this.participants.has(id)) this.blindOff.add(id);
+      })
+      .catch(() => undefined);
+  }
+
+  /** Check if free, fold otherwise. True when the action landed. */
+  private actBlindOff(userId: string): boolean {
+    const st = this.hc?.getState();
+    const me = st?.players.find((p) => p.user_id === userId);
+    if (!st || !me) return false;
+    const toCall = Math.max(0, st.currentBet - me.bet);
+    const action = toCall > 0.005 ? 'fold' : 'check';
+    return this.applyAction(
+      userId,
+      action,
+      undefined,
+      'pre_action',
+      action === 'fold' ? 'normal' : undefined
+    ).success;
+  }
+
   private runPreAction(userId: string): boolean {
     const st = this.hc?.getState();
     const me = st?.players.find((p) => p.user_id === userId);

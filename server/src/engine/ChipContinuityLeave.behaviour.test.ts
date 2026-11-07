@@ -24,6 +24,7 @@ const cashout = vi.fn();
 const departure = vi.fn();
 const cashoutVoluntary = vi.fn();
 const evaluate = vi.fn(async () => []);
+const blindOff = vi.fn(async (..._args: unknown[]) => true);
 
 vi.mock('../services/supabase/seats.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/supabase/seats.js')>();
@@ -46,6 +47,7 @@ vi.mock('../services/supabase/cashSessions.js', async (importOriginal) => {
     ...actual,
     evaluateCashSessions: (...args: unknown[]) => evaluate(...(args as [])),
     atomicCashoutVoluntary: (...args: unknown[]) => cashoutVoluntary(...args),
+    setCashSessionBlindOff: (...args: unknown[]) => blindOff(...args),
   };
 });
 
@@ -132,23 +134,23 @@ describe('a locked player is refused synchronously, human and horse alike', () =
       expect(cashoutVoluntary).toHaveBeenCalled();
     });
 
-    it(`${who}: the mirror is empty but the DATABASE refuses -> refusal returned, seat kept, nothing torn down`, async () => {
+    it(`${who}: the mirror is empty but the DATABASE refuses -> asks first, seat kept, nothing torn down`, async () => {
       const e = makeEngine();
       cashoutVoluntary.mockResolvedValue({
         ok: false,
         code: 'LEAVE_LOCKED',
-        stayRemainingMs: 61_000,
+        stayRemainingMs: 0,
       });
       const unregister = vi.spyOn(e.disconnectEngine, 'unregisterPlayer');
       const res = await e.leaveTable(id);
       expect(res).toMatchObject({
         success: false,
-        held: true,
-        sittingOut: true,
+        needs_confirmation: true,
         code: 'LEAVE_LOCKED',
-        stay_remaining_ms: 61_000,
+        hands_remaining: 1,
       });
-      expect(res.error).toBe('Leave Available In 1:01');
+      expect(res.error).toBe('1 Hand Left Before You Can Leave');
+      expect(e.leaveHeldByClock.has(id)).toBe(false);
       expect(unregister).not.toHaveBeenCalled();
       expect(e.hub.emitEvent).not.toHaveBeenCalledWith(
         TABLE,
@@ -158,6 +160,75 @@ describe('a locked player is refused synchronously, human and horse alike', () =
         TABLE,
         expect.objectContaining({ type: 'leave_blocked', user_id: id })
       );
+    });
+
+    it(`${who}: HIT AND RUN - owing hands, asked first; confirmed, blinded off and still dealt in`, async () => {
+      const e = makeEngine();
+      e.chipContinuity.rows.set(
+        id,
+        row(id, { hands_required: 10, hands_played: 3, hands_remaining: 7 })
+      );
+      const first = await e.leaveTable(id);
+      expect(first).toMatchObject({
+        success: false,
+        needs_confirmation: true,
+        code: 'LEAVE_LOCKED',
+        hands_remaining: 7,
+        error: '7 Hands Left Before You Can Leave',
+      });
+      expect(cashoutVoluntary).not.toHaveBeenCalled();
+      expect(e.leaveHeldByClock.has(id)).toBe(false);
+
+      const confirmed = await e.leaveTable(id, { confirmHandCount: true });
+      expect(confirmed).toMatchObject({
+        success: true,
+        immediate: false,
+        held: true,
+        blindOff: true,
+        hands_remaining: 7,
+      });
+      expect(cashoutVoluntary).not.toHaveBeenCalled();
+      expect(e.leaveHeldByClock.get(id)).toBe(occupancyId);
+      expect(blindOff).toHaveBeenCalledWith(TABLE, id, true);
+      expect(e.disconnectEngine.isSittingOut(TABLE, id)).toBe(true);
+      // Sat out, yet dealt in: the seat is blinded off.
+      expect(e.isBlindedOff(id)).toBe(true);
+      expect(e.dealsInWhileSittingOut(id)).toBe(true);
+      expect(e.chipContinuity.seatFields(id, 180)).toMatchObject({
+        hit_run_hands_remaining: 7,
+        hit_run_blind_off: true,
+      });
+      // Sitting back in withdraws the leave and ends the blind-off.
+      e.sitOut(id, false);
+      expect(e.leaveHeldByClock.has(id)).toBe(false);
+      expect(e.isBlindedOff(id)).toBe(false);
+    });
+
+    it(`${who}: HIT AND RUN - the owed hands played, the held leave cashes out through the voluntary door`, async () => {
+      const e = makeEngine();
+      e.chipContinuity.rows.set(
+        id,
+        row(id, { hands_required: 10, hands_played: 9, hands_remaining: 1 })
+      );
+      await e.leaveTable(id, { confirmHandCount: true });
+      expect(e.isBlindedOff(id)).toBe(true);
+      cashoutVoluntary.mockResolvedValue({ ok: true, stack: 180 });
+      await e.releaseLeavesHeldByClock();
+      expect(cashoutVoluntary).not.toHaveBeenCalled(); // still one hand owed
+      e.chipContinuity.rows.set(
+        id,
+        row(id, {
+          hands_required: 10,
+          hands_played: 10,
+          hands_remaining: 0,
+          hit_run_completed: true,
+        })
+      );
+      expect(e.isBlindedOff(id)).toBe(false);
+      await e.releaseLeavesHeldByClock();
+      expect(cashoutVoluntary).toHaveBeenCalledTimes(1);
+      expect(e.leaveHeldByClock.has(id)).toBe(false);
+      expect(e.seatedPlayers.some((p: { user_id: string }) => p.user_id === id)).toBe(false);
     });
 
     it(`${who}: the database accepts -> success, seat_left AFTER the money, registrations torn down`, async () => {
@@ -851,10 +922,10 @@ describe('2/5 PLO5 Horse profit floor', () => {
       nowMs: HORSE_CASH_POLICY_START_MS,
       refusedCashout: true,
     });
+    // HIT AND RUN: the refusal asks for confirmation; nothing leaves.
     expect(result).toMatchObject({
       success: false,
-      held: true,
-      sittingOut: true,
+      needs_confirmation: true,
       code: 'LEAVE_LOCKED',
     });
     expect(cashout).not.toHaveBeenCalled();

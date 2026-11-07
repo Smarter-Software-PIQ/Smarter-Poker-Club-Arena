@@ -152,7 +152,11 @@ import {
   type NitSeatStatus,
 } from '../services/supabase/nitGame.js';
 import { INSTANCE_ID } from '../services/tableLease.js';
-import { evaluateCashSessions, atomicCashoutVoluntary } from '../services/supabase/cashSessions.js';
+import {
+  evaluateCashSessions,
+  atomicCashoutVoluntary,
+  setCashSessionBlindOff,
+} from '../services/supabase/cashSessions.js';
 import {
   announceSeatMoves,
   executePendingSeatMoves,
@@ -3311,6 +3315,66 @@ export abstract class ServerTableEngineBase {
    * seat is an ordinary sat-out seat and the sit-out eviction handles it.
    */
   protected leaveHeldByClock: Map<string, string> = new Map();
+
+  /**
+   * HIT AND RUN (owner 2026-11-06): the Seating layer's hold for a leave that
+   * still owes hands in profit. The seat is blinded off until they are played.
+   */
+  protected abstract holdLockedLeave(userId: string, handsRemaining: number): unknown;
+
+  /**
+   * HIT AND RUN: hand a held leave on a Lightning anchor to the Lightning
+   * departure queue (the seat is in a live Lightning hand). Seating owns it.
+   */
+  protected abstract deferHeldLightningLeave(
+    userId: string,
+    seatNumber: number,
+    occupancyId: string
+  ): Promise<unknown>;
+
+  /** This cash table is a Lightning anchor right now (hands are dealt in its pool). */
+  protected isLightningAnchorNow(): boolean {
+    return (
+      !this.isTournamentTable() &&
+      !!this.tableInfo?.cluster_id &&
+      this.dealingHaltLock === true &&
+      this.dealingHaltReason === 'lightning'
+    );
+  }
+
+  /**
+   * HIT AND RUN: a held leave whose seat still owes hands in profit. The seat
+   * is sat out but BLINDED OFF: dealt in every hand, posting its blinds, and
+   * auto-acted (checked or folded) on its turn by the sit-out beat - the
+   * tournament sit-out treatment - until the count completes or the profit is
+   * gone. A Lightning anchor's held seat is folded by its hand host instead.
+   */
+  protected isBlindedOff(userId: string): boolean {
+    if (this.isTournamentTable() || !this.leaveHeldByClock.has(userId)) return false;
+    const seat = this.seatedPlayers.find((p) => p.user_id === userId);
+    return !!seat && this.chipContinuity.leaveLock(userId, seat.stack).locked;
+  }
+
+  /**
+   * Dealt in even while sat out: every tournament seat, and a blinded-off cash
+   * seat while at least one seat that is actually playing is there to be dealt
+   * with it (blinded-off seats never deal a hand among themselves). The deal,
+   * the blind and button predictions, dealableCount and the watchdog all read
+   * this one predicate, so they cannot disagree about who is in the hand.
+   */
+  protected dealsInWhileSittingOut(userId: string): boolean {
+    return this.isTournamentTable() || (this.isBlindedOff(userId) && this.hasPlayingSeat());
+  }
+
+  /** A funded cash seat that is neither sat out nor a held leave. */
+  protected hasPlayingSeat(): boolean {
+    return this.seatedPlayers.some(
+      (p) =>
+        p.stack > 0 &&
+        !this.leaveHeldByClock.has(p.user_id) &&
+        !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)
+    );
+  }
   /** CHIP CONTINUITY: mid-hand leaves that are system exits (admin kick). */
   protected disconnectEngine: DisconnectEngine;
   protected preActionEngine: PreActionEngine;
@@ -5021,6 +5085,24 @@ export abstract class ServerTableEngineBase {
    * ahead of the truth is simply refused again and the mirror re-adopts the
    * database's remaining time.
    */
+  /**
+   * HIT AND RUN: a confirmed early leave survives an engine restart. The
+   * database keeps it on the session (hr_blind_off); the first presence sweep
+   * after a restart reads every seat's session back, and any seat whose
+   * session is still blinded off and still owes hands is held again here.
+   */
+  protected restoreBlindOffFromSessions(): void {
+    if (this.isTournamentTable()) return;
+    for (const p of this.seatedPlayers ?? []) {
+      if (this.leaveHeldByClock.has(p.user_id) || !p.occupancy_id) continue;
+      const row = this.chipContinuity.row(p.user_id);
+      if (!row?.blind_off) continue;
+      const lock = this.chipContinuity.leaveLock(p.user_id, p.stack);
+      if (!lock.locked) continue;
+      this.holdLockedLeave(p.user_id, lock.handsRemaining);
+    }
+  }
+
   protected async releaseLeavesHeldByClock(): Promise<void> {
     if (this.leaveHeldByClock.size === 0 || this.isTournamentTable()) return;
     if (isMaintenanceFrozen()) return;
@@ -5038,10 +5120,55 @@ export abstract class ServerTableEngineBase {
           this.leaveHeldByClock.delete(userId);
           continue;
         }
-        if (this.chipContinuity.leaveLock(userId, seated.stack).locked) continue;
         if (this.handController) {
           const live = this.handController.getState().players.find((p) => p.user_id === userId);
           if (live) continue; // dealt in after all: wait for the boundary
+        }
+        // HIT AND RUN: still owing hands, the seat goes on being blinded off -
+        // unless nobody else is left to deal with, which leaves nobody to have
+        // hit and run from: the hold ends as a system exit.
+        const owes = this.chipContinuity.leaveLock(userId, seated.stack).locked;
+        const nobodyElse =
+          owes &&
+          !this.isLightningAnchorNow() &&
+          !this.seatedPlayers.some(
+            (p) =>
+              p.user_id !== userId &&
+              p.stack > 0 &&
+              !this.leaveHeldByClock.has(p.user_id) &&
+              !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)
+          );
+        if (owes && !nobodyElse) continue;
+        if (nobodyElse) {
+          await atomicCashout(userId, this.tableId, seated.seat_number, {
+            occupancyId: seated.occupancy_id,
+          });
+          if (
+            this.seatedPlayers.some((p) => p.user_id === userId && p.occupancy_id === occupancyId)
+          ) {
+            this.seatedPlayers = this.seatedPlayers.filter(
+              (p) => p.user_id !== userId || p.occupancy_id !== occupancyId
+            );
+          }
+          this.leaveHeldByClock.delete(userId);
+          this.disconnectEngine.unregisterPlayer(this.tableId, userId);
+          this.forgetTimeBank(userId);
+          this.straddleEngine.removePlayer(this.tableId, userId);
+          this.preActionEngine.removePlayer(this.tableId, userId);
+          this.chipContinuity.forget(userId);
+          this.hub?.emitEvent(this.tableId, {
+            type: 'seat_left',
+            table_id: this.tableId,
+            seat: seated.seat_number,
+            user_id: userId,
+            mid_hand: false,
+            timestamp: Date.now(),
+          });
+          console.log(
+            `[ServerTableEngine:${this.tableId}] held leave released for ${userId} - nobody else left to play the owed hands`
+          );
+          void this.broadcastCurrentState();
+          continue;
         }
         const res = await atomicCashoutVoluntary(
           userId,
@@ -5070,11 +5197,18 @@ export abstract class ServerTableEngineBase {
             timestamp: Date.now(),
           });
           console.log(
-            `[ServerTableEngine:${this.tableId}] held leave released for ${userId} - stay clock reached zero`
+            `[ServerTableEngine:${this.tableId}] held leave released for ${userId} - the owed hands are played`
           );
           void this.broadcastCurrentState();
         } else if (res.code === 'LEAVE_LOCKED') {
           this.chipContinuity.noteRefusal(userId, res.stayRemainingMs);
+        } else if (res.code === 'LIGHTNING_HAND_IN_PROGRESS') {
+          // The seat is in a live Lightning hand: queue the departure behind
+          // it (the pool stops matching a seat with a pending cash-out), and
+          // the Lightning deferred-leave pass completes it after that hand.
+          this.leaveHeldByClock.delete(userId);
+          this.chipContinuity.markBlindOff(userId, false);
+          await this.deferHeldLightningLeave(userId, seated.seat_number, occupancyId);
         }
       }
     } finally {
@@ -5106,6 +5240,12 @@ export abstract class ServerTableEngineBase {
     this.lightningDeferredLeaves?.delete(userId);
     if (!original || current?.occupancy_id !== original) return;
     this.leaveHeldByClock.set(userId, original);
+    // HIT AND RUN: the hand they asked to leave during left them owing hands
+    // in profit; the seat (already sat out) is blinded off for them.
+    if (!this.isLightningAnchorNow()) {
+      this.chipContinuity.markBlindOff(userId, true);
+      void setCashSessionBlindOff(this.tableId, userId, true);
+    }
     this.chipContinuity.noteRefusal(userId, stayRemainingMs);
     console.log(
       `[ServerTableEngine:${this.tableId}] leave_pending refused at settlement for ${userId} - stay clock ${stayRemainingMs}ms remaining`
@@ -6314,6 +6454,7 @@ export abstract class ServerTableEngineBase {
         this.isContinuityActive(uid)
       );
       if (!this.lifecycleCanMutate()) return;
+      this.restoreBlindOffFromSessions();
       await this.releaseLeavesHeldByClock();
       if (!this.lifecycleCanMutate()) return;
     }
@@ -6633,6 +6774,7 @@ export abstract class ServerTableEngineBase {
       await this.chipContinuity.sweepPresence(this.seatedPlayers ?? [], (uid) =>
         this.isContinuityActive(uid)
       );
+      this.restoreBlindOffFromSessions();
       await this.releaseLeavesHeldByClock();
     } catch (err) {
       reportError(err, 'ServerTableEngine.' + this.tableId + '.wait_loop_presence_threw');
@@ -6686,7 +6828,10 @@ export abstract class ServerTableEngineBase {
           // transitions cross the wire; a quiet table costs nothing.
           void this.chipContinuity
             .sweepPresence(this.seatedPlayers ?? [], (uid) => this.isContinuityActive(uid))
-            .then(() => this.releaseLeavesHeldByClock())
+            .then(() => {
+              this.restoreBlindOffFromSessions();
+              return this.releaseLeavesHeldByClock();
+            })
             .catch((err) =>
               reportError(err, 'ServerTableEngine.' + this.tableId + '.continuity_sweep_threw')
             );
@@ -7432,8 +7577,8 @@ export abstract class ServerTableEngineBase {
     return this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
-        (this.isTournamentTable() ||
-          !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)) &&
+        (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+          this.dealsInWhileSittingOut(p.user_id)) &&
         !this.waitingForBB.has(p.user_id) &&
         !this.heldForSwap.has(p.user_id)
     ).length;
@@ -7525,15 +7670,22 @@ export abstract class ServerTableEngineBase {
     return {
       tableId: this.tableId,
       clusterId: this.isTournamentTable() ? null : (this.tableInfo?.cluster_id ?? null),
-      players: this.seatedPlayers.map((p) => ({
-        userId: p.user_id,
-        presence: presenceFromFsm(
-          this.disconnectEngine.getFsmState(this.tableId, p.user_id)?.state ?? null,
-          this.disconnectEngine.isConnected(this.tableId, p.user_id)
-        ),
-        inputDevice: !!p.is_horse,
-        ...(p.is_horse ? { platform: ENGINE_INPUT_DEVICE_PLATFORM } : {}),
-      })),
+      players: this.seatedPlayers.map((p) => {
+        // HIT AND RUN: a blinded-off seat is this engine's to play (its hand
+        // host folds it), so it is present through this device, as a horse is.
+        const engineDevice = !!p.is_horse || this.isBlindedOff(p.user_id);
+        return {
+          userId: p.user_id,
+          presence: this.isBlindedOff(p.user_id)
+            ? ('connected' as const)
+            : presenceFromFsm(
+                this.disconnectEngine.getFsmState(this.tableId, p.user_id)?.state ?? null,
+                this.disconnectEngine.isConnected(this.tableId, p.user_id)
+              ),
+          inputDevice: engineDevice,
+          ...(engineDevice ? { platform: ENGINE_INPUT_DEVICE_PLATFORM } : {}),
+        };
+      }),
     };
   }
 
@@ -10515,7 +10667,8 @@ export abstract class ServerTableEngineBase {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
-        (this.isTournamentTable() || !this.disconnectEngine.isSittingOut(this.tableId, p.user_id))
+        (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+          this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
     return this.predictBlindSeats(roster)?.smallBlindSeat ?? -1;
@@ -10645,7 +10798,8 @@ export abstract class ServerTableEngineBase {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
-        (this.isTournamentTable() || !this.disconnectEngine.isSittingOut(this.tableId, p.user_id))
+        (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+          this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
     return this.predictButtonSeat(roster);
@@ -10660,7 +10814,8 @@ export abstract class ServerTableEngineBase {
         p.stack > 0 &&
         // Tournament sit-outs stay in the blind rotation — they are dealt in
         // and blinded off, so the button/blinds must be able to reach them.
-        (this.isTournamentTable() || !this.disconnectEngine.isSittingOut(this.tableId, p.user_id))
+        (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+          this.dealsInWhileSittingOut(p.user_id))
     );
     if (roster.length < 2) return -1;
     return this.predictBlindSeats(roster)?.bigBlind ?? -1;
@@ -11928,9 +12083,11 @@ export abstract class ServerTableEngineBase {
       const blindEvictSet = new Set(blindEvictable);
       const nitEvictSet = new Set(nitEvictable);
       const abandonedEvictSet = new Set(abandonedEvictable);
+      // HIT AND RUN: a blinded-off seat is not evicted by any clock; it is
+      // released by releaseLeavesHeldByClock once its owed hands are played.
       const evictable = Array.from(
         new Set([...sitOutEvictable, ...blindEvictable, ...nitEvictable, ...abandonedEvictable])
-      );
+      ).filter((id) => !this.isBlindedOff(id));
       if (evictable.length === 0) return;
 
       // Dan 2026-08-26, binding: "a player can never leave the table while they
@@ -11988,6 +12145,19 @@ export abstract class ServerTableEngineBase {
           !stillTimedOut &&
           abandonedEvictSet.has(userId) &&
           stillAbandoned;
+        // HIT AND RUN (owner 2026-11-06): a sit-out, away or abandoned seat
+        // that still owes hands in profit is not cashed out by the clock - that
+        // would be the hit and run itself. It is blinded off for the hands it
+        // owes, exactly as a confirmed early leave is. The VPIP boot (Dan
+        // 2026-09-05) stays a system exit with its two-hour bar.
+        if (!nitEvict && this.chipContinuity.leaveLock(userId, seated.stack).locked) {
+          const hands = this.chipContinuity.leaveLock(userId, seated.stack).handsRemaining;
+          console.log(
+            `[ServerTableEngine:${this.tableId}] not evicting ${userId} - ${hands} hands owed in profit; blinded off instead`
+          );
+          this.holdLockedLeave(userId, hands);
+          continue;
+        }
         console.log(
           awayBlindEvict
             ? `[ServerTableEngine:${this.tableId}] evicting ${userId} - away, already charged one SB and one BB`

@@ -629,9 +629,11 @@ describe('standby adoption authority and timing', () => {
       const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
       docker() { echo '${'d'.repeat(64)} ${mode === 'wrong-label' ? 'b'.repeat(40) : sha} true 0'; }
       health() { echo '${JSON.stringify({ releaseSha: mode === 'wrong-health' ? 'b'.repeat(40) : sha, version: mode === 'wrong-version' ? 'bbbbbbbb' : 'aaaaaaaa', instanceId: 'candidate-instance', liveness: 'ok' })}'; }
+      # Exercise the real JSON consumer with the producer delayed.
+      printf() { sleep 0.02; builtin printf "$@"; }
       swap_target_identity '${sha}'
     `);
-      expect(result.status === 0).toBe(mode === 'exact');
+      expect(result.status === 0, result.stderr + result.stdout).toBe(mode === 'exact');
     }
   );
   it('consumes health JSON even when the pipeline producer is delayed', () => {

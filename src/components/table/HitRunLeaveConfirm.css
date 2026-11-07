@@ -1,0 +1,118 @@
+/*
+ * HIT AND RUN - full screen leave confirmation (owner 2026-11-06).
+ * Fully opaque, edge to edge: nothing behind it shows through (owner
+ * 2026-10-24, "100% SOLID ALL THE WAY THROUGH"). No yellow in the palette.
+ * Mobile first at 375px; the panel caps its width on larger screens.
+ */
+.hit-run-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, #0d1117 0%, #161b22 55%, #0d1117 100%);
+  animation: hitRunConfirmIn 0.18s ease;
+}
+
+@keyframes hitRunConfirmIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.hit-run-confirm__panel {
+  width: 100%;
+  max-width: 420px;
+  padding: 32px 22px 22px;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 22px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+
+.hit-run-confirm__title {
+  margin: 0 0 20px;
+  font-size: 1.375rem;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  color: #f0f3f6;
+}
+
+.hit-run-confirm__count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 0 auto 20px;
+  padding: 16px 12px;
+  background: #0d1117;
+  border: 1px solid rgba(248, 81, 73, 0.45);
+  border-radius: 16px;
+}
+
+.hit-run-confirm__number {
+  font-size: 3.25rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #ff6b62;
+  font-variant-numeric: tabular-nums;
+}
+
+.hit-run-confirm__unit {
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #c9d1d9;
+}
+
+.hit-run-confirm__desc {
+  margin: 0 0 26px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #c9d1d9;
+}
+
+.hit-run-confirm__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hit-run-confirm__btn {
+  width: 100%;
+  min-height: 52px;
+  padding: 14px 16px;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.hit-run-confirm__btn:active {
+  transform: scale(0.98);
+}
+
+.hit-run-confirm__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.hit-run-confirm__btn--stay {
+  background: linear-gradient(180deg, #3fb950 0%, #2ea043 100%);
+  color: #ffffff;
+}
+
+.hit-run-confirm__btn--leave {
+  background: #21262d;
+  color: #ff7b72;
+  border: 1px solid #f85149;
+}

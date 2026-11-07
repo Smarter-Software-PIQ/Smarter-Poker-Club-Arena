@@ -34,7 +34,11 @@ function engine() {
   };
   for (const name of ['timeBankEngine', 'straddleEngine', 'preActionEngine'])
     e[name] = { removePlayer: vi.fn() };
-  e.chipContinuity = { forget: vi.fn() };
+  e.chipContinuity = {
+    forget: vi.fn(),
+    markBlindOff: vi.fn(),
+    leaveLock: vi.fn(() => ({ locked: false, remainingMs: 0, handsRemaining: 0 })),
+  };
   e.hub = { emitEvent: vi.fn() };
   e.handController = null;
   return e;
