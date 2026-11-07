@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import { pendingHouseShare } from '../src/utils/tournamentPrizeFunding';
 
 const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8');
 const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
@@ -75,9 +76,12 @@ describe('every projected place shows its guaranteed minimum', () => {
     expect(src).toMatch(/!\(Number\(guaranteedPrize\) > 0\)\) return/);
   });
 
-  it('the pending house share is one rule', () => {
-    const src = code(read('src/utils/tournamentPrizeFunding.ts'));
-    expect(src).toMatch(/export function pendingHouseShare\(/);
-    expect(src).toMatch(/funding\.houseRequired \?\? funding\.overlay/);
+  it('the pending house share is one rule: house_due first, else required minus posted, else overlay', () => {
+    // The owner example: 46 x 40 against 2,500 owes 660. A Free Buy that
+    // already posted 155 of a 250 requirement still adds only 95.
+    expect(pendingHouseShare({ houseDue: 660, houseRequired: 660, housePosted: 0, overlay: 660 })).toBe(660);
+    expect(pendingHouseShare({ houseDue: null, houseRequired: 250, housePosted: 155, overlay: 250 })).toBe(95);
+    expect(pendingHouseShare({ houseDue: null, houseRequired: null, housePosted: null, overlay: 40 })).toBe(40);
+    expect(pendingHouseShare(null)).toBe(0);
   });
 });
