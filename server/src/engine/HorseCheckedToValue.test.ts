@@ -260,3 +260,50 @@ describe('checked-to river value in a multiway pot', () => {
     expect(checkedToNonBottomRiverBoat(hero, state)).toBe(false);
   });
 });
+
+// Original PLO6 river coordinates, with anonymized seat identities. The second
+// Horse still had a player behind it when it checked. Only public/own cards enter.
+it.each([
+  ['c56ed960:27', '2d Td Jd 3h Ks 8h', 'Jh Ac Tc Ts 8c', [6, 1, 2, 3, 4], 5, 8.35, 0.25, 45.05],
+  ['b9d0394b:26', '9s 7d Kd 7s 6d Jd', 'Js 5h 6c Qh Jc', [1, 2, 3, 4], 6, 62, 2, 627.4],
+] as const)(
+  'bets the checked-to middle full house at %s',
+  (_id, hole, board, checks, button, pot, bb, stack) => {
+    const { hero, state } = spot('plo6', 'before');
+    Object.assign(hero, { seat: 5, cards: cards(hole), bet: 0, stack });
+    const opponent = state.players[0];
+    state.players = Array.from({ length: 6 }, (_, i) =>
+      i === 4 ? hero : { ...opponent, user_id: `seat-${i + 1}`, seat: i + 1, bet: 0 }
+    );
+    Object.assign(state, {
+      currentPlayerSeat: 5,
+      heroSeat: 5,
+      dealerSeat: button,
+      dealtSeatIds: [1, 2, 3, 4, 5, 6],
+      communityCards: cards(board),
+      pot,
+      contestablePot: pot,
+      currentBet: 0,
+      toCall: 0,
+      bigBlind: bb,
+      minRaiseTo: bb,
+      maxRaiseTo: pot,
+      legalActions: ['fold', 'check', 'bet', 'all_in'],
+    });
+    state.actionHistory = checks.map((seat, i) => ({
+      userId: `seat-${seat}`,
+      seat,
+      action: 'check',
+      amount: 0,
+      stage: 'river',
+      timestamp: i + 1,
+    }));
+    seedFastRandom(1);
+    const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, v9Timing: false });
+    expect(d.policyFallback).toBeUndefined();
+    expect(d.policyOwnership).toBeDefined();
+    expect(d.action).toBe('bet');
+    expect(d.amount).toBeGreaterThanOrEqual(bb);
+    expect(d.amount).toBeLessThanOrEqual(pot);
+  }
+);
