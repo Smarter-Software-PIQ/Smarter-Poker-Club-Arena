@@ -72,7 +72,15 @@ const V31_AGREEMENT = read(
   'supabase/migrations/20260909180000_v31_agreement_receipts_bind_the_runtime_cell.sql'
 );
 const STORE = read('server/src/engine/GtoPostflopV31.ts');
-const LOGIC = read('server/src/engine/HorseLogic.ts');
+// The V31 consult moved verbatim into HorseV31CertifiedPolicy.ts (2026-11-06);
+// the execution-match rule into HorseGtoExecution.ts.
+const LOGIC = [
+  'server/src/engine/HorseLogic.ts',
+  'server/src/engine/HorseV31CertifiedPolicy.ts',
+  'server/src/engine/HorseGtoExecution.ts',
+]
+  .map(read)
+  .join('\n');
 const AGREEMENT_SCORER = read('server/src/benchmark/HorseSolverAgreementV31.ts');
 const LEAGUE = read('server/src/benchmark/HorseLeague.ts');
 const LOADER = read('server/src/services/GtoPostflopV31Loader.ts');
@@ -334,9 +342,15 @@ describe('the certified V31 release boundary', () => {
   });
 
   it('counts only the post-legalization action and binds every gate to one exact evaluator', () => {
-    expect(LOGIC.indexOf('const final31 = this.legalize')).toBeLessThan(
-      LOGIC.indexOf('opts.onGtoV31Decision({', LOGIC.indexOf('const final31 = this.legalize'))
+    expect(LOGIC.indexOf('const final31 = legalize(intended31)')).toBeGreaterThan(-1);
+    expect(LOGIC.indexOf('const final31 = legalize(intended31)')).toBeLessThan(
+      LOGIC.indexOf(
+        'opts.onGtoV31Decision({',
+        LOGIC.indexOf('const final31 = legalize(intended31)')
+      )
     );
+    // HorseLogic binds the consult's legalize to the real legalizer.
+    expect(LOGIC).toContain('legalize: (decision) => this.legalize(decision, player, gs, vi),');
     expect(LOGIC).toContain('executedAsIntended: executedAsIntended31');
     expect(LOGIC).toContain('sampledAmount: sampledAmount31');
     expect(LOGIC).toContain('const executedAsIntended31 = gtoV31ExecutionMatches({');

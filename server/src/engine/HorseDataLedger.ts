@@ -672,6 +672,10 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'onGtoV31Decision',
     'captures decision-level source receipts for paired replay and league reconciliation'
   ),
+  evaluationControl(
+    'onV31ReplayState',
+    'records each certified decision with its inputs and RNG position for the replay digest'
+  ),
   flag(
     'v32FacingDefense',
     'solver facing-bet defense; DEFAULT OFF since 2026-10-16 (v32_facing_defense -0.31 +/- 0.15 over 41 runs)',

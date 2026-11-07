@@ -88,6 +88,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/GtoCharts.ts': 'the open-jam and big-blind-versus-small-blind jam charts',
     'src/engine/GtoPostflop.ts': 'the heads-up NLH postflop solver consult',
     'src/engine/GtoPostflopV31.ts': 'the V31 solver consult',
+    'src/engine/HorseV31CertifiedPolicy.ts':
+      'the V31 certified playbook consult (eligibility, lookup, sampling, legalization), moved out of HorseLogic 2026-11-06',
+    'src/engine/HorseGtoExecution.ts':
+      'the solver execution-match rule and miss helpers the V31 consult decides with',
     'src/engine/GtoPublicHist215BuildReceipt.ts':
       'the immutable all-head Linux execution receipt required before a public215 solver program can answer',
     'src/engine/GtoPublicHist215Features.ts':

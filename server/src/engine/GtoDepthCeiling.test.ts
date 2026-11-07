@@ -77,10 +77,14 @@ describe('GTO depth ceiling', () => {
 });
 
 describe('the wiring in HorseLogic', () => {
-  const src = require('node:fs').readFileSync(
-    require('node:path').join(__dirname, 'HorseLogic.ts'),
-    'utf8'
-  );
+  // The V31 consult lives in HorseV31CertifiedPolicy.ts and the miss helpers in
+  // HorseGtoExecution.ts (moved out of HorseLogic.ts on 2026-11-06); the
+  // decision code these laws pin is all three files.
+  const src = ['HorseLogic.ts', 'HorseV31CertifiedPolicy.ts', 'HorseGtoExecution.ts']
+    .map((file) =>
+      require('node:fs').readFileSync(require('node:path').join(__dirname, file), 'utf8')
+    )
+    .join('\n');
 
   it('all three consults are gated, and the flag defaults OFF (league, 2026-09-28)', () => {
     // 23 nightly runs of v33_depth_ceiling_400bb pooled: -2.97 +/- 1.09
