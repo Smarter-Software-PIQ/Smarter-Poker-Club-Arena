@@ -47,11 +47,11 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../');
 
 /**
  * Navigation registries: every label/description/eyebrow here is menu copy.

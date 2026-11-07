@@ -24,7 +24,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB_BASE = '/hub/club-arena/';
 
 export function manifestBase(env = process.env) {

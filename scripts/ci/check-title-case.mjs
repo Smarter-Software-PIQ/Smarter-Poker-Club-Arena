@@ -17,12 +17,12 @@
  * Run: node scripts/ci/check-title-case.mjs [--fix]
  */
 
-import { extname, join, resolve } from 'node:path';
+import { extname, join, resolve, dirname } from 'node:path';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../');
 const SRC = process.env.TITLE_CASE_SOURCE_DIR
   ? resolve(process.env.TITLE_CASE_SOURCE_DIR)
   : join(ROOT, 'src');

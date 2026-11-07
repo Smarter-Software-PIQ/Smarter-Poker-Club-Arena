@@ -57,7 +57,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.resolve(ROOT, process.env.CA_DIST || 'dist');
 const PRERENDER_OUT = path.resolve(ROOT, 'dist-prerender');
 const WEB_BASE = '/hub/club-arena';
