@@ -3957,18 +3957,8 @@
       "sourceScheduleId": "496fe7e6-28a9-4383-9038-692fcf48fa0a",
       "sourceName": "Sunrise Bounty (NLH)",
       "name": "Sunrise Bounty (NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "08:00"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["08:00"],
       "config": {
         "type": "fixed_board",
         "buyIn": 5.5,
@@ -4059,12 +4049,8 @@
       "sourceScheduleId": "2a0e8723-7582-4422-a884-ad8f5780caba",
       "sourceName": "Funday PLO Classic Satellite 5",
       "name": "Funday PLO Classic Satellite 5",
-      "days": [
-        0
-      ],
-      "times": [
-        "08:15"
-      ],
+      "days": [0],
+      "times": ["08:15"],
       "config": {
         "name": "Funday PLO Classic Satellite 5",
         "type": "satellite",
@@ -4160,18 +4146,8 @@
       "sourceScheduleId": "a4e5ac92-019f-415a-b4c4-fb95bc037ecc",
       "sourceName": "Morning Free Buy (NLH)",
       "name": "Morning Free Buy (NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "08:30"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["08:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 0,
@@ -4265,12 +4241,8 @@
       "sourceScheduleId": "90c23eaf-9e2e-4b96-9e37-2ed100da018e",
       "sourceName": "Funday Turbo Satellite 5",
       "name": "Funday Turbo Satellite 5",
-      "days": [
-        0
-      ],
-      "times": [
-        "08:45"
-      ],
+      "days": [0],
+      "times": ["08:45"],
       "config": {
         "name": "Funday Turbo Satellite 5",
         "type": "satellite",
@@ -4366,12 +4338,8 @@
       "sourceScheduleId": "608b5f5d-cab5-4e6b-a63f-33ef12dacbde",
       "sourceName": "Sunday Morning PLO",
       "name": "Sunday Morning PLO",
-      "days": [
-        0
-      ],
-      "times": [
-        "09:00"
-      ],
+      "days": [0],
+      "times": ["09:00"],
       "config": {
         "name": "Sunday Morning PLO",
         "type": "rebuy",
@@ -4465,12 +4433,8 @@
       "sourceScheduleId": "20382349-364b-49e9-98e4-76aed274c4e2",
       "sourceName": "Funday Big Stack Satellite 10",
       "name": "Funday Big Stack Satellite 10",
-      "days": [
-        0
-      ],
-      "times": [
-        "09:15"
-      ],
+      "days": [0],
+      "times": ["09:15"],
       "config": {
         "name": "Funday Big Stack Satellite 10",
         "type": "satellite",
@@ -4566,18 +4530,8 @@
       "sourceScheduleId": "2392cd18-8604-41cc-8037-bcd17c57d2d2",
       "sourceName": "Morning Grinder (PLO)",
       "name": "Morning Grinder (PLO)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "09:30"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["09:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 5,
@@ -4669,18 +4623,8 @@
       "sourceScheduleId": "d84a104f-2e43-4514-8f5f-142566033956",
       "sourceName": "40 Chip Freezeout - 2.5K GTD (NLH) Satellite 5",
       "name": "40 Chip Freezeout - 0 GTD (NLH) Satellite 5",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "09:45"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["09:45"],
       "config": {
         "name": "40 Chip Freezeout - 0 GTD (NLH) Satellite 5",
         "type": "satellite",
@@ -4778,12 +4722,8 @@
       "sourceScheduleId": "a74df577-5aac-4280-84c7-c6add1518518",
       "sourceName": "Funday Six-Max Satellite 5",
       "name": "Funday Six-Max Satellite 5",
-      "days": [
-        0
-      ],
-      "times": [
-        "09:45"
-      ],
+      "days": [0],
+      "times": ["09:45"],
       "config": {
         "name": "Funday Six-Max Satellite 5",
         "type": "satellite",
@@ -4879,18 +4819,8 @@
       "sourceScheduleId": "17f0783d-ee08-4c2d-a977-cc42515a86f4",
       "sourceName": "Mid-Morning Turbo (6-Max NLH)",
       "name": "Mid-Morning Turbo (6-Max NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "10:00"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["10:00"],
       "config": {
         "type": "fixed_board",
         "buyIn": 10,
@@ -4982,12 +4912,8 @@
       "sourceScheduleId": "394dd899-f307-4c71-8041-1e06b8fc5117",
       "sourceName": "Funday Championship Satellite 10",
       "name": "Funday Championship Satellite 10",
-      "days": [
-        0
-      ],
-      "times": [
-        "10:15"
-      ],
+      "days": [0],
+      "times": ["10:15"],
       "config": {
         "name": "Funday Championship Satellite 10",
         "type": "satellite",
@@ -5083,18 +5009,8 @@
       "sourceScheduleId": "bf2420ae-beae-4448-baa1-e0fa1cad4c60",
       "sourceName": "Brunch Special PKO (PLO8)",
       "name": "Brunch Special PKO (PLO8)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "10:30"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["10:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 10,
@@ -5185,12 +5101,8 @@
       "sourceScheduleId": "5380ad64-e67c-460c-ba0d-e7c41d9ddd13",
       "sourceName": "Funday PLO5 Satellite 5",
       "name": "Funday PLO5 Satellite 5",
-      "days": [
-        0
-      ],
-      "times": [
-        "10:45"
-      ],
+      "days": [0],
+      "times": ["10:45"],
       "config": {
         "name": "Funday PLO5 Satellite 5",
         "type": "satellite",
@@ -5286,12 +5198,8 @@
       "sourceScheduleId": "f9707f1e-49b9-42ca-9df7-fbbf159e6e60",
       "sourceName": "Sunday Funday Kickoff",
       "name": "Sunday Funday Kickoff",
-      "days": [
-        0
-      ],
-      "times": [
-        "11:00"
-      ],
+      "days": [0],
+      "times": ["11:00"],
       "config": {
         "name": "Sunday Funday Kickoff",
         "type": "rebuy",
@@ -5385,18 +5293,8 @@
       "sourceScheduleId": "b0b18d55-26de-428c-a016-6963e67433fe",
       "sourceName": "Sunday Deep Stack Satellite 25",
       "name": "Sunday Deep Stack Satellite 25",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "11:15"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["11:15"],
       "config": {
         "name": "Sunday Deep Stack Satellite 25",
         "type": "satellite",
@@ -5492,12 +5390,8 @@
       "sourceScheduleId": "78f746ef-ec13-4cf0-95f4-bc57c9e5d42e",
       "sourceName": "Sunday Funday PLO Classic",
       "name": "Sunday Funday PLO Classic",
-      "days": [
-        0
-      ],
-      "times": [
-        "11:30"
-      ],
+      "days": [0],
+      "times": ["11:30"],
       "config": {
         "name": "Sunday Funday PLO Classic",
         "type": "rebuy",
@@ -5591,12 +5485,8 @@
       "sourceScheduleId": "7cb4472f-63e4-479e-8aa9-1a4baa867dda",
       "sourceName": "Funday Happy Hour Satellite 5",
       "name": "Funday Happy Hour Satellite 5",
-      "days": [
-        0
-      ],
-      "times": [
-        "11:45"
-      ],
+      "days": [0],
+      "times": ["11:45"],
       "config": {
         "name": "Funday Happy Hour Satellite 5",
         "type": "satellite",
@@ -5692,18 +5582,8 @@
       "sourceScheduleId": "a70c1028-1200-4000-9000-000000000001",
       "sourceName": "40 Chip Freezeout - 2.5K GTD (NLH)",
       "name": "40 Chip Freezeout - 1.5K GTD (NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "12:00"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["12:00"],
       "config": {
         "name": "40 Chip Freezeout - 1.5K GTD (NLH)",
         "type": "freezeout",
@@ -5808,12 +5688,8 @@
       "sourceScheduleId": "607435bf-1748-4e35-85fb-e409940ce6bf",
       "sourceName": "Sunday Funday Turbo",
       "name": "Sunday Funday Turbo",
-      "days": [
-        0
-      ],
-      "times": [
-        "12:00"
-      ],
+      "days": [0],
+      "times": ["12:00"],
       "config": {
         "name": "Sunday Funday Turbo",
         "type": "rebuy",
@@ -5907,12 +5783,8 @@
       "sourceScheduleId": "fcc3afef-2fcf-4721-9575-193f7d37633b",
       "sourceName": "Funday Warm-Up Satellite 10",
       "name": "Funday Warm-Up Satellite 10",
-      "days": [
-        0
-      ],
-      "times": [
-        "12:15"
-      ],
+      "days": [0],
+      "times": ["12:15"],
       "config": {
         "name": "Funday Warm-Up Satellite 10",
         "type": "satellite",
@@ -6008,18 +5880,8 @@
       "sourceScheduleId": "5e039757-7396-41db-a92d-90bce0e31c6e",
       "sourceName": "Midday Free Buy (NLH)",
       "name": "Midday Free Buy (NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "12:30"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["12:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 0,
@@ -6115,14 +5977,8 @@
       "sourceScheduleId": "efe20ec7-96d3-4784-94cc-be9e1c61538a",
       "sourceName": "Funday Main Event Satellite 15",
       "name": "Funday Main Event Satellite 15",
-      "days": [
-        0,
-        5,
-        6
-      ],
-      "times": [
-        "12:45"
-      ],
+      "days": [0, 5, 6],
+      "times": ["12:45"],
       "config": {
         "name": "Funday Main Event Satellite 15",
         "type": "satellite",
@@ -6218,12 +6074,8 @@
       "sourceScheduleId": "4a367d72-c992-44d1-a258-f093646e2c6f",
       "sourceName": "Sunday 200 Deep Stack",
       "name": "Sunday 200 Deep Stack",
-      "days": [
-        0
-      ],
-      "times": [
-        "13:00"
-      ],
+      "days": [0],
+      "times": ["13:00"],
       "config": {
         "name": "Sunday 200 Deep Stack",
         "type": "rebuy",
@@ -6321,18 +6173,8 @@
       "sourceScheduleId": "048f4390-509c-4485-aa6d-cba7ce9960f5",
       "sourceName": "Sunday Deep Stack Satellite 30",
       "name": "Sunday Deep Stack Satellite 30",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "13:15"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["13:15"],
       "config": {
         "name": "Sunday Deep Stack Satellite 30",
         "type": "satellite",
@@ -6428,12 +6270,8 @@
       "sourceScheduleId": "0cfc7fa9-23a1-4385-81cf-0051997a351b",
       "sourceName": "Sunday Funday Bounty Builder",
       "name": "Sunday Funday Bounty Builder",
-      "days": [
-        0
-      ],
-      "times": [
-        "13:30"
-      ],
+      "days": [0],
+      "times": ["13:30"],
       "config": {
         "name": "Sunday Funday Bounty Builder",
         "type": "bounty",
@@ -6527,18 +6365,8 @@
       "sourceScheduleId": "c8e79691-bbfd-4c21-a226-c82e6bc3fe39",
       "sourceName": "40 Chip Freezeout - 5K GTD (NLH) Satellite 5",
       "name": "40 Chip Freezeout - 0 GTD (NLH) Satellite 5",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "13:45"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["13:45"],
       "config": {
         "name": "40 Chip Freezeout - 0 GTD (NLH) Satellite 5",
         "type": "satellite",
@@ -6636,12 +6464,8 @@
       "sourceScheduleId": "7f1d2bde-b029-43d6-a507-279d87c1440e",
       "sourceName": "Funday Prime Time Satellite 10",
       "name": "Funday Prime Time Satellite 10",
-      "days": [
-        0
-      ],
-      "times": [
-        "13:45"
-      ],
+      "days": [0],
+      "times": ["13:45"],
       "config": {
         "name": "Funday Prime Time Satellite 10",
         "type": "satellite",
@@ -6737,12 +6561,8 @@
       "sourceScheduleId": "ba2275f1-e5a2-429d-9474-d29b4fd07523",
       "sourceName": "Sunday Funday PLO PKO",
       "name": "Sunday Funday PLO PKO",
-      "days": [
-        0
-      ],
-      "times": [
-        "14:00"
-      ],
+      "days": [0],
+      "times": ["14:00"],
       "config": {
         "name": "Sunday Funday PLO PKO",
         "type": "progressive_bounty",
@@ -6836,12 +6656,8 @@
       "sourceScheduleId": "0c6c5565-d118-438e-a302-82735eb91db7",
       "sourceName": "Funday PLO High Roller Satellite 15",
       "name": "Funday PLO High Roller Satellite 15",
-      "days": [
-        0
-      ],
-      "times": [
-        "14:15"
-      ],
+      "days": [0],
+      "times": ["14:15"],
       "config": {
         "name": "Funday PLO High Roller Satellite 15",
         "type": "satellite",
@@ -6937,12 +6753,8 @@
       "sourceScheduleId": "2276f43b-07ac-400d-93cc-b7634a3c9359",
       "sourceName": "Sunday Funday Big Stack",
       "name": "Sunday Funday Big Stack",
-      "days": [
-        0
-      ],
-      "times": [
-        "14:30"
-      ],
+      "days": [0],
+      "times": ["14:30"],
       "config": {
         "name": "Sunday Funday Big Stack",
         "type": "rebuy",
@@ -7036,12 +6848,8 @@
       "sourceScheduleId": "4b77ba9a-d782-415c-8f61-6d9ff9e2a396",
       "sourceName": "Funday PLO Opener Satellite 5",
       "name": "Funday PLO Opener Satellite 5",
-      "days": [
-        0
-      ],
-      "times": [
-        "14:45"
-      ],
+      "days": [0],
+      "times": ["14:45"],
       "config": {
         "name": "Funday PLO Opener Satellite 5",
         "type": "satellite",
@@ -7137,12 +6945,8 @@
       "sourceScheduleId": "a20214af-8557-492c-bc6f-237e7c0c3d0c",
       "sourceName": "Sunday Funday PLO5 Big Stack",
       "name": "Sunday Funday PLO5 Big Stack",
-      "days": [
-        0
-      ],
-      "times": [
-        "15:00"
-      ],
+      "days": [0],
+      "times": ["15:00"],
       "config": {
         "name": "Sunday Funday PLO5 Big Stack",
         "type": "rebuy",
@@ -7236,12 +7040,8 @@
       "sourceScheduleId": "845a9151-d2ef-421d-bcd9-677df2070a9c",
       "sourceName": "Sunday Funday PLO5 Mystery",
       "name": "Sunday Funday PLO5 Mystery",
-      "days": [
-        0
-      ],
-      "times": [
-        "15:30"
-      ],
+      "days": [0],
+      "times": ["15:30"],
       "config": {
         "name": "Sunday Funday PLO5 Mystery",
         "type": "mystery_bounty",
@@ -7340,18 +7140,8 @@
       "sourceScheduleId": "a909956a-305b-4d15-8d14-34763473bddb",
       "sourceName": "25 Chip Daily Rebuy (NLH) Satellite 5",
       "name": "25 Chip Daily Rebuy (NLH) Satellite 5",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "15:45"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["15:45"],
       "config": {
         "name": "25 Chip Daily Rebuy (NLH) Satellite 5",
         "type": "satellite",
@@ -7449,12 +7239,8 @@
       "sourceScheduleId": "5a0fbbcc-4254-4b6d-8098-7e6f85137bd5",
       "sourceName": "Funday Mystery Satellite 10",
       "name": "Funday Mystery Satellite 10",
-      "days": [
-        0
-      ],
-      "times": [
-        "15:45"
-      ],
+      "days": [0],
+      "times": ["15:45"],
       "config": {
         "name": "Funday Mystery Satellite 10",
         "type": "satellite",
@@ -7550,18 +7336,8 @@
       "sourceScheduleId": "a70c1028-1600-4000-9000-000000000001",
       "sourceName": "40 Chip Freezeout - 5K GTD (NLH)",
       "name": "40 Chip Freezeout - 2.5K GTD (NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "16:00"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["16:00"],
       "config": {
         "name": "40 Chip Freezeout - 2.5K GTD (NLH)",
         "type": "freezeout",
@@ -7666,12 +7442,8 @@
       "sourceScheduleId": "0aa6e050-9942-4a79-9ce2-045e0194358a",
       "sourceName": "Sunday Funday Six-Max",
       "name": "Sunday Funday Six-Max",
-      "days": [
-        0
-      ],
-      "times": [
-        "16:00"
-      ],
+      "days": [0],
+      "times": ["16:00"],
       "config": {
         "name": "Sunday Funday Six-Max",
         "type": "rebuy",
@@ -7765,18 +7537,8 @@
       "sourceScheduleId": "9a1b9e88-0bee-4f24-a0b6-f4dee36be24b",
       "sourceName": "Afternoon Free Buy (NLH)",
       "name": "Afternoon Free Buy (NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "16:30"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["16:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 0,
@@ -7870,12 +7632,8 @@
       "sourceScheduleId": "13db030f-3db9-4bf4-b83b-75fdc995a4c4",
       "sourceName": "Funday Six-Card Satellite 10",
       "name": "Funday Six-Card Satellite 10",
-      "days": [
-        0
-      ],
-      "times": [
-        "16:45"
-      ],
+      "days": [0],
+      "times": ["16:45"],
       "config": {
         "name": "Funday Six-Card Satellite 10",
         "type": "satellite",
@@ -7971,12 +7729,8 @@
       "sourceScheduleId": "4b39966a-fa13-49f0-93f7-528ea226561f",
       "sourceName": "Sunday Funday Championship",
       "name": "Sunday Funday Championship",
-      "days": [
-        0
-      ],
-      "times": [
-        "17:00"
-      ],
+      "days": [0],
+      "times": ["17:00"],
       "config": {
         "name": "Sunday Funday Championship",
         "type": "rebuy",
@@ -8070,12 +7824,8 @@
       "sourceScheduleId": "eed83c0a-5b2c-4e7a-82bb-22743db63263",
       "sourceName": "Funday Late PKO Satellite 10",
       "name": "Funday Late PKO Satellite 10",
-      "days": [
-        0
-      ],
-      "times": [
-        "17:15"
-      ],
+      "days": [0],
+      "times": ["17:15"],
       "config": {
         "name": "Funday Late PKO Satellite 10",
         "type": "satellite",
@@ -8171,12 +7921,8 @@
       "sourceScheduleId": "805d24bd-ffed-431a-aa28-6962327509a8",
       "sourceName": "Sunday Funday Happy Hour",
       "name": "Sunday Funday Happy Hour",
-      "days": [
-        0
-      ],
-      "times": [
-        "17:30"
-      ],
+      "days": [0],
+      "times": ["17:30"],
       "config": {
         "name": "Sunday Funday Happy Hour",
         "type": "rebuy",
@@ -8270,18 +8016,8 @@
       "sourceScheduleId": "1a6d6cf3-f549-4833-9f2b-840841c68e56",
       "sourceName": "40 Chip Bounty Freezeout - 5K GTD (NLH) Satellite 5",
       "name": "40 Chip Bounty Freezeout - 0 GTD (NLH) Satellite 5",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "17:45"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["17:45"],
       "config": {
         "name": "40 Chip Bounty Freezeout - 0 GTD (NLH) Satellite 5",
         "type": "satellite",
@@ -8379,18 +8115,8 @@
       "sourceScheduleId": "e7ffa8ec-1748-4c3b-9a83-f4cc2de40ea4",
       "sourceName": "Sunday Deep Stack Satellite 30",
       "name": "Sunday Deep Stack Satellite 30",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "17:45"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["17:45"],
       "config": {
         "name": "Sunday Deep Stack Satellite 30",
         "type": "satellite",
@@ -8486,12 +8212,8 @@
       "sourceScheduleId": "50640518-ebaf-4514-a6df-8408aeb22c2d",
       "sourceName": "Sunday Funday Prime Time",
       "name": "Sunday Funday Prime Time",
-      "days": [
-        0
-      ],
-      "times": [
-        "18:00"
-      ],
+      "days": [0],
+      "times": ["18:00"],
       "config": {
         "name": "Sunday Funday Prime Time",
         "type": "rebuy",
@@ -8586,13 +8308,8 @@
       "sourceScheduleId": "35b32f80-479b-4d68-b7c1-3b898cf1425a",
       "sourceName": "Funday Main Event Satellite 15",
       "name": "Funday Main Event Satellite 15",
-      "days": [
-        0,
-        6
-      ],
-      "times": [
-        "18:15"
-      ],
+      "days": [0, 6],
+      "times": ["18:15"],
       "config": {
         "name": "Funday Main Event Satellite 15",
         "type": "satellite",
@@ -8688,12 +8405,8 @@
       "sourceScheduleId": "edb5f768-6b85-4412-ac38-02fdf371b168",
       "sourceName": "Sunday Funday Main Event",
       "name": "Sunday Funday Mini Main Event",
-      "days": [
-        0
-      ],
-      "times": [
-        "18:30"
-      ],
+      "days": [0],
+      "times": ["18:30"],
       "config": {
         "name": "Sunday Funday Mini Main Event",
         "type": "rebuy",
@@ -8787,12 +8500,8 @@
       "sourceScheduleId": "672a76d0-bb4c-46aa-adf6-9ea1cb7c2e00",
       "sourceName": "Sunday Funday PLO High Roller",
       "name": "Sunday Funday PLO High Roller",
-      "days": [
-        0
-      ],
-      "times": [
-        "18:30"
-      ],
+      "days": [0],
+      "times": ["18:30"],
       "config": {
         "name": "Sunday Funday PLO High Roller",
         "type": "rebuy",
@@ -8886,12 +8595,8 @@
       "sourceScheduleId": "2105fd66-cff2-44f7-89cf-ac3159aa9e06",
       "sourceName": "Funday High Roller PKO Satellite 15",
       "name": "Funday High Roller PKO Satellite 15",
-      "days": [
-        0
-      ],
-      "times": [
-        "18:45"
-      ],
+      "days": [0],
+      "times": ["18:45"],
       "config": {
         "name": "Funday High Roller PKO Satellite 15",
         "type": "satellite",
@@ -8987,12 +8692,8 @@
       "sourceScheduleId": "75f6d079-e51b-47e3-bef4-174fdea0dd76",
       "sourceName": "Sunday Funday Late PKO",
       "name": "Sunday Night Late PKO",
-      "days": [
-        0
-      ],
-      "times": [
-        "19:00"
-      ],
+      "days": [0],
+      "times": ["19:00"],
       "config": {
         "name": "Sunday Night Late PKO",
         "type": "progressive_bounty",
@@ -9086,12 +8787,8 @@
       "sourceScheduleId": "bd0b6e3d-3978-48c5-9c9f-255453d223d2",
       "sourceName": "Sunday Funday Warm-Up",
       "name": "Sunday Night Last Chance",
-      "days": [
-        0
-      ],
-      "times": [
-        "19:00"
-      ],
+      "days": [0],
+      "times": ["19:00"],
       "config": {
         "name": "Sunday Night Last Chance",
         "type": "rebuy",
@@ -9185,12 +8882,8 @@
       "sourceScheduleId": "5d6c2b18-a9a1-42b8-a0b2-bcbd075dc525",
       "sourceName": "Funday Night Owl Satellite 5",
       "name": "Funday Night Owl Satellite 5",
-      "days": [
-        0
-      ],
-      "times": [
-        "19:15"
-      ],
+      "days": [0],
+      "times": ["19:15"],
       "config": {
         "name": "Funday Night Owl Satellite 5",
         "type": "satellite",
@@ -9286,12 +8979,8 @@
       "sourceScheduleId": "76c70c53-96ee-4236-bfb9-e447891a94cb",
       "sourceName": "Sunday Funday High Roller PKO",
       "name": "Sunday Funday High Roller PKO",
-      "days": [
-        0
-      ],
-      "times": [
-        "19:30"
-      ],
+      "days": [0],
+      "times": ["19:30"],
       "config": {
         "name": "Sunday Funday High Roller PKO",
         "type": "progressive_bounty",
@@ -9385,12 +9074,8 @@
       "sourceScheduleId": "d19a0050-795b-42f5-9d63-e9e71e88555a",
       "sourceName": "Sunday Funday PLO Opener",
       "name": "Sunday Funday PLO Closer",
-      "days": [
-        0
-      ],
-      "times": [
-        "19:30"
-      ],
+      "days": [0],
+      "times": ["19:30"],
       "config": {
         "name": "Sunday Funday PLO Closer",
         "type": "rebuy",
@@ -9484,18 +9169,8 @@
       "sourceScheduleId": "a70c1028-2000-4000-9000-000000000001",
       "sourceName": "40 Chip Bounty Freezeout - 5K GTD (NLH)",
       "name": "40 Chip Bounty Freezeout - 2.5K GTD (NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "20:00"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["20:00"],
       "config": {
         "name": "40 Chip Bounty Freezeout - 2.5K GTD (NLH)",
         "type": "bounty",
@@ -9600,12 +9275,8 @@
       "sourceScheduleId": "255eb83a-6c6d-4757-b04e-e659885705d0",
       "sourceName": "Sunday Funday Mystery",
       "name": "Sunday Night Mystery Bounty",
-      "days": [
-        0
-      ],
-      "times": [
-        "20:00"
-      ],
+      "days": [0],
+      "times": ["20:00"],
       "config": {
         "name": "Sunday Night Mystery Bounty",
         "type": "mystery_bounty",
@@ -9704,12 +9375,8 @@
       "sourceScheduleId": "bfbd48c0-8919-4a3f-84ba-38eff8360b55",
       "sourceName": "Sunday Funday Night Owl",
       "name": "Sunday Night Bounty",
-      "days": [
-        0
-      ],
-      "times": [
-        "21:00"
-      ],
+      "days": [0],
+      "times": ["21:00"],
       "config": {
         "name": "Sunday Night Bounty",
         "type": "bounty",
@@ -9803,18 +9470,8 @@
       "sourceScheduleId": "048f4390-509c-4485-aa6d-cba7ce9960f5",
       "sourceName": "Sunday Deep Stack Satellite 30",
       "name": "Sunday Deep Stack Satellite 30",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "20:15"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["20:15"],
       "config": {
         "name": "Sunday Deep Stack Satellite 30",
         "type": "satellite",
@@ -9910,18 +9567,8 @@
       "sourceScheduleId": "9d0977ec-5f30-4a28-9beb-fa8e96cafe79",
       "sourceName": "Prime Time Free Buy (NLH)",
       "name": "Prime Time Free Buy (NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "20:30"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["20:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 0,
@@ -10023,12 +9670,8 @@
       "sourceScheduleId": "74d45303-7e46-46bd-9221-5d740d332ecd",
       "sourceName": "Sunday Funday Six-Card Closer",
       "name": "Sunday Funday Six-Card Closer",
-      "days": [
-        0
-      ],
-      "times": [
-        "22:00"
-      ],
+      "days": [0],
+      "times": ["22:00"],
       "config": {
         "name": "Sunday Funday Six-Card Closer",
         "type": "rebuy",
@@ -10122,18 +9765,8 @@
       "sourceScheduleId": "b9c31f19-70df-4b5c-9e8a-04ebaa945f61",
       "sourceName": "Midnight Free Buy (NLH)",
       "name": "Midnight Free Buy (NLH)",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "00:30"
-      ],
+      "days": [0, 1, 2, 3, 4, 5, 6],
+      "times": ["00:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 0,
@@ -10226,12 +9859,8 @@
       "sourceScheduleId": "476297c0-adfc-412d-a055-9707c8513d78",
       "sourceName": "Morning Grind Deepstack",
       "name": "Morning Grind Deepstack",
-      "days": [
-        1
-      ],
-      "times": [
-        "09:00"
-      ],
+      "days": [1],
+      "times": ["09:00"],
       "config": {
         "name": "Morning Grind Deepstack",
         "type": "rebuy",
@@ -10325,17 +9954,8 @@
       "sourceScheduleId": "857171b5-4a6f-4e81-b279-f14a8c2d645a",
       "sourceName": "Union Morning Classic (NLH)",
       "name": "Union Morning Classic (NLH)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "11:30"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["11:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 15,
@@ -10426,17 +10046,8 @@
       "sourceScheduleId": "a17c2248-15bd-45d0-bd2c-aa37f945525f",
       "sourceName": "PLO5 Mystery Bounty Satellite 5",
       "name": "PLO5 Mystery Bounty Satellite 5",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "11:45"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["11:45"],
       "config": {
         "name": "PLO5 Mystery Bounty Satellite 5",
         "type": "satellite",
@@ -10532,17 +10143,8 @@
       "sourceScheduleId": "9e781e73-bc37-400b-a2e9-fb9cef8ff859",
       "sourceName": "Lunch Rush (NLH Deep)",
       "name": "Lunch Rush (NLH Deep)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "12:00"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["12:00"],
       "config": {
         "type": "fixed_board",
         "buyIn": 10,
@@ -10633,17 +10235,8 @@
       "sourceScheduleId": "df30c416-0f1f-482c-9b04-0ead175eb6fe",
       "sourceName": "Midday Turbo (NLH)",
       "name": "Midday Turbo (NLH)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "13:00"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["13:00"],
       "config": {
         "type": "fixed_board",
         "buyIn": 10,
@@ -10735,17 +10328,8 @@
       "sourceScheduleId": "594dcaae-3c08-49ab-937a-e9191f9e21a9",
       "sourceName": "Afternoon Bounty (NLH)",
       "name": "Afternoon Bounty (NLH)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "13:30"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["13:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 10,
@@ -10836,17 +10420,8 @@
       "sourceScheduleId": "b2b50523-8b87-46ef-a9b2-ce078b689e11",
       "sourceName": "Grand Championship Satellite 10",
       "name": "Grand Championship Satellite 10",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "13:45"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["13:45"],
       "config": {
         "name": "Grand Championship Satellite 10",
         "type": "satellite",
@@ -10942,17 +10517,8 @@
       "sourceScheduleId": "e25b7f77-07ed-4cbd-9077-3adafc1381e0",
       "sourceName": "Union PKO Afternoon (PLO4)",
       "name": "Union PKO Afternoon (PLO4)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "14:00"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["14:00"],
       "config": {
         "type": "fixed_board",
         "buyIn": 20,
@@ -11043,17 +10609,8 @@
       "sourceScheduleId": "f71552cf-b086-4838-8ec3-55a64ceff9ef",
       "sourceName": "Prime Time Satellite 5",
       "name": "Prime Time Satellite 5",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "14:15"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["14:15"],
       "config": {
         "name": "Prime Time Satellite 5",
         "type": "satellite",
@@ -11149,17 +10706,8 @@
       "sourceScheduleId": "b14c7932-f32b-4481-9106-3e78b14623c6",
       "sourceName": "Afternoon Deep Stack (NLH)",
       "name": "Afternoon Deep Stack (NLH)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "14:30"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["14:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 15,
@@ -11250,17 +10798,8 @@
       "sourceScheduleId": "f54d66e4-4129-4bf1-8f0e-b267e4e08dfa",
       "sourceName": "Nightly 10K Satellite 5",
       "name": "Nightly 10K Satellite 5",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "14:45"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["14:45"],
       "config": {
         "name": "Nightly 10K Satellite 5",
         "type": "satellite",
@@ -11356,12 +10895,8 @@
       "sourceScheduleId": "8490b5a9-d0ab-41cb-a541-94fb54105a0a",
       "sourceName": "Monday Rebuy Rush",
       "name": "Monday Rebuy Rush",
-      "days": [
-        1
-      ],
-      "times": [
-        "15:00"
-      ],
+      "days": [1],
+      "times": ["15:00"],
       "config": {
         "name": "Monday Rebuy Rush",
         "type": "rebuy",
@@ -11455,17 +10990,8 @@
       "sourceScheduleId": "574129d4-2592-4732-856e-144bb51bc9f4",
       "sourceName": "Union Mystery Bounty (PLO5)",
       "name": "Union Mystery Bounty (PLO5)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "15:30"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["15:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 25,
@@ -11559,17 +11085,8 @@
       "sourceScheduleId": "57324d3f-137d-4883-92e8-a203dab6f300",
       "sourceName": "Prime Time Satellite 5",
       "name": "Prime Time Satellite 5",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "15:45"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["15:45"],
       "config": {
         "name": "Prime Time Satellite 5",
         "type": "satellite",
@@ -11665,17 +11182,8 @@
       "sourceScheduleId": "393a9e29-c41f-466b-b057-51c370a0b160",
       "sourceName": "Evening Mystery Bounty (PLO5)",
       "name": "Evening Mystery Bounty (PLO5)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "16:00"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["16:00"],
       "config": {
         "type": "fixed_board",
         "buyIn": 15,
@@ -11769,17 +11277,8 @@
       "sourceScheduleId": "f44bc95c-6f9c-4e88-9aff-b767bab5c5a4",
       "sourceName": "Nightly 10K Satellite 5",
       "name": "Nightly 10K Satellite 5",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "16:15"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["16:15"],
       "config": {
         "name": "Nightly 10K Satellite 5",
         "type": "satellite",
@@ -11875,17 +11374,8 @@
       "sourceScheduleId": "147914a8-fc02-4e14-a241-55586f88e186",
       "sourceName": "Union Grand Championship (NLH)",
       "name": "Union Grand Championship (NLH)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "17:00"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["17:00"],
       "config": {
         "type": "fixed_board",
         "buyIn": 50,
@@ -11976,17 +11466,8 @@
       "sourceScheduleId": "95091bcf-72e8-4bbc-8fc0-5aaaa4aba45b",
       "sourceName": "Happy Hour Bounty (NLH)",
       "name": "Happy Hour Bounty (NLH)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "17:30"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["17:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 10,
@@ -12077,17 +11558,8 @@
       "sourceScheduleId": "a70c1028-1800-2500-9000-000000000001",
       "sourceName": "25 Chip Daily Rebuy (NLH)",
       "name": "25 Chip Bankroll Builder (NLH)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "18:00"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["18:00"],
       "config": {
         "name": "25 Chip Bankroll Builder (NLH)",
         "type": "rebuy",
@@ -12192,17 +11664,8 @@
       "sourceScheduleId": "02c9209a-eb36-4baf-9bca-b698d3d2f99d",
       "sourceName": "Dinner Break PLO (PLO4)",
       "name": "Dinner Break PLO (PLO4)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "18:30"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["18:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 20,
@@ -12293,17 +11756,8 @@
       "sourceScheduleId": "099ac5a4-c866-4acb-917c-31337bf468b1",
       "sourceName": "Nightly 10K (NLH)",
       "name": "Nightly 10K (NLH)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "19:00"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["19:00"],
       "config": {
         "name": "Nightly 10K (NLH)",
         "type": "rebuy",
@@ -12398,12 +11852,8 @@
       "sourceScheduleId": "3e119b00-5f4d-46d1-bbb1-d2964cbcba93",
       "sourceName": "Knockout Satellite 5",
       "name": "Knockout Satellite 5",
-      "days": [
-        1
-      ],
-      "times": [
-        "19:15"
-      ],
+      "days": [1],
+      "times": ["19:15"],
       "config": {
         "name": "Knockout Satellite 5",
         "type": "satellite",
@@ -12499,12 +11949,8 @@
       "sourceScheduleId": "01e8c884-bf85-4671-9694-22a1c1471df6",
       "sourceName": "Monday Night Turbo",
       "name": "Monday Night Turbo",
-      "days": [
-        1
-      ],
-      "times": [
-        "19:30"
-      ],
+      "days": [1],
+      "times": ["19:30"],
       "config": {
         "name": "Monday Night Turbo",
         "type": "rebuy",
@@ -12598,12 +12044,8 @@
       "sourceScheduleId": "a08d4e13-d429-410b-98a2-21a2d1916ad6",
       "sourceName": "Five-Card Big Stack",
       "name": "Five-Card Big Stack",
-      "days": [
-        1
-      ],
-      "times": [
-        "20:00"
-      ],
+      "days": [1],
+      "times": ["20:00"],
       "config": {
         "name": "Five-Card Big Stack",
         "type": "rebuy",
@@ -12697,12 +12139,8 @@
       "sourceScheduleId": "296696e7-7789-44f7-85bc-35b2911ef5cd",
       "sourceName": "Monday Knockout",
       "name": "Monday Knockout",
-      "days": [
-        1
-      ],
-      "times": [
-        "21:00"
-      ],
+      "days": [1],
+      "times": ["21:00"],
       "config": {
         "name": "Monday Knockout",
         "type": "progressive_bounty",
@@ -12796,17 +12234,8 @@
       "sourceScheduleId": "478200f3-3ea8-48d0-b401-fe8dbd314ae1",
       "sourceName": "Late Night PKO (PLO4)",
       "name": "Late Night PKO (PLO4)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "21:30"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["21:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 20,
@@ -12897,12 +12326,8 @@
       "sourceScheduleId": "d5680451-7f90-4ea3-afb2-a0b88b874b92",
       "sourceName": "Monday Mystery",
       "name": "Monday Mystery",
-      "days": [
-        1
-      ],
-      "times": [
-        "22:00"
-      ],
+      "days": [1],
+      "times": ["22:00"],
       "config": {
         "name": "Monday Mystery",
         "type": "mystery_bounty",
@@ -13001,17 +12426,8 @@
       "sourceScheduleId": "b66e1981-aad5-4aef-9d60-6a081d76250e",
       "sourceName": "Night Owl Special (NLH)",
       "name": "Night Owl Special (NLH)",
-      "days": [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "22:30"
-      ],
+      "days": [1, 2, 3, 4, 5, 6],
+      "times": ["22:30"],
       "config": {
         "type": "fixed_board",
         "buyIn": 20,
@@ -13102,12 +12518,8 @@
       "sourceScheduleId": "f62b4f5e-9cdb-4be3-b96a-2512b8435ce7",
       "sourceName": "Six-Card Late Night",
       "name": "Last Chance Six-Card PLO",
-      "days": [
-        1
-      ],
-      "times": [
-        "23:00"
-      ],
+      "days": [1],
+      "times": ["23:00"],
       "config": {
         "name": "Last Chance Six-Card PLO",
         "type": "rebuy",
@@ -13201,12 +12613,8 @@
       "sourceScheduleId": "23f7a9ff-914a-4d3e-b803-928671f775fa",
       "sourceName": "Breakfast Turbo",
       "name": "Breakfast Turbo",
-      "days": [
-        2
-      ],
-      "times": [
-        "09:00"
-      ],
+      "days": [2],
+      "times": ["09:00"],
       "config": {
         "name": "Breakfast Turbo",
         "type": "rebuy",
@@ -13300,12 +12708,8 @@
       "sourceScheduleId": "6d29a252-9b04-4f68-9fec-d2fdc0ed0e5f",
       "sourceName": "Afternoon PLO Turbo",
       "name": "Afternoon PLO Turbo",
-      "days": [
-        2
-      ],
-      "times": [
-        "15:00"
-      ],
+      "days": [2],
+      "times": ["15:00"],
       "config": {
         "name": "Afternoon PLO Turbo",
         "type": "rebuy",
@@ -13399,12 +12803,8 @@
       "sourceScheduleId": "8bd9b9d7-0a0b-4f1f-8b96-18fb21c93250",
       "sourceName": "Bounty Hunt Satellite 5",
       "name": "Bounty Hunt Satellite 5",
-      "days": [
-        2
-      ],
-      "times": [
-        "19:15"
-      ],
+      "days": [2],
+      "times": ["19:15"],
       "config": {
         "name": "Bounty Hunt Satellite 5",
         "type": "satellite",
@@ -13500,12 +12900,8 @@
       "sourceScheduleId": "9b222ac6-cdf5-48d6-b08c-5a8f57eb7b3c",
       "sourceName": "Turbo Tuesday Opener",
       "name": "Turbo Tuesday Opener",
-      "days": [
-        2
-      ],
-      "times": [
-        "19:30"
-      ],
+      "days": [2],
+      "times": ["19:30"],
       "config": {
         "name": "Turbo Tuesday Opener",
         "type": "rebuy",
@@ -13599,12 +12995,8 @@
       "sourceScheduleId": "4fff52fc-2d42-401c-8eb8-09ff268645e3",
       "sourceName": "PLO8 Hi-Lo Turbo",
       "name": "PLO8 Hi-Lo Turbo",
-      "days": [
-        2
-      ],
-      "times": [
-        "20:00"
-      ],
+      "days": [2],
+      "times": ["20:00"],
       "config": {
         "name": "PLO8 Hi-Lo Turbo",
         "type": "rebuy",
@@ -13698,12 +13090,8 @@
       "sourceScheduleId": "6bf5847d-df18-4929-aeb1-bd827f5937b6",
       "sourceName": "Tuesday Bounty Hunt",
       "name": "Tuesday Bounty Hunt",
-      "days": [
-        2
-      ],
-      "times": [
-        "21:00"
-      ],
+      "days": [2],
+      "times": ["21:00"],
       "config": {
         "name": "Tuesday Bounty Hunt",
         "type": "bounty",
@@ -13797,12 +13185,8 @@
       "sourceScheduleId": "21dbfd33-83f3-4383-8136-6eae472652fb",
       "sourceName": "Turbo Tuesday PKO",
       "name": "Turbo Tuesday PKO",
-      "days": [
-        2
-      ],
-      "times": [
-        "22:00"
-      ],
+      "days": [2],
+      "times": ["22:00"],
       "config": {
         "name": "Turbo Tuesday PKO",
         "type": "progressive_bounty",
@@ -13896,12 +13280,8 @@
       "sourceScheduleId": "7f65be03-8bdf-44eb-babc-5a30eb302f01",
       "sourceName": "Five-Card Nightcap",
       "name": "Five-Card Last Chance",
-      "days": [
-        2
-      ],
-      "times": [
-        "23:00"
-      ],
+      "days": [2],
+      "times": ["23:00"],
       "config": {
         "name": "Five-Card Last Chance",
         "type": "rebuy",
@@ -13995,12 +13375,8 @@
       "sourceScheduleId": "12326fad-0b14-4dd1-83db-9fa5263ee9a9",
       "sourceName": "Midweek Morning Stack",
       "name": "Midweek Morning Stack",
-      "days": [
-        3
-      ],
-      "times": [
-        "09:00"
-      ],
+      "days": [3],
+      "times": ["09:00"],
       "config": {
         "name": "Midweek Morning Stack",
         "type": "rebuy",
@@ -14094,12 +13470,8 @@
       "sourceScheduleId": "4079a99b-8525-4728-87aa-4b592102d95f",
       "sourceName": "Wednesday Reload",
       "name": "Wednesday Reload",
-      "days": [
-        3
-      ],
-      "times": [
-        "15:00"
-      ],
+      "days": [3],
+      "times": ["15:00"],
       "config": {
         "name": "Wednesday Reload",
         "type": "rebuy",
@@ -14193,12 +13565,8 @@
       "sourceScheduleId": "264a2a86-5294-47f3-beba-2522e05ee85c",
       "sourceName": "Midweek Feature Satellite 5",
       "name": "Midweek Feature Satellite 5",
-      "days": [
-        3
-      ],
-      "times": [
-        "17:15"
-      ],
+      "days": [3],
+      "times": ["17:15"],
       "config": {
         "name": "Midweek Feature Satellite 5",
         "type": "satellite",
@@ -14294,14 +13662,8 @@
       "sourceScheduleId": "b997f1e3-9efb-4c9e-abdd-3f44ac4b507c",
       "sourceName": "Friday Feature Satellite 5",
       "name": "Friday Feature Satellite 5",
-      "days": [
-        3,
-        4,
-        5
-      ],
-      "times": [
-        "18:45"
-      ],
+      "days": [3, 4, 5],
+      "times": ["18:45"],
       "config": {
         "name": "Friday Feature Satellite 5",
         "type": "satellite",
@@ -14397,12 +13759,8 @@
       "sourceScheduleId": "c7c8d9f5-c2dc-47ac-8832-adf4c574419c",
       "sourceName": "Wednesday PLO Stack",
       "name": "Wednesday PLO Stack",
-      "days": [
-        3
-      ],
-      "times": [
-        "19:30"
-      ],
+      "days": [3],
+      "times": ["19:30"],
       "config": {
         "name": "Wednesday PLO Stack",
         "type": "rebuy",
@@ -14496,12 +13854,8 @@
       "sourceScheduleId": "92af3d78-5a4c-4226-878e-fdf0bfd51db2",
       "sourceName": "Midweek Bounty",
       "name": "Midweek Bounty",
-      "days": [
-        3
-      ],
-      "times": [
-        "20:00"
-      ],
+      "days": [3],
+      "times": ["20:00"],
       "config": {
         "name": "Midweek Bounty",
         "type": "bounty",
@@ -14595,12 +13949,8 @@
       "sourceScheduleId": "0f115fe4-f53b-46ff-9564-760ddf5c578c",
       "sourceName": "Wednesday Feature",
       "name": "Wednesday Feature",
-      "days": [
-        3
-      ],
-      "times": [
-        "21:00"
-      ],
+      "days": [3],
+      "times": ["21:00"],
       "config": {
         "name": "Wednesday Feature",
         "type": "rebuy",
@@ -14694,12 +14044,8 @@
       "sourceScheduleId": "294809bd-2ea8-453b-8e46-abfa8a2124da",
       "sourceName": "Midweek Mystery",
       "name": "Midweek Mystery",
-      "days": [
-        3
-      ],
-      "times": [
-        "22:00"
-      ],
+      "days": [3],
+      "times": ["22:00"],
       "config": {
         "name": "Midweek Mystery",
         "type": "mystery_bounty",
@@ -14798,12 +14144,8 @@
       "sourceScheduleId": "39518fc3-ee0b-4e45-83ae-3619aa9a5c07",
       "sourceName": "Six-Card Deep Night",
       "name": "Six-Card PLO Last Chance",
-      "days": [
-        3
-      ],
-      "times": [
-        "23:00"
-      ],
+      "days": [3],
+      "times": ["23:00"],
       "config": {
         "name": "Six-Card PLO Last Chance",
         "type": "rebuy",
@@ -14897,12 +14239,8 @@
       "sourceScheduleId": "e6953809-af43-4397-a15c-4ea2ce50aa14",
       "sourceName": "PLO8 Morning Stack",
       "name": "PLO8 Morning Stack",
-      "days": [
-        4
-      ],
-      "times": [
-        "09:00"
-      ],
+      "days": [4],
+      "times": ["09:00"],
       "config": {
         "name": "PLO8 Morning Stack",
         "type": "rebuy",
@@ -14996,12 +14334,8 @@
       "sourceScheduleId": "047e6702-90de-4045-a6a6-7b05263d4ee6",
       "sourceName": "Five-Card Reload",
       "name": "Five-Card Reload",
-      "days": [
-        4
-      ],
-      "times": [
-        "15:00"
-      ],
+      "days": [4],
+      "times": ["15:00"],
       "config": {
         "name": "Five-Card Reload",
         "type": "rebuy",
@@ -15095,12 +14429,8 @@
       "sourceScheduleId": "1a582062-6da4-4f6b-b757-b736abddcc83",
       "sourceName": "Thursday Six-Card Satellite 5",
       "name": "Thursday Six-Card Satellite 5",
-      "days": [
-        4
-      ],
-      "times": [
-        "17:15"
-      ],
+      "days": [4],
+      "times": ["17:15"],
       "config": {
         "name": "Thursday Six-Card Satellite 5",
         "type": "satellite",
@@ -15196,12 +14526,8 @@
       "sourceScheduleId": "39e3bb2c-c290-4799-95af-5dcbd3907430",
       "sourceName": "Omaha Thursday Opener",
       "name": "Omaha Thursday Opener",
-      "days": [
-        4
-      ],
-      "times": [
-        "19:30"
-      ],
+      "days": [4],
+      "times": ["19:30"],
       "config": {
         "name": "Omaha Thursday Opener",
         "type": "rebuy",
@@ -15295,14 +14621,8 @@
       "sourceScheduleId": "407bf7df-3098-44dd-b648-afed6612fdbf",
       "sourceName": "Saturday Big Stack Satellite 10",
       "name": "Saturday Big Stack Satellite 10",
-      "days": [
-        4,
-        5,
-        6
-      ],
-      "times": [
-        "19:45"
-      ],
+      "days": [4, 5, 6],
+      "times": ["19:45"],
       "config": {
         "name": "Saturday Big Stack Satellite 10",
         "type": "satellite",
@@ -15398,12 +14718,8 @@
       "sourceScheduleId": "4507f521-ec9a-4bb0-b634-eefee9cbfe18",
       "sourceName": "Five-Card Bounty",
       "name": "Five-Card Bounty",
-      "days": [
-        4
-      ],
-      "times": [
-        "20:00"
-      ],
+      "days": [4],
+      "times": ["20:00"],
       "config": {
         "name": "Five-Card Bounty",
         "type": "bounty",
@@ -15497,12 +14813,8 @@
       "sourceScheduleId": "f1610468-286e-43bb-914a-7ad2067cfe37",
       "sourceName": "Six-Card Feature",
       "name": "Six-Card Feature",
-      "days": [
-        4
-      ],
-      "times": [
-        "21:00"
-      ],
+      "days": [4],
+      "times": ["21:00"],
       "config": {
         "name": "Six-Card Feature",
         "type": "rebuy",
@@ -15596,12 +14908,8 @@
       "sourceScheduleId": "27a215fa-420a-4e10-b03a-033317d5e556",
       "sourceName": "Thursday Night PKO",
       "name": "Thursday Night PKO",
-      "days": [
-        4
-      ],
-      "times": [
-        "22:00"
-      ],
+      "days": [4],
+      "times": ["22:00"],
       "config": {
         "name": "Thursday Night PKO",
         "type": "progressive_bounty",
@@ -15695,13 +15003,8 @@
       "sourceScheduleId": "5cde6a51-9838-4cf8-ad10-b59513e7d504",
       "sourceName": "PLO8 Hi-Lo Nightcap",
       "name": "Last Chance Six Card PLO",
-      "days": [
-        4,
-        6
-      ],
-      "times": [
-        "23:00"
-      ],
+      "days": [4, 6],
+      "times": ["23:00"],
       "config": {
         "name": "Last Chance Six Card PLO",
         "type": "rebuy",
@@ -15795,12 +15098,8 @@
       "sourceScheduleId": "bb6338d1-a3e4-4f53-b6d7-e3dd556dcf0c",
       "sourceName": "Friday Morning PLO",
       "name": "Friday Morning PLO",
-      "days": [
-        5
-      ],
-      "times": [
-        "09:00"
-      ],
+      "days": [5],
+      "times": ["09:00"],
       "config": {
         "name": "Friday Morning PLO",
         "type": "rebuy",
@@ -15894,13 +15193,8 @@
       "sourceScheduleId": "313968ef-7ef7-46a0-9e41-009527ab7cfa",
       "sourceName": "Funday Warm-Up Satellite 10",
       "name": "Funday Warm-Up Satellite 10",
-      "days": [
-        5,
-        6
-      ],
-      "times": [
-        "12:15"
-      ],
+      "days": [5, 6],
+      "times": ["12:15"],
       "config": {
         "name": "Funday Warm-Up Satellite 10",
         "type": "satellite",
@@ -15996,12 +15290,8 @@
       "sourceScheduleId": "3d45dab2-7c54-4ca7-a83d-a6690fd6981a",
       "sourceName": "Friday Rebuy Rush",
       "name": "Friday Turbo Rebuy",
-      "days": [
-        5
-      ],
-      "times": [
-        "15:00"
-      ],
+      "days": [5],
+      "times": ["15:00"],
       "config": {
         "name": "Friday Turbo Rebuy",
         "type": "rebuy",
@@ -16095,12 +15385,8 @@
       "sourceScheduleId": "df1662d0-39a2-4134-9258-a4cbc8469b1c",
       "sourceName": "Fight Night Opener Satellite 5",
       "name": "Fight Night Opener Satellite 5",
-      "days": [
-        5
-      ],
-      "times": [
-        "15:15"
-      ],
+      "days": [5],
+      "times": ["15:15"],
       "config": {
         "name": "Fight Night Opener Satellite 5",
         "type": "satellite",
@@ -16196,12 +15482,8 @@
       "sourceScheduleId": "d6d04d80-c82d-4259-90ff-a1ecdfb68830",
       "sourceName": "Friday PLO5 Bounty Satellite 5",
       "name": "Friday PLO5 Bounty Satellite 5",
-      "days": [
-        5
-      ],
-      "times": [
-        "16:45"
-      ],
+      "days": [5],
+      "times": ["16:45"],
       "config": {
         "name": "Friday PLO5 Bounty Satellite 5",
         "type": "satellite",
@@ -16297,12 +15579,8 @@
       "sourceScheduleId": "b5893234-4aad-4971-95ba-5855ab3d487e",
       "sourceName": "Friday Feature Satellite 5",
       "name": "Friday Feature Satellite 5",
-      "days": [
-        5
-      ],
-      "times": [
-        "17:15"
-      ],
+      "days": [5],
+      "times": ["17:15"],
       "config": {
         "name": "Friday Feature Satellite 5",
         "type": "satellite",
@@ -16398,12 +15676,8 @@
       "sourceScheduleId": "34188a9e-6db7-4182-984b-9896cac808dd",
       "sourceName": "Fight Night PKO Satellite 5",
       "name": "Fight Night PKO Satellite 5",
-      "days": [
-        5
-      ],
-      "times": [
-        "19:15"
-      ],
+      "days": [5],
+      "times": ["19:15"],
       "config": {
         "name": "Fight Night PKO Satellite 5",
         "type": "satellite",
@@ -16499,12 +15773,8 @@
       "sourceScheduleId": "94e8f417-2bcb-4904-8cce-4630c059c0d4",
       "sourceName": "Friday Fight Night Opener",
       "name": "Friday Fight Night Opener",
-      "days": [
-        5
-      ],
-      "times": [
-        "19:30"
-      ],
+      "days": [5],
+      "times": ["19:30"],
       "config": {
         "name": "Friday Fight Night Opener",
         "type": "rebuy",
@@ -16598,12 +15868,8 @@
       "sourceScheduleId": "d5d5b72a-ba81-4223-9431-16e13224150d",
       "sourceName": "Friday Five-Card Bounty",
       "name": "Friday Five-Card Bounty",
-      "days": [
-        5
-      ],
-      "times": [
-        "20:00"
-      ],
+      "days": [5],
+      "times": ["20:00"],
       "config": {
         "name": "Friday Five-Card Bounty",
         "type": "bounty",
@@ -16697,12 +15963,8 @@
       "sourceScheduleId": "83dffbc7-92dc-46e9-b05c-2a9bd774e321",
       "sourceName": "Friday Night Feature",
       "name": "Friday Night Feature",
-      "days": [
-        5
-      ],
-      "times": [
-        "21:00"
-      ],
+      "days": [5],
+      "times": ["21:00"],
       "config": {
         "name": "Friday Night Feature",
         "type": "rebuy",
@@ -16796,13 +16058,8 @@
       "sourceScheduleId": "9dae49e9-3b66-4757-9f38-498e675b0f4f",
       "sourceName": "Funday PLO5 Satellite 5",
       "name": "Funday PLO5 Satellite 5",
-      "days": [
-        5,
-        6
-      ],
-      "times": [
-        "21:15"
-      ],
+      "days": [5, 6],
+      "times": ["21:15"],
       "config": {
         "name": "Funday PLO5 Satellite 5",
         "type": "satellite",
@@ -16898,12 +16155,8 @@
       "sourceScheduleId": "142d9121-d441-451d-b9a2-426c26d52ab9",
       "sourceName": "Friday Fight Night PKO",
       "name": "Friday Fight Night PKO",
-      "days": [
-        5
-      ],
-      "times": [
-        "22:00"
-      ],
+      "days": [5],
+      "times": ["22:00"],
       "config": {
         "name": "Friday Fight Night PKO",
         "type": "progressive_bounty",
@@ -16997,12 +16250,8 @@
       "sourceScheduleId": "12ddf8de-844b-478f-b3d3-1dba9f8d463d",
       "sourceName": "Friday Six-Card Nightcap",
       "name": "Last Chance Six-Card PLO",
-      "days": [
-        5
-      ],
-      "times": [
-        "23:00"
-      ],
+      "days": [5],
+      "times": ["23:00"],
       "config": {
         "name": "Last Chance Six-Card PLO",
         "type": "rebuy",
@@ -17096,12 +16345,8 @@
       "sourceScheduleId": "97b91e1b-8bc4-47ff-b265-0d2ef0c1ca5c",
       "sourceName": "Saturday Morning Stack",
       "name": "Saturday Morning Deep Stack",
-      "days": [
-        6
-      ],
-      "times": [
-        "09:00"
-      ],
+      "days": [6],
+      "times": ["09:00"],
       "config": {
         "name": "Saturday Morning Deep Stack",
         "type": "rebuy",
@@ -17195,12 +16440,8 @@
       "sourceScheduleId": "b8024a88-6ddf-409b-a934-77f90203f548",
       "sourceName": "Saturday Five-Card Stack",
       "name": "Saturday Five-Card Stack",
-      "days": [
-        6
-      ],
-      "times": [
-        "15:00"
-      ],
+      "days": [6],
+      "times": ["15:00"],
       "config": {
         "name": "Saturday Five-Card Stack",
         "type": "rebuy",
@@ -17294,12 +16535,8 @@
       "sourceScheduleId": "0dd8565a-61ea-4f58-9317-256d70282d8d",
       "sourceName": "Stackfest Opener Satellite 5",
       "name": "Stackfest Opener Satellite 5",
-      "days": [
-        6
-      ],
-      "times": [
-        "15:15"
-      ],
+      "days": [6],
+      "times": ["15:15"],
       "config": {
         "name": "Stackfest Opener Satellite 5",
         "type": "satellite",
@@ -17395,12 +16632,8 @@
       "sourceScheduleId": "0e0c3168-77f4-484d-90c8-3841e15c4611",
       "sourceName": "Saturday Night Mystery Satellite 5",
       "name": "Saturday Night Mystery Satellite 5",
-      "days": [
-        6
-      ],
-      "times": [
-        "16:45"
-      ],
+      "days": [6],
+      "times": ["16:45"],
       "config": {
         "name": "Saturday Night Mystery Satellite 5",
         "type": "satellite",
@@ -17496,12 +16729,8 @@
       "sourceScheduleId": "ccb36517-7720-4a64-85d6-1c4812573124",
       "sourceName": "Saturday Big Stack Satellite 10",
       "name": "Saturday Big Stack Satellite 10",
-      "days": [
-        6
-      ],
-      "times": [
-        "17:15"
-      ],
+      "days": [6],
+      "times": ["17:15"],
       "config": {
         "name": "Saturday Big Stack Satellite 10",
         "type": "satellite",
@@ -17597,12 +16826,8 @@
       "sourceScheduleId": "a223f241-d1da-4564-9ac5-a47088e8d0b1",
       "sourceName": "Funday PLO PKO Satellite 10",
       "name": "Funday PLO PKO Satellite 10",
-      "days": [
-        6
-      ],
-      "times": [
-        "18:45"
-      ],
+      "days": [6],
+      "times": ["18:45"],
       "config": {
         "name": "Funday PLO PKO Satellite 10",
         "type": "satellite",
@@ -17698,12 +16923,8 @@
       "sourceScheduleId": "ec529aae-6810-43d1-af31-9156b91f87b9",
       "sourceName": "Stackfest PKO Satellite 5",
       "name": "Stackfest PKO Satellite 5",
-      "days": [
-        6
-      ],
-      "times": [
-        "19:15"
-      ],
+      "days": [6],
+      "times": ["19:15"],
       "config": {
         "name": "Stackfest PKO Satellite 5",
         "type": "satellite",
@@ -17799,12 +17020,8 @@
       "sourceScheduleId": "3fd4ad2b-cf04-4af7-af07-2037e4905657",
       "sourceName": "Saturday Stackfest Opener",
       "name": "Saturday Night Super Stack",
-      "days": [
-        6
-      ],
-      "times": [
-        "19:30"
-      ],
+      "days": [6],
+      "times": ["19:30"],
       "config": {
         "name": "Saturday Night Super Stack",
         "type": "rebuy",
@@ -17898,12 +17115,8 @@
       "sourceScheduleId": "83910a61-af52-4c3a-8acf-7f2c88f24046",
       "sourceName": "Saturday Mystery",
       "name": "Saturday Mystery",
-      "days": [
-        6
-      ],
-      "times": [
-        "20:00"
-      ],
+      "days": [6],
+      "times": ["20:00"],
       "config": {
         "name": "Saturday Mystery",
         "type": "mystery_bounty",
@@ -18002,12 +17215,8 @@
       "sourceScheduleId": "dcd540de-93bd-4d87-bb4d-97157dcb8a22",
       "sourceName": "Funday Bounty Builder Satellite 10",
       "name": "Funday Bounty Builder Satellite 10",
-      "days": [
-        6
-      ],
-      "times": [
-        "20:45"
-      ],
+      "days": [6],
+      "times": ["20:45"],
       "config": {
         "name": "Funday Bounty Builder Satellite 10",
         "type": "satellite",
@@ -18103,12 +17312,8 @@
       "sourceScheduleId": "ac5b35b8-b9d8-44c3-b079-44d5c33362f9",
       "sourceName": "Saturday Night Big Stack",
       "name": "Saturday Night Big Stack",
-      "days": [
-        6
-      ],
-      "times": [
-        "21:00"
-      ],
+      "days": [6],
+      "times": ["21:00"],
       "config": {
         "name": "Saturday Night Big Stack",
         "type": "rebuy",
@@ -18202,12 +17407,8 @@
       "sourceScheduleId": "79a454a4-8aa5-4629-8f77-dcced74fe97a",
       "sourceName": "Funday Six-Card Satellite 10",
       "name": "Funday Six-Card Satellite 10",
-      "days": [
-        6
-      ],
-      "times": [
-        "21:45"
-      ],
+      "days": [6],
+      "times": ["21:45"],
       "config": {
         "name": "Funday Six-Card Satellite 10",
         "type": "satellite",
@@ -18303,12 +17504,8 @@
       "sourceScheduleId": "defffe72-e358-42da-bd22-f5d57380a2d7",
       "sourceName": "Saturday Stackfest PKO",
       "name": "Saturday Night Super Stack PKO",
-      "days": [
-        6
-      ],
-      "times": [
-        "22:00"
-      ],
+      "days": [6],
+      "times": ["22:00"],
       "config": {
         "name": "Saturday Night Super Stack PKO",
         "type": "progressive_bounty",
@@ -18402,12 +17599,8 @@
       "sourceScheduleId": "195a81c2-8335-4d2b-b9eb-a7b015197539",
       "sourceName": "Funday PLO5 Mystery Satellite 10",
       "name": "Funday PLO5 Mystery Satellite 10",
-      "days": [
-        6
-      ],
-      "times": [
-        "22:15"
-      ],
+      "days": [6],
+      "times": ["22:15"],
       "config": {
         "name": "Funday PLO5 Mystery Satellite 10",
         "type": "satellite",

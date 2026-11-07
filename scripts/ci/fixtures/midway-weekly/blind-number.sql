@@ -12,4 +12,3 @@ BEGIN
   RETURN v;
 END;
 $function$
-
