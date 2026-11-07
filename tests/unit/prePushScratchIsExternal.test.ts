@@ -99,9 +99,10 @@ describe('the push scratch must be on an external drive', () => {
 
   it('refuses a boot-disk scratch with no renamed drive, without inventing one', () => {
     const box = sandbox([]);
-    const r = run(box, `ca_scratch_problem /tmp/somewhere`);
+    const elsewhere = join(box.dir, 'somewhere');
+    const r = run(box, `ca_scratch_problem "${elsewhere}"`);
     expect(r.status).toBe(1);
-    expect(r.stdout).toContain('/tmp/somewhere is on the boot disk');
+    expect(r.stdout).toContain(`${elsewhere} is on the boot disk`);
     expect(r.stdout).not.toContain('The drive is mounted at');
   });
 
@@ -143,7 +144,7 @@ describe('the default scratch falls back to a short external root', () => {
         ...process.env,
         PATH: `${join(box.dir, 'bin')}:${process.env.PATH}`,
         CA_VOLUMES: box.vols,
-        TMPDIR: '/var/folders/boot/T',
+        TMPDIR: join(box.dir, 'boot-T'),
         CA_PUSH_TMP_ROOT: '',
         ...env,
       },
