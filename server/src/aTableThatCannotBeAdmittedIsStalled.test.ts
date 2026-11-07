@@ -120,6 +120,7 @@ describe('/health counts a table its manager cannot admit as stalled', () => {
       .tournamentEngines;
     engines.set('b290375a-5c44-4593-a6a7-09dc844090f3', {
       getPublicLiveTableFormat: () => 'sng',
+      hasSatelliteTarget: () => false,
       getPublicLiveTableClubId: () => null,
       getTableIds: () => [],
       getTablesFailingAdmission: () => tables,
