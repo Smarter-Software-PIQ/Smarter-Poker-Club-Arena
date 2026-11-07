@@ -1,3 +1,4 @@
+import { FAVORITE_DISPLAY_HORIZON_MS } from '../../src/components/lobby/tournamentFavoriteOrder';
 import { openLobbyGameSection } from './support/lobbyGameSections';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -723,10 +724,9 @@ test.describe('the mobile lobby chrome on production', () => {
         const overlayDisplay = getComputedStyle(element, '::after').display;
         if (element.matches('.is-featured') && overlayDisplay !== 'none')
           throw new Error('A format rail is covering the featured red perimeter');
-        // Since #9370 (November 2) the Rebuy / Add-On crest is a picture
-        // element inside the icon bay, with no background image of its own.
+        // The rebuy crest and format badges paint an image inside the icon bay.
         const crestArt = element.querySelector<HTMLImageElement>(
-          '.lt-tournament-icon img.lt-rebuy-addon-art'
+          '.lt-tournament-icon img.lt-rebuy-addon-art, .lt-tournament-icon img.lt-format-badge'
         );
         const backgrounds = [
           getComputedStyle(element, '::before').backgroundImage,
@@ -785,12 +785,16 @@ test.describe('the mobile lobby chrome on production', () => {
           .toBe(true);
       }
       if (mode === 'mtt' || mode === 'satellites') {
+        const files: Record<string, string> = {
+          pko: 'game-card-icons/progressive-ko-v1.webp',
+          mystery: 'game-card-icons/mystery-chest-v1.webp',
+          turbo: 'game-card-icons/turbo-wordmark-v1.webp',
+          hyper: 'game-card-icons/hyper-turbo.png',
+          rebuy: 'game-card-icons/rebuy-addon-raised-chip-v1.png',
+        };
         expect(paint.backgrounds[1]).toContain(
-          paint.symbol
-            ? '/images/throwables/animated/rocket.webp'
-            : paint.icon === 'rebuy'
-              ? 'game-card-icons/rebuy-addon-raised-chip-v1.png'
-              : 'chrome-arena-emblems-v2/'
+          files[paint.icon ?? ''] ??
+            (paint.symbol ? '/images/throwables/animated/rocket.webp' : 'chrome-arena-emblems-v2/')
         );
       }
       const readableCopy = await sampleRow.evaluate((row) =>
@@ -915,6 +919,7 @@ test.describe('the mobile lobby chrome on production', () => {
       rows.evaluateAll((elements) =>
         elements.map((element) => ({
           id: element.getAttribute('data-id'),
+          start: Date.parse(element.getAttribute('data-start-time') ?? ''),
           pinned: element.matches('[data-featured="true"],.is-featured'),
           favorite: Boolean(element.querySelector('button[aria-label="Remove From Favorites"]')),
         }))
@@ -936,7 +941,20 @@ test.describe('the mobile lobby chrome on production', () => {
       ordinary.length,
       'The live schedule needs two ordinary events for promotion'
     ).toBeGreaterThan(1);
-    const chosen = ordinary.at(-1)!.id!;
+    // A distant occurrence disappears when starred. Choose one that will stay
+    // scheduled and visible through sorting, reload, and UI cleanup.
+    const now = Date.now();
+    const candidate = ordinary
+      .filter(
+        (row) =>
+          row.start > now + testInfo.timeout && row.start <= now + FAVORITE_DISPLAY_HORIZON_MS
+      )
+      .at(-1);
+    expect(
+      candidate?.id,
+      'A scheduled ordinary MTT must remain visible for the favorite journey'
+    ).toBeTruthy();
+    const chosen = candidate!.id!;
     expect(chosen).toMatch(/^[0-9a-f-]{36}$/i);
     // data-id belongs to the row itself, so address it directly rather than a descendant.
     const selected = () =>
