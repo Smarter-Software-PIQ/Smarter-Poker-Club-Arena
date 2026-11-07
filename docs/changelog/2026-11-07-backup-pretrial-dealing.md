@@ -1,3 +1,5 @@
 Backup swap, break and table-kill trials now allow the scheduled maintenance break to finish while waiting for baseline dealing. The verifier requires open play, a positive deal-rate reading and a hand recorded after the observed release. It retains the 300-second open-play budget and the original combined 1,200-second deadline.
 
 Certification now records a failure if public health cannot identify the serving baseline or the required swap rehearsal is unavailable. A verified identical baseline continues through the same-release certificate path.
+
+During backup run 42327254443, the swap, crash recovery, soak and 165 engine tests passed. The native qualification image then failed to build because BuildKit interpreted the bare PostgreSQL image ID as a Docker Hub repository and tag. Qualification now resolves a repository digest from the running database image, verifies its local image ID and platform, and builds for that platform. The report records the image ID, repository digest and platform for review.

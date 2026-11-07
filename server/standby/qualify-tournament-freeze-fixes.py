@@ -59,6 +59,22 @@ def run(argv, *, cwd=None, log=None, timeout=1800):
                           check=True, timeout=timeout).stdout.strip()
 
 
+def postgres_build_base(image_id):
+    # Docker run accepts a local image ID. Dockerfile FROM needs a repository
+    # digest, and a multi-platform index must select the backup's architecture.
+    identity_format = '{{.Id}} {{.Os}}/{{.Architecture}}'
+    metadata = run(['docker', 'image', 'inspect', '-f', identity_format + ' {{json .RepoDigests}}', image_id])
+    inspected_id, platform, raw_digests = metadata.split(' ', 2)
+    if inspected_id != image_id or not re.fullmatch(r'linux/[a-z0-9_]+', platform):
+        raise RuntimeError('backup PostgreSQL image identity or platform differs')
+    for reference in json.loads(raw_digests) or []:
+        if re.fullmatch(r'[a-z0-9][a-z0-9./:_-]+@sha256:[0-9a-f]{64}', reference):
+            resolved = run(['docker', 'image', 'inspect', '-f', identity_format, reference])
+            if resolved == f'{image_id} {platform}':
+                return reference, platform
+    raise RuntimeError('no immutable repository digest resolves to the running backup PostgreSQL image')
+
+
 def identity(sha):
     run(['systemctl', 'is-active', '--quiet', 'standby-egress-lock'])
     subnet = run(['docker', 'network', 'inspect', NETWORK, '-f',
@@ -162,15 +178,18 @@ def main():
         report['sourceBranchTests'] = {'passed': result['numPassedTests'], 'failed': result['numFailedTests']}
         pg_image = run(['docker', 'inspect', '-f', '{{.Image}}', DATABASE])
         report['postgresBaseImage'] = pg_image
+        pg_reference, pg_platform = postgres_build_base(pg_image)
+        report['postgresBaseReference'] = pg_reference
+        report['postgresBasePlatform'] = pg_platform
         pg_uid = int(run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'id',
                           pg_image, '-u', 'postgres']))
         pg_gid = int(run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'id',
                           pg_image, '-g', 'postgres']))
         (source / 'Qualification.pg').write_text(
-            'FROM ' + pg_image + '\nUSER root\nRUN apk add --no-cache python3\n'
+            'FROM ' + pg_reference + '\nUSER root\nRUN apk add --no-cache python3\n'
             'COPY --chown=postgres:postgres . /source\nUSER postgres\nWORKDIR /source\n'
             'ENV PG_BIN=/nix/var/nix/profiles/default/bin\nENTRYPOINT ["python3"]\n')
-        run(['docker', 'build', '-f', 'Qualification.pg', '-t', native_tag, '.'],
+        run(['docker', 'build', '--platform', pg_platform, '-f', 'Qualification.pg', '-t', native_tag, '.'],
             cwd=source, log=output / 'native-build.log')
         report['nativeQualificationImage'] = run(['docker', 'image', 'inspect', '-f', '{{.Id}}', native_tag])
         evidence = output / 'native'
