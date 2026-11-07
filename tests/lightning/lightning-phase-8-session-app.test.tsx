@@ -596,6 +596,21 @@ describe('the session summary', () => {
     expect(screen.getByTestId('summary-probe').textContent).toContain('true:77:');
   });
 
+  it('lets the painted summary own its frame instead of the global dialog shell', () => {
+    const css = read('src/components/lightning/LightningSession.css');
+    const shell = css.match(/\.lightning-summary-dialog\[role='dialog'\]\s*\{([^}]+)\}/)?.[1];
+    expect(shell).toBeTruthy();
+    for (const declaration of [
+      'border: 0 !important',
+      'border-radius: 0 !important',
+      'outline: 0 !important',
+      'background: transparent !important',
+      'background-image: none !important',
+      'box-shadow: none !important',
+    ])
+      expect(shell).toContain(declaration);
+  });
+
   it('opens over the lobby, VIEW SESSION shows its hands, PLAY AGAIN only goes to the entry', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
@@ -617,6 +632,11 @@ describe('the session summary', () => {
     await screen.findByTestId('lightning-stats-summary');
     expect(callsTo('fn_lightning_session_summary')[0][1]).toEqual({ p_pool_session_id: POOL });
     expect(screen.getByText('Ending Stack')).toBeTruthy();
+    expect(screen.getByText('Session Profit')).toBeTruthy();
+    expect(screen.getByRole('dialog').querySelectorAll('.sc')).toHaveLength(1);
+    const result = screen.getByRole('dialog').querySelector('.lightning-result');
+    expect(result?.getAttribute('data-result')).toBe('win');
+    expect(result?.textContent).toContain('+');
     fireEvent.click(screen.getByRole('button', { name: 'VIEW SESSION' }));
     await screen.findAllByTestId('lightning-recent-row');
     expect(callsTo('fn_lightning_recent_hands')[0][1]).toEqual({
