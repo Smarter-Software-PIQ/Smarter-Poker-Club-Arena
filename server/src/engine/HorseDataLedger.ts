@@ -477,6 +477,12 @@ export const TAG_CONSUMERS: LedgerEntry[] = [
     'split from plo_naked_trips on an unpaired board; recorded for investigation; no validated causal adjustment reader',
     'V40'
   ),
+  tag(
+    'set_on_wet_board_stackoff',
+    'measurement',
+    'Omaha set or trips with no redraw committed 100bb+ on the turn or river on a board showing three to a flush or a straight (at the commit street or on the river); added from the 2026-11-06 biggest-losses review (3370600); no validated causal adjustment reader',
+    'V40'
+  ),
 
   // ── V49 FREQUENCY LEAKS. Emitted by SQL over horse_daily_play, read by the
   // nightly audit (fn_audit_frequency_leaks) and by the panel card. The same
