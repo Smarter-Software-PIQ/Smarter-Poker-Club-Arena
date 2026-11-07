@@ -60,6 +60,7 @@ const groups = [
       'test_lightning_always_runs_window_binds_the_live_floor_and_keeps_the_hybrid_entry',
       'test_cash_styles_window_binds_the_live_floor_and_keeps_the_lightning_entry',
       'test_cutover_recovery_window_binds_the_live_floor_and_keeps_the_cash_styles_entry',
+      'test_round3_realism_window_binds_the_live_floor_and_its_own_predecessor',
       'test_owner_reservation_binds_run_target_cause_and_full_window',
       'test_actual_owner_certificate_binds_existing_window_and_refuses_shortcut',
       'test_actual_reservation_entry_survives_unknown_ack_and_checkpoint_no_action',
@@ -110,7 +111,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(51);
+  expect(selected).toHaveLength(52);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);

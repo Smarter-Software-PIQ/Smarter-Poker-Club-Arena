@@ -27,6 +27,14 @@ CERTIFIED_END = 1793854800
 NOV7_OWNER_ID = '2026-11-07-cutover-recovery-engine-release-1445z'
 NOV7_MANIFEST_DIGEST = '54189b2503872b25b79f1ea68bf6f16e617fe14586311207e1a7801645df548b'
 NOV7_ORDER_DIGEST = 'a9d1e596b8ff0e156128c019815ec07f14c4bc898c21154ff4441751b7c99493'
+# Every owner exception to the daily schedule, each bound to its exact floor
+# manifest and exact order entry. A second November 7 order (round 3 realism,
+# owner chat 2026-11-07 12:25 America/Chicago) is the only addition.
+NOV7B_OWNER_ID = '2026-11-07-realism-round-3-engine-release-1945z'
+OWNER_EXCEPTIONS = {
+    NOV7_OWNER_ID: (NOV7_MANIFEST_DIGEST, NOV7_ORDER_DIGEST),
+    NOV7B_OWNER_ID: ('df53d2ec793cf1653ad6d446f4ff3a05773caff8f8822666dc2ae9ff440963d4', 'f22449a7b3c34c60364adadbb327ec1cf88608f091dd22b948b243eb29a456f0'),
+}
 
 
 
@@ -169,16 +177,16 @@ def policy(repo, target, control):
 
 
 def nov7_owner(repo, record, now, deadline):
-    if (not record or record['schema'] != OWNER_CAPABILITY
-            or record['ownerWindowId'] != NOV7_OWNER_ID
-            or record['manifestSha256'] != NOV7_MANIFEST_DIGEST
+    exception = OWNER_EXCEPTIONS.get(record['ownerWindowId']) if record else None
+    if (not record or record['schema'] != OWNER_CAPABILITY or exception is None
+            or record['manifestSha256'] != exception[0]
             or not record['activationEpoch'] <= now < min(record['expiresEpoch'], deadline)):
         raise ValueError('November 7 owner cutover is unavailable')
     # policy() already bound the target and control to the same exact window list.
     windows = json.loads(git(repo, 'show', record['targetSha'] + ':server/release/owner-maintenance-windows.json'))
-    order = next(item for item in windows['windows'] if item.get('id') == NOV7_OWNER_ID)
+    order = next(item for item in windows['windows'] if item.get('id') == record['ownerWindowId'])
     canonical = json.dumps(order, sort_keys=True, separators=(',', ':')).encode()
-    if hashlib.sha256(canonical).hexdigest() != NOV7_ORDER_DIGEST:
+    if hashlib.sha256(canonical).hexdigest() != exception[1]:
         raise ValueError('November 7 owner order differs')
 
 

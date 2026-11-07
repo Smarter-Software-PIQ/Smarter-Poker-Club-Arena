@@ -2038,6 +2038,6 @@ it('binds the two remaining Midway files only to the November 7 database window'
   });
   expect(entry.ownerOrder).toContain('request_database_break=false');
   expect(createHash('sha256').update(JSON.stringify(doc)).digest('hex')).toBe(
-    'c853bd1d3347bb2e6daed07fe042ecc2341b49857dbf77c327272fb0aea39de3'
+    '6d1e6958d98f074e60904b322fbb9fffc35c14bbec065472f176679224c39cf6'
   );
 });

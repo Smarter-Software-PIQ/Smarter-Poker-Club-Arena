@@ -924,7 +924,7 @@ initialise_phase1_cycle() {
     [ "$foreign_rc" = 1 ] || die 'foreign runtime ownership is unreadable'
   fi
   phase1_custody_admission
-  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
+  if owner_exception_predecessor "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" >/dev/null; then
     [ "$prior_cycle" = none ] || die 'Nov 7 owner cannot retarget a reserved routine cycle'
     return 0
   fi
@@ -1393,9 +1393,19 @@ raise SystemExit(0 if n.hour == 4 and n.minute < 5 else 1)
 
 # The Nov 7 order has exactly one predecessor, one protected floor and one
 # finite wall-clock interval. The seal binds the run's reservation separately.
+# Each owner exception names its one window and its one serving predecessor.
+owner_exception_predecessor() {
+  case "${1:-}" in
+    2026-11-07-cutover-recovery-engine-release-1445z) printf '%s' 92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4 ;;
+    2026-11-07-realism-round-3-engine-release-1945z) printf '%s' 40bc24676be48aed14155380502ba20c225bfbe6 ;;
+    *) return 1 ;;
+  esac
+}
+
 nov7_owner_admitted() {
-  [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ] || return 1
-  [ "${CHECKPOINT_PREDECESSOR_SHA:-}" = 92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4 ] || return 1
+  local predecessor
+  predecessor="$(owner_exception_predecessor "${ACTIVATION_FLOOR_OWNER_WINDOW:-}")" || return 1
+  [ "${CHECKPOINT_PREDECESSOR_SHA:-}" = "$predecessor" ] || return 1
   [ "${PHASE1_CYCLE_START:-0}" = 0 ] && [ -z "${DRILL_MODE:-}" ] || return 1
   python3 "$CONTROL_DIR/engine-release-activation-floor.py" nov7-owner \
     --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" --deadline "$MUTATION_DEADLINE_EPOCH"
@@ -1965,7 +1975,7 @@ print(",".join(signs))
 # certificate, rollback reserve and thaw.
 # Prints "owner-ordered <id>" or nothing; never fails the caller.
 owner_window_reason() {
-  local windows now picked id contains serving witness_path witness_sha target_witness served_witness engine_uptime
+  local windows now picked id contains serving witness_path witness_sha target_witness served_witness engine_uptime predecessor
   windows="$(timeout --signal=TERM --kill-after=1s 10s env GIT_NO_REPLACE_OBJECTS=1 \
     git -C "$REPO_DIR" show "$SHA:server/release/owner-maintenance-windows.json" 2>/dev/null)" || return 0
   now="$(date +%s)"
@@ -2041,8 +2051,8 @@ v = json.load(sys.stdin).get("releaseSha")
 print(v if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{40}", v) else "")
 ' 2>/dev/null)" || return 0
   [ -n "$serving" ] || return 0
-  if [ "$id" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
-    [ "$serving" = 92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4 ] || return 0
+  if predecessor="$(owner_exception_predecessor "$id")"; then
+    [ "$serving" = "$predecessor" ] || return 0
   fi
   if [ "$witness_path" != '-' ]; then
     # An immutable feature witness cannot be consumed by an unrelated release
@@ -2394,7 +2404,7 @@ print(",".join("%s=%s" % (k, bad[k]) for k in sorted(bad)))
   if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
     reserve_args+=(--certified-policy "$CERTIFIED_RECOVERY_POLICY" --predecessor-sha "$CHECKPOINT_EED_SHA" --control-sha "$CONTROL_SHA")
   fi
-  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
+  if owner_exception_predecessor "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" >/dev/null; then
     reserve_args+=(--nov7-owner --control-sha "$CONTROL_SHA" --deadline "$MUTATION_DEADLINE_EPOCH")
   fi
   reserve_args+=(--include-eligibility)

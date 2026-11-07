@@ -1084,6 +1084,20 @@
         "path": "server/release/activation-floor.json",
         "sha256": "54189b2503872b25b79f1ea68bf6f16e617fe14586311207e1a7801645df548b"
       }
+    },
+    {
+      "id": "2026-11-07-realism-round-3-engine-release-1945z",
+      "ownerOrder": "Dan, directly in the round 3 realism chat (America/Chicago), 2026-11-07, after #9875 merged, ordered verbatim: \"YOU CAN DO ALL OF THIS YOURSELF, DON'T ASK HUMAN TO DO ANYTHING, AND COORDINATE WITH THE \\\"ENGINE CUTOVER AND UPDATE STATS\\\" CHAT TO GET THIS DONE NOW, NOT AT 4AM\" and at 12:25 \"Please pick up where you left off, complete the task in full and do not claim success until you have verified that everything is 100% accomplished for this task... FINISH ANY AND ALL TASKS USING THE FASTEST, MOST EFFICIENT ROUTE.\" This is a later explicit owner instruction (CLAUDE.md: later owner instructions govern operating authority). The 14:45Z-20:45Z November 7 exception was consumed by 40bc24676be48aed14155380502ba20c225bfbe6, which the host sealed (the run's observe failure was the runner-side invocation false negative fixed by #9892). This NEW fixed one-activation entry admits one earliest-certified off-cycle activation of a Backup-certified protected target containing 8f97d6c43a094f1bf2a83526afa8b5e1fddc2377 (#9875: second tables where the demand is, the weekend curve, horses that leave a line join another), whose serving predecessor must be exactly 40bc24676be48aed14155380502ba20c225bfbe6. Every door the target engine calls already exists in production pg_proc. Every existing guard is unchanged: Backup certificate for the exact version, hand-boundary drain, durable freeze and certificate, proof and rollback reserve, SEALED, v3 thaw, fresh Backup copy after sealing. No old entry, witness, claim or intent is extended, reused or retargeted. No migration is installed by this entry; 20261107124911 installs through the existing applier only after this engine serves. No watcher, timer, second publisher or direct restart. Ends on genuine witness service or the fixed 01:45Z expiry without extension.",
+      "contains": "8f97d6c43a094f1bf2a83526afa8b5e1fddc2377",
+      "notBefore": "2026-11-07T19:45:00Z",
+      "notAfter": "2026-11-08T01:45:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "df53d2ec793cf1653ad6d446f4ff3a05773caff8f8822666dc2ae9ff440963d4"
+      }
     }
   ],
   "databaseWindows": [

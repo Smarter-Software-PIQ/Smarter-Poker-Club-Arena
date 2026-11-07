@@ -25,6 +25,9 @@ def module(name, filename):
 seal = module('cadence_seal', 'engine-release-seal.py')
 
 
+
+NOV7_CLAIM = 'engine-release-owner-2026-11-07-cutover-recovery-engine-release-1445z.json'
+
 class OwnerRecoveryCadence(unittest.TestCase):
     def setUp(self):
         clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
@@ -134,19 +137,19 @@ class OwnerRecoveryCadence(unittest.TestCase):
     def test_nov7_unreviewed_target_cannot_consume_global_claim(self):
         self.args.nov7_owner = True
         self.args.deadline = 1794084300
-        self.enterContext(patch.object(seal, 'NOV7_PREDECESSOR', self.base))
+        self.enterContext(patch.object(seal, 'owner_exception', return_value=(NOV7_CLAIM, self.base, '2026-11-07T20:45:00+00:00')))
         self.enterContext(patch.object(seal.time, 'time', return_value=1794064800))
         self.reservation.unlink()
         with self.assertRaises(SystemExit):
             self.reserve()
-        self.assertFalse((self.state_dir / seal.NOV7_OWNER_CLAIM).exists())
+        self.assertFalse((self.state_dir / NOV7_CLAIM).exists())
 
     def test_nov7_one_announcement_across_runs_targets_and_unknown_outcome(self):
         self.enterContext(patch.object(seal, 'require_nov7_reservation_authority'))
         self.args.nov7_owner = True
-        self.enterContext(patch.object(seal, 'NOV7_PREDECESSOR', self.base))
+        self.enterContext(patch.object(seal, 'owner_exception', return_value=(NOV7_CLAIM, self.base, '2026-11-07T20:45:00+00:00')))
         self.assertEqual(self.reserve(), str(self.now * 1000))
-        claim = self.state_dir / seal.NOV7_OWNER_CLAIM
+        claim = self.state_dir / NOV7_CLAIM
         self.assertEqual(json.loads(claim.read_text())['runId'], '902-1')
         self.assertEqual(self.reserve(), 'unavailable')
         (self.state_dir / 'engine-recovery-window-902-1.json').unlink()
@@ -161,7 +164,7 @@ class OwnerRecoveryCadence(unittest.TestCase):
     def test_nov7_final_gate_binds_original_run_control_sha_and_active_countdown(self):
         self.enterContext(patch.object(seal, 'require_nov7_reservation_authority'))
         self.args.nov7_owner = True
-        self.enterContext(patch.object(seal, 'NOV7_PREDECESSOR', self.base))
+        self.enterContext(patch.object(seal, 'owner_exception', return_value=(NOV7_CLAIM, self.base, '2026-11-07T20:45:00+00:00')))
         stamp = int(self.reserve())
         self.args.announced_at = stamp
         self.args.promise_floor_proof = None

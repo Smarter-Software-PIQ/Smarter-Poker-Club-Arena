@@ -683,14 +683,29 @@ def cmd_bind_routine_window(args: argparse.Namespace) -> None:
 # Written under SealLock before the per-run reservation. An interrupted write
 # consumes the exception conservatively. Existing release recovery reads keep
 # their original run identity and never request a second announcement.
-NOV7_OWNER_CLAIM = 'engine-release-owner-2026-11-07-cutover-recovery-engine-release-1445z.json'
-NOV7_PREDECESSOR = '92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4'
+# Each owner exception: (exact serving predecessor, fixed expiry). The window a
+# release belongs to is the one its own protected target floor names.
+OWNER_EXCEPTIONS = {
+    '2026-11-07-cutover-recovery-engine-release-1445z': ('92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4', '2026-11-07T20:45:00+00:00'),
+    '2026-11-07-realism-round-3-engine-release-1945z': ('40bc24676be48aed14155380502ba20c225bfbe6', '2026-11-08T01:45:00+00:00'),
+}
+
+
+def owner_exception(repo, target):
+    try:
+        floor = json.loads(subprocess.run(['git', '-C', repo, 'show', f'{target}:server/release/activation-floor.json'],
+                                          capture_output=True, timeout=10, check=True).stdout)
+        window = floor['ownerWindowId']
+        predecessor, expiry = OWNER_EXCEPTIONS[window]
+    except (subprocess.SubprocessError, OSError, ValueError, KeyError, TypeError):
+        die('owner exception for this target is unavailable')
+    return f'engine-release-owner-{window}.json', predecessor, expiry
 
 
 def require_nov7_reservation_authority(args, target, stamp):
     # The installed seal and its policy reader belong to the same pinned control generation.
     deadline = getattr(args, 'deadline', None)
-    expiry = int(datetime.fromisoformat('2026-11-07T20:45:00+00:00').timestamp())
+    expiry = int(datetime.fromisoformat(owner_exception(args.repo, target)[2]).timestamp())
     if (type(deadline) is not int or stamp + 420000 > min(deadline, expiry) * 1000
             or not 330 <= (stamp // 1000) % 3600 <= 2940):
         die('Nov 7 announcement cannot fit the authorized window')
@@ -726,9 +741,10 @@ def cmd_bind_recovery_window(args: argparse.Namespace) -> None:
                 or not RECOVERY_CAUSE_RE.fullmatch(str(reservation.get('cause') or ''))):
             die('recovery promise differs from its original reservation')
         if getattr(args, 'nov7_owner', False):
-            claim = json.loads((STATE_DIR / NOV7_OWNER_CLAIM).read_text())
+            claim_name, predecessor, _ = owner_exception(args.repo, target)
+            claim = json.loads((STATE_DIR / claim_name).read_text())
             if (claim != nov7_claim(run_id, target, control, args.announced_at)
-                    or state['desired']['sha'] != NOV7_PREDECESSOR
+                    or state['desired']['sha'] != predecessor
                     or reservation.get('cause') != 'urgent'
                     or (h.get('maintenance') or {}).get('phase') != 'counting_down'):
                 die('Nov 7 release does not own the original predecessor and countdown')
@@ -2764,10 +2780,11 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
         nov7 = getattr(args, 'nov7_owner', False)
         if nov7:
             valid_sha(args.control_sha)
-            if (state['desired']['sha'] != NOV7_PREDECESSOR or args.cause != 'urgent'
+            claim_name, predecessor, _ = owner_exception(args.repo, target)
+            if (state['desired']['sha'] != predecessor or args.cause != 'urgent'
                     or args.scheduled_cycle_start is not None or getattr(args, 'certified_policy', None)):
                 die('Nov 7 release predecessor or cause differs')
-            if os.path.lexists(STATE_DIR / NOV7_OWNER_CLAIM) or os.path.lexists(path):
+            if os.path.lexists(STATE_DIR / claim_name) or os.path.lexists(path):
                 # Known or unknown outcome: observe the original reservation.
                 print('unavailable')
                 return
@@ -2856,7 +2873,7 @@ def cmd_reserve_recovery_window(args: argparse.Namespace) -> None:
         recovery_window_ends_at(value)
         if nov7:
             require_nov7_reservation_authority(args, target, announced_at)
-            write_json_atomic(STATE_DIR / NOV7_OWNER_CLAIM, nov7_claim(run_id, target, args.control_sha, announced_at))
+            write_json_atomic(STATE_DIR / claim_name, nov7_claim(run_id, target, args.control_sha, announced_at))
         write_json_atomic(path, value)
         audit_once("recovery_window_reserved", state, f"recovery_window:{run_id}", window=value)
         print(value["announcedAt"])

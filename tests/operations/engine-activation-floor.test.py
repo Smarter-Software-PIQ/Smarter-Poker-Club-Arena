@@ -756,7 +756,6 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_cutover_recovery_window_binds_the_live_floor_and_keeps_the_cash_styles_entry(self):
         import hashlib
         window, raw = self.historical_floor('2026-11-07-cutover-recovery-engine-release-1445z')
-        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
         self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-07T14:45:00Z', '2026-11-07T20:45:00Z'))
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
@@ -771,6 +770,40 @@ echo CHECKPOINT_MUST_NOT_RUN
         current = self.owner_record(window_id='2026-11-07-cutover-recovery-engine-release-1445z')
         self.assertEqual(current['ownerWindowId'], '2026-11-07-cutover-recovery-engine-release-1445z')
         self.assertTrue(current['supersedesPhase1Schedule'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+
+    def test_round3_realism_window_binds_the_live_floor_and_its_own_predecessor(self):
+        import hashlib
+        new_id = '2026-11-07-realism-round-3-engine-release-1945z'
+        window, raw = self.historical_floor(new_id)
+        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-07T19:45:00Z', '2026-11-08T01:45:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        self.assertEqual(window['contains'], '8f97d6c43a094f1bf2a83526afa8b5e1fddc2377')
+        # The first November 7 entry keeps its own witness, bounds and digests.
+        first, first_raw = self.historical_floor(floor.NOV7_OWNER_ID)
+        self.assertEqual(first['releaseWitness']['sha256'], hashlib.sha256(first_raw).hexdigest())
+        self.assertEqual(floor.OWNER_EXCEPTIONS[floor.NOV7_OWNER_ID], (floor.NOV7_MANIFEST_DIGEST, floor.NOV7_ORDER_DIGEST))
+        # The new exception binds exactly this floor and this order entry.
+        canonical = json.dumps(window, sort_keys=True, separators=(',', ':')).encode()
+        self.assertEqual(floor.OWNER_EXCEPTIONS[new_id], (hashlib.sha256(raw).hexdigest(), hashlib.sha256(canonical).hexdigest()))
+        self.assertEqual(set(floor.OWNER_EXCEPTIONS), {floor.NOV7_OWNER_ID, new_id})
+        # Seal and host transaction name the same two windows and predecessors.
+        seal_spec = importlib.util.spec_from_file_location('floor_test_seal', ROOT / 'server/scripts/engine-release-seal.py')
+        seal = importlib.util.module_from_spec(seal_spec)
+        seal_spec.loader.exec_module(seal)
+        self.assertEqual(seal.OWNER_EXCEPTIONS, {
+            floor.NOV7_OWNER_ID: ('92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4', '2026-11-07T20:45:00+00:00'),
+            new_id: ('40bc24676be48aed14155380502ba20c225bfbe6', '2026-11-08T01:45:00+00:00'),
+        })
+        shell = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
+        self.assertIn(f"    {new_id}) printf '%s' 40bc24676be48aed14155380502ba20c225bfbe6 ;;", shell)
+        self.assertIn(f"    {floor.NOV7_OWNER_ID}) printf '%s' 92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4 ;;", shell)
+        current = self.owner_record(window_id=None)
+        self.assertEqual(current['ownerWindowId'], new_id)
         self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):
