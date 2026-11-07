@@ -1,4 +1,4 @@
-import { payoutSharePercent } from '../../../utils/tournamentPrizeFunding';
+import { payoutSharePercent, pendingHouseShare } from '../../../utils/tournamentPrizeFunding';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  REWARDS — what this event pays, and what is left to be pulled out of it
@@ -94,6 +94,7 @@ import { supabase } from '../../../lib/supabase';
 import { runWithRequestDeadline } from '../../../utils/requestDeadline';
 import { reportError } from '../../../utils/errorReporter';
 import { subscribeTournamentStandings } from '../../../services/tournamentStandingsUpdates';
+import { useTournamentPrizeFunding } from '../../../hooks/useTournamentPrizeFunding';
 import type { TournamentTabProps, PayoutPlace, TournamentEntry } from './types';
 import { isRecordedSatelliteQualifier } from '../../../utils/satelliteQualification';
 import { useSatelliteAwards, satelliteAwardLabel } from './useSatelliteAwards';
@@ -302,76 +303,16 @@ export default function RewardsTab({
   const t = (tournament || {}) as unknown as RewardColumns;
   const tournamentId = tournament?.id;
 
-  const fundingKey = `${tournamentId}:${t.prize_pool}:${t.bounty_pool}:${t.prize_pool_finalized}`;
-  const [funding, setFunding] = useState<{
-    key: string;
-    collected: number;
-    overlay: number;
-    /** Gross player payments credited toward the buy-in guarantee. */
-    grossCoverage: number | null;
-    /** H = max(0, guarantee - gross): the house's whole obligation. */
-    houseRequired: number | null;
-    /** House / promo funding already posted, net of returns. */
-    housePosted: number | null;
-    /** What the house still adds at close: required minus already posted. */
-    houseDue: number | null;
-  } | null>(null);
-  useEffect(() => {
-    if (!tournamentId || !(Number(t.guaranteed_prize) > 0)) return;
-    let cancelled = false;
-    let active: AbortController | null = null;
-    const load = async () => {
-      active?.abort();
-      const controller = new AbortController();
-      active = controller;
-      try {
-        const { data, error } = await runWithRequestDeadline(
-          (signal) =>
-            supabase
-              .rpc('fn_ca_tournament_prize_funding', {
-                p_tournament_id: tournamentId,
-              })
-              .abortSignal(signal),
-          { signal: controller.signal }
-        );
-        if (error) throw error;
-        if (cancelled || controller.signal.aborted) return;
-        if (
-          !data ||
-          data.tournament_id !== tournamentId ||
-          !Number.isFinite(Number(data.collected)) ||
-          !Number.isFinite(Number(data.overlay))
-        ) {
-          setFunding(null);
-          return;
-        }
-        const optional = (v: unknown) =>
-          v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v);
-        setFunding({
-          key: fundingKey,
-          collected: Number(data.collected),
-          overlay: Number(data.overlay),
-          grossCoverage: optional(data.gross_coverage),
-          houseRequired: optional(data.house_required),
-          housePosted: optional(data.house_posted),
-          houseDue: optional(data.house_due),
-        });
-      } catch (error) {
-        if (!cancelled && !controller.signal.aborted) {
-          setFunding(null);
-          reportError(error, 'RewardsTab.prize_funding_load_failed');
-        }
-      }
-    };
-    const unsubscribe = subscribeTournamentStandings(tournamentId, () => void load());
-    void load();
-    return () => {
-      cancelled = true;
-      active?.abort();
-      unsubscribe();
-    };
-  }, [tournamentId, fundingKey, t.guaranteed_prize]);
-  const currentFunding = funding?.key === fundingKey ? funding : null;
+  /* One read of fn_ca_tournament_prize_funding, shared with every other
+     surface that projects a place (2026-11-07): the lobby panel, the
+     table-side Prizes tab and the arena tournaments page price their ladders
+     off the same hook, so the guaranteed minimum under first place is the
+     same number on all four. */
+  const currentFunding = useTournamentPrizeFunding(
+    tournamentId,
+    t,
+    'RewardsTab.prize_funding_load_failed'
+  );
 
   const isPko = !!t.is_pko;
   const isMystery = !!t.is_mystery_bounty;
@@ -736,13 +677,7 @@ export default function RewardsTab({
      already in prize_pool (house_posted), so adding the whole share again
      would price a 250 guarantee at 405. Paid events post nothing before
      close, so for them this equals the overlay. */
-  const pendingHouse = currentFunding
-    ? (currentFunding.houseDue ??
-      Math.max(
-        0,
-        (currentFunding.houseRequired ?? overlay) - Math.max(0, currentFunding.housePosted ?? 0)
-      ))
-    : 0;
+  const pendingHouse = pendingHouseShare(currentFunding ? { ...currentFunding, overlay } : null);
   /* ONE STORY FOR A FREE BUY (2026-11-06). Its promo chips are house money
      already in the pool, so the house's whole share (house_required) and what
      it still adds at close (house_due) differ: 250 vs 95 on a 250 Free Buy

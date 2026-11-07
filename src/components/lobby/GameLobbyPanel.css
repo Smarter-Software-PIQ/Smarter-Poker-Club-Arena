@@ -340,6 +340,20 @@
   font-weight: 600;
   color: #e4e7ec;
 }
+/* The guaranteed minimum under a projected place (2026-11-07): the figure
+   the house underwrites if the field does not close the guarantee, stacked
+   under the projection so the column stays one cell wide at 375px. */
+.glp__projected {
+  display: block;
+}
+.glp__projected-gtd {
+  display: block;
+  font-size: 2.6cqw;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #9aa3b2;
+  white-space: nowrap;
+}
 .glp__break td {
   text-align: center;
   color: #ffd700;
