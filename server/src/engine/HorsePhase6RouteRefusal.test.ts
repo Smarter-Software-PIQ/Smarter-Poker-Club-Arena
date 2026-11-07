@@ -27,6 +27,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { horseDecisionRefusalContextOf } from './horseDecision/refusalContext.js';
+import { horseLifecycleKeys } from '../services/horseDecisionJournal/lifecycle.js';
+import { journalHash } from '../services/horseDecisionJournal/record.js';
 import { _clearGtoCharts, setGtoCharts } from './GtoCharts.js';
 
 import {
@@ -445,6 +448,24 @@ describe('Phase 6B mismatch refusal names its reason', () => {
         effects: [],
       });
       await expect(pending).rejects.toThrow(`invalid policy receipt: ${reason}`);
+      // The refusal carries its journal join keys and its public shape
+      // (2026-11-07): the same hashed keys the worker journals this request
+      // under, never a clock correlation.
+      const refused = await pending.catch((error: unknown) => error);
+      let journalHand: string | null = null;
+      try {
+        journalHand = journalHash(horseLifecycleKeys({ ...s, requestId: 1 }).hand);
+      } catch {
+        journalHand = null;
+      }
+      expect(horseDecisionRefusalContextOf(refused)).toMatchObject({
+        version: 1,
+        reason,
+        requestType: 'DECIDE_FAST',
+        journalHandKey: journalHand,
+        journalKeyStatus: journalHand === null ? 'unavailable' : 'available',
+        route: receiptFromCoordinate(decision, overrides).tournamentPreflopAttribution!.route,
+      });
       // ONE REFUSED DECISION NEVER TAKES DOWN THE ENGINE (2026-10-22): the
       // refusal is isolated to its own caller and counted; the worker stays
       // ready, onFatal never runs, and the next decision is served normally.
