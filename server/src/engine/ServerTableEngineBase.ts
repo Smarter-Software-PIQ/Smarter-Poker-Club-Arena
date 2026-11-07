@@ -9690,8 +9690,10 @@ export abstract class ServerTableEngineBase {
    * come back around until `dealHand()` resolves — "all hands finish" and "no
    * new hand starts" are the same single check from here.
    *
-   * The post-deal call site is retained so hand-for-hand still parks the
-   * instant a hand settles rather than after the showdown display pause.
+   * The post-hand call site parks a table that just played a hand only AFTER
+   * the hand-completion display and the hand-free broadcast (Dan 2026-11-06:
+   * a break never starts in the middle of a hand). Parking the instant the
+   * hand settled froze the felt on the hand's last action for the whole break.
    */
   protected async awaitPauseGate(): Promise<void> {
     // Either authority holds the gate; see the `maintenancePaused` field.
