@@ -149,16 +149,19 @@ describe('the overlay gates count the whole player payment too', () => {
     expect(sql).toContain('greatest(gtd-greatest(entries*(bi+fee),pool+pool_credit),0) entry_only_gap');
   });
 
-  it('the diamond capture carries the rewritten readiness door, and the anchors reproduce its md5', async () => {
+  it('the diamond capture carries the current readiness door, and its md5 matches', async () => {
     const { createHash } = await import('node:crypto');
     const manifest = JSON.parse(readFileSync('tests/sql/diamond-tournament-current.manifest.json', 'utf8'));
     const door = manifest.doors.find(
       (d: { signature: string }) => d.signature === 'fn_tournament_management_readiness_for_row(jsonb)'
     );
-    expect(door.full_md5).toBe('1fa678744a8743a1f7594f2fbe118f8c');
+    expect(door.full_md5).toBe('88ac34de6a2a33d22673cb324bd46497');
     expect(createHash('md5').update(door.definition).digest('hex')).toBe(door.full_md5);
-    expect(door.definition).toContain('v_required := greatest(v_effective_guarantee - v_credit, 0);');
-    expect(door.definition).not.toContain('v_required := greatest(v_effective_guarantee - v_pool, 0);');
+    expect(door.definition).toContain(
+      'v_required := greatest(greatest(v_guaranteed - v_credit, v_seat_guarantee - v_pool), 0);'
+    );
+    expect(door.definition).not.toContain('v_required := greatest(v_effective_guarantee - v_credit, 0);');
+    expect(door.definition).toContain("v_bank_type := 'diamond_house_earmark';\n    -- A DIAMOND EVENT KEEPS ITS RECORDED PLACE-BASED GUARANTEE");
     expect((door.definition.match(new RegExp(CREDIT.replace(/[()+]/g, '\\$&'), 'g')) || []).length).toBe(2);
   });
 
@@ -168,5 +171,32 @@ describe('the overlay gates count the whole player payment too', () => {
       rake = 46 * 4;
     expect(Math.max(0, 2500 - (places + bounties + rake))).toBe(660);
     expect(Math.max(0, 2500 - places)).toBe(1304);
+  });
+});
+
+describe('a guaranteed seat and a Diamond guarantee keep their own credit', () => {
+  // 2026-11-07, follow-up to 20261107183629: the whole-payment credit belongs
+  // to the buy-in guarantee only. A satellite's seats are bought from places
+  // (fn_ca_fund_overlay_on_lock), and a Diamond event keeps its place-based
+  // guarantee (20261007000010).
+  const sql = readFileSync(
+    'supabase/migrations/20261107204028_seats_and_diamond_guarantees_keep_their_own_credit.sql',
+    'utf8'
+  );
+  it('pins both doors pre and post and measures each guarantee on its own credit', () => {
+    expect(sql).toContain("'1fa678744a8743a1f7594f2fbe118f8c'");
+    expect(sql).toContain("'88ac34de6a2a33d22673cb324bd46497'");
+    expect(sql).toContain("'30d13b24ee6332f0191802a629d82abf'");
+    expect(sql).toContain("'44d4ebbc497c11ce739d8a7d63c93b0c'");
+    expect(sql).toContain('v_required := greatest(greatest(v_guaranteed - v_credit, v_seat_guarantee - v_pool), 0);');
+    expect(sql).toContain('v_required := greatest(v_effective_guarantee - v_pool, 0);');
+    expect(sql).toMatch(/^BEGIN;$/m);
+    expect(sql).toMatch(/^COMMIT;$/m);
+  });
+  it('the owner arithmetic: 2 seats of 30 against 6 entries of 8.10 places + 0.90 rake needs 11.40', () => {
+    const places = 6 * 8.1, rake = 6 * 0.9;
+    const seats = 60;
+    const required = Math.max(0, 0 - (places + rake), seats - places);
+    expect(Math.round(required * 100) / 100).toBe(11.4);
   });
 });

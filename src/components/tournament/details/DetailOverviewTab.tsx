@@ -1,4 +1,5 @@
 import { tournamentEntryTerms } from './entryTerms';
+import { displayTotalPool } from '../../../utils/tournamentPrizeFunding';
 import {
   useSatelliteAwards,
   satelliteAwardLabel,
@@ -65,7 +66,6 @@ import {
   chipsCompact,
   clockText,
   effectivePlaceLadderPool,
-  effectivePrizePool,
   finishedFieldSummary,
   isPlayerLive,
   lastPaidPlace,
@@ -410,7 +410,9 @@ export default function DetailOverviewTab({
      the house share still owed is shown on its own (guaranteeShortfall). ── */
   const prize = useMemo(() => {
     return {
-      effective: effectivePrizePool(
+      /* The TOTAL prize pool shown on the tiles: places plus bounties, net of
+         rake (Dan, 2026-11-06). The places ladder below prices the places. */
+      effective: displayTotalPool(
         tournament?.prize_pool,
         tournament?.guaranteed_prize,
         tournament?.bounty_pool,
