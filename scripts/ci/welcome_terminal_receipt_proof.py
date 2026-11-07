@@ -1,5 +1,4 @@
 """Native admission regression, called by the maintained welcome qualification."""
-from pathlib import Path
 
 def qualify(scope):
     root, run = scope['ROOT'], scope['run']
@@ -18,9 +17,21 @@ def qualify(scope):
     columns = ','.join([f'{x} integer DEFAULT 0' for x in numbers] +
                        [f'{x} numeric DEFAULT 0' for x in amounts] +
                        [f"{x} uuid[] DEFAULT '{{}}'" for x in arrays])
+    # --certification-club-scope already installs this column before loading
+    # the captured current retirement guards. The historical standalone fixture
+    # does not. Keep those two maintained schema modes explicit; never hide a
+    # changed fixture shape behind IF NOT EXISTS.
+    lifecycle_setup = '' if scope['args'].certification_club_scope else (
+        "ALTER TABLE clubs ADD COLUMN lifecycle_status text DEFAULT 'active';"
+    )
     setup = f"""
 BEGIN;
-ALTER TABLE clubs ADD COLUMN lifecycle_status text DEFAULT 'active';
+{lifecycle_setup}
+DO $shape$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='public.clubs'::regclass
+   AND attname='lifecycle_status' AND atttypid='text'::regtype AND NOT attisdropped)
+ THEN RAISE EXCEPTION 'terminal fixture lifecycle schema mismatch'; END IF;
+END $shape$;
 ALTER TABLE club_members ADD COLUMN held_chips numeric DEFAULT 0, ADD COLUMN locked_chips numeric DEFAULT 0,
  ADD COLUMN credit_used numeric DEFAULT 0, ADD COLUMN credit_limit numeric DEFAULT 0;
 CREATE TABLE tournament_cancellation_receipts(tournament_id uuid PRIMARY KEY,receipt_version integer DEFAULT 2,
