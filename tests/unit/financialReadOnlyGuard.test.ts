@@ -29,11 +29,11 @@ function pageHarness() {
   };
 }
 
-function routeHarness(method: string, url: string) {
+function routeHarness(method: string, url: string, body: string | null = null) {
   const fallback = vi.fn(async () => undefined);
   const abort = vi.fn(async () => undefined);
   const route = {
-    request: () => ({ method: () => method, url: () => url }),
+    request: () => ({ method: () => method, url: () => url, postData: () => body }),
     fallback,
     abort,
   } as unknown as Route;
@@ -114,6 +114,32 @@ describe('financial read-only request classification', () => {
       expect(() => guard.assertNoViolations()).toThrow('blocked 2 REST mutations');
     }
   );
+
+  it('forwards only the no-argument maintenance state read', async () => {
+    const harness = pageHarness();
+    const guard = await installFinancialReadOnlyGuard(harness.page, {
+      allowedRpcPaths: FINANCIAL_ADMIN_CONSOLE_READ_ONLY_RPC_PATHS,
+    });
+    const url = 'https://project.supabase.co/rest/v1/rpc/fn_maintenance_break_state';
+    for (const body of [null, '{}', '{ }']) {
+      const read = routeHarness('POST', url, body);
+      await harness.handler()(read.route, read.route.request());
+      expect(read.fallback).toHaveBeenCalledOnce();
+    }
+    for (const [method, path, body] of [
+      ['POST', url, '{"p_id":1}'],
+      ['POST', url, '[]'],
+      ['POST', url, 'broken'],
+      ['PATCH', url, '{}'],
+      ['POST', `${url}_update`, '{}'],
+    ]) {
+      const refused = routeHarness(method, path, body);
+      await harness.handler()(refused.route, refused.route.request());
+      expect(refused.abort).toHaveBeenCalledWith('blockedbyclient');
+      expect(refused.fallback).not.toHaveBeenCalled();
+    }
+    expect(guard.violations).toHaveLength(5);
+  });
 
   it('allows the notice read while still aborting device enrollment and notice acknowledgments', async () => {
     const harness = pageHarness();

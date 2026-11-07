@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 
 const REST_ROUTE_GLOB = '**/rest/v1/**';
+const MAINTENANCE_STATE_PATH = '/rest/v1/rpc/fn_maintenance_break_state';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const RPC_PATH = /^\/rest\/v1\/rpc\/[A-Za-z0-9_]+$/;
 const EXACT_REST_PATH = /^\/rest\/v1\/(?:rpc\/)?[A-Za-z0-9_]+$/;
@@ -17,7 +18,7 @@ export const FINANCIAL_ADMIN_READ_ONLY_RPC_PATHS = Object.freeze([
   '/rest/v1/rpc/fn_ca_incident_dashboard',
 ] as const);
 
-/** Global shell reads that are reviewed STABLE/select-only database functions. */
+/** Global shell reads reviewed against their database definitions. */
 export const FINANCIAL_ADMIN_SHELL_READ_ONLY_RPC_PATHS = Object.freeze([
   '/rest/v1/rpc/get_my_full_profile',
   '/rest/v1/rpc/fn_player_spendable_balance',
@@ -29,6 +30,8 @@ export const FINANCIAL_ADMIN_SHELL_READ_ONLY_RPC_PATHS = Object.freeze([
   '/rest/v1/rpc/fn_platform_capabilities',
   // Player notice lookup is STABLE/select-only (live pg_proc, 2026-11-06).
   '/rest/v1/rpc/fn_ca_pending_player_notice',
+  // SELECT-only clock and release-boundary read. Its caller supplies no arguments.
+  MAINTENANCE_STATE_PATH,
   // ClubBottomNav (useClubDataScope, #7292) asks which Club Data scope the
   // signed-in member may open on every club route. STABLE SECURITY DEFINER,
   // no DML (pg_proc, 2026-10-17). Unlisted, it refused every Financial Admin
@@ -156,7 +159,8 @@ function classifyWithReviewedPaths(
   method: string,
   rawUrl: string,
   allowedRpcPaths: ReadonlySet<string>,
-  quarantinedPostPaths: ReadonlySet<string>
+  quarantinedPostPaths: ReadonlySet<string>,
+  readBody?: () => string | null
 ): FinancialReadOnlyDecision {
   const normalizedMethod = normalizeMethod(method);
   const path = pathnameOnly(rawUrl);
@@ -167,6 +171,11 @@ function classifyWithReviewedPaths(
     return { action: 'allow', method: normalizedMethod, path };
   }
   if (normalizedMethod === 'POST' && allowedRpcPaths.has(path)) {
+    if (path === MAINTENANCE_STATE_PATH) {
+      const body = readBody?.();
+      if (body && !/^\s*\{\s*\}\s*$/.test(body))
+        return { action: 'block', method: normalizedMethod, path };
+    }
     return { action: 'allow', method: normalizedMethod, path };
   }
   if (normalizedMethod === 'POST' && quarantinedPostPaths.has(path)) {
@@ -218,7 +227,8 @@ export async function installFinancialReadOnlyGuard(
       request.method(),
       request.url(),
       allowedRpcPaths,
-      quarantinedPostPaths
+      quarantinedPostPaths,
+      () => request.postData()
     );
 
     if (decision.action === 'allow' || decision.action === 'ignore') {
