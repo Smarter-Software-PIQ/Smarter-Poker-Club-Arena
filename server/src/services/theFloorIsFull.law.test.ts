@@ -18,7 +18,7 @@
  *   - the rotator reads the same list and stands a horse up when it is not
  *     empty, and holds a full table still when it is;
  *   - the fleet drives horses TOWARD four tables instead of away from them;
- *   - nothing queues a horse any more.
+ *   - horses queue only on a full game's list (Dan 2026-11-06).
  *
  * Source-level, because the alternative is standing up a live fleet manager
  * with a database behind it. Windows are bounded by the structure they are
@@ -125,10 +125,22 @@ describe('LAW: four tables is the target, not the ceiling', () => {
   });
 });
 
-describe('LAW: nothing queues a horse', () => {
-  it('the occupancy rule never asks for a horse queue', () => {
+describe('LAW: horses queue on full games only, never on a table list (Dan 2026-11-06)', () => {
+  it('a human waiting zeroes the horse line', () => {
     const target = sliceMethod(BEHAVIOR, 'export function occupancyTargetFor(');
-    expect(target).toContain('waitTarget: 0');
+    expect(target).toMatch(/humansWaiting > 0\) \{[\s\S]*?waitTarget = 0;/);
+  });
+
+  it("the fleet no longer forces every Hold'em and PLO table to max", () => {
+    expect(FLEET).not.toMatch(
+      /isHoldemOrPlo\(table\.game_variant\)\) seatTarget = table\.max_players/
+    );
+  });
+
+  it('the horse line goes on the GAME list, through the planner', () => {
+    const sync = sliceMethod(FLEET, 'private async syncHorseGameQueues(');
+    expect(sync).toContain("from('cash_game_waitlist')");
+    expect(sync).toContain('planHorseQueues(');
   });
 
   it('and the seeder that used to fill queues is gone', () => {

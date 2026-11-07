@@ -356,6 +356,32 @@ export const WaitlistService = {
    * must still list if the badge cannot be fetched, which is the caller's
    * job, not a reason to lie about the count.
    */
+  /**
+   * People on each must-move GAME's list (cash_game_waitlist), by game id.
+   * Counts only, through fn_cash_game_waiting_counts, because the list itself
+   * is readable only row-by-row by its own player. NULL when the read failed.
+   */
+  async gameCountsFor(gameIds: string[]): Promise<Map<string, number> | null> {
+    const counts = new Map<string, number>();
+    if (!gameIds.length) return counts;
+    try {
+      const { data, error } = await supabase.rpc('fn_cash_game_waiting_counts', {
+        p_game_ids: gameIds.slice(0, 500),
+      });
+      if (error || !Array.isArray(data)) {
+        if (error) reportError(error, 'WaitlistService.gameCountsFor');
+        return null;
+      }
+      for (const row of data as { game_id: string; waiting: number }[]) {
+        if (row?.game_id) counts.set(row.game_id, Math.max(0, Number(row.waiting) || 0));
+      }
+    } catch (e) {
+      reportError(e, 'WaitlistService.gameCountsFor');
+      return null;
+    }
+    return counts;
+  },
+
   async countsFor(tableIds: string[]): Promise<Map<string, number> | null> {
     const counts = new Map<string, number>();
     if (!tableIds.length) return counts;

@@ -70,6 +70,7 @@ import { beatVerdict, lastBeatAt } from './StableHandBeats.js';
 import { seatBoosts, takeOpenOrders } from './StableHandPlanBus.js';
 import { stakeForBand } from './StableHandController.js';
 import { fetchAllRows } from './supabase/pagination.js';
+import { planHorseQueues, type HorseQueueAsk } from './HorseGameQueue.js';
 import {
   allocateBuyers,
   FEEDER_BUYERS_TO_GO_LIVE,
@@ -923,6 +924,98 @@ export class HorseFleetManager {
       return new Map();
     }
     return out;
+  }
+
+  /**
+   * KEEP THE HORSE LINES ON FULL GAMES (Dan 2026-11-06). One read of the horse
+   * rows on `cash_game_waitlist`, then a batched cancel and at most one insert
+   * per game. Planned by HorseGameQueue.planHorseQueues; read the rules there.
+   *
+   * Fails CLOSED in the adding direction: an incomplete read or an unread
+   * Lightning list adds nobody. Cancelling is always safe - it only ever
+   * touches horse rows.
+   */
+  private async syncHorseGameQueues(
+    asks: readonly HorseQueueAsk[],
+    tables: readonly any[],
+    seatsByTable: ReadonlyMap<string, ReadonlyArray<{ user_id: string }>>,
+    humansWaitingByTable: ReadonlyMap<string, number>,
+    horseIdSet: ReadonlySet<string>,
+    disabledGameIds: ReadonlySet<string>,
+    shouldContinue?: () => boolean
+  ): Promise<void> {
+    try {
+      const page = await fetchAllRows<{
+        id: string;
+        game_id: string;
+        user_id: string;
+        created_at: string;
+      }>(
+        (cursor, want) => {
+          let q = supabase
+            .from('cash_game_waitlist')
+            .select('id, game_id, user_id, created_at')
+            .eq('status', 'waiting')
+            .order('id', { ascending: true })
+            .limit(want);
+          if (cursor) q = q.gt('id', cursor);
+          return q;
+        },
+        { label: 'HorseFleet.horseGameQueues', maxRows: 50_000, shouldContinue }
+      );
+      if (shouldContinue?.() === false || !page.complete) return;
+      const rows = page.rows.filter((r) => horseIdSet.has(String(r.user_id)));
+
+      const lightning = await this.lightningClusterIds();
+      const gameTables: Array<{ gameId: string; maxPlayers: number; seated: number }> = [];
+      const seatedByGame = new Map<string, Set<string>>();
+      const humanWaitingGameIds = new Set<string>();
+      for (const t of tables) {
+        if (!t?.cluster_id) continue;
+        if (t.lifecycle && t.lifecycle !== 'live' && t.lifecycle !== 'opening') continue;
+        const gameId = String(t.cluster_id);
+        const seats = seatsByTable.get(t.id) ?? [];
+        gameTables.push({ gameId, maxPlayers: Number(t.max_players) || 0, seated: seats.length });
+        const set = seatedByGame.get(gameId) ?? new Set<string>();
+        for (const s of seats) set.add(String(s.user_id));
+        seatedByGame.set(gameId, set);
+        if ((humansWaitingByTable.get(t.id) ?? 0) > 0) humanWaitingGameIds.add(gameId);
+      }
+      const excluded = new Set<string>(disabledGameIds);
+      if (lightning === null) {
+        // Unread: nobody joins any line this cycle; existing rows may still go.
+        for (const g of seatedByGame.keys()) excluded.add(g);
+      } else {
+        for (const g of lightning) excluded.add(g);
+      }
+
+      const plan = planHorseQueues({
+        asks,
+        tables: gameTables,
+        rows,
+        excludedGameIds: excluded,
+        humanWaitingGameIds,
+        seatedByGame,
+        nowMs: Date.now(),
+      });
+      for (let i = 0; i < plan.cancel.length; i += 200) {
+        if (shouldContinue?.() === false) return;
+        const { error } = await supabase
+          .from('cash_game_waitlist')
+          .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+          .in('id', plan.cancel.slice(i, i + 200))
+          .eq('status', 'waiting');
+        if (error) throw new Error(error.message);
+      }
+      if (plan.add.length > 0 && shouldContinue?.() !== false) {
+        const { error } = await supabase
+          .from('cash_game_waitlist')
+          .insert(plan.add.map((a) => ({ ...a, status: 'waiting' })));
+        if (error) throw new Error(error.message);
+      }
+    } catch (err) {
+      reportError(err, 'HorseFleet.syncHorseGameQueues');
+    }
   }
 
   /**
@@ -2685,6 +2778,7 @@ export class HorseFleetManager {
          same two free horses used to be counted as buyers for every full Main
          1 on the host at once. See HorseBuyerAllocation. */
       const clusterPools: BuyerPool[] = [];
+      const horseQueueAsks: HorseQueueAsk[] = [];
       const capacityByHorse = new Map<string, number>();
       /* A DOOR THAT SAID "FULL" IS NOT ASKED AGAIN THIS CYCLE (2026-09-11).
          `FOUR TABLE LIMIT` and `TABLE_CAP_REACHED` are the database counting
@@ -3044,9 +3138,13 @@ export class HorseFleetManager {
           );
           const { fill } = target;
           let { seatTarget } = target;
-          // With fifty cash horses, fill playable Holdem/PLO games instead
-          // of deliberately retaining sparse persona occupancy targets.
-          if (isHoldemOrPlo(table.game_variant)) seatTarget = table.max_players;
+          /* NO MORE "EVERY HOLD'EM AND PLO TABLE AT MAX" (Dan 2026-11-06).
+             A line here forced seatTarget to max_players for every Hold'em
+             and PLO table, after occupancyTargetFor had answered - which
+             threw away the short and sparse shapes AND the humans-waiting
+             subtraction, so 14 of 15 occupied Classic games sat at exactly
+             max and three people on game lists waited up to nineteen hours.
+             The shape decides now; see occupancyTargetFor. */
           // Activity floor (see fleetBoost above). A full table is already at
           // max and cannot be lifted; this only ever helps a sparse one.
           if (fleetBoost) {
@@ -3668,6 +3766,16 @@ export class HorseFleetManager {
                   : Math.max(0, Math.min(seatsNeeded, Number(table.max_players) - currentCount)),
             };
             if (diag) diag.reserved = feederClaim;
+            /* A FULL GAME GROWS A LINE (Dan 2026-11-06). Only a table with no
+               empty seat asks; syncHorseGameQueues checks the whole game is
+               full before anyone joins it. See HorseGameQueue. */
+            if (emptySeats.length === 0 && target.waitTarget > 0) {
+              horseQueueAsks.push({
+                gameId: String(table.cluster_id),
+                waitTarget: target.waitTarget,
+                pool: pool.map((h) => h.id),
+              });
+            }
             clusterPools.push(clusterPool);
           } else {
             nextEligible.set(table.id, pool.length);
@@ -4004,6 +4112,19 @@ export class HorseFleetManager {
         nextEligible.set(tableId, n);
       }
       this.lastEligibleByTable = nextEligible;
+      /* THE GAME LINES (Dan 2026-11-06). After seating, so a horse seated
+         this cycle is never also put in line for the same game. */
+      if (readIsCurrent()) {
+        await this.syncHorseGameQueues(
+          horseQueueAsks,
+          tables,
+          seatsByTable,
+          humansWaitingByTable,
+          horseIdSet,
+          disabledGameIds,
+          readIsCurrent
+        );
+      }
       // The only place the census is stamped: a cycle that returned early
       // above never reaches here, and its stale map ages out (see
       // lastEligibleBuiltAt) instead of being repeated to the controller.

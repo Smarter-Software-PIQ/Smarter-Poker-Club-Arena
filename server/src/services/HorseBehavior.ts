@@ -125,13 +125,50 @@ export function isActiveNow(horseId: string, hourUTC: number): boolean {
 // and horses stand up and sit down for no reason a watching player can see,
 // which is the thrash the original drift comment warned about.
 
-/** Fraction of cash tables that sit FULL of horses. Dan 2026-09-02. */
-export const CASH_FULL_FRACTION = 0.75;
+// ═══════════════════════════════════════════════════════════════════════════════
+// A FULL ROOM IS NOT A ROOM WHERE EVERY GAME IS EXACTLY FULL (Dan 2026-11-06)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Dan, verbatim: "GAMES SHOULD NOT BE ALWAYS MAXED OUT WITH THE EXACT AMOUNT OF
+// PLAYERS PLAYING AS ARE ALLOWED IN THE GAMES. THERE SHOULD BE SOME GAMES WITH
+// TWO TABLES RUNNING AND THE MUST MOVE LIST, AND HORSES SHOULD BE ON THE
+// WAITING LIST... IT LOOKS FAKE WHEN THERE ARE THE EXACT MAX AMOUNT OF PLAYERS
+// ON EVERY GAME, AND ZERO PLAYERS ON THE WAITING LIST."
+//
+// Measured that evening: 14 of 15 occupied Classic games sat at exactly
+// max_players, no game had a second table, and the only names on any waiting
+// list were three humans. Two things did it. The fleet forced every Hold'em and
+// PLO table to max_players after this function had answered (overriding the
+// sporadic quarter AND the humans-waiting subtraction below), and horses had
+// been barred from every waiting list since 2026-09-02.
+//
+// This supersedes the two-way FULL / SPORADIC split above. A table is now one of
+// THREE shapes for the long bucket, and the short shape re-rolls its open-seat
+// count on a 20-minute sub-bucket so the lobby number moves the way a real game's
+// does:
+//
+//   FULL      (40%) every seat taken AND 1-4 horses on the game's waiting list.
+//   SHORT     (40%) one or two seats open (one on a six-max or smaller table).
+//   SPORADIC  (20%) two seats to two short of full.
+//
+// Expected seat occupancy is about 85% for a nine-max floor and about 83% for a
+// six-max one, so Dan's 2026-09-02 floor ("at least 75% of all seats") still
+// holds. A human joining a list still opens exactly as many seats as there are
+// humans waiting, on every shape.
+
+/** Fraction of cash tables that sit FULL (with a waiting list). Dan 2026-11-06. */
+export const CASH_FULL_FRACTION = 0.4;
+/** Fraction that sit one or two seats short. Dan 2026-11-06. */
+export const CASH_SHORT_FRACTION = 0.4;
+/** How often a SHORT or SPORADIC table, and a FULL table's queue, re-rolls. */
+export const FILL_SUB_BUCKET_MS = 20 * 60_000;
+/** The longest horse queue a FULL game keeps. */
+export const MAX_HORSE_WAIT = 4;
 
 /** How long a table keeps its full/sporadic character before re-rolling. */
 export const FILL_BUCKET_MS = 3 * 60 * 60_000;
 
-export type TableFill = 'full' | 'sporadic';
+export type TableFill = 'full' | 'short' | 'sporadic';
 
 export function mix32(x: number): number {
   let h = x >>> 0;
@@ -157,7 +194,10 @@ export function mix32(x: number): number {
 export function cashTableFill(tableId: string, nowMs: number = Date.now()): TableFill {
   const bucket = Math.floor(nowMs / FILL_BUCKET_MS);
   const seed = (horseHash(`${tableId}:fill`) ^ Math.imul(bucket, 0x9e3779b1)) >>> 0;
-  return mix32(seed) % 100 < CASH_FULL_FRACTION * 100 ? 'full' : 'sporadic';
+  const roll = mix32(seed) % 100;
+  if (roll < CASH_FULL_FRACTION * 100) return 'full';
+  if (roll < (CASH_FULL_FRACTION + CASH_SHORT_FRACTION) * 100) return 'short';
+  return 'sporadic';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -551,30 +591,37 @@ export function occupancyTargetFor(
   humansWaiting: number = 0
 ): { seatTarget: number; waitTarget: number; fill: TableFill } {
   const fill = cashTableFill(tableId, nowMs);
+  const max = Math.max(1, Math.floor(Number(maxPlayers) || 1));
+  const sub = Math.floor(nowMs / FILL_SUB_BUCKET_MS);
+  const h = mix32(horseHash(`${tableId}:${sub}:shape`));
   let seatTarget: number;
+  let waitTarget = 0;
   if (fill === 'full') {
-    seatTarget = maxPlayers;
+    seatTarget = max;
+    // A queue of one to four, re-rolled on the sub-bucket. Never longer than
+    // the table itself (a heads-up table does not carry a four-deep list).
+    waitTarget = 1 + (h % Math.min(MAX_HORSE_WAIT, max));
+  } else if (fill === 'short') {
+    // One open seat on a six-max or smaller game; one or two on a full ring.
+    const open = max <= 6 ? 1 : 1 + (h % 2);
+    seatTarget = max - open;
   } else {
-    /* One seat to a full game, re-rolled on the long bucket. `1 +` is the
-       floor Dan named: a sparse table still has SOMEBODY at it, which is what
-       separates this from the empty tables this rule replaced. */
-    const h = horseHash(`${tableId}:${Math.floor(nowMs / FILL_BUCKET_MS)}:seats`);
-    seatTarget = 1 + (h % Math.max(1, maxPlayers));
+    // Two seats to two short of full: a game, but a thin one.
+    const lo = Math.min(2, max);
+    const hi = Math.max(lo, max - 2);
+    seatTarget = lo + (h % (hi - lo + 1));
   }
-  if (humanSeated) seatTarget = Math.max(seatTarget, Math.min(maxPlayers, 4));
+  if (humanSeated) seatTarget = Math.max(seatTarget, Math.min(max, 4));
 
-  /* Room for the queue. Only ever reduces the target, never below one seat —
-     a table emptied of horses cannot deal the game the human queued for. */
+  /* Room for the queue. Only ever reduces the target, never below one seat -
+     a table emptied of horses cannot deal the game the human queued for. A
+     human waiting also empties the horse queue: nobody stands up for the
+     person behind them in line only to have a horse take the chair. */
   if (humansWaiting > 0) {
     seatTarget = Math.max(1, seatTarget - humansWaiting);
+    waitTarget = 0;
   }
-
-  /* Horses do not queue any more (waitTarget is always 0, and the fleet
-     prunes horse rows out of every waiting list). A queue used to be
-     decoration on a full table; under this rule it is a signal that a real
-     person wants in, and a horse standing in it would both delay that person
-     and make "is a human waiting" unanswerable. */
-  return { seatTarget: Math.max(1, Math.min(maxPlayers, seatTarget)), waitTarget: 0, fill };
+  return { seatTarget: Math.max(1, Math.min(max, seatTarget)), waitTarget, fill };
 }
 
 /**

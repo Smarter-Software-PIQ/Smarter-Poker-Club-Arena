@@ -34,15 +34,44 @@ import {
 const tables = Array.from({ length: 400 }, (_, i) => `tbl-${i}-${i * 7919}`);
 const T0 = 1_700_000_000_000;
 
-describe('three quarters of the floor sits full', () => {
-  it('splits the room 75/25, and both kinds actually occur', () => {
-    const full = tables.filter((id) => cashTableFill(id, T0) === 'full').length;
-    const share = full / tables.length;
-    expect(share).toBeGreaterThan(0.66);
-    expect(share).toBeLessThan(0.84);
-    expect(full).toBeGreaterThan(0);
-    expect(full).toBeLessThan(tables.length);
-    expect(CASH_FULL_FRACTION).toBe(0.75);
+describe('the floor is mostly full, never uniformly full (Dan 2026-11-06)', () => {
+  it('splits the room 40/40/20 full/short/sporadic, and all three occur', () => {
+    const count = (k: string) => tables.filter((id) => cashTableFill(id, T0) === k).length;
+    const full = count('full') / tables.length;
+    const short = count('short') / tables.length;
+    const sporadic = count('sporadic') / tables.length;
+    expect(full).toBeGreaterThan(0.32);
+    expect(full).toBeLessThan(0.48);
+    expect(short).toBeGreaterThan(0.32);
+    expect(short).toBeLessThan(0.48);
+    expect(sporadic).toBeGreaterThan(0.13);
+    expect(sporadic).toBeLessThan(0.27);
+    expect(CASH_FULL_FRACTION).toBe(0.4);
+  });
+
+  it('still seats at least 75% of the floor (Dan 2026-09-02 floor)', () => {
+    for (const max of [9, 6]) {
+      let seats = 0;
+      for (const id of tables) seats += occupancyTargetFor(id, max, false, T0).seatTarget;
+      expect(seats / (tables.length * max)).toBeGreaterThanOrEqual(0.75);
+    }
+  });
+
+  it('a short table always has an open seat, and a full one a 1-4 horse line', () => {
+    for (const id of tables) {
+      const t9 = occupancyTargetFor(id, 9, false, T0);
+      if (t9.fill === 'short') {
+        expect(t9.seatTarget).toBeGreaterThanOrEqual(7);
+        expect(t9.seatTarget).toBeLessThanOrEqual(8);
+        expect(occupancyTargetFor(id, 6, false, T0).seatTarget).toBe(5);
+      }
+      if (t9.fill === 'full') {
+        expect(t9.waitTarget).toBeGreaterThanOrEqual(1);
+        expect(t9.waitTarget).toBeLessThanOrEqual(4);
+      } else {
+        expect(t9.waitTarget).toBe(0);
+      }
+    }
   });
 
   it('holds a table still for hours rather than flickering', () => {
@@ -67,7 +96,7 @@ describe('three quarters of the floor sits full', () => {
     const id = tables[11];
     const seen = new Set<string>();
     for (let b = 0; b < 40; b++) seen.add(cashTableFill(id, T0 + b * FILL_BUCKET_MS));
-    expect(seen.size).toBe(2);
+    expect(seen.size).toBe(3);
   });
 });
 
@@ -121,12 +150,12 @@ describe('a queue is the only thing that opens a seat', () => {
     expect(occupancyTargetFor(full, 9, false, T0, 99).seatTarget).toBe(1);
   });
 
-  it('never asks a horse to stand in the queue', () => {
-    /* Horses queued to make a full table look wanted under the old rule. The
-       queue is now the release signal, so a horse in it would delay the person
-       it exists to make room for - and make "is a human waiting" unanswerable. */
+  it('a human waiting empties the horse line (Dan 2026-11-06)', () => {
+    /* Horses queue on a full game again, but never in front of a person: a
+       human on the list zeroes waitTarget so the release opens a chair for
+       them, not for a horse ahead of them in line. */
     for (const id of tables.slice(0, 50)) {
-      expect(occupancyTargetFor(id, 9, false, T0).waitTarget).toBe(0);
+      expect(occupancyTargetFor(id, 9, false, T0, 1).waitTarget).toBe(0);
       expect(occupancyTargetFor(id, 9, true, T0, 2).waitTarget).toBe(0);
     }
   });
