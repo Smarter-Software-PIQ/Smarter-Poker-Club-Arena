@@ -24,9 +24,9 @@ CERTIFIED_START = 1793833200
 CERTIFIED_END = 1793854800
 
 # The owner authorized only this single exception to the daily schedule (#9857).
-NOV7_OWNER_ID = '2026-11-07-horse-fold-provenance-engine-1800z'
-NOV7_MANIFEST_DIGEST = 'd25f21c7ceebc9ea58a9e13f64ad591e0628f11c37d1559970dcef85d9847deb'
-NOV7_ORDER_DIGEST = 'b94f4763a57e1b11e5dfcceef3b37365df39e06b005c8d0b56bfd84a03bc8544'
+NOV7_OWNER_ID = '2026-11-07-horse-trip-board-value-engine-2120z'
+NOV7_MANIFEST_DIGEST = 'ebbe8fb0de39a644537da526596a71ab45c9d638f09bf955791af1f60720ea1c'
+NOV7_ORDER_DIGEST = '5585c3259f93f9173bf8587620b4e5ca30dfb3d89ab7ba04a634f17cd80aeb98'
 
 
 

@@ -784,9 +784,13 @@ echo CHECKPOINT_MUST_NOT_RUN
 
     def test_provenance_worker_and_database_windows_bind_the_same_corrective_release(self):
         import hashlib
-        window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
+        current, raw = self.historical_floor(floor.NOV7_OWNER_ID)
         self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
         self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
+        self.assertEqual(current['contains'], '6d38d2b466d66b374913b78fb42ca1291b7dc551')
+        self.assertEqual(current['migrations'], [])
+        window, historical_raw = self.historical_floor('2026-11-07-horse-fold-provenance-engine-1800z')
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(historical_raw).hexdigest())
         self.assertEqual(window['migrations'], [])
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
