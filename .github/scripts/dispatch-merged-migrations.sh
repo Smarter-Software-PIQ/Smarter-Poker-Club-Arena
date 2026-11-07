@@ -39,12 +39,16 @@ say() { echo "$*" | tee -a "$SUMMARY"; }
   echo ""
 } >> "$SUMMARY"
 
-# Only the merger dispatches its own merge. A PR merged by a person keeps the
-# person as the applier's reader, exactly as before.
-if [ "$MERGED_BY" != "${APP_SLUG}[bot]" ]; then
-  say "- #$PR was merged by \`${MERGED_BY:-unknown}\`, not by \`${APP_SLUG}[bot]\`; its merger dispatches its migrations."
-  exit 0
-fi
+# EVERY MERGE DISPATCHES ITS OWN MIGRATIONS (2026-11-07). This used to stop
+# here unless the autopilot App had merged the PR, leaving "the person" who
+# merged it to dispatch by hand. On this repository the merger is almost always
+# an agent, and agents forget: on 2026-11-07 #9876 merged at 15:42Z with
+# 20261107130652 (the database half of the PKO final-two fix) and nothing
+# installed it for three hours; the 03:30 release would have shipped the
+# engine half without it. The applier is idempotent (ALREADY-APPLIED) and
+# installs one file at a time, so a merger who also dispatches by hand costs
+# nothing. The merger is still named, so the summary says who merged it.
+say "- #$PR was merged by \`${MERGED_BY:-unknown}\`; dispatching the migrations it added."
 
 if [ ! -f "$PLANNER" ]; then
   say "- This repository has no merged-migration planner; nothing to dispatch."
