@@ -206,19 +206,118 @@ function die(message) {
   process.exit(2);
 }
 
-function psql(sql) {
+/**
+ * ONE CONNECTION FAILURE IS NOT A VERDICT, AND NEITHER ARE THREE (2026-11-07).
+ *
+ * Twice today (18:00Z, 18:09Z) this check answered
+ * `COULD NOT ASK: spawnSync psql ETIMEDOUT` and `Installed and merged
+ * migrations agree` sat red on main for ~45 minutes. psql had been given no
+ * connect_timeout, so a pooler that did not answer the TCP handshake held the
+ * process until execFileSync's 60 s budget killed it, and a single lost
+ * handshake became the run's answer.
+ *
+ * So: psql connects with a bounded `connect_timeout` (PGCONNECT_TIMEOUT, 15 s,
+ * which libpq honours before any query is sent), and a failure that happened
+ * BEFORE the server answered a query is attempted again, at most
+ * CONNECT_RETRIES more times, with each attempt logged. Only the connection
+ * phase retries: a connection reset or timeout with nothing on stdout, psql's
+ * own exit 2 ("connection failed"), or an SQLSTATE in class 08. A query the
+ * server REJECTED (exit 1 with an ERROR line) is an answer and is never sent
+ * twice; a query that returned rows is never sent twice; a timeout AFTER the
+ * server produced output is still COULD NOT ASK and is not retried, because a
+ * second copy of a slow query is a second slow query on production.
+ *
+ * The outcome stays three-valued (CLAUDE.md 10.86): answered, refused, or
+ * COULD NOT ASK. Retrying never turns the third into the first.
+ */
+export const CONNECT_RETRIES = 2;
+export const CONNECT_TIMEOUT_SECONDS = 15;
+
+/** A failure libpq or the OS reports before any query was answered. */
+export function isConnectionPhaseFailure(err) {
+  if (!err || typeof err !== 'object') return false;
+  // A server that produced output answered something; never retry past that.
+  if (String(err.stdout || '').trim() !== '') return false;
+  if (/^(?:ETIMEDOUT|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|EPIPE)$/.test(String(err.code || '')))
+    return true;
+  const stderr = String(err.stderr || '');
+  // psql exits 2 when the connection could not be made, before any query.
+  if (err.status === 2 && /connection|could not connect|timeout expired|server closed the connection/i.test(stderr))
+    return true;
+  // libpq's connection-phase messages, however psql exited.
+  if (/^(?:psql: )?(?:error: )?(?:connection to server .* failed|could not connect to server|could not translate host name|server closed the connection unexpectedly|timeout expired)/im.test(stderr))
+    return true;
+  // SQLSTATE class 08 is "connection exception" (VERBOSITY=verbose prints it).
+  if (/^(?:ERROR|FATAL):\s+08[0-9A-Z]{3}:/m.test(stderr)) return true;
+  return false;
+}
+
+/**
+ * Run psql once per attempt until it answers, refuses, or fails for a reason
+ * that is not the connection. Returns `{ out }` or `{ error }` (the refusal,
+ * only when `allowRefusal`), or throws the last failure with its attempts
+ * recorded on `err.attempts`. `spawn` is execFileSync-shaped so a test can
+ * stand in for the binary.
+ */
+export function runPsql(
+  args,
+  { spawn = execFileSync, env = process.env, log = (m) => console.error(m), allowRefusal = false, retries = CONNECT_RETRIES } = {}
+) {
+  const bin = env.PSQL_BIN || 'psql';
+  const childEnv = Object.assign({}, env);
+  if (!childEnv.PGCONNECT_TIMEOUT) childEnv.PGCONNECT_TIMEOUT = String(CONNECT_TIMEOUT_SECONDS);
+  const attempts = [];
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const out = spawn(bin, args, {
+        encoding: 'utf8',
+        timeout: 60_000,
+        maxBuffer: 32 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: childEnv,
+      });
+      return { out };
+    } catch (err) {
+      if (allowRefusal) {
+        const refused = String(err.stderr || '')
+          .split('\n')
+          .find((l) => l.trim().startsWith('ERROR:'));
+        if (err.status === 1 && refused && !isConnectionPhaseFailure(err))
+          return { error: refused.trim() };
+      }
+      const connection = isConnectionPhaseFailure(err);
+      attempts.push({ attempt, connection, code: err.code, status: err.status });
+      if (connection && attempt <= retries) {
+        log(
+          `[migrations-are-live] connection attempt ${attempt} of ${retries + 1} failed before any query was answered` +
+            ` (${err.code || `psql exit ${err.status}`}); trying again.`
+        );
+        continue;
+      }
+      err.attempts = attempts;
+      throw err;
+    }
+  }
+}
+
+function connectionUrl() {
   const url = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || '';
   if (!url) die('no SUPABASE_DB_URL / DATABASE_URL in the environment.');
+  return url;
+}
+
+/** How many connection attempts preceded a failure, for the COULD NOT ASK line. */
+const attemptsNote = (err) =>
+  err.attempts?.length > 1 ? ` (after ${err.attempts.length} connection attempts)` : '';
+
+function psql(sql) {
+  const url = connectionUrl();
   try {
-    return execFileSync(process.env.PSQL_BIN || 'psql', [url, '-Atc', sql], {
-      encoding: 'utf8',
-      timeout: 60_000,
-      maxBuffer: 32 * 1024 * 1024,
-    });
+    return runPsql([url, '-Atc', sql]).out;
   } catch (err) {
     // execFileSync puts the whole command line in the message, and the first
     // argument IS the connection string, password and all.
-    die(String(err.message).split(url).join('<database url>'));
+    die(String(err.message).split(url).join('<database url>') + attemptsNote(err));
     return '';
   }
 }
@@ -231,30 +330,15 @@ function psql(sql) {
  * never a verdict.
  */
 function ask(sql) {
-  const url = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || '';
-  if (!url) die('no SUPABASE_DB_URL / DATABASE_URL in the environment.');
+  const url = connectionUrl();
   try {
     // VERBOSITY=verbose makes psql prefix the SQLSTATE on an ERROR line, which
     // is the only thing that separates "production does not have that object"
     // from "what you sent me is not SQL". It changes nothing about a query
     // that succeeds.
-    const out = execFileSync(
-      process.env.PSQL_BIN || 'psql',
-      [url, '-v', 'VERBOSITY=verbose', '-Atc', sql],
-      {
-        encoding: 'utf8',
-        timeout: 60_000,
-        maxBuffer: 32 * 1024 * 1024,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }
-    );
-    return { out };
+    return runPsql([url, '-v', 'VERBOSITY=verbose', '-Atc', sql], { allowRefusal: true });
   } catch (err) {
-    const refused = String(err.stderr || '')
-      .split('\n')
-      .find((l) => l.trim().startsWith('ERROR:'));
-    if (err.status === 1 && refused) return { error: refused.trim() };
-    die(String(err.message).split(url).join('<database url>'));
+    die(String(err.message).split(url).join('<database url>') + attemptsNote(err));
     return { error: '' };
   }
 }
