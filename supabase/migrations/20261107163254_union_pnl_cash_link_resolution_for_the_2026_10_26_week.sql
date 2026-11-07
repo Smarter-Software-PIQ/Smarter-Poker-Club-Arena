@@ -51,7 +51,8 @@
 -- outcome, takes its own pg_advisory_xact_lock and skips a hand that is
 -- already resolved. Dry-run twice on production over the five one-minute
 -- windows below: 8 candidates proven, 8 evidence_ready, 0 refused in Midway,
--- accepted_rake 9.30 (2.50 + 6.10 + 0 + 0 + 0.70).
+-- accepted_rake 9.30 (2.50 + 6.10 + 0 + 0 + 0.70). (Those were the original
+-- five one-minute windows; see the second correction below.)
 --
 -- The 9.30 is a CHECK, never a written figure: the resolver writes the proofs
 -- it can prove and this file refuses the whole transaction if what it proved
@@ -90,6 +91,18 @@
 -- check 5 ms, one resolver pass over the five windows 1.15 s; the whole block
 -- (three passes) fits inside the 12 s budget with room.
 --
+-- THE RESOLVER READS ONLY THE EIGHT (2026-11-07, second correction). The
+-- first corrected bytes still passed the resolver five one-minute windows.
+-- Those windows also hold 62 candidates the resolver refuses, and it walks
+-- each one's funding lineage through chip_ledger (25.9M rows) before refusing
+-- it. Warm that cost 1.15 s a pass; on the applier's cold connection
+-- (run 2026-11-07 18:46Z) one pass hit the 10 s statement_timeout inside
+-- fn_union_pnl_prove_cash_outcome_links and nothing committed. The windows are
+-- now one millisecond at each hand's own recognized_at (k_windows): measured
+-- on production, 8 proven, 8 evidence_ready, 0 refused, Midway rake 9.30, the
+-- first, partly cold pass 1.67 s. The 62 refusals are no longer touched, so
+-- other_refusals now reports 0.
+--
 -- @live-proof: (SELECT count(*)=8 AND bool_and(EXISTS(SELECT 1 FROM public.fn_union_pnl_cash_outcome_link(o))) FROM public.union_pnl_cash_outcomes o WHERE o.hand_id IN ('a37eb331-755e-4af1-bf6f-dd264c551422'::uuid,'19573d7e-d8ed-4f3a-aee7-9144e527cf5b'::uuid,'a573ff8f-bd6d-4d3a-8815-d86953a1fa43'::uuid,'cdd9b64e-2058-40c5-ad25-863c40ae15ee'::uuid,'cb070a92-e793-453d-ab97-c056f150c402'::uuid,'36fc66c4-34bf-49a5-8e3d-887f68573ed8'::uuid,'6b323a00-71c2-4a74-baf5-65065d1cade3'::uuid,'237eeab0-3630-492f-bed0-3ca2e4d88796'::uuid))
 -- @live-proof: (SELECT count(*)=8 AND bool_and(r.proof->>'status'='proven' AND r.proof_md5=md5(r.proof::text) AND r.game_scope->>'game_union_id'='fade0000-0000-0000-0000-000000000001') FROM public.union_pnl_cash_outcome_link_resolutions r WHERE r.hand_id IN ('a37eb331-755e-4af1-bf6f-dd264c551422'::uuid,'19573d7e-d8ed-4f3a-aee7-9144e527cf5b'::uuid,'a573ff8f-bd6d-4d3a-8815-d86953a1fa43'::uuid,'cdd9b64e-2058-40c5-ad25-863c40ae15ee'::uuid,'cb070a92-e793-453d-ab97-c056f150c402'::uuid,'36fc66c4-34bf-49a5-8e3d-887f68573ed8'::uuid,'6b323a00-71c2-4a74-baf5-65065d1cade3'::uuid,'237eeab0-3630-492f-bed0-3ca2e4d88796'::uuid))
 
@@ -116,6 +129,10 @@ DECLARE
   k_end    CONSTANT timestamptz := '2026-11-02 08:00:00+00';
   k_hands  CONSTANT integer     := 8;
   k_ids    CONSTANT uuid[]      := ARRAY['a37eb331-755e-4af1-bf6f-dd264c551422'::uuid,'19573d7e-d8ed-4f3a-aee7-9144e527cf5b'::uuid,'a573ff8f-bd6d-4d3a-8815-d86953a1fa43'::uuid,'cdd9b64e-2058-40c5-ad25-863c40ae15ee'::uuid,'cb070a92-e793-453d-ab97-c056f150c402'::uuid,'36fc66c4-34bf-49a5-8e3d-887f68573ed8'::uuid,'6b323a00-71c2-4a74-baf5-65065d1cade3'::uuid,'237eeab0-3630-492f-bed0-3ca2e4d88796'::uuid];
+  -- One 1 ms window per hand, opening at its own recognized_at. Each of the
+  -- eight is alone in its millisecond, so the resolver proves exactly these
+  -- eight and walks no other candidate's funding lineage.
+  k_windows CONSTANT timestamptz[] := ARRAY['2026-10-26 07:41:45.899233+00','2026-10-26 15:23:03.535906+00','2026-10-26 15:23:12.972666+00','2026-10-26 15:23:16.208818+00','2026-10-26 15:23:40.412065+00','2026-10-27 11:02:41.704305+00','2026-10-27 15:24:47.111707+00','2026-10-27 15:29:49.025936+00']::timestamptz[];
   k_rake   CONSTANT numeric     := 9.30;
   k_reason CONSTANT text        :=
     'Weekly close 2026-10-26 07:00Z..2026-11-02 08:00Z: eight Midway cash hands whose engine provenance link was lost are re-proved from their own primary receipts, so the week''s accepted cash rake meets its original earning and bank basis.';
@@ -151,13 +168,7 @@ BEGIN
      AND NOT EXISTS(SELECT 1 FROM public.fn_union_pnl_cash_outcome_link(o));
 
   -- BEFORE. What the resolver can prove, proved without writing anything.
-  FOR w IN SELECT * FROM (VALUES
-    ('2026-10-26 07:41:00+00'::timestamptz,'2026-10-26 07:42:00+00'::timestamptz),
-    ('2026-10-26 15:23:00+00'::timestamptz,'2026-10-26 15:24:00+00'::timestamptz),
-    ('2026-10-27 11:02:00+00'::timestamptz,'2026-10-27 11:03:00+00'::timestamptz),
-    ('2026-10-27 15:24:00+00'::timestamptz,'2026-10-27 15:25:00+00'::timestamptz),
-    ('2026-10-27 15:29:00+00'::timestamptz,'2026-10-27 15:30:00+00'::timestamptz)
-   ) v(s,e) LOOP
+  FOR w IN SELECT x.s, x.s + interval '1 millisecond' AS e FROM unnest(k_windows) x(s) LOOP
     j := public.fn_union_pnl_resolve_cash_outcome_links(w.s,w.e,k_reason,false);
     v_proven  := v_proven  + (j->>'proven_not_written')::integer;
     v_already := v_already + (j->>'already_resolved')::integer;
@@ -188,13 +199,7 @@ BEGIN
 
   -- APPLY. The resolver writes its own proven rows, or skips what it already
   -- wrote; it never writes k_rake, which is only ever checked here.
-  FOR w IN SELECT * FROM (VALUES
-    ('2026-10-26 07:41:00+00'::timestamptz,'2026-10-26 07:42:00+00'::timestamptz),
-    ('2026-10-26 15:23:00+00'::timestamptz,'2026-10-26 15:24:00+00'::timestamptz),
-    ('2026-10-27 11:02:00+00'::timestamptz,'2026-10-27 11:03:00+00'::timestamptz),
-    ('2026-10-27 15:24:00+00'::timestamptz,'2026-10-27 15:25:00+00'::timestamptz),
-    ('2026-10-27 15:29:00+00'::timestamptz,'2026-10-27 15:30:00+00'::timestamptz)
-   ) v(s,e) LOOP
+  FOR w IN SELECT x.s, x.s + interval '1 millisecond' AS e FROM unnest(k_windows) x(s) LOOP
     j := public.fn_union_pnl_resolve_cash_outcome_links(w.s,w.e,k_reason,true);
     v_written := v_written + (j->>'resolved_now')::integer;
   END LOOP;
@@ -213,13 +218,7 @@ BEGIN
   END IF;
 
   -- IDEMPOTENT. A second apply, here and on any re-run, writes nothing.
-  FOR w IN SELECT * FROM (VALUES
-    ('2026-10-26 07:41:00+00'::timestamptz,'2026-10-26 07:42:00+00'::timestamptz),
-    ('2026-10-26 15:23:00+00'::timestamptz,'2026-10-26 15:24:00+00'::timestamptz),
-    ('2026-10-27 11:02:00+00'::timestamptz,'2026-10-27 11:03:00+00'::timestamptz),
-    ('2026-10-27 15:24:00+00'::timestamptz,'2026-10-27 15:25:00+00'::timestamptz),
-    ('2026-10-27 15:29:00+00'::timestamptz,'2026-10-27 15:30:00+00'::timestamptz)
-   ) v(s,e) LOOP
+  FOR w IN SELECT x.s, x.s + interval '1 millisecond' AS e FROM unnest(k_windows) x(s) LOOP
     j := public.fn_union_pnl_resolve_cash_outcome_links(w.s,w.e,k_reason,true);
     v_wrote2 := v_wrote2 + (j->>'resolved_now')::integer;
     v_again  := v_again  + (j->>'already_resolved')::integer;
