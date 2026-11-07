@@ -67,8 +67,10 @@ describe('scheduled hours remain authoritative for the full fleet', () => {
   it('does not bypass hours for ranked cash horses', () => {
     const source = readFileSync(resolve(REPO, 'server/src/services/HorseFleetManager.ts'), 'utf8');
     expect(source).toMatch(
-      /let pool = sittable\.filter\(\s*\(h\) => isActiveNow\(h\.id, hourUTC\)/
+      /let pool = sittable\.filter\(\s*\(h\) => availableNow\(h\.id, regularsNowMs\)/
     );
+    // Regulars (2026-11-07): a horse's weekly pattern is an hour too, never a bypass.
+    expect(source).not.toContain('cashRosterAllows(h.id) === true || availableNow');
     expect(source).not.toContain('cashRosterAllows(h.id) === true || isActiveNow');
     expect(source).toContain('if (!humanNeedsRescue && isRestDayFor(st, chicagoWeekday))');
     expect(source).toContain('if (!humanNeedsRescue && dailyCapReached(st, todayKey))');

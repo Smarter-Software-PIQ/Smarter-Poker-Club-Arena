@@ -17,7 +17,11 @@ describe('an expired owner window returns releases to the standing schedule', ()
   });
 
   it('keeps the later window in front only while it is open', () => {
-    expect(floor).toMatch(/and int\(time\.time\(\)\) < record\['expiresEpoch'\]\)/);
+    expect(floor).toContain('now = int(time.time())');
+    expect(floor).toContain(
+      "as_of = daily_assessment_epoch(now, args.deadline) if args.mode == 'daily-compatibility' else now"
+    );
+    expect(floor).toContain("and as_of < record['expiresEpoch'])");
   });
 
   it('is proved by the native floor suite', () => {

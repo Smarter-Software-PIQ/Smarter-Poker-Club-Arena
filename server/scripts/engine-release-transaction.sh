@@ -2966,6 +2966,17 @@ PY
   trap - RETURN
 }
 
+read_prepared_image() {
+  local receipt="${ENGINE_CONTROL_STAGING_ROOT:-/var/lib/club-arena/control-staging}/$RUN_ID/prepared-image"
+  local -a prepared
+  mapfile -t prepared < "$receipt" || die 'daytime image preparation evidence is absent'
+  [ "${#prepared[@]}" = 4 ] && [ "${prepared[0]}" = "$SHA" ] && [ "${prepared[1]}" = "$CONTROL_SHA" ] \
+    && [[ "${prepared[2]}" =~ ^sha256:[0-9a-f]{64}$ && "${prepared[3]}" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    || die 'daytime image preparation evidence is invalid'
+  PREPARED_IMAGE_ID="${prepared[2]}"
+  PREPARED_ROLLBACK_ID="${prepared[3]}"
+}
+
 validate_candidate_image() {
   local identity
   if [ "${BREAK_END_EPOCH:-0}" -gt 0 ]; then
@@ -2996,6 +3007,8 @@ print(contract)
 ' 2>/dev/null) || die 'candidate image identity or provenance is invalid'
   [ "${#IMAGE_FIELDS[@]}" = 4 ] || die 'candidate image identity has an invalid field count'
   TARGET_IMAGE_ID="${IMAGE_FIELDS[0]}"
+  [ -z "${PREPARED_IMAGE_ID:-}" ] || [ "$TARGET_IMAGE_ID" = "$PREPARED_IMAGE_ID" ] \
+    || die 'candidate image differs from the exact daytime preparation'
 }
 
 # Use the same isolated preparation before intake and again before maintenance.
@@ -3251,6 +3264,11 @@ fi
 [ "$(date +%s)" -lt "$MUTATION_DEADLINE_EPOCH" ] \
   || die 'immutable release not-after epoch expired before new release mutation'
 source_target_is_current
+if [ -z "${DRILL_MODE:-}" ]; then
+  read_prepared_image
+  [ "$COMMITTED_IMAGE" = "$PREPARED_ROLLBACK_ID" ] || die 'sealed rollback image changed since daytime preparation'
+  validate_candidate_image
+fi
 require_backup_certificate || die 'exact target Backup certificate is not currently successful; no cycle reserved'
 initialise_phase1_cycle
 if EXACT_INSTANCE="$(exact_runtime_instance)" && ! phase1_reset_required; then
@@ -3269,15 +3287,19 @@ create_image_lease
 # work. Its parent must cover both phases; otherwise a current SHA queued
 # behind a stale long build can be killed five minutes into its own build and
 # leave no surviving release for the next certified break.
-BUILD_REMAINING="$(remaining_seconds)" \
-  || die 'immutable release not-after epoch expired before image construction'
-[ "$BUILD_REMAINING" -gt 16 ] \
-  || die 'immutable release not-after epoch has no bounded image-build budget'
-BUILD_TIMEOUT=$((BUILD_REMAINING - 16))
-[ "$BUILD_TIMEOUT" -le 3450 ] || BUILD_TIMEOUT=3450
-timeout --signal=TERM --kill-after=15s "${BUILD_TIMEOUT}s" \
-  "$IMAGE_BUILDER" "$REPO_DIR" "$SHA" "$IMAGE_REF" \
-  || die 'bounded immutable engine image build failed'
+if [ -n "${DRILL_MODE:-}" ]; then
+  BUILD_REMAINING="$(remaining_seconds)" \
+    || die 'immutable release not-after epoch expired before image construction'
+  [ "$BUILD_REMAINING" -gt 16 ] \
+    || die 'immutable release not-after epoch has no bounded image-build budget'
+  BUILD_TIMEOUT=$((BUILD_REMAINING - 16))
+  [ "$BUILD_TIMEOUT" -le 3450 ] || BUILD_TIMEOUT=3450
+  timeout --signal=TERM --kill-after=15s "${BUILD_TIMEOUT}s" \
+    "$IMAGE_BUILDER" "$REPO_DIR" "$SHA" "$IMAGE_REF" \
+    || die 'bounded immutable engine image build failed'
+else
+  validate_candidate_image
+fi
 prewarm_candidate_image
 source_target_is_current
 NEXT_FRESHNESS_CHECK=$(( $(date +%s) + 60 ))
@@ -3783,6 +3805,10 @@ FLOOR_NO_ACTION
   # It is not pre-started. This proof is deliberately before
   # prepare, token consumption, autoheal fencing, or serving-process replacement.
   prove_rollback_readiness
+  if [ -n "${PREPARED_ROLLBACK_ID:-}" ]; then
+    [ "$(bounded_break_command 5 "$RELEASE_SEAL" get desired-image-id)" = "$PREPARED_ROLLBACK_ID" ] \
+      || die 'rollback changed after daytime preparation'
+  fi
   validate_candidate_image
   STRANGERS="$(bounded_break_command 10 docker ps --filter label=sp.role=engine --format '{{.Names}}' \
     | grep -v "^$CONTAINER$" || true)"
