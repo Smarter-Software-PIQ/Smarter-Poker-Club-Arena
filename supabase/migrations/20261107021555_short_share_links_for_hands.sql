@@ -69,7 +69,8 @@ COMMENT ON TABLE public.ca_shared_hands IS
   'Short shared-hand links (smarter.poker/h/<token>): the same payload as /replay?h=, its sender, invite code, preview fields and sent/revoked/view bookkeeping. 2026-11-06.';
 
 ALTER TABLE public.ca_shared_hands ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.ca_shared_hands FROM PUBLIC, anon, authenticated;
+-- Closed to every API role, service_role included: only the definer doors reach it.
+REVOKE ALL ON public.ca_shared_hands FROM PUBLIC, anon, authenticated, service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- The preview fields: short strings only, nothing else is kept.
