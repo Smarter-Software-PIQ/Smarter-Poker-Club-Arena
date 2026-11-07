@@ -63,3 +63,34 @@ slowest, `lastMs` the latest, plus a count). Published on `/health` as
 can never throw into the break (an exception there broke seven break tests
 before it was made defensive). Pinned by
 `server/src/BreakLastHandWaitMetric.test.ts`.
+
+## Round 3 (Dan 2026-11-07, 06:47)
+
+1. **The 03:55 break says why it is longer.** A break that overlaps the daily
+   engine update ends when the update ends. GameServer marks it
+   (`markBreakExtendedForDailyUpdate`) and `tournament_break_started` carries
+   `extendedFor: 'daily_update'`. The card reads "Extended Break" and
+   "Daily Update: Play Resumes In", and the minimised clock says
+   "Daily Update". A page that missed the event still knows from the
+   maintenance state it already watches.
+2. **A slow break start pages.** `TournamentBreakStartedSlow`
+   (infra/monitoring/alert-rules.yml, warning) fires when
+   `poker_tournament_break_last_hand_wait_seconds` passes 120 s. The threshold
+   comes from measurement: last hands ended 25-55 s after :55 at three breaks,
+   and hands run up to ~70 s.
+3. **The waiting card counts the tables still playing.** While a tournament
+   waits on its last hand, `TournamentManagerBase.publishBreakWaitProgress()`
+   broadcasts `break_wait {tablesFinishing, tablesTotal}`. It sends only on a
+   change, never decides anything and is never awaited. The card reads
+   "Waiting On 1 Table To Finish" and the minimised clock "1 Table Left".
+4. **Spins, Sit & Gos and Heads-Up deal through the :55 break on purpose.** At
+   the 12:55 UTC break all 59 of them dealt straight through (median gap
+   4.5 s), and every MTT broke. `tournament/breakEligibility.ts` (2026-08-27,
+   binding) rules that short formats never break, and a trigger forces the
+   column. GameServer's stale "every format breaks" comment and log line now
+   say so. There is no behaviour change.
+5. **A test plays a real hand into a break.**
+   `server/src/engine/ABreakCalledMidHandParksOnACleanFelt.test.ts` drives the
+   real dealing loop, calls the break mid-hand (tournament, maintenance and
+   hand-for-hand), and requires deal, completion display, clean felt, then
+   parked. Run against the pre-#9808 loop, all three cases fail.
