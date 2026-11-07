@@ -257,6 +257,36 @@ const freshStats = (): OpponentStats => ({
   riverCallSDWeak: 0,
 });
 
+/** V83 (2026-11-06): an aggression read needs bluffs behind it. */
+export interface ExploitReadOptions {
+  /**
+   * Default on. A postflop aggression factor above 2.5 used to read as a
+   * maniac (callDownMod 1.2) on the ratio alone. With this on, an opponent
+   * whose big river bets have shown down mostly as value
+   * (aggressionShownAsValue) keeps neutral respect instead. False is the
+   * pre-V83 read.
+   */
+  aggressionNeedsBluffs?: boolean;
+}
+
+/** V83: big river bets that reached showdown before the value share counts. */
+export const V83_MIN_BIG_BET_SHOWDOWNS = 20;
+/** V83: share of those shown as a strong hand at which aggression is value. */
+export const V83_VALUE_SHARE = 0.75;
+
+/**
+ * V83: true when an opponent's big river bets (>= 20bb, called, shown down)
+ * number at least V83_MIN_BIG_BET_SHOWDOWNS and at least V83_VALUE_SHARE of
+ * them were a strong hand. Such a player bets a lot because they hold it,
+ * so their bets earn ordinary respect even at a high aggression factor.
+ */
+export function aggressionShownAsValue(
+  s: Pick<OpponentStats, 'bigBetSD' | 'bigBetSDStrong'> | null | undefined
+): boolean {
+  if (!s || !(s.bigBetSD >= V83_MIN_BIG_BET_SHOWDOWNS)) return false;
+  return s.bigBetSDStrong / s.bigBetSD >= V83_VALUE_SHARE;
+}
+
 /** Exploit multipliers derived from a specific opponent's tendencies. */
 export interface ExploitProfile {
   /** multiply bluff/semi-bluff frequency by this (1 = neutral) */
@@ -2113,14 +2143,22 @@ export class HorseMind {
   // EXPLOIT PROFILE — how to deviate vs this specific player
   // ───────────────────────────────────────────────────────────────────────
 
-  static exploit(userId: string, recencyBlend: boolean = true): ExploitProfile {
+  static exploit(
+    userId: string,
+    recencyBlend: boolean = true,
+    options: ExploitReadOptions = {}
+  ): ExploitProfile {
     // A PROVEN WINNER IS RESPECTED (2026-10-24, HorseWinnerRead): fewer
     // bluffs and no thin value against a credible winner; reads unchanged.
-    return respectWinner(this.readExploit(userId, recencyBlend), userId);
+    return respectWinner(this.readExploit(userId, recencyBlend, options), userId);
   }
 
-  private static readExploit(userId: string, recencyBlend: boolean): ExploitProfile {
-    const legacy = this.legacyExploit(userId, recencyBlend);
+  private static readExploit(
+    userId: string,
+    recencyBlend: boolean,
+    options: ExploitReadOptions
+  ): ExploitProfile {
+    const legacy = this.legacyExploit(userId, recencyBlend, options);
     // 2026-10-16 OPPONENT EXPLOIT: a credible read replaces the lifetime
     // profile on the statistics it covers. The bluff read is POSTFLOP-ONLY
     // fold-to-bet (the lifetime fold rate mixes preflop folds and bluffed a
@@ -2138,7 +2176,11 @@ export class HorseMind {
     };
   }
 
-  private static legacyExploit(userId: string, recencyBlend: boolean): ExploitProfile {
+  private static legacyExploit(
+    userId: string,
+    recencyBlend: boolean,
+    options: ExploitReadOptions = {}
+  ): ExploitProfile {
     const s = this.readStats(userId);
     if (!s || s.hands < 10) return NEUTRAL_EXPLOIT;
     // V45: the recency window is pooled (gears are not per-scope).
@@ -2215,8 +2257,23 @@ export class HorseMind {
       }
     }
     if (s.aggr + s.passive >= 12) {
-      if (af > 2.5) callDownMod = blend(1.2);
-      else if (af < 0.7) callDownMod = blend(0.85);
+      if (af > 2.5) {
+        // V83 (2026-11-06): the ratio alone is not a maniac. Horse-vs-horse
+        // play sits at AF ~2.43, just under this line, so a small change in
+        // how often a player is checked to pushed a value-heavy bettor over
+        // it, and the whole bluff-catching stack switched on (callDownMod
+        // above 1 also disables every one-pair fold and shade layer: V61,
+        // V63, V65, V66, V79, V80). R7's certification league lost -5.54
+        // bb/100 that way: its checks lifted the opponent from 2.43 to 2.66
+        // while 85% of that opponent's big river bets showed down strong.
+        // A bettor whose big bets measurably show down as value keeps
+        // neutral respect.
+        if (options.aggressionNeedsBluffs !== false && aggressionShownAsValue(s)) {
+          noteFire('v83_aggression_shown_as_value');
+        } else {
+          callDownMod = blend(1.2);
+        }
+      } else if (af < 0.7) callDownMod = blend(0.85);
     }
 
     return { bluffMod, callDownMod, valueThinMod };
@@ -3077,7 +3134,8 @@ export class HorseMind {
   static tableExploit(
     heroSeat: number,
     players: SeatPlayer[],
-    recencyBlend: boolean = true
+    recencyBlend: boolean = true,
+    options: ExploitReadOptions = {}
   ): ExploitProfile {
     const opps = players.filter(
       (p) => p.seat !== heroSeat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
@@ -3095,7 +3153,7 @@ export class HorseMind {
     let valueThinMod = 0;
     let responders = 0;
     for (const o of opps) {
-      const e = this.exploit(o.user_id, recencyBlend);
+      const e = this.exploit(o.user_id, recencyBlend, options);
       // An all-in wager still carries the aggressor's observed tendencies;
       // their old fold/call response cannot price a new bluff or value bet.
       callDownMod += e.callDownMod;
