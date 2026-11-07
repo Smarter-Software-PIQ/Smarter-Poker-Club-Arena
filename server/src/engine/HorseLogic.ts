@@ -12087,10 +12087,16 @@ export class HorseLogic {
       // equity estimate says. Flop and turn keep the near-lock reading,
       // because there a dominated made hand can still improve.
       //
-      // Scope (pre-activation review, same day): only the demonstrated class
-      // loses the escape - a flush with at least one live higher flush rank
-      // (higherFlushRanks >= 1) on an UNPAIRED board, in a high-only,
-      // single-board game. Every other non-nut-class hand keeps the near-lock
+      // Scope (pre-activation review, same day): only the demonstrated cell
+      // loses the escape - the SECOND-nut flush (exactly one live higher
+      // flush rank, higherFlushRanks === 1) on an UNPAIRED board, facing a
+      // river wager of 0.8 pot or more, outside tournaments, in a high-only,
+      // single-board game. That is the only cell whose own river raises
+      // measured negative (raise vs fold, bet >= 0.8 pot: -107.2 [-211.4,
+      // -2.9] n 12 on 11-05, -65.9 n 9 on 11-06); the class's tournament
+      // raises measured positive (+16.2 n 16, +18.0 n 9) and third-nut-or-
+      // worse flushes raised positively against smaller bets (+12.8 n 18,
+      // +7.4 n 12), so both keep today's reading. Every other non-nut-class hand keeps the near-lock
       // reading on the river exactly as before: paired-board flushes (nut or
       // not), non-nut straights, nut straights on a three-flush board, hi-lo
       // (PLO8 / FLO8, where the low half and the quarter read decide the
@@ -12106,8 +12112,10 @@ export class HorseLogic {
         opts.v15RiverNoNearLock !== false &&
         cat === 6 &&
         nuts15 != null &&
-        nuts15.higherFlushRanks >= 1 &&
+        nuts15.higherFlushRanks === 1 &&
         !boardPaired15 &&
+        potFrac >= 0.8 &&
+        !isTournamentMode(gs) &&
         !vi.isHiLo &&
         !multiBoard36;
       if (

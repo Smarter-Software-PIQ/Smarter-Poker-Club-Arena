@@ -59,7 +59,8 @@ function node3374459(
   stage: 'river' | 'turn' = 'river',
   variant = 'plo4',
   wager = 21.8,
-  heroStack = 222.03
+  heroStack = 222.03,
+  gameMode: 'cash' | 'tournament' = 'cash'
 ) {
   const hero = seat(6, 'hero', heroStack, 0, 6.1, false, hole);
   const players = [
@@ -112,7 +113,7 @@ function node3374459(
       stage,
       gameVariant: variant,
       bettingStructure: variant === 'flo8' ? 'fixed_limit' : 'pot_limit',
-      gameMode: 'cash',
+      gameMode,
       bigBlind: 0.5,
       dealerSeat: 2,
       actionHistory,
@@ -180,22 +181,40 @@ describe('V15 river raise gate: the river has no near-lock', () => {
     expect(raises(acts)).toBeGreaterThan(0);
   });
 
-  it('the demonstrated class never raises in PLO5 or PLO6 either, at any river wager', () => {
+  it('the demonstrated cell never raises a pot-sized river wager in PLO5 or PLO6 either', () => {
     for (const [variant, hole] of [
       ['plo5', '4d7sQdKs5h'],
       ['plo6', '4d7sQdKs5h6c'],
-    ] as const)
-      for (const wager of [10.9, 21.8]) {
-        const s = node3374459(hole, BOARD, 'river', variant, wager);
-        // The off arm raises, so the gate has something to stop.
-        expect(raises(decideMany(s, 40, { v15RiverNoNearLock: false }).acts)).toBeGreaterThan(0);
-        const { acts } = decideMany(s, 40);
-        expect(raises(acts), `${variant} ${wager}`).toBe(0);
-        // The gate never answers with a fold of its own; a fold here is a
-        // later measured call rule (V81 folds a PLO5 second-nut flush call of
-        // a pot-sized river wager), applied exactly as it applies to any call.
-        if (variant === 'plo6' || wager < 20) expect(acts.every((x) => x === 'call')).toBe(true);
-      }
+    ] as const) {
+      const s = node3374459(hole, BOARD, 'river', variant, 21.8);
+      // The off arm raises, so the gate has something to stop.
+      expect(raises(decideMany(s, 40, { v15RiverNoNearLock: false }).acts)).toBeGreaterThan(0);
+      const { acts } = decideMany(s, 40);
+      expect(raises(acts), variant).toBe(0);
+      // The gate never answers with a fold of its own; a fold here is a
+      // later measured call rule (V81 folds a PLO5 second-nut flush call of
+      // a pot-sized river wager), applied exactly as it applies to any call.
+      if (variant === 'plo6') expect(acts.every((x) => x === 'call')).toBe(true);
+    }
+  });
+
+  // Boundaries of the measured cell: under 0.8 pot, in a tournament, or a
+  // third-nut-or-worse flush, the river keeps today's near-lock reading
+  // seed for seed (their raises did not measure negative).
+  const OUTSIDE_CELL: Array<[string, string, number, 'cash' | 'tournament']> = [
+    ['second-nut flush facing a half-pot wager', '4d7sQdKs', 10.9, 'cash'],
+    ['second-nut flush facing 0.75 pot', '4d7sQdKs', 16.35, 'cash'],
+    ['second-nut flush in a tournament, pot-sized wager', '4d7sQdKs', 21.8, 'tournament'],
+    ['third-nut flush, pot-sized wager', '4d7sQs9d', 21.8, 'cash'],
+  ];
+  it.each(OUTSIDE_CELL)('%s keeps today seed for seed', (_name, hole, wager, mode) => {
+    const s = node3374459(hole, BOARD, 'river', 'plo4', wager, 222.03, mode);
+    expect(decideMany(s, 40).acts).toEqual(decideMany(s, 40, { v15RiverNoNearLock: false }).acts);
+  });
+
+  it('the cell starts at 0.8 pot', () => {
+    const s = node3374459('4d7sQdKs', BOARD, 'river', 'plo4', 17.44);
+    expect(raises(decideMany(s, 40).acts)).toBe(0);
   });
 
   // Every non-nut-class hand outside the demonstrated class keeps today's

@@ -45,7 +45,16 @@ non-nut flushes, straights on a three-flush board and paired-board non-nut
 straights did not raise at all. The demonstrated class read -31.5 n 28 and
 -32.3 n 20, its pot-sized slice -107.2 [-211.4, -2.9] n 12 and -65.9 n 9.
 
-So the rule is narrowed to that class. Paired-board flushes (nut or not),
+So the rule is narrowed to the one measured cell inside that class: the
+second-nut flush (exactly one live higher flush rank) on an unpaired board,
+facing a river wager of 0.8 pot or more, outside tournaments. Within the class
+the tournament raises measured positive (+16.2 [11.5, 21.0] n 16 and +18.0
+[3.1, 32.8] n 9) and third-nut-or-worse flushes raised positively against
+smaller wagers (+12.8 [8.3, 17.3] n 18 and +7.4 [4.5, 10.4] n 12), so those,
+and any wager under 0.8 pot, keep today's near-lock reading too. Note that
+even the kept cell does not pass the full admission rule (day B's pot-sized
+slice straddles zero); it is kept because it is the demonstrated defect and
+the only cell measured negative at all. Paired-board flushes (nut or not),
 non-nut straights, nut straights on a three-flush board, PLO8 / FLO8 and
 multi-board pots keep today's near-lock reading, seed for seed against the
 explicit off arm. Full tables, method and limits (raise against call is not
