@@ -118,4 +118,21 @@ describe('river bluff baseline league', { timeout: 600_000 }, () => {
     // A station reaches showdown more often than an over-folder lets the hero.
     expect(st.armB.showdowns).toBeGreaterThan(one.armB.showdowns);
   });
+
+  it('a skill cell plays the arms it is given and counts the skill by its fires', async () => {
+    // Identical arms: no pair can diverge, and both arms count the same fires.
+    const same = await runRiverBluffBaselineCell('nlh', 'cash', 'folders', 150, 4242, 2, {
+      arms: { a: {}, b: {} },
+      skillFeatures: ['river_bluff_baseline_missedDraw', 'river_bluff_baseline_junk'],
+      skillPrefixes: ['river_bluff_baseline'],
+    });
+    expect(same.divergentPairs).toBe(0);
+    expect(same.armA.skillFires).toEqual(same.armB.skillFires);
+    expect(same.armA.skillHands).toBe(same.armB.skillHands);
+    expect(Object.keys(same.armA.skillFires).length).toBeGreaterThan(0);
+    // Omitted options keep the #9841 measurement exactly: no skill counters.
+    const plain = await runRiverBluffBaselineCell('nlh', 'cash', 'folders', 60, 4242, 2);
+    expect(plain.armA.skillHands).toBe(0);
+    expect(plain.armA.skillFires).toEqual({});
+  });
 });

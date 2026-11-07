@@ -169,6 +169,26 @@ export interface RblmArmStats {
   baselineBluffNetBB: number;
   /** baseline eligible spots that checked */
   baselineChecks: number;
+  /** Skill measurement (RblmCellOptions.skillFeatures): hands in which the
+   *  hero fired one of the skill's acting features, how many of those the
+   *  field folded to (hero live, hand ended by folds), their net bb, and every
+   *  hero fire of a feature with one of the skill's prefixes, by name. */
+  skillHands: number;
+  skillFolded: number;
+  skillNetBB: number;
+  skillFires: Record<string, number>;
+}
+
+/** Optional generalisation (2026-11-07, Item 25 qualification of the dormant
+ *  river skills): the same duplicate-deal cell with any two arms, and the
+ *  telemetry features that mark the skill acting. Omitted: the baseline
+ *  measurement exactly as #9841 ran it. */
+export interface RblmCellOptions {
+  arms?: Readonly<{ a: HorseDecideOpts; b: HorseDecideOpts }>;
+  /** fire names that mean the skill acted this hand */
+  skillFeatures?: readonly string[];
+  /** fire-name prefixes counted into skillFires */
+  skillPrefixes?: readonly string[];
 }
 
 export interface RblmCellResult {
@@ -213,6 +233,10 @@ function emptyArm(): RblmArmStats {
     baselineBreakEvenSum: 0,
     baselineBluffNetBB: 0,
     baselineChecks: 0,
+    skillHands: 0,
+    skillFolded: 0,
+    skillNetBB: 0,
+    skillFires: {},
   };
 }
 
@@ -251,7 +275,8 @@ function playArm(
   counters: { illegal: number; truncated: number; brainFallback?: number },
   stats: RblmArmStats,
   seats: RblmSeats,
-  pairIdx: number
+  pairIdx: number,
+  skill: RblmCellOptions = {}
 ): { net: number; trace: HandTrace } {
   const { context, stackBB } = rblmContext(format);
   const hybrid = HORSE_HYBRID_PROFILES[format === 'tournament' ? 'tournament' : 'cash'];
@@ -279,10 +304,18 @@ function playArm(
   };
   let heroRiverBetPending = false;
   let heroCards: Card[] = [];
+  let skillActed = false;
+  const skillFeatures = skill.skillFeatures ?? [];
+  const skillPrefixes = skill.skillPrefixes ?? [];
   const observer: LeagueHandObserver = {
     onAction: (e) => {
       if (e.seatIdx === RBLM_HERO_SEAT) {
         const fires = drainFires();
+        for (const f of fires) {
+          if (skillFeatures.includes(f.feature)) skillActed = true;
+          if (skillPrefixes.some((x) => f.feature.startsWith(x)))
+            stats.skillFires[f.feature] = (stats.skillFires[f.feature] ?? 0) + 1;
+        }
         const baselineBet = fires.some(
           (f) =>
             f.feature.startsWith('river_bluff_baseline_') &&
@@ -338,6 +371,11 @@ function playArm(
         }
       }
       if (trace.baselineCheck) stats.baselineChecks++;
+      if (skillActed) {
+        stats.skillHands++;
+        if (heroLive && e.endedByFolds) stats.skillFolded++;
+        stats.skillNetBB += e.net[RBLM_HERO_SEAT] / BB;
+      }
     },
   };
   drainFires();
@@ -376,8 +414,10 @@ export async function runRiverBluffBaselineCell(
   pool: RblmPool,
   pairs: number,
   seed: number,
-  seats: RblmSeats = RBLM_SEATS
+  seats: RblmSeats = RBLM_SEATS,
+  options: RblmCellOptions = {}
 ): Promise<RblmCellResult> {
+  const arms = options.arms ?? RBLM_ARMS;
   const t0 = Date.now();
   const counters: { illegal: number; truncated: number; brainFallback?: number } = {
     illegal: 0,
@@ -400,7 +440,7 @@ export async function runRiverBluffBaselineCell(
       const handSeed = (seed ^ (p * 2654435761)) >>> 0 || 1;
       const dealerSeat = (p % seats) + 1;
       const ra = playArm(
-        RBLM_ARMS.a,
+        arms.a,
         sbA,
         handSeed,
         dealerSeat,
@@ -410,10 +450,11 @@ export async function runRiverBluffBaselineCell(
         counters,
         a,
         seats,
-        p
+        p,
+        options
       );
       const rb = playArm(
-        RBLM_ARMS.b,
+        arms.b,
         sbB,
         handSeed,
         dealerSeat,
@@ -423,7 +464,8 @@ export async function runRiverBluffBaselineCell(
         counters,
         b,
         seats,
-        p
+        p,
+        options
       );
       if (ra.trace.riverBet) {
         fieldResp += ra.trace.fieldResponses;
