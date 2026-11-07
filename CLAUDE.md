@@ -1438,6 +1438,8 @@ Use configured authenticated Git/GitHub and provider interfaces. Inspect the cur
 
 Use `PUBLISHING.md` for release actions and evidence. Do not bypass hooks with API file writes, use shared-clone scripts, force a production restart, or revive a retired publisher. Report unavailable required access precisely after completing eligible work.
 
+**GitHub identity and owner path (measured 2026-11-07 by this lane; re-check in one call before routing around it, per 10.86).** GitHub reports this repository under the owner `Smarter-Software-PIQ` (renamed from `Smarter-Poker`); the old owner path answers with a redirect to the numeric repository ID, and some proxies refuse API clients that follow it, so prefer the new owner path. The exported fine-grained `GH_TOKEN` can read and push but is refused `mergePullRequest`, `enablePullRequestAutoMerge` and `rerun`. For the merge, PR title or body edits and `gh run rerun <run-id> --failed`, run `gh` with the shell's tokens removed so it uses its own login: `env -u GH_TOKEN -u GITHUB_TOKEN gh ...`. `scripts/agent-push.sh` already does this for the push when `gh` has a login of its own, and keeps the ambient token in a cloud session where it is the only identity. The step-by-step is `PUBLISHING.md`, "Push and protected merge", step 6.
+
 ## 11.5 NEVER SPEND REAL CHIPS TO TEST A RULE (added 2026-08-25, binding)
 
 On 2026-08-25 an agent verified a new `atomic_table_buyin` guard by CALLING IT
