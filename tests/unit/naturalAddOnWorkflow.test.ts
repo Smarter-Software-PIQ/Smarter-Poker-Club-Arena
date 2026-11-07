@@ -7,6 +7,20 @@ const lane = workflow.jobs['live-table-e2e'];
 const origin = workflow.jobs['publication-gate'].steps.find((s: any) => s.id === 'origin');
 const observation = lane.steps.find((s: any) => s.id === 'natural_addon');
 describe('natural add-on is a narrow existing-lane observation', () => {
+  it('aborts spectator away beacons separately and retains the forbidden-write verdict', () => {
+    const source = readFileSync('tests/e2e/production-natural-addon.spec.ts', 'utf8');
+    const away = source.slice(
+      source.indexOf('if (suppressedObserverAway('),
+      source.indexOf('if (forbiddenAddOnParticipation(')
+    );
+    expect(away).toContain('evidence.suppressedAway.push');
+    expect(away).toContain("await route.abort('blockedbyclient')");
+    expect(away).toContain('return;');
+    expect(away).not.toContain('route.continue');
+    expect(source).toContain(
+      "expect(blocked, 'Served spectator attempted a forbidden participation request').toEqual([])"
+    );
+  });
   it('shell admission rejects malformed, null and mixed explicit inputs', () => {
     const script = origin.run;
     const env = {

@@ -13,6 +13,7 @@ import {
   hasNaturalAddOnIncrement,
   forbiddenAddOnParticipation,
   suppressedObserverReward,
+  suppressedObserverAway,
   type AddOnTable,
 } from './support/naturalAddOnWitness';
 
@@ -67,6 +68,7 @@ test('a live table proves tournament-wide add-on count and its public minute', a
     counterChanges: [],
     purchaseSignals: [],
     suppressedRewards: [],
+    suppressedAway: [],
     admissionReads: [],
   };
   async function readBoard() {
@@ -169,6 +171,11 @@ test('a live table proves tournament-wide add-on count and its public minute', a
         body = req.postDataJSON();
       } catch {
         /* Malformed writes remain refused. */
+      }
+      if (suppressedObserverAway(req.method(), requestUrl, account.id, tableId, body)) {
+        evidence.suppressedAway.push({ tableId, operation: '/away', at: Date.now() });
+        await route.abort('blockedbyclient');
+        return;
       }
       if (forbiddenAddOnParticipation(req.method(), requestUrl, account.id, body)) {
         blocked.push({ tableId, transport: 'http', operation: new URL(req.url()).pathname });
