@@ -110,7 +110,9 @@ describe('Same-size public check-raise response read', () => {
       HorseMind.snapshotDecisionReads(players, null)
     );
     const frame = encodeHorseDecisionReads(view, players, null);
-    expect(frame.version).toBe('horse-decision-reads-v8');
+    // The river hands also carry the fast call-down recency window
+    // (2026-11-07), so the frame is v10 with the v8 sidecar inside it.
+    expect(frame.version).toBe('horse-decision-reads-v10');
     const forged = JSON.parse(frame.json);
     forged.riverCalls.find((r: [string, number[]]) => r[0] === 'wide')[1][5] = 101;
     const json = JSON.stringify(forged);
@@ -138,6 +140,8 @@ describe('Same-size public check-raise response read', () => {
       for (const row of map.values()) {
         row.riverTripleCheckRaiseOpps = 0;
         row.riverTripleCheckRaiseFolds = 0;
+        delete row.rvOpps;
+        delete row.rvCalls;
       }
     const v7 = encodeHorseDecisionReads(view, players, null);
     expect(v7.version).toBe('horse-decision-reads-v7');

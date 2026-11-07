@@ -1004,6 +1004,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River bluff multiway'
   ),
   flag(
+    'riverFastCalldown',
+    'the fast call-down read (HorseFastCalldownRead): the river bluff layers (heads-up baseline, its leads, multiway) treat a player whose recent river calling has credibly risen as a station and price with his recent river fold rate; null without recent river evidence; default on, false ablates (2026-11-07)',
+    'River fast call-down'
+  ),
+  flag(
     'riverBluffFixedLimit',
     'fixed-limit path of the baseline river bluff range: the one fixed bet, so a low but real balanced share s/(1+s); default on, false restores the #9803 exclusion (2026-11-07)',
     'River bluff baseline'
@@ -4183,6 +4188,19 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (HorseRiverBluffRange, V11 gate)',
     'out-of-position river leads into the turn bettor: bluff_leadDraw / bluff_leadBlank (a bluff lead on a draw-completing or blank river), skip_station (a candidate checked because the bettor is a credible station), value_pass (the V11 gate let a value hand lead a draw-completing river)',
     'River lead range'
+  ),
+  // No floor: fires only when a river opponent is read as calling down.
+  receipt(
+    'river_fast_calldown_station',
+    'HorseLogic not-facing-a-bet river, heads-up baseline site (HorseFastCalldownRead)',
+    'the fast call-down read made the heads-up river opponent a station for this decision: his recent river call rate is credibly above the edge',
+    'River fast call-down'
+  ),
+  receipt(
+    'river_fast_calldown_station_multiway',
+    'HorseLogic not-facing-a-bet river, multiway site (HorseFastCalldownRead)',
+    'the fast call-down read made one multiway river opponent a station for this decision',
+    'River fast call-down'
   ),
   receipt(
     'river_bluff_hilo_*',

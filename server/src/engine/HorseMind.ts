@@ -111,6 +111,11 @@ import {
   type ExploitCounters,
   type OpponentExploitRead,
 } from './HorseOpponentExploit.js';
+import {
+  fastCalldownRead,
+  observeFastCalldownRiver,
+  type FastCalldownRead,
+} from './HorseFastCalldownRead.js';
 
 /** Match the controller's full-raise marker: an all-in button can be a call
  * or a short raise and must not invent an aggressive read. */
@@ -212,6 +217,14 @@ export interface OpponentStats {
   riverCallSD: number;
   /** ... where the shown hand was one pair or worse (a light call) */
   riverCallSDWeak: number;
+  // ── FAST CALL-DOWN READ (2026-11-07, HorseFastCalldownRead.ts). River-
+  // specific recency: decayed once per river opportunity, not per hand, so
+  // blank hands do not dilute it. Pooled and memory only (never persisted;
+  // HorseMindHydrator's boot replay through observe() rebuilds it).
+  /** decayed river-bet opportunities */
+  rvOpps?: number;
+  /** ... and calls or raises of them */
+  rvCalls?: number;
 }
 
 /** V43: a bet within this many ms of the previous action is a snap. */
@@ -804,6 +817,7 @@ export class HorseMind {
           if (curStage === 'river' && (isRaiseOver || isPassiveResponse)) {
             s.riverBetOpps++;
             if (a.action === 'fold') s.riverBetFolds++;
+            observeFastCalldownRiver(s, a.action !== 'fold');
           }
         }
         if (isAggr) streetBettor = a.userId;
@@ -1077,6 +1091,38 @@ export class HorseMind {
       else noteFire('opponent_memory_donor_fresh');
     }
     return blended;
+  }
+
+  /**
+   * The fast call-down read (HorseFastCalldownRead.ts) of this opponent for
+   * the decision in flight: the river recency window, the same exploit
+   * counters opponentRead is built from (fast and long river windows), and
+   * the lifetime V23 river counters. Null without recent river evidence.
+   * Pure: no random draws, no writes.
+   */
+  static fastCalldownRead(userId: string): FastCalldownRead | null {
+    const scope = this.decisionScope;
+    if (!scope) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const counters = variant
+      ? (this.blendDurableRead(userId, variant, size) ??
+        (this.durableOpponentMemory ? undefined : this.exploitCounters.get(`${scope}|${userId}`)))
+      : this.exploitCounters.get(`${scope}|${userId}`);
+    // The recency window is pooled (like the V7 window); the lifetime
+    // counters are what riverFoldRate reads.
+    const pooled = this.stats.get(userId);
+    const life = this.readStats(userId);
+    return fastCalldownRead({
+      recentRiverOpps: pooled?.rvOpps ?? 0,
+      recentRiverCalls: pooled?.rvCalls ?? 0,
+      fastOpps: Number(counters?.fRiverCallOpp ?? 0),
+      fastCalls: Number(counters?.fRiverCall ?? 0),
+      longOpps: Number(counters?.riverCallOpp ?? 0),
+      longCalls: Number(counters?.riverCall ?? 0),
+      lifetimeOpps: life?.riverBetOpps ?? 0,
+      lifetimeFolds: life?.riverBetFolds ?? 0,
+    });
   }
 
   static opponentRead(userId: string): OpponentExploitRead | null {
@@ -1420,6 +1466,13 @@ export class HorseMind {
         // older than it reads 0, so keep the larger like the V43 reads.
         riverCallSD: keep(existing?.riverCallSD, num(r.riverCallSD)),
         riverCallSDWeak: keep(existing?.riverCallSDWeak, num(r.riverCallSDWeak)),
+        // Memory only: a hydrate never carries it, and never erases it. A
+        // mirrored shard's import (mindMirror) carries it for a new row.
+        ...(existing?.rvOpps !== undefined
+          ? { rvOpps: existing.rvOpps, rvCalls: existing.rvCalls ?? 0 }
+          : r.rvOpps !== undefined
+            ? { rvOpps: num(r.rvOpps), rvCalls: Math.min(num(r.rvCalls), num(r.rvOpps)) }
+            : {}),
       });
       applied++;
     }
