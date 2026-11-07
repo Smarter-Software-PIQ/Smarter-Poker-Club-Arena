@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+import {
+  retireTerminalWelcomeFixture,
+  preparedTerminalStaffClubs,
+} from './reserved-terminal-welcome-fixture.mjs';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -265,6 +269,7 @@ export async function cleanupProductionE2EAccount({
   // The reserved email this job's `create` step exported (SP_EMAIL /
   // FIRST_RUN_EMAIL). Passed by the CLI only.
   expectedEmail,
+  databaseClientFactory,
 } = {}) {
   const path = fixturePath(environment);
   const account = record || (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null);
@@ -294,7 +299,31 @@ export async function cleanupProductionE2EAccount({
 
   const configuration = requireEnvironment(environment);
   if (account.templateFixtureRequest) {
-    await retireProductionCreateClubFixtures({ environment, fetchImpl, wait, record: account });
+    const retainedRetiredClubs = [];
+    await retireProductionCreateClubFixtures({
+      environment,
+      fetchImpl,
+      wait,
+      record: account,
+      retainedRetiredClubs,
+      terminalFixtureOnly: true,
+      databaseClientFactory,
+    });
+    if (retainedRetiredClubs.length) {
+      const receipt = {
+        disposition: 'retained_terminal_fixture_owner',
+        user_id: account.id,
+        email: account.email,
+        club_ids: retainedRetiredClubs,
+        auth_deleted: false,
+        observed_at: new Date().toISOString(),
+      };
+      writeFileSync(`${path}.retained-terminal.json`, `${JSON.stringify(receipt)}\n`, {
+        mode: 0o600,
+      });
+      console.log(`[production-e2e-account] ${JSON.stringify(receipt)}`);
+      return true;
+    }
   }
   // The cleanup door is ONE PostgREST transaction: a lock or statement timeout
   // rolls all of it back, and a replay of a door that already removed the
@@ -1276,6 +1305,7 @@ async function releaseIdleFixtureTableEngines({
 }
 
 export async function retireCertificationClubWithRetry({
+  account,
   configuration,
   clubId,
   reason,
@@ -1309,7 +1339,7 @@ export async function retireCertificationClubWithRetry({
           application_name: 'club-create-certification-retirement',
         });
     await client.connect();
-    const runDoor = async () => {
+    const runDoor = async (terminal = false) => {
       try {
         await client.query('BEGIN');
         await client.query("SET LOCAL statement_timeout = '120s'");
@@ -1320,10 +1350,23 @@ export async function retireCertificationClubWithRetry({
         // transaction. The cleanup RPC still proves the reserved account,
         // fixture name, zero activity and protected IDs.
         await client.query("SET LOCAL app.club_retirement_maintenance = 'on'");
-        const response = await client.query(
-          'SELECT public.fn_ca_retire_welcome_certification_club($1::uuid,$2::text) AS result',
-          [clubId, reason]
-        );
+        if (!terminal && account?.templateFixtureRequest?.clubId === clubId) {
+          const state = await client.query(
+            'SELECT lifecycle_status FROM public.clubs WHERE id=$1::uuid AND owner_id=$2::uuid',
+            [clubId, account.id]
+          );
+          terminal = state.rows?.length === 1 && state.rows[0].lifecycle_status === 'retired';
+        }
+        const response = terminal
+          ? {
+              rows: [
+                { result: await retireTerminalWelcomeFixture({ client, clubId, account, reason }) },
+              ],
+            }
+          : await client.query(
+              'SELECT public.fn_ca_retire_welcome_certification_club($1::uuid,$2::text) AS result',
+              [clubId, reason]
+            );
         await client.query('COMMIT');
         return response.rows?.[0]?.result;
       } catch (error) {
@@ -1343,6 +1386,13 @@ export async function retireCertificationClubWithRetry({
         // An engine lease on an empty opening table is the one "activity" a
         // never-played fixture can carry. Hand it back through the owner's
         // close door, then let the cleanup door re-prove zero activity once.
+        if (
+          error?.code === '55000' &&
+          error?.message === 'WELCOME_CERTIFICATION_BOARD_LINEAGE_REFUSED' &&
+          account?.templateFixtureRequest?.clubId === clubId
+        ) {
+          return await runDoor(true);
+        }
         if (
           error?.code !== '55000' ||
           !String(error?.message || '').includes('WELCOME_CERTIFICATION_FIXTURE_HAS_ACTIVITY')
@@ -1639,6 +1689,7 @@ export async function retireProductionCreateClubFixtures({
   // already left the live board (lifecycle_status 'retired'). See
   // cleanupStaleProductionE2EAccounts. Every other caller keeps the refusal.
   retainedRetiredClubs,
+  terminalFixtureOnly = false,
 } = {}) {
   const path = fixturePath(environment);
   const account = record || (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null);
@@ -1678,7 +1729,8 @@ export async function retireProductionCreateClubFixtures({
   const retained = [];
   for (const club of clubs) {
     try {
-      await retireCertificationClubWithRetry({
+      const result = await retireCertificationClubWithRetry({
+        account,
         configuration,
         clubId: club.id,
         reason,
@@ -1687,6 +1739,7 @@ export async function retireProductionCreateClubFixtures({
         environment,
         databaseClientFactory,
       });
+      if (result?.disposition === 'retained_terminal_fixture_owner') retained.push(String(club.id));
     } catch (error) {
       // A RETIRED FIXTURE THAT KEEPS ITS HISTORY IS FINISHED, NOT FAILED
       // (2026-10-26). "Crest Cert Lobby 01a16659" was retired off the live
@@ -1696,6 +1749,7 @@ export async function retireProductionCreateClubFixtures({
       // every time. Only that exact refusal, only for a club already retired,
       // and only when the stale sweep asks.
       if (
+        !terminalFixtureOnly &&
         Array.isArray(retainedRetiredClubs) &&
         error?.refusal === RETIREMENT_REFUSAL_CLUB_HAS_HISTORY &&
         club.lifecycle_status === 'retired'
@@ -1712,6 +1766,50 @@ export async function retireProductionCreateClubFixtures({
     {},
     fetchImpl
   );
+  if (
+    Array.isArray(remaining) &&
+    remaining.some(
+      (club) =>
+        retained.includes(String(club?.id)) &&
+        (club.lifecycle_status !== 'retired' || club.owner_id !== account.id)
+    )
+  ) {
+    throw new Error('Retained Terminal Fixture Persistence Readback Refused.');
+  }
+  if (retained.length && terminalFixtureOnly) {
+    const memberships = await serviceRequest(
+      configuration,
+      `/rest/v1/club_members?user_id=eq.${encodeURIComponent(account.id)}&select=club_id,user_id,role,status`,
+      {},
+      fetchImpl
+    );
+    if (
+      !Array.isArray(memberships) ||
+      memberships.length !== 1 ||
+      memberships[0].user_id !== account.id ||
+      memberships[0].role !== 'owner' ||
+      !retained.includes(String(memberships[0].club_id))
+    ) {
+      throw new Error('Retained Terminal Fixture Still Holds Nonhistorical Membership Authority.');
+    }
+    const authorityChecks = [
+      ...preparedTerminalStaffClubs.map((club) => ['fn_club_is_staff', club]),
+      ...[...preparedTerminalStaffClubs, ...retained].map((club) => ['fn_can_create_games', club]),
+    ];
+    const authority = await Promise.all(
+      authorityChecks.map(([rpc, club]) =>
+        serviceRequest(
+          configuration,
+          `/rest/v1/rpc/${rpc}`,
+          { method: 'POST', body: JSON.stringify({ p_club_id: club, p_user_id: account.id }) },
+          fetchImpl
+        )
+      )
+    );
+    if (authority.some((allowed) => allowed !== false)) {
+      throw new Error('Retained Terminal Fixture Live Authority Readback Refused.');
+    }
+  }
   const left = Array.isArray(remaining)
     ? remaining.filter((club) => !retained.includes(String(club?.id)))
     : null;
@@ -1720,7 +1818,12 @@ export async function retireProductionCreateClubFixtures({
       `Certification left ${left ? left.length : 'an unreadable number of'} owned club fixture(s) behind.`
     );
   }
-  if (retained.length) retainedRetiredClubs.push(...retained);
+  if (retained.length) {
+    if (!Array.isArray(retainedRetiredClubs)) {
+      throw new Error('Terminal Fixture Retired With History; Retained Owner Receipt Is Required.');
+    }
+    retainedRetiredClubs.push(...retained);
+  }
   console.log(
     `[production-e2e-account] retired and verified ${clubs.length - retained.length} Create Club fixture(s)` +
       (retained.length
@@ -1812,8 +1915,7 @@ export async function createProductionE2EAccount({
   }
 }
 
-async function main() {
-  const command = process.argv[2];
+export async function main(command = process.argv[2], options = {}) {
   if (command === 'create') return createProductionE2EAccount();
   if (command === 'create-first-run') return createProductionE2EAccount({ firstRun: true });
   if (command === 'cleanup-first-run')
@@ -1825,7 +1927,25 @@ async function main() {
   if (command === 'prepare-spectator') return prepareProductionE2ESpectatorMembership();
   if (command === 'prepare-lightning-staff') return prepareProductionE2ELightningMembership();
   if (command === 'prepare-template-staff') return prepareProductionE2ETemplateFixture();
-  if (command === 'retire-create-clubs') return retireProductionCreateClubFixtures();
+  if (command === 'retire-create-clubs') {
+    const retainedRetiredClubs = [];
+    const retired = await retireProductionCreateClubFixtures({
+      ...options,
+      retainedRetiredClubs,
+      terminalFixtureOnly: true,
+    });
+    if (retainedRetiredClubs.length) {
+      console.log(
+        `[production-e2e-account] ${JSON.stringify({
+          disposition: 'retained_terminal_fixture_owner',
+          club_ids: retainedRetiredClubs,
+          records_retained: true,
+          auth_deleted: false,
+        })}`
+      );
+    }
+    return retired;
+  }
   if (command === 'cleanup')
     return cleanupProductionE2EAccount({ expectedEmail: process.env.SP_EMAIL });
   // The hourly Cert Residue Sweep (.github/workflows/cert-residue-sweep.yml):
