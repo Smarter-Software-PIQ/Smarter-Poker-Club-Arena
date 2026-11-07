@@ -147,8 +147,15 @@ describe('MTT schedule upgrade', () => {
     });
     expect(tournamentClockLine(e, now)?.text).toBe('Late Reg Ends In 75:30');
     expect(tournamentClockLine({ ...e, raw: { ...e.raw, started_at: null } }, now)).toBeNull();
-    expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: 1 } }, now)).toBeNull();
-    expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: null } }, now)).toBeNull();
+    /* Re-pinned 2026-11-06. Dan: "FIX IT SO IT ALWAYS SHOWS THE COUNT DOWN".
+       A later level with no stamp yet is estimated from the actual start plus
+       the levels already played, instead of blanking the card. */
+    expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: 1 } }, now)?.text).toBe(
+      'Late Reg Ends In 75:30'
+    );
+    expect(tournamentClockLine({ ...e, raw: { ...e.raw, current_level: null } }, now)?.text).toBe(
+      'Late Reg Ends In 75:30'
+    );
   });
   it('shows no live countdown for terminal events or missing start clocks', () => {
     expect(tournamentClockLine(event('completed', { status: 'COMPLETED' }), now)).toBeNull();
