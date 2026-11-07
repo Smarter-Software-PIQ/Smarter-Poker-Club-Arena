@@ -657,8 +657,6 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       ['Certified V31 PostgreSQL 17 behavior gate', 4, 7],
       // November 6 rebalance (run 42338709472): unchanged suites and their
       // evidence steps moved off the 34-minute shard 3 and 25-minute shard 1.
-      ['Scoped launch reset preserves original money and reporting owners', 1, 7],
-      ['Retain scoped launch reset qualification', 1, 7],
       ['Backed payout discovery preserves every conservation term', 3, 2],
       ['Concurrent hands preserve shared F06 custody lanes', 3, 2],
       ['Retain F06 hand and generation disposition proof', 3, 2],

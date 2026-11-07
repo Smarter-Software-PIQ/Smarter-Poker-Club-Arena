@@ -25,7 +25,7 @@ describe('The scoped launch qualifies its provider policy lock dependency', () =
     expect(steps).toHaveLength(1);
     const step = steps[0];
     expect(step.id).toBe('scoped_launch_reset');
-    expect(step.if).toBe('matrix.shard == 7');
+    expect(step.if).toBe('matrix.shard == 1');
     expect(step['continue-on-error']).toBeUndefined();
     expect(step.run).toContain('--candidate "$launch_candidate"');
     expect(step.run).toContain('--pg-module node_modules/pg/lib/index.js');

@@ -567,7 +567,7 @@
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
-    "tests/fixtures/legacy-fee-finality/source-binding.json": "4d4880d700199a131a89dd009dc36aec8746c1c721d50505effdc79cedc44f39",
+    "tests/fixtures/legacy-fee-finality/source-binding.json": "978d4619b6f973086b46e098512cb2445dd680505b2f63fe0912ab2472c1dafd",
     "tests/fixtures/sep8-spin-custody/build-candidate.py": "dc929d5df9801fbeb26c1b331fd3836b22069726e00d86c4f75401ab2b55fd4a",
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/player-finality.sql": "627be40d0634d483e2cdc421055e8eb72f9d95c22e36ab81e659b725a9db1b6e",
@@ -585,7 +585,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "578e3ffc8d0e73a185c45b0bbe8346ebecf50937abcfe0e3544326bfa9c9fa1b",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "81cf89fc26745f2f8f607dc86fc7bd8fd4fd1f161b1b13fb3a5823292a342542",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -625,7 +625,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "a3bf2043a76bcdfe29e2e90624e2ce3402aa5532ee02da04304f46efe3e74380",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "5c21ec3d6d562ba15ef0298dead7d82013d42f8e1f41b1a75b14e5987098fdd1",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -638,7 +638,7 @@
     "scripts/ci/test-commission-club-history-postgres.py": "599055bb43ca0137bdde9c9d60dca9a4e8c6f1cf729ff849190ca74ff90b8bf3",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "48c109aefcfe783317f56af5bd1314b03696066304046f52d5e0bc9fbc97e6b6"
+    "scripts/qualification/ci-accounting-inputs.json": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -8125,35 +8125,34 @@
     ]
   },
   "accountingShardRebalance20261106": {
-    "reason": "Reviewed accounting shard rebalance (run 42338709472 measured shards 1..7 at 1530/534/1967/992/728/683/170s). Fourteen unchanged suites and their evidence steps change only their matrix.shard routing (1->7, 3->2, 3->5, 3->6); every command, environment, timeout, artifact and financial input is identical. Regenerated with qualification-input-projections.py --write.",
-    "path": "scripts/qualification/ci-accounting-inputs.json",
-    "previous": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c",
-    "current": {
-      "sha256": "48c109aefcfe783317f56af5bd1314b03696066304046f52d5e0bc9fbc97e6b6",
-      "bytes": 144234
-    },
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false,
-    "nestedBindingRestamps": [
+    "reason": "Reviewed accounting shard rebalance (run 42338709472 measured shards 1..7 at 1530/534/1967/992/728/683/170s). Thirteen unchanged suites and their evidence steps change only their matrix.shard routing (3->2, 3->5, 3->6); every command, environment, timeout, artifact and financial input is identical. The scoped launch reset stays on shard 1 (run 42344546975 proved its server-header build and root install are shard-1 prerequisites). Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "repository_fixtures",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c",
+        "current": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b"
+      },
       {
         "section": "repository_fixtures",
         "path": "tests/fixtures/earlybird-fee-custody/source-binding.json",
         "previous": "e40900499a6c5e7a9dd9a159ac984f99b4e6a26917e289557da1ae6064da2473",
-        "current": "a3bf2043a76bcdfe29e2e90624e2ce3402aa5532ee02da04304f46efe3e74380"
+        "current": "5c21ec3d6d562ba15ef0298dead7d82013d42f8e1f41b1a75b14e5987098fdd1"
       },
       {
         "section": "repository_fixtures",
         "path": "tests/fixtures/legacy-fee-finality/source-binding.json",
         "previous": "2b254559546b5b9e475540cefe016e2d994ad87f74a0628edb0d73d94f54d963",
-        "current": "4d4880d700199a131a89dd009dc36aec8746c1c721d50505effdc79cedc44f39"
+        "current": "978d4619b6f973086b46e098512cb2445dd680505b2f63fe0912ab2472c1dafd"
       },
       {
         "section": "repository_fixtures",
         "path": "tests/fixtures/sep8-spin-custody/source-binding.json",
         "previous": "ef530b3805ff91cd5a62fb5bd36e8a586e7adf14ff89b6814ca4e529a1b8c261",
-        "current": "578e3ffc8d0e73a185c45b0bbe8346ebecf50937abcfe0e3544326bfa9c9fa1b"
+        "current": "81cf89fc26745f2f8f607dc86fc7bd8fd4fd1f161b1b13fb3a5823292a342542"
       }
     ],
-    "nestedReason": "These nested binding files changed only by adding their own accountingShardRebalance20261106 audit entry and restamping the reviewed ci-accounting-inputs.json pin; no fixture, assertion or historical evidence changed."
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
   }
 }

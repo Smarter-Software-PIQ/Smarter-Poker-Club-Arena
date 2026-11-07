@@ -1457,15 +1457,20 @@ jobs:
     # This balances measured work; it is not a promised future duration.
     # November 6 run 42338709472: shards 1..7 took 1530/534/1967/992/728/
     # 683/170s of suite time, so every server pull request waited 34m on
-    # shard 3 while shard 7 finished in 3m. Moved, unchanged and each with its
-    # own evidence step: scoped launch reset 1->7; backed payout discovery,
+    # shard 3 while shard 7 finished in 3m. The scoped launch reset stays on
+    # shard 1: it compiles against the server headers only shard 1's
+    # installer provides, and its root npm install is what the later
+    # on-time-start step there loads (proved by run 42344546975, where moving
+    # it failed both). Moved, unchanged and each with its own evidence step:
+    # backed payout discovery,
     # F06 shared hand lanes and atomic departures 3->2; horse settlement-key
     # and adaptive-statistics retention, Midway weekly promo and first-week
     # aggregate 3->5; committed-page and bucket inventory seals, original
     # inventory restoration, downline rake scope, superseded horse actions
     # and the accepted roster 3->6. None uses the isolation tester, pg_net or
-    # pg_cron. Predicted maximum ~1294s (shard 3: Lightning stays whole and
-    # the isolation-tester suites stay with their tool) instead of 1967s.
+    # pg_cron. Predicted maximum ~1530s (shard 1, unchanged) instead of
+    # 1967s; shard 3 drops to ~1294s with Lightning whole and the
+    # isolation-tester suites kept with their tool.
     # tests/ci-tells-the-truth-faster.law.test.ts pins the split:
     # every suite step belongs to exactly one shard.
     strategy:
@@ -1715,7 +1720,7 @@ jobs:
         run: python3 -B -m unittest discover -s scripts/ci -p test_native_supabase_export.py
       - name: Scoped launch reset preserves original money and reporting owners
         id: scoped_launch_reset
-        if: matrix.shard == 7
+        if: matrix.shard == 1
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
@@ -1735,7 +1740,7 @@ jobs:
           python3 -B scripts/ci/test_launch_reset_floor_admission.py --candidate "$launch_candidate" --fixture scripts/ci/fixtures/launch-reset/accounting/floor-admission-qualification.sql --work-root "$RUNNER_TEMP" --pg-bin "$PG_BIN"
           python3 -B scripts/ci/test_launch_reset_floor.py --candidate-migration "$launch_candidate" --pgbin "$PG_BIN" --scratch "$RUNNER_TEMP" --output "$PROBE_EVIDENCE/floor.json"
       - name: Retain scoped launch reset qualification
-        if: always() && matrix.shard == 7 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.scoped_launch_reset.outcome)
+        if: always() && matrix.shard == 1 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.scoped_launch_reset.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: scoped-launch-reset-${{ github.run_id }}-${{ github.run_attempt }}

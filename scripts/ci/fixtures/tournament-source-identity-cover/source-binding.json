@@ -25,7 +25,7 @@
     "scripts/ci/migration-concurrent-preamble.mjs": "c50bc71b5c1234a6d505e9125de5744d04a3f97113025550f9eeb53f8b9bd8d6",
     "scripts/ci/test-tournament-source-identity-cover-postgres.py": "8e26f6c6bbd36a77d7f743e696358d9dcd616eaf41ef564b64ac716c67cb6d01",
     "supabase/migrations/20261029020140_weekly_fee_source_identities_retain_their_tournament_and_rak.sql": "062ca87b4f99f5f42860fa3ee2ec91302d56ed9c9e9aec1c62f83111c4d5b7b0",
-    "tests/tournament-source-identities-keep-narrow-physical-coverage.law.test.ts": "f126599dd79ca7cc3d1481327171e92e60d67035630d5bdb7b787500261601f4"
+    "tests/tournament-source-identities-keep-narrow-physical-coverage.law.test.ts": "6ed10fe466e78fec94cebcd3b1f005d73183908f52cae2dad52897832da59715"
   },
   "normalPrecommitFormattingAudit": {
     "review": "Normal pre-commit Prettier reformatted only JSON object layout; complete parsed authority and meaningful contract values are unchanged from native33 inputs. No migration/runner/query/workflow change.",
@@ -108,16 +108,5 @@
     "before": "9f8decd52f72c8894baf565f3aa150397cc10bca2489f3b1b0812d2f91caf307",
     "after": "0dd358e7bffd316e32a55c691125b6a21f08d9fb076c86624f4c3fec425e7c81",
     "review": "Ordinary post-preamble transaction now uses the existing12second PostgreSQL17 bound; incompatible explicit overrides refused before send. Concurrent index preamble and exact qualified special routes unchanged. Historical qualification inputs/results retained without financial restamp. Actual TLS installer final native fixture passes rollback/waiting-writer, atomic history, unknown ACK and all special-route controls. This source audit does not certify production index-build capacity. Budget also bound by SET LOCAL on the owning backend, preserving transaction-pooler affinity."
-  },
-  "accountingShardRebalance20261106": {
-    "reason": "Reviewed one-line routing update: the scoped launch reset floor step and its retention step moved from accounting shard 1 to shard 7 in the shard rebalance; the assertions now name shard 7. No financial input, fixture, assertion strength or historical evidence changes.",
-    "path": "tests/tournament-source-identities-keep-narrow-physical-coverage.law.test.ts",
-    "previous": "6ed10fe466e78fec94cebcd3b1f005d73183908f52cae2dad52897832da59715",
-    "current": {
-      "sha256": "f126599dd79ca7cc3d1481327171e92e60d67035630d5bdb7b787500261601f4",
-      "bytes": 5506
-    },
-    "historicalEvidenceRestamped": false,
-    "qualificationStateChanged": false
   }
 }

@@ -20,7 +20,7 @@ describe('maintenance admission stays in the existing required installer qualifi
     expect(classifyChangedPaths([path])).toMatchObject({ server: true, tests: true });
   });
 
-  it('runs one checked finite child through the existing shard-seven installer step', () => {
+  it('runs one checked finite child through the existing shard-one installer step', () => {
     const driver = read('scripts/ci/test_launch_reset_installer.py');
     expect(driver.match(/maintenance-write-admission\/qualify\.py/g)).toHaveLength(1);
     const child = driver.slice(driver.indexOf('maintenance-write-admission/qualify.py'));
@@ -35,7 +35,7 @@ describe('maintenance admission stays in the existing required installer qualifi
       step.run?.includes('scripts/ci/test_launch_reset_installer.py')
     );
     expect(steps).toHaveLength(1);
-    expect(steps[0].if).toBe('matrix.shard == 7');
+    expect(steps[0].if).toBe('matrix.shard == 1');
     expect(steps[0]['continue-on-error']).toBeUndefined();
     expect(steps[0].run).toContain('set -euo pipefail');
   });
