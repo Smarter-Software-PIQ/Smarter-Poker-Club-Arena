@@ -1,4 +1,5 @@
 import {
+  checkedToNonBottomBoat,
   checkedToNonBottomRiverBoat,
   checkedToOnePairAboveFlush,
 } from './HorseNonBottomRiverValue.js';
@@ -6019,10 +6020,10 @@ export class HorseLogic {
         player,
         gs
       );
-      // Price missed checked-to river value against the controller's menu.
+      // Price missed checked-to turn boat and river value against the controller's menu.
       if (
         finalWager.action === 'check' &&
-        gs.stage === 'river' &&
+        (gs.stage === 'turn' || gs.stage === 'river') &&
         gs.stateSchemaVersion === 1 &&
         !gs.wagersCapped &&
         gs.toCall === 0 &&
@@ -6041,7 +6042,7 @@ export class HorseLogic {
             !p.is_all_in &&
             p.stack > 0
         ) &&
-        (checkedToNonBottomRiverBoat(player, gs) || checkedToOnePairAboveFlush(player, gs))
+        (checkedToNonBottomBoat(player, gs) || checkedToOnePairAboveFlush(player, gs))
       ) {
         const amount = Math.min(
           gs.maxRaiseTo!,
