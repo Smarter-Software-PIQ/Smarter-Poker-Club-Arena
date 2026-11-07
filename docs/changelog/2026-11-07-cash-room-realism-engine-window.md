@@ -21,6 +21,8 @@ window):
   without dodging the hit-and-run rule.
 - #9929 (`4a7dfd6df7`): several lists, a table fills from its list in order,
   visible table breaks.
+- #9955 (`daf9d355c7`): regulars keep a weekly pattern and a home game, and
+  think longer on big decisions.
 
 ## The window
 
@@ -28,7 +30,8 @@ window):
 
 - `owner-maintenance-windows.json`: one new engine entry, earliest-certified,
   `supersedesPhase1Schedule`, no migrations, 22:30Z to 04:30Z, `contains`
-  `4a7dfd6df7`, release witness = sha256 of the new floor.
+  `daf9d355c7` (#9955, horse regulars and timing, which descends from #9929
+  `4a7dfd6df7`), release witness = sha256 of the new floor.
 - `playerNoticeAt` 22:10Z (twenty minutes before `notBefore`, the booked-window
   notice law from #9952); `src/utils/ownerMaintenanceNotices.json` regenerated so
   the client banner names the window. The release is dispatched only after the

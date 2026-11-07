@@ -26,7 +26,7 @@ CERTIFIED_END = 1793854800
 # The owner authorized only this single exception to the daily schedule (#9857).
 NOV7_OWNER_ID = '2026-11-07-cash-room-realism-engine-2230z'
 NOV7_MANIFEST_DIGEST = '4e75ef16ef642d53e69139e045cabd23064a5baa55a50d0e2f13c5272ce22769'
-NOV7_ORDER_DIGEST = 'e7dece7c16af8a630358492f75872e1710dfcc9b3538c926099cfdc5bc2708a4'
+NOV7_ORDER_DIGEST = '990c9ccdeb5e42b95176194099f2dac8557e207e6a7656c80c9ce8f2d481bad3'
 
 
 
