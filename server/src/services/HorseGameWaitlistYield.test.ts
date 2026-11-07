@@ -16,6 +16,7 @@ import {
   gameQueueKey,
   servedKeys,
   tickServesGameList,
+  gameListNeedsYield,
   yieldTableForGame,
   type GameWaitGame,
   type GameWaitRow,
@@ -105,10 +106,11 @@ describe('the attribution: one game-list person, one table, once', () => {
     expect(attribute([row({ user_id: HORSE_WAITER })]).size).toBe(0);
   });
 
-  it('an ordinary must-move game, whose tick opens tables for its list, is not counted again', () => {
+  it('an ordinary must-move game is counted too: its tick can no longer open a table (2026-11-06)', () => {
     expect(tickServesGameList(mustMoveGame)).toBe(true);
     expect(tickServesGameList(lightningGame)).toBe(false);
-    expect(attribute([row({ game_id: MUSTMOVE })]).size).toBe(0);
+    expect(gameListNeedsYield(mustMoveGame)).toBe(true);
+    expect(gameListNeedsYield({ ...mustMoveGame, enabled: false })).toBe(false);
   });
 
   it('a disabled game is not counted: no offer would follow the vacancy', () => {

@@ -1,0 +1,6 @@
+{
+  "_owner": "fix/free-buy-tickets-are-shown-and-refusals-are-clear",
+  "_comment": "Migration 20261107043307: a player reads the Free Buy ticket book of the gaming day an event's registration draws on.",
+  "tables": [],
+  "functions": ["fn_ca_free_buy_tickets_for_event"]
+}

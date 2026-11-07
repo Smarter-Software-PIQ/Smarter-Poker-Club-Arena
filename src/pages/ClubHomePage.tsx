@@ -4806,6 +4806,54 @@ function ClubHomePageContent({
     };
   }, [fullTableKey]);
 
+  /**
+   * How many people are on each must-move GAME's list (Dan 2026-11-06: "IT
+   * LOOKS FAKE WHEN THERE ARE ... ZERO PLAYERS ON THE WAITING LIST"). A game's
+   * list is `cash_game_waitlist`, readable only row-by-row by its own player,
+   * so the counts come from fn_cash_game_waiting_counts - counts only, no
+   * names. Refreshed every 20 seconds while the board is open; a failed read
+   * keeps the previous counts (stale beats wrong-empty, as above).
+   */
+  const [gameWaitCounts, setGameWaitCounts] = useState<Map<string, number>>(new Map());
+  const clusterGameKey = useMemo(
+    () =>
+      [
+        ...new Set(
+          tables
+            .map((t) => (t as unknown as { cluster_id?: string | null }).cluster_id)
+            .filter((id): id is string => Boolean(id))
+        ),
+      ]
+        .sort()
+        .join(','),
+    [tables]
+  );
+  useEffect(() => {
+    const ids = clusterGameKey ? clusterGameKey.split(',') : [];
+    if (!ids.length) {
+      setGameWaitCounts((prev) => (prev.size === 0 ? prev : new Map()));
+      return;
+    }
+    let cancelled = false;
+    const load = () =>
+      void waitlistService.gameCountsFor(ids).then((counts) => {
+        if (!cancelled && counts !== null) setGameWaitCounts(counts);
+      });
+    load();
+    const timer = window.setInterval(load, 20_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [clusterGameKey]);
+  const waitingFor = useCallback(
+    (row: { id: string; cluster_id?: string | null }) =>
+      row.cluster_id
+        ? (gameWaitCounts.get(row.cluster_id) ?? 0)
+        : (waitlistCounts.get(row.id) ?? 0),
+    [gameWaitCounts, waitlistCounts]
+  );
+
   const entryCacheRef = useRef<Map<string, { sig: string; entry: LobbyEntry }>>(new Map());
 
   const lobbyEntries = useMemo<LobbyEntry[]>(() => {
@@ -4819,7 +4867,7 @@ function ClubHomePageContent({
       /* The waitlist count is not on the row, so it has to be part of the
          signature or a card would keep a stale "Waitlist 2" after the third
          player joined. */
-      const sig = `${JSON.stringify(row)}|${waitlistCounts.get(row.id) ?? 0}|${clubKey}`;
+      const sig = `${JSON.stringify(row)}|${waitingFor(row as { id: string; cluster_id?: string | null })}|${clubKey}`;
       const hit = prev.get(row.id);
       const entry =
         hit && hit.sig === sig ? hit.entry : withClubLabel(build(row), club?.id, clubNames);
@@ -4835,9 +4883,7 @@ function ClubHomePageContent({
        other tables are never rows of their own. */
     let cash = filteredTables
       .filter((t) => !isHiddenClusterMember(t as unknown as LobbyTableRow))
-      .map((t) =>
-        stable(t as unknown as LobbyTableRow, (r) => cashEntry(r, waitlistCounts.get(r.id) ?? 0))
-      );
+      .map((t) => stable(t as unknown as LobbyTableRow, (r) => cashEntry(r, waitingFor(r))));
     entryCacheRef.current = next;
     /* The Favorites control lives in the sticky rail and is hidden on ALL - so leaving the filter applied there stripped the board to two
        tables with no control anywhere on screen to undo it, and only a reload
@@ -4904,6 +4950,7 @@ function ClubHomePageContent({
     favoriteGameIds,
     gameType,
     waitlistCounts,
+    waitingFor,
     club?.id,
     clubNames,
     linkedGameId,

@@ -248,6 +248,100 @@ describe('post-deploy E2E concurrency', () => {
       }
     });
 
+    describe('stands down when nothing reached the origin (2026-11-06)', () => {
+      const completed = (name: string, conclusion = 'success') => ({
+        name,
+        status: 'completed',
+        conclusion,
+        steps: [] as { name: string }[],
+      });
+      // Actual publisher 42334130968: nothing to publish, nothing built.
+      const notNeeded = [
+        completed('publish-needed'),
+        completed('client-publication / admit'),
+        completed('client-publication / Validate The Selected Client Publication Source'),
+        completed('production', 'skipped'),
+        completed('build-record-gateway', 'skipped'),
+        completed('client-publication / build-and-store', 'skipped'),
+        completed('client-publication / production', 'skipped'),
+      ];
+      // Actual publisher 42334609554 attempt 1: one client test failed,
+      // three were cancelled, production never started.
+      const failedTests = [
+        completed('publish-needed'),
+        completed('client-publication / admit'),
+        completed('client-publication / Validate The Selected Client Publication Source'),
+        completed('build-record-gateway', 'skipped'),
+        completed('production', 'skipped'),
+        completed('client-publication / build-and-store'),
+        ...Array.from({ length: 16 }, (_, i) =>
+          completed(
+            `client-publication / client-tests (${i + 1})`,
+            i === 8 ? 'failure' : [2, 9, 12].includes(i) ? 'cancelled' : 'success'
+          )
+        ),
+        completed('client-publication / production', 'skipped'),
+      ];
+      const payloadOf = (jobs: ReturnType<typeof completed>[]) => ({
+        total_count: jobs.length,
+        jobs,
+      });
+
+      it('A: a publisher that decided no publish was needed is a non-verdict', () => {
+        const result = verdict(payloadOf(notNeeded), 'success');
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.output).toBe('');
+      });
+
+      it('B: a publisher that failed in preparation is a non-verdict', () => {
+        const result = verdict(payloadOf(failedTests), 'failure');
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.output).toBe('');
+      });
+
+      it('still refuses every shape that could hide a publish or a writer fault', () => {
+        const swap = (jobs: ReturnType<typeof completed>[], name: string, next: object) =>
+          jobs.map((job) => (job.name === name ? { ...job, ...next } : job));
+        const refusals: Array<[string, ReturnType<typeof completed>[], string]> = [
+          // A built bundle with production skipped on a "successful" run.
+          [
+            'built but unpublished success',
+            swap(notNeeded, 'client-publication / build-and-store', { conclusion: 'success' }),
+            'success',
+          ],
+          // Production executed a step: the origin may have moved.
+          [
+            'production started',
+            swap(failedTests, 'client-publication / production', {
+              conclusion: 'cancelled',
+              steps: [{ name: 'Started transaction' }],
+            }),
+            'failure',
+          ],
+          // A failure that is not a known preparation job.
+          [
+            'unknown failed job',
+            [...failedTests.slice(0, -1), completed('mystery-writer', 'failure')],
+            'failure',
+          ],
+          // The production caller itself failed.
+          [
+            'production failed',
+            swap(failedTests, 'client-publication / production', { conclusion: 'failure' }),
+            'failure',
+          ],
+          // A failure shape is not admitted under a different source verdict.
+          ['failed tests on a success source', failedTests, 'success'],
+          ['no-publish shape on a failure source', notNeeded, 'failure'],
+        ];
+        for (const [label, jobs, conclusion] of refusals) {
+          const refused = verdict(payloadOf(jobs), conclusion);
+          expect(refused.status, label).toBe(1);
+          expect(refused.output, label).toBe('');
+        }
+      });
+    });
+
     it('still certifies a real publish and a safe forward stand-down', () => {
       for (const payload of [
         { total_count: 1, jobs: [originJob('success', 'success')] },

@@ -61,5 +61,5 @@ export function lightningDealPresentationMs(dealtSeats: number): number {
     Math.min(LIGHTNING_DEAL_CARD_STAGGER_MS, fit)
   );
   const deal = (cards - 1) * stagger + LIGHTNING_DEAL_FLIGHT_MS + LIGHTNING_DEAL_SETTLE_MS;
-  return Math.min(LIGHTNING_DEAL_HOLD_CEILING_MS, HAND_COMPLETION.BUTTON_MOVE_MS + deal);
+  return Math.min(LIGHTNING_DEAL_HOLD_CEILING_MS, HAND_COMPLETION.BUTTON_TO_DEAL_MS + deal);
 }

@@ -76,6 +76,7 @@ function table(opts: { parks: boolean; heldOriginal: boolean; running?: boolean 
     isRunning: () => opts.running ?? true,
     parkForTerminalCloseout: vi.fn(async () => opts.parks),
     isPreparedOriginalHeldAtTerminalCloseout: vi.fn(() => state.held),
+    getF06RetainedPermit: () => ({ binding: { permit_id: id(5), hand_number: '1' } }),
     releaseTerminalCloseoutPause: vi.fn(),
   };
 }

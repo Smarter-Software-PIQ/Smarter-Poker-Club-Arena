@@ -4681,6 +4681,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     }
   }
 
+  /**
+   * The latest wall-clock failsafe the reveal gates placed on each table, so
+   * the table's last finished chest gives back exactly that hold.
+   */
+  private readonly bountyGateFailsafeHolds = new Map<string, number>();
+
   /** Close the table's dealing gate for one award. Never throws. */
   private openBountyGate(tableId: string | null, awardId: string, deadlineMs: number): void {
     if (!tableId) return;
@@ -4692,18 +4698,42 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       // that predates the gate still stops on this one, and it is what the
       // spin wheel already uses so the two cannot fight.
       engine.holdDealingUntil(deadlineMs);
+      this.bountyGateFailsafeHolds.set(
+        tableId,
+        Math.max(this.bountyGateFailsafeHolds.get(tableId) ?? 0, deadlineMs)
+      );
     } catch {
       /* the hold is presentation; never let it break the payout path */
     }
   }
 
-  /** Re-open the table's dealing gate. */
+  /**
+   * Re-open the table's dealing gate.
+   *
+   * A CHEST THAT HAS FINISHED HOLDS NOTHING (Dan 2026-11-06, "I ONLY CARE HOW
+   * LONG IT TAKES TO START THE NEXT HAND DEAL AFTER THE POT IS PUSHED"). This
+   * used to release only the count gate. The failsafe deadline above stood
+   * until it expired on its own: coalesce + chest + 15 s, about 30 s, while the
+   * chest itself is about 15 s. Production 2026-11-06: every knockout at the
+   * Union and Evening Mystery Bounty final tables waited 34-35 s for its next
+   * hand. The failsafe is now given back with its gate. releaseDealingHold
+   * only clears the deadline still in force, so a later award's deadline, the
+   * spin wheel, a booked start or an add-on break is never shortened, and an
+   * award whose settle path died still has its failsafe.
+   */
   private closeBountyGate(tableId: string | null, awardId: string): void {
     if (!tableId) return;
     const engine = this.tableEngines.get(tableId);
     if (!engine) return;
     try {
       engine.endBountyReveal(awardId);
+      // Only once no other chest still holds this table, and only the latest
+      // deadline any of its chests placed, whatever order they finished in.
+      const failsafe = this.bountyGateFailsafeHolds.get(tableId);
+      if (failsafe !== undefined && !engine.hasOpenBountyReveal()) {
+        this.bountyGateFailsafeHolds.delete(tableId);
+        engine.releaseDealingHold(failsafe);
+      }
     } catch {
       /* nothing to release */
     }
@@ -6074,15 +6104,23 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     try {
       let state = await readState();
       const cleanCommitted = async (): Promise<boolean> => {
-        if (state.state === 'completed') {
-          await this.cleanupCommittedSatelliteQualifiers(state.receipt);
-          return true;
+        const outcome = state.state;
+        switch (outcome) {
+          case 'completed':
+            await this.cleanupCommittedSatelliteQualifiers(state.receipt);
+            return true;
+          case 'completed_single_winner':
+            await this.cleanupCommittedSatellite(state.receipt);
+            return true;
+          case 'entry_open':
+          case 'continuing':
+          case 'qualifying':
+          case 'unresolved':
+            return false;
+          default:
+            outcome satisfies never;
+            throw new Error('Unknown satellite qualifier outcome');
         }
-        if (state.state === 'completed_single_winner') {
-          await this.cleanupCommittedSatellite(state.receipt);
-          return true;
-        }
-        return false;
       };
       if (await cleanCommitted()) return 'complete';
       if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
@@ -6154,7 +6192,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           tableId: table.id,
           engine: this.tableEngines.get(table.id),
         }));
-        const heldPreparedOriginals = new Set<string>();
+        const heldPreparedOriginals = new Map<
+          ServerTableEngine,
+          { permit_id: string; hand_number: string }
+        >();
         for (const { tableId, engine } of owned) {
           if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
             return pending('manager_not_running_or_frozen_or_out_of_budget_while_parking');
@@ -6206,7 +6247,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           if (!(await engine.parkForTerminalCloseout(0))) {
             if (!engine.isPreparedOriginalHeldAtTerminalCloseout())
               return pending(`table_${tableId.slice(0, 8)}_hand_in_flight`);
-            heldPreparedOriginals.add(tableId);
+            const original = engine.getF06RetainedPermit()?.binding;
+            if (!original?.permit_id || !original.hand_number)
+              return pending(`table_${tableId.slice(0, 8)}_held_original_has_no_permit_identity`);
+            heldPreparedOriginals.set(engine, original);
           }
         }
         // All accepted writers and in-flight hands are drained now. The
@@ -6270,19 +6314,17 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
          * second read; one that changed (it started, or lost its gate) keeps
          * the boundary for every field, exactly as before.
          */
-        if (
-          !fieldContinues &&
-          heldPreparedOriginals.size > 0 &&
-          ((state.state !== 'entry_open' &&
-            state.state !== 'continuing' &&
-            state.state !== 'qualifying') ||
-            owned.some(
-              ({ tableId, engine }) =>
-                heldPreparedOriginals.has(tableId) &&
-                engine?.isPreparedOriginalHeldAtTerminalCloseout() !== true
-            ))
-        )
-          return pending('held_original_changed_shape_during_second_read');
+        if (!fieldContinues) {
+          for (const [engine, original] of heldPreparedOriginals) {
+            const current = engine.getF06RetainedPermit()?.binding;
+            if (
+              !engine.isPreparedOriginalHeldAtTerminalCloseout() ||
+              current?.permit_id !== original.permit_id ||
+              current.hand_number !== original.hand_number
+            )
+              return pending('held_original_changed_shape_during_second_read');
+          }
+        }
         if (state.state === 'qualifying') {
           this.tournamentFinished = true;
           try {

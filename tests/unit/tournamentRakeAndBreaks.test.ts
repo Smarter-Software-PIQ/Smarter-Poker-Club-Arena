@@ -578,12 +578,20 @@ describe('a paused table parks whatever it was doing', () => {
     expect(gateAt).toBeLessThan(dealAt);
   });
 
-  it('it also parks immediately after a hand lands, not after the display pause', () => {
+  // Replaced 2026-11-06 (Dan: "A BREAK ... MUST FINISH THE CURRENT HAND ...
+  // BREAKING IN THE MIDDLE OF THE HAND MAKES THE PLATFORM 'FEEL BROKEN'").
+  // This used to pin the park BEFORE the display pause, which froze the hand's
+  // last action on the felt for the whole break. The park now follows the
+  // completion display and the hand-free broadcast; see
+  // tests/a-break-never-starts-in-the-middle-of-a-hand.law.test.ts.
+  it('it parks after a hand lands only once the completion display and the hand-free broadcast have run', () => {
     const dealAt = loop.indexOf('await this.dealHand(');
+    const displayPause = loop.indexOf('await this.awaitHandCompletionDisplay(', dealAt);
+    const cleanState = loop.indexOf('this.broadcastCurrentState();', displayPause);
     const postDealGate = loop.indexOf('await this.awaitPauseGate()', dealAt);
-    const displayPause = loop.indexOf('wentToShowdown');
-    expect(postDealGate).toBeGreaterThan(dealAt);
-    expect(postDealGate).toBeLessThan(displayPause);
+    expect(displayPause).toBeGreaterThan(dealAt);
+    expect(cleanState).toBeGreaterThan(displayPause);
+    expect(postDealGate).toBeGreaterThan(cleanState);
   });
 
   it('parking never fires an invalid FSM transition from an idle table', () => {

@@ -3563,6 +3563,7 @@
     "fn_cash_game_open_seats",
     "fn_cash_game_roster_track",
     "fn_cash_game_switch_off",
+    "fn_cash_game_waiting_counts",
     "fn_cash_game_waitlist_position",
     "fn_cash_leave_check",
     "fn_cash_money_text",

@@ -29,6 +29,7 @@ import {
   PLO_PAIRED_BOARD_VARIANTS,
   ploPairedBoardRiverMustCheck,
 } from '../HorsePloPairedBoardFold.js';
+import { callLargeRiverBoatWager } from '../HorseOmahaBigBetCalls.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -832,6 +833,21 @@ function plo6RiverCallIsPriced(
   );
 }
 
+// The boat owner may replace a fold or aggressive wager with a priced call.
+// Recompute its exact output from the original worker request.
+function boatRuleProducesCall(
+  before: HorsePolicyAction,
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const result = callLargeRiverBoatWager(
+    { action: before.action, amount: before.amount ?? undefined, thinkTime: 0 },
+    context.player,
+    context.gameState
+  );
+  return result.action === 'call' && result.amount === after.amount;
+}
+
 function policyGraphIsValid(
   value: RecordValue,
   expectedVariant?: string,
@@ -968,6 +984,15 @@ function policyGraphIsValid(
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
+      !(
+        transition.after.action === 'call' &&
+        previous !== null &&
+        previous.action !== 'call' &&
+        context !== undefined &&
+        context.gameState.gameVariant === variant &&
+        PLO_PAIRED_BOARD_VARIANTS.has(variant) &&
+        boatRuleProducesCall(previous, transition.after, context)
+      ) &&
       !['bet', 'raise', 'all_in'].includes(transition.after.action)
     )
       return false;

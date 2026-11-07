@@ -1,0 +1,4 @@
+{
+  "_owner": "TournamentService is in the entry chunk and must recognise the two Free Buy ticket refusal codes the registration RPC raises (definitive, never retried). This small dependency-free helper holds those codes, their player text and the ticket-book parser.",
+  "modules": ["src/utils/freeBuyTickets.ts"]
+}

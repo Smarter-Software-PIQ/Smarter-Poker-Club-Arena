@@ -88,9 +88,11 @@ describe('a full cash table offers the waitlist', () => {
     expect(page).toContain('onWaitlistToggle');
     // Without the count in the signature the entry cache would keep a stale
     // "Waitlist 2" forever, because the count is not a field on the row.
-    expect(page).toMatch(
-      /const sig = `\$\{JSON\.stringify\(row\)\}\|\$\{waitlistCounts\.get\(row\.id\)/
-    );
+    // 2026-11-06: through waitingFor, which reads the table's count for a
+    // single table and the GAME list's count for a must-move game.
+    expect(page).toMatch(/const sig = `\$\{JSON\.stringify\(row\)\}\|\$\{waitingFor\(row/);
+    expect(page).toMatch(/waitlistCounts\.get\(row\.id\)/);
+    expect(page).toContain('waitlistService.gameCountsFor');
   });
 
   it('asks for the counts in one query, not one per row', () => {

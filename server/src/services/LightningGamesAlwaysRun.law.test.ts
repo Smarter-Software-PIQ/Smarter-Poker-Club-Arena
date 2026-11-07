@@ -161,6 +161,6 @@ describe('Lightning: no cap and no clock; horses start only a few games, people 
     expect(fleet.split('cashPlanLightningHumanGames\n').length - 1).toBeGreaterThanOrEqual(2);
     expect(fleet.split('lightningGamesWithPlayingHumans(').length - 1).toBe(2);
     expect(rotator).toContain('lightningGamesWithPlayingHumans(');
-    expect(rotator).toContain('lightningHumanGames\n        );');
+    expect(rotator).toMatch(/lightningHumanGames,\n\s+cashPlanSecondTables\n\s+\);/);
   });
 });

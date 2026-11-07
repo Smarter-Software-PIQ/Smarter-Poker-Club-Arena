@@ -71,7 +71,7 @@ describe('the first turn clock starts only once the deal has been shown', () => 
       await flush();
       const presentation = lightningDealPresentationMs(6);
       // 700 ms button + (12 cards: 11 x 80 ms + 320 ms flight + 100 ms rest).
-      expect(presentation).toBe(HAND_COMPLETION.BUTTON_MOVE_MS + 11 * 80 + 320 + 100);
+      expect(presentation).toBe(HAND_COMPLETION.BUTTON_TO_DEAL_MS + 11 * 80 + 320 + 100);
       expect(s.asked.map((a) => a.ms)).toEqual([presentation]);
       // No clock, no turn frame, while the deal is still being shown.
       expect(t.hub.frames.some((f) => f.payload.type === 'turn_change')).toBe(false);
@@ -155,7 +155,9 @@ describe('the first turn clock starts only once the deal has been shown', () => 
     const page = readFileSync(resolve(process.cwd(), '../src/pages/TablePage.tsx'), 'utf8');
     const hold = sliceCall(page, 'const beginDealHold = useCallback(');
     expect(hold).toMatch(new RegExp(`\\}, ${LIGHTNING_DEAL_HOLD_CEILING_MS}\\);`));
-    expect(page).toMatch(/Math\.round\(HAND_COMPLETION\.BUTTON_MOVE_MS \* getAnimationSpeed\(\)\)/);
+    expect(page).toMatch(
+      /Math\.round\(HAND_COMPLETION\.BUTTON_TO_DEAL_MS \* getAnimationSpeed\(\)\)/
+    );
     // A full ring never runs into the client's own ceiling at speed 1.
     for (let n = 2; n <= 10; n++)
       expect(lightningDealPresentationMs(n)).toBeLessThan(LIGHTNING_DEAL_HOLD_CEILING_MS);

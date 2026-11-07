@@ -1218,25 +1218,6 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         await this.dealHand(activePlayers);
         this.consecutiveErrors = 0;
 
-        // Hand-for-hand / synchronized break: the hand just landed, so park
-        // NOW rather than waiting for the showdown display pause below. This
-        // is what makes areAllTablesParked() go true promptly, which is what
-        // starts the five minutes. Same gate as the top of the loop — see
-        // awaitPauseGate on the base class.
-        if (
-          (this.handForHandPaused ||
-            this.weeklyPayoutPauseOwners.size > 0 ||
-            this.maintenancePaused ||
-            this.finalTableDealPaused ||
-            this.terminalCloseoutPaused ||
-            this.tournamentMovePauseOwners.size > 0) &&
-          this.running
-        ) {
-          this.setLoopPhase('parked_for_pause');
-          if (this.maintenancePaused) await this.persistPresenceForRestart('parked');
-          await this.awaitPauseGate();
-        }
-
         // Bible V8 §4.23: Formal cleanup timing between hands.
         //
         // ── Dan 2026-08-18: "stop rushing the showdowns" ──
@@ -1356,6 +1337,40 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           this.armNextHandRest(
             Math.max(HAND_COMPLETION.NEXT_HAND_REST_MS, boardClearMs(wentToShowdown))
           );
+
+          // ── A BREAK NEVER STARTS IN THE MIDDLE OF A HAND (Dan 2026-11-06) ──
+          //
+          // "ANY AND ALL SCHEDULED BREAKS OR MAINTENANCE BREAKS MUST FINISH THE
+          //  CURRENT HAND THEY ARE ON, BEFORE THE BREAK STARTS. BREAKING IN THE
+          //  MIDDLE OF THE HAND MAKES THE PLATFORM 'FEEL BROKEN'."
+          //
+          // Hand-for-hand, the synchronized tournament break, the maintenance
+          // break and every other pause owner park HERE - after the hand is
+          // completed in the 2026-08-21 sense (winner shown, pot pushed with its
+          // total, cards mucked) AND after the hand-free broadcast above has
+          // cleared the felt. This park used to sit immediately after
+          // dealHand(), BEFORE both: settlement had run, but the completion
+          // display and the clean-state broadcast were deferred until the break
+          // ENDED. For the whole break every player and spectator looked at the
+          // last action of the hand frozen on the felt - bets in front, ALL IN
+          // badges, an unpushed pot, the winner's stack not yet credited -
+          // under a "Break: Paused" clock (40 Chip Bounty Freezeout Table 4,
+          // hand 56221104, 2026-11-07 03:55:25 UTC to 04:05). The table is
+          // parked only once the hand is visibly over, which is also what
+          // areAllTablesParked() waits for before a break's countdown begins.
+          if (
+            (this.handForHandPaused ||
+              this.weeklyPayoutPauseOwners.size > 0 ||
+              this.maintenancePaused ||
+              this.finalTableDealPaused ||
+              this.terminalCloseoutPaused ||
+              this.tournamentMovePauseOwners.size > 0) &&
+            this.running
+          ) {
+            this.setLoopPhase('parked_for_pause');
+            if (this.maintenancePaused) await this.persistPresenceForRestart('parked');
+            await this.awaitPauseGate();
+          }
 
           // ── Dan's Rebuy Pause (2026-08-24) ──
           // Give busted players 5 seconds to process the UI modal and hit rebuy before the next hand starts.
@@ -1758,25 +1773,55 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     this.gapSawIdle = false;
   }
 
+  /**
+   * THE BLIND READ RIDES THE END OF THE REST (Dan 2026-11-06, "I ONLY CARE HOW
+   * LONG IT TAKES TO START THE NEXT HAND DEAL AFTER THE POT IS PUSHED TO THE
+   * WINNER").
+   *
+   * The tournament stakes read is one PostgREST round trip (production
+   * /health 2026-11-06: p50 119 ms, p90 173 ms, slowest 794 ms) and it used to
+   * start only once the rest had fully elapsed, so every tournament hand paid
+   * it on top of the rest. It now starts this long before the rest ends, and
+   * the deal waits for whichever finishes last. A level that advances inside
+   * that final slice is dealt one hand later, which is the same as its clock
+   * firing a fraction of a second later; nothing reads a level mid-hand.
+   */
+  static readonly BLIND_READ_LEAD_MS = 600;
+
   protected async awaitNextHandRest(): Promise<void> {
     await this.settlePreparedHandNumber();
-    if (this.nextHandNotBeforeMs !== null) {
-      const remaining = this.nextHandNotBeforeMs - Date.now();
-      if (remaining > 0) {
-        this.setLoopPhase('next_hand_rest');
-        await this.sleep(remaining);
-      }
-      this.nextHandNotBeforeMs = null;
-    }
-    // A level may advance while the prepared roster waits under the rest.
-    // Read the tournament stakes here, before the caller rechecks its lease
-    // and pause gates. This replaces the earlier prefetched blind read.
-    if (this.isTournamentTable()) {
-      await this.withStepBudget(
+    let blindRead: Promise<unknown> | null = null;
+    const startBlindRead = (): void => {
+      if (blindRead || !this.isTournamentTable()) return;
+      blindRead = this.withStepBudget(
         'refresh_blinds',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
         this.refreshBlinds()
       );
+      // Observed below; never an unhandled rejection while the rest sleeps.
+      blindRead.catch(() => undefined);
+    };
+    if (this.nextHandNotBeforeMs !== null) {
+      const remaining = this.nextHandNotBeforeMs - Date.now();
+      if (remaining > 0) {
+        this.setLoopPhase('next_hand_rest');
+        const lead = Math.min(remaining, ServerTableEngineDealing.BLIND_READ_LEAD_MS);
+        if (remaining > lead) await this.sleep(remaining - lead);
+        startBlindRead();
+        // withStepBudget names its own phase; the felt is still resting.
+        this.setLoopPhase('next_hand_rest');
+        const left = (this.nextHandNotBeforeMs ?? Date.now()) - Date.now();
+        if (left > 0) await this.sleep(left);
+      }
+      this.nextHandNotBeforeMs = null;
+    }
+    // A level may advance while the prepared roster waits under the rest.
+    // Read the tournament stakes before the caller rechecks its lease and
+    // pause gates; started inside the rest above when there was one.
+    startBlindRead();
+    if (blindRead) {
+      this.setLoopPhase('refresh_blinds');
+      await blindRead;
     }
     if (this.lastCompletionAtMs !== null && !this.gapSawIdle) {
       const now = Date.now();

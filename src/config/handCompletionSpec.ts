@@ -60,7 +60,15 @@
    ─────────────────────────────────────────────────────────────────────────── */
 export const HAND_COMPLETION = {
   /** Street bets sweep off the felt into the pot before the pot can travel. */
-  BETS_SWEEP_MS: 350,
+  /*
+   * Dan 2026-11-06: "I ONLY CARE HOW LONG IT TAKES TO START THE NEXT HAND DEAL
+   * AFTER THE POT IS PUSHED TO THE WINNER." The client holds the ship for the
+   * sweep it actually plays (pdCollect, --pd-collect-duration 0.5s) and used a
+   * hand-written 700 for it while this hold counted 350. 500 is the real
+   * animation; TablePage now reads this constant instead of its own number,
+   * so the hold and the felt are the same beat again.
+   */
+  BETS_SWEEP_MS: 500,
   /**
    * The pot travels to the winner carrying its total. Matches the
    * `.pot-win-float` / `potWinFloatRide` animation, which is the longest
@@ -191,7 +199,14 @@ export const HAND_COMPLETION = {
    * largest remaining beat in a cadence he is calling frozen. This is the one
    * value to put back first if the new rhythm reads as rushed.
    */
-  POST_PUSH_PAUSE_MS: 400,
+  /*
+   * Dan 2026-11-06: 400 -> 0. "I ONLY CARE HOW LONG IT TAKES TO START THE
+   * NEXT HAND DEAL AFTER THE POT IS PUSHED TO THE WINNER." This pause and
+   * NEXT_HAND_REST_MS were two rests in a row after the pot landed. The rest
+   * (the Rabbit Hunt window Dan set for ALL hands) is the pause now: the pot
+   * lands, the cards muck, the table rests, the button moves, the cards fly.
+   */
+  POST_PUSH_PAUSE_MS: 0,
   /**
    * BUTTON_MOVE_MS — the dealer puck's glide to its new seat is its own beat,
    * played by the CLIENT at HAND_STARTED (the button's new seat is only known
@@ -202,6 +217,18 @@ export const HAND_COMPLETION = {
    * would wait 700ms in which no client can yet know where the button goes).
    */
   BUTTON_MOVE_MS: 700,
+  /**
+   * BUTTON_TO_DEAL_MS — how long the deal waits at HAND_STARTED for the puck.
+   *
+   * Dan 2026-11-06, approving it: "I ONLY CARE HOW LONG IT TAKES TO START THE
+   * NEXT HAND DEAL AFTER THE POT IS PUSHED TO THE WINNER" ... "GO AHEAD AND
+   * FULLY BUILD". This supersedes the 2026-08-27 order (button glides alone,
+   * THEN the cards fly). The puck still glides its full BUTTON_MOVE_MS, and the
+   * cards still fly from the centre of the table (Dan 2026-08-23); they simply
+   * fly while it glides, instead of 700 ms after. TablePage and the Lightning
+   * deal hold both read this number.
+   */
+  BUTTON_TO_DEAL_MS: 0,
   /**
    * ── THE HAND RESTS BEFORE THE NEXT ONE (Dan 2026-09-05) ──
    *
@@ -478,6 +505,28 @@ export interface HandCompletionOpts {
  * deal the next hand. This is beats 1-4; the board clear is added on top by
  * `boardClearMs` so the two phases stay separately observable.
  */
+/**
+ * THE WINNER'S DISPLAY BEAT COMES BEFORE THE POT SHIPS (Dan 2026-11-06).
+ *
+ * "I ONLY CARE HOW LONG IT TAKES TO START THE NEXT HAND DEAL AFTER THE POT IS
+ * PUSHED TO THE WINNER." The extra time with the tabled hands up and the
+ * winning five lit (WINNING_CARDS_EXTRA_MS, 2026-10-26; ALL_IN_SHOWDOWN_EXTRA_MS
+ * on an all-in, 2026-10-24) is spent after the winner is named and BEFORE the
+ * pot travels, so none of it sits between the pot landing and the next deal.
+ * TablePage delays the ship by exactly this; handCompletionHoldMs counts it
+ * once. A fold win has no display beat.
+ */
+export function showdownDisplayBeatMs(opts: {
+  wentToShowdown: boolean;
+  allInShowdown?: boolean;
+}): number {
+  if (!opts.wentToShowdown) return 0;
+  return Math.max(
+    opts.allInShowdown ? HAND_COMPLETION.ALL_IN_SHOWDOWN_EXTRA_MS : 0,
+    HAND_COMPLETION.WINNING_CARDS_EXTRA_MS
+  );
+}
+
 export function handCompletionHoldMs(opts: HandCompletionOpts): number {
   const H = HAND_COMPLETION;
   if (opts.bbjHit) return H.BBJ_CELEBRATION_MS;
@@ -549,7 +598,9 @@ export function handCompletionHoldMs(opts: HandCompletionOpts): number {
    * the read and the push. The longer of the two covers both asks: an all-in
    * still gets its full two seconds, every other showdown its 1.5.
    */
-  return read + push + Math.max(allInTail, H.WINNING_CARDS_EXTRA_MS);
+  return (
+    read + push + showdownDisplayBeatMs({ wentToShowdown: true, allInShowdown: opts.allInShowdown })
+  );
 }
 
 /**

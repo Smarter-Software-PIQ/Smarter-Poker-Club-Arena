@@ -407,6 +407,10 @@ def reference_case_metadata(raw, expected):
             value[key] = item
         return value
     value = json.loads(raw.decode('utf-8', errors='strict'), object_pairs_hook=unique_object)
+    if isinstance(value, dict) and type(value.get('version')) is int and value['version'] == 10:
+        if value.get('probe') != 'original_wager_rules': raise ValueError('reference_cases_refused')
+        reference_case_metadata(json.dumps({**value,'version':7,'probe':'original_turn_gap'}).encode(),expected)
+        return value
     if isinstance(value, dict) and type(value.get('version')) is int and value['version'] == 9:
         if set(value) != {'version','sourceRelease','probe','cases','window','roster','expectedInstanceId'} or value['probe'] != 'fleet_slice':
             raise ValueError('reference_cases_refused')
@@ -614,6 +618,34 @@ def sanitize_river_value_result(result, value):
             owners.add(q['owner'])
         if c['baselineAttribution']!=('receipt_comparison_only' if ps else 'unavailable'): refuse()
     if result['status']!=('observed' if all(c['status']=='observed' for c in result['cases']) else 'unknown'): refuse()
+    return result
+
+
+def sanitize_original_wager_result(result,value):
+    def reject(): raise ValueError('original_wager_result_refused')
+    if not isinstance(result,dict) or len(json.dumps(result,separators=(',',':')).encode())>8192: reject()
+    if set(result)=={'status','reason'}: return sanitize_original_turn_gap_result(result,value)
+    if type(result.get('version')) is not int or result['version']!=10 or result.get('probe')!='original_wager_rules': reject()
+    original={**result,'version':7,'probe':'original_turn_gap'}
+    if 'cases' in result:
+        if not isinstance(result['cases'],list): reject()
+        original['cases']=[]
+        for row in result['cases']:
+            if not isinstance(row,dict): reject()
+            r=dict(row)
+            if r.get('status')=='observed':
+                if r.pop('opportunity',None) not in ('checked_to','facing_opening_pot_bet'): reject()
+                t=r.pop('wagerRules',None)
+                if not isinstance(t,dict) or set(t)!={'before','after','changed'} or type(t['changed']) is not bool: reject()
+                for a in (t['before'],t['after']):
+                    if not isinstance(a,dict) or set(a)!={'action','amount'} or a['action'] not in ('fold','check','call','bet','raise','all_in'): reject()
+                    if a['amount'] is not None and not(type(a['amount']) in (int,float) and math.isfinite(a['amount']) and a['amount']>=0): reject()
+                if t['changed']!=(t['before']!=t['after']) or t['after']['action']!=r['actions']['selected'] or t['after']['amount']!=r['amounts']['selected']['value']: reject()
+                if r['stage']!='river' or r['variant'] not in ('plo4','plo5','plo6') or r['executionStatus']!='intended' or not r['selection']['matched']: reject()
+            elif r.get('reason') in ('outside_value_context','original_graph_unavailable','selection_not_matched'):
+                r['reason']='stored_fields_unavailable'
+            original['cases'].append(r)
+    sanitize_original_turn_gap_result(original,value)
     return result
 
 
@@ -1002,6 +1034,8 @@ FLEET_SLICE_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Ap
 
 RIVER_VALUE_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api()', 'loadInstalledRiverValueApi(loadInstalledOriginalTurnGapApi)').replace('inspectDecision8464Records(input,batch,api)', 'inspectRiverValueRecords(input,batch,api,inspectOriginalTurnGapRecords)')
 
+ORIGINAL_WAGER_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api()', 'loadInstalledOriginalWagerApi(loadInstalledOriginalTurnGapApi,loadInstalledRiverValueApi)').replace('inspectDecision8464Records(input,batch,api)', 'inspectOriginalWagerRules(input,batch,api,inspectOriginalTurnGapRecords)')
+
 ORIGINAL_TURN_GAP_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api', 'loadInstalledOriginalTurnGapApi').replace('inspectDecision8464Records', 'inspectOriginalTurnGapRecords')
 
 CASH_TURN_FOLD_ADAPTER = DECISION_8464_ADAPTER.replace('loadInstalledDecision8464Api', 'loadInstalledCashTurnFoldApi').replace('inspectDecision8464Records', 'inspectCashTurnFoldRecords')
@@ -1098,20 +1132,24 @@ def reference_diagnostic(value):
         return diagnostic_failure('sanitizer', 'result_refused')
 
 def decision_case_diagnostic(value):
-    if value.get('version') not in (4,5,6,7,8,9):
+    if value.get('version') not in (4,5,6,7,8,9,10):
         return reference_diagnostic(value)
     try:
         diagnostic_js = REFERENCE_DIAGNOSTIC_JS
-        if value.get('version') in (4,5,6,7,8,9):
+        if value.get('version') in (4,5,6,7,8,9,10):
             helper = globals().get('TOURNAMENT_PREDICATE_JS', '')
             if not helper or len(helper.encode('utf-8')) > 65536:
                 raise ValueError('decision_helper_unavailable')
             diagnostic_js = helper + '\n' + DECISION_8464_ADAPTER
-            if value.get('version') in (8,9):
+            if value.get('version') in (8,9,10):
                 river = globals().get('RIVER_VALUE_JS', '')
                 if not river or len(river.encode('utf-8')) > 16384:
                     raise ValueError('river_helper_unavailable')
                 diagnostic_js = helper + '\n' + river + '\n' + RIVER_VALUE_ADAPTER
+                if value.get('version')==10:
+                    wager=globals().get('ORIGINAL_WAGER_JS','')
+                    if not wager or len(wager.encode())>8192: raise ValueError('wager_helper_unavailable')
+                    diagnostic_js=helper+'\n'+river+'\n'+wager+'\n'+ORIGINAL_WAGER_ADAPTER
                 if value.get('version') == 9:
                     fleet = globals().get('FLEET_SLICE_JS','')
                     if not fleet or len(fleet.encode('utf-8'))>16384: raise ValueError('fleet_helper_unavailable')
@@ -1143,7 +1181,8 @@ def decision_case_diagnostic(value):
                     or diagnostic['stage'] not in DIAGNOSTIC_CHILD_STAGES or diagnostic['code'] != 'exception'):
                 raise ValueError()
             return result
-        return (sanitize_fleet_slice_result(result,value) if value.get('version') == 9 else
+        return (sanitize_original_wager_result(result,value) if value.get('version') == 10 else
+                sanitize_fleet_slice_result(result,value) if value.get('version') == 9 else
                 sanitize_river_value_result(result,value) if value.get('version') == 8 else
                 sanitize_original_turn_gap_result(result,value) if value.get('version') == 7 else
                 sanitize_accepted_all_in_result(result,value) if value.get('version') == 6
@@ -1607,7 +1646,9 @@ def tournament_host_script():
         raise ValueError('river_helper_unavailable')
     fleet = Path(__file__).with_name('horse-fleet-slice-proof.mjs').read_text(encoding='utf-8')
     if not fleet or len(fleet.encode('utf-8'))>16384: raise ValueError('fleet_helper_unavailable')
-    return 'FLEET_SLICE_JS = '+repr(fleet)+'\n'+'TOURNAMENT_PREDICATE_JS = ' + repr(helper) + '\nRIVER_VALUE_JS = ' + repr(river) + '\n' + Path(__file__).read_text(encoding='utf-8')
+    wager=Path(__file__).with_name('horse-original-wager-proof.mjs').read_text(encoding='utf-8')
+    if not wager or len(wager.encode())>8192: raise ValueError('wager_helper_unavailable')
+    return 'ORIGINAL_WAGER_JS = '+repr(wager)+'\nFLEET_SLICE_JS = '+repr(fleet)+'\n'+'TOURNAMENT_PREDICATE_JS = ' + repr(helper) + '\nRIVER_VALUE_JS = ' + repr(river) + '\n' + Path(__file__).read_text(encoding='utf-8')
 
 
 def merge_worker_receipt_errors(target, addition):

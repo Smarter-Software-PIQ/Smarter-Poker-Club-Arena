@@ -227,7 +227,10 @@ export class HorseFleetPhaseInterpreter {
     );
     const d = c.decision,
       gs = c.snapshot.gameState;
-    if (!horseDecisionReceiptIsValid(d, gs.gameVariant) || w.executionStatus !== 'intended')
+    if (
+      !horseDecisionReceiptIsValid(d, gs.gameVariant, c.snapshot) ||
+      w.executionStatus !== 'intended'
+    )
       return out;
     let originalFast: HorsePhaseCapture | undefined =
       c.snapshot.type === 'DECIDE_FAST' ? c : undefined;

@@ -4,6 +4,7 @@ import {
   HORSE_UNION_CASH_PLAN as plan,
   horseUnionCashTableAllowed,
   horseCashPlanPrimaryTables,
+  horseCashPlanSecondTables,
   type CashPlanTable,
   playingHumansAtCashTable,
   scheduledHorseCashGames,
@@ -189,5 +190,31 @@ describe('the union cash schedule follows the November 4 owner scope', () => {
     expect(rotator).toContain('playingHumansAtCashTable(tableSeats, horseIds)');
     expect(rotator).toContain('!restrictedCashGame && !outsideCashPlan) continue;');
     expect(rotator).toContain('await engine.leaveTable(uid)');
+  });
+});
+
+describe('a game may run a second table (Dan 2026-11-06)', () => {
+  const now = at('2026-11-04T05:00:00-06:00');
+  const main1 = { ...low, id: 'm1', lifecycle: 'live' };
+  const feeder = { ...low, id: 'f1', role: 'feeder', main_index: null, lifecycle: 'opening' };
+  const feeder2 = { ...low, id: 'f2', role: 'feeder', main_index: null, lifecycle: 'opening' };
+  it('one second table per game follows its Main 1, never more', () => {
+    const primary = horseCashPlanPrimaryTables([main1, feeder, feeder2]);
+    const second = horseCashPlanSecondTables([main1, feeder, feeder2], primary, () => true);
+    expect([...second]).toEqual(['f1']);
+    expect(horseUnionCashTableAllowed(feeder, 0, now, primary, null, null, second)).toBe(true);
+    expect(horseUnionCashTableAllowed(feeder2, 0, now, primary, null, null, second)).toBe(false);
+  });
+  it('a Main 1 horses may not sit at gives its second table nothing', () => {
+    const primary = horseCashPlanPrimaryTables([main1, feeder]);
+    const second = horseCashPlanSecondTables([main1, feeder], primary, () => false);
+    expect(second.size).toBe(0);
+    expect(horseUnionCashTableAllowed(feeder, 0, now, primary, null, null, second)).toBe(false);
+  });
+  it('forbidden variants stay forbidden on a second table', () => {
+    const bad = { ...feeder, game_variant: 'short_deck' };
+    const primary = horseCashPlanPrimaryTables([main1, bad]);
+    const second = horseCashPlanSecondTables([main1, bad], primary, () => true);
+    expect(horseUnionCashTableAllowed(bad, 0, now, primary, null, null, second)).toBe(false);
   });
 });

@@ -47,6 +47,12 @@ import { readTournamentFormat } from '../utils/tournamentPresentation';
 import { retryAsync } from '../utils/retryAsync';
 import { freeBuyConfig, isFreeBuyEvent } from '../utils/freeBuy';
 import {
+  FREE_BUY_TICKET_REFUSAL_TEXT,
+  freeBuyTicketRefusalReason,
+  parseFreeBuyTicketBook,
+  type FreeBuyTicketBook,
+} from '../utils/freeBuyTickets';
+import {
   TOURNAMENT_CREATE_ERRORS,
   assertTournamentRpcConfig,
   tournamentCreateDbErrorMessage,
@@ -222,6 +228,9 @@ const REGISTER_REASON_TEXT: Record<string, string> = {
   diamond_tournaments_not_open: 'Diamond Tournaments Are Not Open Yet.',
   diamond_debt_requires_settlement:
     'Your Diamond Wallet Has An Unsettled Balance. Settle It Before Entering A Tournament.',
+  // Five Free Buy tickets a day (owner, 2026-11-06): the redeem refuses inside
+  // the registration transaction, so nothing was charged and a retry cannot pass.
+  ...FREE_BUY_TICKET_REFUSAL_TEXT,
 };
 
 /**
@@ -1672,6 +1681,28 @@ class TournamentService {
   }
 
   /**
+   * The caller's Free Buy ticket book for the gaming day this event's
+   * registration draws on (fn_ca_free_buy_tickets_for_event, 20261107043307).
+   * Null is "could not tell": the Sign Up card then prints no ticket line and
+   * the server's redeem decides, exactly as before.
+   */
+  async getFreeBuyTicketsForEvent(tournamentId: string): Promise<FreeBuyTicketBook | null> {
+    try {
+      const { data, error } = await supabase.rpc('fn_ca_free_buy_tickets_for_event', {
+        p_tournament_id: tournamentId,
+      });
+      if (error) {
+        reportError(error, 'TournamentService.getFreeBuyTicketsForEvent', { tournamentId });
+        return null;
+      }
+      return parseFreeBuyTicketBook(data);
+    } catch (error) {
+      reportError(error, 'TournamentService.getFreeBuyTicketsForEvent', { tournamentId });
+      return null;
+    }
+  }
+
+  /**
    * Register a player for a tournament
    */
   async registerPlayer(
@@ -1735,7 +1766,9 @@ class TournamentService {
       let rpcCall = await withTournamentRegistrationReadBoundary((signal) =>
         invokeAdmission(requestId, signal)
       );
-      if (rpcCall.error)
+      // A Free Buy ticket refusal rolled the whole registration back; asking
+      // again cannot pass, so it is not retried (owner, 2026-11-06).
+      if (rpcCall.error && !freeBuyTicketRefusalReason(rpcCall.error))
         rpcCall = await withTournamentRegistrationReadBoundary((signal) =>
           invokeAdmission(requestId, signal)
         );
@@ -1757,6 +1790,8 @@ class TournamentService {
       const registrationId = res?.registration_id;
       // Maintenance break refusal is definitive (2026-10-16).
       if (isPlatformFrozenError(rpcError)) throw new Error(registerReasonText('platform_frozen'));
+      const ticketRefusal = freeBuyTicketRefusalReason(rpcError);
+      if (ticketRefusal) throw new Error(registerReasonText(ticketRefusal));
       if (rpcError) {
         reportError(rpcError, 'TournamentService.registration_result_unconfirmed', {
           tournamentId,

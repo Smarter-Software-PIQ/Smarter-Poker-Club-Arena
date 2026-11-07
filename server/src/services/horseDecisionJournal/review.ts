@@ -451,7 +451,8 @@ export function reconcileHorseJournalHand(
             !horseComputeMetadataIsValid(capture) ||
             !horseDecisionReceiptIsValid(
               capture.decision,
-              admission.request.gameState.gameVariant
+              admission.request.gameState.gameVariant,
+              admission.request
             ) ||
             !horsePhase6AttributionMatchesSnapshot(capture.decision, admission.request) ||
             horsePhase7EvidenceMismatch(capture.decision, admission.request) !== null ||
@@ -603,7 +604,7 @@ export function reconcileHorseJournalHand(
           !horseSamplingStateIsValid(d.rngBefore) ||
           !horseSamplingStateIsValid(d.rngAfter) ||
           !horseComputeMetadataIsValid(d) ||
-          !horseDecisionReceiptIsValid(d.decision, s.gameState.gameVariant) ||
+          !horseDecisionReceiptIsValid(d.decision, s.gameState.gameVariant, s) ||
           !effectsMatch(d, s) ||
           (s.type === 'DECIDE_DEEP' &&
             (s.rngBefore !== d.rngBefore || !Number.isFinite(s.deepEquity) || s.deepEquity <= 1)) ||

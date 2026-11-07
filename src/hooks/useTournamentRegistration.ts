@@ -6,6 +6,12 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAppNavigate, useInTabLobby } from '../context/InTabLobbyContext';
 import { useUserStore } from '../stores/useUserStore';
 import { tournamentService, type TournamentEntryTicket } from '../services/TournamentService';
+import {
+  FREE_BUY_TICKET_REFUSAL_TEXT,
+  freeBuyTicketsExhausted,
+  freeBuyTicketsLeftLine,
+  type FreeBuyTicketBook,
+} from '../utils/freeBuyTickets';
 import { supabase } from '../lib/supabase';
 import { masterBus } from '../core/MasterBus';
 import { signUpDialog } from '../components/tournament/signUpDialog';
@@ -185,6 +191,22 @@ export function useTournamentRegistration(onHold?: () => void) {
        * page no longer renders a local copy — see TournamentDetails
        * `handleRegister`.
        */
+      /* FIVE FREE BUY TICKETS (owner, 2026-11-06). A free entry may draw a
+         ticket from the book of the event's gaming day. Read that book once so
+         the card can say what this entry uses, and so a player with none left
+         is told so here instead of by a refusal after Confirm. A book that
+         could not be read prints nothing and changes nothing: the server's
+         redeem still decides. Paid events take no ticket and are not asked. */
+      const freeEntry = Number(t.buy_in_amount) === 0 && Number(t.buy_in_fee ?? 0) === 0;
+      const ticketBook: FreeBuyTicketBook | null = freeEntry
+        ? await tournamentService.getFreeBuyTicketsForEvent(t.id)
+        : null;
+      if (freeBuyTicketsExhausted(ticketBook)) {
+        toast.error(FREE_BUY_TICKET_REFUSAL_TEXT.free_buy_tickets_used_today);
+        registeringRef.current = false;
+        return;
+      }
+
       const confirmed = await signUpDialog({
         name: t.name,
         buyInAmount: t.buy_in_amount,
@@ -201,6 +223,7 @@ export function useTournamentRegistration(onHold?: () => void) {
         tournamentId: t.id,
         isLateRegistration: t.is_late_registration ?? isLateStatus(t.status),
         tournamentTicketId: entryTicket?.id ?? null,
+        freeBuyTickets: ticketBook?.applies && !ticketBook.usedHere ? ticketBook : null,
       });
       if (!confirmed) {
         registeringRef.current = false;
@@ -216,7 +239,17 @@ export function useTournamentRegistration(onHold?: () => void) {
           username,
           entryTicket?.id ?? null
         );
-        toast.success(`You Are Registered For ${t.name}`);
+        /* The count the player is left with, read back from the book the
+           redeem just wrote rather than worked out here. */
+        const ticketsAfter =
+          ticketBook?.applies && !ticketBook.usedHere
+            ? await tournamentService.getFreeBuyTicketsForEvent(t.id)
+            : null;
+        toast.success(
+          ticketsAfter?.applies
+            ? `You Are Registered For ${t.name}. ${freeBuyTicketsLeftLine(ticketsAfter)}.`
+            : `You Are Registered For ${t.name}`
+        );
 
         /* 2026-08-25, second audit: chips just left this player's wallet and
            nothing said so. TournamentPage's old inline register path emitted
