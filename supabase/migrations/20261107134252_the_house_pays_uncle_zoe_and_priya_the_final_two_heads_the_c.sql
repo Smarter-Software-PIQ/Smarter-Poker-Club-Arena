@@ -32,6 +32,8 @@
 -- close relocates a provisional place 2) and the engine-side deal gate PR.
 -- Same audited door as 20261106213809 (Danimal): manual adjustment + union
 -- bank debit + idempotent credit + one ledger leg each.
+--
+-- @live-proof: (SELECT count(*) FROM public.wallet_credit_idempotency WHERE key IN ('final-two-own-head-make-good:c1b3fa5a-85f6-4aea-8d4d-c76fc545a984:9b918b56-08d8-4a06-b8a0-de2bf4022303', 'final-two-own-head-make-good:b3ae52ef-097c-4dcd-a438-d46ce010c021:86468a23-14cb-4602-92f7-7e270197fc3c')) = 2
 BEGIN;
 DO $settle$
 DECLARE
