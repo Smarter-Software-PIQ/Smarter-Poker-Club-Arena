@@ -22,9 +22,10 @@
  *  3. Inside the break the host re-reads pg_proc for the target's window
  *     doors after the admission certificate and before the engine lock and
  *     prepare: still missing after this break's install finished, or with no
- *     readable install signal, is a named refusal (the current engine keeps
- *     running); a still-running install waits inside the same certificate
- *     budget; a passed budget refuses by name.
+ *     install job for this break, is a named refusal (the current engine keeps
+ *     running); a still-running install, or an install signal that cannot be
+ *     read (moved 2026-11-07), waits inside the same certificate budget; a
+ *     passed budget refuses by name.
  *  4. The host derives the doors from the target tree with the same extractor
  *     as the pre-break check, and ships the helper in its control generation.
  */
@@ -287,7 +288,20 @@ function helper(args: string[], env: Record<string, string> = {}) {
   });
 }
 
-function fixtures(catalog: unknown, install?: unknown) {
+/** The door's parameter names as the target defines them (2026-11-07). */
+const SIGNATURES = '{"fn_window_door":["p_a"]}';
+/** PostgREST's own answer when its schema cache exposes fn_window_door(p_a). */
+const EXPOSED = {
+  fn_window_door: {
+    status: 404,
+    body: {
+      code: 'PGRST202',
+      hint: 'Perhaps you meant to call the function public.fn_window_door(p_a)',
+    },
+  },
+};
+
+function fixtures(catalog: unknown, install?: unknown, cache: unknown = EXPOSED) {
   const dir = temp('window-door-status-');
   const env: Record<string, string> = {};
   env.ENGINE_WINDOW_DOORS_CATALOG_FIXTURE = join(dir, 'catalog.json');
@@ -296,6 +310,11 @@ function fixtures(catalog: unknown, install?: unknown) {
     env.ENGINE_WINDOW_DOORS_INSTALL_FIXTURE = join(dir, 'install.json');
     writeFileSync(env.ENGINE_WINDOW_DOORS_INSTALL_FIXTURE, JSON.stringify(install));
   }
+  // Every door is exposed by PostgREST unless a case says otherwise; the
+  // schema cache cases live in
+  // the-engine-can-call-its-window-doors-before-the-cutover.law.test.ts.
+  env.ENGINE_WINDOW_DOORS_CACHE_FIXTURE = join(dir, 'cache.json');
+  writeFileSync(env.ENGINE_WINDOW_DOORS_CACHE_FIXTURE, JSON.stringify(cache));
   return env;
 }
 
@@ -368,9 +387,17 @@ describe('the host derives the window doors from the exact target tree', () => {
 });
 
 describe('inside the break: the window doors are re-read before any cutover', () => {
-  it('READY when every door is in pg_proc', () => {
+  it("READY when every door is in pg_proc and PostgREST's schema cache", () => {
     const res = helper(
-      ['status', '--env-file', '/nonexistent', '--names', 'fn_window_door'],
+      [
+        'status',
+        '--env-file',
+        '/nonexistent',
+        '--names',
+        'fn_window_door',
+        '--signatures',
+        SIGNATURES,
+      ],
       fixtures(['fn_window_door'])
     );
     expect(res.status).toBe(0);
@@ -399,19 +426,31 @@ describe('inside the break: the window doors are re-read before any cutover', ()
     expect(res.stdout).toContain('fn_window_door() are still missing from pg_proc');
   });
 
-  it('REFUSED, the plain refusal, when the install signal is absent or unreadable', () => {
+  it('REFUSED, the plain refusal, when no install job exists for this break', () => {
     const absent = helper(
       ['status', '--env-file', '/nonexistent', '--names', 'fn_window_door'],
       fixtures([], null)
     );
     expect(absent.status).toBe(1);
     expect(absent.stdout).toContain('no window install job exists for this break');
+  });
+
+  // MOVED 2026-11-07 (fix/release-window-resilience). An unreadable install
+  // signal was REFUSED at once; it is now PENDING, and the break's own clock
+  // refuses it by name once the admission certificate no longer holds
+  // (refuse_unready_window_doors, pinned below). The signal is an
+  // unauthenticated GitHub read (60 requests an hour per address); one
+  // rate-limited or dropped read refused a release whose install was still
+  // running. Unreadable says nothing about the install (CLAUDE.md 10.86), and
+  // the release still never cuts over with a door missing.
+  it('PENDING, bounded by the break, when the install signal is unreadable', () => {
     const unreadable = helper(
       ['status', '--env-file', '/nonexistent', '--names', 'fn_window_door'],
       fixtures([], 'unreadable')
     );
-    expect(unreadable.status).toBe(1);
+    expect(unreadable.status).toBe(10);
     expect(unreadable.stdout).toContain('install signal is unreadable');
+    expect(unreadable.stdout).toContain("waiting only within the break's admission budget");
   });
 
   it('UNKNOWN, not READY and not REFUSED, when pg_proc cannot be read', () => {
@@ -442,6 +481,7 @@ describe('inside the break: the window doors are re-read before any cutover', ()
         WINDOW_DOORS: HELPER,
         ENV_FILE: '/nonexistent',
         WINDOW_DOOR_NAMES: 'fn_window_door',
+        WINDOW_DOOR_SIGNATURES: SIGNATURES,
         WINDOW_DOORS_READY: '0',
         WINDOW_DOORS_WAITING: '0',
         ...env,
@@ -506,7 +546,7 @@ describe('inside the break: the window doors are re-read before any cutover', ()
       /\[ "\$CERTIFICATE_RC" -ne 0 \]; then\n\s+refuse_unready_window_doors\n\s+request_recovery_window/
     );
     expect(TRANSACTION).toContain(
-      "the break's cutover budget passed while $WINDOW_DOOR_NAMES were not all in pg_proc"
+      "the break's cutover budget passed while $WINDOW_DOOR_NAMES were not all in pg_proc and PostgREST's schema cache"
     );
   });
 

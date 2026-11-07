@@ -361,7 +361,8 @@ window_doors_ready() {
   local verdict rc
   set +e
   verdict="$(timeout --signal=TERM --kill-after=1s 30s \
-    python3 -B "$WINDOW_DOORS" status --env-file "$ENV_FILE" --names "$WINDOW_DOOR_NAMES")"
+    python3 -B "$WINDOW_DOORS" status --env-file "$ENV_FILE" --names "$WINDOW_DOOR_NAMES" \
+      --signatures "${WINDOW_DOOR_SIGNATURES:-}")"
   rc=$?
   set -e
   case "$rc" in
@@ -383,7 +384,7 @@ window_doors_ready() {
 # cannot be admitted in this break, and no later break is this one.
 refuse_unready_window_doors() {
   if [ "${WINDOW_DOORS_WAITING:-0}" = 1 ] && [ "${WINDOW_DOORS_READY:-0}" != 1 ]; then
-    die "WINDOW MIGRATION DOORS REFUSED: the break's cutover budget passed while $WINDOW_DOOR_NAMES were not all in pg_proc; nothing was prepared and the current engine keeps running"
+    die "WINDOW MIGRATION DOORS REFUSED: the break's cutover budget passed while $WINDOW_DOOR_NAMES were not all in pg_proc and PostgREST's schema cache; nothing was prepared and the current engine keeps running"
   fi
 }
 
@@ -3410,6 +3411,22 @@ if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-horse-fold-provenance-eng
 fi
 [[ "$WINDOW_DOOR_NAMES" =~ ^([A-Za-z_][A-Za-z0-9_]*(,[A-Za-z_][A-Za-z0-9_]*)*)?$ ]] \
   || die 'WINDOW MIGRATION DOORS REFUSED: UNKNOWN - the window-migration door list is malformed'
+# THE ENGINE CALLS THE DOORS THROUGH POSTGREST (2026-11-07). pg_proc holding
+# a door is not the engine being able to call it: PostgREST answers PGRST202
+# until its schema cache reloads after the install. The status read below
+# therefore also asks PostgREST, with each door's parameter names as this
+# exact target defines them, and READY means both. The names are taken from
+# the target tree once, here, like the list itself.
+WINDOW_DOOR_SIGNATURES=''
+if [ -n "$WINDOW_DOOR_NAMES" ]; then
+  set +e
+  WINDOW_DOOR_SIGNATURES="$(timeout --signal=TERM --kill-after=1s 60s \
+    python3 -B "$WINDOW_DOORS" signatures --repo "$REPO_DIR" --sha "$SHA" --names "$WINDOW_DOOR_NAMES")"
+  WINDOW_DOOR_SIGNATURES_RC=$?
+  set -e
+  [ "$WINDOW_DOOR_SIGNATURES_RC" = 0 ] && [ -n "$WINDOW_DOOR_SIGNATURES" ] \
+    || die "WINDOW MIGRATION DOORS REFUSED: UNKNOWN - the parameter names of $WINDOW_DOOR_NAMES in $SHA could not be read (status $WINDOW_DOOR_SIGNATURES_RC); refusing before any cutover"
+fi
 WINDOW_DOORS_READY=0
 WINDOW_DOORS_WAITING=0
 [ -n "$WINDOW_DOOR_NAMES" ] || WINDOW_DOORS_READY=1

@@ -17,7 +17,10 @@
 #   7. a transaction over its budget is rolled back by the closing assertion;
 #   8. the installer: nothing queued exits 0 at once, a statically invalid file
 #      is refused before any wait, a break that never opens is reported and
-#      sends nothing, and an open break installs every queued file once.
+#      sends nothing, and an open break installs every queued file once;
+#  11. the installer waits, read-only, for a quiet moment on a busy table and
+#      installs on its one attempt; a table busy past the bound is sent once,
+#      refused, and its holder named.
 #
 # Usage: PG_BIN=/usr/lib/postgresql/17/bin bash scripts/ci/test-maintenance-window-migrations.sh
 # Needs node with `pg` resolvable from scripts/ci (CI: npm i pg@8 --no-save).
@@ -445,6 +448,70 @@ echo "$out" > "$EVIDENCE/10-pair-partial.log"
 [ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name='window_fixture_pair_partial_first'")" = 1 ] || fail 'first commit was lost'
 [ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name='window_fixture_pair_partial_second'")" = 0 ] || fail 'second refusal committed its column'
 pass 'second-file refusal preserves the first exact committed transaction'
+
+# 11. The quiet moment (2026-11-07). A reader in the middle of a multi-second
+# transaction on the file's table refuses a lock sent at once (case 3). The
+# installer reads pg_locks first, waits for the reader to finish, and then
+# sends the file once: it installs. A reader that outlasts the bounded wait is
+# named, the file is sent once as before and refused, and the holder at the
+# refusal is named too. Nothing is ever retried.
+QUIET="$WORK/quiet"
+mkdir -p "$QUIET/supabase/migrations"
+printf -- '-- Fixture: a window migration whose table is busy when the window opens.\n-- @install-window: daily-maintenance\nBEGIN;\nALTER TABLE public.hand_history ADD COLUMN window_fixture_quiet integer;\nCOMMIT;\n' \
+  > "$QUIET/supabase/migrations/20991231000013_window_fixture_quiet_moment.sql"
+hold_hand_history() { # $1 seconds; returns once the lock is granted
+  as_pg "${SU[@]}" -c "BEGIN; LOCK TABLE public.hand_history IN ACCESS SHARE MODE; SELECT pg_sleep($1); COMMIT;" \
+    >/dev/null 2>&1 &
+  HOLDER=$!
+  for _ in $(seq 1 50); do
+    held="$(su_sql "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+                    WHERE c.relname = 'hand_history' AND l.granted AND l.pid <> pg_backend_pid()")"
+    [ "$held" -ge 1 ] && break
+    sleep 0.1
+  done
+  [ "$held" -ge 1 ] || fail 'could not hold the fixture lock'
+  sleep 0.4 # older than QUIET_HOLDER_AGE_MS
+}
+release_holder() {
+  kill "$HOLDER" 2>/dev/null || true
+  su_sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query LIKE '%pg_sleep(%' AND query LIKE '%LOCK TABLE public.hand_history%' AND pid <> pg_backend_pid()" >/dev/null
+  wait "$HOLDER" 2>/dev/null || true
+}
+su_sql 'SELECT public.fixture_open_window(240)' >/dev/null
+hold_hand_history 3
+set +e
+out="$(installer "$QUIET" "$NOW_OPEN" 2>&1)"; code=$?
+set -e
+release_holder
+echo "$out" > "$EVIDENCE/11a-quiet-moment.log"
+[ "$code" = 0 ] && grep -q 'INSTALLED 1 migration' <<<"$out" || fail "quiet-moment run: $code $out"
+grep -q 'quiet moment on public.hand_history (AccessExclusiveLock) after' <<<"$out" || fail "quiet-moment run did not wait: $out"
+[ "$(grep -c '^\[apply\] 20991231000013' <<<"$out")" = 1 ] || fail 'quiet-moment file was not sent exactly once'
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_quiet'")" = 1 ] \
+  || fail 'quiet-moment column missing'
+pass 'a busy table is waited for, read-only, and the file installs on its one attempt'
+
+printf -- '-- Fixture: a window migration whose table stays busy past the bounded wait.\n-- @install-window: daily-maintenance\nBEGIN;\nALTER TABLE public.hand_history ADD COLUMN window_fixture_never_quiet integer;\nCOMMIT;\n' \
+  > "$QUIET/supabase/migrations/20991231000014_window_fixture_never_quiet.sql"
+su_sql 'SELECT public.fixture_open_window(240)' >/dev/null
+hold_hand_history 60
+t0=$(date +%s%N)
+set +e
+out="$(installer "$QUIET" "$NOW_OPEN" 2>&1)"; code=$?
+set -e
+ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+release_holder
+echo "$out" > "$EVIDENCE/11b-never-quiet.log"
+[ "$code" = 1 ] || fail "never-quiet run returned $code: $out"
+grep -q 'no quiet moment on public.hand_history (AccessExclusiveLock) within 12000 ms' <<<"$out" || fail "never-quiet bound: $out"
+grep -q 'Held by: public.hand_history AccessShareLock' <<<"$out" || fail "never-quiet holder not named: $out"
+grep -q 'holders of public.hand_history after the refusal: public.hand_history AccessShareLock' <<<"$out" \
+  || fail "refusal holder not named: $out"
+[ "$(grep -c '^\[apply\] 20991231000014' <<<"$out")" = 1 ] || fail 'never-quiet file was not sent exactly once'
+[ "$ms" -lt 30000 ] || fail "never-quiet run took ${ms} ms"
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_never_quiet'")" = 0 ] \
+  || fail 'never-quiet column was committed'
+pass "a table busy past the bounded wait is sent once, refused, and its holder named (${ms} ms)"
 
 su_sql "SELECT version || ' ' || name FROM supabase_migrations.schema_migrations ORDER BY version" \
   > "$EVIDENCE/history.txt"
