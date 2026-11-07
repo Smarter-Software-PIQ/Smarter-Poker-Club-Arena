@@ -55,7 +55,7 @@ CREATE TRIGGER native_qualifier_final_close BEFORE UPDATE ON public.tables
 
 CREATE FUNCTION pg_temp.qualifier_case(case_name text,survivors integer,settle_now boolean DEFAULT true, shared_target_case text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql AS $case$
 DECLARE
- club uuid:=md5('l04:'||coalesce(shared_target_case,case_name)||':club')::uuid;
+ club uuid:=md5('l04:'||case_name||':club')::uuid;
  source_id uuid:=md5('l04:'||case_name||':source')::uuid;
  target_id uuid:=md5('l04:'||coalesce(shared_target_case,case_name)||':target')::uuid;
  hand_no bigint:=1000000+survivors+CASE WHEN shared_target_case IS NULL THEN 0 ELSE 10 END;
@@ -63,6 +63,9 @@ DECLARE
  u uuid; session_id uuid; request_id uuid; i integer; q uuid[]; r jsonb; first_receipt jsonb;
  before_money jsonb; after_money jsonb; refused boolean; event_row public.tournaments%ROWTYPE;
 BEGIN
+ IF shared_target_case IS NOT NULL THEN
+  club:=md5('l04:'||shared_target_case||':club')::uuid;
+ END IF;
  IF survivors NOT IN (1,2) THEN RAISE EXCEPTION 'fixture survivor count'; END IF;
  -- Opening wallets/identities and authored future-format event are explicit
  -- fixtures, not production data and not a forged creator acceptance test.
