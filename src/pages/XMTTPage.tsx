@@ -36,7 +36,7 @@ import styles from './XMTTPage.module.css';
 
 import { useIsMounted } from '../hooks/useIsMounted';
 import { compactChips, fmtChips } from '../utils/format';
-import { effectivePrizePool } from '../components/tournament/details/types';
+import { displayTotalPool } from '../utils/tournamentPrizeFunding';
 // Whole-number tournament money (Dan 2026-08-20).
 import { formatBuyIn, money, totalBuyIn } from '../utils/buyIn';
 import { reportError } from '../utils/errorReporter';
@@ -650,7 +650,7 @@ export default function XMTTPage() {
                   <span className="sc-label sc-ink--blue">Prize Pool</span>
                   <span className={`${styles.value} sc-ink--gold`}>
                     {compactChips(
-                      effectivePrizePool(
+                      displayTotalPool(
                         detail.tournament?.prize_pool,
                         detail.tournament?.guaranteed_prize,
                         detail.tournament?.bounty_pool,
