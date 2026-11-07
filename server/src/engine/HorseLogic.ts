@@ -31,6 +31,7 @@ import {
   type Phase6ReferenceRoute,
 } from './HorsePhase6Attribution.js';
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
+import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
@@ -1921,6 +1922,9 @@ export interface HorseDecideOpts {
   /** ablation hooks (benchmarks only) — each defaults to the v9 master flag */
   v9Sizing?: boolean;
   v9Timing?: boolean;
+  /** Ablation hook: the 2026-11-07 decision-size timing (horseDecisionGravity).
+   *  Default on; false reproduces the think time recorded before it. */
+  decisionGravityTiming?: boolean;
   v9Mood?: boolean;
   /** disable the V10 strategy layer: range-advantage c-bets, SPR-scaled
    *  commitment / pot control, river blocker bluff-catching, rake-aware pot
@@ -2593,14 +2597,17 @@ export interface HorseDecideOpts {
    *  turn dominated flushes and paired-board straights. Default on;
    *  explicit false keeps today. */
   v81OmahaBigBetCalls?: boolean;
-  /** V15 river raise gate without the near-lock escape (2026-11-07): a
-   *  non-nut Omaha flush or straight facing a river wager calls, whatever
-   *  the equity estimate says (hand 3374459). Default on; explicit false
-   *  restores the near-lock escape on the river. */
+  /** V15 river raise gate without the near-lock escape (2026-11-07): an
+   *  Omaha flush with a live higher flush rank on an unpaired board, in a
+   *  high-only single-board game, facing a river wager calls, whatever the
+   *  equity estimate says (hand 3374459). Every other non-nut flush or
+   *  straight keeps the near-lock escape. Default on; explicit false
+   *  restores the near-lock escape for that class too. */
   v15RiverNoNearLock?: boolean;
   /** V84 (2026-11-07): PLO4/PLO5/PLO6 river CALLS of a >= 0.9-pot raise
    *  after the horse's own river bet or raise fold in the measured cell
-   *  (HorseOmahaBigBetCalls.v84Cell): an unpaired-board second-nut flush.
+   *  (HorseOmahaBigBetCalls.v84Cell): an unpaired-board second-nut flush,
+   *  when the call needs 0.13 of the pot after it or more.
    *  Default on; explicit false keeps today. */
   v84OmahaRiverReraiseCalls?: boolean;
   /** V83 (2026-11-06): a postflop aggression factor above 2.5 reads as a
@@ -4373,6 +4380,8 @@ function omahaBigBetCallFold(
             ...shared,
             heroWageredStreet:
               heroBet > 0.005 && v84HeroWageredStreet(gs.actionHistory, street, player.seat),
+            callPrice: Math.min(toCall, stack) / (pot + Math.min(toCall, stack)),
+            allInOrFold: gs.allInOrFold === true,
           })
         : null;
     if (v81 === null && v84 === null) return decision;
@@ -6215,7 +6224,8 @@ export class HorseLogic {
         params,
         toCall,
         (opts.v9Timing ?? opts.v9) !== false,
-        player.user_id
+        player.user_id,
+        opts.decisionGravityTiming !== false
       );
       return { decision };
     }).decision;
@@ -12084,13 +12094,44 @@ export class HorseLogic {
       // non-nut flush or straight facing a river wager calls, whatever the
       // equity estimate says. Flop and turn keep the near-lock reading,
       // because there a dominated made hand can still improve.
+      //
+      // Scope (pre-activation review, same day): only the demonstrated cell
+      // loses the escape - the SECOND-nut flush (exactly one live higher
+      // flush rank, higherFlushRanks === 1) on an UNPAIRED board, facing a
+      // river wager of 0.8 pot or more, outside tournaments, in a high-only,
+      // single-board game. That is the only cell whose own river raises
+      // measured negative (raise vs fold, bet >= 0.8 pot: -107.2 [-211.4,
+      // -2.9] n 12 on 11-05, -65.9 n 9 on 11-06); the class's tournament
+      // raises measured positive (+16.2 n 16, +18.0 n 9) and third-nut-or-
+      // worse flushes raised positively against smaller bets (+12.8 n 18,
+      // +7.4 n 12), so both keep today's reading. Every other non-nut-class hand keeps the near-lock
+      // reading on the river exactly as before: paired-board flushes (nut or
+      // not), non-nut straights, nut straights on a three-flush board, hi-lo
+      // (PLO8 / FLO8, where the low half and the quarter read decide the
+      // raise) and multi-board pots (the class is read from one board). The
+      // horses' own river raises in those classes measured raise against
+      // fold on 2026-11-05 and 11-06 were never negative on both days with
+      // 10 or more hands (non-nut straights +15.3 n 16 / +9.6 n 11; the rest
+      // under 10 raises a day or none), so none is admitted;
+      // docs/horse-measure/2026-11-07/v15-river-raise-scope.md.
       // Pinned by HorseV15RiverRaiseGate.test.ts.
+      const riverNoNearLock15 =
+        isRiver &&
+        opts.v15RiverNoNearLock !== false &&
+        cat === 6 &&
+        nuts15 != null &&
+        nuts15.higherFlushRanks === 1 &&
+        !boardPaired15 &&
+        potFrac >= 0.8 &&
+        !isTournamentMode(gs) &&
+        !vi.isHiLo &&
+        !multiBoard36;
       if (
         useV15 &&
         vi.isOmaha &&
         (cat === 5 || cat === 6) &&
         !nutClass15 &&
-        ((isRiver && opts.v15RiverNoNearLock !== false) || eq15 - dominationPenalty < 0.85)
+        (riverNoNearLock15 || eq15 - dominationPenalty < 0.85)
       ) {
         if (tele15) noteFire('v15_raise_gate');
         return { action: 'call', amount: toCall, thinkTime: 0 };
@@ -13481,7 +13522,9 @@ export class HorseLogic {
     toCall: number,
     useTiming: boolean = true,
     /** stable per-horse string (the user id) — gives each horse its own tempo */
-    tempoSeed: string = ''
+    tempoSeed: string = '',
+    /** the 2026-11-07 decision-size timing; false is the ablation */
+    useGravity: boolean = true
   ): number {
     // ── V14 TEMPO (Dan 2026-08-23, binding) ────────────────────────────────
     // "TIMING ON STREETS MUST BE MORE RANDOM. Most horses are making their
@@ -13536,6 +13579,28 @@ export class HorseLogic {
       ? Math.max(0, gs.contestablePot as number)
       : gs.pot;
     const bigRiverCall = stage === 'river' && toCall > pricePot * 0.5;
+    // THE SIZE OF THE DECISION (owner 2026-11-07): longer on big pots, big
+    // bets, the river and all-ins; quick on a preflop fold or a small-pot
+    // check. No randomness is drawn here (horseDecisionGravity is pure), so the
+    // PRNG stream is what it was; the caller still caps every duration at the
+    // action clock and the time bank a person has.
+    const heroSeat = gs.players.find((p) => p.user_id === tempoSeed);
+    let opponentStack = 0;
+    for (const p of gs.players) {
+      if (p === heroSeat || p.is_folded) continue;
+      opponentStack = Math.max(opponentStack, Number(p.stack) || 0);
+    }
+    const { gravity, easy } = useGravity
+      ? decisionGravity({
+          stage,
+          action: d.action,
+          toCall,
+          pot: pricePot,
+          heroStack: Number(heroSeat?.stack) || 0,
+          opponentStack,
+          amount: d.amount,
+        })
+      : { gravity: 0, easy: false };
 
     // Per-horse TEMPO, stable for the life of the horse: some people are just
     // fast and some are just deliberate, and that is most of what makes a
@@ -13558,6 +13623,10 @@ export class HorseLogic {
     let wBank = 0.012 + (bigRiverCall ? 0.04 : 0) + (difficulty > 0.6 ? 0.02 : 0);
     if (bigRiverCall) wSnap *= 0.25;
     if (difficulty > 0.5) wSnap *= 0.5;
+    wSnap *= 1 - 0.7 * gravity;
+    if (easy) wSnap *= 1.35;
+    wTank += 0.4 * gravity;
+    if (gravity > 0.6) wBank += 0.03 * gravity;
     // A deliberate horse tanks more and snaps less; a fast one does the
     // reverse. This is what stops every seat sharing one rhythm.
     // Strong, not decorative. A quick horse should visibly be a quick horse
@@ -13596,6 +13665,8 @@ export class HorseLogic {
     // mode still differ.
     think *= 0.6 + tempo * 0.85;
     if (difficulty > 0) think *= 1 + difficulty * 0.35;
+    think *= 1 + 0.45 * gravity;
+    if (easy) think *= 0.85;
     // V24: this 20% discount is for CHECKING a free flop preflop, not for
     // folding to a raise - it was half of how folds reached 180ms.
     if (simple && stage === 'preflop' && !facingBet) think *= 0.8;

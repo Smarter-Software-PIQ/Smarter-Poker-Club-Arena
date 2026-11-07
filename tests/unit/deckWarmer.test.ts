@@ -60,6 +60,55 @@ afterEach(() => {
 });
 
 describe('full deck paint readiness', () => {
+  it('paints the retained decoded pixels synchronously into every new mounted surface', async () => {
+    const deck = await import('../../src/utils/deckWarmer');
+    const load = deck.prepareDeckImages('4color');
+    await drain();
+    await load;
+    const requests = vi.mocked(fetch).mock.calls.length;
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage,
+    } as unknown as CanvasRenderingContext2D);
+    const url = deck.deckImageUrls('4color')[0];
+    for (let mount = 0; mount < 2; mount++) {
+      const canvas = document.createElement('canvas');
+      expect(deck.drawDecodedCardImage(url, canvas)).toBe(true);
+      expect(canvas.dataset.cardArtworkReady).toBe('true');
+      expect([canvas.width, canvas.height]).toEqual([360, 504]);
+      expect(drawImage).toHaveBeenLastCalledWith(instances[0], 0, 0);
+    }
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+    expect(instances).toHaveLength(52);
+  });
+  it('clears stale pixels and readiness for unavailable sources and failed draws', async () => {
+    const deck = await import('../../src/utils/deckWarmer');
+    const load = deck.prepareDeckImages('4color');
+    await drain();
+    await load;
+    const drawImage = vi.fn();
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
+    const canvas = document.createElement('canvas');
+    const url = deck.deckImageUrls('4color')[0];
+    expect(deck.drawDecodedCardImage(url, canvas)).toBe(true);
+    expect(deck.drawDecodedCardImage('unavailable', canvas)).toBe(false);
+    expect([canvas.width, canvas.height]).toEqual([0, 0]);
+    expect(canvas.dataset.cardArtworkReady).toBeUndefined();
+    getContext.mockReturnValue(null);
+    expect(deck.drawDecodedCardImage(url, canvas)).toBe(false);
+    expect([canvas.width, canvas.height]).toEqual([0, 0]);
+    expect(canvas.dataset.cardArtworkReady).toBeUndefined();
+    getContext.mockReturnValue({
+      drawImage: () => {
+        throw new Error('draw failed');
+      },
+    } as unknown as CanvasRenderingContext2D);
+    expect(deck.drawDecodedCardImage(url, canvas)).toBe(false);
+    expect([canvas.width, canvas.height]).toEqual([0, 0]);
+    expect(canvas.dataset.cardArtworkReady).toBeUndefined();
+  });
   it('shares a bounded load and cannot claim ready before every face decodes', async () => {
     const deck = await import('../../src/utils/deckWarmer');
     const first = deck.prepareDeckImages('4color');
@@ -67,6 +116,10 @@ describe('full deck paint readiness', () => {
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(instances).toHaveLength(6);
     expect(deck.isDeckReady('4color')).toBe(false);
+    const pendingSurface = document.createElement('canvas');
+    expect(deck.drawDecodedCardImage(deck.deckImageUrls('4color')[0], pendingSurface)).toBe(false);
+    expect(pendingSurface.dataset.cardArtworkReady).toBeUndefined();
+    expect([pendingSurface.width, pendingSurface.height]).toEqual([0, 0]);
     await drain();
     await first;
     expect(instances).toHaveLength(52);

@@ -8,8 +8,12 @@
  * - 2-Color: Hearts/Diamonds (Red), Clubs/Spades (Black)
  */
 
-import React, { useState, useEffect, useSyncExternalStore } from 'react';
-import { decodedCardImageUrl, subscribeCardImages } from '../../utils/deckWarmer';
+import React, { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
+import {
+  decodedCardImageUrl,
+  drawDecodedCardImage,
+  subscribeCardImages,
+} from '../../utils/deckWarmer';
 import { MEDIA_BASE } from '../../utils/mediaBase';
 import { useDeckStyle } from '../../hooks/useDeckStyle';
 import './CardImage.css';
@@ -252,6 +256,17 @@ export function CardImage({
     () => imagePath ?? ''
   );
   const localFaceReady = preparedImagePath.startsWith('blob:');
+  const artworkRef = useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(() => {
+    const canvas = artworkRef.current;
+    if (!canvas) return;
+    if (loading === 'eager' && imagePath !== null) drawDecodedCardImage(imagePath, canvas);
+    return () => {
+      delete canvas.dataset.cardArtworkReady;
+      canvas.width = 0;
+      canvas.height = 0;
+    };
+  }, [imagePath, preparedImagePath, loading]);
   const sizeClass = SIZE_CLASSES[size];
   /* `null` means the card could not be read at all. See getCardImagePath:
      showing a guessed card here would be worse than showing nothing. */
@@ -343,6 +358,16 @@ export function CardImage({
         onError={() =>
           setFallbackStep((s) => (s === 0 && baseEffectivePath.endsWith('.webp') ? 1 : 2))
         }
+      />
+      {/* A newly mounted img can load asynchronously even from a decoded blob.
+          Copy the retained pixels before paint; keep img semantics and the
+          accurate failure face when retained artwork is unavailable. */}
+      <canvas
+        ref={artworkRef}
+        className="card-image__artwork"
+        width={0}
+        height={0}
+        aria-hidden="true"
       />
       {/* Paint the authoritative face immediately, beneath the artwork. A pending
           request or async decode must never leave a playable card blank. */}

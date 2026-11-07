@@ -107,6 +107,20 @@ if [ "$EXISTING_SHA" = "$HEAD_SHA" ]; then
   exit 0
 fi
 
+# SAY WHAT THE HOOK WILL BLOCK ON, BEFORE IT SPENDS MINUTES (2026-11-07). The
+# pre-push hook refuses a push touching src/** or server/** when that package
+# root's node_modules does not satisfy its lockfile, and a fresh worktree has
+# reached that refusal twice today. This is the same read-only probe the hook
+# runs; it changes nothing and refuses nothing, it names the exact command.
+TREE_TOP=$(git rev-parse --show-toplevel)
+for pkg in "$TREE_TOP" "$TREE_TOP/server"; do
+  [ -f "$pkg/package.json" ] && [ -f "$pkg/package-lock.json" ] || continue
+  if [ "$(node "$SCRIPT_DIR/local-dependency-policy.mjs" "$pkg" 2>/dev/null)" != local ]; then
+    say "WARNING: $pkg/node_modules does not satisfy its lockfile; the pre-push hook will BLOCK a push touching it."
+    say "  remedy: (cd \"$pkg\" && npm ci --ignore-scripts --no-audit --no-fund)"
+  fi
+done
+
 # Show existing admission before expensive hooks; never skips a gate.
 node "$SCRIPT_DIR/ci/execution-preview.mjs"
 rc=$?

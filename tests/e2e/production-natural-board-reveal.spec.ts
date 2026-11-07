@@ -68,7 +68,13 @@ test('one natural cash hand owes the full turn and river reveal', async ({
     observationLimitMs: 360_000,
   };
   let raster: Awaited<ReturnType<typeof startCardArtworkRaster>> | undefined;
-  const rasters = new Map<string, Omit<CardArtworkRasterCapture, 'image'> & { kind: string }>();
+  const rasters = new Map<
+    string,
+    Omit<CardArtworkRasterCapture, 'image'> & {
+      kind: string;
+      boundsRole: 'public-card-slot' | 'card-face';
+    }
+  >();
   const rasterImages = new Map<string, Buffer>();
   const artworkCapture = async (reveal: Awaited<ReturnType<typeof capture>>, stop = false) => {
     const snapshot = await page.evaluate((stop) => {
@@ -81,12 +87,20 @@ test('one natural cash hand owes the full turn and river reveal', async ({
       ...entry,
       id: `${entry.kind}-${entry.id}-${entry.sourceEpoch}-${entry.visibilityEpoch}`,
     }));
-    const pending = keyed.filter((entry) => rasters.get(entry.id)?.verdict !== 'captured');
+    // Preserve the first attempt, including UNKNOWN: a later ring snapshot
+    // cannot replace evidence from the original first-visible interval.
+    const pending = keyed.filter((entry) => !rasters.has(entry.id));
     if (raster && pending.length) {
-      for (const result of await raster.capture(pending)) {
+      for (const result of await raster.capture(
+        pending.map((entry) => ({ ...entry, bounds: entry.rasterBounds ?? entry.bounds }))
+      )) {
         const { image, ...metadata } = result;
-        const kind = keyed.find((entry) => entry.id === result.id)!.kind;
-        rasters.set(String(result.id), { ...metadata, kind });
+        const entry = keyed.find((entry) => entry.id === result.id)!;
+        rasters.set(String(result.id), {
+          ...metadata,
+          kind: entry.kind,
+          boundsRole: entry.rasterBounds ? 'public-card-slot' : 'card-face',
+        });
         if (image) rasterImages.set(String(result.id), image);
       }
     }

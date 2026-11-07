@@ -156,16 +156,44 @@ fi
 # what is missing rather than assuming creation succeeded. Cloning is a no-op
 # when the directory is already there, so the steady-state cost is one `[ -e ]`
 # per package root.
-provision_node_modules() {
-  if [ "$(uname -s)" = Darwin ]; then
-    echo "# ${1:-.}/node_modules: automatic Mac provisioning disabled; prepare owned SSD dependencies for required local prechecks" >&2
+# THE INSTALL THAT RUNS IN THE TREE (2026-11-07). `--ignore-scripts` because the
+# root's `prepare` only re-points core.hooksPath, which ensure-hooks.sh already
+# did, and no install here may run a lifecycle script in an unreviewed tree.
+# Every path that ends in "run npm ci yourself" prints THIS command verbatim,
+# because twice today a fresh worktree reached `.husky/pre-push` with no
+# server/node_modules and was BLOCKED with "required local server dependencies
+# are incomplete" and no command to type.
+TREE_NPM_CI="npm ci --ignore-scripts --no-audit --no-fund"
+install_in_tree() {
+  # $1 = absolute package dir, $2 = label
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "# $2: npm is not on PATH - run: (cd \"$1\" && $TREE_NPM_CI)" >&2
     return 0
   fi
+  echo "# $2: installing this tree's lockfile exactly ($TREE_NPM_CI, about a minute)..." >&2
+  (cd "$1" && $TREE_NPM_CI 2>&1 | tail -3 | sed "s/^/#   /" >&2) || true
+  if node_modules_matches_lockfile "$1/node_modules" "$1/package-lock.json"; then
+    echo "# $2: now matches this tree's lockfile" >&2
+  else
+    echo "# $2: STILL does not match this tree's lockfile - run: (cd \"$1\" && $TREE_NPM_CI) and read its output" >&2
+  fi
+}
+
+provision_node_modules() {
   # $1 = package dir relative to the repo root ("" for the root itself)
   local rel="$1"
   local src="$ROOT${rel:+/$rel}"
   local dst="$DIR${rel:+/$rel}"
   local label="${rel:-.}/node_modules"
+
+  if [ "$(uname -s)" = Darwin ]; then
+    echo "# $label: automatic Mac provisioning disabled; prepare owned SSD dependencies for required local prechecks" >&2
+    if [ -f "$dst/package.json" ] && [ -f "$dst/package-lock.json" ] \
+       && ! node_modules_matches_lockfile "$dst/node_modules" "$dst/package-lock.json"; then
+      echo "#   the pre-push hook will BLOCK without it; run: (cd \"$dst\" && $TREE_NPM_CI)" >&2
+    fi
+    return 0
+  fi
 
   [ -d "$dst" ] || return 0
   # A directory is not a package. Without this, a branch where server/ exists
@@ -197,8 +225,12 @@ provision_node_modules() {
 
   if [ ! -d "$src/node_modules" ]; then
     # Silence here is how the server/ hole survived: nothing was provisioned
-    # and nothing said so.
-    echo "# $label: the main clone has none either - run 'npm ci' in ${rel:-the clone root}" >&2
+    # and nothing said so. And a MESSAGE is how it survived a second time
+    # (2026-11-07): the clone had nothing to donate, this line told the agent
+    # to run npm ci, and the agent met the pre-push BLOCK instead. The tree
+    # owns its node_modules, so install it here, root and server/ alike.
+    echo "# $label: the main clone has none either - installing in the tree" >&2
+    [ -f "$dst/package-lock.json" ] && install_in_tree "$dst" "$label"
     return 0
   fi
 
@@ -221,7 +253,7 @@ provision_node_modules() {
       src="${fresh%/node_modules}"
       src="${src%${rel:+/$rel}}"
     else
-      echo "# $label: no install on this machine matches this tree's lockfile; npm ci runs here after the clone" >&2
+      echo "# $label: no install on this machine matches this tree's lockfile; $TREE_NPM_CI runs here after the clone" >&2
     fi
   fi
 
@@ -245,7 +277,8 @@ provision_node_modules() {
     mv "$tmp" "$dst/node_modules" && echo "# $label: copied from $src (no copy-on-write here)" >&2
   else
     rm -rf "$tmp" 2>/dev/null || true
-    echo "# $label: could not be provisioned - run 'npm ci' in ${rel:-the tree root}" >&2
+    echo "# $label: could not be cloned - installing in the tree instead" >&2
+    [ -f "$dst/package-lock.json" ] && install_in_tree "$dst" "$label"
     return 0
   fi
 
@@ -255,17 +288,7 @@ provision_node_modules() {
   # agent was already spending by hand, after a failed hook, without knowing why.
   if [ -f "$dst/package-lock.json" ] \
      && ! node_modules_matches_lockfile "$dst/node_modules" "$dst/package-lock.json"; then
-    if command -v npm >/dev/null 2>&1; then
-      echo "# $label: installing this tree's lockfile exactly (npm ci, about a minute)..." >&2
-      (cd "$dst" && npm ci --no-audit --no-fund 2>&1 | tail -3 | sed "s/^/#   /" >&2) || true
-      if node_modules_matches_lockfile "$dst/node_modules" "$dst/package-lock.json"; then
-        echo "# $label: now matches this tree's lockfile" >&2
-      else
-        echo "# $label: STILL does not match this tree's lockfile - run 'npm ci' in ${rel:-the tree root} and read its output" >&2
-      fi
-    else
-      echo "# $label: does not match this tree's lockfile and npm is not on PATH - run 'npm ci' in ${rel:-the tree root}" >&2
-    fi
+    install_in_tree "$dst" "$label"
   fi
 }
 
@@ -408,7 +431,7 @@ verify_native_deps() {
       cp -Rc "$donor" "$pkg" 2>/dev/null || cp -R "$donor" "$pkg" 2>/dev/null
       echo "# native dep repaired: $name (it was installed empty)" >&2
     else
-      echo "# native dep $name is empty and no good copy exists in this repo - run 'npm ci'" >&2
+      echo "# native dep $name is empty and no good copy exists in this repo - run: (cd \"$dst\" && $TREE_NPM_CI)" >&2
     fi
   done
   return 0

@@ -592,6 +592,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag('v9', 'V9 master: sizing families, timing, mood', 'V9'),
   flag('v9Sizing', 'human size families for bets', 'V9'),
   flag('v9Timing', 'think-time distribution', 'V9'),
+  flag(
+    'decisionGravityTiming',
+    'decision-size think time (horseDecisionGravity): longer on all-ins, big bets, big pots and the river, quicker on a preflop fold or small-pot check; default on, false ablates (2026-11-07)',
+    'V9'
+  ),
   flag('v9Mood', 'hourly mood gear-shift per horse', 'V9'),
   flag('v10', 'V10 master: c-bet read, SPR, rake, thin value, limp iso', 'V10'),
   flag('v10Cbet', 'range-advantage c-bet read', 'V10'),
@@ -881,12 +886,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'v15RiverNoNearLock',
-    "2026-11-07 (completed 2026-11-06 audit, hand 3374459) the V15 raise gate's near-lock escape (eq15 - dominationPenalty >= 0.85) no longer applies on the river: a non-nut Omaha flush or straight facing a river wager calls instead of raising, because the equity read there is the Monte Carlo against the bettor's estimated range (0.91-1.00 for the K-high flush with the As live, 60 of 60 seeds) and on the river nothing is left to draw; the K-high flush raised 43 of 60 seeds before; flop and turn keep the near-lock reading; the nut flush and nut straight are outside the gate; receipt v15_raise_gate; explicit off arm restores the river near-lock escape",
+    "2026-11-07 (completed 2026-11-06 audit, hand 3374459) the V15 raise gate's near-lock escape (eq15 - dominationPenalty >= 0.85) no longer applies on the river to ONE measured cell: the Omaha SECOND-nut flush (exactly one live higher flush rank) on an unpaired board, facing a river wager of 0.8 pot or more, outside tournaments, high-only and single-board, calls instead of raising; the equity read there is the Monte Carlo against the bettor's estimated range (0.91-1.00 for the K-high flush with the As live; it raised 43 of 60 seeds before); that cell's own river raises measured negative (raise vs fold, 2026-11-05 -107.2 [-211.4, -2.9] n 12, 11-06 -65.9 n 9), while its tournament raises (+16.2 n 16, +18.0 n 9), third-nut-or-worse flushes (+12.8 n 18, +7.4 n 12), smaller wagers, paired-board flushes, straights, hi-lo and multi-board keep the near-lock reading exactly as before; flop and turn unchanged; the gate only turns a raise into a call (an all-in when the call exceeds the stack), never a fold, though later measured call rules (V81) apply to that call as to any call; receipt v15_raise_gate; docs/horse-measure/2026-11-07/v15-river-raise-scope.md; explicit off arm restores the river near-lock escape",
     'V15'
   ),
   flag(
     'v84OmahaRiverReraiseCalls',
-    "2026-11-07 (hand 3359656: PLO6 tournament, Kd-high flush with no Ad on 9d 7d 2d 4s 6s bet 2,858 into 4,090, raised to 12,664, called 9,806, lost 587bb) PLO4/PLO5/PLO6 river CALLS of a raise of 0.9 pot or more after the horse's OWN river bet or raise (the spot V81 leaves out with chips already in this street) fold only in the measured cell (HorseOmahaBigBetCalls.v84Cell, same classification and wager measure as V81): an unpaired-board second-nut flush. Decision EV of the horses' own calls (net + chips already in, bb; hand_history + ca_hand_facts, every PLO hand, CIs clustered by hand) day A 2026-11-05/06 -100.8 [-159.5, -42.0] n 12, day B 2026-11-06/07 -93.0 [-130.3, -55.6] n 15, all 27 calls lost, no variant or format slice positive on either day; admission is V81's rule plus a floor of 10 hands per day; not admitted: paired-board second-nut flush (n 2 and 4), two pair, flush-board / non-nut / paired-board straights (each straddles one day), nut straights and full houses (win); excluded as V81: heads-up tables, bounty events, 20bb or less, hi-lo, multi-board, bomb pots, a bettor measured as a postflop over-bluffer, unreconcilable street history; outputs in docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt; limits: only the horses' calls are observed, ICM not modelled; explicit off arm keeps today",
+    "2026-11-07 (hand 3359656: PLO6 tournament, Kd-high flush with no Ad on 9d 7d 2d 4s 6s bet 2,858 into 4,090, raised to 12,664, called 9,806, lost 587bb) PLO4/PLO5/PLO6 river CALLS of a raise of 0.9 pot or more after the horse's OWN river bet or raise (the spot V81 leaves out with chips already in this street) fold only in the measured cell (HorseOmahaBigBetCalls.v84Cell, same classification and wager measure as V81): an unpaired-board second-nut flush. Decision EV of the horses' own calls (net + chips already in, bb; hand_history + ca_hand_facts, every PLO hand, CIs clustered by hand) day A 2026-11-05/06 -100.8 [-159.5, -42.0] n 12, day B 2026-11-06/07 -93.0 [-130.3, -55.6] n 15, all 27 calls lost, no variant or format slice positive on either day; admission is V81's rule plus a floor of 10 hands per day; not admitted: paired-board second-nut flush (n 2 and 4), two pair, flush-board / non-nut / paired-board straights (each straddles one day), nut straights and full houses (win); excluded as V81: heads-up tables, bounty events, 20bb or less, hi-lo, multi-board, bomb pots, a bettor measured as a postflop over-bluffer, unreconcilable street history; outputs in docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt; limits: only the horses' calls are observed, ICM not modelled; denominator re-measured before activation (omaha-river-reraise-opportunities.sql): the horses met the spot with an unpaired second-nut flush 49 times and called all 49 (no fold, no re-raise), 22 fell to the V81 exclusions, the 27 eligible calls matched hand for hand, no chop, no run-it-twice, no all-in-or-fold table, every showdown a nut flush or straight flush; prices 0.028 to 0.333 (median 0.333), 0 wins in 27 bounds the win rate at 0.105, so V84 folds only a call priced at V84_MIN_CALL_PRICE 0.13 or more (23 calls: day A -106.5 [-169.6, -43.3] n 11, day B -101.8 [-145.2, -58.3] n 12, all lost) and all-in-or-fold tables keep today (docs/horse-measure/2026-11-07/v84-river-reraise-denominator.txt); explicit off arm keeps today",
     'V84'
   ),
   flag(
@@ -2526,7 +2531,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'horse_observer_history_domain_complete',
     'services/HorseOwnPublicHistory version-2 (speed/ante) own-history load',
-    'every hand the installed reader returned carried this context\'s original speed/ante domain, so the partitioned window kept them all (#9693)',
+    "every hand the installed reader returned carried this context's original speed/ante domain, so the partitioned window kept them all (#9693)",
     '2026-11-07'
   ),
   receipt(

@@ -35,6 +35,18 @@ export function validateSelection(p) {
   }
   return p;
 }
+// The original captures can contain arbitrary private values. Only these
+// producer-defined categories can leave the host; older and unknown values stay null.
+const observerDispositions = new Set([
+  'independent',
+  'pooled_public',
+  'unknown_context',
+  'unknown_hand',
+  'cutoff_unavailable',
+  'capacity_reset',
+  'history_unavailable',
+]);
+const tournamentContextStatuses = new Set(['complete', 'incomplete', 'warming', 'stale']);
 export function summarizeDecision(record, capture, view, opponentId, independent, execution) {
   const s = capture.snapshot;
   if (s?.type !== 'DECIDE_FAST' || !s.gameState?.players?.some((p) => p.user_id === opponentId))
@@ -44,6 +56,7 @@ export function summarizeDecision(record, capture, view, opponentId, independent
   const authority = (v) =>
     v ? { mode: word(v.mode), selection: word(v.selection), verdict: word(v.verdict) } : null;
   const o = capture.observerReads;
+  const tournamentStatus = s.gameState.tournament?.contextStatus;
   return {
     handKey: record.handKey,
     sourceRelease: record.sourceRelease,
@@ -52,6 +65,10 @@ export function summarizeDecision(record, capture, view, opponentId, independent
     street: s.gameState.stage ?? null,
     action: capture.decision.action,
     independent,
+    observerDisposition: observerDispositions.has(o?.disposition) ? o.disposition : null,
+    tournamentContextStatus: tournamentContextStatuses.has(tournamentStatus)
+      ? tournamentStatus
+      : null,
     history: o?.history ?? 'unknown',
     historyHands: o?.historyHands ?? null,
     historyCapped: o?.historyCapped ?? null,

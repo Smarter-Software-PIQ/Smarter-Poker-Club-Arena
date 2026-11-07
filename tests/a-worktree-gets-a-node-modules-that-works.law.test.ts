@@ -267,9 +267,93 @@ describe('the provisioner judges a node_modules by its payload', () => {
     expect(code).toContain(
       'node_modules_matches_lockfile "$dst/node_modules" "$dst/package-lock.json"'
     );
-    expect(code).toContain('npm ci --no-audit --no-fund');
-    // In the TREE, never the main clone: `cd "$dst"` precedes it.
-    expect(code).toMatch(/\(cd "\$dst" && npm ci --no-audit --no-fund/);
+    expect(code).toContain('TREE_NPM_CI="npm ci --ignore-scripts --no-audit --no-fund"');
+    // In the TREE, never the main clone: `cd "$1"` with `$dst` passed in.
+    expect(code).toMatch(/\(cd "\$1" && \$TREE_NPM_CI/);
+    expect(code).toContain('install_in_tree "$dst" "$label"');
+  });
+
+  /**
+   * A MESSAGE IS NOT A PROVISION (2026-11-07). Twice in one day a fresh
+   * worktree reached `.husky/pre-push` without server/node_modules and was
+   * BLOCKED with "required local server dependencies are incomplete". The
+   * provisioner had found nothing to clone from and printed "run 'npm ci'",
+   * which is where the hole of 2026-08-25 moved to. Every package root that
+   * cannot be cloned is now installed in the tree, root and server/ alike,
+   * and every surface that still has to tell an agent to install names the
+   * exact command.
+   */
+  describe('a tree that cannot be cloned from is installed, and every refusal names the command', () => {
+    const hook = readFileSync(join(ROOT, '.husky/pre-push'), 'utf8');
+    const push = readFileSync(join(ROOT, 'scripts/agent-push.sh'), 'utf8');
+    const remedy = 'npm ci --ignore-scripts --no-audit --no-fund';
+
+    it('installs in the tree when the main clone has nothing to donate', () => {
+      const start = script.indexOf('if [ ! -d "$src/node_modules" ]; then');
+      const end = script.indexOf("# THE TREE'S OWN LOCKFILE IS THE JUDGE", start);
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      const branch = script.slice(start, end);
+      expect(branch).toContain('install_in_tree "$dst" "$label"');
+      expect(branch).not.toMatch(/run 'npm ci'/);
+    });
+
+    it('installs in the tree when the clone copy fails', () => {
+      const start = script.indexOf('rm -rf "$tmp" 2>/dev/null || true\n    echo');
+      const end = script.indexOf("# A clone that does not satisfy this tree's lockfile", start);
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      expect(script.slice(start, end)).toContain('install_in_tree "$dst" "$label"');
+    });
+
+    it('reaches server/ through the same discovery as the root', () => {
+      // provision_all_package_roots walks every nested package.json, so the
+      // in-tree install covers server/node_modules without naming it.
+      expect(code).toMatch(/^provision_all_package_roots\(\) \{/m);
+      expect(code).toContain('provision_node_modules ""');
+      expect(code).toContain('find . -name package.json');
+    });
+
+    it('never runs a lifecycle script in the tree', () => {
+      // Every invocation goes through TREE_NPM_CI; no bare `npm ci` is run.
+      expect(code).not.toMatch(/&& npm ci\b/);
+      expect(code).not.toMatch(/^\s*npm ci\b/m);
+      // And no message tells an agent to type a bare one either.
+      expect(code).not.toMatch(/run 'npm ci'/);
+    });
+
+    it('the Mac path names the exact command instead of a policy sentence alone', () => {
+      expect(code).toContain(
+        'the pre-push hook will BLOCK without it; run: (cd \\"$dst\\" && $TREE_NPM_CI)'
+      );
+    });
+
+    it.each([
+      'BLOCKED: required local server dependencies are incomplete.',
+      'BLOCKED: the required local server compiler is unavailable.',
+      'BLOCKED: required local compiler dependencies are incomplete.',
+      'BLOCKED: required local client dependencies are incomplete.',
+    ])('the pre-push hook follows "%s" with a one-line remedy', (message) => {
+      const at = hook.indexOf(message);
+      expect(at).toBeGreaterThan(-1);
+      const next = hook.slice(at, hook.indexOf('FAIL=1', at));
+      expect(next).toContain(`remedy: (cd \\"$CA_TREE_TOP`);
+      expect(next).toContain(remedy);
+      if (message.includes('server')) expect(next).toContain('$CA_TREE_TOP/server\\"');
+    });
+
+    it('agent-push.sh probes both package roots read-only and names the remedy', () => {
+      expect(push).toContain('for pkg in "$TREE_TOP" "$TREE_TOP/server"; do');
+      expect(push).toContain('local-dependency-policy.mjs" "$pkg"');
+      expect(push).toContain(`remedy: (cd \\"$pkg\\" && ${remedy})`);
+      // A warning, not a refusal: the hook decides whether the push touches
+      // the package, and it is the gate that stays authoritative.
+      const block = push.slice(
+        push.indexOf('for pkg in "$TREE_TOP"'),
+        push.indexOf('done', push.indexOf('for pkg in "$TREE_TOP"'))
+      );
+      expect(block).not.toContain('exit ');
+    });
   });
 
   it('still calls the repair script this repo actually has', () => {
