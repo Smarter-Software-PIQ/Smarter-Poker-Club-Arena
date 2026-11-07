@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 143391,
-      "sha256": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c"
+      "bytes": 144234,
+      "sha256": "48c109aefcfe783317f56af5bd1314b03696066304046f52d5e0bc9fbc97e6b6"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77125,
@@ -7059,6 +7059,17 @@
         }
       }
     ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "accountingShardRebalance20261106": {
+    "reason": "Reviewed accounting shard rebalance: fourteen unchanged suites and their evidence steps change only matrix.shard routing; the regenerated execution projection is the only changed input. No fixture, assertion, qualification state or historical evidence changes.",
+    "path": "scripts/qualification/ci-accounting-inputs.json",
+    "previous": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c",
+    "current": {
+      "sha256": "48c109aefcfe783317f56af5bd1314b03696066304046f52d5e0bc9fbc97e6b6",
+      "bytes": 144234
+    },
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   }

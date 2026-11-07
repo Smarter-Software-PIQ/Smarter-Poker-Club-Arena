@@ -42,7 +42,7 @@
     "tests/fixtures/legacy-fee-finality/verify-native-receipts.mjs": "9556746822f0045ecadc35704929f53810676fe0ab07e49146b14495667870c8",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c"
+    "scripts/qualification/ci-accounting-inputs.json": "48c109aefcfe783317f56af5bd1314b03696066304046f52d5e0bc9fbc97e6b6"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -1508,6 +1508,17 @@
         }
       }
     ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "accountingShardRebalance20261106": {
+    "reason": "Reviewed accounting shard rebalance (run 42338709472 measured shards 1..7 at 1530/534/1967/992/728/683/170s). Fourteen unchanged suites and their evidence steps change only their matrix.shard routing (1->7, 3->2, 3->5, 3->6); every command, environment, timeout, artifact and financial input is identical. Regenerated with qualification-input-projections.py --write.",
+    "path": "scripts/qualification/ci-accounting-inputs.json",
+    "previous": "d3a176d0a4fbf8089705b0b700598e9fdc25241b331bf4af3ae4c33a2ac2724c",
+    "current": {
+      "sha256": "48c109aefcfe783317f56af5bd1314b03696066304046f52d5e0bc9fbc97e6b6",
+      "bytes": 144234
+    },
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   }
