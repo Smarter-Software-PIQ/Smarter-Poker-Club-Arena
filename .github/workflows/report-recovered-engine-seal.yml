@@ -16,6 +16,9 @@ on:
       - '.github/workflows/report-recovered-engine-seal.yml'
       - 'scripts/ci/recovered-seal-report.py'
       - 'scripts/ci/test-recovered-seal-report.py'
+concurrency:
+  group: recovered-seal-pr-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
