@@ -72,6 +72,43 @@ test.describe('Club lobby', () => {
     if (!ok) return;
     await lobbySettled(page);
     await expect(page.locator('.club-home')).toBeVisible();
+
+    // A newer release must not reboot this rendered lobby.
+    // Only this isolated browser's freshness read sees the newer identity.
+    // No production deployment, account or game state is changed.
+    await page.route('**/hub/club-arena/index.html', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<script type="module" src="/hub/club-arena/assets/index-newer-release.js"></script>',
+      })
+    );
+    const observedUpdate = page.waitForResponse(
+      (response) =>
+        response.url().endsWith('/hub/club-arena/index.html') && response.status() === 200
+    );
+    let documentLoads = 0;
+    page.on('load', () => {
+      documentLoads += 1;
+    });
+    await page.evaluate(() => {
+      (window as any).__arenaDocumentIdentity = 'retained';
+      navigator.serviceWorker.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'SHELL_UPDATED' },
+        })
+      );
+      window.dispatchEvent(new Event('focus'));
+      window.dispatchEvent(new Event('pageshow'));
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await observedUpdate;
+    // Exceeds the old 3s adoption timer and the 5s route poll.
+    await page.waitForTimeout(6_000);
+    expect(documentLoads).toBe(0);
+    expect(await page.evaluate(() => (window as any).__arenaDocumentIdentity)).toBe('retained');
+    await expect(page.locator('.club-home')).toBeVisible();
+    await page.unroute('**/hub/club-arena/index.html');
   });
 
   test('the result count matches the number of rows on screen', async ({ page }) => {

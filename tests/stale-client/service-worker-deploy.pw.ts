@@ -143,8 +143,8 @@ test('the next visit after a deploy runs the new build, whole, and the visit aft
   const loaded = await loadedAssets(next);
   expect(loaded.length).toBeGreaterThan(0);
   expect(outside(B, loaded), 'a chunk from another build ran in this document').toEqual([]);
-  /* One document, or one adoption reload if the freshness race was lost. */
-  expect(loads.count).toBeLessThanOrEqual(2);
+  /* Exactly one document entry; no automatic adoption reload. */
+  expect(loads.count).toBe(1);
 
   /* Chromium activates the new worker (skipWaiting) once the old one has no
      work in flight, which an open tab can defer (measured 2026-09-30: on
@@ -168,45 +168,58 @@ test('the next visit after a deploy runs the new build, whole, and the visit aft
   );
 });
 
-test('a boot that lost the freshness race runs the whole old build, then adopts the new one once', async ({
+test('a slow online entry starts current once, without a cached first paint or adoption reload', async ({
   page,
   request,
 }) => {
   await becomeReturningClient(page, A);
   const context = page.context();
   await page.close();
-
-  /* A slow shell: the worker's 300ms race is lost and the cached old shell
-     boots. That is the only way an old build can start after a deploy. */
   await deploy(request, 'b', { shellDelayMs: 2_000 });
   const next = await context.newPage();
   const loads = countDocumentLoads(next);
   await next.goto('legal');
   await expect(next.getByRole('heading', { name: 'Legal Center' })).toBeVisible();
-
-  /* Deterministic: the navigation is answered by the OLD worker, and its
-     race against a 2s shell is lost at 300ms. */
-  const first = await running(next);
-  expect(first, 'the premise: the cached old shell booted').toBe(A.entry);
-  const oldBoot = await loadedAssets(next);
-  expect(outside(A, oldBoot), 'the old build ran a new chunk').toEqual([]);
-
-  /* The gate verifies (the deployed shell names another entry), then reloads
-     at a safe moment: not at a table, visible, once. */
-  await expect.poll(() => running(next), { timeout: 60_000 }).toBe(B.entry);
-  await expect(next.getByRole('heading', { name: 'Legal Center' })).toBeVisible();
-  expect(outside(B, await loadedAssets(next)), 'the new build ran an old chunk').toEqual([]);
-  const reloadedAt = await next.evaluate(() => sessionStorage.getItem('ca_shell_reload_at'));
-  expect(reloadedAt, 'the adoption was the gate, on the record').not.toBeNull();
-
-  /* No loop: exactly one adoption reload, and nothing follows it. */
-  expect(loads.count).toBe(2);
+  expect(await running(next)).toBe(B.entry);
+  expect(outside(B, await loadedAssets(next))).toEqual([]);
   await next.waitForTimeout(12_000);
-  expect(loads.count).toBe(2);
-  console.log(
-    `[race lost] booted ${first} (${oldBoot.length} old-build assets, 0 foreign), ` +
-      `adopted ${B.entry} with one reload, no further reload in 12s`
-  );
+  expect(loads.count).toBe(1);
+  expect(await next.evaluate(() => sessionStorage.getItem('ca_shell_reload_at'))).toBeNull();
+});
+
+test('a deployment never reboots an open page on worker messages, focus or in-app navigation', async ({
+  page,
+  request,
+}) => {
+  await becomeReturningClient(page, A);
+  const loads = countDocumentLoads(page);
+  await page.evaluate(() => {
+    const draft = document.createElement('input');
+    draft.id = 'retained-draft';
+    draft.value = 'unfinished';
+    document.body.appendChild(draft);
+  });
+  await deploy(request, 'b');
+  await page.evaluate(() => {
+    navigator.serviceWorker.dispatchEvent(
+      new MessageEvent('message', { data: { type: 'SHELL_UPDATED' } })
+    );
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('pageshow'));
+    history.pushState({}, '', '/hub/club-arena/legal/privacy');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.getByRole('heading', { name: 'Privacy Policy', exact: true })).toBeVisible();
+  await page.waitForTimeout(12_000);
+  expect(await running(page)).toBe(A.entry);
+  expect(loads.count).toBe(0);
+  await expect(page.locator('#retained-draft')).toHaveValue('unfinished');
+  expect(outside(A, await loadedAssets(page))).toEqual([]);
+  // The player's next actual document entry selects current HTML.
+  await page.goto('legal');
+  await expect(page.getByRole('heading', { name: 'Legal Center' })).toBeVisible();
+  expect(await running(page)).toBe(B.entry);
+  expect(loads.count).toBe(1);
 });
 
 test('an old client whose chunk has vanished recovers onto the new build, not a dead screen', async ({
