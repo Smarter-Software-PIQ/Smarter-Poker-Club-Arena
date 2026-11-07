@@ -60,7 +60,17 @@ test('emits only selected public counters and scalar execution receipts, never p
     },
     readFrame: { json: secret },
   };
-  capture.snapshot.gameState.tournament = { contextStatus: 'incomplete', details: secret };
+  capture.snapshot.gameState.tournament = {
+    contextStatus: 'incomplete',
+    contextIssues: [
+      'TOURNAMENT_CONTEXT_INCOMPLETE',
+      'live_field_stack_cardinality_mismatch',
+      'live_field_stack_cardinality_mismatch',
+      'private_but_word_shaped',
+      secret,
+    ],
+    details: secret,
+  };
   const view = {
     stats: new Map([[id, { hands: 12, vpip: 10, pfr: 8, threeBet: 3, private: secret }]]),
   };
@@ -88,6 +98,10 @@ test('emits only selected public counters and scalar execution receipts, never p
   assert.equal(result.independent, true);
   assert.equal(result.observerDisposition, 'unknown_context');
   assert.equal(result.tournamentContextStatus, 'incomplete');
+  assert.deepEqual(result.tournamentIssues, {
+    codes: ['live_field_stack_cardinality_mismatch'],
+    otherIssuePresent: true,
+  });
   for (const invalid of [undefined, 'private_but_word_shaped', { private: secret }]) {
     const other = {
       ...capture,
@@ -100,6 +114,7 @@ test('emits only selected public counters and scalar execution receipts, never p
     const row = summarizeDecision({}, other, view, id, false);
     assert.equal(row.observerDisposition, null);
     assert.equal(row.tournamentContextStatus, null);
+    assert.equal(row.tournamentIssues, null);
   }
   assert.ok(!JSON.stringify(result).includes(secret));
   assert.equal(

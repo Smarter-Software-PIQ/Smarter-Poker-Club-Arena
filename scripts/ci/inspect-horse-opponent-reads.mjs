@@ -47,6 +47,58 @@ const observerDispositions = new Set([
   'history_unavailable',
 ]);
 const tournamentContextStatuses = new Set(['complete', 'incomplete', 'warming', 'stale']);
+// Match only literal diagnostic categories emitted by the producer. Never forward
+// arbitrary issue strings, identifiers or the tournament provenance object.
+const tournamentIssueCodes = new Set([
+  'addon_terms_missing',
+  'blind_level_cache_lag',
+  'blind_structure_or_level_invalid',
+  'bounty_type_state_missing',
+  'dead_button_atlas_unsupported',
+  'dealer_seat_missing',
+  'entry_window_terms_invalid',
+  'game_variant_missing',
+  'level_timing_future',
+  'level_timing_missing',
+  'level_timing_paused',
+  'level_timing_stale',
+  'live_blinds_invalid',
+  'live_field_recovery_pending',
+  'live_field_stack_cardinality_mismatch',
+  'live_seat_state_incomplete',
+  'live_stack_distribution_missing',
+  'mystery_bounty_inventory_unavailable',
+  'mystery_bounty_stage_missing',
+  'next_blind_level_invalid',
+  'payout_or_ticket_structure_missing',
+  'player_population_invalid',
+  'reentry_or_rebuy_limits_invalid',
+  'reentry_or_rebuy_terms_missing',
+  'reentry_rebuy_or_addon_state_missing',
+  'registration_state_missing',
+  'satellite_award_depth_unavailable',
+  'satellite_entitlement_read_failed',
+  'seats_per_table_invalid',
+  'tournament_context_missing',
+  'tournament_context_refresh_failed',
+  'tournament_context_refresh_not_started',
+  'tournament_context_refresh_timed_out',
+  'tournament_context_stale',
+  'tournament_context_warming',
+  'tournament_id_missing',
+  'tournament_status_missing',
+  'tournament_type_missing',
+]);
+function observedTournamentIssues(tournament) {
+  const issues = tournament?.contextIssues;
+  if (!Array.isArray(issues) || issues.length > 64) return null;
+  return {
+    codes: [...new Set(issues.filter((v) => tournamentIssueCodes.has(v)))],
+    otherIssuePresent: issues.some(
+      (v) => v !== 'TOURNAMENT_CONTEXT_INCOMPLETE' && !tournamentIssueCodes.has(v)
+    ),
+  };
+}
 export function summarizeDecision(record, capture, view, opponentId, independent, execution) {
   const s = capture.snapshot;
   if (s?.type !== 'DECIDE_FAST' || !s.gameState?.players?.some((p) => p.user_id === opponentId))
@@ -69,6 +121,7 @@ export function summarizeDecision(record, capture, view, opponentId, independent
     tournamentContextStatus: tournamentContextStatuses.has(tournamentStatus)
       ? tournamentStatus
       : null,
+    tournamentIssues: observedTournamentIssues(s.gameState.tournament),
     history: o?.history ?? 'unknown',
     historyHands: o?.historyHands ?? null,
     historyCapped: o?.historyCapped ?? null,
