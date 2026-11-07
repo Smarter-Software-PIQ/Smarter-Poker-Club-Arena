@@ -25,7 +25,16 @@ export type GtoV31NodeRole =
 
 export type GtoV31FacingKind = 'none' | 'bet' | 'raise' | 'all_in';
 export type GtoV31SizeBucket = 'none' | 'small' | 'mid' | 'big' | 'all_in';
-export type GtoV31PotType = 'limped' | 'srp' | '3bet' | '4bet_plus';
+/** Pot types a sealed V31 cell may carry (the database CHECKs the same four). */
+export type GtoV31SealedPotType = 'limped' | 'srp' | '3bet' | '4bet_plus';
+/**
+ * Pot types the consult can ask for. 'lrp' is a limped-then-raised pot: a
+ * voluntary preflop call came before the only raise. Its ranges are a limping
+ * range against an iso-raise, not an open against a caller, so it must never
+ * read an 'srp' cell. No sealed cell carries 'lrp' (the loader and the
+ * database both refuse it), so every lrp consult misses with no_cell.
+ */
+export type GtoV31PotType = GtoV31SealedPotType | 'lrp';
 export type GtoV31Position =
   | 'UTG'
   | 'UTG1'
@@ -213,15 +222,22 @@ export function gtoV31Position(args: {
 
 /** Preflop raise family carried into every postflop solver key. */
 export function gtoV31PotType(history: ActionRecord[] | undefined): GtoV31PotType {
-  const raises = (Array.isArray(history) ? history : []).filter(
-    (action) =>
-      action.stage === 'preflop' &&
-      (action.action === 'raise' ||
-        action.action === 'bet' ||
-        (action.action === 'all_in' && action.isFullRaise !== undefined))
-  ).length;
+  const preflop = (Array.isArray(history) ? history : []).filter(
+    (action) => action.stage === 'preflop'
+  );
+  const isRaise = (action: ActionRecord): boolean =>
+    action.action === 'raise' ||
+    action.action === 'bet' ||
+    (action.action === 'all_in' && action.isFullRaise !== undefined);
+  const raises = preflop.filter(isRaise).length;
+  // Blinds and antes are not in the action history, so any call (or an all-in
+  // that raises nothing) before the first raise is a voluntary limp.
+  const firstRaise = preflop.findIndex(isRaise);
+  const limpedFirst = preflop
+    .slice(0, firstRaise < 0 ? preflop.length : firstRaise)
+    .some((action) => action.action === 'call' || action.action === 'all_in');
   if (raises === 0) return 'limped';
-  if (raises === 1) return 'srp';
+  if (raises === 1) return limpedFirst ? 'lrp' : 'srp';
   if (raises === 2) return '3bet';
   return '4bet_plus';
 }

@@ -187,6 +187,44 @@ describe('canonical V31 node context', () => {
     expect(gtoV31PotType([open, allInCall])).toBe('srp');
   });
 
+  it('keys a limped-then-raised pot apart from a raise-first-in single-raised pot', () => {
+    // 6-max: UTG limps, BTN iso-raises, UTG calls. One raise, but the ranges
+    // are a limping range against an iso range, not an open against a caller.
+    const limp = rec(3, 'call', 2, 'preflop');
+    const iso = rec(6, 'raise', 10, 'preflop', true);
+    const limpCall = rec(3, 'call', 10, 'preflop');
+    expect(gtoV31PotType([limp, iso, limpCall])).toBe('lrp');
+    // Heads-up: the button completes the small blind, the big blind raises.
+    expect(
+      gtoV31PotType([
+        rec(2, 'call', 1, 'preflop'),
+        rec(1, 'raise', 4, 'preflop', true),
+        rec(2, 'call', 4, 'preflop'),
+      ])
+    ).toBe('lrp');
+    // An all-in for no more than the big blind before the first raise is a limp too.
+    expect(
+      gtoV31PotType([rec(3, 'all_in', 2, 'preflop'), rec(6, 'raise', 10, 'preflop', true)])
+    ).toBe('lrp');
+    // Folds and the big blind's check before any raise are not limps.
+    expect(
+      gtoV31PotType([
+        rec(3, 'fold', 0, 'preflop'),
+        rec(6, 'raise', 6, 'preflop', true),
+        rec(1, 'call', 6, 'preflop'),
+      ])
+    ).toBe('srp');
+    // A call after the first raise is the ordinary flat, not a limp.
+    expect(gtoV31PotType([rec(6, 'raise', 6, 'preflop', true), rec(1, 'call', 6, 'preflop')])).toBe(
+      'srp'
+    );
+    // A pot limped all the way to the flop stays limped; flop calls never count.
+    expect(gtoV31PotType([limp, rec(1, 'check', 0, 'preflop')])).toBe('limped');
+    expect(gtoV31PotType([rec(6, 'raise', 6, 'preflop', true), rec(1, 'call', 6, 'flop')])).toBe(
+      'srp'
+    );
+  });
+
   it('keeps distinct tournament utility families and refuses ordinary ICM in bounty events', () => {
     expect(gtoV31UtilityContext({ family: 'cash', objective: 'cash_ev' })).toBe('cash_ev');
     expect(gtoV31UtilityContext({ family: 'tourney_ev', objective: 'chip_ev' })).toBe('chip_ev');
