@@ -89,6 +89,15 @@ try:
  assert took<8,took
  print('PASS: exact candidate migration installed over md5-identical live preimages in %.2fs'%took,flush=True)
  print(query(db,(FIX/'cases.sql').read_text()),flush=True)
+ # The production slot classifier lives with the digest watch. Install its
+ # exact definition without the digest's unrelated operational preimages.
+ watch=(ROOT/'supabase/migrations/20261105233756_the_midway_free_buy_watch_reads_the_schedule_not_event_ids.sql').read_text()
+ slot=re.search(r'CREATE OR REPLACE FUNCTION public\.fn_ca_midway_free_buy_slot_format\(.*?AS (\$[a-z_]*\$).*?\1;',watch,re.S)
+ assert slot,'missing production schedule slot classifier'
+ query(db,slot.group(0))
+ guard_migration=ROOT/'supabase/migrations/20261106004812_a_built_midway_free_buy_refuses_a_shape_its_schedule_does_no.sql'
+ query(db,guard_migration.read_text())
+ print(query(db,(FIX/'scheduled-guarantee.sql').read_text()),flush=True)
  # Installed a second time it must refuse (its preimages are gone), changing nothing.
  try:
   query(db,MIG.read_text()); raise AssertionError('Migration reinstalled over its own output')

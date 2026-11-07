@@ -258,6 +258,8 @@ CREATE TABLE public.tournament_schedules (id uuid DEFAULT gen_random_uuid() PRIM
  name text, description text, active boolean, days_of_week integer[], start_times_utc text[],
  interval_minutes integer, config jsonb, created_by uuid, time_zone text, created_at timestamptz, updated_at timestamptz);
 CREATE TABLE public.ca_freeroll_free_buy_log (tournament_id uuid, tournament_name text, op text, status text, changed jsonb);
+CREATE TABLE public.ca_declared_money_triggers (table_name text NOT NULL, trigger_name text NOT NULL,
+ declared_at timestamptz NOT NULL DEFAULT now(), note text, PRIMARY KEY (table_name,trigger_name));
 CREATE TABLE public.ca_money_rpc_registry (proname text PRIMARY KEY, status text, notes text);
 CREATE SCHEMA smarter_private;
 CREATE TABLE smarter_private.owner_retirement_pool_transfers (tournament_id uuid, asset text, prize numeric,

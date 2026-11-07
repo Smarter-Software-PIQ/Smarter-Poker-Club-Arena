@@ -31,3 +31,8 @@ PKO), and runs `cases.sql`:
 does not change. Unregister and atomic cancellation call the unchanged promo
 return owner and are covered by the PKO fixture. Synthetic identities only; no
 production player data. Both psql and the pinned Node client (PGNODE) pass.
+
+`scheduled-guarantee.sql` runs with the production schedule-slot classifier
+and guard migration `20261106004812` installed. It exercises an actual
+wrong-format insert and update against a 500-chip Afternoon slot, confirms
+statement rollback, and checks that linking a started event preserves its terms.
