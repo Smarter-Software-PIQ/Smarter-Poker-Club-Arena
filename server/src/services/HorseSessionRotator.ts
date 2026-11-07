@@ -2,6 +2,7 @@ import { horseCashGameAllowed } from './HorseCashSchedule.js';
 import {
   horseCashPlanPrimaryTables,
   horseCashPlanSecondTables,
+  horseCashPlanTablesAwaitingBreak,
   horseUnionCashTableAllowed,
   lightningGamesWithPlayingHumans,
   playingHumansAtCashTable,
@@ -1119,6 +1120,26 @@ export class HorseSessionRotator {
           lightningHumanGames
         )
     );
+    /* A table the cluster tick breaks is not walked out of (owner
+       2026-11-07): its horses are moved by the break, in order, like people.
+       See HorseUnionCashPlan.horseCashPlanTablesAwaitingBreak. */
+    const cashPlanAwaitingBreak = horseCashPlanTablesAwaitingBreak(
+      [...byTable.entries()].map(([id, tableSeats]) => ({
+        ...((tableSeats[0] as any)?.tables ?? {}),
+        id,
+      })),
+      cashPlanPrimaryTables,
+      (primary) =>
+        horseUnionCashTableAllowed(
+          primary,
+          playingHumansAtCashTable(byTable.get(String(primary.id)) ?? [], horseIds),
+          Date.now(),
+          cashPlanPrimaryTables,
+          lightningGameIds,
+          lightningHumanGames
+        ),
+      lightningGameIds
+    );
     for (const [tableId, tableSeats] of byTable) {
       if (!this.lifecycleIsCurrent(generation)) return;
       const t = (tableSeats[0] as any)?.tables;
@@ -1132,6 +1153,7 @@ export class HorseSessionRotator {
       );
       const outsideCashPlan =
         lightningGameIds !== null &&
+        !cashPlanAwaitingBreak.has(tableId) &&
         !horseUnionCashTableAllowed(
           t ?? {},
           playingHumansAtCashTable(tableSeats, horseIds),
