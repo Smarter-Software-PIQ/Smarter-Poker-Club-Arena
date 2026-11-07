@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       selection_base64:
-        description: Base64 encoded closed selection of at most sixteen journal hand keys and one opponent UUID
+        description: Base64 encoded closed selection of at most sixteen journal hand keys and one opponent UUID per hand
         required: true
         type: string
 permissions:

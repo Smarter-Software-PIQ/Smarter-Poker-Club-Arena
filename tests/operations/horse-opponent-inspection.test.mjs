@@ -24,6 +24,22 @@ test('accepts only a finite closed data selection, with no command or path overr
   ])
     assert.throws(() => validateSelection(p));
 });
+test('bounds all targets together and permits exactly one selected opponent per original hand', () => {
+  const target = { handKey: selection.handKeys[0], opponentId: id };
+  const batch = { sourceSha: selection.sourceSha, targets: [target] };
+  assert.deepEqual(validateSelection(batch), batch);
+  for (const targets of [
+    [],
+    [target, target],
+    [{ ...target, command: 'x' }],
+    [{ ...target, opponentId: 'x' }],
+    Array.from({ length: 17 }, (_, i) => ({
+      ...target,
+      handKey: i.toString(16).padStart(64, '0'),
+    })),
+  ])
+    assert.throws(() => validateSelection({ ...batch, targets }));
+});
 test('emits only selected public counters and scalar execution receipts, never private cards or raw frames', () => {
   const secret = 'NEVER_EXPORT_THIS';
   const capture = {
@@ -219,21 +235,17 @@ test('actual CLI reports the failing bounded stage and preserves successful outp
   const cwd = mkdtempSync(join(tmpdir(), 'horse-read-diagnostic-'));
   const script = new URL('../../scripts/ci/inspect-horse-opponent-reads.mjs', import.meta.url)
     .pathname;
-  const run = (stage, journal = 'unused-synthetic-directory') =>
-    spawnSync(
-      process.execPath,
-      [script, Buffer.from(JSON.stringify(selection)).toString('base64')],
-      {
-        cwd,
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          GIT_COMMIT_SHA: selection.sourceSha,
-          HORSE_DECISION_JOURNAL_DIR: journal,
-          FIXTURE_FAILURE: stage,
-        },
-      }
-    );
+  const run = (stage, journal = 'unused-synthetic-directory', input = selection) =>
+    spawnSync(process.execPath, [script, Buffer.from(JSON.stringify(input)).toString('base64')], {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_COMMIT_SHA: selection.sourceSha,
+        HORSE_DECISION_JOURNAL_DIR: journal,
+        FIXTURE_FAILURE: stage,
+      },
+    });
   const refused = (result, reason) => {
     assert.equal(result.status, 1);
     assert.equal(result.stdout, '');
@@ -298,6 +310,22 @@ test('actual CLI reports the failing bounded stage and preserves successful outp
     assert.equal(result.completePopulation, false);
     assert.equal(result.hands.length, 1);
     assert.equal(result.hands[0].decisions[0].action, 'fold');
+    const other = 'c'.repeat(64);
+    const batch = run('', undefined, {
+      sourceSha: selection.sourceSha,
+      targets: [selection.handKeys[0], other].map((handKey) => ({ handKey, opponentId: id })),
+    });
+    assert.equal(batch.status, 0, batch.stderr);
+    assert.deepEqual(JSON.parse(batch.stdout), {
+      scope: 'selected_accepted_shared_reads',
+      sourceSha: selection.sourceSha,
+      completePopulation: false,
+      hands: [selection.handKeys[0], other].map((handKey) => ({
+        handKey,
+        reconciled: false,
+        witnesses: [],
+      })),
+    });
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

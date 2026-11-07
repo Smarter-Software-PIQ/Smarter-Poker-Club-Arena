@@ -1,20 +1,38 @@
 /** Bounded read-only journal inspection. Only selected counters and receipts leave the host. */
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 export function validateSelection(p) {
+  const shape = p && Object.keys(p).sort().join(',');
+  if (typeof p?.sourceSha !== 'string' || !/^[a-f0-9]{40}$/.test(p.sourceSha))
+    throw Error('selection_refused');
+  const batched = shape === 'sourceSha,targets';
   if (
-    !p ||
-    Object.keys(p).sort().join(',') !== 'handKeys,opponentId,sourceSha' ||
-    !uuid.test(p.opponentId) ||
-    !/^[a-f0-9]{40}$/.test(p.sourceSha) ||
-    !Array.isArray(p.handKeys) ||
-    p.handKeys.length < 1 ||
-    p.handKeys.length > 16 ||
-    new Set(p.handKeys).size !== p.handKeys.length ||
-    p.handKeys.some((k) => typeof k !== 'string' || !/^[a-f0-9]{64}$/.test(k))
+    !batched &&
+    (shape !== 'handKeys,opponentId,sourceSha' ||
+      typeof p.opponentId !== 'string' ||
+      !uuid.test(p.opponentId))
   )
     throw Error('selection_refused');
+  const entries = batched ? p.targets : p.handKeys;
+  if (!Array.isArray(entries) || entries.length < 1 || entries.length > 16)
+    throw Error('selection_refused');
+  const keys = new Set();
+  for (const entry of entries) {
+    if (
+      batched &&
+      (!entry ||
+        Object.keys(entry).sort().join(',') !== 'handKey,opponentId' ||
+        typeof entry.opponentId !== 'string' ||
+        !uuid.test(entry.opponentId))
+    )
+      throw Error('selection_refused');
+    const key = batched ? entry.handKey : entry;
+    if (typeof key !== 'string' || !/^[a-f0-9]{64}$/.test(key) || keys.has(key))
+      throw Error('selection_refused');
+    keys.add(key);
+  }
   return p;
 }
 export function summarizeDecision(record, capture, view, opponentId, independent, execution) {
@@ -145,7 +163,9 @@ export async function inspect(p) {
     const hands = [];
     let bytes = 0;
     const started = Date.now();
-    for (const handKey of p.handKeys) {
+    const targets =
+      p.targets ?? p.handKeys.map((handKey) => ({ handKey, opponentId: p.opponentId }));
+    for (const { handKey, opponentId } of targets) {
       stage = 'inspection_bound';
       if (Date.now() - started > 30000) throw Error('inspection_bound');
       stage = 'journal_read_failed';
@@ -175,7 +195,7 @@ export async function inspect(p) {
           s = c.snapshot;
         if (
           s?.type !== 'DECIDE_FAST' ||
-          !s.gameState?.players?.some((a) => a.user_id === p.opponentId)
+          !s.gameState?.players?.some((a) => a.user_id === opponentId)
         )
           continue;
         stage = 'retained_plan_refused';
@@ -195,7 +215,7 @@ export async function inspect(p) {
           r,
           c,
           view,
-          p.opponentId,
+          opponentId,
           horseObserverReadsWereIndependent(c.observerReads, s),
           execution
         );
@@ -215,10 +235,21 @@ export async function inspect(p) {
           decisions.push(row);
         }
       }
-      hands.push({ handKey, review, decisions });
+      if (p.targets) {
+        const witnesses = decisions
+          .filter((r) => r.acceptedSharedRead)
+          .map((r) => ({
+            observerHash: createHash('sha256').update(r.observerId).digest('hex'),
+            decisionTimeMs: r.decisionTimeMs,
+            acceptedSharedRead: r.acceptedSharedRead,
+          }));
+        hands.push({ handKey, reconciled: review.status === 'reconciled', witnesses });
+      } else {
+        hands.push({ handKey, review, decisions });
+      }
     }
     return {
-      scope: 'selected_horse_opponent_reads',
+      scope: p.targets ? 'selected_accepted_shared_reads' : 'selected_horse_opponent_reads',
       sourceSha: p.sourceSha,
       opponentId: p.opponentId,
       hands,
