@@ -43,10 +43,10 @@ const ctx = {
 };
 describe('one tournament identity icon beside each headline', () => {
   it.each([
-    [['satellite', 'freeroll', 'pko', 'freezeout'], 'satellite'],
-    [['freeroll', 'mystery', 'freezeout'], 'freeroll'],
-    [['pko', 'freezeout'], 'bounty'],
-    [['mystery', 'freezeout'], 'bounty'],
+    [['satellite', 'freeroll', 'pko', 'freezeout'], 'pko'],
+    [['freeroll', 'mystery', 'freezeout'], 'mystery'],
+    [['pko', 'freezeout'], 'pko'],
+    [['mystery', 'freezeout'], 'mystery'],
     [['bounty', 'freezeout'], 'bounty'],
     [['freezeout', 'hyper', 'turbo'], 'freezeout'],
     [['hyper', 'turbo', 'deepstack'], 'hyper'],
@@ -67,6 +67,7 @@ describe('one tournament identity icon beside each headline', () => {
     const entries = [
       event('Satellite', ['satellite']),
       event('Free', ['freeroll']),
+      event('PKO', ['pko']),
       event('Mystery', ['mystery']),
       event('Freezeout', ['freezeout']),
       event('Hyper', ['hyper']),
@@ -104,10 +105,15 @@ describe('one tournament identity icon beside each headline', () => {
           expect(icons[0].querySelector('img')?.getAttribute('src')).toContain(
             'rebuy-addon-raised-chip-v1.png'
           );
+        } else if (['PKO', 'Mystery', 'Turbo'].includes(entry.name)) {
+          const file = { PKO: 'progressive-ko', Mystery: 'mystery-chest', Turbo: 'turbo-wordmark' }[
+            entry.name
+          ];
+          expect(icons[0].querySelector('img')?.getAttribute('src')).toContain(file + '-v1.webp');
         } else {
           expect(icons[0].querySelector('svg')).not.toBeNull();
         }
-        if (['turbo', 'hyper'].includes(tournamentFormatIcon(entry) ?? '')) {
+        if (tournamentFormatIcon(entry) === 'hyper') {
           expect(icons[0].hasAttribute('data-lobby-symbol')).toBe(false);
           expect(icons[0].querySelector('[data-lobby-art]')).toBeNull();
         }
