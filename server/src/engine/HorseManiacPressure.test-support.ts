@@ -52,6 +52,8 @@ export interface PressureOptions {
   /** The 2026-11-06 Omaha current-nuts raise changes the same stream; its
    *  own law is HorseOmahaCurrentNuts.test.ts. */
   currentNutsRaise?: boolean;
+  /** false ablates the 2026-11-06 baseline river bluff range */
+  riverBluffBaseline?: boolean;
 }
 
 /** New public investment after hero's latest raise changes the continuation question.
@@ -312,6 +314,7 @@ export function playManiacPressure(
             ...(options.pairedBoardFold === false ? { ploPairedBoardFold: false } : {}),
             ...(options.semiBluffNeedsDraw === false ? { v74OmahaSemiBluffNeedsDraw: false } : {}),
             ...(options.currentNutsRaise === false ? { omahaCurrentNutsRaise: false } : {}),
+            ...(options.riverBluffBaseline === false ? { riverBluffBaseline: false } : {}),
           }
         );
         const act = decision.action;

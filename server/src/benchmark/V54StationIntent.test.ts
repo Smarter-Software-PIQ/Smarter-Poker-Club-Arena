@@ -58,7 +58,11 @@ describe('V54 station intent survives the actual worker policy graph', () => {
         // V54 and checks the plo6 baseline river bet this test measures V54
         // against; its off arm keeps the measured spot. The real rule is
         // pinned in HorsePloSuitedAcesAndPairedRiver.test.ts.
-        args[3] = { ...args[3], ploPairedBoardRiverCheck: false };
+        // The baseline river bluff range (2026-11-06) now owns these air
+        // rivers in both arms; this measures the V54 candidate against the
+        // brain it was built on, so the baseline is ablated here too
+        // (HorseRiverBluffRange.law.test.ts pins it).
+        args[3] = { ...args[3], ploPairedBoardRiverCheck: false, riverBluffBaseline: false };
         const d = await original(...args);
         if (args[1].stage === 'river' && args[3].v54RiverBluff === false)
           baselineRiver.push({ action: d.action, amount: d.amount ?? null });

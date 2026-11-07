@@ -170,6 +170,9 @@ describe('a style change is seen in a handful of hands, both ways', () => {
   // streets, so it is ablated here; its own law is HorsePloPairedBoardFold.
   // V74 (2026-10-31) likewise changes the PLO4 stream and is ablated too.
   // The 2026-11-06 Omaha current-nuts raise changes it as well and is ablated.
+  // The 2026-11-06 baseline river bluff range changes which rivers are bet
+  // (and so what the read sees); it is ablated too, and pinned by
+  // HorseRiverBluffRange.law.test.ts.
   for (const v of ['nlh', 'plo4']) {
     it(`${v}: a maniac who calms down stops being read as one within 25 hands`, () => {
       const t = playManiacPressure(v, 'cash', 'potter', 100, 11, 15, {
@@ -178,6 +181,7 @@ describe('a style change is seen in a handful of hands, both ways', () => {
         pairedBoardFold: false,
         semiBluffNeedsDraw: false,
         currentNutsRaise: false,
+        riverBluffBaseline: false,
       });
       expect(firstFrom(t.maniacReadByHand, 0, true)).toBeLessThanOrEqual(8);
       expect(firstFrom(t.maniacReadByHand, 60, false)).toBeLessThanOrEqual(25);
@@ -193,6 +197,7 @@ describe('a style change is seen in a handful of hands, both ways', () => {
         pairedBoardFold: false,
         semiBluffNeedsDraw: false,
         currentNutsRaise: false,
+        riverBluffBaseline: false,
       });
       expect(t.maniacReadByHand.slice(0, 60).some(Boolean)).toBe(false);
       expect(firstFrom(t.maniacReadByHand, 60, true)).toBeLessThanOrEqual(nitToManiacPin);

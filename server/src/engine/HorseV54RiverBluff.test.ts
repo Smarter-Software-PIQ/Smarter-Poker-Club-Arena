@@ -336,7 +336,14 @@ describe('V54 default off reproduces the brain before it, byte for byte', () => 
     it(
       `v54RiverBluff ${String(flag)}: every golden river spot decides exactly as recorded`,
       () => {
-        const opts: HorseDecideOpts = flag === undefined ? {} : { v54RiverBluff: flag };
+        // The golden was recorded before V54 AND before the November 6
+        // baseline river bluff range, which now owns these very spots (air,
+        // heads-up, checked to). This pin is about V54's flag, so the later
+        // baseline is ablated here; HorseRiverBluffRange.law.test.ts pins it.
+        const opts: HorseDecideOpts =
+          flag === undefined
+            ? { riverBluffBaseline: false }
+            : { v54RiverBluff: flag, riverBluffBaseline: false };
         const run = (key: string, lines: string[]) =>
           expect(digest(lines), key).toBe(golden[key].sha256);
         HorseMind.reset();
