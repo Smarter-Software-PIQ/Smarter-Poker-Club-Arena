@@ -4072,7 +4072,10 @@ export class GameServer {
   private startTime: number = Date.now();
 
   // Server-side services (replaces browser-based DealerPage services)
-  private horseFleet = new HorseFleetManager();
+  private horseFleet = new HorseFleetManager({
+    /* Where a horse sits reads the button of the hand being dealt (HorseSeatChoice). */
+    buttonSeatOf: (tableId) => this.getTableEngine(tableId)?.getCurrentButtonSeat() ?? null,
+  });
   /** Operation Table Stakes, Slice 6: the tables of a must-move game open,
    *  feed, break and sleep on their own. Leader-only, like the fleet. */
   private clusterController = new ClusterController({
