@@ -481,11 +481,30 @@ describe('standby seat proof observes the protected interval', () => {
       'arbitrary-owner',
       'semantic-change',
       'second-rotation',
-      ...(trial === 'swap' ? ['process-restart'] : []),
+      'tail-incomplete',
+      'tail-foreign',
+      'tail-malformed',
+      'tail-early-unfrozen',
+      'tail-seat-mutation',
+      'tail-missing',
+      'tail-clock-crossing',
+      'tail-foreign-boundary',
+      ...(trial === 'swap'
+        ? [
+            'process-restart',
+            'delayed-first-tail',
+            'delayed-first-incomplete',
+            'delayed-first-foreign',
+            'delayed-first-window',
+          ]
+        : []),
     ])(`${trial} refuses invalid frozen evidence (%s)`, (mode) => {
       const sha = 'a'.repeat(40);
       const frozen = {
         frozen: true,
+        evidenceKind: 'active',
+        observedAt: '2026-11-06T22:13:12.000+00:00',
+        observationStartedAt: '2026-11-06T22:13:12.000+00:00',
         token: '1135e041-af7d-417b-9121-32e30090652a',
         declaredBy: trial === 'swap' ? 'bbbbbbbb' : sha.slice(0, 8),
         phase: 'counting_down',
@@ -504,26 +523,70 @@ describe('standby seat proof observes the protected interval', () => {
               declaredBy: sha.slice(0, 8),
             }
           : frozen;
+      const tail = {
+        ...successor,
+        evidenceKind: 'certified_tail',
+        phase: null,
+        reason: null,
+        observedAt: '2026-11-06T22:16:42.000+00:00',
+        activeReleaseAt: successor.releaseAt,
+        tailContractVersion: 3,
+        tailComplete: true,
+        tailRequiredSteps: true,
+      };
+      const badTail =
+        mode === 'tail-clock-crossing'
+          ? {
+              ...tail,
+              activeReleaseAt: null,
+              observationStartedAt: '2026-11-06T22:18:11.000+00:00',
+              observedAt: '2026-11-06T22:18:12.000+00:00',
+            }
+          : mode === 'tail-foreign-boundary'
+            ? { ...tail, activeReleaseAt: '2026-11-06T22:19:11.748+00:00' }
+            : mode === 'tail-incomplete'
+              ? { ...tail, tailRequiredSteps: false }
+              : mode === 'tail-foreign'
+                ? { ...tail, token: '4135e041-af7d-417b-9121-32e30090652a' }
+                : mode === 'tail-malformed'
+                  ? { ...tail, tailComplete: 'true' }
+                  : mode === 'tail-early-unfrozen'
+                    ? { ...tail, frozen: false }
+                    : mode === 'tail-seat-mutation'
+                      ? { ...tail, fingerprint: 'f'.repeat(32) }
+                      : { ...tail, evidenceKind: 'absent', token: null };
       const changed = { ...successor, fingerprint: 'c'.repeat(32) };
       const different = { ...successor, startedAt: '2026-11-06T22:13:12.748+00:00' };
       const arbitrary = { ...successor, declaredBy: 'cccccccc' };
       const semantic = { ...successor, reason: 'other' };
       const rotated = { ...successor, token: '3135e041-af7d-417b-9121-32e30090652a' };
-      const thawed = { ...changed, frozen: false, token: null, startedAt: null, releaseAt: null };
+      const thawed = {
+        ...changed,
+        frozen: false,
+        observedAt: '2026-11-06T22:18:12.000+00:00',
+        token: null,
+        startedAt: null,
+        releaseAt: null,
+      };
       const result = standbyShell(`
         source '${root('server/standby/standby-trials.sh')}'
         cmd_run() { :; }; cmd_build() { :; }; wait_live() { :; }; wait_dealing() { :; }; wait_no_break() { :; }
-        maintenance_field() { echo 0; }; health() { echo fixture; }; health_field() { case "$1" in version) echo '${sha.slice(0, 8)}';; instanceId) echo candidate-instance;; liveness) echo ok;; *) echo '${sha}';; esac; }
+        maintenance_field() { echo 0; }
+        health() { echo '${JSON.stringify({ releaseSha: sha, version: sha.slice(0, 8), instanceId: 'candidate-instance', liveness: 'ok' })}'; }
         sleep() { :; }; docker() { if [ "$1" = inspect ]; then case "$*" in *'.Id'*) local n=0; [ ! -f "$STATE_DIR/inspect" ] || n=$(cat "$STATE_DIR/inspect"); echo $((n+1)) > "$STATE_DIR/inspect"; if [ '${mode}' = process-restart ] && [ "$n" -gt 0 ]; then echo '${'d'.repeat(64)} ${sha} true 1'; else echo '${'d'.repeat(64)} ${sha} true 0'; fi;; *) echo '${sha}';; esac; fi; }
         # Old proof would compare a pre-announcement A against post-thaw C.
         seat_fingerprint() { echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }
         request_break() { echo 0 > "$STATE_DIR/sample"; }
         psql_db() {
-          case "$*" in *'-v boundary='*) [ '${mode}' = receipt-refused ] && echo f || echo t; return 0;; esac
+          case "$*" in *'-v version='*) [ '${mode}' = receipt-refused ] && echo f || echo t; return 0;; esac
           local n; n=$(cat "$STATE_DIR/sample"); n=$((n+1)); echo "$n" > "$STATE_DIR/sample"
           if [ '${mode}' = unreadable ]; then return 19; fi
           if [ "$n" -eq 2 ]; then
             case '${mode}' in
+              delayed-first-tail) printf '%s' '${JSON.stringify(tail)}'; return 0;;
+              delayed-first-incomplete) printf '%s' '${JSON.stringify({ ...tail, tailComplete: false })}'; return 0;;
+              delayed-first-foreign) printf '%s' '${JSON.stringify({ ...tail, declaredBy: 'cccccccc' })}'; return 0;;
+              delayed-first-window) printf '%s' '${JSON.stringify({ ...tail, releaseAt: '2026-11-06T22:19:11.748+00:00' })}'; return 0;;
               frozen-mutation) printf '%s' '${JSON.stringify(changed)}'; return 0;;
               different-window) printf '%s' '${JSON.stringify(different)}'; return 0;;
               arbitrary-owner) printf '%s' '${JSON.stringify(arbitrary)}'; return 0;;
@@ -532,6 +595,10 @@ describe('standby seat proof observes the protected interval', () => {
             esac
           fi
           if [ "$n" -eq 3 ] && [ '${mode}' = second-rotation ]; then printf '%s' '${JSON.stringify(rotated)}'; return 0; fi
+          if [ "$n" -eq 3 ]; then
+            case '${mode}' in tail-*) printf '%s' '${JSON.stringify(badTail)}';; *) printf '%s' '${JSON.stringify(tail)}';; esac
+            return 0
+          fi
           if [ "$n" -gt 1 ] && [ "$n" -lt 4 ]; then printf '%s' '${JSON.stringify(successor)}'; return 0; fi
           if [ "$n" -ge 4 ]; then printf '%s' '${JSON.stringify(thawed)}'; else printf '%s' '${JSON.stringify(frozen)}'; fi
         }
@@ -539,9 +606,17 @@ describe('standby seat proof observes the protected interval', () => {
       `);
       // Break has no engine boot and can legitimately release on its second sample.
       const passing =
-        mode === 'legitimate-boundary-activity' || (trial === 'break' && mode === 'early-thaw');
+        mode === 'legitimate-boundary-activity' ||
+        mode === 'delayed-first-tail' ||
+        mode === 'tail-clock-crossing' ||
+        (trial === 'break' && mode === 'early-thaw');
       expect(result.status === 0, result.stderr + result.stdout).toBe(passing);
       if (passing) expect(result.stdout).toContain('"frozenSeatBoundary":');
+      if (mode.startsWith('tail-') && !passing) {
+        const verdict = JSON.parse(result.stdout.trim());
+        expect(verdict.rejectedSeatObservation.observation).toEqual(badTail);
+        expect(verdict.rejectedSeatObservation.reason).toContain('frozen_seat_boundary:');
+      }
     });
   }
 });
@@ -553,16 +628,26 @@ describe('standby adoption authority and timing', () => {
       const sha = 'a'.repeat(40);
       const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
       docker() { echo '${'d'.repeat(64)} ${mode === 'wrong-label' ? 'b'.repeat(40) : sha} true 0'; }
-      health() { echo fixture; }
-      # Run the consumer first: an echo-only health_field stub closes its pipe
-      # before this producer writes, unlike the real JSON reader.
+      health() { echo '${JSON.stringify({ releaseSha: mode === 'wrong-health' ? 'b'.repeat(40) : sha, version: mode === 'wrong-version' ? 'bbbbbbbb' : 'aaaaaaaa', instanceId: 'candidate-instance', liveness: 'ok' })}'; }
+      # Exercise the real JSON consumer with the producer delayed.
       printf() { sleep 0.02; builtin printf "$@"; }
-      health_field() { cat >/dev/null; if [ "$1" = instanceId ]; then echo candidate-instance; elif [ "$1" = liveness ]; then echo ok; elif [ "$1" = version ]; then echo '${mode === 'wrong-version' ? 'bbbbbbbb' : 'aaaaaaaa'}'; else echo '${mode === 'wrong-health' ? 'b'.repeat(40) : sha}'; fi; }
       swap_target_identity '${sha}'
     `);
       expect(result.status === 0, result.stderr + result.stdout).toBe(mode === 'exact');
     }
   );
+  it('consumes health JSON even when the pipeline producer is delayed', () => {
+    const sha = 'a'.repeat(40);
+    const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+      docker() { echo '${'d'.repeat(64)} ${sha} true 0'; }
+      health() { echo '${JSON.stringify({ releaseSha: sha, version: sha.slice(0, 8), instanceId: 'candidate-instance', liveness: 'ok' })}'; }
+      printf() { sleep 0.05; builtin printf "$@"; }
+      swap_target_identity '${sha}'
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout).instanceId).toBe('candidate-instance');
+  });
+
   it('reports unknown and reversed observations as null', () => {
     const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
       trial_elapsed 100 ''; echo; trial_elapsed '' 105; echo; trial_elapsed 105 100; echo; trial_elapsed 100 105
