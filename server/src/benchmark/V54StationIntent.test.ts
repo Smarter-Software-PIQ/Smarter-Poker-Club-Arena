@@ -61,8 +61,15 @@ describe('V54 station intent survives the actual worker policy graph', () => {
         // The baseline river bluff range (2026-11-06) now owns these air
         // rivers in both arms; this measures the V54 candidate against the
         // brain it was built on, so the baseline is ablated here too
-        // (HorseRiverBluffRange.law.test.ts pins it).
-        args[3] = { ...args[3], ploPairedBoardRiverCheck: false, riverBluffBaseline: false };
+        // (HorseRiverBluffRange.law.test.ts pins it). The 2026-11-07 flop/turn
+        // baseline changes which hands reach those rivers, so it is ablated
+        // for the same reason (HorseFlopTurnBluffRange.law.test.ts pins it).
+        args[3] = {
+          ...args[3],
+          ploPairedBoardRiverCheck: false,
+          riverBluffBaseline: false,
+          flopTurnBluffBaseline: false,
+        };
         const d = await original(...args);
         if (args[1].stage === 'river' && args[3].v54RiverBluff === false)
           baselineRiver.push({ action: d.action, amount: d.amount ?? null });

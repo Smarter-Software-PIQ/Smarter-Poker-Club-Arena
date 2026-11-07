@@ -310,6 +310,11 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   // keeps the explicit off arm (HorseRiverBluffRange.law.test.ts pins the
   // real policy).
   riverBluffBaseline: false,
+  // The baseline flop/turn bluff range (2026-11-07) bets and raises Omaha
+  // draws independently of any read and changes the frozen digests; the
+  // corpus keeps the explicit off arm (HorseFlopTurnBluffRange.law.test.ts
+  // pins the real policy).
+  flopTurnBluffBaseline: false,
   // V69 (2026-10-31) re-prices hold'em turn calls (one-pair implied odds,
   // the V65 hole-card draw read) independently of any read, and it changed
   // the NLH digest; the corpus keeps the explicit off arm

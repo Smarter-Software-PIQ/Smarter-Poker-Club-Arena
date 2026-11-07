@@ -295,7 +295,11 @@ describe('Items 21 and 23: a planned barrel records the next-street state it exp
           f.gs as never,
           'balanced',
           {},
-          { ...LIVE, planFingerprint }
+          // 9c-8c on K-7-2-5 is a gutshot, which the 2026-11-07 baseline
+          // flop/turn bluff range now owns at its class frequency whatever
+          // the plan says. The withdrawal is pinned on the plan mechanism it
+          // governs (every unqualified hand), so that later layer is isolated.
+          { ...LIVE, planFingerprint, flopTurnBluffBaseline: false }
         );
         return { d, f: fires() };
       };
