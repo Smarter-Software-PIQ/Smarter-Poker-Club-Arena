@@ -280,6 +280,14 @@ import { anteOrbitCostBB } from './AnteMath.js';
 import { callLargeRiverBoatWager, v81Cell, v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { ploPairedBoardMustFold, ploPairedBoardRiverMustCheck } from './HorsePloPairedBoardFold.js';
 import {
+  riverBluffEligibility,
+  riverBluffProbability,
+  riverNutBlocker,
+  riverBluffSize,
+  RIVER_BLUFF_PRIOR_AIR_SHARE,
+  RIVER_BLUFF_PRIOR_VALUE_SHARE,
+} from './HorseRiverBluffRange.js';
+import {
   holdemPremiumAggressionVerdict,
   type HoldemPremiumVerdict,
 } from './HorseHoldemPremiumAggression.js';
@@ -2474,6 +2482,12 @@ export interface HorseDecideOpts {
    *  plo4/plo5/plo6_v54_river_bluff measure it, and it goes live for every
    *  horse when it beats the current brain there. */
   v54RiverBluff?: boolean;
+  /** Baseline river bluff range (Dan 2026-11-06, HorseRiverBluffRange.ts):
+   *  heads-up, river, no bet to face, no showdown value, a line that tells a
+   *  story - bluff at the balanced rate for the bet size, blockers and missed
+   *  draws first, reads reshaping it (a station fewer, a folder more), never
+   *  zero without a read. Disable to ablate (default: enabled). */
+  riverBluffBaseline?: boolean;
   /** Candidate-only conditional river defense; default off until paired
    * current-brain qualification and protected adoption. */
   riverPositionDefense?: boolean;
@@ -9010,6 +9024,7 @@ export class HorseLogic {
         /* reads are best-effort */
       }
     }
+    let lightCallerBluffMul = 1;
     // ═══ RIVER CALL READ (2026-10-25) ═══ every river call that ends a
     // player's river is now shown, so the table sees what they call with.
     // Against a player whose shown weak-call rate exceeds their family baseline
@@ -9033,6 +9048,7 @@ export class HorseLogic {
         if (light !== null) {
           const k = Math.max(0, Math.min(1, (light - baseline) / (1 - baseline)));
           bluffScale *= 0.85 - 0.15 * k;
+          lightCallerBluffMul = 0.85 - 0.15 * k;
           thinAdj23 -= 0.02 + 0.02 * k;
           if (tele15) noteFire('river_call_light_read');
         } else if (tele15) noteFire('river_call_light_read_considered');
@@ -10109,6 +10125,138 @@ export class HorseLogic {
           }
         }
       }
+      // ═══ BASELINE RIVER BLUFF RANGE (Dan 2026-11-06) ═══════════════════════
+      // "CHECK THAT THERE IS NOTHING THAT IS EVER BLOCKING OR PRENENTING, OR
+      // 'SHUTTING OFF' RIVER BLUFFS FOR QUALIFIED CANDITATES OR SITUATIONS."
+      // Every river bluff below this point was conditional on something an
+      // ordinary spot lacks (a read, a recorded plan, an opt-in flag, a solver
+      // class mean that checks missed draws, an EV engine that skips the
+      // river). This owns the heads-up river with no showdown value and a
+      // coherent line: it bets at the balanced rate for its size, weighted to
+      // blockers and missed draws, reads reshaping it, or it checks. See
+      // HorseRiverBluffRange.ts. Spots it does not own fall through unchanged.
+      if (
+        isRiver &&
+        board.length === 5 &&
+        (opts.riverBluffBaseline ?? true) !== false &&
+        !sat37.active &&
+        // An explicitly selected barrelContinuationOutlook candidate owns the
+        // planned river barrel it was built for (HorseSkillActivationWiring).
+        !barrelOutlookRiverPending
+      ) {
+        const oppRb = opponents.length === 1 ? opponents[0] : null;
+        const eligRb = riverBluffEligibility({
+          omaha: vi.isOmaha,
+          potLimit: vi.isPotLimit,
+          hiLo: vi.isHiLo,
+          lowPossible: riverCanSplitLow,
+          fixedLimit: vi.isFixedLimit,
+          shortDeck: vi.isShortDeck,
+          multiBoard: multiBoard36,
+          bombPot: gs.bombPot === true,
+          holeCount: vi.holeCount,
+          hole: player.cards,
+          board,
+          history: gs.actionHistory ?? [],
+          heroId: player.user_id,
+          opponentId: oppRb?.user_id ?? '',
+          opponentsLive: opponents.length,
+          opponentCanRespond:
+            !!oppRb && !oppRb.is_all_in && !oppRb.is_sitting_out && oppRb.stack > 0,
+          equity,
+          inPosition: ip,
+          initiative,
+          scareCard: scare.any,
+          nutBlocker: riverNutBlocker(
+            player.cards,
+            board,
+            vi.isOmaha,
+            vi.isOmaha &&
+              omahaFlushBlocker(player.cards, board, vi.holeCount).blocksNutFlush === true
+          ),
+          riverHelpsHero: rangeChange?.improves === true || rangeChange?.nutAdvantage === true,
+          rangesFavorOpponent:
+            runoutFavorsOpponent === true || rangeAdvantage?.disadvantage === true,
+          barrelPlan: barrelPlan !== undefined && barrelPlan !== null,
+          calledBarrels: calledBarrels40,
+        });
+        if (eligRb.eligible && oppRb) {
+          const effRb = Math.min(stack, oppRb.stack + (isFinite(oppRb.bet) ? oppRb.bet : 0));
+          const sizeRb = riverBluffSize({
+            potLimit: vi.isPotLimit,
+            pot,
+            effectiveStack: effRb,
+            nutBlocker: eligRb.selection === 'blocker' || eligRb.selection === 'blockerAndDraw',
+            riverHelpsHero: rangeChange?.improves === true || rangeChange?.nutAdvantage === true,
+            icmRisk: isTournamentMode(gs) ? risk : 0,
+            u: fastRandom(),
+          });
+          const compRb =
+            ownRange && opponentRange
+              ? estimateRiverRangeComposition(board, ownRange, opponentRange, vi)
+              : null;
+          let stationRb = false;
+          let rfrRb: number | null = null;
+          let overFolderRb = 0;
+          if (useMind) {
+            try {
+              const readRb = HorseMind.opponentRead(oppRb.user_id);
+              rfrRb = HorseMind.riverFoldRate(oppRb.user_id);
+              stationRb = isStation(readRb) || (rfrRb !== null && rfrRb < 0.35);
+              if ((opts.v53Pressure ?? true) !== false) {
+                overFolderRb = riverBluffFrequency(
+                  riverFoldLowerBound(readRb),
+                  sizeRb.sizeFrac,
+                  useIQ && scare.any,
+                  blocker,
+                  calledBarrels40 >= 2 ? 0.12 : 0.06
+                );
+              }
+            } catch {
+              /* reads are best-effort: no read is the baseline */
+            }
+          }
+          const pRb = riverBluffProbability({
+            eligibility: eligRb,
+            sizeFrac: sizeRb.sizeFrac,
+            valueShare: compRb ? compRb.valueShare : RIVER_BLUFF_PRIOR_VALUE_SHARE,
+            airShare: compRb ? compRb.airShare : RIVER_BLUFF_PRIOR_AIR_SHARE,
+            reads: {
+              station: stationRb,
+              riverFoldRate: rfrRb,
+              overFolderFrequency: overFolderRb,
+              bluffMod: exploit.bluffMod,
+              lightCallerFactor: lightCallerBluffMul,
+            },
+            icmRisk: isTournamentMode(gs) ? risk : 0,
+            omahaThirdBarrel:
+              vi.isOmaha &&
+              calledBarrels40 >= 2 &&
+              rangeChange?.improves !== true &&
+              rangeChange?.nutAdvantage !== true,
+          });
+          if (sizeRb.sizeFrac > 0 && fastRandom() < pRb) {
+            const betRb = this.betSize(
+              planHandKey,
+              pot,
+              sizeRb.sizeFrac,
+              player,
+              gs,
+              vi,
+              { ...params, sizingMultiplier: 1 },
+              false
+            );
+            const placedRb = betRb.action === 'bet' || betRb.action === 'all_in';
+            if (tele15 && placedRb) noteFire(`river_bluff_baseline_${eligRb.selection}`);
+            else if (tele15) noteFire('river_bluff_baseline_illegal');
+            return betRb;
+          }
+          if (tele15) noteFire('river_bluff_baseline_check');
+          return { action: 'check', thinkTime: 0 };
+        } else if (tele15 && eligRb.reason !== 'showdown_value' && eligRb.reason !== 'domain') {
+          noteFire(`river_bluff_baseline_skip_${eligRb.reason}`);
+        }
+      }
       // ═══ V29/V30 GTO OPEN NODES (Dan 2026-08-29): the betting mix comes
       // from the solver ═══ Heads-up hold'em with the betting lead: the
       // check / bet_small / bet_big mix is the class-mean of the PioSolver
@@ -10494,7 +10642,7 @@ export class HorseLogic {
         (opts.v53Pressure ?? true) !== false &&
         useMind &&
         isRiver &&
-        oppCount === 1 &&
+        opponents.length === 1 &&
         !multiBoard36 &&
         equity < 0.3 &&
         !opponents[0].is_all_in &&

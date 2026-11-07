@@ -119,7 +119,17 @@ describe('V17 river delayed probe', () => {
         gameMode: 'cash',
         format: 'cash',
       } as HorseGameStateV2;
-      const dec = HorseLogic.decide(hero, gs, 'balanced', {}, { mind: false, v17RiverProbe });
+      // The baseline river bluff range (2026-11-06) now owns this capped,
+      // checked-through river with no showdown value; this measures the opt-in
+      // V17 probe against the brain it was built on, so it is ablated here
+      // (HorseRiverBluffRange.law.test.ts pins the baseline).
+      const dec = HorseLogic.decide(
+        hero,
+        gs,
+        'balanced',
+        {},
+        { mind: false, v17RiverProbe, riverBluffBaseline: false }
+      );
       if (dec.action === 'bet') bets++;
     }
     return bets / trials;

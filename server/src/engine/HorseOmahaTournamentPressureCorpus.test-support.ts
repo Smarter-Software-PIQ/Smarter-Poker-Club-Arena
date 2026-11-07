@@ -305,6 +305,11 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   // pre-candidate digests were captured before it, so the corpus keeps the
   // explicit off arm (HorseRiverOnePairShade.test.ts pins the real policy).
   v61RiverOnePairShade: false,
+  // The baseline river bluff range (2026-11-06) bluffs heads-up rivers with
+  // air independently of any read and changed the PLO6 digest; the corpus
+  // keeps the explicit off arm (HorseRiverBluffRange.law.test.ts pins the
+  // real policy).
+  riverBluffBaseline: false,
   // V69 (2026-10-31) re-prices hold'em turn calls (one-pair implied odds,
   // the V65 hole-card draw read) independently of any read, and it changed
   // the NLH digest; the corpus keeps the explicit off arm

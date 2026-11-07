@@ -104,7 +104,16 @@ describe('barrelContinuationOutlook reaches the river barrel', () => {
     const f = turn();
     HorseMind.notePlan(HorseMind.handKeyOf(f.hist)!, 'hero', true);
     seedFastRandom(seed);
-    const opts: HorseDecideOpts = { telemetry: true, barrelContinuationOutlook: flag };
+    // The November 6 baseline river bluff range (HorseRiverBluffRange) now
+    // owns a heads-up river with air when no candidate does. This law pins
+    // the candidate against the brain it was built on, so the baseline is
+    // ablated for both arms; with the flag on the baseline also yields to the
+    // pending outlook in production (HorseLogic, BASELINE RIVER BLUFF RANGE).
+    const opts: HorseDecideOpts = {
+      telemetry: true,
+      barrelContinuationOutlook: flag,
+      riverBluffBaseline: false,
+    };
     const t = HorseMind.captureDecisionEffects(() =>
       HorseLogic.decide(f.hero, f.gs as never, 'balanced', {}, { ...opts, decisionTimeMs: CLOCK })
     );
