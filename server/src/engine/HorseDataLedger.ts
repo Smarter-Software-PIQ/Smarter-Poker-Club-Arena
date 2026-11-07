@@ -990,6 +990,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River bluff hi-lo'
   ),
   flag(
+    'riverBluffMultiway',
+    'multiway river bluffs (HorseMultiwayRiverBluff): two or three opponents, air with a nut blocker on a line that caps the whole field, frequency falling steeply per opponent and multiplying every opponent read (a station near zero), polarized pot-limit-legal size; default on, false ablates (Dan 2026-11-06)',
+    'River bluff multiway'
+  ),
+  flag(
     'riverBluffFixedLimit',
     'fixed-limit path of the baseline river bluff range: the one fixed bet, so a low but real balanced share s/(1+s); default on, false restores the #9803 exclusion (2026-11-07)',
     'River bluff baseline'
@@ -4143,6 +4148,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (HorseRiverBluffRange)',
     'the baseline river bluff decided a qualified candidate: junk, missedDraw, blocker, blockerAndDraw or freeroll (a bet of that selection; freeroll is the hi-lo nut low with no high), check (the candidate checked at the balanced frequency) or illegal (the size could not be legalized); bet_<type> and check_<type> (fixedLimit, shortDeck, bombPot, multiBoard) mark the same decision in a game type #9803 excluded; skip_multiway, skip_cannot_respond and skip_no_story say why a river with no bet to face was left to the layers below; skip_low_giveaway is a hi-lo air hand checked because the opponent likely holds a low',
     'River bluff baseline'
+  ),
+  // No floor: fires only on multiway rivers with a blocker and a story.
+  receipt(
+    'river_bluff_multiway_*',
+    'HorseLogic not-facing-a-bet river (HorseMultiwayRiverBluff)',
+    'the multiway river bluff decided a qualified candidate: evaluated (eligible: air, nut blocker, story), selected_3way / selected_4way (a bluff bet), check (checked at the multiway frequency) or illegal (the size could not be legalized); skip_too_many, skip_cannot_respond, skip_no_blocker and skip_no_story say why a multiway river with no bet to face was left to the layers below',
+    'River bluff multiway'
   ),
   receipt(
     'river_lead_*',

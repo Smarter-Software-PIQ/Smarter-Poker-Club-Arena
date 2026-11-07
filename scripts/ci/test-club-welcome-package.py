@@ -1645,6 +1645,8 @@ SELECT count(*),(SELECT count(*) FROM tournaments WHERE club_id='{c25}'),
     if args.certification_club_scope:
         from welcome_parent_lock_order import qualify
         qualify(globals())
+    from welcome_terminal_receipt_proof import qualify as qualify_terminal_receipts
+    qualify_terminal_receipts(globals())
     results['passed']=all(c['passed'] for c in results['cases'])
 finally:
     command([pg/'pg_ctl','-D',cluster/'data','-m','immediate','stop'])

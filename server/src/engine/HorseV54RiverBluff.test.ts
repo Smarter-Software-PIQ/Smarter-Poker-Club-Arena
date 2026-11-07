@@ -340,10 +340,13 @@ describe('V54 default off reproduces the brain before it, byte for byte', () => 
         // baseline river bluff range, which now owns these very spots (air,
         // heads-up, checked to). This pin is about V54's flag, so the later
         // baseline is ablated here; HorseRiverBluffRange.law.test.ts pins it.
+        // The November 7 multiway river bluff owns the golden's three-handed
+        // spot (nlh_air_multiway) and is ablated for the same reason;
+        // HorseMultiwayRiverBluff.law.test.ts pins it.
         const opts: HorseDecideOpts =
           flag === undefined
-            ? { riverBluffBaseline: false }
-            : { v54RiverBluff: flag, riverBluffBaseline: false };
+            ? { riverBluffBaseline: false, riverBluffMultiway: false }
+            : { v54RiverBluff: flag, riverBluffBaseline: false, riverBluffMultiway: false };
         const run = (key: string, lines: string[]) =>
           expect(digest(lines), key).toBe(golden[key].sha256);
         HorseMind.reset();

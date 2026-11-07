@@ -1,3 +1,9 @@
+import {
+  closedBoardEvidence,
+  isLobbyCatalogResponse,
+  observedLobbyCatalog,
+} from './support/closedLobbyBoards';
+import { spinSngBoardsOpen } from '../../server/src/maintenance/dailyWindow';
 import { FAVORITE_DISPLAY_HORIZON_MS } from '../../src/components/lobby/tournamentFavoriteOrder';
 import { openLobbyGameSection } from './support/lobbyGameSections';
 import { createClient } from '@supabase/supabase-js';
@@ -601,6 +607,10 @@ test.describe('the mobile lobby chrome on production', () => {
     // read through fn_my_lobby_favorites as the signed-in owner.
     const isFavoritesRead = async (response: import('@playwright/test').Response) =>
       (await favoritesRead(response)) !== null;
+    const catalogPages: Parameters<typeof observedLobbyCatalog>[0] = [];
+    page.on('response', (response) => {
+      if (isLobbyCatalogResponse(response)) catalogPages.push({ response, at: new Date() });
+    });
     const initialRead = page.waitForResponse(isFavoritesRead);
     await openLobby(page);
     const owner = await readLobbyPreferenceOwner(page);
@@ -680,6 +690,24 @@ test.describe('the mobile lobby chrome on production', () => {
             ? '[data-kind="mtt"]:not(.is-satellite)'
             : `[data-kind="${mode === 'spins' ? 'spin' : mode}"]`;
       const currentRows = page.locator(`[data-testid="lobby-game-row"][data-id]${format}:visible`);
+      if ((mode === 'spins' || mode === 'sng') && !spinSngBoardsOpen(new Date())) {
+        const catalog = await observedLobbyCatalog(catalogPages);
+        const closure = closedBoardEvidence(mode, catalog.rows, catalog.at);
+        if (closure) {
+          await expect(page.getByText('Nothing Here On This Tab', { exact: true })).toBeVisible();
+          await expect(
+            page.getByText(/Game(?:s Are| Is) Open In This Club, Just None Of This Type Right Now/i)
+          ).toBeVisible();
+          await expect(currentRows).toHaveCount(0);
+          expect(spinSngBoardsOpen(new Date())).toBe(false);
+          appearance.push(closure);
+          await testInfo.attach(`chrome-arena-${mode}-scheduled-closure`, {
+            body: JSON.stringify(closure),
+            contentType: 'application/json',
+          });
+          continue;
+        }
+      }
       await expect(currentRows.first()).toBeVisible({ timeout: 30_000 });
       const sampleRow =
         mode === 'cash'

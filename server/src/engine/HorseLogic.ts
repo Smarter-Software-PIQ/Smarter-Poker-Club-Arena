@@ -294,6 +294,12 @@ import {
   RIVER_BLUFF_PRIOR_VALUE_SHARE,
 } from './HorseRiverBluffRange.js';
 import {
+  multiwayRiverBluffEligibility,
+  multiwayRiverBluffProbability,
+  multiwayRiverBluffSize,
+  type MultiwayOpponentRead,
+} from './HorseMultiwayRiverBluff.js';
+import {
   holdemPremiumAggressionVerdict,
   type HoldemPremiumVerdict,
 } from './HorseHoldemPremiumAggression.js';
@@ -2464,6 +2470,10 @@ export interface HorseDecideOpts {
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
    *  low, and otherwise checks. Disable to ablate (default: enabled). */
   riverBluffHiLo?: boolean;
+  /** Multiway river bluffs (Dan 2026-11-06, HorseMultiwayRiverBluff.ts): two
+   *  or three opponents, a nut blocker and a line capping the whole field,
+   *  frequency falling steeply per opponent; default on, false ablates. */
+  riverBluffMultiway?: boolean;
   /** Candidate-only conditional river defense; default off until paired
    * current-brain qualification and protected adoption. */
   riverPositionDefense?: boolean;
@@ -10031,6 +10041,120 @@ export class HorseLogic {
           return { action: 'check', thinkTime: 0 };
         } else if (tele15 && eligRb.reason !== 'showdown_value' && eligRb.reason !== 'domain') {
           noteFire(`river_bluff_baseline_skip_${eligRb.reason}`);
+        }
+      }
+      // ═══ MULTIWAY RIVER BLUFFS (Dan 2026-11-06) ═════════════════════════════
+      // The baseline above owns heads-up. Three- and four-way rivers fell to
+      // layers that almost never bluff there (production: Hold'em air bet 2.9%
+      // three-handed, PLO4 air 0 of 24 four-handed river bets). A multiway
+      // bluff must fold out EVERY opponent, so this bluffs only with a real
+      // nut blocker, a line that caps the whole field, no showdown value, at a
+      // frequency that falls steeply per opponent and multiplies every
+      // opponent's read (any credible station: near zero). See
+      // HorseMultiwayRiverBluff.ts. Spots it does not own fall through.
+      if (
+        isRiver &&
+        !facingBet &&
+        board.length === 5 &&
+        opponents.length >= 2 &&
+        (opts.riverBluffMultiway ?? true) !== false &&
+        !sat37.active &&
+        !barrelOutlookRiverPending
+      ) {
+        const eligMw = multiwayRiverBluffEligibility({
+          omaha: vi.isOmaha,
+          potLimit: vi.isPotLimit,
+          hiLo: vi.isHiLo,
+          lowPossible: riverCanSplitLow,
+          fixedLimit: vi.isFixedLimit,
+          shortDeck: vi.isShortDeck,
+          multiBoard: multiBoard36,
+          bombPot: gs.bombPot === true,
+          holeCount: vi.holeCount,
+          hole: player.cards,
+          board,
+          history: gs.actionHistory ?? [],
+          heroId: player.user_id,
+          opponentIds: opponents.map((o) => o.user_id),
+          allCanRespond: opponents.every((o) => !o.is_all_in && !o.is_sitting_out && o.stack > 0),
+          equity,
+          madeCategory: cat > 0 ? cat : madeCategory(player.cards, board, vi),
+          inPosition: ip,
+          initiative,
+          scareCard: scare.any,
+          nutBlocker: riverNutBlocker(
+            player.cards,
+            board,
+            vi.isOmaha,
+            vi.isOmaha &&
+              omahaFlushBlocker(player.cards, board, vi.holeCount).blocksNutFlush === true
+          ),
+        });
+        if (eligMw.eligible) {
+          if (tele15) noteFire('river_bluff_multiway_evaluated');
+          let deepestMw = 0;
+          for (const o of opponents) {
+            const os = (isFinite(o.stack) ? o.stack : 0) + (isFinite(o.bet) ? o.bet : 0);
+            if (os > deepestMw) deepestMw = os;
+          }
+          const sizeMw = multiwayRiverBluffSize({
+            potLimit: vi.isPotLimit,
+            pot,
+            effectiveStack: Math.min(stack, deepestMw),
+            scareBlocked: scare.any,
+            icmRisk: isTournamentMode(gs) ? risk : 0,
+            u: fastRandom(),
+          });
+          const readsMw: MultiwayOpponentRead[] = [];
+          if (useMind) {
+            for (const o of opponents) {
+              try {
+                const readO = HorseMind.opponentRead(o.user_id);
+                const rfrO = HorseMind.riverFoldRate(o.user_id);
+                readsMw.push({
+                  station: isStation(readO) || (rfrO !== null && rfrO < 0.35),
+                  riverFoldRate: rfrO,
+                });
+              } catch {
+                /* reads are best-effort: no read is the baseline */
+                readsMw.push({ station: false, riverFoldRate: null });
+              }
+            }
+          }
+          const pMw = multiwayRiverBluffProbability({
+            eligibility: eligMw,
+            sizeFrac: sizeMw.sizeFrac,
+            inPosition: ip,
+            reads: readsMw,
+            bluffMod: exploit.bluffMod,
+            icmRisk: isTournamentMode(gs) ? risk : 0,
+          });
+          if (sizeMw.sizeFrac > 0 && fastRandom() < pMw) {
+            const betMw = this.betSize(
+              planHandKey,
+              pot,
+              sizeMw.sizeFrac,
+              player,
+              gs,
+              vi,
+              { ...params, sizingMultiplier: 1 },
+              false
+            );
+            const placedMw = betMw.action === 'bet' || betMw.action === 'all_in';
+            if (tele15 && placedMw)
+              noteFire(`river_bluff_multiway_selected_${eligMw.opponents + 1}way`);
+            else if (tele15) noteFire('river_bluff_multiway_illegal');
+            return betMw;
+          }
+          if (tele15) noteFire('river_bluff_multiway_check');
+          return { action: 'check', thinkTime: 0 };
+        } else if (
+          tele15 &&
+          eligMw.reason !== 'domain' &&
+          eligMw.reason !== 'showdown_value' &&
+          eligMw.reason !== 'heads_up'
+        ) {
+          noteFire(`river_bluff_multiway_skip_${eligMw.reason}`);
         }
       }
       // ═══ V29/V30 GTO OPEN NODES (Dan 2026-08-29): the betting mix comes
