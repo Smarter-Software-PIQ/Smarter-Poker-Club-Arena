@@ -501,6 +501,14 @@ async function persistSubscription(
     'Saving your subscription'
   );
   if (res.status === 401) throw new Error('You Need To Be Signed In To Enable Notifications.');
+  // The push service already declared this endpoint dead (404/410), so the
+  // server refuses to resurrect it. The caller drops it and mints a fresh one;
+  // see enablePush STEP 4b.
+  if (res.status === 410) {
+    throw Object.assign(new Error("This Device's Notification Channel Expired."), {
+      code: 'endpoint_expired',
+    });
+  }
   if (res.status === 409 && repairOnly) {
     throw Object.assign(new Error('This Device Is Not Enrolled For This Account.'), {
       code: 'repair_not_enrolled',
@@ -697,11 +705,41 @@ export async function enablePush(options: EnablePushOptions = {}): Promise<PushR
     // ── STEP 4: persist ──────────────────────────────────────────────────
     // Never report the endpoint we just created as the one it replaced.
     const replaced = replacedEndpoint || legacy?.endpoint || null;
-    await persistSubscription(
-      subscription,
-      replaced && replaced !== subscription.endpoint ? replaced : null,
-      repairOnly
-    );
+    try {
+      await persistSubscription(
+        subscription,
+        replaced && replaced !== subscription.endpoint ? replaced : null,
+        repairOnly
+      );
+    } catch (persistError) {
+      if ((persistError as { code?: string })?.code !== 'endpoint_expired') throw persistError;
+      // ── STEP 4b: the browser still holds an endpoint the push service has
+      // killed (Dan's iPhone: Apple 410 on 2026-11-02; the phone kept the dead
+      // endpoint and every repair from Club Arena re-sent it, while only the
+      // World Hub client knew how to rotate, #2676). Drop it, mint a fresh
+      // one, and save that naming the dead one, so the server links the two
+      // as the same enrollment and the silent repair is allowed.
+      const deadEndpoint = subscription.endpoint;
+      try {
+        await subscription.unsubscribe();
+      } catch {
+        /* ignore */
+      }
+      subscription = await withTimeout(
+        registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey) as BufferSource,
+        }),
+        T.subscribe,
+        'Renewing this device'
+      );
+      if (subscription.endpoint === deadEndpoint) {
+        throw new Error(
+          'This Device Could Not Renew Its Notification Channel. Turn Notifications Off And On Again.'
+        );
+      }
+      await persistSubscription(subscription, deadEndpoint, repairOnly);
+    }
     await retireLegacyRootSubscription(legacy, subscription.endpoint);
     clearOptOut();
     return { ok: true, permission: 'granted' };
