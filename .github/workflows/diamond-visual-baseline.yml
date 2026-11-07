@@ -57,7 +57,9 @@ permissions:
 jobs:
   shots:
     name: Diamond games visual baseline (informational)
-    runs-on: ubuntu-latest
+    # Playwright has no Chromium build for ubuntu26.04 (what ubuntu-latest
+    # now resolves to); pinned like post-deploy-e2e and lobby-ui-proof.
+    runs-on: ubuntu-24.04
     # Two builds and two sets of shots since 2026-10-01 (the pull request and
     # the commit it merges into).
     timeout-minutes: 40

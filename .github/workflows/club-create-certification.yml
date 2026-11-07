@@ -61,11 +61,44 @@ jobs:
           RESERVED_CERTIFICATION_ACCOUNT_ID: ${{ inputs.reserved_account_id }}
           RESERVED_CERTIFICATION_ACCOUNT_EMAIL: ${{ inputs.reserved_account_email }}
         run: node scripts/ci/retire-reserved-certification-account.mjs
-  certify:
-    if: >-
-      github.event_name == 'repository_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+  # A publisher run that published nothing has nothing to certify. Read its
+  # exact jobs first and stand the certificate down for that one shape
+  # (scripts/ci/club-create-publication-mode.mjs nothingPublished); every
+  # other run certifies exactly as before.
+  publication:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - name: Checkout Trusted Certification Resolver
+        uses: actions/checkout@v4
+      - name: Decide Whether This Publisher Run Published Anything
+        id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 30s gh api "repos/${{ github.repository }}/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/publisher-jobs.json"
+          MODE=$(node scripts/ci/club-create-publication-mode.mjs --nothing-published < "$RUNNER_TEMP/publisher-jobs.json")
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          if [ "$MODE" = 'none' ]; then
+            echo "NON-VERDICT: publisher run $SOURCE_RUN_ID published nothing (no client publish was needed), so there is no Create Club revision to certify." >> "$GITHUB_STEP_SUMMARY"
+          fi
+  certify:
+    needs: [publication]
+    if: >-
+      always() && (
+      github.event_name == 'repository_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       needs.publication.result == 'success' &&
+       needs.publication.outputs.mode == 'publication'))
+    # Playwright has no Chromium build for ubuntu26.04 (what ubuntu-latest
+    # now resolves to); pinned like post-deploy-e2e and lobby-ui-proof.
+    runs-on: ubuntu-24.04
     # Exact-live convergence may take ten minutes, and each guarded account
     # cleanup can wait through an active platform freeze. Keep a bounded hour
     # for install, provenance, residual recovery, both fixture families, UI

@@ -18,7 +18,9 @@ concurrency:
 jobs:
   verify:
     name: Verify Player History And Existing Credit Display
-    runs-on: ubuntu-latest
+    # Playwright has no Chromium build for ubuntu26.04 (what ubuntu-latest
+    # now resolves to); pinned like post-deploy-e2e and lobby-ui-proof.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       PROOF_RUN_ID: ${{ github.run_id }}
