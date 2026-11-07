@@ -29671,6 +29671,7 @@ function LiveTablePage({
                   }
                   showStackInBB={effectiveShowStackInBB}
                   showAvatar={v8Settings.show_avatars}
+                  avatarLoading={isVisible ? 'eager' : 'lazy'}
                   showBadges={v8Settings.show_badges}
                   gesturesEnabled={v8Settings.gestures_enabled}
                   onSit={() => handleSeatClick(seatNumber)}
