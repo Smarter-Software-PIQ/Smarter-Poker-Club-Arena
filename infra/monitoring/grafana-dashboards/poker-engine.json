@@ -150,6 +150,60 @@
           "min": 0
         }
       }
+    },
+    {
+      "id": 8,
+      "title": "Stalled table-minutes per 1,000 observed tournament table-hours",
+      "description": "Trailing hour. Ratio of stalled table observations to eligible table observations. Scheduled holds are excluded. Missing scrapes are outside the observed denominator.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "60000 * sum by (format) (sum_over_time(poker_tournament_observed_stalled_tables[1h])) / (sum by (format) (sum_over_time(poker_tournament_observed_active_tables[1h])) > 0)",
+          "legendFormat": "{{ format }}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Tournament seated player-minutes affected in the last hour",
+      "description": "Estimated from the configured 15-second scrape interval. Counts seated players, including horses. Missing samples contribute no exposure.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum by (format) (sum_over_time(poker_tournament_observed_stalled_seats[1h])) * 15 / 60",
+          "legendFormat": "{{ format }}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Longest observed tournament table stall (seconds)",
+      "description": "Longest observed eligible stall in the trailing hour.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "max by (format) (max_over_time(poker_tournament_observed_longest_stall_ms[1h])) / 1000",
+          "legendFormat": "{{ format }}"
+        }
+      ]
     }
   ],
   "refresh": "10s",

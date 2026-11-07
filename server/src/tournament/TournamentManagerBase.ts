@@ -4217,6 +4217,14 @@ export abstract class TournamentManagerBase {
     } // Public observation never grants admission for an unknown format.
   }
 
+  hasSatelliteTarget(): boolean {
+    return Boolean(
+      this.tournamentCache?.satellite_target_id ||
+      this.tournamentCache?.satellite_target ||
+      this.tournamentCache?.tournament_type?.toUpperCase() === 'SATELLITE'
+    );
+  }
+
   /** Public club scope paired with the format label; never an ownership id. */
   getPublicLiveTableClubId(): string | null {
     const clubId = this.tournamentCache?.club_id;
