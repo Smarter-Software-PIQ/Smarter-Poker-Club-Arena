@@ -52,3 +52,23 @@ head are not; finalizing the event closes its finding and leaves V = 2 exact;
 the digest line reads exact/over/under/pending with promo, house and player
 parts apart, the tickets and the open findings; players cannot read it; no
 ledger row is written; a second install is refused.
+
+## A watch alert reaches Production Alerts (rolled-back production proof)
+
+One self-aborting `DO` block on production, 2026-11-07 04:40 UTC, raised one
+critical and one warning alert from source `fn_ca_free_buy_funding_watch`
+through `fn_raise_server_financial_alert`, exactly as the watch does, then
+resolved the critical one the way the watch does when its finding clears:
+
+- the critical alert opened a `ca_drift_incidents` row (status open, severity
+  critical, the tournament linked, dedupe `fa:fn_ca_free_buy_funding_watch:...`)
+  and three Production Alerts inbox rows (the alert, the incident and its
+  mirror);
+- the warning alert reached the inbox and opened no incident, as designed:
+  ticket-book findings are warnings, money findings are critical;
+- resolving the alert resolved its incident in the same transaction.
+
+The block ended in `RAISE EXCEPTION`; a read afterwards found none of the
+alerts, the incident or the inbox rows, so nothing was kept. One gap noted,
+not changed here: the incident's classification reads `unknown`, because the
+source name matches none of the classifier's money words.
