@@ -23,7 +23,7 @@
  *
  * MEASURED 2026-09-15: the money half has ZERO callers in `src/`. Every one of
  * `calculateAmounts`, `calculateICM`, `calculateBountyPayouts`,
- * `getRemainingPayouts` and `getOverlayStatus` is reached only from its own
+ * `getRemainingPayouts` (and, until 2026-11-07, `getOverlayStatus`) is reached only from its own
  * unit tests. The live path never touches it, so nothing is wrong today and no
  * player has ever been shown one of its numbers.
  *
@@ -84,7 +84,8 @@ const MONEY_METHODS = [
   'calculateICM',
   'calculateBountyPayouts',
   'getRemainingPayouts',
-  'getOverlayStatus',
+  // getOverlayStatus was deleted 2026-11-07 (it priced the overlay as
+  // guarantee - players * buyIn; the rule is guaranteeShortfall).
 ];
 
 /** The one live method, kept here so the test states the boundary in both directions. */

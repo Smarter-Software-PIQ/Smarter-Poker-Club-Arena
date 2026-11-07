@@ -46,6 +46,7 @@ import {
 import CasinoSurfaceHeader from '../../components/rewards/RewardsSurfaceHeader';
 import TournamentPaymentStatus from '../../components/tournament/TournamentPaymentStatus';
 import { isRecordedSatelliteQualifier } from '../../utils/satelliteQualification';
+import { displayTotalPool } from '../../utils/tournamentPrizeFunding';
 
 interface CompletedTournament {
   id: string;
@@ -55,7 +56,10 @@ interface CompletedTournament {
   game_type: string;
   buy_in_amount: number;
   buy_in_fee: number;
+  /** Places pool, net of bounty and rake. The page prints places + bounties. */
   prize_pool: number;
+  /** Bounty money the event paid out; part of the total prize pool. */
+  bounty_pool?: number | null;
   current_players: number;
   max_players: number | null;
   min_players?: number | null;
@@ -291,7 +295,7 @@ export default function TournamentResultsPage() {
          age out of the top 100 saw their own history shrink toward empty.
          The inner join pushes both problems into one query: the newest 100
          completed events THE PLAYER WAS IN. */
-      const cols = `id, name, variant, tournament_type, game_type, buy_in_amount, buy_in_fee, prize_pool, current_players, max_players, min_players, table_size, satellite_seats, status, started_at, ended_at, is_xmtt, is_bounty, is_pko, is_mystery_bounty, spin_multiplier, format_contract, satellite_target_id, satellite_target, ${TOURNAMENT_ARENA_EMBED}`;
+      const cols = `id, name, variant, tournament_type, game_type, buy_in_amount, buy_in_fee, prize_pool, bounty_pool, current_players, max_players, min_players, table_size, satellite_seats, status, started_at, ended_at, is_xmtt, is_bounty, is_pko, is_mystery_bounty, spin_multiplier, format_contract, satellite_target_id, satellite_target, ${TOURNAMENT_ARENA_EMBED}`;
       const mine = filter === 'mine' && user?.id;
       let query = supabase
         .from('tournaments')
@@ -463,7 +467,7 @@ export default function TournamentResultsPage() {
         const { data, error: deepLinkErr } = await supabase
           .from('tournaments')
           .select(
-            `id, name, variant, tournament_type, game_type, buy_in_amount, buy_in_fee, prize_pool, current_players, max_players, min_players, table_size, satellite_seats, status, started_at, ended_at, is_xmtt, is_bounty, is_pko, is_mystery_bounty, spin_multiplier, format_contract, satellite_target_id, satellite_target, ${TOURNAMENT_ARENA_EMBED}`
+            `id, name, variant, tournament_type, game_type, buy_in_amount, buy_in_fee, prize_pool, bounty_pool, current_players, max_players, min_players, table_size, satellite_seats, status, started_at, ended_at, is_xmtt, is_bounty, is_pko, is_mystery_bounty, spin_multiplier, format_contract, satellite_target_id, satellite_target, ${TOURNAMENT_ARENA_EMBED}`
           )
           .eq('id', tournamentId)
           .maybeSingle();
@@ -894,7 +898,7 @@ export default function TournamentResultsPage() {
                     const { data, error: hitRowErr } = await supabase
                       .from('tournaments')
                       .select(
-                        `id, name, variant, tournament_type, game_type, buy_in_amount, buy_in_fee, prize_pool, current_players, max_players, min_players, table_size, satellite_seats, status, started_at, ended_at, is_xmtt, is_bounty, is_pko, is_mystery_bounty, spin_multiplier, format_contract, satellite_target_id, satellite_target, ${TOURNAMENT_ARENA_EMBED}`
+                        `id, name, variant, tournament_type, game_type, buy_in_amount, buy_in_fee, prize_pool, bounty_pool, current_players, max_players, min_players, table_size, satellite_seats, status, started_at, ended_at, is_xmtt, is_bounty, is_pko, is_mystery_bounty, spin_multiplier, format_contract, satellite_target_id, satellite_target, ${TOURNAMENT_ARENA_EMBED}`
                       )
                       .eq('id', h.tournamentId)
                       .maybeSingle();
@@ -1106,7 +1110,10 @@ export default function TournamentResultsPage() {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ color: '#10b981', fontSize: '14px', fontWeight: 600 }}>
-                    {formatAmount(t.prize_pool)} Prize Pool
+                    {/* The TOTAL prize pool: places plus bounties. `prize_pool`
+                        alone is the places pool net of bounty and rake, so a
+                        bounty event used to show only part of what it paid. */}
+                    {formatAmount(displayTotalPool(t.prize_pool, null, t.bounty_pool))} Prize Pool
                   </div>
                   <div style={{ color: '#64748b', fontSize: '11px' }}>
                     {t.current_players} Entries · {formatDuration(t.started_at, t.ended_at)}

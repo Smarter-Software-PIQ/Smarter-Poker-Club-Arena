@@ -38,6 +38,9 @@ import {
   type UpcomingTournament,
 } from '../../src/components/tournament/tickerMessages';
 import type { OverlayAnnouncement } from '../../src/utils/overlayAnnouncements';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { displayTotalPool } from '../../src/utils/tournamentPrizeFunding';
 
 const NOW = 1_800_000_000_000;
 
@@ -338,5 +341,33 @@ describe('the shape every item keeps', () => {
       expect(entry.severity).toBeGreaterThan(0);
       expect(entry.parts.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('the results line is the TOTAL prize pool (2026-11-07)', () => {
+  // tournaments.prize_pool is the places pool net of bounty and rake. The 2.5K
+  // 40 Chip Bounty Freezeout closed at 1,196 places + 460 bounties; the rail
+  // used to say "1,196 prize pool", which is not what the event paid out.
+  const row = { prize_pool: 1196, bounty_pool: 460, guaranteed_prize: 2500 };
+
+  it('prints places plus bounties, and never the guarantee', () => {
+    const total = displayTotalPool(row.prize_pool, null, row.bounty_pool);
+    expect(total).toBe(1656);
+    const line = renderTickerItem(winnerResultsItem('t5', 'Bounty Freezeout', total, NOW), NOW);
+    expect(line).toContain('1,656 Prize Pool');
+    expect(line).not.toContain('1,196');
+    expect(line).not.toContain('2,500');
+  });
+
+  it('the ticker reads bounty_pool and hands the total to winnerResultsItem', () => {
+    const src = readFileSync(
+      resolve(__dirname, '../../src/components/tournament/TournamentStartingTicker.tsx'),
+      'utf8'
+    );
+    expect(src).toMatch(/guaranteed_prize,prize_pool,bounty_pool,/);
+    expect(src).toMatch(
+      /winnerResultsItem\(\s*id,\s*name,\s*displayTotalPool\(row\.prize_pool, null, row\.bounty_pool\)/
+    );
+    expect(src).not.toMatch(/winnerResultsItem\(id, name, Number\(row\.prize_pool\)/);
   });
 });

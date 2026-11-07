@@ -43,14 +43,6 @@ export interface ICMResult {
   icmValue: number;
 }
 
-export interface OverlayStatus {
-  hasOverlay: boolean;
-  guaranteedPrize: number;
-  entriesPrize: number;
-  overlayAmount: number;
-  overlayPercentage: number;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // PAYOUT TEMPLATES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -338,25 +330,11 @@ class PayoutEngineClass {
     return results.sort((a, b) => b.chips - a.chips);
   }
 
-  /**
-   * Check overlay status for guaranteed tournaments
-   */
-  getOverlayStatus(
-    guaranteedPrize: number,
-    playerCount: number,
-    buyInAmount: number
-  ): OverlayStatus {
-    const entriesPrize = playerCount * buyInAmount;
-    const overlayAmount = Math.max(0, guaranteedPrize - entriesPrize);
-    return {
-      hasOverlay: overlayAmount > 0,
-      guaranteedPrize,
-      entriesPrize,
-      overlayAmount,
-      overlayPercentage:
-        entriesPrize > 0 ? Math.round((overlayAmount / guaranteedPrize) * 10000) / 100 : 100,
-    };
-  }
+  /* getOverlayStatus was deleted 2026-11-07. It priced the overlay as
+     guarantee - players * buyIn, which is not the rule: the house owes
+     max(0, guarantee - (prize_pool + bounty_pool + total_rake)). Nothing in
+     src ever called it. The one rule is guaranteeShortfall in
+     src/utils/tournamentPrizeFunding.ts. */
 
   /**
    * Get remaining payouts for currently playing players
