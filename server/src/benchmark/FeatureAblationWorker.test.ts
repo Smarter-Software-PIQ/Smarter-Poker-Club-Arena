@@ -15,6 +15,8 @@ import {
   type Plo4AblationBrain,
   type Plo4LeagueProfile,
 } from './Plo4PolicyLeague.js';
+import { HorseRangeConsumptionCapture } from '../engine/HorseRangeConsumptionReceipt.js';
+import { HorsePlanReadCapture } from '../engine/HorsePlanReadReceipt.js';
 import { HorseMind } from '../engine/HorseMind.js';
 import { horsePlanHandKey } from '../engine/HorseDecisionEffects.js';
 import { defaultHorseDecisionWorkerDependencies } from '../engine/horseDecision/workerRuntime.js';
@@ -148,10 +150,13 @@ it('commits only the actual controller-accepted issued effects in the same priva
   const originalApply = defaultHorseDecisionWorkerDependencies.applyDecisionEffects;
   const decide = vi
     .spyOn(defaultHorseDecisionWorkerDependencies, 'decide')
-    .mockImplementation((p, gs, _style, _mods, opts) => {
+    .mockImplementation((p, gs, _style, _mods, opts, rangeCapture, planReadCapture) => {
+      expect(rangeCapture).toBeInstanceOf(HorseRangeConsumptionCapture);
+      expect(planReadCapture).toBeInstanceOf(HorsePlanReadCapture);
       if (gs.stage !== 'preflop' && gs.legalActions?.includes('bet')) {
         const key = horsePlanHandKey(gs.actionHistory, opts?.mindPlanContext);
         expect(key).not.toBeNull();
+        planReadCapture!.note('barrel', key, p.user_id, gs.stage, undefined);
         HorseMind.noteRaisePlan(key, p.user_id, gs.stage, 'foldToRaise');
         return wager('bet', gs.minRaiseTo ?? 2);
       }
@@ -207,6 +212,7 @@ it('commits only the actual controller-accepted issued effects in the same priva
     );
     expect(hand.complete).toBe(true);
     expect(applied).toBeGreaterThan(0);
+    expect(trace.some((r) => r.event === 'issued' && r.reads?.status === 'observed')).toBe(true);
     expect(resolved.length).toBe(applied);
     expect(resolved.every((d) => d === 'applied_volatile')).toBe(true);
     expect(trace.filter((r) => r.event === 'resolved').length).toBe(resolved.length);
