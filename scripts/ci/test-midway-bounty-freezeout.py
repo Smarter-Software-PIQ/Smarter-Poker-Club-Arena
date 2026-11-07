@@ -75,3 +75,4 @@ with tempfile.TemporaryDirectory(prefix='bounty-', dir=parent) as folder:
 
 # The existing native CI step also exercises the new fixed-field satellite creator.
 subprocess.run([os.environ.get('PYTHON', 'python3'), '-B', str(root/'scripts/ci/test-fixed-sng-satellites.py')], check=True)
+subprocess.run([os.environ.get('PYTHON', 'python3'), '-B', str(root/'scripts/ci/test-midway-weekly-schedule.py')], check=True)

@@ -1,0 +1,9 @@
+{
+  "_owner": "codex/midway-sheet-sync-01a1b6bf",
+  "_comment": "Owner weekly schedule config, original creation boundaries and explicit exact-refund occurrence transition. No new tables, triggers or scheduled repair work.",
+  "functions": [
+    "fn_ca_midway_weekly_catalog",
+    "fn_ca_midway_weekly_terms",
+    "fn_ca_install_midway_weekly_occurrence"
+  ]
+}
