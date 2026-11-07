@@ -26,6 +26,8 @@
 -- Measured before writing: the hourly job has 5 runs, all succeeded; nothing
 -- in the repository or the database calls the function apart from the job.
 
+-- @live-proof: NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'ca-resolve-proven-tournament-finishes-hourly') AND to_regprocedure('public.fn_ca_resolve_proven_tournament_finishes()') IS NULL AND EXISTS (SELECT 1 FROM cron.job WHERE active AND command ILIKE '%fn_resolve_settled_financial_alerts%')
+
 BEGIN;
 
 SET LOCAL lock_timeout = '5s';
