@@ -54,6 +54,10 @@
   JOIN public.club_creation_requests request ON request.club_id=c.id AND request.user_id=c.owner_id
   WHERE c.id=$1::uuid AND c.owner_id=$2::uuid AND u.email=$3::text
     AND request.request_id=$4::uuid
+    AND c.id<>ALL(ARRAY['a0000000-0000-0000-0000-000000000001'::uuid,
+      'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'::uuid,
+      '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3'::uuid,
+      'fade0000-0000-0000-0000-000000000001'::uuid])
     AND u.email LIKE 'ca-customization-cert-postdeploy-%@example.invalid'
     AND (c.name LIKE 'Crest Cert %' OR c.name LIKE 'Preset Crest Cert %')
     AND c.union_id IS NULL AND NOT COALESCE(c.is_union,false)

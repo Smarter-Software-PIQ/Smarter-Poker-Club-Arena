@@ -63,5 +63,21 @@ END $x$;
     ]
     for name, mutation in mutations:
         setup += f"SAVEPOINT refusal; {mutation}; DO $x$ BEGIN IF EXISTS(SELECT 1 FROM terminal_proof WHERE safe_terminal_template) THEN RAISE EXCEPTION '{name} accepted'; END IF; END $x$; ROLLBACK TO refusal;\n"
+    setup += f"""
+CREATE TEMP TABLE terminal_before AS SELECT t.id,t.ended_at,b.id AS table_id,b.status,b.lifecycle,b.terminal_closed_at,to_jsonb(r) AS receipt
+ FROM tournaments t JOIN tables b ON b.tournament_id=t.id JOIN tournament_cancellation_receipts r ON r.tournament_id=t.id
+ WHERE t.club_id='{club}';
+DO $x$ DECLARE result jsonb; BEGIN
+ result:=fn_unwind_unused_first_club_welcome_package('{club}',gen_random_uuid());
+ IF result->>'ok' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'normal unwind refused: %',result; END IF;
+ IF (SELECT safe_terminal_template FROM terminal_proof) IS DISTINCT FROM true THEN RAISE EXCEPTION 'normal unwind changed terminal lineage'; END IF;
+ IF EXISTS(SELECT 1 FROM terminal_before old LEFT JOIN tournaments t ON t.id=old.id
+ LEFT JOIN tables b ON b.id=old.table_id LEFT JOIN tournament_cancellation_receipts r ON r.tournament_id=t.id
+ WHERE t.id IS NULL OR b.id IS NULL OR t.ended_at IS DISTINCT FROM old.ended_at
+ OR b.status IS DISTINCT FROM old.status OR b.lifecycle IS DISTINCT FROM old.lifecycle
+ OR b.terminal_closed_at IS DISTINCT FROM old.terminal_closed_at OR to_jsonb(r) IS DISTINCT FROM old.receipt)
+ THEN RAISE EXCEPTION 'normal unwind rewrote immutable terminal evidence'; END IF;
+END $x$;
+"""
     setup += "ROLLBACK; SELECT 'terminal admission positive and seven refusal boundaries passed';"
     run('reserved-terminal-welcome-receipt-native', setup, 'terminal admission positive and seven refusal boundaries passed')
