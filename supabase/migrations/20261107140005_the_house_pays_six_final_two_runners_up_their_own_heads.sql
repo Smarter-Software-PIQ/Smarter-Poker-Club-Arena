@@ -128,7 +128,7 @@
 -- SET LOCAL ca.final_two_make_good_probe = 'on'; the closing exception MUST
 -- abort the transaction.
 --
--- @live-proof: (SELECT count(*) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261107140005_the_house_pays_six_final_two_runners_up_their_own_heads' AND status = 'settled') = 6 AND (SELECT sum(amount) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261107140005_the_house_pays_six_final_two_runners_up_their_own_heads' AND status = 'settled') = 105.87 AND (SELECT count(*) FROM public.chip_ledger WHERE idempotency_key LIKE 'bounty-only-final-two-make-good:%') = 6
+-- @live-proof: (SELECT count(*) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261107140005_the_house_pays_six_final_two_runners_up_their_own_heads' AND status = 'settled') = 6 AND (SELECT sum(amount) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261107140005_the_house_pays_six_final_two_runners_up_their_own_heads' AND status = 'settled') = 105.87 AND (SELECT count(*) FROM public.chip_ledger WHERE idempotency_key = ANY (ARRAY['bounty-only-final-two-make-good:39b5fa14-2332-472f-b0df-cde4edcdf62b:341d4951-c3cf-4446-ac75-6f1448a9bf99','bounty-only-final-two-make-good:74ba8130-3ec5-48c2-b94b-409b7fb14a6b:0ea03648-b12d-4ae7-ba65-aeaff4fcea34','bounty-only-final-two-make-good:1d115ff4-d0d5-48cc-8a3e-03ae3348d442:8bdb54a1-d614-4932-84fa-795dd4728828','bounty-only-final-two-make-good:dce71e3f-4f77-48e7-94db-17d909bc2664:1fec4774-2523-4f2b-934b-db23a787f95f','bounty-only-final-two-make-good:b3ae52ef-097c-4dcd-a438-d46ce010c021:86468a23-14cb-4602-92f7-7e270197fc3c','bounty-only-final-two-make-good:c1b3fa5a-85f6-4aea-8d4d-c76fc545a984:9b918b56-08d8-4a06-b8a0-de2bf4022303'])) = 6
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -402,10 +402,16 @@ BEGIN
   IF v_n + v_skipped <> 6 THEN
     RAISE EXCEPTION 'post-image: % paid and % skipped is not the six events', v_n, v_skipped;
   END IF;
+  -- The six keys are named, never matched by prefix: chip_ledger is 25.9M rows
+  -- and a LIKE prefix cannot use ux_chip_ledger_idempotency_key in this
+  -- collation, so a prefix count full-scans for ~41 s (#9881) and the installer
+  -- kills the transaction at 12 s. = ANY over the six keys is six index probes.
   IF (SELECT count(*) FROM public.chip_ledger l
-       WHERE l.idempotency_key LIKE 'bounty-only-final-two-make-good:%') <> 6
+       WHERE l.idempotency_key = ANY (ARRAY(SELECT 'bounty-only-final-two-make-good:' || o.event_id::text || ':' || o.user_id::text
+                                              FROM zz_final_two_owed o))) <> 6
      OR (SELECT round(sum(l.amount), 2) FROM public.chip_ledger l
-       WHERE l.idempotency_key LIKE 'bounty-only-final-two-make-good:%') <> c_total THEN
+       WHERE l.idempotency_key = ANY (ARRAY(SELECT 'bounty-only-final-two-make-good:' || o.event_id::text || ':' || o.user_id::text
+                                              FROM zz_final_two_owed o))) <> c_total THEN
     RAISE EXCEPTION 'post-image: the journal does not carry exactly six legs totalling %', c_total;
   END IF;
   IF (SELECT count(*) FROM public.ca_manual_adjustments a
