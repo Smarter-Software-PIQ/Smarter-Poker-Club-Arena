@@ -17,9 +17,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import type { V31ReplayState } from '../engine/HorseV31CertifiedPolicy.js';
 import {
@@ -141,13 +140,19 @@ export async function recordGtoV31ReplayCorpus(args: {
   return buildGtoV31ReplayCorpus(captured, args.datasetChecksum);
 }
 
+/**
+ * The repository root, from this module's own location (server/src/benchmark).
+ * Never `git rev-parse --show-toplevel`: inside a git hook GIT_DIR is set and
+ * that answers the current directory instead.
+ */
+export const GTO_V31_REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+
 /** The execution digest of a commit, by the CI fingerprint tool itself (one definition). */
-export async function gtoV31ExecutionDigest(commit: string, cwd = process.cwd()): Promise<string> {
+export async function gtoV31ExecutionDigest(
+  commit: string,
+  root: string = GTO_V31_REPO_ROOT
+): Promise<string> {
   if (!HEX40.test(commit)) throw new Error('an execution digest names a full commit');
-  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-    cwd,
-    encoding: 'utf8',
-  }).trim();
   const tool = (await import(
     pathToFileURL(join(root, 'scripts/ci/v31-execution-fingerprint.mjs')).href
   )) as {

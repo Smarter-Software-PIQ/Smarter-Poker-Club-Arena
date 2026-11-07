@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import type { V31ReplayState } from '../engine/HorseV31CertifiedPolicy.js';
@@ -11,6 +13,7 @@ import {
 import {
   decodeGtoV31ReplayCorpus,
   encodeGtoV31ReplayCorpus,
+  GTO_V31_REPO_ROOT,
   gtoV31ExecutionDigest,
   gtoV31RecheckIncumbent,
   gtoV31RecheckMatchup,
@@ -157,7 +160,8 @@ describe('V31 re-check: the baseline', () => {
 
 describe('V31 re-check: the execution digest', () => {
   it('is exactly what the CI fingerprint tool computes for the commit', async () => {
-    const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+    const root = GTO_V31_REPO_ROOT;
+    expect(existsSync(join(root, 'scripts/ci/v31-execution-fingerprint.mjs'))).toBe(true);
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
     const cli = JSON.parse(
       execFileSync(process.execPath, ['scripts/ci/v31-execution-fingerprint.mjs', '.', head], {
