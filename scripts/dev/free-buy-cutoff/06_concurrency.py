@@ -58,7 +58,7 @@ def race(db, statements):
                for _ in statements]
     for w, s in zip(workers, statements):
         w.stdin.write(f'SELECT pg_advisory_lock_shared({BARRIER}); SELECT pg_advisory_unlock_shared({BARRIER});\n{s}\n')
-        w.stdin.close()
+        w.stdin.flush()  # communicate() closes it (Python 3.12 refuses a pre-closed stdin)
     deadline = time.time() + 20
     while time.time() < deadline:
         waiting = int(q(db, f"SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid={BARRIER} AND NOT granted"))
