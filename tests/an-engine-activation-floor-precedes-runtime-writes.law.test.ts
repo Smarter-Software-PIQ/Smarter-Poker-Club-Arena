@@ -21,6 +21,7 @@ const groups = [
     name: 'Phase1 admission and prior-owner preservation',
     cases: [
       'test_phase1_policy_owns_fresh_admission_without_retargeting_prior_owner',
+      'test_nov7_exception_binds_the_exact_order_and_current_deadline',
       'test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries',
       'test_earliest_certified_owner_policy_requires_explicit_unambiguous_authority',
       'test_later_owner_transaction_preserves_custody_without_reserving_hourly_cycle',
@@ -109,7 +110,7 @@ beforeAll(() => {
   ]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   const selected = groups.flatMap((group) => group.cases);
-  expect(selected).toHaveLength(50);
+  expect(selected).toHaveLength(51);
   expect(new Set(selected).size).toBe(selected.length);
   expect(JSON.parse(result.stdout)).toEqual([...selected].sort());
 }, 95000);

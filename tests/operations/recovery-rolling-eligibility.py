@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
 # Historical custody protocol remains qualified independently of retired admission.
 # The daily law executes the unmodified entry point and proves it performs no I/O.
-SOURCE = SOURCE.replace('  return 0 # daily-only: no new off-cycle announcements\n', '')
+SOURCE = SOURCE.replace('  nov7_owner_admitted || return 0\n', '')
 EED_SOURCE_BINDING = next(line for line in SOURCE.splitlines() if line.startswith('CHECKPOINT_EED_SHA='))
 PRIOR = int(dt.datetime.fromisoformat('2026-10-29T23:53:05.705+00:00').timestamp() * 1000)
 FIRST = int(dt.datetime.fromisoformat('2026-10-30T00:53:00+00:00').timestamp() * 1000)

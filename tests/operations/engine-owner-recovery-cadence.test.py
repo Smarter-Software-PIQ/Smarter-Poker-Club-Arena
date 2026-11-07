@@ -131,6 +131,60 @@ class OwnerRecoveryCadence(unittest.TestCase):
             with self.subTest(key=key), patch.dict(self.state, {key: {'runId': '901-1'}}):
                 self.assertEqual(self.reserve(), 'unavailable')
 
+    def test_nov7_unreviewed_target_cannot_consume_global_claim(self):
+        self.args.nov7_owner = True
+        self.args.deadline = 1794084300
+        self.enterContext(patch.object(seal, 'NOV7_PREDECESSOR', self.base))
+        self.enterContext(patch.object(seal.time, 'time', return_value=1794064800))
+        self.reservation.unlink()
+        with self.assertRaises(SystemExit):
+            self.reserve()
+        self.assertFalse((self.state_dir / seal.NOV7_OWNER_CLAIM).exists())
+
+    def test_nov7_one_announcement_across_runs_targets_and_unknown_outcome(self):
+        self.enterContext(patch.object(seal, 'require_nov7_reservation_authority'))
+        self.args.nov7_owner = True
+        self.enterContext(patch.object(seal, 'NOV7_PREDECESSOR', self.base))
+        self.assertEqual(self.reserve(), str(self.now * 1000))
+        claim = self.state_dir / seal.NOV7_OWNER_CLAIM
+        self.assertEqual(json.loads(claim.read_text())['runId'], '902-1')
+        self.assertEqual(self.reserve(), 'unavailable')
+        (self.state_dir / 'engine-recovery-window-902-1.json').unlink()
+        # A crash after the claim but before the per-run receipt is UNKNOWN.
+        self.assertEqual(self.reserve(), 'unavailable')
+        self.args.run_id = '903-1'
+        (self.repo / 'server/candidate').write_text('another protected descendant')
+        self.args.sha = self.commit()
+        self.assertEqual(self.reserve(), 'unavailable')
+        self.assertFalse((self.state_dir / 'engine-recovery-window-903-1.json').exists())
+
+    def test_nov7_final_gate_binds_original_run_control_sha_and_active_countdown(self):
+        self.enterContext(patch.object(seal, 'require_nov7_reservation_authority'))
+        self.args.nov7_owner = True
+        self.enterContext(patch.object(seal, 'NOV7_PREDECESSOR', self.base))
+        stamp = int(self.reserve())
+        self.args.announced_at = stamp
+        self.args.promise_floor_proof = None
+        self.now += 121
+        self.enterContext(patch.object(seal.time, 'time', return_value=self.now))
+        presentation = dict(active=True, phase='counting_down', reason='Deployment Recovery',
+                            break_id=stamp, break_ends_at=stamp+420000, scheduled_ends_at=stamp+420000)
+        health = dict(running=True, releaseSha=self.base, weeklyPayout=None,
+                      maintenance=dict(active=True, phase='counting_down', reason='Deployment Recovery',
+                                       breakEndsAt=stamp+420000, durableConfirmed=True, presentation=presentation))
+        def bind():
+            with patch('sys.stdin', io.StringIO(json.dumps(health))), contextlib.redirect_stdout(io.StringIO()):
+                seal.cmd_bind_recovery_window(self.args)
+        bind()
+        with patch.object(self.args, 'control_sha', self.base), self.assertRaises(SystemExit):
+            bind()
+        with patch.object(self.args, 'run_id', '905-1'), self.assertRaises(SystemExit):
+            bind()
+        with patch.dict(health['maintenance'], phase='last_hand'), self.assertRaises(SystemExit):
+            bind()
+        with patch.dict(health, releaseSha=self.target), self.assertRaises(SystemExit):
+            bind()
+
     def test_transaction_keeps_owner_and_cleanup_guards_before_reservation(self):
         source = (ROOT / 'server/scripts/engine-release-transaction.sh').read_text()
         body = source[source.index('request_recovery_window() {'):source.index('persist_break_deadline() {')]
