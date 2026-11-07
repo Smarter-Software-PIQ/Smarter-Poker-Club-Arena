@@ -52,6 +52,7 @@
  * tablist, the subject-by-id pinning, every copy control.
  */
 
+import { copyToClipboard } from '../../lib/copyToClipboard';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
@@ -780,27 +781,20 @@ export function HandDetailModal({
     }
   };
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const copyText = useCallback(async (kind: 'number' | 'link', text: string) => {
-    try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
-      else {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.setAttribute('readonly', '');
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
+  const copyText = useCallback(
+    async (kind: 'number' | 'link', text: string): Promise<boolean> => {
+      // Falls back to a selection copy when the Clipboard API is present but
+      // refused (an in-app webview, an embedded browser pane).
+      const ok = await copyToClipboard(text);
+      setCopied(ok ? kind : null);
+      if (ok) {
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
       }
-      setCopied(kind);
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
-    } catch {
-      setCopied(null);
-    }
-  }, []);
+      return ok;
+    },
+    []
+  );
   useEffect(
     () => () => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -816,7 +810,7 @@ export function HandDetailModal({
    * other refusal falls back to the copy so the tap is never lost.
    */
   const sendLink = useCallback(
-    async (h: HandRecord, link: string) => {
+    async (h: HandRecord, link: string): Promise<boolean> => {
       const phone =
         typeof window !== 'undefined' &&
         typeof window.matchMedia === 'function' &&
@@ -830,12 +824,12 @@ export function HandDetailModal({
           setCopied('sent');
           if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
           copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
-          return;
+          return true;
         } catch (error) {
-          if ((error as { name?: string } | null)?.name === 'AbortError') return;
+          if ((error as { name?: string } | null)?.name === 'AbortError') return false;
         }
       }
-      await copyText('link', link);
+      return copyText('link', link);
     },
     [copyText]
   );
@@ -1196,9 +1190,13 @@ export function HandDetailModal({
               onClick={() => {
                 const link = sendableHandLink(hand);
                 if (!link) return;
-                if (link === shortLink.url) shortLink.markSent();
                 setShareStatus(null);
-                void sendLink(hand, link);
+                // Counted as sent only once the sheet sent it or the copy
+                // happened; a dismissed sheet or a refused copy sends nothing.
+                const short = link === shortLink.url;
+                void sendLink(hand, link).then((sent) => {
+                  if (sent && short) shortLink.markSent();
+                });
               }}
             >
               {copied === 'link' ? 'Copied' : copied === 'sent' ? 'Sent' : 'Link'}

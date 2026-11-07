@@ -10,6 +10,7 @@
  * - Preview card
  */
 
+import { copyToClipboard } from '../../lib/copyToClipboard';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { haptic } from '../../services/SoundService';
 import { CardImage, type Card } from '../table/CardImage';
@@ -785,14 +786,15 @@ export function ShareHand({
   // Copy link
   const handleCopy = useCallback(async () => {
     haptic.light();
-    try {
-      await navigator.clipboard.writeText(shareUrl);
+    // copyToClipboard falls back to a selection copy when the Clipboard API
+    // is present but refused, and only a copy that happened counts as sent.
+    if (await copyToClipboard(shareUrl)) {
       onShared?.();
       setCopied(true);
       clearTimeout(copiedTimerRef.current!);
       copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      reportError(error, 'ShareHand.Copy_failed');
+    } else {
+      reportError(new Error('Clipboard refused and selection copy failed'), 'ShareHand.Copy_failed');
     }
   }, [shareUrl, onShared]);
 

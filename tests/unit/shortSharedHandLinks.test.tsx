@@ -302,10 +302,10 @@ describe('Link and the sender’s controls, on the real popup', () => {
 });
 
 describe('Link and the sender’s controls', () => {
-  it('Link prefers the reserved short link, marks it sent, and shows views with Stop Sharing', () => {
+  it('Link prefers the reserved short link, marks it sent only once it went, and shows views with Stop Sharing', () => {
     const modal = src('src/components/table/HandDetailModal.tsx');
     expect(modal).toContain('if (h.id === hand?.id && shortLink.url) return shortLink.url;');
-    expect(modal).toContain('if (link === shortLink.url) shortLink.markSent();');
+    expect(modal).toContain('if (sent && short) shortLink.markSent();');
     expect(modal).toContain('Stop Sharing');
     expect(modal).toContain('Sharing Stopped. The Old Link No Longer Opens This Hand.');
     for (const caller of [
