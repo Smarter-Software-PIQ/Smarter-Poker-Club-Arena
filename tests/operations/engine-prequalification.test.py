@@ -7,6 +7,7 @@ import os
 import json
 import subprocess
 import tempfile
+import tarfile
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -143,6 +144,49 @@ class ControlInputs(unittest.TestCase):
                     self.assertNotEqual(strict, next_strict)
                     strict = next_strict
                 self.assertNotEqual(project, reader.projection(edit(reader.PATH,"changed")))
+
+
+class ArchiveTransport(unittest.TestCase):
+    tag = "club-arena-prestage:42421366750-1"
+
+    def setUp(self):
+        spec = spec_from_file_location("transport", root / "server/scripts/engine-prestage-config-proof.py")
+        self.transport = module_from_spec(spec)
+        spec.loader.exec_module(self.transport)
+
+    def graph(self, *, classic=False, wrong_config=False, extra_tag=False):
+        config = json.dumps({"rootfs":{"type":"layers","diff_ids":["sha256:"+"3"*64]}}).encode()
+        cid = self.transport.sha256(config)
+        blob = "blobs/sha256/"
+        path = cid[7:]+".json" if classic else blob+cid[7:]
+        manifest = json.dumps({"schemaVersion":2, "config":{"digest":"sha256:"+"9"*64 if wrong_config else cid},
+                               "layers":[{"digest":"sha256:"+"4"*64}]}).encode()
+        mid = self.transport.sha256(manifest)
+        records = [{"Config":path, "Layers":[blob+"4"*64], "RepoTags":[self.tag]+(["club-arena-engine:current"] if extra_tag else [])}]
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w") as bundle:
+            bodies = [(path,config),("manifest.json",json.dumps(records).encode())]
+            if not classic:
+                bodies.append((blob+mid[7:],manifest))
+            for name, data in bodies:
+                member = tarfile.TarInfo(name)
+                member.size = len(data)
+                bundle.addfile(member, io.BytesIO(data))
+        output.seek(0)
+        return output, cid, mid
+
+    def test_containerd_manifest_and_classic_image_bind_identical_config(self):
+        classic, expected, _ = self.graph(classic=True)
+        native, _, manifest = self.graph()
+        self.assertNotEqual(manifest, expected)
+        self.assertEqual(self.transport.config_identity(classic, self.tag, expected), expected)
+        self.assertEqual(self.transport.config_identity(native, self.tag, manifest), expected)
+
+    def test_wrong_native_config_or_mutable_release_tag_refuses(self):
+        for change in ("wrong_config", "extra_tag"):
+            native, _, manifest = self.graph(**{change:True})
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.transport.config_identity(native, self.tag, manifest)
 
 
 if __name__ == "__main__":

@@ -91,11 +91,17 @@ jobs:
           [[ "$size" =~ ^[1-9][0-9]{0,10}$ ]]
           tree="$(git rev-parse "$GITHUB_SHA:server")"
           [[ "$image" =~ ^sha256:[0-9a-f]{64}$ && "$tree" =~ ^[0-9a-f]{40}$ ]]
+          transport="club-arena-prestage:$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker tag "$image" "$transport"
+          docker image save -o "$dir/image.tar" "$transport"
+          config="$(python3 -B server/scripts/engine-prestage-config-proof.py "$transport" "$image" < "$dir/image.tar")"
+          [[ "$config" =~ ^sha256:[0-9a-f]{64}$ ]]
           code="$(base64 -w0 scripts/ci/prestage-engine-image.sh)"
-          docker image save "$image" | gzip -1 | timeout -k 5s 660s ssh -i "$dir/key" -o BatchMode=yes \
+          proof="$(base64 -w0 server/scripts/engine-prestage-config-proof.py)"
+          gzip -1c "$dir/image.tar" | timeout -k 5s 660s ssh -i "$dir/key" -o BatchMode=yes \
             -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
             -o UserKnownHostsFile="$dir/hosts" -o ConnectTimeout=15 "root@$HOST" \
-            "bash -c \"\$(printf '%s' '$code' | base64 -d)\" bash '$GITHUB_SHA' '$image' '$tree' '$size'" > "$dir/result"
+            "PROOF_B64='$proof' bash -c \"\$(printf '%s' '$code' | base64 -d)\" bash '$GITHUB_SHA' '$config' '$tree' '$size' '$transport'" > "$dir/result"
           python3 - "$dir/result" "$GITHUB_OUTPUT" "$tree" <<'PYTHON'
           import pathlib, re, sys
           data = pathlib.Path(sys.argv[1]).read_text()
