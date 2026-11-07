@@ -261,6 +261,28 @@ with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPD
             assert 'expected exactly one qualified' in error.stderr, error.stderr
         assert sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;") == before
         results.append('final telemetry: migration replay refuses atomically')
+        sql((MIGRATIONS/'20261107231750_retain_the_first_resumed_hand_and_repeat_stall.sql').read_text())
+        seed(); ingest()
+        assert 'first_progress_hand_id' not in state()['payload']
+        sql(f"INSERT INTO hand_history VALUES('{hand}','{table}','2026-11-01T13:10:10Z');")
+        metrics = metrics.replace('uptime_seconds 1000', 'uptime_seconds 1001')
+        ingest(); first = state()
+        assert first['status'] == 'firing' and first['payload']['first_progress_hand_id'] == hand, first
+        assert first['payload']['detection_to_first_hand_ms'] == 10000
+        sql(f"INSERT INTO hand_history VALUES('44444444-4444-4444-8444-444444444444','{table}','2026-11-01T13:10:20Z'),('55555555-5555-4555-8555-555555555555','{table}','2026-11-01T13:10:50Z');")
+        metrics = metrics.replace('uptime_seconds 1001', 'uptime_seconds 1002')
+        ingest(); closed = state()
+        assert closed['status'] == 'resolved' and closed['payload']['first_progress_hand_id'] == hand, closed
+        assert closed['payload']['progress_hand_id'] != hand
+        sql("ALTER TABLE operational_alert_events ALTER COLUMN id RESTART WITH 20;")
+        sql("CREATE OR REPLACE FUNCTION public.fn_ca_table_stall_decide(jsonb,bigint,timestamptz,boolean,boolean) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$;")
+        again = "SELECT public.fn_ca_table_stall_watch_ingest($metrics$"+waiting_metrics+"$metrics$, '2026-11-01T13:15:00Z',60000);"
+        sql(again)
+        assert state()['payload']['next_stall_alert_id'] == 20, state()
+        assert sql("SELECT payload->>'previous_stall_alert_id' FROM operational_alert_events WHERE id=20") == '1'
+        sql(again)
+        assert sql("SELECT count(*) FROM operational_alert_events WHERE alertname='TableStoppedDealing'") == '2'
+        results.append('first hand and elapsed time survive sustained closure; repeat links original once')
         print(json.dumps({'status':'passed','checks':results,'check_count':len(results),
                           'ingest_source_md5':sql("SELECT md5(prosrc) FROM pg_proc WHERE oid='public.fn_ca_table_stall_watch_ingest(text,timestamptz,bigint)'::regprocedure;"),
                           'postgres':run([pg_bin/'postgres','--version']).strip()}))
