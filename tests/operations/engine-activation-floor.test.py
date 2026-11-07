@@ -96,6 +96,23 @@ class ActivationFloor(unittest.TestCase):
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
 
+    def test_changed_owner_history_only_falls_through_after_both_exact_orders_expire(self):
+        record = self.owner_record()
+        target = self.sha
+        path = self.repo / 'server/release/owner-maintenance-windows.json'
+        history = json.loads(path.read_text())
+        history['windows'].append({'id': 'archived-unrelated-order'})
+        path.write_text(json.dumps(history))
+        control = self.commit()
+        for fresh_at in (None, record['expiresEpoch'] - 1):
+            with self.assertRaisesRegex(ValueError, 'control owner authorization differs'):
+                floor.policy(str(self.repo), target, control, fresh_at=fresh_at)
+        self.assertEqual(floor.policy(str(self.repo), target, control, fresh_at=record['expiresEpoch'])['targetSha'], target)
+        (self.repo / MANIFEST).write_text(json.dumps(FUTURE_DAILY))
+        future = self.commit()
+        with self.assertRaisesRegex(ValueError, 'control owner authorization differs'):
+            floor.policy(str(self.repo), target, future, fresh_at=record['expiresEpoch'])
+
     def test_nov7_exception_binds_the_exact_order_and_current_deadline(self):
         window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
         path = self.repo / 'server/release/owner-maintenance-windows.json'

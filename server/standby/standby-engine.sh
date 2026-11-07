@@ -459,6 +459,7 @@ doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": 
        "bootSeconds": ${boot1:--1}, "crashRecoverySeconds": ${boot2:--1}, "soakSeconds": $soak, "restartPolicy": "unless-stopped", "crashRestartsBefore": ${restart_before:--1}, "crashRestartsAfter": ${restart_after:--1},
        "standbyScriptSha256": "$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)",
        "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},
+       "seed": json.load(open("$STATE_DIR/seed.json")) if __import__("os").path.exists("$STATE_DIR/seed.json") else None,
        "database": json.load(open("$STATE_DIR/database.json")) if __import__("os").path.exists("$STATE_DIR/database.json") else None}
 open(sys.argv[1], "w").write(json.dumps(doc, indent=2) + "\n")
 print(json.dumps(doc))

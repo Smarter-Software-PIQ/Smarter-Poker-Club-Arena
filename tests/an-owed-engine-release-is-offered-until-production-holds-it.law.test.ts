@@ -458,21 +458,27 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });
   });
 
+  it('exercises the daily evidence and intent decisions', () => {
+    execFileSync('python3', ['-B', 'tests/operations/daily-engine-selection.test.py'], {
+      cwd: root,
+    });
+  });
+
   it('gates the one dispatch step on the offer decision, and the detector feeds it', () => {
     const send = stage.jobs.signal.steps.find((s: { name: string }) =>
       /Send the immutable engine release request/.test(s.name)
     );
     // Owner order 2026-11-05: the Backup Engine certifies every release first.
     expect(send.if).toBe(
-      "steps.offer.outputs.send == 'true' && steps.certified.outputs.send == 'true'"
+      "steps.offer.outputs.send == 'true' && steps.freeze.outputs.send == 'true'"
     );
-    const certified = stage.jobs.signal.steps.find((s: { id?: string }) => s.id === 'certified');
-    expect(certified.if).toBe("steps.offer.outputs.send == 'true'");
-    expect(certified.env.REF_SHA).toBe('${{ needs.detect.outputs.target_sha }}');
-    expect(certified.run).toContain('backup-engine/certified');
-    expect(certified.run).toMatch(/if \[ "\$STATE" = success \]; then CHOSEN=\$sha; break; fi/);
-    expect(send.env.REF_SHA).toBe('${{ steps.certified.outputs.sha }}');
-    expect(stage.jobs.signal.steps.indexOf(certified)).toBeLessThan(
+    const freeze = stage.jobs.signal.steps.find((s: { id?: string }) => s.id === 'freeze');
+    expect(freeze.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
+    expect(freeze.run).toContain('scripts/ci/select-daily-engine.py');
+    expect(freeze.run).toContain('[ "$GITHUB_RUN_ATTEMPT" = 1 ]');
+    expect(send.env.REF_SHA).toBe('${{ steps.freeze.outputs.sha }}');
+    expect(send.run).toContain('client_payload[control_sha]=$CONTROL_SHA');
+    expect(stage.jobs.signal.steps.indexOf(freeze)).toBeLessThan(
       stage.jobs.signal.steps.indexOf(send)
     );
     expect(offer.env.OFFER_REASON).toBe('${{ needs.detect.outputs.offer_reason }}');

@@ -430,6 +430,7 @@ jobs:
     permissions:
       actions: read
       contents: write
+      statuses: read
     steps:
       # A push that changed the engine is always sent: that path is unchanged.
       # A release that is only still OWED (offer_reason=behind) is offered once
@@ -481,45 +482,41 @@ jobs:
           echo "Engine $REF_SHA is still owed and no receiver is offering it; offering it again."
           echo "send=true" >> "$GITHUB_OUTPUT"
 
-      # THE BACKUP ENGINE CERTIFIES FIRST (owner order 2026-11-05). Every
-      # engine change is built, booted, crash-tested and soaked on the Backup
-      # Engine (backup-engine.yml, its own isolated host and database) before
-      # the live engine may receive it. Main moves every few minutes and a
-      # certificate takes about forty, so the release offered is the NEWEST
-      # main commit the Backup Engine certified (backup-engine/certified =
-      # success), at or behind the owed SHA on main's first-parent line. With
-      # no certified commit the release stays owed and the live engine keeps
-      # its sealed release.
-      - name: Choose the newest Backup Engine certified main commit
-        id: certified
-        if: steps.offer.outputs.send == 'true'
+      - uses: actions/checkout@v4
+        if: steps.offer.outputs.send == 'true' && needs.detect.outputs.daily_preparation == 'true'
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          sparse-checkout: |
+            scripts/ci
+            server/scripts
+      - name: Freeze the exact daily candidate and report inclusion
+        id: freeze
+        if: steps.offer.outputs.send == 'true' && needs.detect.outputs.daily_preparation == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          REF_SHA: ${{ needs.detect.outputs.target_sha }}
-          REPO: ${{ github.repository }}
+          RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
         run: |
           set -euo pipefail
-          [[ "$REF_SHA" =~ ^[0-9a-f]{40}$ ]]
-          CHOSEN=''
-          for sha in $(gh api "repos/$REPO/commits?sha=$REF_SHA&per_page=60" --jq '.[].sha'); do
-            STATE=$(gh api "repos/$REPO/commits/$sha/statuses?per_page=100" \
-              --jq '[.[] | select(.context == "backup-engine/certified")][0].state // "missing"')
-            if [ "$STATE" = success ]; then CHOSEN=$sha; break; fi
-          done
-          if [[ "$CHOSEN" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Backup Engine certified $CHOSEN (owed $REF_SHA)."
-            echo "sha=$CHOSEN" >> "$GITHUB_OUTPUT"
-            echo "send=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::No Backup Engine certified commit at or behind $REF_SHA; it stays owed and the live engine keeps its sealed release."
-            echo "send=false" >> "$GITHUB_OUTPUT"
-          fi
+          [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::Daily selection already attempted; retain the original decision."; exit 1; }
+          serving=$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health | jq -er .releaseSha)
+          python3 -B scripts/ci/select-daily-engine.py --repo "$GITHUB_REPOSITORY" --control "$GITHUB_SHA" \
+            --serving "$serving" --date "$RELEASE_DATE" --output daily-selection.json
+          jq -r '"sha=" + (.targetSha // ""), "control=" + (.controlSha // ""), "send=" + ((.outcome == "selected") | tostring)' daily-selection.json >> "$GITHUB_OUTPUT"
+      - name: Preserve the daily selection before offering the release
+        if: always() && steps.freeze.outcome != 'skipped' && hashFiles('daily-selection.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-engine-selection-${{ needs.detect.outputs.daily_preparation_date }}
+          path: daily-selection.json
+          if-no-files-found: error
 
       - name: Send the immutable engine release request
-        if: steps.offer.outputs.send == 'true' && steps.certified.outputs.send == 'true'
+        if: steps.offer.outputs.send == 'true' && steps.freeze.outputs.send == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          REF_SHA: ${{ steps.certified.outputs.sha }}
+          REF_SHA: ${{ steps.freeze.outputs.sha }}
+          CONTROL_SHA: ${{ steps.freeze.outputs.control }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -536,7 +533,9 @@ jobs:
           for delivery in 1 2; do
             gh api --method POST "repos/$REPO/dispatches" \
               -f event_type=deploy-club-arena-engine \
-              -F "client_payload[ref_sha]=$REF_SHA"
+              -F "client_payload[ref_sha]=$REF_SHA" \
+              -F "client_payload[control_sha]=$CONTROL_SHA" \
+              -F "client_payload[selection_run_id]=$GITHUB_RUN_ID"
             echo "Dispatch delivery $delivery accepted for Club Arena engine release $REF_SHA"
             for _ in $(seq 1 12); do
               RECEIVER_ID=$(gh api \
