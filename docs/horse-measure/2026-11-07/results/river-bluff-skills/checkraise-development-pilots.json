@@ -1,0 +1,237 @@
+[
+  {
+    "profileId": "multiway_river_bluff_checkraise-nlh-6max-4dealt-100bb",
+    "populationId": "multiway_original_fold_to_hu_public_stress_v1",
+    "seed": 27801101,
+    "pairs": 415,
+    "requestedPairs": 576,
+    "complete": false,
+    "candidate": {
+      "riverBluffCheckRaise": true,
+      "multiwayRiverBluffCheckRaise": true
+    },
+    "reference": {
+      "riverBluffCheckRaise": true,
+      "multiwayRiverBluffCheckRaise": false
+    },
+    "diffBb100": 0.0,
+    "seBb100": 0.0,
+    "changedPairs": 0,
+    "candidateFires": {},
+    "illegalActions": 0,
+    "brainExceptions": 0,
+    "protocolErrors": 0,
+    "conservationErrors": 0,
+    "truncatedHands": 0,
+    "pairedReplayMismatches": 0,
+    "rawPairsSha256": "4efebd9bdd26bb79cbeb29f3b206d163e99ce8d5a3afd5014b744f5571ac9979",
+    "promotionEligible": false
+  },
+  {
+    "profileId": "multiway_river_bluff_checkraise-nlh-6max-6dealt-100bb",
+    "populationId": "multiway_original_fold_to_hu_public_stress_v1",
+    "seed": 27801101,
+    "pairs": 288,
+    "requestedPairs": 288,
+    "complete": true,
+    "candidate": {
+      "riverBluffCheckRaise": true,
+      "multiwayRiverBluffCheckRaise": true
+    },
+    "reference": {
+      "riverBluffCheckRaise": true,
+      "multiwayRiverBluffCheckRaise": false
+    },
+    "diffBb100": 0.0,
+    "seBb100": 0.0,
+    "changedPairs": 0,
+    "candidateFires": {},
+    "illegalActions": 0,
+    "brainExceptions": 0,
+    "protocolErrors": 0,
+    "conservationErrors": 0,
+    "truncatedHands": 0,
+    "pairedReplayMismatches": 0,
+    "rawPairsSha256": "09f6903817a21ba4076c83adca850b10a6723e99a2a2f019e84e8fbc414ba7a7",
+    "promotionEligible": false
+  },
+  {
+    "profileId": "multiway_river_bluff_checkraise-plo4-6max-6dealt-100bb",
+    "populationId": "multiway_original_fold_to_hu_public_stress_v1",
+    "seed": 27801101,
+    "pairs": 288,
+    "requestedPairs": 288,
+    "complete": true,
+    "candidate": {
+      "riverBluffCheckRaise": true,
+      "multiwayRiverBluffCheckRaise": true
+    },
+    "reference": {
+      "riverBluffCheckRaise": true,
+      "multiwayRiverBluffCheckRaise": false
+    },
+    "diffBb100": 0.0,
+    "seBb100": 0.0,
+    "changedPairs": 0,
+    "candidateFires": {},
+    "illegalActions": 0,
+    "brainExceptions": 0,
+    "protocolErrors": 0,
+    "conservationErrors": 0,
+    "truncatedHands": 0,
+    "pairedReplayMismatches": 0,
+    "rawPairsSha256": "8361c601dd5c5612666b0afb132209943686aa3cac4ae42fb7f25b80c55fa97c",
+    "promotionEligible": false
+  },
+  {
+    "profileId": "multiway_river_bluff_checkraise-plo6-6max-6dealt-100bb",
+    "populationId": "multiway_original_fold_to_hu_public_stress_v1",
+    "seed": 27801101,
+    "pairs": 167,
+    "requestedPairs": 288,
+    "complete": false,
+    "candidate": {
+      "riverBluffCheckRaise": true,
+      "multiwayRiverBluffCheckRaise": true
+    },
+    "reference": {
+      "riverBluffCheckRaise": true,
+      "multiwayRiverBluffCheckRaise": false
+    },
+    "diffBb100": 36.23,
+    "seBb100": 36.23,
+    "changedPairs": 1,
+    "candidateFires": {
+      "river_bluff_checkraise_evaluated": 1,
+      "river_bluff_checkraise_selected": 1,
+      "multiway_river_bluff_checkraise_accepted": 1,
+      "river_bluff_checkraise_accepted": 1
+    },
+    "illegalActions": 0,
+    "brainExceptions": 0,
+    "protocolErrors": 0,
+    "conservationErrors": 0,
+    "truncatedHands": 0,
+    "pairedReplayMismatches": 0,
+    "rawPairsSha256": "db5f4b40c190ae875b5a98d872ca5fd97f64f8a6f6b0cf7f3d90459d243df449",
+    "promotionEligible": false
+  },
+  {
+    "profileId": "river_bluff_checkraise-nlh-6max-2dealt-100bb",
+    "populationId": "incremental_public_triple_checkraise_stress_v1",
+    "seed": 27301101,
+    "pairs": 576,
+    "requestedPairs": 576,
+    "complete": true,
+    "candidate": {
+      "riverBluffCheckRaise": true
+    },
+    "reference": {
+      "riverBluffCheckRaise": false
+    },
+    "diffBb100": 9.2,
+    "seBb100": 9.2,
+    "changedPairs": 1,
+    "candidateFires": {
+      "river_bluff_checkraise_evaluated": 5,
+      "river_bluff_checkraise_selected": 1,
+      "river_bluff_checkraise_accepted": 1
+    },
+    "illegalActions": 0,
+    "brainExceptions": 0,
+    "protocolErrors": 0,
+    "conservationErrors": 0,
+    "truncatedHands": 0,
+    "pairedReplayMismatches": 0,
+    "rawPairsSha256": "ef08158afa1d4334199e3e284721dcbc2aaff6e124e3a0ff62ec7398d0a13282",
+    "promotionEligible": false
+  },
+  {
+    "profileId": "river_bluff_checkraise-plo4-6max-2dealt-100bb",
+    "populationId": "incremental_public_triple_checkraise_stress_v1",
+    "seed": 27301101,
+    "pairs": 576,
+    "requestedPairs": 576,
+    "complete": true,
+    "candidate": {
+      "riverBluffCheckRaise": true
+    },
+    "reference": {
+      "riverBluffCheckRaise": false
+    },
+    "diffBb100": 0.0,
+    "seBb100": 0.0,
+    "changedPairs": 0,
+    "candidateFires": {
+      "river_bluff_checkraise_evaluated": 6
+    },
+    "illegalActions": 0,
+    "brainExceptions": 0,
+    "protocolErrors": 0,
+    "conservationErrors": 0,
+    "truncatedHands": 0,
+    "pairedReplayMismatches": 0,
+    "rawPairsSha256": "c7a7d17f6418128d2aabd58763c1a36989dd4a3f91be75f5ea66f4b3fbc781df",
+    "promotionEligible": false
+  },
+  {
+    "profileId": "river_bluff_checkraise-plo5-6max-2dealt-100bb",
+    "populationId": "incremental_public_triple_checkraise_stress_v1",
+    "seed": 27301101,
+    "pairs": 576,
+    "requestedPairs": 576,
+    "complete": true,
+    "candidate": {
+      "riverBluffCheckRaise": true
+    },
+    "reference": {
+      "riverBluffCheckRaise": false
+    },
+    "diffBb100": 20.95,
+    "seBb100": 14.81,
+    "changedPairs": 2,
+    "candidateFires": {
+      "river_bluff_checkraise_evaluated": 11,
+      "river_bluff_checkraise_selected": 2,
+      "river_bluff_checkraise_accepted": 2
+    },
+    "illegalActions": 0,
+    "brainExceptions": 0,
+    "protocolErrors": 0,
+    "conservationErrors": 0,
+    "truncatedHands": 0,
+    "pairedReplayMismatches": 0,
+    "rawPairsSha256": "44e299d21e3c7a18bfaa494b8bb8f50ce93993610b5313e4ee8f3a1d8a8b7e53",
+    "promotionEligible": false
+  },
+  {
+    "profileId": "river_bluff_checkraise-plo6-6max-2dealt-100bb",
+    "populationId": "incremental_public_triple_checkraise_stress_v1",
+    "seed": 27301101,
+    "pairs": 576,
+    "requestedPairs": 576,
+    "complete": true,
+    "candidate": {
+      "riverBluffCheckRaise": true
+    },
+    "reference": {
+      "riverBluffCheckRaise": false
+    },
+    "diffBb100": 37.68,
+    "seBb100": 18.22,
+    "changedPairs": 5,
+    "candidateFires": {
+      "river_bluff_checkraise_evaluated": 17,
+      "river_bluff_checkraise_selected": 5,
+      "river_bluff_checkraise_accepted": 5
+    },
+    "illegalActions": 0,
+    "brainExceptions": 0,
+    "protocolErrors": 0,
+    "conservationErrors": 0,
+    "truncatedHands": 0,
+    "pairedReplayMismatches": 0,
+    "rawPairsSha256": "1e0c8a516ba149837754ac772c0658ac9327b52d82a24374ba464fc9e5bd5768",
+    "promotionEligible": false
+  }
+]
