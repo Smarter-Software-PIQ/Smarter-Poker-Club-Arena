@@ -490,12 +490,28 @@ CREATE FUNCTION public.fn_gto_v31_recheck_status(p_dataset_id uuid)
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
+DECLARE
+  v_dataset public.gto_v31_datasets%ROWTYPE;
+  v_epoch_id uuid;
 BEGIN
   IF COALESCE(auth.role(),'') <> 'service_role' AND current_user NOT IN ('postgres','supabase_admin') THEN
     RAISE EXCEPTION 'service_role required';
   END IF;
+  SELECT * INTO v_dataset FROM public.gto_v31_datasets WHERE dataset_id=p_dataset_id;
+  IF FOUND THEN v_epoch_id := public.fn_gto_v31_recheck_epoch(v_dataset); END IF;
   RETURN jsonb_build_object(
     'dataset_id',p_dataset_id,
+    'state',v_dataset.state,
+    'evaluation_contract',v_dataset.evaluation_contract,
+    'recheck_epoch_id',v_epoch_id,
+    -- What a re-check re-runs: each certification receipt of the epoch, with
+    -- the incumbent it was measured against.
+    'certification',COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',e.evaluation_kind,'family',e.game_family,
+        'verdict',e.verdict,'incumbent_dataset_checksum',e.metrics#>>'{incumbent_config,incumbent_dataset_checksum}')
+        ORDER BY e.evaluation_kind,e.game_family)
+      FROM public.gto_v31_release_evaluations e
+     WHERE e.dataset_id=p_dataset_id AND e.evaluation_epoch_id=v_epoch_id
+       AND e.evaluation_kind IN ('paired_replay','league')),'[]'::jsonb),
     'anchors',COALESCE((SELECT jsonb_agg(jsonb_build_object('epoch_id',a.epoch_id,'engine_commit',a.engine_commit,
         'execution_digest',a.execution_digest,'replay_corpus_checksum',a.replay_corpus_checksum,
         'replay_digest',a.replay_digest,'replay_states',a.replay_states,'corpus_sha256',a.corpus_sha256,

@@ -137,12 +137,18 @@ function record(n: number) {
     const { hero, gs } = spot();
     seedFastRandom(0x1000 + i * 7919);
     live.push(
-      HorseLogic.decide(hero as never, gs as never, 'balanced', {}, {
-        mind: false,
-        telemetry: false,
-        gtoV31DatasetChecksum: CHECKSUM,
-        onV31ReplayState: (s) => states.push(s),
-      })
+      HorseLogic.decide(
+        hero as never,
+        gs as never,
+        'balanced',
+        {},
+        {
+          mind: false,
+          telemetry: false,
+          gtoV31DatasetChecksum: CHECKSUM,
+          onV31ReplayState: (s) => states.push(s),
+        }
+      )
     );
   }
   return { states, live };
@@ -199,7 +205,11 @@ describe('V31 replay digest: recording', () => {
       legalize: (d: HorseDecision) => d,
       readOpponent: () => sentinel,
     } as unknown as V31CertifiedInput;
-    const s = captureV31ReplayState(input, 0xdeadbeef, { action: 'call', amount: 60, thinkTime: 0 });
+    const s = captureV31ReplayState(input, 0xdeadbeef, {
+      action: 'call',
+      amount: 60,
+      thinkTime: 0,
+    });
     expect(s.opponentRead).toEqual({ sentinel: true });
     expect(s.rng).toBe(0xdeadbeef);
     // Hooks and anything the consult does not read stay out of the corpus.
@@ -251,7 +261,11 @@ describe('V31 replay digest: replay', () => {
     expect(saveFastRandom()).toBe(rngBefore);
     const d2 = gtoV31ReplayDigest(corpus);
     expect(d2.digest).toBe(d1.digest);
-    expect(d1).toMatchObject({ states: corpus.states.length, decided: corpus.states.length, unfaithful: 0 });
+    expect(d1).toMatchObject({
+      states: corpus.states.length,
+      decided: corpus.states.length,
+      unfaithful: 0,
+    });
     expect(gtoV31ReplayAnchorRefusal(d1)).toBeNull();
     // Replay does not mutate the corpus it reads.
     expect(verifyGtoV31ReplayCorpus(corpus)).toBeNull();
@@ -269,9 +283,11 @@ describe('V31 replay digest: replay', () => {
     const { states } = record(GTO_V31_REPLAY_MIN_STATES);
     const corpus = buildGtoV31ReplayCorpus(states, CHECKSUM);
     const base = gtoV31ReplayDigest(corpus);
-    const live = (HorseLogic as unknown as {
-      legalize: (d: HorseDecision, ...rest: unknown[]) => HorseDecision;
-    }).legalize.bind(HorseLogic);
+    const live = (
+      HorseLogic as unknown as {
+        legalize: (d: HorseDecision, ...rest: unknown[]) => HorseDecision;
+      }
+    ).legalize.bind(HorseLogic);
     const changed = gtoV31ReplayDigest(corpus, (d, p, g, v) => {
       const out = live(d, p, g, v);
       return out.action === 'raise' ? { ...out, amount: (out.amount ?? 0) + 1 } : out;

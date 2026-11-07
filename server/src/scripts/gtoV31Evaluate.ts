@@ -12,6 +12,17 @@
  * engine-locked atomic qualification operation (promote + eight-worker load +
  * readiness), which binds the evaluated and serving engine commits. This
  * script never moves real chips and never runs inside the live dealer process.
+ *
+ * Contract v3 (strict re-check, 2026-11-06): after the receipts the evaluator
+ * records the epoch's execution anchor (execution digest + replay corpus and
+ * digest, GtoV31Recheck.ts). With --recheck it instead re-checks a candidate
+ * or active v3 playbook on THIS (newer) engine:
+ *
+ *   npm run horse:gto-v31-evaluate -- --dataset=<uuid> --recheck
+ *
+ * Both digests must be identical to the anchor before a hand is dealt; then
+ * every certification table re-runs with the certification seeds and each
+ * result is recorded on the re-check round. One loss retires the playbook.
  */
 
 import { createHash } from 'node:crypto';
@@ -37,6 +48,14 @@ import {
   loadGtoPostflopV31Evaluation,
 } from '../services/GtoPostflopV31Loader.js';
 import { supabase } from '../services/supabase/client.js';
+import { gtoV31ReplayAnchorRefusal, gtoV31ReplayDigest } from '../benchmark/GtoV31ReplayDigest.js';
+import {
+  decodeGtoV31ReplayCorpus,
+  encodeGtoV31ReplayCorpus,
+  gtoV31ExecutionDigest,
+  gtoV31RecheckMatchup,
+  recordGtoV31ReplayCorpus,
+} from '../benchmark/GtoV31Recheck.js';
 import { equityGovernor } from '../engine/EquityLoadGovernor.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -166,7 +185,10 @@ async function evaluationPlan(
   });
   // Before the contract v3 migration installs there is no plan RPC and no v3
   // dataset can exist (the contract column arrives with it): contract v2.
-  if (error && (error.code === 'PGRST202' || /fn_gto_v31_evaluation_plan/.test(error.message ?? ''))) {
+  if (
+    error &&
+    (error.code === 'PGRST202' || /fn_gto_v31_evaluation_plan/.test(error.message ?? ''))
+  ) {
     return { evaluation_contract: 'gto_v31_candidate.v2', families: {} };
   }
   if (error) throw new Error(error.message);
@@ -324,9 +346,14 @@ async function persistEvaluation(args: {
   family: GtoV31EvaluationFamily;
   /** v3: the family's derived tables and sealed cells; absent = contract v2. */
   v3?: { tables: string[]; cells: string[] };
-}): Promise<void> {
+  /** A strict re-check round of a v3 playbook on this engine (never a certification receipt). */
+  recheck?: { roundId: string };
+}): Promise<RecheckRecord | null> {
+  if (args.recheck && !args.v3) throw new Error('only a contract v3 playbook is re-checked');
   const runDate = new Date().toISOString().slice(0, 10);
-  const matchup = evaluationMatchup(args.kind, args.family, args.datasetChecksum, args.epochNo);
+  const base = evaluationMatchup(args.kind, args.family, args.datasetChecksum, args.epochNo);
+  // A re-check stores its run under its own name (results are unique per day and name).
+  const matchup = args.recheck ? gtoV31RecheckMatchup(base, args.engineCommit) : base;
   const scenarios = args.v3
     ? [...args.v3.tables]
     : buildGtoV31EvaluationScenarios(args.family, args.kind, args.datasetChecksum).map(
@@ -445,6 +472,16 @@ async function persistEvaluation(args: {
     );
   }
 
+  if (args.recheck) {
+    const { data, error } = await supabase.rpc('fn_gto_v31_record_recheck_result', {
+      p_round_id: args.recheck.roundId,
+      p_evaluation_kind: args.kind,
+      p_game_family: args.family,
+      p_source_result_id: resultId,
+    });
+    if (error) throw new Error(error.message);
+    return data as RecheckRecord;
+  }
   const { error } = await supabase.rpc('fn_gto_v31_record_evaluation', {
     p_dataset_id: args.datasetId,
     p_evaluation_kind: args.kind,
@@ -452,6 +489,234 @@ async function persistEvaluation(args: {
     p_source_result_id: resultId,
   });
   if (error) throw new Error(error.message);
+  return null;
+}
+
+interface RecheckRecord {
+  round_id: string;
+  verdict?: 'win' | 'tie' | 'loss';
+  outcome: 'passed' | 'retired' | 'abandoned' | null;
+  recorded: boolean;
+  remaining?: number;
+}
+
+interface RecheckAnchor {
+  epoch_id: string;
+  engine_commit: string;
+  execution_digest: string;
+  replay_corpus_checksum: string;
+  replay_digest: string;
+  replay_states: number;
+  corpus_sha256: string;
+}
+
+interface RecheckStatus {
+  dataset_id: string;
+  state: string | null;
+  evaluation_contract: string | null;
+  recheck_epoch_id: string | null;
+  certification: Array<{
+    kind: GtoV31EvaluationKind;
+    family: GtoV31EvaluationFamily;
+    verdict: string;
+    incumbent_dataset_checksum: string | null;
+  }>;
+  anchors: RecheckAnchor[];
+  rounds: Array<{ round_id: string; serving_commit: string; outcome: string | null }>;
+}
+
+async function rpcJson<T>(name: string, params: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.rpc(name, params);
+  if (error) throw new Error(`${name}: ${error.message}`);
+  return data as T;
+}
+
+/**
+ * Record the epoch's execution anchor once (contract v3). Before the strict
+ * re-check migration installs there is no RPC; the epoch then simply has no
+ * anchor yet, and a resumed evaluation records it once the RPC exists.
+ */
+async function recordExecutionAnchor(args: {
+  datasetId: string;
+  datasetChecksum: string;
+  engineCommit: string;
+  epochId: string;
+  families: Array<{ family: GtoV31EvaluationFamily; tables: string[] }>;
+}): Promise<void> {
+  const { data: statusData, error: statusError } = await supabase.rpc('fn_gto_v31_recheck_status', {
+    p_dataset_id: args.datasetId,
+  });
+  if (
+    statusError &&
+    (statusError.code === 'PGRST202' || /fn_gto_v31_recheck_status/.test(statusError.message ?? ''))
+  ) {
+    console.warn(
+      '[gto-v31-evaluate] the strict re-check migration is not installed yet; no execution anchor recorded'
+    );
+    return;
+  }
+  if (statusError) throw new Error(statusError.message);
+  const existing = (statusData as RecheckStatus).anchors.find((a) => a.epoch_id === args.epochId);
+  if (existing) {
+    console.log(
+      `[gto-v31-evaluate] execution anchor already recorded (replay ${existing.replay_digest.slice(0, 12)})`
+    );
+    return;
+  }
+  const executionDigest = await gtoV31ExecutionDigest(args.engineCommit);
+  const corpus = await recordGtoV31ReplayCorpus({
+    datasetChecksum: args.datasetChecksum,
+    families: args.families,
+    seedFor: (kind, family) => seedFor(args.datasetChecksum, kind, family),
+  });
+  const replay = gtoV31ReplayDigest(corpus);
+  const refusal = gtoV31ReplayAnchorRefusal(replay);
+  if (refusal) throw new Error(`the replay corpus cannot anchor this playbook: ${refusal}`);
+  const encoded = encodeGtoV31ReplayCorpus(corpus);
+  const recorded = await rpcJson<{ recorded: boolean }>('fn_gto_v31_record_execution_anchor', {
+    p_epoch_id: args.epochId,
+    p_execution_digest: executionDigest,
+    p_replay_corpus_checksum: corpus.checksum,
+    p_replay_digest: replay.digest,
+    p_replay_states: replay.states,
+    p_corpus_gzip_base64: encoded.base64,
+    p_recorded_by: `gto-v31-evaluate:${args.engineCommit}`,
+  });
+  console.log(
+    `[gto-v31-evaluate] execution anchor ${recorded.recorded ? 'recorded' : 'already present'}: ` +
+      `execution ${executionDigest.slice(0, 12)}, replay ${replay.digest.slice(0, 12)} over ` +
+      `${replay.states} states (${corpus.recorded} recorded, ${encoded.bytes} bytes gzipped)`
+  );
+}
+
+/** --recheck: the strict re-check of a candidate or active v3 playbook on this engine. */
+async function recheck(datasetId: string, engineCommit: string): Promise<void> {
+  // The live store decides the incumbent arm exactly as at certification.
+  await loadGtoPostflopV31();
+  const incumbentNow = gtoPostflopV31Dataset()?.checksum ?? 'legacy_v30';
+  const loaded = await loadGtoPostflopV31Evaluation(datasetId, { recheck: true });
+  const status = await certificationStatus(datasetId);
+  if (status.dataset_checksum !== loaded.checksum) {
+    throw new Error('re-check status and loaded cells disagree on dataset checksum');
+  }
+  if (!['candidate', 'active'].includes(status.state)) {
+    throw new Error(`dataset state ${status.state} is not re-checked`);
+  }
+  const plan = await evaluationPlan(datasetId, loaded.contexts);
+  if (plan.evaluation_contract !== GTO_V31_EVALUATION_CONTRACT_V3) {
+    throw new Error(
+      'only a contract v3 playbook is re-checked; contract v2 keeps its closure rule'
+    );
+  }
+  const rs = await rpcJson<RecheckStatus>('fn_gto_v31_recheck_status', { p_dataset_id: datasetId });
+  const epoch = status.current_epoch;
+  if (!epoch || !rs.recheck_epoch_id || epoch.epoch_id !== rs.recheck_epoch_id) {
+    throw new Error('the certification status and the re-check disagree on the certified epoch');
+  }
+  const anchor = rs.anchors.find((a) => a.epoch_id === epoch.epoch_id);
+  if (!anchor) throw new Error('the playbook has no execution anchor to re-check against');
+  if (anchor.engine_commit === engineCommit) {
+    throw new Error('this is the certifying engine itself; it needs no re-check');
+  }
+  for (const c of rs.certification) {
+    if (c.incumbent_dataset_checksum !== incumbentNow) {
+      throw new Error(
+        `${c.kind}/${c.family} was certified against ${c.incumbent_dataset_checksum} but this engine ` +
+          `would play against ${incumbentNow}; the re-check cannot reproduce its baseline`
+      );
+    }
+  }
+
+  // 1 + 2: both digests, before a single hand is dealt.
+  const executionDigest = await gtoV31ExecutionDigest(engineCommit);
+  const stored = await rpcJson<{ corpus_gzip_base64: string }>('fn_gto_v31_replay_corpus', {
+    p_epoch_id: epoch.epoch_id,
+  });
+  const corpus = decodeGtoV31ReplayCorpus(stored.corpus_gzip_base64, {
+    sha256: anchor.corpus_sha256,
+    checksum: anchor.replay_corpus_checksum,
+    datasetChecksum: loaded.checksum,
+  });
+  const replay = gtoV31ReplayDigest(corpus);
+  console.log(
+    `[gto-v31-evaluate] re-check of ${loaded.checksum.slice(0, 12)} on ${engineCommit}: ` +
+      `execution ${executionDigest === anchor.execution_digest ? 'identical' : 'DIFFERS'}, ` +
+      `replay ${replay.digest === anchor.replay_digest ? 'identical' : 'DIFFERS'} ` +
+      `(${replay.states} states, ${replay.unfaithful} decisions changed)`
+  );
+  if (executionDigest !== anchor.execution_digest || replay.digest !== anchor.replay_digest) {
+    throw new Error(
+      'this engine is not execution-identical to the certified one: a full new certification is required'
+    );
+  }
+
+  // 3: the round, every certification table on this engine.
+  const opened = await rpcJson<
+    RecheckRecord & { results?: Array<{ kind: string; family: string }> }
+  >('fn_gto_v31_open_recheck_round', {
+    p_dataset_id: datasetId,
+    p_serving_commit: engineCommit,
+    p_execution_digest: executionDigest,
+    p_replay_digest: replay.digest,
+    p_opened_by: `gto-v31-evaluate:${engineCommit}`,
+    p_reason: `Strict re-check of ${loaded.checksum} on engine ${engineCommit} after identical execution and replay digests`,
+  });
+  if (opened.outcome === 'passed') {
+    console.log(
+      `[gto-v31-evaluate] engine ${engineCommit} already passed round ${opened.round_id}`
+    );
+    return;
+  }
+  const done = new Set((opened.results ?? []).map((r) => `${r.kind}/${r.family}`));
+  const families = FAMILIES.filter((family) => (plan.families[family]?.tables.length ?? 0) > 0);
+  for (const kind of KINDS) {
+    for (const family of families) {
+      if (done.has(`${kind}/${family}`)) {
+        console.log(`[gto-v31-evaluate] re-check ${kind}/${family}: already recorded`);
+        continue;
+      }
+      const record = await persistEvaluation({
+        ...(Object.prototype.hasOwnProperty.call(loaded, 'policy_export_schema')
+          ? { policy_export_schema: loaded.policy_export_schema }
+          : {}),
+        ...(loaded.feature_contract_version !== undefined
+          ? { feature_contract_version: loaded.feature_contract_version }
+          : {}),
+        datasetId,
+        datasetChecksum: loaded.checksum,
+        incumbentChecksum: incumbentNow,
+        engineCommit,
+        epochNo: epoch.epoch_no,
+        kind,
+        family,
+        v3: plan.families[family]!,
+        recheck: { roundId: opened.round_id },
+      });
+      console.log(
+        `[gto-v31-evaluate] re-check ${kind}/${family}: ${record?.verdict ?? 'unrecorded'}` +
+          (record?.remaining !== undefined ? `, ${record.remaining} to go` : '')
+      );
+      if (record?.outcome === 'retired') {
+        throw new Error(
+          `STRICT re-check loss on ${kind}/${family}: the playbook is retired for good and every binding is revoked`
+        );
+      }
+      if (record?.outcome === 'passed') {
+        console.log(
+          `[gto-v31-evaluate] engine ${engineCommit} passed the strict re-check (round ${opened.round_id})`
+        );
+        return;
+      }
+      if (record?.outcome === 'abandoned' || record?.recorded === false) {
+        throw new Error(
+          `the re-check round closed (${record.outcome}) before every table was recorded`
+        );
+      }
+    }
+  }
+  throw new Error(
+    'every certification table was re-run but the round did not pass; inspect the round'
+  );
 }
 
 async function main(): Promise<void> {
@@ -468,6 +733,10 @@ async function main(): Promise<void> {
   // qualification job exports EQUITY_GOVERNOR=off; refuse rather than trust it.
   if (equityGovernor.snapshot().enabled) {
     throw new Error('the V31 evaluation must run with EQUITY_GOVERNOR=off');
+  }
+  if (process.argv.includes('--recheck')) {
+    await recheck(datasetId, engineCommit);
+    return;
   }
   await loadGtoPostflopV31();
   const incumbentChecksum = gtoPostflopV31Dataset()?.checksum ?? 'legacy_v30';
@@ -529,6 +798,16 @@ async function main(): Promise<void> {
       status = await certificationStatus(datasetId);
       openEpochFor(status, engineCommit);
     }
+  }
+
+  if (v3) {
+    await recordExecutionAnchor({
+      datasetId,
+      datasetChecksum: loaded.checksum,
+      engineCommit,
+      epochId: epoch.epoch_id,
+      families: families.map((family) => ({ family, tables: plan.families[family]!.tables })),
+    });
   }
 
   if (status.state === 'evaluating') {

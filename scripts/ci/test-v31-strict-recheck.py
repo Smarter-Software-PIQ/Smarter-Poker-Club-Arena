@@ -281,6 +281,11 @@ def scenario(cluster, text, behavioural=False):
     status = json.loads(svc(db, f"SELECT public.fn_gto_v31_recheck_status('{ds}')").splitlines()[-1])
     assert [r['outcome'] for r in status['rounds']] == ['passed', 'abandoned'], status['rounds']
     assert status['anchors'][0]['replay_digest'] == REPLAY and 'corpus_gzip_base64' not in status['anchors'][0]
+    assert status['state'] == 'active' and status['recheck_epoch_id'] == epoch, status
+    assert status['certification'] == [
+        {'kind': 'league', 'family': 'cash', 'verdict': 'tie', 'incumbent_dataset_checksum': 'legacy_v30'},
+        {'kind': 'paired_replay', 'family': 'cash', 'verdict': 'tie', 'incumbent_dataset_checksum': 'legacy_v30'},
+    ], status['certification']
 
     # ── STRICT: one loss retires the playbook for good ──
     r3 = open_round(db, ds, S2)

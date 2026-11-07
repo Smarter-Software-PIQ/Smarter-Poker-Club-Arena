@@ -897,7 +897,25 @@ export function replaceGtoPostflopV31(rows: GtoV31RuntimeRow[]): number {
  * accidentally exercise whatever candidate happened to load last.
  */
 export function replaceGtoPostflopV31Evaluation(rows: GtoV31RuntimeRow[]): number {
-  const next = validatedStore(rows, new Set(['evaluating', 'candidate']));
+  return installEvaluationStore(rows, new Set(['evaluating', 'candidate']));
+}
+
+/**
+ * Load a playbook for its strict re-check (2026-11-06) into the same isolated,
+ * checksum-addressed benchmark store. A re-check is about a candidate or the
+ * ACTIVE playbook on a new engine; an evaluating dataset is never re-checked.
+ * Like every evaluation store it is never served and never replaces the live
+ * snapshot; only the offline evaluator's --recheck mode calls it.
+ */
+export function replaceGtoPostflopV31Recheck(rows: GtoV31RuntimeRow[]): number {
+  return installEvaluationStore(rows, new Set(['candidate', 'active']));
+}
+
+function installEvaluationStore(
+  rows: GtoV31RuntimeRow[],
+  allowedStates: ReadonlySet<GtoV31SourceSeal['dataset_state']>
+): number {
+  const next = validatedStore(rows, allowedStates);
   if (!next.datasetChecksum || !next.datasetId || next.cells.size === 0) {
     throw new Error('v31_evaluation_dataset_empty');
   }

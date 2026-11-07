@@ -40,6 +40,7 @@ import {
   type LeagueResult,
 } from './HorseLeague.js';
 import { HUMAN_CALIBRATED_POPULATION_ID } from './HumanCalibratedPopulation.js';
+import type { V31ReplayState } from '../engine/HorseV31CertifiedPolicy.js';
 import type {
   GtoV31EvaluationFamily,
   GtoV31EvaluationKind,
@@ -425,6 +426,38 @@ export function gtoV31V3Refusal(
   return missing.length > 0 ? `${missing.length} sealed cells were never executed` : null;
 }
 
+export function gtoV31V3WithReplayRecording(
+  scenario: GtoV31V3Scenario,
+  datasetChecksum: string,
+  onReplayState: ((state: V31ReplayState) => void) | undefined,
+  pairsPerTable: number | undefined
+): GtoV31V3Scenario {
+  if (pairsPerTable !== undefined && (!Number.isSafeInteger(pairsPerTable) || pairsPerTable < 1)) {
+    throw new Error('v31_v3_recording_pairs_invalid');
+  }
+  if (!onReplayState && pairsPerTable === undefined) return scenario;
+  const tap = (m: LeagueMatchup): LeagueMatchup =>
+    onReplayState
+      ? {
+          ...m,
+          a:
+            m.a.gtoV31DatasetChecksum === datasetChecksum
+              ? { ...m.a, onV31ReplayState: onReplayState }
+              : m.a,
+          b:
+            m.b.gtoV31DatasetChecksum === datasetChecksum
+              ? { ...m.b, onV31ReplayState: onReplayState }
+              : m.b,
+        }
+      : m;
+  return {
+    ...scenario,
+    pairs: pairsPerTable ?? scenario.pairs,
+    matchup: tap(scenario.matchup),
+    memoryOff: scenario.memoryOff ? tap(scenario.memoryOff) : null,
+  };
+}
+
 export async function runGtoV31EvaluationFamilyV3(args: {
   family: GtoV31EvaluationFamily;
   kind: GtoV31EvaluationKind;
@@ -432,12 +465,27 @@ export async function runGtoV31EvaluationFamilyV3(args: {
   tables: readonly string[];
   runSeed: number;
   shouldContinue?: () => boolean;
+  /**
+   * Replay-corpus recording (GtoV31ReplayDigest.ts): every certified decision
+   * the candidate arm makes is handed here. Only the arm that plays the
+   * candidate's checksum is tapped.
+   */
+  onReplayState?: (state: V31ReplayState) => void;
+  /** Recording pass only: fewer pairs per table. A verdict always plays the contract's pairs. */
+  pairsPerTable?: number;
 }): Promise<{ result: LeagueResult; components: GtoV31V3Component[]; pairs: number }> {
   const scenarios = buildGtoV31EvaluationScenariosV3(
     args.family,
     args.kind,
     args.datasetChecksum,
     args.tables
+  ).map((scenario) =>
+    gtoV31V3WithReplayRecording(
+      scenario,
+      args.datasetChecksum,
+      args.onReplayState,
+      args.pairsPerTable
+    )
   );
   const components: GtoV31V3Component[] = [];
   for (let index = 0; index < scenarios.length; index++) {

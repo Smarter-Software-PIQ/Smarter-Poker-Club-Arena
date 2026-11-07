@@ -17,6 +17,7 @@ import {
   gtoV31StoreIsEmpty,
   replaceGtoPostflopV31,
   replaceGtoPostflopV31Evaluation,
+  replaceGtoPostflopV31Recheck,
   v31HandKey,
   type GtoPostflopV31Row,
 } from './GtoPostflopV31.js';
@@ -392,6 +393,26 @@ describe('V31 certification and lookup', () => {
     expect(() => replaceGtoPostflopV31([{ ...CELL, dataset_state: 'candidate' }])).toThrow(
       /uncertified_or_malformed/
     );
+  });
+
+  it('a strict re-check loads the active or candidate playbook by checksum, never live', () => {
+    replaceGtoPostflopV31([CELL]);
+    const before = lookup();
+    const active: GtoPostflopV31Row = {
+      ...CELL,
+      dataset_checksum: '9'.repeat(64),
+      hand_matrix: { 'AKs:22': { c: 0, b262: 1 }, 'AKs:00': { c: 0, b262: 1 } },
+      policy_ev_matrix: { 'AKs:22': 8.4, 'AKs:00': 8.4 },
+    };
+    expect(replaceGtoPostflopV31Recheck([active])).toBe(1);
+    expect(replaceGtoPostflopV31Recheck([{ ...active, dataset_state: 'candidate' }])).toBe(1);
+    expect(lookup()).toEqual(before);
+    const rechecked = lookup({ datasetChecksum: active.dataset_checksum });
+    expect(rechecked.hit && rechecked.mix.b262).toBe(1);
+    // An evaluating dataset is never re-checked.
+    expect(() =>
+      replaceGtoPostflopV31Recheck([{ ...active, dataset_state: 'evaluating' as never }])
+    ).toThrow(/uncertified_or_malformed/);
   });
 
   it('rejects an unsealed row and preserves the previous complete snapshot', () => {

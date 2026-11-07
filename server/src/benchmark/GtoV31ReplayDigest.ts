@@ -74,14 +74,19 @@ export interface GtoV31ReplayCorpus {
 }
 
 /** A replay state is only admissible if it is the shape the recorder writes. */
-export function gtoV31ReplayStateProblem(state: V31ReplayState, datasetChecksum: string): string | null {
+export function gtoV31ReplayStateProblem(
+  state: V31ReplayState,
+  datasetChecksum: string
+): string | null {
   if (!state || typeof state !== 'object') return 'not an object';
   if (state.schemaVersion !== 1) return 'unknown schema version';
-  if (state.opts?.gtoV31DatasetChecksum !== datasetChecksum) return 'recorded against another dataset';
+  if (state.opts?.gtoV31DatasetChecksum !== datasetChecksum)
+    return 'recorded against another dataset';
   for (const key of Object.keys(state.opts)) {
     if (!(V31_REPLAY_OPTS as readonly string[]).includes(key)) return `unexpected option ${key}`;
   }
-  if (!Number.isInteger(state.rng) || state.rng < 0 || state.rng > 0xffffffff) return 'bad RNG position';
+  if (!Number.isInteger(state.rng) || state.rng < 0 || state.rng > 0xffffffff)
+    return 'bad RNG position';
   if (!state.decision || typeof state.decision.action !== 'string') return 'no recorded decision';
   if (!Array.isArray(state.opponents) || state.opponents.length !== 1) return 'not heads-up';
   return null;
@@ -92,7 +97,8 @@ export function buildGtoV31ReplayCorpus(
   datasetChecksum: string,
   maxStates = GTO_V31_REPLAY_MAX_STATES
 ): GtoV31ReplayCorpus {
-  if (!/^[0-9a-f]{64}$/.test(datasetChecksum)) throw new Error('replay corpus needs a dataset checksum');
+  if (!/^[0-9a-f]{64}$/.test(datasetChecksum))
+    throw new Error('replay corpus needs a dataset checksum');
   const byHash = new Map<string, V31ReplayState>();
   for (const state of captured) {
     const problem = gtoV31ReplayStateProblem(state, datasetChecksum);
@@ -125,7 +131,8 @@ export function verifyGtoV31ReplayCorpus(corpus: GtoV31ReplayCorpus): string | n
   for (let i = 1; i < hashes.length; i++) {
     if (hashes[i - 1] >= hashes[i]) return 'replay states are not in canonical order';
   }
-  if (gtoV31ReplayCorpusChecksum(hashes) !== corpus.checksum) return 'replay corpus checksum mismatch';
+  if (gtoV31ReplayCorpusChecksum(hashes) !== corpus.checksum)
+    return 'replay corpus checksum mismatch';
   return null;
 }
 
@@ -149,7 +156,13 @@ type Legalize = (
 
 /** HorseLogic's own legalization, exactly as the live consult receives it. */
 const liveLegalize: Legalize = (decision, player, gs, vi) =>
-  (HorseLogic as unknown as { legalize: Legalize }).legalize.call(HorseLogic, decision, player, gs, vi);
+  (HorseLogic as unknown as { legalize: Legalize }).legalize.call(
+    HorseLogic,
+    decision,
+    player,
+    gs,
+    vi
+  );
 
 /** Replay one state through the current engine. The RNG is left as found. */
 export function replayGtoV31State(
@@ -207,7 +220,11 @@ export interface GtoV31ReplayDigest {
   decided: number;
   /** States whose replayed decision differs from the recorded one. */
   unfaithful: number;
-  firstUnfaithful: { index: number; recorded: HorseDecision; replayed: HorseDecision | null } | null;
+  firstUnfaithful: {
+    index: number;
+    recorded: HorseDecision;
+    replayed: HorseDecision | null;
+  } | null;
 }
 
 export function gtoV31ReplayDigest(
