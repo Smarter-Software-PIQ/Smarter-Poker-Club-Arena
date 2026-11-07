@@ -136,6 +136,10 @@ with its window; none is a profitability claim.
   docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt. After V84 this
   cell's call count should fall to near zero and
   `v84_omaha_river_reraise_call_fold` should fire.
+  Denominator (2026-11-07, `sql omaha-river-reraise-opportunities` then
+  `omaha-river-reraise-denominator.ts`): 49 second-nut-flush decisions, all
+  calls, 27 eligible, no chop; V84 folds only calls priced 0.13 or more (23,
+  all lost). docs/horse-measure/2026-11-07/v84-river-reraise-denominator.txt.
 - Deep stack-offs by depth band (2026-11-07, measured, nothing admitted):
   `sql deep-raise-continues` (NLH turn/river continues facing a bet and a
   raise, 7-card class at the decision) and `sql deep-preflop` (KK/QQ in NLH,

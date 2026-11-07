@@ -39,6 +39,7 @@ describe('horse release verification kit', () => {
     'reshove',
     'omaha-calls',
     'omaha-river-reraise-calls',
+    'omaha-river-reraise-opportunities',
     'deep-raise-continues',
     'deep-preflop',
   ])('%s renders one read-only statement with literal window bounds', (mode) => {
