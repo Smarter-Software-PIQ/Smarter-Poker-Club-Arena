@@ -52,8 +52,10 @@
  * equalled the current bet, so an all-in CALL that exactly matched the bet
  * could stand in for the bettor; the engine only counts a raising action.
  */
-import type { Card } from '../types.js';
-import { omahaNutStatus } from './HorseEval.js';
+import type { Card, HorseDecision, SeatPlayer } from '../types.js';
+import type { HorseGameStateV2 } from './HorseLogic.js';
+import { hasRiverNuts } from './HorseRiverNuts.js';
+import { omahaBoatPosition, omahaNutStatus, scoreOmahaHi } from './HorseEval.js';
 
 export const V81_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 export const V81_MIN_POT_FRAC = 0.9;
@@ -221,4 +223,78 @@ export function v81Cell(i: V81Input): string | null {
     return null;
   }
   return null;
+}
+
+/** A high-only Omaha middle/top boat flats a pot-sized opening river bet.
+ * Physical nuts retain their existing wager rule. Reconstruct the price from
+ * the opening wager before any callers added chips to the current pot. */
+export function callLargeRiverBoatWager(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): HorseDecision {
+  if (
+    gs.stage !== 'river' ||
+    gs.stateSchemaVersion !== 1 ||
+    !['plo4', 'plo5', 'plo6'].includes(gs.gameVariant ?? '') ||
+    gs.variantRules?.splitLow8OrBetter ||
+    gs.bettingStructure !== 'pot_limit' ||
+    (gs.boardCount ?? 1) !== 1 ||
+    gs.communityCards2?.length ||
+    gs.communityCards3?.length ||
+    gs.bombPot ||
+    gs.allInOrFold ||
+    !Number.isFinite(gs.toCall) ||
+    !(gs.toCall! > 0) ||
+    !Number.isFinite(player.stack) ||
+    !(player.stack > 0) ||
+    player.bet !== 0 ||
+    player.is_folded ||
+    player.is_all_in ||
+    player.is_sitting_out ||
+    (decision.action !== 'fold' &&
+      decision.action !== 'raise' &&
+      (decision.action !== 'all_in' || player.stack <= gs.toCall! + 0.005))
+  )
+    return decision;
+  const paid = Math.min(player.stack, gs.currentBet);
+  if (Math.abs(Math.min(player.stack, gs.toCall!) - paid) > 0.005) return decision;
+  const allInCall = player.stack <= gs.currentBet + 0.005 && gs.legalActions?.includes('all_in');
+  if (!allInCall && !gs.legalActions?.includes('call')) return decision;
+  const opener = gs.actionHistory?.find(
+    (a) => a.stage === 'river' && ['bet', 'raise', 'all_in'].includes(a.action)
+  );
+  if (opener?.action !== 'bet' || opener.seat === player.seat || opener.amount !== gs.currentBet)
+    return decision;
+  const bets = new Map(gs.players.map((p) => [p.seat, p.bet]));
+  const faced = v81StreetWager(gs.actionHistory, 'river', bets, gs.pot);
+  if (
+    !faced ||
+    faced.bettorSeat !== opener.seat ||
+    faced.wager !== opener.amount ||
+    faced.wager + 0.000001 < faced.potBefore
+  )
+    return decision;
+  const board = gs.communityCards ?? [];
+  if (
+    board.length !== 5 ||
+    player.cards?.length !== Number(gs.gameVariant?.at(-1)) ||
+    new Set(board.map((c) => c.rank)).size === 5 ||
+    board.some((card) => board.filter((other) => other.rank === card.rank).length >= 3) ||
+    new Set([...player.cards, ...board].map((c) => `${c.rank}:${c.suit}`)).size !==
+      player.cards.length + 5
+  )
+    return decision;
+  // With six holes a player can also make a straight flush alongside a boat.
+  if (Math.floor(scoreOmahaHi(player.cards, board) / 0x100000) !== 7) return decision;
+  const position = omahaBoatPosition(player.cards, board);
+  if (
+    !position ||
+    position.lowerBoats === 0 ||
+    (position.boats === 0 && position.quads === 0 && hasRiverNuts(player, gs))
+  )
+    return decision;
+  return allInCall
+    ? { ...decision, action: 'all_in', amount: undefined }
+    : { ...decision, action: 'call', amount: paid };
 }
