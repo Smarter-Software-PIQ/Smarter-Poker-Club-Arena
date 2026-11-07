@@ -2048,7 +2048,11 @@ describe('the journal says why it stopped and shows itself to /health', () => {
 });
 
 describe('a writer that never said READY never started', () => {
-  it('a real worker whose module cannot load is start_failed and unavailable, never ready', async () => {
+  // 2026-11-07: with a restart available a start failure re-arms (see
+  // horseDecisionJournal/aWriterThatNeverSaidReadyIsStartedAgain.test.ts), so
+  // it reports `failed`, not `unavailable`, and the lifecycle is not told it
+  // never started. Still never ready, still named start_failed.
+  it('a real worker whose module cannot load is start_failed, never ready, and re-arms', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       // `new Worker()` does not throw for a module that fails to load: it
@@ -2070,23 +2074,26 @@ describe('a writer that never said READY never started', () => {
       p.record('decision', 'hand', 'turn', {});
       const deadline = Date.now() + 8000;
       const seen = new Set<string>();
-      while (Date.now() < deadline && p.health().mode !== 'unavailable') {
+      while (Date.now() < deadline && p.health().lastFailureReason !== 'start_failed') {
         seen.add(p.health().mode);
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(seen.has('ready')).toBe(false);
       expect(p.health()).toMatchObject({
-        mode: 'unavailable',
+        mode: 'failed',
         lastFailureReason: 'start_failed',
         queued: 1,
       });
+      expect(p.health().capture).toMatch(
+        /^not running: capture stopped at start_failed since .*; a fresh writer is started every minute until one captures;/
+      );
       // The bounded replacements were still tried: a lock at open is transient.
       expect(restart).toHaveBeenCalledTimes(2);
-      expect(startFailed).toHaveBeenCalledOnce();
+      expect(startFailed).not.toHaveBeenCalled();
       expect(notes).toContain('phase15_journal_start_failed');
       expect(notes).not.toContain('phase15_journal_retry_exhausted');
       expect(warn).toHaveBeenCalledWith(
-        '[HorseDecisionJournal] capture stopped mode=unavailable reason=start_failed'
+        '[HorseDecisionJournal] capture stopped mode=failed reason=start_failed'
       );
       await p.stop();
     } finally {

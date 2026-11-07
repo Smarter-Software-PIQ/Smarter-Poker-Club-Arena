@@ -165,13 +165,24 @@ export const HORSE_JOURNAL_LOCK_RETRY_DELAYS_MS: readonly number[] = Object.free
    only after the writer it retired has actually exited (the terminate promise
    itself, not the one-second fence), so a publisher never owns two live
    writers. It keeps doing so until a writer captures. Integrity refusals
-   (ack_mismatch, writer_unavailable), a journal that never started, a missing
-   restart and a shutdown stay terminal. */
+   (ack_mismatch, writer_unavailable), a missing restart and a shutdown stay
+   terminal.
+
+   A WRITER THAT NEVER SAID READY IS STARTED AGAIN (2026-11-07). Until then
+   `start_failed` was missing from this list and fail() re-armed only a
+   publisher that had once been READY, so three writers in a row that did not
+   answer READY inside the five-second start watchdog (a slow disk or a CPU
+   spike at boot) ended decision journaling for the life of the engine
+   process. A start failure is the same kind of condition as the fence
+   reasons: it passes. It now gets the same path: two in-place replacements,
+   then a fresh writer every HORSE_JOURNAL_REARM_MS, for as long as the
+   process runs. Only a publisher with no restart at all stays `unavailable`. */
 export const HORSE_JOURNAL_REARM_MS = 60_000;
 const HORSE_JOURNAL_REARMABLE: readonly HorseJournalFailureReason[] = Object.freeze([
   'retry_exhausted',
   'termination_unverified',
   'restart_failed',
+  'start_failed',
 ]);
 const rearmable = (reason: HorseJournalFailureReason | null): boolean =>
   reason !== null && HORSE_JOURNAL_REARMABLE.includes(reason);
@@ -393,6 +404,8 @@ export class HorseDecisionJournalPublisher {
   /** Whether any writer this publisher owned ever answered READY. A publisher
    * whose writers all died before READY never started capture at all. */
   private everReady = false;
+  /** Whether the current failure will be followed by a fresh writer. */
+  private rearming = false;
   private probeTimer?: ReturnType<typeof setInterval>;
   /** Consecutive lock refusals of the unacknowledged batch on this writer, and
    * the backoff before it is asked again. Reset by its exact ACK or a new writer. */
@@ -410,7 +423,9 @@ export class HorseDecisionJournalPublisher {
       /** Wall clock for pausedSince/failedSince; tests pin it. */
       wallNow?: () => number;
       capacityProbeMs?: number;
-      /** Told once, when capture ends without any writer ever reaching READY. */
+      /** Told once, when capture ends for good without any writer ever
+       * reaching READY: only a publisher with no restart. One that re-arms
+       * has not given up and is not reported as never started. */
       onStartFailed?: () => void;
     } = {}
   ) {
@@ -509,6 +524,9 @@ export class HorseDecisionJournalPublisher {
     this.mode = 'failed';
     this.lastFailureReason = reason;
     this.failedAt = this.wallNow();
+    // Decided before the log line, so the line names what will happen: a
+    // re-arming start failure is `failed`, one that cannot re-arm `unavailable`.
+    this.rearming = rearmable(reason) && Boolean(this.options.restart) && !this.stopping;
     this.endPause();
     this.endLockWait();
     this.count('unavailable');
@@ -519,7 +537,7 @@ export class HorseDecisionJournalPublisher {
     console.warn(
       `[HorseDecisionJournal] capture stopped mode=${this.reportedMode()} reason=${reason}`
     );
-    if (reason === 'start_failed') {
+    if (reason === 'start_failed' && !this.rearming) {
       try {
         this.options.onStartFailed?.();
       } catch {
@@ -528,8 +546,7 @@ export class HorseDecisionJournalPublisher {
     }
     clearInterval(this.watchdog);
     clearTimeout(this.retryTimer);
-    if (rearmable(reason) && this.options.restart && !this.stopping && this.everReady)
-      this.scheduleRearm();
+    if (this.rearming) this.scheduleRearm();
     void this.retireWriter()
       .then((confirmed) => {
         if (!confirmed) this.count('termination_unverified');
@@ -803,6 +820,13 @@ export class HorseDecisionJournalPublisher {
   private message(message: any): void {
     if (this.mode === 'failed' || this.mode === 'stopped') return;
     if (message?.type === 'READY' && this.mode === 'starting') {
+      // The first READY after start failures is the moment capture begins:
+      // one line, so the earlier `capture stopped ... start_failed` is not the
+      // last word in the log.
+      if (!this.everReady && this.lastFailureReason === 'start_failed')
+        console.warn(
+          `[HorseDecisionJournal] capture started mode=ready after=start_failed queued=${this.queue.length}`
+        );
       this.everReady = true;
       this.mode = 'ready';
       this.lastProgress = this.now();
@@ -921,9 +945,7 @@ export class HorseDecisionJournalPublisher {
   private receiveStats(stats: unknown): void {
     this.statsRequestedAt = null;
     const archive = (stats as { archive?: unknown } | null)?.archive as
-      | Record<string, unknown>
-      | null
-      | undefined;
+      Record<string, unknown> | null | undefined;
     if (!archive || typeof archive !== 'object') return;
     const number = (key: string): number | null =>
       typeof archive[key] === 'number' && Number.isSafeInteger(archive[key])
@@ -951,10 +973,12 @@ export class HorseDecisionJournalPublisher {
     };
     this.statsAt = this.now();
   }
-  /** A journal that never started is `unavailable`, exactly as a writer that
-   * could not even be constructed is; `failed` is a journal that once ran. */
+  /** A journal that never started and never will (no restart) is
+   * `unavailable`, exactly as a writer that could not even be constructed is.
+   * A start failure that re-arms is `failed`: capture is stopped, and a fresh
+   * writer is coming, which the capture sentence says. */
   private reportedMode(): HorseJournalMode {
-    return this.mode === 'failed' && this.lastFailureReason === 'start_failed'
+    return this.mode === 'failed' && this.lastFailureReason === 'start_failed' && !this.rearming
       ? 'unavailable'
       : this.mode;
   }
@@ -991,6 +1015,8 @@ export class HorseDecisionJournalPublisher {
   stop(): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
     this.stopping = true;
+    // Nothing is started after a stop: a start failure is then final.
+    this.rearming = false;
     this.stopPromise = new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.noteShutdownGap();
