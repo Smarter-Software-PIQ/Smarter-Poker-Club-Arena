@@ -420,9 +420,47 @@ UPDATE public.tournament_schedules SET active=false
 WHERE (club_id='fade0000-0000-0000-0000-000000000001'::uuid OR union_id='fade0000-0000-0000-0000-000000000001'::uuid)
  AND id NOT IN (SELECT (value->>'id')::uuid FROM jsonb_array_elements(public.fn_ca_midway_weekly_catalog()));
 
+-- Bound each original upsert statement while preserving one atomic transaction.
+-- The existing exact time-zone CHECK reads pg_timezone_names once per row.
 INSERT INTO public.tournament_schedules(id,club_id,union_id,name,description,active,days_of_week,start_times_utc,interval_minutes,time_zone,config)
 SELECT r.id,r.club_id,r.union_id,r.name,r.description,r.active,r.days_of_week,r.start_times_utc,r.interval_minutes,r.time_zone,r.config
 FROM jsonb_populate_recordset(NULL::public.tournament_schedules,public.fn_ca_midway_weekly_catalog()) r
+ORDER BY r.id LIMIT 25 OFFSET 0
+ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,
+ days_of_week=excluded.days_of_week,start_times_utc=excluded.start_times_utc,time_zone=excluded.time_zone,interval_minutes=NULL,config=excluded.config;
+
+INSERT INTO public.tournament_schedules(id,club_id,union_id,name,description,active,days_of_week,start_times_utc,interval_minutes,time_zone,config)
+SELECT r.id,r.club_id,r.union_id,r.name,r.description,r.active,r.days_of_week,r.start_times_utc,r.interval_minutes,r.time_zone,r.config
+FROM jsonb_populate_recordset(NULL::public.tournament_schedules,public.fn_ca_midway_weekly_catalog()) r
+ORDER BY r.id LIMIT 25 OFFSET 25
+ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,
+ days_of_week=excluded.days_of_week,start_times_utc=excluded.start_times_utc,time_zone=excluded.time_zone,interval_minutes=NULL,config=excluded.config;
+
+INSERT INTO public.tournament_schedules(id,club_id,union_id,name,description,active,days_of_week,start_times_utc,interval_minutes,time_zone,config)
+SELECT r.id,r.club_id,r.union_id,r.name,r.description,r.active,r.days_of_week,r.start_times_utc,r.interval_minutes,r.time_zone,r.config
+FROM jsonb_populate_recordset(NULL::public.tournament_schedules,public.fn_ca_midway_weekly_catalog()) r
+ORDER BY r.id LIMIT 25 OFFSET 50
+ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,
+ days_of_week=excluded.days_of_week,start_times_utc=excluded.start_times_utc,time_zone=excluded.time_zone,interval_minutes=NULL,config=excluded.config;
+
+INSERT INTO public.tournament_schedules(id,club_id,union_id,name,description,active,days_of_week,start_times_utc,interval_minutes,time_zone,config)
+SELECT r.id,r.club_id,r.union_id,r.name,r.description,r.active,r.days_of_week,r.start_times_utc,r.interval_minutes,r.time_zone,r.config
+FROM jsonb_populate_recordset(NULL::public.tournament_schedules,public.fn_ca_midway_weekly_catalog()) r
+ORDER BY r.id LIMIT 25 OFFSET 75
+ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,
+ days_of_week=excluded.days_of_week,start_times_utc=excluded.start_times_utc,time_zone=excluded.time_zone,interval_minutes=NULL,config=excluded.config;
+
+INSERT INTO public.tournament_schedules(id,club_id,union_id,name,description,active,days_of_week,start_times_utc,interval_minutes,time_zone,config)
+SELECT r.id,r.club_id,r.union_id,r.name,r.description,r.active,r.days_of_week,r.start_times_utc,r.interval_minutes,r.time_zone,r.config
+FROM jsonb_populate_recordset(NULL::public.tournament_schedules,public.fn_ca_midway_weekly_catalog()) r
+ORDER BY r.id LIMIT 25 OFFSET 100
+ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,
+ days_of_week=excluded.days_of_week,start_times_utc=excluded.start_times_utc,time_zone=excluded.time_zone,interval_minutes=NULL,config=excluded.config;
+
+INSERT INTO public.tournament_schedules(id,club_id,union_id,name,description,active,days_of_week,start_times_utc,interval_minutes,time_zone,config)
+SELECT r.id,r.club_id,r.union_id,r.name,r.description,r.active,r.days_of_week,r.start_times_utc,r.interval_minutes,r.time_zone,r.config
+FROM jsonb_populate_recordset(NULL::public.tournament_schedules,public.fn_ca_midway_weekly_catalog()) r
+ORDER BY r.id LIMIT 25 OFFSET 125
 ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,
  days_of_week=excluded.days_of_week,start_times_utc=excluded.start_times_utc,time_zone=excluded.time_zone,interval_minutes=NULL,config=excluded.config;
 COMMIT;

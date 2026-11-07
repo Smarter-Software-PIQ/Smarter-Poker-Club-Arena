@@ -9,3 +9,5 @@ Existing started or settling tournaments retain accepted terms. A changed unstar
 The native regression reproduces the legacy drift, then exercises all 143 canonical creation contracts, the 378 weekly slots, old-writer attempts, table blind inheritance, unrelated clubs, started-game preservation and operator restrictions. It runs in the existing Midway native CI route. Publication still requires protected merge, exact migration installation and readback of the actual upcoming events.
 
 Source: https://docs.google.com/spreadsheets/d/1L27Z3Wq9FSxyqGMJvAJZtgMXtYKCK4j8F_PUx0RNEJg/edit
+
+The initial installation rolled back at the existing eight-second statement limit: the unchanged exact time-zone validator cost about 56 ms per schedule row, making the 143-row upsert exceed its budget. The uninstalled migration now uses six deterministic upserts of at most 25 rows within the same transaction. The one-second lock limit, eight-second statement limit, validator and schedule guards remain enforced. The native fixture includes the production validator and CHECK.

@@ -29,6 +29,15 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
          CREATE FUNCTION atomic_cancel_tournament(uuid,uuid) RETURNS jsonb LANGUAGE sql AS $$SELECT '{"fully_settled":false}'::jsonb$$;
          CREATE FUNCTION fn_ca_new_tournament_is_unlimited(jsonb) RETURNS boolean LANGUAGE sql AS $$SELECT true$$;
         """)
+        # Production's exact zone validator is intentionally retained: its
+        # per-row catalog lookup must fit the unchanged 8s statement budget.
+        sql("""CREATE FUNCTION fn_schedule_time_zone_is_known(p_zone text)
+         RETURNS boolean LANGUAGE sql STABLE SET search_path TO pg_catalog AS $$
+          SELECT p_zone IS NULL OR ((p_zone IN ('UTC','GMT')
+           OR p_zone ~ '^[A-Z][A-Za-z]+/[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)?$')
+           AND EXISTS(SELECT 1 FROM pg_catalog.pg_timezone_names n WHERE n.name=p_zone))$$;
+         ALTER TABLE tournament_schedules ADD CONSTRAINT schedule_time_zone_known
+          CHECK(fn_schedule_time_zone_is_known(time_zone));""")
         types={}
         for event in document['events']:
             for key,value in event['terms'].items():
