@@ -287,6 +287,8 @@ import {
   riverBluffProbability,
   riverNutBlocker,
   riverBluffSize,
+  riverLeadValueSpot,
+  RIVER_LEAD_VALUE_PASS,
   RIVER_BLUFF_PRIOR_AIR_SHARE,
   RIVER_BLUFF_PRIOR_VALUE_SHARE,
 } from './HorseRiverBluffRange.js';
@@ -2491,6 +2493,17 @@ export interface HorseDecideOpts {
    *  draws first, reads reshaping it (a station fewer, a folder more), never
    *  zero without a read. Disable to ablate (default: enabled). */
   riverBluffBaseline?: boolean;
+  /** Out-of-position river leads (2026-11-07, HorseRiverBluffRange.ts): first
+   *  to act on the river into the turn bettor, bluff-lead the rivers that
+   *  complete the caller's draws (blockers first), rarely the blanks, never
+   *  into a credible station; the V11 gate lets value hands lead those
+   *  rivers. Disable to ablate (default: enabled). */
+  riverLeadRange?: boolean;
+  /** Hi-lo river bluffs with a low possible (2026-11-07,
+   *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
+   *  air bluffs the whole pot only when the opponent is unlikely to hold a
+   *  low, and otherwise checks. Disable to ablate (default: enabled). */
+  riverBluffHiLo?: boolean;
   /** Candidate-only conditional river defense; default off until paired
    * current-brain qualification and protected adoption. */
   riverPositionDefense?: boolean;
@@ -10195,7 +10208,17 @@ export class HorseLogic {
             runoutFavorsOpponent === true || rangeAdvantage?.disadvantage === true,
           barrelPlan: barrelPlan !== undefined && barrelPlan !== null,
           calledBarrels: calledBarrels40,
+          leadRange: (opts.riverLeadRange ?? true) !== false,
+          hiLoRange: (opts.riverBluffHiLo ?? true) !== false,
+          hiShare: hiLoSplit?.hi,
+          quarterShare: hiLoSplit?.quarter,
         });
+        // Hi-lo: the opponent's likely low makes any bet a half-pot giveaway.
+        if (eligRb.reason === 'low_giveaway') {
+          if (tele15) noteFire('river_bluff_baseline_skip_low_giveaway');
+          return { action: 'check', thinkTime: 0 };
+        }
+        const leadRb = eligRb.line === 'leadDraw' || eligRb.line === 'leadBlank';
         if (eligRb.eligible && oppRb) {
           const effRb = Math.min(stack, oppRb.stack + (isFinite(oppRb.bet) ? oppRb.bet : 0));
           const sizeRb = riverBluffSize({
@@ -10263,10 +10286,14 @@ export class HorseLogic {
               false
             );
             const placedRb = betRb.action === 'bet' || betRb.action === 'all_in';
-            if (tele15 && placedRb) noteFire(`river_bluff_baseline_${eligRb.selection}`);
-            else if (tele15) noteFire('river_bluff_baseline_illegal');
+            if (tele15 && placedRb) {
+              noteFire(`river_bluff_baseline_${eligRb.selection}`);
+              if (leadRb) noteFire(`river_lead_bluff_${eligRb.line}`);
+              if (eligRb.hiLo) noteFire(`river_bluff_hilo_${eligRb.hiLo.kind}`);
+            } else if (tele15) noteFire('river_bluff_baseline_illegal');
             return betRb;
           }
+          if (tele15 && leadRb && stationRb) noteFire('river_lead_skip_station');
           if (tele15) noteFire('river_bluff_baseline_check');
           return { action: 'check', thinkTime: 0 };
         } else if (tele15 && eligRb.reason !== 'showdown_value' && eligRb.reason !== 'domain') {
@@ -10442,9 +10469,30 @@ export class HorseLogic {
         !priorAggressorCheckedThisStreet(gs.actionHistory, street) &&
         !checkedToNonBottomRiverBoat(player, gs)
       ) {
+        // River leads (2026-11-07): on a river that completed the caller's
+        // draws, the caller's value hands lead it (the bluff leads live in
+        // HorseRiverBluffRange); a blank river keeps the check.
+        const leadValueSpot =
+          isRiver &&
+          opponents.length === 1 &&
+          (opts.riverLeadRange ?? true) !== false &&
+          riverLeadValueSpot({
+            history: gs.actionHistory ?? [],
+            heroId: player.user_id,
+            opponentId: opponents[0].user_id,
+            board,
+            omaha: vi.isOmaha,
+          });
         const donkLead =
           (vulnerable && wetness >= 0.5 && fastRandom() < 0.2) ||
-          (equity >= multiwayValueBar(0.8, oppCount) + mw && wetness >= 0.55 && fastRandom() < 0.3);
+          (equity >= multiwayValueBar(0.8, oppCount) + mw &&
+            wetness >= 0.55 &&
+            fastRandom() < 0.3) ||
+          (leadValueSpot &&
+            ((equity >= multiwayValueBar(0.8, oppCount) + mw &&
+              fastRandom() < RIVER_LEAD_VALUE_PASS.monster) ||
+              (equity >= 0.7 + mw && fastRandom() < RIVER_LEAD_VALUE_PASS.strong)));
+        if (leadValueSpot && donkLead && tele15) noteFire('river_lead_value_pass');
         if (!donkLead) return { action: 'check', thinkTime: 0 };
       }
       // Monster: usually bet big, sometimes trap (never trap on wet or

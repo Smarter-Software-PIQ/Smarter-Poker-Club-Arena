@@ -976,6 +976,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River bluff baseline'
   ),
   flag(
+    'riverLeadRange',
+    'out-of-position river leads (HorseRiverBluffRange): first to act on the river into the turn bettor, bluff-lead rivers that complete the caller draws (blockers first), rarely blanks, never into a credible station, and let value hands through the V11 gate on those rivers; Omaha paired boards never lead; default on, false ablates (2026-11-07)',
+    'River lead range'
+  ),
+  flag(
+    'riverBluffHiLo',
+    'hi-lo river bluffs with a low possible (HorseRiverBluffRange): the nut low with no high bets the freeroll, air bluffs the whole pot only when the public low chance is at most 0.5 and otherwise checks (no half-pot giveaway); default on, false restores the old domain gate (2026-11-07)',
+    'River bluff hi-lo'
+  ),
+  flag(
     'phase7Utility',
     'final action-specific tournament utility across payout, bounty and recovery components; defaults on and runs after every global strategy layer',
     'Phase7'
@@ -4107,8 +4117,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'river_bluff_baseline_*',
     'HorseLogic not-facing-a-bet river (HorseRiverBluffRange)',
-    'the baseline river bluff decided a qualified candidate: junk, missedDraw, blocker or blockerAndDraw (a bluff bet of that selection), check (the candidate checked at the balanced frequency) or illegal (the size could not be legalized); skip_multiway, skip_cannot_respond and skip_no_story say why a river with no bet to face was left to the layers below',
+    'the baseline river bluff decided a qualified candidate: junk, missedDraw, blocker, blockerAndDraw or freeroll (a bet of that selection; freeroll is the hi-lo nut low with no high), check (the candidate checked at the balanced frequency) or illegal (the size could not be legalized); skip_multiway, skip_cannot_respond and skip_no_story say why a river with no bet to face was left to the layers below; skip_low_giveaway is a hi-lo air hand checked because the opponent likely holds a low',
     'River bluff baseline'
+  ),
+  receipt(
+    'river_lead_*',
+    'HorseLogic not-facing-a-bet river (HorseRiverBluffRange, V11 gate)',
+    'out-of-position river leads into the turn bettor: bluff_leadDraw / bluff_leadBlank (a bluff lead on a draw-completing or blank river), skip_station (a candidate checked because the bettor is a credible station), value_pass (the V11 gate let a value hand lead a draw-completing river)',
+    'River lead range'
+  ),
+  receipt(
+    'river_bluff_hilo_*',
+    'HorseLogic not-facing-a-bet river (HorseRiverBluffRange)',
+    'a hi-lo river bet with a low possible: freeroll (the nut low with no high) or scoop (air bluffing the whole pot into an unlikely low)',
+    'River bluff hi-lo'
   ),
   receipt(
     'combo_draw_pressure_evaluated',
