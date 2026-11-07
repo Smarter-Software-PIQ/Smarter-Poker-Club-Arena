@@ -311,25 +311,68 @@ test.describe('Production Kings Club Players', () => {
   }, testInfo) => {
     const probe = observeMembersPath(page);
     await openMembers(page, probe);
-    const sort = page.getByRole('combobox', { name: 'Sort Players' });
-    await completeNextPageRead(probe, () => sort.selectOption('oldest'), 'manual oldest sort');
+    const filter = page.getByRole('combobox', { name: 'Filter Players', exact: true });
+    if ((await filter.inputValue()) !== 'all') {
+      await completeNextPageRead(probe, () => filter.selectOption('all'), 'all players filter');
+    }
     const search = page.getByRole('searchbox', { name: 'Search Club Members' });
+    if (await search.inputValue()) {
+      await completeNextPageRead(probe, () => search.fill(''), 'clear saved relevance search');
+    }
+    const sort = page.getByRole('combobox', { name: 'Sort Players' });
+    if ((await sort.inputValue()) === 'oldest') {
+      await completeNextPageRead(probe, () => sort.selectOption('newest'), 'prepare manual sort');
+    }
+    const initialResponsePromise = page.waitForResponse((response) => {
+      if (!response.url().includes('/rpc/ca_club_members_page')) return false;
+      const request = response.request().postDataJSON();
+      return (
+        request.p_filter === 'all' &&
+        request.p_sort === 'oldest' &&
+        !request.p_search?.trim() &&
+        request.p_cursor === null
+      );
+    });
+    await completeNextPageRead(probe, () => sort.selectOption('oldest'), 'manual oldest sort');
+    const initialResponse = await initialResponsePromise;
+    expect(initialResponse.ok()).toBe(true);
+    const clubId = initialResponse.request().postDataJSON().p_club_id;
+    expect(clubId).toMatch(/^[0-9a-f-]{36}$/i);
+    const initialResult = await initialResponse.json();
+    const initialRows = initialResult.items as Array<{
+      user_id: string;
+      alias: string;
+      username: string;
+    }>;
+    const player = initialRows.find((row) => row.alias?.trim() || row.username?.trim());
+    expect(player, 'the authorized roster must provide a searchable player name').toBeTruthy();
+    const searchTerm = (player!.alias?.trim() || player!.username.trim()).toLowerCase();
     const responsePromise = page.waitForResponse((response) => {
       if (!response.url().includes('/rpc/ca_club_members_page')) return false;
-      return response.request().postDataJSON()?.p_search?.trim().toLowerCase() === 'mikey';
+      const request = response.request().postDataJSON();
+      return (
+        request.p_club_id === clubId &&
+        request.p_filter === 'all' &&
+        request.p_cursor === null &&
+        request.p_search?.trim().toLowerCase() === searchTerm
+      );
     });
-    await completeNextPageRead(probe, () => search.fill('mikey'), 'player name relevance search');
+    await completeNextPageRead(
+      probe,
+      () => search.fill(searchTerm),
+      'player name relevance search'
+    );
     const response = await responsePromise;
     expect(response.ok()).toBe(true);
     const result = await response.json();
     const rows = result.items as Array<{ user_id: string; alias: string; username: string }>;
     const rank = (row: (typeof rows)[number]) => {
       const names = [row.alias, row.username].map((value) => (value ?? '').toLowerCase());
-      return names.some((name) => name === 'mikey')
+      return names.some((name) => name === searchTerm)
         ? 0
-        : names.some((name) => name.startsWith('mikey'))
+        : names.some((name) => name.startsWith(searchTerm))
           ? 1
-          : names.some((name) => name.includes('mikey'))
+          : names.some((name) => name.includes(searchTerm))
             ? 2
             : 3;
     };
@@ -349,7 +392,7 @@ test.describe('Production Kings Club Players', () => {
     ).toHaveText(rows[0].alias);
     await testInfo.attach('player-name-search-proof', {
       body: JSON.stringify({
-        search: 'mikey',
+        search: searchTerm,
         filteredTotal: result.filtered_total,
         nextCursor: result.next_cursor,
         rows: rows.map((row) => ({
