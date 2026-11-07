@@ -58,17 +58,25 @@ def backup(repo, sha, limit, status):
             raise ValueError('unexpected Backup evidence size')
         cert = json.loads(bundle.read('certificate.json'))
         compat = json.loads(bundle.read('compatibility.json'))
+    producer = run['head_sha']
+    control = compat['controlSha']
+    workflow = '.github/workflows/backup-engine.yml'
+    if control != producer and (
+            run.get('event') != 'push' or control != sha or not re.fullmatch('[0-9a-f]{40}', sha)
+            or git('merge-base', producer, control) != producer
+            or git('diff', '--name-only', producer, control, '--', workflow)):
+        raise ValueError('Backup retarget conflicts with protected producer provenance')
     db, seed = cert['database'], cert['seed']
     if (cert['sha'] != sha or cert['verdict'] != 'pass' or cert['reasons']
             or cert['fatalLogLines'] != 0 or cert['soakSeconds'] < 1800
             or epoch(cert['certifiedAt']) > limit or compat['targetSha'] != sha
-            or compat['controlSha'] != run['head_sha'] or db['restoreValidated'] is not True
+            or db['restoreValidated'] is not True
             or db['restoreErrors'] != 0 or seed['tablesFailed'] != 0
             or epoch(seed['seededAt']) < epoch(db['restoredAt'])
             or not re.fullmatch('[0-9a-f]{64}', db['dumpSha256'])
             or not re.fullmatch('[0-9a-f]{64}', db['ownersSha256'])):
         raise ValueError('successful Backup run conflicts with certificate contents')
-    return {'runId': run['id'], 'attempt': run['run_attempt'], 'artifactId': matches[0]['id'],
+    return {'runId': run['id'], 'attempt': run['run_attempt'], 'artifactId': matches[0]['id'], 'producerSha': producer,
             'certifiedAt': cert['certifiedAt'], 'database': db, 'seed': seed, 'compatibility': compat}
 
 

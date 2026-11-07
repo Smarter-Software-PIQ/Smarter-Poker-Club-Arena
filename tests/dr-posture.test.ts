@@ -175,7 +175,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       const body = workflow.slice(start, end);
       const result = standbyShell(`
       cd "$STATE_DIR"
-      STANDBY_HOST=fixture SHA=fixture GITHUB_SHA=protected-fixture GITHUB_OUTPUT="$STATE_DIR/output"
+      STANDBY_HOST=fixture SHA=fixture GITHUB_SHA=protected-fixture CONTROL_SHA=protected-fixture GITHUB_OUTPUT="$STATE_DIR/output"
       ssh() { printf '%s\\n' '{"reasons":["fixture_refusal"]}'; [ '${mode}' != ssh-failure ]; }
       tee() { command tee "$@"; [ '${mode}' != tee-failure ]; }
       ${body}

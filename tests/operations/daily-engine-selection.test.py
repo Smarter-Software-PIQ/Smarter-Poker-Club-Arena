@@ -45,6 +45,18 @@ class DailySelection(unittest.TestCase):
             with patch.object(mod, 'api', side_effect=[run, artifact]), patch.object(mod, 'command', return_value=bundle()):
                 return mod.backup('o/r', sha, mod.cutoff('2026-11-07'), status)
         self.assertEqual(read()['artifactId'], 99)
+        producer = control
+        control = sha
+        run['event'] = 'push'
+        with patch.object(mod, 'git', side_effect=[producer, '']):
+            self.assertEqual(read()['producerSha'], producer)
+        for result in [['c' * 40], [producer, '.github/workflows/backup-engine.yml']]:
+            with patch.object(mod, 'git', side_effect=result), self.assertRaisesRegex(ValueError, 'retarget'):
+                read()
+        run['event'] = 'workflow_dispatch'
+        with self.assertRaisesRegex(ValueError, 'retarget'):
+            read()
+        control = producer
         cert['seed']['tablesFailed'] = 1
         with self.assertRaisesRegex(ValueError, 'conflicts'):
             read()
