@@ -1,4 +1,4 @@
-import { checkedToNonBottomRiverBoat } from './HorseNonBottomRiverValue.js';
+import { checkedToNonBottomBoat, checkedToNonBottomRiverBoat } from './HorseNonBottomRiverValue.js';
 import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
@@ -6063,7 +6063,7 @@ export class HorseLogic {
       // middle boats. Price a missed value bet against the controller's menu.
       if (
         finalWager.action === 'check' &&
-        gs.stage === 'river' &&
+        (gs.stage === 'turn' || gs.stage === 'river') &&
         gs.stateSchemaVersion === 1 &&
         !gs.wagersCapped &&
         gs.toCall === 0 &&
@@ -6082,7 +6082,7 @@ export class HorseLogic {
             !p.is_all_in &&
             p.stack > 0
         ) &&
-        checkedToNonBottomRiverBoat(player, gs)
+        checkedToNonBottomBoat(player, gs)
       ) {
         const amount = Math.min(
           gs.maxRaiseTo!,

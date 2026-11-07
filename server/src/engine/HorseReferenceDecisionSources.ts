@@ -20,7 +20,7 @@
 export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, string>> =
   Object.freeze({
     'src/engine/HorseNonBottomRiverValue.ts':
-      'the exact non-bottom high-only Omaha river initiative eligibility; downstream equity, utility and legal bounds remain authoritative',
+      'the checked-to high-only Omaha turn and river boat eligibility for legal value wagers and the river initiative release',
     'src/engine/HorseRiverBluffRange.ts':
       'the baseline heads-up river bluff range (Dan 2026-11-06): eligibility, line, blockers, balanced frequency and size for a river with no showdown value',
     'src/engine/HorseCheckedAggressor.ts':

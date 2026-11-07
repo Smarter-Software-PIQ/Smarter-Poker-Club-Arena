@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Card, GameVariant } from '../types.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import { HorseLogic } from './HorseLogic.js';
-import { checkedToNonBottomRiverBoat } from './HorseNonBottomRiverValue.js';
+import { checkedToNonBottomBoat, checkedToNonBottomRiverBoat } from './HorseNonBottomRiverValue.js';
 import { omahaBoatPosition, omahaBoatsAbove, seedFastRandom } from './HorseEval.js';
 import { jointPolicyFixture } from './multiway/JointRangeFixture.test-support.js';
 import { calculatePots } from './PokerEngine.js';
@@ -488,5 +488,43 @@ it.each(['plo4', 'plo5'] as const)(
         gameState: state,
       })
     ).toBe('policy_graph');
+  }
+);
+
+it.each([
+  ['plo4', 'Jh 6s 4h 4s', 'Jd 4d Jc 2h'],
+  ['plo5', 'Ks 5h As Kh 7d', 'Kc 3d 3h 8h'],
+  ['plo6', 'Ks 5h As Kh 7d 9s', 'Kc 3d 3h 8h'],
+] as const)(
+  'prices an offered %s turn boat bet without requiring a river card',
+  (variant, hole, board) => {
+    const { hero, state } = jointPolicyFixture(variant, 1, 'cash', 'turn');
+    hero.cards = cards(hole);
+    state.communityCards = cards(board);
+    state.actionHistory = [
+      {
+        userId: state.players[1].user_id,
+        seat: 2,
+        action: 'check',
+        amount: 0,
+        stage: 'turn',
+        timestamp: 1,
+      },
+    ];
+    expect(checkedToNonBottomRiverBoat(hero, state)).toBe(false);
+    expect(checkedToNonBottomBoat(hero, state)).toBe(true);
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      seedFastRandom(seed);
+      const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, v9Timing: false });
+      expect(d.policyFallback).toBeUndefined();
+      expect(d.action).toBe('bet');
+      expect(d.amount).toBeGreaterThanOrEqual(state.minRaiseTo!);
+      expect(d.amount).toBeLessThanOrEqual(state.maxRaiseTo!);
+      expect(
+        horseDecisionReceiptRefusal(d, variant, { player: hero, gameState: state })
+      ).toBeNull();
+    }
+    expect(checkedToNonBottomBoat(hero, { ...state, actionHistory: [] })).toBe(false);
+    expect(checkedToNonBottomBoat(hero, { ...state, bombPot: true })).toBe(false);
   }
 );
