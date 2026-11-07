@@ -174,9 +174,35 @@ test('both club views keep receiving rows and one survives the other unmounting'
   expect(target.email).toMatch(/^ca-customization-cert-postdeploy-.*@example\.invalid$/);
   expect(target.id).not.toBe(ownerId);
   const editor = await context.newPage();
-  await editor.goto(`clubs/${CLUB_ID}/members/${target.id}`, { waitUntil: 'domcontentloaded' });
+  // DOMContentLoaded precedes the arena-access and member-record reads.
+  // Wait for this target's authoritative record before judging its editor.
+  const detailRead = editor.waitForResponse(
+    (response) => {
+      if (!response.url().includes('/rpc/ca_club_member_detail')) return false;
+      const body = response.request().postDataJSON();
+      return body?.p_club_id === CLUB_ID && body?.p_user_id === target.id;
+    },
+    { timeout: 45_000 }
+  );
   const nickname = editor.getByRole('textbox', { name: 'Nickname', exact: true });
-  await expect(nickname).toBeEditable();
+  try {
+    await editor.goto(`clubs/${CLUB_ID}/members/${target.id}`, { waitUntil: 'domcontentloaded' });
+    const response = await detailRead;
+    expect(response.ok(), 'The target member record must load successfully').toBe(true);
+    const detail = await response.json();
+    expect(detail?.identity?.user_id).toBe(target.id);
+    expect(detail?.capabilities?.can_edit_notes).toBe(true);
+    await expect(nickname).toBeEditable();
+  } catch (error) {
+    await info.attach('row-owner-editor-readiness.json', {
+      body: Buffer.from(
+        JSON.stringify({ url: editor.url(), body: await editor.locator('body').innerText() })
+      ),
+      contentType: 'application/json',
+    });
+    await editor.close();
+    throw error;
+  }
   const originalNickname = await nickname.inputValue();
   const saveNickname = async (value: string) => {
     const receipt = editor.waitForResponse((response) => {

@@ -30,3 +30,19 @@ it('delivers real rows from an isolated target and retires it on every outcome',
     workflow.slice(cleanup, workflow.indexOf('name: Retire interrupted assignment', cleanup))
   ).toContain('if: always()');
 });
+
+it('waits for target authority before testing the editor and records the editor on failure', () => {
+  const browser = readFileSync('tests/e2e/production-row-channel-owners.spec.ts', 'utf8');
+  const response = browser.indexOf('const detailRead = editor.waitForResponse');
+  const navigation = browser.indexOf('await editor.goto');
+  const loaded = browser.indexOf('const response = await detailRead');
+  const editable = browser.indexOf('await expect(nickname).toBeEditable()');
+  expect(response).toBeGreaterThan(0);
+  expect(response).toBeLessThan(navigation);
+  expect(navigation).toBeLessThan(loaded);
+  expect(loaded).toBeLessThan(editable);
+  expect(browser.slice(loaded, editable)).toContain('detail?.identity?.user_id');
+  expect(browser.slice(loaded, editable)).toContain('detail?.capabilities?.can_edit_notes');
+  expect(browser).toContain('row-owner-editor-readiness.json');
+  expect(browser).toContain("await editor.locator('body').innerText()");
+});
