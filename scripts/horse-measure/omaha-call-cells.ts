@@ -14,6 +14,8 @@
  *
  * Usage (from server/): npx tsx ../scripts/horse-measure/omaha-call-cells.ts [--json] FILE...
  * A FILE may be the raw execute_sql result text (the MCP wrapper is read).
+ * Hole cards may be Card objects or one compact string ("Kd4d...", the board's
+ * format; omaha-river-reraise-calls.sql emits that form).
  * --json prints the cells as one JSON array ({k, n, g, m, lo, hi, verdict}),
  * the input of `horse-release-verify.py scorecard assemble --omaha-cells`.
  */
@@ -27,7 +29,7 @@ type Row = [
   string,
   string,
   number,
-  Card[],
+  Card[] | string,
   string,
   number,
   number,
@@ -74,7 +76,7 @@ export function cells(rows: Row[], keyOf: (r: Row, cls: string) => string[]) {
   for (const r of rows) {
     const [hand, , , , hole, boardS, , , ev] = r;
     if (!Number.isFinite(ev)) continue;
-    const cls = classify(hole, parseBoard(boardS));
+    const cls = classify(typeof hole === 'string' ? parseBoard(hole) : hole, parseBoard(boardS));
     for (const k of keyOf(r, cls)) {
       let a = acc.get(k);
       if (!a) acc.set(k, (a = { hands: new Map() }));

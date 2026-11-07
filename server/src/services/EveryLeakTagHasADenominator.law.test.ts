@@ -65,6 +65,7 @@ const MIRRORED = [
   'one_pair_turn_stackoff',
   'plo_underfull_stackoff',
   'plo_toppair_no_redraw_stackoff',
+  'set_on_wet_board_stackoff',
 ];
 
 /** Requires a fold, so it can never have a win side. */

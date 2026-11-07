@@ -32,8 +32,9 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
 
-const SRC = new URL('../', import.meta.url).pathname;
+const SRC = fileURLToPath(new URL('../', import.meta.url));
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

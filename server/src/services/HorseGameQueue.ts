@@ -61,23 +61,83 @@ export interface HorseQueuePlan {
   add: Array<{ game_id: string; user_id: string }>;
 }
 
+/** What makes two games "the same game at nearby stakes" for a list. */
+export interface HorseQueueGameInfo {
+  variant: string | null;
+  bigBlind: number | null;
+}
+
 /** How long a horse stays in line before it gives up, 25 to 55 minutes. */
 export function queuePatienceMs(rowId: string): number {
   return (25 + (mix32(horseHash(`${rowId}:patience`)) % 31)) * 60_000;
 }
 
+/* ── SEVERAL LISTS AT ONCE (owner 2026-11-07) ────────────────────────────────
+   "Real players join the lists for two or three games at a time and drop the
+   others once seated." People already can: cash_game_waitlist_one_open is
+   unique per (game, player) and nothing caps how many games a person lists
+   for (fn_cash_game_join inserts one row per game). A horse now does the same,
+   inside the same rules: one row per game (the index refuses a second), at
+   most two or three games, and only games a player would list together - the
+   same variant family at nearby stakes. */
+
+/** Lists a horse will put its name on at once: two or three, fixed per horse. */
+export function horseListCap(horseId: string): number {
+  return 2 + (mix32(horseHash(`${horseId}:lists`)) % 2);
+}
+
+/** PLO4/5/6 are one pot-limit Omaha family; every other variant is its own. */
+export function variantFamily(variant: string | null | undefined): string | null {
+  const v = String(variant ?? '')
+    .trim()
+    .toLowerCase();
+  if (!v) return null;
+  if (v === 'plo' || v === 'plo4' || v === 'plo5' || v === 'plo6') return 'omaha';
+  return v;
+}
+
+/** Nearby stakes: the bigger big blind is at most twice the smaller. */
+export const LIST_STAKES_RATIO = 2;
+
+/** Would a player list for both of these games at once? Unknown is "no". */
+export function comparableGames(
+  a: HorseQueueGameInfo | undefined,
+  b: HorseQueueGameInfo | undefined
+): boolean {
+  if (!a || !b) return false;
+  const fa = variantFamily(a.variant);
+  if (fa === null || fa !== variantFamily(b.variant)) return false;
+  const x = Number(a.bigBlind);
+  const y = Number(b.bigBlind);
+  if (!(x > 0) || !(y > 0) || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+  return Math.max(x, y) <= LIST_STAKES_RATIO * Math.min(x, y) + 1e-9;
+}
+
 /**
  * PURE. What the horse queues should look like after this cycle.
  *
- * - desired per game = the largest waitTarget asked for it, but ZERO unless
- *   every live table of the game is full, the game is not excluded (Lightning:
- *   "THERE SHOULDN'T BE A WAITING LIST", Dan 2026-10-24; disabled games), and
- *   no human is waiting on it.
+ * - desired per game = the largest waitTarget asked for it while every live
+ *   table of the game is full; ZERO when the game is excluded (Lightning:
+ *   "THERE SHOULDN'T BE A WAITING LIST", Dan 2026-10-24; disabled games) or a
+ *   human is waiting on it.
+ * - A NEWLY OPENED TABLE FILLS FROM THE LIST (owner 2026-11-07). A game that
+ *   is no longer full (a second table opened, a chair came free) KEEPS its
+ *   line and adds nobody: the cluster tick calls those names one at a time,
+ *   in list order, through fn_offer_open_seat, and each horse answers its
+ *   call (claimOfferedSeats) as a person does. The line used to be cleared
+ *   the moment the game had an open chair, so the horses that were waiting
+ *   vanished and the fleet filled the new table with others all at once.
  * - rows beyond desired are cancelled newest first, so the head of the line
  *   holds still; rows past their patience are cancelled too.
+ * - SEVERAL LISTS: a horse holds rows on up to horseListCap games, all of them
+ *   comparable (comparableGames). A row past the cap or for an incomparable
+ *   game is cancelled, oldest kept.
+ * - SEATED ANYWHERE, IT LEAVES ITS OTHER LISTS: a horse seated at any table
+ *   leaves the lists of every other game now (the same row change a person's
+ *   fn_cash_game_leave_waitlist makes). The row of the game it sat in is left
+ *   for the tick, which marks it 'seated'. A seated horse joins no list.
  * - at most ONE new horse per game per cycle, chosen from the asking tables'
- *   pools, never a horse already seated in that game, never a horse already in
- *   any game's line.
+ *   pools, never a horse already seated in that game or on its list.
  */
 export function planHorseQueues(input: {
   asks: readonly HorseQueueAsk[];
@@ -87,7 +147,13 @@ export function planHorseQueues(input: {
   humanWaitingGameIds: ReadonlySet<string>;
   seatedByGame: ReadonlyMap<string, ReadonlySet<string>>;
   nowMs: number;
+  /** Variant and big blind per game; a game missing here is never comparable. */
+  gameInfo?: ReadonlyMap<string, HorseQueueGameInfo>;
+  /** Horses seated at any open table, any game. */
+  seatedAnywhere?: ReadonlySet<string>;
 }): HorseQueuePlan {
+  const gameInfo = input.gameInfo ?? new Map<string, HorseQueueGameInfo>();
+  const seatedAnywhere = input.seatedAnywhere ?? new Set<string>();
   const allFull = new Map<string, boolean>();
   for (const t of input.tables) {
     const full = t.maxPlayers > 0 && t.seated >= t.maxPlayers;
@@ -106,51 +172,79 @@ export function planHorseQueues(input: {
     p.push(...a.pool);
     pools.set(a.gameId, p);
   }
-  const wantFor = (gameId: string): number => {
-    if (input.excludedGameIds.has(gameId)) return 0;
-    if (input.humanWaitingGameIds.has(gameId)) return 0;
-    if (allFull.get(gameId) !== true) return 0;
-    return desired.get(gameId) ?? 0;
-  };
 
   const cancel: string[] = [];
   const byGame = new Map<string, QueuedHorseRow[]>();
-  const queued = new Set<string>();
+  /** The games each horse is listed for after this cycle's decisions. */
+  const linesOf = new Map<string, string[]>();
+  const fits = (userId: string, gameId: string): boolean => {
+    const lines = linesOf.get(userId) ?? [];
+    if (lines.includes(gameId)) return false;
+    if (lines.length >= horseListCap(userId)) return false;
+    return lines.every((g) => comparableGames(gameInfo.get(g), gameInfo.get(gameId)));
+  };
   /* A horse that gives up on one line looks for another (2026-11-07): it is
      the first choice for any OTHER game's line this cycle, the way a player
      tired of one list puts their name down somewhere else. */
   const leftGame = new Map<string, string>();
-  for (const r of input.rows) {
+  // Oldest first, so the lines a horse keeps are the ones it joined first.
+  const rows = [...input.rows].sort(
+    (a, b) =>
+      (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
+  for (const r of rows) {
     const created = Date.parse(r.created_at);
     if (Number.isFinite(created) && input.nowMs - created >= queuePatienceMs(r.id)) {
       cancel.push(r.id);
       leftGame.set(r.user_id, r.game_id);
       continue;
     }
-    // One line at a time: a second row for a horse already queued goes.
-    if (queued.has(r.user_id)) {
+    // Seated in this game: the tick marks the row 'seated'; it is no longer a
+    // place in line and is neither counted nor touched here.
+    if (input.seatedByGame.get(r.game_id)?.has(r.user_id)) continue;
+    // Seated anywhere else: it leaves this list now.
+    if (seatedAnywhere.has(r.user_id)) {
       cancel.push(r.id);
       continue;
     }
-    queued.add(r.user_id);
+    if (!fits(r.user_id, r.game_id)) {
+      cancel.push(r.id);
+      continue;
+    }
+    linesOf.set(r.user_id, [...(linesOf.get(r.user_id) ?? []), r.game_id]);
     const list = byGame.get(r.game_id) ?? [];
     list.push(r);
     byGame.set(r.game_id, list);
   }
 
+  const dropLine = (r: QueuedHorseRow) => {
+    cancel.push(r.id);
+    linesOf.set(
+      r.user_id,
+      (linesOf.get(r.user_id) ?? []).filter((g) => g !== r.game_id)
+    );
+  };
+
   // Games the loop knows about and games that already hold a horse line.
   const games = new Set<string>([...allFull.keys(), ...byGame.keys()]);
   const add: Array<{ game_id: string; user_id: string }> = [];
-  for (const gameId of games) {
+  for (const gameId of [...games].sort()) {
     // A game this cycle did not see (no live table in it) keeps its rows
     // untouched rather than being judged on nothing.
     if (!allFull.has(gameId)) continue;
-    const want = wantFor(gameId);
     const list = (byGame.get(gameId) ?? []).sort(
       (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)
     );
+    if (input.excludedGameIds.has(gameId) || input.humanWaitingGameIds.has(gameId)) {
+      for (const r of list) dropLine(r);
+      continue;
+    }
+    // Not full: the list is being called into the open chair. Keep, add none.
+    if (allFull.get(gameId) !== true) continue;
+    const want = desired.get(gameId) ?? 0;
     if (list.length > want) {
-      for (const r of list.slice(want)) cancel.push(r.id);
+      for (const r of list.slice(want)) dropLine(r);
       continue;
     }
     if (list.length === want) continue;
@@ -165,7 +259,13 @@ export function planHorseQueues(input: {
     const kind = gameKind.get(gameId);
     const home = (id: string) => (kind ? homeQueueRank(id, kind.variant, kind.bigBlind) : 0);
     const pool = [...new Set(pools.get(gameId) ?? [])]
-      .filter((id) => !seated.has(id) && !queued.has(id) && leftGame.get(id) !== gameId)
+      .filter(
+        (id) =>
+          !seated.has(id) &&
+          !seatedAnywhere.has(id) &&
+          leftGame.get(id) !== gameId &&
+          fits(id, gameId)
+      )
       .sort(
         (a, b) =>
           movingOn(a) - movingOn(b) ||
@@ -175,7 +275,7 @@ export function planHorseQueues(input: {
       );
     const pick = pool[0];
     if (!pick) continue;
-    queued.add(pick);
+    linesOf.set(pick, [...(linesOf.get(pick) ?? []), gameId]);
     add.push({ game_id: gameId, user_id: pick });
   }
   return { cancel, add };

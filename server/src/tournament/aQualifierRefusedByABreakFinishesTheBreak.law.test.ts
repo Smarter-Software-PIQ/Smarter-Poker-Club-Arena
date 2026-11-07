@@ -39,6 +39,7 @@ vi.mock('../services/errorReporter.js', () => ({
 import { readFileSync } from 'node:fs';
 import { TournamentManager } from './TournamentManager.js';
 import { isTableBreakExclusion } from './TournamentManagerEliminations.js';
+import { SatelliteTerminalPrepareBusyError } from './terminalDurableRequest.js';
 import { SatelliteSettlementRefusedError } from './satelliteSettlementRpc.js';
 import { supabase } from '../services/supabase.js';
 
@@ -157,6 +158,28 @@ describe('a qualifier settlement refused by a table break finishes the break', (
       'Tournament.satellite_qualifiers_refused',
       expect.objectContaining({ tournamentId: EVENT, qualifierCount: 6 })
     );
+  });
+
+  it('re-arms an unsent busy cohort on its original held boundary', async () => {
+    const { m, engine } = qualifyingSatellite();
+    rpc.settle.mockRejectedValue(new SatelliteTerminalPrepareBusyError());
+    expect(await m.checkSatelliteQualifierCompletion()).toBe('pending');
+    expect(m.satelliteQualifierBoundaryPending).toBe(true);
+    expect(engine.releaseTerminalCloseoutPause).not.toHaveBeenCalled();
+    expect(m.tournamentFinished).toBe(false);
+    expect(m.requestUrgentEliminationSweepAfter).toHaveBeenCalled();
+  });
+
+  it('re-arms an unsent one-winner satellite without stopping its owning manager', async () => {
+    const m = manager();
+    m.tournamentCache = { variant: 'satellite' };
+    m.processSatelliteAwards = vi.fn().mockRejectedValue(new SatelliteTerminalPrepareBusyError());
+    m.fenceUnknownTerminalOutcome = vi.fn();
+    await m.finishTournament(id(11));
+    expect(m.processSatelliteAwards).toHaveBeenCalledTimes(1);
+    expect(m.fenceUnknownTerminalOutcome).not.toHaveBeenCalled();
+    expect(m.tournamentFinished).toBe(false);
+    expect(m.requestUrgentEliminationSweepAfter).toHaveBeenCalled();
   });
 
   it('every other refusal keeps its old answer', async () => {

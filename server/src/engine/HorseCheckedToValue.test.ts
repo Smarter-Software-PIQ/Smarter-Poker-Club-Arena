@@ -202,13 +202,20 @@ describe('checked-to river value in a multiway pot', () => {
     expect(omahaBoatsAbove(hole, board)).toEqual({ boats: 0, quads: 0 });
     expect(omahaBoatPosition(cards('3c 4h 5s 6d'), cards('7c 8h 9s Td Ac'))).toBeNull();
   });
-  it('does not exempt trip-board middle boats from initiative discipline', () => {
-    const { hero, state } = spot('plo4', 'behind');
-    hero.cards = cards('Kc Kh 4c 5d');
-    state.communityCards = cards('7c 7h 7s 2d 3h');
-    expect(omahaBoatPosition(hero.cards, state.communityCards)!.boats).toBeGreaterThan(0);
+  it('bets eights full of nines after a river check on the trip-eight PLO5 board', () => {
+    const { hero, state } = spot('plo5', 'behind');
+    hero.cards = cards('5c 9c As Jc 9h');
+    state.communityCards = cards('4c 8h 5s 8s 8c');
+    Object.assign(state, { pot: 5.75, contestablePot: 5.75, maxRaiseTo: 5.75 });
+    const position = omahaBoatPosition(hero.cards, state.communityCards)!;
+    expect(position.boats).toBeGreaterThan(0);
+    expect(position.lowerBoats).toBeGreaterThan(0);
+    expect(checkedToNonBottomRiverBoat(hero, state)).toBe(true);
     seedFastRandom(1);
-    expect(HorseLogic.decide(hero, state, 'balanced', {}, options).action).toBe('check');
+    const decision = HorseLogic.decide(hero, state, 'balanced', {}, options);
+    expect(decision.action).toBe('bet');
+    expect(decision.amount).toBeGreaterThanOrEqual(state.minRaiseTo!);
+    expect(decision.amount).toBeLessThanOrEqual(state.maxRaiseTo!);
   });
 
   it.each(['plo8', 'flo8', 'nlh'] as const)('does not enable the exception in %s', (variant) => {

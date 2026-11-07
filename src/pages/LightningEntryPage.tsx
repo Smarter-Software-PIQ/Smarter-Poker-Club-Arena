@@ -30,6 +30,8 @@ import { cashBuyInLabel } from '../lib/cashBuyIn';
  *     LIGHTNING is not offered and the page says why. Every join still goes
  *     through the table's own buy-in confirmation.
  */
+import { freezeRefusalText, useEntryFreeze, withFreezeTime } from '../hooks/useEntryFreeze';
+import MaintenanceBreakBanner from '../components/common/MaintenanceBreakBanner';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { EmptyState } from '../components/common/EmptyState';
@@ -102,6 +104,8 @@ export default function LightningEntryPage() {
   const [phase, setPhase] = useState<Phase>({ kind: 'resolving' });
   const [attempt, setAttempt] = useState(0);
   const [joining, setJoining] = useState(false);
+  /* The database's entry freeze: the Join door says when it opens. */
+  const entryFreeze = useEntryFreeze();
   /* JOIN LIGHTNING asks one question, the amount (Dan 2026-10-24). */
   const [buyIn, setBuyIn] = useState<(LightningBuyInContext & { userId: string }) | null>(null);
   const [slow, setSlow] = useState(false);
@@ -229,6 +233,15 @@ export default function LightningEntryPage() {
       setBuyIn({ ...context, userId });
     } catch (err) {
       if (!ownsPage()) return;
+      /* THE FREEZE IS NOT A FAILURE (Dan 2026-11-07). The rejoin door raises
+         PLATFORM_FROZEN during maintenance; this used to file it as an error
+         and say "We Could Not Open The Buy-In Right Now". */
+      const frozen = await freezeRefusalText(err);
+      if (!ownsPage()) return;
+      if (frozen) {
+        toast.warning(frozen);
+        return;
+      }
       reportError(err, 'LightningEntryPage.buyin_context_failed', { clusterId });
       toast.warning('We Could Not Open The Buy-In Right Now. Please Try Again.');
     } finally {
@@ -252,7 +265,8 @@ export default function LightningEntryPage() {
         clubId: null,
       });
       if (!mounted.current) return result.kind === 'seated';
-      if (result.kind === 'rejected') return { status: 'rejected', message: result.message };
+      if (result.kind === 'rejected')
+        return { status: 'rejected', message: await withFreezeTime(result.message) };
       if (result.kind === 'seated') rememberLightningBuyIn(clusterId, amount);
       setBuyIn(null);
       const meta = phase.kind === 'entry' ? phase.meta : null;
@@ -306,8 +320,10 @@ export default function LightningEntryPage() {
       navigate(`/table/${r.table_id}`);
     } catch (err) {
       if (!ownsPage()) return;
-      reportError(err, 'LightningEntryPage.join_failed', { clusterId });
-      toast.warning(joinGameRefusalText(err));
+      const frozen = await freezeRefusalText(err);
+      if (!ownsPage()) return;
+      if (!frozen) reportError(err, 'LightningEntryPage.join_failed', { clusterId });
+      toast.warning(frozen ?? joinGameRefusalText(err));
     } finally {
       if (ownsPage()) {
         activeJoin.current = null;
@@ -439,6 +455,7 @@ export default function LightningEntryPage() {
   const atLimit = lightning && !closed && !withinLimit;
   return (
     <div className="lightning-entry" data-testid="lightning-entry">
+      <MaintenanceBreakBanner />
       <LightningCashEntryCard
         title={meta?.name ?? 'Lightning'}
         variant={meta?.variant ?? 'NLH'}
@@ -457,19 +474,22 @@ export default function LightningEntryPage() {
         status={
           joining
             ? 'Joining'
-            : switchingLabel
-              ? switchingLabel
-              : joinsClosed || closed
-                ? (modeDisplay.closedLabel ?? 'Closed')
-                : atLimit
-                  ? 'Limit'
-                  : 'Running'
+            : entryFreeze.freeze.frozen
+              ? 'Maintenance'
+              : switchingLabel
+                ? switchingLabel
+                : joinsClosed || closed
+                  ? (modeDisplay.closedLabel ?? 'Closed')
+                  : atLimit
+                    ? 'Limit'
+                    : 'Running'
         }
         primaryTestId={joinsClosed ? 'lightning-entry-join-closed' : undefined}
         actions={{
-          primaryLabel: joining ? 'Joining...' : joinLabel,
+          primaryLabel: joining ? 'Joining...' : (entryFreeze.label ?? joinLabel),
           primaryDisabled:
             joining ||
+            entryFreeze.freeze.frozen ||
             closed ||
             joinsClosed ||
             atLimit ||

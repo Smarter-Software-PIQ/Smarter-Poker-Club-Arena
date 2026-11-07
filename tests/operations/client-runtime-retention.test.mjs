@@ -19,6 +19,7 @@ import {
   assertReceiptOrigins,
   publicationDecision,
 } from '../../scripts/ci/client-runtime-retention.mjs';
+import { fileURLToPath } from 'node:url';
 
 // Git invokes hooks with repository-selection variables. The isolated fixture
 // process must never inherit the parent's index/worktree/objects selection.
@@ -499,7 +500,7 @@ test('missing evidence, origin disagreement and same-SHA repair events use norma
     execFileSync(
       process.execPath,
       [
-        new URL('../../scripts/ci/client-runtime-retention.mjs', import.meta.url).pathname,
+        fileURLToPath(new URL('../../scripts/ci/client-runtime-retention.mjs', import.meta.url)),
         'admit',
         'a'.repeat(40),
       ],

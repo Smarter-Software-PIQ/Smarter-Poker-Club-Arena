@@ -187,9 +187,10 @@ describe('The guarantee includes bounties, never rake', () => {
     expect(container.textContent).not.toContain('2,316');
     expect(container.textContent).not.toContain('Club Overlay');
   });
-  // Each place is also shown at the floor the house guarantees if the field
-  // closes now: places + what the house still adds, through the same ladder.
-  it('shows each place at its guaranteed minimum while the overlay is pending', async () => {
+  // NO PROJECTED PAYOUTS (Dan, 2026-11-07): a place is priced on the actual
+  // pool only. The pending house share stays beside the guarantee as the live
+  // overlay; it is never added to a place.
+  it('prices each place on the actual pool only while the overlay is pending', async () => {
     state.collected = 1656;
     state.overlay = 660;
     state.gross = 1840;
@@ -205,9 +206,11 @@ describe('The guarantee includes bounties, never rake', () => {
     });
     fixture.entries = fixture.entries.slice(0, 46);
     const { container } = render(<RewardsTab {...fixture} />);
-    await waitFor(() => expect(container.textContent).toContain('Guaranteed 1,856'));
+    await waitFor(() => expect(container.textContent).toContain('660 Overlay'));
     expect(container.querySelector('.rw-prize')?.textContent).toBe('1,196');
-    expect(container.textContent).toContain('Include The 660 The House Adds');
+    expect(container.textContent).not.toContain('1,856');
+    expect(container.textContent).not.toMatch(/Guaranteed \d/);
+    expect(container.textContent).not.toContain('The House Adds If The Field Does Not Close It');
   });
   it('a Free Buy adds only what the house has not yet posted (250, never 405)', async () => {
     state.collected = 155;
@@ -228,8 +231,9 @@ describe('The guarantee includes bounties, never rake', () => {
       prize_pool_finalized: false,
     });
     const { container } = render(<RewardsTab {...fixture} />);
-    await waitFor(() => expect(container.textContent).toContain('Guaranteed 250'));
+    await waitFor(() => expect(container.textContent).toContain('Already Put In 155'));
     expect(container.textContent).not.toContain('Guaranteed 405');
+    expect(container.textContent).not.toMatch(/Guaranteed \d/);
     // The headline and the note tell one story: the whole house share, what
     // it already put in, and what it still adds.
     expect(container.textContent).toContain('250 House Funded');

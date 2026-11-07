@@ -31,8 +31,9 @@ import {
   spinLaunchParkMs,
   type SpinDrawRpcResult,
 } from './spinLaunchParking.js';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 
 /** The reason strings the live function body returns, read 2026-09-10. */
 const LIVE_REASONS = [

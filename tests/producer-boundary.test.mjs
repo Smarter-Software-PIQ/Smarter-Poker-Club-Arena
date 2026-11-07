@@ -4,6 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {deflateSync} from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 const script=new URL('../scripts/ci/produce-money-trigger-recovery.mjs',import.meta.url);
 const env={PATH:process.env.PATH,GITHUB_REPOSITORY:'Smarter-Poker/Smarter-Poker-Club-Arena',GITHUB_REPOSITORY_ID:'1132369872',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/main'};
 const run=(e)=>spawnSync(process.execPath,[script.pathname],{env:{...env,...e},encoding:'utf8'});
@@ -26,7 +27,7 @@ function pullRequest(kind) {
    const file='supabase/migrations/20260918122532_large_record.sql';
    const sql='-- '+ 'x'.repeat(kind==='blob'?1100000:1000950)+'\\nSELECT 1;';
    const bytes=Buffer.from(sql),sha=createHash('sha1').update('blob '+bytes.length+'\\0').update(bytes).digest('hex');
-   const policy=JSON.parse(fs.readFileSync(${JSON.stringify(new URL('../scripts/ci/money-trigger-recovery-policy.json',import.meta.url).pathname)},'utf8'));
+   const policy=JSON.parse(fs.readFileSync(${JSON.stringify(fileURLToPath(new URL('../scripts/ci/money-trigger-recovery-policy.json',import.meta.url)))},'utf8'));
    const declarationPaths=new Set(policy.map(p=>'supabase/migrations/'+p.declarationVersion+'_'+p.declarationName+'.sql'));
    let prReads=0,blobReads=0;
    globalThis.fetch=async(url,init={})=>{

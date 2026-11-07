@@ -25,7 +25,7 @@ import { TournamentHourVpip } from './TournamentHourVpip';
 import { readCommittedTournamentBlinds } from '../../utils/committedTournamentBlinds';
 import { parseJsonCached } from '../../utils/parseJsonCached';
 import { compactChips } from '../../utils/format';
-import { effectivePrizePool } from '../tournament/details/types';
+import { displayTotalPool } from '../../utils/tournamentPrizeFunding';
 import { titleCase } from '../../utils/titleCase';
 import {
   breakConsoleTitle,
@@ -390,7 +390,7 @@ export function TournamentBreakScreen({
           // late registration shows that collected figure, never the
           // guarantee as the pool; once finalized the stored pool already
           // holds any funded overlay.
-          prizePool: effectivePrizePool(
+          prizePool: displayTotalPool(
             Number(t.prize_pool) || 0,
             Number(t.guaranteed_prize) || 0,
             Number(t.bounty_pool) || 0,

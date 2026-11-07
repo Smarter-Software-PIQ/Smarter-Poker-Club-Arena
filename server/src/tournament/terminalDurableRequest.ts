@@ -15,6 +15,16 @@ export interface DurableTerminalRequest {
   readonly identity: TerminalRequestIdentity;
 }
 
+// Every attempted prepare rolled back on a held lock. No payment command was sent.
+// This says nothing about earlier operations; the next pass re-enters the
+// original durable authority, which adopts an existing request or receipt.
+export class SatelliteTerminalPrepareBusyError extends Error {
+  constructor() {
+    super('Satellite terminal preparation deferred by a held database lock (55P03)');
+    this.name = 'SatelliteTerminalPrepareBusyError';
+  }
+}
+
 export class TerminalIntentUnknownError extends Error {
   readonly originalRequest: TerminalRequestIdentity;
   constructor(message: string, identity: TerminalRequestIdentity) {
@@ -127,12 +137,14 @@ export async function prepareDurableTerminalRequest(
     p_request: identity,
     p_generation: authority.leaseGeneration,
   });
+  let busyResponses = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const { data, error } = await maintenanceSupabase.rpc(
         'fn_prepare_tournament_terminal_request',
         params
       );
+      if (object(error).code === '55P03') busyResponses++;
       const value = object(data);
       if (
         !error &&
@@ -157,6 +169,12 @@ export async function prepareDurableTerminalRequest(
     } catch {
       /* Remain unsent until the same identity is acknowledged. */
     }
+  }
+  if (
+    busyResponses === 2 &&
+    (identity.kind === 'satellite' || identity.kind === 'satellite_qualifiers')
+  ) {
+    throw new SatelliteTerminalPrepareBusyError();
   }
   throw new TerminalIntentUnknownError(
     'Original terminal intent acknowledgement is unknown',

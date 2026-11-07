@@ -34,6 +34,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(__dirname, '..');
+// Hang guards only (see the suites below); a healthy run is far below them.
+const SUITE_CHILD_GUARD_MS = 300_000; // each test's own budget is 330 s
 const SCRIPTS = join(ROOT, 'server', 'scripts');
 const read = (name: string): string => readFileSync(join(SCRIPTS, name), 'utf8');
 
@@ -188,6 +190,12 @@ describe('Lightning is held for the engine cutover', () => {
     expect(helper).not.toMatch(/print\([^)]*service_key/);
   });
 
+  // The two Python suites below drive the real shell functions against a fake
+  // helper, health and CLOCK, so nothing they assert depends on the host's
+  // speed. Their timeouts are hang guards only: the child's guard sits below
+  // the test's so a hang reports the child's diagnostics. (2026-11-07: the test
+  // budget was the 30 s default under a 120 s child guard, and a correct run at
+  // load 57 took 36 s.)
   it('walks every exit path with a fake helper, health and clock', () => {
     // The three shell functions, extracted verbatim: a non-qualifying break
     // places nothing; a qualifying one places once; a passed break releases;
@@ -200,12 +208,12 @@ describe('Lightning is held for the engine cutover', () => {
       {
         cwd: ROOT,
         encoding: 'utf8',
-        timeout: 120_000,
+        timeout: SUITE_CHILD_GUARD_MS,
       }
     );
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stderr).toMatch(/Ran 9 tests[\s\S]*\nOK\n?$/);
-  });
+  }, 330_000);
 
   it('passes its own unit tests', () => {
     const result = spawnSync(
@@ -214,10 +222,10 @@ describe('Lightning is held for the engine cutover', () => {
       {
         cwd: ROOT,
         encoding: 'utf8',
-        timeout: 60_000,
+        timeout: SUITE_CHILD_GUARD_MS,
       }
     );
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stderr).toMatch(/\nOK\n?$/);
-  });
+  }, 330_000);
 });

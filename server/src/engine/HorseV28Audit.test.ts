@@ -14,6 +14,7 @@ import { decidePreflopV7 } from './HorsePreflop.js';
 import { holdemPreflopScore } from './HorseEval.js';
 import { setGtoCharts, _clearGtoCharts } from './GtoCharts.js';
 import type { Card, SeatPlayer, ActionRecord } from '../types.js';
+import { fileURLToPath } from 'node:url';
 
 const c = (rank: string, suit: string): Card => ({ rank, suit }) as Card;
 const H = (r: string) => c(r, 'hearts');
@@ -202,7 +203,7 @@ describe('A4 - the hijack is middle position at 6-max', () => {
     // The helper may not be exported; assert through the source instead.
     if (!posOf || posOf(2) === undefined) {
       const { readFileSync } = require('node:fs') as typeof import('node:fs');
-      const src = readFileSync(new URL('./HorseLogic.ts', import.meta.url).pathname, 'utf8');
+      const src = readFileSync(fileURLToPath(new URL('./HorseLogic.ts', import.meta.url)), 'utf8');
       // The pin: the early bucket is half the pre-late seats, so a 6-max
       // table has exactly one early and one middle seat.
       expect(src).toContain('const earlyCount = Math.max(1, Math.ceil((nonBlind - 2) / 2));');
