@@ -542,11 +542,46 @@ jobs:
             payload.jobs.every(entry => entry.status === 'completed' &&
               ((preparationNames.has(entry.name) && (entry.conclusion === 'success' || inconclusive(entry))) ||
                (['production', 'client-publication / production'].includes(entry.name) && ['cancelled', 'skipped'].includes(entry.conclusion) && (entry.steps ?? []).length === 0)));
+          // NOTHING REACHED THE ORIGIN, SO THERE IS NOTHING TO CERTIFY (2026-11-06).
+          // Two more provider shapes threw "received 0" although no writer job
+          // ever existed, turning this certificate red for every such run:
+          //   A. The publisher decided no publish was needed: publish-needed
+          //      and the read-only admission succeeded, nothing was built and
+          //      both production callers were skipped (42334649794 on
+          //      publisher 42334130968).
+          //   B. The publisher failed in read-only preparation (a client test
+          //      or the build) before production started (42334920469,
+          //      42335361110, 42336262169). That publisher run is already red
+          //      and names the real fault; certifying "no publish reached
+          //      production" again only duplicated the alarm.
+          // Both are non-verdicts exactly like a cancelled publisher. A built
+          // bundle with a skipped production on a successful run, any unknown
+          // job, a production caller that executed a step, or any failure that
+          // is not a known preparation job still throws below.
+          const uniqueNames = new Set(payload.jobs.map(entry => entry.name)).size === payload.jobs.length;
+          const productionNeverStarted = (entry) =>
+            ['production', 'client-publication / production'].includes(entry.name) &&
+            ['cancelled', 'skipped'].includes(entry.conclusion) && (entry.steps ?? []).length === 0;
+          const noPublishNeeded = process.env.SOURCE_CONCLUSION === 'success' &&
+            jobs.length === 0 && retained.length === 0 && payload.jobs.length > 0 && uniqueNames &&
+            payload.jobs.some(entry => entry.name === 'publish-needed' && entry.conclusion === 'success') &&
+            payload.jobs.some(entry => entry.name === 'client-publication / build-and-store' && entry.conclusion === 'skipped') &&
+            payload.jobs.every(entry => entry.status === 'completed' && (
+              (['publish-needed', 'client-publication / admit', 'client-publication / Validate The Selected Client Publication Source'].includes(entry.name) && entry.conclusion === 'success') ||
+              (['build-record-gateway', 'client-publication / build-and-store'].includes(entry.name) && entry.conclusion === 'skipped') ||
+              productionNeverStarted(entry)));
+          const failedBeforeTransaction = process.env.SOURCE_CONCLUSION === 'failure' &&
+            jobs.length === 0 && retained.length === 0 && payload.jobs.length > 0 && uniqueNames &&
+            payload.jobs.some(entry => preparationNames.has(entry.name) && entry.conclusion === 'failure') &&
+            payload.jobs.every(entry => entry.status === 'completed' && (
+              (preparationNames.has(entry.name) && ['success', 'failure', 'cancelled', 'skipped'].includes(entry.conclusion)) ||
+              productionNeverStarted(entry)));
           const superseded =
-            (jobs.length === 0 && payload.jobs.every(inconclusive)) || cancelledBeforeOrigin || cancelledBeforeTransaction;
+            (jobs.length === 0 && payload.jobs.every(inconclusive)) || cancelledBeforeOrigin || cancelledBeforeTransaction ||
+            noPublishNeeded || failedBeforeTransaction;
           if (superseded) {
             console.log(
-              'The source publisher was superseded before it reached the origin; ' +
+              'Nothing reached the origin (the publisher was superseded, had nothing to publish, or failed before production); ' +
                 'nothing was published, so this run has nothing to certify.'
             );
           } else {
