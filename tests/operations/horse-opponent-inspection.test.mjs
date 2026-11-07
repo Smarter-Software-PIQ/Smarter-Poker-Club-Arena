@@ -52,6 +52,7 @@ test('emits only selected public counters and scalar execution receipts, never p
     },
     decision: { action: 'raise', cards: [secret] },
     observerReads: {
+      disposition: 'unknown_context',
       history: 'own_public_window',
       historyHands: 12,
       learnedThroughMs: 9,
@@ -59,6 +60,7 @@ test('emits only selected public counters and scalar execution receipts, never p
     },
     readFrame: { json: secret },
   };
+  capture.snapshot.gameState.tournament = { contextStatus: 'incomplete', details: secret };
   const view = {
     stats: new Map([[id, { hands: 12, vpip: 10, pfr: 8, threeBet: 3, private: secret }]]),
   };
@@ -84,6 +86,21 @@ test('emits only selected public counters and scalar execution receipts, never p
   assert.equal(result.opponent.hands, 12);
   assert.equal(result.execution.phase11.mode, 'candidate');
   assert.equal(result.independent, true);
+  assert.equal(result.observerDisposition, 'unknown_context');
+  assert.equal(result.tournamentContextStatus, 'incomplete');
+  for (const invalid of [undefined, 'private_but_word_shaped', { private: secret }]) {
+    const other = {
+      ...capture,
+      observerReads: { ...capture.observerReads, disposition: invalid },
+      snapshot: {
+        ...capture.snapshot,
+        gameState: { ...capture.snapshot.gameState, tournament: { contextStatus: invalid } },
+      },
+    };
+    const row = summarizeDecision({}, other, view, id, false);
+    assert.equal(row.observerDisposition, null);
+    assert.equal(row.tournamentContextStatus, null);
+  }
   assert.ok(!JSON.stringify(result).includes(secret));
   assert.equal(
     summarizeDecision({}, capture, view, '22222222-2222-4222-8222-222222222222', true),
