@@ -298,16 +298,18 @@ try:
         return json.loads(q("live", sql).splitlines()[-1])
 
     require(ranked(kings, "fee")["filtered_count"] == 4, "baseline reproduces the extra Horse-only game")
-    previous_recent = ranked(kings, "recent")
+    baseline_recent = ranked(kings, "recent")
+    require(baseline_recent["filtered_count"] == 4 and any(r["id"].endswith("e2") for r in baseline_recent["rows"]),
+            "Recent core and snapshot fallback admit the Horse-only table before installation")
     # The union fixture's owner can view this ordinary club.
     q("live", f"INSERT INTO club_members(club_id,user_id,role,status) VALUES ('{ordinary}','{owner}','owner','active') ON CONFLICT DO NOTHING")
-    ordinary_fee = ranked(ordinary, "fee")
+    ordinary_pages = {sort: ranked(ordinary, sort) for sort in ("fee", "recent")}
     metric_fix = (M / "20261107031542_club_metric_page_uses_report_attribution.sql").read_text()
     run(psql("live"), metric_fix)
-    require(ranked(kings, "recent") == previous_recent and ranked(ordinary, "fee") == ordinary_fee,
-            "Recent and ordinary club ranked responses stay unchanged")
+    require(all(ranked(ordinary, sort) == page for sort, page in ordinary_pages.items()),
+            "ordinary club metric and Recent responses stay unchanged")
     expected = {"e1": (-4, -10), "e3": (6, 22), "e4": (0, 12)}
-    for sort in ("fee", "hands", "winnings"):
+    for sort in ("fee", "hands", "winnings", "recent"):
         page = ranked(kings, sort)
         rows = {r["id"][-2:]: (r["fee_exact"], r["winnings"]) for r in page["rows"]}
         require(page["filtered_count"] == len(expected) and rows == expected,

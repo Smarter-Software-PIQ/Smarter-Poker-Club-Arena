@@ -2,9 +2,10 @@
 -- page counted 52,413. The latter ranked raw club rollups, including games played
 -- solely by Horses whose results belong to other clubs. The client rejected the mismatch.
 -- For attributed clubs, rank the report's per-player facts and eligible felt-only tables.
--- Preserve the ordinary-club and Recent query plans and the shared filters and cursor.
+-- Recent prefetch, Load More and snapshot fallback also call this core. Preserve the
+-- ordinary-club query plan and all shared filters and cursor logic.
 -- PostgreSQL qualification covers mixed entrants, assigned Horses, signed tournament
--- fees, felt-only seats, continuation and unchanged ordinary-club and Recent responses.
+-- fees, felt-only seats, continuation across all four sorts and unchanged ordinary-club responses.
 -- @live-proof: position('scoped_games AS MATERIALIZED' IN pg_get_functiondef('public.ca_club_game_page_core_20261006(uuid,date,date,text,text,text,text,jsonb,integer)'::regprocedure)) > 0
 BEGIN;
 SET LOCAL lock_timeout = '1s';
@@ -20,7 +21,7 @@ BEGIN
   FOREACH edit SLICE 1 IN ARRAY ARRAY[
     ARRAY[$before$  v_out jsonb;$before$,$after$  v_out jsonb;
   v_attributed boolean;$after$],
-    ARRAY[$before$  EXECUTE $query$$before$,$after$  v_attributed := v_sort <> 'recent' AND (
+    ARRAY[$before$  EXECUTE $query$$before$,$after$  v_attributed := (
     p_club_id='a41434bb-8d0c-400a-8f0d-e8b3d65afed4'::uuid OR EXISTS (
       SELECT 1 FROM public.ca_horse_club_assignments a
        WHERE a.club_id = ANY(public.fn_ca_club_data_clubs(p_club_id))
