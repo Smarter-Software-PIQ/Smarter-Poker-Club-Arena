@@ -11,3 +11,5 @@ The native regression reproduces the legacy drift, then exercises all 143 canoni
 Source: https://docs.google.com/spreadsheets/d/1L27Z3Wq9FSxyqGMJvAJZtgMXtYKCK4j8F_PUx0RNEJg/edit
 
 The initial installation rolled back at the existing eight-second statement limit: the unchanged exact time-zone validator cost about 56 ms per schedule row, making the 143-row upsert exceed its budget. The uninstalled migration now uses six deterministic upserts of at most 25 rows within the same transaction. The one-second lock limit, eight-second statement limit, validator and schedule guards remain enforced. The native fixture includes the production validator and CHECK.
+
+The transition installer also verifies that a matching satellite still points to an unstarted, announced or registering parent that begins after its feeder. A cancelled or missing parent uses the existing exact cancellation and refund authority. The converted Thursday/Saturday Last Chance Six Card PLO uses seven seats, consistent with the six-card deck capacity.
