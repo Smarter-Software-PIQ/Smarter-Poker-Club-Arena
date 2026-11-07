@@ -318,8 +318,8 @@
       "sha256": "3f5650d78cbb5e171283ce9ddff00afd1f5a697c39be251d6557e93bdda94c91"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 146139,
-      "sha256": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8"
+      "bytes": 146073,
+      "sha256": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -736,7 +736,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -2812,5 +2812,15 @@
     ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
+  },
+  "postgresSigningKeyFromCheckout20261107": {
+    "paths": {
+      "scripts/qualification/ci-accounting-inputs.json": {
+        "before": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8",
+        "after": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402"
+      }
+    },
+    "review": "The only change in this pinned file is the PostgreSQL apt signing-key download (a sudo curl of ACCC4CF8.asc) replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8, sha256 0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76); for scripts/qualification/ci-accounting-inputs.json that is the same three lines inside its projection of ci.yml's accounting_postgres job, regenerated with qualification-input-projections.py --write. Nothing else differs. No financial, native or production qualification is restamped or claimed.",
+    "reason": "2026-11-07: the key download failed with curl (55) SSL EOF in at least 11 jobs before any test ran, including a backup-engine certification run."
   }
 }
