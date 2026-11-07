@@ -1,3 +1,9 @@
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import sqlite3
 import unittest
 from horse_study_store import initialize,put_hand,put_decision,hand_review,candidates
@@ -37,6 +43,60 @@ class StudyStoreTests(unittest.TestCase):
         found=candidates(self.db,'strong_hand_checkback',domain='cash/plo5/table')
         self.assertEqual([d['decisionId'] for d in found],['h:2'])
         self.assertEqual(candidates(self.db,'strong_hand_checkback',domain='cash/plo6/table'),[])
+
+
+class MultiVolumeQueryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+
+    def volume(self, label, hand, decision):
+        folder = self.root / label
+        folder.mkdir()
+        path = folder / "study.sqlite"
+        db = sqlite3.connect(path)
+        try:
+            initialize(db)
+            put_hand(db, {"handId": hand, "status": "included"}, "cash/plo5/table")
+            put_decision(db, {"decisionId": decision, "handId": hand, "domain": "cash/plo5/table",
+                              "street": "river", "action": "check", "review": {"candidates": ["checkback"]}})
+            db.commit()
+        finally:
+            db.close()
+        path.chmod(0o600)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        (folder / "summary.json").write_text(json.dumps({path.name: {"sha256": digest}}))
+        return path
+
+    def query(self, paths, *options):
+        cli = Path(__file__).with_name("horse-study-query.py")
+        args = [part for path in paths for part in ("--database", str(path))]
+        return subprocess.run([sys.executable, "-B", str(cli), *args, *options],
+                              capture_output=True, text=True)
+
+    def test_reads_each_volume_and_applies_limit_globally(self):
+        paths = [self.volume("first", "z", "z:2"), self.volume("second", "a", "a:3")]
+        result = self.query(paths, "--candidate", "checkback", "--limit", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r["decisionId"] for r in json.loads(result.stdout)], ["a:3"])
+        self.assertEqual(self.query(paths, "--hand", "a").stdout, self.query(paths[1:], "--hand", "a").stdout)
+        rows = self.query(paths, "--sql", "SELECT source,hand_id FROM included_hands ORDER BY source")
+        self.assertEqual(rows.stdout.splitlines(), ["source\thand_id", "1\tz", "2\ta"])
+
+    def test_refuses_overlap_mutations_and_unverified_secondary_volume(self):
+        first = self.volume("first", "z", "z:2")
+        for other, refusal in ((self.volume("samehand", "z", "z:3"), "duplicate_hand_id"),
+                               (self.volume("samedecision", "a", "z:2"), "duplicate_decision_id")):
+            self.assertIn(refusal, self.query([first, other], "--sql", "SELECT 1").stderr)
+        target = self.root / "unwanted"
+        for sql in ("DELETE FROM volume0.hands", f"ATTACH DATABASE '{target}' AS unwanted",
+                    "PRAGMA query_only=OFF"):
+            self.assertNotEqual(self.query([first], "--sql", sql).returncode, 0)
+        self.assertFalse(target.exists())
+        fresh = self.volume("corrupt", "b", "b:1")
+        fresh.with_name("summary.json").write_text("{}")
+        self.assertIn("database_digest_mismatch", self.query([first, fresh], "--hand", "z").stderr)
 
 
 if __name__=='__main__':unittest.main()

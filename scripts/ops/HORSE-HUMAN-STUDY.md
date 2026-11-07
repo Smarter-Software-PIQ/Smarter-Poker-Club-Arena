@@ -32,6 +32,17 @@ python3 -B scripts/ops/horse-study-query.py --database PRIVATE_REPORT_DIRECTORY/
 Paths must be absolute. The builder requires the authorized mounted external
 volume and private directory ownership. The query requires an owner-private
 database and its matching completed summary digest. It opens SQLite read-only.
+
+Repeat `--database` to search disjoint volumes together. The existing hand and
+candidate commands return JSON with a single global ordering and limit. Use
+`--sql` for read-only TSV over `hands`, `included_hands`, `decisions` and
+`candidates`. The `source` column is the one-based input position. The query
+refuses overlapping hand or decision IDs before emitting rows.
+
+```sh
+python3 -B scripts/ops/horse-study-query.py --database "$BASE/study.sqlite" --database "$DELTA/study.sqlite" --sql "SELECT source, domain, count(*) FROM included_hands GROUP BY source, domain"
+```
+
 The report contains hand and decision JSONL, an indexed SQLite artifact, and a compressed Markdown review of every included hand and every recorded Horse street. The Markdown labels uncomputed alternatives and unresolved strategy explicitly.
 Source receipt hashes are checked before consuming each acquisition file;
 duplicate history and decision identities refuse instead of inflating counts.
