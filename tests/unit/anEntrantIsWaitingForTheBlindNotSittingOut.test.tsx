@@ -68,6 +68,29 @@ describe('what a sat-out seat says', () => {
   });
 });
 
+describe('the avatar on an occupied chair', () => {
+  const player = entrant({ avatar: '/avatar.png' });
+  const props = { seatNumber: 4, player, position: null, isActive: false, lastAction: null };
+
+  it('requests an unfocused opponent on a painted table without waiting for a resize', () => {
+    const view = render(<SeatSlot {...props} entryWait="waiting_for_bb" />);
+    const image = view.container.querySelector('.seat__avatar-img');
+    expect(image?.getAttribute('loading')).toBe('eager');
+    expect(image?.getAttribute('fetchpriority')).toBe('auto');
+    expect(view.getByTestId('seat-waiting-bb-badge')).toBeVisible();
+  });
+
+  it('promotes the same image when its hidden table becomes visible', () => {
+    const view = render(<SeatSlot {...props} tableVisible={false} />);
+    const image = view.container.querySelector('.seat__avatar-img');
+    expect(image?.getAttribute('loading')).toBe('lazy');
+    view.rerender(<SeatSlot {...props} tableVisible={true} />);
+    expect(view.container.querySelector('.seat__avatar-img')).toBe(image);
+    expect(image?.getAttribute('loading')).toBe('eager');
+    expect(view.getByTestId('seat-sitout-badge')).toBeVisible();
+  });
+});
+
 describe('the parent decides from the engine lists', () => {
   it('TablePage reads post_bb_deferred_user_ids before waiting_for_bb_user_ids', () => {
     const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');

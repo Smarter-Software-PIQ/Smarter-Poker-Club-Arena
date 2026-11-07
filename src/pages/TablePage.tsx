@@ -29405,6 +29405,7 @@ function LiveTablePage({
                 }
               >
                 <SeatSlot
+                  tableVisible={isVisible}
                   seatNumber={seatNumber}
                   player={displayPlayer}
                   hasNote={

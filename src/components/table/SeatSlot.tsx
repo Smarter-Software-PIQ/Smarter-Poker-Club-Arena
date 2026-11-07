@@ -249,6 +249,8 @@ export interface SeatPlayer {
 }
 
 export interface SeatSlotProps {
+  /** The table is painted, including an unfocused multi-table tile. */
+  tableVisible?: boolean;
   arrival?: SeatArrival;
   /**
    * `table_seats.sit_out_at` in epoch ms, and ONLY when a deadline applies.
@@ -909,6 +911,7 @@ export const SeatSlot = memo(
   function SeatSlot(props: SeatSlotProps) {
     const {
       seatNumber,
+      tableVisible = true,
       player,
       foldCommitted = false,
       position,
@@ -3378,17 +3381,9 @@ export const SeatSlot = memo(
                 /* Per-avatar size correction (--sp-bust-gain) is NOT set here.
                    It is declared on `.seat__avatar` above so the Rive rig and
                    the holo mask inherit the same value; see the note there. */
-                /* Hero eager + high priority: it is the largest avatar on the
-                   table (1.33x), always in view, and the one the player looks
-                   at first — `lazy` bought nothing there but a deferred request
-                   and a pop-in. Villains stay lazy ON PURPOSE: MultiTablePage
-                   keeps up to four tables mounted with the inactive ones
-                   display:none, and lazy is what stops 27 off-screen avatars
-                   from being fetched before the player has opened those tabs. */
-                /* An arriving Lightning opponent (`arrival`) is on the felt
-                   in front of the player right now, so it loads at once: its
-                   fade waits for this image (the arrival effect above). */
-                loading={player.isHero || props.arrival ? 'eager' : 'lazy'}
+                /* Request visible seat art on mount. Mobile WebKit can leave
+                   a visible lazy opponent unloaded until the viewport changes. */
+                loading={tableVisible || player.isHero || props.arrival ? 'eager' : 'lazy'}
                 decoding="async"
                 fetchPriority={player.isHero ? 'high' : 'auto'}
                 onError={() => setFailedAvatarUrl(avatarUrl)}
@@ -3999,6 +3994,7 @@ export const SeatSlot = memo(
   (prev, next) => {
     // Return true if props are equal (skip re-render)
     if (prev.seatNumber !== next.seatNumber) return false;
+    if (prev.tableVisible !== next.tableVisible) return false;
     if (prev.timerProgress !== next.timerProgress) return false;
     /* PERF 2026-08-25: the store instance is stable for the life of a table, so
        in practice this never differs — but a table SWITCH inside MultiTablePage
