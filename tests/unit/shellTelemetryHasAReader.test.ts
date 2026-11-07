@@ -1,40 +1,36 @@
-/**
- * ═══ THE FIX THAT IS INVISIBLE WHEN IT WORKS NEEDS A READER ════════════════
- *
- * `useShellUpdateGate` has emitted SHELL_STALENESS_CHECKED and SHELL_RELOADED
- * since 2026-08-29 and NOTHING SUBSCRIBED — the same shape as SHELL_UPDATED
- * itself, which the service worker posted for months to a client with no
- * handler. The open-from-Hub glitch fix produces no visible signal when it is
- * working (the point is that no reload happens), so with no sink there is no
- * way to tell "holding" from "quietly broken".
- *
- * These pin the reader: it is subscribed at the app root, it is throttled, it
- * refuses to write when signed out (RLS would refuse it anyway), and above
- * all it can never throw into the app.
- */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+const mocks = vi.hoisted(() => ({
+  subscribe: vi.fn(),
+  session: vi.fn(),
+  insert: vi.fn(),
+}));
+vi.mock('../../src/core/MasterBus', () => ({ masterBus: { subscribe: mocks.subscribe } }));
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: { auth: { getSession: mocks.session }, from: () => ({ insert: mocks.insert }) },
+}));
 import {
   mayWrite,
   MIN_WRITE_INTERVAL_MS,
-  writeReloadBeacon,
+  startShellTelemetry,
   __resetShellTelemetryForTests,
 } from '../../src/services/ShellTelemetryService';
 
 beforeEach(() => {
+  vi.clearAllMocks();
   __resetShellTelemetryForTests();
 });
 
 describe('the writer is throttled', () => {
   it('allows the first write of a kind', () => {
-    expect(mayWrite('reloaded', 1_000_000, undefined)).toBe(true);
+    expect(mayWrite('staleness_checked', 1_000_000, undefined)).toBe(true);
   });
 
   it('refuses a second write inside the interval, allows one after', () => {
     const now = 1_000_000;
-    expect(mayWrite('reloaded', now, now - MIN_WRITE_INTERVAL_MS + 1)).toBe(false);
-    expect(mayWrite('reloaded', now, now - MIN_WRITE_INTERVAL_MS - 1)).toBe(true);
+    expect(mayWrite('staleness_checked', now, now - MIN_WRITE_INTERVAL_MS + 1)).toBe(false);
+    expect(mayWrite('staleness_checked', now, now - MIN_WRITE_INTERVAL_MS - 1)).toBe(true);
   });
 
   it('the interval is load-bearing — a KPI must not become a write storm', () => {
@@ -43,14 +39,31 @@ describe('the writer is throttled', () => {
 });
 
 describe('telemetry can never break the app', () => {
-  it('the reload beacon swallows a hostile environment instead of throwing', async () => {
-    // No session, no fetch, nothing: it must still resolve quietly.
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
-    try {
-      await expect(writeReloadBeacon(1234)).resolves.toBeUndefined();
-    } finally {
-      fetchSpy.mockRestore();
-    }
+  it('drops unreadable sessions and failed writes without interrupting the page', async () => {
+    mocks.session.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({
+      data: { session: { user: { id: 'viewer' } } },
+      error: null,
+    });
+    mocks.insert.mockRejectedValue(new Error('telemetry unavailable'));
+    startShellTelemetry();
+    const [event, callback] = mocks.subscribe.mock.calls[0];
+    expect(event).toBe('SHELL_STALENESS_CHECKED');
+    const payload = { stale: true, source: 'resume-probe', running: 'old', deployed: 'new' };
+    expect(() => callback({ payload })).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.insert).not.toHaveBeenCalled();
+    __resetShellTelemetryForTests();
+    startShellTelemetry();
+    expect(() => mocks.subscribe.mock.calls[1][1]({ payload })).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.insert).toHaveBeenCalledWith({
+      user_id: 'viewer',
+      event: 'staleness_checked',
+      stale: true,
+      source: 'resume-probe',
+      running_entry: 'old',
+      deployed_entry: 'new',
+    });
   });
 });
 
@@ -69,16 +82,9 @@ describe('the wiring', () => {
     ).toBeLessThan(app.indexOf('startShellTelemetry()'));
   });
 
-  it('subscribes to BOTH events the gate emits', () => {
+  it('subscribes only to active freshness observations', () => {
     expect(svc.includes("subscribe('SHELL_STALENESS_CHECKED'")).toBe(true);
-    expect(svc.includes("subscribe('SHELL_RELOADED'")).toBe(true);
-  });
-
-  it('the reload write uses keepalive — the page is about to be replaced', () => {
-    expect(
-      /keepalive: true/.test(svc),
-      'a plain insert is cancelled by the reload it is recording'
-    ).toBe(true);
+    expect(svc.includes("subscribe('SHELL_RELOADED'")).toBe(false);
   });
 
   it('never writes without a signed-in user (RLS requires user_id = auth.uid())', () => {
@@ -86,9 +92,9 @@ describe('the wiring', () => {
   });
 
   it('every write path is wrapped so telemetry cannot surface to the player', () => {
-    // Both write functions must contain a catch that does nothing loud.
+    // Session reads and the remaining write catch transport failures.
     const catches = svc.match(/\} catch \{/g) ?? [];
-    expect(catches.length).toBeGreaterThanOrEqual(3);
+    expect(catches.length).toBeGreaterThanOrEqual(2);
     expect(
       svc.includes('reportError'),
       'telemetry must not report its own failures as errors'

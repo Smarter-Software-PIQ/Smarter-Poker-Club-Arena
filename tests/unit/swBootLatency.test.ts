@@ -81,49 +81,19 @@ describe('service worker scope covers the URL the World Hub links to', () => {
   });
 });
 
-describe('the app shell is served from cache with a bounded freshness race', () => {
-  /* Updated 2026-08-29, same commit as the change it pins, per rule 8 in
-     CLAUDE.md §5. Pure cache-first meant every post-deploy entry booted the
-     one-deploy-old shell and was then visibly hard-reloaded seconds after
-     paint by useShellUpdateGate — Dan: "it like glitches and reloads... it
-     looks like broken code. THATS GOT TO STOP HAPPENING." The revalidation
-     fetch (already on the wire every navigation) now gets a short fixed
-     budget to answer BEFORE the cached shell is returned; if it lands, the
-     session boots current and there is nothing to reload. On expiry the
-     cached shell is served instantly, exactly as before. */
-  it('navigations still resolve from cache when the network is slow — no long deadline', () => {
-    expect(sw.includes('shellFromCache'), 'the cache-first shell handler is gone').toBe(true);
-    expect(
-      sw.includes('networkFirstShell'),
-      'the shell is network-first again; every entry pays a full HTML round trip'
-    ).toBe(false);
-    expect(
-      /setTimeout\(\(\) => controller\.abort\(\), 3500\)/.test(sw),
-      'the 3.5s navigation deadline is back'
-    ).toBe(false);
+describe('entry selects current HTML before the page appears', () => {
+  it('uses a bounded network read and keeps an offline cache fallback', () => {
+    expect(sw).toContain('const SHELL_NETWORK_TIMEOUT_MS = 8000');
+    expect(sw).toContain("fetch(event.request, { cache: 'no-cache' })");
+    expect(sw).toContain('if (fresh?.ok) return fresh;');
+    expect(sw).toContain('if (cached) return cached;');
+    expect(sw.indexOf('if (fresh?.ok)')).toBeLessThan(sw.indexOf('if (cached) return cached;'));
+    expect(sw).toContain("lookupCachedResponse(CACHE_NAME, '/hub/club-arena/offline.html')");
   });
 
-  it('gives the in-flight revalidation a short budget so a post-deploy entry boots CURRENT', () => {
-    const budget = Number(sw.match(/const SHELL_FRESH_RACE_MS = (\d+)/)?.[1]);
-    expect(
-      budget,
-      'the freshness race is gone — the post-deploy boot-then-reload glitch is back'
-    ).toBeGreaterThan(0);
-    // The budget must stay a blink, not a deadline. 500ms is where "part of
-    // loading" starts turning back into "300-800ms of nothing" (2026-08-24).
-    expect(budget).toBeLessThanOrEqual(500);
-    expect(sw.includes('Promise.race'), 'the race itself is gone').toBe(true);
-  });
-
-  it('still revalidates in the background, so a deploy is never more than one navigation away', () => {
-    expect(sw.includes('event.waitUntil(revalidate)')).toBe(true);
-    expect(sw.includes('SHELL_UPDATED')).toBe(true);
-  });
-
-  it('keeps the offline fallback for a device that has never been here', () => {
-    expect(sw.includes("lookupCachedResponse(CACHE_NAME, '/hub/club-arena/offline.html')")).toBe(
-      true
-    );
+  it('does not boot stale HTML speculatively or broadcast an automatic restart', () => {
+    expect(sw).not.toContain('SHELL_FRESH_RACE_MS');
+    expect(sw).not.toMatch(/postMessage\(\{ type: 'SHELL_UPDATED'/);
   });
 });
 
