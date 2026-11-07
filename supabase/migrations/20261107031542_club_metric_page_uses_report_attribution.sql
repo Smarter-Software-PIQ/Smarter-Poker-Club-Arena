@@ -1,12 +1,10 @@
--- 20261107031542_club_metric_page_uses_report_attribution
---
--- Reserved by scripts/reserve-migration-version.sh on 2026-11-07 03:15:42 UTC.
---
--- CLAUDE.md 10.9: the reasoning goes in this header, not just the SQL.
--- Say what was wrong, what this changes, and what you measured. A
--- migration whose header is its own filename is the next agent's mystery.
--- Ranked games must use the same attributed game identities and signed amounts as the report.
--- Keep the original plan for ordinary clubs and Recent. Share all filter and cursor logic.
+-- In one read-only Kings Club snapshot, the report counted 341 games while the ranked
+-- page counted 52,413. The latter ranked raw club rollups, including games played
+-- solely by Horses whose results belong to other clubs. The client rejected the mismatch.
+-- For attributed clubs, rank the report's per-player facts and eligible felt-only tables.
+-- Preserve the ordinary-club and Recent query plans and the shared filters and cursor.
+-- PostgreSQL qualification covers mixed entrants, assigned Horses, signed tournament
+-- fees, felt-only seats, continuation and unchanged ordinary-club and Recent responses.
 -- @live-proof: position('scoped_games AS MATERIALIZED' IN pg_get_functiondef('public.ca_club_game_page_core_20261006(uuid,date,date,text,text,text,text,jsonb,integer)'::regprocedure)) > 0
 BEGIN;
 SET LOCAL lock_timeout = '1s';
