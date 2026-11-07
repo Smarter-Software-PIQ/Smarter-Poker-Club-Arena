@@ -188,11 +188,16 @@ describe("READY means pg_proc and PostgREST's schema cache", () => {
 describe('the parameter names come from the exact target tree', () => {
   function repo(files: Record<string, string>) {
     const dir = temp('window-door-signatures-');
+    // A git hook exports GIT_DIR and friends; inheriting them would point these
+    // commands at the repository being pushed instead of the scratch target.
+    const clean = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
+    );
     const git = (...args: string[]) =>
       execFileSync('git', ['-C', dir, ...args], {
         encoding: 'utf8',
         env: {
-          ...process.env,
+          ...clean,
           GIT_AUTHOR_NAME: 'fixture',
           GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
           GIT_COMMITTER_NAME: 'fixture',
