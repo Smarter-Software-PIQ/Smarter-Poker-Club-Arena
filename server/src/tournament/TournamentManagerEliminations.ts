@@ -6098,15 +6098,23 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     try {
       let state = await readState();
       const cleanCommitted = async (): Promise<boolean> => {
-        if (state.state === 'completed') {
-          await this.cleanupCommittedSatelliteQualifiers(state.receipt);
-          return true;
+        const outcome = state.state;
+        switch (outcome) {
+          case 'completed':
+            await this.cleanupCommittedSatelliteQualifiers(state.receipt);
+            return true;
+          case 'completed_single_winner':
+            await this.cleanupCommittedSatellite(state.receipt);
+            return true;
+          case 'entry_open':
+          case 'continuing':
+          case 'qualifying':
+          case 'unresolved':
+            return false;
+          default:
+            outcome satisfies never;
+            throw new Error('Unknown satellite qualifier outcome');
         }
-        if (state.state === 'completed_single_winner') {
-          await this.cleanupCommittedSatellite(state.receipt);
-          return true;
-        }
-        return false;
       };
       if (await cleanCommitted()) return 'complete';
       if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
@@ -6146,7 +6154,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           tableId: table.id,
           engine: this.tableEngines.get(table.id),
         }));
-        const heldPreparedOriginals = new Set<string>();
+        const heldPreparedOriginals = new Map<
+          ServerTableEngine,
+          { permit_id: string; hand_number: string }
+        >();
         for (const { tableId, engine } of owned) {
           if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
             return 'pending';
@@ -6197,7 +6208,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
           // to empty was a circular wait (2026-11-05, Satellite 25 fbb86b2a).
           if (!(await engine.parkForTerminalCloseout(0))) {
             if (!engine.isPreparedOriginalHeldAtTerminalCloseout()) return 'pending';
-            heldPreparedOriginals.add(tableId);
+            const original = engine.getF06RetainedPermit()?.binding;
+            if (!original?.permit_id || !original.hand_number) return 'pending';
+            heldPreparedOriginals.set(engine, original);
           }
         }
         // All accepted writers and in-flight hands are drained now. The
@@ -6251,18 +6264,15 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
          * second read; one that changed (it started, or lost its gate) keeps
          * the boundary for every field, exactly as before.
          */
-        if (
-          heldPreparedOriginals.size > 0 &&
-          ((state.state !== 'entry_open' &&
-            state.state !== 'continuing' &&
-            state.state !== 'qualifying') ||
-            owned.some(
-              ({ tableId, engine }) =>
-                heldPreparedOriginals.has(tableId) &&
-                engine?.isPreparedOriginalHeldAtTerminalCloseout() !== true
-            ))
-        )
-          return 'pending';
+        for (const [engine, original] of heldPreparedOriginals) {
+          const current = engine.getF06RetainedPermit()?.binding;
+          if (
+            !engine.isPreparedOriginalHeldAtTerminalCloseout() ||
+            current?.permit_id !== original.permit_id ||
+            current.hand_number !== original.hand_number
+          )
+            return 'pending';
+        }
         if (state.state === 'qualifying') {
           this.tournamentFinished = true;
           try {

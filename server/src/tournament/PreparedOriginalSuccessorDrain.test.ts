@@ -1,4 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { TournamentManager } from './TournamentManager.js';
+import * as qualifiers from './satelliteQualifierRpc.js';
+import { supabase } from '../services/supabase.js';
 import { TournamentManagerBase } from './TournamentManagerBase.js';
 import { ServerTableEngine } from '../engine/ServerTableEngine.js';
 import { HandController } from '../engine/HandController.js';
@@ -55,7 +58,7 @@ function fixture() {
   );
   engine.handController = controller;
   engine.handCount = 1;
-  const original = { hand_number: '1' };
+  const original = { hand_number: '1', permit_id: 'aaaaaaaa-0000-4000-8000-000000000003' };
   engine.f06CurrentPermit = { binding: original, recoveryState: () => 'attempted' };
   // The production marker accepts only exact positively retained sequence-zero bytes.
   engine.markRetainedPreparedOriginal(controller, original, {
@@ -230,3 +233,58 @@ it.each([
   engine.resumeDealing();
   await parked;
 });
+
+it.each(['same', 'different permit', 'started', 'uncertain', 'replaced dealer'] as const)(
+  'the entry-open qualifier rechecks the physical prepared original (%s)',
+  async (scenario) => {
+    const { engine, controller } = fixture();
+    const event = 'aaaaaaaa-0000-4000-8000-000000000002';
+    const manager: any = new TournamentManager(event, {} as GameServer);
+    manager.running = true;
+    manager.isCohortSatellite = () => true;
+    manager.eliminationMutationAllowed = () => true;
+    manager.tableEngines.set(engine.tableId, engine);
+    manager.gameServer.getTableEngine = () => manager.tableEngines.get(engine.tableId);
+    manager.advanceHandForHandBarrier = vi.fn();
+    manager.declareConsolidationOutstanding = vi.fn();
+    const settle = vi.spyOn(qualifiers, 'requestSatelliteQualifierReceipt');
+    const query: any = {
+      select: () => query,
+      eq: () => query,
+      in: () => query,
+      order: () => query,
+      limit: () => Promise.resolve({ data: [{ id: engine.tableId }], error: null }),
+    };
+    vi.spyOn(supabase, 'from').mockReturnValue(query);
+    vi.spyOn(qualifiers, 'readSatelliteQualifierState')
+      .mockResolvedValueOnce({ state: 'entry_open' })
+      .mockImplementationOnce(async () => {
+        if (scenario === 'different permit') {
+          engine.f06CurrentPermit = {
+            ...engine.f06CurrentPermit,
+            binding: {
+              ...engine.f06CurrentPermit.binding,
+              permit_id: 'aaaaaaaa-0000-4000-8000-000000000004',
+            },
+          };
+        } else if (scenario === 'started') controller.start();
+        else if (scenario === 'uncertain') engine.preparedOriginalRetentionUnconfirmed = true;
+        else if (scenario === 'replaced dealer') manager.tableEngines.delete(engine.tableId);
+        return { state: 'entry_open' };
+      });
+    manager.holdSatelliteQualifierBoundary();
+    const parked = engine.awaitPauseGate();
+    try {
+      expect(await manager.checkSatelliteQualifierCompletion()).toBe(
+        scenario === 'same' ? 'continue' : 'pending'
+      );
+      expect(engine.terminalCloseoutPaused).toBe(scenario !== 'same');
+      expect(settle).not.toHaveBeenCalled();
+    } finally {
+      engine.running = false;
+      engine.releaseTerminalCloseoutPause();
+      engine.resumeDealing();
+      await parked;
+    }
+  }
+);
