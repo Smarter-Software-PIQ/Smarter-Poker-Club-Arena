@@ -2,7 +2,19 @@ import { createRequire } from 'node:module';
 import { isMainThread } from 'node:worker_threads';
 import { boardRelativeFeaturesV2 } from './GtoBoardRelativeFeaturesV2.js';
 import descriptor from './GtoPublicHist215FeatureDescriptor.json' with { type: 'json' };
-import { PUBLIC_HIST215_PRIOR } from './GtoPublicHist215FeatureSchema.js';
+import descriptorV2 from './GtoPublicHist215FeatureDescriptorV2.json' with { type: 'json' };
+import {
+  PUBLIC_HIST215_PRIOR,
+  PUBLIC_HIST215_V2_APPENDED,
+} from './GtoPublicHist215FeatureSchema.js';
+import {
+  PUBLIC_HIST215_V1,
+  PUBLIC_HIST215_V2,
+  PUBLIC_HIST215_V1_FEATURE_SCHEMA_SHA256,
+  PUBLIC_HIST215_V2_FEATURE_SCHEMA_SHA256,
+  public215FeatureContract,
+  type Public215FeatureContractVersion,
+} from './GtoPublicHist215Contracts.js';
 import {
   decodePublic215F64,
   public215Digest,
@@ -10,12 +22,21 @@ import {
   validPublic215Digest,
 } from './GtoPublicHist215Model.js';
 
-export const PUBLIC_HIST215_FEATURE_SCHEMA_SHA256 =
-  '0ca054f9bb0463bf6a298a80a29cb4b6d9e6bffcc193e4af9d497e2936ec849f';
+export const PUBLIC_HIST215_FEATURE_SCHEMA_SHA256 = PUBLIC_HIST215_V1_FEATURE_SCHEMA_SHA256;
 export const PUBLIC_HIST215_PREDECESSOR_GRAPH_SCHEMA_SHA256 =
   'af443eb7d8150131a6097b9fb2e41dfdfa388c54bc2867dcb4ce53b97ec3afb0';
 if (public215Digest(descriptor) !== PUBLIC_HIST215_FEATURE_SCHEMA_SHA256)
   throw Error('PUBLIC_HIST215_FEATURE_DESCRIPTOR_CHANGED');
+// v2 = v1 descriptor + the appended one-hots, nothing else; checked at load.
+if (
+  public215Digest(descriptorV2) !== PUBLIC_HIST215_V2_FEATURE_SCHEMA_SHA256 ||
+  descriptorV2.feature_count !== 215 + PUBLIC_HIST215_V2_APPENDED.length ||
+  JSON.stringify(descriptorV2.feature_order) !==
+    JSON.stringify([...descriptor.feature_order, ...PUBLIC_HIST215_V2_APPENDED]) ||
+  descriptorV2.predecessor_schema_sha256 !== PUBLIC_HIST215_FEATURE_SCHEMA_SHA256 ||
+  public215FeatureContract(PUBLIC_HIST215_V2)?.featureCount !== descriptorV2.feature_count
+)
+  throw Error('PUBLIC_HIST215_V2_FEATURE_DESCRIPTOR_CHANGED');
 export const PUBLIC_HIST215_BASE_SCHEMA_SHA256 =
   '4d8a4918635544c467778a75f77bdb962cf183d99f6a7b2f64a4e418eaf3aaf1';
 const CONTEXT_KEYS = [
@@ -63,6 +84,8 @@ export interface Public215Template {
   opponent_weights: string[];
 }
 export interface CompiledPublic215Template {
+  /** The dataset's explicit feature contract; selects the encoded vector. */
+  readonly featureContract: Public215FeatureContractVersion;
   readonly context: Readonly<Public215Context>;
   readonly rootActor: 'IP' | 'OOP';
   readonly templateSha256: string;
@@ -113,11 +136,20 @@ function cards(own: readonly string[], board: readonly string[]) {
     boardIds,
   };
 }
+const V1_CATEGORIES: ReadonlySet<string> = new Set(PUBLIC_HIST215_PRIOR);
+const V2_CATEGORIES: ReadonlySet<string> = new Set([
+  ...PUBLIC_HIST215_PRIOR,
+  ...PUBLIC_HIST215_V2_APPENDED,
+]);
 export function compilePublic215Template(
   input: unknown,
-  expectedSha256: string
+  expectedSha256: string,
+  /** The dataset's declared feature_contract_version. v1 when a caller only serves v1. */
+  featureContract: Public215FeatureContractVersion = PUBLIC_HIST215_V1
 ): CompiledPublic215Template {
   if (!validPublic215Digest(expectedSha256)) return fail('TEMPLATE_DIGEST');
+  if (!public215FeatureContract(featureContract)) return fail('FEATURE_CONTRACT');
+  const categories = featureContract === PUBLIC_HIST215_V2 ? V2_CATEGORIES : V1_CATEGORIES;
   const t = strictObject(input, [
     'format',
     'context',
@@ -154,7 +186,7 @@ export function compilePublic215Template(
   for (const [k, v] of Object.entries(c))
     if (
       !['texture_class', 'depth_bucket', 'table_size'].includes(k) &&
-      !(PUBLIC_HIST215_PRIOR as readonly string[]).includes(k + '=' + v)
+      !categories.has(k + '=' + v)
     )
       return fail('UNKNOWN_PUBLIC_CATEGORY');
   const s = strictObject(t.scenario, [
@@ -168,9 +200,7 @@ export function compilePublic215Template(
   for (const k of ['ip_range_checksum', 'oop_range_checksum'])
     if (
       !validPublic215Digest(s[k]) ||
-      !(PUBLIC_HIST215_PRIOR as readonly string[]).includes(
-        (k === 'ip_range_checksum' ? 'iprange=' : 'ooprange=') + s[k]
-      )
+      !categories.has((k === 'ip_range_checksum' ? 'iprange=' : 'ooprange=') + s[k])
     )
       return fail('RANGE_CATEGORY');
   const pot = decodePublic215F64(s.pot_chips_f64),
@@ -203,6 +233,7 @@ export function compilePublic215Template(
   });
   if (!total) return fail('ZERO_ROOT_RANGE');
   return Object.freeze({
+    featureContract,
     context: Object.freeze({ ...c }) as unknown as Readonly<Public215Context>,
     rootActor: t.root_actor,
     templateSha256: expectedSha256,
@@ -334,6 +365,32 @@ const compare = (a: number[], b: number[]) => {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
   return 0;
 };
+/** v2 appended one-hots (indices 215..245): 1 when the template's exact
+ * context category or ROOT range checksum is that key, else 0. */
+export function encodePublic215V2Appended(template: CompiledPublic215Template): number[] {
+  const on = new Set<string>([
+    'iprange=' + template.ipRangeChecksum,
+    'ooprange=' + template.oopRangeChecksum,
+  ]);
+  for (const [k, v] of Object.entries(template.context))
+    if (!['texture_class', 'depth_bucket', 'table_size'].includes(k)) on.add(k + '=' + v);
+  return PUBLIC_HIST215_V2_APPENDED.map((k) => +on.has(k));
+}
+/** The contract's full vector from the unchanged v1 215 and, for v2, the appended block. */
+export function public215ContractVector(
+  v1Features: number[],
+  template: CompiledPublic215Template
+): number[] {
+  const contract = public215FeatureContract(template.featureContract);
+  if (!contract || v1Features.length !== 215) return fail('FEATURE215');
+  const out =
+    contract.version === PUBLIC_HIST215_V2
+      ? [...v1Features, ...encodePublic215V2Appended(template)]
+      : v1Features;
+  if (out.length !== contract.featureCount || !out.every(Number.isFinite))
+    return fail('FEATURE_CONTRACT_SHAPE');
+  return out;
+}
 /** Frozen public-state graph: ranks7 and suit incidence21; equal-rank ties minimize the whole vector. */
 export function encodePublic215State28(own: readonly string[], board: readonly string[]): number[] {
   const c = cards(own, board),
@@ -441,5 +498,5 @@ export function encodePublic215Features(
     ...state,
   ];
   if (out.length !== 215 || !out.every(Number.isFinite)) return fail('FEATURE215');
-  return out;
+  return public215ContractVector(out, template);
 }

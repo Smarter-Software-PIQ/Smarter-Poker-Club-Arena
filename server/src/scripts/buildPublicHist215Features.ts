@@ -20,9 +20,10 @@ import {
   compilePublic215Template,
   encodePublic215Base181,
   encodePublic215State28,
-  PUBLIC_HIST215_FEATURE_SCHEMA_SHA256,
+  public215ContractVector,
   type CompiledPublic215Template,
 } from '../engine/GtoPublicHist215Features.js';
+import { public215FeatureContractBySchema } from '../engine/GtoPublicHist215Contracts.js';
 import {
   canonicalPublic215Json,
   public215Digest,
@@ -144,12 +145,13 @@ export function assemblePublic215Cached(
     ...encodePublic215State28(own, cards(board)),
   ];
   need(result.length === 215 && result.every(Number.isFinite), 'FINITE_215');
-  return result;
+  return public215ContractVector(result, template);
 }
 /** NumPy v1.0, C-order little-endian float64, exact frame with no trailing bytes. */
-export function public215NpyHeader(rows: number): Buffer {
+export function public215NpyHeader(rows: number, columns = 215): Buffer {
   need(Number.isSafeInteger(rows) && rows > 0 && rows <= 57 * 1326, 'NPY_ROWS');
-  const dictionary = `{'descr': '<f8', 'fortran_order': False, 'shape': (${rows}, 215), }`;
+  need(columns === 215 || columns === 246, 'NPY_COLUMNS');
+  const dictionary = `{'descr': '<f8', 'fortran_order': False, 'shape': (${rows}, ${columns}), }`;
   const padding = (64 - ((10 + Buffer.byteLength(dictionary) + 1) % 64)) % 64;
   const header = Buffer.from(dictionary + ' '.repeat(padding) + '\n', 'ascii');
   const prefix = Buffer.from([0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59, 1, 0, 0, 0]);
@@ -341,9 +343,12 @@ export function buildPublic215FeatureIndex(request: ObjectValue, output: string)
     'terminal',
     'contexts',
   ]);
+  // The request's pinned descriptor names its contract (v1 215, v2 246); the
+  // request assembler writes the dataset's declared contract's descriptor.
+  const contract = public215FeatureContractBySchema(request.feature_schema_checksum);
   need(
     request.format === 'public_hist215_public_feature_batch_request_v1' &&
-      request.feature_schema_checksum === PUBLIC_HIST215_FEATURE_SCHEMA_SHA256 &&
+      contract !== null &&
       validPublic215Digest(request.physics_checksum),
     'PUBLIC_REQUEST'
   );
@@ -398,7 +403,7 @@ export function buildPublic215FeatureIndex(request: ObjectValue, output: string)
     );
     contextIDs.add(cid);
     const wire = jsonFile(group.template),
-      template = compilePublic215Template(wire, group.template.sha256);
+      template = compilePublic215Template(wire, group.template.sha256, contract!.version);
     need(public215Digest(template.context) === cid, 'TEMPLATE_CONTEXT');
     object(group.own_range, ['path', 'sha256']);
     object(group.opponent_range, ['path', 'sha256']);
@@ -482,8 +487,9 @@ export function buildPublic215FeatureIndex(request: ObjectValue, output: string)
   mkdirSync(output);
   const groups = [];
   for (const { group, cid, template, rows, count } of prepared) {
-    const header = public215NpyHeader(count),
-      data = Buffer.alloc(count * 215 * 8);
+    const width = contract!.featureCount,
+      header = public215NpyHeader(count, width),
+      data = Buffer.alloc(count * width * 8);
     let offset = 0;
     const encode = (board: string, own: readonly string[], cacheID: string) => {
       const a = currentRows.get(cacheID)!,
