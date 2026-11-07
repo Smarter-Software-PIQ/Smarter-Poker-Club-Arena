@@ -313,6 +313,8 @@ export default function RewardsTab({
     houseRequired: number | null;
     /** House / promo funding already posted, net of returns. */
     housePosted: number | null;
+    /** What the house still adds at close: required minus already posted. */
+    houseDue: number | null;
   } | null>(null);
   useEffect(() => {
     if (!tournamentId || !(Number(t.guaranteed_prize) > 0)) return;
@@ -352,6 +354,7 @@ export default function RewardsTab({
           grossCoverage: optional(data.gross_coverage),
           houseRequired: optional(data.house_required),
           housePosted: optional(data.house_posted),
+          houseDue: optional(data.house_due),
         });
       } catch (error) {
         if (!cancelled && !controller.signal.aborted) {
@@ -549,7 +552,12 @@ export default function RewardsTab({
       ? t.prize_pool_finalized === true && currentFunding.housePosted !== null
         ? Math.max(0, currentFunding.housePosted)
         : currentFunding.houseRequired
-      : Math.max(currentFunding.overlay, hasGuarantee ? guarantee - currentFunding.collected : 0)
+      : Math.max(
+          currentFunding.overlay,
+          hasGuarantee
+            ? Math.max(0, guarantee - currentFunding.collected - Math.max(0, num(t.total_rake)))
+            : 0
+        )
     : 0;
   const guaranteeMet = hasGuarantee && collectedPool !== null && collectedPool >= guarantee;
 
@@ -718,6 +726,36 @@ export default function RewardsTab({
   );
   const bubbleProtectionReserve =
     placeLadderPool === null ? 0 : Math.max(0, effectivePool - placeLadderPool);
+  /* THE GUARANTEED MINIMUM (2026-11-06). While registration is open the
+     ladder prices only what the field has paid into places. The house share
+     the club owes if the field closes now goes into places at close, so each
+     place is also shown at that floor: places + overlay, through the same
+     ladder. Never once the pool is finalized (the stored pool already holds
+     what was funded) or when the funding read is unavailable. */
+  /* Only what the house has NOT yet put in: a Free Buy's promo chips are
+     already in prize_pool (house_posted), so adding the whole share again
+     would price a 250 guarantee at 405. Paid events post nothing before
+     close, so for them this equals the overlay. */
+  const pendingHouse = currentFunding
+    ? (currentFunding.houseDue ??
+      Math.max(
+        0,
+        (currentFunding.houseRequired ?? overlay) - Math.max(0, currentFunding.housePosted ?? 0)
+      ))
+    : 0;
+  const guaranteedLadderPool =
+    hasGuarantee && !isFinalised && currentFunding && pendingHouse > 0 && !isSatellite
+      ? effectivePlaceLadderPool(
+          num(t.prize_pool) + pendingHouse,
+          t.guaranteed_prize,
+          parsedPlaces,
+          entryCount,
+          t.bubble_protection === true,
+          num(t.buy_in_amount),
+          isSatellite,
+          t.bounty_pool
+        )
+      : null;
   const toTheMoney = finalPaidPlace > 0 ? Math.max(0, playersRemaining - finalPaidPlace) : 0;
   const inTheMoney = finalPaidPlace > 0 && playersRemaining <= finalPaidPlace;
   const onTheBubble = stoneBubblePlace > 0 && playersRemaining === stoneBubblePlace;
@@ -1092,6 +1130,13 @@ export default function RewardsTab({
             )}
         </div>
 
+        {guaranteedLadderPool !== null && guaranteedLadderPool > 0 && (
+          <p className="rw-gtd-floor">
+            Guaranteed Amounts Include The {chips(pendingHouse)} The House Adds If The Field Does
+            Not Close It
+          </p>
+        )}
+
         {isSatellite && isComplete && satelliteAwards && (
           <p className="tl-empty__hint" role="status">
             {!awardTypesReady
@@ -1187,6 +1232,10 @@ export default function RewardsTab({
                 placeLadderPool !== null && placeLadderPool > 0 && parsedPlaces
                   ? placePrize(placeLadderPool, parsedPlaces, band.fromPlace, unitCents)
                   : 0;
+              const guaranteedPrize =
+                guaranteedLadderPool !== null && guaranteedLadderPool > 0 && parsedPlaces
+                  ? placePrize(guaranteedLadderPool, parsedPlaces, band.fromPlace, unitCents)
+                  : 0;
               /* The player who took this place, and what they were actually
                  paid. The recorded prize wins over the projection: a final
                  table deal or the residual on the last paid place makes them
@@ -1248,8 +1297,17 @@ export default function RewardsTab({
                       </span>
                     </span>
                   ) : (
-                    <span className="tl-num tl-num--accent rw-prize">
-                      {hasRecordedPrize ? unitMoney(recordedPrize) : prize > 0 ? chips(prize) : '-'}
+                    <span className="rw-prize-col">
+                      <span className="tl-num tl-num--accent rw-prize">
+                        {hasRecordedPrize
+                          ? unitMoney(recordedPrize)
+                          : prize > 0
+                            ? chips(prize)
+                            : '-'}
+                      </span>
+                      {!hasRecordedPrize && guaranteedPrize > prize && (
+                        <span className="rw-prize-gtd">Guaranteed {chips(guaranteedPrize)}</span>
+                      )}
                     </span>
                   )}
                 </li>
