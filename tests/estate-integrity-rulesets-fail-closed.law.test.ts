@@ -17,8 +17,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 // child was killed at 30s even with one worker. Bound this functional fixture
 // at 45s with 15s parent cleanup headroom. This is not an engine, network,
 // native-capture or gameplay deadline; every audit assertion remains required.
-const AUDIT_CHILD_TIMEOUT_MS = 45_000;
-const AUDIT_CASE_TIMEOUT_MS = 60_000;
+// Load headroom (2026-11-07): under the full pre-push suite on a busy box
+// the audit has been killed at 45s. The child now gets 3x that bound and the
+// case 30s more for reporting and cleanup. Every assertion is unchanged.
+const AUDIT_CHILD_TIMEOUT_MS = 135_000;
+const AUDIT_CASE_TIMEOUT_MS = AUDIT_CHILD_TIMEOUT_MS + 30_000;
 
 const ROOT = resolve(__dirname, '..');
 const AUDIT = resolve(ROOT, '.github/scripts/estate-integrity.sh');
