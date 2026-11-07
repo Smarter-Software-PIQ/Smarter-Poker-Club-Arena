@@ -200,7 +200,9 @@ def main():
   code,_,error=e.sql(db,file=live_candidate,label='live-field-replay-refused',seconds=30,check=False)
   if code==0 or 'SATELLITE_LIVE_FIELD_PREIMAGE_CHANGED' not in error: raise ValueError('migration replay must refuse changed source')
   e.sql(db,file=live_scene,label='live-field-new-green',seconds=180)
-  e.sql(db,file=single_live_scene,label='single-live-field-new-green',seconds=180)
+  code,_,error=e.sql(db,file=single_live_scene,label='single-registration-without-chair-red',seconds=180,check=False)
+  if code==0 or 'FAIL awarded registration resolves to its funded live chair' not in error:
+   raise ValueError('expected a funded single-winner registration without a physical chair: '+error[-2500:])
   refusal_scene=output/'target-refusals.sql'
   refusal_scene.write_text(seed+diamond_seed+creator+diamond_creator+(fixture/'target-refusal-cases.sql').read_text()+"\nROLLBACK;\n")
   code,_,error=e.sql(db,file=refusal_scene,label='target-refusal-old-red',seconds=180,check=False)
@@ -209,6 +211,9 @@ def main():
   diagnostic=next((root/'supabase/migrations').glob('*_satellite_refusals_identify_the_failed_target_invariant.sql'))
   e.sql(db,file=diagnostic,label='target-refusal-migration')
   e.sql(db,file=refusal_scene,label='target-refusal-new-green',seconds=180)
+  chair=next((root/'supabase/migrations').glob('*_single_winner_satellite_seats_the_awarded_running_target_entry.sql'))
+  e.sql(db,file=chair,label='single-running-chair-migration')
+  e.sql(db,file=single_live_scene,label='single-live-field-new-green',seconds=180)
   qualify_concurrent_consumption(e,root,native,db,output,seed,scene.read_text(),diamond_seed,(fixture/'native-diamond-cases.sql').read_text())
   e.report.update(passed=True,status='passed')
  finally:
