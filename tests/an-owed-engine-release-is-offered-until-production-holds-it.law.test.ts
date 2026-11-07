@@ -446,7 +446,8 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(Object.keys(stage.on)).toEqual(['workflow_dispatch', 'push', 'schedule']);
     // Explicit dispatch is database-only: it cannot produce engine outputs.
     expect(stage.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
-    expect(stage.jobs.signal.needs).toBe('detect');
+    expect(stage.jobs.selection.needs).toBe('detect');
+    expect(stage.jobs.signal.needs).toEqual(['detect', 'selection']);
     expect(stage.on.schedule).toEqual([
       { cron: '31,35,39,43 8 * * *' },
       { cron: '31,35,39,43 9 * * *' },
@@ -459,21 +460,35 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(stage.jobs.detect.permissions).toEqual({ contents: 'read', actions: 'read' });
   });
 
+  it('exercises the daily evidence and intent decisions', () => {
+    execFileSync('python3', ['-B', 'tests/operations/daily-engine-selection.test.py'], {
+      cwd: root,
+    });
+  });
+
   it('gates the one dispatch step on the offer decision, and the detector feeds it', () => {
     const send = stage.jobs.signal.steps.find((s: { name: string }) =>
       /Send the immutable engine release request/.test(s.name)
     );
     // Owner order 2026-11-05: the Backup Engine certifies every release first.
     expect(send.if).toBe(
-      "steps.offer.outputs.send == 'true' && steps.certified.outputs.send == 'true'"
+      "steps.offer.outputs.send == 'true' && needs.selection.outputs.send == 'true'"
     );
-    const certified = stage.jobs.signal.steps.find((s: { id?: string }) => s.id === 'certified');
-    expect(certified.if).toBe("steps.offer.outputs.send == 'true'");
-    expect(certified.env.REF_SHA).toBe('${{ needs.detect.outputs.target_sha }}');
-    expect(certified.run).toContain('backup-engine/certified');
-    expect(certified.run).toMatch(/if \[ "\$STATE" = success \]; then CHOSEN=\$sha; break; fi/);
-    expect(send.env.REF_SHA).toBe('${{ steps.certified.outputs.sha }}');
-    expect(stage.jobs.signal.steps.indexOf(certified)).toBeLessThan(
+    const freeze = stage.jobs.selection.steps.find((s: { id?: string }) => s.id === 'freeze');
+    expect(freeze.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
+    expect(freeze.run).toContain('scripts/ci/select-daily-engine.py');
+    expect(freeze.run).toContain('[ "$GITHUB_RUN_ATTEMPT" = 1 ]');
+    expect(send.env.REF_SHA).toBe('${{ needs.selection.outputs.sha }}');
+    expect(send.run).toContain('client_payload[control_sha]=$CONTROL_SHA');
+    expect(stage.jobs.selection.permissions).toEqual({
+      actions: 'read',
+      statuses: 'read',
+      contents: 'read',
+    });
+    expect(stage.jobs.selection.outputs.sha).toBe('${{ steps.freeze.outputs.sha }}');
+    expect(offer.env.REF_SHA).toBe('${{ needs.selection.outputs.sha }}');
+    expect(offer.if).toBe("needs.selection.outputs.send == 'true'");
+    expect(stage.jobs.signal.steps.indexOf(offer)).toBeLessThan(
       stage.jobs.signal.steps.indexOf(send)
     );
     expect(offer.env.OFFER_REASON).toBe('${{ needs.detect.outputs.offer_reason }}');

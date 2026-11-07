@@ -592,6 +592,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag('v9', 'V9 master: sizing families, timing, mood', 'V9'),
   flag('v9Sizing', 'human size families for bets', 'V9'),
   flag('v9Timing', 'think-time distribution', 'V9'),
+  flag(
+    'decisionGravityTiming',
+    'decision-size think time (horseDecisionGravity): longer on all-ins, big bets, big pots and the river, quicker on a preflop fold or small-pot check; default on, false ablates (2026-11-07)',
+    'V9'
+  ),
   flag('v9Mood', 'hourly mood gear-shift per horse', 'V9'),
   flag('v10', 'V10 master: c-bet read, SPR, rake, thin value, limp iso', 'V10'),
   flag('v10Cbet', 'range-advantage c-bet read', 'V10'),
@@ -2526,7 +2531,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'horse_observer_history_domain_complete',
     'services/HorseOwnPublicHistory version-2 (speed/ante) own-history load',
-    'every hand the installed reader returned carried this context\'s original speed/ante domain, so the partitioned window kept them all (#9693)',
+    "every hand the installed reader returned carried this context's original speed/ante domain, so the partitioned window kept them all (#9693)",
     '2026-11-07'
   ),
   receipt(

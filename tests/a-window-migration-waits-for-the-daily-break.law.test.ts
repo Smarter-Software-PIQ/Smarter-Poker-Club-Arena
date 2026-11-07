@@ -522,7 +522,8 @@ describe('explicit database-only owner-window continuation', () => {
     const workflow = parse(read('.github/workflows/stage-engine-release.yml'));
     expect(workflow.on.workflow_dispatch.inputs.owner_window_id.required).toBe(true);
     expect(workflow.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
-    expect(workflow.jobs.signal.needs).toBe('detect');
+    expect(workflow.jobs.selection.needs).toBe('detect');
+    expect(workflow.jobs.signal.needs).toEqual(['detect', 'selection']);
     const job = workflow.jobs['window-migrations'];
     expect(job.if).toContain("github.ref == 'refs/heads/main'");
     expect(job.if).toContain('always()');

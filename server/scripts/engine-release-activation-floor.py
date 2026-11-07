@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 MANIFEST = 'server/release/activation-floor.json'
@@ -57,7 +57,24 @@ def git(repo, *args):
                           env={**os.environ, 'GIT_NO_REPLACE_OBJECTS': '1'}, timeout=10).stdout
 
 
-def policy(repo, target, control):
+def daily_assessment_epoch(now, cutoff):
+    zone = ZoneInfo('America/Chicago')
+    local = datetime.fromtimestamp(cutoff or now, zone)
+    boundary = local.replace(hour=3, minute=30, second=0, microsecond=0)
+    if cutoff:
+        if boundary.timestamp() != cutoff:
+            raise ValueError('daily compatibility requires the exact Chicago selection cutoff')
+    elif local > boundary:
+        boundary += timedelta(days=1)
+    return int(boundary.timestamp())
+
+
+def expired_control(repo, control, now):
+    record = policy(repo, control, control)
+    return record is not None and now >= record['expiresEpoch']
+
+
+def policy(repo, target, control, *, fresh_at=None):
     if not all(re.fullmatch(r'[0-9a-f]{40}', value) for value in (target, control)):
         raise ValueError('immutable target/control identity unavailable')
     for value in (target, control):
@@ -137,7 +154,10 @@ def policy(repo, target, control):
             raise ValueError('owner window feature witness differs')
         git(repo, 'merge-base', '--is-ancestor', window['contains'], target)
         if git(repo, 'show', control + ':server/release/owner-maintenance-windows.json') != git(repo, 'show', target + ':server/release/owner-maintenance-windows.json'):
-            raise ValueError('control owner authorization differs')
+            # An expired order grants no authority to fresh work. Both exact
+            # manifests must have ended before admitting the standing schedule.
+            if fresh_at is None or fresh_at < expiry.timestamp() or not expired_control(repo, control, fresh_at):
+                raise ValueError('control owner authorization differs')
     else:
         if (local.hour, local.minute, local.second) != (4, 0, 0):
             raise ValueError('activation floor must name the daily Chicago boundary')
@@ -148,7 +168,8 @@ def policy(repo, target, control):
     own = Path(__file__).read_bytes()
     if git(repo, 'show', control + ':' + HELPER) != own:
         raise ValueError('control activation-floor capability is not exact')
-    if git(repo, 'show', control + ':' + MANIFEST) != raw:
+    if git(repo, 'show', control + ':' + MANIFEST) != raw and (
+            fresh_at is None or fresh_at < expiry.timestamp() or not expired_control(repo, control, fresh_at)):
         raise ValueError('control and target activation policies differ')
     intake = git(repo, 'show', control + ':server/scripts/engine-release-intake.sh').decode()
     guard = 'engine-release-activation-floor.py" admit'
@@ -381,7 +402,7 @@ def checkpoint_no_action(record, root, state_root, run_id):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('nov7-owner', 'prepare', 'admit', 'wait', 'publish', 'entry', 'entry-check', 'disposition', 'reservation', 'announcement-entry', 'checkpoint-no-action'))
+    parser.add_argument('mode', choices=('daily-compatibility', 'nov7-owner', 'prepare', 'admit', 'wait', 'publish', 'entry', 'entry-check', 'disposition', 'reservation', 'announcement-entry', 'checkpoint-no-action'))
     parser.add_argument('--repo', required=True)
     parser.add_argument('--target', required=True)
     parser.add_argument('--control', required=True)
@@ -399,7 +420,10 @@ def main():
             # announcement-only owner is retained but cannot restore runtime.
             print('announced' if prior.get('phase') == 'announcement' else 'entered')
             return
-    record = policy(args.repo, args.target, args.control)
+    fresh = prior is None and args.mode in ('daily-compatibility', 'prepare', 'admit', 'wait', 'publish', 'entry', 'entry-check', 'announcement-entry')
+    now = int(time.time())
+    as_of = daily_assessment_epoch(now, args.deadline) if args.mode == 'daily-compatibility' else now
+    record = policy(args.repo, args.target, args.control, fresh_at=as_of if fresh else None)
     if args.mode == 'nov7-owner':
         nov7_owner(args.repo, record, int(time.time()), args.deadline)
         return
@@ -423,7 +447,7 @@ def main():
         # a new order never retargets an announcement or an unknown outcome.
         later_owner = (prior is None and record is not None
                        and record.get('supersedesPhase1Schedule') is True
-                       and int(time.time()) < record['expiresEpoch'])
+                       and as_of < record['expiresEpoch'])
         if selected is not None and not later_owner:
             record = selected
     if args.mode not in ('checkpoint-no-action', 'reservation') and prior is None:
@@ -432,7 +456,16 @@ def main():
         # admission, entry and publication read reads an expired floor as no
         # floor.
         if record is None or record['schema'] != PHASE1_CAPABILITY:
-            record = effective(record, int(time.time()))
+            record = effective(record, as_of)
+    if args.mode == 'daily-compatibility':
+        # A compatibility receipt cannot authorize entry or reserve a window.
+        inputs = [MANIFEST, HELPER, 'server/release/owner-maintenance-windows.json', 'server/scripts/engine-release-seal.py',
+                  'server/src/maintenance/maintenanceSchedulePolicy.json']
+        print(json.dumps({'schema': 1, 'targetSha': args.target, 'controlSha': args.control,
+                          'assessmentEpoch': as_of, 'effectivePolicy': record, 'controlInputs': {
+                              path: git(args.repo, 'ls-tree', args.control, '--', path).decode().strip()
+                              for path in inputs}}))
+        return
     if args.mode == 'checkpoint-no-action':
         print(checkpoint_no_action(record, args.request_root, args.state_root, args.run_id))
         return

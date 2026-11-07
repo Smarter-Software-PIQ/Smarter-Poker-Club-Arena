@@ -304,7 +304,12 @@ describe('the workflow adds chances, not authority', () => {
       { cron: '31,35,39,43 8 * * *' },
       { cron: '31,35,39,43 9 * * *' },
     ]);
-    expect(Object.keys(stage.jobs).sort()).toEqual(['detect', 'signal', 'window-migrations']);
+    expect(Object.keys(stage.jobs).sort()).toEqual([
+      'detect',
+      'selection',
+      'signal',
+      'window-migrations',
+    ]);
   });
 
   it('the admission itself only reads: no dispatch, no write, no wait', () => {

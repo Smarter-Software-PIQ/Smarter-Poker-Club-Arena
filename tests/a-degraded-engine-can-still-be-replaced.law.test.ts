@@ -134,6 +134,12 @@ describe('a degraded engine can still be replaced', () => {
       const abortMarker = join(sandbox, 'abort-called');
       for (const path of [generation, requestRoot, leaseRoot, repo, bin]) mkdirSync(path);
       const canonicalGeneration = realpathSync(generation);
+      const stage = join(sandbox, 'staging', runKey);
+      mkdirSync(stage, { recursive: true });
+      writeFileSync(
+        join(stage, 'prepared-image'),
+        [targetSha, controlSha, targetImage, sourceImage, ''].join('\n')
+      );
 
       // The production host uses Bash 5. The test host uses macOS Bash 3.2, so
       // add only a fixture-local implementation of the mapfile builtin; the
@@ -151,6 +157,10 @@ mapfile() {
     REQUEST_LINES)
       REQUEST_LINES=()
       while IFS= read -r line; do REQUEST_LINES[\${#REQUEST_LINES[@]}]="$line"; done
+      ;;
+    prepared)
+      prepared=()
+      while IFS= read -r line; do prepared[\${#prepared[@]}]="$line"; done
       ;;
     IMAGE_FIELDS)
       IMAGE_FIELDS=()
@@ -441,6 +451,7 @@ exit 91
             PATH: `${bin}:${process.env.PATH ?? ''}`,
             REPO_DIR: repo,
             ENGINE_RELEASE_REQUEST_ROOT: requestRoot,
+            ENGINE_CONTROL_STAGING_ROOT: join(sandbox, 'staging'),
             ENGINE_RELEASE_IMAGE_LEASE_ROOT: leaseRoot,
             ENGINE_LOCK_FILE: join(sandbox, 'engine.lock'),
             SOURCE_LOCK_FILE: join(sandbox, 'source.lock'),
@@ -461,7 +472,7 @@ exit 91
       expect(prepareCall).toContain(`prepare --sha ${targetSha}`);
       expect(prepareCall).toContain(`--image ${targetImage}`);
       expect(prepareCall).toContain(`--run-id ${runKey}`);
-      expect(existsSync(buildMarker)).toBe(true);
+      expect(existsSync(buildMarker)).toBe(false);
       expect(existsSync(databaseMarker)).toBe(true);
       const databaseCall = readFileSync(databaseLog, 'utf8');
       expect(databaseCall).toContain(`--sha ${sourceSha}`);
@@ -473,9 +484,11 @@ exit 91
       expect(curlCalls).toContain('503 https://engine.example.invalid/health?nocache=');
       const events = readFileSync(eventLog, 'utf8').trim().split('\n');
       expect(events.indexOf('sealed-high-water-read')).toBeGreaterThan(-1);
-      expect(events.indexOf('sealed-high-water-read')).toBeLessThan(events.indexOf('builder'));
+      expect(events).not.toContain('builder');
       // The new image is warmed right after its build, before any break proof.
-      expect(events.indexOf('image-prewarm-run')).toBeGreaterThan(events.indexOf('builder'));
+      expect(events.indexOf('image-prewarm-run')).toBeGreaterThan(
+        events.indexOf('sealed-high-water-read')
+      );
       expect(events.indexOf('image-prewarm-run')).toBeLessThan(
         events.findIndex((event) => event.startsWith('certificate-503:'))
       );

@@ -27,6 +27,7 @@
  * one read and the writes.
  */
 import { horseHash, mix32 } from './HorseBehavior.js';
+import { homeQueueRank } from './HorseRegulars.js';
 
 /** One full cluster table's ask, from the seeding loop. */
 export interface HorseQueueAsk {
@@ -34,6 +35,9 @@ export interface HorseQueueAsk {
   waitTarget: number;
   /** Horses that could sit at this table this cycle (the loop's pool). */
   pool: readonly string[];
+  /** The game's variant and big blind, so its regulars stand in its line first. */
+  variant?: unknown;
+  bigBlind?: unknown;
 }
 
 /** A live table of a cluster game, for the everything-is-full check. */
@@ -158,7 +162,10 @@ export function planHorseQueues(input: {
 
   const desired = new Map<string, number>();
   const pools = new Map<string, string[]>();
+  const gameKind = new Map<string, { variant: unknown; bigBlind: unknown }>();
   for (const a of input.asks) {
+    if (a.gameId && a.variant !== undefined && !gameKind.has(a.gameId))
+      gameKind.set(a.gameId, { variant: a.variant, bigBlind: a.bigBlind });
     if (!a.gameId || a.waitTarget <= 0) continue;
     desired.set(a.gameId, Math.max(desired.get(a.gameId) ?? 0, Math.floor(a.waitTarget)));
     const p = pools.get(a.gameId) ?? [];
@@ -247,6 +254,10 @@ export function planHorseQueues(input: {
       const from = leftGame.get(id);
       return from !== undefined && from !== gameId ? 0 : 1;
     };
+    /* REGULARS (2026-11-07): a game's own regulars put their names down
+       first. A ranking, never a filter, so the line grows exactly as before. */
+    const kind = gameKind.get(gameId);
+    const home = (id: string) => (kind ? homeQueueRank(id, kind.variant, kind.bigBlind) : 0);
     const pool = [...new Set(pools.get(gameId) ?? [])]
       .filter(
         (id) =>
@@ -258,6 +269,7 @@ export function planHorseQueues(input: {
       .sort(
         (a, b) =>
           movingOn(a) - movingOn(b) ||
+          home(a) - home(b) ||
           mix32(horseHash(`${a}:${gameId}:${minute}`)) -
             mix32(horseHash(`${b}:${gameId}:${minute}`))
       );
