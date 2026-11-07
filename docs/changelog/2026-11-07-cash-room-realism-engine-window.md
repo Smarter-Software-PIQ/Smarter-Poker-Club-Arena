@@ -52,3 +52,9 @@ window):
   case is selected (54 cases).
 - `daily-engine-maintenance.law.test.ts`: historical-registry reconstruction
   removes the new entry too.
+
+## Main repair carried here
+
+`v31-pio-bet-totals.yml` (#9957) merged beside #9950 still downloaded the PGDG
+key, so `the-postgres-signing-key-comes-from-the-checkout.law.test.ts` failed on
+main. It now installs the key from the checkout like every other workflow.
