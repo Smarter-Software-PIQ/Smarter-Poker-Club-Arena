@@ -2,8 +2,6 @@
 
 # Publishing through the restored providers
 
-**ENGINE RESETS ONCE A DAY (owner update October 20, 2026).** Routine game-engine updates and restarts happen only once daily at 04:00 America/Chicago (DST aware): 03:58 last-hand notice, 04:00-04:05 maintenance window. There is no hourly engine reset and no hourly cash-game or platform freeze. Hourly tournament breaks (:55-:00) still run and are separate from engine maintenance. Only an explicit urgent or degraded-engine emergency may restart outside 04:00. See CLAUDE.md section 13.
-
 **Non-engine delivery: push, publish, verify and finish immediately; never wait for an engine window.** Apply the maintenance cutover only to an actual engine replacement or a specifically identified dependency on new engine behavior. A Club Arena client using existing engine APIs, an unrelated pending engine release, and a generic engine-health check do not create that dependency. Required checks and normal client publication/live proof still apply.
 
 Implementation status: PR #4788 separately delivers the additional engine recovery opportunity, split post-deploy jobs and parallel accounting/engine CI. Verify those capabilities in the current workflow and runtime before using them. Publishing these instructions does not install an engine change.
@@ -53,7 +51,59 @@ Verify the jobs and affected behavior applicable to the assigned change. A clien
 
 ## Club Arena engine and other changed components
 
-For engine changes, use the existing **stage-engine-release.yml** followed by **auto-deploy-hetzner.yml**. Routine updates prepare at 03:30 and activate at 04:00 America/Chicago (DST aware). Routine daytime pushes queue. Explicit urgent/degraded emergencies retain certified recovery. The owner authorized one final existing :55 window to install this transition; its commit marker closes on a serving engine that exposes the daily schedule. Hourly tournament breaks remain independent; cash games no longer freeze hourly. See CLAUDE.md section13. Preserve the hosted engine checks, production-door checks, Hetzner build, maintenance cutover, concurrency, sealed receipt and applicable post-deployment verification.
+## Backup and daily engine launch
+
+**Enforced today.** Protected merge, the exact-SHA Backup certificate, daily admission, in-break database readback and the host seal are enforced by the linked workflows.
+
+**Planned until published and verified.** Completing all four receiver test shards and prestaging the exact image before the 03:30 cutoff, selecting from immutable readiness evidence, and publishing per-table recovery timings require their corresponding control changes. Count each step as enforced only after its protected workflow and receipt are available.
+
+### Stage an upgrade during the day
+
+Start in an owned branch from protected main. Keep the engine change, required migrations and focused regression coverage together. Preview the applicable checks with `node scripts/ci/execution-preview.mjs --working-tree`. Run the selected local checks and required gates, then merge through the protected PR. A server-tree push starts [Backup qualification](.github/workflows/backup-engine.yml) for that revision. Backup uses an isolated database and rehearses boot, crash recovery and a 1,800-second soak. Agents contribute through Git. Editing a running clone would produce a version that cannot be traced to the PR.
+
+### Trace a change to its certificate
+
+Run the following read-only example with an authenticated GitHub CLI from the repository. It traces tournament fix #9753 into the November 7 release. For a new release, replace the PR and candidate with the intended PR and the full SHA selected by the release workflow. The receiver's workflow head identifies its controls and can differ from the requested engine SHA.
+
+```sh
+repo=Smarter-Software-PIQ/Smarter-Poker-Club-Arena
+pr=9753
+candidate=40bc24676be48aed14155380502ba20c225bfbe6
+merged=$(gh pr view "$pr" -R "$repo" --json mergeCommit --jq '.mergeCommit.oid')
+gh api "repos/$repo/compare/$merged...$candidate" --jq '{status,behind_by}'
+gh api "repos/$repo/commits/$candidate/status" --jq '[.statuses[] | select(.context == "backup-engine/certified")] | first | {state,target_url}'
+```
+
+Inclusion requires a merged PR, a comparison of `identical` or `ahead`, and zero commits behind. Inspect the newest certificate and follow its run URL to Backup. A pending, failed or missing result leaves the candidate ineligible. A new candidate requires its own proof. Record each required migration version from the PR, the route that installs it, its recorded production history and its required runtime signatures. A freeze-only migration needs a rehearsed installation and a fresh in-break verification before engine replacement.
+
+### Select and activate the daily release
+
+The release owner follows [daily staging](.github/workflows/stage-engine-release.yml) and its [receiver](.github/workflows/auto-deploy-hetzner.yml). Use America/Chicago calendar dates across daylight-saving changes. The normal last-hand notice starts at 03:58. Activation requires the 04:00–04:05 window, confirmed drain and freeze, exact Backup success, production database compatibility, a verified rollback source and the full cutover reserve. Keep the serving engine when any required evidence is missing. A late request cannot claim tomorrow's slot. Read the original request and result before retrying an interrupted operation.
+
+The November 7 daytime release used a dated one-time order. Future routine releases follow the daily window. The scheduling objectives are 15 minutes from 04:00 to resumed games and 30 minutes to verified seal and gameplay. Measure Backup refresh separately. A duration target grants no authority to shorten a safeguard.
+
+### Verify the seal, gameplay and refreshed clone
+
+```sh
+gh run view 42389189340 -R "$repo" --json displayTitle,headSha,status,conclusion,url
+curl -fsS https://engine.smarter.poker/health |
+  jq '{releaseSha,instanceId,status,phase:.maintenance.phase,stalledTableCount}'
+gh run view 42392485932 -R "$repo" --json status,conclusion,jobs   --jq '{status,conclusion,jobs:[.jobs[]|{name,conclusion}]}'
+```
+
+The run IDs above are historical. Live health always describes the currently serving engine. For the release being verified, match the certified SHA, container and instance to the host's immutable per-run result at `/var/lib/club-arena/engine-release-results/<run-id>-<attempt>.json` and to the elected database leader. Confirm maintenance is idle. Use committed hands after thaw to verify eligible cash and tournament tables are advancing and both Lightning pools settle hands when populated. Account for scheduled breaks and empty tables in the census.
+
+On November 7 the original receiver reported failure after the recovery invocation sealed. Reattach the protected observer to the original run using `observe-engine-release.sh --sha "$candidate" --run-id 42389189340-1` on the release host through the scoped observer procedure. Match its `ENGINE_RELEASE_SHA` and `ENGINE_RELEASE_RESULT=sealed` to the receipt and public health. A failed observer alone does not authorize another cutover. [Observer correction](https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9892)
+
+A successful receiver triggers a fresh Backup through the supported workflow. Inspect the resulting restore validation, seed failure count and final exact-SHA certificate. If the receiver concluded failure despite a verified seal, the release owner first checks for an existing refresh in the Backup queue. After proving the exact SHA is still serving, the owner can submit the supported Backup-only recovery once:
+
+```sh
+served=$(curl -fsS https://engine.smarter.poker/health | jq -er .releaseSha) &&
+  [ "$served" = "$candidate" ] &&
+  gh workflow run backup-engine.yml -R "$repo" --ref main -f sha="$candidate" -f refresh=true
+```
+
+Record the returned or observed provider run ID, wait for completion and verify the fresh restore and certificate timestamps are after the seal. The historical [pre-cutover certificate](https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/actions/runs/42384696674) and [post-seal refresh](https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/actions/runs/42392485932) are separate receipts for the same engine revision.
 
 Record the staging run, selected runtime component revision and receiving engine release run. The runtime component revision can differ from a later documentation-only main revision. Confirm the expected component revision at **https://engine.smarter.poker/health** together with the existing release proof. A health response alone is not proof that the changed feature works.
 

@@ -19,6 +19,8 @@
 - [ ] No new `alert()` calls (use toast system)
 - [ ] Supabase queries use `.maybeSingle()` not `.single()`
 
+If this PR changes an engine launch command, certificate, window or recovery procedure, update the [daily launch runbook](../PUBLISHING.md#backup-and-daily-engine-launch) and verify its affected instructions against the workflow.
+
 ## Screenshots
 
 <!-- If UI changes, paste screenshots here -->
