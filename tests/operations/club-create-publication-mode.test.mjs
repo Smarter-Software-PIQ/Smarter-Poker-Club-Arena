@@ -67,3 +67,55 @@ test('connected Create uses same-run receipt, current verification source and ex
   assert.ok(text.includes('cancel-in-progress: false'));
   assert.ok(text.includes('timeout-minutes: 60'));
 });
+
+// 2026-11-07: a publisher run that published nothing stands Create Club down.
+// Job names and conclusions are publisher run 42346558084 (113c79e70a), which
+// turned this certificate red with "Exactly one published bundle or one
+// retained runtime receipt required."
+import { nothingPublished } from '../../scripts/ci/club-create-publication-mode.mjs';
+const job = (name, conclusion, steps = conclusion === 'skipped' ? 0 : 5) => ({
+  name,
+  status: 'completed',
+  conclusion,
+  steps: Array.from({ length: steps }, (_, i) => ({ number: i + 1 })),
+});
+const noPublishRun = () => [
+  job('publish-needed', 'success', 9),
+  job('client-publication / Validate The Selected Client Publication Source', 'success'),
+  job('client-publication / admit', 'success', 8),
+  job('build-record-gateway', 'skipped'),
+  job('production', 'skipped'),
+  job('client-publication / build-and-store', 'skipped'),
+  job('client-publication / client-tests', 'skipped'),
+  job('client-publication / production', 'skipped'),
+];
+const jobsRaw = (rows) => JSON.stringify({ total_count: rows.length, jobs: rows });
+test('a publisher that published nothing stands the certificate down', () =>
+  assert.equal(nothingPublished(jobsRaw(noPublishRun())), true));
+test('any built bundle, started production, failure, unknown job or partial page still certifies', () => {
+  const variants = [
+    (r) => (r[5] = job('client-publication / build-and-store', 'success')),
+    (r) => (r[7] = job('client-publication / production', 'success')),
+    (r) => (r[7] = job('client-publication / production', 'skipped', 1)),
+    (r) => (r[2] = job('client-publication / admit', 'failure')),
+    (r) => r.push(job('some-new-writer', 'success')),
+    (r) => r.push(job('publish-needed', 'success', 9)),
+    (r) => (r[0] = { ...r[0], status: 'in_progress' }),
+  ];
+  for (const change of variants) {
+    const rows = noPublishRun();
+    change(rows);
+    assert.equal(nothingPublished(jobsRaw(rows)), false);
+  }
+  assert.equal(nothingPublished(JSON.stringify({ total_count: 9, jobs: noPublishRun() })), false);
+  assert.equal(nothingPublished(jobsRaw([])), false);
+});
+test('the workflow reads the exact source run jobs and gates certify on them', () => {
+  const text = readFileSync(
+    new URL('../../.github/workflows/club-create-certification.yml', import.meta.url),
+    'utf8'
+  );
+  assert.ok(text.includes('club-create-publication-mode.mjs --nothing-published'));
+  assert.ok(text.includes("needs.publication.outputs.mode == 'publication'"));
+  assert.ok(text.includes("github.event_name == 'repository_dispatch'"));
+});
