@@ -95,7 +95,7 @@ describe('attention items close at their roots', () => {
   });
 
   it('a recovered scheduled job closes its own incident by re-measurement', () => {
-    const later = newestDefining(/fn_ca_resolve_cleared_incidents/);
+    const later = newestDefining(/FUNCTION public\.fn_ca_resolve_cleared_incidents\(/);
     expect(later.sql, `${later.file} redefines the closer`).toMatch(/'fn_ca_cron_failure_watch'/);
     expect(root).toContain('INSERT INTO public.ca_detector_runs (detector, detail)');
   });

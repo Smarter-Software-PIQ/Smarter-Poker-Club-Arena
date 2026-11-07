@@ -1,4 +1,4 @@
--- 20261107182648_the_v31_program_restarts_as_r8_and_a_stalled_rebuild_is_critical
+-- 20261107182648_v31_restarts_as_r8_and_a_stalled_rebuild_is_critical
 --
 -- Reserved by scripts/reserve-migration-version.sh on 2026-11-07 18:26:48 UTC.
 --
