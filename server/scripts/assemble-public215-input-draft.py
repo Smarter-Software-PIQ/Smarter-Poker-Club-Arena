@@ -4,6 +4,11 @@
 Uses the protected producer's validators. The only zero identities are the
 documented prepare_bundle.py input-bundle draft placeholders. ROOT invokes
 that existing preparer separately after inspecting the resulting draft.
+
+A v1 request is the frozen R7 request: its producer, partition, selection,
+baseline and census pins are the R7 constants below. A v2 request (R8 and
+later) carries every one of those pins explicitly in its own `pins` object,
+so a new dataset never needs an edit to this file.
 """
 from __future__ import annotations
 import argparse
@@ -13,6 +18,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import uuid
@@ -25,9 +31,37 @@ PRODUCER = '291a8e5658b6a706066b39fba6c75a714f578695'
 RANKS = '23456789TJQKA'
 DECK = {r+s for r in RANKS for s in 'cdhs'}
 sha = lambda b: hashlib.sha256(b).hexdigest()
+V1 = 'public_hist215_official_input_draft_request_v1'
+V2 = 'public_hist215_official_input_draft_request_v2'
+REQUEST = {'format','pipeline_root','pipeline_commit','original_manifest','original_input_root','target_plan','context_metadata','templates_root','protocol_files','source_namespace','dataset_key','manifest_version','bundle_key','bundle_version','approval_note'}
+# The R7 request (v1) is bound to exactly these values; v2 must state each one.
+R7_PINS = {'original_manifest_sha256':R6_SHA,'source_partition_sha256':PARTITION_SHA,'m2_selection_sha256':SELECTION_SHA,
+           'contexts':107,'m1_per_context':57,'m2_candidates':2147,'scenario_id_prefix':'r7f','draft_name':'public215-r7'}
+R7_NAMESPACE = '6b4ec729-fd3a-43d7-a75b-15fd3bced986'
 
 def need(value, label):
     if not value: raise ValueError('PUBLIC215_DRAFT_'+label)
+
+def hex_id(value, length):
+    return isinstance(value,str) and re.fullmatch('[0-9a-f]{%d}'%length,value) is not None and value!='0'*length
+
+def request_pins(config):
+    """Return the producer commit and frozen pins this request is bound to."""
+    need(isinstance(config,dict),'EXACT_KEYS')
+    if config.get('format')==V1:
+        exact(config,REQUEST);need(config['pipeline_commit']==PRODUCER,'PROTECTED_PRODUCER')
+        return PRODUCER,dict(R7_PINS)
+    exact(config,REQUEST|{'pins'});need(config['format']==V2 and hex_id(config['pipeline_commit'],40),'PROTECTED_PRODUCER')
+    pins=exact(config['pins'],set(R7_PINS))
+    need(all(hex_id(pins[k],64) for k in ('original_manifest_sha256','source_partition_sha256','m2_selection_sha256')),'PIN_SHA256')
+    need(all(type(pins[k]) is int and pins[k]>0 for k in ('contexts','m1_per_context','m2_candidates')),'PIN_CENSUS')
+    need(isinstance(pins['scenario_id_prefix'],str) and re.fullmatch('r[0-9]+f',pins['scenario_id_prefix']) is not None and
+         isinstance(pins['draft_name'],str) and re.fullmatch('public215-[a-z0-9][a-z0-9-]{0,62}',pins['draft_name']) is not None,'PIN_NAMES')
+    # A new evaluation set never reuses the R7 public domain or R7 identities.
+    need(pins['source_partition_sha256']!=PARTITION_SHA and pins['m2_selection_sha256']!=SELECTION_SHA and
+         pins['scenario_id_prefix']!=R7_PINS['scenario_id_prefix'] and pins['draft_name']!=R7_PINS['draft_name'] and
+         config['source_namespace']!=R7_NAMESPACE,'FRESH_PUBLIC_DOMAIN')
+    return config['pipeline_commit'],pins
 
 def exact(value, keys):
     need(isinstance(value,dict) and set(value)==set(keys),'EXACT_KEYS')
@@ -54,7 +88,7 @@ def board_cards(board):
     need(len(set(cards))==len(cards) and set(cards)<=DECK,'LEGAL_BOARD')
     return cards
 
-def remap_scenario(source, board, namespace, ordinal):
+def remap_scenario(source, board, namespace, ordinal, prefix='r7f'):
     """Existing public author remap: chronological token substitution only.
 
     Mirrors materialize_full_public_domain.py/remap; ROOT flop and native
@@ -67,7 +101,7 @@ def remap_scenario(source, board, namespace, ordinal):
     need([v for v in tokens if v in DECK]==old[3:],'CHRONOLOGICAL_NODE_RUNOUT')
     mapping=dict(zip(old,new));t['node']=':'.join(mapping.get(v,v) for v in tokens)
     s['flop_board']=board[:6];t['board']=board;t['machine_id']='M2'
-    sid='r7f.m2.'+uuid.UUID(namespace).hex+'.'+str(ordinal).zfill(5)
+    sid=prefix+'.m2.'+uuid.UUID(namespace).hex+'.'+str(ordinal).zfill(5)
     s['scenario_id']=sid;t['target_id']=sid+'.target'
     if 'conditional_history' in s:s['conditional_history']['target_node']=t['node']
     need([v for v in t['node'].split(':') if v in DECK]==new[3:],'REMAPPED_RUNOUT')
@@ -81,25 +115,25 @@ def new_file(root, relative, data):
     return {'path':p.as_posix(),'checksum':sha(data)}
 
 def assemble(config, output, config_sha):
-    exact(config,{'format','pipeline_root','pipeline_commit','original_manifest','original_input_root','target_plan','context_metadata','templates_root','protocol_files','source_namespace','dataset_key','manifest_version','bundle_key','bundle_version','approval_note'})
-    need(config['format']=='public_hist215_official_input_draft_request_v1' and config['pipeline_commit']==PRODUCER,'PROTECTED_PRODUCER')
+    producer,pins=request_pins(config)
+    contexts_n,per_context,m2_n=pins['contexts'],pins['m1_per_context'],pins['m2_candidates'];m1_n=contexts_n*per_context
     pipeline=Path(config['pipeline_root']);need(pipeline.is_absolute() and pipeline.resolve(strict=True)==pipeline,'PIPELINE_PATH')
-    need(subprocess.run(['git','rev-parse','HEAD'],cwd=pipeline,check=True,capture_output=True,text=True).stdout.strip()==PRODUCER,'ACTUAL_PRODUCER_HEAD')
+    need(subprocess.run(['git','rev-parse','HEAD'],cwd=pipeline,check=True,capture_output=True,text=True).stdout.strip()==producer,'ACTUAL_PRODUCER_HEAD')
     sys.path.insert(0,str(pipeline/'scripts/horse-solver-v31'))
     contract=importlib.import_module('contract');codec=importlib.import_module('public_hist215');pio=importlib.import_module('pio_upi');prepare=importlib.import_module('prepare_bundle')
     for m in (contract,codec,pio,prepare):need(Path(m.__file__).resolve().parent==pipeline/'scripts/horse-solver-v31','IMPORT_ORIGIN')
-    original=parsed(config['original_manifest']);need(config['original_manifest']['sha256']==R6_SHA,'ORIGINAL_R6_IDENTITY')
+    original=parsed(config['original_manifest']);need(config['original_manifest']['sha256']==pins['original_manifest_sha256'],'ORIGINAL_R6_IDENTITY')
     root=Path(config['original_input_root']);need(root.is_absolute() and root.resolve(strict=True)==root,'BASELINE_ROOT')
     # Complete public baseline dependencies are validated by maintained source.
     range_files=contract._range_bundle(root,original);models=contract._icm_models(root,original)
     plan=parsed(config['target_plan']);metadata=parsed(config['context_metadata']);contexts=metadata['public215_contexts'];codec.validate_context_metadata(contexts)
-    need(plan['format']=='public_hist215_final_M1_public_target_plan_v1' and plan['source_namespace']==config['source_namespace'] and len(plan['entries'])==6099 and len(contexts)==107,'EXACT_PLAN_CENSUS')
+    need(plan['format']=='public_hist215_final_M1_public_target_plan_v1' and plan['source_namespace']==config['source_namespace'] and len(plan['entries'])==m1_n and len(contexts)==contexts_n,'EXACT_PLAN_CENSUS')
     need(str(uuid.UUID(config['source_namespace']))==config['source_namespace'],'CANONICAL_NAMESPACE')
     exact(config['protocol_files'],PROTOCOLS);protocols={k:parsed(v) for k,v in config['protocol_files'].items()}
     for k,v in protocols.items():need(checked(config['protocol_files'][k])==codec.canonical_bytes(v),'CANONICAL_PROTOCOL_BYTES')
     codec.validate_protocols(protocols,contexts)
     partition=protocols['source_partition'];selection=partition['m2_selection']
-    need(codec.digest(partition)==PARTITION_SHA==plan['source_partition_checksum'] and codec.digest(selection)==SELECTION_SHA,'FROZEN_PUBLIC_DOMAIN')
+    need(codec.digest(partition)==pins['source_partition_sha256']==plan['source_partition_checksum'] and codec.digest(selection)==pins['m2_selection_sha256'],'FROZEN_PUBLIC_DOMAIN')
     need(protocols['runtime_parity_protocol']==metadata['runtime_parity_protocol'],'DECLARED_RUNTIME_CASES')
     declared={codec.digest(c['context']):c for c in contexts};sources={};m1=[];seen=set();counts={cid:0 for cid in declared}
     for e in plan['entries']:
@@ -109,8 +143,8 @@ def assemble(config, output, config_sha):
         need(pio.target_context(s,t)==declared[cid]['context'] and t['expected_children']==declared[cid]['expected_children'],'M1_CONTEXT_ACTION_ORDER')
         contract._validate_scenario(s,len(m1),root,range_files,models,True)
         need(t['target_id'] not in seen,'UNIQUE_M1');seen.add(t['target_id']);sources.setdefault(cid,s);counts[cid]+=1;m1.append(s)
-    need(all(n==57 for n in counts.values()) and len(seen)==6099,'EXACT57_EACH')
-    groups=selection['contexts'];need(len(groups)==107 and {g['context_id'] for g in groups}==set(declared),'M2_CONTEXT_CENSUS')
+    need(all(n==per_context for n in counts.values()) and len(seen)==m1_n,'EXACT57_EACH')
+    groups=selection['contexts'];need(len(groups)==contexts_n and {g['context_id'] for g in groups}==set(declared),'M2_CONTEXT_CENSUS')
     need([g['context_id'] for g in groups]==sorted(declared),'FROZEN_M2_CONTEXT_ORDER')
     m2=[];candidate_pairs=set()
     for g in groups:
@@ -119,13 +153,13 @@ def assemble(config, output, config_sha):
             exact(candidate,{'board','rank_signature'});cards=board_cards(candidate['board'])
             signature=str(len(cards))+':'+''.join(sorted(candidate['board'][::2],key=RANKS.index))
             need(signature==candidate['rank_signature'] and (cid,signature) not in candidate_pairs,'UNIQUE_PUBLIC_RANK')
-            candidate_pairs.add((cid,signature));s=remap_scenario(sources[cid],candidate['board'],config['source_namespace'],len(m2));t=s['targets'][0]
+            candidate_pairs.add((cid,signature));s=remap_scenario(sources[cid],candidate['board'],config['source_namespace'],len(m2),pins['scenario_id_prefix']);t=s['targets'][0]
             need(pio.target_context(s,t)==g['context'] and t['expected_children']==declared[cid]['expected_children'],'M2_RENDERED_CONTEXT_ACTIONS')
             contract._validate_scenario(s,len(m1)+len(m2),root,range_files,models,True);m2.append(s)
-    need(len(m2)==2147,'ALL2147_PUBLIC_CANDIDATES')
+    need(len(m2)==m2_n,'ALL2147_PUBLIC_CANDIDATES')
     tests=[copy.deepcopy(s) for s in original['scenarios'] if s['scenario_id']==original['self_test']['scenario_id']]
     need(len(tests)==1 and tests[0].get('purpose')=='self_test','ORIGINAL_ANALYTIC_SELFTEST')
-    manifest=copy.deepcopy(original);manifest.update({'dataset_key':config['dataset_key'],'manifest_version':config['manifest_version'],'pipeline_commit':PRODUCER,'feature_contract_version':'holdem-public-hist215-v1','policy_export_schema':'smarter-poker.pio-policy.v4','pipeline_contract_version':contract.PUBLIC215_PIPELINE_CONTRACT,'policy_representation':'public_hist215_v1','public215_contexts':contexts,'public215_protocols':protocols,'scenarios':m1+m2+tests,'input_bundle_id':prepare.PLACEHOLDER_BUNDLE_ID,'input_bundle_checksum':prepare.ZERO_CHECKSUM})
+    manifest=copy.deepcopy(original);manifest.update({'dataset_key':config['dataset_key'],'manifest_version':config['manifest_version'],'pipeline_commit':producer,'feature_contract_version':'holdem-public-hist215-v1','policy_export_schema':'smarter-poker.pio-policy.v4','pipeline_contract_version':contract.PUBLIC215_PIPELINE_CONTRACT,'policy_representation':'public_hist215_v1','public215_contexts':contexts,'public215_protocols':protocols,'scenarios':m1+m2+tests,'input_bundle_id':prepare.PLACEHOLDER_BUNDLE_ID,'input_bundle_checksum':prepare.ZERO_CHECKSUM})
     manifest['pipeline_files']=[{'path':p,'checksum':sha((pipeline/p).read_bytes())} for p in sorted(contract.PUBLIC215_PIPELINE_FILES)]
     manifest['pipeline_bundle_checksum']=contract.pipeline_bundle_checksum(pipeline,manifest['pipeline_files'],expected_files=contract.PUBLIC215_PIPELINE_FILES)
     out=Path(output);need(out.is_absolute() and out.parent.resolve(strict=True)==out.parent and not out.exists(),'NEW_CANONICAL_OUTPUT');out.mkdir()
@@ -139,15 +173,15 @@ def assemble(config, output, config_sha):
         b=checked({'path':str(templates/(cid+'.json')),'sha256':c['template_checksum']});manifest['public215_template_files'].append(new_file(out,'public215/templates/'+cid+'.json',b))
     manifest['public215_protocol_files']={k:new_file(out,'public215/protocols/'+k+'.json',checked(config['protocol_files'][k])) for k in sorted(PROTOCOLS)}
     prepare.verify_published_pipeline(manifest,pipeline)
-    payload=prepare.canonical_json(manifest);receipt=new_file(out,'drafts/public215-r7.DRAFT.json',payload)
+    payload=prepare.canonical_json(manifest);receipt=new_file(out,'drafts/'+pins['draft_name']+'.DRAFT.json',payload)
     # Pure metadata size forecast only; never writes an approval or calls prepare.
-    approval=prepare.base_approval_bundle(manifest,bundle_key=config['bundle_key'],bundle_version=config['bundle_version'],approval_note=config['approval_note'],manifest_path='manifests/public215-r7.json',manifest_checksum='1'*64)
+    approval=prepare.base_approval_bundle(manifest,bundle_key=config['bundle_key'],bundle_version=config['bundle_version'],approval_note=config['approval_note'],manifest_path='manifests/'+pins['draft_name']+'.json',manifest_checksum='1'*64)
     forecast=prepare.canonical_json(approval);need(len(forecast)<=1000000,'APPROVAL_PAYLOAD_ONE_MB')
     # Read-only full contract validation with a temporary in-memory identity;
     # no approved manifest or approval payload is persisted.
     audit=copy.deepcopy(manifest);audit['input_bundle_checksum']=contract.input_bundle_checksum(approval);audit['input_bundle_id']=contract.input_bundle_id(audit['input_bundle_checksum'])
     codec.validate_manifest_metadata(audit,out,contract.parse_source_combo_order((out/original['source_combo_order_path']).read_text()),verify_inputs=True)
-    report={'format':'public_hist215_official_input_DRAFT_receipt_v1','status':'DRAFT_NOT_APPROVED_NOT_CAPTURED','config_sha256':config_sha,'assembler_sha256':sha(Path(__file__).read_bytes()),'manifest':receipt,'pipeline_commit':PRODUCER,'M1_harvest_scenarios':6099,'M2_candidate_scenarios':2147,'self_test_scenarios':1,'total_scenarios':8247,'approval_payload_forecast_bytes':len(forecast),'M2_seed_read':False,'M2_selection_performed':False,'solver_labels_read':False,'capture_authorized':False}
+    report={'format':'public_hist215_official_input_DRAFT_receipt_v1','status':'DRAFT_NOT_APPROVED_NOT_CAPTURED','config_sha256':config_sha,'assembler_sha256':sha(Path(__file__).read_bytes()),'manifest':receipt,'pipeline_commit':producer,'M1_harvest_scenarios':m1_n,'M2_candidate_scenarios':m2_n,'self_test_scenarios':1,'total_scenarios':m1_n+m2_n+1,'approval_payload_forecast_bytes':len(forecast),'M2_seed_read':False,'M2_selection_performed':False,'solver_labels_read':False,'capture_authorized':False}
     new_file(out,'draft-assembly-receipt.json',codec.canonical_bytes(report));return report
 
 def main():
