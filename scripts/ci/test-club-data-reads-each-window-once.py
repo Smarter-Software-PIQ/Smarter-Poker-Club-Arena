@@ -10,6 +10,7 @@ every output to be identical. The newest-games walk is exercised on both of
 its outcomes: rows proved and returned, and a refusal that falls back to the
 page core. No production access.
 """
+import json
 import os
 import shutil
 import socket
@@ -276,6 +277,50 @@ try:
     require(True, "player authorization and replay refusal retained")
     print("EARNED_READER_MD5=" + q("live", "SELECT md5(pg_get_functiondef('public.ca_club_data_screen(uuid,date,date,text,text,text,integer)'::regprocedure))"), flush=True)
     require(q("live", "SELECT NOT has_function_privilege('anon','public.ca_club_data_screen(uuid,date,date,text,text,text,integer)','EXECUTE') AND has_function_privilege('authenticated','public.ca_club_data_screen(uuid,date,date,text,text,text,integer)','EXECUTE')") == 't', "existing Data reader ACL preserved")
+
+    # Install the authoritative attribution view and the page reader's November 2 relation edit.
+    q("live", "CREATE TABLE ca_horse_club_assignments(horse_id uuid PRIMARY KEY,club_id uuid NOT NULL)")
+    view_sql = (M / "20261102215504_horses_fully_leave_old_clubs_and_take_their_stats.sql").read_text()
+    view_start = view_sql.index("CREATE OR REPLACE VIEW public.ca_stats_club_data_fact_ct AS")
+    run(psql("live"), view_sql[view_start:view_sql.index(";", view_start) + 1])
+    core_sig = "public.ca_club_game_page_core_20261006(uuid,date,date,text,text,text,text,jsonb,integer)"
+    q("live", f"DO $$ BEGIN EXECUTE replace(pg_get_functiondef('{core_sig}'::regprocedure), "
+              "'public.ca_club_data_fact_ct ', 'public.ca_stats_club_data_fact_ct '); END $$")
+    run(psql("live"), (FIXTURE2.parent / "metric-attribution.sql").read_text())
+    kings = "a41434bb-8d0c-400a-8f0d-e8b3d65afed4"
+    ordinary = "a4143400-0000-0000-0000-000000000001"
+
+    def ranked(club, sort, size=200, cursor=None):
+        value = json.dumps(cursor)
+        sql = (f"SELECT set_config('test.uid','{owner}',false); "
+               f"SELECT public.ca_club_game_page_core_20261006('{club}','2026-10-18','2026-10-18',"
+               f"'ALL','ALL',NULL,'{sort}',NULLIF('{value}'::jsonb,'null'::jsonb),{size}) - 'generated_at';")
+        return json.loads(q("live", sql).splitlines()[-1])
+
+    require(ranked(kings, "fee")["filtered_count"] == 4, "baseline reproduces the extra Horse-only game")
+    baseline_recent = ranked(kings, "recent")
+    require(baseline_recent["filtered_count"] == 4 and any(r["id"].endswith("e2") for r in baseline_recent["rows"]),
+            "Recent core and snapshot fallback admit the Horse-only table before installation")
+    # The union fixture's owner can view this ordinary club.
+    q("live", f"INSERT INTO club_members(club_id,user_id,role,status) VALUES ('{ordinary}','{owner}','owner','active') ON CONFLICT DO NOTHING")
+    ordinary_pages = {sort: ranked(ordinary, sort) for sort in ("fee", "recent")}
+    metric_fix = (M / "20261107031542_club_metric_page_uses_report_attribution.sql").read_text()
+    run(psql("live"), metric_fix)
+    require(all(ranked(ordinary, sort) == page for sort, page in ordinary_pages.items()),
+            "ordinary club metric and Recent responses stay unchanged")
+    expected = {"e1": (-4, -10), "e3": (6, 22), "e4": (0, 12)}
+    for sort in ("fee", "hands", "winnings", "recent"):
+        page = ranked(kings, sort)
+        rows = {r["id"][-2:]: (r["fee_exact"], r["winnings"]) for r in page["rows"]}
+        require(page["filtered_count"] == len(expected) and rows == expected,
+                f"{sort}: counted and displayed human, mixed and felt-only games reconcile")
+        first = ranked(kings, sort, 1)
+        second = ranked(kings, sort, 2, first["next_cursor"])
+        require(first["has_more"] and not second["has_more"] and first["rows"] + second["rows"] == page["rows"],
+                f"{sort}: continuation covers each scoped game once")
+    assigned = {r["id"][-2:]: r["fee_exact"] for r in ranked(J, "fee")["rows"]}
+    require(assigned.get("e1") == 90 and assigned.get("e2") == 100, "assigned club includes its Horse fee on both games")
+    run(psql("live"), metric_fix, expect_fail="preimage changed")
 
 finally:
     if started:

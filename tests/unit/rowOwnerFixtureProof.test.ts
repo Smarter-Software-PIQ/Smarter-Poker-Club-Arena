@@ -11,6 +11,23 @@ it('delivers real rows from an isolated target and retires it on every outcome',
   expect(browser).toContain('owner.updates > 0');
   expect(browser).toContain('.toBeGreaterThan(afterUnmount)');
   expect(browser).not.toContain('naturalTrafficOnly: true');
+  const readiness = browser.slice(
+    browser.indexOf('const editor ='),
+    browser.indexOf('const originalNickname')
+  );
+  expect(readiness).toContain("'/rest/v1/rpc/ca_club_member_detail'");
+  expect(readiness).toContain('body?.p_club_id !== CLUB_ID || body?.p_user_id !== target.id');
+  expect(readiness).toContain('detailStatus = candidate.status()');
+  expect(readiness).toContain(
+    'return candidate.ok() || detailStatus === 401 || detailStatus === 403'
+  );
+  expect(readiness.indexOf('editor.waitForResponse')).toBeLessThan(
+    readiness.indexOf('editor.goto')
+  );
+  expect(readiness).toContain('detail?.identity?.user_id === target.id');
+  expect(readiness).toContain('detail?.capabilities?.can_view_notes');
+  expect(readiness).toContain('detail?.capabilities?.can_edit_notes');
+  expect(readiness.indexOf('can_edit_notes')).toBeLessThan(readiness.indexOf('toBeEditable'));
   const create = workflow.indexOf('name: Prepare the isolated row-delivery target');
   const suite = workflow.indexOf('name: Run the specs that need a deployed page');
   const cleanup = workflow.indexOf('name: Retire the isolated row-delivery target');
@@ -33,9 +50,9 @@ it('delivers real rows from an isolated target and retires it on every outcome',
 
 it('waits for target authority before testing the editor and records the editor on failure', () => {
   const browser = readFileSync('tests/e2e/production-row-channel-owners.spec.ts', 'utf8');
-  const response = browser.indexOf('const detailRead = editor.waitForResponse');
-  const navigation = browser.indexOf('await editor.goto');
-  const loaded = browser.indexOf('const response = await detailRead');
+  const response = browser.indexOf('editor.waitForResponse');
+  const navigation = browser.indexOf('editor.goto');
+  const loaded = browser.indexOf('const detail = await response.json()');
   const editable = browser.indexOf('await expect(nickname).toBeEditable()');
   expect(response).toBeGreaterThan(0);
   expect(response).toBeLessThan(navigation);
@@ -44,5 +61,6 @@ it('waits for target authority before testing the editor and records the editor 
   expect(browser.slice(loaded, editable)).toContain('detail?.identity?.user_id');
   expect(browser.slice(loaded, editable)).toContain('detail?.capabilities?.can_edit_notes');
   expect(browser).toContain('row-owner-editor-readiness.json');
-  expect(browser).toContain("await editor.locator('body').innerText()");
+  expect(browser).toContain('pathname: new URL(editor.url()).pathname, detailStatus');
+  expect(browser).toContain('await editor.close()');
 });

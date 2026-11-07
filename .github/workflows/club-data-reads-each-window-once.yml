@@ -11,6 +11,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - supabase/migrations/20261107031542_club_metric_page_uses_report_attribution.sql
       - supabase/migrations/20261029054242_club_data_player_search_matches_player_identities_before_its.sql
       - scripts/ci/fixtures/agent-data-boundary/data-player-search-contract.py
       - scripts/ci/test-agent-data-boundary-postgres.py
