@@ -211,7 +211,7 @@ def main():
   diagnostic=next((root/'supabase/migrations').glob('*_satellite_refusals_identify_the_failed_target_invariant.sql'))
   e.sql(db,file=diagnostic,label='target-refusal-migration')
   e.sql(db,file=refusal_scene,label='target-refusal-new-green',seconds=180)
-  chair=next((root/'supabase/migrations').glob('*_single_winner_satellite_seats_the_awarded_running_target_entry.sql'))
+  chair=next((root/'supabase/migrations').glob('*_single_winner_satellite_seats_its_running_target_entry.sql'))
   e.sql(db,file=chair,label='single-running-chair-migration')
   e.sql(db,file=single_live_scene,label='single-live-field-new-green',seconds=180)
   qualify_concurrent_consumption(e,root,native,db,output,seed,scene.read_text(),diamond_seed,(fixture/'native-diamond-cases.sql').read_text())
