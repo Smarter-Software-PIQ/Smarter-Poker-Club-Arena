@@ -692,19 +692,30 @@ describe('tournament levels belong to the hand that was created with them', () =
     engine.allocateGlobalHandNumber = async () => 100;
     engine.armNextHandRest(60_000);
     await engine.prepareNextHand();
-    let releaseRest!: () => void;
+    // Dan 2026-11-06: the blind read starts BLIND_READ_LEAD_MS before the rest
+    // ends instead of after it, so it no longer adds a round trip to every
+    // tournament gap. A level reached before that moment is the one dealt.
+    const releases: Array<() => void> = [];
     const sleep = vi.spyOn(engine, 'sleep').mockImplementation(
       () =>
         new Promise<void>((resolve) => {
-          releaseRest = resolve;
+          releases.push(resolve);
         })
     );
+    const flush = async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    };
     const rest = engine.awaitNextHandRest();
-    await Promise.resolve();
-    await Promise.resolve();
+    await flush();
     expect(sleep).toHaveBeenCalledOnce();
+    expect(loadTournamentBlinds).not.toHaveBeenCalled();
     loadTournamentBlinds.mockResolvedValue({ ...engine.tableInfo, ...levelTwo });
-    releaseRest();
+    releases.shift()!();
+    await flush();
+    // The read is in flight while the last slice of the rest still sleeps.
+    expect(loadTournamentBlinds).toHaveBeenCalledOnce();
+    expect(sleep).toHaveBeenCalledTimes(2);
+    releases.shift()!();
     await rest;
     expect(loadTournamentBlinds).toHaveBeenCalledOnce();
     const hand = await deal();

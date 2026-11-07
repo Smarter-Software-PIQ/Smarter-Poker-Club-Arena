@@ -352,10 +352,13 @@ describe('LAW: animations land where they aim, at the speed the player chose', (
 });
 
 describe('LAW: the end-of-hand cadence plays in order, every hand', () => {
-  it('the button beat holds the deal start at HAND_STARTED', () => {
-    // "…PAUSE 1 SECOND, MOVE THE BUTTON ANIMATION… START DEALING NEXT HAND."
-    // The puck glides alone, lands with its tock, THEN the cards fly.
-    expect(TABLE_PAGE).toContain('HAND_COMPLETION.BUTTON_MOVE_MS * getAnimationSpeed()');
+  it('the deal starts at HAND_STARTED while the button glides', () => {
+    // 2026-08-27: "…PAUSE 1 SECOND, MOVE THE BUTTON ANIMATION… START DEALING
+    // NEXT HAND." Superseded 2026-11-06 ("I ONLY CARE HOW LONG IT TAKES TO
+    // START THE NEXT HAND DEAL AFTER THE POT IS PUSHED"): the puck still
+    // glides, and the cards fly with it. One scheduler, one shared number.
+    expect(TABLE_PAGE).toContain('HAND_COMPLETION.BUTTON_TO_DEAL_MS * getAnimationSpeed()');
+    expect(TABLE_PAGE).not.toContain('HAND_COMPLETION.BUTTON_MOVE_MS * getAnimationSpeed()');
   });
 
   it('normal and transport-gap deals share the exact same scheduler', () => {

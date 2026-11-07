@@ -58,7 +58,14 @@ describe('every beat is inside the hold', () => {
     // than a full second. Pinned exactly, not as a floor, because the number
     // is a deliberate product choice both ways — put 1000 back here and in
     // handCompletionSpec together if the new rhythm reads as rushed.
-    expect(HAND_COMPLETION.POST_PUSH_PAUSE_MS).toBe(400);
+    //
+    // 2026-11-06: "I ONLY CARE HOW LONG IT TAKES TO START THE NEXT HAND DEAL
+    // AFTER THE POT IS PUSHED TO THE WINNER." The post-push pause and the
+    // rest were two rests in a row; the rest is the pause now. The shape is
+    // unchanged: the pot lands, then a pause of at least the one second of
+    // 2026-08-27 (the Rabbit Hunt rest Dan set for ALL hands), then the button.
+    expect(HAND_COMPLETION.POST_PUSH_PAUSE_MS).toBe(0);
+    expect(HAND_COMPLETION.NEXT_HAND_REST_MS).toBeGreaterThanOrEqual(1000);
     // The button beat exists and covers the 600ms CSS glide with settle. It
     // is NOT in the engine hold (the client cannot know the new button seat
     // until HAND_STARTED arrives) — TablePage delays the deal start by it.

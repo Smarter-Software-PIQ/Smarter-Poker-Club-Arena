@@ -4681,6 +4681,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     }
   }
 
+  /**
+   * The latest wall-clock failsafe the reveal gates placed on each table, so
+   * the table's last finished chest gives back exactly that hold.
+   */
+  private readonly bountyGateFailsafeHolds = new Map<string, number>();
+
   /** Close the table's dealing gate for one award. Never throws. */
   private openBountyGate(tableId: string | null, awardId: string, deadlineMs: number): void {
     if (!tableId) return;
@@ -4692,18 +4698,42 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       // that predates the gate still stops on this one, and it is what the
       // spin wheel already uses so the two cannot fight.
       engine.holdDealingUntil(deadlineMs);
+      this.bountyGateFailsafeHolds.set(
+        tableId,
+        Math.max(this.bountyGateFailsafeHolds.get(tableId) ?? 0, deadlineMs)
+      );
     } catch {
       /* the hold is presentation; never let it break the payout path */
     }
   }
 
-  /** Re-open the table's dealing gate. */
+  /**
+   * Re-open the table's dealing gate.
+   *
+   * A CHEST THAT HAS FINISHED HOLDS NOTHING (Dan 2026-11-06, "I ONLY CARE HOW
+   * LONG IT TAKES TO START THE NEXT HAND DEAL AFTER THE POT IS PUSHED"). This
+   * used to release only the count gate. The failsafe deadline above stood
+   * until it expired on its own: coalesce + chest + 15 s, about 30 s, while the
+   * chest itself is about 15 s. Production 2026-11-06: every knockout at the
+   * Union and Evening Mystery Bounty final tables waited 34-35 s for its next
+   * hand. The failsafe is now given back with its gate. releaseDealingHold
+   * only clears the deadline still in force, so a later award's deadline, the
+   * spin wheel, a booked start or an add-on break is never shortened, and an
+   * award whose settle path died still has its failsafe.
+   */
   private closeBountyGate(tableId: string | null, awardId: string): void {
     if (!tableId) return;
     const engine = this.tableEngines.get(tableId);
     if (!engine) return;
     try {
       engine.endBountyReveal(awardId);
+      // Only once no other chest still holds this table, and only the latest
+      // deadline any of its chests placed, whatever order they finished in.
+      const failsafe = this.bountyGateFailsafeHolds.get(tableId);
+      if (failsafe !== undefined && !engine.hasOpenBountyReveal()) {
+        this.bountyGateFailsafeHolds.delete(tableId);
+        engine.releaseDealingHold(failsafe);
+      }
     } catch {
       /* nothing to release */
     }

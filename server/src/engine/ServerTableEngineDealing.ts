@@ -1773,25 +1773,55 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     this.gapSawIdle = false;
   }
 
+  /**
+   * THE BLIND READ RIDES THE END OF THE REST (Dan 2026-11-06, "I ONLY CARE HOW
+   * LONG IT TAKES TO START THE NEXT HAND DEAL AFTER THE POT IS PUSHED TO THE
+   * WINNER").
+   *
+   * The tournament stakes read is one PostgREST round trip (production
+   * /health 2026-11-06: p50 119 ms, p90 173 ms, slowest 794 ms) and it used to
+   * start only once the rest had fully elapsed, so every tournament hand paid
+   * it on top of the rest. It now starts this long before the rest ends, and
+   * the deal waits for whichever finishes last. A level that advances inside
+   * that final slice is dealt one hand later, which is the same as its clock
+   * firing a fraction of a second later; nothing reads a level mid-hand.
+   */
+  static readonly BLIND_READ_LEAD_MS = 600;
+
   protected async awaitNextHandRest(): Promise<void> {
     await this.settlePreparedHandNumber();
-    if (this.nextHandNotBeforeMs !== null) {
-      const remaining = this.nextHandNotBeforeMs - Date.now();
-      if (remaining > 0) {
-        this.setLoopPhase('next_hand_rest');
-        await this.sleep(remaining);
-      }
-      this.nextHandNotBeforeMs = null;
-    }
-    // A level may advance while the prepared roster waits under the rest.
-    // Read the tournament stakes here, before the caller rechecks its lease
-    // and pause gates. This replaces the earlier prefetched blind read.
-    if (this.isTournamentTable()) {
-      await this.withStepBudget(
+    let blindRead: Promise<unknown> | null = null;
+    const startBlindRead = (): void => {
+      if (blindRead || !this.isTournamentTable()) return;
+      blindRead = this.withStepBudget(
         'refresh_blinds',
         ServerTableEngineBase.DEAL_STEP_BUDGET_MS,
         this.refreshBlinds()
       );
+      // Observed below; never an unhandled rejection while the rest sleeps.
+      blindRead.catch(() => undefined);
+    };
+    if (this.nextHandNotBeforeMs !== null) {
+      const remaining = this.nextHandNotBeforeMs - Date.now();
+      if (remaining > 0) {
+        this.setLoopPhase('next_hand_rest');
+        const lead = Math.min(remaining, ServerTableEngineDealing.BLIND_READ_LEAD_MS);
+        if (remaining > lead) await this.sleep(remaining - lead);
+        startBlindRead();
+        // withStepBudget names its own phase; the felt is still resting.
+        this.setLoopPhase('next_hand_rest');
+        const left = (this.nextHandNotBeforeMs ?? Date.now()) - Date.now();
+        if (left > 0) await this.sleep(left);
+      }
+      this.nextHandNotBeforeMs = null;
+    }
+    // A level may advance while the prepared roster waits under the rest.
+    // Read the tournament stakes before the caller rechecks its lease and
+    // pause gates; started inside the rest above when there was one.
+    startBlindRead();
+    if (blindRead) {
+      this.setLoopPhase('refresh_blinds');
+      await blindRead;
     }
     if (this.lastCompletionAtMs !== null && !this.gapSawIdle) {
       const now = Date.now();
