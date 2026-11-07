@@ -46,10 +46,14 @@
  * on main is read by the red-main detector in production-integrity-audit.yml
  * (CLAUDE.md 10.83).
  *
- * ORDER. Queued files are sent oldest first, but a skipped file installs a
- * day later than the files behind it. A window file that depends on an
- * earlier window file must therefore assert its prerequisite itself (and
- * fail loudly, which is a refusal) rather than assume the order held.
+ * ORDER. Files declaring no "-- @locks:" line are sent first, oldest version
+ * first; files declaring the hot relations they lock follow, grouped so that
+ * files sharing a relation are adjacent and oldest first inside the group
+ * (orderWindowQueue, "A WINDOW MIGRATION NAMES THE LOCK IT NEEDS" in
+ * maintenance-window-migrations.mjs). A skipped file still installs a day
+ * later than the files behind it. A window file that depends on an earlier
+ * window file must therefore assert its prerequisite itself (and fail loudly,
+ * which is a refusal) rather than assume the order held.
  */
 import { readOwnerMigrationWindow, ownerWindowState } from './owner-window-migration.mjs';
 import { readdirSync, readFileSync, appendFileSync } from 'node:fs';
@@ -68,6 +72,11 @@ import {
   QUIET_POLL_MS,
   quietWaitBudgetMs,
   describeHolders,
+  windowLocks,
+  orderWindowQueue,
+  lostRelationsFromRefusal,
+  isLockTimeoutRefusal,
+  lostDeclaredRelations,
 } from './maintenance-window-migrations.mjs';
 import { splitConcurrentPreamble } from './migration-concurrent-preamble.mjs';
 import { supersededBy } from './check-migrations-are-live.mjs';
@@ -182,16 +191,33 @@ if (queued.length === 0)
   finish(0, `NOTHING QUEUED (${declared.length} declared migration(s), all recorded)`);
 say(`queued: ${queued.map((f) => `\`${f}\``).join(', ')}`);
 
+const declaredLocks = new Map();
 for (const f of queued) {
   const sql = readFileSync(join(DIR, f), 'utf8');
   const shape = splitConcurrentPreamble(sql);
   try {
     if (!shape.ok) throw new Error(`${f}: ${shape.reason}`);
     validateWindowMigration(f, sql, { preamble: shape.indexes });
+    declaredLocks.set(f, windowLocks(sql));
   } catch (e) {
     finish(1, `REFUSED before waiting - ${e.message}. Nothing was sent; fix it in a pull request.`);
   }
 }
+// Send order: files declaring no "-- @locks:" first, oldest first, then the
+// declared files grouped by shared relation, oldest first inside each group.
+// Advisory for ordering only; nothing about any file's transaction changes.
+queued = orderWindowQueue(queued.map((f) => ({ file: f, locks: declaredLocks.get(f) }))).map(
+  (e) => e.file
+);
+if (queued.some((f) => declaredLocks.get(f).length > 0))
+  say(
+    `send order: ${queued
+      .map((f) => {
+        const locks = declaredLocks.get(f);
+        return `\`${f}\`${locks.length ? ` (locks ${locks.join(', ')})` : ''}`;
+      })
+      .join(', ')}`
+  );
 
 // Explicit controller admission checks exact history and static SQL BEFORE
 // reserving any announcement. This branch never waits or sends a migration.
@@ -324,11 +350,17 @@ const passthrough = argValue('--ssl-root-cert')
 // from schema_migrations before anything else is sent.
 const installed = [];
 const skipped = [];
+const lost = new Map(); // skipped file -> relations its refusal lost, when known
+const lostNote = (f) => (lost.get(f)?.length ? ` (lost ${lost.get(f).join(', ')})` : '');
 for (const f of queued) {
   const started = Date.now();
   const targets = lockTargets(readFileSync(join(DIR, f), 'utf8'));
+  const declared = declaredLocks.get(f) || [];
   await awaitQuietMoment(f, targets);
   const sent = Date.now();
+  // The applier's stdout streams through; its stderr is captured so the
+  // refusal it prints ([apply] ... 55P03: ...) can be read, and re-emitted
+  // unchanged so the log still carries every line.
   const run = spawnSync(
     process.execPath,
     [
@@ -339,8 +371,10 @@ for (const f of queued) {
       ...(ownerWindow ? ['--owner-window', ownerWindow.id] : []),
       ...passthrough,
     ],
-    { stdio: 'inherit', env: process.env, timeout: 60_000 }
+    { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8', env: process.env, timeout: 60_000 }
   );
+  const refusalText = run.stderr || '';
+  if (refusalText) process.stderr.write(refusalText);
   // The send itself; the quiet wait before it is reported on its own line.
   const ms = Date.now() - sent;
   const waitedMs = sent - started;
@@ -351,12 +385,14 @@ for (const f of queued) {
     );
     continue;
   }
+  let heldAfter = null;
   if (run.status === 1 && targets.length > 0) {
     // Name who held the tables at the refusal, so the owning lane can act on
     // a pid and a query instead of a guess (2026-11-07: the Free Buy refusal
     // could not be attributed because nothing recorded the holder).
     try {
       const row = await holdersAfterRefusal(targets);
+      heldAfter = row.holders || [];
       say(`holders of ${targets.map((t) => t.relation).join(', ')} after the refusal: ${describeHolders(row.holders) || 'none'}`);
     } catch (e) {
       say(`holders after the refusal were unreadable: ${e.message}`);
@@ -364,9 +400,28 @@ for (const f of queued) {
   }
   if (run.status === 1) {
     skipped.push(f);
+    // The relation the refusal lost: named outright by a NOWAIT refusal, or
+    // for a lock_timeout (55P03) the declared relation a transaction still
+    // held at the refusal. Naming only; the file is treated exactly the same.
+    let relations = lostRelationsFromRefusal(refusalText);
+    if (relations.length === 0 && declared.length > 0 && isLockTimeoutRefusal(refusalText)) {
+      if (heldAfter === null) {
+        try {
+          const row = await holdersAfterRefusal(
+            declared.map((relation) => ({ relation, mode: 'AccessExclusiveLock' }))
+          );
+          heldAfter = row.holders || [];
+        } catch {
+          heldAfter = [];
+        }
+      }
+      relations = lostDeclaredRelations(declared, heldAfter);
+    }
+    if (relations.length) lost.set(f, relations);
     say(
       `SKIPPED \`${f}\`: REFUSED after ${ms} ms - rolled back, nothing committed, see the log above. ` +
-        'It stays queued for the next daily window. Not retried; the next queued file is sent.'
+        'It stays queued for the next daily window. Not retried; the next queued file is sent.' +
+        (relations.length ? ` Lost its lock on ${relations.join(', ')}.` : '')
     );
     continue;
   }
@@ -375,14 +430,14 @@ for (const f of queued) {
     3,
     `UNKNOWN \`${f}\` (exit ${run.status ?? run.signal}) - read schema_migrations for it before anything else. ` +
       `Not retried; ${rest.length} later migration(s) were not sent` +
-      `${skipped.length ? `; skipped (refused, still queued): ${skipped.map((s) => `\`${s}\``).join(', ')}` : ''}.`
+      `${skipped.length ? `; skipped (refused, still queued): ${skipped.map((s) => `\`${s}\`${lostNote(s)}`).join(', ')}` : ''}.`
   );
 }
 if (skipped.length)
   finish(
     1,
     `REFUSED ${skipped.length} of ${queued.length} migration(s) - skipped (rolled back, still queued for the next daily window): ` +
-      `${skipped.map((s) => `\`${s}\``).join(', ')}; installed ${installed.length}: ` +
+      `${skipped.map((s) => `\`${s}\`${lostNote(s)}`).join(', ')}; installed ${installed.length}: ` +
       `${installed.map((s) => `\`${s}\``).join(', ') || 'none'}. Not retried.`
   );
 finish(0, `INSTALLED ${queued.length} migration(s) inside the daily maintenance freeze`);

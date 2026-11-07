@@ -324,7 +324,12 @@ supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS`, and each
     committed only with 100 s to spare before the thaw. A refusal rolls that
     file back alone, leaves it queued for the next day and turns the run red
     naming it; the queued files behind it are still sent once each (since
-    2026-11-07; an UNKNOWN outcome still stops the run). "Queued" is simply "on main and not in schema_migrations"; never
+    2026-11-07; an UNKNOWN outcome still stops the run). A file may name
+    the hot relations it locks on one `-- @locks: public.clubs, public.tables`
+    line: the installer then sends undeclared files first (oldest first), then
+    declared files grouped by shared relation and oldest first, and a skipped
+    file's line names the relation it lost; the line orders only and never
+    widens a timeout or earns a retry. "Queued" is simply "on main and not in schema_migrations"; never
     apply a declared file by hand or through the MCP. Window files may not
     set their own override, freeze bypass, longer timeouts, sleeps, blocking
     advisory locks or CONCURRENTLY preambles, and the freeze still refuses
