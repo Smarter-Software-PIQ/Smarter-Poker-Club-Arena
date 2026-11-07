@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
-import { retireTerminalWelcomeFixture } from './reserved-terminal-welcome-fixture.mjs';
+import {
+  retireTerminalWelcomeFixture,
+  preparedTerminalStaffClubs,
+} from './reserved-terminal-welcome-fixture.mjs';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -1772,6 +1775,40 @@ export async function retireProductionCreateClubFixtures({
     )
   ) {
     throw new Error('Retained Terminal Fixture Persistence Readback Refused.');
+  }
+  if (retained.length && terminalFixtureOnly) {
+    const memberships = await serviceRequest(
+      configuration,
+      `/rest/v1/club_members?user_id=eq.${encodeURIComponent(account.id)}&select=club_id,user_id,role,status`,
+      {},
+      fetchImpl
+    );
+    if (
+      !Array.isArray(memberships) ||
+      memberships.length !== 1 ||
+      memberships[0].user_id !== account.id ||
+      memberships[0].role !== 'owner' ||
+      !retained.includes(String(memberships[0].club_id))
+    ) {
+      throw new Error('Retained Terminal Fixture Still Holds Nonhistorical Membership Authority.');
+    }
+    const authorityChecks = [
+      ...preparedTerminalStaffClubs.map((club) => ['fn_club_is_staff', club]),
+      ...[...preparedTerminalStaffClubs, ...retained].map((club) => ['fn_can_create_games', club]),
+    ];
+    const authority = await Promise.all(
+      authorityChecks.map(([rpc, club]) =>
+        serviceRequest(
+          configuration,
+          `/rest/v1/rpc/${rpc}`,
+          { method: 'POST', body: JSON.stringify({ p_club_id: club, p_user_id: account.id }) },
+          fetchImpl
+        )
+      )
+    );
+    if (authority.some((allowed) => allowed !== false)) {
+      throw new Error('Retained Terminal Fixture Live Authority Readback Refused.');
+    }
   }
   const left = Array.isArray(remaining)
     ? remaining.filter((club) => !retained.includes(String(club?.id)))

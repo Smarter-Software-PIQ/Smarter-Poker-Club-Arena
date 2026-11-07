@@ -79,8 +79,23 @@ CREATE TEMP TABLE terminal_before AS SELECT t.id,t.ended_at,b.id AS table_id,b.s
  FROM tournaments t JOIN tables b ON b.tournament_id=t.id JOIN tournament_cancellation_receipts r ON r.tournament_id=t.id
  WHERE t.club_id='{club}';
 DO $x$ DECLARE result jsonb; BEGIN
+ IF (SELECT chip_treasury FROM clubs WHERE id='{club}') IS DISTINCT FROM 99700::numeric
+ OR (SELECT count(*) FROM club_welcome_package_receipts WHERE club_id='{club}')<>1
+ OR EXISTS(SELECT 1 FROM club_welcome_reset_receipts WHERE club_id='{club}')
+ OR (SELECT count(*) FROM club_welcome_package_funding WHERE club_id='{club}')<>2
+ OR (SELECT sum(amount) FROM club_welcome_package_funding WHERE club_id='{club}' AND destination='bbj_main') IS DISTINCT FROM 100::numeric
+ OR (SELECT sum(amount) FROM club_welcome_package_funding WHERE club_id='{club}' AND destination='spin_reserve') IS DISTINCT FROM 200::numeric
+ OR (SELECT main_balance FROM bbj_pools WHERE club_id='{club}') IS DISTINCT FROM 100::numeric
+ OR (SELECT balance FROM spin_bonus_pools WHERE club_id='{club}') IS DISTINCT FROM 200::numeric
+ THEN RAISE EXCEPTION 'funded welcome producer missing before normal unwind'; END IF;
  result:=fn_unwind_unused_first_club_welcome_package('{club}',gen_random_uuid());
  IF result->>'ok' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'normal unwind refused: %',result; END IF;
+ IF (SELECT chip_treasury FROM clubs WHERE id='{club}') IS DISTINCT FROM 100000::numeric
+ OR (SELECT main_balance FROM bbj_pools WHERE club_id='{club}') IS DISTINCT FROM 0::numeric
+ OR (SELECT balance FROM spin_bonus_pools WHERE club_id='{club}') IS DISTINCT FROM 0::numeric
+ OR (SELECT is_active FROM spin_bonus_pools WHERE club_id='{club}') IS DISTINCT FROM false
+ OR (SELECT count(*) FROM club_welcome_reset_receipts WHERE club_id='{club}')<>1
+ THEN RAISE EXCEPTION 'normal unwind did not return actual 100 BBJ plus 200 Spin principal'; END IF;
  IF (SELECT safe_terminal_template FROM terminal_proof) IS DISTINCT FROM true THEN RAISE EXCEPTION 'normal unwind changed terminal lineage'; END IF;
  IF EXISTS(SELECT 1 FROM terminal_before old LEFT JOIN tournaments t ON t.id=old.id
  LEFT JOIN tables b ON b.id=old.table_id LEFT JOIN tournament_cancellation_receipts r ON r.tournament_id=t.id
@@ -92,3 +107,6 @@ END $x$;
 """
     setup += "ROLLBACK; SELECT 'terminal admission positive and seven refusal boundaries passed';"
     run('reserved-terminal-welcome-receipt-native', setup, 'terminal admission positive and seven refusal boundaries passed')
+
+    from terminal_staff_native import qualify as qualify_staff
+    qualify_staff(scope, setup, owner, club, request, email)
