@@ -588,6 +588,12 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
         '  https://www.postgresql.org/media/keys/ACCC4CF8.asc',
       ].join('\n')
     );
+    // PostgreSQL apt fetches retry with capped back-off (2026-11-07, pinned by
+    // tests/postgres-packages-ride-out-a-network-drop.law.test.ts): remove
+    // exactly those two options from the one apt array.
+    const keySetupRetries = ' -o "Acquire::Retries=8" -o "Acquire::Retries::Delay::Maximum=60"';
+    expect(keySetup.run.split(keySetupRetries)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(keySetupRetries, '');
     const freezeArmingStep = {
       name: 'The finalized-pool freeze refuses what arming it would refuse',
       if: 'matrix.shard == 1',

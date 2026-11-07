@@ -18,7 +18,7 @@
     "tests/weekly-quality-typed-source-maps-preserve-verdicts.law.test.ts": "94190b0f8a7cf6c1af52ba6162f456ade6a54a7b7fd1397b2598d5ea06a0e351",
     "docs/laws.d/weekly-quality-typed-source-maps-preserve-verdicts.md": "c14e66d95652cffe8daa70d7ca502e86c27bca4d8feb3bdfb9508ba36d18062d",
     "docs/changelog/2026-10-28-weekly-quality-typed-source-maps.md": "6fbd2544883c6dd525461f48ccc69da744fa5f26389e6b859d785339b4edeae8",
-    ".github/workflows/weekly-close-hour-guard.yml": "267a34c03ad415da0788d081f615c29ce392ae5e547e443479a68d6f64b97ae1",
+    ".github/workflows/weekly-close-hour-guard.yml": "2d09f43ed353b13069857f45dd4161be20a9bf48578fad09ee641ee244cc8cd3",
     "scripts/ci/fixtures/weekly-statement-indexed-quality/schema.sql": "268e8e2056fd532ad6f1680aeec5b5e27f7c18f532daaf727a759d9ccf7a8f38",
     "scripts/ci/fixtures/weekly-statement-indexed-quality/installer-authorities.sql": "6f889b3bfba8638bc2a52c2b43cf639cd17e8c483aedd0d512f1aa2022e15f2f",
     "docs/changelog/2026-10-28-weekly-quality-installer-read-boundaries.md": "432b6d02df58ba0ef4760153b5ea79f9a6ace3c54aef6418fd758471f3f559c0"
@@ -68,5 +68,15 @@
     },
     "review": "The only change in this workflow is the PostgreSQL apt signing-key download (a three-line sudo curl of ACCC4CF8.asc from www.postgresql.org) replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8, sha256 0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76). Same destination path, same apt verification of every package; triggers, jobs, steps, commands and qualification inputs are otherwise byte-identical. No financial, native or production qualification is restamped or claimed.",
     "reason": "2026-11-07: the key download failed with curl (55) SSL EOF in at least 11 jobs before any test ran, including a backup-engine certification run."
+  },
+  "postgresPackagesRideOutANetworkDrop20261107": {
+    "paths": {
+      ".github/workflows/weekly-close-hour-guard.yml": {
+        "before": "267a34c03ad415da0788d081f615c29ce392ae5e547e443479a68d6f64b97ae1",
+        "after": "2d09f43ed353b13069857f45dd4161be20a9bf48578fad09ee641ee244cc8cd3"
+      }
+    },
+    "review": "The only change in this pinned file is the PostgreSQL apt option array gaining -o \"Acquire::Retries=8\" -o \"Acquire::Retries::Delay::Maximum=60\" (for scripts/qualification/ci-accounting-inputs.json, the same text inside its regenerated projection of ci.yml). Sources, signing key, packages and every test are unchanged; no financial, native or production qualification is restamped or claimed.",
+    "reason": "2026-11-07: accounting shard 5 of #9933 failed before any test ran when every postgresql-17 fetch from apt.postgresql.org failed in one second with Network is unreachable."
   }
 }

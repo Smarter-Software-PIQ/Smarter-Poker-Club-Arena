@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 146085,
-      "sha256": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
+      "bytes": 146154,
+      "sha256": "2bd85f3408f971e0194c92a2a52f0d6b7daaece548a0df6af60842625668156e"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77125,
@@ -7144,6 +7144,21 @@
         "current": {
           "bytes": 146085,
           "sha256": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
+        }
+      }
+    }
+  },
+  "postgresPackagesRideOutANetworkDropSourceAudit20261107": {
+    "reason": "Reviewed exact diff: the accounting job's PostgreSQL apt option array gains -o \"Acquire::Retries=8\" -o \"Acquire::Retries::Delay::Maximum=60\" so a short apt.postgresql.org network drop (2026-11-07, #9933 accounting shard 5: Network is unreachable) is retried inside the job. ci-accounting-inputs.json changes by that one line inside its projection of the accounting job, regenerated with qualification-input-projections.py --write. Cash code, financial inputs, assertions, deadlines, packages, sources, signing key and historical qualification states unchanged; source identity only, no financial recertification.",
+    "changes": {
+      "scripts/qualification/ci-accounting-inputs.json": {
+        "previous": {
+          "bytes": 146085,
+          "sha256": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
+        },
+        "current": {
+          "bytes": 146154,
+          "sha256": "2bd85f3408f971e0194c92a2a52f0d6b7daaece548a0df6af60842625668156e"
         }
       }
     }

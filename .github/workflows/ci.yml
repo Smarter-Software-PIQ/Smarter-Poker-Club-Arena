@@ -1570,7 +1570,7 @@ jobs:
           chmod 755 "$pg_ci_sources"
           test -f /etc/apt/sources.list.d/ubuntu.sources
           cp /etc/apt/sources.list.d/ubuntu.sources "$pg_ci_sources/ubuntu.sources"
-          pg_ci_apt=(-o "Dir::Etc::sourcelist=/dev/null" -o "Dir::Etc::sourceparts=$pg_ci_sources")
+          pg_ci_apt=(-o "Dir::Etc::sourcelist=/dev/null" -o "Dir::Etc::sourceparts=$pg_ci_sources" -o "Acquire::Retries=8" -o "Acquire::Retries::Delay::Maximum=60")
           sudo apt-get "${pg_ci_apt[@]}" update
           sudo apt-get "${pg_ci_apt[@]}" install -y --no-install-recommends postgresql-common curl ca-certificates
           sudo install -d /usr/share/postgresql-common/pgdg

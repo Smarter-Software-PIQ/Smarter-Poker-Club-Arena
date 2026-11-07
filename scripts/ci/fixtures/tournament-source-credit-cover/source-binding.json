@@ -13,7 +13,7 @@
     "tests/tournament-credit-sum-index-keeps-original-records.law.test.ts": "3d4bf43756ade0bccc92d4b4c9feaae9912efa2d79cfe460a31f72efb843934c",
     "docs/laws.d/tournament-credit-sum-index-keeps-original-records.md": "98f344ce134c5977b73d421b193749bc551de508853cd7b3a75ed0aaa4e5f758",
     "docs/changelog/2026-10-28-tournament-credit-sum-record-cover.md": "05fc97f80559a6166710c8768e7037dce34582fadb0289d7f1f1bb171373d302",
-    ".github/workflows/unpaid-lightning-funding-contracts.yml": "89f809d53556d53b8a7e25c9dd92a4ae4e5fb8731cef11e0e89b463cefbe9d62"
+    ".github/workflows/unpaid-lightning-funding-contracts.yml": "23045cf24a4aae43b340891d8f64717d329c1da99269d0ca57844d7830709e3c"
   },
   "groupedPrivateSourceWorkflowAudit20261028": {
     "review": "Only adds grouped-source native97 path and lane; every prior command/qualification/input retained. No prior source evidence rerun implied.",
@@ -60,5 +60,15 @@
     },
     "review": "The only change in this workflow is the PostgreSQL apt signing-key download (a three-line sudo curl of ACCC4CF8.asc from www.postgresql.org) replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8, sha256 0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76). Same destination path, same apt verification of every package; triggers, jobs, steps, commands and qualification inputs are otherwise byte-identical. No financial, native or production qualification is restamped or claimed.",
     "reason": "2026-11-07: the key download failed with curl (55) SSL EOF in at least 11 jobs before any test ran, including a backup-engine certification run."
+  },
+  "postgresPackagesRideOutANetworkDrop20261107": {
+    "paths": {
+      ".github/workflows/unpaid-lightning-funding-contracts.yml": {
+        "before": "89f809d53556d53b8a7e25c9dd92a4ae4e5fb8731cef11e0e89b463cefbe9d62",
+        "after": "23045cf24a4aae43b340891d8f64717d329c1da99269d0ca57844d7830709e3c"
+      }
+    },
+    "review": "The only change in this pinned file is the PostgreSQL apt option array gaining -o \"Acquire::Retries=8\" -o \"Acquire::Retries::Delay::Maximum=60\" (for scripts/qualification/ci-accounting-inputs.json, the same text inside its regenerated projection of ci.yml). Sources, signing key, packages and every test are unchanged; no financial, native or production qualification is restamped or claimed.",
+    "reason": "2026-11-07: accounting shard 5 of #9933 failed before any test ran when every postgresql-17 fetch from apt.postgresql.org failed in one second with Network is unreachable."
   }
 }
