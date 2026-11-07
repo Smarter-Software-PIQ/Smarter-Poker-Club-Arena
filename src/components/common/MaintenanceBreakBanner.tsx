@@ -18,6 +18,7 @@ import React, { useEffect, useState } from 'react';
 import { useMaintenanceBreak } from '../../hooks/useMaintenanceBreak';
 import { serverNow } from '../../utils/serverClock';
 import { isRoutineMaintenanceUpcoming } from '../../utils/maintenanceSchedule';
+import { useEntryFreeze } from '../../hooks/useEntryFreeze';
 /* The banner prints in the console's own inks, so it loads the console's sheet
    itself rather than trusting the chunk to carry it. */
 import '../console/SpadeConsole.css';
@@ -31,6 +32,11 @@ function formatTime(totalSeconds: number): string {
 
 export function MaintenanceBreakBanner() {
   const { maintenanceBreak, routineSchedule } = useMaintenanceBreak();
+  /* THE BANNER ENDS WHEN THE DOOR OPENS (Dan 2026-11-07). The engine is back
+     before the database's release boundary passes; until it does every new
+     seat is refused. 13:20:17-13:21:37 Chicago this said "Maintenance
+     Complete" while eleven Lightning joins were refused. */
+  const entry = useEntryFreeze();
   const countingDown =
     maintenanceBreak.phase === 'counting_down' && !!maintenanceBreak.breakEndsAtMs;
   const [remaining, setRemaining] = useState(0);
@@ -53,6 +59,22 @@ export function MaintenanceBreakBanner() {
     const t = setInterval(refresh, 15_000);
     return () => clearInterval(t);
   }, [maintenanceBreak.active]);
+
+  const engineHolding = maintenanceBreak.active && maintenanceBreak.phase !== 'resuming';
+  if (!engineHolding && entry.freeze.frozen) {
+    return (
+      <div className="maintenance-banner" role="status" data-testid="maintenance-banner-entry">
+        <span className="maintenance-banner__dot sc-ink--blue" aria-hidden="true">
+          &bull;
+        </span>
+        <span className="maintenance-banner__text">
+          {entry.secondsLeft !== null
+            ? `Tables Are Back. New Seats Open In ${formatTime(entry.secondsLeft)}. Seats And Chips Are Safe.`
+            : 'Finishing Maintenance. New Seats Open Shortly. Seats And Chips Are Safe.'}
+        </span>
+      </div>
+    );
+  }
 
   if (!maintenanceBreak.active) {
     if (upcoming) {

@@ -316,8 +316,14 @@ describe('the tournament row reviews every lobby-admitted status', () => {
       expect(screen.getByTestId('tournament-destination')).toBeTruthy();
       expect(document.querySelector('.glp__arena-card')).toBeNull();
       expect(h.register).not.toHaveBeenCalled();
+      // fn_entry_purchases_frozen is the read-only entry-freeze guard the
+      // lobby asks (useEntryFreeze, 2026-11-07); it buys nothing.
       expect(
-        h.rpc.mock.calls.some(([name]) => /register|buyin|buy_in|purchase/i.test(String(name)))
+        h.rpc.mock.calls.some(
+          ([name]) =>
+            String(name) !== 'fn_entry_purchases_frozen' &&
+            /register|buyin|buy_in|purchase/i.test(String(name))
+        )
       ).toBe(false);
     }
   );

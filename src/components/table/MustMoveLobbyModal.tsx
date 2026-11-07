@@ -35,6 +35,7 @@
  * (MustMoveLobbyModal.css says what that is and what it is not yet).
  */
 
+import { withFreezeTime } from '../../hooks/useEntryFreeze';
 import { useEffect } from 'react';
 import { cashQueueFeedback } from './cashQueueFeedback';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -215,11 +216,12 @@ export function MustMoveLobbyModal({
         /* A REFUSAL THAT DOES NOT THROW IS STILL A REFUSAL. fn_cash_game_join
            can answer `{ok:false}` with no table and no waitlist place; the
            button used to swallow that and look broken. */
-        toast.warning(joinGameRefusalText(new Error(String(r.action ?? ''))));
+        toast.warning(await withFreezeTime(joinGameRefusalText(new Error(String(r.action ?? '')))));
         await load();
       }
     } catch (err) {
-      if (action.isCurrent()) toast.warning(joinGameRefusalText(err));
+      const text = await withFreezeTime(joinGameRefusalText(err));
+      if (action.isCurrent()) toast.warning(text);
     } finally {
       action.finish();
     }
@@ -507,8 +509,7 @@ export function MustMoveLobbyModal({
                 <section className="mml-list">
                   <div className="mml-section-title">Waiting List</div>
                   <div className="mml-list-note">
-                    Players Waiting For A Seat In This Game. Number 1 Is Offered The Next Open
-                    Seat.
+                    Players Waiting For A Seat In This Game. Number 1 Is Offered The Next Open Seat.
                   </div>
                   <ol className="mml-list-rows" aria-label="Waiting List, In Join Order">
                     {waitingListRows(lobby.waitlist?.players, me?.user_id).map((row) => (
