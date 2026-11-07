@@ -200,7 +200,17 @@ export function horseCashPlanSecondTables(
     // Only while the game is picked for two tables (the tick's own rule,
     // HorseBehavior.secondTablePicked); once it is not, the second table's
     // horses leave through the rotator and must-move empties the rest.
-    if (primary && secondTablePicked(gameId, nowMs) && primaryAllowed(primary)) out.add(tableId);
+    if (
+      primary &&
+      secondTablePicked(
+        gameId,
+        nowMs,
+        Number(primary.big_blind) || null,
+        typeof primary.game_variant === 'string' ? primary.game_variant : null
+      ) &&
+      primaryAllowed(primary)
+    )
+      out.add(tableId);
   }
   return out;
 }

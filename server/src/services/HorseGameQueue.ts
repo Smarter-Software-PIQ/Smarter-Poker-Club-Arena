@@ -109,10 +109,15 @@ export function planHorseQueues(input: {
   const cancel: string[] = [];
   const byGame = new Map<string, QueuedHorseRow[]>();
   const queued = new Set<string>();
+  /* A horse that gives up on one line looks for another (2026-11-07): it is
+     the first choice for any OTHER game's line this cycle, the way a player
+     tired of one list puts their name down somewhere else. */
+  const leftGame = new Map<string, string>();
   for (const r of input.rows) {
     const created = Date.parse(r.created_at);
     if (Number.isFinite(created) && input.nowMs - created >= queuePatienceMs(r.id)) {
       cancel.push(r.id);
+      leftGame.set(r.user_id, r.game_id);
       continue;
     }
     // One line at a time: a second row for a horse already queued goes.
@@ -143,12 +148,18 @@ export function planHorseQueues(input: {
     }
     if (list.length === want) continue;
     const seated = input.seatedByGame.get(gameId) ?? new Set<string>();
+    const minute = Math.floor(input.nowMs / 60_000);
+    const movingOn = (id: string) => {
+      const from = leftGame.get(id);
+      return from !== undefined && from !== gameId ? 0 : 1;
+    };
     const pool = [...new Set(pools.get(gameId) ?? [])]
-      .filter((id) => !seated.has(id) && !queued.has(id))
+      .filter((id) => !seated.has(id) && !queued.has(id) && leftGame.get(id) !== gameId)
       .sort(
         (a, b) =>
-          mix32(horseHash(`${a}:${gameId}:${Math.floor(input.nowMs / 60_000)}`)) -
-          mix32(horseHash(`${b}:${gameId}:${Math.floor(input.nowMs / 60_000)}`))
+          movingOn(a) - movingOn(b) ||
+          mix32(horseHash(`${a}:${gameId}:${minute}`)) -
+            mix32(horseHash(`${b}:${gameId}:${minute}`))
       );
     const pick = pool[0];
     if (!pick) continue;

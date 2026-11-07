@@ -3161,7 +3161,12 @@ export class HorseFleetManager {
           if (
             secondaryClusterTable &&
             !humanAtTable &&
-            !secondTablePicked(String(table.cluster_id))
+            !secondTablePicked(
+              String(table.cluster_id),
+              Date.now(),
+              Number(table.big_blind) || null,
+              table.game_variant ?? null
+            )
           ) {
             beat.withheldTables++;
             if (firstTableWithheld === null) firstTableWithheld = 'second_table_not_picked';
