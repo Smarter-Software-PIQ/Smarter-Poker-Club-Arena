@@ -1382,14 +1382,17 @@ export class HandController {
       seat,
       userId: player.user_id,
       action,
-      ...(action === 'fold' || origin === 'forced' ? { origin } : {}),
       amount: actualAmount,
       timestamp: Date.now(),
       stage: this.state.stage,
       isFullRaise: isFullRaiseFlag,
       publicNode,
     });
-    this.state.actionHistory.push(record);
+    // Only worker history needs decision provenance. The retained receipt and
+    // nested public event record share the original public action shape.
+    this.state.actionHistory.push(
+      action === 'fold' || origin === 'forced' ? Object.freeze({ ...record, origin }) : record
+    );
 
     // Observe the exact clamped, validated and cent-snapped action before
     // broadcasts/advanceGame can change the current street or turn. A receipt
