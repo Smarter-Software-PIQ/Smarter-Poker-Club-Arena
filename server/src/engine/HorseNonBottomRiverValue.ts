@@ -1,11 +1,9 @@
 import type { SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { variantInfo, omahaBoatPosition } from './HorseEval.js';
+import { variantInfo, omahaBoatPosition, scoreOmahaHi } from './HorseEval.js';
+import { RANKS, SUITS } from './PokerEngine.js';
 
-/** Release initiative-only suppression, never a final bet or call override.
- * Reachable lower boats establish rank position, not opponent calling range EV.
- * Singleton ranks and trip boards do not qualify. */
-export function checkedToNonBottomRiverBoat(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+function checkedToOmahaRiver(player: SeatPlayer, gs: HorseGameStateV2): boolean {
   const board = gs.communityCards ?? [];
   const vi = variantInfo(gs.gameVariant);
   if (
@@ -35,5 +33,60 @@ export function checkedToNonBottomRiverBoat(player: SeatPlayer, gs: HorseGameSta
     )
   )
     return false;
-  return (omahaBoatPosition(player.cards, board)?.lowerBoats ?? 0) > 0;
+  return true;
+}
+
+/** Reachable lower boats establish rank position. Singleton ranks and trip boards do not qualify. */
+export function checkedToNonBottomRiverBoat(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+  return (
+    checkedToOmahaRiver(player, gs) &&
+    (omahaBoatPosition(player.cards, gs.communityCards)?.lowerBoats ?? 0) > 0
+  );
+}
+
+/** On an unpaired river a flush can lose only to a better flush or straight flush.
+ * Both require two cards of the board's flush suit. Count distinct unseen pairs;
+ * the exact nuts already have their own pot-size rule. */
+export function checkedToOnePairAboveFlush(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+  if (
+    !checkedToOmahaRiver(player, gs) ||
+    gs.bettingStructure !== 'pot_limit' ||
+    !!player.knownDeadCards?.length ||
+    !gs.legalActions?.includes('check') ||
+    player.is_folded ||
+    player.is_all_in ||
+    player.is_sitting_out ||
+    !Number.isFinite(player.stack) ||
+    player.stack <= 0 ||
+    player.bet !== 0
+  )
+    return false;
+  const board = gs.communityCards;
+  if (
+    new Set(board.map((c) => c.rank)).size !== 5 ||
+    gs.actionHistory?.some((a) => a.stage === 'river' && a.action !== 'check') ||
+    !gs.actionHistory?.some(
+      (a) =>
+        a.stage === 'river' &&
+        a.action === 'check' &&
+        a.seat !== player.seat &&
+        gs.players.some((p) => p.seat === a.seat && p.user_id === a.userId)
+    )
+  )
+    return false;
+  const known = [...board, ...player.cards];
+  if (known.some((c) => !RANKS.includes(c.rank) || !SUITS.includes(c.suit))) return false;
+  const suit = SUITS.find((s) => board.filter((c) => c.suit === s).length >= 3);
+  if (!suit || player.cards.filter((c) => c.suit === suit).length < 2) return false;
+  const heroHigh = scoreOmahaHi(player.cards, board);
+  if (Math.floor(heroHigh / 0x100000) !== 6) return false;
+  const removed = new Set(known.filter((c) => c.suit === suit).map((c) => c.rank));
+  const live = RANKS.filter((rank) => !removed.has(rank)).map((rank) => ({ rank, suit }));
+  let higherPairs = 0;
+  for (let i = 0; i < live.length; i++) {
+    for (let j = i + 1; j < live.length; j++) {
+      if (scoreOmahaHi([live[i], live[j]], board) > heroHigh && ++higherPairs > 1) return false;
+    }
+  }
+  return higherPairs === 1;
 }

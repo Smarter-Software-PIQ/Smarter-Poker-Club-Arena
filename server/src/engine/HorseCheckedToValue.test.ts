@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Card, GameVariant } from '../types.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import { HorseLogic } from './HorseLogic.js';
-import { checkedToNonBottomRiverBoat } from './HorseNonBottomRiverValue.js';
+import {
+  checkedToNonBottomRiverBoat,
+  checkedToOnePairAboveFlush,
+} from './HorseNonBottomRiverValue.js';
 import { omahaBoatPosition, omahaBoatsAbove, seedFastRandom } from './HorseEval.js';
 import { jointPolicyFixture } from './multiway/JointRangeFixture.test-support.js';
 import { calculatePots } from './PokerEngine.js';
@@ -490,3 +493,241 @@ it.each(['plo4', 'plo5'] as const)(
     ).toBe('policy_graph');
   }
 );
+
+// Original public wager histories, stacks and acting cards. Seat identities are anonymized.
+const flushSpots = [
+  {
+    id: '8c231c8c',
+    heroSeat: 1,
+    button: 3,
+    hole: 'Ad 7c 7s 9d 2h',
+    board: 'Js 8s 4d Td 5d',
+    pot: 50,
+    bb: 2,
+    sb: 1,
+    rakeCap: 5,
+    bbjFeeBB: 0.25,
+    legalActions: ['fold', 'check', 'bet', 'all_in'],
+    seats: [
+      [1, 390.85, 0, 8, 0, 0, 0],
+      [2, 378.7, 0, 8, 0, 0, 0],
+      [3, 296.85, 0, 8, 0, 0, 0],
+      [4, 1876.91, 0, 8, 0, 0, 0],
+      [5, 194.45, 0, 10, 2, 0, 0],
+      [6, 182, 0, 8, 0, 0, 0],
+    ],
+    history: [
+      [4, 'preflop', 'sb', 1],
+      [5, 'preflop', 'bb', 2],
+      [5, 'preflop', 'ante', 2],
+      [6, 'preflop', 'raise', 8],
+      [1, 'preflop', 'call', 8],
+      [2, 'preflop', 'call', 8],
+      [3, 'preflop', 'call', 8],
+      [4, 'preflop', 'call', 7],
+      [5, 'preflop', 'call', 6],
+      [4, 'flop', 'check', 0],
+      [5, 'flop', 'check', 0],
+      [6, 'flop', 'check', 0],
+      [1, 'flop', 'check', 0],
+      [2, 'flop', 'check', 0],
+      [3, 'flop', 'check', 0],
+      [4, 'turn', 'check', 0],
+      [5, 'turn', 'check', 0],
+      [6, 'turn', 'check', 0],
+      [1, 'turn', 'check', 0],
+      [2, 'turn', 'check', 0],
+      [3, 'turn', 'check', 0],
+      [4, 'river', 'check', 0],
+      [5, 'river', 'check', 0],
+      [6, 'river', 'check', 0],
+    ],
+    higher: 0,
+  },
+  {
+    id: '1241ad6a',
+    heroSeat: 2,
+    button: 5,
+    hole: 'Js Ts 2h 2d As',
+    board: '3s Tc 2s 8c 5s',
+    pot: 151,
+    bb: 2,
+    sb: 1,
+    rakeCap: 5,
+    bbjFeeBB: 0.25,
+    legalActions: ['fold', 'check', 'bet', 'all_in'],
+    seats: [
+      [1, 387, 0, 13, 2, 0, 1],
+      [2, 918, 0, 46, 0, 0, 0],
+      [3, 1079.3, 0, 0, 0, 0, 1],
+      [4, 400, 0, 0, 0, 0, 1],
+      [5, 1493.22, 0, 46, 0, 0, 0],
+      [6, 1249.4, 0, 46, 0, 0, 0],
+    ],
+    history: [
+      [1, 'preflop', 'bb', 2],
+      [1, 'preflop', 'ante', 2],
+      [6, 'preflop', 'sb', 1],
+      [2, 'preflop', 'call', 2],
+      [3, 'preflop', 'fold', 0],
+      [4, 'preflop', 'fold', 0],
+      [5, 'preflop', 'raise', 11],
+      [6, 'preflop', 'call', 10],
+      [1, 'preflop', 'call', 9],
+      [2, 'preflop', 'call', 9],
+      [6, 'flop', 'check', 0],
+      [1, 'flop', 'check', 0],
+      [2, 'flop', 'check', 0],
+      [5, 'flop', 'check', 0],
+      [6, 'turn', 'bet', 35],
+      [1, 'turn', 'fold', 0],
+      [2, 'turn', 'call', 35],
+      [5, 'turn', 'call', 35],
+      [6, 'river', 'check', 0],
+    ],
+    higher: 1,
+  },
+  {
+    id: 'c9ac0461',
+    heroSeat: 5,
+    button: 3,
+    hole: '2c Tc 5h 6c Ah',
+    board: '2d 3c Jh Kh Th',
+    pot: 6.85,
+    bb: 0.25,
+    sb: 0.1,
+    rakeCap: 0.62,
+    bbjFeeBB: 0.6,
+    legalActions: ['fold', 'check', 'bet', 'all_in'],
+    seats: [
+      [1, 27.78, 0, 1.1, 0, 0, 0],
+      [2, 28.97, 0, 1.1, 0, 0, 0],
+      [3, 65.05, 0, 1.1, 0, 0, 0],
+      [4, 42.12, 0, 1.1, 0, 0, 0],
+      [5, 132.16, 0, 1.35, 0.25, 0, 0],
+      [6, 103.04, 0, 1.1, 0, 0, 0],
+    ],
+    history: [
+      [4, 'preflop', 'sb', 0.1],
+      [5, 'preflop', 'bb', 0.25],
+      [5, 'preflop', 'ante', 0.25],
+      [6, 'preflop', 'raise', 1.1],
+      [1, 'preflop', 'call', 1.1],
+      [2, 'preflop', 'call', 1.1],
+      [3, 'preflop', 'call', 1.1],
+      [4, 'preflop', 'call', 1],
+      [5, 'preflop', 'call', 0.85],
+      [4, 'flop', 'check', 0],
+      [5, 'flop', 'check', 0],
+      [6, 'flop', 'check', 0],
+      [1, 'flop', 'check', 0],
+      [2, 'flop', 'check', 0],
+      [3, 'flop', 'check', 0],
+      [4, 'turn', 'check', 0],
+      [5, 'turn', 'check', 0],
+      [6, 'turn', 'check', 0],
+      [1, 'turn', 'check', 0],
+      [2, 'turn', 'check', 0],
+      [3, 'turn', 'check', 0],
+      [4, 'river', 'check', 0],
+    ],
+    higher: 1,
+  },
+] as const;
+
+function originalRiverFlush(input: (typeof flushSpots)[number]) {
+  const { state } = jointPolicyFixture('plo5', 1, 'cash', 'river');
+  state.players = input.seats.map(([seat, stack, bet, totalInvested, deadInvested, , flags]) => ({
+    ...state.players[0],
+    user_id: 's' + seat,
+    username: 's' + seat,
+    cards: [],
+    seat,
+    stack,
+    bet,
+    totalInvested,
+    deadInvested,
+    is_folded: Boolean(flags & 1),
+    is_all_in: Boolean(flags & 2),
+    is_sitting_out: Boolean(flags & 4),
+  }));
+  const hero = state.players.find((p) => p.seat === input.heroSeat)!;
+  hero.cards = cards(input.hole);
+  const history = input.history.map(([seat, stage, action, amount], timestamp) => ({
+    seat,
+    stage,
+    action,
+    amount,
+    timestamp,
+    userId: 's' + seat,
+  }));
+  Object.assign(state, {
+    heroSeat: hero.seat,
+    currentPlayerSeat: hero.seat,
+    dealerSeat: input.button,
+    blindSeats: {
+      smallBlind: history.find((a) => a.action === 'sb')!.seat,
+      bigBlind: history.find((a) => a.action === 'bb')!.seat,
+    },
+    dealtSeatIds: state.players.map((p) => p.seat),
+    communityCards: cards(input.board),
+    pot: input.pot,
+    contestablePot: input.pot,
+    pots: calculatePots(state.players),
+    minRaise: input.bb,
+    minRaiseTo: input.bb,
+    maxRaiseTo: input.pot,
+    bigBlind: input.bb,
+    smallBlind: input.sb,
+    ante: input.bb,
+    anteType: 'big_blind',
+    legalActions: [...input.legalActions],
+    actionHistory: history,
+    rakeConfig: {
+      percent: 10,
+      cap: input.rakeCap,
+      noFlopNoDrop: true,
+      playerCountCaps: [
+        { players: 2, cap: input.rakeCap / 2 },
+        { players: 3, cap: input.rakeCap },
+        { players: 4, cap: input.rakeCap },
+      ],
+    },
+    bbjConfig: { enabled: true, feeBB: input.bbjFeeBB, minPotBB: 10, minPlayersDealt: 3 },
+  });
+  return { hero, state };
+}
+
+it.each(flushSpots)('bets the checked-to PLO5 flush at $id', (input) => {
+  const { hero, state } = originalRiverFlush(input);
+  seedFastRandom(1);
+  const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, v9Timing: false });
+  expect(
+    horseDecisionReceiptRefusal(d, state.gameVariant, { player: hero, gameState: state })
+  ).toBeNull();
+  expect(checkedToOnePairAboveFlush(hero, state)).toBe(input.higher === 1);
+  if (input.id === 'c9ac0461')
+    expect(d.policyGraph?.transitions.find((t) => t.node === 'wager_rules')).toMatchObject({
+      before: { action: 'check' },
+      after: { action: 'bet', amount: 3.43 },
+      changed: true,
+    });
+  expect(d.action).toBe('bet');
+  if (input.higher === 0) expect(d.amount).toBe(input.pot);
+});
+
+it('limits the one-higher-pair flush bet to a checked-to, single-board high river', () => {
+  const { hero, state } = originalRiverFlush(flushSpots[2]);
+  expect(
+    checkedToOnePairAboveFlush(hero, {
+      ...state,
+      actionHistory: state.actionHistory!.filter((a) => a.stage !== 'river'),
+    })
+  ).toBe(false);
+  expect(checkedToOnePairAboveFlush(hero, { ...state, legalActions: ['check'] })).toBe(false);
+  expect(checkedToOnePairAboveFlush(hero, { ...state, boardCount: 2 })).toBe(false);
+  expect(checkedToOnePairAboveFlush(hero, { ...state, gameVariant: 'plo8' })).toBe(false);
+  expect(checkedToOnePairAboveFlush({ ...hero, cards: cards('2c Tc 5h 6c 8h') }, state)).toBe(
+    false
+  );
+});
