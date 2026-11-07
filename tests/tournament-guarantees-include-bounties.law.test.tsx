@@ -12,7 +12,13 @@ import {
   type TournamentTabProps,
 } from '../src/components/tournament/details/types';
 
-const state = vi.hoisted(() => ({ collected: 3420, overlay: 1580, error: false }));
+const state = vi.hoisted(() => ({
+  collected: 3420,
+  overlay: 1580,
+  error: false,
+  gross: null as number | null,
+  houseRequired: null as number | null,
+}));
 vi.mock('../src/lib/supabase', () => ({
   supabase: {
     from: vi.fn(() => {
@@ -27,6 +33,8 @@ vi.mock('../src/lib/supabase', () => ({
                 tournament_id: args.p_tournament_id,
                 collected: state.collected,
                 overlay: state.overlay,
+                gross_coverage: state.gross,
+                house_required: state.houseRequired,
               },
           error: state.error ? new Error('Funding unavailable') : null,
         }),
@@ -44,6 +52,8 @@ afterEach(() => {
   state.collected = 3420;
   state.overlay = 1580;
   state.error = false;
+  state.gross = null;
+  state.houseRequired = null;
 });
 
 function props(pool = 4050): TournamentTabProps {
@@ -109,7 +119,7 @@ describe('The guarantee includes bounties, never rake', () => {
     ).toBe('Fixed Knockout Bounty: 10 Diamonds. Entry: 26 Prize Pool + 10 Bounty + 4 Rake.');
     expect(95 * 26 + 95 * 10 + 95 * 4).toBe(95 * 40);
     expect(placeGuarantee(5000, 950)).toBe(4050);
-    expect(effectivePrizePool(2470, 5000, 950)).toBe(4050);
+    expect(effectivePrizePool(2470, 5000, 950)).toBe(2470);
     expect(
       effectivePlaceLadderPool(
         2470,
@@ -121,11 +131,11 @@ describe('The guarantee includes bounties, never rake', () => {
         false,
         950
       )
-    ).toBe(4050);
+    ).toBe(2470);
   });
   it('preserves larger collected pools, non-bounty guarantees and finalized awards', () => {
     expect(effectivePrizePool(6000, 5000, 950)).toBe(6000);
-    expect(effectivePrizePool(2470, 5000)).toBe(5000);
+    expect(effectivePrizePool(2470, 5000)).toBe(2470);
     expect(effectivePrizePool(5000, 5000, 950)).toBe(5000);
     expect(placeGuarantee(500, 950)).toBe(0);
     expect(placeGuarantee(null, null)).toBe(0);
@@ -145,6 +155,31 @@ describe('The guarantee includes bounties, never rake', () => {
     await waitFor(() => expect(container.textContent).toContain('2,530 Overlay'));
     expect(container.querySelector('.rw-pool__value')?.textContent).toBe('5,950');
     expect(container.textContent).toContain('3,420 Of 5,000');
+  });
+  // Dan 2026-11-06, the 2.5K GTD 40 Chip Bounty Freezeout: 46 entries of
+  // 26 prize / 10 bounty / 4 rake, still in late registration.
+  it('an open pool shows 1,656 collected net of rake, 660 overlay, 1,196 places - never 2,316', async () => {
+    state.collected = 1656;
+    state.overlay = 660;
+    state.gross = 1840;
+    state.houseRequired = 660;
+    const fixture = props(46 * 26);
+    Object.assign(fixture.tournament as unknown as Record<string, unknown>, {
+      guaranteed_prize: 2500,
+      bounty_pool: 460,
+      total_rake: 184,
+      prize_pool_finalized: false,
+    });
+    fixture.entries = fixture.entries.slice(0, 46);
+    const { container } = render(<RewardsTab {...fixture} />);
+    await waitFor(() => expect(container.textContent).toContain('660 Overlay'));
+    expect(container.querySelector('.rw-pool__value')?.textContent).toBe('1,656');
+    expect(container.textContent).toContain('Still Growing');
+    expect(container.textContent).toContain('1,840 Of 2,500');
+    expect(container.textContent).toContain('Place Prizes1,196');
+    expect(container.textContent).toContain('Bounty Pool460');
+    expect(container.textContent).not.toContain('2,316');
+    expect(container.textContent).not.toContain('Club Overlay');
   });
   it('does not turn a failed funding read into a guarantee-met claim', async () => {
     state.error = true;
