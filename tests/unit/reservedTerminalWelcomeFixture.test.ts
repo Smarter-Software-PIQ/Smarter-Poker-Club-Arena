@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, vi } from 'vitest';
@@ -8,6 +8,7 @@ import {
 } from '../../scripts/ci/reserved-terminal-welcome-fixture.mjs';
 import {
   cleanupProductionE2EAccount,
+  main,
   retireCertificationClubWithRetry,
 } from '../../scripts/ci/production-e2e-account.mjs';
 const id = '00000000-0000-4000-8000-000000000099';
@@ -55,6 +56,67 @@ function clientFor({ safe = true, persisted = true, success = true, alreadyRetir
   return { query, connect: vi.fn(), end: vi.fn() };
 }
 describe('reserved cancelled welcome fixture retirement', () => {
+  it('runs the maintained retire-create-clubs CLI then re-proves retained state in cleanup', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'terminal-cli-'));
+    const path = join(folder, 'account.json');
+    writeFileSync(path, JSON.stringify(account));
+    const client = clientFor();
+    let reads = 0;
+    const fetchImpl = vi.fn(async (input: string) => {
+      if (String(input).includes('/rest/v1/clubs?'))
+        return Response.json([
+          {
+            id: clubId,
+            owner_id: id,
+            name: 'Crest Cert Terminal',
+            lifecycle_status: reads++ ? 'retired' : 'active',
+          },
+        ]);
+      throw new Error(`Unexpected request ${input}`);
+    });
+    const options = {
+      environment: {
+        SUPABASE_URL: 'https://example.invalid',
+        SUPABASE_SERVICE_ROLE_KEY: 'synthetic',
+        DATABASE_URL: 'synthetic',
+        E2E_TEST_ACCOUNT_FILE: path,
+      },
+      fetchImpl,
+      databaseClientFactory: async () => client,
+    };
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await expect(main('retire-create-clubs', options)).resolves.toBe(0);
+      expect(
+        log.mock.calls.some(
+          ([line]) =>
+            String(line).includes('"auth_deleted":false') &&
+            String(line).includes('retained_terminal_fixture_owner')
+        )
+      ).toBe(true);
+      const proofs = client.query.mock.calls.filter(
+        ([sql]) => sql === terminalWelcomeFixtureSQL
+      ).length;
+      await expect(cleanupProductionE2EAccount(options)).resolves.toBe(true);
+      expect(
+        client.query.mock.calls.filter(([sql]) => sql === terminalWelcomeFixtureSQL)
+      ).toHaveLength(proofs + 2);
+      expect(
+        client.query.mock.calls.filter(([sql]) =>
+          sql.includes('fn_ca_retire_welcome_certification_club')
+        )
+      ).toHaveLength(1);
+      expect(JSON.parse(readFileSync(`${path}.retained-terminal.json`, 'utf8'))).toMatchObject({
+        auth_deleted: false,
+        club_ids: [clubId],
+      });
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/auth/'))).toBe(false);
+    } finally {
+      log.mockRestore();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
   it('recovers an already retired exact fixture without repeating the destructive door', async () => {
     const client = clientFor({ alreadyRetired: true });
     await expect(

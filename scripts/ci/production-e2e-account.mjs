@@ -1878,8 +1878,7 @@ export async function createProductionE2EAccount({
   }
 }
 
-async function main() {
-  const command = process.argv[2];
+export async function main(command = process.argv[2], options = {}) {
   if (command === 'create') return createProductionE2EAccount();
   if (command === 'create-first-run') return createProductionE2EAccount({ firstRun: true });
   if (command === 'cleanup-first-run')
@@ -1891,7 +1890,25 @@ async function main() {
   if (command === 'prepare-spectator') return prepareProductionE2ESpectatorMembership();
   if (command === 'prepare-lightning-staff') return prepareProductionE2ELightningMembership();
   if (command === 'prepare-template-staff') return prepareProductionE2ETemplateFixture();
-  if (command === 'retire-create-clubs') return retireProductionCreateClubFixtures();
+  if (command === 'retire-create-clubs') {
+    const retainedRetiredClubs = [];
+    const retired = await retireProductionCreateClubFixtures({
+      ...options,
+      retainedRetiredClubs,
+      terminalFixtureOnly: true,
+    });
+    if (retainedRetiredClubs.length) {
+      console.log(
+        `[production-e2e-account] ${JSON.stringify({
+          disposition: 'retained_terminal_fixture_owner',
+          club_ids: retainedRetiredClubs,
+          records_retained: true,
+          auth_deleted: false,
+        })}`
+      );
+    }
+    return retired;
+  }
   if (command === 'cleanup')
     return cleanupProductionE2EAccount({ expectedEmail: process.env.SP_EMAIL });
   // The hourly Cert Residue Sweep (.github/workflows/cert-residue-sweep.yml):
