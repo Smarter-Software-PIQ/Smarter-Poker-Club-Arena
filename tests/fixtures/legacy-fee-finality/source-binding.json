@@ -42,7 +42,7 @@
     "tests/fixtures/legacy-fee-finality/verify-native-receipts.mjs": "9556746822f0045ecadc35704929f53810676fe0ab07e49146b14495667870c8",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402"
+    "scripts/qualification/ci-accounting-inputs.json": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -1574,7 +1574,7 @@
     "paths": {
       "scripts/qualification/ci-accounting-inputs.json": {
         "before": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8",
-        "after": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402"
+        "after": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
       }
     },
     "review": "The only change in this pinned file is the PostgreSQL apt signing-key download (a sudo curl of ACCC4CF8.asc) replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8, sha256 0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76); for scripts/qualification/ci-accounting-inputs.json that is the same three lines inside its projection of ci.yml's accounting_postgres job, regenerated with qualification-input-projections.py --write. Nothing else differs. No financial, native or production qualification is restamped or claimed.",

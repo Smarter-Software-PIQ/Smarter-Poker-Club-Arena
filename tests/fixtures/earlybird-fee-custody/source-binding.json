@@ -2,7 +2,7 @@
   "migration": "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql",
   "repository_files": {
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402",
+    "scripts/qualification/ci-accounting-inputs.json": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "tests/fixtures/earlybird-fee-custody/setup.sql": "ac34d5f9432bd6c4ede4072439e66a6f93c7ffc0f5df53ca5a42d6d72c01e573",
     "tests/fixtures/earlybird-fee-custody/funding-scope.json": "342424a2012da6b9f987e5265d772e59f610dac74c4b5c89d1a718c8ec13e8ff",
@@ -883,7 +883,7 @@
     "paths": {
       "scripts/qualification/ci-accounting-inputs.json": {
         "before": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8",
-        "after": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402"
+        "after": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
       }
     },
     "review": "The only change in this pinned file is the PostgreSQL apt signing-key download (a sudo curl of ACCC4CF8.asc) replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8, sha256 0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76); for scripts/qualification/ci-accounting-inputs.json that is the same three lines inside its projection of ci.yml's accounting_postgres job, regenerated with qualification-input-projections.py --write. Nothing else differs. No financial, native or production qualification is restamped or claimed.",

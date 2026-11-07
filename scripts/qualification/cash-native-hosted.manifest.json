@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 146073,
-      "sha256": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402"
+      "bytes": 146085,
+      "sha256": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77125,
@@ -7134,7 +7134,7 @@
     "qualificationStateChanged": false
   },
   "postgresSigningKeyFromCheckoutSourceAudit20261107": {
-    "reason": "Reviewed exact diff: the PGDG apt signing-key download (sudo curl of ACCC4CF8.asc, TLS EOF failures in at least 11 jobs on 2026-11-07, after the 2026-11-02 host switch) is replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8). ci-accounting-inputs.json changes by those same lines inside its projection of the accounting job, regenerated with qualification-input-projections.py --write. Cash code, financial inputs, assertions, deadlines, package versions, Signed-By and historical qualification states unchanged; source identity only, no financial recertification.",
+    "reason": "Reviewed exact diff: the PGDG apt signing-key download (sudo curl of ACCC4CF8.asc, TLS EOF failures in at least 11 jobs on 2026-11-07, after the 2026-11-02 host switch) is replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8). ci-accounting-inputs.json changes by those same lines inside its projection of the accounting job, regenerated with qualification-input-projections.py --write. The two stale comments above it now say why the key comes from the checkout. Cash code, financial inputs, assertions, deadlines, package versions, Signed-By and historical qualification states unchanged; source identity only, no financial recertification.",
     "changes": {
       "scripts/qualification/ci-accounting-inputs.json": {
         "previous": {
@@ -7142,8 +7142,8 @@
           "sha256": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8"
         },
         "current": {
-          "bytes": 146073,
-          "sha256": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402"
+          "bytes": 146085,
+          "sha256": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
         }
       }
     }

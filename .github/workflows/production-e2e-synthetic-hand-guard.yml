@@ -61,8 +61,8 @@ jobs:
           sudo apt-get "${pg_apt[@]}" update
           sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends postgresql-common curl ca-certificates
           sudo install -d /usr/share/postgresql-common/pgdg
-          # Fetch the identical signing key from the package repository itself.
-          # The website host repeatedly terminated TLS before native tests ran.
+          # The PGDG signing key is installed from the checkout (.github/pgdg); fetching
+          # it from either PGDG host failed with TLS EOFs before native tests ran.
           sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
           codename="$(. /etc/os-release && printf '%s' "$VERSION_CODENAME")"
           printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' \

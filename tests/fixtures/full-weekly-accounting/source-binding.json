@@ -567,7 +567,7 @@
     "scripts/dev/qualify-legacy-fee-finality.py": "4e7c8260250be0485131467c7fbafcf1274c42be5bb2ce665ccdc70b1df27e7b",
     "scripts/ci/schema-manifest.d/union-legacy-fee-finality.json": "e31a30ded22079973baf940835159370d9a46e7ac314a6e46833549b2f7cd0e7",
     "supabase/migrations/20260918090848_legacy_player_results_preserve_unresolved_original_fee_custo.sql": "8c03be3cd3557be4e22735b0442d84ca936641c15d1384b772e0426343c5fbc7",
-    "tests/fixtures/legacy-fee-finality/source-binding.json": "718b08f4aa30ba686d29454afcc2048c04af3a1a772fd02bf175df93fcf9499f",
+    "tests/fixtures/legacy-fee-finality/source-binding.json": "fb217f2aa2c9a7c34f02fd1cfb050f946ca51d700586c9daa2720adc3d4395a1",
     "tests/fixtures/sep8-spin-custody/build-candidate.py": "dc929d5df9801fbeb26c1b331fd3836b22069726e00d86c4f75401ab2b55fd4a",
     "tests/fixtures/sep8-spin-custody/resolution.sql": "2eca0534c0cd23223b3394397957e074847345160d3bf7e3ff4d083df55cb384",
     "tests/fixtures/sep8-spin-custody/player-finality.sql": "627be40d0634d483e2cdc421055e8eb72f9d95c22e36ab81e659b725a9db1b6e",
@@ -585,7 +585,7 @@
     "server/src/tournament/completionSettlementReceipt.ts": "894e0791ae65d3231082e898ece646b49969a99006a128898bc861935a16f018",
     "server/src/lib/uuidShape.ts": "e343f233386b551ad73d38b7202d1f28b233b070bed455b52839e3c0e148bbaf",
     "supabase/migrations/20260918095320_september_eight_original_spin_fee_custody_successor.sql": "858c125202405c4ceeabb0032689375c0efdf727c740f8056b7529c098b33804",
-    "tests/fixtures/sep8-spin-custody/source-binding.json": "b23fd521713bb8716ea11e5901a936d211edcc649ccac11a29ef356288ca2d03",
+    "tests/fixtures/sep8-spin-custody/source-binding.json": "e9f76cd2077a2b06667d65f7b00b703427e3fdfebe23066a3cf24fd3be1c25ce",
     "tests/fixtures/sep8-spin-custody/terminal-negative.sql": "e3e4106954a1ebe51c16c69ede5156cb12dc964c63a679d2583c8622b5081bea",
     "tests/fixtures/sep8-spin-custody/resolution-late-fault.sql": "b9425e31803e60630e0ee741e0842ebcc8dc891028517ea87efe1049aff0b7d0",
     "tests/fixtures/sep8-spin-custody/breakfast-predecessor.sql": "37f8a6d6b07a74c923c8b8298561cabec91fccec6281ffab9bab455dbdb1e6f7",
@@ -625,7 +625,7 @@
     "tests/fixtures/earlybird-fee-custody/after.sql": "5c86539a1f6e4904d61c4f3c2ee79b98fbc29b976adbc89fc38f8a4be8c97e0b",
     "scripts/dev/qualify-earlybird-fee-custody.py": "fea2adbadd175341680d1988589be233c2a67a7a400743a2ccfaafdf9e6d0d62",
     "supabase/migrations/20260919025445_early_bird_original_fee_custody_after_player_finality.sql": "3b3fa10d81077d09fc997bb0549ee7dd73b12726406f92da17105d002d021ab8",
-    "tests/fixtures/earlybird-fee-custody/source-binding.json": "e4eee93fc28454ee6c980480dc370a3dca4ec29647089941d72c93336abed8dc",
+    "tests/fixtures/earlybird-fee-custody/source-binding.json": "6d6e48c72375efcd34106b05edb07c49b9f2605f156c77147a073c3dfe454d56",
     "tests/fixtures/earlybird-fee-custody/paid-originals.json": "7b0137cce446c509e1b0cbd1e9361547fb700e409fceb373bb6c21909170faf0",
     "tests/fixtures/earlybird-fee-custody/credit-originals.json": "76b7a6152c538bd051754e0a17106a14e86458968132bea26f03c339ad77b439",
     "tests/fixtures/earlybird-fee-custody/README.md": "ae19f37a0179956d0d26c64f626fa401c10b4319f0d7d8453f8993d811e98536",
@@ -638,7 +638,7 @@
     "scripts/ci/test-commission-club-history-postgres.py": "599055bb43ca0137bdde9c9d60dca9a4e8c6f1cf729ff849190ca74ff90b8bf3",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402"
+    "scripts/qualification/ci-accounting-inputs.json": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -5347,8 +5347,8 @@
     ],
     "integration_reason": "Preserve concurrent protected commission and ticket-refund qualification parents and all audit histories. Update combined current classifier/dependent identities only; no financial assertion or qualification status changes.",
     "combined_dependent_sha256": {
-      "tests/fixtures/legacy-fee-finality/source-binding.json": "718b08f4aa30ba686d29454afcc2048c04af3a1a772fd02bf175df93fcf9499f",
-      "tests/fixtures/sep8-spin-custody/source-binding.json": "b23fd521713bb8716ea11e5901a936d211edcc649ccac11a29ef356288ca2d03"
+      "tests/fixtures/legacy-fee-finality/source-binding.json": "fb217f2aa2c9a7c34f02fd1cfb050f946ca51d700586c9daa2720adc3d4395a1",
+      "tests/fixtures/sep8-spin-custody/source-binding.json": "e9f76cd2077a2b06667d65f7b00b703427e3fdfebe23066a3cf24fd3be1c25ce"
     }
   },
   "clubDataUnionMttRouting20261021": {
@@ -5573,13 +5573,13 @@
     "reason": "Add six assertions for the required summary checkout sparse standalone gate, preserving all native and financial assertions. Current test-source identity only; no new financial execution or activation certificate.",
     "previous": {
       "tests/unit/fixtureNativeCi.test.ts": "634fc8314df73a8668a63929edc7fff6bf50a65c68dffe629004b424d9ba318c",
-      "tests/fixtures/earlybird-fee-custody/source-binding.json": "e4eee93fc28454ee6c980480dc370a3dca4ec29647089941d72c93336abed8dc",
-      "tests/fixtures/sep8-spin-custody/source-binding.json": "b23fd521713bb8716ea11e5901a936d211edcc649ccac11a29ef356288ca2d03"
+      "tests/fixtures/earlybird-fee-custody/source-binding.json": "6d6e48c72375efcd34106b05edb07c49b9f2605f156c77147a073c3dfe454d56",
+      "tests/fixtures/sep8-spin-custody/source-binding.json": "e9f76cd2077a2b06667d65f7b00b703427e3fdfebe23066a3cf24fd3be1c25ce"
     },
     "current": {
       "tests/unit/fixtureNativeCi.test.ts": "1972384abd808e3052c47b4aed4c03674fb2d750d85e8b5542df7acd224e8804",
-      "tests/fixtures/earlybird-fee-custody/source-binding.json": "e4eee93fc28454ee6c980480dc370a3dca4ec29647089941d72c93336abed8dc",
-      "tests/fixtures/sep8-spin-custody/source-binding.json": "b23fd521713bb8716ea11e5901a936d211edcc649ccac11a29ef356288ca2d03"
+      "tests/fixtures/earlybird-fee-custody/source-binding.json": "6d6e48c72375efcd34106b05edb07c49b9f2605f156c77147a073c3dfe454d56",
+      "tests/fixtures/sep8-spin-custody/source-binding.json": "e9f76cd2077a2b06667d65f7b00b703427e3fdfebe23066a3cf24fd3be1c25ce"
     }
   },
   "acceptedWindowNativeInputIdentity20261025": {
@@ -5774,7 +5774,7 @@
     "scope": "Approved organization hosted runner routing and exact immutable repository identity; financial commands, assertions, history and qualification states unchanged. Current source inputs only; no native, financial or live certificate restamp.",
     "previousInputs": {
       "tests/unit/fixtureNativeCi.test.ts": "1972384abd808e3052c47b4aed4c03674fb2d750d85e8b5542df7acd224e8804",
-      "tests/fixtures/earlybird-fee-custody/source-binding.json": "e4eee93fc28454ee6c980480dc370a3dca4ec29647089941d72c93336abed8dc"
+      "tests/fixtures/earlybird-fee-custody/source-binding.json": "6d6e48c72375efcd34106b05edb07c49b9f2605f156c77147a073c3dfe454d56"
     }
   },
   "postflopOrganizationMainIntegration20261029": {
@@ -8272,19 +8272,19 @@
     "paths": {
       "scripts/qualification/ci-accounting-inputs.json": {
         "before": "83dfaf40b1ae2da6347dc4f491f105e7df251c12c7a82352806ccce571dad3a8",
-        "after": "65a09e6af81e9832294518cfa8adbd1f1ea5b8f54cd628bb037a8c9e7f3f9402"
+        "after": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
       },
       "tests/fixtures/legacy-fee-finality/source-binding.json": {
         "before": "24034135cef51a4db95bf91f4311f52e20661ba588070db89451269bb89edb37",
-        "after": "718b08f4aa30ba686d29454afcc2048c04af3a1a772fd02bf175df93fcf9499f"
+        "after": "fb217f2aa2c9a7c34f02fd1cfb050f946ca51d700586c9daa2720adc3d4395a1"
       },
       "tests/fixtures/sep8-spin-custody/source-binding.json": {
         "before": "cca983cd34e473a30b4b5ec7b00bae2425c915143b41355f47c9ac62c4a56df5",
-        "after": "b23fd521713bb8716ea11e5901a936d211edcc649ccac11a29ef356288ca2d03"
+        "after": "e9f76cd2077a2b06667d65f7b00b703427e3fdfebe23066a3cf24fd3be1c25ce"
       },
       "tests/fixtures/earlybird-fee-custody/source-binding.json": {
         "before": "cf148b183270761e4a48c1cb7daa2d3c04c13a92cf97de30ee1ee7f6420d8976",
-        "after": "e4eee93fc28454ee6c980480dc370a3dca4ec29647089941d72c93336abed8dc"
+        "after": "6d6e48c72375efcd34106b05edb07c49b9f2605f156c77147a073c3dfe454d56"
       }
     },
     "review": "The only change in this pinned file is the PostgreSQL apt signing-key download (a sudo curl of ACCC4CF8.asc) replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8, sha256 0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76); for scripts/qualification/ci-accounting-inputs.json that is the same three lines inside its projection of ci.yml's accounting_postgres job, regenerated with qualification-input-projections.py --write. Nothing else differs. No financial, native or production qualification is restamped or claimed.",
