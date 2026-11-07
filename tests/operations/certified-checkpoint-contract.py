@@ -15,12 +15,12 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('certified_db', ROOT/'server/scripts/engine-release-database-proof.py')
 db = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(db)
-ANN = 1793835000000  # 2026-11-04T23:30:00Z, within the exact owner interval.
+ANN = 1793835000076  # 2026-11-04T23:30:00.076Z, within the exact owner interval.
 INSTANCE = '1-5835d418'
 TOKEN = '35b5aa56-2bc6-45ec-9991-2f5eb2e96a27'
 
 def iso(ms):
-    return datetime.fromtimestamp(ms/1000,timezone.utc).isoformat().replace('+00:00','Z')
+    return datetime.fromtimestamp(ms/1000,timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
 
 def fixture(now=None, early=False):
     now = ANN+330000 if now is None else now
@@ -47,6 +47,15 @@ def fixture(now=None, early=False):
     return request,proof,health
 
 class CertifiedContract(unittest.TestCase):
+    def test_wire_timestamp_keeps_exact_milliseconds_including_whole_seconds(self):
+        for fraction in (0,1,76,999):
+            millis=1793835000000+fraction
+            expected='2026-11-04T23:30:00.%03dZ'%fraction
+            self.assertEqual(db.epoch_milliseconds_iso(millis),expected)
+            self.assertEqual(db.certified_epoch(expected),millis)
+        for invalid in (True,1793835000076.0,'1793835000076',None):
+            with self.assertRaises(ValueError):db.epoch_milliseconds_iso(invalid)
+
     def test_autoheal_is_fenced_and_restored_only_by_the_original_no_action_owner(self):
         source=(ROOT/'server/scripts/engine-release-transaction.sh').read_text()
         block=source[source.index('fence_certified_checkpoint_autoheal() {'):source.index('prove_rollback_readiness() {')]

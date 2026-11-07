@@ -7,6 +7,8 @@ import importlib.util
 import json
 import re
 import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +45,9 @@ INSERT INTO public.test_clock VALUES('2026-11-04T23:30:00Z'::timestamptz-clock_t
 ALTER FUNCTION pg_catalog.clock_timestamp() RENAME TO fixture_real_clock;
 CREATE FUNCTION pg_catalog.clock_timestamp() RETURNS timestamptz LANGUAGE sql VOLATILE AS
  $$SELECT pg_catalog.fixture_real_clock()+delta FROM public.test_clock$$;
+ALTER FUNCTION pg_catalog.statement_timestamp() RENAME TO fixture_real_statement_clock;
+CREATE FUNCTION pg_catalog.statement_timestamp() RETURNS timestamptz LANGUAGE sql STABLE AS
+ $$SELECT pg_catalog.fixture_real_statement_clock()+delta FROM public.test_clock$$;
 """
 
 def sqljson(value):
@@ -84,6 +89,52 @@ def finish(c, req, token=ot.TOKEN):
 
 def expect_register_error(c, req, error):
     c.psql('SET ROLE service_role; SELECT public.fn_register_engine_certified_recovery(%s);'%sqljson(req),error=error)
+
+def qualify_host_registration(c):
+    # Execute the maintained host caller, including its durable request and
+    # single-POST/readback path. Only transport, clock and the root-only file
+    # ownership boundary are adapted to this unprivileged private PG fixture.
+    spec=importlib.util.spec_from_file_location('host_proof',ROOT/'server/scripts/engine-release-database-proof.py')
+    host=importlib.util.module_from_spec(spec);spec.loader.exec_module(host)
+    base_ms=1793835000000
+    for fraction in (76,1,999,0):
+        stamp='2026-11-04T23:30:00.%03dZ'%fraction
+        announce(c,stamp)
+        calls=[]
+        def rpc(_url,_key,name,parameters=None,write=False):
+            calls.append((name,parameters,write))
+            if name=='fn_register_engine_certified_recovery':
+                ot.require(write is True,'host registration is the sole write RPC')
+                return register(c,parameters['p_request'])
+            ot.require(write is False,'host proof remains read only')
+            if name=='fn_engine_certified_recovery_contract':
+                return c.rpc('public.fn_engine_certified_recovery_contract()')
+            ot.require(name=='fn_engine_certified_recovery_proof','host uses existing proof RPC')
+            return proof(c,dict(runKey=parameters['p_run_key'],targetSha=parameters['p_target_sha'],
+                controlSha=parameters['p_control_sha'],announcedAt=parameters['p_announced_at']))
+        def local_request(path):
+            ot.require(path.stat().st_mode&0o777==0o600,'host request retains private file mode')
+            return json.loads(path.read_text())
+        with tempfile.TemporaryDirectory(prefix='host-register-') as directory:
+            args=SimpleNamespace(sha=EED,certified_mode='register',target_sha='a'*40,control_sha='b'*40,
+                window_announced_ms=base_ms+fraction,certified_request_root=directory,
+                run_id='12345-1',instance_id='1-eed-test',certified_health_stdin=False,minimum_ms=0)
+            with patch.object(host,'certified_rpc',side_effect=rpc),\
+                 patch.object(host,'read_maintenance_promise',side_effect=lambda *_:c.rpc('public.fn_engine_maintenance_promise_proof()')),\
+                 patch.object(host,'read_certified_request',side_effect=local_request),\
+                 patch.object(host,'time',SimpleNamespace(time=lambda:float(c.val('SELECT extract(epoch FROM clock_timestamp())')))):
+                first=host.operate_certified(args,'https://private-pg.invalid','fixture')
+                ot.require(first['request']['announcedAt']==stamp,'actual host emits canonical milliseconds '+stamp)
+                ot.require(c.val('SELECT (extract(epoch FROM announced_at)*1000)::bigint FROM smarter_private.engine_certified_recoveries')==str(base_ms+fraction),'registration preserves exact millisecond instant')
+                path=host.certified_request_file(directory,args.run_id);saved=path.read_bytes()
+                replay=host.operate_certified(args,'https://private-pg.invalid','fixture')
+                ot.require(replay['request']==first['request'] and path.read_bytes()==saved,'host replay retains original durable request')
+                ot.require(sum(write for _,_,write in calls)==1,'host replay never repeats registration POST')
+                ot.require(c.val('SELECT count(*) FROM smarter_private.engine_certified_recoveries')=='1','host replay retains one immutable registration')
+                malformed={**first['request'],'announcedAt':stamp[:-1]+'000Z'}
+                expect_register_error(c,malformed,'CERTIFIED_RECOVERY_REQUEST_INVALID')
+                ot.require(c.val('SELECT count(*) FROM smarter_private.engine_certified_recoveries')=='1','strict SQL still refuses six fractional digits')
+    c.psql('TRUNCATE smarter_private.engine_certified_recoveries;')
 
 def frozen_kernel(c, error=None):
     expr="smarter_private.attest_frozen_hand_continuation('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333',123,0,(SELECT payload_sha256 FROM smarter_private.hand_continuations))"
@@ -134,6 +185,7 @@ def main():
             contract=c.rpc('public.fn_engine_certified_recovery_contract()')
             ot.require(contract['schema']=='engine-certified-recovery-contract/v1' and contract['policyId']==POLICY and contract['profile']['freezeMs']==780000 and contract['thawDefinitionMd5']=='e2530d18c33dd11f10d5e40bed4bd2e1','preannouncement contract derives qualified installed definitions')
             c.psql("BEGIN; ALTER FUNCTION public.fn_thaw_platform(timestamptz,timestamptz,numeric,uuid,text) SET statement_timeout='34s'; SELECT public.fn_engine_certified_recovery_contract(); ROLLBACK;", error='CERTIFIED_RECOVERY_INSTALLED_CONTRACT_UNPROVEN')
+            qualify_host_registration(c)
             # No policy preserves the deployed original promise and every existing replay.
             pm.reset(c,270)
             normal=pm.finish(c)[-1]
