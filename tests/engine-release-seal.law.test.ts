@@ -1240,6 +1240,215 @@ printf '%s\\n%s' '{"running":true,"releaseSha":"${A_SHA}","liveness":"ok","insta
     ).toBe(`2 ${B_SHA} ${B_IMAGE} 305`);
   });
 
+  it('observes a recovered completion after systemd retires its invocation between polls', () => {
+    runSeal([
+      'bootstrap-running',
+      '--container',
+      'club-arena-engine',
+      ...auditArgs('306-1', 'bootstrap'),
+    ]);
+    const prepared = runSeal([
+      'prepare',
+      '--sha',
+      B_SHA,
+      '--image',
+      'candidate-ref',
+      '--mode',
+      'deploy',
+      '--repo',
+      sandbox,
+      ...auditArgs('307-1', 'candidate'),
+    ]);
+    expect(authorize('candidate-ref', prepared.stdout).status).toBe(0);
+    expect(
+      runSeal(
+        [
+          'commit',
+          '--sha',
+          B_SHA,
+          '--image',
+          'candidate-ref',
+          '--container',
+          'club-arena-engine',
+          ...auditArgs('307-1', 'proved'),
+        ],
+        { FAKE_CONTAINER_IMAGE: B_IMAGE }
+      ).status
+    ).toBe(0);
+    const recoveryInvocation = '1'.repeat(32);
+    const firstInvocation = 'e'.repeat(32);
+    const container = 'd'.repeat(64);
+    const startedAt = '2026-09-10T04:00:00.000000000Z';
+    expect(
+      runSeal(
+        [
+          'record-result',
+          '--sha',
+          B_SHA,
+          '--image-id',
+          B_IMAGE,
+          '--result',
+          'sealed',
+          '--instance-id',
+          '12345-deadbeef',
+          '--container-id',
+          container,
+          '--started-at',
+          startedAt,
+          '--run-id',
+          '307-1',
+          '--control-sha',
+          C_SHA,
+          '--invocation-id',
+          recoveryInvocation,
+        ],
+        { FAKE_CONTAINER_IMAGE: B_IMAGE }
+      ).status
+    ).toBe(0);
+
+    const generation = join(sandbox, 'generation');
+    const changedControl = runSeal(
+      [
+        'record-result',
+        '--sha',
+        B_SHA,
+        '--image-id',
+        B_IMAGE,
+        '--result',
+        'sealed',
+        '--instance-id',
+        '12345-deadbeef',
+        '--container-id',
+        container,
+        '--started-at',
+        startedAt,
+        '--run-id',
+        '307-1',
+        '--control-sha',
+        A_SHA,
+        '--invocation-id',
+        recoveryInvocation,
+      ],
+      { FAKE_CONTAINER_IMAGE: B_IMAGE }
+    );
+    expect(changedControl.status).not.toBe(0);
+    expect(changedControl.stderr).toContain('different release bytes');
+    mkdirSync(generation);
+    const observerPath = join(generation, 'observe-engine-release.sh');
+    writeFileSync(observerPath, read('server/scripts/observe-engine-release.sh'));
+    const actualPython = spawnSync('which', ['python3'], { encoding: 'utf8' }).stdout.trim();
+    const calls = join(sandbox, 'receipt-calls');
+    const nativeCalls = join(sandbox, 'native-calls');
+    writeFileSync(
+      join(generation, 'engine-release-seal.py'),
+      `#!/usr/bin/env bash
+if [ "$1" = attest-result ]; then
+  count=0; [ ! -e '${calls}' ] || read -r count < '${calls}'
+  count=$((count + 1)); echo "$count" > '${calls}'
+  # The result appears only after the observer has seen the first invocation.
+  [ "$count" -gt 2 ] || exit 1
+fi
+exec '${actualPython}' '${sealScript}' "$@"
+`
+    );
+    writeFileSync(join(bin, 'id'), '#!/usr/bin/env bash\necho 0\n');
+    writeFileSync(
+      join(bin, 'systemctl'),
+      `#!/usr/bin/env bash
+case "$*" in
+  *InvocationID*)
+    count=0; [ ! -e '${nativeCalls}' ] || read -r count < '${nativeCalls}'
+    count=$((count + 1)); echo "$count" > '${nativeCalls}'
+    if [ "$count" = 1 ]; then echo '${firstInvocation}'; else printf '%s' "\${TEST_TERMINAL_INVOCATION:-}"; fi ;;
+  is-enabled*) exit 1 ;;
+  *ActiveState*) echo inactive ;;
+  *Result*) echo success ;;
+  *) exit 92 ;;
+esac
+`
+    );
+    writeFileSync(
+      join(bin, 'docker'),
+      `#!/usr/bin/env bash
+case "$*" in
+  *sp.release.sha*) echo '${B_SHA}' ;;
+  *State.Status*) echo running ;;
+  *State.StartedAt*) printf '%s\\n' "\${TEST_ACTUAL_STARTED:-${startedAt}}" ;;
+  *'{{.Image}}'*) echo '${B_IMAGE}' ;;
+  *'{{.Id}}'*) printf '%s\\n' "\${TEST_ACTUAL_CONTAINER:-${container}}" ;;
+  *) exit 93 ;;
+esac
+`
+    );
+    writeFileSync(
+      join(bin, 'curl'),
+      `#!/usr/bin/env bash
+printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s"}\\n' "\${TEST_ACTUAL_INSTANCE:-12345-deadbeef}"
+`
+    );
+    for (const path of [
+      observerPath,
+      join(generation, 'engine-release-seal.py'),
+      ...['id', 'systemctl', 'docker', 'curl'].map((name) => join(bin, name)),
+    ])
+      chmodSync(path, 0o755);
+    const observe = (overrides: NodeJS.ProcessEnv = {}) => {
+      rmSync(calls, { force: true });
+      rmSync(nativeCalls, { force: true });
+      return spawnSync('bash', [observerPath, '--sha', B_SHA, '--run-id', '307-1'], {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          ...baseEnv,
+          ...overrides,
+          ENGINE_RELEASE_REQUEST_ROOT: join(sandbox, 'requests'),
+          ENGINE_RELEASE_INTAKE_ROOT: join(sandbox, 'intakes'),
+          ENGINE_RELEASE_PIN_ROOT: join(sandbox, 'pins'),
+          ENGINE_RELEASE_IMAGE_LEASE_ROOT: join(sandbox, 'leases'),
+        },
+      });
+    };
+    const recovered = observe();
+    expect(recovered.status, recovered.stderr).toBe(0);
+    expect(recovered.stdout).toContain('ENGINE_RELEASE_RESULT=sealed');
+    const wrongNative = observe({ TEST_TERMINAL_INVOCATION: firstInvocation });
+    expect(wrongNative.status).not.toBe(0);
+    expect(wrongNative.stderr).toContain('does not attest this exact invocation');
+    for (const override of [
+      { TEST_ACTUAL_CONTAINER: 'f'.repeat(64) },
+      { TEST_ACTUAL_STARTED: '2026-09-10T04:01:00.000000000Z' },
+      { TEST_ACTUAL_INSTANCE: '23456-feedface' },
+    ]) {
+      const changed = observe(override);
+      expect(changed.status).not.toBe(0);
+      expect(changed.stderr).toContain('active invocation receipt does not match');
+    }
+    const resultPath = join(sandbox, 'state', 'engine-release-results', '307-1.json');
+    const receipt = readFileSync(resultPath, 'utf8');
+    const value = JSON.parse(receipt);
+    for (const invalid of [null, 'bad-id', firstInvocation]) {
+      value.completionRuntime.invocationId = invalid;
+      writeFileSync(resultPath, JSON.stringify(value));
+      const unknownProducer = observe();
+      expect(unknownProducer.status).not.toBe(0);
+    }
+    writeFileSync(resultPath, receipt);
+    for (const field of ['runId', 'sha', 'imageId', 'controlSha']) {
+      const invalid = JSON.parse(receipt);
+      invalid[field] =
+        field === 'runId'
+          ? '308-1'
+          : field === 'sha'
+            ? A_SHA
+            : field === 'imageId'
+              ? A_IMAGE
+              : 'invalid';
+      writeFileSync(resultPath, JSON.stringify(invalid));
+      expect(observe().status).not.toBe(0);
+    }
+    writeFileSync(resultPath, receipt);
+  });
+
   it('reconstructs a durable per-run result after a crash between seal commit and result write', () => {
     runSeal([
       'bootstrap-running',

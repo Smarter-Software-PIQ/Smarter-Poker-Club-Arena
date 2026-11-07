@@ -4183,6 +4183,12 @@ def cmd_attest_result(args: argparse.Namespace) -> None:
         desired = state["desired"]
         if desired["sha"] != value["sha"] or desired["imageId"] != value["imageId"]:
             die("durable result no longer matches the sealed desired release")
+        if getattr(args, "completion_invocation_id", False):
+            producer = value["completionRuntime"]["invocationId"]
+            if producer not in value["invocationIds"]:
+                die("durable result does not attest its completion invocation")
+            print(producer)
+            return
         print(
             " ".join(
                 str(value[key])
@@ -4774,6 +4780,7 @@ def parser() -> argparse.ArgumentParser:
     attest_result.add_argument("--sha", required=True)
     attest_result.add_argument("--run-id", required=True)
     attest_result.add_argument("--invocation-id")
+    attest_result.add_argument("--completion-invocation-id", action="store_true")
     attest_result.set_defaults(handler=cmd_attest_result)
 
     diagnostic_read_command = commands.add_parser("diagnostic-read")

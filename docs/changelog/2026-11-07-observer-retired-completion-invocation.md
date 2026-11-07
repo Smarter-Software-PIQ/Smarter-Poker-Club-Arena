@@ -1,0 +1,7 @@
+# The release observer follows a retired recovery completion
+
+The observer could cache a first systemd invocation, then miss the recovery invocation when it completed and systemd cleared its metadata between polls. Release 42389189340-1 produced a valid sealed receipt and healthy runtime, but its provider observer rejected that receipt against the predecessor invocation.
+
+After proving complete run retirement, the observer refreshes the native invocation. Only an empty native ID may use the receipt's original completion producer, returned by the existing seal attestation command after exact run, SHA, desired image, producer shape and invocation-history checks. A present native ID still has to attest itself. Active-observation container, start time and process identity checks remain mandatory; the existing precompleted observation contract stays unchanged. No receipt schema or history is rewritten, no new publisher or engine activation is introduced, and the previous diagnostic producer pair remains accepted alongside the new bytes.
+
+The executable regression reproduces cleanup between polls against the real seal reader, with wrong native identity, unknown completion producer, malformed receipt identity and changed runtime generation refusals. The existing same-run observer reattachment remains the route to verify a completion whose provider connection ended; it never requires replaying the cutover.
