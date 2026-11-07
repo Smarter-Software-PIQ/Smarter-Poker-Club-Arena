@@ -554,10 +554,13 @@ describe('standby adoption authority and timing', () => {
       const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
       docker() { echo '${'d'.repeat(64)} ${mode === 'wrong-label' ? 'b'.repeat(40) : sha} true 0'; }
       health() { echo fixture; }
-      health_field() { if [ "$1" = instanceId ]; then echo candidate-instance; elif [ "$1" = liveness ]; then echo ok; elif [ "$1" = version ]; then echo '${mode === 'wrong-version' ? 'bbbbbbbb' : 'aaaaaaaa'}'; else echo '${mode === 'wrong-health' ? 'b'.repeat(40) : sha}'; fi; }
+      # Run the consumer first: an echo-only health_field stub closes its pipe
+      # before this producer writes, unlike the real JSON reader.
+      printf() { sleep 0.02; builtin printf "$@"; }
+      health_field() { cat >/dev/null; if [ "$1" = instanceId ]; then echo candidate-instance; elif [ "$1" = liveness ]; then echo ok; elif [ "$1" = version ]; then echo '${mode === 'wrong-version' ? 'bbbbbbbb' : 'aaaaaaaa'}'; else echo '${mode === 'wrong-health' ? 'b'.repeat(40) : sha}'; fi; }
       swap_target_identity '${sha}'
     `);
-      expect(result.status === 0).toBe(mode === 'exact');
+      expect(result.status === 0, result.stderr + result.stdout).toBe(mode === 'exact');
     }
   );
   it('reports unknown and reversed observations as null', () => {
