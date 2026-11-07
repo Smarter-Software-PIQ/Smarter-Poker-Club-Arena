@@ -8,14 +8,18 @@ pgbin="${PG17_BINDIR:-/opt/homebrew/opt/postgresql@17/bin}"
 work="$(mktemp -d "$parent/gcred.XXXXXX")"
 trap '"$pgbin/pg_ctl" -D "$work/data" -m immediate -w stop >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
 mkdir "$work/socket"
+# The TLS check needs TCP. Ask the kernel for a port nothing holds instead of a
+# fixed one inside the ephemeral range, where an outbound connection can own it.
+port="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
+export PRIVATE_RECORD_PG_PORT="$port"
 "$pgbin/initdb" -D "$work/data" -U fixture_admin --auth-local=trust --auth-host=scram-sha-256 --no-locale -E UTF8 >/dev/null
 openssl req -x509 -newkey rsa:2048 -nodes -keyout "$work/server.key" -out "$work/server.crt" -days 1 -subj /CN=localhost -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' > "$work/certificate.log" 2>&1
 chmod 600 "$work/server.key"
-"$pgbin/pg_ctl" -D "$work/data" -l "$work/postgres.log" -o "-h 127.0.0.1 -k '$work/socket' -p 57649 -c ssl=on -c ssl_cert_file='$work/server.crt' -c ssl_key_file='$work/server.key'" -w start >/dev/null || { cat "$work/postgres.log"; exit 1; }
-"$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$work/socket" -p 57649 -U fixture_admin -d postgres -c "CREATE ROLE postgres LOGIN CREATEROLE NOSUPERUSER; ALTER DATABASE postgres OWNER TO postgres"
-"$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$work/socket" -p 57649 -U postgres -d postgres -f "$repo/supabase/migrations/20261028154533_private_record_listener_has_a_dedicated_disabled_role.sql"
+"$pgbin/pg_ctl" -D "$work/data" -l "$work/postgres.log" -o "-h 127.0.0.1 -k '$work/socket' -p "$port" -c ssl=on -c ssl_cert_file='$work/server.crt' -c ssl_key_file='$work/server.key'" -w start >/dev/null || { cat "$work/postgres.log"; exit 1; }
+"$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$work/socket" -p "$port" -U fixture_admin -d postgres -c "CREATE ROLE postgres LOGIN CREATEROLE NOSUPERUSER; ALTER DATABASE postgres OWNER TO postgres"
+"$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$work/socket" -p "$port" -U postgres -d postgres -f "$repo/supabase/migrations/20261028154533_private_record_listener_has_a_dedicated_disabled_role.sql"
 "$repo/server/node_modules/.bin/tsx" "$repo/scripts/ci/fixtures/private-record-credentials-postgres.mjs" "$work/socket" "$work/server.crt"
-if "$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$work/socket" -p 57649 -U postgres -d postgres -f "$repo/supabase/migrations/20261028154533_private_record_listener_has_a_dedicated_disabled_role.sql" > "$work/replay.log" 2>&1; then
+if "$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$work/socket" -p "$port" -U postgres -d postgres -f "$repo/supabase/migrations/20261028154533_private_record_listener_has_a_dedicated_disabled_role.sql" > "$work/replay.log" 2>&1; then
   echo 'Dedicated role migration replay unexpectedly accepted' >&2; exit 1
 fi
 if ! grep -q PRIVATE_RECORD_ROLE_ALREADY_EXISTS "$work/replay.log"; then cat "$work/replay.log"; exit 1; fi
