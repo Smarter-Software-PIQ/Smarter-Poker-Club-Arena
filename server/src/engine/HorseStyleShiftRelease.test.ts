@@ -8,7 +8,7 @@ import {
   freshExploitCounters,
   styleShiftReleased,
   type ExploitCounters,
-} from './HorseOpponentExploit';
+} from './HorseOpponentExploit.js';
 
 const inc = (over: Partial<ExploitCounters>): ExploitCounters => ({
   ...freshExploitCounters(),
