@@ -222,6 +222,26 @@ export function public215CacheMetadataJson(value: unknown): string {
   };
   return JSON.stringify(ordered(value));
 }
+/** Census a public cache declares for itself. R7 declared 107 contexts x 57
+ * boards = 6,099 targets; later datasets (R8: 100 x 57) state their own,
+ * and every consumer below checks against this declared census instead of
+ * R7 constants. Boards per context stay 57 (3 folds x 19). */
+export type Public215Census = { contexts: number; boardsPerContext: number; targets: number };
+export function public215CacheCensus(batch: ObjectValue): Public215Census {
+  const contexts = batch.contexts,
+    boardsPerContext = batch.boards_per_context,
+    targets = batch.planned_targets;
+  need(
+    Number.isSafeInteger(contexts) &&
+      contexts > 0 &&
+      boardsPerContext === 57 &&
+      Number.isSafeInteger(targets) &&
+      targets === contexts * boardsPerContext &&
+      batch.completed_targets === targets,
+    'PUBLIC_CACHE_CENSUS'
+  );
+  return { contexts, boardsPerContext, targets };
+}
 function readCache(f: ObjectValue, kind: 'current' | 'terminal', schema: ObjectValue): ObjectValue {
   object(f, ['path', 'sha256', 'header']);
   const batch = JSON.parse(pinned(f.path, f.sha256).toString('utf8'));
@@ -241,14 +261,11 @@ function readCache(f: ObjectValue, kind: 'current' | 'terminal', schema: ObjectV
   need(
     batch.contract === schema[kind + '_contract'] &&
       batch.solver_labels_used === false &&
-      batch.qualityCertified === false &&
-      batch.planned_targets === 6099 &&
-      batch.completed_targets === 6099 &&
-      batch.contexts === 107 &&
-      batch.boards_per_context === 57,
-    'PUBLIC_CACHE_6099'
+      batch.qualityCertified === false,
+    'PUBLIC_CACHE_IDENTITY'
   );
-  need(Array.isArray(batch.rows) && batch.rows.length === 6099, 'CACHE_ROWS');
+  const census = public215CacheCensus(batch);
+  need(Array.isArray(batch.rows) && batch.rows.length === census.targets, 'CACHE_ROWS');
   return batch;
 }
 function extractCache(
@@ -351,7 +368,15 @@ export function buildPublic215FeatureIndex(request: ObjectValue, output: string)
   );
   const currentRows = current.rows,
     terminalRows = terminal.rows;
-  need(Array.isArray(request.contexts) && request.contexts.length === 107, 'CONTEXT107');
+  const census = public215CacheCensus(current.header);
+  need(
+    JSON.stringify(public215CacheCensus(terminal.header)) === JSON.stringify(census),
+    'CACHE_CENSUS_AGREES'
+  );
+  need(
+    Array.isArray(request.contexts) && request.contexts.length === census.contexts,
+    'CONTEXT_CENSUS'
+  );
   const contextIDs = new Set<string>(),
     targetIDs = new Set<string>(),
     usedCache = new Set<string>();
@@ -392,7 +417,7 @@ export function buildPublic215FeatureIndex(request: ObjectValue, output: string)
     sameWeights(opponent, template.normalizedWeights);
     need(
       Array.isArray(group.targets) &&
-        group.targets.length === 57 &&
+        group.targets.length === census.boardsPerContext &&
         Array.isArray(group.cases) &&
         group.cases.length >= 2 &&
         group.cases.length <= 32,
@@ -449,7 +474,9 @@ export function buildPublic215FeatureIndex(request: ObjectValue, output: string)
     prepared.push({ group, cid, template, rows, count });
   }
   need(
-    targetIDs.size === 6099 && usedCache.size === 6099 && contextIDs.size === 107,
+    targetIDs.size === census.targets &&
+      usedCache.size === census.targets &&
+      contextIDs.size === census.contexts,
     'GLOBAL_EXACT_PUBLIC_DOMAIN'
   );
   mkdirSync(output);
@@ -510,8 +537,8 @@ export function buildPublic215FeatureIndex(request: ObjectValue, output: string)
     feature_schema_checksum: request.feature_schema_checksum,
     encoder_checksum: encoder,
     physics_checksum: request.physics_checksum,
-    source_count: 6099,
-    context_count: 107,
+    source_count: census.targets,
+    context_count: census.contexts,
     dtype: '<f8',
     contexts: groups,
   };
@@ -533,8 +560,8 @@ function main(): void {
     JSON.stringify({
       output: join(args[5], 'public-feature-index.json'),
       sha256: public215Digest(result),
-      contexts: 107,
-      targets: 6099,
+      contexts: result.context_count,
+      targets: result.source_count,
       solver_labels_used: false,
       qualityCertified: false,
     })
