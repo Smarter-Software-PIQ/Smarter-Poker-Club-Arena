@@ -60,15 +60,11 @@ export interface EnginePublicPlayer {
    */
   is_mucked?: boolean;
   /**
-   * CHIP CONTINUITY (2026-09-04): the stay clock. Money put onto this
-   * session, the remaining stay time as of this snapshot, whether it is
-   * counting down, and whether leaving is refused right now. All three
-   * engine payloads carry them; the client renders and never decides.
+   * CHIP CONTINUITY (2026-09-04): money put onto this session. The engine's
+   * old stay-clock fields are still on the wire and are not read: the
+   * ten-minute stay is retired (hit and run counts hands instead).
    */
   session_baseline?: number;
-  stay_remaining_ms?: number;
-  stay_running?: boolean;
-  leave_locked?: boolean;
   /**
    * HIT AND RUN (owner 2026-11-06): hands still owed in profit before this
    * player may leave (null: none owed), and whether a confirmed early leave
@@ -342,17 +338,12 @@ export interface MappedTableStatePatch {
    */
   isAnonymous: boolean;
   /**
-   * CHIP CONTINUITY: the hero's own leave lock, as the engine published it.
-   * `remainingMs` is as of `at` (engine clock, ms); the leave control counts
-   * down from there while `running`. Null when the hero is not seated or the
-   * engine build predates the field.
-   */
-  heroLeave: { locked: boolean; remainingMs: number; running: boolean; at: number } | null;
-  /**
    * HIT AND RUN: the hero's hands still owed as the engine reports them; null
    * for none owed, undefined when the payload does not carry the field.
    */
   heroHandsOwed: number | null | undefined;
+  /** HIT AND RUN: this countdown's total (10 plus 10 per double), when owed. */
+  heroHandsRequired: number | null | undefined;
 }
 
 // ─── Mapping ──────────────────────────────────────────────────────────────────
@@ -561,20 +552,8 @@ export function mapEngineSnapshot(
   // running fast made a 15-second turn visibly run short.
   recordServerTime(s.server_time_ms);
 
-  // CHIP CONTINUITY: lift the hero's stay clock out of the seat payload.
+  // HIT AND RUN: the hero's own seat entry carries the hand count.
   const heroRaw = s.players.find((p) => p.user_id === heroUserId);
-  const heroLeave: MappedTableStatePatch['heroLeave'] =
-    heroRaw && typeof heroRaw.stay_remaining_ms === 'number'
-      ? {
-          locked: heroRaw.leave_locked === true,
-          remainingMs: Math.max(0, heroRaw.stay_remaining_ms),
-          running: heroRaw.stay_running === true,
-          at:
-            typeof s.server_time_ms === 'number' && s.server_time_ms > 0
-              ? s.server_time_ms
-              : Date.now(),
-        }
-      : null;
 
   // Action timer deadline.
   // Phase 1.2 PR-F: prefer the authoritative turn_deadline_ms from the
@@ -658,11 +637,16 @@ export function mapEngineSnapshot(
     actionTimerPlayerId: s.current_player ?? undefined,
     isTimeBankActive: s.time_bank_active ?? false,
     handNumber: s.hand_number ?? 0,
-    heroLeave,
     heroHandsOwed:
       heroRaw && 'hit_run_hands_remaining' in heroRaw
         ? typeof heroRaw.hit_run_hands_remaining === 'number' && heroRaw.hit_run_hands_remaining > 0
           ? Math.floor(heroRaw.hit_run_hands_remaining)
+          : null
+        : undefined,
+    heroHandsRequired:
+      heroRaw && 'hit_run_hands_required' in heroRaw
+        ? typeof heroRaw.hit_run_hands_required === 'number' && heroRaw.hit_run_hands_required > 0
+          ? Math.floor(heroRaw.hit_run_hands_required)
           : null
         : undefined,
     sidePots,

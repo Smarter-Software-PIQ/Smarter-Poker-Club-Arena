@@ -166,9 +166,6 @@ interface Props {
   handNumber: number;
   /** Where the hero's seat is, percent of the table; the tracker sits to its left. */
   heroPos: { x: number; y: number } | null;
-  /** Existing engine stay-clock projection; no client-side lock decision. */
-  leaveClockRemainingMs?: number | null;
-  leaveClockRunning?: boolean;
   /**
    * HIT AND RUN (owner 2026-11-06): hands still owed in profit before the
    * hero may leave, counted down after every completed hand. Null: none.
@@ -182,8 +179,6 @@ export default function HeroVpipTracker({
   isTournament,
   handNumber,
   heroPos,
-  leaveClockRemainingMs = null,
-  leaveClockRunning = false,
   handsOwed = null,
 }: Props) {
   const enabled = Boolean(tableId) && heroSeated && !isTournament;
@@ -192,8 +187,6 @@ export default function HeroVpipTracker({
   const vpip = status?.vpip == null ? null : Number(status.vpip);
   const floor = Number(status?.required ?? 0);
   const showVpip = Boolean(status?.ok && status.seated && floor > 0);
-  const showClock =
-    leaveClockRunning && leaveClockRemainingMs !== null && leaveClockRemainingMs > 0;
   const showHands = typeof handsOwed === 'number' && handsOwed > 0;
 
   useLayoutEffect(() => {
@@ -251,11 +244,9 @@ export default function HeroVpipTracker({
       observer?.disconnect();
       mounts?.disconnect();
     };
-  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showClock, showHands]);
+  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showHands]);
 
-  if (!enabled || !heroPos || (!showVpip && !showClock && !showHands)) return null;
-  const seconds = Math.max(0, Math.ceil((leaveClockRemainingMs ?? 0) / 1000));
-  const clockText = `${Math.floor(seconds / 60)}:${seconds % 60 < 10 ? `0${seconds % 60}` : seconds % 60}`;
+  if (!enabled || !heroPos || (!showVpip && !showHands)) return null;
 
   return (
     <div
@@ -282,12 +273,6 @@ export default function HeroVpipTracker({
         <div className="hero-vpip__clock" data-testid="hero-hand-count">
           <span>{HIT_RUN_COUNT_LABEL}</span>
           <time aria-label={`${HIT_RUN_COUNT_LABEL} ${handsOwed}`}>{handsOwed}</time>
-        </div>
-      )}
-      {showClock && (
-        <div className="hero-vpip__clock" data-testid="hero-profit-clock">
-          <span>Your Time Clock Has Started</span>
-          <time aria-label={`Time Clock ${clockText}`}>{clockText}</time>
         </div>
       )}
     </div>

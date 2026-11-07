@@ -535,67 +535,27 @@ describe('the game line fits its box (2026-09-09)', () => {
   });
 });
 
-describe('the profit stay clock is printed from the existing server projection', () => {
+describe('the retired stay clock never prints; the hand count does', () => {
   beforeEach(() =>
     rpc.mockResolvedValue({
       data: { ok: true, seated: true, required: 30, vpip: 100 },
       error: null,
     })
   );
-  it('shows the requested caption and updates the remaining time without starting a new clock', async () => {
+  it('shows the hands owed and no time clock', async () => {
     const props = {
       tableId: 't1',
       heroSeated: true,
       isTournament: false,
       handNumber: 1,
       heroPos: { x: 50, y: 95 },
-      leaveClockRunning: true,
     };
-    const view = render(<HeroVpipTracker {...props} leaveClockRemainingMs={351000} />);
-    expect(screen.getByTestId('hero-profit-clock')).toHaveTextContent(
-      'Your Time Clock Has Started5:51'
-    );
-    view.rerender(<HeroVpipTracker {...props} leaveClockRemainingMs={350000} />);
-    expect(screen.getByLabelText('Time Clock 5:50')).toBeInTheDocument();
-    view.rerender(<HeroVpipTracker {...props} leaveClockRemainingMs={0} />);
+    const view = render(<HeroVpipTracker {...props} handsOwed={7} />);
+    expect(screen.getByTestId('hero-hand-count')).toHaveTextContent('7');
     expect(screen.queryByTestId('hero-profit-clock')).not.toBeInTheDocument();
-    await act(async () => {
-      await Promise.resolve();
-    });
-  });
-  it('does not show a paused, unknown, spectator or tournament clock', async () => {
-    for (const props of [
-      {
-        heroSeated: true,
-        isTournament: false,
-        leaveClockRunning: false,
-        leaveClockRemainingMs: 600000,
-      },
-      {
-        heroSeated: true,
-        isTournament: false,
-        leaveClockRunning: true,
-        leaveClockRemainingMs: null,
-      },
-      {
-        heroSeated: false,
-        isTournament: false,
-        leaveClockRunning: true,
-        leaveClockRemainingMs: 600000,
-      },
-      {
-        heroSeated: true,
-        isTournament: true,
-        leaveClockRunning: true,
-        leaveClockRemainingMs: 600000,
-      },
-    ]) {
-      const view = render(
-        <HeroVpipTracker tableId="t1" handNumber={1} heroPos={{ x: 50, y: 95 }} {...props} />
-      );
-      expect(screen.queryByTestId('hero-profit-clock')).not.toBeInTheDocument();
-      view.unmount();
-    }
+    expect(screen.queryByText('Your Time Clock Has Started')).not.toBeInTheDocument();
+    view.rerender(<HeroVpipTracker {...props} handsOwed={0} />);
+    expect(screen.queryByTestId('hero-hand-count')).not.toBeInTheDocument();
     await act(async () => {
       await Promise.resolve();
     });

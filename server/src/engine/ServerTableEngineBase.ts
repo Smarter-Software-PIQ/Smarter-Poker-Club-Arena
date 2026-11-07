@@ -3332,6 +3332,17 @@ export abstract class ServerTableEngineBase {
     occupancyId: string
   ): Promise<unknown>;
 
+  /**
+   * HIT AND RUN: hands this seat still owes in profit before it may leave,
+   * read from the mirror at its current stack (0: free to go). The horse
+   * rotator asks before choosing who stands up.
+   */
+  public hitRunHandsOwed(userId: string): number {
+    const seat = this.seatedPlayers.find((p) => p.user_id === userId);
+    if (!seat) return 0;
+    return this.chipContinuity?.leaveLock(userId, seat.stack)?.handsRemaining ?? 0;
+  }
+
   /** This cash table is a Lightning anchor right now (hands are dealt in its pool). */
   protected isLightningAnchorNow(): boolean {
     return (
@@ -5515,6 +5526,10 @@ export abstract class ServerTableEngineBase {
       );
     };
     if (!mayReflect()) return null;
+    // HIT AND RUN: the mirror already knows the door would refuse a seat that
+    // owes hands in profit; do not ask the database every hand to hear it.
+    if (this.chipContinuity?.leaveLock(user_id, player.stack)?.locked === true)
+      return { ok: false, code: 'LEAVE_LOCKED', stayRemainingMs: 0 };
     const result = await atomicCashoutVoluntary(user_id, this.tableId, seat_number, occupancy_id);
     // The durable outcome is still retained, but a later stay must not inherit
     // either its refusal clock or the cleanup of its local presence trackers.

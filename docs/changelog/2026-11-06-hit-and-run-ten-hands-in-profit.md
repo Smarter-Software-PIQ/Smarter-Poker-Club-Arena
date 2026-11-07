@@ -33,3 +33,15 @@ Migration `20261106203853_hit_and_run_ten_hands_in_profit` (daily-maintenance wi
 Activation: the database file installs in the 04:00 America/Chicago window with the engine; the client works against both the old and new engine.
 
 Regressions: `tests/unit/hitAndRunHandCount.pg.test.ts` (isolated PostgreSQL), `server/src/engine/ChipContinuityLeave.behaviour.test.ts`, `server/src/engine/ChipContinuity.law.test.ts`, `tests/hit-and-run-leave-confirm.law.test.tsx`.
+
+## Follow-up (owner 2026-11-06: "FULLY BUILD, FIX AND ENHANCE ALL OF THESE")
+
+- **The Charles Rule is announced.** When a double adds hands the hero gets a toast: "You Doubled Up. 10 Hands Added Before You Can Leave" (`useHandsAddedByDouble`, read from the countdown total the engine now sends as `hit_run_hands_required`).
+- **One question per leave.** Every Leave Table door goes through `openLeaveConfirm`: with hands owed, the full-screen hand-count confirmation is the only dialog (the generic "Leave Table?" is skipped). The database count is still read before anything is sent.
+- **The tab X asks on its own table.** With hands owed, the multi-table container brings that table forward and asks there instead of putting the lobby up over the question.
+- **The count between Lightning hands.** A seatless Lightning hero sees `HitRunCountPill` above the action area until the next hand is dealt.
+- **The confirmation renders over everything** (portal on `document.body`).
+- **Club Data shows who owes hands.** New panel on the Club Data page (`ClubHitRunPanel`) reading `ca_club_hit_run_status` (migration `20261107020241`, daily window, after `20261106203853`): owners, co-owners and admins see the club, agents their downline, anyone else is refused; deleted players never appear. Rows: player, table and stakes, "X Of Y", Blinded Off or Playing. Refreshed every 30 seconds.
+- **Horses play their owed hands.** The rotator does not ask a seat that owes hands to leave, holds a refusal about 20 seconds per owed hand, and the two departures that must happen (lone stand, booked tournament) confirm the count the way a person would. The engine's voluntary stay answers from its mirror instead of asking the database every hand.
+- **The ten-minute stay clock is retired from the client** (state, tick, "Leave Available In" label, the tracker's "Your Time Clock Has Started", the confirm dialog's locked label, `src/lib/chipContinuity.ts`). Older engines' stay-clock fields are ignored.
+- **Bomb pots: the settings page is fixed at 30 minutes**, and `fn_update_table_bomb_settings` stores 1800 seconds for every timed bomb pot (migration `20261107015928`).

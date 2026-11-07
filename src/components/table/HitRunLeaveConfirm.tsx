@@ -16,6 +16,7 @@
  * return to the wallet then. Fully opaque: nothing behind it shows through.
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   HIT_RUN_CONFIRM_CONSEQUENCE,
   HIT_RUN_CONFIRM_QUESTION,
@@ -74,7 +75,9 @@ export default function HitRunLeaveConfirm({
     }
   };
 
-  return (
+  // Portalled to the page body: a table behind a hidden tab, or behind the
+  // multi-table container, still shows its question full screen.
+  return createPortal(
     <div
       className="hit-run-confirm"
       role="alertdialog"
@@ -114,6 +117,7 @@ export default function HitRunLeaveConfirm({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

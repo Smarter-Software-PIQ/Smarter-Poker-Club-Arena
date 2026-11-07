@@ -11,11 +11,12 @@
  *          /withdrawchips, no second tab in the table cashier;
  *   A0.14  no player-visible string contains the forbidden words - not a
  *          label, not a tooltip, not a toast, not a rule chip;
- *   6.1    the leave control's only copy while locked is
- *          "Leave Available In M:SS", and the buy-in modal says nothing about
- *          WHY its minimum is higher;
- *   6.3    the countdown ticks only while the engine says the clock is
- *          running, from the engine's clock, and locks only while time remains.
+ *   6.1    the ten-minute stay clock is retired (minimum stay removed
+ *          2026-10-26; the client plumbing removed 2026-11-06, when the
+ *          hit-and-run hand count became the one rule that keeps a player
+ *          in profit seated), and the buy-in modal says nothing about WHY
+ *          its minimum is higher;
+ *   6.3    an older engine's stay_remaining_ms is ignored, never displayed.
  *
  * The forbidden-word scan is over STRING LITERALS AND JSX TEXT, not
  * identifiers or comments: `no_rathole` is a database column the lobby row
@@ -27,11 +28,6 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { mapEngineSnapshot } from '../src/utils/mapEngineSnapshot';
-import {
-  heroLeaveIsLocked,
-  heroLeaveRemainingMs,
-  leaveAvailableLabel,
-} from '../src/lib/chipContinuity';
 import { cashBuyInRefusalText } from '../src/lib/cashBuyIn';
 
 const ROOT = process.cwd();
@@ -135,25 +131,33 @@ describe('A0.1 - chips cannot leave a seat without the player', () => {
   });
 });
 
-describe('6.1 / 6.3 - the leave control renders the engine clock and nothing else', () => {
-  it('formats M:SS and nothing more', () => {
-    expect(leaveAvailableLabel(372_000)).toBe('Leave Available In 6:12');
-    expect(leaveAvailableLabel(0)).toBe('Leave Available In 0:00');
+describe('6.1 / 6.3 - the ten-minute stay clock is retired', () => {
+  it('no client code reads, ticks or labels a stay clock', () => {
+    expect(fs.existsSync(path.join(ROOT, 'src/lib/chipContinuity.ts'))).toBe(false);
+    for (const rel of [
+      'src/pages/TablePage.tsx',
+      'src/components/table/HeroVpipTracker.tsx',
+      'src/components/table/LeaveTableConfirm.tsx',
+      'src/components/table/TableModalsLayer.tsx',
+      'src/utils/mapEngineSnapshot.ts',
+    ]) {
+      const code = stripComments(read(rel));
+      for (const dead of [
+        'heroLeave',
+        'leaveAvailableLabel',
+        'Leave Available In',
+        'Your Time Clock Has Started',
+        'hero-profit-clock',
+        'lockedLabel',
+        'stay_remaining_ms',
+        'setLeaveClockTick',
+      ]) {
+        expect({ rel, dead, found: code.includes(dead) }).toEqual({ rel, dead, found: false });
+      }
+    }
   });
 
-  it('ignores retired running and paused clocks from older engines', () => {
-    const at = 1_000_000;
-    const running = { locked: true, remainingMs: 60_000, running: true, at };
-    expect(heroLeaveRemainingMs(running, at + 25_000)).toBe(0);
-    expect(heroLeaveIsLocked(running, at + 25_000)).toBe(false);
-    expect(heroLeaveIsLocked(running, at + 61_000)).toBe(false);
-    const paused = { ...running, running: false };
-    expect(heroLeaveRemainingMs(paused, at + 25_000)).toBe(0);
-    expect(heroLeaveIsLocked(paused, at + 999_999)).toBe(false); // frozen, still locked (A0.5)
-    expect(heroLeaveIsLocked(null, at)).toBe(false);
-  });
-
-  it('mapEngineSnapshot lifts the hero clock out of the seat payload', () => {
+  it('an older engine still sending a stay clock changes nothing the client maps', () => {
     const snapshot = {
       table_id: 't',
       hand_number: 3,
@@ -172,39 +176,18 @@ describe('6.1 / 6.3 - the leave control renders the engine clock and nothing els
           stay_running: true,
           leave_locked: true,
         },
-        {
-          seat: 2,
-          user_id: 'villain',
-          stack: 90,
-          stay_remaining_ms: 0,
-          stay_running: false,
-          leave_locked: false,
-        },
       ],
     } as unknown as Parameters<typeof mapEngineSnapshot>[0];
-    const mapped = mapEngineSnapshot(snapshot, 'hero', 9);
-    expect(mapped.heroLeave).toEqual({
-      locked: true,
-      remainingMs: 372_000,
-      running: true,
-      at: 5_000_000,
-    });
-    const older = mapEngineSnapshot(
-      { ...(snapshot as any), players: [{ seat: 1, user_id: 'hero', stack: 180 }] } as any,
-      'hero',
-      9
-    );
-    expect(older.heroLeave).toBeNull();
+    const mapped = mapEngineSnapshot(snapshot, 'hero', 9) as Record<string, unknown>;
+    expect('heroLeave' in mapped).toBe(false);
+    expect(JSON.stringify(mapped)).not.toContain('372000');
   });
 
-  it('the confirm dialog and the menu item carry the label and the buy-in modal says nothing about why', () => {
+  it('the confirm dialog and the menu item always offer Leave Table and the buy-in modal says nothing about why', () => {
     const CONFIRM = read('src/components/table/LeaveTableConfirm.tsx');
-    expect(CONFIRM).toContain('lockedLabel');
-    expect(CONFIRM).toContain('disabled={leaving || !!lockedLabel}');
+    expect(CONFIRM).toContain('disabled={leaving}');
     const TABLE_PAGE = read('src/pages/TablePage.tsx');
-    expect(TABLE_PAGE).toContain(
-      "label: heroLeaveLocked ? leaveAvailableLabel(heroLeaveMs) : 'Leave Table'"
-    );
+    expect(TABLE_PAGE).toContain("label: 'Leave Table',");
     // The floor is read from the server at mount AND every time the buy-in
     // sheet opens (whitespace-tolerant: Prettier owns the layout).
     expect((TABLE_PAGE.match(/supabase\.rpc\(\s*'fn_cash_effective_buyin'/g) ?? []).length).toBe(2);

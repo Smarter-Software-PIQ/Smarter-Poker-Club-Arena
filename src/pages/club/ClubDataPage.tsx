@@ -89,6 +89,7 @@ import { ClubPageSection as SpadeConsole } from '../../components/club/ClubPageS
 import { titleCase } from '../../utils/titleCase';
 import { compactChips } from '../../utils/format';
 import PageHelp from '../../components/help/PageHelp';
+import ClubHitRunPanel from './ClubHitRunPanel';
 import styles from './ClubDataPage.module.css';
 import {
   CLUB_GAMES_UNAVAILABLE_COPY,
@@ -3578,6 +3579,8 @@ export default function ClubDataPage() {
 
         {/* ── The ledger: games and players ──────────────────────────────── */}
       </div>
+      {/* HIT AND RUN (owner 2026-11-06): members owing hands before leaving. */}
+      <ClubHitRunPanel clubId={clubUuid} className={styles.console} />
       <SpadeConsole
         eyebrow="Games And Players"
         title="Ledger"

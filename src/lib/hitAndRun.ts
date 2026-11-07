@@ -34,6 +34,27 @@ export function blindOffLeaveText(hands: number): string {
   return `You Are Blinded Off For The Remaining ${n} ${n === 1 ? 'Hand' : 'Hands'}. Your Chips Return To Your Wallet When They Are Played`;
 }
 
+/** THE CHARLES RULE, said the moment it adds hands. */
+export function charlesRuleText(added: number): string {
+  const n = Math.max(1, Math.floor(added));
+  return `You Doubled Up. ${n} ${n === 1 ? 'Hand' : 'Hands'} Added Before You Can Leave`;
+}
+
+/**
+ * Hands owed per table, as each TablePage last read them. The multi-table
+ * container asks before it takes the player off a table (the tab's X), so the
+ * confirmation can be shown on that table instead of behind the lobby.
+ */
+const owedByTable = new Map<string, number>();
+export function noteHandsOwedAt(tableId: string, hands: number | null): void {
+  if (!tableId) return;
+  if (hands !== null && hands > 0) owedByTable.set(tableId, Math.floor(hands));
+  else owedByTable.delete(tableId);
+}
+export function handsOwedAt(tableId: string): number | null {
+  return owedByTable.get(tableId) ?? null;
+}
+
 /** A positive whole hand count, or null for "none owed" / unknown. */
 export function owedHands(value: unknown): number | null {
   const n = Math.floor(Number(value));
@@ -47,17 +68,31 @@ export function owedHands(value: unknown): number | null {
  * never blocks a leave on its own.
  */
 export async function fetchMyHandsOwed(tableId: string): Promise<number | null> {
+  return (await fetchMyHandCount(tableId)).owed;
+}
+
+export interface HandCount {
+  /** Hands still owed in profit; null: none (or unreadable). */
+  owed: number | null;
+  /** This countdown's total (10 plus 10 per double); null with nothing owed. */
+  required: number | null;
+}
+
+/** The caller's count at one table, owed and total together. */
+export async function fetchMyHandCount(tableId: string): Promise<HandCount> {
+  const none: HandCount = { owed: null, required: null };
   try {
     const { data, error } = await supabase.rpc('fn_my_hit_run_status', { p_table_id: tableId });
-    if (error || !Array.isArray(data)) return null;
-    let most: number | null = null;
+    if (error || !Array.isArray(data)) return none;
+    let best = none;
     for (const row of data as Array<Record<string, unknown>>) {
       if (row?.table_id !== tableId) continue;
       const n = owedHands(row.hands_remaining);
-      if (n !== null && (most === null || n > most)) most = n;
+      if (n !== null && (best.owed === null || n > best.owed))
+        best = { owed: n, required: owedHands(row.hands_required) };
     }
-    return most;
+    return best;
   } catch {
-    return null;
+    return none;
   }
 }

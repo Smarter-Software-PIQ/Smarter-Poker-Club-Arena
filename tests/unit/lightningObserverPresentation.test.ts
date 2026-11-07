@@ -39,7 +39,8 @@ describe('public Lightning observer consumer', () => {
     expect(out.players[0]?.id).toBe('viewer');
     expect(out.players[0]?.isHero).toBe(false);
     expect(out.players[0]?.holeCards).toBeUndefined();
-    expect(out.heroLeave).toBeNull();
+    expect('heroLeave' in out).toBe(false);
+    expect(out.heroHandsOwed ?? null).toBeNull();
     const publicReveal = snapshot();
     (publicReveal.players as any[])[0].cards = [{ rank: 'A', suit: 's' }];
     const revealed = mapEngineSnapshot(publicReveal, 'viewer', 6);

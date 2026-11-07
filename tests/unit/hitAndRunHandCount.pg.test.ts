@@ -268,6 +268,61 @@ it('counts ten hands in profit, adds ten per double, clears on losing the profit
       one(`SET test.uid='${P}'; SELECT count(*) FROM fn_my_hit_run_status()`).split('\n').pop()
     ).toBe('1');
 
+    // CLUB DATA: owners see who owes hands, agents their downline, anyone else is refused.
+    const CLUB = '66666666-6666-6666-6666-666666666666';
+    sql(`ALTER TABLE tables ADD COLUMN name text, ADD COLUMN stakes text;
+      UPDATE tables SET name='Main', stakes='1/2';
+      CREATE TABLE public.profiles(id uuid PRIMARY KEY, alias text, username text, display_name text,
+        first_name text, last_name text, full_name text, status text);
+      INSERT INTO profiles(id, username, status) VALUES ('${P}','pee','active'),('${Q}','queue','active');
+      CREATE TABLE public.club_members(club_id uuid, user_id uuid);
+      INSERT INTO club_members VALUES ('${CLUB}','${P}'),('${CLUB}','${Q}');
+      CREATE FUNCTION public.fn_ca_club_data_scope(p uuid) RETURNS text LANGUAGE sql
+        AS $$ SELECT nullif(current_setting('test.scope', true), '') $$;
+      CREATE FUNCTION public.fn_ca_club_data_clubs(p uuid) RETURNS uuid[] LANGUAGE sql AS $$ SELECT ARRAY[p] $$;
+      CREATE FUNCTION public.fn_ca_club_data_downline(p uuid, u uuid) RETURNS uuid[] LANGUAGE sql
+        AS $$ SELECT ARRAY['${Q}'::uuid] $$;
+      CREATE FUNCTION public.fn_arena_name(a text, b text, c text, d text, e text, f text) RETURNS text
+        LANGUAGE sql AS $$ SELECT coalesce(a, b) $$;`);
+    sql(
+      readFileSync(
+        resolve(
+          root,
+          'supabase/migrations/20261107020241_club_data_shows_hit_and_run_countdowns.sql'
+        ),
+        'utf8'
+      )
+    );
+    const club = (scope: string) =>
+      JSON.parse(
+        one(`SET test.scope='${scope}'; SELECT ca_club_hit_run_status('${CLUB}')::text`)
+          .split('\n')
+          .pop()!
+      );
+    const whole = club('club');
+    expect(whole).toMatchObject({ contract: 'ca_club_hit_run_status.v1', scope: 'club' });
+    expect(whole.rows.find((r: any) => r.user_id === Q)).toMatchObject({
+      username: 'queue',
+      table_name: 'Main',
+      stakes: '1/2',
+      hands_remaining: 10,
+      hands_required: 10,
+      blind_off: true,
+    });
+    expect(whole.rows.every((r: any) => r.hands_remaining > 0)).toBe(true);
+    const downline = club('downline');
+    expect(downline.rows.map((r: any) => r.user_id)).toEqual([Q]);
+    expect(() => club('')).toThrow(/not authorized for this club/);
+    sql(`UPDATE profiles SET status='deleted' WHERE id='${Q}';`);
+    expect(club('club').rows.some((r: any) => r.user_id === Q)).toBe(false);
+    sql(`DELETE FROM club_members WHERE user_id='${P}';`);
+    expect(club('club').rows).toEqual([]);
+    expect(
+      one(
+        `SELECT has_function_privilege('anon','public.ca_club_hit_run_status(uuid)','EXECUTE')::text`
+      )
+    ).toBe('false');
+
     // No session at all: allowed.
     expect(check('55555555-5555-5555-5555-555555555555').allowed).toBe(true);
   } finally {
