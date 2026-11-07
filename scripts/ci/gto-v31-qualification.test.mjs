@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { invocation, servingIdentity, pinOwner, epochReceipts, selectEpoch as select, promotionPlan, maintenanceRefusal,
   evaluatorArguments, hostTranscript, OUTCOMES, promotionRequest, PROMOTION_BUDGET_MS, EPOCH_PROTOCOL, epochProtocolPresent,
-  epochAwareCommit, SERVING_GATE, servingGateCommit, runnerRevokes } from './gto-v31-qualification.mjs';
+  epochAwareCommit, SERVING_GATE, servingGateCommit, runnerRevokes, requiredFamilies, expectedReceipts } from './gto-v31-qualification.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -110,6 +110,25 @@ test('promotion admits only the eight passing receipts of exactly the evaluated 
   const active = { ...candidate, state: 'active', current_epoch: promoted, evaluation_epochs: [e1, promoted] };
   assert.equal(promotionPlan(active, id).mode, 'load-only');
   assert.throws(() => promotionPlan({ ...active, current_epoch: e2, evaluation_epochs: [e1, e2] }, id));
+});
+
+test('contract v3: promotion counts exactly the families the dataset is certified in', () => {
+  const e1 = epoch(E1, 1, C1);
+  const cashOnly = (evaluations, extra = {}) => ({
+    ...ds({ state: 'candidate', epochs: [e1], evaluations }),
+    evaluation_contract: 'gto_v31_candidate.v3', required_families: ['cash'], ...extra });
+  const cash = receipts(E1, C1).filter((r) => r.game_family === 'cash');
+  assert.deepEqual(requiredFamilies(cashOnly([heldout, ...cash])), ['cash']);
+  assert.equal(expectedReceipts(cashOnly([heldout, ...cash])), 2);
+  assert.equal(promotionPlan(cashOnly([heldout, ...cash]), id).mode, 'promote');
+  // A v2 dataset (no contract field) still needs all eight.
+  assert.deepEqual(requiredFamilies(ds()), FAMILIES);
+  assert.equal(expectedReceipts(ds()), 8);
+  assert.throws(() => promotionPlan(cashOnly([heldout, cash[0]]), id), /2 distinct passing/);
+  assert.throws(() => promotionPlan(cashOnly([heldout, ...cash, receipts(E1, C1)[1]]), id), /2 distinct passing/);
+  assert.throws(() => promotionPlan(cashOnly([heldout, cash[0], { ...cash[1], verdict: 'loss' }]), id));
+  for (const required_families of [[], ['cash', 'cash'], ['poker'], undefined, 'cash'])
+    assert.throws(() => promotionPlan(cashOnly([heldout, ...cash], { required_families }), id), /must report the families/);
 });
 
 test('the activation never starts where it could reach a maintenance boundary', () => {

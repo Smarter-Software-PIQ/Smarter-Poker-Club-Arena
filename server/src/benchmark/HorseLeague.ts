@@ -149,6 +149,9 @@ export interface LeagueResult {
   candidateExecutionMismatches: number;
   /** Exact solver node roles reached by those decisions. */
   candidateNodeRoles: string[];
+  /** 2026-11-06: cell_key_checksum of every distinct sealed cell those
+   *  decisions executed (V31 evaluation contract v3 coverage proof). */
+  candidateCells?: string[];
   /** Per-scenario evidence retained when several utility contexts are gated. */
   benchmarkComponents: LeagueBenchmarkComponent[];
   /** Duplicate pairs whose two passes settled differently (A's edge != 0).
@@ -277,6 +280,17 @@ export interface LeagueMatchup {
    * Hybrid dials. Mirror cards only: a human-field card refuses it.
    */
   hybridBaseline?: boolean;
+  /**
+   * MEMORY LEARNING OFF (2026-11-06, V31 evaluation contract v3). Absent: the
+   * sandboxed brain learns from every decision and every settled hand, as
+   * every card always has. 'off': the full brain still plays (barrel plans,
+   * self-image, every read layer), but nothing is ever observed: decisions
+   * run with observeMind false and settlement skips observe and
+   * observeHandComplete, so every opponent read stays at its empty prior.
+   * R7's league/cash loss existed only with learning on; a v3 league table
+   * reports both runs so a loss that only appears through memory is visible.
+   */
+  memoryLearning?: 'off';
 }
 
 /** The human field inside one dealt hand (see LeagueMatchup.opponentPopulation). */
@@ -387,7 +401,11 @@ export function playHand(
   humanField?: LeagueHumanField,
   /** 2026-10-31: per-seat persona (LeagueMatchup.productionStyles). Absent:
    *  every horse plays 'balanced' (the pre-existing path). */
-  styleOf?: (seatIdx: number) => HorseStyle
+  styleOf?: (seatIdx: number) => HorseStyle,
+  /** 2026-11-06: false skips the settlement observation (observe +
+   *  observeHandComplete) into the sandbox, so memory never learns
+   *  (LeagueMatchup.memoryLearning). Default true: the pre-existing path. */
+  learn: boolean = true
 ): number[] {
   const SEATS = numSeats;
   if (humanField && !(leagueFieldVariants(humanField.population) ?? []).includes(gameVariant)) {
@@ -784,7 +802,7 @@ export function playHand(
   // plainly in the deep-reads PR). Feed the same observation here, inside
   // the SANDBOX so nothing synthetic touches live memory. Showdown identity
   // comes from the same evaluators that settled the pot.
-  if (sandbox) {
+  if (sandbox && learn) {
     try {
       const showdown: Array<{ user_id: string; mucked: boolean; hand_name?: string }> = [];
       const liveSeats = seats.filter((s) => !s.player.is_folded);
@@ -971,6 +989,11 @@ function withDealMood(opts: HorseDecideOpts, moodClockMs: number | null): HorseD
   return moodClockMs === null ? opts : { ...opts, decisionTimeMs: moodClockMs };
 }
 
+/** LeagueMatchup.memoryLearning 'off': the decision observes nothing. */
+function withLearning(opts: HorseDecideOpts, learn: boolean): HorseDecideOpts {
+  return learn ? opts : { ...opts, observeMind: false };
+}
+
 export async function runMatchup(
   matchup: LeagueMatchup,
   pairs: number,
@@ -997,11 +1020,13 @@ export async function runMatchup(
         ]
       : undefined;
   const SEATS = matchup.seats ?? DEFAULT_SEATS;
+  const learn = matchup.memoryLearning !== 'off';
   const t0 = Date.now();
   const counters: LeagueCounters = { illegal: 0, truncated: 0 };
   let candidatePolicyHits = 0;
   let candidateExecutionMismatches = 0;
   const candidateNodeRoles = new Set<string>();
+  const candidateCells = new Set<string>();
   const perPairDiff: number[] = [];
   // Pairs where the two passes did not settle identically. Zero across a
   // whole matchup means the flag under test changed no decision (see
@@ -1038,6 +1063,7 @@ export async function runMatchup(
             if (receipt.executedAsIntended) {
               candidatePolicyHits++;
               candidateNodeRoles.add(receipt.nodeRole);
+              candidateCells.add(receipt.sourceSeal.cell_key_checksum);
             } else {
               candidateExecutionMismatches++;
             }
@@ -1048,9 +1074,15 @@ export async function runMatchup(
     };
     const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
     const evenIsA = (s: number) =>
-      withDealMood(withEvidence(s % 2 === 0 ? matchup.a : matchup.b), moodMs);
+      withLearning(
+        withDealMood(withEvidence(s % 2 === 0 ? matchup.a : matchup.b), moodMs),
+        learn
+      );
     const evenIsB = (s: number) =>
-      withDealMood(withEvidence(s % 2 === 0 ? matchup.b : matchup.a), moodMs);
+      withLearning(
+        withDealMood(withEvidence(s % 2 === 0 ? matchup.b : matchup.a), moodMs),
+        learn
+      );
     const hasMods =
       matchup.modsA !== undefined || matchup.modsB !== undefined || hybrid !== undefined;
     // Same persona at the same seat in both passes; only the arm swaps.
@@ -1076,7 +1108,8 @@ export async function runMatchup(
       matchup.context ?? CASH_LEAGUE_CONTEXT,
       modsEvenIsA,
       undefined,
-      styleOf
+      styleOf,
+      learn
     );
     const net2 = playHand(
       handSeed,
@@ -1090,7 +1123,8 @@ export async function runMatchup(
       matchup.context ?? CASH_LEAGUE_CONTEXT,
       modsEvenIsB,
       undefined,
-      styleOf
+      styleOf,
+      learn
     );
 
     let aNet = 0;
@@ -1130,6 +1164,8 @@ export async function runMatchup(
     candidatePolicyHits,
     candidateExecutionMismatches,
     candidateNodeRoles: [...candidateNodeRoles].sort(),
+    // Present only when a candidate executed, so every other card keeps its exact shape.
+    ...(candidateCells.size > 0 ? { candidateCells: [...candidateCells].sort() } : {}),
     benchmarkComponents: [],
     divergentPairs,
     inert: n > 0 && (divergentPairs === 0 || stderr === 0),
@@ -1179,12 +1215,14 @@ async function runHumanFieldMatchup(
     );
   }
   const SEATS = matchup.seats ?? DEFAULT_SEATS;
+  const learn = matchup.memoryLearning !== 'off';
   const HERO = HUMAN_FIELD_HERO_SEAT;
   const t0 = Date.now();
   const counters: LeagueCounters = { illegal: 0, truncated: 0 };
   let candidatePolicyHits = 0;
   let candidateExecutionMismatches = 0;
   const candidateNodeRoles = new Set<string>();
+  const candidateCells = new Set<string>();
   const perPairDiff: number[] = [];
   const netA: number[] = [];
   const netB: number[] = [];
@@ -1207,6 +1245,7 @@ async function runHumanFieldMatchup(
           if (receipt.executedAsIntended) {
             candidatePolicyHits++;
             candidateNodeRoles.add(receipt.nodeRole);
+            candidateCells.add(receipt.sourceSeal.cell_key_checksum);
           } else {
             candidateExecutionMismatches++;
           }
@@ -1215,8 +1254,8 @@ async function runHumanFieldMatchup(
       },
     };
   };
-  const optsA = withEvidence(matchup.a);
-  const optsB = withEvidence(matchup.b);
+  const optsA = withLearning(withEvidence(matchup.a), learn);
+  const optsB = withLearning(withEvidence(matchup.b), learn);
   const modsA = matchup.modsA ?? {};
   const modsB = matchup.modsB ?? {};
 
@@ -1239,7 +1278,9 @@ async function runHumanFieldMatchup(
           matchup.stackBB ?? 100,
           matchup.context ?? CASH_LEAGUE_CONTEXT,
           () => mods,
-          field
+          field,
+          undefined,
+          learn
         );
       const a = play(optsA, modsA, sb1)[HERO];
       const b = play(optsB, modsB, sb2)[HERO];
@@ -1289,6 +1330,8 @@ async function runHumanFieldMatchup(
     candidatePolicyHits,
     candidateExecutionMismatches,
     candidateNodeRoles: [...candidateNodeRoles].sort(),
+    // Present only when a candidate executed, so every other card keeps its exact shape.
+    ...(candidateCells.size > 0 ? { candidateCells: [...candidateCells].sort() } : {}),
     benchmarkComponents: [
       component(HUMAN_FIELD_COMPONENT_SCENARIOS[0], netA),
       component(HUMAN_FIELD_COMPONENT_SCENARIOS[1], netB),

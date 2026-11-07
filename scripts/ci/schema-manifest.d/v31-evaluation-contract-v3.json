@@ -1,0 +1,21 @@
+{
+  "_owner": "feat/v31-evaluation-contract-v3",
+  "_comment": "Migration 20261107024448_v31_evaluation_contract_v3_tests_the_playbooks_own_tables declares the contract column and the v3 plan, validity and recording functions; installed through Apply Merged Migration after merge.",
+  "tables": [],
+  "functions": [
+    "fn_gto_v31_candidate_evaluations_valid_v3",
+    "fn_gto_v31_evaluation_contract_guard",
+    "fn_gto_v31_evaluation_plan",
+    "fn_gto_v31_record_evaluation_v3",
+    "fn_gto_v31_required_families",
+    "fn_gto_v31_required_roles",
+    "fn_gto_v31_v3_breadth_ok",
+    "fn_gto_v31_v3_cells",
+    "fn_gto_v31_v3_families",
+    "fn_gto_v31_v3_pairs",
+    "fn_gto_v31_v3_result_valid",
+    "fn_gto_v31_v3_run_valid",
+    "fn_gto_v31_v3_tables"
+  ],
+  "columns": { "gto_v31_datasets": ["evaluation_contract"] }
+}

@@ -23,6 +23,7 @@
  * consult falls back to V30 and then to the heuristics.
  */
 
+import type { GtoV31V3CellContext } from '../benchmark/GtoV31EvaluationContractV3.js';
 import { supabase } from './supabase/client.js';
 import { reportError } from './errorReporter.js';
 import {
@@ -256,6 +257,8 @@ export function loadGtoPostflopV31Once(): Promise<{ ok: boolean; count: number }
 export async function loadGtoPostflopV31Evaluation(datasetId: string): Promise<{
   checksum: string;
   cells: number;
+  /** Every loaded cell's table geometry (V31 evaluation contract v3). */
+  contexts: GtoV31V3CellContext[];
   feature_contract_version?: GtoV31SourceSeal['feature_contract_version'];
   policy_export_schema?: GtoV31SourceSeal['policy_export_schema'];
 }> {
@@ -295,6 +298,14 @@ export async function loadGtoPostflopV31Evaluation(datasetId: string): Promise<{
   return {
     checksum,
     cells,
+    contexts: rows.map((row) => ({
+      cell_key_checksum: row.cell_key_checksum,
+      game_family: row.game_family,
+      utility_context: row.utility_context,
+      table_size: row.table_size,
+      depth_bucket: row.depth_bucket,
+      node_role: row.node_role,
+    })),
     ...(Object.prototype.hasOwnProperty.call(rows[0], 'policy_export_schema')
       ? { policy_export_schema: rows[0].policy_export_schema }
       : {}),

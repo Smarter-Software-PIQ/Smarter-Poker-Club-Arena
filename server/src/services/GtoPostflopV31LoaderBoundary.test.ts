@@ -283,6 +283,17 @@ describe('actual V31 loader transport boundaries', () => {
     await expect(loadGtoPostflopV31Evaluation(row.dataset_id)).resolves.toEqual({
       checksum: row.dataset_checksum,
       cells: 1,
+      // Contract v3 derives its test tables from these (GtoV31EvaluationContractV3).
+      contexts: [
+        {
+          cell_key_checksum: row.cell_key_checksum,
+          game_family: row.game_family,
+          utility_context: row.utility_context,
+          table_size: row.table_size,
+          depth_bucket: row.depth_bucket,
+          node_role: row.node_role,
+        },
+      ],
     });
     expect(gtoPostflopV31EvaluationCount(row.dataset_checksum)).toBe(1);
     liveUnchanged();
