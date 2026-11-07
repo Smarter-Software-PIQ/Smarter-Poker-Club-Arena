@@ -53,6 +53,11 @@
 -- and has no (category, description) index; the first grant was 2026-11-04.
 --
 -- docs/changelog/2026-11-07-the-union-promo-is-paid-once-per-player.md
+--
+-- This migration creates no persistent object - it drops two and writes rows -
+-- so it declares its own proof. Both halves are checkable: the parallel guard
+-- is gone, and no member the ledger shows was paid is missing an awards row.
+-- @live-proof: (SELECT to_regclass('public.ca_union_promo_campaign_claims') IS NULL AND NOT EXISTS (SELECT 1 FROM (SELECT DISTINCT l.to_entity_id AS uid FROM public.chip_ledger l WHERE l.created_at >= '2026-11-04' AND l.amount = 25 AND l.category = 'promo' AND l.description = 'Union Promo Disbursement' AND l.from_type = 'union_wallet' AND l.to_type = 'player_wallet') g WHERE NOT EXISTS (SELECT 1 FROM public.sp_signup_welcome_back_awards a WHERE a.user_id = g.uid)))
 
 BEGIN;
 
