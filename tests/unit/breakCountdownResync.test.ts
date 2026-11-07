@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sliceEnclosingBlock } from '../helpers/sourceWindow';
 import {
   breakCountdownKey,
   shouldResyncAtBreakCountdown,
@@ -40,17 +41,15 @@ describe('a break countdown starts on a clean felt (Dan 2026-11-06)', () => {
     expect(shouldResyncAtBreakCountdown(breakCountdownKey(first), second)).toBe(true);
   });
 
-  it('the table page requests an engine snapshot when the countdown begins', () => {
+  it('the table page requests an engine snapshot when either countdown begins', () => {
     const page = readFileSync(join(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
-    const at = page.indexOf('shouldResyncAtBreakCountdown(');
-    expect(at).toBeGreaterThan(-1);
-    const effect = page.slice(at, at + 600);
-    expect(effect).toMatch(/requestEngineSnapshot\(\)/);
     expect(page).toMatch(/from '\.\.\/lib\/breakCountdownResync'/);
-    const maintenance = page.indexOf(
-      'shouldResyncAtBreakCountdown(maintenanceCountdownResyncKeyRef.current, maintenanceBreak)'
-    );
-    expect(maintenance).toBeGreaterThan(-1);
-    expect(page.slice(maintenance, maintenance + 400)).toMatch(/requestEngineSnapshot\(\)/);
+    for (const needle of [
+      'shouldResyncAtBreakCountdown(breakCountdownResyncKeyRef.current, tournamentBreak)',
+      'shouldResyncAtBreakCountdown(maintenanceCountdownResyncKeyRef.current, maintenanceBreak)',
+    ]) {
+      const effect = sliceEnclosingBlock(page, needle);
+      expect(effect).toMatch(/requestEngineSnapshot\(\);/);
+    }
   });
 });
