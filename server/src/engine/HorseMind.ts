@@ -913,17 +913,15 @@ export class HorseMind {
     }>,
     scope: ReadScope
   ): void {
-    // Item 12 opportunity-scoped decay (decayAndAddOpportunityScoped) stays
-    // OFF here on purpose (2026-11-05): it freezes a player's postflop
-    // statistics on every hand that offers no such spot, so a maniac who
-    // turns into a nit (folding preflop, no postflop opportunities) stayed
-    // read as a maniac indefinitely. That contradicts the registered law
-    // HorseManiacPressure.law.test.ts (a style change is seen within 25
-    // hands, both ways). Reconciling the two is a strategy decision the
-    // Item 12 design never settled; see
-    // docs/changelog/2026-11-05-dormant-decision-readiness-layers-activated.md.
+    // Item 12 opportunity-scoped decay (decayAndAddOpportunityScoped), live
+    // since 2026-11-06 by Dan's ruling: a long-window gated statistic keeps
+    // its weight on a hand that offered no such spot, the fast window ages
+    // every hand, and a visible style shift (styleShiftReleased) ages the old
+    // style's evidence at the fast rate so HorseManiacPressure.law.test.ts
+    // still holds. See
+    // docs/changelog/2026-11-06-opportunity-scoped-decay-with-style-shift-release.md.
     for (const [userId, increments] of exploitHandIncrements(actions))
-      observeExploitRow(this.exploitCounters, `${scope}|${userId}`, increments, EXPLOIT_ROW_CAP);
+      observeExploitRow(this.exploitCounters, `${scope}|${userId}`, increments, EXPLOIT_ROW_CAP, true);
   }
 
   /** The decayed exploit counters for (scope, player), for tests and the read frame. */
@@ -952,7 +950,7 @@ export class HorseMind {
     if (this.sandboxDepth > 0) throw new Error('HorseMind.mergeSandboxExploit: inside a sandbox');
     if (this.decisionEffectSink)
       throw new Error('HorseMind.mergeSandboxExploit: inside an effect capture');
-    mergeExploitRows(this.exploitCounters, this.sandboxExploitRows(sandbox), EXPLOIT_ROW_CAP);
+    mergeExploitRows(this.exploitCounters, this.sandboxExploitRows(sandbox), EXPLOIT_ROW_CAP, true);
   }
 
   /**
