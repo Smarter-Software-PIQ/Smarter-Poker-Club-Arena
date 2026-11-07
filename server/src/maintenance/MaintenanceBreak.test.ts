@@ -738,6 +738,31 @@ describe('the restart gate', () => {
     expect(mb.readyForRestart()).toBe(true);
   });
 
+  it('stays shut while a Lightning hand is still being dealt (Dan 2026-11-06: a break never starts in the middle of a hand)', async () => {
+    const { mb } = build(2);
+    let lightning = 1;
+    (mb as unknown as { deps: Record<string, unknown> }).deps.lightningHandsInFlight = () =>
+      lightning;
+    await mb.announceLastHand();
+    await mb.beginCountdown();
+    // Every table is between hands; the fast-fold hand dealt before the
+    // announcement is not finished, and a restart now would void it.
+    expect(mb.readyForRestart()).toBe(false);
+    expect(mb.snapshot().lightningHandsInFlight).toBe(1);
+    lightning = 0;
+    expect(mb.readyForRestart()).toBe(true);
+  });
+
+  it('treats an unreadable Lightning count as a hand in the air', async () => {
+    const { mb } = build(1);
+    (mb as unknown as { deps: Record<string, unknown> }).deps.lightningHandsInFlight = () => {
+      throw new Error('registry unavailable');
+    };
+    await mb.announceLastHand();
+    await mb.beginCountdown();
+    expect(mb.readyForRestart()).toBe(false);
+  });
+
   it('waits for the engine to durably save initialized banks after the hand settles', async () => {
     const { mb, engines } = build(1);
     const e = [...engines.values()][0];

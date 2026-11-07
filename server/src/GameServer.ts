@@ -1796,6 +1796,22 @@ export class GameServer {
    */
   private tournamentResumeBudget: number = ENGINE_START_BUDGET_MAX;
   /**
+   * HOW LONG THE LAST HAND TOOK, PER BREAK (Dan 2026-11-06). From the :55
+   * last-hand call to the moment a tournament's own five minutes started,
+   * i.e. until every table of it had finished its hand on screen and parked.
+   * `maxMs` is the slowest tournament of the most recent break, `lastMs` the
+   * most recent tournament to start its countdown, `tournaments` how many
+   * have started one in that break. Published on /health and /metrics so a
+   * slow break start is a number, not a screenshot. Identification only.
+   */
+  private breakLastHandWait = {
+    breakGeneration: 0,
+    calledAt: 0,
+    lastMs: -1,
+    maxMs: -1,
+    tournaments: 0,
+  };
+  /**
    * Live horse-decision expiries as of the previous re-adoption pass, so only
    * NEW ones count as distress (decisionPipelinePressure.ts). A recovery that
    * expires in-flight decisions is not a recovery, and before 2026-09-27 the
@@ -4554,6 +4570,7 @@ export class GameServer {
       void this.alertOnPendingPostCommitObligations();
     },
     financialPayoutActive: () => this.weeklyPayoutPause.snapshot() !== null,
+    lightningHandsInFlight: () => this.lightningHosting.totalHandsInFlight(),
     claimOperatorAnnouncement: async (announcedAt) => {
       const { data, error } = await supabase.rpc('fn_ca_engine_operator_claim_hourly', {
         p_announced_at: new Date(announcedAt).toISOString(),
@@ -6285,6 +6302,7 @@ export class GameServer {
        * discovery has in flight. Pinned at the floor means managers keep
        * losing their leases or failing to resume.
        */
+      breakLastHandWait: this.breakLastHandWait ? { ...this.breakLastHandWait } : null,
       tournamentResumeBudget: this.tournamentResumeBudget,
       tournamentResumesInFlight: this.tournamentResumesInFlight.size,
       /**
@@ -6687,6 +6705,13 @@ export class GameServer {
       '# HELP poker_horse_fleet_heartbeat_age_seconds Seconds since the horse fleet completed and recorded a seeding cycle; -1 before its first',
       '# TYPE poker_horse_fleet_heartbeat_age_seconds gauge',
       `poker_horse_fleet_heartbeat_age_seconds ${this.horseFleet.heartbeatAgeSeconds()}`,
+      '# HELP poker_tournament_break_last_hand_wait_seconds Slowest tournament of the most recent break: seconds from the last-hand call until its tables had all finished and its countdown started; -1 before the first',
+      '# TYPE poker_tournament_break_last_hand_wait_seconds gauge',
+      `poker_tournament_break_last_hand_wait_seconds ${
+        (this.breakLastHandWait?.maxMs ?? -1) < 0
+          ? -1
+          : Math.round(this.breakLastHandWait.maxMs / 100) / 10
+      }`,
       '# HELP poker_paused_tables Tables paused on purpose (hand-for-hand/break) - excluded from stall detection',
       '# TYPE poker_paused_tables gauge',
       `poker_paused_tables ${pausedCount}`,
@@ -7803,6 +7828,7 @@ export class GameServer {
       maintenanceEndsAt > 0
         ? Math.max(maintenanceEndsAt, countdownStartsAt)
         : countdownStartsAt + GameServer.BREAK_DURATION_MS;
+    this.recordBreakLastHandWait(breakGeneration, waitStartedAt, countdownStartsAt);
     console.log(
       `[GameServer] Last hand complete for tournament ${String(
         (tm as unknown as { tournamentId?: string }).tournamentId ?? '?'
@@ -8082,6 +8108,33 @@ export class GameServer {
     } catch (err: any) {
       reportError(err, 'GameServer.hold_new_tournament_for_break');
     }
+  }
+
+  /** One tournament's last hand landed; see `breakLastHandWait`. */
+  private recordBreakLastHandWait(
+    breakGeneration: number,
+    calledAt: number,
+    countdownStartsAt: number
+  ): void {
+    // Measurement only: it must never be able to throw into the break itself.
+    this.breakLastHandWait ??= {
+      breakGeneration: 0,
+      calledAt: 0,
+      lastMs: -1,
+      maxMs: -1,
+      tournaments: 0,
+    };
+    const w = this.breakLastHandWait;
+    if (w.breakGeneration !== breakGeneration) {
+      w.breakGeneration = breakGeneration;
+      w.calledAt = calledAt;
+      w.maxMs = -1;
+      w.tournaments = 0;
+    }
+    const waited = Math.max(0, countdownStartsAt - calledAt);
+    w.lastMs = waited;
+    w.maxMs = Math.max(w.maxMs, waited);
+    w.tournaments += 1;
   }
 
   /**

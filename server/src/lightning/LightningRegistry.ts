@@ -960,6 +960,17 @@ export class LightningHosting {
     return n;
   }
 
+  /**
+   * Every Lightning hand still being dealt in this process, all Clusters
+   * (Dan 2026-11-06: a break never starts in the middle of a hand). The
+   * maintenance restart gate waits for this to reach zero, exactly as it
+   * waits for every physical table to park, so a release never voids a
+   * fast-fold hand that was dealt before the last-hand announcement.
+   */
+  totalHandsInFlight(): number {
+    return this.pending.size;
+  }
+
   private noteOutcome(clusterId: string, lifecycle: string): void {
     const now = this.deps.hostOptions?.now?.() ?? Date.now();
     if (lifecycle === 'complete') {

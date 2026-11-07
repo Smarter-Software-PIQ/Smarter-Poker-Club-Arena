@@ -1338,40 +1338,6 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
             Math.max(HAND_COMPLETION.NEXT_HAND_REST_MS, boardClearMs(wentToShowdown))
           );
 
-          // ── A BREAK NEVER STARTS IN THE MIDDLE OF A HAND (Dan 2026-11-06) ──
-          //
-          // "ANY AND ALL SCHEDULED BREAKS OR MAINTENANCE BREAKS MUST FINISH THE
-          //  CURRENT HAND THEY ARE ON, BEFORE THE BREAK STARTS. BREAKING IN THE
-          //  MIDDLE OF THE HAND MAKES THE PLATFORM 'FEEL BROKEN'."
-          //
-          // Hand-for-hand, the synchronized tournament break, the maintenance
-          // break and every other pause owner park HERE - after the hand is
-          // completed in the 2026-08-21 sense (winner shown, pot pushed with its
-          // total, cards mucked) AND after the hand-free broadcast above has
-          // cleared the felt. This park used to sit immediately after
-          // dealHand(), BEFORE both: settlement had run, but the completion
-          // display and the clean-state broadcast were deferred until the break
-          // ENDED. For the whole break every player and spectator looked at the
-          // last action of the hand frozen on the felt - bets in front, ALL IN
-          // badges, an unpushed pot, the winner's stack not yet credited -
-          // under a "Break: Paused" clock (40 Chip Bounty Freezeout Table 4,
-          // hand 56221104, 2026-11-07 03:55:25 UTC to 04:05). The table is
-          // parked only once the hand is visibly over, which is also what
-          // areAllTablesParked() waits for before a break's countdown begins.
-          if (
-            (this.handForHandPaused ||
-              this.weeklyPayoutPauseOwners.size > 0 ||
-              this.maintenancePaused ||
-              this.finalTableDealPaused ||
-              this.terminalCloseoutPaused ||
-              this.tournamentMovePauseOwners.size > 0) &&
-            this.running
-          ) {
-            this.setLoopPhase('parked_for_pause');
-            if (this.maintenancePaused) await this.persistPresenceForRestart('parked');
-            await this.awaitPauseGate();
-          }
-
           // ── Dan's Rebuy Pause (2026-08-24) ──
           // Give busted players 5 seconds to process the UI modal and hit rebuy before the next hand starts.
           // activePlayers refers to the players DEALT into this hand (so they started > 0 chips).
@@ -1602,6 +1568,46 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
                 5000
               );
             }
+          }
+
+          // ── A BREAK NEVER STARTS IN THE MIDDLE OF A HAND (Dan 2026-11-06) ──
+          //
+          // "ANY AND ALL SCHEDULED BREAKS OR MAINTENANCE BREAKS MUST FINISH THE
+          //  CURRENT HAND THEY ARE ON, BEFORE THE BREAK STARTS. BREAKING IN THE
+          //  MIDDLE OF THE HAND MAKES THE PLATFORM 'FEEL BROKEN'."
+          //
+          // Hand-for-hand, the synchronized tournament break, the maintenance
+          // break and every other pause owner park HERE - after the hand is
+          // completed in the 2026-08-21 sense (winner shown, pot pushed with its
+          // total, cards mucked) AND after the hand-free broadcast above has
+          // cleared the felt. This park used to sit immediately after
+          // dealHand(), BEFORE both: settlement had run, but the completion
+          // display and the clean-state broadcast were deferred until the break
+          // ENDED. For the whole break every player and spectator looked at the
+          // last action of the hand frozen on the felt - bets in front, ALL IN
+          // badges, an unpushed pot, the winner's stack not yet credited -
+          // under a "Break: Paused" clock (40 Chip Bounty Freezeout Table 4,
+          // hand 56221104, 2026-11-07 03:55:25 UTC to 04:05). The table is
+          // parked only once the hand is visibly over, which is also what
+          // areAllTablesParked() waits for before a break's countdown begins.
+          //
+          // A player who busted on that hand is dealt with BEFORE the park too
+          // (Dan 2026-11-06): the seat_left publication and the elimination /
+          // rebuy wake above run first, and a cash bust gets its rebuy window,
+          // so nobody sits through a break on an empty stack waiting to be told
+          // they are out.
+          if (
+            (this.handForHandPaused ||
+              this.weeklyPayoutPauseOwners.size > 0 ||
+              this.maintenancePaused ||
+              this.finalTableDealPaused ||
+              this.terminalCloseoutPaused ||
+              this.tournamentMovePauseOwners.size > 0) &&
+            this.running
+          ) {
+            this.setLoopPhase('parked_for_pause');
+            if (this.maintenancePaused) await this.persistPresenceForRestart('parked');
+            await this.awaitPauseGate();
           }
         }
       } catch (err) {

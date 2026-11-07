@@ -52,12 +52,20 @@ describe('LAW: a break never starts in the middle of a hand (Dan 2026-11-06)', (
     expect(settledToClean).not.toMatch(/'parked_for_pause'/);
   });
 
-  it('the post-hand park follows the hand-free broadcast and covers every pause owner', () => {
+  it('the post-hand park follows the hand-free broadcast and the bust handling, and covers every pause owner', () => {
+    // The bust handling of the hand just played runs before the park
+    // (Dan 2026-11-06): the seat_left publication, the elimination / rebuy
+    // wake and the cash rebuy window. Nobody sits through a break on an
+    // empty stack.
+    const bustWake = DEALING.indexOf('this.handCompleteCallback(', arm);
+    const rebuyWindow = DEALING.indexOf('await this.waitForRebuyDecisions(', arm);
     const park = DEALING.indexOf("this.setLoopPhase('parked_for_pause');", arm);
-    const nextIteration = DEALING.indexOf('justBustedPlayers', arm);
-    expect(park).toBeGreaterThan(arm);
-    expect(park).toBeLessThan(nextIteration);
-    const guard = DEALING.slice(arm, park);
+    const loopCatch = DEALING.indexOf('} catch (err) {', park);
+    expect(bustWake).toBeGreaterThan(arm);
+    expect(rebuyWindow).toBeGreaterThan(bustWake);
+    expect(park).toBeGreaterThan(rebuyWindow);
+    expect(DEALING.slice(arm, rebuyWindow)).not.toMatch(/awaitPauseGate\(/);
+    const guard = DEALING.slice(rebuyWindow, park);
     for (const owner of [
       'this.handForHandPaused',
       'this.weeklyPayoutPauseOwners.size > 0',
@@ -68,6 +76,6 @@ describe('LAW: a break never starts in the middle of a hand (Dan 2026-11-06)', (
     ]) {
       expect(guard).toContain(owner);
     }
-    expect(DEALING.slice(park, nextIteration)).toMatch(/await this\.awaitPauseGate\(\);/);
+    expect(DEALING.slice(park, loopCatch)).toMatch(/await this\.awaitPauseGate\(\);/);
   });
 });
