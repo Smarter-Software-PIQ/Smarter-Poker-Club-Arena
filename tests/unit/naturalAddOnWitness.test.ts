@@ -12,6 +12,7 @@ import {
   hasNaturalAddOnIncrement,
   forbiddenAddOnParticipation,
   suppressedObserverReward,
+  suppressedObserverAway,
 } from '../e2e/support/naturalAddOnWitness';
 const id = '11111111-1111-4111-8111-111111111111';
 const row = { id, tournament_id: id, status: 'active' };
@@ -130,6 +131,38 @@ describe('natural add-on observation admission', () => {
       expect(forbiddenAddOnParticipation('POST', rpc(name), id)).toBe(true);
       expect(suppressedObserverReward('POST', rpc(name))).toBe(false);
     }
+  });
+  it('suppresses only the exact observed-table away beacon without allowing delivery', () => {
+    const url = new URL('https://engine.smarter.poker/away');
+    expect(suppressedObserverAway('POST', url, id, id, { tableId: id })).toBe(true);
+    // The existing financial/participation classifier must STILL refuse forwarding it.
+    expect(forbiddenAddOnParticipation('POST', url, id, { tableId: id })).toBe(true);
+    for (const body of [
+      undefined,
+      null,
+      [],
+      {},
+      { tableId: 'foreign' },
+      { tableId: id, userId: id },
+      { tableId: id, amount: 35 },
+    ])
+      expect(suppressedObserverAway('POST', url, id, id, body)).toBe(false);
+    for (const address of [
+      'https://other.example/away',
+      'http://engine.smarter.poker/away',
+      'https://engine.smarter.poker/away/',
+      'https://engine.smarter.poker/away?amount=35',
+      'https://engine.smarter.poker/leave',
+      'https://engine.smarter.poker/action',
+      'https://engine.smarter.poker/addchips',
+      'https://engine.smarter.poker/unknown',
+      'https://db.example/rest/v1/rpc/process_tournament_addon',
+    ])
+      expect(suppressedObserverAway('POST', new URL(address), id, id, { tableId: id })).toBe(false);
+    for (const method of ['GET', 'PUT', 'PATCH', 'DELETE'])
+      expect(suppressedObserverAway(method, url, id, id, { tableId: id })).toBe(false);
+    expect(suppressedObserverAway('POST', url, 'invalid', id, { tableId: id })).toBe(false);
+    expect(suppressedObserverAway('POST', url, id, 'invalid', { tableId: 'invalid' })).toBe(false);
   });
   it('allows only engine heartbeat and in-memory connection diagnostics', () => {
     for (const path of ['/heartbeat', '/client-event']) {

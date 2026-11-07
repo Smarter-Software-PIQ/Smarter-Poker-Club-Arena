@@ -207,6 +207,30 @@ const OBSERVER_SESSION_RPCS = new Set([
 export function suppressedObserverReward(method: string, url: URL): boolean {
   return method === 'POST' && /\/rest\/v1\/rpc\/fn_achievement_record_login\/?$/.test(url.pathname);
 }
+/** Suppress (never forward) the observed table's best-effort pagehide beacon.
+ * It is incidental spectator teardown, not purchase evidence. Keep exact URL,
+ * method and payload matching so malformed/foreign writes still fail the guard. */
+export function suppressedObserverAway(
+  method: string,
+  url: URL,
+  observerId: string,
+  tableId: string,
+  body: unknown
+): boolean {
+  return (
+    method === 'POST' &&
+    url.origin === 'https://engine.smarter.poker' &&
+    url.pathname === '/away' &&
+    !url.search &&
+    UUID.test(observerId) &&
+    UUID.test(tableId) &&
+    !!body &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    Object.keys(body).length === 1 &&
+    (body as Record<string, unknown>).tableId === tableId
+  );
+}
 /** No participation request reaches a real player/table. Unknown RPCs remain refused. */
 export function forbiddenAddOnParticipation(
   method: string,
