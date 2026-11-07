@@ -5,6 +5,7 @@ import { reportError } from '../utils/errorReporter';
 import {
   awaitPreferenceSave,
   beginTableSettingIntent,
+  bindInitialTableSettingRevision,
   confirmTableSettingIntent,
   orderTableSettingWrite,
   readTableSettingIntent,
@@ -20,7 +21,10 @@ const PREFIX = 'ca_player_preference:';
 const CHANGED = 'ca-player-preference-changed';
 // Keep the latest identity even after confirmation removes its durable journal.
 // Other mounted consumers can still hold an older deferred save.
-const latestSelections = new Map<string, { id: string; journaled: boolean }>();
+const latestSelections = new Map<
+  string,
+  { id: string; journaled: boolean; baseline?: Promise<void> }
+>();
 
 function validShape(value: unknown, fallback: unknown): boolean {
   if (fallback === null) return value === null || typeof value === 'string';
@@ -71,6 +75,12 @@ function isOffline(): boolean {
 async function save(owner: string, name: string, value: unknown, id: string): Promise<void> {
   if (owner === 'guest' || useUserStore.getState().user?.id !== owner || isOffline()) return;
   const selectionKey = `${owner}:${name}`;
+  const selection = latestSelections.get(selectionKey);
+  if (selection?.id === id && selection.baseline) {
+    // A lost first read gets the same bounded wait as a save. The journal's
+    // unbound base still goes through normal conflict checks if it times out.
+    await awaitPreferenceSave(selection.baseline.then(() => ({ error: null })));
+  }
   if (
     readTableSettingIntent(owner, `page:${name}`)?.id === id &&
     latestSelections.get(selectionKey)?.journaled !== false
@@ -125,6 +135,7 @@ export function usePlayerPreference<T>(
   // The scope whose account value has been read (or that has no account).
   // Until then, the shown value is only the device cache or the default.
   const settledScopeRef = useRef<string | null>(userId ? null : scope);
+  const initialRead = useRef<{ scope: string; result: Promise<number | null> } | null>(null);
   const pendingRef = useRef<{ owner: string; name: string; value: T; id: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -201,7 +212,7 @@ export function usePlayerPreference<T>(
        another device is what this screen ends up showing (2026-11-05). */
     const replay = pending ? save(owner, scopedName, pending.value, pending.id) : Promise.resolve();
     if (userId) {
-      void replay.then(async () => {
+      const result = replay.then(async () => {
         try {
           const { data, error } = await supabase
             .from('user_page_preferences')
@@ -217,6 +228,7 @@ export function usePlayerPreference<T>(
               scopedName,
               (data as { revision?: unknown }).revision
             );
+          const baseline = typeof data?.revision === 'number' ? data.revision : null;
           if (
             !active ||
             revisionRef.current !== revision ||
@@ -224,13 +236,20 @@ export function usePlayerPreference<T>(
             readTableSettingIntent(owner, `page:${scopedName}`) ||
             !validShape(data.value, fallbackRef.current)
           )
-            return;
+            return baseline;
           cache(owner, scopedName, data.value);
           setState({ scope, value: data.value as T });
+          return baseline;
         } catch (error) {
           if (active) settledScopeRef.current = scope;
           reportError(error, 'usePlayerPreference.Load_failed');
+          return null;
         }
+      });
+      const read = { scope, result };
+      initialRead.current = read;
+      void result.then(() => {
+        if (initialRead.current === read) initialRead.current = null;
       });
     } else {
       settledScopeRef.current = scope;
@@ -259,18 +278,29 @@ export function usePlayerPreference<T>(
          account's older value (Players stayed on Advanced after tapping
          Simple, post-deploy run 42370089738). Once the account value is
          known, re-selecting the shown value is a no-op as before. */
-      if (Object.is(previous, value) && settledScopeRef.current === scope) return;
+      if (
+        Object.is(previous, value) &&
+        (typeof next === 'function' || settledScopeRef.current === scope)
+      )
+        return;
+      const hydration = initialRead.current?.scope === scope ? initialRead.current : null;
+      const column = `page:${scopedName}`;
+      const held = readTableSettingIntent(owner, column);
+      const base = pagePreferenceRevision(owner, scopedName);
+      const earlier = latestSelections.get(scope);
+      const needsInitialBase = !held || (held.id === earlier?.id && earlier.baseline !== undefined);
       revisionRef.current += 1;
       valueRef.current = { scope, value };
       cache(owner, scopedName, value);
-      const id = beginTableSettingIntent(
-        owner,
-        `page:${scopedName}`,
-        value,
-        pagePreferenceRevision(owner, scopedName)
-      );
+      const id = beginTableSettingIntent(owner, `page:${scopedName}`, value, base);
       latestSelections.set(`${owner}:${scopedName}`, {
         id,
+        baseline:
+          needsInitialBase && hydration && base === null
+            ? hydration.result.then((revision) => {
+                if (revision !== null) bindInitialTableSettingRevision(owner, column, id, revision);
+              })
+            : undefined,
         journaled: readTableSettingIntent(owner, `page:${scopedName}`)?.id === id,
       });
       setState({ scope, value });

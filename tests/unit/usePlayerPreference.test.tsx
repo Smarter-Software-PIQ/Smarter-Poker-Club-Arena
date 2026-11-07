@@ -8,6 +8,8 @@ const state = vi.hoisted(() => ({
   error: null as unknown,
   read: null as Promise<any> | null,
   revision: 0,
+  bases: [] as unknown[],
+  remote: null as null | { value: boolean; revision: number },
 }));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
@@ -28,13 +30,22 @@ vi.mock('../../src/lib/supabase', () => ({
       const user = useUserStore.getState().user?.id;
       if (fn !== 'fn_save_page_preferences') return { data: null, error: { message: fn } };
       const c = args.p_changes[0];
+      state.bases.push(c.base);
       state.writes.push({ user_id: user, preference_key: c.field, value: c.value });
+      if (state.remote && (c.base == null || c.base < state.remote.revision)) {
+        return {
+          data: { ok: true, results: [{ field: c.field, status: 'conflict', ...state.remote }] },
+          error: null,
+        };
+      }
       if (state.error) return { data: null, error: state.error };
       state.revision += 1;
       return {
         data: {
           ok: true,
-          results: [{ field: c.field, status: 'applied', revision: state.revision, value: c.value }],
+          results: [
+            { field: c.field, status: 'applied', revision: state.revision, value: c.value },
+          ],
         },
         error: null,
       };
@@ -45,11 +56,14 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 import { useUserStore } from '../../src/stores/useUserStore';
 import { usePlayerPreference } from '../../src/hooks/usePlayerPreference';
 import { readTableSettingIntent } from '../../src/lib/tableSettingIntents';
+import { notePagePreferenceRevision } from '../../src/lib/pagePreferenceSave';
 const wrapper = ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>;
 beforeEach(() => {
   localStorage.clear();
   state.row = null;
   state.writes = [];
+  state.bases = [];
+  state.remote = null;
   state.error = null;
   state.read = null;
   useUserStore.setState({ user: { id: 'preference-a' } as any });
@@ -311,6 +325,104 @@ it('resumes the same failed notification save on reconnect without remounting', 
   view.unmount();
 });
 
+it('keeps an explicit Simple selection when the initial Advanced preference arrives late', async () => {
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'club'), {
+    wrapper,
+  });
+  await act(async () => {});
+  expect(view.result.current[0]).toBe(true);
+  act(() => view.result.current[1](true));
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  expect(state.writes).toEqual([]);
+  await act(async () => resolveRead({ data: { value: false, revision: 7 }, error: null }));
+  expect(view.result.current[0]).toBe(true);
+  await waitFor(() => expect(state.bases).toEqual([7]));
+  view.unmount();
+  await waitFor(() => expect(state.writes.map((row) => row.value)).toEqual([true]));
+});
+
+it('hydrates Advanced without a gesture and skips a repeated choice after hydration', async () => {
+  state.row = { value: false };
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'hydrated'), {
+    wrapper,
+  });
+  await waitFor(() => expect(view.result.current[0]).toBe(false));
+  act(() => view.result.current[1](false));
+  view.unmount();
+  await act(async () => {});
+  expect(state.writes).toEqual([]);
+});
+
+it('keeps a previously observed revision when Simple is selected during hydration', async () => {
+  notePagePreferenceRevision('preference-a', 'roster:simpleMode:known', 3);
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'known'), {
+    wrapper,
+  });
+  await act(async () => {});
+  act(() => view.result.current[1](true));
+  state.remote = { value: false, revision: 7 };
+  await act(async () => resolveRead({ data: state.remote, error: null }));
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  await waitFor(() => expect(state.bases).toEqual([3]));
+  expect(view.result.current[0]).toBe(false);
+  view.unmount();
+});
+
+it('keeps an explicit Simple click from a cached Advanced view during its first account read', async () => {
+  const key = 'roster:simpleMode:cold';
+  localStorage.setItem('ca_player_preference:preference-a:' + key, 'false');
+  state.remote = { value: false, revision: 9 };
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'cold'), {
+    wrapper,
+  });
+  await act(async () => {});
+  expect(view.result.current[0]).toBe(false);
+  act(() => view.result.current[1](true));
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  await act(async () => resolveRead({ data: state.remote, error: null }));
+  await waitFor(() => expect(state.bases).toEqual([9]));
+  expect(view.result.current[0]).toBe(true);
+  view.unmount();
+});
+
+it('accepts a newer remote choice made after the cold read used for a gesture', async () => {
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'later'), {
+    wrapper,
+  });
+  await act(async () => {});
+  act(() => view.result.current[1](true));
+  await act(async () => resolveRead({ data: { value: false, revision: 4 }, error: null }));
+  state.remote = { value: false, revision: 5 };
+  await act(async () => {
+    window.dispatchEvent(new Event('pagehide'));
+  });
+  await waitFor(() => expect(view.result.current[0]).toBe(false));
+  expect(state.bases).toEqual([4]);
+  view.unmount();
+});
+
 it('keeps a gesture that matches the shown value when the account read arrives later', async () => {
   // Post-deploy run 42370089738: a fresh device shows the default (Simple),
   // the player taps Simple, then the account's older Advanced arrives.
@@ -341,4 +453,22 @@ it('treats re-selecting the shown value as a no-op once the account value is kno
   unmount();
   await act(async () => {});
   expect(state.writes).toHaveLength(0);
+});
+
+it('leaves an identity updater idle while the account preference is loading', async () => {
+  let resolveRead!: (result: unknown) => void;
+  state.read = new Promise((resolve) => {
+    resolveRead = resolve;
+  });
+  const view = renderHook(() => usePlayerPreference('roster:simpleMode', true, 'updater'), {
+    wrapper,
+  });
+  await act(async () => {});
+  act(() => view.result.current[1]((previous) => previous));
+  expect(readTableSettingIntent('preference-a', 'page:roster:simpleMode:updater')).toBeNull();
+  await act(async () => resolveRead({ data: { value: false, revision: 7 }, error: null }));
+  expect(view.result.current[0]).toBe(false);
+  view.unmount();
+  await act(async () => {});
+  expect(state.writes).toEqual([]);
 });
