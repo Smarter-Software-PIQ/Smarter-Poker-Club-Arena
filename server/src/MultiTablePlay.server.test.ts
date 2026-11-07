@@ -358,9 +358,9 @@ describe('rotator break bookkeeping for a multi-tabling horse', () => {
   it('shipped source pin: HorseSessionRotator keys breaks by table AND horse', () => {
     const src = readFileSync(join(process.cwd(), 'src/services/HorseSessionRotator.ts'), 'utf8');
     expect(src).toContain('private static breakKey(tableId: string, userId: string)');
-    expect(src).toContain(
-      'this.breaks.set(HorseSessionRotator.breakKey(tableId, best.seat.user_id)'
-    );
+    // The sit-out (HorseSitOutChoice, 2026-11-07) binds `seat = best.seat`.
+    expect(src).toContain('const seat = best.seat;');
+    expect(src).toContain('this.breaks.set(HorseSessionRotator.breakKey(tableId, seat.user_id)');
     expect(src).toContain(
       'this.breaks.delete(HorseSessionRotator.breakKey(tableId, best.seat.user_id))'
     );

@@ -1,6 +1,5 @@
 import { isRetiredTournament } from '../lib/retiredTournamentVisibility';
-import { payoutSharePercent, pendingHouseShare } from '../utils/tournamentPrizeFunding';
-import { useTournamentPrizeFunding } from '../hooks/useTournamentPrizeFunding';
+import { payoutSharePercent } from '../utils/tournamentPrizeFunding';
 import { runWithRequestDeadline } from '../utils/requestDeadline';
 import type { FollowTournamentPlayer } from '../utils/followTournamentPlayer';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
@@ -1314,53 +1313,6 @@ export default function TournamentPage() {
     selectedPayouts,
     selectedTournament,
   ]);
-  /**
-   * THE GUARANTEED MINIMUM UNDER EACH PROJECTED PLACE (2026-11-07). The
-   * Payouts ladder priced each place on what the field had put into places,
-   * so on a guaranteed event still registering it disagreed with Rewards on
-   * the same event. Same funding read, same pending house share, same
-   * ladder: places + what the house still adds at close if the field does
-   * not close the guarantee. Only while the pool is open, never on a
-   * satellite, and only when the house still owes something. Final standings
-   * keep their recorded prizes.
-   */
-  const selectedFunding = useTournamentPrizeFunding(
-    selectedTournament?.id ?? null,
-    selectedTournament,
-    'TournamentPage.prize_funding_load_failed'
-  );
-  const selectedPendingHouse = pendingHouseShare(selectedFunding);
-  const selectedGuaranteedLadderPool = useMemo<number | null>(() => {
-    if (
-      !selectedTournament ||
-      !(Number(selectedTournament.guaranteed_prize) > 0) ||
-      selectedTournament.prize_pool_finalized === true ||
-      selectedIsSatellite ||
-      !(selectedPendingHouse > 0)
-    ) {
-      return null;
-    }
-    if (selectedBubbleNeedsDurableField && durableEntryCount === null) return null;
-    const fieldSize =
-      durableEntryCount ?? Math.max(0, Number(selectedTournament.current_players) || 0);
-    return effectivePlaceLadderPool(
-      (Number(selectedTournament.prize_pool) || 0) + selectedPendingHouse,
-      selectedTournament.guaranteed_prize,
-      selectedPayouts,
-      fieldSize,
-      selectedTournament.bubble_protection === true,
-      Number(selectedTournament.buy_in_amount) || 0,
-      selectedIsSatellite,
-      selectedTournament.bounty_pool
-    );
-  }, [
-    durableEntryCount,
-    selectedBubbleNeedsDurableField,
-    selectedIsSatellite,
-    selectedPayouts,
-    selectedPendingHouse,
-    selectedTournament,
-  ]);
 
   const rankingTables = useMemo<TournamentTable[]>(
     () =>
@@ -1980,15 +1932,6 @@ export default function TournamentPage() {
                 selectedPlaceLadderPool === null
                   ? null
                   : placePrize(selectedPlaceLadderPool, selectedPayouts, pos, selectedUnitCents);
-              const guaranteed =
-                selectedGuaranteedLadderPool === null || !(selectedGuaranteedLadderPool > 0)
-                  ? null
-                  : placePrize(
-                      selectedGuaranteedLadderPool,
-                      selectedPayouts,
-                      pos,
-                      selectedUnitCents
-                    );
               return (
                 <div key={i} className="tourn-row tourn-row--triple">
                   {/* The top three used to print NOTHING: an emoji had been
@@ -1999,15 +1942,8 @@ export default function TournamentPage() {
                   </span>
                   {/* Whole chips. This printed `Math.trunc(x * 100) / 100`,
                       a decimal, on a forward-facing page. */}
-                  <span className="tourn-value tourn-value--stack sc-ink--silver">
-                    <span className="tourn-value__main">
-                      {amount === null ? '-' : compactChips(amount)}
-                    </span>
-                    {guaranteed !== null && guaranteed > (amount ?? 0) && (
-                      <span className="tourn-value__gtd sc-ink--muted">
-                        Guaranteed {compactChips(guaranteed)}
-                      </span>
-                    )}
+                  <span className="tourn-value sc-ink--silver">
+                    {amount === null ? '-' : compactChips(amount)}
                   </span>
                 </div>
               );

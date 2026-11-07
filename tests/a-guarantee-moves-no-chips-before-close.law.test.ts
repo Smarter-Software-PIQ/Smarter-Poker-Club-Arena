@@ -21,16 +21,17 @@ describe('a guarantee moves no chips before registration closes', () => {
     expect(sql).toMatch(/<> 1 THEN\s+RAISE EXCEPTION/);
   });
 
-  // With no chips added at start, a screen that prints the raw pool reads
-  // below the guarantee during late registration. Every live pool display
-  // floors it.
+  // With no chips added at start, the pool during late registration is what
+  // the field has actually paid. Every live pool display reads it through the
+  // shared rule (Dan, 2026-11-06/07: actual real-time totals only; the
+  // guarantee is shown as the guarantee, never as the pool).
   it.each([
     ['src/components/table/TournamentBreakScreen.tsx'],
     ['src/pages/XMTTPage.tsx'],
     ['src/components/lobby/GameLobbyPanel.tsx'],
-  ])('%s shows the guarantee as the floor', (file) => {
+  ])('%s prints the live pool through the shared rule', (file) => {
     const src = readFileSync(file, 'utf8');
-    expect(src).toMatch(/effectivePrizePool\(/);
+    expect(src).toMatch(/(effectivePrizePool|displayTotalPool)\(/);
     expect(src).toContain('guaranteed_prize');
   });
 });

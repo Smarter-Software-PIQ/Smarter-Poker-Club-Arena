@@ -153,24 +153,6 @@
   white-space: nowrap;
 }
 
-/* A projected place with its guaranteed minimum under it (2026-11-07):
-   what the house underwrites if the field does not close the guarantee,
-   stacked so the triple row keeps its three columns at 375px. */
-.tourn-value--stack {
-  display: grid;
-  justify-items: end;
-  white-space: normal;
-}
-.tourn-value__main,
-.tourn-value__gtd {
-  white-space: nowrap;
-}
-.tourn-value__gtd {
-  font-size: 2.8cqw;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
 .tourn-table-name {
   min-width: 0;
   font-size: 3.4cqw;

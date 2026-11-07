@@ -342,4 +342,9 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   // format, depth and antes independently of any read; the corpus keeps the
   // explicit off arm (HorseNlhOpenSize.law.test.ts pins the real policy).
   v74NlhOpenSizes: false,
+  // V15 river raise gate without the near-lock escape (2026-11-07) turns
+  // dominated Omaha river raises into calls independently of any read; the
+  // off arm keeps the recorded corpus intact. The real policy is pinned in
+  // HorseV15RiverRaiseGate.test.ts.
+  v15RiverNoNearLock: false,
 };

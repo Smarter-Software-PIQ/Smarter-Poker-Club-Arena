@@ -28,6 +28,21 @@ describe('AI opponents are disclosed before anyone plays', () => {
     expect(AI_OPPONENTS_DISCLOSURE).toMatch(/Do Not Say Which Seats/);
   });
 
+  it('it covers what AI opponents now do away from a seat, not only at one (2026-11-07)', () => {
+    for (const act of [
+      /Buy In/,
+      /Top Up/,
+      /Rebuy/,
+      /Sit Out/,
+      /Join Waiting Lists/,
+      /Move Between Games/,
+      /Keep Regular Hours/,
+    ])
+      expect(AI_OPPONENTS_DISCLOSURE).toMatch(act);
+    // It describes what they do, never who they are.
+    expect(AI_OPPONENTS_DISCLOSURE).not.toMatch(/\bhorse|bot\b/i);
+  });
+
   it('the Terms of Service page shows it', () => {
     const { container } = render(
       <MemoryRouter>

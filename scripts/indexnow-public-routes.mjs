@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  indexnow-public-routes - tell Bing the arena's public pages changed
@@ -67,7 +68,7 @@ async function main() {
   }
 }
 
-const invokedDirectly = process.argv[1] && new URL(`file://${process.argv[1]}`).pathname === new URL(import.meta.url).pathname;
+const invokedDirectly = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
 if (invokedDirectly) {
   main().catch((err) => {
     console.log(`::notice::indexnow: ${err?.message || err}`);

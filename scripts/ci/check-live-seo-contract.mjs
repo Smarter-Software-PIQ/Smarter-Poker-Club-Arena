@@ -32,6 +32,7 @@
  * USAGE  node scripts/ci/check-live-seo-contract.mjs [--sha <40 hex>] [--base https://smarter.poker/hub/club-arena]
  */
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -329,7 +330,7 @@ async function main() {
 
 const invokedDirectly =
   process.argv[1] &&
-  new URL(`file://${process.argv[1]}`).pathname === new URL(import.meta.url).pathname;
+  pathToFileURL(process.argv[1]).href === import.meta.url;
 if (invokedDirectly) {
   main()
     .catch((e) => fail(`checker crashed: ${e.stack || e.message}`))

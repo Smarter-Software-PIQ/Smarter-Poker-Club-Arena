@@ -8,6 +8,7 @@ import {
   closeDurableTerminalRequest,
   readDurableTerminalRequest,
   TerminalIntentUnknownError,
+  SatelliteTerminalPrepareBusyError,
 } from './terminalDurableRequest.js';
 const tournamentId = '00000000-0000-4000-8000-000000000001';
 const generation = '00000000-0000-4000-8000-000000000002';
@@ -43,6 +44,27 @@ describe('durable pre-send acknowledgement', () => {
       mocks.rpc.mock.calls.every(([name]) => name === 'fn_prepare_tournament_terminal_request')
     ).toBe(true);
   });
+  it('defers a satellite whose prepare attempts both rolled back before any payment', async () => {
+    const satellite = { ...identity, kind: 'satellite' as const };
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: '55P03' } });
+    await expect(
+      runWithTournamentDataAuthority(authority, () => prepareDurableTerminalRequest(satellite))
+    ).rejects.toBeInstanceOf(SatelliteTerminalPrepareBusyError);
+    expect(mocks.rpc.mock.calls).toHaveLength(2);
+    expect(mocks.rpc.mock.calls[0]).toEqual(mocks.rpc.mock.calls[1]);
+    expect(mocks.rpc.mock.calls[0][0]).toBe('fn_prepare_tournament_terminal_request');
+  });
+
+  it('preserves an unknown prepare if a later satellite attempt meets contention', async () => {
+    const satellite = { ...identity, kind: 'satellite' as const };
+    mocks.rpc
+      .mockRejectedValueOnce(new Error('lost response'))
+      .mockResolvedValueOnce({ data: null, error: { code: '55P03' } });
+    await expect(
+      runWithTournamentDataAuthority(authority, () => prepareDurableTerminalRequest(satellite))
+    ).rejects.toBeInstanceOf(TerminalIntentUnknownError);
+  });
+
   it('unknown prepare stays unsent and retains its exact identity', async () => {
     mocks.rpc.mockRejectedValue(new Error('lost'));
     const error = await runWithTournamentDataAuthority(authority, () =>

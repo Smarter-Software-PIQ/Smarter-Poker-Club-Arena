@@ -28,8 +28,8 @@ vi.mock('../../src/lib/supabase', () => ({
 vi.mock('../../src/hooks/usePlayerPreference', () => ({
   usePlayerPreference: () => [false, vi.fn()],
 }));
-vi.mock('../../src/hooks/useMysteryBountyProjection', () => ({
-  useMysteryBountyProjection: () => null,
+vi.mock('../../src/hooks/useMysteryBountyPoolSoFar', () => ({
+  useMysteryBountyPoolSoFar: () => null,
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 const data: UseMysteryBountyResult = {

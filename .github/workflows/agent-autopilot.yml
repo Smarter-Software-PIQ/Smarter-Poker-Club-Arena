@@ -108,9 +108,9 @@ jobs:
 
   dispatch-merged-migrations:
     name: Dispatch the migrations this merge added
-    # The merger acting on its own merge: only the native `closed` event of a
-    # merged same-repository PR into the default branch. The script further
-    # requires that the autopilot App is the account that merged it.
+    # Every merge acting on itself: the native `closed` event of a merged
+    # same-repository PR into the default branch, whoever merged it (an agent
+    # merging by hand is the usual merger; 2026-11-07).
     if: >-
       github.event_name == 'pull_request_target'
       && github.event.action == 'closed'

@@ -225,6 +225,78 @@ export function v81Cell(i: V81Input): string | null {
   return null;
 }
 
+/**
+ * V84 OMAHA RIVER RE-RAISE CALL DISCIPLINE (2026-11-07). PLO4 / PLO5 / PLO6.
+ *
+ * The call side V81 leaves out: the horse BET or RAISED the river itself and
+ * now faces a raise of 0.9 pot or more (heroHasStreetChips). Hand 3359656,
+ * PLO6 tournament: Kd-high flush (no Ad) on 9d 7d 2d 4s 6s bet 2,858 into
+ * 4,090, was raised to 12,664 and called 9,806, losing 587bb.
+ *
+ * Evidence, same methodology as V81: the DECISION EV of the horses' own river
+ * calls after their own river bet or raise (net + chips already invested at
+ * the node, in bb), hand_history + ca_hand_facts (every PLO hand is in both;
+ * horse_hand_reviews holds 1.6% of them and was not used), every hand kept,
+ * 95% CIs clustered by hand, the hand classified AT THE DECISION with
+ * omahaCallClass, the wager measured as v81StreetWager does. Excluded as in
+ * V81: heads-up tables, bounty events, 20bb effective or less. Day A
+ * 2026-11-05 16:00 to 11-06 16:00 UTC, day B 11-06 16:00 to 11-07 16:00 UTC.
+ * Facing >= 0.9 pot, mean EV [95% CI], n:
+ *
+ *   flush_second (unpaired)   day A -100.8 [-159.5, -42.0] n 12   day B -93.0 [-130.3, -55.6] n 15
+ *
+ * All 27 calls lost. Slices (A / B): PLO4 -76.8 n 5 / -99.0 n 12, PLO5 -113.0
+ * n 2 / -72.9 n 2, PLO6 -119.8 n 5 / -60.5 n 1, cash -79.1 n 9 / -93.0 n 15,
+ * tournament -165.8 n 3 / none: no slice positive on either day.
+ *
+ * Admission rule (V81's, with one floor added): below zero on both days, no
+ * variant or format slice with n >= 10 positive on either day, AND at least
+ * 10 hands in the cell on each day (a two-hand CI is not evidence). NOT
+ * admitted: flush_second_paired (-43.0 n 2 / -54.2 n 4, below the floor),
+ * two pair (straddles day A, n 3), straight_flushboard (straddles day A, n 2),
+ * straight_nonnut (straddles day B), straight_paired (straddles day A),
+ * flush_nut_paired (n 1 day A), nut straights and full houses (win).
+ * Per-slice outputs: docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt.
+ *
+ * Limits: only the horses' own calls are observed, ICM is not modelled, and
+ * a bettor MEASURED as a postflop over-bluffer keeps today's call, as in V81.
+ */
+export const V84_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5', 'plo6']);
+const V84_RIVER_CELLS = new Set(['flush_second']);
+
+export interface V84Input extends Omit<V81Input, 'heroHasStreetChips'> {
+  /** The horse itself bet or raised this street before the raise it faces. */
+  heroWageredStreet: boolean;
+}
+
+/** True when `seat` bet, raised or went all in on `street` (public history). */
+export function v84HeroWageredStreet(
+  history: readonly V81Action[] | undefined,
+  street: string,
+  seat: number
+): boolean {
+  if (!Array.isArray(history)) return false;
+  return history.some(
+    (a) =>
+      String(a.stage) === street &&
+      a.seat === seat &&
+      (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
+  );
+}
+
+/** The measured V84 cell this call falls in, or null when V84 does not apply. */
+export function v84Cell(i: V84Input): string | null {
+  const variant = String(i.variant).toLowerCase();
+  if (!V84_VARIANTS.has(variant)) return null;
+  if (i.hiLo || i.multiBoard || i.bombPot || i.headsUpTable || i.bountyEvent) return null;
+  if (!i.heroWageredStreet || i.bettorOverBluffs) return null;
+  if (!(i.potFrac >= V81_MIN_POT_FRAC) || !(i.effectiveBB > V81_MIN_EFFECTIVE_BB)) return null;
+  if (!Array.isArray(i.hole) || i.hole.length !== Number(variant.slice(3))) return null;
+  if (i.street !== 'river' || !Array.isArray(i.board) || i.board.length !== 5) return null;
+  const cls = omahaCallClass(i.hole, i.board);
+  return V84_RIVER_CELLS.has(cls) ? cls : null;
+}
+
 /** A checked cash PLO6 river can return heads-up after seats behind fold.
  * Recover only an affordable closing fold; never flatten a chosen value raise. */
 function checkedPlo6ClosingFold(

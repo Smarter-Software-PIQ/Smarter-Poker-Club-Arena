@@ -12,6 +12,7 @@ import {
   GuaranteeRefusalBackoff,
   guaranteeShortfallFrom,
 } from './guaranteeRefusalBackoff.js';
+import { fileURLToPath } from 'node:url';
 
 const REFUSAL =
   'Club Deep Stack Society cannot guarantee 100.00 chips: club bank holds 32712.00, floor 0.00, already promised 37327.50 on live events - short by 4715.50. Add chips to the bank to cover the guarantee.';
@@ -130,7 +131,7 @@ describe('GuaranteeRefusalBackoff', () => {
 
 describe('the scheduler is wired to it', () => {
   const svc = readFileSync(
-    new URL('./ScheduledTournamentService.ts', import.meta.url).pathname,
+    fileURLToPath(new URL('./ScheduledTournamentService.ts', import.meta.url)),
     'utf8'
   );
   const spawn = svc.slice(svc.indexOf('private async spawnInstance('));

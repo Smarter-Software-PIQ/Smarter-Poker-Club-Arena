@@ -83,7 +83,11 @@ describe('the merger dispatches the migrations its merge added', () => {
     expect(step.env.MERGED_BY).toBe('${{ github.event.pull_request.merged_by.login }}');
     expect(step.env.APP_SLUG).toBe('${{ steps.app-token.outputs.app-slug }}');
     expect(job.steps[0].with.ref).toBe('${{ github.event.repository.default_branch }}');
-    expect(scriptCode).toContain('if [ "$MERGED_BY" != "${APP_SLUG}[bot]" ]; then');
+    // Every merge dispatches its own migrations, whoever merged it (2026-11-07:
+    // an agent's hand merge of #9876 left 20261107130652 uninstalled for hours).
+    expect(scriptCode).not.toMatch(/\$MERGED_BY"? != "\$\{APP_SLUG\}\[bot\]"/);
+    expect(scriptCode).not.toMatch(/its merger dispatches its migrations\."\s*\n\s*exit 0/);
+    expect(scriptCode).toContain('dispatching the migrations it added');
     expect(autopilotRaw).not.toMatch(/GH_PAT|AUTOFIX_GITHUB_TOKEN|secrets\.GITHUB_TOKEN/);
   });
 

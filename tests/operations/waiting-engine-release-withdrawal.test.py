@@ -982,6 +982,10 @@ class AnnouncedCancellation(unittest.TestCase):
             patches.enter_context(patch.object(module, 'command', side_effect=command))
             patches.enter_context(patch.object(Path, 'read_text', read_text))
             patches.enter_context(patch.object(module.urllib.request, 'build_opener', return_value=type('FixtureOpener', (), {'open': staticmethod(open_response)})()))
+            # The fixture's promise was observed at `now`. Read it on the same clock:
+            # git fixture setup on a loaded host can take longer than the 10 s
+            # freshness window, and that is the host's speed, not the behaviour.
+            patches.enter_context(patch.object(module.time, 'time', return_value=now / 1000))
             module.select_profile(request)
             result = module.announcement_evidence(request, read_only=True)
             self.assertEqual(result['desiredImageId'], seal['desired']['imageId'])

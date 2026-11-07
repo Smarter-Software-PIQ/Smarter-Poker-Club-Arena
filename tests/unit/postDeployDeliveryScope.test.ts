@@ -546,7 +546,7 @@ describe('one scoped natural board proof keeps its own finite account and verdic
     expect(engine.concurrency['cancel-in-progress']).toBe(false);
     expect(engine.concurrency.group).toContain('post-deploy-live-table-natural-board-production');
     const proof = engine.steps.find((step: any) => step.id === 'natural_board_reveal');
-    expect(proof['timeout-minutes']).toBe(5);
+    expect(proof['timeout-minutes']).toBe(9);
     expect(proof.run).toContain('production-natural-board-reveal.spec.ts');
     expect(proof.run).toContain('--project=chromium');
     expect(proof.run).toContain('--workers=1 --retries=0');
@@ -558,7 +558,7 @@ describe('one scoped natural board proof keeps its own finite account and verdic
     expect(workflow.jobs['post-deploy-verdict'].if).toContain("natural_board_reveal != 'true'");
     expect(
       readFileSync(join(root, 'tests/e2e/production-natural-board-reveal.spec.ts'), 'utf8')
-    ).toContain('started + 255_000');
+    ).toContain('started + 435_000');
     const cleanup = engine.steps.find((step: any) => step.id === 'tournament_account_cleanup');
     expect(cleanup.if).toContain('always()');
     expect(cleanup.run).toBe('node scripts/ci/production-e2e-account.mjs cleanup');

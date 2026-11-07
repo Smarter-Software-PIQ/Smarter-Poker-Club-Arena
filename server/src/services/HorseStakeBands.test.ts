@@ -22,6 +22,7 @@ import {
   effectiveStakeBandFor,
   type HorseStakeBand,
 } from './HorseBehavior.js';
+import { fileURLToPath } from 'node:url';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -144,7 +145,10 @@ describe('assignment beats the hash, and the hash still covers a brand-new horse
 describe('the shipped wiring - the rule is worthless if the seater does not consult it', () => {
   it('HorseFleetManager filters candidates by stake band before selecting', async () => {
     const { readFileSync } = await import('node:fs');
-    const src = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url).pathname, 'utf8');
+    const src = readFileSync(
+      fileURLToPath(new URL('./HorseFleetManager.ts', import.meta.url)),
+      'utf8'
+    );
     // The call must be in the candidate filter, which is the only place that
     // runs before the weighted pick. Sizing a buy-in from the blinds - which
     // the file already did - never influenced WHICH horse was chosen.
@@ -162,7 +166,10 @@ describe('the shipped wiring - the rule is worthless if the seater does not cons
 
   it('the human-rescue fallback widens the HOUR, never the band', async () => {
     const { readFileSync } = await import('node:fs');
-    const src = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url).pathname, 'utf8');
+    const src = readFileSync(
+      fileURLToPath(new URL('./HorseFleetManager.ts', import.meta.url)),
+      'utf8'
+    );
     // `pool = candidateHorses` is the rescue path. candidateHorses is already
     // band-filtered, so the rescue can pull an off-hours horse of the RIGHT
     // stake and never a nosebleed regular into a micro game. If someone ever
@@ -180,7 +187,10 @@ describe('the shipped wiring - the rule is worthless if the seater does not cons
 
   it('the loader hydrates bands from the same page scan as lanes', async () => {
     const { readFileSync } = await import('node:fs');
-    const src = readFileSync(new URL('./HorseLaneLoader.ts', import.meta.url).pathname, 'utf8');
+    const src = readFileSync(
+      fileURLToPath(new URL('./HorseLaneLoader.ts', import.meta.url)),
+      'utf8'
+    );
     expect(src).toContain('setHorseStakeBands(bandRows)');
     expect(src).toContain('fn_assign_horse_stake_bands');
   });
@@ -268,7 +278,10 @@ describe('a band with no enabled game seats one band down, and never one band up
 
   it('the fleet publishes the supply from the tables it already read, and says so once', async () => {
     const { readFileSync } = await import('node:fs');
-    const src = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url).pathname, 'utf8');
+    const src = readFileSync(
+      fileURLToPath(new URL('./HorseFleetManager.ts', import.meta.url)),
+      'utf8'
+    );
     // Derived from the cycle's own table list; no second query.
     expect(src).toContain('const bandsWithAGame = new Set<HorseStakeBand>();');
     expect(src).toContain('const band = stakeBandForBigBlind(Number(t.big_blind));');

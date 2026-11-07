@@ -667,16 +667,11 @@ export default function RewardsTab({
   );
   const bubbleProtectionReserve =
     placeLadderPool === null ? 0 : Math.max(0, effectivePool - placeLadderPool);
-  /* THE GUARANTEED MINIMUM (2026-11-06). While registration is open the
-     ladder prices only what the field has paid into places. The house share
-     the club owes if the field closes now goes into places at close, so each
-     place is also shown at that floor: places + overlay, through the same
-     ladder. Never once the pool is finalized (the stored pool already holds
-     what was funded) or when the funding read is unavailable. */
-  /* Only what the house has NOT yet put in: a Free Buy's promo chips are
-     already in prize_pool (house_posted), so adding the whole share again
-     would price a 250 guarantee at 405. Paid events post nothing before
-     close, so for them this equals the overlay. */
+  /* What the house still adds at close if the field does not close the
+     guarantee: the live overlay sentence under the guarantee meter. It is
+     never added to a place (Dan, 2026-11-07: no projected payouts). A Free
+     Buy's promo chips are already in prize_pool (house_posted); paid events
+     post nothing before close, so for them this equals the overlay. */
   const pendingHouse = pendingHouseShare(currentFunding ? { ...currentFunding, overlay } : null);
   /* ONE STORY FOR A FREE BUY (2026-11-06). Its promo chips are house money
      already in the pool, so the house's whole share (house_required) and what
@@ -686,19 +681,6 @@ export default function RewardsTab({
      single "Overlay" wording. */
   const housePostedNow = currentFunding ? Math.max(0, currentFunding.housePosted ?? 0) : 0;
   const housePostedEarly = !isFinalised && !isComplete && housePostedNow > 0 && overlay > 0;
-  const guaranteedLadderPool =
-    hasGuarantee && !isFinalised && currentFunding && pendingHouse > 0 && !isSatellite
-      ? effectivePlaceLadderPool(
-          num(t.prize_pool) + pendingHouse,
-          t.guaranteed_prize,
-          parsedPlaces,
-          entryCount,
-          t.bubble_protection === true,
-          num(t.buy_in_amount),
-          isSatellite,
-          t.bounty_pool
-        )
-      : null;
   const toTheMoney = finalPaidPlace > 0 ? Math.max(0, playersRemaining - finalPaidPlace) : 0;
   const inTheMoney = finalPaidPlace > 0 && playersRemaining <= finalPaidPlace;
   const onTheBubble = stoneBubblePlace > 0 && playersRemaining === stoneBubblePlace;
@@ -1083,13 +1065,6 @@ export default function RewardsTab({
             )}
         </div>
 
-        {guaranteedLadderPool !== null && guaranteedLadderPool > 0 && (
-          <p className="rw-gtd-floor">
-            Guaranteed Amounts Include The {chips(pendingHouse)} The House Adds If The Field Does
-            Not Close It
-          </p>
-        )}
-
         {isSatellite && isComplete && satelliteAwards && (
           <p className="tl-empty__hint" role="status">
             {!awardTypesReady
@@ -1185,12 +1160,8 @@ export default function RewardsTab({
                 placeLadderPool !== null && placeLadderPool > 0 && parsedPlaces
                   ? placePrize(placeLadderPool, parsedPlaces, band.fromPlace, unitCents)
                   : 0;
-              const guaranteedPrize =
-                guaranteedLadderPool !== null && guaranteedLadderPool > 0 && parsedPlaces
-                  ? placePrize(guaranteedLadderPool, parsedPlaces, band.fromPlace, unitCents)
-                  : 0;
               /* The player who took this place, and what they were actually
-                 paid. The recorded prize wins over the projection: a final
+                 paid. The recorded prize wins over the live pool price: a final
                  table deal or the residual on the last paid place makes them
                  differ, and the player's wallet holds the recorded one. */
               const finisher =
@@ -1250,17 +1221,8 @@ export default function RewardsTab({
                       </span>
                     </span>
                   ) : (
-                    <span className="rw-prize-col">
-                      <span className="tl-num tl-num--accent rw-prize">
-                        {hasRecordedPrize
-                          ? unitMoney(recordedPrize)
-                          : prize > 0
-                            ? chips(prize)
-                            : '-'}
-                      </span>
-                      {!hasRecordedPrize && guaranteedPrize > prize && (
-                        <span className="rw-prize-gtd">Guaranteed {chips(guaranteedPrize)}</span>
-                      )}
+                    <span className="tl-num tl-num--accent rw-prize">
+                      {hasRecordedPrize ? unitMoney(recordedPrize) : prize > 0 ? chips(prize) : '-'}
                     </span>
                   )}
                 </li>

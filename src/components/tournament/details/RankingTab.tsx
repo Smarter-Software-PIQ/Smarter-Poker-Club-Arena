@@ -1,5 +1,6 @@
 import { tournamentTableLabel } from '../../../utils/tournamentTableLabel';
 import { formatPrizeAtUnit } from '../../../utils/format';
+import { displayTotalPool } from '../../../utils/tournamentPrizeFunding';
 import {
   useSatelliteAwards,
   satelliteAwardLabel,
@@ -87,7 +88,6 @@ import {
   chips,
   chipsCompact,
   tournamentRowUnitCents,
-  effectivePrizePool,
   finishedFieldSummary,
   initials,
   isPlayerOut,
@@ -985,7 +985,7 @@ function RankingTabForTournament({
 
   const isFinished = String(tournament.status || '').toUpperCase() === 'COMPLETED';
   const finished = finishedFieldSummary(tournament, entries);
-  const finishedPool = effectivePrizePool(
+  const finishedPool = displayTotalPool(
     tournament.prize_pool,
     tournament.guaranteed_prize,
     tournament.bounty_pool,

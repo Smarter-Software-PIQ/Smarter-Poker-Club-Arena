@@ -477,6 +477,12 @@ export const TAG_CONSUMERS: LedgerEntry[] = [
     'split from plo_naked_trips on an unpaired board; recorded for investigation; no validated causal adjustment reader',
     'V40'
   ),
+  tag(
+    'set_on_wet_board_stackoff',
+    'measurement',
+    'Omaha set or trips with no redraw committed 100bb+ on the turn or river on a board showing three to a flush or a straight (at the commit street or on the river); added from the 2026-11-06 biggest-losses review (3370600); no validated causal adjustment reader',
+    'V40'
+  ),
 
   // ── V49 FREQUENCY LEAKS. Emitted by SQL over horse_daily_play, read by the
   // nightly audit (fn_audit_frequency_leaks) and by the panel card. The same
@@ -874,6 +880,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V81'
   ),
   flag(
+    'v15RiverNoNearLock',
+    "2026-11-07 (completed 2026-11-06 audit, hand 3374459) the V15 raise gate's near-lock escape (eq15 - dominationPenalty >= 0.85) no longer applies on the river: a non-nut Omaha flush or straight facing a river wager calls instead of raising, because the equity read there is the Monte Carlo against the bettor's estimated range (0.91-1.00 for the K-high flush with the As live, 60 of 60 seeds) and on the river nothing is left to draw; the K-high flush raised 43 of 60 seeds before; flop and turn keep the near-lock reading; the nut flush and nut straight are outside the gate; receipt v15_raise_gate; explicit off arm restores the river near-lock escape",
+    'V15'
+  ),
+  flag(
+    'v84OmahaRiverReraiseCalls',
+    "2026-11-07 (hand 3359656: PLO6 tournament, Kd-high flush with no Ad on 9d 7d 2d 4s 6s bet 2,858 into 4,090, raised to 12,664, called 9,806, lost 587bb) PLO4/PLO5/PLO6 river CALLS of a raise of 0.9 pot or more after the horse's OWN river bet or raise (the spot V81 leaves out with chips already in this street) fold only in the measured cell (HorseOmahaBigBetCalls.v84Cell, same classification and wager measure as V81): an unpaired-board second-nut flush. Decision EV of the horses' own calls (net + chips already in, bb; hand_history + ca_hand_facts, every PLO hand, CIs clustered by hand) day A 2026-11-05/06 -100.8 [-159.5, -42.0] n 12, day B 2026-11-06/07 -93.0 [-130.3, -55.6] n 15, all 27 calls lost, no variant or format slice positive on either day; admission is V81's rule plus a floor of 10 hands per day; not admitted: paired-board second-nut flush (n 2 and 4), two pair, flush-board / non-nut / paired-board straights (each straddles one day), nut straights and full houses (win); excluded as V81: heads-up tables, bounty events, 20bb or less, hi-lo, multi-board, bomb pots, a bettor measured as a postflop over-bluffer, unreconcilable street history; outputs in docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt; limits: only the horses' calls are observed, ICM not modelled; explicit off arm keeps today",
+    'V84'
+  ),
+  flag(
     'v83AggressionNeedsBluffs',
     "2026-11-06 (R7 certification diagnosis) the legacy exploit read's postflop aggression factor above 2.5 sets callDownMod 1.2 (call lighter; every one-pair fold and shade layer gated on callDownMod <= 1 switches off) only when the bettor's big river bets have not shown down mostly as value: 20+ big-bet showdowns (>= 20bb, called) with 75%+ shown strong keep neutral respect (HorseMind.aggressionShownAsValue, receipt v83_aggression_shown_as_value); horse-vs-horse play sits at AF ~2.43 with ~85% of big bets strong, so the ratio-only line flipped on small shifts in how often a player is checked to (R7 league/cash 10x: -5.54 +/- 0.84 bb/100 with the ratio-only read, -0.62 +/- 0.31 with this gate); the credible opponent read (callDownRespectShift), the passive branch (AF < 0.7) and bluffMod / valueThinMod are unchanged; explicit off arm keeps the ratio-only read",
     'V83'
@@ -897,6 +913,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v70FacingOpenZone',
     "2026-11-05 two- and three-handed no-limit hold'em facing action (an open, a limp-raise, any wager) plays jam-or-fold only inside the short-handed V70 zone (<= 15bb, 12bb without the M layer) instead of the table-size-scaled M zone (red M <= 22bb), which had left every 20bb spin and heads-up stack jam-or-fold facing a raise (3-handed 20bb league, mind on, 100,000 hands: big blind vs a button min-raise off folded 18,490, jammed 2,847, called 112; on folded 5,122, called 12,764, jammed 3,032, 3-bet 1,093), so almost no button-vs-big-blind single-raised pot reached a flop; measured on minus off +6.34 +/- 0.59 bb/100 spin 20bb, +6.35 +/- 0.56 spin 18bb, +5.02 +/- 0.80 heads-up 20bb, inert at spin 25bb (+0.08 +/- 0.11); the open (V70), the <= 15bb zone, four or more dealt, short deck, fixed limit and Omaha unchanged; league measurement in docs/changelog/2026-11-05-v31-spin-facing-open-and-satellite-scenario.md; explicit off arm keeps the jam-or-fold answer",
     'V82'
+  ),
+  flag(
+    'huBbDefendsToPrice',
+    "2026-11-07 default OFF: heads-up no-limit hold'em cash, the big blind facing the only open (no limp, no caller, open <= 6bb, 20-150bb effective) continues every hand whose all-in equity against the opener's measured range (opponent read RFI/PFR width when engaged, else the V70 heads-up open target 72% cash / 76% ante; equity table HorseHuBbDefence.HU_BB_EQUITY, Monte Carlo, scripts/generate-hu-bb-defence-equity.ts), times a 0.8 out-of-position realisation, covers the rake-aware pot odds; measured before (real HorseLogic.decide, live cash Hybrid persona, 80bb, 4,000 samples per class): the SB opens 71.3% and the BB folds 57.4% to it (T6s, 96s, Q9o, K5o fold) because two-handed tables never reach the V72 per-seat defence and the V11 heads-up bar (t(0.30) less 0.06, V34 floor 0.30) reads neither the price nor the opener's width; widen-only (a fold becomes a call), 3-bets, six-max, tournaments, Omaha, short deck, pot and fixed limit unchanged; league hu_bb_defends_to_price; docs/changelog/2026-11-07-horse-hu-bb-defends-to-its-price.md",
+    'HuBbPrice'
   ),
   flag(
     'v77SeatAwareJams',
@@ -2648,6 +2669,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'decide_omaha'
   ),
   receipt(
+    'v84_omaha_river_reraise_call_fold',
+    'HorseLogic (V84)',
+    "PLO4/PLO5/PLO6 river call of a 0.9-pot+ raise after the horse's own river bet or raise, in a measured losing cell: folded",
+    'V84',
+    'decide_omaha'
+  ),
+  receipt(
     'v80_top_pair_strong_kicker',
     'HorseLogic (V80)',
     "Hold'em top pair with a T-or-better kicker facing a 0.9-pot+ turn/river wager deep (V79 cell A): equity capped",
@@ -4123,6 +4151,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic decideInternal after wager_rules',
     'the near-nut candidate chose a value raise and a later owner replaced it',
     'Small-pot near-nut value'
+  ),
+  receipt(
+    'hu_bb_defends_to_price',
+    'HorsePreflop via HorseLogic (huBbDefendsToPrice)',
+    'default-off huBbDefendsToPrice: heads-up big blind facing the only open called a hand the V11 heads-up bars folded, because its realised equity against the opener range covered the price',
+    'HuBbPrice'
   ),
   receipt(
     'barrel_continuation_outlook_applied',

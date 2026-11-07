@@ -2382,7 +2382,8 @@ jobs:
       - name: Qualify one natural same-hand turn and river in Chromium
         id: natural_board_reveal
         if: "!cancelled() && needs.publication-gate.outputs.natural_board_reveal == 'true' && steps.live.outputs.ready == 'true' && steps.gameplay.outputs.resumed == 'true' && steps.account.outcome == 'success' && steps.spectator.outcome == 'success' && steps.align.outcome == 'success'"
-        timeout-minutes: 5
+        # 465s case plus measured 24s authentication/bootstrap and 51s headroom.
+        timeout-minutes: 9
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           ARENA_BASE_URL: https://smarter.poker/hub/club-arena

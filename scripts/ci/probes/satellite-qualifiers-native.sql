@@ -53,20 +53,26 @@ END $fault$;
 CREATE TRIGGER native_qualifier_final_close BEFORE UPDATE ON public.tables
  FOR EACH ROW EXECUTE FUNCTION pg_temp.qualifier_refuse_final_close();
 
-CREATE FUNCTION pg_temp.qualifier_case(case_name text,survivors integer,settle_now boolean DEFAULT true) RETURNS jsonb LANGUAGE plpgsql AS $case$
+CREATE FUNCTION pg_temp.qualifier_case(case_name text,survivors integer,settle_now boolean DEFAULT true, shared_target_case text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql AS $case$
 DECLARE
  club uuid:=md5('l04:'||case_name||':club')::uuid;
  source_id uuid:=md5('l04:'||case_name||':source')::uuid;
- target_id uuid:=md5('l04:'||case_name||':target')::uuid;
+ target_id uuid:=md5('l04:'||coalesce(shared_target_case,case_name)||':target')::uuid;
+ hand_no bigint:=1000000+survivors+CASE WHEN shared_target_case IS NULL THEN 0 ELSE 10 END;
  v_table_id uuid:=md5('l04:'||case_name||':table')::uuid;
  u uuid; session_id uuid; request_id uuid; i integer; q uuid[]; r jsonb; first_receipt jsonb;
  before_money jsonb; after_money jsonb; refused boolean; event_row public.tournaments%ROWTYPE;
 BEGIN
+ IF shared_target_case IS NOT NULL THEN
+  club:=md5('l04:'||shared_target_case||':club')::uuid;
+ END IF;
  IF survivors NOT IN (1,2) THEN RAISE EXCEPTION 'fixture survivor count'; END IF;
  -- Opening wallets/identities and authored future-format event are explicit
  -- fixtures, not production data and not a forged creator acceptance test.
  PERFORM set_config('session_replication_role','replica',true);
- INSERT INTO public.clubs(id,club_id,name) VALUES(club,CASE WHEN survivors=2 THEN 993001 ELSE 993002 END,'Native Qualifier '||case_name);
+ IF shared_target_case IS NULL THEN
+  INSERT INTO public.clubs(id,club_id,name) VALUES(club,CASE WHEN survivors=2 THEN 993001 ELSE 993002 END,'Native Qualifier '||case_name);
+ END IF;
  INSERT INTO public.tournaments(id,name,buy_in_amount,buy_in_fee,starting_chips,start_time,status,
    current_players,max_players,min_players,current_level,club_id,prize_pool,total_rake,bounty_pool,
    entry_contract_locked,is_rebuy,is_reentry,rebuy_levels,late_reg_levels,late_reg_mins,
@@ -74,7 +80,8 @@ BEGIN
  VALUES(target_id,'Native Qualifier Target '||case_name,45,5,1000,clock_timestamp()+interval '1 day','REGISTERING',
    0,NULL,3,0,club,0,0,0,false,false,false,0,0,0,'MTT','freezeout','mtt-v2',NULL,NULL,NULL),
   (source_id,'Native Qualifier Source '||case_name,26.25,0,1000,clock_timestamp()+interval '1 hour','REGISTERING',
-   0,NULL,3,0,club,0,0,0,false,false,false,0,0,0,'SATELLITE','satellite','mtt-v2',target_id,target_id,2);
+   0,NULL,3,0,club,0,0,0,false,false,false,0,0,0,'SATELLITE','satellite','mtt-v2',target_id,target_id,2)
+ ON CONFLICT (id) DO NOTHING;
  FOR i IN 1..4 LOOP
   u:=md5('l04:'||case_name||':user:'||i)::uuid;
   session_id:=md5('l04:'||case_name||':session:'||i)::uuid;
@@ -166,7 +173,7 @@ BEGIN
  -- A pending accepted hand must hold the cohort even if stack counts look final.
  PERFORM set_config('session_replication_role','replica',true);
  INSERT INTO public.hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result,committed_at)
- VALUES(v_table_id,1000000+survivors,md5('l04:'||case_name||':hand')::uuid,repeat('1',64),'{}',now());
+ VALUES(v_table_id,hand_no,md5('l04:'||case_name||':hand')::uuid,repeat('1',64),'{}',now());
  PERFORM set_config('session_replication_role','origin',true);
  EXECUTE 'SET LOCAL ROLE service_role';
  r:=public.fn_get_satellite_qualifier_state(source_id);
@@ -183,7 +190,7 @@ BEGIN
  INSERT INTO public.tournament_knockout_candidates(id,tournament_id,eliminated_user_id,
    table_id,seat_id,seat_joined_at,hand_id,hand_number,stack_before,stack_after,state)
  SELECT md5('l04:'||case_name||':candidate')::uuid,source_id,user_id,v_table_id,id,joined_at,
-   md5('l04:'||case_name||':hand')::uuid,1000000+survivors,1000,0,'pending'
+   md5('l04:'||case_name||':hand')::uuid,hand_no,1000,0,'pending'
  FROM public.table_seats WHERE id=md5('l04:'||case_name||':seat:4')::uuid;
  PERFORM set_config('session_replication_role','origin',true);
  EXECUTE 'SET LOCAL ROLE service_role';

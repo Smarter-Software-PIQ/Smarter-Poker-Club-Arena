@@ -8,6 +8,7 @@ import {
   assemblePublic215Cached,
   assertPublic215CacheBinding,
   validPublic215SourceNode,
+  public215CacheCensus,
 } from './buildPublicHist215Features.js';
 import {
   compilePublic215Template,
@@ -53,6 +54,32 @@ function compiled() {
   return compilePublic215Template(wire, public215Digest(wire));
 }
 describe('finite public215 batch source boundaries', () => {
+  it('takes its census from the cache header: R7 107x57 and R8 100x57, never a mixed count', () => {
+    const header = (contexts: number, planned: number, done = planned, boards = 57) => ({
+      contexts,
+      boards_per_context: boards,
+      planned_targets: planned,
+      completed_targets: done,
+    });
+    expect(public215CacheCensus(header(107, 6099))).toEqual({
+      contexts: 107,
+      boardsPerContext: 57,
+      targets: 6099,
+    });
+    expect(public215CacheCensus(header(100, 5700))).toEqual({
+      contexts: 100,
+      boardsPerContext: 57,
+      targets: 5700,
+    });
+    for (const bad of [
+      header(100, 6099),
+      header(100, 5700, 5699),
+      header(100, 5600, 5600, 56),
+      header(0, 0),
+      header(1.5, 85.5),
+    ])
+      expect(() => public215CacheCensus(bad)).toThrow('PUBLIC215_BATCH_PUBLIC_CACHE_CENSUS');
+  });
   it('parses exact decimal 1e12 units without binary64 multiplication', () => {
     const values = Array(1326).fill('0');
     values[0] = '1e-12';

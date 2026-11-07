@@ -20,6 +20,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /**
  * The innermost `{ ... }` block containing `needle` — the same structural
@@ -56,7 +57,7 @@ const sliceEnclosingBlock = (src: string, needle: string): string => {
 };
 
 const svc = readFileSync(
-  new URL('./ScheduledTournamentService.ts', import.meta.url).pathname,
+  fileURLToPath(new URL('./ScheduledTournamentService.ts', import.meta.url)),
   'utf8'
 );
 
@@ -90,7 +91,7 @@ describe('the pop-up wiring - a guarantee refusal must notify the owners', () =>
 describe('the funder log names the bank that actually paid', () => {
   it('TournamentManagerBase reads bank_type from the RPC instead of asserting "club treasury"', () => {
     const base = readFileSync(
-      new URL('../tournament/TournamentManagerBase.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('../tournament/TournamentManagerBase.ts', import.meta.url)),
       'utf8'
     );
     expect(base).toContain("res.bank_type === 'union'");
@@ -108,10 +109,12 @@ describe('the migration is in the repo, not only in the database', () => {
    */
   it('the union-bank migration contains the actual function bodies', () => {
     const mig = readFileSync(
-      new URL(
-        '../../../supabase/migrations/20260829160000_overlays_fund_from_the_union_bank_for_real.sql',
-        import.meta.url
-      ).pathname,
+      fileURLToPath(
+        new URL(
+          '../../../supabase/migrations/20260829160000_overlays_fund_from_the_union_bank_for_real.sql',
+          import.meta.url
+        )
+      ),
       'utf8'
     );
     expect(mig).toContain('create or replace function public.fn_apply_prize_guarantee');
@@ -155,7 +158,7 @@ describe('the publish-readiness refusal is a guarantee refusal too', () => {
 
   it('no refusal site keys on the bare "cannot guarantee" regex any more', () => {
     const recurring = readFileSync(
-      new URL('./TournamentRecurringService.ts', import.meta.url).pathname,
+      fileURLToPath(new URL('./TournamentRecurringService.ts', import.meta.url)),
       'utf8'
     );
     for (const src of [svc, recurring]) {
@@ -168,10 +171,12 @@ describe('the publish-readiness refusal is a guarantee refusal too', () => {
 describe('the pop-up counts the promises the publish guard counts', () => {
   it('fn_notify_guarantee_bank_short sums guaranteed satellite seats, scoped by the event union', () => {
     const mig = readFileSync(
-      new URL(
-        '../../../supabase/migrations/20261002034240_a_guarantee_bank_pop_up_counts_the_satellite_seats_the_publi.sql',
-        import.meta.url
-      ).pathname,
+      fileURLToPath(
+        new URL(
+          '../../../supabase/migrations/20261002034240_a_guarantee_bank_pop_up_counts_the_satellite_seats_the_publi.sql',
+          import.meta.url
+        )
+      ),
       'utf8'
     );
     const body = mig.slice(

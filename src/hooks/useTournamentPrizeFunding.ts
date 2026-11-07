@@ -4,14 +4,11 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * fn_ca_tournament_prize_funding is the authority on what a guaranteed event
- * has collected and what the house still owes if the field closes now. This
- * hook was RewardsTab's private fetch (2026-11-06) and is now shared, because
- * on 2026-11-07 the same event read four ways: Rewards printed "Guaranteed
- * 1,856" under first place while the lobby panel's Projected column, the
- * table-side Prizes tab and the arena tournaments page priced the same place
- * on the places-only pool (1,196) and said nothing about the guarantee at
- * all. One fetch, one shape, one invalidation rule, so the four surfaces
- * cannot disagree on the same row again.
+ * has collected and what the house still owes if the field closes now. It
+ * feeds the live overlay beside the guarantee on Rewards. It never feeds a
+ * place prize: NO PROJECTED PAYOUTS (Dan, 2026-11-07, verbatim: "NEVER EVER
+ * USE 'PROJECTED PAYOUTS' ANYWHERE AND EVER. YOU ONLY USE ACTUAL REAL TIME
+ * TOTALS!"). Every place is priced on the actual prize pool only.
  *
  * Behaviour, kept exactly as RewardsTab had it:
  *   - nothing is fetched unless the event carries a guarantee;

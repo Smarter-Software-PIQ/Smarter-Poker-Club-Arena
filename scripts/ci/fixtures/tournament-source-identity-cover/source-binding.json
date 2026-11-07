@@ -10,7 +10,7 @@
   "sourceFiles": {
     "docs/changelog/2026-10-29-tournament-source-identity-cover.md": "563c6c15b9e27de6cdf443ba9175e8f1831279f3b5110799f67a0deefc6fcf25",
     "docs/laws.d/tournament-source-identities-keep-narrow-physical-coverage.md": "35e2fed8e6d6de6270568bc1fbe040c285f104400d960fa5ac82d6ccd56b60ae",
-    "scripts/ci/apply-recorded-migration.mjs": "0dd358e7bffd316e32a55c691125b6a21f08d9fb076c86624f4c3fec425e7c81",
+    "scripts/ci/apply-recorded-migration.mjs": "8ffe6a2fbd68bb9cafc05f79ac1b15787d5be106522a352ae5178ba0ad9775db",
     "scripts/ci/fixtures/tournament-source-identity-cover/README.md": "69a44db7363317740ec41fa7bd477d8b5930e4794aa67ecf1a26fa18170825db",
     "scripts/ci/fixtures/tournament-source-identity-cover/actual-table-authority.json": "49ec49708441d27f3d37467659953464890439b0d508d04f5280ae35ab1dc648",
     "scripts/ci/fixtures/tournament-source-identity-cover/meaningful-table-contract.json": "62c3fe9a746c851433e3b5c70089448f634e9433326250a21ef569eb6e511f86",
@@ -108,5 +108,12 @@
     "before": "9f8decd52f72c8894baf565f3aa150397cc10bca2489f3b1b0812d2f91caf307",
     "after": "0dd358e7bffd316e32a55c691125b6a21f08d9fb076c86624f4c3fec425e7c81",
     "review": "Ordinary post-preamble transaction now uses the existing12second PostgreSQL17 bound; incompatible explicit overrides refused before send. Concurrent index preamble and exact qualified special routes unchanged. Historical qualification inputs/results retained without financial restamp. Actual TLS installer final native fixture passes rollback/waiting-writer, atomic history, unknown ACK and all special-route controls. This source audit does not certify production index-build capacity. Budget also bound by SET LOCAL on the owning backend, preserving transaction-pooler affinity."
+  },
+  "installBudgetCostRule20261107": {
+    "path": "scripts/ci/apply-recorded-migration.mjs",
+    "before": "0dd358e7bffd316e32a55c691125b6a21f08d9fb076c86624f4c3fec425e7c81",
+    "after": "8ffe6a2fbd68bb9cafc05f79ac1b15787d5be106522a352ae5178ba0ad9775db",
+    "review": "Eight added lines only: one import of scripts/ci/migration-cost-shape.mjs and, directly after the unchanged transaction-shape refusal, a refusal (via the existing refused()) of a migration from 20261107200000 on that reads chip_ledger by an idempotency_key LIKE prefix in its code or @live-proof lines. Nothing removed or reordered; it runs before any connection, so it can only refuse earlier and send nothing. Every file merged before 20261107200000 takes exactly the old path. Same rule as the merge check tests/unit/aMigrationFitsTheInstallBudget.test.ts. No financial, native-fixture or production qualification is restamped or claimed.",
+    "reason": "2026-11-07: 20261107133350 (#9860) died at 12.2 s on such a scan (41,340 ms for two rows) inside the 12 s install budget with nothing committed."
   }
 }
