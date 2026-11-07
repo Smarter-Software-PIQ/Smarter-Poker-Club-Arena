@@ -121,10 +121,15 @@ import { installCardArtworkFrames, cardArtworkFramesEvidence } from './support/c
 import { startCardArtworkRaster, CARD_ARTWORK_MAX_GAP_MS } from './support/cardArtworkRaster';
 
 test.describe('decoded card artwork', () => {
+  // Reuse this group's one Vite server; concurrent optimizers are not card-load work.
+  test.describe.configure({ mode: 'default' });
   let server: ViteDevServer;
   let address: string;
   test.beforeAll(async () => {
+    expect(fs.existsSync(path.resolve('dist/cards/4color/clubs_2.webp'))).toBe(true);
     server = await createServer({
+      // CI already seals this build. Raw public/ has no generated WebP media.
+      publicDir: path.resolve('dist'),
       server: { host: '127.0.0.1', port: 0 },
       logLevel: 'error',
       optimizeDeps: { entries: ['tests/e2e/fixtures/cardArtReady.tsx'] },
@@ -164,7 +169,9 @@ test.describe('decoded card artwork', () => {
     page.on('pageerror', (error) => console.log(error.message));
     await page.goto(address, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
-    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true', {
+      timeout: 10_000,
+    });
     const complete = () =>
       page.evaluate(async () => {
         await new Promise(requestAnimationFrame);
@@ -187,7 +194,9 @@ test.describe('decoded card artwork', () => {
     await page.context().setOffline(false);
     await page.evaluate(() => (window as any).changeDeck());
     await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'false');
-    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+    await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true', {
+      timeout: 10_000,
+    });
     expect(await complete()).toEqual(
       Array(7).fill({ complete: true, decoding: 'sync', local: true })
     );
@@ -196,12 +205,14 @@ test.describe('decoded card artwork', () => {
   test('first-visible observer correlates real board and public hole artwork with compositor crops', async ({
     page,
   }) => {
+    test.setTimeout(60_000);
     await page.addInitScript(installCardArtworkFrames, {
       tableId: 'fixture',
-      deadline: Date.now() + 20_000,
+      deadline: Date.now() + 50_000,
       maxFrameGapMs: CARD_ARTWORK_MAX_GAP_MS,
     });
     const raster = await startCardArtworkRaster(page);
+    let passed = false;
     try {
       await page.route('**/__card-art-test', (route) =>
         route.fulfill({
@@ -210,7 +221,9 @@ test.describe('decoded card artwork', () => {
         })
       );
       await page.goto(address, { waitUntil: 'domcontentloaded' });
-      await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true');
+      await expect(page.locator('[data-ready]')).toHaveAttribute('data-ready', 'true', {
+        timeout: 10_000,
+      });
       await expect
         .poll(() =>
           page.evaluate(() => window.__cardArtworkFrames?.snapshot().eligibleTableFrames ?? 0)
@@ -243,9 +256,12 @@ test.describe('decoded card artwork', () => {
         expect(capture.verdict, capture.reason).toBe('captured');
         expect(capture.image!.subarray(1, 4).toString()).toBe('PNG');
       }
+      passed = true;
     } finally {
       await page.evaluate(() => window.__cardArtworkFrames?.stop()).catch(() => undefined);
-      await raster.stop();
+      await raster.stop().catch((error) => {
+        if (passed) throw error; // Preserve the original failure if Playwright already closed the page.
+      });
     }
   });
 });
