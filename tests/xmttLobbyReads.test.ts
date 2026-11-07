@@ -130,6 +130,26 @@ describe('bounded authoritative XMTT lobby reads', () => {
     state.rows[50] = state.rows[0];
     await expect(readXmttLobby('club', 'all', 100, signal())).rejects.toThrow('List Changed');
   });
+  it('selects every prize-funding column its row type declares (2026-11-07)', async () => {
+    // XmttTournament declared guaranteed_prize, bounty_pool, total_rake and
+    // prize_pool_finalized but the read selected only prize_pool, so a list
+    // card could neither add the bounty pool to the total nor price an
+    // overlay: every declared field was silently undefined.
+    await readXmttLobby('club', 'all', 50, signal());
+    const page = state.calls.find((c) => c.methods.range);
+    const selected = String(page.methods.select[0][0])
+      .split(',')
+      .map((c) => c.trim().split(':').pop());
+    for (const column of [
+      'prize_pool',
+      'guaranteed_prize',
+      'bounty_pool',
+      'total_rake',
+      'prize_pool_finalized',
+    ]) {
+      expect(selected, `readXmttLobby must select ${column}`).toContain(column);
+    }
+  });
   it('does not start queries after scope cancellation', async () => {
     const controller = new AbortController();
     controller.abort();

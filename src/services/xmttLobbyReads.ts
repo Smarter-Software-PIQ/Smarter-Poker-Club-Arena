@@ -40,7 +40,7 @@ export async function readXmttLobby(
     let q = supabase
       .from('tournaments')
       .select(
-        'format_contract, id, name, status, type:tournament_type, buy_in:buy_in_amount, buy_in_fee, max_players, registered_count:current_players, start_time, created_at, prize_pool, club_id, is_bounty, bounty_amount, is_pko, is_mystery_bounty',
+        'format_contract, id, name, status, type:tournament_type, buy_in:buy_in_amount, buy_in_fee, max_players, registered_count:current_players, start_time, created_at, prize_pool, guaranteed_prize, bounty_pool, total_rake, prize_pool_finalized, club_id, is_bounty, bounty_amount, is_pko, is_mystery_bounty',
         { count: 'exact', head }
       )
       .or(scope)

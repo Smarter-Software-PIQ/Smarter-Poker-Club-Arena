@@ -75,6 +75,7 @@ import {
 } from '../../services/TickerManagementService';
 import { isUUID, resolveClubUUID } from '../../utils/clubIdResolver';
 import { rankOverlayAnnouncements, type OverlayCandidate } from '../../utils/overlayAnnouncements';
+import { displayTotalPool } from '../../utils/tournamentPrizeFunding';
 /* The value comes from the small extracted module and the row shape is a
    type-only import, so this root-mounted ticker does not pull the whole
    lobby view-model into the entry bundle every player downloads. */
@@ -562,7 +563,7 @@ function TickerHost() {
               ? supabase
                   .from('tournaments')
                   .select(
-                    'format_contract,id,name,status,start_time,started_at,ended_at,updated_at,guaranteed_prize,prize_pool,current_players,late_reg_levels,late_reg_mins,rebuy_levels,prize_pool_finalized,current_level,blind_structure,level_started_at,max_players'
+                    'format_contract,id,name,status,start_time,started_at,ended_at,updated_at,guaranteed_prize,prize_pool,bounty_pool,current_players,late_reg_levels,late_reg_mins,rebuy_levels,prize_pool_finalized,current_level,blind_structure,level_started_at,max_players'
                   )
                   .in('club_id', clubIds)
                   // Completed results only render for ten minutes. Exclude older
@@ -704,7 +705,17 @@ function TickerHost() {
                 Number.isFinite(ended) &&
                 ended > current - 10 * 60_000
               ) {
-                next.push(winnerResultsItem(id, name, Number(row.prize_pool) || 0, ended));
+                // The results line is the TOTAL prize pool: places plus bounties.
+                // `prize_pool` alone is the places pool net of bounty and rake,
+                // so a bounty event used to announce only part of what it paid.
+                next.push(
+                  winnerResultsItem(
+                    id,
+                    name,
+                    displayTotalPool(row.prize_pool, null, row.bounty_pool),
+                    ended
+                  )
+                );
               }
             }
 

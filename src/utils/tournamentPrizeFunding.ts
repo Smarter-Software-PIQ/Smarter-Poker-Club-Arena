@@ -105,3 +105,31 @@ export function payoutSharePercent(
   const total = structure.reduce((sum, row) => sum + bp(row.percentage), 0);
   return total > 0 ? Number(((bp(weight) * 100) / total).toFixed(2)) : 0;
 }
+
+/** The funding columns the pending house share is read from. */
+export interface PendingHouseFunding {
+  overlay: number;
+  houseRequired: number | null;
+  housePosted: number | null;
+  houseDue: number | null;
+}
+
+/**
+ * WHAT THE HOUSE STILL ADDS AT CLOSE (2026-11-07), one rule for every
+ * projected ladder. `house_due` is the database's own answer; when a row
+ * predates it, it is the whole obligation (house_required, or the overlay
+ * when that is missing too) less what the house has already posted. A Free
+ * Buy's promo chips are already in prize_pool (house_posted), so adding the
+ * whole share again would price a 250 guarantee at 405. Paid events post
+ * nothing before close, so for them this equals the overlay. `null` funding
+ * (unread, failed, or keyed to an older pool) is zero: no floor is shown
+ * rather than a guessed one.
+ */
+export function pendingHouseShare(funding: PendingHouseFunding | null | undefined): number {
+  if (!funding) return 0;
+  if (funding.houseDue !== null && funding.houseDue !== undefined) {
+    return Math.max(0, funding.houseDue);
+  }
+  const required = funding.houseRequired ?? funding.overlay;
+  return Math.max(0, amount(required) - amount(funding.housePosted));
+}

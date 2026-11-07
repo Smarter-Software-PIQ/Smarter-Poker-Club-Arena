@@ -27,7 +27,10 @@ name: Backup Engine (Clone, Stage, Certify)
 # stays uncertified, exactly as if its turn had never come). Only push runs
 # are skipped: a manual, nightly or post-seal clone refresh is never skipped,
 # and when GitHub cannot be read the run proceeds as before (CLAUDE.md
-# 10.86: an unreadable answer is not a "yes").
+# 10.86: an unreadable answer is not a "yes"). The push run that does start
+# certifies main's newest server commit (the release lane's offered tree)
+# when that descends from its own push, and plans nothing when that commit
+# already carries a success certificate, so no commit is certified twice.
 on:
   workflow_run:
     workflows: ['Auto-Deploy Hetzner Engine (on server/ changes)']
@@ -119,6 +122,39 @@ jobs:
               exit 0
             fi
             [[ "$newer" =~ ^[0-9]+$ ]] || echo "could not read this workflow's newer push runs ($newer); proceeding as the newest push"
+            # THE NEWEST PUSH RUN CERTIFIES WHAT CAN STILL SHIP (2026-11-07).
+            # The release lane offers the newest main commit touching server/**
+            # (stage-engine-release.yml TARGET_SHA, which always contains the
+            # newest engine-runtime commit LATEST_REQUIRED) and admits the newest
+            # certified commit at or behind it. When main already holds a newer
+            # server commit than this push (its push run never came, or the
+            # push head was not the server commit), certify that commit instead.
+            # Only a strictly newer descendant replaces this push; anything
+            # unreadable keeps the pushed commit, as before.
+            repo="repos/${GITHUB_REPOSITORY:-}"
+            head=$(gh api "$repo/commits?sha=main&path=server&per_page=1" --jq '.[0].sha // ""' 2>/dev/null || echo unreadable)
+            if [[ "$head" =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$sha" ]; then
+              rel=$(gh api "$repo/compare/$sha...$head" --jq '.status' 2>/dev/null || echo unreadable)
+              if [ "$rel" = ahead ]; then
+                echo "RETARGETED: pushed $sha is superseded by $head, the newest server commit on main; certifying $head instead."
+                { echo "### Backup Engine"; echo ""; echo "- RETARGETED \`$sha\` -> \`$head\` (newest server commit on main)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+                sha="$head"
+              else
+                echo "main's newest server commit $head is not a descendant of $sha ($rel); certifying $sha as pushed"
+              fi
+            fi
+            # Never certify twice: runs are serialized, so an earlier run for
+            # this target has already finished. A success certificate stands;
+            # a failure or a stale pending is certified again.
+            state=$(gh api "$repo/commits/$sha/statuses?per_page=100" \
+              --jq '[.[] | select(.context == "backup-engine/certified")][0].state // "missing"' 2>/dev/null || echo unreadable)
+            if [ "$state" = success ]; then
+              echo "ALREADY CERTIFIED: $sha already carries backup-engine/certified = success. Nothing planned, no status written."
+              { echo "### Backup Engine"; echo ""; echo "- ALREADY CERTIFIED \`$sha\`: nothing built."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "refresh=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
           # The refresh job decides from the standby's restore stamp whether a
           # refresh is due: forced, a new Chicago date, or a migration newer

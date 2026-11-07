@@ -160,8 +160,10 @@ describe('the satellite mapper reads real columns', () => {
 
   it('reads guaranteed_prize -- `guarantee` is not a column, so this was always 0', () => {
     // The single highest-impact line of the audit: EVERY satellite card ever
-    // rendered showed a prize pool of zero.
-    expect(mapSatelliteRowToCard(row).prizePool).toBe(5000);
+    // rendered showed a prize pool of zero. The guarantee travels as the GTD
+    // tag; the pool itself is what the field paid (2026-11-07 ruling).
+    expect(mapSatelliteRowToCard(row).guaranteedPrize).toBe(5000);
+    expect(mapSatelliteRowToCard(row).prizePool).toBe(1200);
   });
 
   it('sums the two halves of the price -- `buy_in` is not a column either', () => {
@@ -183,8 +185,9 @@ describe('the satellite mapper reads real columns', () => {
     }
   });
 
-  it('falls back to the collected pool when there is no guarantee', () => {
+  it('shows the collected pool when there is no guarantee', () => {
     expect(mapSatelliteRowToCard({ ...row, guaranteed_prize: 0 }).prizePool).toBe(1200);
+    expect(mapSatelliteRowToCard({ ...row, guaranteed_prize: 0 }).guaranteedPrize).toBeUndefined();
   });
 
   it('derives the level length from the structure -- `blind_duration` is not a column', () => {

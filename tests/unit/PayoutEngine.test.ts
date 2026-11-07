@@ -7,7 +7,6 @@
  * - calculateAmounts: prize pool × percentage → chip amounts
  * - normalizePayouts: percentages sum to exactly 100%
  * - calculateICM: Malmuth-Harville chip equity model
- * - getOverlayStatus: guaranteed vs entries overlay detection
  * - generatePayouts: template-based payout generation
  * - autoSelectPayouts: player count → best template selection
  * - getTemplateOptions: all available template metadata
@@ -205,33 +204,15 @@ describe('PayoutEngine', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // GET OVERLAY STATUS
+  // OVERLAY: ONE RULE, AND IT IS NOT HERE
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('getOverlayStatus', () => {
-    it('should detect overlay when guarantee exceeds entries', () => {
-      const result = payoutEngine.getOverlayStatus(10000, 8, 1000);
-      expect(result.hasOverlay).toBe(true);
-      expect(result.overlayAmount).toBe(2000);
-      expect(result.entriesPrize).toBe(8000);
-    });
-
-    it('should report no overlay when entries exceed guarantee', () => {
-      const result = payoutEngine.getOverlayStatus(5000, 10, 1000);
-      expect(result.hasOverlay).toBe(false);
-      expect(result.overlayAmount).toBe(0);
-    });
-
-    it('should report no overlay when exactly matched', () => {
-      const result = payoutEngine.getOverlayStatus(10000, 10, 1000);
-      expect(result.hasOverlay).toBe(false);
-      expect(result.overlayAmount).toBe(0);
-    });
-
-    it('should handle 100% overlay (zero entries)', () => {
-      const result = payoutEngine.getOverlayStatus(5000, 0, 100);
-      expect(result.hasOverlay).toBe(true);
-      expect(result.overlayPercentage).toBe(100);
+  describe('overlay', () => {
+    it('no longer offers getOverlayStatus; the overlay rule is guaranteeShortfall', () => {
+      // Deleted 2026-11-07. It priced the overlay as guarantee - players *
+      // buyIn, which ignores bounties and rake. The one rule is
+      // max(0, guarantee - (prize_pool + bounty_pool + total_rake)).
+      expect((payoutEngine as unknown as Record<string, unknown>).getOverlayStatus).toBeUndefined();
     });
   });
 

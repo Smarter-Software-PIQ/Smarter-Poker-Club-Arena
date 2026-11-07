@@ -81,6 +81,8 @@ export const SATELLITE_COLUMNS = [
   'buy_in_fee',
   'guaranteed_prize',
   'prize_pool',
+  'bounty_pool',
+  'total_rake',
   'max_players',
   'min_players',
   'table_size',
@@ -166,10 +168,17 @@ export function mapSatelliteRowToCard(sat: Record<string, unknown>) {
        every satellite card advertise a buy-in of ZERO alongside its prize pool
        of zero. `totalBuyIn` is the one place that adds the two halves. */
     buyIn: totalBuyIn(num(sat.buy_in_amount), num(sat.buy_in_fee), sat),
-    /* The advertised guarantee where there is one, otherwise the pool actually
-       collected. The old mapper read a column that does not exist and so always
-       showed zero. */
-    prizePool: num(sat.guaranteed_prize) || num(sat.prize_pool),
+    /* THE POOL IS WHAT THE FIELD PAID, NEVER THE GUARANTEE (2026-11-07).
+       Until today a guaranteed satellite printed its guarantee AS the pool
+       (`guaranteed_prize || prize_pool`), so a 2.5K GTD event that had
+       collected 1,656 read "2,500" and could never show an overlay. The card
+       adds places + bounties through displayTotalPool and prints the house
+       share still owed beside it through guaranteeShortfall; the guarantee
+       only travels as the "GTD" tag. The old mapper read a `guarantee`
+       column that does not exist and so always showed zero. */
+    prizePool: num(sat.prize_pool),
+    bountyPool: num(sat.bounty_pool),
+    totalRake: num(sat.total_rake),
     guaranteedPrize: num(sat.guaranteed_prize) || undefined,
     blindStructure: structureFacts.speedLabel ?? 'Unconfirmed',
     blindDuration: structureFacts.openingMinutes ?? undefined,
