@@ -9,9 +9,10 @@
  * 20261024231549_lightning_voided_hand_returns_its_blind_stamps.sql and the
  * file sat uninstalled until an agent dispatched it by hand at 02:30 UTC.
  *
- * agent-autopilot.yml now reacts to its own merge (the native
- * pull_request_target `closed` event, merged by the autopilot App) and sends
- * one repository dispatch per migration file the PR added. This module is the
+ * .github/workflows/dispatch-merged-migrations.yml reacts to every merge into
+ * the default branch (the native pull_request_target `closed` event of a
+ * same-repository PR, whoever merged it - 2026-11-07) and sends one
+ * repository dispatch per migration file the PR added. This module is the
  * pure half: which files, which are skipped and why, and the earliest instant
  * at which the applier will admit them, so the merger waits once, bounded,
  * instead of dispatching into a refusal that leaves the file uninstalled.

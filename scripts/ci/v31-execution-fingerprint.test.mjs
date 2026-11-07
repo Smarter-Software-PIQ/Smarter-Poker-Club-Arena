@@ -12,7 +12,7 @@ import { BOUNDARY, EXECUTION_ENTRIES, EXECUTION_EXTRAS, executionClosure, execut
 function repo() {
   const dir = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'v31-execution-'));
   const git = (...args) => {
-    const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't',
+    const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))), GIT_AUTHOR_NAME: 't',
       GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
     assert.equal(r.status, 0, r.stderr);
     return r.stdout.trim();

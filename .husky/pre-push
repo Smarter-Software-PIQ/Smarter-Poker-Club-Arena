@@ -11,6 +11,17 @@
 
 set -e
 
+# ── NO CHILD INHERITS THIS PUSH'S GIT DIRECTORY (2026-11-07) ───────────────
+# git exports GIT_DIR to its hooks; in a linked worktree it is
+# <clone>/.git/worktrees/<name>. Test fixtures below run `git -C <tmp> init`,
+# and with GIT_DIR inherited that re-initialised THIS repository instead,
+# guessed "bare" from the worktree git dir's name and wrote core.bare=true into
+# the shared clone's config - twice on 2026-11-07, breaking every worktree.
+# The hook runs at the top of the working tree, so its own git commands find
+# the repository without these.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+bash "$(git rev-parse --show-toplevel)/scripts/guard-bare-flip.sh"
+
 # ── One working tree per agent (rule 1a) ────────────────────────────────────
 # Runs FIRST, for the same reason it runs first on pre-commit: if this push
 # should not be coming from this tree at all, none of the content checks below
@@ -202,6 +213,23 @@ if [ "$(uname -s)" = Darwin ]; then
       if [ -n "$(find "$ca_old" -maxdepth 0 -mtime +1 2>/dev/null)" ]; then rm -rf -- "$ca_old"; fi
     done
   }
+  # A WRITABLE TMPDIR, NOT JUST AN EXTERNAL ONE (2026-11-07). A caller's
+  # TMPDIR on /Volumes used to be kept on its path alone. Agents inherit one
+  # under /Volumes/SmarterWork/agent-work/..., and while SmarterWork is the
+  # read-only root stub (the drive under "SmarterWork 1") that path cannot be
+  # created or written: vitest's first mkdtemp died with EACCES and the push
+  # was refused for the environment, not the content. Keep a caller's TMPDIR
+  # only when this run can make a directory in it; otherwise say so and take
+  # this run's own scratch below, exactly as for a boot-disk TMPDIR.
+  ca_dir_writable() {
+    [ -d "$1" ] && [ -w "$1" ] || return 1
+    ca_probe=$(mktemp -d "$1/.ca-probe.XXXXXX" 2>/dev/null) || return 1
+    rmdir "$ca_probe" 2>/dev/null || true
+  }
+  if [ "${TMPDIR#/Volumes/}" != "${TMPDIR:-}" ] && ! ca_dir_writable "$TMPDIR"; then
+    echo "[club-arena pre-push] note: TMPDIR $TMPDIR cannot be written; this run uses its own external scratch instead." >&2
+    TMPDIR=""
+  fi
   case "${TMPDIR:-}" in
     /Volumes/*) ;;
     *)
