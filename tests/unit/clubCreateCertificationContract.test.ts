@@ -1,4 +1,5 @@
 import { timeoutBudgetMinutes } from '../productionJobBudget';
+import { sliceCall } from '../helpers/sourceWindow';
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -487,11 +488,18 @@ describe('a Create Club fixture another run left behind is retired by the next r
     expect(account).toContain('export const STALE_RESIDUE_SWEEP_HINT =');
     expect(account).toContain('sweep-stale-residue');
     expect(account).toContain('issue #9830');
-    const failure = account.indexOf(
-      'Stale recovery left ${failures.length} of ${seen} stale account(s) unrecovered'
+    // The hint is part of the AggregateError's message: bound the window by
+    // that constructor call, not by a byte count.
+    const message =
+      'Stale recovery left ${failures.length} of ${seen} stale account(s) unrecovered';
+    const at = account.indexOf(message);
+    expect(at).toBeGreaterThan(-1);
+    const aggregate = sliceCall(
+      account.slice(account.lastIndexOf('throw new AggregateError(', at)),
+      'throw new AggregateError('
     );
-    expect(failure).toBeGreaterThan(-1);
-    expect(account.slice(failure, failure + 600)).toContain('STALE_RESIDUE_SWEEP_HINT');
+    expect(aggregate).toContain(message);
+    expect(aggregate).toContain('STALE_RESIDUE_SWEEP_HINT');
   });
 
   it('a rabbit-hunt club is recognized by name and never offered to a welcome door (2026-11-07)', () => {
