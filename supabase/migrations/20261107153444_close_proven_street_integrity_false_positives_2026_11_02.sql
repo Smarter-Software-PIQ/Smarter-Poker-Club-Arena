@@ -54,6 +54,8 @@
 -- is written. The UPDATE count is asserted afterwards.
 -- @live-proof: (SELECT count(*) FROM public.financial_alerts WHERE source='ServerTableEngine.street_integrity_violation' AND NOT resolved) = 0
 
+BEGIN;
+
 DO $c$
 DECLARE v_ids uuid[]; v_n int;
 BEGIN
@@ -78,3 +80,5 @@ BEGIN
   GET DIAGNOSTICS v_n = ROW_COUNT;
   IF v_n <> 60 THEN RAISE EXCEPTION 'expected 60 closed, got %', v_n; END IF;
 END $c$;
+
+COMMIT;
