@@ -124,3 +124,17 @@ A protected-main engine push starts `engine-release-prequalification.yml`. Its f
 Use `python3 -B scripts/ci/read-engine-prequalification.py --repo Smarter-Software-PIQ/Smarter-Poker-Club-Arena --target TARGET_SHA --control CONTROL_SHA --cutoff EPOCH` from a checkout with authenticated protected-main history and read-only Actions access. A successful result identifies the production candidate and rollback image IDs, server tree, target and control SHAs, and qualification run and attempt. Exit 3 means the candidate lacks eligible evidence. Exit 2 means the verifier could not establish provenance.
 
 The receiver verifies the selected control against its actual protected control and requires the latest successful qualification to have finished by 03:30 Chicago. Missing shards, a superseding attempt, changed release inputs or a mismatch between the prepared and installed image identities prevents handoff. The exact Backup certificate and fresh production database-door checks remain mandatory. A failed preparation leaves the current engine serving and the candidate waits for a future eligible window.
+
+### Read the frozen daily selection
+
+The first eligible Stage run owns the Chicago date. Its read-only selection job freezes the protected first-parent control at 03:30 and evaluates candidate evidence available by that cutoff. It publishes the artifact `daily-engine-selection-YYYY-MM-DD` containing `daily-selection.json` before the dispatch job sends the exact target. A later merge or repeat attempt cannot change that selection.
+
+Download the artifact from the owning Stage run and inspect intended changes from a protected checkout with read-only GitHub access.
+
+```sh
+gh run download "$STAGE_RUN_ID" -n "daily-engine-selection-$CHICAGO_DATE" -D "$EVIDENCE_DIR"
+python3 -B scripts/ci/select-daily-engine.py --repo Smarter-Software-PIQ/Smarter-Poker-Club-Arena \
+  --selection "$EVIDENCE_DIR/daily-selection.json" --pr "$PR_NUMBER" --migration "$SQL_PATH"
+```
+
+A `selected` receipt identifies the serving, candidate, Stage and frozen control SHAs, Backup artifact and seeded restore, effective policy and image qualification. The intent report gives the PR head and exact merge SHA, or intended and selected SQL blobs. An included SQL file still needs its installation receipt. For `keep-serving`, inspect the missing or deferred evidence. For `blocked`, inspect the provenance error and restore that read before the next eligible selection. Both outcomes leave the current release serving.
