@@ -2564,6 +2564,11 @@ export interface HorseDecideOpts {
    *  turn dominated flushes and paired-board straights. Default on;
    *  explicit false keeps today. */
   v81OmahaBigBetCalls?: boolean;
+  /** V15 river raise gate without the near-lock escape (2026-11-07): a
+   *  non-nut Omaha flush or straight facing a river wager calls, whatever
+   *  the equity estimate says (hand 3374459). Default on; explicit false
+   *  restores the near-lock escape on the river. */
+  v15RiverNoNearLock?: boolean;
   /** V83 (2026-11-06): a postflop aggression factor above 2.5 reads as a
    *  maniac (callDownMod 1.2, which also switches off every one-pair fold
    *  and shade layer) only when the bettor's big river bets have NOT shown
@@ -11981,12 +11986,26 @@ export class HorseLogic {
       // guarded the river. A dominated flush or straight now never raises on
       // any street unless the penalized equity still reads as a near-lock —
       // it check-calls, which is the small-ball line these variants demand.
+      //
+      // 2026-11-07, the river has no near-lock. Hand 3374459 (plo4, K-high
+      // flush on Ts3c7hJs2s with the As live) raised a pot-sized river bet
+      // and stacked off for -456bb. The equity read there is the Monte Carlo
+      // against the bettor's estimated range, 0.91-1.00 across 60 seeds,
+      // minus a 0.05 domination premium, so `eq15 - dominationPenalty` sat
+      // above 0.85 on every seed and the gate never fired; the hand raised
+      // 43 of 60 times through the value-raise branch below. On the river
+      // there is nothing left to draw and the only hands that pay a raise
+      // are the ones the dominated flush or straight loses to, so a
+      // non-nut flush or straight facing a river wager calls, whatever the
+      // equity estimate says. Flop and turn keep the near-lock reading,
+      // because there a dominated made hand can still improve.
+      // Pinned by HorseV15RiverRaiseGate.test.ts.
       if (
         useV15 &&
         vi.isOmaha &&
         (cat === 5 || cat === 6) &&
         !nutClass15 &&
-        eq15 - dominationPenalty < 0.85
+        ((isRiver && opts.v15RiverNoNearLock !== false) || eq15 - dominationPenalty < 0.85)
       ) {
         if (tele15) noteFire('v15_raise_gate');
         return { action: 'call', amount: toCall, thinkTime: 0 };

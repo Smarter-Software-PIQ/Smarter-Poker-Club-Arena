@@ -874,6 +874,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V81'
   ),
   flag(
+    'v15RiverNoNearLock',
+    "2026-11-07 (completed 2026-11-06 audit, hand 3374459) the V15 raise gate's near-lock escape (eq15 - dominationPenalty >= 0.85) no longer applies on the river: a non-nut Omaha flush or straight facing a river wager calls instead of raising, because the equity read there is the Monte Carlo against the bettor's estimated range (0.91-1.00 for the K-high flush with the As live, 60 of 60 seeds) and on the river nothing is left to draw; the K-high flush raised 43 of 60 seeds before; flop and turn keep the near-lock reading; the nut flush and nut straight are outside the gate; receipt v15_raise_gate; explicit off arm restores the river near-lock escape",
+    'V15'
+  ),
+  flag(
     'v83AggressionNeedsBluffs',
     "2026-11-06 (R7 certification diagnosis) the legacy exploit read's postflop aggression factor above 2.5 sets callDownMod 1.2 (call lighter; every one-pair fold and shade layer gated on callDownMod <= 1 switches off) only when the bettor's big river bets have not shown down mostly as value: 20+ big-bet showdowns (>= 20bb, called) with 75%+ shown strong keep neutral respect (HorseMind.aggressionShownAsValue, receipt v83_aggression_shown_as_value); horse-vs-horse play sits at AF ~2.43 with ~85% of big bets strong, so the ratio-only line flipped on small shifts in how often a player is checked to (R7 league/cash 10x: -5.54 +/- 0.84 bb/100 with the ratio-only read, -0.62 +/- 0.31 with this gate); the credible opponent read (callDownRespectShift), the passive branch (AF < 0.7) and bluffMod / valueThinMod are unchanged; explicit off arm keeps the ratio-only read",
     'V83'
