@@ -18,6 +18,8 @@ const state = vi.hoisted(() => ({
   error: false,
   gross: null as number | null,
   houseRequired: null as number | null,
+  housePosted: null as number | null,
+  houseDue: null as number | null,
 }));
 vi.mock('../src/lib/supabase', () => ({
   supabase: {
@@ -35,6 +37,8 @@ vi.mock('../src/lib/supabase', () => ({
                 overlay: state.overlay,
                 gross_coverage: state.gross,
                 house_required: state.houseRequired,
+                house_posted: state.housePosted,
+                house_due: state.houseDue,
               },
           error: state.error ? new Error('Funding unavailable') : null,
         }),
@@ -54,6 +58,8 @@ afterEach(() => {
   state.error = false;
   state.gross = null;
   state.houseRequired = null;
+  state.housePosted = null;
+  state.houseDue = null;
 });
 
 function props(pool = 4050): TournamentTabProps {
@@ -180,6 +186,58 @@ describe('The guarantee includes bounties, never rake', () => {
     expect(container.textContent).toContain('Bounty Pool460');
     expect(container.textContent).not.toContain('2,316');
     expect(container.textContent).not.toContain('Club Overlay');
+  });
+  // Each place is also shown at the floor the house guarantees if the field
+  // closes now: places + what the house still adds, through the same ladder.
+  it('shows each place at its guaranteed minimum while the overlay is pending', async () => {
+    state.collected = 1656;
+    state.overlay = 660;
+    state.gross = 1840;
+    state.houseRequired = 660;
+    state.housePosted = 0;
+    state.houseDue = 660;
+    const fixture = props(46 * 26);
+    Object.assign(fixture.tournament as unknown as Record<string, unknown>, {
+      guaranteed_prize: 2500,
+      bounty_pool: 460,
+      total_rake: 184,
+      prize_pool_finalized: false,
+    });
+    fixture.entries = fixture.entries.slice(0, 46);
+    const { container } = render(<RewardsTab {...fixture} />);
+    await waitFor(() => expect(container.textContent).toContain('Guaranteed 1,856'));
+    expect(container.querySelector('.rw-prize')?.textContent).toBe('1,196');
+    expect(container.textContent).toContain('Include The 660 The House Adds');
+  });
+  it('a Free Buy adds only what the house has not yet posted (250, never 405)', async () => {
+    state.collected = 155;
+    state.overlay = 0;
+    state.gross = 0;
+    state.houseRequired = 250;
+    state.housePosted = 155;
+    state.houseDue = 95;
+    const fixture = props(155);
+    Object.assign(fixture.tournament as unknown as Record<string, unknown>, {
+      is_bounty: false,
+      buy_in_amount: 0,
+      buy_in_fee: 0,
+      bounty_amount: 0,
+      guaranteed_prize: 250,
+      bounty_pool: 0,
+      total_rake: 0,
+      prize_pool_finalized: false,
+    });
+    const { container } = render(<RewardsTab {...fixture} />);
+    await waitFor(() => expect(container.textContent).toContain('Guaranteed 250'));
+    expect(container.textContent).not.toContain('Guaranteed 405');
+  });
+  it('shows no guaranteed figure once the pool is finalized', async () => {
+    state.housePosted = 1580;
+    state.houseRequired = 1580;
+    state.houseDue = 0;
+    const { container } = render(<RewardsTab {...props()} />);
+    await waitFor(() => expect(container.textContent).toContain('Overlay'));
+    expect(container.textContent).not.toMatch(/Guaranteed \d/);
   });
   it('does not turn a failed funding read into a guarantee-met claim', async () => {
     state.error = true;

@@ -91,6 +91,14 @@
   text-transform: uppercase;
 }
 
+.overlay {
+  flex: 0 0 auto;
+  font-size: calc(2.2 * var(--tournament-unit, 1cqw));
+  font-weight: 700;
+  opacity: 0.78;
+  white-space: nowrap;
+}
+
 /* A tapered ladder needs its opening clock and range without clipping either. */
 .levelRow {
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);

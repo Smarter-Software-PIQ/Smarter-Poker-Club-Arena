@@ -67,7 +67,7 @@ import {
   type MttStructureDescription,
 } from '../../../server/src/tournament/mttStructureDescription';
 import { compactChips } from '../../utils/format';
-import { displayTotalPool } from '../../utils/tournamentPrizeFunding';
+import { displayTotalPool, guaranteeShortfall } from '../../utils/tournamentPrizeFunding';
 import { spinCeilingMultiplier, type LobbyTournamentRow } from '../lobby/lobbyEntries';
 import { lateRegCountdown as projectLateRegCountdown } from '../lobby/lateRegCountdown';
 import type { TournamentArenaEmbed } from './details/types';
@@ -900,6 +900,29 @@ function TournamentLobbyCardInner({
             {!spinLabels && (tournament.guaranteedPrize ?? 0) > 0 && (
               <span className={`${styles.gtd} sc-ink--gold`}>GTD</span>
             )}
+            {/* THE OVERLAY, BESIDE THE POOL IT IS NOT PART OF (2026-11-06).
+                The pool is what the field paid net of rake; the house share
+                still owed if the field closes now is shown on its own, the
+                same figure the Rewards tab prints beside the guarantee. */}
+            {(() => {
+              if (spinLabels || tournament.prize_pool_finalized === true) return null;
+              // Paid entries only. A ticket-funded entry (Free Buy) puts promo
+              // chips in the pool that do not count toward the guarantee, so
+              // the row alone cannot price its overlay; Rewards reads that
+              // from the database authority instead.
+              if (!((tournament.buyIn ?? 0) > 0)) return null;
+              const overlay = guaranteeShortfall(
+                tournament.guaranteedPrize,
+                tournament.prizePool,
+                tournament.bountyPool,
+                tournament.totalRake
+              );
+              return overlay > 0 ? (
+                <span className={`${styles.overlay} sc-ink--silver`}>
+                  {compactChips(overlay)} Overlay
+                </span>
+              ) : null;
+            })()}
           </span>
         </div>
 
