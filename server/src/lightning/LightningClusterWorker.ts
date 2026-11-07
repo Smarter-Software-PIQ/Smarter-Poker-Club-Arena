@@ -114,6 +114,7 @@ import { RateLimitedLog } from './RateLimitedLog.js';
 import type { LightningFormedHand } from './LightningHandHost.js';
 import {
   LIGHTNING_SHADOW_RPC_RETRY_MS,
+  LIGHTNING_SHADOW_FLUSH_SPREAD_MS,
   LightningShadowRunner,
   type LightningDecidedGroup,
 } from './LightningShadowRunner.js';
@@ -312,6 +313,8 @@ export class LightningClusterWorker {
         rpc: deps.rpc,
         logger: this.logger,
         now: () => this.now(),
+        // Clusters spread their window sends (2026-11-07, see the runner).
+        flushSpreadMs: LIGHTNING_SHADOW_FLUSH_SPREAD_MS,
       });
     this.shadow.configure(this.config.shadow);
     this.latency =

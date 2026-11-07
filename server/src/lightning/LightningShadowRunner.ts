@@ -190,6 +190,57 @@ export interface LightningShadowRunnerDeps {
   clock?: () => number;
   /** Wall clock for the record's p_now. */
   now?: () => Date;
+  /**
+   * The span over which Clusters spread the send of a closed window
+   * (2026-11-07). 0 sends at the close (the default, and every unit test's
+   * clock); the worker passes LIGHTNING_SHADOW_FLUSH_SPREAD_MS.
+   */
+  flushSpreadMs?: number;
+}
+
+/**
+ * ONE CLUSTER'S SEND IS NOT EVERY CLUSTER'S SEND (2026-11-07).
+ *
+ * Windows are aligned to the wall clock, so every Cluster closed its window
+ * on the same pass second and sent `fn_lightning_integrity_report` (mean
+ * 569 ms: it re-reads 24 hours of evidence) at the same instant. On an
+ * ordinary minute that is absorbed. On the first pass after a maintenance
+ * release - every Cluster resuming at once into a database still draining
+ * its own release burst - every report hit the 8 s statement timeout and its
+ * window was dropped: 02:05, 08:05, 14:05, 14:12 and 19:21 UTC on
+ * 2026-11-07, nine 500s in a day.
+ *
+ * Each Cluster now sends at its own fixed offset after the moment its window
+ * closes (not after the window's nominal end, which after a freeze is already
+ * in the past and would line every Cluster up again). The offset is a stable
+ * hash of the Cluster id, so the spread is the same on every engine and
+ * restart, and needs no timer: the send rides the Cluster's next pass.
+ */
+export const LIGHTNING_SHADOW_FLUSH_SPREAD_MS = 60_000;
+
+export function lightningShadowFlushOffsetMs(
+  clusterId: string,
+  spreadMs: number,
+  windowMs: number
+): number {
+  // Never past half a window, so a send always precedes the next close.
+  const span = Math.floor(Math.min(Math.max(0, spreadMs), Math.max(0, windowMs) / 2));
+  if (span <= 0) return 0;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < clusterId.length; i++) {
+    h ^= clusterId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % span;
+}
+
+interface PendingFlush {
+  fromMs: number;
+  toMs: number;
+  cfg: LightningShadowConfig;
+  shadowPayload: ReturnType<LightningShadowRunner['shadowPayloads']> | null;
+  signals: Record<string, unknown> | null;
+  sendAtMs: number;
 }
 
 interface ModelPlayer {
@@ -424,6 +475,8 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
     integrity_report: 0,
   };
   private flushing: Promise<void> | null = null;
+  /** A closed window waiting for this Cluster's offset (see the spread above). */
+  private pending: PendingFlush | null = null;
   private records = 0;
 
   constructor(
@@ -478,6 +531,7 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
     if (!cfg || this.stopped) return;
     try {
       this.rollWindow(pass.nowMs, cfg);
+      this.sendDue(pass.nowMs);
       if (cfg.enabled) this.shadowPass(pass, cfg);
     } catch (err) {
       if (this.failureLog.shouldLog('observe')) {
@@ -502,13 +556,17 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
     // No pass is observed from here on; the telemetry sink may still add.
     this.stopped = true;
     if (this.flushing) await this.flushing.catch(() => undefined);
+    // A window waiting for its offset is sent now: the process is leaving.
+    this.sendDue(Number.POSITIVE_INFINITY);
+    if (this.flushing) await this.flushing.catch(() => undefined);
     const cfg = this.config;
     if (cfg && this.windowStartMs !== null) {
       try {
         this.closeWindow(
           this.windowStartMs,
           Math.max(this.windowStartMs + 1, this.now().getTime()),
-          cfg
+          cfg,
+          Number.NEGATIVE_INFINITY
         );
       } catch {
         // nothing to flush
@@ -821,12 +879,21 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
       return;
     }
     if (start <= this.windowStartMs) return;
-    this.closeWindow(this.windowStartMs, this.windowStartMs + cfg.windowMs, cfg);
+    this.closeWindow(this.windowStartMs, this.windowStartMs + cfg.windowMs, cfg, nowMs);
     this.windowStartMs = start;
   }
 
-  /** Build the window's payloads, reset the accumulators, send off the pass's path. */
-  private closeWindow(fromMs: number, toMs: number, cfg: LightningShadowConfig): void {
+  /**
+   * Build the window's payloads, reset the accumulators, send off the pass's
+   * path - at this Cluster's offset after `closedAtMs` (NEGATIVE_INFINITY:
+   * send now, as stop() does).
+   */
+  private closeWindow(
+    fromMs: number,
+    toMs: number,
+    cfg: LightningShadowConfig,
+    closedAtMs: number
+  ): void {
     // A window is recorded when anything was observed: scored passes, or
     // passes skipped (the skip counters are the evidence the shadow idled).
     const observed =
@@ -844,7 +911,7 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
         : null;
     this.resetWindow();
     if (!shadowPayload && !signals) return;
-    if (this.flushing) {
+    if (this.flushing || this.pending) {
       this.droppedWindows++;
       if (this.failureLog.shouldLog('window_dropped')) {
         this.logger.warn(
@@ -853,7 +920,26 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
       }
       return;
     }
-    const run = this.flush(fromMs, toMs, cfg, shadowPayload, signals).finally(() => {
+    const offset = Number.isFinite(closedAtMs)
+      ? lightningShadowFlushOffsetMs(this.clusterId, this.deps.flushSpreadMs ?? 0, cfg.windowMs)
+      : 0;
+    this.pending = {
+      fromMs,
+      toMs,
+      cfg,
+      shadowPayload,
+      signals,
+      sendAtMs: Number.isFinite(closedAtMs) ? closedAtMs + offset : Number.NEGATIVE_INFINITY,
+    };
+    if (offset === 0) this.sendDue(Number.POSITIVE_INFINITY);
+  }
+
+  /** Send the waiting window once its offset has passed (one flush in flight). */
+  private sendDue(nowMs: number): void {
+    const p = this.pending;
+    if (!p || this.flushing || nowMs < p.sendAtMs) return;
+    this.pending = null;
+    const run = this.flush(p.fromMs, p.toMs, p.cfg, p.shadowPayload, p.signals).finally(() => {
       if (this.flushing === run) this.flushing = null;
     });
     this.flushing = run;
@@ -997,6 +1083,7 @@ export class LightningShadowRunner implements LightningClusterTelemetrySink {
     this.model = new Map();
     this.recentHands = [];
     this.windowStartMs = null;
+    this.pending = null;
     this.skipNext = 0;
   }
 }
