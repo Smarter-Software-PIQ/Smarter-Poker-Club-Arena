@@ -478,24 +478,43 @@ describe('standby seat proof observes the protected interval', () => {
       'different-window',
       'early-thaw',
       'receipt-refused',
+      'arbitrary-owner',
+      'semantic-change',
+      'second-rotation',
+      ...(trial === 'swap' ? ['process-restart'] : []),
     ])(`${trial} refuses invalid frozen evidence (%s)`, (mode) => {
       const sha = 'a'.repeat(40);
       const frozen = {
         frozen: true,
         token: '1135e041-af7d-417b-9121-32e30090652a',
+        declaredBy: trial === 'swap' ? 'bbbbbbbb' : sha.slice(0, 8),
+        phase: 'counting_down',
+        announcedAt: '2026-11-06T22:11:11.748+00:00',
+        reason: 'urgent',
         startedAt: '2026-11-06T22:13:11.748+00:00',
         releaseAt: '2026-11-06T22:18:11.748+00:00',
         count: 1,
         fingerprint: 'b'.repeat(32),
       };
-      const changed = { ...frozen, fingerprint: 'c'.repeat(32) };
-      const different = { ...frozen, token: '2135e041-af7d-417b-9121-32e30090652a' };
+      const successor =
+        trial === 'swap'
+          ? {
+              ...frozen,
+              token: '2135e041-af7d-417b-9121-32e30090652a',
+              declaredBy: sha.slice(0, 8),
+            }
+          : frozen;
+      const changed = { ...successor, fingerprint: 'c'.repeat(32) };
+      const different = { ...successor, startedAt: '2026-11-06T22:13:12.748+00:00' };
+      const arbitrary = { ...successor, declaredBy: 'cccccccc' };
+      const semantic = { ...successor, reason: 'other' };
+      const rotated = { ...successor, token: '3135e041-af7d-417b-9121-32e30090652a' };
       const thawed = { ...changed, frozen: false, token: null, startedAt: null, releaseAt: null };
       const result = standbyShell(`
         source '${root('server/standby/standby-trials.sh')}'
         cmd_run() { :; }; cmd_build() { :; }; wait_live() { :; }; wait_dealing() { :; }; wait_no_break() { :; }
-        maintenance_field() { echo 0; }; health() { echo fixture; }; health_field() { echo '${sha}'; }
-        sleep() { :; }; docker() { [ "$1" != inspect ] || echo '${sha}'; }
+        maintenance_field() { echo 0; }; health() { echo fixture; }; health_field() { case "$1" in version) echo '${sha.slice(0, 8)}';; instanceId) echo candidate-instance;; liveness) echo ok;; *) echo '${sha}';; esac; }
+        sleep() { :; }; docker() { if [ "$1" = inspect ]; then case "$*" in *'.Id'*) local n=0; [ ! -f "$STATE_DIR/inspect" ] || n=$(cat "$STATE_DIR/inspect"); echo $((n+1)) > "$STATE_DIR/inspect"; if [ '${mode}' = process-restart ] && [ "$n" -gt 0 ]; then echo '${'d'.repeat(64)} ${sha} true 1'; else echo '${'d'.repeat(64)} ${sha} true 0'; fi;; *) echo '${sha}';; esac; fi; }
         # Old proof would compare a pre-announcement A against post-thaw C.
         seat_fingerprint() { echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }
         request_break() { echo 0 > "$STATE_DIR/sample"; }
@@ -507,9 +526,13 @@ describe('standby seat proof observes the protected interval', () => {
             case '${mode}' in
               frozen-mutation) printf '%s' '${JSON.stringify(changed)}'; return 0;;
               different-window) printf '%s' '${JSON.stringify(different)}'; return 0;;
+              arbitrary-owner) printf '%s' '${JSON.stringify(arbitrary)}'; return 0;;
+              semantic-change) printf '%s' '${JSON.stringify(semantic)}'; return 0;;
               early-thaw) printf '%s' '${JSON.stringify(thawed)}'; return 0;;
             esac
           fi
+          if [ "$n" -eq 3 ] && [ '${mode}' = second-rotation ]; then printf '%s' '${JSON.stringify(rotated)}'; return 0; fi
+          if [ "$n" -gt 1 ] && [ "$n" -lt 4 ]; then printf '%s' '${JSON.stringify(successor)}'; return 0; fi
           if [ "$n" -ge 4 ]; then printf '%s' '${JSON.stringify(thawed)}'; else printf '%s' '${JSON.stringify(frozen)}'; fi
         }
         trial_${trial} '${sha}' '${sha}'
@@ -521,4 +544,35 @@ describe('standby seat proof observes the protected interval', () => {
       if (passing) expect(result.stdout).toContain('"frozenSeatBoundary":');
     });
   }
+});
+
+describe('standby adoption authority and timing', () => {
+  it.each(['exact', 'wrong-label', 'wrong-health', 'wrong-version'])(
+    'binds the controlled candidate (%s)',
+    (mode) => {
+      const sha = 'a'.repeat(40);
+      const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+      docker() { echo '${'d'.repeat(64)} ${mode === 'wrong-label' ? 'b'.repeat(40) : sha} true 0'; }
+      health() { echo fixture; }
+      health_field() { if [ "$1" = instanceId ]; then echo candidate-instance; elif [ "$1" = liveness ]; then echo ok; elif [ "$1" = version ]; then echo '${mode === 'wrong-version' ? 'bbbbbbbb' : 'aaaaaaaa'}'; else echo '${mode === 'wrong-health' ? 'b'.repeat(40) : sha}'; fi; }
+      swap_target_identity '${sha}'
+    `);
+      expect(result.status === 0).toBe(mode === 'exact');
+    }
+  );
+  it('reports unknown and reversed observations as null', () => {
+    const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+      trial_elapsed 100 ''; echo; trial_elapsed '' 105; echo; trial_elapsed 105 100; echo; trial_elapsed 100 105
+    `);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('null\nnull\nnull\n5');
+  });
+});
+
+it('table-kill compares running state and restart count separately', () => {
+  const script = readFileSync(root('server/standby/standby-trials.sh'), 'utf8');
+  const trial = script.slice(script.indexOf('trial_table_kill()'), script.indexOf('cmd_trial()'));
+  expect(trial).toContain("docker inspect -f '{{.State.Running}}'");
+  expect(trial).not.toContain('{{.State.Running}} {{.RestartCount}}');
+  expect(trial).toContain('"$restarts_before" ] || reasons="$reasons,engine_process_restarted"');
 });

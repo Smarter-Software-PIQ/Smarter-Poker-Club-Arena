@@ -29,7 +29,9 @@ frozen() { psql_db -Atc "select coalesce(public.fn_platform_frozen(), false)" 2>
 frozen_seat_snapshot() {
   psql_db -Atc "SELECT json_build_object(
     'frozen', public.fn_platform_frozen(),
-    'token', b.ownership_token, 'startedAt', b.break_started_at,
+    'token', b.ownership_token, 'declaredBy', b.declared_by,
+    'phase', b.phase, 'announcedAt', b.announced_at, 'reason', b.reason,
+    'startedAt', b.break_started_at,
     'releaseAt', b.break_ends_at,
     'count', s.n, 'fingerprint', s.fingerprint)
     FROM (SELECT count(*) n, md5(coalesce(string_agg(
@@ -39,8 +41,8 @@ frozen_seat_snapshot() {
     LEFT JOIN public.engine_maintenance_break b ON b.id=true"
 }
 
-frozen_seat_state() { # snapshot, original (or empty), frozen|poll
-  python3 - "$1" "${2:-}" "${3:-frozen}" <<'PY_SEATS'
+frozen_seat_state() { # snapshot, original (or empty), frozen|poll|adopt, candidate version
+  python3 - "$1" "${2:-}" "${3:-frozen}" "${4:-}" <<'PY_SEATS'
 import datetime, json, re, sys, uuid
 try:
     current = json.loads(sys.argv[1])
@@ -52,11 +54,22 @@ try:
         print('thawed')
     else:
         uuid.UUID(current['token'])
+        assert current['phase'] == 'counting_down'
+        assert isinstance(current['reason'], str)
+        assert isinstance(current['declaredBy'], str)
+        datetime.datetime.fromisoformat(current['announcedAt'])
         assert datetime.datetime.fromisoformat(current['releaseAt']) > datetime.datetime.fromisoformat(current['startedAt'])
         if sys.argv[2]:
             original = json.loads(sys.argv[2])
             assert original['frozen'] is True
-            for key in ('token', 'startedAt', 'releaseAt', 'count', 'fingerprint'):
+            if sys.argv[3] == 'adopt':
+                assert re.fullmatch('[0-9a-f]{8}', sys.argv[4])
+                assert current['declaredBy'] == sys.argv[4]
+                assert current['token'] != original['token']
+            else:
+                assert current['token'] == original['token']
+                assert current['declaredBy'] == original['declaredBy']
+            for key in ('phase', 'announcedAt', 'reason', 'startedAt', 'releaseAt', 'count', 'fingerprint'):
                 assert current[key] == original[key], key
         print('frozen')
 except (ValueError, KeyError, TypeError, AssertionError, AttributeError):
@@ -90,23 +103,54 @@ wait_frozen_seats() { # original, deadline; keep checking until real thaw
 
 frozen_seat_receipt() { # exact v3 release, successful maintenance, no frozen exits
   local result
-  result=$(psql_db -At -v boundary="$1" <<'SQL_SEAT_RECEIPT'
+  result=$(psql_db -At -v boundary="$1" -v version="$2" <<'SQL_SEAT_RECEIPT'
 WITH b AS (SELECT :'boundary'::jsonb j)
 SELECT EXISTS (
   SELECT 1 FROM b JOIN public.engine_maintenance_thaws t
     ON t.ownership_token=(j->>'token')::uuid
    AND t.freeze_started_at=(j->>'startedAt')::timestamptz
    AND t.release_target_at=(j->>'releaseAt')::timestamptz
-   AND t.contract_version=3
+   AND t.announced_at=(j->>'announcedAt')::timestamptz
+   AND t.contract_version=3 AND t.thawed_by=:'version'
   JOIN public.engine_maintenance_break_log l
     ON l.break_started_at=t.freeze_started_at
    AND l.break_ended_at>=t.release_target_at AND l.thaw_ok
+   AND l.engine_version=:'version'
   WHERE NOT EXISTS (SELECT 1 FROM public.ca_seat_stack_exits e
     WHERE e.occurred_at>=t.freeze_started_at AND e.occurred_at<t.release_target_at)
 );
 SQL_SEAT_RECEIPT
   ) || return 1
   [ "$result" = t ]
+}
+
+# Only the controlled candidate replacement can admit one owner rotation.
+# Subsequent observations stay pinned to that admitted successor token.
+swap_target_identity() {
+  local binding id sha running restarts h instance liveness
+  binding=$(docker inspect -f '{{.Id}} {{index .Config.Labels "com.smarterpoker.standby.sha"}} {{.State.Running}} {{.RestartCount}}' "$CONTAINER") || return 1
+  read -r id sha running restarts <<< "$binding"
+  [[ "$id" =~ ^[0-9a-f]{64}$ ]] && [ "$sha" = "$1" ] && [ "$running" = true ] || return 1
+  h=$(health) || return 1
+  [ "$(printf '%s' "$h" | health_field releaseSha)" = "$1" ] \
+    && [ "$(printf '%s' "$h" | health_field version)" = "${1:0:8}" ] || return 1
+  [[ "$restarts" =~ ^[0-9]+$ ]] || return 1
+  instance=$(printf '%s' "$h" | health_field instanceId) || return 1
+  liveness=$(printf '%s' "$h" | health_field liveness) || return 1
+  [ -n "$instance" ] && [ "$instance" != null ] || return 1
+  [ "$liveness" = ok ] || [ "$liveness" = standby ] || return 1
+  python3 - "$id" "$instance" "$restarts" "$1" <<'PY_IDENTITY'
+import json, sys
+print(json.dumps(dict(containerId=sys.argv[1], instanceId=sys.argv[2], restartCount=int(sys.argv[3]), releaseSha=sys.argv[4])))
+PY_IDENTITY
+}
+
+trial_elapsed() { # Missing observations are unknown, never negative durations.
+  if [[ "$1" =~ ^[0-9]+$ && "$2" =~ ^[0-9]+$ ]] && [ "$2" -ge "$1" ]; then
+    printf '%s' "$(( $2 - $1 ))"
+  else
+    printf null
+  fi
 }
 
 hands_in_window() { health | health_field dealRate.handsInWindow; }
@@ -164,9 +208,9 @@ trial_break() {
   wait_frozen_seats "$seats_before" "$((t0 + 1200))" && thaw_at=$THAW_OBSERVED_AT \
     || reasons="$reasons,frozen_seat_boundary_failed"
   wait_dealing 300 && resumed=1 || { resumed=0; reasons="$reasons,did_not_deal_after_thaw"; }
-  frozen_seat_receipt "$seats_before" || reasons="$reasons,frozen_seat_receipt_failed"
+  frozen_seat_receipt "$seats_before" "${sha:0:8}" || reasons="$reasons,frozen_seat_receipt_failed"
   local v=pass; [ -z "$reasons" ] || v=fail
-  trial_verdict break "$v" ",\"sha\":\"$sha\",\"secondsToFreeze\":$(( ${frozen_at:-0} - t0 )),\"secondsFrozen\":$(( ${thaw_at:-0} - ${frozen_at:-0} )),\"unparkedAtFreeze\":\"${unparked}\",\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"reasons\":\"${reasons#,}\""
+  trial_verdict break "$v" ",\"sha\":\"$sha\",\"secondsToFreeze\":$(trial_elapsed "$t0" "${frozen_at:-}"),\"secondsFrozen\":$(trial_elapsed "${frozen_at:-}" "${thaw_at:-}"),\"unparkedAtFreeze\":\"${unparked}\",\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"reasons\":\"${reasons#,}\""
 }
 
 trial_swap() {
@@ -177,7 +221,7 @@ trial_swap() {
   wait_dealing 300 || { trial_verdict swap fail ',"reason":"from_never_dealt"'; return 1; }
   wait_no_break || { trial_verdict swap fail ',"reason":"scheduled_break_never_cleared"'; return 1; }
   cmd_build "$to" >/dev/null || { trial_verdict swap fail ',"reason":"to_build_failed"'; return 1; }
-  local seats_before count_before post_boot
+  local seats_before count_before post_boot seat_owner target_id
   t0=$(date +%s)
   request_break >/dev/null || { trial_verdict swap fail ',"reason":"break_request_refused"'; return 1; }
   capture_frozen_seats "$((t0 + 600))" || { trial_verdict swap fail ',"reason":"frozen_seat_capture_failed"'; return 1; }
@@ -190,19 +234,28 @@ trial_swap() {
   cmd_run "$to" || return 1
   wait_live 600 >/dev/null && live_at=$(date +%s) || reasons="$reasons,to_never_live"
   [ "$(health | health_field releaseSha)" = "$to" ] || reasons="$reasons,to_not_serving"
-  # Candidate must adopt the SAME still-frozen custody before play resumes.
-  post_boot=$(frozen_seat_snapshot) && frozen_seat_state "$post_boot" "$seats_before" frozen >/dev/null \
-    || reasons="$reasons,frozen_seats_changed_across_swap"
+  # The real maintenance CAS rotates ownership on adoption. Admit exactly one
+  # transfer to this verified candidate, with unchanged semantics and seats.
+  seat_owner=$seats_before; post_boot=null; target_id=null
+  if target_id=$(swap_target_identity "$to") \
+    && post_boot=$(frozen_seat_snapshot) \
+    && frozen_seat_state "$post_boot" "$seats_before" adopt "${to:0:8}" >/dev/null \
+    && [ "$(swap_target_identity "$to")" = "$target_id" ]; then
+    seat_owner=$post_boot
+  else
+    reasons="$reasons,frozen_seat_adoption_unproved"
+  fi
+  target_id=${target_id:-null}
   # Preserve JSON evidence even on a failed comparison; malformed reads are null.
   post_boot=$(python3 -c 'import json,sys
 try: print(json.dumps(json.loads(sys.argv[1])))
 except ValueError: print("null")' "$post_boot") || return 1
-  wait_frozen_seats "$seats_before" "$((t0 + 1800))" && thaw_at=$THAW_OBSERVED_AT \
+  wait_frozen_seats "$seat_owner" "$((t0 + 1800))" && thaw_at=$THAW_OBSERVED_AT \
     || reasons="$reasons,frozen_seat_boundary_failed"
   wait_dealing 420 || reasons="$reasons,to_did_not_deal_after_thaw"
-  frozen_seat_receipt "$seats_before" || reasons="$reasons,frozen_seat_receipt_failed"
+  frozen_seat_receipt "$seat_owner" "${to:0:8}" || reasons="$reasons,frozen_seat_receipt_failed"
   local v=pass; [ -z "$reasons" ] || v=fail
-  trial_verdict swap "$v" ",\"from\":\"$from\",\"to\":\"$to\",\"seats\":$count_before,\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"secondsToFreeze\":$(( ${frozen_at:-0} - t0 )),\"postBootSeatSnapshot\":$post_boot,\"secondsBootToLive\":$(( ${live_at:-0} - ${stop_at:-0} )),\"secondsFrozenTotal\":$(( ${thaw_at:-0} - ${frozen_at:-0} )),\"reasons\":\"${reasons#,}\""
+  trial_verdict swap "$v" ",\"from\":\"$from\",\"to\":\"$to\",\"seats\":$count_before,\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"secondsToFreeze\":$(trial_elapsed "$t0" "${frozen_at:-}"),\"postBootSeatSnapshot\":$post_boot,\"adoptedRuntimeIdentity\":$target_id,\"secondsBootToLive\":$(trial_elapsed "${stop_at:-}" "${live_at:-}"),\"secondsFrozenTotal\":$(trial_elapsed "${frozen_at:-}" "${thaw_at:-}"),\"reasons\":\"${reasons#,}\""
 }
 
 trial_table_kill() {
