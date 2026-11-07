@@ -48,9 +48,11 @@ SELECT pg_temp.alert38644_assert((SELECT starts_at>'2026-09-14 07:00:00Z'::times
 -- current membership or historical seat-admission authority is invented.
 -- Noncaptured default columns are schema defaults, not claimed original data.
 SET LOCAL session_replication_role=replica;
-INSERT INTO public.clubs(id,name,is_union,union_id) VALUES
- ('2a1132b9-5ba2-42e6-9f01-30a7fcffebe3','Deep Stack Society',false,NULL),
- ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','SHARK CLUB',false,'fade0000-0000-0000-0000-000000000001');
+-- Fixture-only numeric IDs are outside the captured random 10000..99999 range.
+-- They are not historical evidence and must not collide before assertions run.
+INSERT INTO public.clubs(id,club_id,name,is_union,union_id) VALUES
+ ('2a1132b9-5ba2-42e6-9f01-30a7fcffebe3',3864401,'Deep Stack Society',false,NULL),
+ ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4',3864402,'SHARK CLUB',false,'fade0000-0000-0000-0000-000000000001');
 INSERT INTO auth.users(id) VALUES('c402b38e-7ba6-40bf-a2d3-d65376d28ccf');
 INSERT INTO public.rake_records(id,hand_id,table_id,club_id,rake_amount,created_at,is_tournament,tournament_id,source,metadata,rake_method)
  SELECT id,hand_id,table_id,club_id,rake_amount,created_at,is_tournament,tournament_id,source,metadata,rake_method FROM alert38644_raw;

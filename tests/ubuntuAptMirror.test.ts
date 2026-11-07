@@ -75,7 +75,7 @@ describe('Ubuntu browser dependency mirror', () => {
     expect(install['timeout-minutes']).toBeGreaterThan(0);
     expect(install['timeout-minutes']).toBeLessThanOrEqual(10);
     expect(install['continue-on-error']).not.toBe(true);
-    expect(job['timeout-minutes']).toBe(80);
+    expect(job['timeout-minutes']).toBe(120);
     const liveIndex = job.steps.findIndex((step: { id?: string }) => step.id === 'live');
     expect(liveIndex).toBeGreaterThan(installIndex);
     expect(job.steps[liveIndex].if).toBeUndefined();

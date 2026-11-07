@@ -43,7 +43,7 @@
     "supabase/accounting/weekly-v3/components/20260914162500_standalone_deadlines_follow_their_own_week.sql": "16aacce99cb9debaddc0ba98a9f9db9ff5ae97b7193fe8bba3409079c4082820"
   },
   "fixture_sha256": {
-    "regression.sql": "83b3a5b4f50e9fc0e877991d7573a6a5d2f87ecae4b60545a2557b526ab920a5",
+    "regression.sql": "ca798183b33dfc4abf11d57bb7645db65b3ce69ec7828ed129ebcf478979c90f",
     "caller-source-evidence.json": "361724903b7d95010424d92c40a09e21f216ecca21c4bab8c74407f8b3a0dc86",
     "README.md": "e2a82ec53562ce1ccb691751a5fa9006df80f44de4e1cd889bb578bbf4dc4c69",
     "source-evidence.json": "9e4370895e29b35b0ba2b635daad73e8031091813e230bb6a7a95b08d8cde0ed",

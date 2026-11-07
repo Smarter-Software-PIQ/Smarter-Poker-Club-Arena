@@ -410,9 +410,10 @@ test.describe('the mobile lobby chrome on production', () => {
       contentType: 'image/png',
     });
     await cashDoor.click();
-    await expect(cashDoor).toHaveAttribute('aria-expanded', 'false');
+    await expect(cashDoor).toHaveAttribute('aria-expanded', 'true');
     await expect(tournamentDoor).toHaveAttribute('aria-expanded', 'false');
-    await expect(gameTypes).toHaveCount(0);
+    await expect(gameTypes).toHaveCount(1);
+    await expect(gameTypes.getByRole('tab')).toHaveText(['ALL', 'NLH', 'PLO', 'LIMIT']);
   });
 
   test('tournament Details stays inside the spectator table lobby tab', async ({

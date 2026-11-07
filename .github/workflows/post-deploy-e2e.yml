@@ -735,7 +735,10 @@ jobs:
     # Keep enough bounded headroom for that audit plus the honesty, cleanup,
     # release-window, and report steps. A timeout before those steps produces
     # neither a verdict nor fixture-cleanup proof.
-    timeout-minutes: 80
+    # Run 42293553734 reached only 582/737 sweep cases before the 80-minute
+    # deadline. Preserve single-account serialization and leave bounded time
+    # for the remaining cases, report validators, and mandatory cleanup.
+    timeout-minutes: 120
     outputs:
       client_sha: ${{ steps.live.outputs.sha }}
       certified: ${{ steps.release_window.outcome == 'success' && steps.release_window.outputs.certified == 'true' }}
