@@ -99,6 +99,31 @@ class ActivationFloor(unittest.TestCase):
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
 
+    def test_changed_owner_history_only_falls_through_after_both_exact_orders_expire(self):
+        from datetime import datetime
+        stamp = lambda value: int(datetime.fromisoformat(value).timestamp())
+        start = stamp('2026-10-31T09:00:00+00:00')
+        next_cutoff = stamp('2026-11-01T09:30:00+00:00')
+        self.assertEqual(floor.daily_assessment_epoch(start, 0), next_cutoff)
+        self.assertEqual(floor.daily_assessment_epoch(next_cutoff + 60, next_cutoff), next_cutoff)
+        with self.assertRaisesRegex(ValueError, 'exact Chicago'):
+            floor.daily_assessment_epoch(next_cutoff, next_cutoff + 60)
+        record = self.owner_record()
+        target = self.sha
+        path = self.repo / 'server/release/owner-maintenance-windows.json'
+        history = json.loads(path.read_text())
+        history['windows'].append({'id': 'archived-unrelated-order'})
+        path.write_text(json.dumps(history))
+        control = self.commit()
+        for fresh_at in (None, record['expiresEpoch'] - 1):
+            with self.assertRaisesRegex(ValueError, 'control owner authorization differs'):
+                floor.policy(str(self.repo), target, control, fresh_at=fresh_at)
+        self.assertEqual(floor.policy(str(self.repo), target, control, fresh_at=record['expiresEpoch'])['targetSha'], target)
+        (self.repo / MANIFEST).write_text(json.dumps(FUTURE_DAILY))
+        future = self.commit()
+        with self.assertRaisesRegex(ValueError, 'control owner authorization differs'):
+            floor.policy(str(self.repo), target, future, fresh_at=record['expiresEpoch'])
+
     def test_nov7_exception_binds_the_exact_order_and_current_deadline(self):
         window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
         path = self.repo / 'server/release/owner-maintenance-windows.json'
@@ -1160,7 +1185,9 @@ echo CHECKPOINT_MUST_NOT_RUN
         body = source[build:dispatch]
         for forbidden in ('install-engine-supervisor.sh', 'install-engine-intake.sh', 'launch-engine-release.sh', 'engine-release-recover', 'recovery-window'):
             self.assertNotIn(forbidden, body)
-        self.assertIn('build-engine-image.sh', body)
+        self.assertNotIn('build-engine-image.sh', body)
+        self.assertIn('get desired-image-id', body)
+        self.assertIn('PREPARED_IMAGE', body)
         segment = source[dispatch:source.index('- name: Remove exact staging', dispatch)]
         self.assertLess(segment.index('engine-release-activation-floor.py" admit'), segment.index('"$STAGE/server/scripts/install-engine-intake.sh"'))
         cleanup = source[source.index('- name: Remove exact staging'):source.index('\n  record-receipt:')]

@@ -502,6 +502,14 @@ describe('a merged migration must be live', () => {
     // And the error that is printed does not carry the connection string,
     // which execFileSync puts in its message because it is psql's argv[1].
     expect(SRC.match(/split\(url\)\.join\('<database url>'\)/g)?.length ?? 0).toBe(2);
+    // A lost handshake is re-attempted a bounded number of times with a libpq
+    // connect_timeout, and only the connection phase (2026-11-07: twice in one
+    // day a single `spawnSync psql ETIMEDOUT` was the run's answer). The
+    // behaviour itself is pinned with an injected spawn in
+    // tests/unit/migrationsAreLiveConnectionRetry.test.ts.
+    expect(SRC).toMatch(/export const CONNECT_RETRIES = 2;/);
+    expect(SRC).toMatch(/PGCONNECT_TIMEOUT/);
+    expect(SRC).toMatch(/isConnectionPhaseFailure\(err\)/);
   });
 
   /**
