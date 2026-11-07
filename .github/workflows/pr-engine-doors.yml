@@ -1,0 +1,132 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# A PULL REQUEST CANNOT MAKE MAIN UNSHIPPABLE
+#
+# The release gate (auto-deploy-hetzner.yml, job `engine-doors`) asks
+# production's pg_proc whether every database function the engine calls exists.
+# It is the last word and nothing here weakens it. But it only runs at RELEASE
+# time, about eight minutes before the 04:00 America/Chicago break, so a pull
+# request can merge, main can become un-releasable, and nobody finds out until
+# the next release is refused.
+#
+# 2026-11-07 is the worked example. Engine Release run 42360536751 refused the
+# certified e6e26ab8 at 09:52Z: fn_cash_session_set_blind_off() and
+# fn_lightning_blind_off_players() did not exist in production. Both are created
+# by 20261106203853_hit_and_run_ten_hands_in_profit.sql, which declares
+# "-- @install-window: daily-maintenance" and therefore installs only inside the
+# freeze; that window run was refused with a 55P03 lock timeout, so the file
+# stayed queued and main stayed un-releasable.
+#
+# This job asks the same question on the PR side and splits the answer three
+# ways, because the three cases need three different human responses:
+#
+#   REFUSED (fails the PR)  No migration in the merge result creates the
+#                           function. The PR forgot its database half.
+#   ALLOWED (passes)        A migration THIS PR ADDS creates it. A window file
+#                           installs in the next break, an ordinary file on
+#                           merge. Refusing this is the very deadlock above.
+#   WARNED  (passes, loud)  A migration already on main creates it and is not
+#                           yet applied. Merging keeps main unshippable, but the
+#                           PR did not cause it, and this repository has already
+#                           ruled that failing every PR for another branch's
+#                           unapplied migration "would be an outage of its own"
+#                           (applied-migrations-recorded.yml).
+#
+# CREDENTIAL: secrets.DATABASE_URL, which this repository already holds and 23
+# workflows already use. No new secret. The job is read-only: it SELECTs from
+# pg_catalog.pg_proc and supabase_migrations.schema_migrations and writes
+# nothing. A pull request from a fork gets no secrets, so the script reports
+# verdict=unchecked and passes rather than pretending to have proof.
+# ─────────────────────────────────────────────────────────────────────────────
+name: PR Engine Doors
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'supabase/migrations/**'
+      - 'scripts/ci/check-pr-engine-doors.mjs'
+      - 'scripts/ci/check-engine-doors-exist.mjs'
+      - 'scripts/ci/window-migration-doors.mjs'
+      - 'scripts/ci/engine-doors.allowlist.json'
+      - '.github/workflows/pr-engine-doors.yml'
+
+permissions: {}
+
+concurrency:
+  group: pr-engine-doors-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  doors:
+    name: Every Door This PR Calls Has A Migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      verdict: ${{ steps.doors.outputs.verdict || '' }}
+      refused: ${{ steps.doors.outputs.refused || '' }}
+      allowed: ${{ steps.doors.outputs.allowed || '' }}
+      warned: ${{ steps.doors.outputs.warned || '' }}
+    steps:
+      # The MERGE RESULT, not the head commit: what merges is what has to be
+      # releasable, and a migration main already carries has to count as
+      # already on main. This is the default ref for a pull_request event
+      # (refs/pull/N/merge), so it is deliberately not overridden here.
+      - name: Checkout the merge result this pull request would produce
+        uses: actions/checkout@v4
+
+      - name: Use the production Node major
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Every database function this pull request calls has a migration
+        id: doors
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npm ls pg >/dev/null 2>&1 || npm i pg@8 --no-save --no-audit --no-fund >/dev/null 2>&1 || true
+          # The base tree tells "this PR adds it" (allowed) from "already on
+          # main and still queued" (warned). A failed fetch allows nothing: the
+          # script degrades those doors to a named warning, never to a pass.
+          git fetch --no-tags --depth=1 origin '+refs/heads/main:refs/remotes/origin/main' \
+            || echo '::warning::protected main could not be fetched; no door can be allowed as added by this pull request'
+          node scripts/ci/check-pr-engine-doors.mjs | tee /tmp/prdoors.log
+
+      - name: Name the verdict in the summary
+        if: always()
+        run: |
+          set -uo pipefail
+          {
+            echo "## PR Engine Doors"
+            echo ""
+            echo "Verdict: \`${{ steps.doors.outputs.verdict || 'unchecked' }}\`"
+            echo ""
+            if [ -s /tmp/prdoors.log ]; then
+              echo '```'
+              grep -E '^(OK|ALLOWED|WARNED|REFUSED|UNCHECKED) ' /tmp/prdoors.log || tail -5 /tmp/prdoors.log
+              echo '```'
+            fi
+            case "${{ steps.doors.outputs.verdict || 'unchecked' }}" in
+              refused)
+                echo "A database function this build calls exists nowhere: not in production, and in no"
+                echo "migration in this merge result. Add the migration that creates it. A file marked"
+                echo "SUPERSEDED does not count - it never installs."
+                ;;
+              warned)
+                echo "Nothing here is wrong with this pull request. A migration already on main creates a"
+                echo "function production does not have yet and has not been applied, so the engine release"
+                echo "will keep refusing main until it installs. Merging is allowed; shipping waits on that"
+                echo "migration."
+                ;;
+              allowed)
+                echo "This pull request carries its own database half. The functions named above arrive"
+                echo "with its migrations - a window-gated file installs inside the next 04:00"
+                echo "America/Chicago break, an ordinary file applies on merge."
+                ;;
+            esac
+          } >> "$GITHUB_STEP_SUMMARY"
