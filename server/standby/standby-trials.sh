@@ -28,7 +28,7 @@ frozen() { psql_db -Atc "select coalesce(public.fn_platform_frozen(), false)" 2>
 # are held across samples: the trial observes the engine's real freeze.
 frozen_seat_snapshot() {
   local boundary="${1:-}"; [ -n "$boundary" ] || boundary='{}'
-  psql_db -At -v boundary="$boundary" <<'SQL_SEAT_SNAPSHOT'
+  psql_db -At -v boundary="$boundary" -v candidate="${2:-}" <<'SQL_SEAT_SNAPSHOT'
 WITH admitted AS (SELECT :'boundary'::jsonb j),
 observation AS MATERIALIZED (SELECT clock_timestamp() started),
 state AS MATERIALIZED (SELECT started, public.fn_platform_frozen() frozen FROM observation),
@@ -57,8 +57,14 @@ FROM (SELECT count(*) n, md5(coalesce(string_agg(
 CROSS JOIN admitted CROSS JOIN authority
 LEFT JOIN public.engine_maintenance_break b ON b.id=true
 LEFT JOIN public.engine_maintenance_thaws t
-  ON b.id IS NULL AND t.ownership_token=(j->>'token')::uuid
- AND t.freeze_started_at=(j->>'startedAt')::timestamptz;
+  ON b.id IS NULL AND t.freeze_started_at=(j->>'startedAt')::timestamptz
+ AND (
+   (:'candidate'='' AND t.ownership_token=(j->>'token')::uuid)
+   OR (:'candidate' ~ '^[0-9a-f]{8}$' AND t.thawed_by=:'candidate'
+       AND t.ownership_token<>(j->>'token')::uuid
+       AND t.announced_at=(j->>'announcedAt')::timestamptz
+       AND t.release_target_at=(j->>'releaseAt')::timestamptz)
+ );
 SQL_SEAT_SNAPSHOT
 }
 
@@ -89,7 +95,7 @@ try:
         uuid.UUID(current['token'])
         tail = current['evidenceKind'] == 'certified_tail'
         if tail:
-            require(original is not None and sys.argv[3] == 'poll', 'tail_without_admitted_owner')
+            require(original is not None and sys.argv[3] in ('poll', 'adopt'), 'tail_without_admitted_owner')
             require(current['tailContractVersion'] == 3 and current['tailComplete'] is True
                     and current['tailRequiredSteps'] is True, 'tail_certificate_incomplete')
             release = instant(original['releaseAt'])
@@ -309,7 +315,7 @@ trial_swap() {
   # transfer to this verified candidate, with unchanged semantics and seats.
   seat_owner=$seats_before; post_boot=null; target_id=null
   if target_id=$(swap_target_identity "$to") \
-    && post_boot=$(frozen_seat_snapshot) \
+    && post_boot=$(frozen_seat_snapshot "$seats_before" "${to:0:8}") \
     && adoption_state=$(frozen_seat_state "$post_boot" "$seats_before" adopt "${to:0:8}" 2>&1) \
     && [ "$(swap_target_identity "$to")" = "$target_id" ]; then
     seat_owner=$post_boot

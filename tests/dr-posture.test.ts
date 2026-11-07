@@ -489,7 +489,15 @@ describe('standby seat proof observes the protected interval', () => {
       'tail-missing',
       'tail-clock-crossing',
       'tail-foreign-boundary',
-      ...(trial === 'swap' ? ['process-restart'] : []),
+      ...(trial === 'swap'
+        ? [
+            'process-restart',
+            'delayed-first-tail',
+            'delayed-first-incomplete',
+            'delayed-first-foreign',
+            'delayed-first-window',
+          ]
+        : []),
     ])(`${trial} refuses invalid frozen evidence (%s)`, (mode) => {
       const sha = 'a'.repeat(40);
       const frozen = {
@@ -575,6 +583,10 @@ describe('standby seat proof observes the protected interval', () => {
           if [ '${mode}' = unreadable ]; then return 19; fi
           if [ "$n" -eq 2 ]; then
             case '${mode}' in
+              delayed-first-tail) printf '%s' '${JSON.stringify(tail)}'; return 0;;
+              delayed-first-incomplete) printf '%s' '${JSON.stringify({ ...tail, tailComplete: false })}'; return 0;;
+              delayed-first-foreign) printf '%s' '${JSON.stringify({ ...tail, declaredBy: 'cccccccc' })}'; return 0;;
+              delayed-first-window) printf '%s' '${JSON.stringify({ ...tail, releaseAt: '2026-11-06T22:19:11.748+00:00' })}'; return 0;;
               frozen-mutation) printf '%s' '${JSON.stringify(changed)}'; return 0;;
               different-window) printf '%s' '${JSON.stringify(different)}'; return 0;;
               arbitrary-owner) printf '%s' '${JSON.stringify(arbitrary)}'; return 0;;
@@ -595,6 +607,7 @@ describe('standby seat proof observes the protected interval', () => {
       // Break has no engine boot and can legitimately release on its second sample.
       const passing =
         mode === 'legitimate-boundary-activity' ||
+        mode === 'delayed-first-tail' ||
         mode === 'tail-clock-crossing' ||
         (trial === 'break' && mode === 'early-thaw');
       expect(result.status === 0, result.stderr + result.stdout).toBe(passing);
