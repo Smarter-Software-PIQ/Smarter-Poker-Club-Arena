@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE BEHAVIOR — Deterministic Per-Horse Personality Helpers (V8 — 2026-07-24)
@@ -163,7 +164,76 @@ export const CASH_SHORT_FRACTION = 0.4;
 /** How often a SHORT or SPORADIC table, and a FULL table's queue, re-rolls. */
 export const FILL_SUB_BUCKET_MS = 20 * 60_000;
 /** The longest horse queue a FULL game keeps. */
-export const MAX_HORSE_WAIT = 4;
+export const MAX_HORSE_WAIT = 5;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THE ROOM FOLLOWS THE CLOCK (owner request 2026-11-07)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// A real card room is busiest in the evening and thinnest before breakfast. The
+// shape mix, the length of a full game's line and the share of games running a
+// second table all follow the Chicago hour. Every band still seats at least 75%
+// of the floor (Dan 2026-09-02), pinned in HorseOccupancy.test.ts.
+
+const chicagoHourFmt = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  hour: 'numeric',
+  hourCycle: 'h23',
+});
+
+/** The hour (0-23) in Chicago at `nowMs`. */
+export function chicagoHourAt(nowMs: number): number {
+  const h = Number(chicagoHourFmt.format(new Date(nowMs)));
+  return Number.isFinite(h) ? h % 24 : 12;
+}
+
+export type RoomBand = 'evening' | 'day' | 'late' | 'early';
+
+/** 18-23 evening, 10-17 day, 0-3 late night, 4-9 early morning. */
+export function roomBandAt(nowMs: number): RoomBand {
+  const h = chicagoHourAt(nowMs);
+  if (h >= 18) return 'evening';
+  if (h >= 10) return 'day';
+  if (h >= 4) return 'early';
+  return 'late';
+}
+
+/** Full / short fractions per band; the rest of the room is sporadic. */
+export const CASH_SHAPE_MIX: Readonly<Record<RoomBand, { full: number; short: number }>> =
+  Object.freeze({
+    evening: { full: 0.5, short: 0.35 },
+    day: { full: CASH_FULL_FRACTION, short: CASH_SHORT_FRACTION },
+    late: { full: 0.3, short: 0.45 },
+    early: { full: 0.25, short: 0.45 },
+  });
+
+/** Share of games (percent) that may hold a second table, per band. The SQL
+ *  twin is fn_cash_game_second_table_picked (20261107070717). */
+export const SECOND_TABLE_RATE: Readonly<Record<RoomBand, number>> = Object.freeze({
+  evening: 60,
+  day: 50,
+  late: 30,
+  early: 20,
+});
+
+/**
+ * May this game hold a second table right now? The exact twin of
+ * public.fn_cash_game_second_table_picked: the first 32 bits of
+ * md5(`${gameId}:second_table:${bucket}`) as an unsigned number, mod 100,
+ * below the band's rate. The engine must agree with the tick, or it would seat
+ * a table the tick will never open or keep feeding one it no longer wants.
+ */
+export function secondTablePicked(gameId: string, nowMs: number = Date.now()): boolean {
+  const bucket = Math.floor(nowMs / 1000 / 10_800);
+  const hex = createHash('md5').update(`${gameId}:second_table:${bucket}`).digest('hex');
+  return parseInt(hex.slice(0, 8), 16) % 100 < SECOND_TABLE_RATE[roomBandAt(nowMs)];
+}
+
+/** Stakes most players play: the lines there run longest. */
+export function isPopularStake(bigBlind: number | null | undefined): boolean {
+  const bb = Number(bigBlind);
+  return Number.isFinite(bb) && bb >= 0.25 && bb <= 2;
+}
 
 /** How long a table keeps its full/sporadic character before re-rolling. */
 export const FILL_BUCKET_MS = 3 * 60 * 60_000;
@@ -195,8 +265,9 @@ export function cashTableFill(tableId: string, nowMs: number = Date.now()): Tabl
   const bucket = Math.floor(nowMs / FILL_BUCKET_MS);
   const seed = (horseHash(`${tableId}:fill`) ^ Math.imul(bucket, 0x9e3779b1)) >>> 0;
   const roll = mix32(seed) % 100;
-  if (roll < CASH_FULL_FRACTION * 100) return 'full';
-  if (roll < (CASH_FULL_FRACTION + CASH_SHORT_FRACTION) * 100) return 'short';
+  const mix = CASH_SHAPE_MIX[roomBandAt(nowMs)];
+  if (roll < mix.full * 100) return 'full';
+  if (roll < (mix.full + mix.short) * 100) return 'short';
   return 'sporadic';
 }
 
@@ -588,7 +659,8 @@ export function occupancyTargetFor(
   maxPlayers: number,
   humanSeated: boolean = false,
   nowMs: number = Date.now(),
-  humansWaiting: number = 0
+  humansWaiting: number = 0,
+  bigBlind: number | null = null
 ): { seatTarget: number; waitTarget: number; fill: TableFill } {
   const fill = cashTableFill(tableId, nowMs);
   const max = Math.max(1, Math.floor(Number(maxPlayers) || 1));
@@ -598,9 +670,21 @@ export function occupancyTargetFor(
   let waitTarget = 0;
   if (fill === 'full') {
     seatTarget = max;
-    // A queue of one to four, re-rolled on the sub-bucket. Never longer than
+    // A queue re-rolled on the sub-bucket, longest where the demand is
+    // (2026-11-07): two to five at the popular stakes in the evening and the
+    // day, one to three elsewhere, one shorter before dawn. Never longer than
     // the table itself (a heads-up table does not carry a four-deep list).
-    waitTarget = 1 + (h % Math.min(MAX_HORSE_WAIT, max));
+    const band = roomBandAt(nowMs);
+    const popular = isPopularStake(bigBlind);
+    let lo = popular ? 2 : 1;
+    let hi = popular ? MAX_HORSE_WAIT : 3;
+    if (band === 'late' || band === 'early') {
+      lo = 1;
+      hi = Math.max(1, hi - 1);
+    }
+    hi = Math.max(lo, Math.min(hi, max));
+    lo = Math.min(lo, hi);
+    waitTarget = lo + (h % (hi - lo + 1));
   } else if (fill === 'short') {
     // One open seat on a six-max or smaller game; one or two on a full ring.
     const open = max <= 6 ? 1 : 1 + (h % 2);

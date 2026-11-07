@@ -1,3 +1,4 @@
+import { secondTablePicked } from './HorseBehavior.js';
 import plan from './horseUnionCashPlan.json' with { type: 'json' };
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
 
@@ -170,12 +171,14 @@ export function horseUnionCashTableAllowed(
  * 2026-11-06). At most ONE per game - a feeder or a Main 2, live or opening,
  * lowest id - so the fleet can never multiply a slot past the two tables the
  * cluster tick allows. `primaryAllowed` is the caller's own answer for the
- * game's Main 1, so the second table follows it exactly.
+ * game's Main 1, so the second table follows it exactly, and only while the
+ * game is picked for a second table (secondTablePicked).
  */
 export function horseCashPlanSecondTables(
   tables: ReadonlyArray<CashPlanTable>,
   primaryTables: ReadonlySet<string>,
-  primaryAllowed: (primary: CashPlanTable) => boolean
+  primaryAllowed: (primary: CashPlanTable) => boolean,
+  nowMs: number = Date.now()
 ): ReadonlySet<string> {
   const primaryByGame = new Map<string, CashPlanTable>();
   for (const t of tables) {
@@ -194,7 +197,10 @@ export function horseCashPlanSecondTables(
   const out = new Set<string>();
   for (const [gameId, tableId] of chosen) {
     const primary = primaryByGame.get(gameId);
-    if (primary && primaryAllowed(primary)) out.add(tableId);
+    // Only while the game is picked for two tables (the tick's own rule,
+    // HorseBehavior.secondTablePicked); once it is not, the second table's
+    // horses leave through the rotator and must-move empties the rest.
+    if (primary && secondTablePicked(gameId, nowMs) && primaryAllowed(primary)) out.add(tableId);
   }
   return out;
 }

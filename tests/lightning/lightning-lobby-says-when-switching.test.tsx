@@ -265,10 +265,10 @@ describe('a Lightning game switching modes', () => {
 describe('games that never run Lightning are unchanged in every mode', () => {
   const MODES = ['must_move', 'pending_on', 'pending_off', 'draining', 'lightning'];
 
-  it('a Classic game keeps its CLASSIC word and an open Join Game', () => {
+  it('a Classic game says MUST MOVE (Dan 2026-11-07) and keeps an open Join Game', () => {
     for (const m of MODES) {
       const e = cashEntry(row(m, { cluster_template: 'classic' }));
-      expect(words(e), m).toEqual(['CLASSIC']);
+      expect(words(e), m).toEqual(['MUST MOVE']);
       expect(e.game?.switching, m).toBeUndefined();
       expect(arenaGameCardActionsForEntry(e, ctx()), m).toMatchObject({
         primaryLabel: 'Join Game',
