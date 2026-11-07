@@ -237,6 +237,82 @@ describe('every input the CSS Beat job runs admits that job (2026-10-21)', () =>
     expect(classifyChangedPaths([path]).src).toBe(true);
   });
 
+  /**
+   * A WORKFLOW THAT IS NOT ci.yml DOES NOT ADMIT THE BROWSER (2026-11-07).
+   * `wide` admitted every job for any .github/workflows/ file, so a pull
+   * request touching backup-engine.yml, two laws and docs/laws.d/ ran the
+   * full CSS Beat (Chromium + WebKit, 10 shards x 2 partitions) and Diamond
+   * playfield suites and went red on a flake its diff could not reach. No
+   * src-gated job (Production Build, browser harness, CSS Beat, Diamond
+   * playfield) reads any workflow but ci.yml, which both defines them and is
+   * what cssBeatJobInputs() parses. The server shards and unit suite still
+   * run for every workflow change: dozens of tests read workflow YAML.
+   */
+  it.each([
+    '.github/workflows/backup-engine.yml',
+    '.github/workflows/publish-club-arena.yml',
+    '.github/workflows/stage-engine-release.yml',
+    '.github/workflows/auto-deploy-hetzner.yml',
+    '.github/workflows/production-integrity-audit.yml',
+    '.github/workflows/component-fixture-native-smoke.yml',
+    '.github/workflows/release-component-qualification.yml',
+  ])('a change to %s keeps the server and unit gates and skips the browser', (path) => {
+    expect(classifyChangedPaths([path])).toMatchObject({
+      src: false,
+      server: true,
+      tests: true,
+    });
+  });
+
+  it('the exact diff that paid the browser fan-out on 2026-11-07 no longer does', () => {
+    expect(
+      classifyChangedPaths([
+        '.github/workflows/backup-engine.yml',
+        'tests/dr-posture.law.test.ts',
+        'tests/a-backup-engine-is-isolated.law.test.ts',
+        'docs/laws.d/a-backup-engine-is-isolated.md',
+      ])
+    ).toEqual({ src: false, server: true, tests: true, phase4: false, fixture: false });
+  });
+
+  it.each([
+    ['.github/workflows/ci.yml'],
+    ['package.json'],
+    ['package-lock.json'],
+    ['vite.config.ts'],
+    ['vitest.config.ts'],
+    ['tsconfig.json'],
+    ['playwright.config.ts'],
+    ['scripts/ci/classify-ci-changes.mjs'],
+    ['scripts/ci/ui-test-selection.mjs'],
+    ['scripts/ci/fixture-native-gate.mjs'],
+    ['scripts/ci/publisher-ui-selection-base.mjs'],
+    ['src/App.tsx'],
+    ['tests/e2e/hero-cards-no-glitch.spec.ts'],
+    ['tests/e2e/global-setup.ts'],
+    // The narrowing is per path, never per diff: a workflow beside a
+    // browser input still runs the browser.
+    ['.github/workflows/backup-engine.yml', 'src/pages/TablePage.tsx'],
+    ['.github/workflows/backup-engine.yml', 'tests/e2e/hero-cards-no-glitch.spec.ts'],
+  ])('still admits the browser and build for %j', (paths) => {
+    expect(classifyChangedPaths(paths).src).toBe(true);
+  });
+
+  it('every other wide input admits src exactly as before; only the workflow alternative narrowed', () => {
+    const source = readFileSync(join(root, 'scripts/ci/classify-ci-changes.mjs'), 'utf8');
+    const wide = source.match(/^const wide =\n\s*(\/.*\/);$/m)?.[1];
+    const wideClient = source.match(/^const wideClient =\n\s*(\/.*\/);$/m)?.[1];
+    expect(wide).toBeDefined();
+    expect(wideClient).toBeDefined();
+    expect(wideClient).toBe(
+      wide!.replace('\\.github\\/workflows\\/', '\\.github\\/workflows\\/ci\\.yml$')
+    );
+    // And src is the only flag that reads the narrowed pattern.
+    expect(source).toContain('const broadClient = matches(wideClient);');
+    expect(source.match(/broadClient \|\|/g)).toHaveLength(1);
+    expect(source).toMatch(/src:\n\s*broadClient \|\|/);
+  });
+
   it('admits the job for every spec it names or selects through a config', () => {
     const skipped = [...namedSpecs, ...configSpecs].filter(
       (path) => !classifyChangedPaths([path]).src
