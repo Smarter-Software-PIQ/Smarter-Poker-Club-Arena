@@ -1,4 +1,6 @@
 -- @install-window: daily-maintenance
+-- @live-proof: (SELECT relrowsecurity AND NOT has_table_privilege('service_role',oid,'SELECT') FROM pg_class WHERE oid=to_regclass('public.horse_memory_before_fold_provenance'))
+-- @live-proof: (SELECT strpos(pg_get_functiondef(to_regprocedure('public.fn_horse_exploit_increments(jsonb,text)')), $$a->>'origin'='forced'$$)>0 AND strpos(pg_get_functiondef(to_regprocedure('public.fn_horse_exploit_actor_increments(jsonb,text)')), $$a.origin='forced'$$)>0 AND strpos(pg_get_functiondef(to_regprocedure('public.fn_horse_exploit_profiles_read(text[],text,text,text)')), $$a->>'origin' IS DISTINCT FROM 'forced'$$)>0)
 -- Explicit player, pre-action and Horse policy folds are intentional. A missing,
 -- unknown, fallback or forced origin is preserved in history but cannot train a fold.
 BEGIN;
