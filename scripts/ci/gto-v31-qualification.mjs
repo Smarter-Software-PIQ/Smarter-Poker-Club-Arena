@@ -17,6 +17,7 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { closureCompatible, closureComplete, decisionClosure } from './v31-decision-closure.mjs';
+import { executionClosure, executionDigest } from './v31-execution-fingerprint.mjs';
 import { receiptMatches as readinessReceiptMatches } from './inspect-v31-worker-readiness.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -39,8 +40,8 @@ export function invocation({ eventName, ref, repository, repositoryId, inputs })
     throw new Error('Only an explicit dispatch on this repository protected main is admitted');
   const keys = inputs && typeof inputs === 'object' ? Object.keys(inputs).sort().join(',') : '';
   if (!['dataset,operation', 'dataset,operation,reason'].includes(keys) ||
-      typeof inputs.dataset !== 'string' || !UUID.test(inputs.dataset) || !['evaluate', 'promote'].includes(inputs.operation))
-    throw new Error('A canonical dataset UUID and explicit evaluate/promote operation are required');
+      typeof inputs.dataset !== 'string' || !UUID.test(inputs.dataset) || !['evaluate', 'promote', 'recheck'].includes(inputs.operation))
+    throw new Error('A canonical dataset UUID and explicit evaluate/promote/recheck operation are required');
   const reason = inputs.reason ?? '';
   if (typeof reason !== 'string' || (reason !== '' &&
       (reason.trim().length < 20 || reason.length > 500 || /[\u0000-\u001f\u007f]/.test(reason))))
@@ -362,8 +363,54 @@ export function promotionVerdict(p, transcript, healthAfter, now = Date.now()) {
 }
 
 export function evaluatorArguments(dataset, operation) {
-  if (!UUID.test(dataset) || operation !== 'evaluate') throw new Error('Invalid evaluator invocation');
-  return ['scripts/gto-v31-evaluate-worker.mjs', `--dataset=${dataset}`];
+  if (!UUID.test(dataset) || !['evaluate', 'recheck'].includes(operation)) throw new Error('Invalid evaluator invocation');
+  return ['scripts/gto-v31-evaluate-worker.mjs', `--dataset=${dataset}`, ...(operation === 'recheck' ? ['--recheck'] : [])];
+}
+
+/**
+ * STRICT RE-CHECK (contract v3, 2026-11-06). A v3 playbook is served only by
+ * the engine it was certified on or by an engine that passed a re-check
+ * round: identical execution fingerprint, identical replay digest, and every
+ * certification table re-run on it a win or a tie. One loss retires it for
+ * good. The database enforces the same rule at promotion and binding.
+ */
+export const RECHECK_CONTRACT = 'gto_v31_candidate.v3';
+
+function recheckAnchor(recheck, epochId) {
+  return (Array.isArray(recheck?.anchors) ? recheck.anchors : []).find((a) => a?.epoch_id === epochId) ?? null;
+}
+function passedRound(recheck, epochId, servingSha) {
+  return (Array.isArray(recheck?.rounds) ? recheck.rounds : []).find((r) =>
+    r?.epoch_id === epochId && r?.serving_commit === servingSha && r?.outcome === 'passed') ?? null;
+}
+
+/** What a recheck dispatch does, decided from git and the database before a hand is dealt. */
+export function recheckPlan(dataset, recheck, servingSha, servingExecutionDigest) {
+  if (dataset?.evaluation_contract !== RECHECK_CONTRACT) throw new Error('Only a contract v3 playbook is re-checked');
+  if (!['candidate', 'active'].includes(dataset.state)) throw new Error('Only a candidate or active playbook is re-checked');
+  if (!fullSha(servingSha) || !HEX.test(servingExecutionDigest ?? '')) throw new Error('The serving engine and its execution digest are required');
+  if (recheck?.dataset_id !== dataset.dataset_id || !UUID.test(recheck?.recheck_epoch_id ?? ''))
+    throw new Error('The re-check status omitted the certified epoch');
+  if ((recheck.rounds ?? []).some((r) => r?.outcome === 'retired')) throw new Error('This playbook lost a re-check and is retired for good');
+  const anchor = recheckAnchor(recheck, recheck.recheck_epoch_id);
+  if (!anchor) throw new Error('The certified epoch has no execution anchor; the evaluator records it at certification');
+  if (anchor.engine_commit === servingSha) return { action: 'certifying-engine', anchor, round: null };
+  if (anchor.execution_digest !== servingExecutionDigest)
+    throw new Error('The serving engine is not execution-identical to the certified engine: a full new certification is required');
+  const round = passedRound(recheck, anchor.epoch_id, servingSha);
+  return { action: round ? 'already-passed' : 'recheck', anchor, round };
+}
+
+/** Whether a v3 playbook's epoch may be served by this engine. */
+export function v3ServingAdmitted(recheck, epochId, servingSha) {
+  const anchor = recheckAnchor(recheck, epochId);
+  if (!anchor) return { admitted: false, reason: 'the evaluated epoch has no execution anchor' };
+  if ((recheck.rounds ?? []).some((r) => r?.outcome === 'retired'))
+    return { admitted: false, reason: 'the playbook lost a re-check and is retired for good' };
+  if (anchor.engine_commit === servingSha) return { admitted: true, via: 'certifying-engine' };
+  const round = passedRound(recheck, epochId, servingSha);
+  return round ? { admitted: true, via: 'recheck', roundId: round.round_id }
+    : { admitted: false, reason: 'the serving engine has not passed the strict re-check; run the recheck operation first' };
 }
 
 async function health() {
@@ -395,6 +442,11 @@ async function rpc(name, body) {
   const value = await response.json().catch(() => null);
   if (!response.ok) throw new Error(`${name} returned HTTP ${response.status}: ${String(value?.message ?? '').slice(0, 200)}`);
   return value;
+}
+async function recheckStatus(id) {
+  const body = await rpc('fn_gto_v31_recheck_status', { p_dataset_id: id });
+  if (body?.dataset_id !== id) throw new Error('Re-check status omitted the exact dataset');
+  return body;
 }
 async function status(id) {
   const body = await rpc('ca_gto_v31_certification_status', { p_dataset_id: id });
@@ -486,6 +538,62 @@ async function runEvaluation(selected, directory, contextPath) {
   if (failure) throw failure;
 }
 
+async function resolveRecheck(selected, directory, contextPath) {
+  const control = resolve(process.env.GITHUB_WORKSPACE, 'control');
+  if (git(control, ['rev-parse', 'HEAD']) !== process.env.GITHUB_SHA) throw new Error('Control checkout differs from the dispatched protected commit');
+  const serving = await healthy();
+  protectedCommit(control, serving.releaseSha);
+  const dataset = await status(selected.dataset);
+  const recheck = await recheckStatus(selected.dataset);
+  const servingDigest = executionDigest(executionClosure(control, serving.releaseSha));
+  const plan = recheckPlan(dataset, recheck, serving.releaseSha, servingDigest);
+  if (plan.action !== 'recheck') {
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Explicit V31 re-check\n\n- Dataset: \`${selected.dataset}\`\n- Serving: \`${serving.releaseSha}\`\n- Nothing to do: **${plan.action}**\n`);
+    throw new Error(`Nothing to re-check: the serving engine is ${plan.action === 'certifying-engine' ? 'the certifying engine itself' : 'already re-checked and passed'}`);
+  }
+  const context = { ...selected, releaseSha: serving.releaseSha, executionDigest: servingDigest,
+    anchor: { epoch_id: plan.anchor.epoch_id, engine_commit: plan.anchor.engine_commit, replay_digest: plan.anchor.replay_digest } };
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(contextPath, JSON.stringify(context) + '\n');
+  appendFileSync(process.env.GITHUB_OUTPUT, `source_sha=${serving.releaseSha}\nreceipt_directory=${directory}\n`);
+  console.log(`Re-check of ${selected.dataset} on serving engine ${serving.releaseSha} (certified on ${plan.anchor.engine_commit}); execution digests identical`);
+}
+
+async function runRecheck(selected, directory, contextPath) {
+  const context = JSON.parse(readFileSync(contextPath, 'utf8'));
+  if (context.dataset !== selected.dataset || context.operation !== 'recheck' || !fullSha(context.releaseSha))
+    throw new Error('Resolved operation identity differs');
+  const receipt = { ...context, startedAt: new Date().toISOString(), outcome: 'unknown', evaluatorExit: null };
+  let failure;
+  try {
+    const runtime = resolve(process.env.GITHUB_WORKSPACE, 'runtime');
+    if (git(runtime, ['rev-parse', 'HEAD']) !== context.releaseSha || git(runtime, ['status', '--porcelain', '--untracked-files=all']))
+      throw new Error('Runtime checkout does not exactly match the clean serving engine commit');
+    protectedCommit(runtime, context.releaseSha);
+    const result = spawnSync(process.execPath, evaluatorArguments(selected.dataset, 'recheck'), {
+      cwd: join(runtime, 'server'), stdio: 'inherit',
+      env: { ...process.env, GIT_COMMIT_SHA: context.releaseSha, EQUITY_GOVERNOR: 'off' },
+    });
+    receipt.evaluatorExit = result.status;
+    const after = await recheckStatus(selected.dataset);
+    const round = (after.rounds ?? []).filter((r) => r.serving_commit === context.releaseSha).at(-1) ?? null;
+    receipt.round = round ? { round_id: round.round_id, outcome: round.outcome, results: round.results } : null;
+    receipt.outcome = round?.outcome ?? 'no-round';
+    if (round?.outcome === 'retired') throw new Error(`STRICT re-check loss: ${round.close_reason}`);
+    if (result.status !== 0 || round?.outcome !== 'passed')
+      throw new Error('The re-check did not pass; an open round keeps every recorded result for a resumed run');
+  } catch (error) {
+    failure = error;
+    receipt.error = error.message;
+  } finally {
+    receipt.finishedAt = new Date().toISOString();
+    writeFileSync(join(directory, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+      `### Explicit V31 re-check\n\n- Dataset: \`${selected.dataset}\`\n- Serving engine: \`${context.releaseSha}\`\n- Certified on: \`${context.anchor.engine_commit}\`\n- Outcome: **${receipt.outcome}**\n- Evaluator exit: \`${receipt.evaluatorExit}\`\n\nA passed round admits this engine; binding and loading run through the separate promote operation.\n`);
+  }
+  if (failure) throw failure;
+}
+
 async function runPromotion(selected, directory) {
   const control = resolve(process.env.GITHUB_WORKSPACE, 'control');
   if (git(control, ['rev-parse', 'HEAD']) !== process.env.GITHUB_SHA) throw new Error('Control checkout differs from the dispatched protected commit');
@@ -502,10 +610,17 @@ async function runPromotion(selected, directory) {
     if (servingBody.liveHorseDecision?.workerCount !== WORKERS) throw new Error('The serving fleet is not eight ready workers');
     protectedCommit(control, plan.epoch.engine_commit);
     protectedCommit(control, serving.releaseSha);
-    const compatibility = closureCompatible(control, plan.epoch.engine_commit, serving.releaseSha);
+    // Contract v3: the strict re-check replaces whole-closure identity. The
+    // serving closure is still proven closed and recorded as provenance.
+    const v3 = dataset.evaluation_contract === RECHECK_CONTRACT;
+    const compatibility = v3 ? closureCompatible(control, serving.releaseSha, serving.releaseSha)
+      : closureCompatible(control, plan.epoch.engine_commit, serving.releaseSha);
     receipt.closure = { pin: compatibility.pin, serving: compatibility.serving, differenceCount: compatibility.differenceCount,
       differences: compatibility.differences };
-    if (!compatibility.compatible)
+    if (v3) {
+      receipt.recheck = v3ServingAdmitted(await recheckStatus(selected.dataset), plan.epoch.epoch_id, serving.releaseSha);
+      if (!receipt.recheck.admitted) throw new Error(`The serving engine may not serve this playbook: ${receipt.recheck.reason}`);
+    } else if (!compatibility.compatible)
       throw new Error('The serving engine is not closure-compatible with the evaluated epoch; evaluate a new audited epoch first');
     if (!servingGateCommit(control, serving.releaseSha))
       throw new Error('The serving engine lacks the V31 serving-binding gate; nothing changed');
@@ -567,6 +682,8 @@ async function main() {
   if (phase === 'resolve' && selected.operation === 'evaluate') return resolveEvaluation(selected, directory, contextPath);
   if (phase === 'run' && selected.operation === 'evaluate') return runEvaluation(selected, directory, contextPath);
   if (phase === 'promote' && selected.operation === 'promote') return runPromotion(selected, directory);
+  if (phase === 'resolve' && selected.operation === 'recheck') return resolveRecheck(selected, directory, contextPath);
+  if (phase === 'run' && selected.operation === 'recheck') return runRecheck(selected, directory, contextPath);
   throw new Error('Unknown qualification phase for this operation');
 }
 
