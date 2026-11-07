@@ -1,0 +1,107 @@
+name: Engine release prequalification
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - '.github/workflows/engine-release-prequalification.yml'
+      - '.github/workflows/stage-engine-release.yml'
+      - '.github/workflows/auto-deploy-hetzner.yml'
+      - '.github/workflows/backup-engine.yml'
+      - 'scripts/ci/read-engine-prequalification.py'
+      - 'scripts/ci/prestage-engine-image.sh'
+      - 'scripts/ci/select-daily-engine.py'
+      - 'scripts/ci/check-engine-doors-exist.mjs'
+      - 'scripts/ci/window-migration-doors.mjs'
+      - 'scripts/ci/record-engine-deploy-attempt.mjs'
+      - 'scripts/ci/record-engine-deploy-exit.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    if: github.ref == 'refs/heads/main'
+    name: Qualify exact engine (${{ matrix.shard }}/4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Use the production Node major
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.23.2'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Compile and test the exact server tree
+        working-directory: server
+        env:
+          RELEASE_TEST_SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TEST_SHARD" =~ ^[1-4]$ ]]
+          npm ci --no-audit --no-fund
+          npm run build
+          # Run this nested historical qualification once before CPU-heavy tests.
+          if [ "$RELEASE_TEST_SHARD" = 1 ]; then
+            npm test -- src/engine/RetainedHistoricalCheckpointQualification.test.ts
+          fi
+          npm test -- --exclude src/engine/RetainedHistoricalCheckpointQualification.test.ts --shard="$RELEASE_TEST_SHARD/4"
+
+  prestage:
+    if: github.ref == 'refs/heads/main'
+    name: Stage immutable candidate and rollback images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Build the exact candidate on the isolated runner
+        run: |
+          set -euo pipefail
+          ENGINE_BUILD_CONTEXT_ROOT="$RUNNER_TEMP/build" ENGINE_BUILD_LOCK_FILE="$RUNNER_TEMP/build.lock" \
+            bash server/scripts/build-engine-image.sh "$GITHUB_WORKSPACE" "$GITHUB_SHA" "club-arena-engine:$GITHUB_SHA"
+      - name: Transfer immutable image and prove local rollback
+        id: stage
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          HOST_KEY: ${{ secrets.HETZNER_HOST_KEY }}
+          SSH_KEY: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          dir="$(mktemp -d "$RUNNER_TEMP/stage.XXXXXXXX")"
+          trap 'rm -rf -- "$dir"' EXIT
+          [[ "$HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          printf '%s\n' "$HOST_KEY" > "$dir/hosts"
+          printf '%s\n' "$SSH_KEY" > "$dir/key"
+          ssh-keygen -l -f "$dir/hosts" >/dev/null
+          image="$(docker image inspect -f '{{.Id}}' "club-arena-engine:$GITHUB_SHA")"
+          size="$(docker image inspect -f '{{.Size}}' "$image")"
+          [[ "$size" =~ ^[1-9][0-9]{0,10}$ ]]
+          tree="$(git rev-parse "$GITHUB_SHA:server")"
+          [[ "$image" =~ ^sha256:[0-9a-f]{64}$ && "$tree" =~ ^[0-9a-f]{40}$ ]]
+          code="$(base64 -w0 scripts/ci/prestage-engine-image.sh)"
+          docker image save "$image" | gzip -1 | timeout -k 5s 660s ssh -i "$dir/key" -o BatchMode=yes \
+            -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
+            -o UserKnownHostsFile="$dir/hosts" -o ConnectTimeout=15 "root@$HOST" \
+            "bash -c \"\$(printf '%s' '$code' | base64 -d)\" bash '$GITHUB_SHA' '$image' '$tree' '$size'" > "$dir/result"
+          python3 - "$dir/result" "$GITHUB_OUTPUT" "$tree" <<'PYTHON'
+          import pathlib, re, sys
+          data = pathlib.Path(sys.argv[1]).read_text()
+          assert re.fullmatch(r'image=sha256:[0-9a-f]{64}\nrollback=sha256:[0-9a-f]{64}\ntree=' + sys.argv[3] + r'\n', data)
+          with open(sys.argv[2], 'a') as output:
+              output.write(data)
+          PYTHON
+      - name: Prepared image ${{ steps.stage.outputs.image }} rollback ${{ steps.stage.outputs.rollback }} tree ${{ steps.stage.outputs.tree }}
+        run: 'true'

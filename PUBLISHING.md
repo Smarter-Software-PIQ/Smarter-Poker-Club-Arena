@@ -55,7 +55,7 @@ Verify the jobs and affected behavior applicable to the assigned change. A clien
 
 **Enforced today.** Protected merge, the exact-SHA Backup certificate, daily admission, in-break database readback and the host seal are enforced by the linked workflows.
 
-**Planned until published and verified.** Completing all four receiver test shards and prestaging the exact image before the 03:30 cutoff, selecting from immutable readiness evidence, and publishing per-table recovery timings require their corresponding control changes. Count each step as enforced only after its protected workflow and receipt are available.
+**Published controls.** The daily selector requires four passing exact-target shards, immutable candidate and rollback image evidence, and a successful Backup certificate by 03:30 Chicago. The protected receiver verifies the selection receipt before handoff. Measure the first natural daily run to establish elapsed times under these controls. [Daytime release preparation](#daytime-release-preparation)
 
 ### Stage an upgrade during the day
 
@@ -84,7 +84,7 @@ Run `node scripts/ops/release-plan.mjs` at any time (an authenticated GitHub tok
 
 The release owner follows [daily staging](.github/workflows/stage-engine-release.yml) and its [receiver](.github/workflows/auto-deploy-hetzner.yml). Use America/Chicago calendar dates across daylight-saving changes. The normal last-hand notice starts at 03:58. Activation requires the 04:00–04:05 window, confirmed drain and freeze, exact Backup success, production database compatibility, a verified rollback source and the full cutover reserve. Keep the serving engine when any required evidence is missing. A late request cannot claim tomorrow's slot. Read the original request and result before retrying an interrupted operation.
 
-When the daily selector is published, use the selection artifact from the original staging run to check what made the cutoff. A rerun must retain the original decision. Use a fresh evidence directory on the external evidence volume and a configured authenticated GitHub CLI. For example, with the Chicago release date and the original staging run ID set in the shell:
+Use the original Stage run’s `daily-engine-selection-YYYY-MM-DD` artifact and its `daily-selection.json` member to check what made the cutoff. A repeat attempt cannot replace the original selection. Use a fresh evidence directory on the external evidence volume and a configured authenticated GitHub CLI. For example, with the Chicago release date and the original staging run ID set in the shell:
 
 ```sh
 gh run download "$stage_run" -R "$repo" -n "daily-engine-selection-$chicago_date" -D "$evidence_dir"
@@ -105,6 +105,8 @@ gh run view 42392485932 -R "$repo" --json status,conclusion,jobs   --jq '{status
 ```
 
 The run IDs above are historical. Live health always describes the currently serving engine. For the release being verified, match the certified SHA, container and instance to the host's immutable per-run result at `/var/lib/club-arena/engine-release-results/<run-id>-<attempt>.json` and to the elected database leader. Confirm maintenance is idle. Use committed hands after thaw to verify eligible cash and tournament tables are advancing and both Lightning pools settle hands when populated. Account for scheduled breaks and empty tables in the census.
+
+Once the gameplay evidence workflow is published, `post-deploy-e2e.yml` records `post-thaw-gameplay-<release-run>-<attempt>/gameplay.json`. For an operator readback, use `scripts/operations/release-gameplay-readback.sh SEALED_RESULT` through the configured read-only psql service. Match the result to the sealed attempt.
 
 On November 7 the original receiver reported failure after the recovery invocation sealed. Reattach the protected observer to the original run using `observe-engine-release.sh --sha "$candidate" --run-id 42389189340-1` on the release host through the scoped observer procedure. Match its `ENGINE_RELEASE_SHA` and `ENGINE_RELEASE_RESULT=sealed` to the receipt and public health. A failed observer alone does not authorize another cutover. [Observer correction](https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9892)
 
@@ -179,3 +181,11 @@ Run the applicable local prechecks on the final candidate before push, as requir
 ## Access prerequisites and continued ownership
 
 Check required provider access, reporter identity and secret-store metadata before dependent hosted work. Follow the owner policy for necessary credential repairs without another human approval. A missing input or tool-required handoff applies only to the steps that require it: continue local checks, integration, other running checks and independent publication yourself. Do not stop at a pending question or intermediate milestone; retain the exact owning operation and finish all executable work. Never print secrets or substitute a different reporter to satisfy a trusted check.
+
+### Daytime release preparation
+
+A protected-main engine push starts `engine-release-prequalification.yml`. Its four server shards exercise the exact candidate, including the retained historical qualification once. A separate runner builds the candidate image from the committed server tree, transfers its digest-only archive to the pinned Hetzner host, and verifies the sealed rollback image is the running container’s image and is present locally. The host rejects a conflicting candidate tag or insufficient disk space. This workflow never dispatches a release or changes a running container.
+
+Use `python3 -B scripts/ci/read-engine-prequalification.py --repo Smarter-Software-PIQ/Smarter-Poker-Club-Arena --target TARGET_SHA --control CONTROL_SHA --cutoff EPOCH` from a checkout with authenticated protected-main history and read-only Actions access. A successful result identifies the production candidate and rollback image IDs, server tree, target and control SHAs, and qualification run and attempt. Exit 3 means the candidate lacks eligible evidence. Exit 2 means the verifier could not establish provenance.
+
+The receiver verifies the selected control against its actual protected control and requires the latest successful qualification to have finished by 03:30 Chicago. Missing shards, a superseding attempt, changed release inputs or a mismatch between the prepared and installed image identities prevents handoff. The exact Backup certificate and fresh production database-door checks remain mandatory. A failed preparation leaves the current engine serving and the candidate waits for a future eligible window.
