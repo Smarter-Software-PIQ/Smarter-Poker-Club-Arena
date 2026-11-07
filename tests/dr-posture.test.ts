@@ -570,7 +570,7 @@ describe('standby seat proof observes the protected interval', () => {
       };
       const result = standbyShell(`
         source '${root('server/standby/standby-trials.sh')}'
-        cmd_run() { :; }; cmd_build() { :; }; wait_live() { :; }; wait_dealing() { :; }; wait_no_break() { :; }
+        cmd_run() { :; }; cmd_build() { :; }; wait_live() { :; }; wait_dealing() { :; }; wait_pretrial_dealing() { :; }
         maintenance_field() { echo 0; }
         health() { echo '${JSON.stringify({ releaseSha: sha, version: sha.slice(0, 8), instanceId: 'candidate-instance', liveness: 'ok' })}'; }
         sleep() { :; }; docker() { if [ "$1" = inspect ]; then case "$*" in *'.Id'*) local n=0; [ ! -f "$STATE_DIR/inspect" ] || n=$(cat "$STATE_DIR/inspect"); echo $((n+1)) > "$STATE_DIR/inspect"; if [ '${mode}' = process-restart ] && [ "$n" -gt 0 ]; then echo '${'d'.repeat(64)} ${sha} true 1'; else echo '${'d'.repeat(64)} ${sha} true 0'; fi;; *) echo '${sha}';; esac; fi; }
@@ -634,6 +634,65 @@ describe('standby adoption authority and timing', () => {
       swap_target_identity '${sha}'
     `);
       expect(result.status === 0, result.stderr + result.stdout).toBe(mode === 'exact');
+    }
+  );
+  it.each(['recovered', 'stale', 'silent', 'stuck', 'unknown', 'db-error', 'restarted'])(
+    'requires open play and a fresh recorded hand before a trial (%s)',
+    (mode) => {
+      const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+        clock=1000
+        swap_target_identity() {
+          if [ '${mode}' = restarted ] && [ "$clock" -gt 1000 ]; then echo new; else echo original; fi
+        }
+        date() { echo "$clock"; }
+        sleep() { clock=$((clock + 100)); }
+        health() {
+          local phase=idle hands=1
+          if [ "$clock" -eq 1000 ]; then hands=0; fi
+          if [ "$clock" -ge 1100 ] && { [ "$clock" -lt 1600 ] || [ '${mode}' = stuck ]; }; then phase=counting_down; fi
+          if [ '${mode}' = unknown ]; then phase=invalid; fi
+          if [ '${mode}' = silent ]; then hands=0; fi
+          printf '{"liveness":"ok","maintenance":{"phase":"%s"},"dealRate":{"handsInWindow":%s}}' "$phase" "$hands"
+        }
+        psql_db() {
+          cat >/dev/null
+          [ '${mode}' != db-error ] || return 1
+          if [ "$clock" -ge 1100 ] && [ "$clock" -lt 1600 ]; then echo maintenance
+          elif [ "$clock" -ge 1700 ] && [ "$3" = since=1601 ] && [ '${mode}' != stale ]; then echo hand
+          else echo waiting; fi
+        }
+        wait_pretrial_dealing fixture
+      `);
+      expect(result.status === 0, result.stderr).toBe(mode === 'recovered');
+    }
+  );
+
+  it.each(['missing', 'malformed', 'unavailable', 'same', 'different'])(
+    'requires the serving baseline and its applicable rehearsal (%s)',
+    (mode) => {
+      const sha = 'a'.repeat(40);
+      const serving =
+        ({ missing: '', malformed: 'invalid', same: sha } as Record<string, string>)[mode] ??
+        'b'.repeat(40);
+      const script = readFileSync(root(STANDBY), 'utf8');
+      const gate = script.slice(
+        script.indexOf('  # The 4 AM cutover rehearsed:'),
+        script.indexOf('  # An unexpected PID1 exit')
+      );
+      const result = standbyShell(`
+        admission() {
+          sha='${sha}'; verdict=pass
+          record() { echo "$1"; verdict=fail; }
+          curl() { echo '{"releaseSha":"${serving}"}'; }
+          unset -f trial_swap || :
+          if [ '${mode}' = different ]; then trial_swap() { echo swap >&2; }; fi
+          ${gate}
+          [ "$verdict" = pass ]
+        }
+        admission
+      `);
+      expect(result.status === 0).toBe(mode === 'same' || mode === 'different');
+      if (mode === 'different') expect(result.stderr).toContain('swap');
     }
   );
   it('consumes health JSON even when the pipeline producer is delayed', () => {
