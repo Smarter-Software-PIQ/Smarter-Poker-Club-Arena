@@ -866,6 +866,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V81'
   ),
   flag(
+    'v83AggressionNeedsBluffs',
+    "2026-11-06 (R7 certification diagnosis) the legacy exploit read's postflop aggression factor above 2.5 sets callDownMod 1.2 (call lighter; every one-pair fold and shade layer gated on callDownMod <= 1 switches off) only when the bettor's big river bets have not shown down mostly as value: 20+ big-bet showdowns (>= 20bb, called) with 75%+ shown strong keep neutral respect (HorseMind.aggressionShownAsValue, receipt v83_aggression_shown_as_value); horse-vs-horse play sits at AF ~2.43 with ~85% of big bets strong, so the ratio-only line flipped on small shifts in how often a player is checked to (R7 league/cash 10x: -5.54 +/- 0.84 bb/100 with the ratio-only read, -0.62 +/- 0.31 with this gate); the credible opponent read (callDownRespectShift), the passive branch (AF < 0.7) and bluffMod / valueThinMod are unchanged; explicit off arm keeps the ratio-only read",
+    'V83'
+  ),
+  flag(
     'planFingerprint',
     '2026-11-05 (Decision Readiness Items 21 and 23, activation of the dormant #9351 helpers) a planned multi-street barrel records, through the accepted-wager effect sink, the next-street state it expects (every live contender hero included; effective stack and pot once the wager is matched once; public information only) and the next street compares the state that actually arrived against it (HorseContinuationPlanInvalidation.evaluateMultiStreetBarrelContinuation): a contender the plan never expected, a stack-to-pot exposure more than 65 percent from the planned one, or a scare card under pressure withdraws the plan before it fires and the decision runs the ordinary ladder; the card class is recorded as the causality tag while V39 keeps its measured authority over good, blank and scare cards; explicit off arm keeps the unconditional plan',
     'Items21And23'
@@ -2072,6 +2077,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (V59 PLO6 river, unpaired board)',
     'a PLO6 river raise on a board with no pair became a call because a random hand beats it 15% of the time or more',
     'V59'
+  ),
+  receipt(
+    'v83_aggression_shown_as_value',
+    'HorseMind.legacyExploit (V83)',
+    'a postflop aggression factor above 2.5 kept neutral respect because 75%+ of the bettor s 20+ big river bets showed down strong (callDownMod stays 1)',
+    'V83'
   ),
   receipt(
     'opponent_exploit_corroborated',

@@ -2556,6 +2556,13 @@ export interface HorseDecideOpts {
    *  turn dominated flushes and paired-board straights. Default on;
    *  explicit false keeps today. */
   v81OmahaBigBetCalls?: boolean;
+  /** V83 (2026-11-06): a postflop aggression factor above 2.5 reads as a
+   *  maniac (callDownMod 1.2, which also switches off every one-pair fold
+   *  and shade layer) only when the bettor's big river bets have NOT shown
+   *  down mostly as value: 20+ big-bet showdowns at 75%+ strong keep
+   *  neutral respect (HorseMind.aggressionShownAsValue). Default on;
+   *  explicit false keeps the ratio-only read. */
+  v83AggressionNeedsBluffs?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -7932,6 +7939,8 @@ export class HorseLogic {
     // progress on every live table.
     const useBarrels = (opts.v7Barrels ?? useV7) && opts.mind !== false;
     const useCounterAdapt = opts.v7CounterAdapt ?? useV7;
+    // V83: an aggression read needs bluffs behind it (HorseMind.legacyExploit).
+    const exploitReadOpts83 = { aggressionNeedsBluffs: opts.v83AggressionNeedsBluffs !== false };
     const useAdaptiveMC = opts.v7AdaptiveMC ?? useV7;
     const useV8 = opts.v8 !== false;
     const useHiLo = (opts.v8HiLo ?? useV8) && vi.isHiLo;
@@ -8058,7 +8067,12 @@ export class HorseLogic {
           }
           if (oppReads && oppReads.some((r) => r?.bigBet)) noteFire('v16_sizecond_bigbet');
         }
-        exploit = HorseMind.tableExploit(player.seat, gs.players, useCounterAdapt);
+        exploit = HorseMind.tableExploit(
+          player.seat,
+          gs.players,
+          useCounterAdapt,
+          exploitReadOpts83
+        );
         const tex = HorseMind.texture(gs.communityCards);
         wetness = tex.wetness;
         blocker = hasVariantBlocker(player.cards, gs.communityCards, vi);
@@ -12186,7 +12200,8 @@ export class HorseLogic {
           // are the same read and this is a no-op; no read, no change.
           if (HorseMind.opponentRead(bettorId)) {
             respect +=
-              exploit.callDownMod - HorseMind.exploit(bettorId, useCounterAdapt).callDownMod;
+              exploit.callDownMod -
+              HorseMind.exploit(bettorId, useCounterAdapt, exploitReadOpts83).callDownMod;
             if (telemetryOn(opts)) noteFire('opponent_exploit_calldown');
           }
           // V16 DEEP READS: a big river bet from a player whose big bets
