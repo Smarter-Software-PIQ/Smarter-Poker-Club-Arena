@@ -2072,13 +2072,13 @@ export default function TournamentDetails({
               className={`${registerClass} late-reg`}
               type="button"
               onClick={() => handleRegister(true)}
-              aria-label={`Late Register (${lateRegCountdown})`}
+              subline={titleCase(lateRegCountdown)}
               disabled={
                 isRegisteringMtt ||
                 isTournamentEntryUnavailable(tournament, tournament.current_players)
               }
             >
-              {`Late Register (${lateRegCountdown})`}
+              Late Register
             </RegisterButton>
             {watchBtn}
           </>
