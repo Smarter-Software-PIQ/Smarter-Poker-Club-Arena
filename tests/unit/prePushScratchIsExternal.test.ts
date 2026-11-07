@@ -132,6 +132,60 @@ describe('the push scratch must be on an external drive', () => {
   });
 });
 
+describe('the default scratch falls back to a short external root', () => {
+  const darwinStart = HOOK.indexOf('\n  case "${TMPDIR:-}" in');
+  const pick = HOOK.slice(darwinStart, HOOK.indexOf('\n  esac', darwinStart) + 7);
+
+  function pickRoot(box: { dir: string; vols: string }, env: Record<string, string>) {
+    return spawnSync('bash', ['-c', `${HELPERS}\n${pick}\necho "TMPDIR=$TMPDIR"`], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${join(box.dir, 'bin')}:${process.env.PATH}`,
+        CA_VOLUMES: box.vols,
+        TMPDIR: '/var/folders/boot/T',
+        CA_PUSH_TMP_ROOT: '',
+        ...env,
+      },
+    });
+  }
+
+  it('uses the second root when the first sits on a stale boot-disk folder', () => {
+    const box = sandbox(['$V/Work/agent-work/extreme', '$V/Work 1']);
+    mkdirSync(join(box.vols, 'Work/agent-work/extreme'), { recursive: true });
+    mkdirSync(join(box.vols, 'Work 1'), { recursive: true });
+    const first = join(box.vols, 'Work/agent-work/.t');
+    const second = join(box.vols, 'Work/agent-work/extreme/.t');
+    const r = pickRoot(box, { CA_PUSH_TMP_ROOTS: `${first} ${second}` });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(`TMPDIR=${second}/p.`);
+    expect(existsSync(first)).toBe(false);
+  });
+
+  it('refuses with every reason when no root is external', () => {
+    const box = sandbox(['$V/Work 1']);
+    mkdirSync(join(box.vols, 'Work/agent-work'), { recursive: true });
+    mkdirSync(join(box.vols, 'Work 1'), { recursive: true });
+    const first = join(box.vols, 'Work/agent-work/.t');
+    const second = join(box.vols, 'Work/agent-work/extreme/.t');
+    const r = pickRoot(box, { CA_PUSH_TMP_ROOTS: `${first} ${second}` });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('external scratch unavailable for this run');
+    expect(r.stderr).toContain(`${first} is on the boot disk`);
+    expect(r.stderr).toContain(`${second} is on the boot disk`);
+  });
+
+  it('treats an explicit CA_PUSH_TMP_ROOT as the only candidate', () => {
+    const box = sandbox(['$V/Work/agent-work/extreme']);
+    mkdirSync(join(box.vols, 'Work/agent-work/extreme'), { recursive: true });
+    const r = pickRoot(box, {
+      CA_PUSH_TMP_ROOT: join(box.vols, 'Work/agent-work/.t'),
+      CA_PUSH_TMP_ROOTS: join(box.vols, 'Work/agent-work/extreme/.t'),
+    });
+    expect(r.status).toBe(1);
+  });
+});
+
 describe('the hook wires the checks in', () => {
   it('refuses up front, marks its run, and names a vanished scratch at exit', () => {
     expect(HOOK).toContain('BLOCKED: external scratch unavailable for this run. $ca_why');

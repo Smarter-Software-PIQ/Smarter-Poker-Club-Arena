@@ -205,11 +205,24 @@ if [ "$(uname -s)" = Darwin ]; then
   case "${TMPDIR:-}" in
     /Volumes/*) ;;
     *)
-      CA_PUSH_TMP_ROOT="${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t}"
-      if ! ca_why=$(ca_scratch_problem "$CA_PUSH_TMP_ROOT"); then
+      # An explicit CA_PUSH_TMP_ROOT is the only candidate. Otherwise take the
+      # first short external root: SmarterWork itself, then the SSD2-Work
+      # volume mounted inside it, which stays reachable at a short path even
+      # while SmarterWork is under a renamed mountpoint.
+      ca_why=""
+      CA_PUSH_TMP_PICKED=""
+      for ca_root in ${CA_PUSH_TMP_ROOT:-${CA_PUSH_TMP_ROOTS:-/Volumes/SmarterWork/agent-work/.t /Volumes/SmarterWork/agent-work/extreme-capacity/.t}}; do
+        if ca_root_why=$(ca_scratch_problem "$ca_root"); then
+          CA_PUSH_TMP_PICKED=$ca_root
+          break
+        fi
+        ca_why="${ca_why:+$ca_why }$ca_root_why"
+      done
+      if [ -z "$CA_PUSH_TMP_PICKED" ]; then
         echo "[club-arena pre-push] BLOCKED: external scratch unavailable for this run. $ca_why" >&2
         exit 1
       fi
+      CA_PUSH_TMP_ROOT=$CA_PUSH_TMP_PICKED
       if ! mkdir -p "$CA_PUSH_TMP_ROOT" || ! CA_PUSH_TMP=$(mktemp -d "$CA_PUSH_TMP_ROOT/p.XXXXXX"); then
         echo "[club-arena pre-push] BLOCKED: could not create a run directory under $CA_PUSH_TMP_ROOT." >&2
         exit 1
