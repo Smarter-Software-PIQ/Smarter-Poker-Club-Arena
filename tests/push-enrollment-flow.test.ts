@@ -62,17 +62,39 @@ function installBrowser(
     legacy?: boolean;
     permission?: NotificationPermission;
     subscribeStatus?: number;
+    /** An endpoint this browser still holds from an earlier enrollment. */
+    held?: string;
+    /** Endpoints the server answers 410 endpoint_expired for. */
+    expired?: string[];
   } = {}
 ) {
   const order: string[] = [];
   const fresh = makeSubscription(NEW_ENDPOINT, order);
   const legacy = opts.legacy ? makeSubscription(LEGACY_ENDPOINT, order) : null;
+  let current: ReturnType<typeof makeSubscription> | null = opts.held
+    ? makeSubscription(opts.held, order)
+    : null;
+  const held = current;
+  if (held) {
+    held.unsubscribe = vi.fn(async () => {
+      order.push(`unsubscribe:${held.endpoint}`);
+      current = null;
+      return true;
+    });
+  }
   const pushReg = {
     scope: 'https://smarter.poker/push/',
     active: {},
     installing: null,
     waiting: null,
-    pushManager: { getSubscription: vi.fn(async () => null), subscribe: vi.fn(async () => fresh) },
+    pushManager: {
+      getSubscription: vi.fn(async () => current),
+      subscribe: vi.fn(async () => {
+        if (opts.held) order.push('subscribe');
+        current = current ?? fresh;
+        return current;
+      }),
+    },
   };
   const rootReg = {
     scope: 'https://smarter.poker/',
@@ -97,6 +119,14 @@ function installBrowser(
     }
     if (String(url).includes('/api/push/subscribe')) {
       order.push(`${init?.method}:subscribe`);
+      const sent = init?.body ? (JSON.parse(String(init.body)) as { endpoint?: string }) : {};
+      if (init?.method === 'POST' && opts.expired?.includes(String(sent.endpoint))) {
+        return {
+          ok: false,
+          status: 410,
+          json: async () => ({ error: 'expired', code: 'endpoint_expired' }),
+        };
+      }
       const status = opts.subscribeStatus ?? 200;
       return {
         ok: status === 200,
@@ -109,7 +139,7 @@ function installBrowser(
   });
   vi.stubGlobal('fetch', fetchMock);
   localStorage.setItem('smarter-poker-auth', JSON.stringify({ access_token: signedInToken() }));
-  return { order, fresh, legacy, register, fetchMock, requestPermission };
+  return { order, fresh, legacy, held, pushReg, register, fetchMock, requestPermission };
 }
 
 const posted = (fetchMock: ReturnType<typeof vi.fn>) =>
@@ -315,5 +345,51 @@ describe('when a player may be asked', () => {
     };
     expect(readNudgeState(throwing, PLAYER).ledger).toEqual(EMPTY);
     expect(() => writeLedger(throwing, PLAYER, EMPTY)).not.toThrow();
+  });
+});
+
+/**
+ * A PHONE THE PUSH SERVICE RETIRED HEALS ITSELF (2026-11-07).
+ *
+ * Dan, 2026-11-07: "i still am not getting any push notifications to my phone".
+ * Apple answered 410 for his iPhone endpoint on Nov 2 and the dispatcher retired
+ * the row. The World Hub client learned to rotate on Nov 5 (#2676); this client
+ * did not. Every open of Club Arena re-sent the dead endpoint the phone still
+ * held, the server answered 410 endpoint_expired, and the repair stopped there
+ * as a generic error. No iPhone enrollment was saved again.
+ */
+describe('a device whose endpoint the push service killed', () => {
+  const DEAD = 'https://web.push.apple.com/dead-since-nov-2';
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  for (const repairOnly of [true, false]) {
+    it(`drops the dead endpoint, mints a fresh one and saves it linked to the dead one (${repairOnly ? 'silent repair' : 'tap'})`, async () => {
+      const h = installBrowser({ held: DEAD, expired: [DEAD] });
+      const { enablePush } = await import('../src/lib/pushClient');
+
+      const result = await enablePush(repairOnly ? { repairOnly: true } : {});
+
+      expect(result).toMatchObject({ ok: true });
+      const bodies = posted(h.fetchMock);
+      expect(bodies.map((b) => b.endpoint)).toEqual([DEAD, NEW_ENDPOINT]);
+      expect(bodies[1].replacesEndpoint).toBe(DEAD);
+      expect(bodies[1].repairOnly).toBe(repairOnly ? true : undefined);
+      expect(h.order.indexOf(`unsubscribe:${DEAD}`)).toBeLessThan(h.order.lastIndexOf('subscribe'));
+    });
+  }
+
+  it('never claims success when the browser hands back the same dead endpoint', async () => {
+    const h = installBrowser({ held: DEAD, expired: [DEAD] });
+    h.held!.unsubscribe = vi.fn(async () => true); // the browser refuses to let go
+    const { enablePush } = await import('../src/lib/pushClient');
+
+    const result = await enablePush({ repairOnly: true });
+
+    expect(result.ok).toBe(false);
+    expect(posted(h.fetchMock).map((b) => b.endpoint)).toEqual([DEAD]);
   });
 });
