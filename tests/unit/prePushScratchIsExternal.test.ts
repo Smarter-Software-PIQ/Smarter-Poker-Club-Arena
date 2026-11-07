@@ -144,7 +144,7 @@ describe('the default scratch falls back to a short external root', () => {
         ...process.env,
         PATH: `${join(box.dir, 'bin')}:${process.env.PATH}`,
         CA_VOLUMES: box.vols,
-        TMPDIR: join(box.dir, 'boot-T'),
+        TMPDIR: 'boot-drive/T',
         CA_PUSH_TMP_ROOT: '',
         ...env,
       },
