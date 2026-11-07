@@ -10,7 +10,7 @@ Dan, 14:27 Chicago, after the 13:20 Lightning join refusals: build the resume ti
 
 ## The fix
 
-One source: `fn_maintenance_break_state()`, the database's own public read of the break row and the release boundary (the same two inputs as `fn_entry_purchases_frozen` / `fn_platform_frozen`). No schema change was needed.
+The database decides, and the app asks it two things: `fn_entry_purchases_frozen()` (the entry guard the triggers call) says frozen or open, so a stale break row the guard ignores can never hold Join shut; `fn_maintenance_break_state()` says until when. If the guard cannot be read (signed out, network), the break row alone is used. No schema change was needed.
 
 - `src/utils/entryFreeze.ts` (pure): the row as a freeze (end = read time + `remaining_ms`, immune to device clock skew), the Join label ("Opens In 0:47" / "Opening Shortly"), and the refusal sentence ("Seats Reopen In About 47 Seconds").
 - `src/hooks/useEntryFreeze.ts`: one shared store. Reads on first mount, tab return, coming online, every lobby maintenance broadcast, after any refusal, and once at the stated end. While the end is uncertain it reads again every 15 seconds so a missed broadcast cannot hold Join shut. It never polls while entry is open and never decides admission; the database still does.

@@ -1,6 +1,8 @@
 /**
  * The live entry freeze, shared by every Join surface (Dan 2026-11-07).
- * See src/utils/entryFreeze.ts for why the database is the authority.
+ * See src/utils/entryFreeze.ts for why the database is the authority:
+ * `fn_entry_purchases_frozen()` (the entry guard itself) says frozen or open,
+ * `fn_maintenance_break_state()` says until when.
  *
  * One store for the whole app. It reads `fn_maintenance_break_state()` when
  * the first surface mounts, when the tab returns or the device comes back
@@ -18,7 +20,7 @@ import { realtimeChannelService } from '../services/RealtimeChannelService';
 import { PLATFORM_FROZEN_MESSAGE, isPlatformFrozenError } from '../utils/platformFrozen';
 import {
   ENTRY_OPEN,
-  entryFreezeFromRow,
+  entryFreezeFrom,
   entryFreezeLabel,
   platformFrozenMessageUntil,
   secondsUntil,
@@ -74,8 +76,15 @@ export function readEntryFreeze(): Promise<EntryFreeze> {
   }
   inFlight = (async () => {
     try {
-      const { data, error } = await supabase.rpc('fn_maintenance_break_state');
-      if (!error) publish(entryFreezeFromRow(data, serverNow()));
+      const [guard, row] = await Promise.all([
+        supabase.rpc('fn_entry_purchases_frozen'),
+        supabase.rpc('fn_maintenance_break_state'),
+      ]);
+      const verdict =
+        !guard.error && typeof guard.data === 'boolean' ? (guard.data as boolean) : null;
+      if (verdict === false) publish(ENTRY_OPEN);
+      else if (!row.error || verdict === true)
+        publish(entryFreezeFrom(verdict, row.error ? null : row.data, serverNow()));
     } catch {
       /* the door is still the authority; keep what we knew */
     }

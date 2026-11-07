@@ -37,9 +37,11 @@ vi.mock('../../src/lib/supabase', () => ({
     /* No maintenance break: the page's freeze read (useEntryFreeze, the
        banner) sees open entry; every other call goes to this file's mock. */
     rpc: (...a: unknown[]) =>
-      a[0] === 'fn_maintenance_break_state'
-        ? Promise.resolve({ data: freeze.rows, error: null })
-        : rpc(...a),
+      a[0] === 'fn_entry_purchases_frozen'
+        ? Promise.resolve({ data: null, error: { message: 'guard not read in this test' } })
+        : a[0] === 'fn_maintenance_break_state'
+          ? Promise.resolve({ data: freeze.rows, error: null })
+          : rpc(...a),
     from: (table: string) => {
       if (table === 'tables') tablesRead();
       const chain: Record<string, unknown> = {};

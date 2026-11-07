@@ -11,11 +11,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
+  /** The entry guard; unread (an error) unless a test says otherwise. */
+  guard: vi.fn(),
   now: 1_794_080_000_000,
   onMaintenance: null as null | ((payload: unknown) => void),
   maintenance: { active: false, phase: 'idle', breakEndsAtMs: null as number | null, reason: '' },
 }));
-vi.mock('../src/lib/supabase', () => ({ supabase: { rpc: mocks.rpc } }));
+vi.mock('../src/lib/supabase', () => ({
+  supabase: {
+    rpc: (name: string) => (name === 'fn_entry_purchases_frozen' ? mocks.guard() : mocks.rpc(name)),
+  },
+}));
 vi.mock('../src/utils/serverClock', () => ({ serverNow: () => mocks.now }));
 vi.mock('../src/services/RealtimeChannelService', () => ({
   realtimeChannelService: {
@@ -33,6 +39,7 @@ vi.mock('../src/hooks/useMaintenanceBreak', () => ({
 
 import {
   ENTRY_OPEN,
+  entryFreezeFrom,
   entryFreezeFromRow,
   entryFreezeLabel,
   platformFrozenMessageUntil,
@@ -57,6 +64,8 @@ const frozenFor = (ms: number | null) => ({
 beforeEach(() => {
   __resetEntryFreezeForTests();
   mocks.rpc.mockReset();
+  mocks.guard.mockReset();
+  mocks.guard.mockResolvedValue({ data: null, error: { message: 'not read' } });
   mocks.now = NOW;
   Object.assign(mocks.maintenance, { active: false, phase: 'idle', breakEndsAtMs: null });
 });
@@ -78,6 +87,17 @@ describe('the database row is the freeze', () => {
       frozen: true,
       endsAtMs: null,
     });
+  });
+
+  it('the entry guard decides frozen or open; the break row only says until when', () => {
+    const row = [{ remaining_ms: 47_000 }];
+    // A stale row the guard ignores never holds Join shut.
+    expect(entryFreezeFrom(false, row, NOW)).toEqual(ENTRY_OPEN);
+    expect(entryFreezeFrom(true, row, NOW)).toEqual({ frozen: true, endsAtMs: NOW + 47_000 });
+    expect(entryFreezeFrom(true, [], NOW)).toEqual({ frozen: true, endsAtMs: null });
+    // Guard unreadable (signed out, network): the row alone, as before.
+    expect(entryFreezeFrom(null, row, NOW)).toEqual({ frozen: true, endsAtMs: NOW + 47_000 });
+    expect(entryFreezeFrom(null, [], NOW)).toEqual(ENTRY_OPEN);
   });
 
   it('the Join label counts down, or says shortly, and is absent when open', () => {
@@ -114,6 +134,18 @@ describe('the shared store reads the door', () => {
     expect(await withFreezeTime('This Game Is Not Taking Players.')).toBe(
       'This Game Is Not Taking Players.'
     );
+  });
+
+  it('the store asks the guard itself, so a stale break row reads as open', async () => {
+    mocks.guard.mockResolvedValue({ data: false, error: null });
+    mocks.rpc.mockResolvedValue(frozenFor(30_000));
+    expect(await readEntryFreeze()).toEqual(ENTRY_OPEN);
+    mocks.guard.mockResolvedValue({ data: true, error: null });
+    mocks.rpc.mockResolvedValue({ data: [], error: null });
+    expect(await readEntryFreeze()).toEqual({ frozen: true, endsAtMs: null });
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: 'down' } });
+    mocks.guard.mockResolvedValue({ data: true, error: null });
+    expect((await readEntryFreeze()).frozen).toBe(true);
   });
 
   it('a failed read keeps what was known and never claims the door is open', async () => {

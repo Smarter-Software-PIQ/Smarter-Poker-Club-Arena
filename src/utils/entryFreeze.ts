@@ -51,6 +51,24 @@ export function entryFreezeFromRow(data: unknown, readAt: number): EntryFreeze {
   };
 }
 
+/**
+ * The guard's own answer decides frozen-or-open; the break row only supplies
+ * the end. `fn_entry_purchases_frozen()` is the function the entry triggers
+ * call, so a stale or malformed break row that the guard ignores can never
+ * hold a Join door shut. When the guard cannot be read (signed out, a
+ * network fault) the break row alone is used, as before.
+ */
+export function entryFreezeFrom(
+  guard: boolean | null,
+  breakRow: unknown,
+  readAt: number
+): EntryFreeze {
+  if (guard === false) return ENTRY_OPEN;
+  const fromRow = entryFreezeFromRow(breakRow, readAt);
+  if (guard === true && !fromRow.frozen) return { frozen: true, endsAtMs: null };
+  return fromRow;
+}
+
 /** Whole seconds until `endsAtMs`, never negative. */
 export function secondsUntil(endsAtMs: number, now: number): number {
   return Math.max(0, Math.ceil((endsAtMs - now) / 1000));
