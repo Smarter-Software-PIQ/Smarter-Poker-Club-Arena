@@ -57,6 +57,30 @@ export const START_RESERVE_SECONDS = 150;
 export const COMMIT_RESERVE_SECONDS = 100;
 export const MAINTENANCE_TIME_ZONE = 'America/Chicago';
 
+/**
+ * HOW LONG THE FREEZE MUST HAVE SETTLED BEFORE THE ONE ATTEMPT (2026-11-07).
+ *
+ * On 2026-11-07 the 04:00 install took its single attempt 3 s after the break
+ * opened and died on `55P03 canceling statement due to lock timeout`, so all
+ * six queued migrations stayed queued and the engine release was refused for
+ * the two functions the first of them defines.
+ *
+ * The tables were not the problem: engine_maintenance_break_log shows that
+ * break ready_for_restart_at 0.363 s after break_started_at, with
+ * unparked_at_countdown 0 and peak_unparked 0. The problem is the minute
+ * boundary. This database runs about twenty `* * * * *` cron jobs, so the
+ * instant a break opens on the hour is also the instant that burst fires, and
+ * an ALTER TABLE wanting ACCESS EXCLUSIVE queues behind any one of them - and
+ * blocks everything arriving after it - with only a 1 s lock_timeout to win in.
+ *
+ * So the attempt waits for the per-minute burst to drain. This is not a retry
+ * and not a new schedule: still one bounded wait for one window, still one
+ * attempt per file, still no sleep inside the transaction. It only moves that
+ * single attempt off :00. START_RESERVE_SECONDS leaves the admissible start at
+ * break_started_at + 150 s, so a 20 s settle still leaves over two minutes.
+ */
+export const WINDOW_SETTLE_SECONDS = 20;
+
 const ANNOTATION_LINE = /^--[ \t]*@install-window:[ \t]*(\S*)[ \t]*$/gm;
 
 /**
@@ -191,6 +215,8 @@ export function windowOpenPredicate(reserveSeconds) {
        AND b.break_started_at IS NOT NULL
        AND b.break_ends_at IS NOT NULL
        AND b.break_started_at <= clock_timestamp()
+       AND clock_timestamp() - b.break_started_at
+           >= make_interval(secs => ${WINDOW_SETTLE_SECONDS})
        AND b.break_ends_at - clock_timestamp() >= make_interval(secs => ${r})
        AND (b.break_started_at AT TIME ZONE '${MAINTENANCE_TIME_ZONE}')::time >= time '03:55'
        AND (b.break_started_at AT TIME ZONE '${MAINTENANCE_TIME_ZONE}')::time < time '04:05'))`;
