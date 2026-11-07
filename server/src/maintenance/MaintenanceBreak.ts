@@ -310,6 +310,13 @@ export interface MaintenanceBreakDeps {
   onAnnounced?: () => void;
   onFinancialDrainChanged?: () => void;
   financialPayoutActive?: () => boolean;
+  /**
+   * Lightning (fast-fold) hands still being dealt in this process. They have
+   * no table engine of their own, so `engines()` cannot see them; the restart
+   * gate waits for this to reach zero as it waits for every table to park
+   * (Dan 2026-11-06: a break never starts in the middle of a hand).
+   */
+  lightningHandsInFlight?: () => number;
   /** Every live table engine, cash and tournament alike. */
   engines(): Iterable<[string, PausableTableEngine]>;
   /** Operator intent joins the existing hourly owner; no new scheduler. */
@@ -3156,9 +3163,20 @@ export class MaintenanceBreak {
     if (this.phase !== 'counting_down') return false;
     if (!this.durableConfirmed) return false;
     if (this.unparkedTables().length > 0) return false;
+    if (this.lightningHandsInFlight() > 0) return false;
     const ready = this.remainingMs() >= MaintenanceBreak.MIN_REMAINING_FOR_RESTART_MS;
     if (ready && this.readyForRestartAtMs === null) this.readyForRestartAtMs = this.now();
     return ready;
+  }
+
+  /** Lightning hands still in the air; an unreadable count is treated as one (not proof of none). */
+  lightningHandsInFlight(): number {
+    try {
+      const n = this.deps.lightningHandsInFlight?.() ?? 0;
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    } catch {
+      return 1;
+    }
   }
 
   /** Published on /health. */
@@ -3179,6 +3197,7 @@ export class MaintenanceBreak {
             : nextMaintenanceAnnouncement(this.now()),
         hourlyCashFreeze: MAINTENANCE_FREQUENCY === 'phase1-hourly',
       },
+      lightningHandsInFlight: this.isActive() ? this.lightningHandsInFlight() : 0,
       recoveryWindowCauseRequired: true,
       recoveryWindowProtocol: this.deps.assertRecoveryWindowContract
         ? 'engine-recovery-window-v1'

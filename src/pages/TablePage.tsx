@@ -693,6 +693,7 @@ import {
 } from '../lib/tableActionDecision';
 import { safeErrorMessage, shouldSurfaceError } from '../utils/safeErrorMessage';
 import { serverNow } from '../utils/serverClock';
+import { breakCountdownKey, shouldResyncAtBreakCountdown } from '../lib/breakCountdownResync';
 import { visibleTimeBankAllowance } from '../utils/timeBankAllowanceView';
 // Dan 2026-08-21, item 15: hero's live hand strength under their seat box.
 import { bestFive, cardKey } from '../utils/handEvaluator';
@@ -5663,6 +5664,23 @@ function LiveTablePage({
   } = useTableTournament({ tournamentId: tableState.tournamentId, engineStatus: engineWsStatus });
   const refreshTournamentBreakRef = useRef(refreshTournamentBreak);
   refreshTournamentBreakRef.current = refreshTournamentBreak;
+  /* A BREAK'S COUNTDOWN STARTS ON A CLEAN FELT (Dan 2026-11-06). The countdown
+     begins only after every table has finished its hand and parked; one
+     authoritative snapshot when it first becomes known clears a felt that
+     missed the hand-free broadcast. See src/lib/breakCountdownResync.ts. */
+  const breakCountdownResyncKeyRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!shouldResyncAtBreakCountdown(breakCountdownResyncKeyRef.current, tournamentBreak)) return;
+    breakCountdownResyncKeyRef.current = breakCountdownKey(tournamentBreak);
+    requestEngineSnapshot();
+  }, [tournamentBreak, requestEngineSnapshot]);
+  const maintenanceCountdownResyncKeyRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!shouldResyncAtBreakCountdown(maintenanceCountdownResyncKeyRef.current, maintenanceBreak))
+      return;
+    maintenanceCountdownResyncKeyRef.current = breakCountdownKey(maintenanceBreak);
+    requestEngineSnapshot();
+  }, [maintenanceBreak, requestEngineSnapshot]);
   /**
    * Orders asynchronous add-on presentations. A bootstrap read can be waiting
    * on the wallet while a thaw broadcast carries a later deadline, or while
