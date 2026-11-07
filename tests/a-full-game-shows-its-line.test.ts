@@ -47,9 +47,12 @@ describe('the count is live (2026-11-07)', () => {
   );
   it('every list change broadcasts its game, and the board re-reads on it', () => {
     expect(sql).toContain("'changed', 'cash-game-waitlist', false");
-    expect(sql).toContain('AFTER INSERT OR DELETE OR UPDATE OF status ON public.cash_game_waitlist');
+    expect(sql).toContain(
+      'AFTER INSERT OR DELETE OR UPDATE OF status ON public.cash_game_waitlist'
+    );
     expect(page).toContain(".channel('cash-game-waitlist')");
     expect(page).toContain("on('broadcast', { event: 'changed' }");
-    expect(page).toContain('supabase.removeChannel(channel)');
+    expect(page).toContain('if (channel) void supabase.removeChannel(channel)');
+    expect(page).toContain("typeof supabase.channel === 'function'");
   });
 });

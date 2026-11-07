@@ -4848,23 +4848,33 @@ function ClubHomePageContent({
        The poll stays as the net for a dropped socket, at a minute. */
     const watched = new Set(ids);
     let pending: number | null = null;
-    const channel = supabase
-      .channel('cash-game-waitlist')
-      .on('broadcast', { event: 'changed' }, (message: { payload?: { game_id?: unknown } }) => {
-        const gameId = message?.payload?.game_id;
-        if (typeof gameId !== 'string' || !watched.has(gameId) || pending !== null) return;
-        pending = window.setTimeout(() => {
-          pending = null;
-          load();
-        }, 750);
-      })
-      .subscribe();
-    const timer = window.setInterval(load, 60_000);
+    /* A client with no realtime (a stub, an old SDK) keeps the poll alone at
+       the old 20 s; the subscription is a speed-up, never a dependency. */
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      if (typeof supabase.channel === 'function') {
+        channel = supabase
+          .channel('cash-game-waitlist')
+          .on('broadcast', { event: 'changed' }, (message: { payload?: { game_id?: unknown } }) => {
+            const gameId = message?.payload?.game_id;
+            if (typeof gameId !== 'string' || !watched.has(gameId) || pending !== null) return;
+            pending = window.setTimeout(() => {
+              pending = null;
+              load();
+            }, 750);
+          })
+          .subscribe();
+      }
+    } catch (e) {
+      reportError(e, 'ClubHomePage.gameWaitlistChannel');
+      channel = null;
+    }
+    const timer = window.setInterval(load, channel ? 60_000 : 20_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       if (pending !== null) window.clearTimeout(pending);
-      void supabase.removeChannel(channel);
+      if (channel) void supabase.removeChannel(channel);
     };
   }, [clusterGameKey]);
   const waitingFor = useCallback(
