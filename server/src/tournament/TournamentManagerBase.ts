@@ -329,6 +329,13 @@ const drainedF06OriginalsRefusals = new WeakMap<TournamentManagerBase, string>()
  */
 const seatMoveQuarantineRefusals = new WeakMap<TournamentManagerBase, string>();
 
+export interface SatelliteBoundaryBlocker {
+  tableId: string;
+  engine?: ServerTableEngine;
+  original?: { permit_id: string; hand_number: string };
+  wake: 'table_admission' | 'dealer_admission' | 'hand_completion' | 'original_custody_proof';
+}
+
 export abstract class TournamentManagerBase {
   protected tournamentId: string;
   protected gameServer: GameServer;
@@ -2208,7 +2215,11 @@ export abstract class TournamentManagerBase {
     return Math.max(0, now - this.satelliteQualifierBoundaryHeldSinceMs);
   }
 
-  protected noteSatelliteBoundaryPending(reason: string, now: number = Date.now()): void {
+  protected noteSatelliteBoundaryPending(
+    reason: string,
+    now: number = Date.now(),
+    blockedTable?: SatelliteBoundaryBlocker
+  ): void {
     this.satelliteQualifierBoundaryLastPendingReason = reason;
     const heldMs = this.satelliteBoundaryHeldMs(now);
     const bound = reason.endsWith('_hand_in_flight')
@@ -2232,8 +2243,20 @@ export abstract class TournamentManagerBase {
       `Satellite ${this.tournamentId} has every table parked behind its qualifier boundary for ${seconds} s ` +
       `and the sweep cannot decide the field: ${reason}. No hand deals until this is resolved.`;
     const dedupeKey = `satellite-boundary-held:${this.tournamentId}`;
+    // The page samples its actual blocker. A replacement in GameServer cannot
+    // supply a permit for the dealer observed during the park.
+    const permit = blockedTable?.engine?.getF06RetainedPermit();
     const context = {
       tournament_id: this.tournamentId,
+      engine_instance: INSTANCE_ID,
+      manager_lease_generation: this.tournamentLeaseGeneration,
+      blocked_table_id: blockedTable?.tableId ?? null,
+      expected_wake: blockedTable?.wake ?? null,
+      expected_original_permit_id: blockedTable?.original?.permit_id ?? null,
+      expected_original_hand_number: blockedTable?.original?.hand_number ?? null,
+      blocked_permit_id: permit?.binding.permit_id ?? null,
+      blocked_hand_number: permit?.binding.hand_number ?? null,
+      original_lease_generation: permit?.binding.lease_generation ?? null,
       held_seconds: seconds,
       held_since: new Date(this.satelliteQualifierBoundaryHeldSinceMs).toISOString(),
       pending_reason: reason,
@@ -4057,7 +4080,14 @@ export abstract class TournamentManagerBase {
       engine.setSeatBounties?.(this.seatHeads.current());
       this.requestSeatHeads();
     }
+    // Both registries can move while settlement or a physical park is in flight.
+    // A late edge belongs to its original dealer, never its successor.
+    const ownsEdge = (tableId: string) =>
+      this.isRunning() &&
+      this.tableEngines.get(tableId) === engine &&
+      this.gameServer.getTableEngine(tableId) === engine;
     engine.onHandComplete((_tableId, finalStacks) => {
+      if (!ownsEdge(_tableId)) return;
       this.requestSeatHeads();
       const recovered = this.recoveredOriginalAdmissions.get(_tableId);
       if (
@@ -4073,9 +4103,6 @@ export abstract class TournamentManagerBase {
       this.lastObservedHandCompletedAtMs = Date.now();
       if (finalStacks.some((player) => Number(player.stack) <= 0)) {
         if (this.isCohortSatellite()) {
-          const tableId = this.tableIdForManagedEngine(engine);
-          if (!tableId || !this.isRunning() || this.gameServer.getTableEngine(tableId) !== engine)
-            return;
           // Every zero stack is counted before the decision, so a bust on
           // another table that lands next sees this one already subtracted.
           this.satelliteBustsReported += finalStacks.filter(
@@ -4100,6 +4127,7 @@ export abstract class TournamentManagerBase {
       }
     });
     engine.onPauseReady((parkedTableId) => {
+      if (!ownsEdge(parkedTableId)) return;
       // A dealer parked on a hold this manager armed and no longer owns is
       // released here, by the authority that armed it. See the method.
       this.releaseManagedTablePauseIfUnowned(engine);

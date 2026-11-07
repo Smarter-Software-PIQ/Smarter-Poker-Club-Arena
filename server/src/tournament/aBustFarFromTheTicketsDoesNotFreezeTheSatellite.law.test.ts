@@ -60,6 +60,7 @@ function satellite() {
   m.horseRebuyOfferMayHaveOpened = vi.fn();
   m.requestSeatHeads = vi.fn();
   const wakes = new Map<string, Wake>();
+  const parks = new Map<string, (id: string) => void>();
   const engines = new Map<string, any>();
   for (const tableId of TABLES) {
     const engine: any = {
@@ -67,7 +68,7 @@ function satellite() {
       parkForTerminalCloseout: vi.fn(async () => true),
       releaseTerminalCloseoutPause: vi.fn(),
       onHandComplete: (cb: Wake) => wakes.set(tableId, cb),
-      onPauseReady: vi.fn(),
+      onPauseReady: (cb: (id: string) => void) => parks.set(tableId, cb),
       onRestartRequired: vi.fn(),
     };
     engines.set(tableId, engine);
@@ -82,7 +83,7 @@ function satellite() {
       tableId,
       Array.from({ length: zeros }, (_, i) => ({ user_id: id(500 + i), stack: 0 }))
     );
-  return { m, engines, bust };
+  return { m, engines, bust, parks };
 }
 
 afterEach(() => {
@@ -93,6 +94,32 @@ afterEach(() => {
 });
 
 describe('a bust far from the tickets does not freeze the satellite', () => {
+  it.each(['manager replacement', 'server replacement', 'retired manager'] as const)(
+    'ignores delayed hand and park edges after %s',
+    (handoff) => {
+      const { m, engines, bust, parks } = satellite();
+      const id = TABLES[0];
+      const current = new Map(engines);
+      m.gameServer.getTableEngine = (tableId: string) => current.get(tableId);
+      m.releaseManagedTablePauseIfUnowned = vi.fn();
+      m.claimGapBalanceAtBoundary = vi.fn();
+      const outgoing = engines.get(id);
+      outgoing.awaitsTournamentMoveClaim = () => true;
+      if (handoff === 'manager replacement') m.tableEngines.set(id, {});
+      if (handoff === 'server replacement') current.set(id, {});
+      if (handoff === 'retired manager') m.isRunning = () => false;
+      const previousCompletion = m.lastObservedHandCompletedAtMs;
+      bust(id);
+      parks.get(id)!(id);
+      expect(m.lastObservedHandCompletedAtMs).toBe(previousCompletion);
+      expect(m.requestSeatHeads).not.toHaveBeenCalled();
+      expect(m.requestEliminationSweep).not.toHaveBeenCalled();
+      expect(m.releaseManagedTablePauseIfUnowned).not.toHaveBeenCalled();
+      expect(m.claimGapBalanceAtBoundary).not.toHaveBeenCalled();
+      expect(m.satelliteQualifierBoundaryPending).toBe(false);
+    }
+  );
+
   it('holds every bust before any authoritative answer exists', () => {
     const { m, engines, bust } = satellite();
     bust(TABLES[0]);

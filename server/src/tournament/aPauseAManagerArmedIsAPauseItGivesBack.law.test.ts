@@ -210,6 +210,7 @@ function managerFixture() {
   bindTournamentDataAuthorityMethods(AUTH, manager);
   managers.push(manager);
   const live = manager as any;
+  live.gameServer.getTableEngine = (id: string) => live.tableEngines.get(id);
   live.running = true;
   // What start()/resume() open. Every lifecycle-fenced call reads this.
   live.lifecycleEpoch.begin();

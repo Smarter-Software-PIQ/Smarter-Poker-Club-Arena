@@ -33,7 +33,7 @@ import {
   type PersistedKnockoutEvidence,
   type StackSettlementResult,
 } from './bountyAttributionGate.js';
-import { TournamentManagerBase } from './TournamentManagerBase.js';
+import { TournamentManagerBase, type SatelliteBoundaryBlocker } from './TournamentManagerBase.js';
 import {
   eliminationSweepMs,
   eliminationSweepsInflight,
@@ -6165,8 +6165,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     if (!this.isCohortSatellite()) return 'legacy';
     // Every 'pending' names its reason. A boundary held past its bound pages
     // that reason (noteSatelliteBoundaryPending); nothing else reads it.
-    const pending = (reason: string): 'pending' => {
-      this.noteSatelliteBoundaryPending(reason);
+    const pending = (reason: string, blockedTable?: SatelliteBoundaryBlocker): 'pending' => {
+      this.noteSatelliteBoundaryPending(reason, Date.now(), blockedTable);
       return 'pending';
     };
     if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
@@ -6302,7 +6302,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         }));
         const heldPreparedOriginals = new Map<
           ServerTableEngine,
-          { permit_id: string; hand_number: string }
+          { tableId: string; permit_id: string; hand_number: string }
         >();
         for (const { tableId, engine } of owned) {
           if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
@@ -6345,20 +6345,39 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             // complete field; an absent receipt or failed RPC grants nothing.
             this.noteEliminationSweepStep('checkDynamicTableExpansion');
             await this.checkDynamicTableExpansion();
-            return pending(`table_${tableId.slice(0, 8)}_has_no_dealer_yet`);
+            return pending(`table_${tableId}_has_no_dealer_yet`, {
+              tableId,
+              wake: 'table_admission',
+            });
           }
           if (!engine?.isRunning() || this.gameServer.getTableEngine(tableId) !== engine)
-            return pending(`table_${tableId.slice(0, 8)}_dealer_stopped_or_replaced`);
+            return pending(`table_${tableId}_dealer_stopped_or_replaced`, {
+              tableId,
+              engine,
+              wake: 'dealer_admission',
+            });
           // A retained original that never started is held at this same gate
           // and moves no chip until the boundary releases it; waiting for it
           // to empty was a circular wait (2026-11-05, Satellite 25 fbb86b2a).
           if (!(await engine.parkForTerminalCloseout(0))) {
             if (!engine.isPreparedOriginalHeldAtTerminalCloseout())
-              return pending(`table_${tableId.slice(0, 8)}_hand_in_flight`);
+              return pending(`table_${tableId}_hand_in_flight`, {
+                tableId,
+                engine,
+                wake: 'hand_completion',
+              });
             const original = engine.getF06RetainedPermit()?.binding;
             if (!original?.permit_id || !original.hand_number)
-              return pending(`table_${tableId.slice(0, 8)}_held_original_has_no_permit_identity`);
-            heldPreparedOriginals.set(engine, original);
+              return pending(`table_${tableId}_held_original_has_no_permit_identity`, {
+                tableId,
+                engine,
+                wake: 'original_custody_proof',
+              });
+            heldPreparedOriginals.set(engine, {
+              tableId,
+              permit_id: original.permit_id,
+              hand_number: original.hand_number,
+            });
           }
         }
         // All accepted writers and in-flight hands are drained now. The
@@ -6377,16 +6396,19 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
          * (2026-11-07). Everything at or inside the margin keeps every proof.
          */
         const fieldContinues = this.satelliteBoundaryIsUnneeded(state);
-        if (
-          !fieldContinues &&
-          owned.some(
+        if (!fieldContinues) {
+          const replaced = owned.find(
             ({ tableId, engine }) =>
               this.tableEngines.get(tableId) !== engine ||
               this.gameServer.getTableEngine(tableId) !== engine ||
               !engine?.isRunning()
-          )
-        )
-          return pending('dealer_stopped_or_replaced_during_second_read');
+          );
+          if (replaced)
+            return pending('dealer_stopped_or_replaced_during_second_read', {
+              ...replaced,
+              wake: 'dealer_admission',
+            });
+        }
         if (!fieldContinues && state.state === 'unresolved')
           return pending('field_unresolved_at_its_tickets');
         /*
@@ -6430,7 +6452,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               current?.permit_id !== original.permit_id ||
               current.hand_number !== original.hand_number
             )
-              return pending('held_original_changed_shape_during_second_read');
+              return pending('held_original_changed_shape_during_second_read', {
+                tableId: original.tableId,
+                engine,
+                original,
+                wake: 'original_custody_proof',
+              });
           }
         }
         if (state.state === 'qualifying') {

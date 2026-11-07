@@ -266,6 +266,8 @@ describe('resolved rebuys do not manufacture a stalled tournament manager', () =
       declareFieldDecidedIfOneStackRemains: vi.fn(),
       horseRebuyOfferMayHaveOpened: vi.fn(),
     });
+    manager.gameServer.getTableEngine = (id: string) => manager.tableEngines.get(id);
+    manager.tableEngines.set('another-table', engine);
     manager.wireEliminationWake(engine);
     manager.eliminatePlayer.mockImplementationOnce(async () => {
       await Promise.resolve();
@@ -299,13 +301,15 @@ describe('resolved rebuys do not manufacture a stalled tournament manager', () =
       declareFieldDecidedIfOneStackRemains: vi.fn(),
       horseRebuyOfferMayHaveOpened: vi.fn(),
     });
+    manager.gameServer.getTableEngine = (id: string) => manager.tableEngines.get(id);
+    manager.tableEngines.set('another-table', engine);
     manager.wireEliminationWake(engine);
     manager.eliminatePlayer.mockImplementationOnce(async () => {
       await Promise.resolve();
       vi.setSystemTime(135001);
-      handComplete!('first-table', [{ stack: 0 }, { stack: 2000 }]);
+      handComplete!('another-table', [{ stack: 0 }, { stack: 2000 }]);
       vi.setSystemTime(136001);
-      handComplete!('second-table', [{ stack: 0 }, { stack: 3000 }]);
+      handComplete!('another-table', [{ stack: 0 }, { stack: 3000 }]);
       return true;
     });
     await manager.runEliminationSweep(new AbortController().signal);

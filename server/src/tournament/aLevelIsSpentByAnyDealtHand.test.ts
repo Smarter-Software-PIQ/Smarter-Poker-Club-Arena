@@ -118,6 +118,9 @@ function engineWithSettledHand(finalStacks: [number, number, number]) {
 /** The real TournamentManagerBase wiring, on a manager holding only what it reads. */
 function managerWiredTo(engine: unknown) {
   const manager = Object.create(TournamentManagerBase.prototype) as any;
+  manager.running = true;
+  manager.tableEngines = new Map([[TABLE, engine]]);
+  manager.gameServer = { getTableEngine: (id: string) => manager.tableEngines.get(id) };
   manager.recoveredOriginalAdmissions = new Map();
   manager.lastObservedHandCompletedAtMs = 0;
   manager.requestEliminationSweep = vi.fn(() => true);

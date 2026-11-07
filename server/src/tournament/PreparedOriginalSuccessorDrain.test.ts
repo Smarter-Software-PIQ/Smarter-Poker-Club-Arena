@@ -69,6 +69,7 @@ function fixture() {
     engine: {},
   });
   manager.tableEngines.set(tableId, engine);
+  manager.gameServer.getTableEngine = (id: string) => manager.tableEngines.get(id);
   manager.wireEliminationWake(engine);
   cleanup.push(() => {
     engine.running = false;
