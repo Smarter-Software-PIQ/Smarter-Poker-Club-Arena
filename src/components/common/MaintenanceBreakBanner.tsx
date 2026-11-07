@@ -17,7 +17,11 @@
 import React, { useEffect, useState } from 'react';
 import { useMaintenanceBreak } from '../../hooks/useMaintenanceBreak';
 import { serverNow } from '../../utils/serverClock';
-import { isRoutineMaintenanceUpcoming } from '../../utils/maintenanceSchedule';
+import {
+  bookedMaintenanceNotice,
+  bookedMaintenanceNoticeText,
+  isRoutineMaintenanceUpcoming,
+} from '../../utils/maintenanceSchedule';
 import { useEntryFreeze } from '../../hooks/useEntryFreeze';
 /* The banner prints in the console's own inks, so it loads the console's sheet
    itself rather than trusting the chunk to carry it. */
@@ -77,6 +81,28 @@ export function MaintenanceBreakBanner() {
   }
 
   if (!maintenanceBreak.active) {
+    /* A BOOKED WINDOW IS ANNOUNCED BEFORE IT FREEZES (Dan 2026-11-07). The
+       13:16 cutover gave players two minutes' warning; a window booked in
+       owner-maintenance-windows.json now shows from its playerNoticeAt (see
+       utils/maintenanceSchedule.ts). Ahead of the routine notice: it is
+       sooner and less expected. */
+    const booked = bookedMaintenanceNotice(serverNow());
+    if (booked) {
+      return (
+        <div
+          className="maintenance-banner maintenance-banner--upcoming"
+          role="status"
+          data-testid="maintenance-banner-booked"
+        >
+          <span className="maintenance-banner__dot sc-ink--blue" aria-hidden="true">
+            &bull;
+          </span>
+          <span className="maintenance-banner__text">
+            {bookedMaintenanceNoticeText(booked, serverNow())}
+          </span>
+        </div>
+      );
+    }
     if (upcoming) {
       return (
         <div className="maintenance-banner maintenance-banner--upcoming" role="status">

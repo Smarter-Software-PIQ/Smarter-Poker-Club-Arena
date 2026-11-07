@@ -2705,6 +2705,33 @@ groups:
             FROM public.client_error_events WHERE code = '<code>' ORDER BY received_at DESC LIMIT 20;
           runbook: 'docs/runbooks/client-errors.md'
 
+      # A FREEZE REFUSAL IS COUNTED BY NAME (Dan 2026-11-07). The owner's
+      # NLH and PLO Lightning joins were refused eleven times at 19:20 UTC by
+      # an off-hours engine cutover, and nothing counted them: they were
+      # filed as P0001 and ClientErrorSpike is silenced during breaks. This
+      # is the record, not a page: severity info routes to the operational
+      # intake (operational_alert_events) and to nobody's inbox. It fires
+      # whenever at least one real player (horses and automated sessions
+      # excluded) was refused by a freeze in the last ten minutes, and its
+      # value is how many. A freeze that refuses nobody leaves no trace.
+      - alert: PlayersRefusedDuringFreeze
+        expr: poker_client_freeze_refusal_users_10m >= 1
+        for: 0m
+        labels:
+          severity: info
+          component: client
+        annotations:
+          summary: '{{ $value }} real players were refused by the maintenance freeze in the last 10 minutes'
+          description: |
+            Real players tried to join, buy in or move chips while the platform
+            was frozen for maintenance and were refused (nothing moved). Read
+            them with SELECT received_at, user_id, source, route, message FROM
+            public.client_error_events WHERE code IN ('PLATFORM_FROZEN','55006')
+            OR (code = 'P0001' AND message LIKE 'PLATFORM_FROZEN%') ORDER BY
+            received_at DESC LIMIT 50; and the freeze that refused them in
+            public.engine_maintenance_thaws (announced_at, release_target_at).
+          runbook: 'docs/runbooks/client-errors.md'
+
   # ═══════════════════════════════════════════════════════════════════════
   # HORSE BRAIN PHASE 15: OUT-OF-DOMAIN AND SILENCE ALARMS (2026-10-16)
   # ═══════════════════════════════════════════════════════════════════════

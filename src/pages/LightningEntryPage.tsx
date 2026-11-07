@@ -239,6 +239,10 @@ export default function LightningEntryPage() {
       const frozen = await freezeRefusalText(err);
       if (!ownsPage()) return;
       if (frozen) {
+        /* Still reported: filed as PLATFORM_FROZEN (errorReporter.pickCode),
+           which fn_client_error_health counts on its freeze gauges, not as a
+           failure (2026-11-07, #9952). */
+        reportError(err, 'LightningEntryPage.entry_frozen', { clusterId });
         toast.warning(frozen);
         return;
       }
@@ -322,7 +326,13 @@ export default function LightningEntryPage() {
       if (!ownsPage()) return;
       const frozen = await freezeRefusalText(err);
       if (!ownsPage()) return;
-      if (!frozen) reportError(err, 'LightningEntryPage.join_failed', { clusterId });
+      reportError(
+        err,
+        frozen ? 'LightningEntryPage.entry_frozen' : 'LightningEntryPage.join_failed',
+        {
+          clusterId,
+        }
+      );
       toast.warning(frozen ?? joinGameRefusalText(err));
     } finally {
       if (ownsPage()) {

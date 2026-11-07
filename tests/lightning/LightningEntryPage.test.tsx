@@ -74,6 +74,7 @@ vi.mock('../../src/lightning/lightningJoinBuyIn', () => ({
 
 import LightningEntryPage from '../../src/pages/LightningEntryPage';
 import { __resetEntryFreezeForTests } from '../../src/hooks/useEntryFreeze';
+import { reportError } from '../../src/utils/errorReporter';
 import {
   fetchMyLightningSession,
   getLightningEntryIntent,
@@ -111,6 +112,7 @@ beforeEach(() => {
   __resetEntryFreezeForTests();
   freeze.rows = [];
   rpc.mockReset();
+  vi.mocked(reportError).mockClear();
   tablesRead.mockReset();
   metadataRead.mockReset();
   metadataRead.mockResolvedValue({ data: gameRow, error: null });
@@ -338,6 +340,15 @@ describe('the Lightning route', () => {
     const said = String(toast.warning.mock.calls[0][0]);
     expect(said).toMatch(/Seats Reopen In About 4\d Seconds\./);
     expect(said).not.toMatch(/Could Not Open/);
+    // Counted by the freeze gauges (filed as PLATFORM_FROZEN), not as a failure.
+    expect(vi.mocked(reportError)).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'PLATFORM_FROZEN' }),
+      'LightningEntryPage.entry_frozen',
+      { clusterId: CLUSTER }
+    );
+    expect(vi.mocked(reportError).mock.calls.map((c) => c[1])).not.toContain(
+      'LightningEntryPage.buyin_context_failed'
+    );
     expect(buyInContext).not.toHaveBeenCalled();
     await screen.findByRole('button', { name: /opens in 0:4\d/i });
   });

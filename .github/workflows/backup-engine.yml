@@ -37,7 +37,19 @@ on:
     types: [completed]
   push:
     branches: [main]
-    paths: ['server/**']
+    paths:
+      - 'server/**'
+      - '.github/workflows/engine-release-prequalification.yml'
+      - '.github/workflows/stage-engine-release.yml'
+      - '.github/workflows/auto-deploy-hetzner.yml'
+      - '.github/workflows/backup-engine.yml'
+      - 'scripts/ci/read-engine-prequalification.py'
+      - 'scripts/ci/prestage-engine-image.sh'
+      - 'scripts/ci/select-daily-engine.py'
+      - 'scripts/ci/check-engine-doors-exist.mjs'
+      - 'scripts/ci/window-migration-doors.mjs'
+      - 'scripts/ci/record-engine-deploy-attempt.mjs'
+      - 'scripts/ci/record-engine-deploy-exit.mjs'
   schedule:
     # Nightly refresh after midnight America/Chicago (05 UTC is CDT, 06 UTC
     # is CST). GitHub has delivered schedules hours late or not at all, so
@@ -75,11 +87,12 @@ env:
 
 jobs:
   plan:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
+      control_sha: ${{ steps.plan.outputs.control_sha || github.sha }}
       refresh: ${{ steps.plan.outputs.refresh }}
     steps:
       - id: plan
@@ -127,6 +140,7 @@ jobs:
                 echo "RETARGETED: pushed $sha is superseded by $head, the newest server commit on main; certifying $head instead."
                 { echo "### Backup Engine"; echo ""; echo "- RETARGETED \`$sha\` -> \`$head\` (newest server commit on main)."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
                 sha="$head"
+                retarget_control="$head"
               else
                 echo "main's newest server commit $head is not a descendant of $sha ($rel); certifying $sha as pushed"
               fi
@@ -161,6 +175,7 @@ jobs:
             [ "$served" = "$sha" ] || { echo 'Sealed release is no longer serving; refusing a stale clone refresh'; exit 1; }
             refresh=force
           fi
+          if [ -n "${retarget_control:-}" ]; then echo "control_sha=$retarget_control" >> "$GITHUB_OUTPUT"; fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "refresh=$refresh" >> "$GITHUB_OUTPUT"
 
@@ -173,8 +188,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ needs.plan.outputs.control_sha }}
           filter: blob:none
           sparse-checkout: |
+            .github/pgdg
             scripts/dr
             scripts/verification-harness/leaderboard-native-function-batch.mjs
             scripts/ci/test_native_supabase_export.py
@@ -207,7 +224,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-17 postgresql-client-17 libzstd-dev zstd pkg-config >/dev/null 2>&1 \
             || { sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'; \
-                 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg; \
+                 sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg < "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc"; \
                  sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-17 postgresql-client-17 libzstd-dev zstd pkg-config >/dev/null; }
           python3 scripts/dr/build-native-export-client.py --scratch "$RUNNER_TEMP" --pg-bin /usr/lib/postgresql/17/bin > client.log 2>&1 || true
           PG_DUMP=$(find "$RUNNER_TEMP" -path '*src/bin/pg_dump/pg_dump' -type f -perm -u+x | head -1)
@@ -247,6 +264,8 @@ jobs:
     if: always() && needs.plan.outputs.sha != ''
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    env:
+      CONTROL_SHA: ${{ needs.plan.outputs.control_sha }}
     steps:
       - name: Mark the certification pending
         env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.plan.outputs.sha }}' }
@@ -254,6 +273,22 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending -f context="$STATUS_CONTEXT" \
             -f description='Backup Engine is building, booting and soaking this version' \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.control_sha }}
+          fetch-depth: 0
+          sparse-checkout: server/scripts
+      - name: Check the protected activation policy before spending a Backup soak
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" "$CONTROL_SHA"
+          git merge-base --is-ancestor "$CONTROL_SHA" refs/remotes/origin/main
+          git diff --quiet "$GITHUB_SHA" "$CONTROL_SHA" -- .github/workflows/backup-engine.yml
+          git merge-base --is-ancestor "$SHA" "$CONTROL_SHA"
+          python3 -B server/scripts/engine-release-activation-floor.py daily-compatibility \
+            --repo . --target "$SHA" --control "$CONTROL_SHA" --deadline 0 > compatibility.json
       - name: Build, boot, crash, soak and judge on the Backup Engine
         id: certify
         env:
@@ -270,11 +305,20 @@ jobs:
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
           if ssh -i ~/.ssh/standby -o ServerAliveInterval=30 "root@$STANDBY_HOST" \
-            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show origin/main:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show origin/main:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show origin/main:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show origin/main:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show origin/main:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && standby-engine certify $SHA 1800" \
+            "git -C /opt/club-arena fetch -q origin && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-engine.sh > /usr/local/sbin/standby-engine && chmod +x /usr/local/sbin/standby-engine && mkdir -p /usr/local/share/club-arena-standby && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-owners.sql > /usr/local/share/club-arena-standby/owners.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-placeholders.sql > /usr/local/share/club-arena-standby/placeholders.sql && git -C /opt/club-arena show $CONTROL_SHA:server/standby/standby-trials.sh > /usr/local/share/club-arena-standby/standby-trials.sh && git -C /opt/club-arena show $CONTROL_SHA:server/standby/qualify-tournament-freeze-fixes.py > /usr/local/share/club-arena-standby/qualify-tournament-freeze-fixes.py && standby-engine certify $SHA 1800" \
             | tee certificate.out; then rc=0; else rc=1; fi
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           tail -1 certificate.out > certificate.json || true
           exit 0
+      - name: Retain exact Backup schema, seed, policy and trial evidence
+        if: steps.certify.outputs.rc == '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-certificate-${{ needs.plan.outputs.sha }}-${{ github.run_attempt }}
+          path: |
+            certificate.json
+            compatibility.json
+          if-no-files-found: error
       - name: Publish the verdict on the exact commit
         if: always()
         env:
@@ -282,10 +326,11 @@ jobs:
             GH_TOKEN: '${{ github.token }}',
             SHA: '${{ needs.plan.outputs.sha }}',
             RC: '${{ steps.certify.outputs.rc }}',
+            JOB_STATUS: '${{ job.status }}',
           }
         run: |
           set -euo pipefail
-          if [ "$RC" = 0 ]; then state=success; desc='Certified on the Backup Engine: built, booted, crash-recovered and soaked'
+          if [ "$RC" = 0 ] && [ "$JOB_STATUS" = success ]; then state=success; desc='Certified on the Backup Engine: built, booted, crash-recovered and soaked'
           else state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"; fi
           gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context="$STATUS_CONTEXT" -f description="$desc" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null

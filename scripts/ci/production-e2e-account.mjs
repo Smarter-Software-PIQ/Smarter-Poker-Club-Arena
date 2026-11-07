@@ -1304,6 +1304,31 @@ async function releaseIdleFixtureTableEngines({
   return leased.length;
 }
 
+/**
+ * A STALE WELCOME FIXTURE WITH RECYCLED BOARDS RETIRES WITH ITS HISTORY
+ * (2026-11-07). The 3 AM lobby close cancels every open seat-first lobby and
+ * the welcome board comes back, so a fixture whose run died keeps one more
+ * generation of cancelled boards every night, each with an immutable receipt
+ * that moved nothing. The certification door deletes the club and so refuses
+ * it forever (WELCOME_CERTIFICATION_BOARD_LINEAGE_REFUSED); every Club Create
+ * Certification since 2026-11-03 ended "11 of 11 unrecovered" on three such
+ * clubs. fn_ca_retire_stale_welcome_fixture_with_history proves the fixture
+ * never had play, closes its own idle tables and retires it through the
+ * owner's retained-record door, which keeps the identity as owner of record
+ * (disposition retained_terminal_fixture_owner). The run's own template keeps
+ * its terminal route above; every other refusal is unchanged.
+ */
+export const STALE_WELCOME_HISTORY_DOOR = 'fn_ca_retire_stale_welcome_fixture_with_history';
+
+export function retiresThroughHistoryDoor(error, account, clubId) {
+  const message = String(error?.body?.message || error?.message || '');
+  return (
+    error?.code === '55000' &&
+    message === 'WELCOME_CERTIFICATION_BOARD_LINEAGE_REFUSED' &&
+    account?.templateFixtureRequest?.clubId !== clubId
+  );
+}
+
 export async function retireCertificationClubWithRetry({
   account,
   configuration,
@@ -1317,12 +1342,22 @@ export async function retireCertificationClubWithRetry({
   const retire = async () => {
     const databaseUrl = environment.DATABASE_URL || '';
     if (!databaseUrl) {
-      return serviceRequest(
-        configuration,
-        '/rest/v1/rpc/fn_ca_retire_welcome_certification_club',
-        { method: 'POST', body: JSON.stringify({ p_club_id: clubId, p_reason: reason }) },
-        fetchImpl
-      );
+      try {
+        return await serviceRequest(
+          configuration,
+          '/rest/v1/rpc/fn_ca_retire_welcome_certification_club',
+          { method: 'POST', body: JSON.stringify({ p_club_id: clubId, p_reason: reason }) },
+          fetchImpl
+        );
+      } catch (error) {
+        if (!retiresThroughHistoryDoor(error, account, clubId)) throw error;
+        return serviceRequest(
+          configuration,
+          `/rest/v1/rpc/${STALE_WELCOME_HISTORY_DOOR}`,
+          { method: 'POST', body: JSON.stringify({ p_club_id: clubId, p_reason: reason }) },
+          fetchImpl
+        );
+      }
     }
 
     // The production service_role is intentionally capped at eight seconds.
@@ -1339,7 +1374,7 @@ export async function retireCertificationClubWithRetry({
           application_name: 'club-create-certification-retirement',
         });
     await client.connect();
-    const runDoor = async (terminal = false) => {
+    const runDoor = async (terminal = false, history = false) => {
       try {
         await client.query('BEGIN');
         await client.query("SET LOCAL statement_timeout = '120s'");
@@ -1349,7 +1384,9 @@ export async function retireCertificationClubWithRetry({
         // so open the narrowly-scoped maintenance gate for this service-role
         // transaction. The cleanup RPC still proves the reserved account,
         // fixture name, zero activity and protected IDs.
-        await client.query("SET LOCAL app.club_retirement_maintenance = 'on'");
+        // The history door retires through the owner's own door and writes no
+        // retained child row, so it never opens that gate.
+        if (!history) await client.query("SET LOCAL app.club_retirement_maintenance = 'on'");
         if (!terminal && account?.templateFixtureRequest?.clubId === clubId) {
           const state = await client.query(
             'SELECT lifecycle_status FROM public.clubs WHERE id=$1::uuid AND owner_id=$2::uuid',
@@ -1357,16 +1394,23 @@ export async function retireCertificationClubWithRetry({
           );
           terminal = state.rows?.length === 1 && state.rows[0].lifecycle_status === 'retired';
         }
-        const response = terminal
-          ? {
-              rows: [
-                { result: await retireTerminalWelcomeFixture({ client, clubId, account, reason }) },
-              ],
-            }
-          : await client.query(
-              'SELECT public.fn_ca_retire_welcome_certification_club($1::uuid,$2::text) AS result',
+        const response = history
+          ? await client.query(
+              `SELECT public.${STALE_WELCOME_HISTORY_DOOR}($1::uuid,$2::text) AS result`,
               [clubId, reason]
-            );
+            )
+          : terminal
+            ? {
+                rows: [
+                  {
+                    result: await retireTerminalWelcomeFixture({ client, clubId, account, reason }),
+                  },
+                ],
+              }
+            : await client.query(
+                'SELECT public.fn_ca_retire_welcome_certification_club($1::uuid,$2::text) AS result',
+                [clubId, reason]
+              );
         await client.query('COMMIT');
         return response.rows?.[0]?.result;
       } catch (error) {
@@ -1392,6 +1436,12 @@ export async function retireCertificationClubWithRetry({
           account?.templateFixtureRequest?.clubId === clubId
         ) {
           return await runDoor(true);
+        }
+        // A stale fixture whose board the 3 AM close recycled holds settled
+        // history the deleting door can never remove (2026-11-07). Retire it
+        // through the owner's retained-record door instead.
+        if (retiresThroughHistoryDoor(error, account, clubId)) {
+          return await runDoor(false, true);
         }
         if (
           error?.code !== '55000' ||
