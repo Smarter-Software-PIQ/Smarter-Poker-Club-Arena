@@ -53,6 +53,8 @@ Verify the jobs and affected behavior applicable to the assigned change. A clien
 
 ## Backup and daily engine launch
 
+The step-by-step procedure for everything in this section, including the decision table for what an agent does unprompted at 03:30 and 04:00, the Backup certification steps, the host transaction's phases and reserves, the post-cutover checklist and the read-only tool table, is [`docs/ENGINE-RELEASE-RUNBOOK.md`](docs/ENGINE-RELEASE-RUNBOOK.md). This section states the policy and the trace examples; the runbook states the procedure. `scripts/ci/select-daily-engine.py`, named below, is not yet on main (checked 2026-11-07); until it lands, read the staging run's `signal` job log for the selected SHA.
+
 **Enforced today.** Protected merge, the exact-SHA Backup certificate, daily admission, in-break database readback and the host seal are enforced by the linked workflows.
 
 **Published controls.** The daily selector requires four passing exact-target shards, immutable candidate and rollback image evidence, and a successful Backup certificate by 03:30 Chicago. The protected receiver verifies the selection receipt before handoff. Measure the first natural daily run to establish elapsed times under these controls. [Daytime release preparation](#daytime-release-preparation)

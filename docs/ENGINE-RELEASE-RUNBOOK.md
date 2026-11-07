@@ -1,0 +1,577 @@
+# Engine release runbook: Backup, certification and the 04:00 cutover
+
+Written 2026-11-07 on the owner's instruction to write down "any and all things
+that need to be done, and how they are supposed to be done when adding things
+to the engine, testing, building etc., step by step how things should be added
+to the Backup or clone engine, step by step how the engine should be cut over
+properly at 4 AM, and any and all other things that any agent stepping in and
+managing a 4 AM reset can do without a human telling them to do".
+
+This is the single operating document for the engine lane. `PUBLISHING.md`
+("Backup and daily engine launch") holds the owner's policy statement and the
+trace examples; `CLAUDE.md` section 13 holds the maintenance invariants. This
+file holds the procedure. Every claim below names the file that implements it.
+`tests/the-runbook-names-what-it-cites.law.test.ts` checks that every path and
+workflow this file cites exists and that every constant it quotes matches the
+code, so a stale sentence here turns a test red instead of misleading the next
+agent.
+
+Owner direction of November 6, 2026 (chat `01a1b095-8bd5-7d42-afcf-1a0843448274`),
+restated once and binding for everything below: engine upgrades are staged and
+certified on isolated Backup during the day; production replacements require a
+certificate for the exact version and may activate ONLY in the 04:00-04:05
+America/Chicago window, after the 03:58 notice and every custody, freeze,
+proof, rollback and thaw safeguard; the hourly, urgent, degraded and owner
+window replacement exceptions are revoked; a sealed release triggers a fresh
+Backup copy; a failed or missing certificate leaves the current engine running.
+
+## 1. Scope and authority
+
+### 1.1 What an agent does unprompted
+
+Everything in this document. Specifically, without asking anyone:
+
+- merge a reviewed engine change through its protected PR and watch its Backup
+  certification run (section 2);
+- certify one exact SHA on Backup by hand, or force a Backup refresh, with
+  `gh workflow run backup-engine.yml` (section 3.5);
+- read the 03:30 preparation run, the receiver run, the host receipt and
+  `/health`, and decide from the table in 1.3 (section 4);
+- run the post-cutover checklist and record the result (section 5);
+- declare a migration for the daily window and read the morning's verdict
+  (section 6);
+- rerun a failed GitHub job (`gh run rerun <id> --failed`), reattach the host
+  observer to an existing run, or submit the one permitted Backup-only refresh
+  after a verified seal (sections 4.9, 7.2);
+- open the follow-up PR that fixes whatever the morning showed, and merge it
+  (CLAUDE.md 10.11: fix at the root; 10.12: never a repair loop).
+
+### 1.2 What an agent never does
+
+| Never                                                                                   | Why, and where it is written                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Edit the live engine, its container, image tag or `.env` by hand, or the running Backup | Owner direction 2026-11-06 (top of `CLAUDE.md`); `.claude/skills/deploy-hetzner/SKILL.md` ("never replace the container, repoint its image tag, prune retained rollback images, reduce the proof reserve or extend a live freeze by hand")                                 |
+| Restart or replace the engine outside 04:00-04:05 Chicago                               | `server/scripts/engine-release-transaction.sh` line 1386 `daily_cutover_clock` (hour 4, minute under 5) and line 3848; receiver gate `.github/workflows/auto-deploy-hetzner.yml` step `daily_release`; `tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts` |
+| Send a release for a SHA without `backup-engine/certified = success`                    | Receiver step `backup_certificate`; host `require_backup_certificate` (transaction line 1367); `tests/the-live-engine-only-receives-a-backup-certified-version.law.test.ts`                                                                                                |
+| Apply a migration from a branch, a local file or the Supabase MCP `apply_migration`     | `CLAUDE.md` section 2 rules 8 and 11; `PUBLISHING.md`; `tests/unit/migrationsInstallFromMain.test.ts`                                                                                                                                                                      |
+| Apply a `-- @install-window: daily-maintenance` file by hand                            | `CLAUDE.md` section 2 rule 10; `tests/a-window-migration-waits-for-the-daily-break.law.test.ts`                                                                                                                                                                            |
+| Add a watcher, timer, cron, reconciler, retry agent or repair loop for a release        | `CLAUDE.md` 10.12, 10.85 and section 13; `AGENTS.md`                                                                                                                                                                                                                       |
+| Schedule anything on the Claude scheduler                                               | `CLAUDE.md` 10.85                                                                                                                                                                                                                                                          |
+| Force an older SHA over a newer sealed release to "get a matching number"               | `PUBLISHING.md` "Concurrent deliveries"; the host enforces forward-only ancestry (`auto-deploy-hetzner.yml` step `freshness`)                                                                                                                                              |
+| Use the owner's personal account, print a secret or read a `.env` value                 | `CLAUDE.md` 10.10 and 10.84                                                                                                                                                                                                                                                |
+| Mark routine work urgent to skip the window, or call a missed window an emergency       | `CLAUDE.md` section 13                                                                                                                                                                                                                                                     |
+| Call a release "deployed" before the seal, the public `/health` and the receipt agree   | `CLAUDE.md` 1.4                                                                                                                                                                                                                                                            |
+
+### 1.3 Decision table: what is seen at 03:30 or 04:00, and what the agent does
+
+Read each row with the commands in section 8. "Keep serving" means do nothing
+to production; the current engine keeps running by design.
+
+| Observed                                                                                      | Agent does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Law or file                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No certified candidate: the `signal` job printed "No Backup Engine certified commit"          | Keep serving. Find why: `gh run list --workflow backup-engine.yml`; read the newest certify run's `certificate.json` line. Fix the cause in a PR, merge, let Backup certify. Tomorrow's window takes it.                                                                                                                                                                                                                                                                                    | `stage-engine-release.yml` step `certified`; owner direction ("a failed or missing certificate leaves the current engine running")                                                                     |
+| Certificate failed (`backup-engine/certified = failure`, reasons in the status description)   | Keep serving. Open the Backup run, read the reasons (`never_became_live`, `did_not_recover_from_crash`, `no_hands_dealt_during_soak`, `fatal_log_lines:N`, `tournament_freeze_qualification_failed`, `database_refresh_failed`). Reproduce locally where possible, fix at the root, merge. Never re-dispatch the same SHA hoping for a different answer; a `refresh=true` dispatch is for `database_refresh_failed` only.                                                                   | `server/standby/standby-engine.sh` `cmd_certify`; `.github/workflows/backup-engine.yml` job `certify`                                                                                                  |
+| A queued window migration was refused (run summary `REFUSED n of m ... skipped`)              | Nothing to undo: its transaction rolled back. Read the refusal (usually 55P03 lock timeout). Fix the file on main (a needless `DROP TRIGGER`, a wider lock than declared) in a PR; it stays queued and is sent again at the next 04:00. The files behind it were still sent (since 2026-11-07).                                                                                                                                                                                             | `scripts/ci/install-window-migrations.mjs`; `CLAUDE.md` section 2 rule 10; `docs/changelog/2026-11-07-a-refused-window-migration-no-longer-holds-the-queue-and-a-superseded-backup-run-steps-aside.md` |
+| Window install ended UNKNOWN (exit 3)                                                         | Read `schema_migrations` for that version through `execute_sql` before anything else. Recorded: it installed; nothing to do. Not recorded: still queued; the run stopped on purpose. Do not apply by hand.                                                                                                                                                                                                                                                                                  | `scripts/ci/install-window-migrations.mjs` header "OUTCOMES"; `CLAUDE.md` 10.86                                                                                                                        |
+| Cutover stalled on the host (observer log shows the transaction waiting or a container fault) | Do not touch the host. The systemd unit owns the transaction and `recover_on_exit` restores the sealed desired state inside the break; the receiver reattaches up to 40 times within its own budget. Read the receipt afterward. On 2026-11-07 the first host attempt faulted and the automatic retry sealed at 16:38:57Z.                                                                                                                                                                  | `engine-release-transaction.sh` line 806 `recover_on_exit`; `auto-deploy-hetzner.yml` step `release` (`reattach`)                                                                                      |
+| Receipt sealed but the GitHub run is red                                                      | Trust the receipt and `/health`, not the colour. Confirm the SHA and instance at `/health` match `/var/lib/club-arena/engine-release-results/<run>-<attempt>.json`. Reattach the observer to the original run (section 4.9). Then check whether the post-seal Backup refresh fired (it fires only on `conclusion == success`); if not, submit the one Backup-only refresh (section 7.2). Do not re-run the cutover.                                                                         | `backup-engine.yml` job `plan` (`workflow_run.conclusion == 'success'`); `PUBLISHING.md`; `docs/changelog/2026-11-07-observer-retired-completion-invocation.md`                                        |
+| Health never comes back after 04:05                                                           | Read the receipt. `ENGINE_RELEASE_RESULT` absent and the container down means the transaction's recovery ran or is running (`engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1`). Watch `/health` for the previously sealed SHA. If still down after `NON_BREAK_RECOVERY_MAX_SECONDS` (300 s, line 105), it is an incident: the supervisor and the container's own restart policy are the only levers; record every timestamp, and fix the boot cause in a PR. No hand restart. | `engine-release-transaction.sh` lines 105 and 806; `server/scripts/engine-up.sh` is the single start path                                                                                              |
+| Freeze never confirmed (`fn_platform_frozen` false through the break)                         | Nothing cut over: `maintenance_certificate` (line 1439) refuses without `readyForRestart` and the database row. The installer also refuses. Read `engine_maintenance_break` and the engine log for why the announcement failed (a lock timeout on the row write is the known cause). Fix at the root.                                                                                                                                                                                       | `server/src/maintenance/MaintenanceBreak.ts`; `CLAUDE.md` section 13 invariant 1                                                                                                                       |
+| Rollback happened (receipt `result` not `sealed`, `/health` shows the previous SHA)           | The previous engine is serving by design. Read the transaction log for the failed witness (candidate proof, database leader proof, window doors). Fix at the root; the next window retries with a new certificate. Never shorten a reserve.                                                                                                                                                                                                                                                 | `engine-release-transaction.sh` lines 52-53 and 2723 `prove_rollback_readiness`                                                                                                                        |
+
+## 2. Adding to the engine
+
+1. **Claim an owned worktree.** `bash scripts/agent-workspace.sh <agent> <slug> --print-path`
+   creates the tree and branch off current `origin/main`. Never work in the
+   shared clone (`scripts/guard-shared-clone.sh` refuses pushes from it).
+   Install both dependency sets: `npm ci` at the root and `npm ci` in `server/`.
+   Done looks like: `node_modules` present in both, `git status` clean.
+2. **Know where engine code lives.** Runtime under `server/src/` (entry
+   `server/src/index.ts`, `server/src/GameServer.ts`, engines under
+   `server/src/engine/`, maintenance under `server/src/maintenance/`). Release
+   control under `server/scripts/` (built into the host's control generation,
+   never into the image). Backup control under `server/standby/`. Only
+   `server/**` changes outside `*.test.ts`, `server/sim/**` and
+   `server/qualification/**` owe a release (`stage-engine-release.yml` step
+   `change`, the `LATEST_REQUIRED` log filter).
+3. **Keep the laws green.** Before pushing: `cd server && npx tsc --noEmit`, then
+   `cd server && npx vitest run --shard=N/4` for N in 1..4 (the receiver runs
+   exactly this, `auto-deploy-hetzner.yml` step "Compile and test the exact
+   server tree"), then the root laws your change touches, at minimum
+   `npx vitest run tests/the-break-clocks-agree.law.test.ts tests/the-backup-day-ends-with-only-a-four-am-release.law.test.ts tests/the-live-engine-only-receives-a-backup-certified-version.law.test.ts`.
+   If your change touches a maintenance constant, change every pinned surface
+   in the same commit (`CLAUDE.md` section 13 invariant 7). Preview the hosted
+   checks with `node scripts/ci/execution-preview.mjs --working-tree`.
+4. **Database doors.** If the engine calls a new database function, the
+   migration ships in the same PR. The receiver's `engine-doors` job
+   (`scripts/ci/check-engine-doors-exist.mjs`) refuses a build whose doors are
+   missing from production, except a door that a queued window migration
+   creates, which is `conditional` and re-read inside the break by
+   `server/scripts/engine-release-window-doors.py`. A non-window migration must
+   be installed through Apply Merged Migration before the engine that calls it
+   can release (section 6).
+5. **Isolated PostgreSQL accounting qualification.** Money paths run in CI
+   against a native PostgreSQL 17 (`.github/workflows/ci.yml`, the `Server
+Engine shard N/4` jobs and the accounting job joined by `Server Engine
+(typecheck + tests)`). A skipped or cancelled shard is a failure, not a pass.
+6. **PR body.** State: what runtime behavior changes; which laws you touched
+   and why; the migration versions and their route (ordinary or window); and
+   the one-line Backup expectation ("certify on Backup; release at the next
+   04:00"). Add your changelog `docs/changelog/YYYY-MM-DD-<slug>.md`.
+7. **Push and merge.** `bash scripts/agent-push.sh` from the worktree (never a
+   bare `git push` over SSH). Read the real check results with
+   `node scripts/ci/pr-status.mjs <n>` (exit 3 is UNKNOWN, not green). Merge
+   with the shell tokens removed, because the exported `GH_TOKEN` can push but
+   is refused `mergePullRequest`:
+   `env -u GH_TOKEN -u GITHUB_TOKEN gh pr merge <n> --squash --match-head-commit <sha>`.
+   The repository is `Smarter-Software-PIQ/Smarter-Poker-Club-Arena`.
+8. **After the merge, record two run ids.** The push to main starts
+   `stage-engine-release.yml` (job `detect` says whether a release is owed; the
+   `signal` job sends nothing outside the 03:30-03:50 window) and, for a
+   `server/**` change, `backup-engine.yml` (your certification). Record both:
+   `gh run list --workflow stage-engine-release.yml --branch main -L 3` and
+   `gh run list --workflow backup-engine.yml --branch main -L 5`. A push whose
+   Backup run says `SUPERSEDED` was replaced by a newer engine push; the newer
+   one is the candidate (section 3.6).
+
+Done for this section: the squash commit is on `main`; `backup-engine/certified`
+on that commit (or a newer main commit containing it) reads `success`; nothing
+has touched production.
+
+## 3. The Backup (clone) engine, step by step
+
+### 3.1 What it is
+
+A 1:1 clone of the serving engine on its own Hetzner host
+(`club-arena-engine-standby`, `5.161.236.0`, SSH only, pinned host key in
+`backup-engine.yml`), running against an isolated database copy: production's
+schema restored from a read-only `pg_dump`, plus a horse-only seed
+(`server/standby/seed-extract.py`). The host holds no production credential,
+its runtime network can reach private addresses only, and
+`server/standby/standby-engine.sh` `assert_isolated` refuses to run if the
+production database host is reachable. The engine boots with
+`ENGINE_STANDBY_CLONE=1` (`write_env`).
+
+### 3.2 What starts a run
+
+| Trigger                                                                                          | Effect                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Push to `main` touching `server/**`                                                              | Certify that main commit (superseded if a newer push run exists, 3.6)                                                                     |
+| Nightly cron `7,23,41 5/6 * * *` UTC (after 00:00 Chicago)                                       | Refresh the production structure and seed once per Chicago date, then certify main                                                        |
+| `workflow_dispatch` with `sha` and optional `refresh`                                            | Certify exactly that SHA; `refresh=true` forces a copy first                                                                              |
+| `workflow_run` of "Auto-Deploy Hetzner Engine (on server/ changes)" with `conclusion == success` | Post-seal 1:1 refresh: force a copy and re-certify the SHA that `/health` is now serving (refused if the sealed SHA is no longer serving) |
+
+Runs are serialized (`concurrency: backup-engine`, `queue: max`).
+
+### 3.3 What `standby-engine certify <sha> 1800` does
+
+In `server/standby/standby-engine.sh` `cmd_certify`:
+
+1. `assert_valid_copy`: `database.json` says `restoreValidated: true`,
+   `restoreErrors: 0`, `ownersSha256` matches `server/standby/standby-owners.sql`;
+   `seed.json` says `tablesFailed: 0` and `seededAt >= restoredAt`.
+2. `cmd_run`: builds `club-arena-engine-standby:<sha>` from `git archive <sha> server`
+   with `GIT_COMMIT_SHA` (`cmd_build`), writes the env, starts the container with
+   `--restart unless-stopped`.
+3. Waits up to 600 s for `liveness` `ok` or `standby`; checks `/health.releaseSha == sha`.
+4. Reads the production `/health` baseline and rehearses the swap from the
+   serving SHA to this one (`trial_swap` in `server/standby/standby-trials.sh`);
+   an unreadable baseline or unavailable rehearsal is a failure
+   (`docs/changelog/2026-11-07-backup-pretrial-dealing.md`).
+5. Crash test: SIGKILLs PID 1 through a pidfd and waits up to 600 s for
+   Docker's restart policy to bring the same container back on the same SHA.
+6. Soak for `soak_s` (1800 from the workflow): running, liveness ok, no
+   restart, no container change, hands dealt (`dealRate.handsInWindow` must
+   rise when seats exist), bounded memory.
+7. `qualify-tournament-freeze-fixes.py`, then a fatal-log scan
+   (`FATAL ERROR|Uncaught|unhandledRejection|heap out of memory|Segmentation fault`).
+8. Writes `/var/lib/club-arena-standby/certificates/<sha>.json`
+   (`club-arena-standby-certificate/v1`: verdict, reasons, boot and crash
+   recovery seconds, memory, `peakHandsInWindow`, the database stamp) and
+   prints it as the last line of the job log.
+
+### 3.4 How the certificate is written and read
+
+The `certify` job writes commit status `backup-engine/certified` on the exact
+SHA: `pending` at start, then `success` or `failure` with the reasons in the
+description and the run URL as `target_url` (`backup-engine.yml` step "Publish
+the verdict on the exact commit"). Readers, newest status first:
+
+- `stage-engine-release.yml` step `certified` walks main's first-parent line
+  from the owed SHA (60 commits) and offers the newest `success`;
+- `auto-deploy-hetzner.yml` step `backup_certificate` refuses any request
+  whose SHA is not `success`;
+- the host transaction re-reads it at line 3254 (before the cycle) and line
+  3847 (before the replacement).
+
+Read it yourself:
+
+```sh
+repo=Smarter-Software-PIQ/Smarter-Poker-Club-Arena
+gh api "repos/$repo/commits/<sha>/statuses?per_page=100" \
+  --jq '[.[] | select(.context == "backup-engine/certified")][0] | {state,description,target_url,updated_at}'
+```
+
+### 3.5 Certify one SHA or force a refresh by hand
+
+```sh
+gh workflow run backup-engine.yml -R "$repo" --ref main -f sha=<40hex>
+gh workflow run backup-engine.yml -R "$repo" --ref main -f sha=<40hex> -f refresh=true
+```
+
+Then `gh run list --workflow backup-engine.yml -L 3` for the run id, and
+`gh run view <id> --log` to read `database.json`/`seed.json` stamps (the
+`refresh` job prints `copy=<restoredAt> newestMigration=<ts> due=<bool>`) and
+the certificate JSON (last line of the `certify` step). A manual run is never
+superseded.
+
+### 3.6 Superseded runs
+
+A `push` run whose `plan` job finds a newer push run of `backup-engine.yml`
+(larger run id, different head SHA) ends in seconds, writes no status, and
+prints `SUPERSEDED` to the job summary. Manual, nightly and post-seal runs are
+never superseded; an unreadable GitHub answer proceeds (CLAUDE.md 10.86).
+Fixed 2026-11-07 (#9906) after the post-seal refresh waited about 4.5 h behind
+stale certifications.
+
+### 3.7 What a refused certificate means
+
+Nothing changed anywhere. The commit keeps `failure`; the daily selector
+walks past it to the newest `success` behind it, or offers nothing. The reasons
+list is the diagnosis; a `database_refresh_failed` reason points at the copy
+(re-run with `refresh=true` after reading the `refresh` job), every other
+reason points at the engine build.
+
+### 3.8 Testing on Backup
+
+Agents contribute to Backup only through Git: a push to main, or a dispatch of
+an exact SHA. Nobody edits the running clone (owner direction). Backup can:
+build and boot any main commit, rehearse the swap from the serving release,
+survive a crash, soak with horse-only tables dealing, and run the trials in
+`server/standby/standby-trials.sh` (`swap`, `break`, `table-kill`). Backup
+cannot: reach production or the internet, hold a production credential, or
+exercise a human browser session. A human-visible change still needs its
+client proof through `publish-club-arena.yml` and `post-deploy-e2e.yml`.
+
+## 4. The daily 04:00 cutover, minute by minute (America/Chicago, DST-aware)
+
+The engine announces the break by itself every day (`server/src/maintenance/MaintenanceBreak.ts`
+`scheduleNextAnnouncement`, `server/src/maintenance/maintenanceSchedule.ts`:
+announce 120 s before 04:00, break 300 s). A release rides the break; the
+break does not wait for a release.
+
+### 4.1 03:30-03:50 preparation (`stage-engine-release.yml`)
+
+- **Admission** (job `detect`, step `admission`): the first push or schedule run
+  created inside 03:30-03:50 Chicago (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`)
+  owns the day's preparation; later runs refuse by name; an unreadable run list
+  prepares nothing. Crons `31,35,39,43 8/9 * * *` UTC are only chances to be
+  first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`).
+- **Detect** (step `change`): is a release owed? Changed engine tree, or
+  production's `/health.releaseSha` behind main's newest engine commit.
+- **Window migrations** (job `window-migrations`): runs only on the admitted
+  run; `scripts/ci/install-window-migrations.mjs` lists queued window files,
+  validates them at 03:30, sleeps once until just before 04:00, then waits for
+  the database's own freeze predicate (section 6).
+- **Signal** (job `signal`): picks the newest `backup-engine/certified = success`
+  main commit at or behind the owed SHA and sends one `repository_dispatch`
+  `deploy-club-arena-engine` with `ref_sha`; verifies a receiver run titled
+  `Engine Release <sha>` appeared (one bounded retry).
+
+Observe: `gh run list --workflow stage-engine-release.yml --created ">=<today>T08:00:00Z" -L 10`;
+`gh run view <id> --log | grep -E "Daily preparation|certified|Receiver run"`.
+Failure handling: no admitted run means GitHub delivered nothing in the window
+and nothing was prepared; there is no retry, tomorrow's window prepares. Do
+not dispatch the receiver yourself to make up a missed window.
+
+### 4.2 Receiver preflight (`auto-deploy-hetzner.yml`)
+
+Four shards of job `preflight`: prove the SHA is on protected main; require the
+Backup certificate (step `backup_certificate`); require the 03:30-03:50 clock
+or the recorded November 7 owner window (step `daily_release`); `npm ci`,
+`npm run build`, `npm test --shard N/4`. Then `engine-doors` (section 2 step 4).
+Observe: `gh run view <id> --json jobs --jq '.jobs[] | {name,conclusion}'`.
+A red preflight released nothing; fix the cause in a PR.
+
+### 4.3 Host staging (job `deploy`, before 04:00)
+
+Steps `freshness`, `admit` (`server/scripts/engine-release-activation-floor.py prepare`),
+`ssh`, `stage` (control bytes from the CONTROL SHA archived into
+`/var/lib/club-arena/control-staging/<run>-<attempt>` on the host, never the
+host checkout), `prepare` (builds `club-arena-engine:<sha>` on the production
+host with `server/scripts/build-engine-image.sh` and pre-warms it with
+`server/scripts/prewarm-engine-image.sh`; the image is therefore already built
+and resident before the window), `floor` (waits for the activation floor), then
+`release`: `server/scripts/install-engine-intake.sh` installs the root-owned
+systemd release unit, and `server/scripts/observe-engine-release.sh` follows it.
+From here the host owns the transaction; the GitHub job is an observer that
+reattaches on uncertain exits (codes 124, 255, 75, 76, 128+) up to 40 times
+within a 12,000 s job budget.
+
+### 4.4 03:58 last-hand notice
+
+`MaintenanceBreak.announceLastHand`: every table finishes its hand, no new hand
+starts, the row in `engine_maintenance_break` is written (retried only on lock
+or statement timeout). `/health.maintenance.phase` reads `last_hand`.
+
+### 4.5 04:00 freeze
+
+`beginCountdown`: every table parks; `fn_platform_frozen` turns true through
+the `zz_freeze_guard` triggers (freeze lives in Postgres, `CLAUDE.md` section
+13 invariant 1); `/health.maintenance.readyForRestart` opens when no hand is in
+flight and no payout is mid-settlement.
+
+### 4.6 The host transaction's phases (`server/scripts/engine-release-transaction.sh`)
+
+| Phase              | What                                                                                                                                                                                                                                                                                                                                                                                    | Budget                                                                                                   |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Cycle reservation  | the Backup certificate re-read at line 3254, image lease and candidate validation (`create_image_lease` line 2933, `validate_candidate_image` line 2969, `prewarm_candidate_image` line 3003)                                                                                                                                                                                           | Before the window                                                                                        |
+| Window doors       | `window_doors_ready` (line 356) re-reads pg_proc and PostgREST's cache for every door a queued window migration creates (`docs/changelog/2026-11-07-release-window-resilience.md`)                                                                                                                                                                                                      | Inside the break, before the lock                                                                        |
+| Certificate        | `maintenance_certificate` (line 1439): `daily_cutover_clock` true, `readyForRestart` true, `unparkedTables == 0`, the durable break row, and enough break left: the strict `MIN_BREAK_REMAINING_MS` for a legacy checkpoint, otherwise `BREAK_ADMISSION_MIN_BREAK_MS` = 285000 minus a 25 s certificate lag = 260000 ms (lines 167 and 185), because the countdown is never read at t=0 | `MIN_BREAK_REMAINING_MS` = (150 + 135 + 0) s = 285000 ms of the 300000 ms break (lines 52, 53, 109, 115) |
+| Rollback readiness | `prove_rollback_readiness` (line 2723): the sealed engine is the exact live local and public process and the fresh database leader                                                                                                                                                                                                                                                      | Inside the 150 s proof                                                                                   |
+| Cutover            | `server/scripts/engine-up.sh` under the engine lock: stop the old container at a hand boundary (already parked), start the candidate, prove local `/health`, public `/health` and the database leader (`server/scripts/engine-release-database-proof.py`)                                                                                                                               | `BREAK_CUTOVER_PROOF_SECONDS` = 150                                                                      |
+| Rollback reserve   | If any witness fails before the seal, `recover_on_exit` (line 806) aborts the seal and runs `engine-supervisor.sh` with `ENGINE_SUPERVISOR_FORCE_DESIRED=1` to restore the previously sealed desired state                                                                                                                                                                              | `BREAK_ROLLBACK_RESERVE_SECONDS` = 135, always held                                                      |
+| Seal               | `persist_result sealed` (line 3988 via `persist_result` line 2564): `engine-release-seal.py record-result` writes the per-run receipt and prints `ENGINE_RELEASE_RESULT=sealed`, `ENGINE_RELEASE_SHA`, image id, container id                                                                                                                                                           | Inside the proof budget                                                                                  |
+| Thaw               | The new engine reads the break row, re-parks until `break_ends_at`, then `end()` thaws every deadline (`fn_thaw_platform`) and resumes in `RESUME_WAVES` waves; `/health.maintenance.resumeWaves` shows the rollout                                                                                                                                                                     | 04:05                                                                                                    |
+
+Receipt path on the host: `/var/lib/club-arena/engine-release-results/<run-id>-<attempt>.json`
+(`server/scripts/engine-release-seal.py`, `ENGINE_RELEASE_RESULT_DIR`). The receiver's
+`record-receipt` job writes the same outcome as one append-only database row per
+run and a second row naming the exit path (`engine_deploy_exit_paths`: `stage`,
+`outcome`, `error`); both are best-effort writes that never change the verdict.
+
+### 4.7 Independent proof (step `verify`)
+
+Over SSH: desired SHA and image from the seal equal the running container's
+labels; local `/health` is `running`, `releaseSha == SHA`, `liveness ok`, with
+an `instanceId` matching `^[1-9][0-9]*-[0-9a-f]{8}$`; database leader proof
+within 60 s; then public `/health` reports the same `instanceId`. Output
+`verified=true` is what makes `shipped=true`.
+
+### 4.8 Post-seal
+
+- `certify-production` dispatches `run-post-deploy-e2e` with the exact engine
+  SHA; `post-deploy-e2e.yml` job "Live-table and engine verification" plays
+  real hands and reconnects against that exact serving version. Job "Client
+  browser verification" is the client's own proof and has no engine dependency.
+- `backup-engine.yml` receives the `workflow_run` and, only when the receiver
+  concluded `success`, forces a fresh copy and re-certifies the serving SHA
+  (section 3.2).
+
+### 4.9 Reattaching the observer after a red run with a sealed receipt
+
+Through the scoped observer procedure on the release host:
+`observe-engine-release.sh --sha <sha> --run-id <run>-<attempt>` from that
+run's control staging directory. Match `ENGINE_RELEASE_SHA` and
+`ENGINE_RELEASE_RESULT=sealed` to the receipt and to public `/health`. Since
+#9892 the observer attests a retired recovery completion instead of comparing a
+stale systemd InvocationID (`docs/changelog/2026-11-07-observer-retired-completion-invocation.md`).
+A failed observer never authorizes another cutover.
+
+## 5. Verification checklist after a cutover
+
+Run every line; record the outputs in the changelog for the day.
+
+```sh
+repo=Smarter-Software-PIQ/Smarter-Poker-Club-Arena
+sha=<certified 40hex>
+
+# 1. Health: certified SHA, a NEW instanceId, maintenance idle, tables resumed, hands dealing
+curl -fsS "https://engine.smarter.poker/health?nocache=$(date +%s)" | jq '{
+  releaseSha, version, instanceId, liveness, running,
+  leadership: {instanceId: .leadership.instanceId, role: .leadership.role},
+  maintenance: {phase: .maintenance.phase, readyForRestart: .maintenance.readyForRestart,
+                reason: .maintenance.reason, schedule: .maintenance.schedule,
+                resumeWaves: .maintenance.resumeWaves},
+  handsInWindow: .dealRate.handsInWindow, dealableTableCount, stalledTableCount, wholeFleetStalled,
+  tournamentLease, settlementStatus, equityGovernorScale: .equityGovernor.scale }'
+# Expect: releaseSha == $sha; instanceId differs from before 04:00; maintenance.phase idle or absent;
+# resumeWaves complete; handsInWindow > 0 within ten minutes of 04:05; wholeFleetStalled false.
+
+# 2. Stage and receiver runs terminal
+gh run list -R "$repo" --workflow stage-engine-release.yml -L 5
+gh run list -R "$repo" --workflow auto-deploy-hetzner.yml -L 5
+gh run view <receiver-run> -R "$repo" --json status,conclusion,jobs \
+  --jq '{status,conclusion,jobs:[.jobs[]|{name,conclusion}]}'
+
+# 3. Receipt sealed (host, scoped read): /var/lib/club-arena/engine-release-results/<run>-<attempt>.json
+#    result == "sealed", sha == $sha, instanceId == /health.instanceId
+
+# 4. Window migrations installed: read history through execute_sql, never list_migrations
+#    SELECT version, name FROM supabase_migrations.schema_migrations
+#     WHERE version IN ('<each queued version>') ORDER BY version;
+
+# 5. Post-seal Backup refresh started and certified
+gh run list -R "$repo" --workflow backup-engine.yml -L 5
+gh api "repos/$repo/commits/$sha/statuses?per_page=100" \
+  --jq '[.[] | select(.context == "backup-engine/certified")][0] | {state,updated_at}'
+# Expect: a workflow_run-triggered run after the seal, refresh due=true, state success, updated after the seal.
+
+# 6. Post-deploy E2E
+gh run list -R "$repo" --workflow post-deploy-e2e.yml -L 3
+
+# 7. Client provenance (unchanged by an engine release, but prove the player route is whole)
+curl -fsS https://ca-static.smarter.poker/build-info.json
+curl -fsS https://smarter.poker/hub/club-arena/build-info.json
+```
+
+Done means every line answers as expected. Anything else goes to the table in
+1.3. The scheduling objectives are 15 minutes from 04:00 to resumed games and 30
+minutes to a verified seal and gameplay (`PUBLISHING.md`); a target never
+shortens a safeguard.
+
+## 6. Window migrations
+
+1. **Declare.** A migration that needs ACCESS EXCLUSIVE (or SHARE, SHARE ROW
+   EXCLUSIVE, EXCLUSIVE) on `clubs`, `tables` or `hand_history` puts
+   `-- @install-window: daily-maintenance` on its own header line. Create the
+   file with `node scripts/new-migration.mjs "<what it does>"`; never type a
+   version. Keep it to DDL in one transaction; no own override, no freeze
+   bypass, no longer timeouts, no sleeps, no advisory locks, no CONCURRENTLY
+   preamble (`scripts/ci/maintenance-window-migrations.mjs` `validateWindowMigration`).
+   A `-- @locks:` declaration that names the relations and modes the file takes,
+   with installer ordering by it, is landing 2026-11-07 in another lane; verify
+   it exists on main before writing one.
+2. **Queue.** Merge through the protected PR. `apply-merged-migration.yml`
+   refuses the file as QUEUED (nothing sent). Queued means on main and not in
+   `schema_migrations`; there is no queue table.
+3. **Install.** The admitted 03:30 run's `window-migrations` job runs
+   `scripts/ci/install-window-migrations.mjs`: one transaction and one attempt
+   per file through `scripts/ci/apply-recorded-migration.mjs --maintenance-window`,
+   oldest version first, with the break-window override reason recorded in
+   `ca_break_window_migration_overrides`, 1 s `lock_timeout`, 5 s statements,
+   an 8 s budget asserted before COMMIT, started only while the freeze is
+   confirmed with at least `START_RESERVE_SECONDS` left, and a quiet-moment
+   wait before each lock (`QUIET_HOLDER_AGE_MS`).
+4. **Read the verdict.** The run summary names each file: installed, SKIPPED
+   (refused, rolled back, still queued) or UNKNOWN. Exit 0 all installed or
+   nothing queued; 1 at least one refused; 3 UNKNOWN. Native proof:
+   `scripts/ci/test-maintenance-window-migrations.sh` in
+   `maintenance-window-migrations.yml`.
+5. **A skipped file.** Fix the cause on main (it stays queued). Because order is
+   no longer guaranteed across days, a window file that depends on an earlier
+   window file asserts its prerequisite itself and fails loudly if it is absent.
+6. **Ordinary migrations** (no window declaration) install minutes after merge
+   through `apply-merged-migration.yml` (dispatch `apply-merged-migration` with
+   `{migration}`), once, from merged bytes; ALREADY-APPLIED for a version
+   production holds. Never from a branch or the MCP (`CLAUDE.md` section 2 rule 11).
+
+## 7. Rollback and emergencies
+
+### 7.1 What the transaction does on its own
+
+- Refuses to start the cutover without the certificate, the Backup status, the
+  rollback proof and 285 s remaining (section 4.6).
+- On any failure after preparation: aborts the seal, restores the previously
+  sealed desired state through `engine-supervisor.sh` inside the 135 s reserve,
+  releases the lock, and lets the break thaw on time. The previous engine is
+  then serving; `/health.releaseSha` says which.
+- After the window (`BREAK_END_EPOCH` passed): recovery may only restore sealed
+  desired state, never prepare or cut over a candidate, for at most
+  `NON_BREAK_RECOVERY_MAX_SECONDS` = 300 s (line 105).
+- A withdrawal of a waiting (not yet mutating) transaction exists as the
+  receiver's `withdraw-waiting-release` job; it never touches a running engine.
+- A rollback drill against the protected floors runs through
+  `.github/workflows/engine-rollback-drill.yml` on Backup-style evidence, never
+  against live play.
+
+### 7.2 What an agent may trigger
+
+- Reattach the observer (4.9).
+- Re-run a failed GitHub job that released nothing:
+  `env -u GH_TOKEN -u GITHUB_TOKEN gh run rerun <id> --failed`.
+- Submit the one Backup-only refresh after proving the sealed SHA is serving:
+
+  ```sh
+  served=$(curl -fsS https://engine.smarter.poker/health | jq -er .releaseSha) &&
+    [ "$served" = "$sha" ] &&
+    gh workflow run backup-engine.yml -R "$repo" --ref main -f sha="$sha" -f refresh=true
+  ```
+
+- Nothing that restarts, replaces or reconfigures the live engine.
+
+### 7.3 The degraded-engine emergency, exactly
+
+`recovery_window_reason` (transaction line 1917) names `engine-degraded` only
+when live `/health` shows `liveness == "dead"`, `wholeFleetStalled == true`, or
+`tournamentManagersQuarantined >= RECOVERY_QUARANTINED_MANAGERS`. That is the
+whole definition; a request deadline, a missed window, a red run or a slow
+queue is not one (`CLAUDE.md` section 13). Since the owner direction of
+2026-11-06 that reason cannot admit a replacement outside 04:00-04:05: the
+receiver's `daily_release` step admits only the 03:30-03:50 preparation (or the
+recorded November 7 owner window), the host's `daily_cutover_clock` is checked
+again at line 3848, and `stage-engine-release.yml` offers nothing outside the
+daily preparation. A degraded engine during the day is therefore an incident
+to diagnose and fix at the root (section 10.11), with the container's own
+`unless-stopped` restart policy and the host supervisor as the only recovery
+levers, and the fix ships at the next 04:00 with its own certificate. Evidence
+to record before calling anything degraded: the exact `/health` body with its
+timestamp, `dealableTableCount`, `stalledTableCount`, the leader heartbeat age
+(`engine-release-database-proof.py`), and the engine log lines around it.
+
+## 8. Read-only tools
+
+| Question                                         | Command                                                                                                                                                                                                                |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What is serving right now?                       | `curl -fsS https://engine.smarter.poker/health \| jq '{releaseSha,instanceId,liveness,maintenance}'`                                                                                                                   |
+| Is this SHA certified?                           | `gh api repos/$repo/commits/<sha>/statuses?per_page=100 --jq '[.[]\|select(.context=="backup-engine/certified")][0]'`                                                                                                  |
+| Which SHA would tonight offer?                   | Walk `gh api "repos/$repo/commits?sha=main&per_page=60" --jq '.[].sha'` and take the first with `success` (what `stage-engine-release.yml` step `certified` does)                                                      |
+| Did today's preparation run, and who owned it?   | `gh run list --workflow stage-engine-release.yml -L 10`, then `gh run view <id> --log \| grep "Daily preparation"`                                                                                                     |
+| What did the receiver do?                        | `gh run view <id> --json jobs --jq '.jobs[]\|{name,conclusion}'`; `gh run view <id> --log-failed`                                                                                                                      |
+| Why did a job fail when the log host is blocked? | Run the same `gh` command in the host terminal (`AGENT-PLAYBOOK.md`); a log you could not read is UNKNOWN                                                                                                              |
+| Which window files are queued?                   | `grep -l "@install-window: daily-maintenance" supabase/migrations/*.sql`, minus versions present in `schema_migrations` (read through `execute_sql`)                                                                   |
+| Is a migration installed?                        | `SELECT version, name FROM supabase_migrations.schema_migrations WHERE version = '<v>'` through `execute_sql` (never `list_migrations`, section 2 rule 8)                                                              |
+| Is the platform frozen right now?                | `SELECT public.fn_platform_frozen()` and `SELECT * FROM public.engine_maintenance_break` through `execute_sql`                                                                                                         |
+| What is the PR's real check state?               | `node scripts/ci/pr-status.mjs <n>` (exit 3 UNKNOWN)                                                                                                                                                                   |
+| Which checks will my tree trigger?               | `node scripts/ci/execution-preview.mjs --working-tree`                                                                                                                                                                 |
+| Is my clone current?                             | `bash scripts/check-checkout-freshness.sh`                                                                                                                                                                             |
+| Evening read-only release plan                   | `node scripts/ops/release-plan.mjs` (pending on main) and workflow `evening-release-plan.yml` (pending on main) at 20:00 Chicago: landing 2026-11-07 in another lane; verify both exist on main before relying on them |
+
+The owner and token facts behind these commands: the repository is under
+`Smarter-Software-PIQ`; the exported `GH_TOKEN` reads and pushes but cannot
+merge or rerun, so merge and rerun with `env -u GH_TOKEN -u GITHUB_TOKEN gh ...`
+(measured 2026-11-06, `PUBLISHING.md`). Re-check in one call before routing
+around either claim (`CLAUDE.md` 10.86).
+
+## 9. Proposed, not built
+
+Each item was deferred for the reason given. None is authority to build it;
+each needs its own PR, law and changelog.
+
+1. **Park rather than cancel unused boards before the window.** Today every
+   club accrues about 12 cancelled tournaments, 12 closed tables and 12
+   receipts per day from boards that the 03:00 Spin and Sit and Go stop and the
+   04:00 window never let start (`server/src/maintenance/dailyWindow.ts`).
+   Parking the board and resuming it at 06:00 would remove that residue.
+   Deferred: it changes the lifecycle every tournament spawner and the database
+   policy row share (`smarter_private.daily_window_policy`, owner rule of
+   2026-11-03), so it needs its own measured design, law and changelog rather
+   than a line in this document.
+2. **Break-aware termination of a lock blocker during the confirmed freeze.**
+   The 2026-11-07 refusal was a 1 s lock timeout behind pg_cron readers that
+   run through the break (`docs/changelog/2026-11-07-release-window-resilience.md`).
+   Cancelling a reader's transaction inside the confirmed freeze would let the
+   install proceed. Deferred: `fn_ca_writer_lock_sentinel` already cancels
+   blockers on a 15 s rule, and a second canceller is the shape of a repair loop
+   (`CLAUDE.md` 10.12) until the specific jobs are shown to be safe to cancel.
+3. **Pre-warming the image on the production host.** Verified built: the
+   receiver's `prepare` step runs `server/scripts/build-engine-image.sh` on the
+   production host before the window and `server/scripts/prewarm-engine-image.sh`
+   loads it, and the transaction re-checks with `validate_candidate_image` and
+   `prewarm_candidate_image` (lines 2969, 3003). Not pre-warmed: the node
+   process itself (module load, snapshot rebuild of every table, the first
+   Monte Carlo sample). A warm-standby process on the production host is the
+   remaining idea. Deferred: two engines on one host contend for the single
+   core the Monte Carlo already saturates (`CLAUDE.md` section 2).
+4. **Boot-time reduction under database degradation.** Five to eight minute
+   boots have been measured while the database was degraded
+   (`engine-release-transaction.sh` header above line 52); the reserve
+   arithmetic is sized for a healthy database. Deferred: needs a measured
+   profile of the boot's database reads before any change to the 150/135 split,
+   and `tests/the-break-clocks-agree.law.test.ts` pins every surface.
+5. **A second standby host.** Backup is one host and serializes every
+   certification (about 45 minutes each). Superseding stale push runs (#9906)
+   removed most of the queue; a second host would let a certification and a
+   post-seal refresh run at once. Deferred: cost, a second pinned host key and
+   egress lock, and no measured day yet where the single host was the limit
+   after #9906.
