@@ -192,8 +192,15 @@ python3() {
     (candidate) => {
       const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
       const result = planShell(
-        'git() { echo unexpected-mutable-main-read >&2; return 99; }\n' + plan,
-        { EVENT: 'push', INPUT_SHA: '', INPUT_REFRESH: 'false', GITHUB_SHA: candidate }
+        'git() { echo unexpected-mutable-main-read >&2; return 99; }\ngh() { echo 0; }\n' + plan,
+        {
+          EVENT: 'push',
+          INPUT_SHA: '',
+          INPUT_REFRESH: 'false',
+          GITHUB_SHA: candidate,
+          RUN_ID: '500',
+          GITHUB_REPOSITORY: 'o/r',
+        }
       );
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain('sha=' + candidate);
@@ -203,6 +210,69 @@ python3() {
       }
     }
   );
+  // 2026-11-07: a queued push run that a newer push has replaced finishes
+  // in seconds with nothing planned, so the Backup host and the post-seal
+  // clone refresh never wait hours behind stale certifications.
+  describe('a superseded push run plans nothing and skips the Backup host', () => {
+    const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
+    const candidate = 'a'.repeat(40);
+    const base = {
+      INPUT_SHA: '',
+      INPUT_REFRESH: 'false',
+      GITHUB_SHA: candidate,
+      RUN_ID: '500',
+      GITHUB_REPOSITORY: 'o/r',
+    };
+    it('asks GitHub only for newer push runs of this workflow, by run id, and never by reading main', () => {
+      expect(plan).toContain('if [ "$EVENT" = push ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then');
+      expect(plan).toContain('actions/workflows/backup-engine.yml/runs?event=push&branch=main');
+      expect(plan).toContain('select(.id > $RUN_ID and .head_sha != \\"$sha\\")');
+      expect(backup.jobs.plan.steps[0].env.RUN_ID).toBe('${{ github.run_id }}');
+      expect(backup.jobs.plan.steps[0].env.GH_TOKEN).toBe('${{ github.token }}');
+      expect(backup.jobs.refresh.if).toBe("needs.plan.outputs.sha != ''");
+      expect(backup.jobs.certify.if).toBe("always() && needs.plan.outputs.sha != ''");
+    });
+    it('skips when a newer push run exists: empty sha, no status, exit 0', () => {
+      const result = planShell(
+        'git() { echo unexpected-main-read >&2; return 99; }\ngh() { echo 2; }\n' + plan,
+        { ...base, EVENT: 'push' }
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('SUPERSEDED: 2 newer push run(s)');
+      expect(result.stdout).toMatch(/\nsha=\n/);
+      expect(result.stdout).not.toContain('sha=' + candidate);
+      expect(result.stdout).not.toContain('refresh=auto');
+    });
+    it('proceeds as today when GitHub cannot be read', () => {
+      const result = planShell('gh() { echo "HTTP 403" >&2; return 1; }\n' + plan, {
+        ...base,
+        EVENT: 'push',
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('could not read this workflow');
+      expect(result.stdout).toContain('sha=' + candidate);
+      expect(result.stdout).toContain('refresh=auto');
+    });
+    it('proceeds when the answer is not a count', () => {
+      const result = planShell('gh() { echo "not json"; }\n' + plan, { ...base, EVENT: 'push' });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('sha=' + candidate);
+    });
+    it.each([
+      ['workflow_dispatch', { INPUT_SHA: candidate }],
+      ['schedule', {}],
+      ['workflow_run', { RELEASE_TITLE: 'Engine Release ' + candidate }],
+    ])('never skips a %s run even with newer push runs queued', (event, extra) => {
+      const result = planShell(
+        `gh() { echo 9; }\ngit() { printf '%s\\trefs/heads/main\\n' ${candidate}; }\ncurl() { printf '%s' '${JSON.stringify({ releaseSha: candidate })}'; }\n` +
+          plan,
+        { ...base, ...extra, EVENT: event }
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).not.toContain('SUPERSEDED');
+      expect(result.stdout).toContain('sha=' + candidate);
+    });
+  });
   it('serializes all Backup candidates and refreshes only after a successful sealed release', () => {
     expect(backup.concurrency).toEqual({
       group: 'backup-engine',
