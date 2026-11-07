@@ -23,12 +23,13 @@ const memoryVariant = (value: unknown): ObserverVariant | null =>
     ? (value as ObserverVariant)
     : null;
 
-// These original journal issues affect payout utility and field valuation.
-const FIELD_OR_AWARD_ISSUES = new Set<string>([
+// These original issues affect payout, field valuation or seat-position charts.
+const ISSUES_OUTSIDE_PUBLIC_MEMORY_DOMAIN = new Set<string>([
   TOURNAMENT_CONTEXT_INCOMPLETE,
   'satellite_award_depth_unavailable',
   'live_field_recovery_pending',
   'live_field_stack_cardinality_mismatch',
+  'dead_button_atlas_unsupported',
 ]);
 
 /** An individual observer's public-read partition. Unknown stays unavailable. */
@@ -85,10 +86,14 @@ export function horseObserverReadContextFromRequest(
       tournament?.contextStatus !== 'incomplete' ||
       !provenance?.source?.mttFormatContract ||
       !publicMemoryDomainIsValid(gs.publicMemoryDomain) ||
+      !Array.isArray(gs.players) ||
+      !Array.isArray(tournament.contextIssues) ||
       !horseTournamentProvenanceMatchesSnapshot(request) ||
-      !tournament.contextIssues?.some((issue) => issue !== TOURNAMENT_CONTEXT_INCOMPLETE) ||
-      !tournament.contextIssues.every((issue) => FIELD_OR_AWARD_ISSUES.has(issue)) ||
+      !tournament.contextIssues.some((issue) => issue !== TOURNAMENT_CONTEXT_INCOMPLETE) ||
+      !tournament.contextIssues.every((issue) => ISSUES_OUTSIDE_PUBLIC_MEMORY_DOMAIN.has(issue)) ||
       !Array.isArray(dealt) ||
+      (tournament.contextIssues.includes('dead_button_atlas_unsupported') &&
+        (dealt.length <= 2 || gs.dealerSeat == null || dealt.includes(gs.dealerSeat))) ||
       dealt.length !== provenance.projection.dealtSeatIds.length ||
       !dealt.every((seat) => provenance.projection.dealtSeatIds.includes(seat))
     )

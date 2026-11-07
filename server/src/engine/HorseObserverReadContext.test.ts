@@ -78,6 +78,28 @@ it('uses the original MTT contract for public reads while satellite payout utili
     publicMemoryDomain: gs.publicMemoryDomain,
   });
   expect(gs.tournament.contextStatus).toBe('incomplete');
+  const deadButton = structuredClone(request);
+  deadButton.gameState.players.push({
+    ...deadButton.gameState.players[1],
+    seat: 4,
+    user_id: '01afc6bc-9eac-4a73-b403-463ca06c33a5',
+  });
+  deadButton.gameState.dealtSeatIds = [1, 2, 4];
+  deadButton.gameState.tournament!.contextProvenance!.projection.dealtSeatIds = [1, 2, 4];
+  deadButton.gameState.dealerSeat = 3;
+  deadButton.gameState.tournament!.contextProvenance!.projection.dealerSeat = 3;
+  deadButton.gameState.tournament!.contextIssues = [
+    'TOURNAMENT_CONTEXT_INCOMPLETE',
+    'satellite_award_depth_unavailable',
+    'dead_button_atlas_unsupported',
+  ];
+  const cachedIssues = ['TOURNAMENT_CONTEXT_INCOMPLETE', 'satellite_award_depth_unavailable'];
+  deadButton.gameState.tournament!.contextProvenance!.source!.contextIssues = cachedIssues;
+  deadButton.gameState.tournament!.contextProvenance!.issues = cachedIssues;
+  expect(horseObserverReadContextFromRequest(deadButton)).toMatchObject({ format: 'mtt' });
+  deadButton.gameState.dealtSeatIds = [1, 2];
+  expect(horseObserverReadContextFromRequest(deadButton)).toBeNull();
+
   for (const mutate of [
     (r: typeof request) => {
       delete r.gameState.tournament!.contextProvenance!.source!.mttFormatContract;
