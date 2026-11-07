@@ -22,7 +22,8 @@ import { pushFinancialUpdate } from '../services/financialPush.js';
 import { randomUUID } from 'node:crypto';
 import { v5 as uuidv5 } from 'uuid';
 import { ServerTableEngineBase } from './ServerTableEngineBase.js';
-import { leaveLabel } from './ChipContinuity.js';
+import { handsLeftLabel, leaveLabel } from './ChipContinuity.js';
+import { setCashSessionBlindOff } from '../services/supabase/cashSessions.js';
 import { isMaintenanceFrozen } from '../maintenance/freezeState.js';
 import { INSTANCE_ID } from '../services/tableLease.js';
 import {
@@ -1622,8 +1623,9 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     } else {
       // Cancel any pending sit-out
       this.pendingSitOut.delete(userId);
-      // CHIP CONTINUITY: sitting back in withdraws a leave the clock was holding.
-      this.leaveHeldByClock.delete(userId);
+      // CHIP CONTINUITY: sitting back in withdraws a leave the clock was holding
+      // (HIT AND RUN: and ends the blind-off; the player is playing again).
+      this.withdrawBlindOff(userId);
       this.returnedFromSitOutAtMs.set(userId, Date.now());
       this.disconnectEngine.sitBack(this.tableId, userId);
       // Bible V8 §4.2: Mark player as returning — must post dead blind on next hand (cash tables only)
@@ -1705,20 +1707,84 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
    * still stands (applied or deferred to the hand end). The horse rotator
    * asks this before any automatic sit-back-in (2026-10-22).
    */
-  /** A stay clock holds the chips, never the player's current-hand input. */
-  protected holdLockedLeave(userId: string, remainingMs: number) {
-    this.disconnectEngine.markClientSitOut(this.tableId, userId);
-    this.sitOutLeaver(userId, this.foldLeaverNow(userId));
+  /**
+   * HIT AND RUN (owner 2026-11-06): the player confirmed leaving with hands
+   * still owed in profit - "YOU WILL BE BLINDED OFF FOR THE REMAINING HANDS".
+   *
+   * The seat and its chips stay. The leave is held (leaveHeldByClock) and the
+   * seat is BLINDED OFF: it is still dealt every hand, posts its blinds when
+   * they come round and is checked or folded on its turn, until the count
+   * completes or the profit is gone; releaseLeavesHeldByClock then cashes it
+   * out through the same voluntary door the database guards. At a classic
+   * table that is the tournament sit-out treatment (sat out, dealt in); a
+   * Lightning anchor is not sat out at all (a sat-out pool seat is never
+   * matched): its hand host folds it instead (fn_lightning_blind_off_players).
+   *
+   * The reply is a SUCCESS: the player asked to go and may go. Their seat
+   * finishes the obligation without them.
+   */
+  protected holdLockedLeave(userId: string, handsRemaining: number) {
+    const seat = this.seatedPlayers.find((p) => p.user_id === userId);
+    if (seat?.occupancy_id) this.leaveHeldByClock.set(userId, seat.occupancy_id);
+    this.chipContinuity.markBlindOff(userId, true);
+    void setCashSessionBlindOff(this.tableId, userId, true);
+    if (!this.isLightningAnchorNow()) {
+      this.disconnectEngine.markClientSitOut(this.tableId, userId);
+      this.sitOutLeaver(userId, this.foldLeaverNow(userId));
+    }
+    console.log(
+      `[ServerTableEngine:${this.tableId}] ${userId} leaves with ${handsRemaining} hands owed in profit - blinded off until they are played`
+    );
+    this.hub?.emitEvent(this.tableId, {
+      type: 'leave_blind_off',
+      table_id: this.tableId,
+      user_id: userId,
+      hands_remaining: handsRemaining,
+      timestamp: Date.now(),
+    });
     this.broadcastCurrentState();
+    return {
+      success: true,
+      immediate: false,
+      held: true,
+      blindOff: true,
+      sittingOut: !this.isLightningAnchorNow(),
+      hands_remaining: handsRemaining,
+      stay_remaining_ms: 0,
+    };
+  }
+
+  /**
+   * HIT AND RUN: the player asked to leave while hands are still owed and has
+   * not yet confirmed. Nothing changes; the client shows the full-screen
+   * "YOUR HAND COUNT IS NOT COMPLETED" confirmation and, on Leave, asks again
+   * with `confirmHandCount`.
+   */
+  protected handCountConfirmationRequired(userId: string, handsRemaining: number) {
+    this.hub?.emitEvent(this.tableId, {
+      type: 'leave_blocked',
+      table_id: this.tableId,
+      user_id: userId,
+      stay_remaining_ms: 0,
+      hands_remaining: handsRemaining,
+      timestamp: Date.now(),
+    });
     return {
       success: false,
       immediate: false,
-      held: true,
-      sittingOut: true,
       code: 'LEAVE_LOCKED' as const,
-      stay_remaining_ms: remainingMs,
-      error: leaveLabel(remainingMs),
+      needs_confirmation: true,
+      hands_remaining: handsRemaining,
+      stay_remaining_ms: 0,
+      error: handsLeftLabel(handsRemaining),
     };
+  }
+
+  /** A held leave whose seat this engine blinds off. */
+  protected withdrawBlindOff(userId: string): void {
+    const had = this.leaveHeldByClock.delete(userId);
+    this.chipContinuity.markBlindOff(userId, false);
+    if (had) void setCashSessionBlindOff(this.tableId, userId, false);
   }
 
   public isClientSitOut(userId: string): boolean {
@@ -1742,6 +1808,11 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       occupancyId?: string;
       seatNumber?: number;
       admin?: AdminDepartureAuthority;
+      /**
+       * HIT AND RUN: the player saw "YOUR HAND COUNT IS NOT COMPLETED" and
+       * chose to leave anyway; their seat is blinded off for the rest.
+       */
+      confirmHandCount?: boolean;
     } = {}
   ): Promise<{
     success: boolean;
@@ -1749,7 +1820,11 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     immediate: boolean;
     tournament?: boolean;
     held?: boolean;
+    blindOff?: boolean;
     sittingOut?: boolean;
+    /** HIT AND RUN: hands still owed in profit, and whether to ask first. */
+    hands_remaining?: number;
+    needs_confirmation?: boolean;
     /**
      * CHIP CONTINUITY (2026-09-04): 'LEAVE_LOCKED' when the player is ahead
      * of their buy-in with stay clock remaining. `stay_remaining_ms` says how
@@ -1952,14 +2027,19 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
                 opts.forced ? 'forced' : 'voluntary',
                 opts.admin
               );
-            if (out.locked !== null)
+            if (out.locked !== null) {
+              // HIT AND RUN: the database still holds hands owed in profit.
+              const hands = this.chipContinuity.leaveLock(userId, Infinity).handsRemaining;
               return {
                 success: false,
                 immediate: false,
                 code: 'LEAVE_LOCKED',
+                needs_confirmation: true,
+                hands_remaining: hands,
                 stay_remaining_ms: out.locked,
-                error: leaveLabel(out.locked),
+                error: hands > 0 ? handsLeftLabel(hands) : leaveLabel(out.locked),
               };
+            }
             if (out.failed !== null)
               return {
                 success: false,
@@ -2112,20 +2192,28 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         // The label is the ONLY copy: "Leave Available In M:SS". No reason, no
         // essay, no forbidden words (section 6.1).
         // ═══════════════════════════════════════════════════════════════════════
+        // HIT AND RUN (owner 2026-11-06): the mirror says hands are still
+        // owed in profit. Ask first; a confirmed leave is blinded off. A
+        // Lightning anchor's count moves at every Lightning settlement (a
+        // database trigger), which this engine's mirror does not see, so it
+        // is read fresh first.
+        if (!opts.forced && this.isLightningAnchorNow()) {
+          await this.chipContinuity.evaluate([
+            { user_id: userId, active: this.isContinuityActive(userId) },
+          ]);
+        }
         if (!opts.forced) {
           const lock = this.chipContinuity.leaveLock(userId, player.stack);
           if (lock.locked) {
-            console.log(
-              `[ServerTableEngine:${this.tableId}] leave refused for ${userId} - stay clock ${lock.remainingMs}ms remaining`
-            );
-            this.hub?.emitEvent(this.tableId, {
-              type: 'leave_blocked',
-              table_id: this.tableId,
-              user_id: userId,
-              stay_remaining_ms: lock.remainingMs,
-              timestamp: Date.now(),
-            });
-            return this.holdLockedLeave(userId, lock.remainingMs);
+            if (this.leaveHeldByClock.has(userId))
+              return this.holdLockedLeave(userId, lock.handsRemaining);
+            if (opts.confirmHandCount !== true) {
+              console.log(
+                `[ServerTableEngine:${this.tableId}] leave for ${userId} needs confirmation - ${lock.handsRemaining} hands owed in profit`
+              );
+              return this.handCountConfirmationRequired(userId, lock.handsRemaining);
+            }
+            return this.holdLockedLeave(userId, lock.handsRemaining);
           }
         }
 
@@ -2379,22 +2467,23 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           }
           if (res.code === 'LEAVE_LOCKED') {
             // The mirror was behind the database (empty after a restart, or a
-            // settlement landed between the check above and the door). The player
-            // is still seated, still in, and is told the clock. The mirror adopts
-            // the database's remaining time.
-            console.log(
-              `[ServerTableEngine:${this.tableId}] leave refused at the door for ${userId} - stay clock ${res.stayRemainingMs}ms remaining`
-            );
+            // settlement landed between the check above and the door). The
+            // player is still seated, still in; the mirror adopts the
+            // database's count and the same hit-and-run choice applies.
             this.chipContinuity.noteRefusal(userId, res.stayRemainingMs);
-            this.hub?.emitEvent(this.tableId, {
-              type: 'leave_blocked',
-              table_id: this.tableId,
-              user_id: userId,
-              stay_remaining_ms: res.stayRemainingMs,
-              timestamp: Date.now(),
-            });
-            this.broadcastCurrentState();
-            return this.holdLockedLeave(userId, res.stayRemainingMs);
+            await this.chipContinuity.evaluate([
+              { user_id: userId, active: this.isContinuityActive(userId) },
+            ]);
+            const hands = Math.max(
+              1,
+              this.chipContinuity.leaveLock(userId, player.stack).handsRemaining
+            );
+            console.log(
+              `[ServerTableEngine:${this.tableId}] leave refused at the door for ${userId} - ${hands} hands owed in profit`
+            );
+            if (opts.confirmHandCount !== true)
+              return this.handCountConfirmationRequired(userId, hands);
+            return this.holdLockedLeave(userId, hands);
           }
           // Transport or database failure: the seat is untouched (one transaction)
           // and the player can try again. Nothing to tear down, because nothing left.
@@ -2450,6 +2539,15 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     } catch {
       return false;
     }
+  }
+
+  /** HIT AND RUN: a held Lightning leave whose hands are played, behind its live hand. */
+  protected async deferHeldLightningLeave(
+    userId: string,
+    seatNumber: number,
+    occupancyId: string
+  ): Promise<unknown> {
+    return this.queueDepartureBehindLightningHand(userId, seatNumber, occupancyId, 'voluntary');
   }
 
   private async queueDepartureBehindLightningHand(

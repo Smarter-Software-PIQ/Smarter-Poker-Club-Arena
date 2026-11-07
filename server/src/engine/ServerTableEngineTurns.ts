@@ -663,8 +663,8 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
           p.stack > 0 &&
           // Tournament sit-outs are dealt in (blind-off) — the watchdog must
           // agree with the dealing loop or it would restart an "idle" table.
-          (this.isTournamentTable() ||
-            !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)) &&
+          (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+            this.dealsInWhileSittingOut(p.user_id)) &&
           !this.waitingForBB.has(p.user_id)
       ).length;
       if (dealable >= this.minPlayersToDeal() && idleMs > ServerTableEngineBase.WATCHDOG_IDLE_MS) {

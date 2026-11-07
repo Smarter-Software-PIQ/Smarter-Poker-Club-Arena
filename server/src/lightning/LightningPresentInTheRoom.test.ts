@@ -109,7 +109,10 @@ describe('matching counts the device that plays the Lightning seat', () => {
     // The real report: ServerTableEngineBase.lightningPresenceReport.
     const src = readFileSync('src/engine/ServerTableEngineBase.ts', 'utf8');
     const report = sliceMethod(src, 'lightningPresenceReport(): PresenceTableReport {');
-    expect(report).toMatch(/inputDevice: !!p\.is_horse,/);
+    // A horse, and (HIT AND RUN, owner 2026-11-06) a blinded-off seat whose
+    // hand host folds it, are this engine's to play; nothing else is.
+    expect(report).toContain('const engineDevice = !!p.is_horse || this.isBlindedOff(p.user_id);');
+    expect(report).toMatch(/inputDevice: engineDevice,/);
   });
 });
 

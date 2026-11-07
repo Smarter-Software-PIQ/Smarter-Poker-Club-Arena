@@ -208,15 +208,24 @@ describe('both timer-expiry paths count the timeout (bug 1)', () => {
 describe('tournament sit-outs are dealt in and blinded off (bug 2)', () => {
   it('the deal roster only excludes sit-outs at CASH tables', () => {
     const dealing = strip(read('src/engine/ServerTableEngineDealing.ts'));
-    expect(dealing).toMatch(/dealInWhileSittingOut\s*=\s*this\.isTournamentTable\(\)/);
-    expect(dealing).toMatch(/dealInWhileSittingOut\s*\|\|\s*!this\.disconnectEngine\.isSittingOut/);
+    // HIT AND RUN (owner 2026-11-06): a blinded-off cash seat is dealt in
+    // too, through the same predicate (dealsInWhileSittingOut: every
+    // tournament seat, plus a cash seat whose confirmed leave owes hands).
+    expect(dealing).toMatch(
+      /!this\.disconnectEngine\.isSittingOut\(this\.tableId, p\.user_id\)\s*\|\|\s*this\.dealsInWhileSittingOut\(p\.user_id\)/
+    );
+    const base = strip(read('src/engine/ServerTableEngineBase.ts'));
+    expect(base).toMatch(
+      /protected dealsInWhileSittingOut\(userId: string\): boolean \{\s*return this\.isTournamentTable\(\) \|\| \(this\.isBlindedOff\(userId\) && this\.hasPlayingSeat\(\)\);/
+    );
   });
 
   it('dealableCount, blind rotation, and the watchdog all agree', () => {
     const base = strip(read('src/engine/ServerTableEngineBase.ts'));
     const turns = strip(read('src/engine/ServerTableEngineTurns.ts'));
     // Each gated exclusion reads: (isTournamentTable() || !isSittingOut(...))
-    const gated = /this\.isTournamentTable\(\)\s*\|\|\s*!this\.disconnectEngine\.isSittingOut/g;
+    const gated =
+      /!this\.disconnectEngine\.isSittingOut\(this\.tableId, p\.user_id\)\s*\|\|\s*this\.dealsInWhileSittingOut\(p\.user_id\)/g;
     // Updated 2026-08-21: three, not two. getSBSeatIndex() was added with the
     // "cash players are never dealt into the small blind" rule and builds the
     // SAME roster as getBBSeatIndex - it has to, or the SB and BB would be

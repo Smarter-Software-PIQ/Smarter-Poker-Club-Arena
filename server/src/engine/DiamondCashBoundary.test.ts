@@ -606,7 +606,11 @@ describe('the first Diamond game stays inside the custody boundary', () => {
     await expect(engine.anyBustedPlayerCanAffordARebuy(engine.seatedPlayers)).resolves.toBe(false);
     await engine.chipContinuity.evaluate([{ user_id: 'hero', stack: 100, active: true }]);
     await engine.chipContinuity.sweepPresence(engine.seatedPlayers, () => true);
-    expect(engine.chipContinuity.leaveLock('hero', 100)).toEqual({ locked: false, remainingMs: 0 });
+    expect(engine.chipContinuity.leaveLock('hero', 100)).toEqual({
+      locked: false,
+      remainingMs: 0,
+      handsRemaining: 0,
+    });
     expect(rpc).not.toHaveBeenCalled();
     expect(from).not.toHaveBeenCalled();
   });

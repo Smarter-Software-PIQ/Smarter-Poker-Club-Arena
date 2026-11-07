@@ -19,6 +19,12 @@ export type SeatLeaveResult = {
   deferred?: boolean;
   tournament?: boolean;
   held?: boolean;
+  /** HIT AND RUN: the confirmed leave is held and its seat blinded off. */
+  blindOff?: boolean;
+  /** HIT AND RUN: hands still owed in profit (confirmation needed, or blinded off). */
+  handsRemaining?: number;
+  /** HIT AND RUN: the engine asks the player to confirm first; nothing changed. */
+  needsConfirmation?: boolean;
   occupancyId?: string;
   error?: string;
 };
@@ -56,9 +62,11 @@ function validIntent(
 export function leaveSeatWithIntent(
   tableId: string,
   userId: string,
-  target?: SeatOccupancyTarget
+  target?: SeatOccupancyTarget,
+  /** HIT AND RUN: the player saw the hand-count confirmation and chose Leave. */
+  confirmHandCount = false
 ): Promise<SeatLeaveResult> {
-  return requestSeatWithIntent(tableId, userId, { kind: 'leave' }, target);
+  return requestSeatWithIntent(tableId, userId, { kind: 'leave', confirmHandCount }, target);
 }
 export function kickSeatWithIntent(
   tableId: string,
@@ -71,7 +79,7 @@ export function kickSeatWithIntent(
 async function requestSeatWithIntent(
   tableId: string,
   userId: string,
-  action: { kind: 'leave' } | { kind: 'kick'; reason: string },
+  action: { kind: 'leave'; confirmHandCount?: boolean } | { kind: 'kick'; reason: string },
   target?: SeatOccupancyTarget
 ): Promise<SeatLeaveResult> {
   const key =
@@ -164,7 +172,9 @@ async function requestSeatWithIntent(
               intent.occupancyId,
               intent.reason!
             )
-          : await notifyServerLeaveOccupancy(tableId, intent.seatNumber, intent.occupancyId);
+          : action.confirmHandCount === true
+            ? await notifyServerLeaveOccupancy(tableId, intent.seatNumber, intent.occupancyId, true)
+            : await notifyServerLeaveOccupancy(tableId, intent.seatNumber, intent.occupancyId);
       if (!response || typeof response !== 'object' || Array.isArray(response)) {
         throw new Error('The Server Did Not Confirm The Leave.');
       }
@@ -173,6 +183,34 @@ async function requestSeatWithIntent(
         result.protocol === 'seat-occupancy-v1' &&
         result.occupancyId === intent.occupancyId &&
         result.seatNumber === intent.seatNumber;
+      // HIT AND RUN (owner 2026-11-06): a confirmed leave with hands still
+      // owed is accepted and HELD: the seat is blinded off until they are
+      // played, then cashed out by the engine.
+      if (result.held === true && result.success === true && result.blindOff === true) {
+        if (!matches || result.immediate !== false)
+          throw new Error('The Server Did Not Confirm Your Held Seat.');
+        storage.setItem(key, JSON.stringify({ ...intent, state: 'resolved' }));
+        const hands = Number(result.hands_remaining);
+        return {
+          success: true,
+          chipsReturned: 0,
+          held: true,
+          blindOff: true,
+          ...(Number.isFinite(hands) && hands > 0 ? { handsRemaining: Math.floor(hands) } : {}),
+          occupancyId: intent.occupancyId,
+        };
+      }
+      if (result.needs_confirmation === true && result.success === false) {
+        if (matches) storage.setItem(key, JSON.stringify({ ...intent, state: 'resolved' }));
+        const hands = Number(result.hands_remaining);
+        return {
+          success: false,
+          chipsReturned: 0,
+          needsConfirmation: true,
+          handsRemaining: Number.isFinite(hands) && hands > 0 ? Math.floor(hands) : 1,
+          error: typeof result.error === 'string' ? result.error : undefined,
+        };
+      }
       if (result.held === true) {
         if (
           !matches ||

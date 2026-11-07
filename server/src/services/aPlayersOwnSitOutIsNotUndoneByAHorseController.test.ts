@@ -67,7 +67,11 @@ function anchorEngine() {
     leaveHeldByClock: new Map(),
     returningFromSitout: new Set(),
     disconnectEngine: disconnectEngine(),
-    chipContinuity: { evaluate: vi.fn(async () => []) },
+    chipContinuity: {
+      evaluate: vi.fn(async () => []),
+      markBlindOff: vi.fn(),
+      leaveLock: vi.fn(() => ({ locked: false, remainingMs: 0, handsRemaining: 0 })),
+    },
     broadcastCurrentState: vi.fn(),
     isContinuityActive: vi.fn(() => false),
   });
