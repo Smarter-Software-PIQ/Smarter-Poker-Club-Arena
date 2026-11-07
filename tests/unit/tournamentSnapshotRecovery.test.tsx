@@ -395,8 +395,16 @@ describe('Tournament details snapshot recovery', () => {
       await flush();
       const footer = within(document.querySelector('.details-footer') as HTMLElement);
       const action = footer.getByRole('button', { name: /Late Register/ });
-      expect(action.textContent).toMatch(/^Late Register \(\d+ levels? remaining\)$/);
-      expect(action.getAttribute('aria-label')).toMatch(/levels remaining/);
+      /* Dan 2026-11-06: two lines, no brackets - "Late Register" over a
+         smaller "N Levels Remaining". */
+      expect(action.querySelector('.tournament-register-button__line')?.textContent).toBe(
+        'Late Register'
+      );
+      expect(action.querySelector('.tournament-register-button__subline')?.textContent).toMatch(
+        /^\d+ Levels? Remaining$/
+      );
+      expect(action.textContent).not.toMatch(/[()]/);
+      expect(action.getAttribute('aria-label')).toMatch(/^Late Register, \d+ Levels? Remaining$/);
       expect(action.className).toContain('tournament-register-button');
       expect(action.className).toContain('late-reg');
       expect(action.className).not.toBe(footer.getByRole('button', { name: 'Share' }).className);
