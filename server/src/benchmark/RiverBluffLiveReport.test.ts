@@ -305,7 +305,7 @@ describe('river bluff live report: coverage, slices and receipts', () => {
     });
     expect(r.status).toBe('DATA');
     expect(r.notes.join(' ')).toMatch(/No receipt of the new river bluff layers fired/);
-    expect(renderMarkdown(r)).toContain('## By variant');
+    expect(renderMarkdown(r)).toContain('## By Variant');
   });
 });
 

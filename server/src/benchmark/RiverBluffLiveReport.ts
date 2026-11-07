@@ -655,13 +655,13 @@ export interface Report {
 }
 
 export const REPORT_TABLES: ReadonlyArray<{ title: string; dims: Dimension[] }> = [
-  { title: 'By variant', dims: ['v'] },
-  { title: 'By variant and table shape', dims: ['v', 'ways'] },
-  { title: 'By variant and format', dims: ['v', 'fmt'] },
-  { title: 'By variant, table shape and line', dims: ['v', 'ways', 'line'] },
-  { title: 'By game type', dims: ['v', 'gt'] },
-  { title: 'By opponent style (public stats; heads-up, multiway pooled)', dims: ['ways', 'style'] },
-  { title: 'By opponent kind (data identification only)', dims: ['ways', 'who'] },
+  { title: 'By Variant', dims: ['v'] },
+  { title: 'By Variant And Table Shape', dims: ['v', 'ways'] },
+  { title: 'By Variant And Format', dims: ['v', 'fmt'] },
+  { title: 'By Variant, Table Shape And Line', dims: ['v', 'ways', 'line'] },
+  { title: 'By Game Type', dims: ['v', 'gt'] },
+  { title: 'By Opponent Style (Public Stats; Heads-Up, Multiway Pooled)', dims: ['ways', 'style'] },
+  { title: 'By Opponent Kind (Data Identification Only)', dims: ['ways', 'who'] },
 ];
 
 export function buildReport(input: {
