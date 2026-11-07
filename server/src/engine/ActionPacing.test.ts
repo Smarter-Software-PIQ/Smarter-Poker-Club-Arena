@@ -294,5 +294,6 @@ describe('the end of a hand is not rushed either', () => {
     expect(runout).toContain('allInStreetPauseMs');
     const m = runout.match(/allInStreetPauseMs\s*=\s*(\d+)/);
     expect(Number(m![1])).toBeGreaterThanOrEqual(1000);
+    expect(runout).toMatch(/allInStreetRevealMs = HAND_COMPLETION\.ALL_IN_STREET_REVEAL_MS/);
   });
 });

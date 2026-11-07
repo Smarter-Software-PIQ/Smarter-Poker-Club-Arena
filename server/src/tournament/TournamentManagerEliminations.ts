@@ -6033,6 +6033,9 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       known &&
       !this.satelliteQualifierBoundaryPending &&
       known.generation === this.satelliteQualifierBoundaryGeneration &&
+      // A bust that did not hold the boundary does not move the generation,
+      // so the reuse also needs the field still provably clear of its tickets.
+      this.satelliteFieldIsFarFromItsTickets() &&
       Date.now() - known.readAt < TournamentManagerEliminations.SATELLITE_CONTINUATION_REUSE_MS
     ) {
       this.satelliteContinuation = known;
@@ -6040,10 +6043,27 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     }
     let readGeneration = this.satelliteQualifierBoundaryGeneration;
     let readAt = Date.now();
-    const readState = (): ReturnType<typeof readSatelliteQualifierState> => {
+    let bustsAtRead = this.satelliteBustsReported;
+    const readState = async (): ReturnType<typeof readSatelliteQualifierState> => {
       readGeneration = this.satelliteQualifierBoundaryGeneration;
       readAt = Date.now();
-      return readSatelliteQualifierState(this.tournamentId);
+      // Captured BEFORE the read: a bust reported while it is in flight is
+      // subtracted again even if the answer already excludes it (runs low).
+      bustsAtRead = this.satelliteBustsReported;
+      const answer = await readSatelliteQualifierState(this.tournamentId);
+      // Only an authoritative 'continuing' answer can prove a field clear of
+      // its tickets. Every other answer withdraws the watermark, so every
+      // bust holds until a fresh 'continuing' read.
+      this.satelliteFieldWatermark =
+        answer.state === 'continuing'
+          ? {
+              liveField: answer.qualifierIds.length,
+              tickets: answer.fullTicketCount,
+              readAt,
+              bustsAtRead,
+            }
+          : null;
+      return answer;
     };
     try {
       let state = await readState();
@@ -6306,6 +6326,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     } catch (error) {
       // An unreadable state can neither select winners nor release a bust
       // boundary. The existing manager continuation retains its work.
+      // Nor can it vouch for the field: every bust holds until a fresh read.
+      this.satelliteFieldWatermark = null;
       reportError(error, 'Tournament.satellite_qualifiers_state_unavailable');
       return 'pending';
     }
