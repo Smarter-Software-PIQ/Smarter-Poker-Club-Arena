@@ -101,6 +101,8 @@ describe('first eligible artwork frame qualification', () => {
   });
   it.each([
     { naturalWidth: NaN },
+    { surfaceKind: 'pending' as unknown as CardArtworkExposure['surfaceKind'] },
+    { rasterBounds: { x: 0, y: 0, width: 0, height: 70 } },
     { local: 'yes' as unknown as boolean },
     { sourceEpoch: 0 },
     { gapMs: NaN },
@@ -247,6 +249,45 @@ it('records a visible fallback as unready when its actual image is hidden', () =
   expect(result.exposures[0]).toMatchObject({ natural: true, imageVisible: false });
   expect(cardArtworkFramesEvidence(result).verdict).toBe('violation');
 });
+
+it.each([true, false])(
+  'samples the actually painted decoded canvas when the replacement image is pending: %s',
+  (painted) => {
+    installCardArtworkFrames({ deadline: 1000, tableId: 'table', maxFrameGapMs: 100 });
+    history.replaceState({}, '', '/table/table');
+    document.body.innerHTML =
+      '<div class="table-page"><div class="table-brand__hand">Hand #42</div><div class="seat"></div></div>';
+    frame();
+    frame();
+    const holes = image('seat__card seat__card--face');
+    Object.defineProperties(holes.node, {
+      complete: { value: false },
+      naturalWidth: { value: 0 },
+      naturalHeight: { value: 0 },
+    });
+    const canvas = document.createElement('canvas');
+    canvas.className = 'card-image__artwork';
+    canvas.width = 360;
+    canvas.height = 504;
+    canvas.dataset.cardArtworkReady = String(painted);
+    holes.wrapper.querySelector('.card-image')!.append(canvas);
+    document.querySelector('.seat')!.append(holes.wrapper);
+    frame();
+    const entry = window.__cardArtworkFrames!.snapshot().exposures[0];
+    expect(entry).toMatchObject({
+      surfaceKind: painted ? 'decoded-canvas' : 'image',
+      complete: painted,
+      naturalWidth: painted ? 360 : 0,
+    });
+    expect(
+      cardArtworkFramesEvidence(window.__cardArtworkFrames!.snapshot(), {
+        board: false,
+        publicHoles: true,
+      }).verdict
+    ).toBe(painted ? 'qualified' : 'violation');
+    expect(entry.rasterBounds).toEqual({ x: 10, y: 10, width: 50, height: 70 });
+  }
+);
 
 it('waits for the composed 3D front face, then samples the very first visible opportunity', () => {
   class Matrix {
