@@ -91,3 +91,37 @@ export function useHandsAddedByDouble(count: HandCount, onAdded: (added: number)
       notify.current(count.required - before.required);
   }, [count.owed, count.required]);
 }
+
+/**
+ * HIT AND RUN: the hand a countdown starts, say so once ("You Are In Profit.
+ * Play 10 Hands Before You Can Leave"), so the count beside the seat is never
+ * a surprise. Only a countdown that starts while this table is open counts:
+ * a count already running when the page opens (a reload, a reconnect) is not
+ * announced again. `handNumber` is the table's hand counter.
+ */
+export function useCountdownStarted(
+  count: HandCount,
+  handNumber: number,
+  onStart: (hands: number) => void
+): void {
+  const prev = useRef<HandCount>(NONE);
+  const firstHand = useRef<number | null>(null);
+  const notify = useRef(onStart);
+  notify.current = onStart;
+  useEffect(() => {
+    if (firstHand.current === null && handNumber > 0) firstHand.current = handNumber;
+  }, [handNumber]);
+  useEffect(() => {
+    const before = prev.current;
+    prev.current = count;
+    if (
+      before.owed === null &&
+      count.owed !== null &&
+      count.required !== null &&
+      count.owed === count.required &&
+      firstHand.current !== null &&
+      handNumber > firstHand.current
+    )
+      notify.current(count.owed);
+  }, [count.owed, count.required, handNumber]);
+}

@@ -1,0 +1,4 @@
+{
+  "_owner": "Hit and run club setting (owner 2026-11-06): created by supabase/migrations/*_clubs_choose_their_hand_count_before_leaving.sql in the daily-maintenance window, after 20261106203853. Until then the Club Settings panel renders nothing.",
+  "functions": ["fn_club_hit_run_setting", "fn_set_club_hit_run"]
+}

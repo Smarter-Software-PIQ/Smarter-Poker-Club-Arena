@@ -115,7 +115,8 @@ export default function ClubHitRunPanel({
       ) : (
         <>
           <p className={`sc-copy ${styles.summary}`}>
-            A Player In Profit Plays 10 Hands Before Leaving, Plus 10 For Every Double Up.
+            A Player In Profit Plays The Club Hand Count Before Leaving, Plus The Same Again For
+            Every Double Up.
             {blindedOff > 0 ? ` ${blindedOff} Being Blinded Off.` : ''}
           </p>
           <ul className={styles.rows}>

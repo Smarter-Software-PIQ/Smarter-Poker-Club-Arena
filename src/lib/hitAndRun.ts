@@ -96,3 +96,42 @@ export async function fetchMyHandCount(tableId: string): Promise<HandCount> {
     return none;
   }
 }
+
+/** The hand counts a club may choose (fn_set_club_hit_run accepts only these). */
+export const HIT_RUN_HAND_CHOICES = [5, 10, 15, 20] as const;
+
+export interface ClubHandCountSetting {
+  enabled: boolean;
+  hands: number;
+  canEdit: boolean;
+}
+
+/** fn_club_hit_run_setting's answer; null when refused or malformed. */
+export function parseClubHandCountSetting(data: unknown): ClubHandCountSetting | null {
+  const d = data as { enabled?: unknown; hands?: unknown; can_edit?: unknown } | null;
+  if (!d || typeof d !== 'object' || typeof d.enabled !== 'boolean') return null;
+  const hands = Math.floor(Number(d.hands));
+  if (!(HIT_RUN_HAND_CHOICES as readonly number[]).includes(hands)) return null;
+  return { enabled: d.enabled, hands, canEdit: d.can_edit === true };
+}
+
+export function clubHandCountRefusalText(reason: string): string {
+  switch (reason) {
+    case 'not_a_club_admin':
+      return 'Only A Club Owner, Co-Owner Or Admin Can Change This.';
+    case 'not_signed_in':
+      return 'You Are Signed Out. Sign In Again To Change This.';
+    case 'club_not_found':
+      return 'That Club No Longer Exists.';
+    case 'hands_not_offered':
+      return 'Choose 5, 10, 15 Or 20 Hands.';
+    default:
+      return 'The Hand Count Setting Could Not Be Saved. Nothing Changed.';
+  }
+}
+
+/** Said once, the hand a countdown starts. */
+export function countdownStartedText(hands: number): string {
+  const n = Math.max(1, Math.floor(hands));
+  return `You Are In Profit. Play ${n} ${n === 1 ? 'Hand' : 'Hands'} Before You Can Leave`;
+}

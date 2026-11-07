@@ -45,3 +45,8 @@ Regressions: `tests/unit/hitAndRunHandCount.pg.test.ts` (isolated PostgreSQL), `
 - **Horses play their owed hands.** The rotator does not ask a seat that owes hands to leave, holds a refusal about 20 seconds per owed hand, and the two departures that must happen (lone stand, booked tournament) confirm the count the way a person would. The engine's voluntary stay answers from its mirror instead of asking the database every hand.
 - **The ten-minute stay clock is retired from the client** (state, tick, "Leave Available In" label, the tracker's "Your Time Clock Has Started", the confirm dialog's locked label, `src/lib/chipContinuity.ts`). Older engines' stay-clock fields are ignored.
 - **Bomb pots: the settings page is fixed at 30 minutes**, and `fn_update_table_bomb_settings` stores 1800 seconds for every timed bomb pot (migration `20261107015928`).
+
+## The club's choice and the first word (owner 2026-11-06)
+
+- **Club setting.** Club Settings has a "Hand Count Before Leaving" panel: the club's owner, co-owner or admin can switch the rule off for the cash games the club hosts, or choose 5, 10, 15 or 20 hands (the same number is added per Charles Rule double). Default stays on at 10. `fn_set_club_hit_run` decides who may change it; switching it off clears every open countdown at the club's tables at once (the engine's copy follows at the next hand). A new number applies to countdowns that start after it is saved. `fn_cash_session_evaluate` reads the hosting club's choice (md5-guarded patch, daily window, after `20261106203853`).
+- **The first word.** The hand a countdown starts, the player gets "You Are In Profit. Play 10 Hands Before You Can Leave" (`useCountdownStarted`); a count already running when the table opens is not announced again.
