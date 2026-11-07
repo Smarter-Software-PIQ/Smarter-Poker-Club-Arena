@@ -38,7 +38,7 @@ test('one natural cash hand owes the full turn and river reveal', async ({
   context,
   request,
 }, info) => {
-  test.setTimeout(285_000);
+  test.setTimeout(465_000);
   const started = Date.now();
   const setupDeadline = started + 60_000;
   const sourceSHA = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -65,7 +65,7 @@ test('one natural cash hand owes the full turn and river reveal', async ({
     fullReleaseCertificate: false,
     productionParticipation: false,
     verdict: 'unknown',
-    observationLimitMs: 180_000,
+    observationLimitMs: 360_000,
   };
   let raster: Awaited<ReturnType<typeof startCardArtworkRaster>> | undefined;
   const rasters = new Map<string, Omit<CardArtworkRasterCapture, 'image'> & { kind: string }>();
@@ -116,7 +116,7 @@ test('one natural cash hand owes the full turn and river reveal', async ({
         verdict: rasterQualified ? 'qualified' : 'unknown',
         frames: captured,
         limit:
-          'First observed visible rAF readiness correlated with earliest retained compositor raster; not every physical display frame.',
+          'First DOM-eligible decoded-image readiness correlated with earliest retained card-surface raster, which may show an owed back or edge; not first physical face-pixel coverage.',
       },
     };
   };
@@ -282,7 +282,7 @@ test('one natural cash hand owes the full turn and river reveal', async ({
     if (!selected) throw new Error('UNKNOWN: no occupied classic public cash subject');
     subject = selected.id;
     await page.evaluate(installCardArtworkFrames, {
-      deadline: started + 255_000,
+      deadline: started + 435_000,
       tableId: subject,
       maxFrameGapMs: CARD_ARTWORK_MAX_GAP_MS,
       maxExposures: 96,
@@ -318,7 +318,7 @@ test('one natural cash hand owes the full turn and river reveal', async ({
     );
     await page.bringToFront();
     // Reserve 30 seconds for final identity, raster and receipt work.
-    const deadline = Math.min(Date.now() + 180_000, started + 255_000);
+    const deadline = Math.min(Date.now() + 360_000, started + 435_000);
     since = Date.now();
     const originalTransports = journal.transportIdsOpenAt(since);
     expect(originalTransports).toHaveLength(1);

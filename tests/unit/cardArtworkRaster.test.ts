@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { cardArtworkCrop, selectCardArtworkFrame } from '../e2e/support/cardArtworkRaster';
+import type { Page } from '@playwright/test';
+import sharp from 'sharp';
+import {
+  cardArtworkCrop,
+  selectCardArtworkFrame,
+  startCardArtworkRaster,
+} from '../e2e/support/cardArtworkRaster';
 
 const meta = {
   deviceWidth: 400,
@@ -84,5 +90,76 @@ describe('public card crop validation', () => {
     expect(cardArtworkCrop({ ...bounds, x: 390 }, 400, 800, meta)).toBeNull();
     expect(cardArtworkCrop({ x: 0.1, y: 0.1, width: 0.2, height: 0.2 }, 400, 800, meta)).toBeNull();
     expect(cardArtworkCrop(bounds, 8000, 16000, meta)).toBeNull();
+  });
+});
+
+describe('actual bounded CDP capture lifecycle', () => {
+  async function fixture() {
+    const png = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#ffffff' } })
+      .png()
+      .toBuffer();
+    let listener: (event: unknown) => void = () => {};
+    const commands: string[] = [];
+    const session = {
+      on: (_event: string, callback: typeof listener) => {
+        listener = callback;
+      },
+      send: async (command: string) => {
+        commands.push(command);
+      },
+      detach: async () => {},
+    };
+    const page = { context: () => ({ newCDPSession: async () => session }) } as unknown as Page;
+    const raster = await startCardArtworkRaster(page);
+    return {
+      raster,
+      commands,
+      emit(at: number) {
+        listener({
+          sessionId: 1,
+          data: png.toString('base64'),
+          metadata: {
+            ...meta,
+            deviceWidth: 4,
+            deviceHeight: 4,
+            timestamp: at / 1000,
+          },
+        });
+      },
+      exposure: {
+        id: 'public-board',
+        firstEligibleAt: 1005,
+        bounds: { x: 1, y: 1, width: 2, height: 2 },
+      },
+    };
+  }
+  it('keeps the actual preceding frame through25 later60Hz frames before capture', async () => {
+    const f = await fixture();
+    try {
+      for (let i = 0; i <= 25; i++) f.emit(1000 + i * (1000 / 60));
+      const [result] = await f.raster.capture([f.exposure]);
+      expect(result.verdict).toBe('captured');
+      expect(result.delayMs).toBeCloseTo(1000 / 60 - 5);
+      expect(await sharp(result.image!).metadata()).toMatchObject({ width: 2, height: 2 });
+      expect(f.commands.filter((c) => c === 'Page.screencastFrameAck')).toHaveLength(26);
+    } finally {
+      await f.raster.stop();
+    }
+  });
+  it('pins entry frames before a wait whose64-frame burst prunes the preceding frame', async () => {
+    const f = await fixture();
+    try {
+      f.emit(1000);
+      const pending = f.raster.capture([f.exposure]);
+      const concurrent = await f.raster.capture([f.exposure]);
+      expect(concurrent[0].reason).toBe('capture-already-active');
+      for (let i = 1; i <= 64; i++) f.emit(1000 + i * (1000 / 60));
+      const [result] = await pending;
+      expect(result.verdict).toBe('captured');
+      expect(result.delayMs).toBeCloseTo(1000 / 60 - 5);
+      expect(await sharp(result.image!).metadata()).toMatchObject({ width: 2, height: 2 });
+    } finally {
+      await f.raster.stop();
+    }
   });
 });

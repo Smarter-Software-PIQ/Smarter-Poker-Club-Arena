@@ -19,7 +19,7 @@ type Metadata = {
 };
 type Frame = { at: number; bytes: Buffer; metadata: Metadata };
 export const CARD_ARTWORK_MAX_GAP_MS = 100;
-const MAX_FRAMES = 12;
+const MAX_FRAMES = 64;
 const MAX_BYTES = 12 * 1024 * 1024;
 const finite = (n: number) => Number.isFinite(n);
 
@@ -127,6 +127,7 @@ export async function startCardArtworkRaster(page: Page) {
   const waiters = new Set<() => void>();
   let bytes = 0;
   let stopped = false;
+  let capturing = false;
   let ackFailed = false;
   let oversizedFrame = false;
   // Event and command arguments infer the locked Playwright CDP protocol types.
@@ -140,11 +141,16 @@ export async function startCardArtworkRaster(page: Page) {
       oversizedFrame = true;
       return;
     }
-    const buffer = Buffer.from(event.data, 'base64');
-    if (buffer.length > MAX_BYTES) {
+    const frameBytes = Buffer.byteLength(event.data, 'base64');
+    if (frameBytes > MAX_BYTES) {
       oversizedFrame = true;
       return;
     }
+    // Evict before allocating the new PNG, preserving the byte bound even
+    // while a capture pins the previous ring.
+    while (frames.length >= MAX_FRAMES || bytes + frameBytes > MAX_BYTES)
+      bytes -= frames.shift()!.bytes.length;
+    const buffer = Buffer.from(event.data, 'base64');
     frames.push({
       at: (event.metadata.timestamp ?? Number.NaN) * 1000,
       bytes: buffer,
@@ -159,7 +165,6 @@ export async function startCardArtworkRaster(page: Page) {
       },
     });
     bytes += buffer.length;
-    while (frames.length > MAX_FRAMES || bytes > MAX_BYTES) bytes -= frames.shift()!.bytes.length;
     waiters.forEach((wake) => wake());
   });
   try {
@@ -170,73 +175,98 @@ export async function startCardArtworkRaster(page: Page) {
   }
   return {
     async capture(exposures: readonly CardArtworkExposure[]): Promise<CardArtworkRasterCapture[]> {
-      const latest = Math.max(...exposures.map((e) => e.firstEligibleAt));
-      if (!stopped && finite(latest) && (!frames.length || frames[frames.length - 1].at < latest)) {
-        await new Promise<void>((resolve) => {
-          const finish = () => {
-            clearTimeout(timer);
-            waiters.delete(wake);
-            resolve();
-          };
-          const wake = () => {
-            if (stopped || frames[frames.length - 1]?.at >= latest) finish();
-          };
-          const timer = setTimeout(finish, CARD_ARTWORK_MAX_GAP_MS + 20);
-          waiters.add(wake);
-        });
-      }
-      const retained = frames.slice();
-      const results: CardArtworkRasterCapture[] = [];
-      for (const exposure of exposures) {
-        const result: CardArtworkRasterCapture = {
+      if (capturing)
+        return exposures.map((exposure) => ({
           id: exposure.id,
-          verdict: 'unknown',
+          verdict: 'unknown' as const,
+          reason: 'capture-already-active',
           exposureAt: exposure.firstEligibleAt,
           coverage:
-            'correlated-first-visible-dom-interval-earliest-retained-raster-not-every-physical-frame',
-        };
-        const selection = selectCardArtworkFrame(
-          retained,
-          exposure.firstEligibleAt,
-          exposure.previousFrameAt
-        );
-        if (stopped || ackFailed || oversizedFrame || !selection.frame) {
-          result.reason = stopped
-            ? 'capture-stopped'
-            : ackFailed
-              ? 'frame-ack-failed'
-              : oversizedFrame
-                ? 'frame-byte-bound-exceeded'
-                : selection.reason;
-        } else {
-          const frame = selection.frame;
-          try {
-            const image = sharp(frame.bytes, { limitInputPixels: 4096 * 4096 });
-            const dimensions = await image.metadata();
-            const width = dimensions.width ?? 0;
-            const height = dimensions.height ?? 0;
-            const crop = cardArtworkCrop(exposure.bounds, width, height, frame.metadata);
-            if (!crop) result.reason = 'unproven-scaling-or-public-bounds';
-            else {
-              result.image = await image.extract(crop).png().toBuffer();
-              result.verdict = 'captured';
-              result.frameAt = frame.at;
-              result.delayMs = selection.delayMs;
-              result.bounds = {
-                x: exposure.bounds.x,
-                y: exposure.bounds.y,
-                width: exposure.bounds.width,
-                height: exposure.bounds.height,
-              };
-              result.frameMetadata = { ...frame.metadata, width, height };
-            }
-          } catch {
-            result.reason = 'raster-decode-or-crop-failed';
-          }
+            'correlated-first-visible-dom-interval-earliest-retained-raster-not-every-physical-frame' as const,
+        }));
+      capturing = true;
+      try {
+        // Pin before waiting: delivery can prune the preceding frame while the
+        // consumer waits. One serial capture retains at most36MiB compressed:
+        // entry pin12MiB + additional snapshot12MiB + future live ring12MiB.
+        const pinned = frames.slice();
+        const latest = Math.max(...exposures.map((e) => e.firstEligibleAt));
+        if (
+          !stopped &&
+          finite(latest) &&
+          (!frames.length || frames[frames.length - 1].at < latest)
+        ) {
+          await new Promise<void>((resolve) => {
+            const finish = () => {
+              clearTimeout(timer);
+              waiters.delete(wake);
+              resolve();
+            };
+            const wake = () => {
+              if (stopped || frames[frames.length - 1]?.at >= latest) finish();
+            };
+            const timer = setTimeout(finish, CARD_ARTWORK_MAX_GAP_MS + 20);
+            waiters.add(wake);
+          });
         }
-        results.push(result);
+        // Object identity removes overlap without hiding duplicate timestamps or
+        // reordering invalid arrival sequences. All crops share this snapshot.
+        const retained = [...new Set([...pinned, ...frames])];
+        pinned.length = 0;
+        const results: CardArtworkRasterCapture[] = [];
+        for (const exposure of exposures) {
+          const result: CardArtworkRasterCapture = {
+            id: exposure.id,
+            verdict: 'unknown',
+            exposureAt: exposure.firstEligibleAt,
+            coverage:
+              'correlated-first-visible-dom-interval-earliest-retained-raster-not-every-physical-frame',
+          };
+          const selection = selectCardArtworkFrame(
+            retained,
+            exposure.firstEligibleAt,
+            exposure.previousFrameAt
+          );
+          if (stopped || ackFailed || oversizedFrame || !selection.frame) {
+            result.reason = stopped
+              ? 'capture-stopped'
+              : ackFailed
+                ? 'frame-ack-failed'
+                : oversizedFrame
+                  ? 'frame-byte-bound-exceeded'
+                  : selection.reason;
+          } else {
+            const frame = selection.frame;
+            try {
+              const image = sharp(frame.bytes, { limitInputPixels: 4096 * 4096 });
+              const dimensions = await image.metadata();
+              const width = dimensions.width ?? 0;
+              const height = dimensions.height ?? 0;
+              const crop = cardArtworkCrop(exposure.bounds, width, height, frame.metadata);
+              if (!crop) result.reason = 'unproven-scaling-or-public-bounds';
+              else {
+                result.image = await image.extract(crop).png().toBuffer();
+                result.verdict = 'captured';
+                result.frameAt = frame.at;
+                result.delayMs = selection.delayMs;
+                result.bounds = {
+                  x: exposure.bounds.x,
+                  y: exposure.bounds.y,
+                  width: exposure.bounds.width,
+                  height: exposure.bounds.height,
+                };
+                result.frameMetadata = { ...frame.metadata, width, height };
+              }
+            } catch {
+              result.reason = 'raster-decode-or-crop-failed';
+            }
+          }
+          results.push(result);
+        }
+        return results;
+      } finally {
+        capturing = false;
       }
-      return results;
     },
     async stop(): Promise<void> {
       if (stopped) return;
