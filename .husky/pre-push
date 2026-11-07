@@ -253,6 +253,50 @@ if [ "$(uname -s)" = Darwin ]; then
     RUNNER_TEMP=$TMPDIR
   fi
   export RUNNER_TEMP
+  # PYTHON (2026-11-07). macOS ships python3 3.9; CI runs 3.11 or newer.
+  # Three checks that pass in CI refused every push of an engine change from
+  # this Mac, for one reason that is environment and not content: the guards
+  # spawn `python3` from PATH, and on a non-interactive PATH that is
+  # /usr/bin/python3 (3.9.6). 3.9 has no `tomllib` and no
+  # `unittest.TestCase.enterContext` (both 3.11), so
+  # tests/engine-release-seal.law.test.ts failed on the import and the
+  # attribute. It also reads the refill worker journal differently. Measured
+  # on the same input and the same script
+  # (scripts/ci/inspect-tournament-refill.py, worker_receipt_errors):
+  #     3.9.6   -> {"matchingRecords": 0, "events": []}
+  #     3.14.2  -> {"matchingRecords": 1, "events": [{...reference_shape...}]}
+  # tests/unit/inspectTournamentRefill.test.ts asserts the second.
+  # Same shape as the Bash shim below: a private directory holding only that
+  # one link, so no other tool's resolution moves. It runs BEFORE the Bash
+  # shim so the bash shim stays FIRST on PATH -
+  # tests/the-mac-push-runs-the-checks-like-ci.law.test.ts pins that. TMPDIR
+  # is already proven external above, so this needs no scratch check of its
+  # own. The LOWEST installed 3.11+ is chosen, to stay as close to CI's
+  # interpreter as this Mac allows; CA_PYTHON_CANDIDATES overrides the list.
+  CA_PY_WAS=$(python3 -V 2>&1 || echo "no python3")
+  CA_PY_RANK_NOW=$(python3 -c 'import sys; print("%d%03d" % sys.version_info[:2])' 2>/dev/null || echo 0)
+  if [ "${CA_PY_RANK_NOW:-0}" -lt 3011 ]; then
+    CA_PY=""
+    CA_PY_RANK=999999
+    for ca_c in ${CA_PYTHON_CANDIDATES:-/opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3 /usr/local/bin/python3}; do
+      [ -x "$ca_c" ] || continue
+      ca_r=$("$ca_c" -c 'import sys; print("%d%03d" % sys.version_info[:2])' 2>/dev/null || echo 0)
+      [ "$ca_r" -lt 3011 ] && continue
+      if [ "$ca_r" -lt "$CA_PY_RANK" ]; then CA_PY_RANK=$ca_r; CA_PY=$ca_c; fi
+    done
+    if [ -z "$CA_PY" ]; then
+      echo "[club-arena pre-push] BLOCKED: python3 on PATH is $CA_PY_WAS, older"
+      echo "  than the 3.11 the Python guards below need, and no 3.11-or-newer"
+      echo "  interpreter was found. This is NOT a content failure. Install one,"
+      echo "  for example:  brew install python@3.13"
+      exit 1
+    fi
+    CA_PY_DIR=$(mktemp -d "$TMPDIR/club-arena-pre-push-python.XXXXXX") || exit 1
+    if ! ln -s "$CA_PY" "$CA_PY_DIR/python3"; then rmdir "$CA_PY_DIR"; exit 1; fi
+    PATH="$CA_PY_DIR:$PATH"
+    export PATH
+    echo "[club-arena pre-push] running the Python guards on $("$CA_PY" -V 2>&1), the 3.11-or-newer CI uses (this PATH had $CA_PY_WAS)."
+  fi
   # BASH (2026-11-06). macOS ships bash 3.2; CI and engine-01 run bash 5.
   # This runs before the Node step below, so Node 22 still ends up first.
   # The release shell tests spawn `bash` from PATH, so on this Mac they ran
@@ -325,10 +369,15 @@ policy_precheck_result() {
     echo "[club-arena pre-push] BLOCKED: this run's scratch $CA_PUSH_TMP vanished during the run (the drive dropped or was remounted). Failures above are environmental; push again once the drive is back." >&2
     policy_exit=1
     CA_BASH_DIR=""
+    CA_PY_DIR=""
   fi
   if [ -n "${CA_BASH_DIR:-}" ]; then
     rm -f -- "$CA_BASH_DIR/bash"
     rmdir -- "$CA_BASH_DIR" || policy_exit=1
+  fi
+  if [ -n "${CA_PY_DIR:-}" ]; then
+    rm -f -- "$CA_PY_DIR/python3"
+    rmdir -- "$CA_PY_DIR" || policy_exit=1
   fi
   node "$CA_TREE_TOP/docs/agent-policy/agent-policy.mjs" hook-report "$POLICY_PRECHECK_STARTED" "$policy_exit" || policy_exit=1
   exit "$policy_exit"
