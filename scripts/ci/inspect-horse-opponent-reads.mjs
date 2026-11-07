@@ -57,6 +57,36 @@ export function summarizeDecision(record, capture, view, opponentId, independent
       : null,
   };
 }
+// A reconciled hand can contain both independent and shared reads. Attribute
+// the shared read only to the original decision whose selected wager landed.
+export function acceptedSharedRead(capture, execution, hand, review, usedPublicPool, bind) {
+  const context = capture.observerReads?.context;
+  if (
+    !hand ||
+    review.status !== 'reconciled' ||
+    context?.version !== 2 ||
+    typeof usedPublicPool !== 'function' ||
+    !usedPublicPool(capture.observerReads, capture.snapshot) ||
+    execution?.executionStatus !== 'intended' ||
+    execution.handAnchor?.earlyLook === true ||
+    execution.executedAction !== execution.selected?.action ||
+    execution.selected?.action !== capture.decision.action ||
+    execution.selected.amount !== (capture.decision.amount ?? null)
+  )
+    return null;
+  const binding = bind(execution, hand);
+  if (binding.status !== 'bound') return null;
+  return {
+    actionOrdinal: binding.actionOrdinal,
+    profileDigest: capture.observerReads.pooledPublicProfiles.digest,
+    profileSource: capture.observerReads.pooledPublicProfiles.source,
+    variant: context.variant,
+    format: context.format,
+    dealtCount: context.dealtCount,
+    speed: context.publicMemoryDomain.speed,
+    ante: context.publicMemoryDomain.ante,
+  };
+}
 const failureReasons = new Set([
   'selection_decode_failed',
   'selection_refused',
@@ -100,7 +130,7 @@ export async function inspect(p) {
       { horseRetainedPlanContext },
       { decodeHorseDecisionReads },
       { horsePlanHandKey },
-      { horseObserverReadsWereIndependent },
+      { horseObserverReadsWereIndependent, horseObserverReadsUsedPublicPool },
     ] = await Promise.all([
       moduleAt('services/horseDecisionJournal/review.js'),
       moduleAt('services/horseDecisionJournal/effects.js'),
@@ -111,6 +141,7 @@ export async function inspect(p) {
     stage = 'journal_configuration_missing';
     const directory = process.env.HORSE_DECISION_JOURNAL_DIR;
     if (!directory) throw Error('journal_unavailable');
+    let bind;
     const hands = [];
     let bytes = 0;
     const started = Date.now();
@@ -126,8 +157,16 @@ export async function inspect(p) {
       const review = reconcileHorseJournalHand(records, handKey);
       const decisions = [];
       stage = 'record_decode_failed';
+      const committed = records.filter((r) => r.kind === 'accepted_hand');
+      const hand =
+        committed.length === 1 && committed[0].sourceRelease === p.sourceSha
+          ? JSON.parse(committed[0].body)
+          : null;
+      const turnKey = (r) => JSON.stringify([r.producerId, r.turnKey]);
       const executions = new Map(
-        records.filter((r) => r.kind === 'execution').map((r) => [r.turnKey, JSON.parse(r.body)])
+        records
+          .filter((r) => r.kind === 'execution' && r.sourceRelease === p.sourceSha)
+          .map((r) => [turnKey(r), JSON.parse(r.body)])
       );
       for (const r of records) {
         if (r.kind !== 'decision' || r.sourceRelease !== p.sourceSha) continue;
@@ -151,15 +190,30 @@ export async function inspect(p) {
           context
         );
         stage = 'decision_summary_failed';
+        const execution = executions.get(turnKey(r));
         const row = summarizeDecision(
           r,
           c,
           view,
           p.opponentId,
           horseObserverReadsWereIndependent(c.observerReads, s),
-          executions.get(r.turnKey)
+          execution
         );
-        if (row) decisions.push(row);
+        if (row) {
+          if (hand && review.status === 'reconciled' && c.observerReads?.context?.version === 2) {
+            bind ??= (await moduleAt('engine/HorseDecisionHandBinding.js'))
+              .bindHorseDecisionToCommittedHand;
+            row.acceptedSharedRead = acceptedSharedRead(
+              c,
+              execution,
+              hand,
+              review,
+              horseObserverReadsUsedPublicPool,
+              bind
+            );
+          }
+          decisions.push(row);
+        }
       }
       hands.push({ handKey, review, decisions });
     }
