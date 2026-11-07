@@ -638,6 +638,37 @@ describe('a Classic game lobby never promises a move', () => {
   });
 });
 
+describe('the names behind the waiting count (2026-11-07)', () => {
+  it('lists the waiting players in join order, horses and people alike, and marks the viewer', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: {
+        ...lobby(),
+        waitlist: {
+          waiting: 3,
+          players: [
+            { position: 2, user_id: 'u-b', alias: 'RiverRat' },
+            { position: 1, user_id: 'u-a', alias: 'KingFish' },
+            { position: 3, user_id: 'u-c', alias: null },
+          ],
+        },
+      },
+      error: null,
+    });
+    render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Waiting List')).toBeTruthy());
+    const list = screen.getByRole('list', { name: 'Waiting List, In Join Order' });
+    const names = Array.from(list.querySelectorAll('.mml-list-name')).map((n) => n.textContent);
+    expect(names).toEqual(['KingFish', 'RiverRat', 'Player']);
+  });
+
+  it('shows no Waiting List section when nobody is waiting', async () => {
+    mocks.rpc.mockResolvedValue({ data: lobby(), error: null });
+    render(<MustMoveLobbyModal isOpen gameId={GAME} currentTableId={FEEDER} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Must Move Lobby')).toBeTruthy());
+    expect(screen.queryByText('Waiting List')).toBeNull();
+  });
+});
+
 describe('the tab follows the chair', () => {
   const TABLE_PAGE = readFileSync(resolve(__dirname, '../src/pages/TablePage.tsx'), 'utf8');
   const MULTI = readFileSync(resolve(__dirname, '../src/pages/MultiTablePage.tsx'), 'utf8');
