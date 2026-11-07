@@ -54,8 +54,14 @@ def protected(sha):
     git("merge-base", "--is-ancestor", sha, "refs/remotes/origin/main")
 
 
-def projection(sha):
-    return git("ls-tree", "-r", sha, "--", *CONTROL_INPUTS)
+def projection(sha, *, release_authority=False):
+    paths = list(CONTROL_INPUTS)
+    if release_authority:
+        # Once Stage freezes a control commit, even changes to expired orders
+        # must wait for a new selection. The candidate's older expired orders
+        # are assessed separately by the daily-compatibility policy.
+        paths.extend(("server/release/activation-floor.json", "server/release/owner-maintenance-windows.json"))
+    return git("ls-tree", "-r", sha, "--", *paths)
 
 
 def verify_selection(repo, rid, cutoff, qualification):
@@ -72,7 +78,7 @@ def verify_selection(repo, rid, cutoff, qualification):
     stage = run["head_sha"]
     protected(stage)
     git("merge-base", "--is-ancestor", qualification["controlSha"], stage)
-    require(projection(stage) == projection(qualification["controlSha"]), "stage release controls changed after cutoff")
+    require(projection(stage, release_authority=True) == projection(qualification["controlSha"], release_authority=True), "stage release controls changed after cutoff")
     jobs = api(f"repos/{repo}/actions/runs/{rid}/attempts/1/jobs?per_page=100")
     require(jobs["total_count"] == len(jobs["jobs"]), "selection jobs incomplete")
     selected = [job for job in jobs["jobs"] if job["name"] == "Freeze the daily release evidence"]
@@ -112,7 +118,7 @@ def read(args):
     protected(control)
     runtime = args.receiver_control or control
     protected(runtime)
-    require(projection(control) == projection(runtime), "release control inputs changed after selection")
+    require(projection(control, release_authority=True) == projection(runtime, release_authority=True), "release control inputs changed after selection")
     # Candidate and producer run use the same immutable server and repository fixtures.
     require(projection(target) == projection(control), "qualification inputs differ from selected control")
     runs = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch=main&head_sha={target}&per_page=1")

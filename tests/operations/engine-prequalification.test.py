@@ -135,6 +135,13 @@ class ControlInputs(unittest.TestCase):
                 project = reader.projection(base)
                 for path in ("scripts/unrelated.py", "infra/unrelated", "deploy/unrelated"):
                     self.assertEqual(project, reader.projection(edit(path,"other")))
+                strict = reader.projection(base, release_authority=True)
+                for path in ("server/release/activation-floor.json", "server/release/owner-maintenance-windows.json"):
+                    changed = edit(path, "different protected owner authority")
+                    self.assertEqual(project, reader.projection(changed))
+                    next_strict = reader.projection(changed, release_authority=True)
+                    self.assertNotEqual(strict, next_strict)
+                    strict = next_strict
                 self.assertNotEqual(project, reader.projection(edit(reader.PATH,"changed")))
 
 
