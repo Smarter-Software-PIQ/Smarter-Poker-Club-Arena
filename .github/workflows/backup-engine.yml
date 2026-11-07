@@ -13,6 +13,21 @@ name: Backup Engine (Clone, Stage, Certify)
 #   00:01 Chicago nightly        refresh the production structure and seed,
 #                                re-clone the serving engine, certify main
 #   workflow_dispatch            certify one exact SHA
+#   sealed release (workflow_run) re-clone the serving engine (1:1 Backup)
+#
+# THE QUEUE DRAINS ITSELF (2026-11-07). Runs are serialized (one Backup host)
+# and a certificate takes about forty-five minutes, while main receives
+# engine pushes every few minutes. Each push queues its own run, so by the
+# time a queued push run starts, a newer push has usually replaced its
+# commit: the 04:00 cutover offers the NEWEST certified main commit, so the
+# older one would be certified for nothing while the post-seal clone refresh
+# waited hours behind it (4.5 h on 2026-11-07). The plan job therefore asks
+# GitHub whether a newer push run of this workflow exists; if so the run
+# ends in seconds with nothing planned and no status written (the commit
+# stays uncertified, exactly as if its turn had never come). Only push runs
+# are skipped: a manual, nightly or post-seal clone refresh is never skipped,
+# and when GitHub cannot be read the run proceeds as before (CLAUDE.md
+# 10.86: an unreadable answer is not a "yes").
 on:
   workflow_run:
     workflows: ['Auto-Deploy Hetzner Engine (on server/ changes)']
@@ -82,10 +97,29 @@ jobs:
           INPUT_SHA: ${{ github.event.inputs.sha }}
           INPUT_REFRESH: ${{ github.event.inputs.refresh }}
           RELEASE_TITLE: ${{ github.event.workflow_run.display_title }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           sha="${INPUT_SHA:-$GITHUB_SHA}"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "not an exact sha: $sha"; exit 1; }
+          # A queued push run whose commit a newer push has already replaced
+          # is superseded: a newer push run of this workflow (any state) exists.
+          # Runs are serialized FIFO, so a newer run can only be queued or
+          # running when this one starts; its id is always larger. Only push
+          # runs are judged; an unreadable answer means "not superseded".
+          if [ "$EVENT" = push ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            newer=$(gh api "repos/${GITHUB_REPOSITORY:-}/actions/workflows/backup-engine.yml/runs?event=push&branch=main&per_page=100" \
+              --jq "[.workflow_runs[] | select(.id > $RUN_ID and .head_sha != \"$sha\")] | length" 2>/dev/null || echo unreadable)
+            if [[ "$newer" =~ ^[0-9]+$ ]] && [ "$newer" -gt 0 ]; then
+              echo "SUPERSEDED: $newer newer push run(s) of this workflow are already queued; $sha is no longer the newest engine push on main and the 04:00 cutover offers only the newest certified commit. Nothing planned, no status written; the Backup host goes to the newer run."
+              { echo "### Backup Engine"; echo ""; echo "- SUPERSEDED \`$sha\`: $newer newer push run(s) queued; nothing built, no certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "refresh=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            [[ "$newer" =~ ^[0-9]+$ ]] || echo "could not read this workflow's newer push runs ($newer); proceeding as the newest push"
+          fi
           # The refresh job decides from the standby's restore stamp whether a
           # refresh is due: forced, a new Chicago date, or a migration newer
           # than the copy. A schedule event certifies main after refreshing.

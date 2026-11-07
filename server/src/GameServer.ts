@@ -6,6 +6,7 @@ import {
   ORIGINAL_RECOVERY_TWENTY,
 } from './handlers/tournamentOriginalRecovery.js';
 import { mttGuaranteeEntryAmount } from './services/mttHorseArrivalPlan.js';
+import { tournamentStallExposure } from './observability/tournamentStallExposure.js';
 import { fleetStallMaxMs } from './fleetStallMax.js';
 import {
   completeF06Custody,
@@ -6924,6 +6925,10 @@ export class GameServer {
       // manager here. Leadership and boot state are passed for the same reason -
       // a standby owns nothing legitimately, and a rule reading these series
       // from outside cannot tell that apart from an outage.
+      ...tournamentStallExposure(
+        liveness,
+        new Map(this.heldStalledTables(new Set()).map((t) => [t.tableId, t.secsIdle * 1000]))
+      ),
       ...this.tournamentMetrics.toPrometheus({
         owned: this.tournamentEngines.size,
         isLeader: isLeader(),
@@ -7303,14 +7308,15 @@ export class GameServer {
   private tableLivenessSnapshot(timingTableIds?: ReadonlySet<string>) {
     const tournamentDescriptorByTableId = new Map<
       string,
-      { gameFormat: 'mtt' | 'spin' | 'sng'; clubId: string | null }
+      { gameFormat: 'mtt' | 'spin' | 'sng'; clubId: string | null; satellite: boolean }
     >();
     for (const manager of this.tournamentEngines.values()) {
       const gameFormat = manager.getPublicLiveTableFormat();
       if (!gameFormat) continue;
       const clubId = manager.getPublicLiveTableClubId();
+      const satellite = manager.hasSatelliteTarget();
       for (const tableId of manager.getTableIds()) {
-        tournamentDescriptorByTableId.set(tableId, { gameFormat, clubId });
+        tournamentDescriptorByTableId.set(tableId, { gameFormat, clubId, satellite });
       }
     }
 
@@ -7324,6 +7330,7 @@ export class GameServer {
         // select a table its isolated account cannot observe.
         gameFormat: tournament?.gameFormat ?? (engine.isTournament() ? null : ('cash' as const)),
         clubId: tournament?.clubId ?? null,
+        satellite: tournament?.satellite ?? false,
         seated: engine.seatedCount(),
         dealable: engine.dealableCount(),
         humans: engine.humansSeated(),

@@ -9,6 +9,7 @@ class Harness extends TournamentManagerBase {
   constructor(fromStart = false) {
     super('00000000-0000-4000-8000-000000000077', {} as GameServer);
     (this as any).lifecycleEpoch.begin();
+    this.gameServer.getTableEngine = (id: string) => this.tableEngines.get(id);
     this.running = true;
     this.tournamentEntryWindowClosed = true;
     this.tournamentCache = {
