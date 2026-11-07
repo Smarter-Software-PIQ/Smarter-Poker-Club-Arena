@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { HorseMind } from './HorseMind.js';
-import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { HorseLogic, type HorseDecideOpts, type HorseGameStateV2 } from './HorseLogic.js';
 import {
   riverCallCategoryIsUsable,
   riverCallConfidenceAboveBaseline,
@@ -265,7 +265,8 @@ describe('river call read: decision', () => {
     oppId: string,
     heroCards: Card[],
     trials: number,
-    oppIsHorse = false
+    oppIsHorse = false,
+    opts: HorseDecideOpts = {}
   ): number {
     let bets = 0;
     for (let seed = 1; seed <= trials; seed++) {
@@ -326,7 +327,7 @@ describe('river call read: decision', () => {
         gameMode: 'cash',
         format: 'cash',
       } as HorseGameStateV2;
-      const dec = HorseLogic.decide(hero, gs, 'balanced', {}, {});
+      const dec = HorseLogic.decide(hero, gs, 'balanced', {}, opts);
       if (dec.action === 'bet' || dec.action === 'raise' || dec.action === 'all_in') bets++;
     }
     return bets / trials;
@@ -341,14 +342,24 @@ describe('river call read: decision', () => {
 
   it('bluffs a light river caller less than an opponent who calls only strong', () => {
     const air = [c('6', 'hearts'), c('5', 'diamonds')];
-    const before = riverBetRate('strong-caller', air, 600);
+    // Both seeded opponents called every river bet they faced (12 of 12), so
+    // the fast call-down read (HorseFastCalldownRead, 2026-11-07) reads each
+    // as a station on call frequency alone, whatever he showed. This test is
+    // about what he showed, so it is measured with that read ablated.
+    const NO_FAST: HorseDecideOpts = { riverFastCalldown: false };
+    const before = riverBetRate('strong-caller', air, 600, false, NO_FAST);
     seedReads();
-    const vsLight = riverBetRate('light-caller', air, 600);
-    const vsStrong = riverBetRate('strong-caller', air, 600);
+    const vsLight = riverBetRate('light-caller', air, 600, false, NO_FAST);
+    const vsStrong = riverBetRate('strong-caller', air, 600, false, NO_FAST);
     // A strong-only caller's read (0) is below the 0.5 bar: no change at all.
     expect(vsStrong).toBe(before);
     expect(before).toBeGreaterThan(0.05);
     expect(vsLight).toBeLessThan(vsStrong);
+    // With the fast call-down read on, a player who called twelve straight
+    // river bets is a station: the bluffs are cut (a fifth, never zero).
+    const vsStrongStation = riverBetRate('strong-caller', air, 600);
+    expect(vsStrongStation).toBeLessThan(before * 0.5);
+    expect(vsStrongStation).toBeGreaterThan(0);
   });
 
   it('value-bets a light river caller thinner', () => {

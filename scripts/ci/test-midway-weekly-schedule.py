@@ -7,6 +7,9 @@ pg=pathlib.Path(os.environ.get('PG_BIN','/opt/homebrew/opt/postgresql@17/bin'))
 parent=os.environ.get('TMPDIR') or os.environ.get('RUNNER_TEMP')
 if not parent: raise RuntimeError('TMPDIR must point at task-owned external scratch')
 document=json.loads((root/'docs/tournament-schedules/midway-weekly-2026-11-07.json').read_text())
+for event in document['events']:
+    if event['terms']['game_type']=='PLO6':
+        assert event['terms']['table_size']<=7 and event['config']['tableSize']<=7,event['name']
 def run(tool,*args,input=None):
     result=subprocess.run([str(pg/tool),*args],input=input,text=True,capture_output=True)
     if result.returncode: raise RuntimeError(result.stderr)
@@ -29,12 +32,21 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
          CREATE FUNCTION atomic_cancel_tournament(uuid,uuid) RETURNS jsonb LANGUAGE sql AS $$SELECT '{"fully_settled":false}'::jsonb$$;
          CREATE FUNCTION fn_ca_new_tournament_is_unlimited(jsonb) RETURNS boolean LANGUAGE sql AS $$SELECT true$$;
         """)
+        # Production's exact zone validator is intentionally retained: its
+        # per-row catalog lookup must fit the unchanged 8s statement budget.
+        sql("""CREATE FUNCTION fn_schedule_time_zone_is_known(p_zone text)
+         RETURNS boolean LANGUAGE sql STABLE SET search_path TO pg_catalog AS $$
+          SELECT p_zone IS NULL OR ((p_zone IN ('UTC','GMT')
+           OR p_zone ~ '^[A-Z][A-Za-z]+/[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)?$')
+           AND EXISTS(SELECT 1 FROM pg_catalog.pg_timezone_names n WHERE n.name=p_zone))$$;
+         ALTER TABLE tournament_schedules ADD CONSTRAINT schedule_time_zone_known
+          CHECK(fn_schedule_time_zone_is_known(time_zone));""")
         types={}
         for event in document['events']:
             for key,value in event['terms'].items():
                 types.setdefault(key,'text')
                 if value is not None: types[key]='boolean' if isinstance(value,bool) else 'numeric' if isinstance(value,(int,float)) else 'text'
-        types.update(id='uuid',club_id='uuid',union_id='uuid',schedule_id='uuid',status='text',start_time='timestamptz',started_at='timestamptz',current_level='integer',blind_level_state='jsonb',blind_structure='text',prize_pool_finalized='boolean',format_contract='text',max_players='integer',starting_chips='integer',late_reg_levels='integer',late_reg_mins='integer')
+        types.update(id='uuid',club_id='uuid',union_id='uuid',schedule_id='uuid',satellite_target_id='uuid',satellite_target='uuid',status='text',start_time='timestamptz',started_at='timestamptz',current_level='integer',blind_level_state='jsonb',blind_structure='text',prize_pool_finalized='boolean',format_contract='text',max_players='integer',starting_chips='integer',late_reg_levels='integer',late_reg_mins='integer')
         sql('CREATE TABLE tournaments('+','.join(k+' '+v for k,v in types.items())+'); CREATE TABLE tables(id uuid,tournament_id uuid,small_blind numeric,big_blind numeric,ante numeric,stakes text);')
         sql((fixture/'blind-number.sql').read_text()+';')
         sql((fixture/'clock-helpers.sql').read_text())
@@ -86,6 +98,20 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         sql("INSERT INTO tournament_schedule_spawns VALUES('matching-claim','22222222-2222-4222-8222-222222222222')")
         assert 'already_matches' in sql("SELECT fn_ca_install_midway_weekly_occurrence('22222222-2222-4222-8222-222222222222')")
         assert sql("SELECT spawn_key FROM tournament_schedule_spawns WHERE tournament_id='22222222-2222-4222-8222-222222222222'")=='matching-claim'
+        # Canonical feeder terms do not make a cancelled/missing parent valid.
+        feeder=next(e for e in document['events'] if e['times']==['20:15'] and e['name']=='Sunday Deep Stack Satellite 30')
+        feeder_id='66666666-6666-4666-8666-666666666666'
+        parent_id='77777777-7777-4777-8777-777777777777'
+        insert_event(parent_id,schedule_id='99999999-9999-4999-8999-999999999997')
+        insert_event(feeder_id,schedule_id=feeder['id'])
+        sql("UPDATE tournaments SET start_time='2026-11-10 02:15:00+00',satellite_target_id='"+parent_id+"' WHERE id='"+feeder_id+"'; UPDATE tournaments SET start_time='2026-11-15 19:00:00+00' WHERE id='"+parent_id+"'; INSERT INTO tournament_schedule_spawns VALUES('feeder-claim','"+feeder_id+"')")
+        assert 'already_matches' in sql("SELECT fn_ca_install_midway_weekly_occurrence('"+feeder_id+"')")
+        for invalid in ["UPDATE tournaments SET status='CANCELLED' WHERE id='"+parent_id+"'", "DELETE FROM tournaments WHERE id='"+parent_id+"'"]:
+            sql(invalid)
+            try: sql("SELECT fn_ca_install_midway_weekly_occurrence('"+feeder_id+"')")
+            except RuntimeError as error: assert 'Exact cancellation did not settle' in str(error)
+            else: raise AssertionError('canonical feeder retained a cancelled/missing parent')
+            assert sql("SELECT spawn_key FROM tournament_schedule_spawns WHERE tournament_id='"+feeder_id+"'")=='feeder-claim'
         sql("INSERT INTO tables VALUES(gen_random_uuid(),'22222222-2222-4222-8222-222222222222',25,50,0,'25/50')")
         assert sql('SELECT stakes FROM tables')=='50/100'
         insert_event('44444444-4444-4444-8444-444444444444',club='99999999-9999-4999-8999-999999999999',schedule_id='99999999-9999-4999-8999-999999999998')

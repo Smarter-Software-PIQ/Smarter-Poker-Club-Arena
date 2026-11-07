@@ -8,9 +8,10 @@
  * approved on 2026-11-06 makes the V31 lane run that re-check after each
  * engine update, as a dispatched step, with no timer.
  *
- * This is that step. It runs when an "Auto-Deploy Hetzner Engine" run
- * completes successfully (the deploy job only succeeds after it has proven the
- * live releaseSha is the deployed commit). It reads, from production, the
+ * This is that step. It runs when an "Auto-Deploy Hetzner Engine" run on main
+ * completes, whatever its verdict: a run can activate the engine and still fail
+ * a later job, so the verdict is not the signal. The serving engine is (health
+ * ok, phase ready, releaseSha). It reads, from production, the
  * serving engine and every candidate or active contract v3 dataset, and
  * dispatches `recheck` once for each one this engine still needs:
  *
@@ -39,7 +40,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const UUID_IN = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/g;
 
 export const RECHECK_WORKFLOW = 'gto-v31-qualification.yml';
-/** The `name:` of the engine release workflow whose success means a new serving engine is live. */
+/** The `name:` of the engine release workflow; any completed run of it may have changed the serving engine. */
 export const RELEASE_WORKFLOW_NAME = 'Auto-Deploy Hetzner Engine (on server/ changes)';
 export const RELEASE_STATES = Object.freeze(['active', 'candidate']);
 
@@ -102,11 +103,18 @@ export function recheckDispatchBody(dataset) {
   return { ref: 'main', inputs: { dataset, operation: 'recheck', reason: '' } };
 }
 
-/** Only a successful release run on protected main of this repository starts a decision. */
+/**
+ * Any completed release run on protected main of this repository starts a decision,
+ * whatever its verdict. The run's conclusion does not say whether the serving engine
+ * changed: Engine Release 40bc24676 (run 42389189340, 2026-11-07) activated and
+ * served while a later job of the same run failed, so a success-only gate never
+ * re-checked an engine that was live. The decision reads the serving engine from
+ * production (health ok, phase ready) and skips an engine already certified or
+ * passed, so a run that activated nothing dispatches nothing.
+ */
 export function releaseEventAdmitted({ eventName, repository, repositoryId, workflowRun }) {
   return eventName === 'workflow_run' && isClubArenaRepository(repository, repositoryId) &&
-    workflowRun?.name === RELEASE_WORKFLOW_NAME && workflowRun?.conclusion === 'success' &&
-    workflowRun?.head_branch === 'main';
+    workflowRun?.name === RELEASE_WORKFLOW_NAME && workflowRun?.head_branch === 'main';
 }
 
 async function json(url, init, label) {

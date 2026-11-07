@@ -33,7 +33,8 @@ export interface HorseDecisionReadFrame {
     | 'horse-decision-reads-v6'
     | 'horse-decision-reads-v7'
     | 'horse-decision-reads-v8'
-    | 'horse-decision-reads-v9';
+    | 'horse-decision-reads-v9'
+    | 'horse-decision-reads-v10';
   readonly bytes: number;
   readonly sha256: string;
   readonly json: string;
@@ -58,8 +59,16 @@ const RIVER_CALL_VERSION = 'horse-decision-reads-v6';
 const RIVER_POSITION_VERSION = 'horse-decision-reads-v7';
 const RIVER_RAISE_VERSION = 'horse-decision-reads-v8';
 const MULTIWAY_RIVER_VERSION = 'horse-decision-reads-v9';
-const raised = (version: unknown) =>
-  version === RIVER_RAISE_VERSION || version === MULTIWAY_RIVER_VERSION;
+/** 2026-11-07: v9 plus the fast call-down river recency window
+ * (OpponentStats.rvOpps / rvCalls, HorseFastCalldownRead.ts), carried for the
+ * rows that hold one so a second look prices exactly the read the first did.
+ * Written only when a captured row carries the window, so every earlier frame
+ * keeps its exact bytes. A v10 body always carries the v9 lists (empty when
+ * there is no multiway river evidence). */
+const FAST_CALLDOWN_VERSION = 'horse-decision-reads-v10';
+const multiwayed = (version: unknown) =>
+  version === MULTIWAY_RIVER_VERSION || version === FAST_CALLDOWN_VERSION;
+const raised = (version: unknown) => version === RIVER_RAISE_VERSION || multiwayed(version);
 const positioned = (version: unknown) => version === RIVER_POSITION_VERSION || raised(version);
 const rivered = (version: unknown) => version === RIVER_CALL_VERSION || positioned(version);
 const winnered = (version: unknown) => version === WINNER_VERSION || rivered(version);
@@ -110,6 +119,12 @@ const RIVER_RAISE_FIELDS = [
   'riverTripleCheckRaiseOpps',
   'riverTripleCheckRaiseFolds',
 ] as const satisfies readonly (keyof OpponentStats)[];
+/** Not in FIELDS or the river-call sidecar: decayed (non-integer), present
+ * only on a pooled row that saw a river opportunity, carried per row. */
+const FAST_CALLDOWN_FIELDS = [
+  'rvOpps',
+  'rvCalls',
+] as const satisfies readonly (keyof OpponentStats)[];
 const riverFields = (version: unknown) =>
   raised(version)
     ? [...RIVER_CALL_FIELDS, ...RIVER_POSITION_FIELDS, ...RIVER_RAISE_FIELDS]
@@ -122,6 +137,7 @@ const completeFields: Exclude<
   | (typeof RIVER_CALL_FIELDS)[number]
   | (typeof RIVER_POSITION_FIELDS)[number]
   | (typeof RIVER_RAISE_FIELDS)[number]
+  | (typeof FAST_CALLDOWN_FIELDS)[number]
   | 'riverHu'
   | 'sourceWindow'
 > extends never
@@ -140,7 +156,10 @@ type Body = {
     | typeof RIVER_CALL_VERSION
     | typeof RIVER_POSITION_VERSION
     | typeof RIVER_RAISE_VERSION
-    | typeof MULTIWAY_RIVER_VERSION;
+    | typeof MULTIWAY_RIVER_VERSION
+    | typeof FAST_CALLDOWN_VERSION;
+  riverRecency?: Rows<number[]>;
+  scopedRiverRecency?: Rows<number[]>;
   riverHu?: Rows<MultiwayRiverReadState>;
   scopedRiverHu?: Rows<MultiwayRiverReadState>;
   winnerReads?: Rows<HorseWinnerReadRow>;
@@ -248,7 +267,8 @@ function validateBody(
       ...(exploited(value.version) ? ['exploit'] : []),
       ...(winnered(value.version) ? ['winnerReads'] : []),
       ...(rivered(value.version) ? ['riverCalls', 'scopedRiverCalls'] : []),
-      ...(value.version === MULTIWAY_RIVER_VERSION ? ['riverHu', 'scopedRiverHu'] : []),
+      ...(multiwayed(value.version) ? ['riverHu', 'scopedRiverHu'] : []),
+      ...(value.version === FAST_CALLDOWN_VERSION ? ['riverRecency', 'scopedRiverRecency'] : []),
       ...(planContext === undefined ? [] : ['planContext']),
       'actors',
       'handKey',
@@ -311,11 +331,25 @@ function validateBody(
       return fail();
   }
   if (
-    value.version === MULTIWAY_RIVER_VERSION &&
+    multiwayed(value.version) &&
     (!validRows(value.riverHu, b.stats, validMultiwayRiverState) ||
       !validRows(value.scopedRiverHu, b.scoped, validMultiwayRiverState))
   )
     return fail();
+  if (value.version === FAST_CALLDOWN_VERSION) {
+    // [rvOpps, rvCalls]: decayed, non-negative, calls never above opportunities.
+    const recency = (v: unknown) =>
+      numbers(v, FAST_CALLDOWN_FIELDS.length) && (v as number[])[1] <= (v as number[])[0];
+    if (
+      !validRows(value.riverRecency, b.stats, recency) ||
+      !validRows(value.scopedRiverRecency, b.scoped, recency) ||
+      // A v10 body carries at least one window, or it would have been v9.
+      (value.riverRecency as Rows<number[]>).length +
+        (value.scopedRiverRecency as Rows<number[]>).length ===
+        0
+    )
+      return fail();
+  }
   if (rivered(value.version)) {
     const aligned = (rows: unknown, statRows: Rows<number[]>, allowed: ReadonlySet<string>) =>
       validRows(rows, allowed, (v) => numbers(v, riverFields(value.version).length)) &&
@@ -371,6 +405,8 @@ export function encodeHorseDecisionReads(
           ...(Object.hasOwn(row, RIVER_CALL_FIELDS[0]) ? RIVER_CALL_FIELDS : []),
           ...(Object.hasOwn(row, RIVER_POSITION_FIELDS[0]) ? RIVER_POSITION_FIELDS : []),
           ...(Object.hasOwn(row, RIVER_RAISE_FIELDS[0]) ? RIVER_RAISE_FIELDS : []),
+          // The fast call-down window travels as a pair or not at all.
+          ...(Object.hasOwn(row, FAST_CALLDOWN_FIELDS[0]) ? FAST_CALLDOWN_FIELDS : []),
           ...(Object.hasOwn(row, 'sourceWindow') ? ['sourceWindow'] : []),
           ...(Object.hasOwn(row, 'riverHu') ? ['riverHu'] : []),
         ])
@@ -401,10 +437,14 @@ export function encodeHorseDecisionReads(
   const hasWinner = view.winnerReads !== undefined;
   if (hasWinner && (!(view.winnerReads!.seen instanceof Set) || view.winnerReads!.seen.size !== 0))
     return fail();
+  const hasFastCalldown = [boundedStats, boundedScoped].some((rows) =>
+    rows.some(([, row]) => object(row) && row.rvOpps !== undefined)
+  );
   const hasMultiwayRiver = [boundedStats, boundedScoped].some((rows) =>
     rows.some(([, row]) => row.riverHu !== undefined)
   );
   const hasRiverRaise =
+    hasFastCalldown ||
     hasMultiwayRiver ||
     [boundedStats, boundedScoped].some((rows) =>
       rows.some(
@@ -438,27 +478,36 @@ export function encodeHorseDecisionReads(
     [...map]
       .filter(([, row]) => row.riverHu !== undefined)
       .map(([id, row]) => [id, structuredClone(row.riverHu!)]);
+  const recencyRows = (map: Map<string, OpponentStats>): Rows<number[]> =>
+    [...map]
+      .filter(([, row]) => row.rvOpps !== undefined)
+      .map(([id, row]) => [id, FAST_CALLDOWN_FIELDS.map((f) => row[f] ?? 0)]);
   const body: Body = {
-    ...(hasMultiwayRiver
+    ...(hasFastCalldown
+      ? { riverRecency: recencyRows(view.stats), scopedRiverRecency: recencyRows(view.scoped) }
+      : {}),
+    ...(hasFastCalldown || hasMultiwayRiver
       ? { riverHu: huRows(view.stats), scopedRiverHu: huRows(view.scoped) }
       : {}),
-    version: hasMultiwayRiver
-      ? MULTIWAY_RIVER_VERSION
-      : hasRiverRaise
-        ? RIVER_RAISE_VERSION
-        : hasRiverPosition
-          ? RIVER_POSITION_VERSION
-          : hasRiverCalls
-            ? RIVER_CALL_VERSION
-            : hasWinner
-              ? WINNER_VERSION
-              : hasExploit
-                ? EXPLOIT_VERSION
-                : hasWindows
-                  ? WINDOW_VERSION
-                  : planContext === undefined
-                    ? VERSION
-                    : ALLOCATED_VERSION,
+    version: hasFastCalldown
+      ? FAST_CALLDOWN_VERSION
+      : hasMultiwayRiver
+        ? MULTIWAY_RIVER_VERSION
+        : hasRiverRaise
+          ? RIVER_RAISE_VERSION
+          : hasRiverPosition
+            ? RIVER_POSITION_VERSION
+            : hasRiverCalls
+              ? RIVER_CALL_VERSION
+              : hasWinner
+                ? WINNER_VERSION
+                : hasExploit
+                  ? EXPLOIT_VERSION
+                  : hasWindows
+                    ? WINDOW_VERSION
+                    : planContext === undefined
+                      ? VERSION
+                      : ALLOCATED_VERSION,
     ...(hasWindows
       ? { statsWindows: windows(view.stats), scopedWindows: windows(view.scoped) }
       : {}),
@@ -566,7 +615,20 @@ export function decodeHorseDecisionReads(
     );
   view.stats = stats(body.stats, body.statsWindows, body.riverCalls);
   view.scoped = stats(body.scoped, body.scopedWindows, body.scopedRiverCalls);
-  if (body.version === MULTIWAY_RIVER_VERSION) {
+  if (body.version === FAST_CALLDOWN_VERSION) {
+    for (const [map, rows] of [
+      [view.stats, body.riverRecency!],
+      [view.scoped, body.scopedRiverRecency!],
+    ] as const) {
+      for (const [id, [rvOpps, rvCalls]] of rows) {
+        const stat = map.get(id);
+        if (!stat) return fail();
+        stat.rvOpps = rvOpps;
+        stat.rvCalls = rvCalls;
+      }
+    }
+  }
+  if (multiwayed(body.version)) {
     for (const [id, row] of body.riverHu!) {
       const stat = view.stats.get(id);
       if (!stat) return fail();

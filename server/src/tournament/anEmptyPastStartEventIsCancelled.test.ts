@@ -149,6 +149,26 @@ describe('the discovery loop wiring', () => {
     expect(branch).toContain("'GameServer.empty_past_start_event_cancel_refused'");
   });
 
+  it('uses the target-locked expiry for fixed SNG satellites and preserves their fill path while waiting', () => {
+    const read = source.slice(source.indexOf('const registeringPage ='), start);
+    for (const column of [
+      'table_size',
+      'satellite_seats',
+      'satellite_target_id',
+      'satellite_target',
+    ]) {
+      expect(read.slice(read.indexOf('.select('), read.indexOf(".eq('status'"))).toContain(column);
+    }
+    expect(branch).toMatch(
+      /tournament\.format_contract === 'sng-v1' &&\s*isFixedSngSatellite\(tournament\)/
+    );
+    expect(branch).toMatch(
+      /fixedSatellite\s*\? await supabase\.rpc\('fn_ca_expire_empty_fixed_sng_satellite'/
+    );
+    expect(branch).toContain('if (fixedSatellite && receipt?.fully_settled !== true) return;');
+    expect(branch).toContain('if (!fixedSatellite) continue;');
+  });
+
   it('keeps its retry clock on the past-start clock entry, pruned with the event', () => {
     expect(branch).toContain('const askedAt = emptyClock?.cancelAskedAt ?? 0;');
     expect(branch).toContain('cancelAskedAt: now,');

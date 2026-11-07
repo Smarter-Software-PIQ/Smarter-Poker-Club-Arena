@@ -3,6 +3,7 @@
   "_comment": "Declared preparation objects only; not evidence of installation. Service-only advisory plan and private union-day metadata; actual paid-roster guard activates through its separate daily-maintenance migration.",
   "functions": [
     "fn_sng_satellite_horse_fill_plan",
+    "fn_ca_expire_empty_fixed_sng_satellite",
     "fn_ca_fixed_sng_horse_paid_admission",
     "smarter_private.sng_horse_wait_until",
     "smarter_private.sng_horse_plan",

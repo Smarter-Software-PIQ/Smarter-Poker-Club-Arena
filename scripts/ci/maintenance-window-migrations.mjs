@@ -313,3 +313,222 @@ export function windowToServe(at, horizonMs = 3 * 3_600_000) {
   const lastStart = (w) => w.endsAt - START_RESERVE_SECONDS * 1000;
   return dailyWindows(at).find((w) => lastStart(w) > at && w.startsAt - at <= horizonMs) ?? null;
 }
+
+/*
+ * ===========================================================================
+ *  A WINDOW INSTALL ASKS FOR ITS LOCK IN A QUIET MOMENT (2026-11-07)
+ * ===========================================================================
+ *
+ * WHY. A window file gets ONE lock request with a 1 s lock_timeout, and the
+ * freeze stops writers to money and seat rows, not readers. ACCESS EXCLUSIVE
+ * waits on every reader, so a request that arrives while a reader is in the
+ * middle of a multi-second transaction on the same table is refused, and the
+ * first refusal holds every later file for a day. Measured on production
+ * 2026-11-07 (read-only: cron.job_run_details, pg_locks, pg_stat_activity):
+ *   - the 04:00 Chicago window opens on minute 0 of a UTC hour, so every
+ *     every-minute, every-5-minute and every-10-minute pg_cron job starts at 10:00:00.15-0.45Z,
+ *     the same second the installer sends its first file. Two of them read
+ *     public.clubs for up to 3.9 s (ca-quick-reconcile-5m, 0.89 s that day,
+ *     max 3.88 s; ca-mint-velocity-5m, 0.74 s, max 3.38 s);
+ *   - sp_prune_hand_history_10m is one transaction of 7-11 s every 10 s,
+ *     holding ACCESS SHARE on hand_history, tables and tournaments, with a
+ *     gap of about 3 s between runs;
+ *   - ca-table-stall-watch-10s runs back to back during the break (13-18 s per
+ *     transaction, 17 ms apart) holding tables, table_seats, tournaments and
+ *     tournament_players.
+ * A lock request sent at an arbitrary instant into that is a coin flip.
+ *
+ * WHAT. Before the one attempt, the installer reads pg_locks (read-only; it
+ * requests no lock and queues nothing behind it) for the relations the file
+ * will lock, and waits until no other transaction older than
+ * QUIET_HOLDER_AGE_MS holds a mode that conflicts with what the file asks
+ * for, then sends the file once, exactly as before. The wait is bounded
+ * (QUIET_WAIT_MAX_SECONDS per file) and, while the release that may need this
+ * file's doors can still be admitted, it never runs past
+ * DOOR_INSTALL_DEADLINE_SECONDS into the break. When the bound passes it
+ * sends anyway: never worse than before, never a second attempt, no LOCK
+ * retry, the 1 s lock_timeout and the stop-at-first-refusal rule unchanged.
+ *
+ * THE DEADLINE IS DERIVED FROM THE BREAK CLOCKS, not chosen. The release's
+ * certificate admits it only while BREAK_ADMISSION_MIN_BREAK_MS (260000) of
+ * the 300000 ms break remain (server/scripts/engine-release-transaction.sh),
+ * so a door must be visible to the engine within the first 40 s. From that:
+ * the schema cache reload PostgREST runs after the DDL (measured 1.4-5.9 s
+ * over 151 reloads on 2026-11-07, so 6 s) and one in-break door poll (3 s
+ * sleep plus the certificate and status reads, so 6 s) leave 28 s. The
+ * arithmetic is pinned against the transaction's own constants by
+ * tests/a-window-install-asks-for-its-lock-in-a-quiet-moment.law.test.ts.
+ */
+export const RELEASE_ADMISSION_SECONDS = 40;
+export const SCHEMA_CACHE_RELOAD_SECONDS = 6;
+export const RELEASE_DOOR_POLL_SECONDS = 6;
+export const DOOR_INSTALL_DEADLINE_SECONDS =
+  RELEASE_ADMISSION_SECONDS - SCHEMA_CACHE_RELOAD_SECONDS - RELEASE_DOOR_POLL_SECONDS;
+export const QUIET_WAIT_MAX_SECONDS = 12;
+export const QUIET_HOLDER_AGE_MS = 250;
+export const QUIET_POLL_MS = 200;
+
+const LOCK_STRENGTH = ['ShareLock', 'ShareRowExclusiveLock', 'AccessExclusiveLock'];
+/** The held modes each requested mode waits on (PostgreSQL's conflict table). */
+export const CONFLICTS = {
+  AccessExclusiveLock: [
+    'AccessShareLock',
+    'RowShareLock',
+    'RowExclusiveLock',
+    'ShareUpdateExclusiveLock',
+    'ShareLock',
+    'ShareRowExclusiveLock',
+    'ExclusiveLock',
+    'AccessExclusiveLock',
+  ],
+  ShareRowExclusiveLock: [
+    'RowExclusiveLock',
+    'ShareUpdateExclusiveLock',
+    'ShareLock',
+    'ShareRowExclusiveLock',
+    'ExclusiveLock',
+    'AccessExclusiveLock',
+  ],
+  ShareLock: [
+    'RowExclusiveLock',
+    'ShareUpdateExclusiveLock',
+    'ShareRowExclusiveLock',
+    'ExclusiveLock',
+    'AccessExclusiveLock',
+  ],
+};
+const LOCK_MODE_WORDS = {
+  'ACCESS SHARE': null,
+  'ROW SHARE': null,
+  'ROW EXCLUSIVE': null,
+  'SHARE UPDATE EXCLUSIVE': null,
+  SHARE: 'ShareLock',
+  'SHARE ROW EXCLUSIVE': 'ShareRowExclusiveLock',
+  EXCLUSIVE: 'AccessExclusiveLock',
+  'ACCESS EXCLUSIVE': 'AccessExclusiveLock',
+};
+
+const IDENT = String.raw`(?:"?([A-Za-z_][A-Za-z0-9_]*)"?\s*\.\s*)?"?([A-Za-z_][A-Za-z0-9_]*)"?`;
+
+/**
+ * The relations a window file will lock with a mode that waits on live
+ * traffic, and the strongest such mode per relation, read from its SQL:
+ *   ALTER TABLE, DROP TRIGGER ... ON, DROP TABLE, TRUNCATE   ACCESS EXCLUSIVE
+ *   LOCK TABLE ... [IN <mode> MODE]                          that mode
+ *   CREATE TRIGGER ... ON, ... REFERENCES <table>            SHARE ROW EXCLUSIVE
+ *   CREATE INDEX ... ON                                      SHARE
+ * Comments and dollar-quoted bodies are ignored. EXCLUSIVE is treated as
+ * ACCESS EXCLUSIVE (it differs only for plain readers; waiting on them too is
+ * the conservative side). A statement this reader does not know contributes
+ * nothing: the file is then sent exactly as it was before this gate existed.
+ * Returns [{ relation: 'schema.name', mode }], sorted.
+ */
+export function lockTargets(sql) {
+  const code = String(sql)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)?\$[\s\S]*?\$\1\$/g, ' ');
+  const found = new Map();
+  const add = (schema, name, mode) => {
+    if (!mode) return;
+    const key = `${(schema || 'public').toLowerCase()}.${name.toLowerCase()}`;
+    const prior = found.get(key);
+    if (!prior || LOCK_STRENGTH.indexOf(mode) > LOCK_STRENGTH.indexOf(prior)) found.set(key, mode);
+  };
+  const each = (re, fn) => {
+    for (const m of code.matchAll(re)) fn(m);
+  };
+  each(new RegExp(String.raw`\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${IDENT}`, 'gi'), (m) =>
+    add(m[1], m[2], 'AccessExclusiveLock')
+  );
+  each(
+    new RegExp(String.raw`\bDROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?"?[A-Za-z_][A-Za-z0-9_]*"?\s+ON\s+(?:ONLY\s+)?${IDENT}`, 'gi'),
+    (m) => add(m[1], m[2], 'AccessExclusiveLock')
+  );
+  each(new RegExp(String.raw`\b(?:DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?|TRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?)${IDENT}`, 'gi'), (m) =>
+    add(m[1], m[2], 'AccessExclusiveLock')
+  );
+  each(/\bLOCK\s+(?:TABLE\s+)?(?:ONLY\s+)?([^;]+?)(?:\s+IN\s+([A-Z ]+?)\s+MODE)?\s*(?:NOWAIT\s*)?;/gi, (m) => {
+    const mode = m[2] ? LOCK_MODE_WORDS[m[2].trim().toUpperCase().replace(/\s+/g, ' ')] : 'AccessExclusiveLock';
+    for (const part of m[1].split(',')) {
+      const id = new RegExp(String.raw`^\s*${IDENT}\s*$`).exec(part);
+      if (id) add(id[1], id[2], mode);
+    }
+  });
+  each(
+    new RegExp(
+      String.raw`\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+"?[A-Za-z_][A-Za-z0-9_]*"?\s[\s\S]*?\bON\s+(?:ONLY\s+)?${IDENT}`,
+      'gi'
+    ),
+    (m) => add(m[1], m[2], 'ShareRowExclusiveLock')
+  );
+  each(new RegExp(String.raw`\bREFERENCES\s+${IDENT}`, 'gi'), (m) => add(m[1], m[2], 'ShareRowExclusiveLock'));
+  each(
+    new RegExp(
+      String.raw`\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?[A-Za-z_][A-Za-z0-9_]*"?\s+)?ON\s+(?:ONLY\s+)?${IDENT}`,
+      'gi'
+    ),
+    (m) => add(m[1], m[2], 'ShareLock')
+  );
+  return [...found.entries()]
+    .map(([relation, mode]) => ({ relation, mode }))
+    .sort((a, b) => a.relation.localeCompare(b.relation));
+}
+
+/**
+ * One read-only statement: who, right now, holds a conflicting lock on the
+ * targets in a transaction older than $3 ms, and how far into the daily break
+ * the database clock is. $1 relations, $2 requested modes, $3 minimum age.
+ */
+export const QUIET_HOLDERS_QUERY = `WITH t AS (
+  SELECT to_regclass(u.rel) AS oid, u.rel, u.mode
+    FROM unnest($1::text[], $2::text[]) AS u(rel, mode))
+SELECT
+  (SELECT extract(epoch FROM clock_timestamp() - b.break_started_at)::float8
+     FROM public.engine_maintenance_break b) AS into_break_s,
+  (SELECT extract(epoch FROM b.break_ends_at - clock_timestamp())::float8
+     FROM public.engine_maintenance_break b) AS remaining_s,
+  COALESCE((SELECT jsonb_agg(jsonb_build_object(
+      'relation', t.rel, 'mode', l.mode, 'pid', l.pid,
+      'application', a.application_name, 'role', a.usename,
+      'xact_ms', round(extract(epoch FROM clock_timestamp() - a.xact_start) * 1000),
+      'query', left(regexp_replace(COALESCE(a.query, ''), '\\s+', ' ', 'g'), 120))
+      ORDER BY a.xact_start)
+     FROM t
+     JOIN pg_locks l ON l.relation = t.oid AND l.granted
+     LEFT JOIN pg_stat_activity a ON a.pid = l.pid
+    WHERE l.pid IS DISTINCT FROM pg_backend_pid()
+      AND l.mode = ANY (CASE t.mode
+            WHEN 'AccessExclusiveLock' THEN ARRAY['${CONFLICTS.AccessExclusiveLock.join("','")}']
+            WHEN 'ShareRowExclusiveLock' THEN ARRAY['${CONFLICTS.ShareRowExclusiveLock.join("','")}']
+            ELSE ARRAY['${CONFLICTS.ShareLock.join("','")}'] END)
+      AND (a.xact_start IS NULL
+           OR a.xact_start < clock_timestamp() - make_interval(secs => $3::float8 / 1000))),
+    '[]'::jsonb) AS holders`;
+
+/**
+ * How long this file may wait for a quiet moment, in ms from now, given the
+ * database's own clock: QUIET_WAIT_MAX_SECONDS, never past
+ * DOOR_INSTALL_DEADLINE_SECONDS while the release can still be admitted, and
+ * never past the last instant the window still admits an install.
+ */
+export function quietWaitBudgetMs(intoBreakSeconds, remainingSeconds) {
+  if (!Number.isFinite(intoBreakSeconds) || !Number.isFinite(remainingSeconds)) return 0;
+  let budget = QUIET_WAIT_MAX_SECONDS * 1000;
+  if (intoBreakSeconds < DOOR_INSTALL_DEADLINE_SECONDS)
+    budget = Math.min(budget, (DOOR_INSTALL_DEADLINE_SECONDS - intoBreakSeconds) * 1000);
+  // The applier's opening assertion needs START_RESERVE_SECONDS; keep 2 s for
+  // its own connection and prelude.
+  budget = Math.min(budget, (remainingSeconds - START_RESERVE_SECONDS - 2) * 1000);
+  return Math.max(0, Math.floor(budget));
+}
+
+export function describeHolders(holders) {
+  return (holders || [])
+    .map(
+      (h) =>
+        `${h.relation} ${h.mode} pid ${h.pid ?? 'prepared'} ${h.application || h.role || 'unknown'} ` +
+        `${h.xact_ms ?? '?'} ms: ${h.query || ''}`.trim()
+    )
+    .join('; ');
+}

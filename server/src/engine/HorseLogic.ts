@@ -2494,6 +2494,11 @@ export interface HorseDecideOpts {
    *  or three opponents, a nut blocker and a line capping the whole field,
    *  frequency falling steeply per opponent; default on, false ablates. */
   riverBluffMultiway?: boolean;
+  /** The fast call-down read (2026-11-07, HorseFastCalldownRead.ts): the
+   *  river bluff layers (heads-up baseline, its leads, multiway) treat a
+   *  player whose recent river calling has credibly risen as a station, and
+   *  price with his recent river fold rate; default on, false ablates. */
+  riverFastCalldown?: boolean;
   /** Candidate-only conditional river defense; default off until paired
    * current-brain qualification and protected adoption. */
   riverPositionDefense?: boolean;
@@ -9996,12 +10001,26 @@ export class HorseLogic {
           let stationRb = false;
           let rfrRb: number | null = null;
           let overFolderRb = 0;
+          let fcCallingMoreRb = false;
           if (useMind) {
             try {
               const readRb = HorseMind.opponentRead(oppRb.user_id);
               rfrRb = HorseMind.riverFoldRate(oppRb.user_id);
-              stationRb = isStation(readRb) || (rfrRb !== null && rfrRb < 0.35);
-              if ((opts.v53Pressure ?? true) !== false) {
+              // 2026-11-07 FAST CALL-DOWN READ (HorseFastCalldownRead.ts): a
+              // player who has started calling rivers is a station now, and
+              // the fold rate follows his recent river play. Null: unchanged.
+              const fcRb =
+                (opts.riverFastCalldown ?? true) !== false
+                  ? HorseMind.fastCalldownRead(oppRb.user_id)
+                  : null;
+              if (fcRb) {
+                rfrRb = fcRb.riverFoldRate;
+                fcCallingMoreRb = fcRb.callingMore;
+              }
+              stationRb =
+                isStation(readRb) || fcRb?.callingDown === true || (rfrRb !== null && rfrRb < 0.35);
+              if (tele15 && fcRb?.callingDown) noteFire('river_fast_calldown_station');
+              if ((opts.v53Pressure ?? true) !== false && fcRb?.callingMore !== true) {
                 overFolderRb = riverBluffFrequency(
                   riverFoldLowerBound(readRb),
                   sizeRb.sizeFrac,
@@ -10023,7 +10042,9 @@ export class HorseLogic {
               station: stationRb,
               riverFoldRate: rfrRb,
               overFolderFrequency: overFolderRb,
-              bluffMod: exploit.bluffMod,
+              // A folder's bluffMod describes the style a player who is now
+              // calling more has left (fast call-down read).
+              bluffMod: fcCallingMoreRb ? Math.min(1, exploit.bluffMod) : exploit.bluffMod,
               lightCallerFactor: lightCallerBluffMul,
             },
             icmRisk: isTournamentMode(gs) ? risk : 0,
@@ -10130,9 +10151,17 @@ export class HorseLogic {
             for (const o of opponents) {
               try {
                 const readO = HorseMind.opponentRead(o.user_id);
-                const rfrO = HorseMind.riverFoldRate(o.user_id);
+                let rfrO = HorseMind.riverFoldRate(o.user_id);
+                // 2026-11-07 FAST CALL-DOWN READ, as heads-up above.
+                const fcO =
+                  (opts.riverFastCalldown ?? true) !== false
+                    ? HorseMind.fastCalldownRead(o.user_id)
+                    : null;
+                if (fcO) rfrO = fcO.riverFoldRate;
+                if (tele15 && fcO?.callingDown) noteFire('river_fast_calldown_station_multiway');
                 readsMw.push({
-                  station: isStation(readO) || (rfrO !== null && rfrO < 0.35),
+                  station:
+                    isStation(readO) || fcO?.callingDown === true || (rfrO !== null && rfrO < 0.35),
                   riverFoldRate: rfrO,
                 });
               } catch {
