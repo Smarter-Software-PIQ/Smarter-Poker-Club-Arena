@@ -46,7 +46,7 @@ import { Worker } from 'node:worker_threads';
 import { HorseDecisionJournalPublisher, type HorseJournalWorker } from '../HorseDecisionJournal.js';
 import { runtimeHorseJournalArchiveOptions } from './config.js';
 import { HorseDecisionJournalStore } from './store.js';
-import { waitFor } from '../../testing/waitBudget.js';
+import { TEST_TIMEOUT_MS, WAIT_BUDGET_MS, waitFor } from '../../testing/waitBudget.js';
 
 const dirs: string[] = [];
 const workers: Worker[] = [];
@@ -125,6 +125,66 @@ function spawnShardWriter(
  * the fix this test exists to pin - not on submission pacing. */
 const RECORDS_PER_SHARD = 128;
 
+/* STOP() IS A SHUTDOWN, NOT A STOPWATCH (2026-11-07). This test used to wait
+ * for the burst by calling stop() straight after firing it. stop() is the
+ * production shutdown path and it is bounded: if the queue has not drained
+ * five seconds after it is called it ends capture as `failed` with
+ * `shutdown_timeout` and names the undrained records as a
+ * `shutdown_unverified` gap (HorseDecisionJournal.ts, stop()). That deadline
+ * is correct for a SIGTERM drain and is pinned by retry.test.ts and
+ * HorseDecisionJournal.test.ts. Used here as the drain wait, though, it turned
+ * this throughput test into "two real worker threads fsync 256 records in
+ * under five seconds of wall clock", which a pre-push run with ~1,100 other
+ * test files on the same Mac did not always give it: the run that failed took
+ * 9,325 ms and ended `shard-a final mode: expected 'failed' to be 'stopped'`
+ * with every drop and lock-retry count at zero. A healthy writer that only
+ * took longer than five seconds was reported as a failed shard.
+ *
+ * So the test now waits, on the shared wait budget, until every decision has
+ * its durable ACK, and only then stops. stop() then meets an empty queue and
+ * its five-second deadline covers only the STOP handshake, which is all a
+ * shutdown should ever have to cover here. What the test pins is unchanged and
+ * slightly stronger: every decision enqueued, every one durably recorded,
+ * zero queue_capacity drops, zero lock retries, a clean `stopped`.
+ *
+ * Two waits share WAIT_BUDGET_MS so their sum stays under TEST_TIMEOUT_MS
+ * with room for the diagnostic (waitBudget.ts; CLAUDE.md 10.86 rule 4). */
+const READY_BUDGET_MS = WAIT_BUDGET_MS / 2;
+const DRAIN_BUDGET_MS = WAIT_BUDGET_MS / 2;
+
+const tally = (notes: string[], key: string) => notes.filter((n) => n === key).length;
+const durable = (notes: string[]) =>
+  tally(notes, 'phase15_journal_recorded') + tally(notes, 'phase15_journal_replayed');
+
+function describeShard(
+  name: string,
+  { publisher, notes }: { publisher: HorseDecisionJournalPublisher; notes: string[] }
+): string {
+  const h = publisher.health();
+  return (
+    `${name}: mode=${h.mode} reason=${h.lastFailureReason} queued=${h.queued} ` +
+    `durable=${durable(notes)}/${RECORDS_PER_SHARD} ` +
+    `lock_retry=${tally(notes, 'phase15_journal_lock_retry')} ` +
+    `writer_restarts=${tally(notes, 'phase15_journal_retry_scheduled')}`
+  );
+}
+
+async function waitNamingShards(
+  ready: () => boolean,
+  what: string,
+  budgetMs: number,
+  shards: Record<string, { publisher: HorseDecisionJournalPublisher; notes: string[] }>
+): Promise<void> {
+  try {
+    await waitFor(ready, what, budgetMs);
+  } catch (error) {
+    const state = Object.entries(shards)
+      .map(([name, shard]) => describeShard(name, shard))
+      .join('; ');
+    throw new Error(`${(error as Error).message} State: ${state}`);
+  }
+}
+
 function fireDecisions(publisher: HorseDecisionJournalPublisher, tag: string, count: number): void {
   for (let i = 0; i < count; i++) {
     publisher.record('decision', `${tag}-hand-${i}`, `${tag}-turn-${i}`, { tag, i });
@@ -132,53 +192,81 @@ function fireDecisions(publisher: HorseDecisionJournalPublisher, tag: string, co
 }
 
 describe('the journal keeps up with the fleet', () => {
-  it('sheds ~0 decisions at queue_capacity, with 0 lock retries, once each shard owns its own catalog', async () => {
-    const dir = directory();
-    // Match the already-warm production host: the legacy database and
-    // shard 0's archive already exist before a second shard ever starts.
-    const bootstrap = new HorseDecisionJournalStore(dir, {
-      archive: runtimeHorseJournalArchiveOptions(dir, {}, { index: 0 }),
-    });
-    bootstrap.close();
+  it(
+    'sheds ~0 decisions at queue_capacity, with 0 lock retries, once each shard owns its own catalog',
+    async () => {
+      const dir = directory();
+      // Match the already-warm production host: the legacy database and
+      // shard 0's archive already exist before a second shard ever starts.
+      const bootstrap = new HorseDecisionJournalStore(dir, {
+        archive: runtimeHorseJournalArchiveOptions(dir, {}, { index: 0 }),
+      });
+      bootstrap.close();
 
-    const a = spawnShardWriter(dir, 0);
-    const b = spawnShardWriter(dir, 1);
+      const a = spawnShardWriter(dir, 0);
+      const b = spawnShardWriter(dir, 1);
 
-    // This is a warm-writer throughput test. Under the full suite the TS
-    // worker bootstrap can consume most of stop()'s real five-second drain
-    // budget before either writer has said READY. Measure the burst only
-    // after both real workers have opened their separate catalogs. Keep
-    // the production shutdown deadline and every drain/drop assertion.
-    await waitFor(
-      () => [a, b].every(({ publisher }) => publisher.health().mode === 'ready'),
-      'both real journal shards to open their private catalogs',
-      10_000
-    );
+      const shards = { 'shard-a': a, 'shard-b': b };
 
-    fireDecisions(a.publisher, 'shard-a', RECORDS_PER_SHARD);
-    fireDecisions(b.publisher, 'shard-b', RECORDS_PER_SHARD);
-
-    // stop() drains whatever remains queued (each ACK re-dispatches the
-    // next batch) before it actually asks the writer to stop, so this both
-    // waits out the whole burst and gives a definite end to wait for.
-    await Promise.all([a.publisher.stop(), b.publisher.stop()]);
-
-    const count = (notes: string[], key: string) => notes.filter((n) => n === key).length;
-    for (const [name, { publisher, notes }] of [
-      ['shard-a', a],
-      ['shard-b', b],
-    ] as const) {
-      expect(count(notes, 'phase15_journal_enqueued'), `${name} enqueued`).toBe(RECORDS_PER_SHARD);
-      expect(count(notes, 'phase15_journal_queue_capacity'), `${name} queue_capacity drops`).toBe(
-        0
+      // This is a warm-writer throughput test: measure the burst only after
+      // both real workers have opened their separate catalogs. Under a loaded
+      // run the TS worker bootstrap alone has taken more than ten seconds
+      // (measured 2026-11-07: 10,023 and 11,173 ms), so this wait uses the
+      // shared budget rather than a literal ten seconds.
+      await waitNamingShards(
+        () => [a, b].every(({ publisher }) => publisher.health().mode === 'ready'),
+        'both real journal shards to open their private catalogs',
+        READY_BUDGET_MS,
+        shards
       );
-      expect(count(notes, 'phase15_journal_lock_retry'), `${name} lock retries`).toBe(0);
-      expect(
-        count(notes, 'phase15_journal_capture_unavailable'),
-        `${name} capture_unavailable`
-      ).toBe(0);
-      expect(publisher.health().mode, `${name} final mode`).toBe('stopped');
-      expect(publisher.health().queued, `${name} left queued at stop`).toBe(0);
-    }
-  }, 30000);
+
+      fireDecisions(a.publisher, 'shard-a', RECORDS_PER_SHARD);
+      fireDecisions(b.publisher, 'shard-b', RECORDS_PER_SHARD);
+
+      // Wait for the burst itself: every decision durably ACKed by its own
+      // shard's writer (each ACK re-dispatches the next batch). Not stop():
+      // see "STOP() IS A SHUTDOWN, NOT A STOPWATCH" above.
+      await waitNamingShards(
+        () =>
+          [a, b].every(
+            ({ publisher, notes }) =>
+              durable(notes) === RECORDS_PER_SHARD && publisher.health().queued === 0
+          ),
+        'every decision in the burst to receive its durable ACK from its own shard writer',
+        DRAIN_BUDGET_MS,
+        shards
+      );
+
+      // A drained queue: stop() now only exchanges STOP/STOPPED, inside the
+      // unchanged production shutdown deadline.
+      await Promise.all([a.publisher.stop(), b.publisher.stop()]);
+
+      for (const [name, { publisher, notes }] of [
+        ['shard-a', a],
+        ['shard-b', b],
+      ] as const) {
+        expect(tally(notes, 'phase15_journal_enqueued'), `${name} enqueued`).toBe(
+          RECORDS_PER_SHARD
+        );
+        expect(tally(notes, 'phase15_journal_queue_capacity'), `${name} queue_capacity drops`).toBe(
+          0
+        );
+        expect(tally(notes, 'phase15_journal_lock_retry'), `${name} lock retries`).toBe(0);
+        expect(
+          tally(notes, 'phase15_journal_capture_unavailable'),
+          `${name} capture_unavailable`
+        ).toBe(0);
+        expect(durable(notes), `${name} durably recorded`).toBe(RECORDS_PER_SHARD);
+        expect(tally(notes, 'phase15_journal_shutdown_unverified'), `${name} shutdown gaps`).toBe(
+          0
+        );
+        expect(
+          publisher.health().mode,
+          `${name} final mode (${describeShard(name, { publisher, notes })})`
+        ).toBe('stopped');
+        expect(publisher.health().queued, `${name} left queued at stop`).toBe(0);
+      }
+    },
+    TEST_TIMEOUT_MS
+  );
 });
