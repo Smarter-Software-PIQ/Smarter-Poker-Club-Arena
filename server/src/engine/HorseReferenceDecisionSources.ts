@@ -20,7 +20,7 @@
 export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, string>> =
   Object.freeze({
     'src/engine/HorseNonBottomRiverValue.ts':
-      'the exact non-bottom high-only Omaha river initiative eligibility; downstream equity, utility and legal bounds remain authoritative',
+      'the checked-to high-only Omaha turn and river boat eligibility for legal value wagers and the river initiative release',
     'src/engine/HorseRiverBluffRange.ts':
       'the baseline heads-up river bluff range (Dan 2026-11-06): eligibility, line, blockers, balanced frequency and size for a river with no showdown value',
     'src/engine/HorseCheckedAggressor.ts':
@@ -88,6 +88,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/GtoCharts.ts': 'the open-jam and big-blind-versus-small-blind jam charts',
     'src/engine/GtoPostflop.ts': 'the heads-up NLH postflop solver consult',
     'src/engine/GtoPostflopV31.ts': 'the V31 solver consult',
+    'src/engine/HorseV31CertifiedPolicy.ts':
+      'the V31 certified playbook consult (eligibility, lookup, sampling, legalization), moved out of HorseLogic 2026-11-06',
+    'src/engine/HorseGtoExecution.ts':
+      'the solver execution-match rule and miss helpers the V31 consult decides with',
     'src/engine/GtoPublicHist215BuildReceipt.ts':
       'the immutable all-head Linux execution receipt required before a public215 solver program can answer',
     'src/engine/GtoPublicHist215Features.ts':

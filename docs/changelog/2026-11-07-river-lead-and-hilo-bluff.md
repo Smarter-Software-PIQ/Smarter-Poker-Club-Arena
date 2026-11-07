@@ -107,7 +107,30 @@ river folder it rises above the unknown rate.
 ## Pins
 
 New law `server/src/engine/HorseRiverLeadHiLo.law.test.ts`
-(`docs/laws.d/horse-river-lead-and-hilo-bluff.md`). No existing pin moved.
+(`docs/laws.d/horse-river-lead-and-hilo-bluff.md`).
+
+Pins moved, with the reason:
+
+- `HorseOpponentExploitNeutrality.law.test.ts` replays a frozen pre-layer
+  corpus. The out-of-position value lead (`riverLeadValueSpot`) reads no
+  opponent but changes those frozen no-read decisions, so it is isolated
+  there exactly as #9803 isolated the baseline; the real gate runs without an
+  opt-out in the new law.
+- `HorseRiverBluffOtherGames.law.test.ts` (#9837), "a preflop record is never
+  a story in a bomb pot": its spot is hero calling the turn bet out of
+  position, which is now itself a postflop story (the lead). The preflop-only
+  assertion is kept with `leadRange: false`, and two assertions are added:
+  with the lead on the story is `leadBlank`, and with the turn call removed
+  the preflop raise alone is still no story.
+
+## With #9837 (fixed limit, short deck, bomb pots, multi-board)
+
+Merged on top of it. The lead lines apply in every game type its paths admit
+(a bomb pot's turn call is a postflop story). The hi-lo low-possible branch
+applies to flo8 as well (its one fixed bet sizes the freeroll); multi-board
+hi-lo with a low possible keeps the old domain refusal (the MC's hi/lo split
+is averaged over boards, so a per-board nut low cannot be read from it), and
+the V11 value-lead pass is single-board only.
 
 ## Activation
 

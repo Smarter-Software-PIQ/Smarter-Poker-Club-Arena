@@ -60,8 +60,34 @@
  * satellite seat never bluffs (V37, it does not play big pots at all), and a
  * shove bluff under survival pressure is sized down to a non-shove bet.
  *
- * Fixed limit, short deck, multi-board and bomb-pot spots keep their own
- * layers.
+ * ═══ THE OTHER GAMES (2026-11-07, docs/changelog/2026-11-07-river-bluff-other-games.md) ═══
+ * Fixed limit, short deck, bomb pots and multi-board pots were excluded by
+ * #9803. Each now has its own correct path, default on (opts per type):
+ *
+ *  - FIXED LIMIT: the bet is one fixed big bet (fixedBet), so s = bet/pot is
+ *    small (production flh/flo8 river bets average 0.20-0.22 pot) and the
+ *    balanced share s/(1+s) is low - about one bluff per six value bets -
+ *    but real. A fixed-limit caller needs to fold only s/(1+s) (about 16%)
+ *    for the bluff to pay; production heads-up river bets were folded to 36%
+ *    (flh) and 28% (flo8), so the population is not the calling-station wall
+ *    the reputation suggests, and a measured station still gets x0.2.
+ *  - SHORT DECK: the engine's ranking (PokerEngine.evaluate5Cards): a 36-card
+ *    deck (six to ace), A-6-7-8-9 is the lowest straight (the ace plays as a
+ *    five), and a flush beats a full house. Draws and straight blockers read
+ *    ranks six to ace with the ace also low as five; a flush board's nut
+ *    blocker stays the top unseen card of the suit, now even on a paired
+ *    board (a boat no longer beats it).
+ *  - BOMB POTS: nobody acted preflop, so no story may rest on preflop
+ *    aggression. Every line above is already postflop-only (a turn barrel, a
+ *    flop bet, a checked-through turn, a turn bettor giving up, a scare
+ *    card), and a preflop raise alone never tells one. The public range
+ *    composition comes from HorseMind.bandFor, which already starts a bomb
+ *    pot from a random hand and narrows it by postflop play (V36).
+ *  - MULTI-BOARD: the pot is split by board, so a bluff must fold out EVERY
+ *    board (HorseLogic V36 rule 2: "bluff volume drops by half on two boards
+ *    and by two-thirds on three"). Hero is a candidate only with no showdown
+ *    value on any board; blockers and missed draws are read on every board
+ *    and averaged; the frequency is divided by the number of boards.
  *
  * ═══ OUT-OF-POSITION RIVER LEADS (2026-11-07) ═══
  * Hero is out of position, the opponent bet the turn, hero called, and hero
@@ -145,6 +171,8 @@ export const RIVER_BLUFF_HILO_MAX_OPP_LOW = 0.5;
 /** V11 gate: how often a value hand leads a draw-completing river out of
  *  position (the monster bar), and a strong hand under it. */
 export const RIVER_LEAD_VALUE_PASS = { monster: 0.6, strong: 0.3 } as const;
+/** The game types #9803 excluded, each with its own path (2026-11-07). */
+export type RiverBluffGameType = 'fixedLimit' | 'shortDeck' | 'bombPot' | 'multiBoard';
 
 /** Read reshaping: a station keeps a fifth of the bluffs, a folder gets more. */
 export const RIVER_BLUFF_STATION_FACTOR = 0.2;
@@ -199,6 +227,15 @@ export interface RiverBluffSpot {
   hiShare?: number;
   /** hi-lo: the fraction of runouts hero takes a quarter or less */
   quarterShare?: number;
+  /** Multi-board: every board (`board` is the style board, one of these). */
+  boards?: Card[][];
+  /** Multi-board: hero's equity on each board, in `boards` order. */
+  boardEquities?: number[];
+  /** Multi-board: hero holds the nut blocker on each board, in `boards` order. */
+  nutBlockerByBoard?: boolean[];
+  /** Per-type paths (2026-11-07). Absent or true: the type has its bluff
+   *  path. false restores #9803's exclusion for that type (ablation only). */
+  paths?: Partial<Record<RiverBluffGameType, boolean>>;
 }
 
 export interface RiverBluffEligibility {
@@ -217,17 +254,28 @@ export interface RiverBluffEligibility {
   unblocker: boolean;
   /** hi-lo with a low possible: what the bet is */
   hiLo?: { kind: 'freeroll' | 'scoop'; oppLowChance: number; quarterShare: number };
+  /** How many boards the bluff must fold out (1 on a single board). */
+  boardCount: number;
+  /** The combo weight: RIVER_BLUFF_WEIGHTS of the selection (plus the
+   *  unblocker bonus), averaged over every board on a multi-board pot. */
+  selectionWeight: number;
+  /** The excluded game types this spot belongs to (receipt labels). */
+  gameTypes: RiverBluffGameType[];
 }
 
 const rank = (c: Card): number => RANK_VALUES[c.rank] ?? 0;
 
+/** The ace's low rank: below the deuce in a full deck; below the six (as a
+ *  five) in short deck, where A-6-7-8-9 is the lowest straight. */
+const aceLow = (shortDeck: boolean): number => (shortDeck ? 5 : 1);
+
 /** Distinct ranks, with the ace also counted low. */
-function rankSet(cards: readonly Card[]): Set<number> {
+function rankSet(cards: readonly Card[], shortDeck = false): Set<number> {
   const s = new Set<number>();
   for (const c of cards) {
     const r = rank(c);
     s.add(r);
-    if (r === 14) s.add(1);
+    if (r === 14) s.add(aceLow(shortDeck));
   }
   return s;
 }
@@ -266,8 +314,10 @@ function hasStraight(ranks: Set<number>): boolean {
 export function riverMissedDraw(
   hole: readonly Card[],
   board: readonly Card[],
-  omaha: boolean
+  omaha: boolean,
+  shortDeck = false
 ): boolean {
+  const rs = (cards: readonly Card[]) => rankSet(cards, shortDeck);
   if (board.length !== 5 || hole.length < 2) return false;
   const turn = board.slice(0, 4);
   const suits = ['hearts', 'diamonds', 'clubs', 'spades'];
@@ -278,11 +328,8 @@ export function riverMissedDraw(
       const r = board.filter((c) => c.suit === s).length;
       if (h >= 1 && h + t === 4 && h + r < 5) return true;
     }
-    const holeRanks = rankSet(hole);
-    if (
-      hasFourInWindow(rankSet([...hole, ...turn]), holeRanks) &&
-      !hasStraight(rankSet([...hole, ...board]))
-    )
+    const holeRanks = rs(hole);
+    if (hasFourInWindow(rs([...hole, ...turn]), holeRanks) && !hasStraight(rs([...hole, ...board])))
       return true;
     return false;
   }
@@ -299,14 +346,14 @@ export function riverMissedDraw(
   for (let i = 0; i < hole.length; i++) {
     for (let j = i + 1; j < hole.length; j++) {
       const pair = [hole[i], hole[j]];
-      const pr = rankSet(pair);
-      if (pr.size < 2 || !hasFourInWindow(rankSet([...pair, ...turn]), pr)) continue;
+      const pr = rs(pair);
+      if (pr.size < 2 || !hasFourInWindow(rs([...pair, ...turn]), pr)) continue;
       // the draw used both hole cards and two turn cards
       let completed = false;
       for (let a = 0; a < 5 && !completed; a++)
         for (let b = a + 1; b < 5 && !completed; b++)
           for (let c = b + 1; c < 5 && !completed; c++)
-            completed = hasStraight(rankSet([...pair, board[a], board[b], board[c]]));
+            completed = hasStraight(rs([...pair, board[a], board[b], board[c]]));
       if (!completed) return true;
     }
   }
@@ -346,7 +393,8 @@ export function riverNutBlocker(
   hole: readonly Card[],
   board: readonly Card[],
   omaha: boolean,
-  omahaNutFlush: boolean
+  omahaNutFlush: boolean,
+  shortDeck = false
 ): boolean {
   if (board.length !== 5 || hole.length < 2) return false;
   const suitN = new Map<string, number>();
@@ -356,7 +404,9 @@ export function riverNutBlocker(
     if (omaha) return omahaNutFlush;
     const onBoard = new Set<string>(board.filter((c) => c.suit === suit).map((c) => c.rank));
     let top: string | null = null;
-    for (let i = RANK_ORDER.length - 1; i >= 0; i--) {
+    // Short deck has no deuce to five; the loop stops at its six.
+    const lowest = shortDeck ? RANK_ORDER.indexOf('6') : 0;
+    for (let i = RANK_ORDER.length - 1; i >= lowest; i--) {
       if (!onBoard.has(RANK_ORDER[i])) {
         top = RANK_ORDER[i];
         break;
@@ -374,7 +424,7 @@ export function riverNutBlocker(
       const rs = new Set<number>();
       for (const r of [a, b, ...boardRanks]) {
         rs.add(r);
-        if (r === 14) rs.add(1);
+        if (r === 14) rs.add(aceLow(shortDeck));
       }
       return straightTop(rs);
     }
@@ -384,13 +434,14 @@ export function riverNutBlocker(
           const rs = new Set<number>();
           for (const r of [a, b, boardRanks[i], boardRanks[j], boardRanks[k]]) {
             rs.add(r);
-            if (r === 14) rs.add(1);
+            if (r === 14) rs.add(aceLow(shortDeck));
           }
           if (rs.size >= 5) t = Math.max(t, straightTop(rs));
         }
     return t;
   };
-  for (let a = 2; a <= 14; a++) {
+  const lowestRank = shortDeck ? 6 : 2;
+  for (let a = lowestRank; a <= 14; a++) {
     for (let b = a; b <= 14; b++) {
       if (omaha && a === b) continue;
       const t = tops(a, b);
@@ -644,6 +695,9 @@ export function riverOpponentLowChance(
 }
 
 /** Which story hero's line tells on this river, or 'none'. */
+/** Which story hero's line tells on this river, or 'none'. Every story is
+ *  told by flop, turn and river actions alone (a preflop raise is never
+ *  enough), which is what lets a bomb pot - no preflop street - use it. */
 export function riverBluffLine(spot: RiverBluffSpot): RiverBluffLine {
   const h = spot.history;
   const heroTurnBet = h.some(
@@ -672,7 +726,12 @@ export function riverBluffLine(spot: RiverBluffSpot): RiverBluffLine {
   // Hero checked behind (or nobody bet) the turn: both ranges are capped.
   if (streetCheckedThrough(h, 'turn')) return 'checkedThrough';
   // Out of position, first to act, into the player who bet the turn.
-  if (spot.leadRange !== false && !spot.inPosition && riverLeadSpot(spot)) {
+  if (
+    spot.leadRange !== false &&
+    !spot.inPosition &&
+    spot.board?.length === 5 &&
+    riverLeadSpot(spot)
+  ) {
     if (spot.omaha && boardPaired(spot.board)) return 'none';
     return riverCompletedDraw(spot.board, spot.omaha) ? 'leadDraw' : 'leadBlank';
   }
@@ -688,18 +747,53 @@ export function riverBluffLine(spot: RiverBluffSpot): RiverBluffLine {
   return 'none';
 }
 
+function selectionOf(
+  nutBlocker: boolean,
+  missedDraw: boolean
+): Exclude<RiverBluffSelection, 'freeroll'> {
+  return nutBlocker && missedDraw
+    ? 'blockerAndDraw'
+    : nutBlocker
+      ? 'blocker'
+      : missedDraw
+        ? 'missedDraw'
+        : 'junk';
+}
+
 /** Is this a qualified river-bluff candidate, and which kind. */
 export function riverBluffEligibility(spot: RiverBluffSpot): RiverBluffEligibility {
-  const missedDraw = riverMissedDraw(spot.hole, spot.board, spot.omaha);
-  const unblocker = !spot.omaha && riverFlushUnblocker(spot.hole, spot.board);
-  const selection: RiverBluffSelection =
-    spot.nutBlocker && missedDraw
-      ? 'blockerAndDraw'
-      : spot.nutBlocker
-        ? 'blocker'
-        : missedDraw
-          ? 'missedDraw'
-          : 'junk';
+  const gameTypes: RiverBluffGameType[] = [];
+  if (spot.fixedLimit) gameTypes.push('fixedLimit');
+  if (spot.shortDeck) gameTypes.push('shortDeck');
+  if (spot.bombPot) gameTypes.push('bombPot');
+  if (spot.multiBoard) gameTypes.push('multiBoard');
+  // Every board the bluff must fold out. A multi-board spot without its
+  // boards cannot be read on each of them: it stays with the layers below.
+  const boards: readonly Card[][] = spot.multiBoard ? (spot.boards ?? []) : [spot.board];
+  const perBoard = boards.map((b, i) => {
+    const draw = riverMissedDraw(spot.hole, b, spot.omaha, spot.shortDeck);
+    const blocks = spot.multiBoard ? spot.nutBlockerByBoard?.[i] === true : spot.nutBlocker;
+    const unb = !spot.omaha && riverFlushUnblocker(spot.hole, b);
+    const sel = selectionOf(blocks, draw);
+    return {
+      draw,
+      unb,
+      sel,
+      weight: RIVER_BLUFF_WEIGHTS[sel] + (unb ? RIVER_BLUFF_WEIGHTS.unblockerBonus : 0),
+    };
+  });
+  // The board the bluff is weakest on names the selection; the weight is the
+  // average over every board.
+  let weakest = 0;
+  for (let i = 1; i < perBoard.length; i++)
+    if (perBoard[i].weight < perBoard[weakest].weight) weakest = i;
+  const missedDraw = perBoard.length > 0 && perBoard.every((b) => b.draw);
+  const unblocker = perBoard.length > 0 && perBoard.every((b) => b.unb);
+  const selection: RiverBluffSelection = perBoard[weakest]?.sel ?? 'junk';
+  const selectionWeight =
+    perBoard.length > 0
+      ? perBoard.reduce((n, b) => n + b.weight, 0) / perBoard.length
+      : RIVER_BLUFF_WEIGHTS.junk;
   const out = (reason: RiverBluffEligibility['reason'], line: RiverBluffLine = 'none') => ({
     eligible: reason === 'eligible',
     reason,
@@ -707,19 +801,29 @@ export function riverBluffEligibility(spot: RiverBluffSpot): RiverBluffEligibili
     selection,
     missedDraw,
     unblocker,
+    boardCount: Math.max(1, boards.length),
+    selectionWeight,
+    gameTypes,
   });
   const holeOk = spot.omaha ? [4, 5, 6].includes(spot.holeCount) : spot.holeCount === 2;
+  const pathOff = gameTypes.some((t) => spot.paths?.[t] === false);
+  const multiBoardOk =
+    !spot.multiBoard ||
+    (boards.length >= 2 &&
+      boards.every((b) => b.length === 5) &&
+      (spot.boardEquities?.length ?? 0) === boards.length &&
+      (spot.nutBlockerByBoard?.length ?? 0) === boards.length);
   if (
     spot.board.length !== 5 ||
     !holeOk ||
     spot.hole.length !== spot.holeCount ||
-    spot.fixedLimit ||
-    spot.shortDeck ||
-    spot.multiBoard ||
-    spot.bombPot ||
+    pathOff ||
+    !multiBoardOk ||
     (spot.hiLo &&
       spot.lowPossible &&
-      (spot.hiLoRange === false || !(Number.isFinite(spot.hiShare) && spot.omaha)))
+      (spot.hiLoRange === false ||
+        spot.multiBoard ||
+        !(Number.isFinite(spot.hiShare) && spot.omaha)))
   )
     return out('domain');
   if (spot.opponentsLive !== 1) return out('multiway');
@@ -732,12 +836,8 @@ export function riverBluffEligibility(spot: RiverBluffSpot): RiverBluffEligibili
     if (riverHeroNutLow(spot.hole, spot.board)) {
       // Called by a better high it splits as a check would; a fold scoops.
       return {
-        eligible: true,
-        reason: 'eligible',
-        line: lineHl,
+        ...out('eligible', lineHl),
         selection: 'freeroll',
-        missedDraw,
-        unblocker,
         hiLo: { kind: 'freeroll', oppLowChance: 0, quarterShare },
       };
     }
@@ -752,6 +852,10 @@ export function riverBluffEligibility(spot: RiverBluffSpot): RiverBluffEligibili
     return { ...out('eligible', lineHl), hiLo: { kind: 'scoop', oppLowChance, quarterShare } };
   }
   if (!(spot.equity < RIVER_BLUFF_AIR_EQUITY)) return out('showdown_value');
+  // Multi-board: showdown value on ANY board is showdown value (that board
+  // alone wins its share of the pot); the bluff needs air on every one.
+  if (spot.multiBoard && !spot.boardEquities!.every((e) => e < RIVER_BLUFF_AIR_EQUITY))
+    return out('showdown_value');
   const line = riverBluffLine(spot);
   if (line === 'none') return out('no_story', line);
   return out('eligible', line);
@@ -825,10 +929,8 @@ export function riverBluffProbability(input: RiverBluffFrequencyInput): number {
   // Never bluff-lead into the turn bettor when he is a credible station.
   if ((e.line === 'leadDraw' || e.line === 'leadBlank') && input.reads.station) return 0;
   const balanced = riverBluffBalancedProbability(input.sizeFrac, input.valueShare, input.airShare);
-  const weight =
-    RIVER_BLUFF_WEIGHTS[e.selection as Exclude<RiverBluffSelection, 'freeroll'>] +
-    (e.unblocker ? RIVER_BLUFF_WEIGHTS.unblockerBonus : 0);
-  let p = balanced * weight * RIVER_BLUFF_LINE[e.line] * riverBluffReadFactor(input.reads);
+  let p =
+    balanced * e.selectionWeight * RIVER_BLUFF_LINE[e.line] * riverBluffReadFactor(input.reads);
   // Hi-lo whole-pot bluff: it wins only when the opponent holds no low.
   if (e.hiLo?.kind === 'scoop') p *= 1 - e.hiLo.oppLowChance;
   // The range that called two pot-sized barrels is condensed, not closed.
@@ -839,6 +941,10 @@ export function riverBluffProbability(input: RiverBluffFrequencyInput): number {
   if (!input.reads.station && !e.hiLo && input.reads.overFolderFrequency > p) {
     p = Math.min(0.9, input.reads.overFolderFrequency);
   }
+  // A bluff must fold out every board (V36 rule 2): half on two boards, a
+  // third on three. The over-folder floor is a one-board read, so it is
+  // divided too.
+  p /= Math.max(1, e.boardCount);
   return Math.max(0, p);
 }
 
@@ -857,10 +963,18 @@ export function riverBluffSize(input: {
   riverHelpsHero: boolean;
   icmRisk: number;
   u: number;
+  /** Fixed limit: the street's one legal bet (the big bet on the river). */
+  fixedLimitBet?: number | null;
 }): { sizeFrac: number; shove: boolean } {
   const { pot, effectiveStack: eff } = input;
   if (!(pot > 0) || !(eff > 0)) return { sizeFrac: 0, shove: false };
   const cap = eff / pot;
+  // Fixed limit has one size: the fixed bet, or all in for less.
+  if (input.fixedLimitBet !== undefined) {
+    const fb = input.fixedLimitBet;
+    if (fb === null || !Number.isFinite(fb) || !(fb > 0)) return { sizeFrac: 0, shove: false };
+    return fb >= eff ? { sizeFrac: cap, shove: true } : { sizeFrac: fb / pot, shove: false };
+  }
   if (input.potLimit) {
     const s = Math.min(1, 0.6 + input.u * 0.4);
     return s >= cap ? { sizeFrac: cap, shove: true } : { sizeFrac: s, shove: false };

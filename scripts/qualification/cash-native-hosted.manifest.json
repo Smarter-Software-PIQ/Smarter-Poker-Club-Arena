@@ -41,7 +41,7 @@
   },
   "schemaVersion": 1,
   "diamondLaunchMainInputMerge20261013": {
-    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1→3. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
+    "reason": "Preserve protected-main0152591fbeb scoped reset/recovery and measured unchanged25-step Lightning reallocation1\u21923. Peer run38319524263 measured692s family, shard3previous878s; balanced40min cap supersedes dated unbalanced50min allowance. Historical50audit is retained as dated evidence. Current source identity only; financial pins/assertions and qualification states unchanged.",
     "changes": {
       ".github/workflows/ci.yml": {
         "previous": {
@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 145292,
-      "sha256": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
+      "bytes": 145567,
+      "sha256": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77125,
@@ -4244,7 +4244,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -7083,6 +7083,25 @@
         "path": "scripts/qualification/ci-accounting-inputs.json",
         "previous": "f5438d78ba2933bd6bd8cce87d8d88923396030483218751ff0cb9c30e2a190b",
         "current": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "leaderboardExtremaNative20261107": {
+    "reason": "Reviewed additive five-line accounting shard 4 invocation of the exact-source leaderboard extrema PostgreSQL regression. All existing commands, assertions, financial inputs, timeouts and historical qualification outcomes remain unchanged. Generated execution projection only; source identity is not financial execution or production proof.",
+    "restamps": [
+      {
+        "section": "files",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": {
+          "bytes": 145292,
+          "sha256": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
+        },
+        "current": {
+          "bytes": 145567,
+          "sha256": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c"
+        }
       }
     ],
     "historicalEvidenceRestamped": false,

@@ -508,6 +508,24 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     normalizeRootInstallAddition(normalized.jobs.accounting_postgres);
     normalizeBackupSequenceAddition(normalized.jobs.accounting_postgres);
     normalizeCashQueueFeedbackAddition(normalized.jobs.accounting_postgres);
+    const leaderboardStep = {
+      name: 'Leaderboard snapshot extrema preserve filtered ranking results',
+      if: 'matrix.shard == 4',
+      env: { PG_BIN: '/usr/lib/postgresql/17/bin' },
+      run: 'python3 -B scripts/ci/test-leaderboard-extrema-postgres.py --scratch "${{ runner.temp }}"',
+    };
+    const leaderboardSteps = normalized.jobs.accounting_postgres.steps;
+    const leaderboardIndex = leaderboardSteps.findIndex(
+      (step: { name: string }) => step.name === leaderboardStep.name
+    );
+    expect(
+      leaderboardSteps.filter((step: { name: string }) => step.name === leaderboardStep.name)
+    ).toHaveLength(1);
+    expect(leaderboardSteps[leaderboardIndex]).toStrictEqual(leaderboardStep);
+    expect(leaderboardSteps[leaderboardIndex + 1].name).toBe(
+      'Retention bounds retained prefixes before accounting guards'
+    );
+    leaderboardSteps.splice(leaderboardIndex, 1);
     const priorQualificationBudgets = {
       changes: 5,
       source_windows: 6,

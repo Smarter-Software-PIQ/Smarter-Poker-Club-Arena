@@ -3,11 +3,11 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { variantInfo, omahaBoatPosition, scoreOmahaHi } from './HorseEval.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 
-function checkedToOmahaRiver(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+function checkedToOmahaValueStreet(player: SeatPlayer, gs: HorseGameStateV2): boolean {
   const board = gs.communityCards ?? [];
   const vi = variantInfo(gs.gameVariant);
   if (
-    gs.stage !== 'river' ||
+    (gs.stage !== 'turn' && gs.stage !== 'river') ||
     !vi.isOmaha ||
     !vi.isPotLimit ||
     vi.isHiLo ||
@@ -19,7 +19,7 @@ function checkedToOmahaRiver(player: SeatPlayer, gs: HorseGameStateV2): boolean 
     (gs.boardCount ?? 1) !== 1 ||
     gs.communityCards2?.length ||
     gs.communityCards3?.length ||
-    board.length !== 5 ||
+    board.length !== (gs.stage === 'turn' ? 4 : 5) ||
     player.cards?.length !== Number(gs.gameVariant?.at(-1)) ||
     new Set([...player.cards, ...board].map((c) => `${c.rank}:${c.suit}`)).size !==
       player.cards.length + board.length ||
@@ -29,7 +29,7 @@ function checkedToOmahaRiver(player: SeatPlayer, gs: HorseGameStateV2): boolean 
     !gs.legalActions?.includes('bet') ||
     board.some((card) => board.filter((other) => other.rank === card.rank).length >= 3) ||
     !gs.actionHistory?.some(
-      (a) => a.stage === 'river' && a.action === 'check' && a.userId !== player.user_id
+      (a) => a.stage === gs.stage && a.action === 'check' && a.userId !== player.user_id
     )
   )
     return false;
@@ -37,9 +37,9 @@ function checkedToOmahaRiver(player: SeatPlayer, gs: HorseGameStateV2): boolean 
 }
 
 /** Reachable lower boats establish rank position. Singleton ranks and trip boards do not qualify. */
-export function checkedToNonBottomRiverBoat(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+export function checkedToNonBottomBoat(player: SeatPlayer, gs: HorseGameStateV2): boolean {
   return (
-    checkedToOmahaRiver(player, gs) &&
+    checkedToOmahaValueStreet(player, gs) &&
     (omahaBoatPosition(player.cards, gs.communityCards)?.lowerBoats ?? 0) > 0
   );
 }
@@ -49,7 +49,8 @@ export function checkedToNonBottomRiverBoat(player: SeatPlayer, gs: HorseGameSta
  * the exact nuts already have their own pot-size rule. */
 export function checkedToOnePairAboveFlush(player: SeatPlayer, gs: HorseGameStateV2): boolean {
   if (
-    !checkedToOmahaRiver(player, gs) ||
+    gs.stage !== 'river' ||
+    !checkedToOmahaValueStreet(player, gs) ||
     gs.bettingStructure !== 'pot_limit' ||
     !!player.knownDeadCards?.length ||
     !gs.legalActions?.includes('check') ||
@@ -89,4 +90,9 @@ export function checkedToOnePairAboveFlush(player: SeatPlayer, gs: HorseGameStat
     }
   }
   return higherPairs === 1;
+}
+
+/** River-only identity for the initiative gate and original river inspector. */
+export function checkedToNonBottomRiverBoat(player: SeatPlayer, gs: HorseGameStateV2): boolean {
+  return gs.stage === 'river' && checkedToNonBottomBoat(player, gs);
 }

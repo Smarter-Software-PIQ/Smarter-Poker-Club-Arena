@@ -33,6 +33,8 @@ import {
   occupancyTargetFor,
   FILL_BUCKET_MS,
   CASH_FULL_FRACTION,
+  CASH_SHAPE_MIX,
+  roomBandAt,
   gameLaneFor,
   isActiveNow,
 } from './HorseBehavior.js';
@@ -82,13 +84,15 @@ describe('the table character re-rolls each bucket, it does not walk', () => {
     expect(conditional).toBeLessThan(0.4);
   });
 
-  it('every bucket splits the floor roughly 75/25', () => {
+  it("every bucket splits the floor by its hour's mix (2026-11-07)", () => {
     for (let b = 0; b < 12; b++) {
       const now = T0 + b * FILL_BUCKET_MS;
+      const want = CASH_SHAPE_MIX[roomBandAt(now)].full;
       const full = tables.filter((id) => cashTableFill(id, now) === 'full').length / tables.length;
-      expect(full, `bucket ${b}`).toBeGreaterThan(CASH_FULL_FRACTION - 0.09);
-      expect(full, `bucket ${b}`).toBeLessThan(CASH_FULL_FRACTION + 0.09);
+      expect(full, `bucket ${b}`).toBeGreaterThan(want - 0.09);
+      expect(full, `bucket ${b}`).toBeLessThan(want + 0.09);
     }
+    expect(CASH_SHAPE_MIX.day.full).toBe(CASH_FULL_FRACTION);
   });
 
   it('and no bucket leaves a single table with nobody at it', () => {

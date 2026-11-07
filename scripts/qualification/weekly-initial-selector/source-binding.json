@@ -278,8 +278,8 @@
       "sha256": "0e9661dc97f699f25859a37e182744ae980e0949b0fa6194f82180d9e5b3b7ff"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 145292,
-      "sha256": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
+      "bytes": 145567,
+      "sha256": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -685,7 +685,7 @@
       "bytes": 239646,
       "sha256": "32d7bebc69d6147ffc71c5183f09d4939da7437ddd842beee0bf1ac9ad1e1469"
     },
-    "review": "Only accounting job40→50minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
+    "review": "Only accounting job40\u219250minutes and measured rationale; every step selector, command, assertion, statement deadline and cleanup unchanged. Canceled40528107352 remains failed; last successful comparable Spin40520906517 took323seconds. No qualification or production proof inferred.",
     "composition": "Preserves all current protected-main CI steps plus the measured50minute job budget; only this workflow pin conflicted."
   },
   "riverPersistenceBudgetIntegration20261027": {
@@ -2220,9 +2220,7 @@
   },
   "closureMainIntegration20261101": {
     "reason": "Reviewed current protected main integration retains its narrower accounting shard2 runner and all historical audit entries; only active source hashes describe the merged CI/browser contract. No historical qualification state changed.",
-    "updatedCurrentInputs": [
-      ".github/workflows/ci.yml"
-    ],
+    "updatedCurrentInputs": [".github/workflows/ci.yml"],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   },
@@ -2722,6 +2720,19 @@
         "current": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
       }
     ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "leaderboardExtremaNative20261107": {
+    "reason": "Reviewed additive leaderboard native regression invocation and exact execution projection only; all financial inputs/assertions and historical qualification outcomes preserved.",
+    "previous": {
+      "bytes": 145292,
+      "sha256": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
+    },
+    "current": {
+      "bytes": 145567,
+      "sha256": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c"
+    },
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   }

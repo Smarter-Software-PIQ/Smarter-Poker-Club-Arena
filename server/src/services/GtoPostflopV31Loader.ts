@@ -29,6 +29,7 @@ import { reportError } from './errorReporter.js';
 import {
   replaceGtoPostflopV31Async,
   replaceGtoPostflopV31Evaluation,
+  replaceGtoPostflopV31Recheck,
   gtoPostflopV31Count,
   gtoPostflopV31Dataset,
   gtoPostflopV31EvaluationCount,
@@ -254,7 +255,10 @@ export function loadGtoPostflopV31Once(): Promise<{ ok: boolean; count: number }
  * Hydrate one sealed, not-yet-active dataset for an offline evaluation run.
  * This never mutates the live store and therefore cannot activate a candidate.
  */
-export async function loadGtoPostflopV31Evaluation(datasetId: string): Promise<{
+export async function loadGtoPostflopV31Evaluation(
+  datasetId: string,
+  options: { recheck?: boolean } = {}
+): Promise<{
   checksum: string;
   cells: number;
   /** Every loaded cell's table geometry (V31 evaluation contract v3). */
@@ -290,7 +294,8 @@ export async function loadGtoPostflopV31Evaluation(datasetId: string): Promise<{
   if (!checksum || rows.some((row) => row.dataset_checksum !== checksum)) {
     throw new Error('V31 evaluation dataset checksum is missing or inconsistent');
   }
-  replaceGtoPostflopV31Evaluation(rows);
+  if (options.recheck === true) replaceGtoPostflopV31Recheck(rows);
+  else replaceGtoPostflopV31Evaluation(rows);
   const cells = gtoPostflopV31EvaluationCount(checksum);
   console.log(
     `[GtoPostflopV31Loader] ${cells} sealed candidate cells loaded for ${checksum.slice(0, 12)}`
