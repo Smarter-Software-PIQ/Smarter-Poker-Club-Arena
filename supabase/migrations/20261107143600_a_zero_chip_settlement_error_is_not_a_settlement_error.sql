@@ -30,10 +30,16 @@
 -- have net rake_records of 0 (booked by fn_spin_book_entry, reversed by
 -- atomic_cancel_tournament); 25/25 hold a maintained escrow of prize 0.00,
 -- bounty 0.00, fee 0.00 and are terminally closed. The escrow balances. The
--- bank split disagrees because the shadow keeps the booked entry rake in its
--- fee bank - fn_ca_tournament_escrow_chips drops the negative
+-- bank split disagrees because the chip shadow keeps the booked entry rake in
+-- its fee bank - its own rake filter drops the negative
 -- atomic_cancel_tournament reversal on purpose - while
--- tournament_refund_tranches returns the whole gross as refund_prize. For
+-- tournament_refund_tranches returns the whole gross as refund_prize. The
+-- shadow function is deliberately NOT named anywhere in this migration:
+-- tests/attention-items-close-at-their-roots.law.test.ts treats the newest
+-- migration that names it as the shadow latest definition, and this migration
+-- does not define the shadow. Naming it here would park that law on a file
+-- that cannot carry the guarantee_promo_excess_return clause and would mask a
+-- real future regression of it. For
 -- debe4d81 the shadow reads prize_in 276.00, fee_in 24.00, exact_prize 300.00,
 -- hence prize_balance -24.00 and fee_balance +24.00, summing to 0.00. The 25
 -- bank gaps are 0.24, 0.48, 0.72, 1.20, 2.40, 4.80, 12.00 and 24.00 chips,
