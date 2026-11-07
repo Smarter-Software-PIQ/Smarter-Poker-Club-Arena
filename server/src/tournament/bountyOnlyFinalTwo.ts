@@ -20,8 +20,12 @@
  * maintained code is what the tests run (BountyOnlyFinalTwo.test.ts).
  */
 
-/** A free, unguaranteed, non-mystery PKO whose place pool is zero pays only knockouts. */
-export function isBountyOnlyPkoRow(t: unknown): boolean {
+/**
+ * A free, unguaranteed, non-mystery PKO with no place pool: nothing is owed
+ * for a finishing position, whatever its bounty pool holds. This is the
+ * question a reader of the PAID ladder asks (tests/e2e/support/mttPaidAuthority).
+ */
+export function pkoPaysNoFinishingPlaces(t: unknown): boolean {
   const row = t as Record<string, unknown> | null | undefined;
   if (!row || row.is_pko !== true || row.is_mystery_bounty === true) return false;
   const n = (v: unknown) => {
@@ -29,6 +33,23 @@ export function isBountyOnlyPkoRow(t: unknown): boolean {
     return Number.isFinite(x) ? x : 0;
   };
   return n(row.buy_in_amount) <= 0 && n(row.guaranteed_prize) <= 0 && n(row.prize_pool) <= 0;
+}
+
+/**
+ * The bounty only PKO FORMAT: it pays no places, and it has heads to pay.
+ * This is the question the close at two asks.
+ *
+ * THE BOUNTY POOL IS PART OF THE FORMAT (2026-11-07). The database authority
+ * requires `bounty_pool > 0` (20261106010426:132) and this predicate did not,
+ * so an event with no bounty pool passed the engine's gate, parked every
+ * table, asked the authority and was refused `not_a_bounty_only_pko` - a
+ * pointless hold on a field that had nothing to close. Both sides now ask the
+ * same question.
+ */
+export function isBountyOnlyPkoRow(t: unknown): boolean {
+  if (!pkoPaysNoFinishingPlaces(t)) return false;
+  const bountyPool = Number((t as Record<string, unknown>).bounty_pool);
+  return Number.isFinite(bountyPool) && bountyPool > 0;
 }
 
 /** How long the first final-two park (before the claim) may hold a table before the engine's safety net lifts it. */
@@ -53,6 +74,14 @@ export const BOUNTY_ONLY_FINAL_TWO_TRANSIENT: ReadonlySet<string> = new Set([
   'busts_not_settled',
   'field_is_not_two',
   'a_live_stack_is_empty',
+  /**
+   * Another entrant holds finishing place 2 for a moment - the bounty rebuy
+   * step stamps a temporary position of GREATEST(2, count(*)) before the money
+   * core clears it, and at two live players that is 2. The authority answers
+   * instead of dying on trg_tournament_place_collision's 23505
+   * (20261107130652), and the next ask, a second later, sees it cleared.
+   */
+  'finishing_place_two_is_held',
 ]);
 
 export interface FinalTwoTable {
@@ -65,10 +94,52 @@ export interface FinalTwoState {
   parked: boolean;
   /** Set once the authority refused for a reason waiting cannot change. */
   refused: boolean;
+  /** Set once the authority closed the field at two, so its close row exists. */
+  closed?: boolean;
+  /**
+   * Set the first time this manager read its own field at two players or
+   * fewer. See noteBountyOnlyFinalTwoField: from that observation on the
+   * close is owed, whatever a later read happens to say.
+   */
+  seenAtTwoOrFewer?: boolean;
   /** How many times the authority answered "not yet" or could not be reached. */
   retryCount?: number;
   /** When the first of those answers came, in ms (deps.now). */
   firstRetryAt?: number | null;
+}
+
+/**
+ * THE FIELD AT TWO IS A LATCH, NOT A SNAPSHOT (2026-11-07).
+ *
+ * The manager used to enter the close only while its own remaining-player
+ * read said exactly two. That read is taken once per sweep admission, and a
+ * sweep that yields on the work budget between the bust stage and the finish
+ * stage waited a median 221 s for its next slot (3 of 896 inside 15 s,
+ * measured 2026-10-02). A turbo table deals about every 10 s, so the window
+ * at two was gone long before the next read: on the six completed bounty only
+ * PKOs in the seven days to 2026-11-07 the field went 3 -> 2 -> 1 between two
+ * reads and `=== 2` was never once observed. ca_bounty_only_final_two held
+ * zero rows for all time and 105.87 chips of runner-up heads were handed to
+ * the winners.
+ *
+ * So the observation is latched. Every read of the field this manager takes is
+ * offered here, and once one has seen two or fewer the close is owed until it
+ * is closed or refused. The database authority remains the only judge of
+ * whether the field really is two (`field_is_not_two` carries the live count),
+ * so a latch set by a stale read costs one refused RPC, never a wrong close.
+ */
+export function noteBountyOnlyFinalTwoField(
+  state: FinalTwoState,
+  liveCount: number | null | undefined
+): void {
+  const live = Number(liveCount);
+  if (!Number.isFinite(live)) return; // a count we could not read is UNKNOWN
+  if (live >= 1 && live <= 2) state.seenAtTwoOrFewer = true;
+}
+
+/** Whether this event still owes the close at two (see the latch above). */
+export function bountyOnlyFinalTwoCloseIsOwed(state: FinalTwoState): boolean {
+  return state.seenAtTwoOrFewer === true && state.closed !== true && state.refused !== true;
 }
 
 export interface FinalTwoDeps {
@@ -135,12 +206,37 @@ export async function closeBountyOnlyPkoAtTwo(deps: FinalTwoDeps): Promise<Final
     error = { message: thrown instanceof Error ? thrown.message : String(thrown) };
   }
   const answer = (Array.isArray(data) ? data[0] : data) as
-    | { ok?: boolean; reason?: string }
+    | { ok?: boolean; reason?: string; live?: unknown }
     | null
     | undefined;
-  if (!error && answer?.ok === true) return 'closed';
+  if (!error && answer?.ok === true) {
+    state.closed = true;
+    return 'closed';
+  }
 
   let reason = String(answer?.reason);
+
+  /**
+   * THE FIELD ALREADY PASSED TWO. Waiting cannot bring a player back, so this
+   * is not a "not yet": holding the last table for the retry budget would
+   * only delay the winner's payment. It is also the miss this rule exists to
+   * prevent, so NO refusal row is written - ca_bounty_only_final_two_refusals
+   * suppresses the watch's closed_without_final_two alert, and a miss must
+   * stay visible to the money board.
+   */
+  const live = Number(answer?.live);
+  if (reason === 'field_is_not_two' && Number.isFinite(live) && live < 2) {
+    state.refused = true;
+    state.parked = false;
+    deps.release();
+    deps.report(
+      new Error(
+        `[Tournament:${deps.tournamentId.slice(0, 8)}] bounty only PKO was asked to close at two with ${live} player(s) left; the field passed two before the close was reached and the runner-up's own head was not kept`
+      ),
+      'Tournament.bounty_only_final_two_missed'
+    );
+    return 'refused';
+  }
   if (error || BOUNTY_ONLY_FINAL_TWO_TRANSIENT.has(reason)) {
     // Keep the tables parked: the next look usually sees the settled field.
     // Nothing else lifts this park (the engine's safety timer refuses an

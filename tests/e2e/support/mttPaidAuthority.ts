@@ -1,4 +1,4 @@
-import { isBountyOnlyPkoRow } from '../../../server/src/tournament/bountyOnlyFinalTwo';
+import { pkoPaysNoFinishingPlaces } from '../../../server/src/tournament/bountyOnlyFinalTwo';
 
 export function mttPaidAuthority(row: Record<string, unknown>) {
   const omitted = (classification: string) => ({
@@ -12,7 +12,13 @@ export function mttPaidAuthority(row: Record<string, unknown>) {
     return omitted('satellite-omission');
   // A finalized bounty-only PKO settles entirely through knockout awards.
   // Its stored ladder supports lifecycle operations and pays no finishing places.
-  if (isBountyOnlyPkoRow(row)) {
+  //
+  // This asks pkoPaysNoFinishingPlaces, NOT isBountyOnlyPkoRow: the close at
+  // two also requires an open bounty pool (20261107130652), but the number of
+  // PAID PLACES is zero for any PKO with no place pool, bounty heads or not -
+  // and this row comes from whatever columns the table page selected, which
+  // need not include bounty_pool.
+  if (pkoPaysNoFinishingPlaces(row)) {
     for (const field of ['is_mystery_bounty', 'buy_in_amount', 'guaranteed_prize', 'prize_pool']) {
       if (!Object.hasOwn(row, field))
         throw new Error(`Paid witness missing PKO authority: ${field}`);

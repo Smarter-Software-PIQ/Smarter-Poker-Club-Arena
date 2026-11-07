@@ -282,6 +282,47 @@ if [ "$(uname -s)" = Darwin ]; then
       break
     fi
   done
+  # PYTHON (2026-11-07). macOS ships python3 3.9; CI runs 3.11 or newer.
+  # Three checks that pass in CI refused a push from this Mac for one reason:
+  # the guards spawn `python3` from PATH, and on a non-interactive PATH that
+  # is /usr/bin/python3 (3.9.6), which has no `tomllib` and no
+  # `TestCase.enterContext` (both 3.11) and reads the refill worker journal
+  # differently. Measured 2026-11-07, same input and same script
+  # (scripts/ci/inspect-tournament-refill.py, worker_receipt_errors):
+  #     3.9.6   -> {"matchingRecords": 0, "events": []}
+  #     3.14.2  -> {"matchingRecords": 1, "events": [{...reference_shape...}]}
+  # tests/unit/inspectTournamentRefill.test.ts asserts the second, and
+  # tests/engine-release-seal.law.test.ts needs tomllib and enterContext, so
+  # an engine change could not be pushed from this machine at all. Same class
+  # as the Node, TMPDIR and Bash repairs above: environment, not content.
+  # As with Bash, the checks get a conforming python3 first on PATH through a
+  # private directory holding only that one link, so no other tool's
+  # resolution moves. The LOWEST installed 3.11+ is chosen, to stay as close
+  # to CI's interpreter as this Mac allows.
+  CA_PY_WAS=$(python3 -V 2>&1 || echo "no python3")
+  CA_PY_RANK_NOW=$(python3 -c 'import sys; print("%d%03d" % sys.version_info[:2])' 2>/dev/null || echo 0)
+  if [ "${CA_PY_RANK_NOW:-0}" -lt 3011 ]; then
+    CA_PY=""
+    CA_PY_RANK=999999
+    for c in ${CA_PYTHON_CANDIDATES:-/opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3 /usr/local/bin/python3}; do
+      [ -x "$c" ] || continue
+      CA_PY_R=$("$c" -c 'import sys; print("%d%03d" % sys.version_info[:2])' 2>/dev/null || echo 0)
+      [ "$CA_PY_R" -lt 3011 ] && continue
+      if [ "$CA_PY_R" -lt "$CA_PY_RANK" ]; then CA_PY_RANK=$CA_PY_R; CA_PY=$c; fi
+    done
+    if [ -z "$CA_PY" ]; then
+      echo "[club-arena pre-push] BLOCKED: python3 on PATH is $CA_PY_WAS, older"
+      echo "  than the 3.11 the Python guards below need, and no 3.11-or-newer"
+      echo "  interpreter was found. This is NOT a content failure. Install one,"
+      echo "  for example:  brew install python@3.13"
+      exit 1
+    fi
+    CA_PY_DIR=$(mktemp -d "$TMPDIR/club-arena-pre-push-python.XXXXXX") || exit 1
+    if ! ln -s "$CA_PY" "$CA_PY_DIR/python3"; then rmdir "$CA_PY_DIR"; exit 1; fi
+    PATH="$CA_PY_DIR:$PATH"
+    export PATH
+    echo "[club-arena pre-push] running the Python guards on $("$CA_PY" -V 2>&1), the 3.11-or-newer CI uses (this PATH had $CA_PY_WAS)."
+  fi
   CA_NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
   if [ "$CA_NODE_MAJOR" != 22 ]; then
     # The newest nvm 22.x, compared by version number, not by path text.

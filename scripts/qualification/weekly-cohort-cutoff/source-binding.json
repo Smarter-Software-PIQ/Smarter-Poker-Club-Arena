@@ -298,8 +298,8 @@
       "sha256": "0d963d68abc79558029bd3a44069f851c03ccfa882b041dc785e280261027b54"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 145567,
-      "sha256": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c"
+      "bytes": 145858,
+      "sha256": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -2753,6 +2753,19 @@
       "bytes": 145567,
       "sha256": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c"
     },
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
+  "finalTwoCloseHeldPlaceTwoNativeProof20261107": {
+    "reason": "Reviewed the accounting projection change (2026-11-07): the accounting_postgres job gains one additive proof step, \"The final two close never dies on a held place two on native PostgreSQL\", on matrix.shard 1 with the same PG_BIN and TMPDIR environment as its neighbours, running python3 -B scripts/ci/test-final-two-close-held-place-two.py. The stored projection differs in exactly one key, jobs.accounting_postgres, by those six added lines; no existing suite command, environment, timeout, artifact, shard routing or financial input changes. Regenerated with qualification-input-projections.py --write.",
+    "restamps": [
+      {
+        "section": "files",
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "previous": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c",
+        "current": "951bca37a7b51c0768611a73545563d524dd4124402affdd2630bbed3a3bc83e"
+      }
+    ],
     "historicalEvidenceRestamped": false,
     "qualificationStateChanged": false
   }
