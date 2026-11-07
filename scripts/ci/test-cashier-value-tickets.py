@@ -25,7 +25,7 @@ def check(statement):
  if result!='t':raise AssertionError(result)
 try:
  command('initdb','-D',str(data),'-A','trust','--no-locale','-U','postgres')
- command('pg_ctl','-D',str(data),'-l',str(log),'-o',f'-k {sock} -p {port} -h 127.0.0.1','-w','start')
+ command('pg_ctl','-D',str(data),'-l',str(log),'-o',f'-k {sock} -p {port} -c listen_addresses=','-w','start')
  fixture=root/'tests/fixtures/cashier-value-tickets'
  sql((fixture/'bootstrap.sql').read_text())
  owners=json.loads((fixture/'owners.json').read_text())
