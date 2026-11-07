@@ -54,6 +54,8 @@ const uuid = (i: number) => {
   return `${a}-${b.slice(0, 4)}-4${b.slice(5, 8)}-8${c.slice(1, 4)}-${c.slice(4)}${d}`;
 };
 const FLEET_IDS = Array.from({ length: 3000 }, (_, i) => uuid(i));
+/** The first `n` ids of the fleet (a stable, smaller stable for the costlier checks). */
+const fleetOf = (n: number) => FLEET_IDS.filter((_, i) => i < n);
 /** Chicago Monday 2026-01-05 00:00 CST, no DST in the week. */
 const REF_MONDAY = Date.parse('2026-01-05T06:00:00Z');
 const atHourOfWeek = (how: number) => REF_MONDAY + how * 3_600_000 + 60_000;
@@ -103,7 +105,7 @@ const GAMES = CASH_GAMES.flatMap(([variant, , bb, n]) =>
 
 describe('a regular has a stable weekly pattern', () => {
   it('is 2-5 sessions of 3-6 hours, all at one Chicago start hour, the same every call', () => {
-    for (const id of FLEET_IDS.slice(0, 500)) {
+    for (const id of fleetOf(500)) {
       const p = regularPatternFor(id);
       expect(p.days.length).toBeGreaterThanOrEqual(2);
       expect(p.days.length).toBeLessThanOrEqual(5);
@@ -158,7 +160,7 @@ describe('a regular has a stable weekly pattern', () => {
   it('never shrinks the old pool: availableNow is a superset of isActiveNow', () => {
     for (let how = 0; how < 168; how += 5) {
       const t = atHourOfWeek(how);
-      for (const id of FLEET_IDS.slice(0, 400)) {
+      for (const id of fleetOf(400)) {
         if (isActiveNow(id, new Date(t).getUTCHours())) expect(availableNow(id, t)).toBe(true);
         if (inRegularPattern(id, t)) expect(availableNow(id, t)).toBe(true);
       }
@@ -166,7 +168,7 @@ describe('a regular has a stable weekly pattern', () => {
   });
 
   it('settles in inside its pattern and winds down after it', () => {
-    for (const id of FLEET_IDS.slice(0, 300)) {
+    for (const id of fleetOf(300)) {
       for (let how = 0; how < 168; how += 7) {
         const t = atHourOfWeek(how);
         const f = regularSessionEndFactor(id, t);
@@ -179,7 +181,7 @@ describe('a regular has a stable weekly pattern', () => {
 
 describe('a regular has a home game', () => {
   it('one or two variants, one or two adjacent stakes', () => {
-    for (const id of FLEET_IDS.slice(0, 800)) {
+    for (const id of fleetOf(800)) {
       const v = homeVariantsFor(id);
       expect(v.length === 1 || v.length === 2).toBe(true);
       for (const band of ['micro', 'low', 'mid', 'high'] as HorseStakeBand[]) {
@@ -192,7 +194,7 @@ describe('a regular has a home game', () => {
   });
 
   it("every game in the current cash_games set is somebody's home game", () => {
-    const fleet = FLEET_IDS.slice(0, 712); // the cash-capable stable, 2026-11-07
+    const fleet = fleetOf(712); // the cash-capable stable, 2026-11-07
     for (const g of GAMES) {
       const regulars = fleet.filter((id) => homeAffinity(id, g.variant, g.bb) === 'home');
       expect(regulars.length, `${g.variant} ${g.bb}`).toBeGreaterThanOrEqual(3);
@@ -201,7 +203,7 @@ describe('a regular has a home game', () => {
 
   it('the seat weight is pattern x affinity, and only that', () => {
     const t = atHourOfWeek(100);
-    for (const id of FLEET_IDS.slice(0, 200)) {
+    for (const id of fleetOf(200)) {
       const g = GAMES[mix32(id.length + id.charCodeAt(3)) % GAMES.length];
       const w = regularSeatWeight(id, { game_variant: g.variant, big_blind: g.bb }, t);
       expect(w).toBe(
@@ -220,7 +222,7 @@ describe('a regular has a home game', () => {
  */
 describe('loyalty never leaves a game short', () => {
   const bands: HorseStakeBand[] = ['micro', 'low'];
-  const fleet = FLEET_IDS.slice(0, 712).map((id, i) => ({
+  const fleet = fleetOf(712).map((id, i) => ({
     id,
     band: i < 176 ? bands[0] : bands[1], // 262:800 of 1062, scaled to the cash stable
   }));
@@ -297,7 +299,7 @@ describe('loyalty never leaves a game short', () => {
 describe("a game's regulars stand in its line first", () => {
   it('planHorseQueues picks a home horse before an away one, and still picks someone', () => {
     const game = 'g-nlh-1';
-    const ids = FLEET_IDS.slice(0, 200);
+    const ids = fleetOf(200);
     const home = ids.filter((id) => homeQueueRank(id, 'nlh', 1) === 0);
     const away = ids.filter((id) => homeQueueRank(id, 'nlh', 1) === 2);
     expect(home.length).toBeGreaterThan(0);
