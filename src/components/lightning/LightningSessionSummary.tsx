@@ -29,6 +29,7 @@ import {
 import { lightningJoinRoute } from '../../lightning/lightningLobby';
 import { writeLightningPrefs } from '../../lightning/lightningPrefs';
 import { masterBus } from '../../core/MasterBus';
+import { titleCase } from '../../utils/titleCase';
 import { reportError } from '../../utils/errorReporter';
 import LightningStatsGrid from './LightningStatsGrid';
 import LightningRecentHands from './LightningRecentHands';
@@ -89,7 +90,7 @@ export function useLightningSessionSummary(
 }
 
 /** A result leads the recap, on the same glass as the session statistics. */
-function LightningResult({ summary }: { summary: Summary }) {
+function LightningResult({ summary, name }: { summary: Summary; name?: string | null }) {
   const net = summary.net;
   const value = lightningChipsText(net, true);
   const ref = useFitText<HTMLSpanElement>(value, 1, 0.35);
@@ -112,7 +113,9 @@ function LightningResult({ summary }: { summary: Summary }) {
           {value}
         </span>
       </span>
-      <span className="lightning-result__caption">Lightning Session Results</span>
+      <span className="lightning-result__caption">
+        {titleCase(name || 'Lightning Session Results')}
+      </span>
     </div>
   );
 }
@@ -142,7 +145,7 @@ export function LightningSessionSummaryCard({
       <p className="lightning-summary__title">{name ? `${name} Session` : 'Session'}</p>
       {summary ? (
         <>
-          <LightningResult summary={summary} />
+          <LightningResult summary={summary} name={name} />
           <LightningStatsGrid stats={summary} mode="summary" />
         </>
       ) : (
@@ -209,10 +212,10 @@ export function LightningSessionSummaryHost() {
         onClick={(e) => e.stopPropagation()}
       >
         <SpadeConsole
-          eyebrow="Lightning Complete"
-          title={req.name ? `${req.name} Session` : 'Session'}
+          eyebrow="Lightning"
+          title="Session Results"
           titleId="lightning-summary-title"
-          pill="Results"
+          pill="Complete"
           pillInk="blue"
           onClose={closeLightningSessionSummary}
           plates={{
@@ -240,7 +243,7 @@ export function LightningSessionSummaryHost() {
           >
             {summary ? (
               <>
-                <LightningResult summary={summary} />
+                <LightningResult summary={summary} name={req.name} />
                 <LightningStatsGrid stats={summary} mode="summary" />
               </>
             ) : (
