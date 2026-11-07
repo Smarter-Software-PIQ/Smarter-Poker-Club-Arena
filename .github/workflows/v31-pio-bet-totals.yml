@@ -38,9 +38,9 @@ jobs:
           sudo apt-get "${pg_apt[@]}" update
           sudo apt-get "${pg_apt[@]}" install -y --no-install-recommends postgresql-common curl ca-certificates
           sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl --fail --silent --show-error --location \
-            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
-            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          # The PGDG signing key is installed from the checkout (.github/pgdg), never
+          # downloaded (#9950; tests/the-postgres-signing-key-comes-from-the-checkout.law.test.ts).
+          sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
           codename="$(. /etc/os-release && printf '%s' "$VERSION_CODENAME")"
           printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' \
             "$codename" > "$pg_sources/pgdg.sources"
