@@ -1,3 +1,3 @@
-# A roster mode click survives the initial preference read
+# A roster mode click saves against the initial account revision
 
-Clicking Simple while the saved roster mode is loading now records that selection. A delayed Advanced response supplies the revision for the existing save operation. Opening the page without a click still restores the saved choice.
+The roster keeps a Simple click while the saved Advanced value loads. Its first save now waits for the revision from that read, including when pagehide flushes the click early. If another device saves a newer revision, the database can still reject the stale choice.

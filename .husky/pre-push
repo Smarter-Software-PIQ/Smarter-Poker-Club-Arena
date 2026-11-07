@@ -147,36 +147,112 @@ fi
 # So on macOS this hook runs Node 22 when the shell's node is another major,
 # and gives the run its own short TMPDIR on the external SSD. Nothing changes
 # on Linux, and a TMPDIR the caller already placed on /Volumes is kept.
+#
+# SCRATCH THAT STAYS PUT (2026-11-07). A push's TMPDIR vanished mid-run. The
+# cause was the drive, not a sweeper: SmarterWork dropped and came back as
+# "/Volumes/SmarterWork 1", because a nested mount (extreme-capacity) had
+# recreated /Volumes/SmarterWork as a read-only folder on the boot disk. The
+# old setup then failed its mkdir silently, kept the caller's TMPDIR, and the
+# Bash shim refused with a vague message (its `awk $NF` mount parse also broke
+# on the space in "SmarterWork 1"). Now: the mountpoint is read whole; a
+# scratch path on the boot disk is refused up front with the reason and, when
+# the drive is under a renamed mountpoint, where it went; each run marks its
+# directory with its PID so the day-old sweep never takes a live run's; and a
+# TMPDIR that vanishes during the run is named at exit as an environmental
+# failure. The path stays short (PostgreSQL socket limit), so the hook never
+# falls back to the renamed mountpoint with a space in it.
+CA_PUSH_TMP=""
 if [ "$(uname -s)" = Darwin ]; then
+  ca_mount_of() {
+    ca_path=$1
+    while [ ! -e "$ca_path" ] && [ "$ca_path" != / ]; do ca_path=$(dirname -- "$ca_path"); done
+    # The mountpoint is everything after the capacity column, spaces included.
+    df -P -- "$ca_path" 2>/dev/null | awk 'END { m = $NF; for (i = 1; i < NF; i++) if ($i ~ /%$/) { m = $(i + 1); for (j = i + 2; j <= NF; j++) m = m " " $j; break } print m }'
+  }
+  CA_VOLUMES=${CA_VOLUMES:-/Volumes}
+  ca_scratch_problem() {
+    ca_mount=$(ca_mount_of "$1")
+    case "$ca_mount" in
+      "$CA_VOLUMES"/?*) return 0 ;;
+    esac
+    printf '%s is on the boot disk (its filesystem is mounted at %s), not on an external drive.' "$1" "${ca_mount:-?}"
+    case "$1" in
+      "$CA_VOLUMES"/?*)
+        ca_vol=${1#"$CA_VOLUMES"/}
+        ca_vol=$CA_VOLUMES/${ca_vol%%/*}
+        for ca_moved in "$ca_vol "[0-9]*; do
+          [ -d "$ca_moved" ] || continue
+          case "$(ca_mount_of "$ca_moved")" in
+            "$ca_moved")
+              printf ' The drive is mounted at "%s" instead: it came back under another name while a stale %s folder held its place. Clear the stale folder and remount the drive at %s before pushing.' "$ca_moved" "$ca_vol" "$ca_vol"
+              ;;
+          esac
+        done
+        ;;
+    esac
+    return 1
+  }
+  # Remove day-old run directories under $1, except $2 and any whose owning
+  # push is still alive.
+  ca_sweep_runs() {
+    for ca_old in "$1"/p.*; do
+      [ -d "$ca_old" ] && [ "$ca_old" != "$2" ] || continue
+      ca_owner=$(cat "$ca_old/.ca-push-owner" 2>/dev/null || true)
+      if [ -n "$ca_owner" ] && kill -0 "$ca_owner" 2>/dev/null; then continue; fi
+      if [ -n "$(find "$ca_old" -maxdepth 0 -mtime +1 2>/dev/null)" ]; then rm -rf -- "$ca_old"; fi
+    done
+  }
   case "${TMPDIR:-}" in
     /Volumes/*) ;;
     *)
-      # 2026-11-07: the SmarterWork drive was remounted with agent-work/
-      # root-owned and the SanDisk volume nested at extreme-capacity/, so the
-      # old default could no longer be created and every push failed until
-      # each agent set CA_PUSH_TMP_ROOT by hand. With no override, take the
-      # first external candidate that can be created; an explicit
-      # CA_PUSH_TMP_ROOT is used as given, exactly as before.
-      if [ -z "${CA_PUSH_TMP_ROOT:-}" ]; then
-        for CA_PUSH_TMP_CANDIDATE in /Volumes/SmarterWork/agent-work/.t \
-          /Volumes/SmarterWork/agent-work/extreme-capacity/.t; do
-          if mkdir -p "$CA_PUSH_TMP_CANDIDATE" 2>/dev/null; then
-            CA_PUSH_TMP_ROOT="$CA_PUSH_TMP_CANDIDATE"
+      # An explicit CA_PUSH_TMP_ROOT is the only candidate. Otherwise take the
+      # first short external root: SmarterWork itself, then the SSD2-Work
+      # volume mounted inside it, which stays reachable at a short path even
+      # while SmarterWork is under a renamed mountpoint.
+      ca_why=""
+      CA_PUSH_TMP_PICKED=""
+      for ca_root in ${CA_PUSH_TMP_ROOT:-${CA_PUSH_TMP_ROOTS:-/Volumes/SmarterWork/agent-work/.t /Volumes/SmarterWork/agent-work/extreme-capacity/.t}}; do
+        if ca_root_why=$(ca_scratch_problem "$ca_root"); then
+          # External is not enough: a root-owned stub on the drive is too.
+          if mkdir -p "$ca_root" 2>/dev/null && [ -w "$ca_root" ]; then
+            CA_PUSH_TMP_PICKED=$ca_root
             break
           fi
-        done
-        CA_PUSH_TMP_ROOT="${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t}"
-      fi
-      if mkdir -p "$CA_PUSH_TMP_ROOT" 2>/dev/null; then
-        # Runs are a day old at most; nothing else is kept here.
-        find "$CA_PUSH_TMP_ROOT" -mindepth 1 -maxdepth 1 -name 'p.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
-        if CA_PUSH_TMP=$(mktemp -d "$CA_PUSH_TMP_ROOT/p.XXXXXX"); then
-          TMPDIR="$CA_PUSH_TMP"
-          export TMPDIR
+          ca_root_why="$ca_root is external but cannot be created or written."
         fi
+        ca_why="${ca_why:+$ca_why }$ca_root_why"
+      done
+      if [ -z "$CA_PUSH_TMP_PICKED" ]; then
+        echo "[club-arena pre-push] BLOCKED: external scratch unavailable for this run. $ca_why" >&2
+        exit 1
       fi
+      CA_PUSH_TMP_ROOT=$CA_PUSH_TMP_PICKED
+      if ! mkdir -p "$CA_PUSH_TMP_ROOT" || ! CA_PUSH_TMP=$(mktemp -d "$CA_PUSH_TMP_ROOT/p.XXXXXX"); then
+        echo "[club-arena pre-push] BLOCKED: could not create a run directory under $CA_PUSH_TMP_ROOT." >&2
+        exit 1
+      fi
+      echo "$$" >"$CA_PUSH_TMP/.ca-push-owner"
+      # Runs are a day old at most. A directory whose owning push is still
+      # alive is never swept, whatever its age.
+      ca_sweep_runs "$CA_PUSH_TMP_ROOT" "$CA_PUSH_TMP"
+      TMPDIR="$CA_PUSH_TMP"
+      export TMPDIR
       ;;
   esac
+  if ! ca_why=$(ca_scratch_problem "${TMPDIR:-/nonexistent}"); then
+    echo "[club-arena pre-push] BLOCKED: external scratch unavailable for TMPDIR. $ca_why" >&2
+    exit 1
+  fi
+  # RUNNER_TEMP (2026-11-07). Tests that run in CI write under RUNNER_TEMP and
+  # fall back to a fixed /Volumes/SmarterWork/agent-work path on this Mac,
+  # which is now a read-only stub (privateRecordHosting failed every push).
+  # Unless the caller gave a writable external one, they share this run's
+  # private scratch.
+  if [ -z "${RUNNER_TEMP:-}" ] || [ ! -d "$RUNNER_TEMP" ] || [ ! -w "$RUNNER_TEMP" ] \
+    || ! ca_scratch_problem "$RUNNER_TEMP" >/dev/null; then
+    RUNNER_TEMP=$TMPDIR
+  fi
+  export RUNNER_TEMP
   # BASH (2026-11-06). macOS ships bash 3.2; CI and engine-01 run bash 5.
   # This runs before the Node step below, so Node 22 still ends up first.
   # The release shell tests spawn `bash` from PATH, so on this Mac they ran
@@ -192,7 +268,7 @@ if [ "$(uname -s)" = Darwin ]; then
       # Refuse an unavailable/internal directory rather than falling back to /tmp.
       CA_TMP_DEVICE=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $1}')
       CA_ROOT_DEVICE=$(df -P / 2>/dev/null | awk 'END {print $1}')
-      CA_TMP_MOUNT=$(df -P "${TMPDIR:-/nonexistent}" 2>/dev/null | awk 'END {print $NF}')
+      CA_TMP_MOUNT=$(ca_mount_of "${TMPDIR:-/nonexistent}")
       case "$CA_TMP_MOUNT" in /Volumes/*) ;; *) CA_TMP_DEVICE="" ;; esac
       if [ ! -d "${TMPDIR:-}" ] || [ ! -w "$TMPDIR" ] || [ -z "$CA_TMP_DEVICE" ] || [ -z "$CA_ROOT_DEVICE" ] || [ "$CA_TMP_DEVICE" = "$CA_ROOT_DEVICE" ]; then
         echo "[club-arena pre-push] external scratch unavailable for Bash checks." >&2
@@ -245,6 +321,11 @@ rm -f -- "$POLICY_PRECHECK_RECEIPT"
 policy_precheck_result() {
   policy_exit=$?
   trap - EXIT
+  if [ -n "${CA_PUSH_TMP:-}" ] && [ ! -d "$CA_PUSH_TMP" ]; then
+    echo "[club-arena pre-push] BLOCKED: this run's scratch $CA_PUSH_TMP vanished during the run (the drive dropped or was remounted). Failures above are environmental; push again once the drive is back." >&2
+    policy_exit=1
+    CA_BASH_DIR=""
+  fi
   if [ -n "${CA_BASH_DIR:-}" ]; then
     rm -f -- "$CA_BASH_DIR/bash"
     rmdir -- "$CA_BASH_DIR" || policy_exit=1
@@ -1094,14 +1175,42 @@ if [ -f server/package.json ]; then
   # minutes after a green local push. Select those laws here by what the
   # changed file actually contains, so they fail locally first.
   SRV_CONTRACTS=""
+  # A changed contract has already run in SRV_TESTS above; select each law once.
+  ca_add_contract() {
+    case " $SRV_TESTS $SRV_CONTRACTS " in
+      *" $1 "*) ;;
+      *) SRV_CONTRACTS="${SRV_CONTRACTS:+$SRV_CONTRACTS }$1" ;;
+    esac
+  }
   for rel in $SRV_SRC; do
     # Horse telemetry: every fired key must be registered in the Horse data ledger.
     if grep -q "noteFire(" "$CA_TREE_TOP/server/$rel" 2>/dev/null; then
-      # A changed contract has already run in SRV_TESTS above.
-      case " $SRV_TESTS " in
-        *" src/engine/HorseDataLedger.test.ts "*) ;;
-        *) SRV_CONTRACTS="src/engine/HorseDataLedger.test.ts" ;;
-      esac
+      ca_add_contract src/engine/HorseDataLedger.test.ts
+      break
+    fi
+  done
+  # DECISION DIGESTS (2026-11-07). The policy digests bind every runtime
+  # import of HorseLogic and every reference decision source, and their laws
+  # read those lists rather than importing the changed file, so `related`
+  # never selected them: PR #9817 imported two new engine files into
+  # HorseLogic, pushed green, and hosted CI failed it on
+  # HorseReferenceDecisionSources.test.ts. Select the digest laws for a change
+  # to HorseLogic itself, to the reference-source list, to any file HorseLogic
+  # imports, or to any listed reference source.
+  CA_DIGEST_LAWS="src/engine/HorseReferenceDecisionSources.test.ts src/engine/aHashedPolicySourceShipsInTheEngineImage.law.test.ts src/engine/HorsePhase10Authority.test.ts src/engine/HorsePhase11PolicyDigest.test.ts src/engine/HorsePhase12PolicyDigest.test.ts src/engine/HorsePhase13PolicyDigest.test.ts"
+  CA_HORSE_LOGIC="$CA_TREE_TOP/server/src/engine/HorseLogic.ts"
+  CA_REFERENCE_SOURCES="$CA_TREE_TOP/server/src/engine/HorseReferenceDecisionSources.ts"
+  for rel in $SRV_SRC; do
+    case "$rel" in
+      src/engine/*) ca_engine_spec="./${rel#src/engine/}"; ca_engine_spec="${ca_engine_spec%.ts}.js" ;;
+      *) ca_engine_spec="" ;;
+    esac
+    if [ "$rel" = src/engine/HorseLogic.ts ] || [ "$rel" = src/engine/HorseReferenceDecisionSources.ts ] \
+      || { [ -n "$ca_engine_spec" ] && grep -qF "from '$ca_engine_spec'" "$CA_HORSE_LOGIC" 2>/dev/null; } \
+      || grep -qF "'$rel'" "$CA_REFERENCE_SOURCES" 2>/dev/null; then
+      for law in $CA_DIGEST_LAWS; do
+        [ -f "$CA_TREE_TOP/server/$law" ] && ca_add_contract "$law"
+      done
       break
     fi
   done

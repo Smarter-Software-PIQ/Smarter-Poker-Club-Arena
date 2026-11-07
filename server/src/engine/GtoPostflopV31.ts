@@ -992,6 +992,35 @@ export function v31HandKey(hand: string, holeCards: Card[], board: Card[]): stri
   return `${hand}:${highCount}${lowCount}`;
 }
 
+/**
+ * The cell a consult asks for, keyed exactly as gtoStreetAdviceV31 looks it
+ * up at its primary depth: what a sealed cell for this spot would carry. Null
+ * when the board does not fit the street or has no texture (no cell could
+ * answer). Offline R8 density pre-flight only.
+ */
+export function gtoV31DemandCell(input: {
+  street: 'flop' | 'turn' | 'river';
+  family: string;
+  objective: string;
+  utilityContext: string;
+  tableSize: number;
+  potType: string;
+  heroPosition: string;
+  opponentPosition: string;
+  stackBB: number;
+  board: Card[];
+  nodeRole: string;
+  facingKind: string;
+  facingSizeBucket: string;
+}): { key: string; depth: number; texture: string } | null {
+  const expectedBoardCards = input.street === 'flop' ? 3 : input.street === 'turn' ? 4 : 5;
+  if (!Array.isArray(input.board) || input.board.length !== expectedBoardCards) return null;
+  const texture = textureClass(input.board);
+  if (!texture) return null;
+  const depth = depthCandidates(input.stackBB)[0];
+  return { key: key({ ...input, depth, texture }), depth, texture };
+}
+
 export function gtoStreetAdviceV31(input: {
   street: 'flop' | 'turn' | 'river';
   family: GtoV31GameFamily;
@@ -1032,6 +1061,13 @@ export function gtoStreetAdviceV31(input: {
     const cell = selected.get(cellKey);
     if (!cell) continue;
     if (cell.kind === 'public_hist215_v1') {
+      // Worker-thread rule: a public-hist215 cell is answered only inside a
+      // worker thread. On the
+      // main thread it misses with `worker_required` by design, so any
+      // measurement that must see these cells answer (certification, the
+      // strict re-check, a replay probe) runs through
+      // server/scripts/finite-evaluation-worker.mjs, as gtoV31Evaluate does.
+      // The R8 density pre-flight needs no answers and runs on the main thread.
       if (isMainThread) return { hit: false, miss: 'worker_required' };
       const wire = (card: Card): string => `${card.rank}${'cdhs'[SUIT_INDEX[card.suit]]}`;
       // Malformed public state and zero compatible ROOT mass are misses; no

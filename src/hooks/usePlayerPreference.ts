@@ -132,6 +132,9 @@ export function usePlayerPreference<T>(
   const valueRef = useRef({ scope, value: current });
   valueRef.current = { scope, value: current };
   const revisionRef = useRef(0);
+  // The scope whose account value has been read (or that has no account).
+  // Until then, the shown value is only the device cache or the default.
+  const settledScopeRef = useRef<string | null>(userId ? null : scope);
   const initialRead = useRef<{ scope: string; result: Promise<number | null> } | null>(null);
   const pendingRef = useRef<{ owner: string; name: string; value: T; id: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -218,6 +221,7 @@ export function usePlayerPreference<T>(
             .eq('preference_key', scopedName)
             .maybeSingle();
           if (error) throw error;
+          if (active) settledScopeRef.current = scope;
           if (data)
             notePagePreferenceRevision(
               owner,
@@ -237,6 +241,7 @@ export function usePlayerPreference<T>(
           setState({ scope, value: data.value as T });
           return baseline;
         } catch (error) {
+          if (active) settledScopeRef.current = scope;
           reportError(error, 'usePlayerPreference.Load_failed');
           return null;
         }
@@ -246,6 +251,8 @@ export function usePlayerPreference<T>(
       void result.then(() => {
         if (initialRead.current === read) initialRead.current = null;
       });
+    } else {
+      settledScopeRef.current = scope;
     }
     return () => {
       active = false;
@@ -265,18 +272,16 @@ export function usePlayerPreference<T>(
           ? valueRef.current.value
           : read(owner, scopedName, fallbackRef.current);
       const value = typeof next === 'function' ? (next as (previous: T) => T)(previous) : next;
-      const same = Object.is(previous, value);
+      /* A gesture made before the account value arrives is still the player's
+         choice even when it matches the cached/default value on screen: it
+         claims the selection, so the late read cannot flip the page to the
+         account's older value (Players stayed on Advanced after tapping
+         Simple, post-deploy run 42370089738). Once the account value is
+         known, re-selecting the shown value is a no-op as before. */
+      if (Object.is(previous, value) && settledScopeRef.current === scope) return;
       const hydration = initialRead.current?.scope === scope ? initialRead.current : null;
       const column = `page:${scopedName}`;
       const held = readTableSettingIntent(owner, column);
-      if (
-        same &&
-        (!hydration ||
-          typeof next === 'function' ||
-          held ||
-          pendingRef.current?.name === scopedName)
-      )
-        return;
       const base = pagePreferenceRevision(owner, scopedName);
       const earlier = latestSelections.get(scope);
       const needsInitialBase = !held || (held.id === earlier?.id && earlier.baseline !== undefined);
