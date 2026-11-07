@@ -70,19 +70,32 @@
 -- resolved), and refuses anything in between, so a drifted input writes
 -- nothing and a second apply inside the same transaction writes 0.
 --
--- WHY THE LONG STATEMENT TIMEOUT. The before and after counts each use the
--- canonical link predicate, fn_union_pnl_cash_outcome_link, over all
--- 1,142,186 missing-scope outcomes of the week - the predicate
--- fn_union_pnl_evidence_report itself uses for
--- accepted_cash_original_scope_missing - and each measured 61s on production.
--- apply-recorded-migration.mjs allows 600s for a migration body.
+-- THE GUARDS READ THE EIGHT HANDS BY KEY, NOT THE WEEK (2026-11-07). As
+-- first merged, the before and after counts ran the canonical link predicate,
+-- fn_union_pnl_cash_outcome_link, over all 1,142,186 missing-scope outcomes
+-- of the week - 61 s each on production. The read-only probe that measured
+-- them had no budget; apply-recorded-migration.mjs does: the whole ordinary
+-- transaction runs under transaction_timeout = TRANSACTION_BUDGET_SECONDS + 4
+-- = 12 s, and the first dispatch died there with 25P04 after 12,236 ms with
+-- nothing committed. These bytes were never live, so they are corrected in
+-- place, as #9520 and #9881 were.
 --
--- @live-proof: (SELECT count(*)=0 FROM public.union_pnl_cash_outcomes o WHERE o.recognized_at>='2026-10-26 07:00:00+00'::timestamptz AND o.recognized_at<'2026-11-02 08:00:00+00'::timestamptz AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale'] AND NOT EXISTS(SELECT 1 FROM public.fn_union_pnl_cash_outcome_link(o)))
+-- The week-wide fact the counts stood for was re-measured read-only on
+-- production 2026-11-07 after 18:15Z with the same predicate: exactly 8 unlinked
+-- missing-scope outcomes in the week, and they are exactly k_ids below. The
+-- week is closed, so no new outcome can be recognized inside it. The guards
+-- therefore read those eight rows through union_pnl_cash_outcomes_hand_id_key
+-- (5 ms), and require all of them in the week and missing their scope, so a
+-- wrong id refuses rather than passes. Timed on production: the eight-hand
+-- check 5 ms, one resolver pass over the five windows 1.15 s; the whole block
+-- (three passes) fits inside the 12 s budget with room.
+--
+-- @live-proof: (SELECT count(*)=8 AND bool_and(EXISTS(SELECT 1 FROM public.fn_union_pnl_cash_outcome_link(o))) FROM public.union_pnl_cash_outcomes o WHERE o.hand_id IN ('a37eb331-755e-4af1-bf6f-dd264c551422'::uuid,'19573d7e-d8ed-4f3a-aee7-9144e527cf5b'::uuid,'a573ff8f-bd6d-4d3a-8815-d86953a1fa43'::uuid,'cdd9b64e-2058-40c5-ad25-863c40ae15ee'::uuid,'cb070a92-e793-453d-ab97-c056f150c402'::uuid,'36fc66c4-34bf-49a5-8e3d-887f68573ed8'::uuid,'6b323a00-71c2-4a74-baf5-65065d1cade3'::uuid,'237eeab0-3630-492f-bed0-3ca2e4d88796'::uuid))
 -- @live-proof: (SELECT count(*)=8 AND bool_and(r.proof->>'status'='proven' AND r.proof_md5=md5(r.proof::text) AND r.game_scope->>'game_union_id'='fade0000-0000-0000-0000-000000000001') FROM public.union_pnl_cash_outcome_link_resolutions r WHERE r.hand_id IN ('a37eb331-755e-4af1-bf6f-dd264c551422'::uuid,'19573d7e-d8ed-4f3a-aee7-9144e527cf5b'::uuid,'a573ff8f-bd6d-4d3a-8815-d86953a1fa43'::uuid,'cdd9b64e-2058-40c5-ad25-863c40ae15ee'::uuid,'cb070a92-e793-453d-ab97-c056f150c402'::uuid,'36fc66c4-34bf-49a5-8e3d-887f68573ed8'::uuid,'6b323a00-71c2-4a74-baf5-65065d1cade3'::uuid,'237eeab0-3630-492f-bed0-3ca2e4d88796'::uuid))
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
-SET LOCAL statement_timeout = '420s';
+SET LOCAL statement_timeout = '10s';
 
 DO $pre$
 BEGIN
@@ -102,11 +115,13 @@ DECLARE
   k_start  CONSTANT timestamptz := '2026-10-26 07:00:00+00';
   k_end    CONSTANT timestamptz := '2026-11-02 08:00:00+00';
   k_hands  CONSTANT integer     := 8;
+  k_ids    CONSTANT uuid[]      := ARRAY['a37eb331-755e-4af1-bf6f-dd264c551422'::uuid,'19573d7e-d8ed-4f3a-aee7-9144e527cf5b'::uuid,'a573ff8f-bd6d-4d3a-8815-d86953a1fa43'::uuid,'cdd9b64e-2058-40c5-ad25-863c40ae15ee'::uuid,'cb070a92-e793-453d-ab97-c056f150c402'::uuid,'36fc66c4-34bf-49a5-8e3d-887f68573ed8'::uuid,'6b323a00-71c2-4a74-baf5-65065d1cade3'::uuid,'237eeab0-3630-492f-bed0-3ca2e4d88796'::uuid];
   k_rake   CONSTANT numeric     := 9.30;
   k_reason CONSTANT text        :=
     'Weekly close 2026-10-26 07:00Z..2026-11-02 08:00Z: eight Midway cash hands whose engine provenance link was lost are re-proved from their own primary receipts, so the week''s accepted cash rake meets its original earning and bank basis.';
   w        record;
   j        jsonb;
+  v_named  bigint;
   v_before bigint;
   v_after  bigint;
   v_proven integer := 0;
@@ -119,10 +134,20 @@ DECLARE
   v_mw_rake  numeric := 0;
   v_refused  integer := 0;
 BEGIN
-  -- BEFORE. The population the close refuses, by the close's own predicate.
+  -- THE EIGHT ARE THE ONES NAMED. Every id is an outcome of this week whose
+  -- scope is missing; a wrong or drifted id refuses here.
+  SELECT count(*) INTO v_named FROM public.union_pnl_cash_outcomes o
+   WHERE o.hand_id = ANY(k_ids)
+     AND o.recognized_at>=k_start AND o.recognized_at<k_end
+     AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale'];
+  IF v_named IS DISTINCT FROM k_hands::bigint THEN
+    RAISE EXCEPTION 'union_pnl_link_fix_2026_10_26_named_hands_drifted: % of % named hands are missing-scope outcomes of the week',
+      v_named, k_hands USING ERRCODE='55000';
+  END IF;
+
+  -- BEFORE. How many of the eight the close's own predicate still refuses.
   SELECT count(*) INTO v_before FROM public.union_pnl_cash_outcomes o
-   WHERE o.recognized_at>=k_start AND o.recognized_at<k_end
-     AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
+   WHERE o.hand_id = ANY(k_ids)
      AND NOT EXISTS(SELECT 1 FROM public.fn_union_pnl_cash_outcome_link(o));
 
   -- BEFORE. What the resolver can prove, proved without writing anything.
@@ -178,10 +203,9 @@ BEGIN
       v_written, v_before USING ERRCODE='55000';
   END IF;
 
-  -- AFTER. The refusal the close raises is gone.
+  -- AFTER. None of the eight is refused by the close's predicate any more.
   SELECT count(*) INTO v_after FROM public.union_pnl_cash_outcomes o
-   WHERE o.recognized_at>=k_start AND o.recognized_at<k_end
-     AND NOT o.game_scope ?& ARRAY['game_union_id','host_club_id','tournament_id','is_private','asset','unit_scale']
+   WHERE o.hand_id = ANY(k_ids)
      AND NOT EXISTS(SELECT 1 FROM public.fn_union_pnl_cash_outcome_link(o));
   IF v_after IS DISTINCT FROM 0 THEN
     RAISE EXCEPTION 'union_pnl_link_fix_2026_10_26_scope_still_missing: % outcomes of the week still carry no link',
