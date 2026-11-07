@@ -5990,6 +5990,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
   private async cleanupCommittedSatellite(
     receipt: VerifiedSatelliteSettlementReceipt
   ): Promise<boolean> {
+    this.observeSatelliteBoundary({
+      kind: 'settlement',
+      receiptVersion: receipt.receiptVersion,
+      settledAt: receipt.settledAt,
+      payoutIds: receipt.awards.map((a) => a.payoutId),
+    });
     this.retireBlindClockAfterCommittedTerminal();
     this.tournamentFinished = true;
     this.committedSatelliteReceipt = receipt;
@@ -6017,6 +6023,12 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
   private async cleanupCommittedSatelliteQualifiers(
     receipt: VerifiedSatelliteQualifierReceipt
   ): Promise<boolean> {
+    this.observeSatelliteBoundary({
+      kind: 'settlement',
+      receiptVersion: receipt.receiptVersion,
+      settledAt: receipt.settledAt,
+      payoutIds: receipt.awards.map((a) => a.payoutId),
+    });
     this.retireBlindClockAfterCommittedTerminal();
     this.tournamentFinished = true;
     this.committedSatelliteQualifierReceipt = receipt;

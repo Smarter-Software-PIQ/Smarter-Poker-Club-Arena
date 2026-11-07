@@ -3,6 +3,10 @@ import { ELIMINATION_SWEEP_STUCK_MS } from './eliminationLock.js';
 import { TournamentAbortBoundary, type AbortBoundaryRequest } from './TournamentAbortBoundary.js';
 import { noteTerminalFinishClub } from './terminalSettlementRpc.js';
 import type { SatelliteQualifierState } from './satelliteQualifierRpc.js';
+import {
+  observeSatelliteBoundaryProgress,
+  type SatelliteBoundaryProgress,
+} from './satelliteBoundaryRecovery.js';
 import { F06HandPermit } from '../services/F06HandPermit.js';
 import {
   claimHandContinuation,
@@ -2119,7 +2123,7 @@ export abstract class TournamentManagerBase {
     if (generation !== this.satelliteQualifierBoundaryGeneration || !this.isRunning()) return false;
     this.satelliteQualifierBoundaryPending = false;
     this.satelliteQualifierBoundaryHeldSinceMs = 0;
-    if (this.satelliteQualifierBoundaryPagedAt !== 0) this.closeSatelliteBoundaryHeldPage();
+    this.satelliteBoundaryLastReleaseMs = Date.now();
     this.satelliteQualifierBoundaryPagedAt = 0;
     this.satelliteQualifierBoundaryPagedReason = null;
     const released = new Set<ServerTableEngine>();
@@ -2205,6 +2209,10 @@ export abstract class TournamentManagerBase {
   static readonly SATELLITE_BOUNDARY_PAGE_EVERY_MS = 5 * 60_000;
   protected satelliteQualifierBoundaryHeldSinceMs = 0;
   protected satelliteQualifierBoundaryPagedAt = 0;
+  private satelliteBoundaryLastReleaseMs = 0;
+  // On adoption the predecessor may already have paged this tournament.
+  private satelliteBoundaryMayHaveAlert = true;
+  private satelliteBoundaryPageWrite?: Promise<void>;
   protected satelliteQualifierBoundaryPagedReason: string | null = null;
   protected satelliteQualifierBoundaryLastPendingReason: string | null = null;
 
@@ -2235,7 +2243,7 @@ export abstract class TournamentManagerBase {
       now - pagedAt < TournamentManagerBase.SATELLITE_BOUNDARY_PAGE_EVERY_MS
     )
       return;
-    const firstPage = pagedAt === 0;
+    this.satelliteBoundaryMayHaveAlert = true;
     this.satelliteQualifierBoundaryPagedAt = now;
     this.satelliteQualifierBoundaryPagedReason = reason;
     const seconds = Math.round(heldMs / 1000);
@@ -2264,7 +2272,7 @@ export abstract class TournamentManagerBase {
       tables: this.tableEngines.size,
     };
     // Detached from the sweep, but owned by its lifecycle: teardown drains it.
-    void this.trackLifecycleJob(
+    this.satelliteBoundaryPageWrite = this.trackLifecycleJob(
       raiseFinancialAlert(
         'critical',
         'Tournament.satellite_boundary_held',
@@ -2276,7 +2284,13 @@ export abstract class TournamentManagerBase {
         // The dedupe door returns the one open row unchanged, so a refresh
         // rewrites that row with the current reason; the keys the door and
         // the inbox read (channel, dedupe_key, entity_id) are kept.
-        if (firstPage || !raised.alertId) return;
+        if (
+          !raised.alertId ||
+          !this.isRunning() ||
+          (this.satelliteQualifierBoundaryPending &&
+            context.boundary_generation !== this.satelliteQualifierBoundaryGeneration)
+        )
+          return;
         const { error } = await supabase
           .from('financial_alerts')
           .update({
@@ -2300,25 +2314,36 @@ export abstract class TournamentManagerBase {
     );
   }
 
-  /** The page closes itself the moment the boundary lifts; the sweep is the evidence. */
-  protected closeSatelliteBoundaryHeldPage(): void {
-    const at = new Date().toISOString();
-    // Detached from the sweep, but owned by its lifecycle: teardown drains it.
+  protected observeSatelliteBoundary(
+    progress: SatelliteBoundaryProgress,
+    ownsHand = () => true
+  ): void {
+    if (
+      !this.satelliteBoundaryMayHaveAlert ||
+      (progress.kind === 'hand' && !this.isCohortSatellite())
+    )
+      return;
+    const generation = this.satelliteQualifierBoundaryGeneration;
+    const write = this.satelliteBoundaryPageWrite;
+    const stillCurrent = () =>
+      progress.kind === 'settlement' ||
+      (this.isRunning() &&
+        ownsHand() &&
+        !this.satelliteQualifierBoundaryPending &&
+        generation === this.satelliteQualifierBoundaryGeneration &&
+        progress.startedAt > this.satelliteBoundaryLastReleaseMs);
+    if (!stillCurrent()) return;
     void this.trackLifecycleJob(
-      Promise.resolve(
-        supabase
-          .from('financial_alerts')
-          .update({
-            resolved: true,
-            resolved_at: at,
-            resolution: `the qualifier boundary lifted at ${at} and the field is dealing again`,
-          })
-          .eq('source', 'Tournament.satellite_boundary_held')
-          .eq('context->>dedupe_key', `satellite-boundary-held:${this.tournamentId}`)
-          .eq('resolved', false)
-      ).then(({ error }: { error: { message?: string } | null }) => {
-        if (error) throw new Error(`satellite_boundary_held_close_failed: ${error.message}`);
-      })
+      (async () => {
+        await write;
+        const finished = await observeSatelliteBoundaryProgress(
+          this.tournamentId,
+          progress,
+          stillCurrent
+        );
+        if (finished && stillCurrent() && write === this.satelliteBoundaryPageWrite)
+          this.satelliteBoundaryMayHaveAlert = false;
+      })()
     ).catch((error) =>
       reportError(error, 'Tournament.satellite_boundary_held_close_failed', {
         tournamentId: this.tournamentId,
@@ -4086,8 +4111,12 @@ export abstract class TournamentManagerBase {
       this.isRunning() &&
       this.tableEngines.get(tableId) === engine &&
       this.gameServer.getTableEngine(tableId) === engine;
-    engine.onHandComplete((_tableId, finalStacks) => {
+    engine.onHandComplete((_tableId, finalStacks, acceptedHand) => {
       if (!ownsEdge(_tableId)) return;
+      if (acceptedHand)
+        this.observeSatelliteBoundary({ kind: 'hand', tableId: _tableId, ...acceptedHand }, () =>
+          ownsEdge(_tableId)
+        );
       this.requestSeatHeads();
       const recovered = this.recoveredOriginalAdmissions.get(_tableId);
       if (
