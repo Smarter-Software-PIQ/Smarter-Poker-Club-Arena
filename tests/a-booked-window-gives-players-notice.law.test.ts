@@ -1,0 +1,161 @@
+/**
+ * A BOOKED WINDOW GIVES PLAYERS NOTICE (Dan 2026-11-07).
+ *
+ * The Horse fold provenance engine cutover was booked in
+ * server/release/owner-maintenance-windows.json at 13:13 Chicago
+ * (announcementPolicy earliest-certified, notBefore already passed), announced
+ * at 13:14:37 and froze entry at 13:16:37. Players had the engine's two-minute
+ * last-hand warning and nothing else; the owner's own Lightning joins were
+ * refused. This law holds:
+ *   1. every window booked from 2026-11-07 21:00 UTC carries playerNoticeAt,
+ *      at least 20 minutes before notBefore (a certified recovery profile, the
+ *      emergency path, is exempt);
+ *   2. the client's projection is exactly what the generator produces from
+ *      the booking, so a booked window reaches the banner on the next client
+ *      publication;
+ *   3. the banner sentence is shown from the notice instant until the window
+ *      closes, names Chicago time and never promises a fixed minute.
+ */
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import {
+  projectOwnerMaintenanceNotices,
+  renderOwnerMaintenanceNotices,
+  TARGET,
+} from '../scripts/generate-owner-maintenance-notices.mjs';
+import {
+  BOOKED_MAINTENANCE_NOTICES,
+  bookedMaintenanceNotice,
+  bookedMaintenanceNoticeText,
+  type BookedMaintenanceNotice,
+} from '../src/utils/maintenanceSchedule';
+
+const ROOT = resolve(__dirname, '..');
+const doc = JSON.parse(
+  readFileSync(join(ROOT, 'server/release/owner-maintenance-windows.json'), 'utf8')
+) as {
+  windows: Record<string, unknown>[];
+  databaseWindows: Record<string, unknown>[];
+};
+const RULE_FROM = Date.parse('2026-11-07T21:00:00Z');
+const MIN_LEAD_MS = 20 * 60 * 1000;
+
+/** Why a booked window fails the notice rule, or null when it passes or is exempt. */
+function noticeViolation(w: Record<string, unknown>): string | null {
+  const notBefore = Date.parse(String(w.notBefore));
+  if (notBefore < RULE_FROM || 'certifiedRecoveryProfile' in w) return null;
+  if (typeof w.playerNoticeAt !== 'string') return 'playerNoticeAt (ISO, UTC) is required';
+  const noticeAt = Date.parse(w.playerNoticeAt);
+  if (!Number.isFinite(noticeAt)) return 'playerNoticeAt is not a timestamp';
+  if (notBefore - noticeAt < MIN_LEAD_MS)
+    return 'playerNoticeAt must be at least 20 minutes before notBefore';
+  return null;
+}
+
+describe('every new booking names when players are told', () => {
+  it('every booked window passes', () => {
+    const failures = [...doc.windows, ...doc.databaseWindows]
+      .map((w) => [String(w.id), noticeViolation(w)] as const)
+      .filter(([, why]) => why !== null);
+    expect(failures).toEqual([]);
+  });
+
+  it('the rule bites: a window booked like 2026-11-07 13:13 is refused', () => {
+    const base = { id: 'x', notBefore: '2026-11-08T18:00:00Z', notAfter: '2026-11-09T00:00:00Z' };
+    expect(noticeViolation(base)).toBe('playerNoticeAt (ISO, UTC) is required');
+    expect(noticeViolation({ ...base, playerNoticeAt: '2026-11-08T17:45:00Z' })).toBe(
+      'playerNoticeAt must be at least 20 minutes before notBefore'
+    );
+    expect(noticeViolation({ ...base, playerNoticeAt: '2026-11-08T17:40:00Z' })).toBeNull();
+  });
+
+  it('exempts the certified emergency path and windows booked before the rule', () => {
+    expect(
+      noticeViolation({ id: 'c', notBefore: '2026-11-08T18:00:00Z', certifiedRecoveryProfile: 'p' })
+    ).toBeNull();
+    expect(noticeViolation({ id: 'o', notBefore: '2026-11-07T18:00:00Z' })).toBeNull();
+  });
+});
+
+describe('the client ships exactly the booked windows', () => {
+  it(`${TARGET} is the generator output (run node scripts/generate-owner-maintenance-notices.mjs)`, () => {
+    expect(readFileSync(join(ROOT, TARGET), 'utf8')).toBe(renderOwnerMaintenanceNotices(ROOT));
+  });
+  it('the shipped list parses completely', () => {
+    const shipped = JSON.parse(readFileSync(join(ROOT, TARGET), 'utf8')).notices as unknown[];
+    expect(BOOKED_MAINTENANCE_NOTICES).toHaveLength(shipped.length);
+  });
+  it('carries engine and database windows, with their notice instant', () => {
+    const out = projectOwnerMaintenanceNotices({
+      windows: [
+        {
+          id: 'e',
+          notBefore: '2026-11-09T19:00:00Z',
+          notAfter: '2026-11-10T01:00:00Z',
+          playerNoticeAt: '2026-11-09T18:30:00Z',
+        },
+      ],
+      databaseWindows: [
+        { id: 'd', notBefore: '2026-11-09T18:00:00Z', notAfter: '2026-11-09T20:00:00Z' },
+      ],
+    });
+    expect(out.notices).toEqual([
+      {
+        id: 'd',
+        kind: 'database',
+        noticeAt: null,
+        notBefore: '2026-11-09T18:00:00Z',
+        notAfter: '2026-11-09T20:00:00Z',
+      },
+      {
+        id: 'e',
+        kind: 'engine',
+        noticeAt: '2026-11-09T18:30:00Z',
+        notBefore: '2026-11-09T19:00:00Z',
+        notAfter: '2026-11-10T01:00:00Z',
+      },
+    ]);
+  });
+});
+
+describe('the banner sentence', () => {
+  // 2026-11-09 12:30 PM Chicago notice, 1:00 PM start, 7:00 PM end (CST, UTC-6).
+  const n: BookedMaintenanceNotice = {
+    id: 'w',
+    kind: 'engine',
+    noticeAtMs: Date.parse('2026-11-09T18:30:00Z'),
+    notBeforeMs: Date.parse('2026-11-09T19:00:00Z'),
+    notAfterMs: Date.parse('2026-11-10T01:00:00Z'),
+  };
+  it('is silent before the notice instant and after the window closes', () => {
+    expect(bookedMaintenanceNotice(Date.parse('2026-11-09T18:29:59Z'), [n])).toBeNull();
+    expect(bookedMaintenanceNotice(Date.parse('2026-11-10T01:00:00Z'), [n])).toBeNull();
+  });
+  it('names the window before it opens', () => {
+    const at = Date.parse('2026-11-09T18:30:00Z');
+    expect(bookedMaintenanceNotice(at, [n])).toBe(n);
+    expect(bookedMaintenanceNoticeText(n, at)).toBe(
+      'Short Maintenance Break Possible Between 1:00 PM And 7:00 PM Chicago Time. Play Pauses For About Five Minutes.'
+    );
+  });
+  it('says any time before the close once it is open, never a fixed minute', () => {
+    const at = Date.parse('2026-11-09T20:00:00Z');
+    const text = bookedMaintenanceNoticeText(n, at);
+    expect(text).toBe(
+      'A Short Maintenance Break Can Start Any Time Before 7:00 PM Chicago Time. Play Pauses For About Five Minutes.'
+    );
+    expect(text).not.toMatch(/top of the hour|[–—]/i);
+  });
+  it('a window with no notice instant is shown from one hour before it opens', () => {
+    const old = { ...n, noticeAtMs: null };
+    expect(bookedMaintenanceNotice(Date.parse('2026-11-09T17:59:59Z'), [old])).toBeNull();
+    expect(bookedMaintenanceNotice(Date.parse('2026-11-09T18:00:00Z'), [old])).toBe(old);
+  });
+  it('names a different Chicago day', () => {
+    const at = Date.parse('2026-11-08T23:00:00Z'); // 5:00 PM the day before
+    expect(bookedMaintenanceNoticeText({ ...n, noticeAtMs: null }, at)).toContain(
+      'Between Tomorrow 1:00 PM And Tomorrow 7:00 PM'
+    );
+  });
+});

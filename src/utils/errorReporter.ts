@@ -46,6 +46,8 @@
  * error: the caller still owns it, still shows it, still rethrows it.
  */
 
+import { isPlatformFrozenError } from './platformFrozen';
+
 /** `String(value)` that cannot throw — Symbols and hostile `toString`s included. */
 function safeString(value: unknown): string {
   try {
@@ -259,8 +261,18 @@ export function isClientErrorSinkEnabled(): boolean {
   }
 }
 
-/** The grouping code: the caller's `extra.code`, else the error's `code`, else a specific `name`. */
-function pickCode(error: unknown, extra: unknown): string {
+/**
+ * The grouping code: the caller's `extra.code`, else the error's `code`, else a specific `name`.
+ *
+ * A FREEZE REFUSAL IS FILED BY NAME (Dan 2026-11-07). The maintenance freeze
+ * raises from plpgsql, so its PostgREST code is P0001 - the code every RAISE
+ * shares - or the guard's 55006. Eleven refused Lightning joins were filed as
+ * P0001 under "buyin_context_failed" and no gauge could count them. They are
+ * now filed as PLATFORM_FROZEN, which fn_client_error_health counts on its own
+ * gauges (migration 20261107210000).
+ */
+export function pickCode(error: unknown, extra: unknown): string {
+  if (isPlatformFrozenError(error)) return 'PLATFORM_FROZEN';
   for (const value of [safeRead(extra, 'code'), safeRead(error, 'code')]) {
     if ((typeof value === 'string' && value !== '') || typeof value === 'number')
       return String(value);
