@@ -151,7 +151,22 @@ if [ "$(uname -s)" = Darwin ]; then
   case "${TMPDIR:-}" in
     /Volumes/*) ;;
     *)
-      CA_PUSH_TMP_ROOT="${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t}"
+      # 2026-11-07: the SmarterWork drive was remounted with agent-work/
+      # root-owned and the SanDisk volume nested at extreme-capacity/, so the
+      # old default could no longer be created and every push failed until
+      # each agent set CA_PUSH_TMP_ROOT by hand. With no override, take the
+      # first external candidate that can be created; an explicit
+      # CA_PUSH_TMP_ROOT is used as given, exactly as before.
+      if [ -z "${CA_PUSH_TMP_ROOT:-}" ]; then
+        for CA_PUSH_TMP_CANDIDATE in /Volumes/SmarterWork/agent-work/.t \
+          /Volumes/SmarterWork/agent-work/extreme-capacity/.t; do
+          if mkdir -p "$CA_PUSH_TMP_CANDIDATE" 2>/dev/null; then
+            CA_PUSH_TMP_ROOT="$CA_PUSH_TMP_CANDIDATE"
+            break
+          fi
+        done
+        CA_PUSH_TMP_ROOT="${CA_PUSH_TMP_ROOT:-/Volumes/SmarterWork/agent-work/.t}"
+      fi
       if mkdir -p "$CA_PUSH_TMP_ROOT" 2>/dev/null; then
         # Runs are a day old at most; nothing else is kept here.
         find "$CA_PUSH_TMP_ROOT" -mindepth 1 -maxdepth 1 -name 'p.*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
