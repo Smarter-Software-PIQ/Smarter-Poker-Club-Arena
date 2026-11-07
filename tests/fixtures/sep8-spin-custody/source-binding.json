@@ -129,7 +129,7 @@
     "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
     "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48"
+    "scripts/qualification/ci-accounting-inputs.json": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -664,6 +664,13 @@
       "to": "b01ab505a8020eb5d70157d726de3bfb37b378d474f40865cee06d07f4e66e29",
       "on": "2026-11-01",
       "why": "Add exact existing native workflow enforcement of the five Realtime control-database regressions: one invocation, no continue-on-error, original ordinary qualification condition. All prior assertions are unchanged. No financial source, fixture, status or certificate changes."
+    },
+    {
+      "on": "2026-11-07",
+      "file": "scripts/qualification/ci-accounting-inputs.json",
+      "from": "32cee0d06d24bd36e6ac91b5e99ed26ebb737f3c312e8cfe0196cb53698b7e48",
+      "to": "8c5ff673447845e3f7631e5ef7e1aa97f62153a1ba18dc4eb9c825b079c5e09c",
+      "why": "Reviewed additive five-line accounting shard 4 invocation of the exact-source leaderboard extrema PostgreSQL regression. All existing commands, assertions, financial inputs, timeouts and historical qualification outcomes remain unchanged. Generated execution projection only; source identity is not financial execution or production proof."
     }
   ],
   "union_doors_candidate_20260925": "Restamped for 20260925145748. scripts/dev/test-full-weekly-accounting-activation.sh now applies that migration in the existing pnl-evidence hooks chain, immediately after 20260921023420 and before hooks-regression.sql, and hooks-regression.sql gains assertions for what it changes: the square-up refuses a recorded ECO that does not equal round(-eco_rate*eco_base,2) (the old comparison had become the record against itself and could never fire), keeping both existing refusals; and the closed union send door credits the one owner it resolves from clubs.owner_id instead of every role=owner row, carries the house authorization check, an idempotency key and one club-declaring chip_ledger leg, and records its audit row against wallet='chip_balance' rather than the 'main' that union_wallet_transactions_wallet_check has never permitted. No fixture body owned by these bindings changed and no role gains a key. Diff read before restamping.",

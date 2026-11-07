@@ -5,6 +5,8 @@ production, chooses a live action, issues strategy qualification or activates a
 policy. A reviewed record is not a solved hand. Every decision carries its
 evidence gaps, legal alternatives and explicit unqualified status.
 
+[Read the aggregate playbook and implementation guide](HORSE-HUMAN-PLAYBOOK.md).
+
 ## Acquisition
 
 `horse-human-study.py MODE --output PRIVATE_SSD_DIRECTORY --cutoff UTC_INSTANT`

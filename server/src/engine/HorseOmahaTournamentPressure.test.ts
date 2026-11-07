@@ -26,6 +26,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 // Preserve its original policy/RNG baseline; connected current-policy cases live in HorseCheckedToValue.
 vi.mock('./HorseNonBottomRiverValue.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./HorseNonBottomRiverValue.js')>()),
+  checkedToNonBottomBoat: () => false,
   checkedToNonBottomRiverBoat: () => false,
 }));
 vi.mock('./HorseCheckedAggressor.js', () => ({

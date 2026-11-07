@@ -135,6 +135,7 @@ import {
   isNightParkedTable,
   isRetiringTable,
   occupancyTargetFor,
+  secondTablePicked,
   stakeBandAllows,
   stakeBandFor,
   stakeBandForBigBlind,
@@ -3145,12 +3146,35 @@ export class HorseFleetManager {
              the cycle - see the note above the loop. */
           tablesConsidered++;
 
+          /* A GAME'S SECOND TABLE RUNS ONLY WHILE ITS GAME IS PICKED
+             (2026-11-07). secondTablePicked is the exact twin of the tick's
+             fn_cash_game_second_table_picked; once a game drops out (the hour
+             band moved, or its bucket re-rolled) nobody new sits at its second
+             table, must-move draws its players up to the Main as seats open,
+             and the tick closes it once it is empty. Never a Lightning game
+             (its tables are the Lightning pool), never a table a person is
+             playing at. */
+          const secondaryClusterTable =
+            !!table.cluster_id &&
+            !(table.role === 'main' && Number(table.main_index) === 1) &&
+            !(cashPlanLightningGames?.has(String(table.cluster_id)) ?? false);
+          if (
+            secondaryClusterTable &&
+            !humanAtTable &&
+            !secondTablePicked(String(table.cluster_id))
+          ) {
+            beat.withheldTables++;
+            if (firstTableWithheld === null) firstTableWithheld = 'second_table_not_picked';
+            if (diag) diag.withheld = 'second_table_not_picked';
+            continue;
+          }
           const target = occupancyTargetFor(
             table.id,
             table.max_players,
             humanAtTable,
             Date.now(),
-            humansWaiting
+            humansWaiting,
+            Number(table.big_blind) || null
           );
           const { fill } = target;
           let { seatTarget } = target;
@@ -3249,6 +3273,13 @@ export class HorseFleetManager {
           const humanNeedsRescue = humanAtTable && currentCount < 4;
           if (fill !== 'full' && !humanNeedsRescue && !isHoldemOrPlo(table.game_variant)) {
             seatsNeeded = Math.min(seatsNeeded, 1 + Math.floor(Math.random() * 2));
+          }
+          /* A SECOND TABLE FILLS ONE PLAYER AT A TIME (owner request
+             2026-11-07). Past the dealable two (seatsToDealable below), a
+             feeder or a higher Main gains one horse a cycle, the way people
+             walk up to a new table, never a full table appearing at once. */
+          if (secondaryClusterTable && currentCount >= DEALABLE_MINIMUM && !humanNeedsRescue) {
+            seatsNeeded = Math.min(seatsNeeded, 1);
           }
           /* ...except the two that make a cluster table dealable (see
              seedToDealable above): an opening feeder, and any cluster table at

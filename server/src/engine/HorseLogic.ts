@@ -1,4 +1,5 @@
 import {
+  checkedToNonBottomBoat,
   checkedToNonBottomRiverBoat,
   checkedToOnePairAboveFlush,
 } from './HorseNonBottomRiverValue.js';
@@ -332,6 +333,16 @@ import { evaluateTournamentPostflop, type Phase8Mode } from './HorseTournamentPo
 import { liveHorsePhase8Safety } from './HorsePhase8Safety.js';
 import { performance } from 'node:perf_hooks';
 import { chipStepFor, nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
+import { cellDepthIsPrimary, gtoV31ExecutionMatches, noteGtoMiss } from './HorseGtoExecution.js';
+import {
+  captureV31ReplayState,
+  decideV31Certified,
+  type V31CertifiedInput,
+  type V31ReplayState,
+} from './HorseV31CertifiedPolicy.js';
+// The release gate's execution-match rule lives with the V31 consult; kept
+// exported here for every existing importer.
+export { gtoV31ExecutionMatches };
 import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
@@ -376,37 +387,8 @@ const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 // grid survives this snap unchanged (HorseNlhOpenSize, Dan 2026-10-31).
 const chipStep = chipStepFor;
 
-/**
- * Reconcile a sampled certified action with the decision that reached the
- * engine. A call that consumes the remaining stack is still the sampled call;
- * wagers must retain both their family and their size (apart from one legal
- * chip-step of deterministic rounding). This helper is exported so the
- * release gate's exact semantics have direct unit coverage.
- */
 /** Preflop records a player makes by choice (forced posts are not here). */
 const MANIAC_VOLUNTARY = new Set(['fold', 'check', 'call', 'bet', 'raise', 'all_in']);
-
-export function gtoV31ExecutionMatches(args: {
-  sampledFamily: GtoV31ActionFamily;
-  sampledAmount: number | null;
-  finalAction: HorseDecision['action'];
-  finalAmount: number | null;
-  bigBlind?: number;
-}): boolean {
-  const amountPreserved =
-    args.sampledAmount !== null &&
-    args.finalAmount !== null &&
-    Number.isFinite(args.sampledAmount) &&
-    Number.isFinite(args.finalAmount) &&
-    Math.abs(args.sampledAmount - args.finalAmount) <= chipStep(args.bigBlind) + 0.005;
-  if (args.sampledFamily === 'call') {
-    return args.finalAction === 'all_in' || (args.finalAction === 'call' && amountPreserved);
-  }
-  if (args.sampledFamily === 'bet' || args.sampledFamily === 'raise') {
-    return args.finalAction === args.sampledFamily && amountPreserved;
-  }
-  return args.finalAction === args.sampledFamily;
-}
 
 /** Largest multiple of `step` that is <= n. */
 const snapDown = (n: number, step: number): number =>
@@ -984,47 +966,6 @@ const STAGE_ORDER: Record<string, number> = {
  * cell key is `street|family|position|depth|texture`; parsing it here keeps
  * the stores' return shape untouched.
  */
-/**
- * NAME THE MISS (2026-09-01).
- *
- * On 2026-08-31 the solver layers missed far more than they hit: V32 recorded
- * v32_defend_no_range 9,693 times against 7,202 usable answers (a 57% miss),
- * and V31 answered 165 consults against gto_miss_no_cell 12,193 - a 1.3% hit
- * rate. The counters proved there was a hole and could not say WHERE, so the
- * only available response was to guess at the export or to widen the gate.
- *
- * These two axes make the hole addressable. Cardinality is deliberately tiny
- * - five depth buckets and four streets per layer, not the full
- * street x family x position x depth product, which would be ~432 rows a day
- * and unreadable. Depth and street are the two that were actually suspected,
- * and either can be split further once the coarse answer points somewhere.
- */
-function missDepthBand(stackBB: number): string {
-  if (!(stackBB > 0) || !isFinite(stackBB)) return 'unknown';
-  if (stackBB <= 20) return 'le20';
-  if (stackBB <= 50) return 'le50';
-  if (stackBB <= 110) return 'le110';
-  if (stackBB <= GTO_MAX_DEPTH_BB) return 'le' + GTO_MAX_DEPTH_BB;
-  return 'gt' + GTO_MAX_DEPTH_BB;
-}
-
-/** Record one miss against both axes. `layer` is 'v31' or 'v32'. */
-function noteGtoMiss(layer: string, street: string, stackBB: number): void {
-  noteFire(layer + '_miss_depth_' + missDepthBand(stackBB));
-  noteFire(layer + '_miss_street_' + street);
-}
-
-function cellDepthIsPrimary(cell: string, stackBB: number, certifiedDepth?: number): boolean {
-  if (certifiedDepth !== undefined) return certifiedDepth === snapDepthBucket(stackBB);
-  const parts = cell.split('|');
-  if (parts.length < 5) return true; // unknown shape: do not invent a miss
-  // V29/V30 keys place depth at 3. Certified V31 keys place it at 8, after
-  // objective, utility context, table size, pot type, and both positions.
-  const d = Number(parts[parts.length >= 13 ? 8 : 3]);
-  if (!isFinite(d)) return true;
-  return d === snapDepthBucket(stackBB);
-}
-
 /** The last opponent wager that increased this street's price. Controller
  * all-in calls have no raise marker; false and true mark short/full raises.
  * Keep its index so tempo reads the actual wager, not an earlier bet by the
@@ -1435,6 +1376,9 @@ function isTournamentMode(gs: HorseGameStateV2): boolean {
  * contract holds, however.  Legacy/offline callers have no schema marker and
  * retain their historical behavior.
  */
+/** The decision's trusted tournament snapshot (HorseV31CertifiedPolicy input). */
+export type HorseTrustedTournament = ReturnType<typeof trustedTournamentContext>;
+
 function trustedTournamentContext(
   gs: HorseGameStateV2
 ): NonNullable<HorseGameStateV2['tournament']> | undefined {
@@ -2179,6 +2123,13 @@ export interface HorseDecideOpts {
    * only after the ordinary V31 lookup, sample, and legalization path runs.
    */
   onGtoV31Decision?: (receipt: GtoV31DecisionReceipt) => void;
+  /**
+   * Offline replay-corpus hook (GtoV31ReplayDigest.ts). Never set by the live
+   * engine. Receives every certified decision with the inputs, RNG position
+   * and opponent read that produced it, so a later engine can be asked to
+   * make exactly the same decisions.
+   */
+  onV31ReplayState?: (state: V31ReplayState) => void;
   /** ENABLE V32: facing-a-bet defence from the solver's own betting range.
    *  DEFAULT OFF since 2026-10-16: v32_facing_defense (heads-up NLH)
    *  measured -0.31 +/- 0.15 bb/100 over 41 nightly league runs. League arm
@@ -2491,6 +2442,15 @@ export interface HorseDecideOpts {
    *  plo4/plo5/plo6_v54_river_bluff measure it, and it goes live for every
    *  horse when it beats the current brain there. */
   v54RiverBluff?: boolean;
+  /** River bluff paths for the game types #9803 excluded (2026-11-07,
+   *  HorseRiverBluffRange.ts): fixed limit (the one fixed bet, low balanced
+   *  share), short deck (the engine's 36-card ranking), bomb pots (postflop
+   *  stories only) and multi-board pots (air on every board, frequency over
+   *  the board count). Each defaults on; false restores that exclusion. */
+  riverBluffFixedLimit?: boolean;
+  riverBluffShortDeck?: boolean;
+  riverBluffBombPot?: boolean;
+  riverBluffMultiBoard?: boolean;
   /** Baseline river bluff range (Dan 2026-11-06, HorseRiverBluffRange.ts):
    *  heads-up, river, no bet to face, no showdown value, a line that tells a
    *  story - bluff at the balanced rate for the bet size, blockers and missed
@@ -6079,10 +6039,10 @@ export class HorseLogic {
         player,
         gs
       );
-      // Price missed checked-to river value against the controller's menu.
+      // Price missed checked-to turn boat and river value against the controller's menu.
       if (
         finalWager.action === 'check' &&
-        gs.stage === 'river' &&
+        (gs.stage === 'turn' || gs.stage === 'river') &&
         gs.stateSchemaVersion === 1 &&
         !gs.wagersCapped &&
         gs.toCall === 0 &&
@@ -6101,7 +6061,7 @@ export class HorseLogic {
             !p.is_all_in &&
             p.stack > 0
         ) &&
-        (checkedToNonBottomRiverBoat(player, gs) || checkedToOnePairAboveFlush(player, gs))
+        (checkedToNonBottomBoat(player, gs) || checkedToOnePairAboveFlush(player, gs))
       ) {
         const amount = Math.min(
           gs.maxRaiseTo!,
@@ -9351,292 +9311,33 @@ export class HorseLogic {
         ? (horseCallDeductionFraction(player, gs, toCall) ?? undefined)
         : undefined;
 
-    // V31 CERTIFIED DIRECT POLICY. Node role, response semantics, both seats,
-    // objective, stack depth, board texture and holding are all part of the
-    // lookup key. An open policy can never answer a response decision, and a
-    // chip-EV tournament policy can never masquerade as ICM. The compact
-    // loader has already rejected any row without a complete active seal.
-    //
-    // 2026-10-16: an EMPTY store is checked once, before any of the consult's
-    // work. Every lookup against it returns `empty_store` and falls through to
-    // the heuristics (283k such misses a day while the PioSOLVER hosts are
-    // off and V31 is parked), so skipping it decides identically. One counter
-    // keeps the empty store visible instead of three miss counters.
-    const v53SolverHandOff = (): boolean => {
-      if ((opts.v53Pressure ?? true) === false || !useMind || opponents.length !== 1) return false;
-      try {
-        const read = HorseMind.opponentRead(opponents[0].user_id);
-        if (!read) return false;
-        const target =
-          aggressiveBettorPressure(read) !== null ||
-          (isRiver && riverFoldLowerBound(read) !== null);
-        if (target && tele15) noteFire('v53_pressure_solver_handoff');
-        return target;
-      } catch {
-        return false;
-      }
+    // V31 CERTIFIED DIRECT POLICY: HorseV31CertifiedPolicy.ts owns the whole
+    // consult (eligibility, lookup, sampling, legalization, receipt). It
+    // returns the certified decision, or null to fall through unchanged.
+    const v31Rng = opts.onV31ReplayState ? saveFastRandom() : 0;
+    const v31Input: V31CertifiedInput = {
+      street,
+      player,
+      opponents,
+      gs,
+      vi,
+      opts,
+      tele15,
+      useMind,
+      isRiver,
+      isTournament: isTournamentMode(gs),
+      trustedTournament,
+      pot,
+      toCall,
+      currentBet,
+      legalize: (decision) => this.legalize(decision, player, gs, vi),
     };
-    const v31Eligible =
-      (opts.v31GtoSuitAware ?? true) !== false &&
-      (street === 'flop' || street === 'turn' || street === 'river') &&
-      player.cards.length === 2 &&
-      vi.holeCount === 2 &&
-      !vi.isFixedLimit &&
-      !vi.isOmaha &&
-      !vi.isShortDeck &&
-      opponents.length === 1 &&
-      // The certified V31 context has no straddle axis. A straddle-enabled
-      // hand can have a different root pot, preflop ranges, action order, and
-      // SPR, so a standard-pot cell is not evidence for it. V18/heuristics
-      // retain ownership until a separately keyed straddle corpus exists.
-      gs.straddleActive !== true &&
-      gs.bombPot !== true &&
-      !(gs.communityCards2 && gs.communityCards2.length > 0) &&
-      // V53 (2026-10-24): a heads-up opponent the pressure layer targets - a
-      // credibly aggressive bettor, or a credible river over-folder on the
-      // river - is played by the exploit layer, not by a solver cell built
-      // for a balanced opponent. Null read, no change (neutrality).
-      !v53SolverHandOff();
-    const v31StoreEmpty = v31Eligible && gtoV31StoreIsEmpty(opts.gtoV31DatasetChecksum);
-    if (v31StoreEmpty && tele15) noteFire('v31_certified_skip_empty_store');
-    if (v31Eligible && !v31StoreEmpty) {
-      const opponent31 = opponents[0];
-      const heroSeat31 = gtoV31Position({
-        seat: player.seat,
-        dealerSeat: gs.dealerSeat,
-        players: gs.players,
-        dealtSeatIds: gs.dealtSeatIds,
-      });
-      const opponentSeat31 = gtoV31Position({
-        seat: opponent31.seat,
-        dealerSeat: gs.dealerSeat,
-        players: gs.players,
-        dealtSeatIds: gs.dealtSeatIds,
-      });
-      const context31 = classifyGtoDecisionContext({
-        street,
-        hero: player,
-        opponents,
-        actionHistory: gs.actionHistory,
-        currentBet: gs.currentBet,
-        pot: gs.pot,
-      });
-      let family31: GtoV31GameFamily | null = null;
-      let objective31: GtoV31Objective | null = null;
-      if (!isTournamentMode(gs)) {
-        family31 = 'cash';
-        objective31 = 'cash_ev';
-      } else if (gs.format === 'spin') {
-        family31 = 'spin';
-        objective31 = (trustedTournament?.spotsPaid ?? 1) <= 1 ? 'chip_ev' : 'icm';
-      } else if (
-        Array.isArray(trustedTournament?.stacks) &&
-        trustedTournament.stacks.length >= 2 &&
-        Array.isArray(trustedTournament?.payoutPct) &&
-        trustedTournament.payoutPct.length >= 1 &&
-        !((trustedTournament?.playersLeft ?? 0) <= 2 && (trustedTournament?.spotsPaid ?? 1) <= 1)
-      ) {
-        family31 = 'tourney_icm';
-        objective31 = 'icm';
-      } else {
-        family31 = 'tourney_ev';
-        objective31 = 'chip_ev';
+    const v31Decision = decideV31Certified(v31Input);
+    if (v31Decision) {
+      if (opts.onV31ReplayState) {
+        opts.onV31ReplayState(captureV31ReplayState(v31Input, v31Rng, v31Decision));
       }
-      const utility31 =
-        family31 && objective31
-          ? gtoV31UtilityContext({
-              family: family31,
-              objective: objective31,
-              tournament: trustedTournament,
-            })
-          : null;
-      const potType31 = gtoV31PotType(gs.actionHistory);
-      const hand31 = gtoHandClass(player.cards[0], player.cards[1]);
-
-      const opponentRootStack31 = gtoV31FlopRootStack({
-        street,
-        player: opponent31,
-        actionHistory: gs.actionHistory,
-      });
-      const heroRootStack31 = gtoV31FlopRootStack({
-        street,
-        player,
-        actionHistory: gs.actionHistory,
-      });
-      const effective31 =
-        opponentRootStack31 !== null && heroRootStack31 !== null
-          ? Math.min(heroRootStack31, opponentRootStack31)
-          : null;
-      const stackBB31 = effective31 !== null && gs.bigBlind > 0 ? effective31 / gs.bigBlind : null;
-      // V33 is default OFF since 2026-09-28 (league: 23 runs, -2.97 +/- 1.09
-      // bb/100 with it on). Beyond the ceiling the bucketed answer is served,
-      // and every such spot is still counted so the staleness stays visible.
-      const beyond31 = stackBB31 !== null && beyondGtoDepthCeiling(stackBB31);
-      const tooDeep31 = beyond31 && opts.v33DepthCeiling === true;
-      if (tooDeep31 && tele15) noteFire('gto_skip_too_deep');
-      else if (beyond31 && tele15) noteFire('gto_served_beyond_depth_ceiling');
-
-      const direct31 =
-        context31 &&
-        family31 &&
-        objective31 &&
-        utility31 &&
-        heroSeat31 &&
-        opponentSeat31 &&
-        stackBB31 !== null &&
-        heroSeat31.tableSize === opponentSeat31.tableSize &&
-        gtoV31HasHeadsUpPostflopLine(gs.actionHistory, player.seat, opponent31.seat) &&
-        !tooDeep31
-          ? gtoStreetAdviceV31({
-              street,
-              family: family31,
-              objective: objective31,
-              utilityContext: utility31,
-              tableSize: heroSeat31.tableSize,
-              potType: potType31,
-              heroPosition: heroSeat31.position,
-              opponentPosition: opponentSeat31.position,
-              stackBB: stackBB31,
-              board: gs.communityCards,
-              hand: hand31,
-              holeCards: player.cards,
-              nodeRole: context31.nodeRole,
-              facingKind: context31.facingKind,
-              facingSizeBucket: context31.facingSizeBucket,
-              datasetChecksum: opts.gtoV31DatasetChecksum,
-            })
-          : null;
-      if (direct31?.hit && stackBB31 !== null) {
-        if (tele15 && !cellDepthIsPrimary(direct31.cell, stackBB31, direct31.depthBucket)) {
-          noteFire('gto_depth_fallback');
-        }
-        const actionId31 = rollMix(direct31.mix, fastRandom);
-        const action31 = actionId31 ? direct31.actions[actionId31] : null;
-        if (action31 && actionId31) {
-          let intended31: HorseDecision | null = null;
-          if (action31.family === 'check') {
-            intended31 = { action: 'check', thinkTime: 0 };
-          }
-          if (action31.family === 'fold') {
-            intended31 = { action: 'fold', thinkTime: 0 };
-          }
-          if (action31.family === 'call') {
-            intended31 = { action: 'call', amount: toCall, thinkTime: 0 };
-          }
-          if (action31.family === 'all_in') {
-            intended31 = { action: 'all_in', thinkTime: 0 };
-          }
-          if (
-            action31.family === 'bet' &&
-            action31.size_unit === 'pot_fraction' &&
-            action31.size_value
-          ) {
-            intended31 = { action: 'bet', amount: pot * action31.size_value, thinkTime: 0 };
-          }
-          if (
-            action31.family === 'raise' &&
-            action31.size_unit === 'pot_after_call_fraction' &&
-            action31.size_value
-          ) {
-            intended31 = {
-              action: 'raise',
-              amount: currentBet + (pot + toCall) * action31.size_value,
-              thinkTime: 0,
-            };
-          }
-          if (intended31) {
-            const final31 = this.legalize(intended31, player, gs, vi);
-            const sampledAmount31 = intended31.amount ?? null;
-            const finalAmount31 = final31.amount ?? null;
-            const executedAsIntended31 = gtoV31ExecutionMatches({
-              sampledFamily: action31.family,
-              sampledAmount: sampledAmount31,
-              finalAction: final31.action,
-              finalAmount: finalAmount31,
-              bigBlind: gs.bigBlind,
-            });
-            if (
-              opts.onGtoV31Decision &&
-              hand31 &&
-              context31 &&
-              family31 &&
-              objective31 &&
-              utility31 &&
-              heroSeat31 &&
-              opponentSeat31
-            ) {
-              opts.onGtoV31Decision({
-                datasetId: direct31.sourceSeal.dataset_id,
-                datasetChecksum: direct31.sourceSeal.dataset_checksum,
-                decisionState: {
-                  schemaVersion: 1,
-                  street,
-                  gameVariant: 'nlh',
-                  gameFamily: family31,
-                  objective: objective31,
-                  utilityContext: utility31,
-                  format: gs.format ?? (isTournamentMode(gs) ? 'mtt' : 'cash'),
-                  tableSize: heroSeat31.tableSize,
-                  potType: potType31,
-                  heroPosition: heroSeat31.position,
-                  opponentPosition: opponentSeat31.position,
-                  stackBb: stackBB31,
-                  depthBucket: direct31.depthBucket,
-                  textureClass: direct31.textureClass,
-                  nodeRole: direct31.nodeRole,
-                  facingKind: context31.facingKind,
-                  facingSizeBucket: context31.facingSizeBucket,
-                  hand: hand31,
-                  handKey: direct31.handKey,
-                  cell: direct31.cell,
-                  board: structuredClone(gs.communityCards),
-                  holeCards: structuredClone(player.cards),
-                  pot,
-                  currentBet,
-                  toCall,
-                  bigBlind: gs.bigBlind,
-                },
-                nodeRole: direct31.nodeRole,
-                cell: direct31.cell,
-                handKey: direct31.handKey,
-                actionId: actionId31,
-                sampledActionFamily: action31.family,
-                sampledAmount: sampledAmount31,
-                finalAction: final31.action,
-                finalAmount: finalAmount31,
-                executedAsIntended: executedAsIntended31,
-                referenceDistribution: structuredClone(direct31.mix),
-                policyEvBb: direct31.policyEvBb,
-                actionEvsBb: structuredClone(direct31.actionEvsBb),
-                sourceSeal: structuredClone(direct31.sourceSeal),
-              });
-            }
-            if (tele15) {
-              noteFire(
-                executedAsIntended31
-                  ? `v31_certified_${direct31.nodeRole}`
-                  : 'v31_certified_execution_mismatch'
-              );
-            }
-            return final31;
-          }
-        }
-        if (tele15) noteFire('v31_certified_unusable_action');
-      } else if (direct31 && !direct31.hit && stackBB31 !== null && tele15) {
-        noteFire(`v31_certified_miss_${direct31.miss}`);
-        noteGtoMiss('v31', street, stackBB31);
-      } else if (tele15 && isTournamentMode(gs) && (!objective31 || !utility31)) {
-        noteFire('v31_certified_skip_unknown_tournament_utility');
-      } else if (tele15 && (!heroSeat31 || !opponentSeat31)) {
-        noteFire('v31_certified_skip_unknown_position');
-      } else if (tele15 && stackBB31 === null) {
-        noteFire('v31_certified_skip_unknown_root_stack');
-      } else if (
-        tele15 &&
-        !gtoV31HasHeadsUpPostflopLine(gs.actionHistory, player.seat, opponent31.seat)
-      ) {
-        noteFire('v31_certified_skip_multiway_history');
-      }
+      return v31Decision;
     }
 
     // ═══ V37 SATELLITE, POSTFLOP FALLBACK ═══ Certified exact satellite ICM
@@ -10171,6 +9872,17 @@ export class HorseLogic {
         !barrelOutlookRiverPending
       ) {
         const oppRb = opponents.length === 1 ? opponents[0] : null;
+        // The nut blocker on one board, in this game's ranking (short deck:
+        // the 36-card deck, A-6-7-8-9 the lowest straight).
+        const nutBlockerRb = (b: Card[]): boolean =>
+          b.length === 5 &&
+          riverNutBlocker(
+            player.cards,
+            b,
+            vi.isOmaha,
+            vi.isOmaha && omahaFlushBlocker(player.cards, b, vi.holeCount).blocksNutFlush === true,
+            vi.isShortDeck
+          );
         const eligRb = riverBluffEligibility({
           omaha: vi.isOmaha,
           potLimit: vi.isPotLimit,
@@ -10193,13 +9905,16 @@ export class HorseLogic {
           inPosition: ip,
           initiative,
           scareCard: scare.any,
-          nutBlocker: riverNutBlocker(
-            player.cards,
-            board,
-            vi.isOmaha,
-            vi.isOmaha &&
-              omahaFlushBlocker(player.cards, board, vi.holeCount).blocksNutFlush === true
-          ),
+          nutBlocker: nutBlockerRb(board),
+          boards: multiBoard36 ? allBoards36 : undefined,
+          boardEquities: multiBoard36 ? boardEq36 : undefined,
+          nutBlockerByBoard: multiBoard36 ? allBoards36.map(nutBlockerRb) : undefined,
+          paths: {
+            fixedLimit: opts.riverBluffFixedLimit !== false,
+            shortDeck: opts.riverBluffShortDeck !== false,
+            bombPot: opts.riverBluffBombPot !== false,
+            multiBoard: opts.riverBluffMultiBoard !== false,
+          },
           riverHelpsHero: rangeChange?.improves === true || rangeChange?.nutAdvantage === true,
           rangesFavorOpponent:
             runoutFavorsOpponent === true || rangeAdvantage?.disadvantage === true,
@@ -10216,6 +9931,20 @@ export class HorseLogic {
             riverHelpsHero: rangeChange?.improves === true || rangeChange?.nutAdvantage === true,
             icmRisk: isTournamentMode(gs) ? risk : 0,
             u: fastRandom(),
+            // Fixed limit: the river's one legal bet. The controller publishes
+            // it; otherwise the big bet is twice the hand's small bet.
+            ...(vi.isFixedLimit
+              ? {
+                  fixedLimitBet:
+                    Number.isFinite(gs.fixedBetSize) && (gs.fixedBetSize as number) > 0
+                      ? (gs.fixedBetSize as number)
+                      : 2 *
+                        (Number.isFinite(gs.fixedLimitSmallBet) &&
+                        (gs.fixedLimitSmallBet as number) > 0
+                          ? (gs.fixedLimitSmallBet as number)
+                          : gs.bigBlind),
+                }
+              : {}),
           });
           const compRb =
             ownRange && opponentRange
@@ -10273,11 +10002,16 @@ export class HorseLogic {
               false
             );
             const placedRb = betRb.action === 'bet' || betRb.action === 'all_in';
-            if (tele15 && placedRb) noteFire(`river_bluff_baseline_${eligRb.selection}`);
-            else if (tele15) noteFire('river_bluff_baseline_illegal');
+            if (tele15 && placedRb) {
+              noteFire(`river_bluff_baseline_${eligRb.selection}`);
+              for (const t of eligRb.gameTypes) noteFire(`river_bluff_baseline_bet_${t}`);
+            } else if (tele15) noteFire('river_bluff_baseline_illegal');
             return betRb;
           }
-          if (tele15) noteFire('river_bluff_baseline_check');
+          if (tele15) {
+            noteFire('river_bluff_baseline_check');
+            for (const t of eligRb.gameTypes) noteFire(`river_bluff_baseline_check_${t}`);
+          }
           return { action: 'check', thinkTime: 0 };
         } else if (tele15 && eligRb.reason !== 'showdown_value' && eligRb.reason !== 'domain') {
           noteFire(`river_bluff_baseline_skip_${eligRb.reason}`);

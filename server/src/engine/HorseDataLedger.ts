@@ -672,6 +672,10 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'onGtoV31Decision',
     'captures decision-level source receipts for paired replay and league reconciliation'
   ),
+  evaluationControl(
+    'onV31ReplayState',
+    'records each certified decision with its inputs and RNG position for the replay digest'
+  ),
   flag(
     'v32FacingDefense',
     'solver facing-bet defense; DEFAULT OFF since 2026-10-16 (v32_facing_defense -0.31 +/- 0.15 over 41 runs)',
@@ -979,6 +983,26 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'riverBluffMultiway',
     'multiway river bluffs (HorseMultiwayRiverBluff): two or three opponents, air with a nut blocker on a line that caps the whole field, frequency falling steeply per opponent and multiplying every opponent read (a station near zero), polarized pot-limit-legal size; default on, false ablates (Dan 2026-11-06)',
     'River bluff multiway'
+  ),
+  flag(
+    'riverBluffFixedLimit',
+    'fixed-limit path of the baseline river bluff range: the one fixed bet, so a low but real balanced share s/(1+s); default on, false restores the #9803 exclusion (2026-11-07)',
+    'River bluff baseline'
+  ),
+  flag(
+    'riverBluffShortDeck',
+    "short-deck path of the baseline river bluff range: draws and blockers in the engine's 36-card ranking (A-6-7-8-9 a straight, a flush over a full house); default on, false restores the #9803 exclusion (2026-11-07)",
+    'River bluff baseline'
+  ),
+  flag(
+    'riverBluffBombPot',
+    'bomb-pot path of the baseline river bluff range: postflop stories only, no preflop range assumed; default on, false restores the #9803 exclusion (2026-11-07)',
+    'River bluff baseline'
+  ),
+  flag(
+    'riverBluffMultiBoard',
+    'multi-board path of the baseline river bluff range: air on every board, blockers and draws read per board, share divided by the board count (V36 rule 2); default on, false restores the #9803 exclusion (2026-11-07)',
+    'River bluff baseline'
   ),
   flag(
     'phase7Utility',
@@ -4112,7 +4136,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'river_bluff_baseline_*',
     'HorseLogic not-facing-a-bet river (HorseRiverBluffRange)',
-    'the baseline river bluff decided a qualified candidate: junk, missedDraw, blocker or blockerAndDraw (a bluff bet of that selection), check (the candidate checked at the balanced frequency) or illegal (the size could not be legalized); skip_multiway, skip_cannot_respond and skip_no_story say why a river with no bet to face was left to the layers below',
+    'the baseline river bluff decided a qualified candidate: junk, missedDraw, blocker or blockerAndDraw (a bluff bet of that selection), check (the candidate checked at the balanced frequency) or illegal (the size could not be legalized); bet_<type> and check_<type> (fixedLimit, shortDeck, bombPot, multiBoard) mark the same decision in a game type #9803 excluded; skip_multiway, skip_cannot_respond and skip_no_story say why a river with no bet to face was left to the layers below',
     'River bluff baseline'
   ),
   // No floor: fires only on multiway rivers with a blocker and a story.

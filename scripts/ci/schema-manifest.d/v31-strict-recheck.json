@@ -1,0 +1,17 @@
+{
+  "_owner": "feat/v31-replay-digest",
+  "_comment": "Migration 20261107035438_v31_strict_recheck_binds_a_new_engine_only_after_it_replays_ declares the execution anchors, re-check rounds, their functions and three serving-binding columns; installed through Apply Merged Migration after merge.",
+  "tables": ["gto_v31_execution_anchors", "gto_v31_recheck_rounds"],
+  "functions": [
+    "fn_gto_v31_abandon_recheck_round",
+    "fn_gto_v31_execution_anchor_guard",
+    "fn_gto_v31_open_recheck_round",
+    "fn_gto_v31_record_execution_anchor",
+    "fn_gto_v31_record_recheck_result",
+    "fn_gto_v31_recheck_epoch",
+    "fn_gto_v31_recheck_round_guard",
+    "fn_gto_v31_recheck_status",
+    "fn_gto_v31_replay_corpus"
+  ],
+  "columns": { "gto_v31_serving_bindings": ["recheck_round_id", "execution_digest", "replay_digest"] }
+}

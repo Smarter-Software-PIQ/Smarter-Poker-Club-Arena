@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { invocation, servingIdentity, pinOwner, epochReceipts, selectEpoch as select, promotionPlan, maintenanceRefusal,
   evaluatorArguments, hostTranscript, OUTCOMES, promotionRequest, PROMOTION_BUDGET_MS, EPOCH_PROTOCOL, epochProtocolPresent,
-  epochAwareCommit, SERVING_GATE, servingGateCommit, runnerRevokes, requiredFamilies, expectedReceipts } from './gto-v31-qualification.mjs';
+  epochAwareCommit, SERVING_GATE, servingGateCommit, runnerRevokes, requiredFamilies, expectedReceipts, recheckPlan,
+  v3ServingAdmitted, RECHECK_CONTRACT } from './gto-v31-qualification.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -246,4 +247,44 @@ test('promotion refuses a serving engine whose live workers cannot refuse an unb
       write({ [path]: `${SERVING_GATE[path]}\n` }); git('add', '-A'); git('commit', '-q', '-m', `restore ${path}`);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('strict re-check: dispatch admits recheck and the evaluator runs in --recheck mode', () => {
+  assert.deepEqual(invocation({ ...valid, inputs: { dataset: id, operation: 'recheck' } }), { dataset: id, operation: 'recheck', reason: null });
+  assert.deepEqual(evaluatorArguments(id, 'recheck'), ['scripts/gto-v31-evaluate-worker.mjs', `--dataset=${id}`, '--recheck']);
+  assert.deepEqual(evaluatorArguments(id, 'evaluate'), ['scripts/gto-v31-evaluate-worker.mjs', `--dataset=${id}`]);
+  assert.throws(() => evaluatorArguments(id, 'promote'));
+});
+
+test('strict re-check: only an execution-identical engine is re-checked, a retired playbook never', () => {
+  const D1 = 'd'.repeat(64), D2 = 'e'.repeat(64);
+  const anchor = { epoch_id: E1, engine_commit: C1, execution_digest: D1, replay_digest: 'f'.repeat(64) };
+  const v3ds = { dataset_id: id, evaluation_contract: RECHECK_CONTRACT, state: 'active' };
+  const rs = (rounds = [], anchors = [anchor]) => ({ dataset_id: id, recheck_epoch_id: E1, anchors, rounds });
+  assert.equal(recheckPlan(v3ds, rs(), C2, D1).action, 'recheck');
+  assert.equal(recheckPlan({ ...v3ds, state: 'candidate' }, rs(), C2, D1).action, 'recheck');
+  assert.equal(recheckPlan(v3ds, rs(), C1, D2).action, 'certifying-engine');
+  const passed = { round_id: E2, epoch_id: E1, serving_commit: C2, outcome: 'passed' };
+  assert.equal(recheckPlan(v3ds, rs([passed]), C2, D1).action, 'already-passed');
+  assert.equal(recheckPlan(v3ds, rs([{ ...passed, outcome: 'abandoned' }]), C2, D1).action, 'recheck');
+  assert.throws(() => recheckPlan(v3ds, rs(), C2, D2), /full new certification/);
+  assert.throws(() => recheckPlan(v3ds, rs([{ ...passed, serving_commit: C3, outcome: 'retired' }]), C2, D1), /retired for good/);
+  assert.throws(() => recheckPlan(v3ds, rs([], []), C2, D1), /no execution anchor/);
+  assert.throws(() => recheckPlan({ ...v3ds, evaluation_contract: 'gto_v31_candidate.v2' }, rs(), C2, D1), /contract v3/);
+  assert.throws(() => recheckPlan({ ...v3ds, state: 'evaluating' }, rs(), C2, D1), /candidate or active/);
+  assert.throws(() => recheckPlan(v3ds, { ...rs(), dataset_id: E2 }, C2, D1), /certified epoch/);
+  assert.throws(() => recheckPlan(v3ds, rs(), 'x', D1), /serving engine/);
+});
+
+test('strict re-check: a v3 playbook is served by its certifying engine or a passed round only', () => {
+  const anchor = { epoch_id: E1, engine_commit: C1, execution_digest: 'd'.repeat(64) };
+  const rs = (rounds = []) => ({ dataset_id: id, recheck_epoch_id: E1, anchors: [anchor], rounds });
+  assert.deepEqual(v3ServingAdmitted(rs(), E1, C1), { admitted: true, via: 'certifying-engine' });
+  assert.equal(v3ServingAdmitted(rs(), E1, C2).admitted, false);
+  assert.match(v3ServingAdmitted(rs(), E1, C2).reason, /recheck operation/);
+  const passed = { round_id: E2, epoch_id: E1, serving_commit: C2, outcome: 'passed' };
+  assert.deepEqual(v3ServingAdmitted(rs([passed]), E1, C2), { admitted: true, via: 'recheck', roundId: E2 });
+  assert.equal(v3ServingAdmitted(rs([{ ...passed, epoch_id: E2 }]), E1, C2).admitted, false, 'a round of another epoch admits nothing');
+  assert.equal(v3ServingAdmitted(rs([passed, { round_id: E1, epoch_id: E1, serving_commit: C3, outcome: 'retired' }]), E1, C2).admitted, false);
+  assert.equal(v3ServingAdmitted({ anchors: [], rounds: [] }, E1, C1).admitted, false);
 });
