@@ -2720,6 +2720,47 @@ describe('ClubDataPage', () => {
     await waitFor(() => expect(sortedLoadMore).toBeEnabled());
   });
 
+  it('retires the outgoing Recent prefetch retry when the sort changes', async () => {
+    let recentCalls = 0;
+    rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+      if (fn === 'ca_club_data_snapshot_v2') {
+        return { data: snapshotWithRows(snapshot.rows, 250), error: null };
+      }
+      if (fn === 'ca_club_game_page') {
+        if (args?.p_sort === 'recent') {
+          recentCalls += 1;
+          // A cold-cache cancellation: retryable, so coldRead backs off and
+          // tries again - but only while the Recent view is still the one shown.
+          return {
+            data: null,
+            error: { message: 'canceling statement due to statement timeout', code: '57014' },
+          };
+        }
+        return {
+          data: gamePageFor(args, {
+            rows: [],
+            next_cursor: null,
+            has_more: false,
+            filtered_count: 250,
+            generated_at: snapshot.generated_at,
+          }),
+          error: null,
+        };
+      }
+      if (fn === 'ca_club_union_invoices') return { data: [], error: null };
+      return { data: null, error: null };
+    });
+
+    render(<ClubDataPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    await screen.findByText(snapshot.rows[0].name);
+    await waitFor(() => expect(recentCalls).toBe(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Highest Fee' }));
+    // Longer than the 350ms first backoff, so an orphan retry would have fired.
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(recentCalls).toBe(1);
+  });
+
   it('serves the first metric-sorted continuation from the initial ranked query', async () => {
     const rankedRows = Array.from({ length: 200 }, (_, index) => ({
       ...snapshot.rows[0],

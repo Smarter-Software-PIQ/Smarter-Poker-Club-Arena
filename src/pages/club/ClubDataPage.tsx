@@ -405,6 +405,32 @@ function coldRead<T>(
 }
 
 /**
+ * A RETRY LADDER BELONGS TO THE QUERY THAT STARTED IT (2026-11-06).
+ *
+ * coldRead stops retrying when the page unmounts, but a read whose query had
+ * already been retired (the operator changed sort, range or filter, or a newer
+ * load superseded it) kept retrying anyway: the outgoing Recent prefetch fired
+ * its backoff retry after a switch to Highest Fee, adding another reporting
+ * scan for a view nobody was looking at. Every caller already drops a stale
+ * result, so ending the ladder early loses nothing. This also made the
+ * metric-sort continuation test flaky on loaded CI runners, where that orphan
+ * retry landed mid-assertion.
+ */
+function whileCurrent(
+  mountedRef: MutableRefObject<boolean>,
+  isStale: () => boolean
+): MutableRefObject<boolean> {
+  return {
+    get current() {
+      return mountedRef.current && !isStale();
+    },
+    set current(_value: boolean) {
+      // Read-only view: mount state is owned by mountedRef.
+    },
+  };
+}
+
+/**
  * Every timestamp on this page is Chicago time and the range chip is badged
  * Chicago Time. A bare local time with no marker made "updated 19:42" look
  * like it preceded a range ending "today". A malformed value reads "Unknown".
@@ -1358,7 +1384,7 @@ export default function ClubDataPage() {
                 }),
               'Club data request timed out',
               3,
-              mountedRef
+              whileCurrent(mountedRef, stale)
             );
         const pageRequest =
           gameSort === 'recent'
@@ -1382,7 +1408,7 @@ export default function ClubDataPage() {
                   }),
                 'Club games request timed out',
                 3,
-                mountedRef
+                whileCurrent(mountedRef, stale)
               );
         const [snapshotResult, pageResult] = await Promise.all([snapshotRequest, pageRequest]);
         if (stale()) return false;
@@ -1533,7 +1559,7 @@ export default function ClubDataPage() {
                 }),
               'Recent games prefetch timed out',
               1,
-              mountedRef
+              whileCurrent(mountedRef, stale)
             )
               .then(({ data: prefetchedData, error: prefetchError }) => {
                 const prefetchPage = prefetchedData as GamePage | null;
@@ -1745,7 +1771,7 @@ export default function ClubDataPage() {
               }),
             'Player totals request timed out',
             3,
-            mountedRef
+            whileCurrent(mountedRef, stale)
           ),
           coldRead(
             () =>
@@ -1760,7 +1786,7 @@ export default function ClubDataPage() {
               }),
             'Player data request timed out',
             3,
-            mountedRef
+            whileCurrent(mountedRef, stale)
           ),
         ]);
         if (stale()) return false;
@@ -2020,7 +2046,7 @@ export default function ClubDataPage() {
           }),
         'More games request timed out',
         2,
-        mountedRef
+        whileCurrent(mountedRef, stale)
       );
       if (stale()) return;
       const page = data as GamePage | null;
