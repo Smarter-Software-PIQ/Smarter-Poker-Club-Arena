@@ -96,6 +96,30 @@ class ActivationFloor(unittest.TestCase):
         self.sha = self.commit()
         return floor.policy(str(self.repo), self.sha, self.sha)
 
+    def test_nov7_exception_binds_the_exact_order_and_current_deadline(self):
+        window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
+        path = self.repo / 'server/release/owner-maintenance-windows.json'
+        path.write_text(json.dumps({'version': 1, 'windows': [window]}))
+        target = self.commit()
+        from datetime import datetime
+        import hashlib
+        start, end = (int(datetime.fromisoformat(window[k].replace('Z', '+00:00')).timestamp())
+                      for k in ('notBefore', 'notAfter'))
+        record = dict(schema=floor.OWNER_CAPABILITY, ownerWindowId=window['id'],
+                      manifestSha256=hashlib.sha256(raw).hexdigest(), targetSha=target,
+                      activationEpoch=start, expiresEpoch=end)
+        floor.nov7_owner(str(self.repo), record, start, end)
+        floor.nov7_owner(str(self.repo), record, end-1, end)
+        for now, deadline, changes in ((start-1, end, {}), (end, end+1, {}),
+                                       (start, start, {}), (start, end, {'ownerWindowId': 'old-window'}),
+                                       (start, end, {'manifestSha256': '0'*64})):
+            with self.assertRaises(ValueError):
+                floor.nov7_owner(str(self.repo), dict(record, **changes), now, deadline)
+        window['contains'] = target
+        path.write_text(json.dumps({'version': 1, 'windows': [window]}))
+        with self.assertRaisesRegex(ValueError, 'owner order differs'):
+            floor.nov7_owner(str(self.repo), dict(record, targetSha=self.commit()), start, end)
+
     def test_explicit_later_owner_window_precedes_fresh_phase1_but_keeps_original_entries(self):
         import contextlib
         import io

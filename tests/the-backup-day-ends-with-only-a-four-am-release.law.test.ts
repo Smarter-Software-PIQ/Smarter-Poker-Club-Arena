@@ -39,7 +39,7 @@ function clockAt(stamp: string) {
   return spawnSync('python3', ['-c', prefix + clock], { encoding: 'utf8' });
 }
 describe('Backup qualification and the daily release are separate authorities', () => {
-  it('retains exact certification and then refuses daytime preparation unconditionally', () => {
+  it('requires the exact Backup certificate before daily or protected November 7 admission', () => {
     const steps = receiver.jobs.preflight.steps;
     expect(steps.indexOf(gate)).toBe(
       steps.findIndex((s: any) => s.id === 'backup_certificate') + 1
@@ -48,22 +48,68 @@ describe('Backup qualification and the daily release are separate authorities', 
     expect(gate['continue-on-error']).toBeUndefined();
     expect(gate.run).toContain('now.hour == 3 and 30 <= now.minute < 50');
     expect(gate.run).toContain('policy.get("phase1Status") not in ("off", "complete")');
+    expect(gate.env.CONTROL_SHA).toBe('${{ github.sha }}');
+    expect(gate.run).toContain(
+      'git merge-base --is-ancestor "$CONTROL_SHA" refs/remotes/origin/main'
+    );
+    expect(gate.run).toContain(
+      'git show "$CONTROL_SHA:server/scripts/engine-release-activation-floor.py"'
+    );
+    expect(gate.run).toContain('nov7-owner --repo . --target "$TARGET_SHA"');
+    expect(gate.run).toContain('*) exit "$gate_status" ;;');
     expect(receiver.jobs.deploy.needs).toContain('preflight');
   });
   it.each([
     ['2026-11-06T09:30:00+00:00', 'off', 0],
     ['2026-11-06T09:49:59+00:00', 'complete', 0],
     ['2026-03-08T08:30:00+00:00', 'off', 0],
-    ['2026-11-06T09:29:59+00:00', 'off', 1],
-    ['2026-11-06T09:50:00+00:00', 'off', 1],
-    ['2026-11-06T20:00:00+00:00', 'off', 1],
+    ['2026-11-06T09:29:59+00:00', 'off', 3],
+    ['2026-11-06T09:50:00+00:00', 'off', 3],
+    ['2026-11-06T20:00:00+00:00', 'off', 3],
     ['2026-11-06T09:30:00+00:00', 'active', 1],
   ])('executes receiver admission for %s / %s', (stamp, status, expected) => {
-    const code = gate.run.split("<<'PYTHON'\n")[1].split('\nPYTHON')[0];
+    const code = gate.run.split("<<'PYTHON' || gate_status=$?\n")[1].split('\nPYTHON')[0];
     const prefix = `import datetime, subprocess, os\noriginal=datetime.datetime\nclass Clock(original):\n @classmethod\n def now(cls,tz=None):\n  return original.fromisoformat(${JSON.stringify(stamp)}).astimezone(tz)\ndatetime.datetime=Clock\nos.environ['TARGET_SHA']='a'*40\nsubprocess.check_output=lambda *a,**k: ${JSON.stringify(JSON.stringify({ phase1Status: status }))}\n`;
     const result = spawnSync('python3', ['-c', prefix + code], { encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(expected);
   });
+  it.each([
+    [0, 91, 0, false],
+    [1, 0, 1, false],
+    [3, 91, 91, true],
+    [3, 0, 0, true],
+  ])(
+    'propagates the owner validator result only outside daily preparation',
+    (daily, owner, exit, called) => {
+      const dir = mkdtempSync(resolve(tmpdir(), 'receiver-owner-'));
+      try {
+        const harness = `git() { return 0; }
+python3() {
+  if [ "$1" = - ]; then cat >/dev/null; return "$DAILY_RESULT"; fi
+  [ "$1" = -B ] && [ "$3" = nov7-owner ] && [ "$6" = --target ] && [ "$7" = "$TARGET_SHA" ] &&
+    [ "$8" = --control ] && [ "$9" = "$CONTROL_SHA" ] || return 92
+  echo owner-validator
+  return "$OWNER_RESULT"
+}
+`;
+        const result = spawnSync('bash', ['-c', harness + gate.run], {
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            RUNNER_TEMP: dir,
+            CONTROL_SHA: 'a'.repeat(40),
+            TARGET_SHA: 'b'.repeat(40),
+            DAILY_RESULT: String(daily),
+            OWNER_RESULT: String(owner),
+          },
+        });
+        expect(result.status, result.stderr).toBe(exit);
+        expect(result.stdout.includes('owner-validator')).toBe(called);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  );
   it('removes hourly publication and runtime policy without claiming programme completion', () => {
     expect(stage.on.schedule.every((s: any) => s.cron !== '30 * * * *')).toBe(true);
     const admission = stage.jobs.detect.steps.find((s: any) => s.id === 'admission').run;
@@ -92,18 +138,18 @@ describe('Backup qualification and the daily release are separate authorities', 
     expect(clockAt(stamp).status).toBe(1);
   });
   it('checks the host clock before checkpoint, certificate and actual replacement', () => {
-    expect(transaction).toContain('maintenance_certificate() {\n  daily_cutover_clock || return 1');
+    expect(transaction).toContain(
+      'maintenance_certificate() {\n  daily_cutover_clock || nov7_owner_admitted || return 1'
+    );
     expect(transaction).toContain(
       'legacy_checkpoint_countdown() {\n  daily_cutover_clock || return 1'
     );
     expect(transaction).toContain(
-      "PREPARED=1\nrequire_backup_certificate || die 'exact target Backup certificate is not currently successful; no replacement authorized'\ndaily_cutover_clock || die 'engine replacement is only allowed at 04:00 America/Chicago'"
+      "PREPARED=1\nrequire_backup_certificate || die 'exact target Backup certificate is not currently successful; no replacement authorized'\ndaily_cutover_clock || nov7_owned_countdown || die 'engine replacement requires the daily window or the reserved Nov 7 countdown'"
     );
-    expect(transaction).toContain(
-      'request_recovery_window() {\n  return 0 # daily-only: no new off-cycle announcements\n  # Historical owner windows cannot announce a daytime pause.\n  daily_cutover_clock || return 0'
-    );
+    expect(transaction).toContain('request_recovery_window() {\n  nov7_owner_admitted || return 0');
   });
-  it('never asks for a new emergency pause, even within the 4 AM window', () => {
+  it('ordinary releases never request an extra pause', () => {
     const request = transaction.slice(
       transaction.indexOf('request_recovery_window() {'),
       transaction.indexOf('persist_break_deadline() {')
@@ -112,7 +158,7 @@ describe('Backup qualification and the daily release are separate authorities', 
       'bash',
       [
         '-c',
-        `set -eu\n${request}\ncurl() { echo forbidden-read; return 99; }\ndaily_cutover_clock() { echo forbidden-clock; return 99; }\nrequest_recovery_window`,
+        `set -eu\n${transaction.slice(transaction.indexOf('nov7_owner_admitted() {'), transaction.indexOf('nov7_owned_countdown() {'))}\n${request}\ncurl() { echo forbidden-read; return 99; }\ndaily_cutover_clock() { echo forbidden-clock; return 99; }\nrequest_recovery_window`,
       ],
       { encoding: 'utf8' }
     );

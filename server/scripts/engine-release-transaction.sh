@@ -924,6 +924,10 @@ initialise_phase1_cycle() {
     [ "$foreign_rc" = 1 ] || die 'foreign runtime ownership is unreadable'
   fi
   phase1_custody_admission
+  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
+    [ "$prior_cycle" = none ] || die 'Nov 7 owner cannot retarget a reserved routine cycle'
+    return 0
+  fi
   if [ "$prior_cycle" = none ]; then
     # A later, source-bound owner window selects its own :53 notice / :55
     # certificate. Keep the full custody gate above and never reserve a second
@@ -1387,6 +1391,26 @@ raise SystemExit(0 if n.hour == 4 and n.minute < 5 else 1)
 '
 }
 
+# The Nov 7 order has exactly one predecessor, one protected floor and one
+# finite wall-clock interval. The seal binds the run's reservation separately.
+nov7_owner_admitted() {
+  [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ] || return 1
+  [ "${CHECKPOINT_PREDECESSOR_SHA:-}" = 92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4 ] || return 1
+  [ "${PHASE1_CYCLE_START:-0}" = 0 ] && [ -z "${DRILL_MODE:-}" ] || return 1
+  python3 "$CONTROL_DIR/engine-release-activation-floor.py" nov7-owner \
+    --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" --deadline "$MUTATION_DEADLINE_EPOCH"
+}
+
+nov7_owned_countdown() {
+  nov7_owner_admitted || return 1
+  local stamp health
+  stamp="$(floor_reservation_stamp)" || return 1
+  [[ "$stamp" =~ ^[1-9][0-9]{12}$ ]] || return 1
+  health="$(curl -sS --max-time 3 http://127.0.0.1:8080/health)" || return 1
+  printf '%s' "$health" | "$RELEASE_SEAL" bind-recovery-window --nov7-owner --repo "$REPO_DIR" \
+    --run-id "$RUN_ID" --sha "$SHA" --control-sha "$CONTROL_SHA" --announced-at "$stamp" >/dev/null
+}
+
 assert_owner_recovery_window_live() {
   [ -n "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" ] || return 0
   [ "${FLOOR_DISPOSITION:-never-entered}" = announced ] || return 0
@@ -1412,7 +1436,7 @@ certified_recovery_read() {
 }
 
 maintenance_certificate() {
-  daily_cutover_clock || return 1
+  daily_cutover_clock || nov7_owner_admitted || return 1
   # The minimum break remaining is the strict MIN_BREAK_REMAINING_MS unless the
   # caller names another; the only caller that does is the read straight after
   # a legacy checkpoint, which passes LEGACY_MIN_BREAK_REMAINING_MS.
@@ -2017,6 +2041,9 @@ v = json.load(sys.stdin).get("releaseSha")
 print(v if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{40}", v) else "")
 ' 2>/dev/null)" || return 0
   [ -n "$serving" ] || return 0
+  if [ "$id" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
+    [ "$serving" = 92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4 ] || return 0
+  fi
   if [ "$witness_path" != '-' ]; then
     # An immutable feature witness cannot be consumed by an unrelated release
     # of the shared base. Full serving history prevents replay after deletion.
@@ -2158,9 +2185,7 @@ socket.setTimeout(1000,()=>{socket.destroy();process.exit(2);});
 }
 
 request_recovery_window() {
-  return 0 # daily-only: no new off-cycle announcements
-  # Historical owner windows cannot announce a daytime pause.
-  daily_cutover_clock || return 0
+  nov7_owner_admitted || return 0
   local health minute now stamp outcome reason cause_key newer stuck persistent cause_required
   local reserve_args
   [ "$RECOVERY_REQUESTED" = 0 ] || return 0
@@ -2368,6 +2393,9 @@ print(",".join("%s=%s" % (k, bad[k]) for k in sorted(bad)))
   fi
   if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
     reserve_args+=(--certified-policy "$CERTIFIED_RECOVERY_POLICY" --predecessor-sha "$CHECKPOINT_EED_SHA" --control-sha "$CONTROL_SHA")
+  fi
+  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
+    reserve_args+=(--nov7-owner --control-sha "$CONTROL_SHA" --deadline "$MUTATION_DEADLINE_EPOCH")
   fi
   reserve_args+=(--include-eligibility)
   if ! stamp="$(timeout --signal=TERM --kill-after=1s 15s "$RELEASE_SEAL" reserve-recovery-window \
@@ -3368,6 +3396,16 @@ WINDOW_DOOR_LIST_RC=$?
 set -e
 [ "$WINDOW_DOOR_LIST_RC" = 0 ] \
   || die "WINDOW MIGRATION DOORS REFUSED: UNKNOWN - the window-migration doors of $SHA could not be listed (status $WINDOW_DOOR_LIST_RC); refusing before any cutover"
+if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
+  # These functions are explicit terms of the order, even if the protected
+  # candidate's ordinary window-door list has changed since the first refusal.
+  for door in fn_cash_session_set_blind_off fn_lightning_blind_off_players fn_horse_exact_profiles_read; do
+    case ",$WINDOW_DOOR_NAMES," in
+      *",$door,"*) ;;
+      *) WINDOW_DOOR_NAMES="${WINDOW_DOOR_NAMES:+$WINDOW_DOOR_NAMES,}$door" ;;
+    esac
+  done
+fi
 [[ "$WINDOW_DOOR_NAMES" =~ ^([A-Za-z_][A-Za-z0-9_]*(,[A-Za-z_][A-Za-z0-9_]*)*)?$ ]] \
   || die 'WINDOW MIGRATION DOORS REFUSED: UNKNOWN - the window-migration door list is malformed'
 WINDOW_DOORS_READY=0
@@ -3788,7 +3826,7 @@ done
 [[ "$TOKEN" =~ ^[0-9a-f]{64}$ ]] || die 'release seal did not issue a valid one-use token'
 PREPARED=1
 require_backup_certificate || die 'exact target Backup certificate is not currently successful; no replacement authorized'
-daily_cutover_clock || die 'engine replacement is only allowed at 04:00 America/Chicago'
+daily_cutover_clock || nov7_owned_countdown || die 'engine replacement requires the daily window or the reserved Nov 7 countdown'
 MUTATION_STARTED=1
 assert_time_remaining
 assert_break_proof_time
