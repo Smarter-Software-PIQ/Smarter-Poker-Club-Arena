@@ -48,6 +48,14 @@ const actions = new Set([
   'kill_blind',
   'return',
 ]);
+const origins = new Set([
+  'player',
+  'pre_action',
+  'horse_policy',
+  'horse_fallback',
+  'forced',
+  'unknown',
+]);
 const stages = new Set(['preflop', 'flop', 'turn', 'river']);
 const positions = new Set([
   'BTN',
@@ -182,7 +190,7 @@ function validWindow(value: unknown, availableAtMs: number): value is HorseOwnPu
         !keys(
           a,
           ['seat', 'userId', 'action', 'amount', 'stage', 'timestamp'],
-          ['isFullRaise', 'publicNode']
+          ['isFullRaise', 'publicNode', 'origin']
         ) ||
         !Number.isSafeInteger(a.seat) ||
         (a.seat as number) < 1 ||
@@ -191,6 +199,7 @@ function validWindow(value: unknown, availableAtMs: number): value is HorseOwnPu
         !UUID.test(a.userId) ||
         !actions.has(a.action as string) ||
         !stages.has(a.stage as string) ||
+        (a.origin !== undefined && !origins.has(a.origin as string)) ||
         !finite(a.amount) ||
         a.amount < 0 ||
         !clock(a.timestamp) ||

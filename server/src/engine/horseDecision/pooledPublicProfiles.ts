@@ -1,3 +1,4 @@
+import { learnablePublicAction } from '../HorseOpponentExploit.js';
 import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
 import { createHash } from 'node:crypto';
 import {
@@ -103,6 +104,7 @@ export class PooledPublicProfiles {
     const actors = new Set(
       hand.actions.map((a) => a.userId).filter((id): id is string => typeof id === 'string')
     );
+    const learningActors = new Set(hand.actions.filter(learnablePublicAction).map((a) => a.userId));
     this.lastAt = at;
     this.seen.add(key);
     while (this.seen.size > this.capacity) this.seen.delete(this.seen.values().next().value!);
@@ -128,10 +130,12 @@ export class PooledPublicProfiles {
     // A newer accepted action is known even when its profile read failed.
     // Never let stale aggregate counters suppress fresher individual learning.
     const returned = new Set(valid ? profiles.map((p) => p.user_id) : []);
-    for (const id of actors) if (!returned.has(id)) this.rows.delete(rowKey(id));
+    for (const id of actors)
+      if (learningActors.has(id) && !returned.has(id)) this.rows.delete(rowKey(id));
     if (!valid) return 0;
     let learned = 0;
     for (const p of profiles) {
+      if (!learningActors.has(p.user_id)) continue;
       const k = profileKey(p);
       const previous = this.rows.get(k);
       if (previous) {

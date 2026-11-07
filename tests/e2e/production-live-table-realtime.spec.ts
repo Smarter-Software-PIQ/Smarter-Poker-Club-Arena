@@ -2324,14 +2324,19 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
             navigationStartedAt,
             horseUntil
           );
+          const horseJournal = JSON.stringify({
+            tableId,
+            engine: EXPECTED_ENGINE_SHA,
+            from: navigationStartedAt,
+            until: horseUntil,
+            ...evidence,
+          });
+          writeFileSync(
+            testInfo.outputPath('mobile-live-table-horse-seat-continuity.json'),
+            horseJournal
+          );
           await testInfo.attach('horse-seat-continuity', {
-            body: JSON.stringify({
-              tableId,
-              engine: EXPECTED_ENGINE_SHA,
-              from: navigationStartedAt,
-              until: horseUntil,
-              ...evidence,
-            }),
+            body: horseJournal,
             contentType: 'application/json',
           });
           expect(evidence.dropped, 'seat paint overflow').toBe(0);

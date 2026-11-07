@@ -29,7 +29,7 @@ function makeRiverFoldHand(userId: string): ExploitHandAction[] {
     { userId: 'hero', stage: 'turn', action: 'check' },
     { userId, stage: 'turn', action: 'check' },
     { userId: 'hero', stage: 'river', action: 'bet', amount: 4 },
-    { userId, stage: 'river', action: 'fold' },
+    { userId, stage: 'river', action: 'fold', origin: 'player' },
   ];
 }
 
@@ -48,7 +48,7 @@ function makeRiverCallHand(userId: string): ExploitHandAction[] {
 
 function makePreflopFoldHand(userId: string): ExploitHandAction[] {
   return [
-    { userId, stage: 'preflop', action: 'fold' },
+    { userId, stage: 'preflop', action: 'fold', origin: 'player' },
     { userId: 'hero', stage: 'preflop', action: 'call', amount: 2 },
   ];
 }
@@ -163,7 +163,7 @@ describe('HorseRareOpportunityMemory v2 (Item 12 Qualification)', () => {
     for (let i = 0; i < 25; i++) {
       const actions: ExploitHandAction[] = [
         { userId: villain, stage: 'preflop', action: 'raise', amount: 6, isFullRaise: true },
-        { userId: 'hero', stage: 'preflop', action: 'fold' },
+        { userId: 'hero', stage: 'preflop', action: 'fold', origin: 'player' },
       ];
       const inc = exploitHandIncrements(actions).get(villain)!;
       v2Record = observeRareOpportunityHandV2(v2Record, scope, inc, tLater + i * 1_000);
@@ -193,7 +193,7 @@ describe('HorseRareOpportunityMemory v2 (Item 12 Qualification)', () => {
     for (let i = 0; i < 20; i++) {
       const actions: ExploitHandAction[] = [
         { userId: villain, stage: 'preflop', action: 'raise', amount: 6, isFullRaise: true },
-        { userId: 'hero', stage: 'preflop', action: 'fold' },
+        { userId: 'hero', stage: 'preflop', action: 'fold', origin: 'player' },
       ];
       const inc = exploitHandIncrements(actions).get(villain)!;
       v2Record = observeRareOpportunityHandV2(v2Record, scope, inc, t0 + i * 1_000);

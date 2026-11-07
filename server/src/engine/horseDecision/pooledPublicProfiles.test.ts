@@ -106,6 +106,19 @@ describe('owner-authorized public herd profiles', () => {
     packet!.rows[0]!.counters.pfr = 0;
     expect(pool.read(request(other))?.rows[0]?.counters.pfr).toBe(29);
   });
+  it('preserves a prior clean profile across a forced-only hand without admitting a new one', () => {
+    const pool = new PooledPublicProfiles(() => 100);
+    expect(pool.observe(shared())).toBe(1);
+    const next = shared();
+    next.generation = 1000002;
+    next.handKey = `${table}:1000002`;
+    next.fence = `${table}:1000002:${lease}:observe`;
+    next.observerParticipants!.handKey = `${table}:1000002:${lease}`;
+    next.actions = [{ userId: opponent, stage: 'river', action: 'fold', origin: 'forced' }];
+    expect(pool.observe(next)).toBe(0);
+    expect(pool.read(request(other))?.rows[0]?.counters.pfr).toBe(29);
+    expect(new PooledPublicProfiles(() => 100).observe(next)).toBe(0);
+  });
   it('projects away unknown fields, including cards and private plans', () => {
     const pool = new PooledPublicProfiles(() => 100);
     const hand = shared();
