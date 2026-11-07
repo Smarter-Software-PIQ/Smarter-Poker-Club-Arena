@@ -57,6 +57,14 @@ with tempfile.TemporaryDirectory(prefix='stall-proof-', dir=os.environ.get('TMPD
           (tournament_id uuid,requested_at timestamptz,operation_id uuid,settled_at timestamptz);
         CREATE TABLE public.tournament_players(tournament_id uuid,user_id uuid,status text);
         CREATE TABLE public.profiles(id uuid,is_horse boolean);''')
+        decision = re.search(r'CREATE OR REPLACE FUNCTION public\.fn_ca_table_stall_decide\(.*?\$function\$;', source, re.S)
+        assert decision, 'missing stall decision'
+        sql(decision.group(0))
+        decision_at_threshold = "SELECT public.fn_ca_table_stall_decide('{}',60000,'2026-11-07T03:35:00Z',false,true);"
+        assert sql(decision_at_threshold) == 'engine_paused'
+        sql((MIGRATIONS/'20261107034100_an_unexplained_paused_table_is_reported_at_sixty_seconds.sql').read_text())
+        assert sql(decision_at_threshold) == ''
+        sql('DROP FUNCTION public.fn_ca_table_stall_decide(jsonb,bigint,timestamptz,boolean,boolean);')
         for name in ['fn_ca_table_stall_watch_failed', 'fn_ca_table_stall_watch_ingest']:
             match = re.search(r'CREATE OR REPLACE FUNCTION public\.'+name+r'\(.*?\$function\$;', source, re.S)
             assert match, name
