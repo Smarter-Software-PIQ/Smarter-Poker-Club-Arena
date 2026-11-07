@@ -65,6 +65,22 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         before=sql("SELECT starting_chips||','||(blind_structure::jsonb->0->>'smallBlind')||'/'||(blind_structure::jsonb->0->>'bigBlind') FROM tournaments LIMIT 1")
         assert before!='10000,50/100', 'baseline must reproduce legacy terms'
         migration=next((root/'supabase/migrations').glob('*midway_weekly_tournaments_follow_the_owner_spreadsheet.sql'))
+        # Production already owns 142 catalog identities; only the 20:15 split
+        # feeder is new. Keep its original owner trigger installed before DML.
+        sql("""CREATE FUNCTION fn_tournament_schedule_board_is_hard_coded()
+          RETURNS trigger LANGUAGE plpgsql SET search_path TO public AS $$BEGIN
+           IF coalesce(auth.role(),'') IN ('authenticated','anon') AND (
+            (TG_OP<>'INSERT' AND (OLD.config->>'type'='fixed_board' OR OLD.config ? 'fixedBoard')) OR
+            (TG_OP<>'DELETE' AND (NEW.config->>'type'='fixed_board' OR NEW.config ? 'fixedBoard')))
+           THEN RAISE EXCEPTION 'hard coded owner schedule' USING ERRCODE='42501'; END IF;
+           RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END; END$$;
+          CREATE TRIGGER owner_board BEFORE INSERT OR UPDATE OR DELETE ON tournament_schedules
+           FOR EACH ROW EXECUTE FUNCTION fn_tournament_schedule_board_is_hard_coded();""")
+        existing=[e for e in document['events'] if not e['id'].startswith('ef80591d')]
+        assert len(existing)==142
+        seed=[dict(id=e['id'],club_id=scope,union_id=scope,name='Old '+e['name'],active=True,time_zone='America/Chicago',config={}) for e in existing]
+        seed.append(dict(id='ccb6164a-2db4-400a-8ee0-b6607e880f4e',club_id=scope,union_id=scope,name='Retired Prime Time',active=True,time_zone='America/Chicago',config={}))
+        sql("INSERT INTO tournament_schedules SELECT * FROM jsonb_populate_recordset(NULL::tournament_schedules,$seed$"+json.dumps(seed)+"$seed$::jsonb)")
         # Historical inactive rows already satisfy retirement. Their exact
         # row image must not be rewritten or revalidate zones during install.
         sql("""INSERT INTO tournament_schedules(id,club_id,union_id,name,active,time_zone,config)
@@ -77,11 +93,18 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
            RETURN NEW; END$$;
           CREATE TRIGGER inactive_history_update_witness BEFORE UPDATE ON tournament_schedules
            FOR EACH ROW EXECUTE FUNCTION record_inactive_history_update();""")
+        sql("""CREATE TABLE schedule_check_calls(id uuid);
+          CREATE FUNCTION schedule_check_witness(p_id uuid) RETURNS boolean LANGUAGE plpgsql AS $$BEGIN
+           INSERT INTO schedule_check_calls VALUES(p_id); RETURN true; END$$;
+          ALTER TABLE tournament_schedules ADD CONSTRAINT row_check_count CHECK(schedule_check_witness(id));
+          TRUNCATE schedule_check_calls;""")
         # Mirror the production applier's owning transaction identity and 12s
         # bound; the migration retains its own 8s statement/1s lock limits.
         installed=migration.read_text().replace('BEGIN;\n',"BEGIN;\nSET LOCAL application_name='apply-recorded-migration';\nSET LOCAL transaction_timeout='12s';\n",1)
         sql(installed)
         assert sql('SELECT count(*) FROM inactive_history_updates')=='0','inactive historical schedules were rewritten'
+        assert sql("SELECT count(*) FROM (SELECT id FROM schedule_check_calls GROUP BY id HAVING count(*)>1) q")=='0','existing schedule CHECK ran twice through proposed INSERT'
+        assert sql("SELECT active FROM tournament_schedules WHERE id='ccb6164a-2db4-400a-8ee0-b6607e880f4e'")=='f'
 
         sql('''CREATE TRIGGER tournaments_creation_guard BEFORE INSERT ON tournaments FOR EACH ROW EXECUTE FUNCTION fn_tournaments_creation_guard();
          CREATE FUNCTION affordability_witness() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN
@@ -90,7 +113,6 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
              AND NEW.guaranteed_prize IS DISTINCT FROM (fn_ca_midway_weekly_terms(NEW.schedule_id)->>'guaranteed_prize')::numeric
           THEN RAISE EXCEPTION 'Affordability saw a stale guarantee'; END IF; RETURN NEW; END$$;
          CREATE TRIGGER tournaments_guarantee_affordable_ins BEFORE INSERT ON tournaments FOR EACH ROW EXECUTE FUNCTION affordability_witness();''')
-        sql('CREATE TRIGGER owner_board BEFORE INSERT OR UPDATE OR DELETE ON tournament_schedules FOR EACH ROW EXECUTE FUNCTION fn_tournament_schedule_board_is_hard_coded();')
         # Every configured feeder must resolve an active canonical target by
         # the same exact name used by the serving scheduler's target lookup.
         missing_targets=sql("SELECT feeder.name FROM tournament_schedules feeder WHERE feeder.active AND feeder.config ? 'satelliteTargetName' AND NOT EXISTS (SELECT 1 FROM tournament_schedules target WHERE target.active AND target.name=feeder.config->>'satelliteTargetName' AND target.union_id=feeder.union_id)")
