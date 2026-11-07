@@ -24,7 +24,13 @@
  *      window can no longer admit an install (START_RESERVE before its end).
  *      That is one bounded wait for one event, not a watcher: the run ends at
  *      the window either way.
- *   4. Sends each queued file, oldest version first, through
+ *   4. Before each file, waits (bounded, read-only) for a moment in which no
+ *      transaction older than QUIET_HOLDER_AGE_MS holds a lock the file's
+ *      own lock would wait on (lockTargets, "A WINDOW INSTALL ASKS FOR ITS
+ *      LOCK IN A QUIET MOMENT" in maintenance-window-migrations.mjs). It
+ *      requests no lock while it waits, and sends anyway when the bound
+ *      passes, so it is never worse than sending at once.
+ *   5. Sends each queued file, oldest version first, through
  *      apply-recorded-migration.mjs --maintenance-window: one transaction per
  *      file, one attempt per file. A REFUSED file (its transaction rolled
  *      back, nothing committed) is SKIPPED alone and stays queued for the
@@ -56,6 +62,12 @@ import {
   windowToServe,
   WINDOW_STATE_QUERY,
   START_RESERVE_SECONDS,
+  lockTargets,
+  QUIET_HOLDERS_QUERY,
+  QUIET_HOLDER_AGE_MS,
+  QUIET_POLL_MS,
+  quietWaitBudgetMs,
+  describeHolders,
 } from './maintenance-window-migrations.mjs';
 import { splitConcurrentPreamble } from './migration-concurrent-preamble.mjs';
 import { supersededBy } from './check-migrations-are-live.mjs';
@@ -237,6 +249,70 @@ if (!open)
   );
 say(`freeze confirmed at ${new Date(open.observed_at).toISOString()}: ${open.break_row}`);
 
+// The quiet moment. One read-only client reads pg_locks; no lock is requested
+// and nothing queues behind it. Unreadable is not "quiet" and not "busy": the
+// file is sent exactly as it would have been without this gate, and says so.
+async function quietClient() {
+  const client = new pg.Client({
+    connectionString: connectionURL.toString(),
+    ssl,
+    application_name: 'install-window-migrations-quiet',
+    statement_timeout: 2000,
+  });
+  client.on('error', () => {});
+  await client.connect();
+  return client;
+}
+async function holders(client, targets, minAgeMs) {
+  const { rows } = await client.query(QUIET_HOLDERS_QUERY, [
+    targets.map((t) => t.relation),
+    targets.map((t) => t.mode),
+    minAgeMs,
+  ]);
+  return rows[0];
+}
+async function awaitQuietMoment(f, targets) {
+  if (targets.length === 0) return;
+  const named = targets.map((t) => `${t.relation} (${t.mode})`).join(', ');
+  const began = Date.now();
+  let client = null;
+  let budgetMs = null;
+  try {
+    client = await quietClient();
+    for (;;) {
+      const row = await holders(client, targets, QUIET_HOLDER_AGE_MS);
+      if (budgetMs === null) budgetMs = quietWaitBudgetMs(row.into_break_s, row.remaining_s);
+      const held = row.holders || [];
+      if (held.length === 0) {
+        const waited = Date.now() - began;
+        if (waited >= QUIET_POLL_MS)
+          say(`quiet moment on ${named} after ${waited} ms; sending \`${f}\` once`);
+        return;
+      }
+      if (Date.now() - began >= budgetMs) {
+        say(
+          `no quiet moment on ${named} within ${budgetMs} ms; sending \`${f}\` once as before. ` +
+            `Held by: ${describeHolders(held)}`
+        );
+        return;
+      }
+      await new Promise((r) => setTimeout(r, QUIET_POLL_MS));
+    }
+  } catch (e) {
+    say(`lock holders of ${named} unreadable before \`${f}\` (${e.message}); sending it now, once`);
+  } finally {
+    if (client) await client.end().catch(() => {});
+  }
+}
+async function holdersAfterRefusal(targets) {
+  const client = await quietClient();
+  try {
+    return await holders(client, targets, 0);
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 const passthrough = argValue('--ssl-root-cert')
   ? ['--ssl-root-cert', argValue('--ssl-root-cert')]
   : [];
@@ -250,6 +326,9 @@ const installed = [];
 const skipped = [];
 for (const f of queued) {
   const started = Date.now();
+  const targets = lockTargets(readFileSync(join(DIR, f), 'utf8'));
+  await awaitQuietMoment(f, targets);
+  const sent = Date.now();
   const run = spawnSync(
     process.execPath,
     [
@@ -262,11 +341,26 @@ for (const f of queued) {
     ],
     { stdio: 'inherit', env: process.env, timeout: 60_000 }
   );
-  const ms = Date.now() - started;
+  // The send itself; the quiet wait before it is reported on its own line.
+  const ms = Date.now() - sent;
+  const waitedMs = sent - started;
   if (run.status === 0) {
     installed.push(f);
-    say(`INSTALLED \`${f}\` (${ms} ms, override recorded in ca_break_window_migration_overrides)`);
+    say(
+      `INSTALLED \`${f}\` (${ms} ms${waitedMs >= QUIET_POLL_MS ? ` after ${waitedMs} ms waiting for a quiet moment` : ''}, override recorded in ca_break_window_migration_overrides)`
+    );
     continue;
+  }
+  if (run.status === 1 && targets.length > 0) {
+    // Name who held the tables at the refusal, so the owning lane can act on
+    // a pid and a query instead of a guess (2026-11-07: the Free Buy refusal
+    // could not be attributed because nothing recorded the holder).
+    try {
+      const row = await holdersAfterRefusal(targets);
+      say(`holders of ${targets.map((t) => t.relation).join(', ')} after the refusal: ${describeHolders(row.holders) || 'none'}`);
+    } catch (e) {
+      say(`holders after the refusal were unreadable: ${e.message}`);
+    }
   }
   if (run.status === 1) {
     skipped.push(f);
