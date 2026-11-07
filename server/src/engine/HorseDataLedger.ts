@@ -976,6 +976,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River bluff baseline'
   ),
   flag(
+    'riverBluffMultiway',
+    'multiway river bluffs (HorseMultiwayRiverBluff): two or three opponents, air with a nut blocker on a line that caps the whole field, frequency falling steeply per opponent and multiplying every opponent read (a station near zero), polarized pot-limit-legal size; default on, false ablates (Dan 2026-11-06)',
+    'River bluff multiway'
+  ),
+  flag(
     'phase7Utility',
     'final action-specific tournament utility across payout, bounty and recovery components; defaults on and runs after every global strategy layer',
     'Phase7'
@@ -4109,6 +4114,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (HorseRiverBluffRange)',
     'the baseline river bluff decided a qualified candidate: junk, missedDraw, blocker or blockerAndDraw (a bluff bet of that selection), check (the candidate checked at the balanced frequency) or illegal (the size could not be legalized); skip_multiway, skip_cannot_respond and skip_no_story say why a river with no bet to face was left to the layers below',
     'River bluff baseline'
+  ),
+  // No floor: fires only on multiway rivers with a blocker and a story.
+  receipt(
+    'river_bluff_multiway_*',
+    'HorseLogic not-facing-a-bet river (HorseMultiwayRiverBluff)',
+    'the multiway river bluff decided a qualified candidate: evaluated (eligible: air, nut blocker, story), selected_3way / selected_4way (a bluff bet), check (checked at the multiway frequency) or illegal (the size could not be legalized); skip_too_many, skip_cannot_respond, skip_no_blocker and skip_no_story say why a multiway river with no bet to face was left to the layers below',
+    'River bluff multiway'
   ),
   receipt(
     'combo_draw_pressure_evaluated',
