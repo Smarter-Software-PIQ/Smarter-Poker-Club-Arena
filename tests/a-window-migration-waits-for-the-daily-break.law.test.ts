@@ -234,11 +234,23 @@ describe('the ordinary applier refuses it; only the window route installs it', (
     expect(applier).toContain('the window route installs only declared files');
   });
 
-  it('the installer sends each queued file once and stops at the first refusal', () => {
+  it('the installer sends each queued file once, skips a refused file alone and stops only on UNKNOWN', () => {
     const loop = installer.slice(installer.indexOf('for (const f of queued) {\n  const started'));
     expect(loop.match(/spawnSync\(/g)).toHaveLength(1);
     expect(loop).toContain("'--maintenance-window'");
-    expect(loop).toContain('if (run.status === 1)');
+    // A refusal (exit 1) rolled back alone: it is named, kept queued and the
+    // loop continues. Since 2026-11-07 one refused file no longer holds every
+    // later file for a day.
+    expect(loop).toContain('if (run.status === 1) {\n    skipped.push(f);');
+    expect(loop).toContain(
+      "'It stays queued for the next daily window. Not retried; the next queued file is sent.'"
+    );
+    // The run still goes red naming every skipped file.
+    expect(loop).toContain('if (skipped.length)\n  finish(\n    1,');
+    // UNKNOWN still stops the run before the next file is sent.
+    const unknown = loop.slice(loop.indexOf('const rest = queued.slice'));
+    expect(unknown).toContain('finish(\n    3,\n    `UNKNOWN');
+    expect(unknown.indexOf('finish(\n    3,')).toBeLessThan(unknown.indexOf('if (skipped.length)'));
     expect(loop).toContain('Not retried.');
     expect(installer).not.toMatch(/\bretry\s*\(/i);
     // One bounded wait for one window, ending at the last admissible start.

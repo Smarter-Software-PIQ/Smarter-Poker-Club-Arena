@@ -312,7 +312,16 @@ pass 'explicit owner exception refuses a scheduled freeze, installs once in owne
 # 10. Two queued files through the unchanged real owner-window installer/applier.
 # Each disposable pair gets unique versions/columns; no production SQL is used.
 pair_fixture() {
-  local tag="$1" first_version="$2" second_version="$3" first_fault="$4" second_fault="$5"
+  local tag="$1" first_version="$2" second_version="$3" first_fault="$4" second_fault="$5" second_depends="${6:-yes}"
+  local order_check=""
+  if [ "$second_depends" = yes ]; then
+    order_check="DO \$pair_order\$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+   WHERE table_schema='public' AND table_name='clubs' AND column_name='window_fixture_pair_${tag}_first') THEN
+  RAISE EXCEPTION 'second file ran before first committed';
+ END IF;
+END \$pair_order\$;"
+  fi
   PAIR_CASE="$WORK/pair-$tag"
   mkdir -p "$PAIR_CASE/supabase/migrations" "$PAIR_CASE/server/release"
   PAIR_FIRST="${first_version}_window_fixture_pair_${tag}_first.sql"
@@ -327,12 +336,7 @@ SQL
   cat > "$PAIR_CASE/supabase/migrations/$PAIR_SECOND" <<SQL
 -- @install-window: daily-maintenance
 BEGIN;
-DO \$pair_order\$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-   WHERE table_schema='public' AND table_name='clubs' AND column_name='window_fixture_pair_${tag}_first') THEN
-  RAISE EXCEPTION 'second file ran before first committed';
- END IF;
-END \$pair_order\$;
+$order_check
 ALTER TABLE public.hand_history ADD COLUMN window_fixture_pair_${tag}_second integer;
 $second_fault
 COMMIT;
@@ -376,6 +380,9 @@ pass 'two queued files commit in order with exact history and duplicate no-op'
 
 # A real PostgreSQL exception exercises REFUSED; class08 deliberately exercises
 # the applier's UNKNOWN classification, not a claim of a real network failure.
+# Since 2026-11-07 a REFUSED first file is skipped alone and the second file is
+# still sent (here it depends on the first, so it is refused too and nothing
+# commits); an UNKNOWN first file still stops the run before the second file.
 for kind in refused unknown; do
   if [ "$kind" = refused ]; then code_expected=1; state=55000; first=20991231000007; second=20991231000008
   else code_expected=3; state=08006; first=20991231000009; second=20991231000010; fi
@@ -389,9 +396,42 @@ for kind in refused unknown; do
   [ "$(pair_history "$first" "$second")" = 0 ] || fail "first $kind committed history"
   [ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name IN ('window_fixture_pair_${kind}_first','window_fixture_pair_${kind}_second')")" = 0 ] || fail "first $kind left either column"
   [ "$(grep -Fxc "[apply] $PAIR_FIRST" <<<"$out")" = 1 ] || fail "first $kind did not invoke its original file exactly once"
-  ! grep -Fxq "[apply] $PAIR_SECOND" <<<"$out" || fail "first $kind invoked second file"
-  pass "first-file $kind stops before second file and preserves original outcome"
+  if [ "$kind" = refused ]; then
+    [ "$(grep -Fxc "[apply] $PAIR_SECOND" <<<"$out")" = 1 ] || fail "first refusal did not send the second file exactly once"
+    grep -q "SKIPPED \`$PAIR_FIRST\`" <<<"$out" || fail "first refusal was not reported as skipped"
+    grep -q "SKIPPED \`$PAIR_SECOND\`" <<<"$out" || fail "dependent second file was not reported as skipped"
+    grep -q 'REFUSED 2 of 2 migration' <<<"$out" || fail "run did not name both skipped files: $out"
+    pass 'first-file refusal is skipped alone, the dependent second file is sent once and refused, nothing commits'
+  else
+    ! grep -Fxq "[apply] $PAIR_SECOND" <<<"$out" || fail "first unknown invoked second file"
+    pass 'first-file unknown stops before the second file and preserves original outcome'
+  fi
 done
+
+# A REFUSED first file no longer holds an independent second file: the second
+# installs with exact history, the first stays queued, and the run is red
+# naming the skipped file (the 2026-11-07 root cause: one lock refusal held
+# five unrelated migrations for a day).
+fault="DO \$fault\$ BEGIN RAISE EXCEPTION 'isolated first-file refusal' USING ERRCODE='55000'; END \$fault\$;"
+pair_fixture skipfwd 20991231000013 20991231000014 "$fault" '' no
+set +e
+out="$(pair_install 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/10-pair-skipfwd.log"
+[ "$code" = 1 ] || fail "skip-forward returned $code: $out"
+[ "$(pair_history 20991231000013 20991231000014)" = 1 ] || fail 'skip-forward history is not exactly the second file'
+[ "$(su_sql "SELECT version='20991231000014' AND statements[1]=pg_read_file('$PAIR_CASE/supabase/migrations/$PAIR_SECOND') FROM supabase_migrations.schema_migrations WHERE version IN ('20991231000013','20991231000014')")" = t ] || fail 'skip-forward history differs from second source'
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name='window_fixture_pair_skipfwd_first'")" = 0 ] || fail 'refused first file committed its column'
+[ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name='window_fixture_pair_skipfwd_second'")" = 1 ] || fail 'independent second file was not installed after the first refusal'
+[ "$(grep -Fxc "[apply] $PAIR_FIRST" <<<"$out")" = 1 ] || fail 'skip-forward sent the first file other than once'
+[ "$(grep -Fxc "[apply] $PAIR_SECOND" <<<"$out")" = 1 ] || fail 'skip-forward sent the second file other than once'
+grep -q "SKIPPED \`$PAIR_FIRST\`" <<<"$out" || fail 'skip-forward did not name the skipped file'
+grep -q "INSTALLED \`$PAIR_SECOND\`" <<<"$out" || fail 'skip-forward did not report the installed file'
+grep -q "REFUSED 1 of 2 migration(s) - skipped (rolled back, still queued for the next daily window): \`$PAIR_FIRST\`; installed 1: \`$PAIR_SECOND\`" <<<"$out" || fail "skip-forward verdict wording: $out"
+out="$(pair_install 2>&1)" && fail "skip-forward rerun installed the refused file: $out"
+[ "$(pair_history 20991231000013 20991231000014)" = 1 ] || fail 'skip-forward rerun changed history'
+grep -q "queued: \`$PAIR_FIRST\`" <<<"$out" || fail 'the refused file is not still queued on the next run'
+pass 'a refused file is skipped alone; the independent file behind it installs and the refused one stays queued'
 
 fault="DO \$fault\$ BEGIN RAISE EXCEPTION 'isolated second-file refusal' USING ERRCODE='55000'; END \$fault\$;"
 pair_fixture partial 20991231000011 20991231000012 '' "$fault"
