@@ -1,0 +1,3 @@
+# server/src/tournament/aBoundaryTheAuthorityDoesNotNeedIsNotHeld.law.test.ts
+
+A satellite qualifier boundary that the authority does not need is never held: an entry-open answer, or a continuing or unresolved answer with the live field more than one player above the tickets, lifts the boundary on the first read before any table is asked to park, whatever the dealers are doing; a field at or inside the margin keeps the two-phase park, every dealer proof and the settlement; a release is never refused for a dealer the boundary no longer owns; and a boundary held past its bound pages one critical alert naming its pending reason, never during a maintenance freeze, and closes it when the boundary lifts

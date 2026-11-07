@@ -2240,15 +2240,16 @@ export abstract class TournamentManagerBase {
       boundary_generation: this.satelliteQualifierBoundaryGeneration,
       tables: this.tableEngines.size,
     };
-    void raiseFinancialAlert(
-      'critical',
-      'Tournament.satellite_boundary_held',
-      message,
-      context,
-      dedupeKey,
-      this.tournamentId
-    )
-      .then(async (raised) => {
+    // Detached from the sweep, but owned by its lifecycle: teardown drains it.
+    void this.trackLifecycleJob(
+      raiseFinancialAlert(
+        'critical',
+        'Tournament.satellite_boundary_held',
+        message,
+        context,
+        dedupeKey,
+        this.tournamentId
+      ).then(async (raised) => {
         // The dedupe door returns the one open row unchanged, so a refresh
         // rewrites that row with the current reason; the keys the door and
         // the inbox read (channel, dedupe_key, entity_id) are kept.
@@ -2269,36 +2270,37 @@ export abstract class TournamentManagerBase {
           .eq('resolved', false);
         if (error) throw new Error(`satellite_boundary_held_refresh_failed: ${error.message}`);
       })
-      .catch((error) =>
-        reportError(error, 'Tournament.satellite_boundary_held_page_failed', {
-          tournamentId: this.tournamentId,
-        })
-      );
+    ).catch((error) =>
+      reportError(error, 'Tournament.satellite_boundary_held_page_failed', {
+        tournamentId: this.tournamentId,
+      })
+    );
   }
 
   /** The page closes itself the moment the boundary lifts; the sweep is the evidence. */
   protected closeSatelliteBoundaryHeldPage(): void {
     const at = new Date().toISOString();
-    void Promise.resolve(
-      supabase
-        .from('financial_alerts')
-        .update({
-          resolved: true,
-          resolved_at: at,
-          resolution: `the qualifier boundary lifted at ${at} and the field is dealing again`,
-        })
-        .eq('source', 'Tournament.satellite_boundary_held')
-        .eq('context->>dedupe_key', `satellite-boundary-held:${this.tournamentId}`)
-        .eq('resolved', false)
-    )
-      .then(({ error }) => {
+    // Detached from the sweep, but owned by its lifecycle: teardown drains it.
+    void this.trackLifecycleJob(
+      Promise.resolve(
+        supabase
+          .from('financial_alerts')
+          .update({
+            resolved: true,
+            resolved_at: at,
+            resolution: `the qualifier boundary lifted at ${at} and the field is dealing again`,
+          })
+          .eq('source', 'Tournament.satellite_boundary_held')
+          .eq('context->>dedupe_key', `satellite-boundary-held:${this.tournamentId}`)
+          .eq('resolved', false)
+      ).then(({ error }: { error: { message?: string } | null }) => {
         if (error) throw new Error(`satellite_boundary_held_close_failed: ${error.message}`);
       })
-      .catch((error) =>
-        reportError(error, 'Tournament.satellite_boundary_held_close_failed', {
-          tournamentId: this.tournamentId,
-        })
-      );
+    ).catch((error) =>
+      reportError(error, 'Tournament.satellite_boundary_held_close_failed', {
+        tournamentId: this.tournamentId,
+      })
+    );
   }
 
   /**
