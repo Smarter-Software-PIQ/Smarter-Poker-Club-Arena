@@ -1,6 +1,5 @@
 import { customCashGameName } from '../../utils/customCashGameName';
 import { levelClockNow } from '../../utils/maintenanceLevelClock';
-import { cashGameNeverMovesPlayers } from '../../config/classicNeverMovesPlayers';
 import {
   getTournamentEntryCapacity,
   getTournamentFormatKind,
@@ -1101,8 +1100,9 @@ export function cashStatus(t: LobbyTableRow, waiting = 0): { key: LobbyStatusKey
 
 /**
  * A running must-move game says what a player would see walking past it
- * (Dan 2026-11-06): its waiting list first ("Waitlist 3"), then a second
- * table ("2 Tables"), otherwise "Running". The KEY stays 'running' on purpose:
+ * (Dan 2026-11-06): its tables and its list together ("2 Tables · Waitlist 3",
+ * 2026-11-07), else the list ("Waitlist 3"), else a second table ("2 Tables"),
+ * otherwise "Running". The KEY stays 'running' on purpose:
  * a game's door is Join Game, which queues the player on the game's own list,
  * and the 'waitlist' key would swap it for the single-table Join Waitlist
  * button. A Lightning game never has a list (Dan 2026-10-24); the caller
@@ -1112,6 +1112,8 @@ export function clusterRunningStatus(
   tables: number,
   waiting: number
 ): { key: LobbyStatusKey; label: string } {
+  if (waiting > 0 && tables > 1)
+    return { key: 'running', label: `${tables} Tables · Waitlist ${waiting}` };
   if (waiting > 0) return { key: 'running', label: `Waitlist ${waiting}` };
   if (tables > 1) return { key: 'running', label: `${tables} Tables` };
   return { key: 'running', label: 'Running' };
@@ -1663,26 +1665,16 @@ export function cashEntry(t: LobbyTableRow, waiting = 0): LobbyEntry {
                         detail: lightningStatus,
                         tip: 'One Pool, One Stream Of Hands. Fold And Your Next Hand Is Dealt At Once.',
                       }
-                    : /* A CLASSIC GAME NEVER MOVES ITS PLAYERS (Dan 2026-10-24: "PLAYERS
-                       SHOULD NOT BE MOVING ON CLASSIC GAMES PERIOD"). The database refuses
-                       every automatic move on a Classic game
-                       (20261024213758), so its card never promises one. */
-                      cluster.mustMove &&
-                        cashGameNeverMovesPlayers(cluster.template, t.cluster_rules_profile)
-                      ? {
-                          key: 'classic_seat_stays',
-                          label: 'CLASSIC',
-                          detail: undefined,
-                          tip: 'Regular Ring Game. Your Seat Is Yours Until You Leave Or Ask To Change It.',
-                        }
-                      : {
-                          key: cluster.mustMove ? 'must_move' : 'manual_table',
-                          label: cluster.mustMove ? 'MUST MOVE' : 'MANUAL',
-                          detail: cluster.template ? cluster.template.toUpperCase() : undefined,
-                          tip: cluster.mustMove
-                            ? 'One Game, Many Tables. Seats Open On A Main Pull Players Off The Feeder.'
-                            : 'One Table The Host Runs By Hand.',
-                        },
+                    : /* EVERY GAME IS A MUST-MOVE GAME (Dan 2026-11-07), Classic
+                       included: it only never converts to Lightning. */
+                      {
+                        key: cluster.mustMove ? 'must_move' : 'manual_table',
+                        label: cluster.mustMove ? 'MUST MOVE' : 'MANUAL',
+                        detail: cluster.template ? cluster.template.toUpperCase() : undefined,
+                        tip: cluster.mustMove
+                          ? 'One Game, Many Tables. Seats Open On A Main Pull Players Off The Feeder.'
+                          : 'One Table The Host Runs By Hand.',
+                      },
               ]),
           ...cashRuleMedallions(t),
         ]

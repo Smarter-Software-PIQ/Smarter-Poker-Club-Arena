@@ -40,7 +40,7 @@ export function premiumStatusBadge(
     data.status === 'open'
       ? 'Empty'
       : data.status === 'running'
-        ? /^(Waitlist \d+|\d+ Tables)$/.test(data.statusLabel || '')
+        ? /^(Waitlist \d+|\d+ Tables|\d+ Tables · Waitlist \d+)$/.test(data.statusLabel || '')
           ? data.statusLabel
           : 'Running'
         : data.status === 'full'

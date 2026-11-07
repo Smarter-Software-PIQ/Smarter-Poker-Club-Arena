@@ -9,6 +9,7 @@ import {
   playingHumansAtCashTable,
   scheduledHorseCashGames,
 } from './HorseUnionCashPlan.js';
+import { secondTablePicked } from './HorseBehavior.js';
 
 const at = (s: string) => Date.parse(s);
 const allowed = (table: CashPlanTable, humans: number, now: number) =>
@@ -198,12 +199,21 @@ describe('a game may run a second table (Dan 2026-11-06)', () => {
   const main1 = { ...low, id: 'm1', lifecycle: 'live' };
   const feeder = { ...low, id: 'f1', role: 'feeder', main_index: null, lifecycle: 'opening' };
   const feeder2 = { ...low, id: 'f2', role: 'feeder', main_index: null, lifecycle: 'opening' };
+  // A time the game is picked for two tables, and one it is not (2026-11-07).
+  const game = String(low.cluster_id);
+  const hours = Array.from({ length: 96 }, (_, i) => now + i * 3_600_000);
+  const picked = hours.find((t) => secondTablePicked(game, t)) as number;
+  const unpicked = hours.find((t) => !secondTablePicked(game, t)) as number;
   it('one second table per game follows its Main 1, never more', () => {
     const primary = horseCashPlanPrimaryTables([main1, feeder, feeder2]);
-    const second = horseCashPlanSecondTables([main1, feeder, feeder2], primary, () => true);
+    const second = horseCashPlanSecondTables([main1, feeder, feeder2], primary, () => true, picked);
     expect([...second]).toEqual(['f1']);
     expect(horseUnionCashTableAllowed(feeder, 0, now, primary, null, null, second)).toBe(true);
     expect(horseUnionCashTableAllowed(feeder2, 0, now, primary, null, null, second)).toBe(false);
+  });
+  it('a game no longer picked for two tables lets its second table drain', () => {
+    const primary = horseCashPlanPrimaryTables([main1, feeder]);
+    expect(horseCashPlanSecondTables([main1, feeder], primary, () => true, unpicked).size).toBe(0);
   });
   it('a Main 1 horses may not sit at gives its second table nothing', () => {
     const primary = horseCashPlanPrimaryTables([main1, feeder]);

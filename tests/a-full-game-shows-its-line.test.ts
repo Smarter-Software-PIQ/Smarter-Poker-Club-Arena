@@ -13,7 +13,7 @@ import { premiumStatusBadge } from '../src/components/lobby/game-cards/premiumSt
 describe('a running game shows its waiting list and its tables', () => {
   it('names the list first, then a second table, else Running', () => {
     expect(clusterRunningStatus(1, 3)).toEqual({ key: 'running', label: 'Waitlist 3' });
-    expect(clusterRunningStatus(2, 2)).toEqual({ key: 'running', label: 'Waitlist 2' });
+    expect(clusterRunningStatus(2, 2)).toEqual({ key: 'running', label: '2 Tables · Waitlist 2' });
     expect(clusterRunningStatus(2, 0)).toEqual({ key: 'running', label: '2 Tables' });
     expect(clusterRunningStatus(1, 0)).toEqual({ key: 'running', label: 'Running' });
   });
@@ -25,6 +25,9 @@ describe('a running game shows its waiting list and its tables', () => {
     expect(premiumStatusBadge({ status: 'running', statusLabel: '2 Tables' }).label).toBe(
       '2 Tables'
     );
+    expect(
+      premiumStatusBadge({ status: 'running', statusLabel: '2 Tables · Waitlist 4' }).label
+    ).toBe('2 Tables · Waitlist 4');
     expect(premiumStatusBadge({ status: 'running', statusLabel: 'anything' }).label).toBe(
       'Running'
     );
