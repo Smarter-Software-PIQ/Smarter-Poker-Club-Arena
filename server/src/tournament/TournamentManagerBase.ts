@@ -1,4 +1,5 @@
 import { DiamondTournamentPolicyClosedError } from '../services/cashTablePlayEligibility.js';
+import { BOUNTY_ONLY_FINAL_TWO_PARK_MS, isBountyOnlyPkoRow } from './bountyOnlyFinalTwo.js';
 import { ELIMINATION_SWEEP_STUCK_MS } from './eliminationLock.js';
 import { TournamentAbortBoundary, type AbortBoundaryRequest } from './TournamentAbortBoundary.js';
 import { noteTerminalFinishClub } from './terminalSettlementRpc.js';
@@ -4045,6 +4046,27 @@ export abstract class TournamentManagerBase {
           if (!this.satelliteFieldIsFarFromItsTickets()) this.holdSatelliteQualifierBoundary();
         }
         if (this.mysteryActivationMayOpenOnBust(finalStacks)) this.holdMysteryActivationBoundary();
+        /* A BOUNTY ONLY PKO ENDS WITH TWO PLAYERS (Dan 2026-11-05). The close
+           can only claim a field parked between hands, and the next deal
+           starts seconds after the pot is pushed - before the asynchronous
+           elimination sweep can park. Midday Free Buy b3ae52ef missed the rule
+           exactly this way on 2026-11-06: the deal already in flight when the
+           field reached two busted the runner-up before the close could claim
+           it, and the winner took both final heads. So the boundary is held
+           HERE, synchronously at the hand edge that may have left two or
+           fewer stacks on the event's one remaining table: the park is the
+           close's own bounded budget (never untilResumed), so the engine's
+           safety net lifts it if the sweep cannot decide, the close's own
+           release() resumes dealing on a rule refusal, and a field of one
+           parks harmlessly while the terminal finish closes the table. */
+        if (
+          isBountyOnlyPkoRow(this.tournamentCache) &&
+          this.prizePoolFinalized &&
+          this.tableEngines.size === 1 &&
+          finalStacks.filter((player) => Number(player.stack) > 0).length <= 2
+        ) {
+          engine.pauseAfterHand(BOUNTY_ONLY_FINAL_TWO_PARK_MS, { beforeNextHand: true });
+        }
         if (this.bustAwaitingSinceMs === 0) this.bustAwaitingSinceMs = Date.now();
         this.declareFieldDecidedIfOneStackRemains(finalStacks);
         this.askForConsolidationIfSpread({ engine, finalStacks });

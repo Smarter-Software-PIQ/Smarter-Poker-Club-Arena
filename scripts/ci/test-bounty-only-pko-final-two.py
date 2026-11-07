@@ -17,13 +17,17 @@ decisions:
   * a replay returns the stored receipt and pays nothing again;
   * nothing moves for a field that is not two, an unsettled bust, an empty
     stack, another format, a stopped event, or heads that do not match the
-    open pool; only the engine may call it and only service_role may execute it.
+    open pool; only the engine may call it and only service_role may execute it;
+  * under the real one-place-one-player guard, a provisional place 2 left by
+    an earlier bust moves aside to the lowest free place instead of refusing
+    the close (20261107134243, the 2026-11-07 Midnight Free Buy root cause).
 """
 from pathlib import Path
 import json, os, shutil, subprocess, tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 MIG = ROOT / 'supabase/migrations/20261106010426_bounty_only_pko_ends_with_two_players.sql'
+MIG2 = ROOT / 'supabase/migrations/20261107134243_a_provisional_place_two_moves_aside_for_the_final_two_close.sql'
 PG = Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 work = Path(tempfile.mkdtemp(prefix='final-two-', dir=os.environ.get('TMPDIR')))
 sock = Path(tempfile.mkdtemp(prefix='s-', dir=os.environ.get('CA_PG_SOCKET_ROOT', os.environ.get('TMPDIR'))))
@@ -137,6 +141,36 @@ try:
     run([PG / 'createdb', '-h', sock, '-p', port, '-U', 'postgres', 'w'])
     q(SCHEMA)
     q(MIG.read_text())
+    # Production parity: the one-place-one-player guard (20260828013501) that
+    # refused the Midnight Free Buy close on 2026-11-07. Every scenario below
+    # runs under it, exactly as production does.
+    q(r"""
+CREATE TABLE public.tournament_place_collisions(
+  tournament_id uuid, place integer, user_id uuid, existing_user_id uuid,
+  db_role text, application text, created_at timestamptz DEFAULT now());
+CREATE FUNCTION public.trg_tournament_place_collision() RETURNS trigger
+LANGUAGE plpgsql AS $trg$
+DECLARE v_existing uuid;
+BEGIN
+  IF NEW.position IS NULL THEN RETURN NEW; END IF;
+  IF TG_OP = 'UPDATE' AND NEW.position IS NOT DISTINCT FROM OLD.position THEN RETURN NEW; END IF;
+  SELECT tp.user_id INTO v_existing FROM tournament_players tp
+   WHERE tp.tournament_id = NEW.tournament_id AND tp.position = NEW.position
+     AND tp.user_id <> NEW.user_id LIMIT 1;
+  IF v_existing IS NOT NULL THEN
+    INSERT INTO tournament_place_collisions(tournament_id, place, user_id, existing_user_id, db_role, application)
+    VALUES (NEW.tournament_id, NEW.position, NEW.user_id, v_existing, current_user,
+            current_setting('application_name', true));
+    RAISE EXCEPTION
+      'finishing place % in tournament % is already held by % - refusing to stamp % on it (a contested place is paid TWICE, the prize idempotency key includes the user id)',
+      NEW.position, NEW.tournament_id, v_existing, NEW.user_id USING ERRCODE = '23505';
+  END IF;
+  RETURN NEW;
+END $trg$;
+CREATE TRIGGER tournament_place_collision BEFORE INSERT OR UPDATE OF position
+ON public.tournament_players FOR EACH ROW EXECUTE FUNCTION public.trg_tournament_place_collision();
+""")
+    q(MIG2.read_text())
 
     # The two live heads are the whole open pool (12.00 - 5.25 = 4.50 + 2.25).
     t1 = event(1, 12, 5.25, [(A, 'playing', 5000, 4.50, 3.50), (B, 'playing', 3000, 2.25, 1.25),
@@ -163,6 +197,22 @@ try:
     t3 = event(3, 10, 6.00, [(B, 'playing', 4000, 2.00, 1.00), (A, 'playing', 4000, 2.00, 1.00)])
     r = close(t3)
     assert r['winner_user_id'] == B and r['runner_up_user_id'] == A, r
+
+    # A provisional place 2 from an earlier bust moves aside (2026-11-07,
+    # Midnight Free Buy c1b3fa5a): the close relocates the holder to the
+    # lowest free place at or above 3 instead of being refused by the
+    # collision guard, and the receipt says so.
+    t12 = event(12, 12, 5.25, [(A, 'playing', 5000, 4.50, 3.50), (B, 'playing', 3000, 2.25, 1.25),
+                               (C, 'eliminated', 0, 0, 0.50)])
+    q(f"UPDATE tournament_players SET position = 2 WHERE tournament_id='{t12}' AND user_id='{C}';")
+    r = close(t12)
+    assert r['ok'] and r['runner_up_user_id'] == B, r
+    assert r['relocated_provisional_place_2'] == C and r['relocated_to'] == 3, r
+    assert row(t12, B) == 'eliminated|2|0.00|3.50', row(t12, B)
+    assert row(t12, C) == 'eliminated|3|0.00|0.50', row(t12, C)
+    again12 = close(t12)
+    assert again12.get('replayed') is True and again12['relocated_provisional_place_2'] == C, again12
+    assert q(f"SELECT count(*) FROM tournament_place_collisions WHERE tournament_id='{t12}';").strip() == '0'
 
     # Refusals move nothing.
     paid_before = q("SELECT count(*) FROM test_credits;").strip()
