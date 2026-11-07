@@ -37,8 +37,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spinRevealToDealMs, spinPostRevealMs } from '../config/spinSpec.js';
 import { sliceMethod, sliceBlockAfter } from '../testHelpers/sourceWindow.js';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const BASE = readFileSync(join(here, 'TournamentManagerBase.ts'), 'utf8');
 /** Executable code only — a pin must never pass on the prose above it. */
 const CODE = BASE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');

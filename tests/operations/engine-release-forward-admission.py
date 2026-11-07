@@ -19,6 +19,10 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+# Hang guard only: every subprocess here runs against fakes, so no assertion
+# depends on host speed, and a loaded host must not turn a slow pass into a
+# TimeoutExpired. A healthy child finishes far below it.
+HANG_GUARD_SECONDS = 120
 if len(sys.argv) > 2 and sys.argv[1] == '--source-root':
     ROOT = Path(sys.argv[2]).resolve()
     del sys.argv[1:3]
@@ -106,7 +110,7 @@ class ForwardAdmissionTests(unittest.TestCase):
 
     def git(self, *args):
         result = subprocess.run([REAL_GIT, '-C', str(self.repo), *args],
-                                capture_output=True, text=True, env=self.env, timeout=10)
+                                capture_output=True, text=True, env=self.env, timeout=HANG_GUARD_SECONDS)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
@@ -191,7 +195,7 @@ die() {{ printf 'REFUSED:%s\\n' "$*" >&2; exit 1; }}
 printf 'ADMITTED:%s\\n' "$SHA"
 '''
         return subprocess.run(['bash'], input=shell, capture_output=True, text=True,
-                              env=env, cwd=self.repo, timeout=15)
+                              env=env, cwd=self.repo, timeout=HANG_GUARD_SECONDS)
 
     def host(self, **kwargs):
         return self.harness(HOST_GATE + '\nsource_target_is_current', **kwargs)

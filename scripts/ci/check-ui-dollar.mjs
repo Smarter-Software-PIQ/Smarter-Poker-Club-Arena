@@ -65,11 +65,11 @@
  */
 
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
-import { join, extname, resolve } from 'node:path';
+import { join, extname, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-const ROOT = new URL('../../', import.meta.url).pathname;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../');
 const SOURCE_OVERRIDE = process.env.UI_DOLLAR_SOURCE_DIR
   ? resolve(process.env.UI_DOLLAR_SOURCE_DIR)
   : null;

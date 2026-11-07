@@ -37,6 +37,11 @@ const imageBuilder = resolve(ROOT, 'server/scripts/build-engine-image.sh');
 const protocolV1 = read('server/scripts/engine-release-protocol-v1.schema');
 const protocolV1Digest = createHash('sha256').update(protocolV1).digest('hex');
 
+// A hang guard for one synchronous child that runs only against fakes. It is
+// never a speed budget: a correct child on a host at load 60+ must not be
+// killed by it, so no test below can fail for lack of spare CPU.
+const CHILD_HANG_GUARD_MS = 60_000;
+
 const A_SHA = 'a'.repeat(40);
 const B_SHA = 'b'.repeat(40);
 const C_SHA = 'c'.repeat(40);
@@ -419,8 +424,11 @@ esac
   // This integration case executes two seal commands, two successful launches
   // and nine rejected launches. Budget each synchronous child independently;
   // one default five-second test budget cannot cover their aggregate runtime.
+  // Each budget is a HANG GUARD: every child runs against fakes and the case
+  // asserts exit status, signal and output, never speed. 5 s per child was
+  // exceeded by a correct engine-up at load 69 (2026-11-07, ETIMEDOUT).
   const restartPolicyCommandCount = 2 + 2 + 9;
-  const restartPolicyCommandTimeoutMs = 5_000;
+  const restartPolicyCommandTimeoutMs = CHILD_HANG_GUARD_MS;
   const restartPolicyTestTimeoutMs =
     (restartPolicyCommandCount + 1) * restartPolicyCommandTimeoutMs;
 
@@ -1240,6 +1248,7 @@ printf '%s\\n%s' '{"running":true,"releaseSha":"${A_SHA}","liveness":"ok","insta
     ).toBe(`2 ${B_SHA} ${B_IMAGE} 305`);
   });
 
+  // Twelve observer runs, each bounded by the child hang guard: 13 x 60 s.
   it('observes a recovered completion after systemd retires its invocation between polls', () => {
     runSeal([
       'bootstrap-running',
@@ -1397,7 +1406,9 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
       rmSync(nativeCalls, { force: true });
       return spawnSync('bash', [observerPath, '--sha', B_SHA, '--run-id', '307-1'], {
         encoding: 'utf8',
-        timeout: 5000,
+        // Hang guard only: every poll answers from fakes, so a healthy observer
+        // returns at once; 5 s was exceeded at load 69 with status null.
+        timeout: CHILD_HANG_GUARD_MS,
         env: {
           ...baseEnv,
           ...overrides,
@@ -1447,7 +1458,7 @@ printf '{"running":true,"releaseSha":"${B_SHA}","liveness":"ok","instanceId":"%s
       expect(observe().status).not.toBe(0);
     }
     writeFileSync(resultPath, receipt);
-  });
+  }, 780_000);
 
   it('reconstructs a durable per-run result after a crash between seal commit and result write', () => {
     runSeal([

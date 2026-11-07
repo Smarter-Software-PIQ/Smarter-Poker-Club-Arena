@@ -52,8 +52,9 @@ import {
   spinRevealToDealMs,
   spinPostRevealMs,
 } from '../config/spinSpec.js';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const BASE = readFileSync(join(here, 'TournamentManagerBase.ts'), 'utf8');
 const SERVER = readFileSync(join(here, '..', 'GameServer.ts'), 'utf8');
 

@@ -21,6 +21,7 @@ import {
   BANDED_OMAHA_FLOOR_ITERATIONS,
 } from './HorseEval.js';
 import type { Card } from '../types.js';
+import { fileURLToPath } from 'node:url';
 
 const c = (rank: string, suit: string): Card => ({ rank, suit }) as Card;
 
@@ -202,7 +203,10 @@ describe('simulateEquity under the governor', () => {
     expect(effectiveDelayMs(null, null)).toBeNull();
 
     // The source must not assign the raw histogram p50 to the published field.
-    const src = readFileSync(new URL('./EquityLoadGovernor.ts', import.meta.url).pathname, 'utf8');
+    const src = readFileSync(
+      fileURLToPath(new URL('./EquityLoadGovernor.ts', import.meta.url)),
+      'utf8'
+    );
     expect(
       /this\.p50Ms\s*=\s*p50\s*;/.test(src),
       'the published p50 is the raw histogram again, so it can disagree with ' +

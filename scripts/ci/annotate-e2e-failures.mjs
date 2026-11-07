@@ -25,6 +25,7 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 const MAX_NAMED = 9;
 const MESSAGE_CHARS = 700;
@@ -99,4 +100,4 @@ function main(paths) {
   for (const line of lines) console.log(line);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main(process.argv.slice(2));
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv.slice(2));

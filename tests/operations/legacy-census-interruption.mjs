@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
+import { fileURLToPath } from 'node:url';
 const child = spawn(
   process.execPath,
   [
     '--max-old-space-size=4096',
-    new URL('./legacy-census-interruption-target.mjs', import.meta.url).pathname,
+    fileURLToPath(new URL('./legacy-census-interruption-target.mjs', import.meta.url)),
     process.argv[2],
   ],
   { stdio: ['ignore', 'pipe', 'pipe'] }
