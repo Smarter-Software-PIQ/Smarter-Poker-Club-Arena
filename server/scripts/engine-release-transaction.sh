@@ -924,7 +924,7 @@ initialise_phase1_cycle() {
     [ "$foreign_rc" = 1 ] || die 'foreign runtime ownership is unreadable'
   fi
   phase1_custody_admission
-  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
+  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-horse-fold-provenance-engine-1800z ]; then
     [ "$prior_cycle" = none ] || die 'Nov 7 owner cannot retarget a reserved routine cycle'
     return 0
   fi
@@ -1394,8 +1394,8 @@ raise SystemExit(0 if n.hour == 4 and n.minute < 5 else 1)
 # The Nov 7 order has exactly one predecessor, one protected floor and one
 # finite wall-clock interval. The seal binds the run's reservation separately.
 nov7_owner_admitted() {
-  [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ] || return 1
-  [ "${CHECKPOINT_PREDECESSOR_SHA:-}" = 92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4 ] || return 1
+  [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-horse-fold-provenance-engine-1800z ] || return 1
+  [ "${CHECKPOINT_PREDECESSOR_SHA:-}" = 40bc24676be48aed14155380502ba20c225bfbe6 ] || return 1
   [ "${PHASE1_CYCLE_START:-0}" = 0 ] && [ -z "${DRILL_MODE:-}" ] || return 1
   python3 "$CONTROL_DIR/engine-release-activation-floor.py" nov7-owner \
     --repo "$REPO_DIR" --target "$SHA" --control "$CONTROL_SHA" --deadline "$MUTATION_DEADLINE_EPOCH"
@@ -2041,8 +2041,8 @@ v = json.load(sys.stdin).get("releaseSha")
 print(v if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{40}", v) else "")
 ' 2>/dev/null)" || return 0
   [ -n "$serving" ] || return 0
-  if [ "$id" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
-    [ "$serving" = 92e26a9fbf4b6646b18e43d5a9a79c68a1a15ca4 ] || return 0
+  if [ "$id" = 2026-11-07-horse-fold-provenance-engine-1800z ]; then
+    [ "$serving" = 40bc24676be48aed14155380502ba20c225bfbe6 ] || return 0
   fi
   if [ "$witness_path" != '-' ]; then
     # An immutable feature witness cannot be consumed by an unrelated release
@@ -2394,7 +2394,7 @@ print(",".join("%s=%s" % (k, bad[k]) for k in sorted(bad)))
   if [ "${LEGACY_CHECKPOINT_PROFILE:-}" = eed-240s-certified-release-v1 ]; then
     reserve_args+=(--certified-policy "$CERTIFIED_RECOVERY_POLICY" --predecessor-sha "$CHECKPOINT_EED_SHA" --control-sha "$CONTROL_SHA")
   fi
-  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
+  if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-horse-fold-provenance-engine-1800z ]; then
     reserve_args+=(--nov7-owner --control-sha "$CONTROL_SHA" --deadline "$MUTATION_DEADLINE_EPOCH")
   fi
   reserve_args+=(--include-eligibility)
@@ -3396,7 +3396,9 @@ WINDOW_DOOR_LIST_RC=$?
 set -e
 [ "$WINDOW_DOOR_LIST_RC" = 0 ] \
   || die "WINDOW MIGRATION DOORS REFUSED: UNKNOWN - the window-migration doors of $SHA could not be listed (status $WINDOW_DOOR_LIST_RC); refusing before any cutover"
-if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-cutover-recovery-engine-release-1445z ]; then
+if [ "${ACTIVATION_FLOOR_OWNER_WINDOW:-}" = 2026-11-07-horse-fold-provenance-engine-1800z ]; then
+  python3 -B "$WINDOW_DOORS" horse-fold-provenance --env-file "$ENV_FILE" \
+    || die "Horse fold provenance archive is absent or unreadable; refusing before worker activation"
   # These functions are explicit terms of the order, even if the protected
   # candidate's ordinary window-door list has changed since the first refusal.
   for door in fn_cash_session_set_blind_off fn_lightning_blind_off_players fn_horse_exact_profiles_read; do

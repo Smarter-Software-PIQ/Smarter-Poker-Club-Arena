@@ -229,15 +229,7 @@ def read_env(path):
     return values
 
 
-def present_functions(env_file):
-    """The public function names pg_proc holds, or raises."""
-    fixture = os.environ.get('ENGINE_WINDOW_DOORS_CATALOG_FIXTURE')
-    if fixture:
-        with open(fixture, encoding='utf-8') as handle:
-            data = json.load(handle)
-        if not isinstance(data, list):
-            raise ValueError('catalog fixture is unreadable')
-        return set(data)
+def read_catalog(env_file):
     values = read_env(env_file)
     base = values.get('SUPABASE_URL', '').rstrip('/')
     key = values.get('SUPABASE_SERVICE_ROLE_KEY', '')
@@ -249,7 +241,19 @@ def present_functions(env_file):
                       headers={'apikey': key, 'Authorization': 'Bearer ' + key,
                                'Content-Type': 'application/json', 'Accept': 'application/json'})
     with urlopen(request, timeout=12) as response:
-        body = json.loads(response.read().decode())
+        return json.loads(response.read().decode())
+
+
+def present_functions(env_file):
+    """The public function names pg_proc holds, or raises."""
+    fixture = os.environ.get('ENGINE_WINDOW_DOORS_CATALOG_FIXTURE')
+    if fixture:
+        with open(fixture, encoding='utf-8') as handle:
+            data = json.load(handle)
+        if not isinstance(data, list):
+            raise ValueError('catalog fixture is unreadable')
+        return set(data)
+    body = read_catalog(env_file)
     functions = body.get('functions') if isinstance(body, dict) else None
     if not isinstance(functions, list) or len(functions) < 100:
         raise ValueError('fn_schema_manifest returned no function catalog')
@@ -345,10 +349,21 @@ def main(argv):
     lister = sub.add_parser('list')
     lister.add_argument('--repo', required=True)
     lister.add_argument('--sha', required=True)
+    sub.add_parser('horse-fold-provenance').add_argument('--env-file', required=True)
     checker = sub.add_parser('status')
     checker.add_argument('--env-file', required=True)
     checker.add_argument('--names', required=True)
     args = parser.parse_args(argv)
+    if args.mode == 'horse-fold-provenance':
+        try:
+            tables = read_catalog(args.env_file)['tables']
+            if not isinstance(tables, list):
+                raise ValueError('invalid table catalog')
+            if 'horse_memory_before_fold_provenance' in tables:
+                return READY
+        except (OSError, ValueError, KeyError, TypeError):
+            return UNKNOWN
+        return REFUSED
     if args.mode == 'list':
         try:
             print(','.join(window_doors(args.repo, args.sha)))

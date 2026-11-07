@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-07T14:45:00Z",
-  "activationAt": "2026-11-07T14:45:00Z",
-  "expiresAt": "2026-11-07T20:45:00Z",
+  "preparationAt": "2026-11-07T18:00:00Z",
+  "activationAt": "2026-11-07T18:00:00Z",
+  "expiresAt": "2026-11-08T00:00:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-11-07-cutover-recovery-engine-release-1445z",
-  "clientPublicationAt": "2026-11-07T14:45:00Z"
+  "ownerWindowId": "2026-11-07-horse-fold-provenance-engine-1800z",
+  "clientPublicationAt": "2026-11-07T18:00:00Z"
 }

@@ -756,7 +756,7 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_cutover_recovery_window_binds_the_live_floor_and_keeps_the_cash_styles_entry(self):
         import hashlib
         window, raw = self.historical_floor('2026-11-07-cutover-recovery-engine-release-1445z')
-        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), '54189b2503872b25b79f1ea68bf6f16e617fe14586311207e1a7801645df548b')
         self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-07T14:45:00Z', '2026-11-07T20:45:00Z'))
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
@@ -772,6 +772,31 @@ echo CHECKPOINT_MUST_NOT_RUN
         self.assertEqual(current['ownerWindowId'], '2026-11-07-cutover-recovery-engine-release-1445z')
         self.assertTrue(current['supersedesPhase1Schedule'])
         self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
+
+    def test_provenance_archive_gate_refuses_absent_and_unreadable_catalogs(self):
+        spec = importlib.util.spec_from_file_location('doors', ROOT / 'server/scripts/engine-release-window-doors.py')
+        doors = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(doors)
+        for catalog, expected in (({'tables':['horse_memory_before_fold_provenance']}, doors.READY),
+                                  ({'tables':[]}, doors.REFUSED), ({}, doors.UNKNOWN)):
+            with self.subTest(catalog=catalog), patch.object(doors, 'read_catalog', return_value=catalog):
+                self.assertEqual(doors.main(['horse-fold-provenance', '--env-file', 'unused']), expected)
+
+    def test_provenance_worker_and_database_windows_bind_the_same_corrective_release(self):
+        import hashlib
+        window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
+        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
+        self.assertEqual(window['migrations'], [])
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        database, = [w for w in windows['databaseWindows'] if w['id'] == '2026-11-07-horse-fold-provenance-db-1800z']
+        self.assertEqual(database['contains'], window['contains'])
+        self.assertEqual((database['notBefore'],database['notAfter']), (window['notBefore'],window['notAfter']))
+        self.assertEqual(database['migrations'], ['20261107160549_horse_memory_excludes_forced_folds.sql'])
+        migration = ROOT / 'supabase/migrations' / database['migrations'][0]
+        self.assertEqual(hashlib.sha256(migration.read_bytes()).hexdigest(),
+                         'f0093f6afa8347dc122a1ed95060bfb73339ef89d34208ac9f36b82562ede266')
 
     def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):
         import hashlib
