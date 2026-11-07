@@ -1382,7 +1382,7 @@ export class HandController {
       seat,
       userId: player.user_id,
       action,
-      ...((action === 'fold' && origin !== 'unknown') || origin === 'forced' ? { origin } : {}),
+      ...(action === 'fold' || origin === 'forced' ? { origin } : {}),
       amount: actualAmount,
       timestamp: Date.now(),
       stage: this.state.stage,
@@ -4268,13 +4268,21 @@ export class HandController {
       });
   }
 
-  getState(): GameState {
+  getState(options?: { includeActionOrigins?: boolean }): GameState {
     return {
       ...this.state,
       players: this.state.players.map((p) => ({ ...p, cards: [...p.cards] })),
       communityCards: [...this.state.communityCards],
       pots: this.state.pots.map((p) => ({ ...p, eligiblePlayers: [...p.eligiblePlayers] })),
-      actionHistory: [...this.state.actionHistory],
+      // Decision workers need accepted provenance to exclude automatic actions.
+      // Public state continues to expose the hand action without its executor.
+      actionHistory: options?.includeActionOrigins
+        ? [...this.state.actionHistory]
+        : this.state.actionHistory.map((entry) => {
+            if (entry.origin === undefined) return entry;
+            const { origin: _origin, ...publicAction } = entry;
+            return publicAction;
+          }),
     };
   }
 
