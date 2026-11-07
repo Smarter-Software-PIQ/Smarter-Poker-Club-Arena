@@ -43,7 +43,7 @@ describe('inventory pages commit before their immutable header', () => {
     expect(start).toBeGreaterThan(0);
     expect(end).toBeGreaterThan(start);
     const step = ci.slice(start, end);
-    expect(step).toContain('if: matrix.shard == 3');
+    expect(step).toContain('if: matrix.shard == 6');
     expect(step).toContain('python3 scripts/dev/test-inventory-seal-committed-pages.py');
     expect(step).toContain('actions/upload-artifact@v4');
     expect(step).toContain('if-no-files-found: error');

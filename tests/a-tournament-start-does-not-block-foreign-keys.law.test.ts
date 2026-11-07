@@ -99,6 +99,6 @@ describe('a tournament start locks the bank without blocking foreign-key checks'
       (s: { run?: string }) => s.run === 'bash scripts/dev/probe-departure-postgres.sh'
     );
     expect(step, 'the accounting job must run the probe runner').toBeDefined();
-    expect(step.if).toBe('matrix.shard == 3');
+    expect(step.if).toBe('matrix.shard == 2');
   });
 });

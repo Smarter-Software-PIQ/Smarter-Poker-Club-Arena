@@ -2488,7 +2488,7 @@ describe('scoped launch reset keeps its real recovery regression enforced', () =
   it('runs the complete installed candidate and connected owners in the existing job', () => {
     const steps = ci.jobs.accounting_postgres.steps;
     const step = steps.find((value: { id?: string }) => value.id === 'scoped_launch_reset');
-    expect(step.if).toBe('matrix.shard == 1');
+    expect(step.if).toBe('matrix.shard == 7');
     expect(step['continue-on-error']).toBeUndefined();
     expect(step.run).toContain('20261012181905_scoped_club_launch_reset_and_guarded_recovery.sql');
     expect(step.run).toContain('test_launch_reset_balance.py --candidate-migration');

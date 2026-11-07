@@ -60,7 +60,7 @@ describe('tournament source identities retain narrow physical coverage', () => {
       step.run?.includes('python3 -B scripts/ci/test_launch_reset_floor.py')
     );
     expect(matching).toHaveLength(1);
-    expect(matching[0].if).toBe('matrix.shard == 1');
+    expect(matching[0].if).toBe('matrix.shard == 7');
     expect(matching[0].run).toContain('--output "$PROBE_EVIDENCE/floor.json"');
     expect(matching[0].env.PROBE_EVIDENCE).toBe('${{ runner.temp }}/scoped-launch-reset');
     const retention = steps.find(
@@ -68,7 +68,7 @@ describe('tournament source identities retain narrow physical coverage', () => {
         step.with?.path === '${{ runner.temp }}/scoped-launch-reset/'
     );
     expect(retention.if).toContain('always()');
-    expect(retention.if).toContain('matrix.shard == 1');
+    expect(retention.if).toContain('matrix.shard == 7');
     expect(retention.with['if-no-files-found']).toBe('error');
     expect(ci.jobs.server.needs).toContain('accounting_postgres');
   });

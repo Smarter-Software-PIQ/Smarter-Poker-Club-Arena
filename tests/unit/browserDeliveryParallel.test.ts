@@ -240,10 +240,25 @@ describe('browser qualification parallel delivery', () => {
   });
 });
 
+/**
+ * On the Mac Studio, throwaway files belong on the external SSD, never the
+ * internal disk. The test used to throw unless the caller had already pointed
+ * TMPDIR there, so every local sweep from an ordinary shell reported eleven
+ * false failures. It now places its own scratch in a dedicated folder on the
+ * SSD (each run gets a unique mkdtemp directory, removed afterwards) and only
+ * refuses when that volume is not mounted at all.
+ */
+const SSD_AGENT_WORK = '/Volumes/SmarterWork/agent-work';
+function scratchParent(): string {
+  if (process.platform !== 'darwin' || tmpdir().startsWith(`${SSD_AGENT_WORK}/`)) return tmpdir();
+  if (!existsSync(SSD_AGENT_WORK)) throw Error('Owned external SSD TMPDIR required');
+  const parent = join(SSD_AGENT_WORK, 'test-scratch-browser-reserve');
+  mkdirSync(parent, { recursive: true });
+  return parent;
+}
+
 function reserve(free: string, fail = false, failRemove = false) {
-  if (process.platform === 'darwin' && !tmpdir().startsWith('/Volumes/SmarterWork/agent-work/'))
-    throw Error('Owned external SSD TMPDIR required');
-  const root = mkdtempSync(join(tmpdir(), 'browser-reserve-'));
+  const root = mkdtempSync(join(scratchParent(), 'browser-reserve-'));
   const sdk = join(root, 'sdk');
   const bin = join(root, 'bin');
   const trace = join(root, 'trace');

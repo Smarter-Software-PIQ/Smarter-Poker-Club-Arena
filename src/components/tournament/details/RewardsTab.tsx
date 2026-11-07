@@ -743,6 +743,14 @@ export default function RewardsTab({
         (currentFunding.houseRequired ?? overlay) - Math.max(0, currentFunding.housePosted ?? 0)
       ))
     : 0;
+  /* ONE STORY FOR A FREE BUY (2026-11-06). Its promo chips are house money
+     already in the pool, so the house's whole share (house_required) and what
+     it still adds at close (house_due) differ: 250 vs 95 on a 250 Free Buy
+     holding 155 promo chips. Say both, so the headline and the payout floor
+     never look contradictory. Paid events post nothing early and keep the
+     single "Overlay" wording. */
+  const housePostedNow = currentFunding ? Math.max(0, currentFunding.housePosted ?? 0) : 0;
+  const housePostedEarly = !isFinalised && !isComplete && housePostedNow > 0 && overlay > 0;
   const guaranteedLadderPool =
     hasGuarantee && !isFinalised && currentFunding && pendingHouse > 0 && !isSatellite
       ? effectivePlaceLadderPool(
@@ -955,7 +963,9 @@ export default function RewardsTab({
                   ? 'Funding Not Available'
                   : guaranteeMet
                     ? 'Covered By Entries'
-                    : `${chips(overlay)} Overlay`}
+                    : housePostedEarly
+                      ? `${chips(overlay)} House Funded`
+                      : `${chips(overlay)} Overlay`}
               </span>
             </div>
           )}
@@ -1026,7 +1036,9 @@ export default function RewardsTab({
             <p className="rw-gtd__note">
               {isFinalised || isComplete
                 ? `The House Funded ${chips(overlay)} Above Entry Contributions`
-                : `The House Covers The ${chips(overlay)} Overlay If The Field Does Not Close It`}
+                : housePostedEarly
+                  ? `The House Has Already Put In ${chips(housePostedNow)} And Adds ${chips(pendingHouse)} More If The Field Does Not Close It`
+                  : `The House Covers The ${chips(overlay)} Overlay If The Field Does Not Close It`}
             </p>
           </div>
         )}

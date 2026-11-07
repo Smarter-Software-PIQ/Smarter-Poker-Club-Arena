@@ -65,7 +65,7 @@ describe('superseded action retention progress remains enforced', () => {
       step.run?.includes('scripts/ci/test-superseded-horse-actions.py')
     );
     expect(steps).toHaveLength(1);
-    expect(steps[0].if).toBe('matrix.shard == 3');
+    expect(steps[0].if).toBe('matrix.shard == 6');
     expect(steps[0]['continue-on-error']).toBeUndefined();
     expect(steps[0].run).toContain('--pg-bin "$POKER_AUDIT_PG_BIN"');
     expect(steps[0].run).toContain('--evidence artifacts/superseded-horse-actions');

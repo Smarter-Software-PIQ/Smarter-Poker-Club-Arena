@@ -1455,6 +1455,17 @@ jobs:
     # Move the isolated Diamond group (231s) and backed payout scan (188s)
     # to shard 2, preserving commands, order, artifacts and all four runners.
     # This balances measured work; it is not a promised future duration.
+    # November 6 run 42338709472: shards 1..7 took 1530/534/1967/992/728/
+    # 683/170s of suite time, so every server pull request waited 34m on
+    # shard 3 while shard 7 finished in 3m. Moved, unchanged and each with its
+    # own evidence step: scoped launch reset 1->7; backed payout discovery,
+    # F06 shared hand lanes and atomic departures 3->2; horse settlement-key
+    # and adaptive-statistics retention, Midway weekly promo and first-week
+    # aggregate 3->5; committed-page and bucket inventory seals, original
+    # inventory restoration, downline rake scope, superseded horse actions
+    # and the accepted roster 3->6. None uses the isolation tester, pg_net or
+    # pg_cron. Predicted maximum ~1294s (shard 3: Lightning stays whole and
+    # the isolation-tester suites stay with their tool) instead of 1967s.
     # tests/ci-tells-the-truth-faster.law.test.ts pins the split:
     # every suite step belongs to exactly one shard.
     strategy:
@@ -1704,7 +1715,7 @@ jobs:
         run: python3 -B -m unittest discover -s scripts/ci -p test_native_supabase_export.py
       - name: Scoped launch reset preserves original money and reporting owners
         id: scoped_launch_reset
-        if: matrix.shard == 1
+        if: matrix.shard == 7
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
@@ -1724,7 +1735,7 @@ jobs:
           python3 -B scripts/ci/test_launch_reset_floor_admission.py --candidate "$launch_candidate" --fixture scripts/ci/fixtures/launch-reset/accounting/floor-admission-qualification.sql --work-root "$RUNNER_TEMP" --pg-bin "$PG_BIN"
           python3 -B scripts/ci/test_launch_reset_floor.py --candidate-migration "$launch_candidate" --pgbin "$PG_BIN" --scratch "$RUNNER_TEMP" --output "$PROBE_EVIDENCE/floor.json"
       - name: Retain scoped launch reset qualification
-        if: always() && matrix.shard == 1 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.scoped_launch_reset.outcome)
+        if: always() && matrix.shard == 7 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.scoped_launch_reset.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: scoped-launch-reset-${{ github.run_id }}-${{ github.run_attempt }}
@@ -2035,7 +2046,7 @@ jobs:
         run: python3 scripts/ci/test-certification-retirement-postgres.py
 
       - name: Backed payout discovery preserves every conservation term
-        if: matrix.shard == 3
+        if: matrix.shard == 2
         run: python3 scripts/ci/test-backed-payout-scan-postgres.py
 
       - name: Reserved cleanup finds immutable cash sources without a trailing-key scan
@@ -2615,12 +2626,12 @@ jobs:
         run: python3 scripts/ci/test-tournament-creation-rules.py --output artifacts/tournament-creation-rules
       - name: Concurrent hands preserve shared F06 custody lanes
         id: f06_hand_authority
-        if: matrix.shard == 3
+        if: matrix.shard == 2
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-f06-shared-hand-lane.py
       - name: Retain F06 hand and generation disposition proof
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.f06_hand_authority.outcome)
+        if: always() && matrix.shard == 2 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.f06_hand_authority.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: f06-hand-authority-${{ github.run_id }}-${{ github.run_attempt }}
@@ -2721,12 +2732,12 @@ jobs:
           retention-days: 7
       - name: The accepted actor roster is produced inside the settlement transaction
         id: accepted_hand_roster
-        if: matrix.shard == 3
+        if: matrix.shard == 6
         env:
           POKER_AUDIT_PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-accepted-hand-roster.py --pg-bin "$POKER_AUDIT_PG_BIN" --evidence artifacts/accepted-hand-roster
       - name: Retain accepted actor roster proof
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.accepted_hand_roster.outcome)
+        if: always() && matrix.shard == 6 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.accepted_hand_roster.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: accepted-hand-roster-${{ github.run_id }}-${{ github.run_attempt }}
@@ -2741,12 +2752,12 @@ jobs:
         run: python3 scripts/ci/test-hand-submission-disposal.py --pg-bin "$POKER_AUDIT_PG_BIN" --evidence artifacts/hand-submission-disposal
       - name: Superseded horse requests retire only their certified action copy
         id: superseded_horse_actions
-        if: matrix.shard == 3
+        if: matrix.shard == 6
         env:
           POKER_AUDIT_PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-superseded-horse-actions.py --pg-bin "$POKER_AUDIT_PG_BIN" --evidence artifacts/superseded-horse-actions
       - name: Retain superseded horse action proof
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.superseded_horse_actions.outcome)
+        if: always() && matrix.shard == 6 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.superseded_horse_actions.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: superseded-horse-actions-${{ github.run_id }}-${{ github.run_attempt }}
@@ -2775,12 +2786,12 @@ jobs:
         run: python3 scripts/verification-harness/horse-request-retention.py --pg-bin "$POKER_AUDIT_PG_BIN" --evidence artifacts/horse-request-retention
       - name: Horse settlement keys compact without losing replay or accounting proof
         id: horse_settlement_key_retention
-        if: matrix.shard == 3
+        if: matrix.shard == 5
         env:
           POKER_AUDIT_PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/verification-harness/horse-settlement-key-retention.py --pg-bin "$POKER_AUDIT_PG_BIN" --evidence artifacts/horse-settlement-key-retention
       - name: Retain horse settlement key compaction proof
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.horse_settlement_key_retention.outcome)
+        if: always() && matrix.shard == 5 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.horse_settlement_key_retention.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: horse-settlement-key-retention-${{ github.run_id }}-${{ github.run_attempt }}
@@ -2789,12 +2800,12 @@ jobs:
           retention-days: 7
       - name: Adaptive raw horse facts become exact sufficient statistics after qualified retention
         id: horse_adaptive_statistics_retention
-        if: matrix.shard == 3
+        if: matrix.shard == 5
         env:
           POKER_AUDIT_PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/verification-harness/horse-adaptive-statistics-retention.py --pg-bin "$POKER_AUDIT_PG_BIN" --evidence artifacts/horse-adaptive-statistics-retention
       - name: Retain adaptive raw retirement and consumer proof
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.horse_adaptive_statistics_retention.outcome)
+        if: always() && matrix.shard == 5 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.horse_adaptive_statistics_retention.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: horse-adaptive-statistics-retention-${{ github.run_id }}-${{ github.run_attempt }}
@@ -2821,7 +2832,7 @@ jobs:
         if: matrix.shard == 3
         run: node --test scripts/verification-harness/departure-holder-stream-close.test.mjs
       - name: Atomic departures, ownership, rollback and concurrency
-        if: matrix.shard == 3
+        if: matrix.shard == 2
         env:
           PGBIN: /usr/lib/postgresql/17/bin
         run: bash scripts/dev/probe-departure-postgres.sh
@@ -2961,7 +2972,7 @@ jobs:
 
       - name: Inventory seal preserves exact rows through bucket continuation
         id: inventory_seal_buckets
-        if: matrix.shard == 3
+        if: matrix.shard == 6
         env:
           PGBIN: /usr/lib/postgresql/17/bin
           PROBE_EVIDENCE: ${{ runner.temp }}/inventory-seal-buckets
@@ -2971,7 +2982,7 @@ jobs:
           bash scripts/dev/probe-inventory-seal-buckets-pg17.sh 2>&1 | tee "$PROBE_EVIDENCE/qualification.log"
 
       - name: Retain inventory seal PostgreSQL qualification
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.inventory_seal_buckets.outcome)
+        if: always() && matrix.shard == 6 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.inventory_seal_buckets.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: inventory-seal-buckets-${{ github.run_id }}-${{ github.run_attempt }}
@@ -2991,7 +3002,7 @@ jobs:
 
       - name: Inventory pages commit before their immutable checkpoint header
         id: inventory_committed_pages
-        if: matrix.shard == 3
+        if: matrix.shard == 6
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
           INVENTORY_SEAL_SCRATCH: ${{ runner.temp }}/inventory-committed-pages
@@ -3001,7 +3012,7 @@ jobs:
           python3 scripts/dev/test-inventory-seal-committed-pages.py \
             2>&1 | tee "$INVENTORY_SEAL_SCRATCH/native.log"
       - name: Retain committed-page inventory qualification
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.inventory_committed_pages.outcome)
+        if: always() && matrix.shard == 6 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.inventory_committed_pages.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: inventory-committed-pages-${{ github.run_id }}-${{ github.run_attempt }}
@@ -3044,7 +3055,7 @@ jobs:
           retention-days: 7
 
       - name: Agent downline rake stays in overseer clubs
-        if: matrix.shard == 3
+        if: matrix.shard == 6
         env:
           PGBIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/dev/probe-agent-downline-rake-scope-pg17.py
@@ -3117,14 +3128,14 @@ jobs:
 
       - name: Midway weekly promo pays each eligible club wallet once
         id: midway_weekly_promo
-        if: matrix.shard == 3
+        if: matrix.shard == 5
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: |
           set -euo pipefail
           python3 -B scripts/qualification/midway-weekly-promo/run-native.py --output "$RUNNER_TEMP/midway-weekly-promo"
       - name: Retain Midway weekly promo native proof
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.midway_weekly_promo.outcome)
+        if: always() && matrix.shard == 5 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.midway_weekly_promo.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: midway-weekly-promo-${{ github.run_id }}-${{ github.run_attempt }}
@@ -3151,7 +3162,7 @@ jobs:
 
       - name: Initial weekly first week evaluates the calendar once per club
         id: weekly_first_week_aggregate
-        if: matrix.shard == 3
+        if: matrix.shard == 5
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: |
@@ -3159,7 +3170,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/weekly-first-week-aggregate"
           python3 scripts/qualification/weekly-first-week-aggregate/run-native.py --output "$RUNNER_TEMP/weekly-first-week-aggregate" 2>&1 | tee "$RUNNER_TEMP/weekly-first-week-aggregate/native.log"
       - name: Retain first week aggregate native transcripts
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.weekly_first_week_aggregate.outcome)
+        if: always() && matrix.shard == 5 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.weekly_first_week_aggregate.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: weekly-first-week-aggregate-${{ github.run_id }}-${{ github.run_attempt }}
@@ -3238,7 +3249,7 @@ jobs:
 
       - name: Original inventory restoration admits only qualified finite financial evidence
         id: original_inventory_restoration
-        if: matrix.shard == 3
+        if: matrix.shard == 6
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: |
@@ -3247,7 +3258,7 @@ jobs:
           python3 scripts/qualification/original-retirement-boundary/run-native.py --output "$RUNNER_TEMP/original-inventory-restoration" 2>&1 | tee "$RUNNER_TEMP/original-inventory-restoration/native.log"
 
       - name: Retain original inventory restoration qualification
-        if: always() && matrix.shard == 3 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.original_inventory_restoration.outcome)
+        if: always() && matrix.shard == 6 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.original_inventory_restoration.outcome)
         uses: actions/upload-artifact@v4
         with:
           name: original-inventory-restoration-${{ github.run_id }}-${{ github.run_attempt }}

@@ -230,6 +230,11 @@ describe('The guarantee includes bounties, never rake', () => {
     const { container } = render(<RewardsTab {...fixture} />);
     await waitFor(() => expect(container.textContent).toContain('Guaranteed 250'));
     expect(container.textContent).not.toContain('Guaranteed 405');
+    // The headline and the note tell one story: the whole house share, what
+    // it already put in, and what it still adds.
+    expect(container.textContent).toContain('250 House Funded');
+    expect(container.textContent).toContain('Already Put In 155 And Adds 95 More');
+    expect(container.textContent).not.toContain('250 Overlay');
   });
   it('shows no guaranteed figure once the pool is finalized', async () => {
     state.housePosted = 1580;
