@@ -2435,6 +2435,15 @@ export interface HorseDecideOpts {
    *  plo4/plo5/plo6_v54_river_bluff measure it, and it goes live for every
    *  horse when it beats the current brain there. */
   v54RiverBluff?: boolean;
+  /** River bluff paths for the game types #9803 excluded (2026-11-07,
+   *  HorseRiverBluffRange.ts): fixed limit (the one fixed bet, low balanced
+   *  share), short deck (the engine's 36-card ranking), bomb pots (postflop
+   *  stories only) and multi-board pots (air on every board, frequency over
+   *  the board count). Each defaults on; false restores that exclusion. */
+  riverBluffFixedLimit?: boolean;
+  riverBluffShortDeck?: boolean;
+  riverBluffBombPot?: boolean;
+  riverBluffMultiBoard?: boolean;
   /** Baseline river bluff range (Dan 2026-11-06, HorseRiverBluffRange.ts):
    *  heads-up, river, no bet to face, no showdown value, a line that tells a
    *  story - bluff at the balanced rate for the bet size, blockers and missed
@@ -9852,6 +9861,17 @@ export class HorseLogic {
         !barrelOutlookRiverPending
       ) {
         const oppRb = opponents.length === 1 ? opponents[0] : null;
+        // The nut blocker on one board, in this game's ranking (short deck:
+        // the 36-card deck, A-6-7-8-9 the lowest straight).
+        const nutBlockerRb = (b: Card[]): boolean =>
+          b.length === 5 &&
+          riverNutBlocker(
+            player.cards,
+            b,
+            vi.isOmaha,
+            vi.isOmaha && omahaFlushBlocker(player.cards, b, vi.holeCount).blocksNutFlush === true,
+            vi.isShortDeck
+          );
         const eligRb = riverBluffEligibility({
           omaha: vi.isOmaha,
           potLimit: vi.isPotLimit,
@@ -9874,13 +9894,16 @@ export class HorseLogic {
           inPosition: ip,
           initiative,
           scareCard: scare.any,
-          nutBlocker: riverNutBlocker(
-            player.cards,
-            board,
-            vi.isOmaha,
-            vi.isOmaha &&
-              omahaFlushBlocker(player.cards, board, vi.holeCount).blocksNutFlush === true
-          ),
+          nutBlocker: nutBlockerRb(board),
+          boards: multiBoard36 ? allBoards36 : undefined,
+          boardEquities: multiBoard36 ? boardEq36 : undefined,
+          nutBlockerByBoard: multiBoard36 ? allBoards36.map(nutBlockerRb) : undefined,
+          paths: {
+            fixedLimit: opts.riverBluffFixedLimit !== false,
+            shortDeck: opts.riverBluffShortDeck !== false,
+            bombPot: opts.riverBluffBombPot !== false,
+            multiBoard: opts.riverBluffMultiBoard !== false,
+          },
           riverHelpsHero: rangeChange?.improves === true || rangeChange?.nutAdvantage === true,
           rangesFavorOpponent:
             runoutFavorsOpponent === true || rangeAdvantage?.disadvantage === true,
@@ -9897,6 +9920,20 @@ export class HorseLogic {
             riverHelpsHero: rangeChange?.improves === true || rangeChange?.nutAdvantage === true,
             icmRisk: isTournamentMode(gs) ? risk : 0,
             u: fastRandom(),
+            // Fixed limit: the river's one legal bet. The controller publishes
+            // it; otherwise the big bet is twice the hand's small bet.
+            ...(vi.isFixedLimit
+              ? {
+                  fixedLimitBet:
+                    Number.isFinite(gs.fixedBetSize) && (gs.fixedBetSize as number) > 0
+                      ? (gs.fixedBetSize as number)
+                      : 2 *
+                        (Number.isFinite(gs.fixedLimitSmallBet) &&
+                        (gs.fixedLimitSmallBet as number) > 0
+                          ? (gs.fixedLimitSmallBet as number)
+                          : gs.bigBlind),
+                }
+              : {}),
           });
           const compRb =
             ownRange && opponentRange
@@ -9954,11 +9991,16 @@ export class HorseLogic {
               false
             );
             const placedRb = betRb.action === 'bet' || betRb.action === 'all_in';
-            if (tele15 && placedRb) noteFire(`river_bluff_baseline_${eligRb.selection}`);
-            else if (tele15) noteFire('river_bluff_baseline_illegal');
+            if (tele15 && placedRb) {
+              noteFire(`river_bluff_baseline_${eligRb.selection}`);
+              for (const t of eligRb.gameTypes) noteFire(`river_bluff_baseline_bet_${t}`);
+            } else if (tele15) noteFire('river_bluff_baseline_illegal');
             return betRb;
           }
-          if (tele15) noteFire('river_bluff_baseline_check');
+          if (tele15) {
+            noteFire('river_bluff_baseline_check');
+            for (const t of eligRb.gameTypes) noteFire(`river_bluff_baseline_check_${t}`);
+          }
           return { action: 'check', thinkTime: 0 };
         } else if (tele15 && eligRb.reason !== 'showdown_value' && eligRb.reason !== 'domain') {
           noteFire(`river_bluff_baseline_skip_${eligRb.reason}`);
