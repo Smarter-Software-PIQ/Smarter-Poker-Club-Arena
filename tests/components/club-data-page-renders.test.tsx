@@ -2752,11 +2752,21 @@ describe('ClubDataPage', () => {
 
     render(<ClubDataPage />);
     fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+    await screen.findByText(snapshot.rows[0].name);
+    const snapshotsBeforeSort = rpcMock.mock.calls.filter(
+      ([fn]) => fn === 'ca_club_data_snapshot_v2'
+    ).length;
     fireEvent.click(screen.getByRole('button', { name: 'Highest Fee' }));
 
     const loadMore = await screen.findByRole('button', {
       name: 'Load More Games - 100 Of 250',
     });
+    expect(rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2')).toHaveLength(
+      snapshotsBeforeSort
+    );
+    expect(
+      rpcMock.mock.calls.some(([fn, args]) => fn === 'ca_club_game_page' && args?.p_sort === 'fee')
+    ).toBe(true);
     const rankedCallsBeforeClick = rpcMock.mock.calls.filter(
       ([fn]) => fn === 'ca_club_game_page'
     ).length;
@@ -2767,6 +2777,12 @@ describe('ClubDataPage', () => {
     await screen.findByRole('button', { name: 'Load More Games - 200 Of 250' }, { timeout: 5000 });
     expect(rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_game_page')).toHaveLength(
       rankedCallsBeforeClick
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh Club Ledger' }));
+    await waitFor(() =>
+      expect(rpcMock.mock.calls.filter(([fn]) => fn === 'ca_club_data_snapshot_v2')).toHaveLength(
+        snapshotsBeforeSort + 1
+      )
     );
   });
 });
