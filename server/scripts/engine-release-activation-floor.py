@@ -23,10 +23,11 @@ CERTIFIED_PREDECESSOR = 'eed06fe51dea622069c661a6213d5b031ff3a9e3'
 CERTIFIED_START = 1793833200
 CERTIFIED_END = 1793854800
 
-# The owner authorized only this single exception to the daily schedule (#9857).
-NOV7_OWNER_ID = '2026-11-07-cash-room-realism-engine-2230z'
-NOV7_MANIFEST_DIGEST = '4e75ef16ef642d53e69139e045cabd23064a5baa55a50d0e2f13c5272ce22769'
-NOV7_ORDER_DIGEST = '990c9ccdeb5e42b95176194099f2dac8557e207e6a7656c80c9ce8f2d481bad3'
+# The owner-directed Horse successor rebinds the existing single-use exception.
+# Prior immutable controls and entries keep their original authority and expiry.
+NOV7_OWNER_ID = '2026-11-08-horse-study-successor-engine-1720z'
+NOV7_MANIFEST_DIGEST = 'd087dff51e393884f0d297804275b058a855b1b77049424bb14a1eef39fdb814'
+NOV7_ORDER_DIGEST = '5e6749a65dcdf03ef58e66180f0145377ba861c02fbad616e92efca64730c8eb'
 
 
 

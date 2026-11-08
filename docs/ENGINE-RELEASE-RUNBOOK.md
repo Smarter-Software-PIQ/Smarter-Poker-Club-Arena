@@ -1,3 +1,5 @@
+**November 8 Horse study continuation:** the owner directed completion now in chat `01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430`. The single successor `2026-11-08-horse-study-successor-engine-1720z` preserves the expired prior booking and admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593`, between 17:20 and 23:20 UTC November 8, after the published 17:00 UTC player notice has actually been available for at least twenty minutes. Exact qualification, Backup, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. This does not renew the expired prior operation or change the standing daily schedule.
+
 # Engine release runbook: Backup, certification and the 04:00 cutover
 
 Written 2026-11-07 on the owner's instruction to write down "any and all things
