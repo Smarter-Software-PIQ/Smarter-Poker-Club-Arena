@@ -1113,6 +1113,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "4e75ef16ef642d53e69139e045cabd23064a5baa55a50d0e2f13c5272ce22769"
       }
+    },
+    {
+      "id": "2026-11-08-horse-study-successor-engine-1720z",
+      "ownerOrder": "Dan directly in Horse study chat 01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430 ordered: COORDINATE WITH THE \"ENGINE CUTOVER AND UPDATE STATS\" CHAT TO GET THIS DONE NOW, NOT AT 4AM; and continued: FINISH UP, PUSH AND PUBLISH EVERYTHING AN THEN STOP. This new finite successor completes the same assigned Horse trip-board value and tournament shared-memory consumer delivery after the prior 2026-11-07-cash-room-realism-engine-2230z booking expired at 2026-11-08T04:30:00Z without activation. Original operator access is unavailable and original receiver history shows no later active delivery; the Horse study task owns this single successor operation. One earliest-certified worker cutover from serving 391f7bc0d57c71637bd4af5181f70520661e3593; no database migration. Publish and observe the actual player notice for at least twenty minutes before admission. Require exact protected target qualification and Backup certificate, a fresh announcement between :05:30 and :49:00, normal hand-boundary drain, sealed freeze, full proof and rollback reserve, single-use claim, exact production identity and healthy thaw. Preserve every prior booking and receipt. Expiry does not extend this booking or authorize a retry loop.",
+      "contains": "ac3440ad7f60c2c8f91cd9afd8dd535aadd752f2",
+      "playerNoticeAt": "2026-11-08T17:00:00Z",
+      "notBefore": "2026-11-08T17:20:00Z",
+      "notAfter": "2026-11-08T23:20:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "d087dff51e393884f0d297804275b058a855b1b77049424bb14a1eef39fdb814"
+      }
     }
   ],
   "databaseWindows": [
