@@ -10,3 +10,15 @@ The receiver verifies the original immutable artifact before host handoff.
 Daily election, host single-use admission, notice and all cutover safeguards
 remain unchanged. Focused tests reject mismatched, late, absent, altered and
 rerun receipts and prevent selecting an ancestor with different release authority.
+
+Required CI run 42500238367 reached Member Record hosting qualification and
+failed downloading the pinned Caddy API asset with HTTP 403, before its native
+assertions. The response did not retain enough detail to identify the upstream
+403 reason. The existing download was anonymous despite the hosted job having a
+scoped GitHub token available. The native Data Console step now supplies that
+token, and the same immutable API request authenticates it. Hosted execution
+refuses a missing token before attempting the request. The asset identity,
+SHA-512 check, 120-second request bound and all native assertions remain intact;
+no unchecked fallback or retry is added. Focused regression executes the shell
+branch with a synthetic credential and transport refusal, verifies no credential
+is printed, and pins the required caller and checksum-before-extraction contract.
