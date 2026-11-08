@@ -227,7 +227,7 @@ the verdict on the exact commit"). Readers, newest status first:
   from the owed SHA (60 commits) and offers the newest `success`;
 - `auto-deploy-hetzner.yml` step `backup_certificate` refuses any request
   whose SHA is not `success`;
-- the host transaction re-reads it at line 3284 (before the cycle), line 3817 (before preparation) and line
+- the host transaction re-reads it at line 3284 (before the cycle) and line
   3873 (before the replacement).
 
 Read it yourself:
@@ -531,7 +531,7 @@ shortens a safeguard.
 
 ### 7.3 The degraded-engine emergency, exactly
 
-`recovery_window_reason` (transaction line 1929) names `engine-degraded` only
+`recovery_window_reason` (transaction line 1917) names `engine-degraded` only
 when live `/health` shows `liveness == "dead"`, `wholeFleetStalled == true`, or
 `tournamentManagersQuarantined >= RECOVERY_QUARANTINED_MANAGERS`. That is the
 whole definition; a request deadline, a missed window, a red run or a slow

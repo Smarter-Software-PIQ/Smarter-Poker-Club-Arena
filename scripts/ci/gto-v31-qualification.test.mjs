@@ -202,7 +202,7 @@ test('an epoch is never spent on a commit whose evaluator predates epochs', () =
 test('the epoch protocol is read from the exact commit in a real git history', () => {
   const dir = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'v31-protocol-'));
   const git = (...args) => {
-    const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't',
+    const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))), GIT_AUTHOR_NAME: 't',
       GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
     assert.equal(r.status, 0, r.stderr);
     return r.stdout.trim();
@@ -225,7 +225,7 @@ test('the epoch protocol is read from the exact commit in a real git history', (
 test('promotion refuses a serving engine whose live workers cannot refuse an unbound dataset', () => {
   const dir = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'v31-gate-'));
   const git = (...args) => {
-    const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't',
+    const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_'))), GIT_AUTHOR_NAME: 't',
       GIT_AUTHOR_EMAIL: 't@example.invalid', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.invalid' } });
     assert.equal(r.status, 0, r.stderr);
     return r.stdout.trim();
