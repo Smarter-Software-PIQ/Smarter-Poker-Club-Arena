@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   houseRequired: null as number | null,
   housePosted: null as number | null,
   houseDue: null as number | null,
+  houseSupplementPaid: null as number | null,
 }));
 vi.mock('../src/lib/supabase', () => ({
   supabase: {
@@ -39,6 +40,7 @@ vi.mock('../src/lib/supabase', () => ({
                 house_required: state.houseRequired,
                 house_posted: state.housePosted,
                 house_due: state.houseDue,
+                house_supplement_paid: state.houseSupplementPaid,
               },
           error: state.error ? new Error('Funding unavailable') : null,
         }),
@@ -60,6 +62,7 @@ afterEach(() => {
   state.houseRequired = null;
   state.housePosted = null;
   state.houseDue = null;
+  state.houseSupplementPaid = null;
 });
 
 function props(pool = 4050): TournamentTabProps {
@@ -151,9 +154,31 @@ describe('The guarantee includes bounties, never rake', () => {
     await waitFor(() => expect(container.textContent).toContain('1,580 Overlay'));
     expect(container.querySelector('.rw-pool__value')?.textContent).toBe('5,000');
     expect(container.textContent).toContain('Place Prizes4,050');
+    expect(container.querySelector('.rw-mix__list')?.textContent).toContain('Club Overlay1,580');
     expect(container.textContent).toContain('Bounty Pool950');
     expect(container.textContent).toContain('3,420 Of 5,000');
     expect(container.textContent).not.toContain('Guarantee Met');
+  });
+  it('shows a completed promo supplement separately from the original sealed pool composition', async () => {
+    state.collected = state.net = 2412;
+    state.overlay = 0;
+    state.houseRequired = state.housePosted = state.houseSupplementPaid = 88;
+    state.houseDue = 0;
+    const fixture = props(1742);
+    fixture.tournament.status = 'COMPLETED';
+    fixture.tournament.bounty_pool = 670;
+    fixture.tournament.guaranteed_prize = 2500;
+    fixture.entries = fixture.entries.slice(0, 67);
+    const { container } = render(<RewardsTab {...fixture} />);
+    await waitFor(() =>
+      expect(container.textContent).toContain(
+        '88 Promo Paid Separately To The Finishers After Completion'
+      )
+    );
+    expect(container.querySelector('.rw-pool__value')?.textContent).toBe('2,412');
+    expect(container.querySelector('.rw-mix__list')?.textContent).not.toContain('Club Overlay');
+    expect(container.textContent).toContain('Place Prizes1,742');
+    expect(container.textContent).toContain('Bounty Pool670');
   });
   it('reports the actual larger legacy overlay without reducing a committed award', async () => {
     state.overlay = 2530;
