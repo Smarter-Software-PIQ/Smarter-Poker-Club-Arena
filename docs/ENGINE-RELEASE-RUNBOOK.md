@@ -680,3 +680,5 @@ remainders without payment; the successor retains the original terminal request
 and generation. After the usual exact certificate, daily activation and seal,
 read the affected event's canonical settlement and table completion. Preserve an
 unknown or committed outcome across rollback; never replay its financial effects.
+
+Schema changes under `supabase/migrations/**` trigger both existing Backup and engine prequalification push workflows on protected main. A migration-only push retains its exact SHA when the latest server commit is older; changed migration inputs require full Backup certification and the existing schema-refresh decision. Later client-only changes can use that earlier physical certificate and exact prequalification when the selector's current schema, controls and serving-predecessor checks still pass. No new schedule or client-only qualification trigger is introduced.
