@@ -87,7 +87,9 @@ describe('the hooks drop the inherited git directory before running anything', (
     expect(unset).toBeGreaterThan(0);
     const firstCommand = hook.search(/\n(bash|node|git|npm|npx) /);
     expect(firstCommand).toBeGreaterThan(unset);
-    expect(hook.slice(unset, unset + 400)).toContain('scripts/guard-bare-flip.sh');
+    // The bare-clone guard is the command right after the scrub.
+    const nextLine = hook.slice(unset + 1).split('\n')[1];
+    expect(nextLine).toBe('bash "$(git rev-parse --show-toplevel)/scripts/guard-bare-flip.sh"');
   });
 
   it('pre-commit unsets GIT_DIR but keeps the index git hands the commit', () => {
