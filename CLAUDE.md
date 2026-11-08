@@ -584,7 +584,12 @@ RPCs, and sits in the same seat as anybody else. Therefore a horse:
   and super-agent commissions, `player_stats`, rakeback basis, leaderboard
   position, achievements, anything downstream of play or of rake;
 - **IS PAID** everything a human is paid — prizes, bounties, refunds,
-  shortfall back-pay, jackpots. Never "skip the horses" on a repayment;
+  shortfall back-pay, jackpots. Never "skip the horses" on a repayment.
+  Dan, 2026-11-08, HARD RULE: "HORSES GET REFUNDED EXACTLY THE SAME AS A HUMAN
+  100% OF THE TIME!" That covers every closure, cancellation and retirement,
+  horse-only events included. There is no "no refunds to horse entries" rule;
+  Dan never ordered one. Pinned by
+  `tests/a-refund-never-reads-horse-identity.law.test.ts`;
 - **IS SUBJECT TO** every rule a human is subject to — nit/VPIP eviction,
   limits, guards, integrity checks;
 - **COUNTS** everywhere a human counts — player counts, engine provisioning,

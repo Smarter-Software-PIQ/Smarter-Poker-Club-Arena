@@ -1,0 +1,3 @@
+# tests/a-refund-never-reads-horse-identity.law.test.ts
+
+Dan, 2026-11-08 (HARD RULE): horses are refunded exactly as humans, 100% of the time, horse-only events included; it supersedes the 2026-11-05 "no refunds to horse entries or horse-only events" note he never ordered. No money-return routine (refund, cancel, abort, void, retire, closure, unregister, withdraw, unwind, compensate, make-good, custody transfer) defined since 2026-11-02 may read horse identity (is_horse, is_bot, horse_status, the fleet register or assignment, a horse email domain); the owner-retirement custody step refuses while any paid charge is unrefunded, whoever paid it, and the back-refund pays the 2,220 pinned charges (17,931.00) once each through the audited 10.9 door.
