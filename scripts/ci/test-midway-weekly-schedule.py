@@ -281,6 +281,30 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         candidate=ten.read_text()
         sql(installer(candidate[:candidate.index('-- Capture and lock')]+"COMMIT;"))
         exact="UPDATE tournaments SET late_reg_levels=10,short_description=replace(short_description,'Late Registration Through Level 12.','Late Registration Through Level 10.') WHERE id='"+registered+"'"
+        # The same production guard also handles table status and deletion.
+        # Exercise the real trigger before and after applying its forward fix.
+        sql("""ALTER TABLE tables ADD COLUMN status text, ADD COLUMN is_deleted boolean DEFAULT false;
+            CREATE TABLE table_seats(table_id uuid, left_at timestamptz);
+            CREATE TRIGGER trg_tables_managed_lifecycle_guard BEFORE UPDATE OF status,is_deleted
+            ON tables FOR EACH ROW EXECUTE FUNCTION fn_guard_managed_game_lifecycle();
+            INSERT INTO tables(id,status) VALUES ('11111111-0000-4000-8000-000000000001','running');""")
+        table_id = "'11111111-0000-4000-8000-000000000001'"
+        close_table = "UPDATE tables SET status='closed' WHERE id=" + table_id
+        try: sql(close_table)
+        except RuntimeError as error: assert 'record "old" has no field "late_reg_levels"' in str(error),str(error)
+        else: raise AssertionError('missing table-row cutoff error was not reproduced')
+        cutoff_guard=next((root/'supabase/migrations').glob('*scope_tournament_cutoff_fields_to_tournament_trigger_rows.sql')).read_text()
+        sql(cutoff_guard)
+        sql('INSERT INTO table_seats(table_id) VALUES (' + table_id + ')')
+        try: sql(close_table)
+        except RuntimeError as error: assert 'cannot be closed while players are seated' in str(error),str(error)
+        else: raise AssertionError('occupied table closed')
+        sql('UPDATE table_seats SET left_at=now() WHERE table_id='+table_id)
+        sql(close_table)
+        assert sql('SELECT status FROM tables WHERE id='+table_id)=='closed'
+        # An exact installer edit succeeds, while the four witnesses below
+        # still exercise the incumbent tournament restrictions on the fixed guard.
+        sql("BEGIN;SET LOCAL application_name='apply-recorded-migration';"+exact+";ROLLBACK;")
         bad_contexts=[("SET application_name='ordinary-request'; ",exact),
           ("SET application_name='apply-recorded-migration'; SET request.jwt.claim.role='authenticated'; ",exact),
           ("SET application_name='apply-recorded-migration'; ",exact.replace('late_reg_levels=10,','late_reg_levels=10,rebuy_levels=13,')),
