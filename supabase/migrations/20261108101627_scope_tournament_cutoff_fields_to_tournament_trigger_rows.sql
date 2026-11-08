@@ -1,3 +1,4 @@
+-- @live-proof: md5(pg_get_functiondef('public.fn_guard_managed_game_lifecycle()'::regprocedure)) = 'db074b979b3038da3f89bf00b4963623'
 -- A shared trigger must branch on the relation before PostgreSQL plans a
 -- statement that references tournament-only fields of OLD and NEW.
 BEGIN;
