@@ -141,7 +141,15 @@ import {
 // V3 (2026-07-23): real-time opponent intelligence — live stats, range reading,
 // exploit adjustments, board texture, blockers. See HorseMind.ts.
 import { bestPineappleDiscard } from './pineappleDiscardChoice.js';
-import { HorseMind, SNAP_MS, TANK_MS, readScopeOf } from './HorseMind.js';
+import {
+  HorseMind,
+  SNAP_MS,
+  TANK_MS,
+  readScopeOf,
+  breakEvenBluffMod,
+  BREAK_EVEN_REFERENCE_SIZE,
+  type ExploitProfile,
+} from './HorseMind.js';
 import { omahaFlushBlocker } from './OmahaFlushBlocker.js';
 import {
   isStation,
@@ -2729,6 +2737,22 @@ export interface HorseDecideOpts {
    *  observations) instead of trusting a raw 8- or 10-opportunity rate.
    *  Default off; the league matchup read_shrink_response measures it. */
   readShrinkResponse?: boolean;
+  /** BREAK-EVEN POSTFLOP BLUFFING (2026-11-08, read calibration follow-up;
+   *  HorseMind BREAK_EVEN_FOLD_CURVE): the exploit bluff multiplier is
+   *  re-derived from the decision context's postflop fold-to-bet read
+   *  (shrunk toward the game's population) against each bet size's
+   *  break-even fold share s / (1 + s), instead of the legacy all-street
+   *  rate against fixed 0.62 / 0.35 lines. The c-bet, probe, semi-bluff and
+   *  pure-bluff bets price their own size. nlh and plo4-6 only. Default off;
+   *  the league matchups break_even_bluff* measure it. */
+  readBreakEvenBluff?: boolean;
+  /** SCOPED SHRINK (2026-11-08): a scoped read with fewer than 40 hands in
+   *  this game is shrunk toward this game's population (16 pseudo-
+   *  observations) instead of falling back to the pooled bucket, which
+   *  mixes every game the player has played. Default off; measured by the
+   *  read calibration replay (a league table deals one game, so no league
+   *  card can see it). */
+  readScopedShrink?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -5103,6 +5127,8 @@ export class HorseLogic {
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,
       shrinkResponseReads: opts.readShrinkResponse === true,
+      breakEvenBluff: opts.readBreakEvenBluff === true,
+      scopedShrink: opts.readScopedShrink === true,
     });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
@@ -8364,7 +8390,7 @@ export class HorseLogic {
     // profile from their accumulated tendencies, board texture, blockers.
     let bands: Array<[number, number] | null> | undefined;
     let oppReads: Array<OppPostflopRead | null> | undefined;
-    let exploit = { bluffMod: 1, callDownMod: 1, valueThinMod: 1 };
+    let exploit: ExploitProfile = { bluffMod: 1, callDownMod: 1, valueThinMod: 1 };
     let wetness = 0.35;
     let blocker = false;
     if (useMind) {
@@ -9316,9 +9342,27 @@ export class HorseLogic {
     // V4: position scales bluffing — pressure comes cheaper in position.
     // V7: ICM survival pressure trims bluff volume in tournaments.
     const posMod = useIQ ? (ip ? 1.15 : 0.85) : 1.0;
+    // readBreakEvenBluff: the break-even multiplier sets bluff frequency in
+    // place of bluffMod (which stays the folder / station classification).
     let bluffScale =
-      exploit.bluffMod * blockerMod * posMod * Math.max(0.5, 1 - 2 * risk) * (quartered ? 0.6 : 1);
+      (exploit.breakEvenBluff ?? exploit.bluffMod) *
+      blockerMod *
+      posMod *
+      Math.max(0.5, 1 - 2 * risk) *
+      (quartered ? 0.6 : 1);
     if (huOn) bluffScale *= 1.12;
+    // BREAK-EVEN BLUFFING (readBreakEvenBluff): exploit.breakEvenBluff is the
+    // multiplier at the reference size; a bet of another size rescales it by
+    // that size's own surplus over break-even. Flag off (no foldShift): the
+    // scale itself, exactly as before. Reads bluffScale when called, so every
+    // later adjustment below still applies.
+    const foldShiftBE = exploit.foldShift;
+    const familyBE = vi.isOmaha ? 'omaha' : 'holdem';
+    const bluffScaleAt = (size: number, calledEquity = 0): number =>
+      foldShiftBE === undefined
+        ? bluffScale
+        : (bluffScale * breakEvenBluffMod(foldShiftBE, familyBE, size, calledEquity)) /
+          breakEvenBluffMod(foldShiftBE, familyBE, BREAK_EVEN_REFERENCE_SIZE);
     // V40: an Omaha river bluff into a player who called two barrels is a
     // third barrel with air. The range that called pot twice is not
     // folding; the bluff ladder below all but closes here.
@@ -11257,7 +11301,7 @@ export class HorseLogic {
         !scare.any &&
         equity >= 0.15 &&
         equity < 0.5 &&
-        fastRandom() < 0.28 * Math.min(1.3, bluffScale)
+        fastRandom() < 0.28 * Math.min(1.3, bluffScaleAt(0.4))
       ) {
         if (tele15) noteFire('v17_river_probe');
         return this.betSize(
@@ -11299,7 +11343,7 @@ export class HorseLogic {
           (oppCount === 1 ? 0.6 : 0.35) *
             (prevChecked ? 1.15 : 1.0) *
             cbetFreqMult *
-            Math.min(1.3, bluffScale)
+            Math.min(1.3, bluffScaleAt(cbetSize))
       ) {
         planBarrel(equity);
         return this.betSize(planHandKey, pot, cbetSize, player, gs, vi, params, useSizing);
@@ -11318,7 +11362,8 @@ export class HorseLogic {
         fastRandom() <
           params.bluffFreq *
             params.aggression *
-            Math.min(1.3, bluffScale) *
+            // A live draw keeps its equity when called.
+            Math.min(1.3, bluffScaleAt((sizeBase + 0.275) * ploDamp, equity)) *
             (oppCount === 1 ? 1.4 : 0.7) *
             omahaDrawMod()
       ) {
@@ -11368,7 +11413,10 @@ export class HorseLogic {
         equity < 0.3 &&
         oppCount === 1 &&
         fastRandom() <
-          params.bluffFreq * Math.min(1.3, bluffScale) * scareBluffBoost * (isRiver ? 0.55 : 0.8)
+          params.bluffFreq *
+            Math.min(1.3, bluffScaleAt(sizeBase + 0.25)) *
+            scareBluffBoost *
+            (isRiver ? 0.55 : 0.8)
       ) {
         planBarrel(equity);
         // V12 (G): river bluffs holding a nut blocker occasionally use the
