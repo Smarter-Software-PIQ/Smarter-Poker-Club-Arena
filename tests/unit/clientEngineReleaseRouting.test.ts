@@ -30,12 +30,13 @@ describe('bounded read-only recovery checkouts', () => {
   it('hydrates only stage admission files while retaining exact-source full history', () => {
     const job = stage.jobs.detect;
     const checkout = job.steps.find((step: any) => step.uses === 'actions/checkout@v4');
-    expect(job['timeout-minutes']).toBe(3);
+    expect(job['timeout-minutes']).toBe(315); // five-hour finite reservation plus execution headroom
     expect(checkout.with.ref).toBe('${{ github.sha }}');
     expect(checkout.with['fetch-depth']).toBe(0);
     expect(checkout.with.filter).toBe('blob:none');
     expect(checkout.with['sparse-checkout-cone-mode']).toBe(false);
     expect(checkout.with['sparse-checkout'].trim().split('\n')).toEqual([
+      '/scripts/ci/read-engine-prequalification.py',
       '/server/scripts/engine-release-seal.py',
       '/server/release/owner-maintenance-windows.json',
       '/server/release/activation-floor.json',

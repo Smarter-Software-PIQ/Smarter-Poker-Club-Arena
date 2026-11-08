@@ -4,8 +4,8 @@
  * Owner ruling: the Total Prize Pool is what the field paid net of rake
  * (36 x 46 = 1,656, never 1,656 + overlay) and the overlay is shown on its
  * own. fn_ca_tournament_prize_funding is the authority; screens that hold
- * only the tournament row use displayTotalPool / guaranteeShortfall. These
- * rows were read from production fn_ca_tournament_prize_funding on
+ * only the tournament row use displayTotalPool / guaranteeShortfall. The net expectation supersedes gross coverage on November 7. These
+ * row inputs were read from production fn_ca_tournament_prize_funding on
  * 2026-11-06 - if either side drifts, the two would print different money.
  */
 import React from 'react';
@@ -32,7 +32,7 @@ const PRODUCTION_ROWS = [
     b: 460,
     r: 184,
     collected: 1656,
-    due: 660,
+    due: 844,
   },
   {
     name: '40 Chip Bounty Freezeout 2.5K (56 entries)',
@@ -41,10 +41,10 @@ const PRODUCTION_ROWS = [
     b: 560,
     r: 224,
     collected: 2016,
-    due: 260,
+    due: 484,
   },
-  { name: 'Friday Fight Night PKO', g: 1500, p: 312, b: 390, r: 78, collected: 702, due: 720 },
-  { name: 'Night Owl Special (NLH)', g: 750, p: 104, b: 130, r: 26, collected: 234, due: 490 },
+  { name: 'Friday Fight Night PKO', g: 1500, p: 312, b: 390, r: 78, collected: 702, due: 798 },
+  { name: 'Night Owl Special (NLH)', g: 750, p: 104, b: 130, r: 26, collected: 234, due: 516 },
   {
     name: 'Covered: 73 entries of 40 against 2.5K',
     g: 2500,
@@ -87,9 +87,9 @@ describe('the lobby card shows the overlay beside the pool, never inside it', ()
     ...overrides,
   });
 
-  it('a paid event: 702 pool, 720 overlay', () => {
+  it('a paid event: 702 pool, 798 overlay', () => {
     render(<TournamentLobbyCard tournament={card({})} knownRegistration={false} />);
-    expect(screen.getByText('720 Overlay')).toBeTruthy();
+    expect(screen.getByText('798 Overlay')).toBeTruthy();
     expect(screen.getByText('Total Pool').parentElement!.textContent).toContain('702');
     expect(screen.queryByText('1,422')).toBeNull();
   });
@@ -141,7 +141,7 @@ describe('a guaranteed satellite prints the field, not its guarantee (2026-11-07
   // The production 2.5K GTD 40 Chip Bounty Freezeout row at 46 entries, read
   // as a satellite feeding a Main Event. Until today useSatellites mapped
   // `prizePool: guaranteed_prize || prize_pool`, so this card said "2,500"
-  // and never showed the 660 the house still owed.
+  // and never showed the 844 the house still owed.
   const row = {
     format_contract: 'mtt-v2',
     id: 'sat-gtd',
@@ -172,18 +172,20 @@ describe('a guaranteed satellite prints the field, not its guarantee (2026-11-07
     expect(card.totalRake).toBe(184);
     expect(card.guaranteedPrize).toBe(2500);
     expect(displayTotalPool(card.prizePool, card.guaranteedPrize, card.bountyPool)).toBe(1656);
-    expect(guaranteeShortfall(card.guaranteedPrize, card.prizePool, card.bountyPool, card.totalRake)).toBe(
-      660
-    );
+    expect(
+      guaranteeShortfall(card.guaranteedPrize, card.prizePool, card.bountyPool, card.totalRake)
+    ).toBe(844);
   });
 
-  it('the satellite card reads the 1,656 total pool (compact 1.6K), GTD, and 660 overlay; never 2.5K as the pool', () => {
-    render(<TournamentLobbyCard tournament={mapSatelliteRowToCard(row)} knownRegistration={false} />);
+  it('the satellite card reads the 1,656 total pool (compact 1.6K), GTD, and 844 overlay; never 2.5K as the pool', () => {
+    render(
+      <TournamentLobbyCard tournament={mapSatelliteRowToCard(row)} knownRegistration={false} />
+    );
     const pool = screen.getByText('Total Pool').parentElement!.textContent!;
     // The card compacts chips; 1,656 prints as 1.6K and 2,500 would print as 2.5K.
     expect(pool).toContain('1.6K');
     expect(pool).toContain('GTD');
-    expect(screen.getByText('660 Overlay')).toBeTruthy();
+    expect(screen.getByText('844 Overlay')).toBeTruthy();
     expect(pool).not.toContain('2.5K');
   });
 

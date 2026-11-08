@@ -329,7 +329,11 @@ supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS`, and each
     line: the installer then sends undeclared files first (oldest first), then
     declared files grouped by shared relation and oldest first, and a skipped
     file's line names the relation it lost; the line orders only and never
-    widens a timeout or earns a retry. "Queued" is simply "on main and not in schema_migrations"; never
+    widens a timeout or earns a retry. For a declared file, inside the
+    confirmed freeze only, the installer terminates postgres-family sessions
+    left idle in transaction on a declared relation just before the one
+    attempt and records each in `ca_window_install_terminations`; it never
+    touches an active query, a superuser, a Supabase role or pg_cron. "Queued" is simply "on main and not in schema_migrations"; never
     apply a declared file by hand or through the MCP. Window files may not
     set their own override, freeze bypass, longer timeouts, sleeps, blocking
     advisory locks or CONCURRENTLY preambles, and the freeze still refuses
@@ -339,7 +343,7 @@ supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS`, and each
     `docs/changelog/2026-10-22-a-migration-that-needs-the-live-tables-waits-for-the-daily-break.md`.
 11. **A MIGRATION REACHES PRODUCTION ONLY FROM PROTECTED MAIN (owner
     instruction, 2026-10-25).** Merge first; every same-repository merge into
-    main dispatches each added migration to `apply-merged-migration.yml`
+    main dispatches each added or modified migration to `apply-merged-migration.yml`
     (`dispatch-merged-migrations.yml`, on the merge's own `closed` event,
     whoever merged), which sends the merged bytes once and answers
     ALREADY-APPLIED for a version production holds. Dispatch by hand only a
@@ -1611,8 +1615,7 @@ and blind-clock authority stays independent of global engine maintenance.
 The owner explicitly requested scheduled daily server updates on October 20.
 This is a narrow exception to the former no-release-timer rule: the existing
 stage-engine-release.yml prepares protected main in the 03:30-03:50 Chicago
-window: the first push or schedule run created inside it prepares, once per
-Chicago date, and a late cron prepares nothing (2026-11-01,
+window. The first eligible Stage run (push, schedule, or completion of a successful protected-main push Backup) can reserve the date up to five elapsed hours before 03:30. The original job waits once until 03:30, then prepares once per Chicago date, and a late cron prepares nothing (2026-11-01,
 `tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`),
 through the existing receiver only. It
 must not add a second publisher, watcher, retry agent or repair loop. Routine

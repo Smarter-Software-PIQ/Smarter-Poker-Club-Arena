@@ -465,12 +465,9 @@ export default function RewardsTab({
 
   /* ── THE POOL ─────────────────────────────────────────────────────────── */
 
-  /* A BUY-IN GUARANTEE COUNTS THE WHOLE PAYMENT (Dan, 2026-11-05): what is
-     credited toward the guarantee is every player payment before bounty and
-     rake allocation. Older servers without the gross terms fall back to the
-     prize contribution they report. */
+  /* Rake is excluded from guarantee coverage (owner November 7). */
   const collectedPool = currentFunding
-    ? (currentFunding.grossCoverage ?? currentFunding.collected)
+    ? (currentFunding.netCoverage ?? currentFunding.collected)
     : null;
   const guarantee = num(t.guaranteed_prize);
   const hasGuarantee = guarantee > 0;
@@ -485,7 +482,7 @@ export default function RewardsTab({
     t.total_rake,
     t.prize_pool_finalized === true
   );
-  /* The house share is H = max(0, guarantee - gross), one total: once
+  /* The house share is H = max(0, guarantee - net), one total: once
      finalized, what was posted; before that, what will be owed if the field
      closes now. Never the guarantee minus the prize half. */
   const overlay = currentFunding
@@ -495,11 +492,10 @@ export default function RewardsTab({
         : currentFunding.houseRequired
       : Math.max(
           currentFunding.overlay,
-          hasGuarantee
-            ? Math.max(0, guarantee - currentFunding.collected - Math.max(0, num(t.total_rake)))
-            : 0
+          hasGuarantee ? Math.max(0, guarantee - currentFunding.collected) : 0
         )
     : 0;
+  const houseInStoredPool = Math.max(0, overlay - (currentFunding?.houseSupplementPaid ?? 0));
   const guaranteeMet = hasGuarantee && collectedPool !== null && collectedPool >= guarantee;
 
   const isFinalised = !!t.prize_pool_finalized;
@@ -957,11 +953,13 @@ export default function RewardsTab({
               />
             </div>
             <p className="rw-gtd__note">
-              {isFinalised || isComplete
-                ? `The House Funded ${chips(overlay)} Above Entry Contributions`
-                : housePostedEarly
-                  ? `The House Has Already Put In ${chips(housePostedNow)} And Adds ${chips(pendingHouse)} More If The Field Does Not Close It`
-                  : `The House Covers The ${chips(overlay)} Overlay If The Field Does Not Close It`}
+              {(currentFunding.houseSupplementPaid ?? 0) > 0
+                ? `${chips(currentFunding.houseSupplementPaid)} Promo Paid Separately To The Finishers After Completion`
+                : isFinalised || isComplete
+                  ? `The House Funded ${chips(overlay)} Above Entry Contributions`
+                  : housePostedEarly
+                    ? `The House Has Already Put In ${chips(housePostedNow)} And Adds ${chips(pendingHouse)} More If The Field Does Not Close It`
+                    : `The House Covers The ${chips(overlay)} Overlay If The Field Does Not Close It`}
             </p>
           </div>
         )}
@@ -1012,10 +1010,10 @@ export default function RewardsTab({
               )}
               {/* Only once funded: before close the overlay is not in the pool,
                   it is the house's pending share shown beside the guarantee. */}
-              {overlay > 0 && isFinalised && (
+              {houseInStoredPool > 0 && isFinalised && (
                 <li className="rw-mix__row">
                   <span className="rw-mix__label">Club Overlay</span>
-                  <span className="rw-mix__figure">{chips(overlay)}</span>
+                  <span className="rw-mix__figure">{chips(houseInStoredPool)}</span>
                 </li>
               )}
             </ul>

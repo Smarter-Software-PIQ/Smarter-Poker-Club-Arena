@@ -55,17 +55,20 @@ describe('the engine deploy has one fail-closed Hetzner authority', () => {
     expect(triggers).toMatch(/^\s{2}push:$/m);
     expect(triggers).toContain('branches: [main]');
     expect(triggers).not.toMatch(/^\s+paths(?:-ignore)?:/m);
-    expect(triggers).not.toMatch(
-      /^\s{2}(?:repository_dispatch|pull_request|pull_request_target|workflow_run):/m
-    );
+    expect(triggers).toMatch(/^ {2}repository_dispatch:\n {4}types: \[prepare-daily-engine\]$/m);
+    expect(triggers).not.toMatch(/^\s{2}(?:pull_request|pull_request_target):/m);
+    expect(triggers).toContain("workflows: ['Backup Engine (Clone, Stage, Certify)']");
+    expect(engineSignalCode).toContain('github.event.workflow_run.run_attempt == 1');
     // The explicit migration continuation skips detection and every dependent engine signal.
-    expect(engineSignal).toContain("if: github.event_name != 'workflow_dispatch'");
+    expect(engineSignal).toContain(
+      "if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main'))"
+    );
     expect(engineSignal).toContain('needs: detect');
     expect(triggers).not.toContain("cron: '30 * * * *'");
     expect((triggers.match(/cron:/g) ?? []).length).toBe(2);
     expect(engineSignalCode).toContain('PHASE1_RESTORING');
-    expect(triggers).toContain("cron: '31,35,39,43 8 * * *'");
-    expect(triggers).toContain("cron: '31,35,39,43 9 * * *'");
+    expect(triggers).toContain("cron: '31,35,39,43 3,8 * * *'");
+    expect(triggers).toContain("cron: '31,35,39,43 4,9 * * *'");
     expect(engineSignalCode).toContain(
       'moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at)'
     );

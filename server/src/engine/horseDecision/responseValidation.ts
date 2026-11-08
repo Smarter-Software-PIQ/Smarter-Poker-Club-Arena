@@ -11,7 +11,11 @@ import type { HorseDecision, HorseTournamentUtilityLedger, SeatPlayer } from '..
 import type { HorseGameStateV2 } from '../HorseLogic.js';
 import { MAX_UTILITY_OUTCOMES } from '../HorseTournamentUtility.js';
 import { jointStateKey } from '../multiway/JointRangeSampler.js';
-import { horsePolicyOrderForVersion, type HorsePolicyAction } from '../HorsePolicyGraph.js';
+import {
+  horsePolicyOrderForVersion,
+  type HorsePolicyAction,
+  type HorsePolicyGraphReceipt,
+} from '../HorsePolicyGraph.js';
 import { horsePolicyOwnershipMatches } from '../HorsePolicyRegistry.js';
 import type { GovernorSnapshot } from '../EquityLoadGovernor.js';
 import { PHASE8_POLICY } from '../HorseTournamentPostflop.js';
@@ -671,14 +675,19 @@ export function horsePhase12SelectionIsValid(value: unknown, decision: RecordVal
  * law: a changed action only as an authority-backed cash selection under
  * usable worker Phase 13 authority for the receipt's own variant (an NLH
  * authority never backs a PLO4 receipt, and no Phase 10, 11 or 12 authority
- * backs any), at the running joint domain version, with the final action equal
- * to the proposal; acceptance-time fields unset; the two named selection
+ * backs any), at the running joint domain version, with the proposal either
+ * retained or superseded by a later owner in the verified policy graph.
+ * Acceptance-time fields unset; the two named selection
  * refusals only on an unapplied receipt; and never an applied joint candidate
  * on top of an applied Phase 10/11/12 candidate (`earlier_phase_applied`). A
  * P13.1 receipt (a selection refusal, no selection) claims no authority and
  * may not carry an applied candidate either.
  */
-export function horsePhase13SelectionIsValid(value: unknown, decision: RecordValue): boolean {
+export function horsePhase13SelectionIsValid(
+  value: unknown,
+  decision: RecordValue,
+  verifiedGraph?: HorsePolicyGraphReceipt
+): boolean {
   if (value === undefined) return true;
   if (!record(value)) return false;
   if (!Object.hasOwn(value, 'selection'))
@@ -696,6 +705,7 @@ export function horsePhase13SelectionIsValid(value: unknown, decision: RecordVal
         authorityVersionOf: (variant) =>
           isJointVariant(variant) ? horsePhase13ContinuationVersion(variant) : null,
         refusals: ['illegal_candidate', 'earlier_phase_applied'],
+        superseded: jointSelectionWasSuperseded(value, verifiedGraph),
       }
     )
   )
@@ -718,6 +728,34 @@ export function horsePhase13SelectionIsValid(value: unknown, decision: RecordVal
   );
 }
 
+/** Only the boundary which has checked the whole graph may supply this witness. */
+function jointSelectionWasSuperseded(
+  receipt: RecordValue,
+  graph: HorsePolicyGraphReceipt | undefined
+): boolean {
+  if (receipt.selection !== 'shadow_change' || !graph) return false;
+  const joint = graph.transitions.find((transition) => transition.node === 'joint_policy');
+  if (
+    !joint?.before ||
+    !joint.changed ||
+    joint.before.action !== receipt.baselineAction ||
+    joint.before.amount !== receipt.baselineAmount ||
+    joint.after.action !== receipt.proposalAction ||
+    joint.after.amount !== receipt.proposalAmount ||
+    graph.finalAction.action !== receipt.finalAction ||
+    graph.finalAction.amount !== receipt.finalAmount
+  )
+    return false;
+
+  return graph.transitions.some(
+    ({ node, before, after }) =>
+      (node === 'corrective_policy' || node === 'wager_rules') &&
+      before !== null &&
+      (before.action !== after.action ||
+        ((after.action === 'bet' || after.action === 'raise') && before.amount !== after.amount))
+  );
+}
+
 function packSelectionIsValid(
   value: unknown,
   decision: RecordValue,
@@ -727,6 +765,8 @@ function packSelectionIsValid(
     authorityVersionOf?: (variant: unknown) => string | null;
     /** The named selection refusals an unapplied receipt may carry. */
     refusals?: readonly string[];
+    /** A verified later owner replaced the applied selection. */
+    superseded?: boolean;
   } = {}
 ): boolean {
   if (value === undefined) return true;
@@ -770,13 +810,13 @@ function packSelectionIsValid(
   return (
     value.mode === 'candidate' &&
     value.changed === true &&
-    value.selection === 'selected' &&
     value.utilityOwner === 'cash' &&
     decision.action === value.proposalAction &&
-    decision.action === value.finalAction &&
-    (!wager(decision.action) ||
-      ((decision.amount ?? null) === value.proposalAmount &&
-        (decision.amount ?? null) === value.finalAmount))
+    (!wager(decision.action) || (decision.amount ?? null) === value.proposalAmount) &&
+    (options.superseded === true ||
+      (value.selection === 'selected' &&
+        decision.action === value.finalAction &&
+        (!wager(decision.action) || (decision.amount ?? null) === value.finalAmount)))
   );
 }
 
@@ -1119,7 +1159,7 @@ export function horseDecisionReceiptRefusal(
   if (value.jointPolicy !== undefined && !jointReceiptBindingIsValid(value.jointPolicy))
     return 'phase13_binding';
   // P13.3: and its selection, by the Phase 10/11/12 law.
-  if (!horsePhase13SelectionIsValid(value.jointPolicy, selected)) return 'phase13_selection';
+  if (!horsePhase13SelectionIsValid(value.jointPolicy, selected, graph)) return 'phase13_selection';
   if (
     value.tournamentPreflopAttribution !== undefined &&
     !horsePhase6AttributionIsValid(value.tournamentPreflopAttribution)

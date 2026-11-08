@@ -84,36 +84,137 @@ class Evidence(unittest.TestCase):
 
 
 class Selection(unittest.TestCase):
-    def verify(self, *, altered=False, duplicate=False, late=False, pending=False):
+    def verify(self, *, altered=False, duplicate=False, late=False, pending=False, early=False, backup=False, owner=False, wrong_owner=False, wrong_stage=False, wrong_event=False, rerun=False,
+               stale=False, controls=False, replay=False, event="schedule", sender="User",
+               created="2026-11-08T09:35:00Z", attempt=1, title="Original operator daily preparation"):
         repo = "Smarter-Software-PIQ/Smarter-Poker-Club-Arena"
         cutoff = int(datetime(2026, 11, 8, 9, 30, tzinfo=timezone.utc).timestamp())
+        owner_id = "2026-11-08-horse-study-successor-engine-1720z" if owner else None
+        if owner:
+            cutoff = int(datetime(2026, 11, 8, 17, 20, tzinfo=timezone.utc).timestamp())
         qualification = {"targetSha":"a"*40, "controlSha":"b"*40, "qualificationRunId":21}
-        run = dict(id=22, run_attempt=1, event="schedule", head_branch="main", status="in_progress",
+        run = dict(id=22, run_attempt=attempt, event=event, actor={"type":sender}, created_at=created, head_branch="main", status="in_progress",
                    path=".github/workflows/stage-engine-release.yml", head_sha="c"*40,
-                   repository={"full_name":repo}, head_repository={"full_name":repo})
+                   repository={"full_name":repo}, head_repository={"full_name":repo}, display_title=title)
+        if early:
+            run.update(created_at="2026-11-08T04:30:00Z", display_title="Daily engine reservation")
+        if backup:
+            run.update(event="workflow_run", display_title="Automatic Backup daily reservation")
+        if replay:
+            run["run_attempt"] = 2
+        if owner:
+            run.update(event="push" if wrong_event else "workflow_dispatch", head_sha="b"*40,
+                       created_at=datetime.fromtimestamp(cutoff, timezone.utc).isoformat(),
+                       run_attempt=2 if rerun else 1)
+            qualification["controlSha"] = "d"*40 if wrong_stage else "b"*40
         receipt = dict(schema=1, outcome="selected", cutoffEpoch=cutoff+int(late),
                        qualification=qualification, stageSha=run["head_sha"],
                        targetSha=qualification["targetSha"], controlSha=qualification["controlSha"])
+        if owner:
+            receipt["ownerWindowId"] = "forged" if wrong_owner else owner_id
         data = io.BytesIO()
         with zipfile.ZipFile(data, "w") as bundle:
             bundle.writestr("daily-selection.json", json.dumps(receipt))
             if duplicate:
                 bundle.writestr("other.json", "{}")
         archive = data.getvalue()
-        artifact = dict(id=7, name="daily-engine-selection-2026-11-08", expired=False,
+        artifact = dict(id=7, name="owner-engine-selection-" + owner_id if owner else "daily-engine-selection-2026-11-08", expired=False,
                         size_in_bytes=len(archive), digest="sha256:"+hashlib.sha256(archive).hexdigest())
         job = dict(name="Record the daily release evidence", run_id=22, run_attempt=1,
-                   head_sha=run["head_sha"], status="completed", conclusion="success" if not pending else None)
+                   head_sha=run["head_sha"], status="completed", conclusion="success" if not pending else None,
+                   started_at="2026-11-08T09:30:00Z", completed_at="2026-11-08T09:32:00Z")
         with patch.object(reader, "api", side_effect=[run, {"total_count":1, "jobs":[job]}, {"total_count":1,"artifacts":[artifact]}]), \
-             patch.object(reader, "git", return_value=""), \
+             patch.object(reader, "git", side_effect=lambda *a: ("d"*40 if stale else qualification["controlSha"]) if a[0] == "rev-list" else ""), \
+             patch.object(reader, "projection", side_effect=["old", "new"] if controls else ["same", "same"]), \
+             patch.object(reader, "owner_selection_policy") as policy, \
              patch.object(reader.subprocess, "check_output", return_value=archive + (b"x" if altered else b"")):
-            reader.verify_selection(repo, "22", cutoff, qualification)
+            reader.verify_selection(repo, "22", cutoff, qualification, owner_id)
+            if owner:
+                policy.assert_called_once_with(qualification["targetSha"], run["head_sha"], owner_id, cutoff)
+
+    def test_owner_requires_original_protected_exact_stage_and_bound_artifact(self):
+        self.verify(owner=True)
+        for mismatch in ("altered", "duplicate", "late", "pending", "wrong_owner", "wrong_stage", "wrong_event", "rerun"):
+            with self.subTest(mismatch=mismatch), self.assertRaises(reader.Unqualified):
+                self.verify(owner=True, **{mismatch: True})
+
+    def test_verifies_original_in_window_operator_only(self):
+        self.verify(event="repository_dispatch")
+        for changes in ({"sender":"Bot"}, {"attempt":2}, {"title":"forged"}, {"created":"2026-11-08T04:31:00Z"}, {"created":"2026-11-08T09:50:00Z"},
+                        {"created":"2026-11-07T09:35:00Z"}):
+            with self.subTest(changes=changes), self.assertRaises(reader.Unqualified):
+                self.verify(event="repository_dispatch", **changes)
 
     def test_verifies_stage_artifact_and_rejects_changed_archive_or_cutoff(self):
         self.verify()
-        for mismatch in ("altered","duplicate","late","pending"):
+        self.verify(early=True)
+        self.verify(early=True, backup=True)
+        for mismatch in ("altered","duplicate","late","pending","stale","controls","replay"):
             with self.subTest(mismatch=mismatch), self.assertRaises(reader.Unqualified):
                 self.verify(**{mismatch: True})
+
+
+class ReservationDoorOwner(unittest.TestCase):
+    def test_early_owner_and_preparation_owner_are_the_same(self):
+        spec = spec_from_file_location("window_doors", root / "server/scripts/engine-release-window-doors.py")
+        doors = module_from_spec(spec); spec.loader.exec_module(doors)
+        early = dict(id=10, event="push", head_branch="main", created_at="2026-11-09T04:31:00Z", display_title="Daily engine reservation")
+        legacy_noop = dict(id=9, event="push", head_branch="main", created_at="2026-11-09T04:30:00Z")
+        late = dict(id=11, event="schedule", head_branch="main", created_at="2026-11-09T09:31:00Z")
+        job = dict(name=doors.INSTALL_JOB, status="in_progress", conclusion=None, html_url="owner-job")
+        def read(path):
+            if "/workflows/" in path:
+                return dict(total_count=3, workflow_runs=[late, early, legacy_noop])
+            self.assertIn("/runs/10/jobs", path)
+            return dict(jobs=[job])
+        with patch.object(doors, "github", side_effect=read):
+            self.assertEqual(doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc))["url"], "owner-job")
+        early.update(event="workflow_run", display_title="Automatic Backup daily reservation")
+        with patch.object(doors, "github", side_effect=read):
+            self.assertEqual(doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc))["url"], "owner-job")
+        early.update(event="repository_dispatch", display_title="Original operator daily preparation",
+                     actor={"type":"User"}, created_at="2026-11-09T09:30:00Z", run_attempt=1)
+        with patch.object(doors, "github", side_effect=read):
+            self.assertEqual(doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc))["url"], "owner-job")
+        early["run_attempt"] = 2
+        with patch.object(doors, "github", side_effect=read):
+            self.assertIsNone(doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc)))
+
+    def test_unreadable_truncated_duplicate_and_naive_reservations_refuse(self):
+        spec = spec_from_file_location("window_doors", root / "server/scripts/engine-release-window-doors.py")
+        doors = module_from_spec(spec); spec.loader.exec_module(doors)
+        run = dict(id=10, event="push", head_branch="main", created_at="2026-11-09T04:31:00Z", display_title="Daily engine reservation")
+        for listing in [dict(total_count=1), dict(total_count=1,workflow_runs=[]),
+                        dict(total_count=2,workflow_runs=[run,run]),
+                        dict(total_count=1,workflow_runs=[{**run,"created_at":"2026-11-09T04:31:00"}])]:
+            with self.subTest(listing=listing), patch.object(doors,"github",return_value=listing), self.assertRaises(ValueError):
+                doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc))
+
+
+class OwnerPolicy(unittest.TestCase):
+    def test_reuses_pinned_validator_and_rejects_wrong_identity_or_interval(self):
+        now = int(datetime.now(timezone.utc).timestamp())
+        owner = "finite-owner"
+        floor = dict(ownerWindowId=owner,
+                     activationAt=datetime.fromtimestamp(now-60, timezone.utc).isoformat(),
+                     expiresAt=datetime.fromtimestamp(now+600, timezone.utc).isoformat())
+        with patch.object(reader, "protected"), patch.object(reader, "git", return_value=json.dumps(floor)), \
+             patch.object(reader.subprocess, "check_output", return_value=b"# original protected helper") as command:
+            self.assertEqual(reader.owner_selection_policy("a"*40, "a"*40, owner, now), floor)
+            call = command.call_args.args[0]
+            self.assertEqual(call[3:], ["nov7-owner", "--repo", ".", "--target", "a"*40,
+                                       "--control", "a"*40, "--deadline", str(now+600)])
+            for target, identity, cutoff in (("a"*40,"forged",now),
+                                             ("a"*40,owner,now-61),("a"*40,owner,now+601)):
+                with self.assertRaises(reader.Unqualified):
+                    reader.owner_selection_policy(target,"a"*40,identity,cutoff)
+            # An unrelated protected commit is allowed only with identical controls.
+            reader.owner_selection_policy("b"*40, "a"*40, owner, now)
+            with patch.object(reader, "projection", side_effect=["old", "changed"]), self.assertRaises(reader.Unqualified):
+                reader.owner_selection_policy("b"*40, "a"*40, owner, now)
+            command.side_effect = subprocess.CalledProcessError(1, "pinned-validator")
+            with self.assertRaises(subprocess.CalledProcessError):
+                reader.owner_selection_policy("a"*40,"a"*40,owner,now)
 
 
 class ControlInputs(unittest.TestCase):
@@ -188,6 +289,24 @@ class ArchiveTransport(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.transport.config_identity(native, self.tag, manifest)
 
+
+
+class OperatorInstallationEvidence(unittest.TestCase):
+    def test_original_operator_install_is_visible_and_replays_are_excluded(self):
+        spec = spec_from_file_location("window_doors", root / "server/scripts/engine-release-window-doors.py")
+        doors = module_from_spec(spec)
+        spec.loader.exec_module(doors)
+        original = dict(id=7, event="repository_dispatch", actor={"type": "User"},
+                        run_attempt=1, head_branch="main", created_at="2026-11-09T09:35:00Z",
+                        display_title="Original operator daily preparation")
+        job = dict(name=doors.INSTALL_JOB, status="completed", conclusion="success", html_url="receipt")
+        for actor, attempt, visible in (("User", 1, True), ("Bot", 1, False), ("User", 2, False)):
+            row = dict(original, actor={"type": actor}, run_attempt=attempt)
+            with self.subTest(actor=actor, attempt=attempt), patch.dict(os.environ, {}, clear=True), patch.object(
+                doors, "github", side_effect=[{"total_count":1, "workflow_runs": [row]}, {"jobs": [job]}]
+            ):
+                result = doors.install_state(datetime(2026, 11, 9, 10, tzinfo=timezone.utc))
+                self.assertEqual(result is not None, visible)
 
 if __name__ == "__main__":
     unittest.main()

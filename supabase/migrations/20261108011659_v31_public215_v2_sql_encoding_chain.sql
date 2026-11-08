@@ -336,12 +336,17 @@ $postimage$;
 DO $constraint$
 DECLARE def text;
 BEGIN
-  SELECT pg_get_constraintdef(oid) INTO STRICT def FROM pg_constraint WHERE conrelid='public.gto_v31_public_model_audit_combos'::regclass AND conname='gto_v31_public_model_audit_combos_features_check';
-  IF def IS DISTINCT FROM 'CHECK ((cardinality(features) = 215))' THEN RAISE EXCEPTION 'audit combo width constraint preimage changed: %', def; END IF;
+  SELECT pg_get_constraintdef(oid) INTO STRICT def FROM pg_constraint WHERE conrelid='public.gto_v31_public_model_audit_combos'::regclass AND conname='gto_v31_public_model_audit_combos_features_check' AND convalidated;
+  IF def IS DISTINCT FROM 'CHECK ((cardinality(features) = 215))' THEN RAISE EXCEPTION 'audit combo width constraint preimage changed or not validated: %', def; END IF;
 END
 $constraint$;
+-- NOT VALID on purpose: re-validating would scan 1.48M existing rows (3.1 GB) and
+-- exceed the applier's 12 s transaction budget (install runs 42437670477 /
+-- 42437810344 / 42441329582 refused with 25P04). Every existing row already
+-- satisfies the validated preimage (= 215, asserted just above), hence this
+-- superset; new and updated rows are enforced as usual.
 ALTER TABLE public.gto_v31_public_model_audit_combos DROP CONSTRAINT gto_v31_public_model_audit_combos_features_check,
-  ADD CONSTRAINT gto_v31_public_model_audit_combos_features_check CHECK (cardinality(features) = ANY (ARRAY[215, 246]));
+  ADD CONSTRAINT gto_v31_public_model_audit_combos_features_check CHECK (cardinality(features) = ANY (ARRAY[215, 246])) NOT VALID;
 
 -- Self-test (inside the transaction: any failure rolls the whole migration back).
 DO $selftest$

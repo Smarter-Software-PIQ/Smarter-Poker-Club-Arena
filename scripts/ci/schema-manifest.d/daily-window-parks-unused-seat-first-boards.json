@@ -1,0 +1,4 @@
+{
+  "_owner": "fix/daily-window-parks-unused-seat-first-boards: migration 20261108034940 adds the unused seat-first board predicate the 3 AM close and the 4 AM watchdog share.",
+  "functions": ["fn_daily_window_seat_first_lobby_unused"]
+}

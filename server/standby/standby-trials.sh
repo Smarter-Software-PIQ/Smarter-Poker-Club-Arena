@@ -144,16 +144,42 @@ PY_REJECT
   )
 }
 
-capture_frozen_seats() { # absolute bounded deadline; result in FROZEN_SEATS
-  local snapshot state
+# THE SEAT BOUNDARY IS TAKEN AFTER THE SERVING ENGINE HAS DRAINED (2026-11-08).
+# The freeze refuses player money and seat writes, but the engine's service
+# role still settles a hand that was already in the air when it began: that is
+# "protect the hand". The release transaction therefore stops the serving
+# engine only once its own /health says handsInFlightTotal == 0 and
+# maintenance.unparkedTables == 0. This harness used to fix the boundary at
+# the first frozen sample instead, so a long horse hand (cash table 55a398dc,
+# hand 1000165, dealt 04:23:40, settled 04:26:07 UTC) moved a stack after the
+# boundary and failed run 42445553096 with boundary_changed:fingerprint. The
+# swap boundary is now the first frozen sample read after the same physical
+# drain witness the release transaction demands before it stops an engine.
+# Nothing after it is relaxed.
+serving_drained() {
+  health | python3 -c 'import json,sys
+try: h=json.loads(sys.stdin.read() or "{}")
+except ValueError: sys.exit(1)
+m=h.get("maintenance") if isinstance(h,dict) else None
+ok=isinstance(m,dict) and type(h.get("handsInFlightTotal")) is int and h["handsInFlightTotal"]==0 \
+   and type(m.get("unparkedTables")) is int and m["unparkedTables"]==0
+sys.exit(0 if ok else 1)'
+}
+
+capture_frozen_seats() { # absolute bounded deadline [drained]; result in FROZEN_SEATS
+  local snapshot state waiting=capture_deadline_expired
   FROZEN_SEATS_REJECTION=null
   while [ "$(date +%s)" -lt "$1" ]; do
+    # Drain is read first: a parked engine deals nothing, so the frozen sample
+    # that follows cannot be moved by a hand settling behind it.
+    if [ "${2:-}" = drained ] && ! serving_drained; then waiting=serving_engine_not_drained; sleep 3; continue; fi
+    waiting=capture_deadline_expired
     snapshot=$(frozen_seat_snapshot 2>&1) || { record_seat_rejection "$snapshot" snapshot_read_failed; return 1; }
     state=$(frozen_seat_state "$snapshot" '' poll 2>&1) || { record_seat_rejection "$snapshot" "$state"; return 1; }
     if [ "$state" = frozen ]; then FROZEN_SEATS=$snapshot; return 0; fi
     sleep 3
   done
-  record_seat_rejection '{}' capture_deadline_expired
+  record_seat_rejection '{}' "$waiting"
   return 1
 }
 
@@ -387,7 +413,7 @@ trial_swap() {
   local seats_before count_before post_boot seat_owner target_id adoption_state
   t0=$(date +%s)
   request_break >/dev/null || { trial_verdict swap fail ',"reason":"break_request_refused"'; return 1; }
-  capture_frozen_seats "$((t0 + 600))" || { trial_verdict swap fail ",\"reason\":\"frozen_seat_capture_failed\",\"rejectedSeatObservation\":$FROZEN_SEATS_REJECTION"; return 1; }
+  capture_frozen_seats "$((t0 + 600))" drained || { trial_verdict swap fail ",\"reason\":\"frozen_seat_capture_failed\",\"rejectedSeatObservation\":$FROZEN_SEATS_REJECTION"; return 1; }
   seats_before=$FROZEN_SEATS; frozen_at=$(date +%s)
   count_before=$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["count"])' "$seats_before") || return 1
   # The cutover: the serving engine stops inside the freeze (graceful SIGTERM,

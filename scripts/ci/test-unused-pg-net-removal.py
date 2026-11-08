@@ -55,7 +55,7 @@ def build(work):
     prefix = work / "install"
     for url, name, digest in [
         ("https://ftp.postgresql.org/pub/source/v17.6/postgresql-17.6.tar.bz2", "pg.tar.bz2", PG_SHA),
-        (f"https://api.github.com/repos/supabase/pg_net/tarball/{NET_COMMIT}", "net.tar.gz", NET_SHA),
+        (f"https://codeload.github.com/supabase/pg_net/legacy.tar.gz/{NET_COMMIT}", "net.tar.gz", NET_SHA),
     ]:
         archive = work / name
         subprocess.run(["curl", "--fail", "--silent", "--show-error", "--location", "--max-time", "180", url, "-o", str(archive)], check=True)

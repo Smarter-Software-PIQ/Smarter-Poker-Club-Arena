@@ -54,10 +54,10 @@ const TIMERS: ReadonlyArray<readonly [string, string]> = [
   // Owner explicitly requested daily 04:00 Chicago engine updates, 2026-10-20.
   // Same business schedule, more chances to arrive (2026-11-01): GitHub
   // delivered the single :30 tick 5-6 h late on 10-30/10-31 and not at all on
-  // 11-01. Four odd minutes per DST twin; only a run created inside the
-  // 03:30-03:50 Chicago window prepares, once per Chicago date.
-  ['stage-engine-release.yml', '31,35,39,43 8 * * *'],
-  ['stage-engine-release.yml', '31,35,39,43 9 * * *'],
+  // 11-01 and again 11-08. The existing owner now reserves up to five elapsed
+  // hours early and waits once for 03:30; one preparation per Chicago date.
+  ['stage-engine-release.yml', '31,35,39,43 3,8 * * *'],
+  ['stage-engine-release.yml', '31,35,39,43 4,9 * * *'],
   // Owner order 2026-11-05 (Backup Engine): refresh the isolated production
   // copy after midnight Chicago, three chances per DST twin because GitHub
   // delivers schedules late; the refresh itself runs once per Chicago date.

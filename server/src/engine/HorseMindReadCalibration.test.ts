@@ -199,9 +199,29 @@ describe('HorseDecideOpts wiring', () => {
       readShrinkResponse: true,
       mind: false,
     });
+    HorseMind.setDecisionScope(null);
+    HorseLogic.prepareOriginalReads(players[0] as never, gameState, {
+      readBreakEvenBluff: true,
+      readScopedShrink: true,
+      mind: false,
+    });
+    expect(HorseMind.currentDecisionReadOptions()).toEqual({
+      postflopFoldRate: false,
+      shrinkResponseReads: false,
+      breakEvenBluff: true,
+      scopedShrink: true,
+    });
+    HorseMind.setDecisionScope(null);
+    HorseLogic.prepareOriginalReads(players[0] as never, gameState, {
+      readPostflopFoldRate: true,
+      readShrinkResponse: true,
+      mind: false,
+    });
     expect(HorseMind.currentDecisionReadOptions()).toEqual({
       postflopFoldRate: true,
       shrinkResponseReads: true,
+      breakEvenBluff: false,
+      scopedShrink: false,
     });
     HorseMind.setDecisionScope(null);
     expect(HorseMind.currentDecisionReadOptions()).toEqual({});
@@ -209,6 +229,8 @@ describe('HorseDecideOpts wiring', () => {
     expect(HorseMind.currentDecisionReadOptions()).toEqual({
       postflopFoldRate: false,
       shrinkResponseReads: false,
+      breakEvenBluff: false,
+      scopedShrink: false,
     });
   });
 });

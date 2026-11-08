@@ -448,6 +448,10 @@ git() { echo unexpected-main-read >&2; return 99; }
         return git('rev-parse', 'HEAD');
       };
       git('init', '-q', '-b', 'main');
+      write(
+        'scripts/ci/read-engine-prequalification.py',
+        read('scripts/ci/read-engine-prequalification.py')
+      );
       if (!options.scriptFrom) write('scripts/ci/engine-source-identity.sh', identityScript);
       write(
         'server/Dockerfile',
@@ -478,7 +482,6 @@ git() { echo unexpected-main-read >&2; return 99; }
       write('server/src/index.ts', 'export const v = 2;\n');
       shas.c1 = commit('c1: engine source changes');
       write('server/tests/engine.test.ts', 'test 2\n');
-      write('server/standby/standby-engine.sh', 'echo standby 2\n');
       shas.c2 = commit('c2: outside the image');
       write('server/README.md', 'docs 2\n');
       shas.c3 = commit('c3: docs only');
@@ -647,6 +650,55 @@ ${Object.entries(states)
         );
         expect(result.stderr).toContain('-f target_url=https://github.test/o/r/actions/runs/500');
         expect(result.stderr).not.toContain(`commits/${f.shas.c0}/`);
+      });
+      it.each([
+        '.github/workflows/stage-engine-release.yml',
+        'server/standby/standby-engine.sh',
+        'server/standby/standby-owners.sql',
+        'server/standby/seed-extract.py',
+        'supabase/migrations/20261108000000.sql',
+        'server/release/activation-floor.json',
+      ])(
+        'certifies in full when qualification input %s changes with identical image bytes',
+        (path) => {
+          const changed = fixture();
+          try {
+            changed.write(path, 'changed qualification input\n');
+            const sha = changed.commit('qualification change');
+            expect(changed.identity(sha).stdout).toBe(changed.identity(changed.shas.c3).stdout);
+            const result = planShell(
+              gh({ [changed.shas.c3]: 'failure', [changed.shas.c1]: 'success' }) + inherit.run,
+              env(sha),
+              changed.dir
+            );
+            expect(result.status, result.stderr).toBe(0);
+            expect(result.stdout).toContain('qualification inputs differ');
+            expect(result.stdout).toContain('inherited=false');
+            expect(result.stderr).not.toContain('gh api');
+          } finally {
+            rmSync(changed.dir, { recursive: true, force: true });
+          }
+        }
+      );
+      it('does not reuse restore freshness after a migration tree is reverted', () => {
+        const changed = fixture();
+        try {
+          changed.write('supabase/migrations/20261108000000.sql', 'select 1;\n');
+          changed.commit('migration added');
+          changed.git('rm', 'supabase/migrations/20261108000000.sql');
+          const sha = changed.commit('migration reverted');
+          const result = planShell(
+            gh({ [changed.shas.c3]: 'success' }) + inherit.run,
+            env(sha),
+            changed.dir
+          );
+          expect(result.status, result.stderr).toBe(0);
+          expect(result.stdout).toContain('qualification inputs differ');
+          expect(result.stdout).toContain('inherited=false');
+          expect(result.stderr).not.toContain('repos/o/r/statuses/');
+        } finally {
+          rmSync(changed.dir, { recursive: true, force: true });
+        }
       });
       it('does not inherit when the only certified ancestor has a different identity', () => {
         const result = planShell(

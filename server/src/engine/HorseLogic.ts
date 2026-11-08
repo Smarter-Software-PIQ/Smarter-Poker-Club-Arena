@@ -3,6 +3,7 @@ import {
   checkedToNonBottomRiverBoat,
   checkedToOnePairAboveFlush,
 } from './HorseNonBottomRiverValue.js';
+import { reconcileHorsePhaseReceipts } from './HorsePhaseControllerWithdrawal.js';
 import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
@@ -20,6 +21,7 @@ import {
 import { hasPhysicalImpliedDraw } from './HorseOmahaImpliedDraw.js';
 import { horsePlanHandKey } from './HorseDecisionEffects.js';
 import { headsUpCashCommitment } from './HorseHeadsUpCommitment.js';
+import { limpReraiseEngagement, limpReraiseRate } from './HorseLimpReraiseRead.js';
 import {
   computeContinuationContenderFingerprint,
   evaluateMultiStreetBarrelContinuation,
@@ -140,7 +142,15 @@ import {
 // V3 (2026-07-23): real-time opponent intelligence — live stats, range reading,
 // exploit adjustments, board texture, blockers. See HorseMind.ts.
 import { bestPineappleDiscard } from './pineappleDiscardChoice.js';
-import { HorseMind, SNAP_MS, TANK_MS, readScopeOf } from './HorseMind.js';
+import {
+  HorseMind,
+  SNAP_MS,
+  TANK_MS,
+  readScopeOf,
+  breakEvenBluffMod,
+  BREAK_EVEN_REFERENCE_SIZE,
+  type ExploitProfile,
+} from './HorseMind.js';
 import { omahaFlushBlocker } from './OmahaFlushBlocker.js';
 import {
   isStation,
@@ -2482,6 +2492,17 @@ export interface HorseDecideOpts {
    *  hand whose call is the stack jams instead of folding: a 20bb opener
    *  facing a 3-bet to 11bb folded 97-98% of its open. Default OFF. */
   vs3BetShortStack?: boolean;
+  /** LIMP-RERAISE READ (2026-11-07, HorseLimpReraiseRead.ts): against a
+   *  limper HorseMind has seen limp-reraise (shrunk toward the population),
+   *  the isolation bar rises toward the hands that stand a re-raise and the
+   *  V10 isolation widen is withdrawn. Default ON (exploiter league
+   *  hx_limp_reraise, docs/changelog/2026-11-07-limp-reraise-read.md);
+   *  explicit false keeps today's isolation. */
+  limpReraiseIsoRead?: boolean;
+  /** COMMIT UNDER THE POT (2026-11-07, commitUnderPotCall): heads-up NLH
+   *  flop or turn, facing a bet with a remaining stack smaller than the pot,
+   *  the horse calls instead of folding. Default OFF: only explicit true. */
+  commitUnderPot?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -2728,6 +2749,22 @@ export interface HorseDecideOpts {
    *  observations) instead of trusting a raw 8- or 10-opportunity rate.
    *  Default off; the league matchup read_shrink_response measures it. */
   readShrinkResponse?: boolean;
+  /** BREAK-EVEN POSTFLOP BLUFFING (2026-11-08, read calibration follow-up;
+   *  HorseMind BREAK_EVEN_FOLD_CURVE): the exploit bluff multiplier is
+   *  re-derived from the decision context's postflop fold-to-bet read
+   *  (shrunk toward the game's population) against each bet size's
+   *  break-even fold share s / (1 + s), instead of the legacy all-street
+   *  rate against fixed 0.62 / 0.35 lines. The c-bet, probe, semi-bluff and
+   *  pure-bluff bets price their own size. nlh and plo4-6 only. Default off;
+   *  the league matchups break_even_bluff* measure it. */
+  readBreakEvenBluff?: boolean;
+  /** SCOPED SHRINK (2026-11-08): a scoped read with fewer than 40 hands in
+   *  this game is shrunk toward this game's population (16 pseudo-
+   *  observations) instead of falling back to the pooled bucket, which
+   *  mixes every game the player has played. Default off; measured by the
+   *  read calibration replay (a league table deals one game, so no league
+   *  card can see it). */
+  readScopedShrink?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -4216,6 +4253,52 @@ function riverBluffCheckRaise(
 }
 
 /**
+ * COMMIT UNDER THE POT (2026-11-07, flag commitUnderPot, default off): in a
+ * heads-up no-limit hold'em pot on the flop or turn, a horse facing a bet
+ * whose whole remaining stack is smaller than the pot already in the middle
+ * (the bet included) does not fold: it calls, all in when the call is its
+ * stack. The exploiter suite found horses that called a limper's 4x re-raise
+ * at 40bb still folding about half their flops to a bet with less than a
+ * pot behind (docs/changelog/2026-11-07-limp-reraise-read.md). The brain's
+ * committed branch (stack-to-pot under 1.2) already prices such calls at the
+ * pot odds; this rule removes the fold outright. Runs with the owner rules,
+ * after every other layer.
+ */
+export function commitUnderPotCall(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.commitUnderPot !== true || decision.action !== 'fold') return decision;
+  if (gs.stage !== 'flop' && gs.stage !== 'turn') return decision;
+  if (String(gs.gameVariant ?? '').toLowerCase() !== 'nlh') return decision;
+  if (gs.bettingStructure && gs.bettingStructure !== 'no_limit') return decision;
+  if (gs.bombPot === true || gs.communityCards2?.length || gs.communityCards3?.length)
+    return decision;
+  const live = (gs.players ?? []).filter((p) => p.seat !== player.seat && !p.is_folded);
+  if (live.length !== 1) return decision;
+  const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  const toCall = Number.isFinite(gs.toCall)
+    ? Math.max(0, gs.toCall as number)
+    : Math.max(0, (gs.currentBet ?? 0) - (player.bet ?? 0));
+  const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+  if (toCall <= 0.005 || stack <= 0.005 || !(stack < pot)) return decision;
+  const legal = Array.isArray(gs.legalActions) ? new Set<string>(gs.legalActions) : null;
+  const cents = (v: number) => Math.round(v * 100) / 100;
+  if (toCall >= stack - 0.005) {
+    if (legal && !legal.has('all_in') && !legal.has('call')) return decision;
+    if (telemetryOn(opts)) noteFire('commit_under_pot');
+    return legal && !legal.has('all_in')
+      ? { ...decision, action: 'call', amount: cents(stack) }
+      : { ...decision, action: 'all_in', amount: undefined };
+  }
+  if (legal && !legal.has('call')) return decision;
+  if (telemetryOn(opts)) noteFire('commit_under_pot');
+  return { ...decision, action: 'call', amount: cents(toCall) };
+}
+
+/**
  * Dan 2026-10-25: in no-limit hold'em a premium (QQ+, AK) is never played
  * passively, and a dominated offsuit hand folds to a big 3-bet. See
  * HorseHoldemPremiumAggression.ts. Applied after every other layer, and the
@@ -4223,12 +4306,13 @@ function riverBluffCheckRaise(
  * re-raise still obeys the deep-shove rule.
  */
 export function holdemPremiumAggression(
-  decision: HorseDecision,
+  input: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
   opts: HorseDecideOpts = {}
 ): HorseDecision {
-  if (opts.holdemPremiumAggression === false) return decision;
+  if (opts.holdemPremiumAggression === false) return input;
+  const decision = commitUnderPotCall(input, player, gs, opts);
   let verdict: HoldemPremiumVerdict<HorseDecision> | null;
   try {
     verdict = holdemPremiumAggressionVerdict(decision, {
@@ -4247,6 +4331,7 @@ export function holdemPremiumAggression(
       legalActions: gs.legalActions,
       minRaiseTo: gs.minRaiseTo,
       maxRaiseTo: gs.maxRaiseTo,
+      lastRaise: gs.lastRaise ?? gs.minRaise,
       actionHistory: gs.actionHistory,
       chipUnit: gs.chipUnit ?? (isTournamentMode(gs) ? 1 : 0.01),
       dominatedFold: opts.holdemDominatedFold !== false,
@@ -5101,6 +5186,8 @@ export class HorseLogic {
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,
       shrinkResponseReads: opts.readShrinkResponse === true,
+      breakEvenBluff: opts.readBreakEvenBluff === true,
+      scopedShrink: opts.readScopedShrink === true,
     });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
@@ -6187,6 +6274,15 @@ export class HorseLogic {
       }
       return { decision };
     }).decision;
+    // Forced-phase authority (2026-11-07): the Phase 10-13 receipts are
+    // finalized before the corrective policy and the owner wager rules run. Keep them so the receipts can be
+    // reconciled with the action that actually leaves each later owner.
+    const phaseReceiptsBeforeLaterOwners = [
+      ['phase10', decision.plo4Policy],
+      ['phase11', decision.omahaVariantPolicy],
+      ['phase12', decision.remainingVariantPolicy],
+      ['phase13', decision.jointPolicy],
+    ] as const;
     decision = graph.run('corrective_policy', decision, () => {
       const baseline = decision;
       const correction = runCorrectiveKernelEvaluator(opts.phase14Corrective, baseline);
@@ -6205,6 +6301,12 @@ export class HorseLogic {
       }
       return { decision };
     }).decision;
+    reconcileHorsePhaseReceipts(
+      phaseReceiptsBeforeLaterOwners,
+      decision,
+      'corrective_policy',
+      tele
+    );
     // The owner rules run last, inside the graph, so the signed graph and its
     // timing node see the action they choose: the PLO paired-board fold, then
     // the hold'em premium rule (#8122, #8138), then - LAST, so nothing can
@@ -6301,6 +6403,10 @@ export class HorseLogic {
       }
       return { decision: finalWager };
     }).decision;
+    // Forced-phase authority (2026-11-07): an owner wager rule above may replace
+    // an authorised Phase 10-13 candidate; its receipt must say so
+    // (HorsePhaseControllerWithdrawal.ts, reconcileHorsePhaseReceipts).
+    reconcileHorsePhaseReceipts(phaseReceiptsBeforeLaterOwners, decision, 'wager_rules', tele);
     // smallPotNearNutRiverValue receipt: the raise it chose reached the final
     // action (applied) or a later owner replaced it (superseded).
     // v53PloTourneyIcm receipt: a changed reference choice that a later owner
@@ -7348,6 +7454,9 @@ export class HorseLogic {
     let exploitPressure: AggressiveOpenerPressure | undefined;
     let exploitReRaiser: { fourBetBar: number; callBar: number } | undefined;
     let exploitIso = 0;
+    // LIMP-RERAISE READ (flag limpReraiseIsoRead, HorseLimpReraiseRead): the
+    // strongest shrunk limp-reraise rate among the limpers in front.
+    let limpReraiseRate69: number | undefined;
     if (opts.mind !== false) {
       try {
         const raiser =
@@ -7366,7 +7475,18 @@ export class HorseLogic {
             if (a.stage !== 'preflop' || a.action !== 'call' || a.userId === player.user_id)
               continue;
             exploitIso = Math.max(exploitIso, isolationWiden(HorseMind.opponentRead(a.userId)));
+            if ((opts.limpReraiseIsoRead ?? true) !== false) {
+              const lr = HorseMind.limpReraiseOf(a.userId);
+              const rate = limpReraiseRate(lr?.raises ?? 0, lr?.opps ?? 0);
+              limpReraiseRate69 = Math.max(limpReraiseRate69 ?? 0, rate);
+            }
           }
+          if (
+            limpReraiseRate69 !== undefined &&
+            limpReraiseEngagement(limpReraiseRate69) > 0 &&
+            telemetryOn(opts)
+          )
+            noteFire('limp_reraise_iso_read');
         }
         if (telemetryOn(opts) && (exploitOpener || exploitReRaiser || exploitIso > 0))
           noteFire('opponent_exploit_preflop');
@@ -7689,6 +7809,9 @@ export class HorseLogic {
       // NLH only: widening the iso range vs limpers is an NLH edge; PLO limped
       // pots play multiway/postflop where a wide iso bloats pots out of line.
       isoWiden: ((opts.v10Iso ?? opts.v10) !== false && !vi.isOmaha ? 0.06 : 0) + exploitIso,
+      ...(limpReraiseRate69 !== undefined && limpReraiseEngagement(limpReraiseRate69) > 0
+        ? { limpReraiseRate: limpReraiseRate69 }
+        : {}),
       // V11: explicit game mode + ante awareness (undefined when disabled so
       // the preflop layer keeps exact legacy behavior in ablation runs).
       mode: opts.v11 !== false ? (isTournamentMode(gs) ? 'tournament' : 'cash') : undefined,
@@ -8343,7 +8466,7 @@ export class HorseLogic {
     // profile from their accumulated tendencies, board texture, blockers.
     let bands: Array<[number, number] | null> | undefined;
     let oppReads: Array<OppPostflopRead | null> | undefined;
-    let exploit = { bluffMod: 1, callDownMod: 1, valueThinMod: 1 };
+    let exploit: ExploitProfile = { bluffMod: 1, callDownMod: 1, valueThinMod: 1 };
     let wetness = 0.35;
     let blocker = false;
     if (useMind) {
@@ -9295,9 +9418,27 @@ export class HorseLogic {
     // V4: position scales bluffing — pressure comes cheaper in position.
     // V7: ICM survival pressure trims bluff volume in tournaments.
     const posMod = useIQ ? (ip ? 1.15 : 0.85) : 1.0;
+    // readBreakEvenBluff: the break-even multiplier sets bluff frequency in
+    // place of bluffMod (which stays the folder / station classification).
     let bluffScale =
-      exploit.bluffMod * blockerMod * posMod * Math.max(0.5, 1 - 2 * risk) * (quartered ? 0.6 : 1);
+      (exploit.breakEvenBluff ?? exploit.bluffMod) *
+      blockerMod *
+      posMod *
+      Math.max(0.5, 1 - 2 * risk) *
+      (quartered ? 0.6 : 1);
     if (huOn) bluffScale *= 1.12;
+    // BREAK-EVEN BLUFFING (readBreakEvenBluff): exploit.breakEvenBluff is the
+    // multiplier at the reference size; a bet of another size rescales it by
+    // that size's own surplus over break-even. Flag off (no foldShift): the
+    // scale itself, exactly as before. Reads bluffScale when called, so every
+    // later adjustment below still applies.
+    const foldShiftBE = exploit.foldShift;
+    const familyBE = vi.isOmaha ? 'omaha' : 'holdem';
+    const bluffScaleAt = (size: number, calledEquity = 0): number =>
+      foldShiftBE === undefined
+        ? bluffScale
+        : (bluffScale * breakEvenBluffMod(foldShiftBE, familyBE, size, calledEquity)) /
+          breakEvenBluffMod(foldShiftBE, familyBE, BREAK_EVEN_REFERENCE_SIZE);
     // V40: an Omaha river bluff into a player who called two barrels is a
     // third barrel with air. The range that called pot twice is not
     // folding; the bluff ladder below all but closes here.
@@ -11236,7 +11377,7 @@ export class HorseLogic {
         !scare.any &&
         equity >= 0.15 &&
         equity < 0.5 &&
-        fastRandom() < 0.28 * Math.min(1.3, bluffScale)
+        fastRandom() < 0.28 * Math.min(1.3, bluffScaleAt(0.4))
       ) {
         if (tele15) noteFire('v17_river_probe');
         return this.betSize(
@@ -11278,7 +11419,7 @@ export class HorseLogic {
           (oppCount === 1 ? 0.6 : 0.35) *
             (prevChecked ? 1.15 : 1.0) *
             cbetFreqMult *
-            Math.min(1.3, bluffScale)
+            Math.min(1.3, bluffScaleAt(cbetSize))
       ) {
         planBarrel(equity);
         return this.betSize(planHandKey, pot, cbetSize, player, gs, vi, params, useSizing);
@@ -11297,7 +11438,8 @@ export class HorseLogic {
         fastRandom() <
           params.bluffFreq *
             params.aggression *
-            Math.min(1.3, bluffScale) *
+            // A live draw keeps its equity when called.
+            Math.min(1.3, bluffScaleAt((sizeBase + 0.275) * ploDamp, equity)) *
             (oppCount === 1 ? 1.4 : 0.7) *
             omahaDrawMod()
       ) {
@@ -11347,7 +11489,10 @@ export class HorseLogic {
         equity < 0.3 &&
         oppCount === 1 &&
         fastRandom() <
-          params.bluffFreq * Math.min(1.3, bluffScale) * scareBluffBoost * (isRiver ? 0.55 : 0.8)
+          params.bluffFreq *
+            Math.min(1.3, bluffScaleAt(sizeBase + 0.25)) *
+            scareBluffBoost *
+            (isRiver ? 0.55 : 0.8)
       ) {
         planBarrel(equity);
         // V12 (G): river bluffs holding a nut blocker occasionally use the
