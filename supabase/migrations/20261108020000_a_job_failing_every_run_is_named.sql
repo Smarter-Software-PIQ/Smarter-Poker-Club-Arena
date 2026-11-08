@@ -23,6 +23,8 @@
 -- collector. Measured on 2026-11-07: it names job 117 at 20:06-20:10 UTC and
 -- no other job at any point in the preceding 24 hours.
 
+BEGIN;
+
 CREATE OR REPLACE FUNCTION public.fn_cron_failing_jobs()
 RETURNS TABLE (
   jobid bigint,
@@ -225,3 +227,5 @@ END $function$;
 -- authenticated false); stated here so this redefinition can never widen it.
 REVOKE ALL ON FUNCTION public.fn_ca_cron_failure_watch() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_cron_failure_watch() TO service_role;
+
+COMMIT;
