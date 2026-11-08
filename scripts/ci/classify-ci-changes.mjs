@@ -116,6 +116,38 @@ const cssBeatInput =
     !p.endsWith('.md') &&
     (/^tests\/(?:e2e|browser|live-turn)\//.test(p) || CSS_BEAT_SHARED_INPUTS.test(p)));
 
+// THE ACCOUNTING JOB NAMES ITS OWN INPUTS (2026-11-08).
+//
+// #10004 changed scripts/ci/test-horse-hand-review-atomic.py, a harness that
+// only accounting_postgres runs (shard 4), and every accounting shard was
+// SKIPPED: the hand-kept patterns below name hundreds of such harnesses but
+// not that one, so the fix merged without CI ever running it. As for CSS Beat
+// above, the job is read instead of restated: every scripts/, tests/,
+// server/scripts/ or operations/ file named in the accounting_postgres block of
+// ci.yml admits the job. FAILS OPEN: if ci.yml cannot be read or names
+// nothing, any scripts/ci/test-* or scripts/dev/test-* change admits it.
+export function accountingJobInputs(root = REPO_ROOT) {
+  try {
+    const workflow = readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8');
+    const start = workflow.search(/^  accounting_postgres:\s*$/m);
+    if (start < 0) return null;
+    const rest = workflow.slice(start + 1);
+    const next = rest.search(/^  [A-Za-z0-9_-]+:\s*$/m);
+    const block = next < 0 ? rest : rest.slice(0, next);
+    const named = new Set(
+      block.match(
+        /(?:scripts|tests|server\/scripts|operations)\/[A-Za-z0-9_./-]+\.(?:py|sh|mjs|sql|ts|js|json)/g
+      ) || []
+    );
+    if (!named.size) return null;
+    return (p) => named.has(p);
+  } catch {
+    return null;
+  }
+}
+const accountingJobInput =
+  accountingJobInputs() || ((p) => /^scripts\/(?:ci|dev)\/test-[^/]+$/.test(p));
+
 const all = () => ({ src: true, server: true, tests: true, phase4: true, fixture: true });
 const wide =
   /^(package(-lock)?\.json|vite\.config|vitest\.config|tsconfig|\.npmrc|\.nvmrc|\.node-version|\.github\/workflows\/|scripts\/ci\/(classify-ci-changes|fixture-native-gate|ui-test-selection|publisher-ui-selection-base)\.mjs)/;
@@ -297,15 +329,28 @@ export function instructionOnlyPaths(paths) {
 // These are known instruction/delivery inputs, not application or fixture data.
 // This chooses worker count; immutable downstream proof still owns omissions.
 export function nonRuntimeCandidatePaths(paths) {
-  return Array.isArray(paths) && paths.length > 0 && paths.every(path => typeof path === 'string' &&
-    /^(?:\.husky\/pre-push|(?:README|AGENTS|CLAUDE|AGENT-PLAYBOOK|PUBLISHING)\.md|docs\/agent-policy\/(?:OWNER-POLICY|OPERATING-LAW|HARDENING|REFERENCE-INDEX)\.md|docs\/agent-policy\/policy-manifest\.json|docs\/changelog\/\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.md|scripts\/(?:agent-push\.sh|ci\/(?:agent-execution(?:-cli)?|execution-preview)\.mjs|ci\/vendor\/agentExecution\.(?:mjs|source\.json))|tests\/(?:unit\/(?:agentPushVerifiesTheRemoteRef|fixtureNativeCi)\.test\.ts|helpers\/agentExecutionCases\.mjs|operations\/ui-test-selection\.test\.mjs))$/.test(path));
+  return (
+    Array.isArray(paths) &&
+    paths.length > 0 &&
+    paths.every(
+      (path) =>
+        typeof path === 'string' &&
+        /^(?:\.husky\/pre-push|(?:README|AGENTS|CLAUDE|AGENT-PLAYBOOK|PUBLISHING)\.md|docs\/agent-policy\/(?:OWNER-POLICY|OPERATING-LAW|HARDENING|REFERENCE-INDEX)\.md|docs\/agent-policy\/policy-manifest\.json|docs\/changelog\/\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.md|scripts\/(?:agent-push\.sh|ci\/(?:agent-execution(?:-cli)?|execution-preview)\.mjs|ci\/vendor\/agentExecution\.(?:mjs|source\.json))|tests\/(?:unit\/(?:agentPushVerifiesTheRemoteRef|fixtureNativeCi)\.test\.ts|helpers\/agentExecutionCases\.mjs|operations\/ui-test-selection\.test\.mjs))$/.test(
+          path
+        )
+    )
+  );
 }
 export function clientUnitShards(classification) {
-  return classification?.complete === true && nonRuntimeCandidatePaths(classification.paths) ? [1] : [1,2,3,4,5,6,7,8];
+  return classification?.complete === true && nonRuntimeCandidatePaths(classification.paths)
+    ? [1]
+    : [1, 2, 3, 4, 5, 6, 7, 8];
 }
 
-const openingBlindFixture = /^(?:scripts\/ci\/test-(?:tournament-opening-blinds|mtt-lobby-entry-counts)\.py$|scripts\/qualification\/fixtures\/tournament-opening-blinds\/(?!.*\.md$)|tests\/mtt-and-sng-open-at-25-50\.law\.test\.ts$)/;
-const qualificationProjections = /^scripts\/(?:ci\/qualification-input-projections\.py|qualification\/ci-(?:accounting|admission)-inputs\.json)$/;
+const openingBlindFixture =
+  /^(?:scripts\/ci\/test-(?:tournament-opening-blinds|mtt-lobby-entry-counts)\.py$|scripts\/qualification\/fixtures\/tournament-opening-blinds\/(?!.*\.md$)|tests\/mtt-and-sng-open-at-25-50\.law\.test\.ts$)/;
+const qualificationProjections =
+  /^scripts\/(?:ci\/qualification-input-projections\.py|qualification\/ci-(?:accounting|admission)-inputs\.json)$/;
 
 export function classifyChangedPaths(paths) {
   if (!Array.isArray(paths) || paths.some((p) => typeof p !== 'string' || !p || p.includes('\0'))) {
@@ -496,6 +541,7 @@ export function classifyChangedPaths(paths) {
       buildGate ||
       matches(/^src\//),
     server:
+      paths.some(accountingJobInput) ||
       matches(qualificationProjections) ||
       matches(openingBlindFixture) ||
       matches(cancellationAdmission) ||

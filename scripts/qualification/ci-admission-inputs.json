@@ -334,7 +334,7 @@
     },
     "scripts/qualification/original-flow-eligibility/run-native.py": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "scripts/qualification/retained18-correction/README.md": {
       "phase4": false,
@@ -558,7 +558,7 @@
     },
     "scripts/qualification/weekly-cohort-cutoff/run-native.py": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "scripts/qualification/weekly-cohort-cutoff/semantic-bootstrap.sql": {
       "phase4": false,
@@ -610,7 +610,7 @@
     },
     "scripts/qualification/weekly-initial-selector/run-native.py": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "scripts/qualification/weekly-initial-selector/selector-fixture.sql": {
       "phase4": false,
@@ -670,7 +670,7 @@
     },
     "scripts/qualification/weekly-standalone-selector/run-native.py": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "scripts/qualification/weekly-standalone-selector/selector-fixture.sql": {
       "phase4": false,

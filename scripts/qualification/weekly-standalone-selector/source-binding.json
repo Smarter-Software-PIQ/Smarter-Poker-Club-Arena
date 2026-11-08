@@ -334,8 +334,8 @@
       "sha256": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86"
     },
     "scripts/qualification/ci-admission-inputs.json": {
-      "bytes": 77125,
-      "sha256": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb"
+      "bytes": 77121,
+      "sha256": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887"
     }
   },
   "diamondOwnHistoryCiInput20261015": {
@@ -2829,5 +2829,15 @@
     },
     "review": "Reviewed exact diff: the only change in each pinned workflow is the inline 'Install PostgreSQL 17 from the signed PGDG source only' block (signed Ubuntu + PGDG sources in a private sourceparts directory, the checkout key .github/pgdg/apt.postgresql.org.asc at the Signed-By path, create_main_cluster=false, then apt-get install) replaced by the one shared installer .github/actions/install-postgres-17 (action step or its install.sh) that runs the same commands with the same packages, plus apt Acquire::Retries, APT::Update::Error-Mode=any and a bounded whole-command retry. ci-accounting-inputs.json changed only by its projection of that accounting_postgres step; chained bindings changed only by their own restamp. Triggers, jobs, other steps, commands and qualification inputs are otherwise byte-identical. No financial, native or production qualification is restamped or claimed.",
     "reason": "2026-11-07: about seventy inline copies of the PostgreSQL install each failed alone on network blips (curl 55 / apt fetch); one shared installer with bounded retries."
+  },
+  "theAccountingJobNamesItsOwnInputs20261108": {
+    "paths": {
+      "scripts/qualification/ci-admission-inputs.json": {
+        "before": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
+        "after": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887"
+      }
+    },
+    "review": "The only change in classify-ci-changes.mjs is accountingJobInputs(): every scripts/, tests/, server/scripts/ or operations/ file named in the accounting_postgres block of ci.yml now also admits the server flag that gates that job (fails open to scripts/ci|dev/test-* when ci.yml cannot be read). It only widens admission; no job is skipped that ran before.",
+    "reason": "2026-11-08: #10004 changed a harness only accounting_postgres runs and every accounting shard was skipped."
   }
 }

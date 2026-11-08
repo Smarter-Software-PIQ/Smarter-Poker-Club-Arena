@@ -528,8 +528,8 @@
       "sha256": "8b727bbaafa91d23717f865783d85912aaeb622cf20254aea453ca7be04c7714"
     },
     "scripts/qualification/ci-admission-inputs.json": {
-      "bytes": 77125,
-      "sha256": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb"
+      "bytes": 77121,
+      "sha256": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -7159,6 +7159,21 @@
         "current": {
           "bytes": 144778,
           "sha256": "8b727bbaafa91d23717f865783d85912aaeb622cf20254aea453ca7be04c7714"
+        }
+      }
+    }
+  },
+  "theAccountingJobNamesItsOwnInputsSourceAudit20261108": {
+    "reason": "Reviewed exact diff: classify-ci-changes.mjs gains accountingJobInputs(), so every file named in ci.yml's accounting_postgres block admits that job; ci-admission-inputs.json changes by that function inside its projection of the classifier, regenerated with qualification-input-projections.py --write. It only widens job admission. Cash code, financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification.",
+    "changes": {
+      "scripts/qualification/ci-admission-inputs.json": {
+        "previous": {
+          "bytes": 77125,
+          "sha256": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb"
+        },
+        "current": {
+          "bytes": 77121,
+          "sha256": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887"
         }
       }
     }

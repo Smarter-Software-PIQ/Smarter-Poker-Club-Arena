@@ -40,7 +40,7 @@
     "tests/fixtures/legacy-fee-finality/resolution.sql": "50a6897d52a060b2aa87b7f6493c7fb8e8c33a3fcee354d1d1a70dd2954a3695",
     "tests/fixtures/legacy-fee-finality/setup.sql": "ee83d419415ded41cecb3f6877ebc4fe9b12cb7a3e1e63b5d5d98c28c4c60599",
     "tests/fixtures/legacy-fee-finality/verify-native-receipts.mjs": "9556746822f0045ecadc35704929f53810676fe0ab07e49146b14495667870c8",
-    "scripts/qualification/ci-admission-inputs.json": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
+    "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
     "scripts/qualification/ci-accounting-inputs.json": "8b727bbaafa91d23717f865783d85912aaeb622cf20254aea453ca7be04c7714"
   },
@@ -1589,5 +1589,15 @@
     },
     "review": "Reviewed exact diff: the only change in each pinned workflow is the inline 'Install PostgreSQL 17 from the signed PGDG source only' block (signed Ubuntu + PGDG sources in a private sourceparts directory, the checkout key .github/pgdg/apt.postgresql.org.asc at the Signed-By path, create_main_cluster=false, then apt-get install) replaced by the one shared installer .github/actions/install-postgres-17 (action step or its install.sh) that runs the same commands with the same packages, plus apt Acquire::Retries, APT::Update::Error-Mode=any and a bounded whole-command retry. ci-accounting-inputs.json changed only by its projection of that accounting_postgres step; chained bindings changed only by their own restamp. Triggers, jobs, other steps, commands and qualification inputs are otherwise byte-identical. No financial, native or production qualification is restamped or claimed.",
     "reason": "2026-11-07: about seventy inline copies of the PostgreSQL install each failed alone on network blips (curl 55 / apt fetch); one shared installer with bounded retries."
+  },
+  "theAccountingJobNamesItsOwnInputs20261108": {
+    "paths": {
+      "scripts/qualification/ci-admission-inputs.json": {
+        "before": "06a0549ca856ac3b918cfa73307ca5e3561e62638ec65835c2ef22c28cccd8bb",
+        "after": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887"
+      }
+    },
+    "review": "The only change in classify-ci-changes.mjs is accountingJobInputs(): every scripts/, tests/, server/scripts/ or operations/ file named in the accounting_postgres block of ci.yml now also admits the server flag that gates that job (fails open to scripts/ci|dev/test-* when ci.yml cannot be read). It only widens admission; no job is skipped that ran before.",
+    "reason": "2026-11-08: #10004 changed a harness only accounting_postgres runs and every accounting shard was skipped."
   }
 }
