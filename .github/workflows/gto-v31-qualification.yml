@@ -3,7 +3,10 @@ run-name: V31 qualification ${{ inputs.operation || 'admission contracts' }} ${{
 
 # One owner-dispatched operation. Never scheduled, never an engine publisher.
 # evaluate: run the evaluator at the dataset's audited epoch pin (an epoch for a
-#   new engine commit opens only with an explicit reason).
+#   new engine commit opens only with an explicit reason). A read-only plan
+#   names the pin first and a few-minute pre-screen plays the first deals of
+#   every component at it; a component that never reaches the playbook fails
+#   the job before any epoch is opened or receipt recorded.
 # promote: one engine-locked host operation: promote the evaluated epoch, load
 #   all eight workers, prove readiness. Re-run after a partial outcome resumes
 #   without re-promoting.
@@ -22,6 +25,9 @@ on:
       - .github/workflows/gto-v31-qualification.yml
       - scripts/ci/gto-v31-qualification.mjs
       - scripts/ci/gto-v31-qualification.test.mjs
+      - scripts/ci/gto-v31-prescreen.mjs
+      - scripts/ci/gto-v31-prescreen-worker.mjs
+      - scripts/ci/gto-v31-prescreen.test.mjs
       - scripts/ci/gto-v31-recheck-dispatch.mjs
       - scripts/ci/gto-v31-recheck-dispatch.test.mjs
       - scripts/ci/v31-decision-closure.mjs
@@ -82,7 +88,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test scripts/ci/gto-v31-qualification.test.mjs scripts/ci/v31-decision-closure.test.mjs scripts/ci/v31-execution-fingerprint.test.mjs scripts/ci/v31-atomic-promotion.test.mjs scripts/ci/gto-v31-recheck-dispatch.test.mjs
+      - run: node --test scripts/ci/gto-v31-qualification.test.mjs scripts/ci/gto-v31-prescreen.test.mjs scripts/ci/v31-decision-closure.test.mjs scripts/ci/v31-execution-fingerprint.test.mjs scripts/ci/v31-atomic-promotion.test.mjs scripts/ci/gto-v31-recheck-dispatch.test.mjs
   recheck-after-release:
     name: Dispatch the strict re-check a new serving engine needs
     if: github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.repository_id == '1132369872' && (github.repository == 'Smarter-Poker/Smarter-Poker-Club-Arena' || github.repository == 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena')
@@ -121,15 +127,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Select or open the audited evaluation epoch (recheck - prove the serving engine execution-identical)
+      - name: Plan the evaluation epoch pin without opening it (evaluate - read-only)
+        id: plan
+        if: inputs.operation == 'evaluate'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node control/scripts/ci/gto-v31-qualification.mjs plan
+      - name: Prove the serving engine execution-identical (recheck)
         id: context
+        if: inputs.operation == 'recheck'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node control/scripts/ci/gto-v31-qualification.mjs resolve
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.context.outputs.source_sha }}
+          ref: ${{ steps.plan.outputs.source_sha || steps.context.outputs.source_sha }}
           path: runtime
           fetch-depth: 0
           persist-credentials: false
@@ -139,6 +153,20 @@ jobs:
       - name: Build the receiving-platform exact public-state kernel
         working-directory: runtime/server
         run: node scripts/build-public-hist215-native.mjs
+      - name: Pre-screen every component at the pin (evaluate - read-only, minutes; fails on a component that never reaches the playbook)
+        if: inputs.operation == 'evaluate'
+        timeout-minutes: 30
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EQUITY_GOVERNOR: 'off'
+        run: node control/scripts/ci/gto-v31-prescreen.mjs
+      - name: Select or open the audited evaluation epoch at the pre-screened pin (evaluate)
+        if: inputs.operation == 'evaluate'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node control/scripts/ci/gto-v31-qualification.mjs resolve
       - name: Run the evaluator once at the epoch pin (recheck - at the serving engine)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
