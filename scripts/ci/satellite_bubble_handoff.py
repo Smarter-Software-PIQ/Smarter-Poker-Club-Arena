@@ -12,6 +12,15 @@ def transport(e, root, output, database, kind, event, winner):
     transport_script = root / "server/scripts/qualify-terminal-intent-transport.ts"
     e.sql(database, file=custody, label='durable-' + kind + '-custody')
     e.sql(database, file=candidate, label='durable-' + kind + '-migration')
+    if kind == 'QUALIFIERS':
+        # Exercise the successor entrypoint against the existing real original
+        # request/custody fixture; financial cap cases own the full migration.
+        capped = (root / 'supabase/migrations/20261108154158_capped_frozen_satellite_cohort_awards.sql').read_text()
+        marker = 'CREATE FUNCTION public.fn_execute_capped_satellite_terminal_request('
+        if capped.count(marker) != 1:
+            raise RuntimeError('compatible satellite executor source differs')
+        wrapper = capped[capped.index(marker):].removesuffix('COMMIT;\n')
+        e.sql(database, wrapper, label='durable-compatible-qualifier-entrypoint')
     result = output / ('transport-' + kind + '.json')
     e.run('durable-http-' + kind, [root / 'server/node_modules/.bin/tsx', transport_script,
         e.socket, e.port, database, result, event, winner, kind], seconds=60)
