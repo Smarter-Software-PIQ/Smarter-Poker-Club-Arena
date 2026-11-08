@@ -65,7 +65,7 @@ export interface AvatarLibraryResult {
   avatars: Avatar[];
   /** The Hub preset API did not answer. Presets and VIP art are UNKNOWN, not absent. */
   presetsFailed: boolean;
-  /** The user_avatars read failed. "Mine" is UNKNOWN, not empty. */
+  /** A saved avatar source failed. "Mine" may be incomplete. */
   customFailed: boolean;
 }
 
@@ -86,6 +86,16 @@ const CUSTOM_AVATARS_BUCKET = 'custom-avatars';
  * itself is deliberately NOT deleted — existing objects are what the migration
  * that moves affected players onto library art rolls back to if it ever has to.
  */
+
+const OWNER_UPLOAD_PATH = /^avatars\/free\/owner_([a-f0-9-]{36})_[a-f0-9]{16}\.png$/;
+
+function isOwnUploadedAvatar(url: string, userId: string): boolean {
+  const path = url.split('/storage/v1/object/public/custom-avatars/')[1] ?? '';
+  return (
+    OWNER_UPLOAD_PATH.exec(path)?.[1] === userId &&
+    supabase.storage.from(CUSTOM_AVATARS_BUCKET).getPublicUrl(path).data.publicUrl === url
+  );
+}
 
 /** Default avatar — deterministic SVG when no real image exists */
 const DEFAULT_AVATAR_SVG = generateDefaultAvatar();
@@ -302,39 +312,49 @@ class AvatarServiceClass {
       });
     }
 
-    // ── 2. The user's own generated avatars from user_avatars ──
     if (userId) {
-      try {
-        const { data: userAvatars, error } = await supabase
+      const [history, saved] = await Promise.allSettled([
+        supabase
           .from('user_avatars')
-          .select('id, avatar_type, preset_avatar_id, custom_image_url, custom_prompt, created_at')
+          .select('id, custom_image_url, custom_prompt')
           .eq('user_id', userId)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false }),
+        supabase.rpc('fn_my_saved_table_avatars'),
+      ]);
 
-        if (error) {
-          customFailed = true;
-          reportWarning('user_avatars read failed', 'AvatarService.getAvatarLibraryResult', {
-            code: error.code,
-          });
-        } else if (userAvatars) {
-          for (const ua of userAvatars) {
-            const imageUrl = ua.custom_image_url || '';
-            if (!imageUrl) continue;
+      const customUrls = new Set<string>();
+      const addCustom = (id: string, imageUrl: string, name = 'Custom Avatar') => {
+        const key = imageUrl.replace(/^https:\/\/smarter\.poker(?=\/avatars\/table\/)/, '');
+        if (customUrls.has(key)) return;
+        customUrls.add(key);
+        results.push({ id, name, imageUrl, category: 'custom', isOwned: true });
+      };
 
-            results.push({
-              id: ua.id,
-              name: ua.custom_prompt
-                ? ua.custom_prompt.slice(0, 30) + (ua.custom_prompt.length > 30 ? '...' : '')
-                : 'Custom Avatar',
-              imageUrl,
-              category: 'custom',
-              isOwned: true,
-            });
-          }
+      if (history.status === 'fulfilled' && !history.value.error) {
+        for (const row of history.value.data ?? []) {
+          if (!row.custom_image_url) continue;
+          const prompt = row.custom_prompt;
+          addCustom(
+            row.id,
+            row.custom_image_url,
+            prompt ? prompt.slice(0, 30) + (prompt.length > 30 ? '...' : '') : undefined
+          );
         }
-      } catch (err) {
+      } else {
         customFailed = true;
-        console.warn('[AvatarService] Failed to load custom avatars:', err);
+        reportWarning('user_avatars read failed', 'AvatarService.getAvatarLibraryResult');
+      }
+
+      if (saved.status === 'fulfilled' && !saved.value.error) {
+        for (const { asset_path } of saved.value.data ?? []) {
+          const url = asset_path.startsWith('/avatars/table/')
+            ? asset_path
+            : supabase.storage.from(CUSTOM_AVATARS_BUCKET).getPublicUrl(asset_path).data.publicUrl;
+          addCustom(`saved:${asset_path}`, url);
+        }
+      } else {
+        customFailed = true;
+        reportWarning('Saved table avatar read failed', 'AvatarService.getAvatarLibraryResult');
       }
     }
 
@@ -515,7 +535,7 @@ class AvatarServiceClass {
          * they are standing on — and the report is what tells us a write path was
          * missed, which is the only way we would ever find one.
          */
-        if (!isLibraryAvatarUrl(avatarUrl)) {
+        if (!isLibraryAvatarUrl(avatarUrl) && !isOwnUploadedAvatar(avatarUrl, userId)) {
           reportWarning(
             'Refused a non-library avatar URL - profile pictures are no longer supported',
             'AvatarService.setUserAvatar',
