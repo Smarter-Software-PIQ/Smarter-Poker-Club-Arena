@@ -2632,6 +2632,10 @@ export interface HorseDecideOpts {
    *  player whose recent river calling has credibly risen as a station, and
    *  price with his recent river fold rate; default on, false ablates. */
   riverFastCalldown?: boolean;
+  /** Turn draw implied odds (2026-11-08, turnDrawImpliedBonus): a real
+   *  hold'em turn draw is credited the river bet the stacks can pay instead
+   *  of a flat 0.04; default on, false ablates. */
+  turnDrawImpliedOdds?: boolean;
   /** Candidate-only conditional river defense; default off until paired
    * current-brain qualification and protected adoption. */
   riverPositionDefense?: boolean;
@@ -5073,6 +5077,69 @@ export function holdemRealDraw(hole: Card[], board: Card[]): boolean {
     if (top > 0 && top > boardTop) outRanks++;
   }
   return outRanks >= 2;
+}
+
+/**
+ * ═══ TURN DRAW IMPLIED ODDS (2026-11-08) ═══
+ * A real single-board hold'em draw (holdemRealDraw) facing a turn wager was
+ * given a flat 0.04 implied-odds allowance whatever the stacks behind, then
+ * held to the same bar as a bluff-catcher. Q-J of hearts on K-7-2-4 with the
+ * flush draw, 100bb deep, facing 0.7 pot folded 288 of 300 seeds (cash) and
+ * never called: raw equity 0.27-0.29 + 0.04 against a raked bar of 0.36.
+ * Solved 100bb play calls that draw. The allowance is now what the stacks can
+ * pay: P(the river completes the draw with a hole card: its outs over 46) x
+ * the river bet that gets called, divided by the pot after the call.
+ * The river bet is the stack behind after the call, capped at
+ * TURN_DRAW_RIVER_BET_FRAC of that pot (the V68 0.7-pot line), and it is
+ * called at minimum defence, pot / (pot + bet). V68's no-room rule (under 1.5
+ * pots behind at a 0.7-pot-plus wager) still withholds it entirely, as do
+ * V11 (dominated pair) and V23 (one-way low). Turn only (one card to come); Omaha, short deck, multi-board and bomb
+ * pots keep their own pricing.
+ */
+export const TURN_DRAW_RIVER_BET_FRAC = 0.7;
+
+/** Share of the 46 unseen river cards that complete a hole-card flush or a
+ *  hole-card straight (its outs). 0 off the turn. Reverse implied odds of a
+ *  non-nut draw stay in the equity read, not here. */
+export function turnDrawCompletingShare(hole: Card[], board: Card[]): number {
+  if (hole.length !== 2 || board.length !== 4) return 0;
+  const known = new Set([...hole, ...board].map((c) => c.rank + ':' + c.suit));
+  if (known.size !== 6) return 0;
+  if ([...hole, ...board].some((c) => !RANKS.includes(c.rank) || !SUITS.includes(c.suit))) return 0;
+  const mask = (cards: Card[]) => cards.reduce((m, c) => m | (1 << RANK_VALUES[c.rank]), 0);
+  const boardMask = mask(board);
+  const fullMask = mask([...hole, ...board]);
+  const madeStraight = straightTop(fullMask, false) > 0;
+  let hits = 0;
+  for (const rank of RANKS) {
+    const bit = 1 << RANK_VALUES[rank];
+    for (const suit of SUITS) {
+      if (known.has(rank + ':' + suit)) continue;
+      const inHand = hole.filter((c) => c.suit === suit).length;
+      const flush = inHand >= 1 && board.filter((c) => c.suit === suit).length + inHand === 4;
+      const straight =
+        !madeStraight &&
+        straightTop(fullMask | bit, false) > Math.max(0, straightTop(boardMask | bit, false));
+      if (flush || straight) hits++;
+    }
+  }
+  return hits / 46;
+}
+
+/** The turn draw's implied-odds allowance, as equity: completion share x the
+ *  river bet the stacks can pay x the share it is called (minimum defence),
+ *  over the pot after the call. */
+export function turnDrawImpliedBonus(
+  hole: Card[],
+  board: Card[],
+  behindAfterCall: number,
+  potAfterCall: number
+): number {
+  if (!(potAfterCall > 0)) return 0;
+  const bet = Math.min(Math.max(0, behindAfterCall), TURN_DRAW_RIVER_BET_FRAC * potAfterCall);
+  if (!(bet > 0)) return 0;
+  const paid = (bet * potAfterCall) / (potAfterCall + bet);
+  return (turnDrawCompletingShare(hole, board) * paid) / potAfterCall;
 }
 
 export class HorseLogic {
@@ -13081,6 +13148,38 @@ export class HorseLogic {
     ) {
       impliedBonus68 = 0;
       if (tele15) noteFire('v69_turn_call_gaps');
+    }
+    // TURN DRAW IMPLIED ODDS (2026-11-08, turnDrawImpliedBonus above): a
+    // real hold'em draw is credited what the stacks can pay on the river.
+    // V68's no-room rule, V11's dominated pair and V23's one-way low withhold
+    // it exactly as they withhold the flat allowance; the flat allowance's
+    // equity >= 0.25 precondition does not apply to a real draw (its outs,
+    // not its showdown equity, are what get paid).
+    if (
+      (opts.turnDrawImpliedOdds ?? true) !== false &&
+      useIQ &&
+      street === 'turn' &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      !vi.isFixedLimit &&
+      vi.holeCount === 2 &&
+      !multiBoard36 &&
+      !gs.bombPot &&
+      !raisedAfterAggr &&
+      toCall > 0 &&
+      pot > 0 &&
+      dominationPenalty === 0 &&
+      !loOnly23 &&
+      holdemRealDraw(player.cards, board)
+    ) {
+      const behindTd = v68BehindAfterCall(stack, toCall, currentBet, opponents);
+      const drawImplied = v68NoRoomToBePaid(potFrac, behindTd, pot + toCall)
+        ? 0
+        : turnDrawImpliedBonus(player.cards, board, behindTd, pot + toCall);
+      if (drawImplied > impliedBonus68) {
+        impliedBonus68 = drawImplied;
+        if (tele15) noteFire('turn_draw_implied_odds');
+      }
     }
     const solverless38 = vi.isOmaha || vi.isShortDeck || vi.holeCount !== 2 || vi.isFixedLimit;
     // V66: the bet-raised one-pair class is priced by the realized-equity

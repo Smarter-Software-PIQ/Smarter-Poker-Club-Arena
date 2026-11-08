@@ -1065,6 +1065,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River fast call-down'
   ),
   flag(
+    'turnDrawImpliedOdds',
+    "turn draw implied odds (HorseLogic turnDrawImpliedBonus): a real single-board hold'em draw facing a turn wager is credited its outs over 46 times the river bet the stacks can pay (capped at a 0.7-pot bet, called at minimum defence) over the pot after the call, instead of a flat 0.04; V68 no-room, V11 and V23 still withhold it; default on, false ablates (2026-11-08)",
+    'Turn draw implied odds'
+  ),
+  flag(
     'probeAwareAggression',
     "probe bets are not aggression (HorseOpponentExploit probeBetIndexes, ExploiterLeague): the share of an opponent's checked-to postflop bets that were probes (a big blind or a fifth of the pot or less) is taken back out of betCheckedTo, so a min-bettor is not read as a maniac whose real bets get called down; default on, false ablates (2026-11-08)",
     'Probe-aware aggression'
@@ -2951,6 +2956,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (V68)',
     'Hold em high-card turn call of a wager hero did not initiate, implied odds withheld or air shaded against the price',
     'V68',
+    'decide',
+    0.001
+  ),
+  receipt(
+    'turn_draw_implied_odds',
+    'HorseLogic (turn draw implied odds)',
+    'Hold em real turn draw facing a wager credited the river bet the stacks can pay instead of the flat 0.04 implied allowance',
+    'Turn draw implied odds',
     'decide',
     0.001
   ),
