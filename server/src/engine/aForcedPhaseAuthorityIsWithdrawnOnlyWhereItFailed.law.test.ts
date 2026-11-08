@@ -175,7 +175,12 @@ describe('a later owner that replaces an authorised candidate is not a coercion'
     const reconcile = src.indexOf('reconcileHorsePhaseReceipts(', correction);
     expect(correction).toBeGreaterThan(-1);
     expect(reconcile).toBeGreaterThan(correction);
-    expect(src.slice(correction, reconcile + 400)).toContain("'commit_wager_rules'");
+    // Inside the correction block: before the action the door submits.
+    const submitted = src.indexOf('let action = decision.action as string;', correction);
+    expect(reconcile).toBeLessThan(submitted);
+    // The call itself, up to its own close, names the commit owner.
+    const call = src.slice(reconcile, src.indexOf(');', reconcile));
+    expect(call).toContain("'commit_wager_rules'");
   });
 });
 
