@@ -329,6 +329,10 @@ export const CORPUS_BASE_OPTS: HorseDecideOpts = {
   // corpus keeps the explicit off arm (HorseAnteAwarePushFold.test.ts pins
   // the real policy).
   v71AnteAwarePushFold: false,
+  // NASH CALL VS JAM (2026-11-07) answers a lone open-jam at <= 20bb from the
+  // Nash caller table independently of any read; the corpus keeps the explicit
+  // off arm (HorseNashPushFoldV2.test.ts pins the real policy).
+  nashCallVsJam: false,
   // V72 (2026-10-31) defends a single hold'em open on the (defender, opener
   // seat) reference base independently of any read; the corpus keeps the
   // explicit off arm (HorseDefenceByOpener.test.ts pins the real policy).

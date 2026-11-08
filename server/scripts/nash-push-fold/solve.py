@@ -132,5 +132,175 @@ def main():
     json.dump(out, sys.stdout, separators=(",", ":"))
 
 
+# ═══ V2 (2026-11-07): calls, ten-handed, and the ICM (bubble-factor) family ═══
+#
+#     python3 -I solve.py equity169.tsv --v2 > /tmp/nash-v2.json
+#     (wrapped as server/src/engine/HorseNashPushFoldV2.data.ts)
+#
+# The same jam-or-fold game as solve() above, solved again so the CALLERS'
+# side of the equilibrium is kept as well (solve() computes it every round
+# and throws it away), for 1..9 players behind (9 = a ten-handed UTG) and
+# dead ante 0/1/2bb. B = 1 is the chip-EV equilibrium and reproduces solve()
+# exactly.
+#
+# ICM: for a bubble factor B > 1 (hero's chip LOSS is worth B times its
+# gain, the standard push/fold approximation of ICM), the table holds hero's
+# BEST RESPONSE with that B against the chip-EV equilibrium of everybody
+# else: the jam against the chip-EV callers, the call against the chip-EV
+# jam range. Only hero's own risk is repriced (the engine computes hero's B
+# from the live stacks and payouts, IcmModel bubbleFactor), so a high B only
+# ever tightens hero; it never models a field that folds more because of
+# its own ICM, which the engine cannot read per opponent.
+
+V2_ANTES = (0, 1, 2)
+V2_BEHIND = range(1, 10)
+V2_BUBBLE = (1.0, 1.5, 2.0, 3.0)
+ALPHA = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+
+def solve_v2(E, W, n, S, A, rounds=600):
+    """Chip-EV equilibrium, then hero's best response for each bubble factor.
+
+    Returns {B: (jam freq per class, [call freq per class for each caller i])}.
+    """
+    p_avg = solve(E, W, n, S, A, rounds)
+    hero_post = 0.5 if n == 1 else 0.0
+    posts = [0.0] * max(0, n - 2) + ([0.5, 1.0] if n >= 2 else [1.0])
+    pot0 = 1.5 + A
+    Wn = W / COMBOS[:, None] / 1225.0
+    WE = Wn * E
+    # the callers' equilibrium ranges (chip EV) against p_avg, re-derived the
+    # way solve() derives them each round (averaged best response)
+    q_avg = _callers_eq(E, W, n, S, A, rounds)
+    den = (W.T * p_avg[None, :]).sum(axis=1)
+    num = (W.T * (1.0 - E.T) * p_avg[None, :]).sum(axis=1)
+    eq_c = np.where(den > 0, num / np.maximum(den, 1e-12), 0.0)
+    out = {}
+    for B in V2_BUBBLE:
+        if B == 1.0:
+            out[B] = (p_avg, q_avg)
+            continue
+        calls = []
+        for i in range(n):
+            dead = pot0 - hero_post - posts[i]
+            call_u = eq_c * (S + dead) - (1.0 - eq_c) * B * S
+            calls.append((call_u > -B * posts[i]).astype(float))
+        reach = np.ones(169)
+        u = np.zeros(169)
+        for i in range(n):
+            pc = Wn @ q_avg[i]
+            eqm = WE @ q_avg[i]
+            dead = pot0 - hero_post - posts[i]
+            u += reach * (eqm * (S + dead) - (pc - eqm) * B * S)
+            reach = reach * (1.0 - pc)
+        u += reach * (pot0 - hero_post)
+        out[B] = ((u > -B * hero_post).astype(float), calls)
+    return out
+
+
+def _callers_eq(E, W, n, S, A, rounds):
+    """solve() with the callers' averaged ranges returned (same iteration)."""
+    hero_post = 0.5 if n == 1 else 0.0
+    posts = [0.0] * max(0, n - 2) + ([0.5, 1.0] if n >= 2 else [1.0])
+    pot0 = 1.5 + A
+    Wn = W / COMBOS[:, None] / 1225.0
+    WE = Wn * E
+    p_avg = np.ones(169) * 0.5
+    q_avg = [np.ones(169) * 0.3 for _ in range(n)]
+    for t in range(rounds):
+        den = (W.T * p_avg[None, :]).sum(axis=1)
+        num = (W.T * (1.0 - E.T) * p_avg[None, :]).sum(axis=1)
+        eq_c = np.where(den > 0, num / np.maximum(den, 1e-12), 0.0)
+        for i in range(n):
+            dead = pot0 - hero_post - posts[i]
+            br = (eq_c * (2 * S + dead) > S - posts[i]).astype(float)
+            q_avg[i] = q_avg[i] + (br - q_avg[i]) / (t + 2)
+        reach = np.ones(169)
+        ev = np.zeros(169)
+        for i in range(n):
+            pc = Wn @ q_avg[i]
+            eqm = WE @ q_avg[i]
+            dead = pot0 - hero_post - posts[i]
+            ev += reach * eqm * (2 * S + dead)
+            reach = reach * (1.0 - pc)
+        ev += reach * (S + pot0 - hero_post)
+        br = (ev > S - hero_post).astype(float)
+        p_avg = p_avg + (br - p_avg) / (t + 2)
+    return q_avg
+
+
+def upto_code(grid, freqs):
+    """Per class, the deepest grid depth reached contiguously from the bottom
+    with freq >= 0.5, encoded one character per class (ALPHA[2 * depth])."""
+    out = []
+    for k in range(169):
+        d = 0.0
+        for g, fr in zip(grid, freqs):
+            if fr[k] >= 0.5:
+                d = g
+            else:
+                break
+        out.append(ALPHA[int(round(2 * d))])
+    return "".join(out)
+
+
+def v2_job(args):
+    path, n, A = args
+    E, W = load(path)
+    grid = [x / 2 for x in range(3, 51)]
+    per_b = {B: ([], []) for B in V2_BUBBLE}
+    for S in grid:
+        res = solve_v2(E, W, n, S, A)
+        for B in V2_BUBBLE:
+            per_b[B][0].append(res[B][0])
+            per_b[B][1].append(res[B][1])
+    # caller kinds: the unposted seats are identical in this model (first
+    # caller only), so one string serves them all; then the SB and the BB.
+    idx = {}
+    if n >= 3:
+        idx["open"] = 0
+    if n >= 2:
+        idx["sb"] = n - 2
+    idx["bb"] = n - 1
+    out = []
+    for B in V2_BUBBLE:
+        jams, calls = per_b[B]
+        out.append((f"{n}|{A}|{B:g}", {
+            "jam": upto_code(grid, jams),
+            "call": {k: upto_code(grid, [c[i] for c in calls]) for k, i in idx.items()},
+            "jamPct": [round(float((pr >= 0.5) @ COMBOS) / 13.26, 2) for pr in jams],
+            "callPct": {k: [round(float((c[i] >= 0.5) @ COMBOS) / 13.26, 2) for c in calls] for k, i in idx.items()},
+        }))
+    return out
+
+
+def main_v2(path):
+    from multiprocessing import Pool
+    import os
+
+    jobs = [(path, n, A) for A in V2_ANTES for n in V2_BEHIND]
+    with Pool(int(os.environ.get("NASH_V2_PROCS", "6"))) as pool:
+        results = [kv for part in pool.map(v2_job, jobs) for kv in part]
+    grid = [x / 2 for x in range(3, 51)]
+    out = {
+        "model": "Nash jam-or-fold, first caller only, exact hero/caller card removal; "
+        "B > 1: hero's bubble-factor best response to the chip-EV equilibrium",
+        "depthGrid": grid,
+        "classes": [c for c, _ in CLS],
+        "alphabet": ALPHA,
+        "bubbleLevels": list(V2_BUBBLE),
+        "tables": {},
+    }
+    for key, val in sorted(results, key=lambda kv: kv[0]):
+        out["tables"][key] = val
+        print(key, "jam@10/15/20", val["jamPct"][grid.index(10)], val["jamPct"][grid.index(15)],
+              val["jamPct"][grid.index(20)], "bbcall@10/20", val["callPct"]["bb"][grid.index(10)],
+              val["callPct"]["bb"][grid.index(20)], file=sys.stderr)
+    json.dump(out, sys.stdout, separators=(",", ":"))
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 2 and sys.argv[2] == "--v2":
+        main_v2(sys.argv[1])
+    else:
+        main()

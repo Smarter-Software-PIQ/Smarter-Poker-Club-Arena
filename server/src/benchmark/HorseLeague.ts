@@ -394,6 +394,41 @@ const CASH_LEAGUE_CONTEXT: LeagueGameContext = {
   ante: 0,
 };
 
+/**
+ * 2026-11-07: a mid-field MTT (180 left, 30 paid, not near the bubble) with a
+ * 1bb big-blind ante, for the short-stack push/fold cards. BB = 2 chips.
+ */
+function bigBlindAnteMttContext(seats: number, stackBB: number): LeagueGameContext {
+  return {
+    gameMode: 'tournament',
+    format: 'mtt',
+    ante: BB,
+    bigBlindAnte: true,
+    tournament: {
+      schemaVersion: 1,
+      contextStatus: 'complete',
+      contextIssues: [],
+      playersLeft: 180,
+      spotsPaid: 30,
+      entrants: 300,
+      avgStackChips: stackBB * BB,
+      medianStackChips: stackBB * BB,
+      seatsPerTable: seats,
+      nearBubble: false,
+      inMoney: false,
+      payoutPct: [30, 20, 14, 10, 8, 6, 4, 3, 3, 2],
+      currentSmallBlind: SB,
+      currentBigBlind: BB,
+      currentAnte: BB,
+      anteType: 'big_blind',
+      nextSmallBlind: SB * 2,
+      nextBigBlind: BB * 2,
+      nextAnte: BB * 2,
+      nextBlindInMin: 10,
+    },
+  };
+}
+
 const DEFAULT_SEATS = 6;
 const BB = 2;
 const SB = 1;
@@ -1599,6 +1634,34 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     moodClock: 'deal_seed',
     a: { huBbDefendsToPrice: true },
     b: {},
+  },
+  // 2026-11-07 NASH CALL VS JAM (HorseNashPushFoldV2), default ON: a is
+  // today's brain, b the strength bar it replaced. MTT 12bb with a 1bb
+  // big-blind ante, six-max and heads-up, the measured spots
+  // (docs/changelog/2026-11-07-nash-push-fold-v2.md: +1.8 to +4.9 bb/100 on
+  // 20,000 pairs, two seeds). The human-calibrated field never open-jams, so
+  // no human-field twin can measure it.
+  {
+    name: 'mtt6_nash_call_vs_jam_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: bigBlindAnteMttContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: {},
+    b: { nashCallVsJam: false },
+  },
+  {
+    name: 'mtt_hu_nash_call_vs_jam_12bb',
+    seats: 2,
+    stackBB: 12,
+    context: bigBlindAnteMttContext(2, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: {},
+    b: { nashCallVsJam: false },
   },
   /*
    * v16_ratio_rescale is NOT on the card (2026-09-05). Measured 2026-09-04:
