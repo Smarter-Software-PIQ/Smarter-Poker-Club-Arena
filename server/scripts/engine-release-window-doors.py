@@ -493,7 +493,9 @@ def install_state(now):
     runs = github(REPO_API + '/actions/workflows/' + STAGE_WORKFLOW + '/runs?branch=main&per_page=50&created='
                   + quote(stamp(start) + '..' + stamp(end)))
     rows = [r for r in runs.get('workflow_runs', [])
-            if r.get('event') in ('push', 'schedule') and r.get('head_branch') == 'main']
+            if r.get('head_branch') == 'main' and (r.get('event') in ('push', 'schedule')
+                or (r.get('event') == 'workflow_run' and r.get('display_title') == 'Automatic protected Backup finished')
+                or (r.get('event') == 'repository_dispatch' and r.get('actor', {}).get('type') == 'User' and r.get('run_attempt') == 1))]
     rows.sort(key=lambda r: r.get('created_at', ''))
     for run in rows[:6]:
         jobs = github(REPO_API + '/actions/runs/' + str(int(run['id'])) + '/jobs?per_page=100')

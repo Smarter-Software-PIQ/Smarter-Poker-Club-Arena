@@ -528,7 +528,9 @@ describe('explicit database-only owner-window continuation', () => {
   it('uses the same serialized installer while skipping every engine admission', () => {
     const workflow = parse(read('.github/workflows/stage-engine-release.yml'));
     expect(workflow.on.workflow_dispatch.inputs.owner_window_id.required).toBe(true);
-    expect(workflow.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
+    expect(workflow.jobs.detect.if).toBe(
+      "github.event_name != 'workflow_dispatch' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
+    );
     expect(workflow.jobs.selection.needs).toBe('detect');
     expect(workflow.jobs.signal.needs).toEqual(['detect', 'selection']);
     const job = workflow.jobs['window-migrations'];

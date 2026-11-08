@@ -22,9 +22,17 @@ name: Stage Exact Club Arena Engine Release
 # every later run in it refuses by name. Four odd-minute schedule entries per
 # DST twin and the constant protected-main pushes are only chances to be that
 # first run; a run outside the window (a late cron) prepares nothing.
+# An automatic Backup completion reached GitHub at 03:41 on November 8
+# while no push or schedule entered the preparation window. Only automatic
+# main-push Backup completions participate; their SHA is never a nomination.
+run-name: ${{ github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic protected Backup finished' || 'Backup completion outside election') || '' }}
 on:
   repository_dispatch:
     types: [prepare-daily-engine]
+  workflow_run:
+    workflows: ['Backup Engine (Clone, Stage, Certify)']
+    branches: [main]
+    types: [completed]
   workflow_dispatch:
     inputs:
       owner_window_id:
@@ -49,7 +57,7 @@ permissions: {}
 
 jobs:
   detect:
-    if: github.event_name != 'workflow_dispatch'
+    if: github.event_name != 'workflow_dispatch' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
     name: Prove Whether The Server Tree Changed
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -127,7 +135,7 @@ jobs:
           # hours late prepares nothing), or the push instant GitHub records in
           # the push payload. Unreadable is simply "not inside the window".
           moment=''
-          if [ "$EVENT_NAME" = schedule ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
+          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
             moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at) || moment=''
           elif [ "$EVENT_NAME" = push ]; then
             moment="${PUSHED_AT:-}"
@@ -186,7 +194,8 @@ jobs:
               for run in runs:
                   event = run.get("event")
                   operator = event == "repository_dispatch" and run["actor"]["type"] == "User"
-                  if (event not in ("push", "schedule") and not operator) or run.get("head_branch") != "main":
+                  automatic_backup = event == "workflow_run" and run.get("display_title") == "Automatic protected Backup finished"
+                  if (event not in ("push", "schedule") and not operator and not automatic_backup) or run.get("head_branch") != "main":
                       continue
                   if not (start <= when(run["created_at"]) < end):
                       continue
@@ -303,7 +312,7 @@ jobs:
           # nothing on that basis and says so.
           OFFER_REASON=changed
           SCHEDULED_CYCLE=false
-          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = repository_dispatch ]; then
+          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ] || [ "$EVENT_NAME" = repository_dispatch ]; then
             # A preparation event has no push-before SHA. Always prove the actual
             # protected live identity before offering a same-image reset.
             RELEASE_REQUIRED=false

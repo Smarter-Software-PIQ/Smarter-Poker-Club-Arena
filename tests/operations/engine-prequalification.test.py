@@ -197,5 +197,22 @@ class ArchiveTransport(unittest.TestCase):
                 self.transport.config_identity(native, self.tag, manifest)
 
 
+
+class OperatorInstallationEvidence(unittest.TestCase):
+    def test_original_operator_install_is_visible_and_replays_are_excluded(self):
+        spec = spec_from_file_location("window_doors", root / "server/scripts/engine-release-window-doors.py")
+        doors = module_from_spec(spec)
+        spec.loader.exec_module(doors)
+        original = dict(id=7, event="repository_dispatch", actor={"type": "User"},
+                        run_attempt=1, head_branch="main", created_at="2026-11-09T09:35:00Z")
+        job = dict(name=doors.INSTALL_JOB, status="completed", conclusion="success", html_url="receipt")
+        for actor, attempt, visible in (("User", 1, True), ("Bot", 1, False), ("User", 2, False)):
+            row = dict(original, actor={"type": actor}, run_attempt=attempt)
+            with self.subTest(actor=actor, attempt=attempt), patch.dict(os.environ, {}, clear=True), patch.object(
+                doors, "github", side_effect=[{"workflow_runs": [row]}, {"jobs": [job]}]
+            ):
+                result = doors.install_state(datetime(2026, 11, 9, 10, tzinfo=timezone.utc))
+                self.assertEqual(result is not None, visible)
+
 if __name__ == "__main__":
     unittest.main()

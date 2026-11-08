@@ -445,13 +445,17 @@ describe('the offer is the existing release, not a second publisher', () => {
   it('uses protected main and the explicit Phase1 schedule without a release-completion chain', () => {
     expect(Object.keys(stage.on)).toEqual([
       'repository_dispatch',
+      'workflow_run',
       'workflow_dispatch',
       'push',
       'schedule',
     ]);
     expect(stage.on.repository_dispatch.types).toEqual(['prepare-daily-engine']);
-    // The existing workflow_dispatch is database-only: it cannot produce engine outputs.
-    expect(stage.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
+    expect(stage.on.workflow_run.workflows).toEqual(['Backup Engine (Clone, Stage, Certify)']);
+    // Explicit dispatch is database-only: it cannot produce engine outputs.
+    expect(stage.jobs.detect.if).toBe(
+      "github.event_name != 'workflow_dispatch' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
+    );
     expect(stage.jobs.selection.needs).toBe('detect');
     expect(stage.jobs.signal.needs).toEqual(['detect', 'selection']);
     expect(stage.on.schedule).toEqual([

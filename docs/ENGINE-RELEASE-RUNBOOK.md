@@ -299,7 +299,7 @@ break does not wait for a release.
 
 ### 4.1 03:30-03:50 preparation (`stage-engine-release.yml`)
 
-- **Admission** (job `detect`, step `admission`): the first protected-main push, native schedule or operator delivery
+- **Admission** (job `detect`, step `admission`): the first eligible Stage run (operator delivery, push, schedule, or completion of a successful protected-main push Backup)
   created inside 03:30-03:50 Chicago (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`)
   owns the day's preparation; later runs refuse by name; an unreadable run list
   prepares nothing. Crons `31,35,39,43 8/9 * * *` UTC are only chances to be
