@@ -15982,7 +15982,7 @@ function LiveTablePage({
                        the engine just decided, whereas the row may not have
                        been written yet when we read it. */
                     finishPlace: committedSatelliteQualification?.qualified
-                      ? null
+                      ? committedSatelliteQualification.position
                       : position || full?.finishPlace || null,
                     satelliteQualification: committedSatelliteQualification?.qualified
                       ? {
@@ -16341,7 +16341,13 @@ function LiveTablePage({
                 scheduleDurableCompletionRetry();
                 return;
               }
-              if (result.status === 'winner' && result.position === null) {
+              if (
+                (result.status === 'winner' && result.position === null) ||
+                (terminalCompletionWitnessed &&
+                  loadedSatelliteTarget &&
+                  Number.isInteger(result.position) &&
+                  Number(result.position) > 0)
+              ) {
                 try {
                   const qualification = await readMySatelliteQualifierResult(
                     durableTournamentId,
@@ -16349,18 +16355,29 @@ function LiveTablePage({
                   );
                   if (!isMounted) return;
                   if (qualification?.qualified) {
+                    if (
+                      qualification.position !== result.position ||
+                      (loadedSatelliteTarget && qualification.targetId !== loadedSatelliteTarget)
+                    ) {
+                      throw new Error('Satellite award differs from the recorded result');
+                    }
                     committedSatelliteQualification = qualification;
                     if (durableCompletionRetryTimer) {
                       clearTimeout(durableCompletionRetryTimer);
                       durableCompletionRetryTimer = null;
                     }
-                    await announceSpectatorChampion({ position: 0, prize: qualification.amount });
+                    await announceSpectatorChampion({
+                      position: qualification.position ?? 0,
+                      prize: qualification.amount,
+                    });
                     return;
                   }
                 } catch (error) {
                   reportError(error, 'TablePage.satellite_qualifier_result_unreadable', {
                     tournamentId: durableTournamentId,
                   });
+                  scheduleDurableCompletionRetry();
+                  return;
                 }
               }
               const position = Number(result.position);
