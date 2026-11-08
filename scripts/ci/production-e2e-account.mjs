@@ -1806,23 +1806,53 @@ export async function retireProductionCreateClubFixtures({
   const staleSweep = !terminalFixtureOnly && Array.isArray(retainedRetiredClubs);
   const retained = [];
   for (const club of clubs) {
+    // A RETIRED FIXTURE THAT KEEPS ITS HISTORY IS FINISHED, NOT FAILED, AND NO
+    // DOOR IS ASKED ABOUT IT (2026-11-08). lifecycle_status 'retired' is the
+    // terminal state fn_retire_settled_club and the history door (#9959)
+    // write: chips retired, tables closed, boards cancelled, the row kept.
+    // Until today only two exact refusals read as retained, after a door had
+    // been asked: on 2026-11-08 five retired Crest Cert Template fixtures
+    // (96bd011b, b3ec63d3, a15f7d9e, 0be5ee41, 79210a6a) were sent to the
+    // post-reset welcome door, which refused their empty treasury
+    // (POST_RESET_CERTIFICATION_CLUB_STATE_REFUSED), and the sweep reported
+    // eight unrecovered identities for clubs that were already finished.
+    // Only the stale sweep reads it so; a live run still proves its own
+    // fixtures through the doors below.
+    if (staleSweep && club.lifecycle_status === 'retired') {
+      retained.push(String(club.id));
+      continue;
+    }
     if (String(club.name || '').startsWith(RABBIT_HUNT_CLUB_NAME_PREFIX)) {
       // A RABBIT-HUNT CLUB HAS PLAYED, BY DESIGN. certify-rabbit-hunt.mjs seats
       // two reserved players at a real table, so its club is never a welcome
       // fixture any welcome door could retire (they check the Crest names and
       // refuse play), and the owner's own run retires it through
       // fn_retire_settled_club. Retired, it is the owner's retained history
-      // (2026-11-07, #9830: clubs 110fc34f and 1ad7b7b9). Still active, it
-      // holds members' chips and hands that only its own run's cleanup
-      // settles; this sweep never reaches for them.
-      if (staleSweep && club.lifecycle_status === 'retired') {
-        retained.push(String(club.id));
-        continue;
+      // (2026-11-07, #9830: clubs 110fc34f and 1ad7b7b9; handled above).
+      // Still active in a STALE sweep, its run is dead (the inventory's age
+      // floor is many times a run), so the sweep settles it from its record
+      // through the run's own cleanup, as the owner, with every one of that
+      // cleanup's refusals intact: a live seat, a member outside the reserved
+      // namespace or a failed step settles nothing (2026-11-08, run
+      // 42411184920 died "refused while seated" with hit-and-run holding a
+      // winner's seat; club 8f508869). A live run never settles another run's
+      // club.
+      if (!staleSweep) {
+        throw new Error(
+          `Refusing to retire rabbit-hunt certification club ${club.id}: it has played and is still ` +
+            `${String(club.lifecycle_status || 'unknown')}; only its own run's cleanup settles it.`
+        );
       }
-      throw new Error(
-        `Refusing to retire rabbit-hunt certification club ${club.id}: it has played and is still ` +
-          `${String(club.lifecycle_status || 'unknown')}; only its own run's cleanup settles it.`
-      );
+      const { settleStrandedRabbitHuntClub } = await import('./certify-rabbit-hunt.mjs');
+      await settleStrandedRabbitHuntClub({
+        environment,
+        fetchImpl,
+        clubId: String(club.id),
+        ownerId: account.id,
+        isReserved: reserved,
+      });
+      retained.push(String(club.id));
+      continue;
     }
     try {
       const result = await retireCertificationClubWithRetry({
@@ -1837,21 +1867,12 @@ export async function retireProductionCreateClubFixtures({
       });
       if (result?.disposition === 'retained_terminal_fixture_owner') retained.push(String(club.id));
     } catch (error) {
-      // A RETIRED FIXTURE THAT KEEPS ITS HISTORY IS FINISHED, NOT FAILED
-      // (2026-10-26). "Crest Cert Lobby 01a16659" was retired off the live
-      // board on 2026-10-23 but keeps a closed table and a cancelled
-      // tournament whose cancellation receipt is immutable (RESTRICT), so the
-      // door can never delete it and answers RETIREMENT_REFUSAL_CLUB_HAS_HISTORY
-      // every time. Only that exact refusal, only for a club already retired,
-      // and only when the stale sweep asks.
-      if (
-        staleSweep &&
-        error?.refusal === RETIREMENT_REFUSAL_CLUB_HAS_HISTORY &&
-        club.lifecycle_status === 'retired'
-      ) {
-        retained.push(String(club.id));
-        continue;
-      }
+      // (2026-10-26) "Crest Cert Lobby 01a16659", retired off the live board
+      // but keeping a closed table and a cancelled tournament with an
+      // immutable receipt, answered RETIREMENT_REFUSAL_CLUB_HAS_HISTORY here
+      // every time and was the first retained fixture. Since 2026-11-08 the
+      // stale sweep keeps every retired fixture before any door is asked
+      // (above); a refusal here is a refusal.
       throw error;
     }
   }

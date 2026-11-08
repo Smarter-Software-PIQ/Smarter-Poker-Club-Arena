@@ -2437,13 +2437,17 @@ describe('one refused stale identity no longer strands the others (2026-10-26)',
 
     await expect(run(model.fetchImpl)).resolves.toBe(2);
 
+    // A retired fixture is finished: no door is asked about it (2026-11-08;
+    // before, the history refusal of a door that had been asked read as
+    // retained, and a retired fixture sent to another door was reported as
+    // unrecovered).
     expect(model.calls).toEqual([
-      `retire ${LOBBY}`,
       `retire ${TEMPLATE_A}`,
       `account ${ownerA.id}`,
       `retire ${TEMPLATE_B}`,
       `account ${ownerB.id}`,
     ]);
+    expect(model.calls).not.toContain(`retire ${LOBBY}`);
     // The identity that owns the retired history is never sent to the account door.
     expect(model.calls).not.toContain(`account ${lobbyOwner.id}`);
     expect([...model.owned.keys()]).toEqual([LOBBY]);
@@ -2760,13 +2764,16 @@ describe('the stale sweep recognizes a rabbit-hunt club (2026-11-07, #9830)', ()
   };
   const build = (lifecycle: string) => {
     const doors: string[] = [];
+    const club = {
+      id: RH,
+      name: 'Cert RH 17004387',
+      owner_id: owner.id,
+      lifecycle_status: lifecycle,
+    };
     const fetchImpl = vi.fn(async (input: string | URL | Request) => {
       const url = decodeURIComponent(String(input));
       if (url.includes('/rpc/fn_ca_stale_certification_accounts')) return Response.json([owner]);
-      if (url.includes('/rest/v1/clubs?'))
-        return Response.json([
-          { id: RH, name: 'Cert RH 17004387', owner_id: owner.id, lifecycle_status: lifecycle },
-        ]);
+      if (url.includes('/rest/v1/clubs?')) return Response.json([{ ...club }]);
       if (url.includes('/rest/v1/rpc/')) {
         doors.push(url);
         return Response.json({ success: false, error: 'not a certification fixture by name' });
@@ -2774,7 +2781,7 @@ describe('the stale sweep recognizes a rabbit-hunt club (2026-11-07, #9830)', ()
       return new Response('unexpected request ' + url, { status: 500 });
     });
     const query = vi.fn(async () => ({ rows: [] }));
-    return { fetchImpl, doors, client: { query, connect: vi.fn(), end: vi.fn() } };
+    return { fetchImpl, doors, club, client: { query, connect: vi.fn(), end: vi.fn() } };
   };
   const run = (world: ReturnType<typeof build>) =>
     cleanupStaleProductionE2EAccounts({
@@ -2800,14 +2807,70 @@ describe('the stale sweep recognizes a rabbit-hunt club (2026-11-07, #9830)', ()
     );
   });
 
-  it('an active Cert RH club is refused loudly, through no door, and the failure names the sweep and the pattern', async () => {
+  it("an active Cert RH club in a stale sweep is settled from its record through the run's own cleanup, then kept as retained history (2026-11-08)", async () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const world = build('active');
-    const outcome = run(world);
-    await expect(outcome).rejects.toThrow(
-      `Refusing to retire rabbit-hunt certification club ${RH}: it has played and is still active`
-    );
-    await expect(outcome).rejects.toThrow(STALE_RESIDUE_SWEEP_HINT);
+    const settle = vi.fn(async ({ clubId, ownerId, isReserved }) => {
+      expect(clubId).toBe(RH);
+      expect(ownerId).toBe(owner.id);
+      expect(isReserved(owner.email)).toBe(true);
+      expect(isReserved('someone@example.com')).toBe(false);
+      // fn_retire_settled_club flips the row; the sweep reads it back.
+      world.club.lifecycle_status = 'retired';
+      return { clubId, ownerId, members: [ownerId] };
+    });
+    vi.doMock('../../scripts/ci/certify-rabbit-hunt.mjs', () => ({
+      settleStrandedRabbitHuntClub: settle,
+    }));
+    try {
+      await expect(run(world)).resolves.toBe(0);
+    } finally {
+      vi.doUnmock('../../scripts/ci/certify-rabbit-hunt.mjs');
+    }
+    expect(settle).toHaveBeenCalledTimes(1);
+    // No welcome door is asked about a club that has played, and the owner is
+    // never sent to the account door: it is the owner of record.
+    expect(world.doors).toEqual([]);
+  });
+
+  it('a settlement that returns without the club reading retired is refused by the readback, never kept', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const world = build('active');
+    vi.doMock('../../scripts/ci/certify-rabbit-hunt.mjs', () => ({
+      settleStrandedRabbitHuntClub: vi.fn(async () => ({
+        clubId: RH,
+        ownerId: owner.id,
+        members: [],
+      })),
+    }));
+    try {
+      await expect(run(world)).rejects.toThrow(
+        'Retained Terminal Fixture Persistence Readback Refused.'
+      );
+    } finally {
+      vi.doUnmock('../../scripts/ci/certify-rabbit-hunt.mjs');
+    }
+  });
+
+  it('a stranded Cert RH club whose settlement refuses fails the sweep loudly, naming the sweep and the pattern', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const world = build('active');
+    vi.doMock('../../scripts/ci/certify-rabbit-hunt.mjs', () => ({
+      settleStrandedRabbitHuntClub: vi.fn(async () => {
+        throw new Error(
+          `Rabbit-hunt certification club ${RH} was not settled: refused while seated.`
+        );
+      }),
+    }));
+    try {
+      const outcome = run(world);
+      await expect(outcome).rejects.toThrow(
+        `Rabbit-hunt certification club ${RH} was not settled: refused while seated.`
+      );
+      await expect(outcome).rejects.toThrow(STALE_RESIDUE_SWEEP_HINT);
+    } finally {
+      vi.doUnmock('../../scripts/ci/certify-rabbit-hunt.mjs');
+    }
     expect(world.doors).toEqual([]);
   });
 
