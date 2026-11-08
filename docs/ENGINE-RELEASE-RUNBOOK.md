@@ -174,6 +174,21 @@ production database host is reachable. The engine boots with
 
 Runs are serialized (`concurrency: backup-engine`, `queue: max`).
 
+A push run also asks whether the candidate's ENGINE SOURCE is identical to an
+ancestor that already holds `success` (#9967, step `inherit`).
+`bash scripts/ci/engine-source-identity.sh <sha>` prints a sha256 over
+exactly what `server/Dockerfile` copies into the image at that commit (plus
+the Dockerfile and the script itself), read from git blobs; `--manifest`
+lists the inputs. Walking the first-parent history (60 commits), the nearest
+ancestor with the same identity decides: `success` there is written on the
+candidate as `Inherited from <sha>: identical engine source (<12hex>)` and
+the run plans nothing; `failure` or `error` there, a different identity, an
+unreadable status, or a status that cannot be written all mean a full
+certification instead. Only push runs inherit; a dispatch, the nightly and
+the post-seal refresh always certify. So a docs-only or tests-only push to
+`server/**` is certified in seconds, and a candidate the selector offers
+always has its own `backup-engine/certified = success`.
+
 ### 3.3 What `standby-engine certify <sha> 1800` does
 
 In `server/standby/standby-engine.sh` `cmd_certify`:
