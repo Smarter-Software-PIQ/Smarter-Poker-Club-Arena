@@ -1,6 +1,7 @@
 /**
  * The near-nut river fixture reaches smallPotNearNutRiverValue through the
- * original decision worker, and production cannot.
+ * original decision worker, and once a selection admits the skill, production
+ * reaches it too.
  *
  * Reach: every fixture state is inside the skill's own predicate, and with
  * the flag on in the development harness the gate fires on every one of
@@ -8,19 +9,19 @@
  * decision equals the production worker's decision exactly (action, amount,
  * natural RNG seed), so the fixture changes nothing but the flag.
  *
- * Unreachability (an implementation defect, recorded, not fixed here): the
- * variant packs do NOT pre-empt the gate, which runs inside the `reference`
- * node before them. The block is the worker's feature admission. Even with a
- * near-nut authority admitted for exactly this declared profile, the
- * worker's domain predicate (HorseFeatureAuthority.featureDomainMatches)
- * refuses every state the skill acts on, for two independent reasons:
+ * Production reach: the variant packs do NOT pre-empt the gate, which runs
+ * inside the `reference` node before them. Until 2026-11-08 the worker's
+ * domain predicate (HorseFeatureAuthority.featureDomainMatches) refused every
+ * state the skill acts on, for two independent reasons:
  *   - `gs.pots.length <= 1`: facing an uncalled opening river bet the live
  *     pots always carry the bettor-only refundable layer (two layers), the
  *     exact shape the skill itself admits;
  *   - `hash(gs.rakeConfig) === hash(d.rakeConfig)`: the live rake snapshot
- *     carries `cashPolicy`, which a declared domain cannot carry
- *     (featureLiveDomainRefusals pins it to publishedCashPricing).
- * So the worker passes smallPotNearNutRiverValue: false to HorseLogic.decide.
+ *     carries `cashPolicy`, which the published pricing does not.
+ * Both are fixed (docs/changelog/2026-11-08-a-declared-feature-domain-admits-the-live-snapshot.md);
+ * the test below pins that the production worker, given an admitted
+ * authority, now hands the skill `true` on these exact production snapshots.
+ * The release still ships no selection, so the flag stays off in production.
  */
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
@@ -36,7 +37,6 @@ import {
 import { featureLiveDomainRefusals } from '../engine/HorseFeatureLiveDomain.js';
 import { HORSE_POLICY_ORDER } from '../engine/HorsePolicyGraph.js';
 import type { HorseQualifiedAuthority } from '../engine/HorseQualifiedAuthority.js';
-import type { HorseGameStateV2 } from '../engine/HorseLogic.js';
 import { defaultHorseDecisionWorkerDependencies } from '../engine/horseDecision/workerRuntime.js';
 import {
   NEAR_NUT_FIXTURE_VARIANTS,
@@ -158,7 +158,7 @@ function admittedNearNut(variant: NearNutFixtureVariant) {
   return { domain, plan, authority };
 }
 
-describe('production PLO cash rivers cannot reach the near-nut gate', () => {
+describe('production PLO cash rivers reach the near-nut gate only through an admitted selection', () => {
   it('the release ships no feature selection, so the flag is off', () => {
     const selection = fileURLToPath(
       new URL(`../../../${HORSE_FEATURE_SELECTION_PATH}`, import.meta.url)
@@ -172,47 +172,35 @@ describe('production PLO cash rivers cannot reach the near-nut gate', () => {
   });
 
   it.each(NEAR_NUT_FIXTURE_VARIANTS)(
-    '%s: an admitted near-nut authority is still refused by the worker domain predicate',
+    '%s: an admitted near-nut authority reaches the gate through the production worker',
     async (variant) => {
       const { domain, plan, authority } = admittedNearNut(variant);
       expect(featureLiveDomainRefusals(plan)).toEqual([]);
+      let fired = 0;
       for (let i = 0; i < 12; i++) {
         const state = nearNutRiverState(variant, i);
         const gs = state.snapshot.gameState;
         expect(state.inDomain).toBe(true);
-        // The two refusing conjuncts, named. Each alone still refuses.
+        // The live shape the predicate used to refuse: an uncalled layer and
+        // the engine's rake policy stamp. Both are admitted now.
         expect(gs.pots?.length).toBe(2);
         expect(gs.pots?.[1]?.eligiblePlayers).toHaveLength(1);
         expect(gs.rakeConfig?.cashPolicy).toEqual({ version: 1, scope: 'standard' });
-        const { cashPolicy: _c, ...rakeWithout } = gs.rakeConfig!;
-        const onePot = [
-          {
-            amount: Math.round(gs.pots!.reduce((n, p) => n + p.amount, 0) * 100) / 100,
-            eligiblePlayers: [...gs.pots![0].eligiblePlayers],
-          },
-        ];
-        const patched = (p: Partial<HorseGameStateV2>) => ({ ...gs, ...p }) as HorseGameStateV2;
-        expect(featureDomainMatches(domain, gs)).toBe(false);
-        expect(featureDomainMatches(domain, patched({ rakeConfig: rakeWithout }))).toBe(false);
-        expect(featureDomainMatches(domain, patched({ pots: onePot }))).toBe(false);
-        expect(
-          featureDomainMatches(domain, patched({ rakeConfig: rakeWithout, pots: onePot }))
-        ).toBe(true);
+        expect(featureDomainMatches(domain, gs)).toBe(true);
         // The original production worker, admitted, on the production snapshot.
         const seen: unknown[] = [];
-        const { result, fires } = await decideNearNutRiver(state, 'production', {
+        const { fires } = await decideNearNutRiver(state, 'production', {
           admitFeatureAuthority: () => ({ status: 'admitted', authority }),
           decide: (p, g, s, m, o, rc, pr) => {
             seen.push(o?.smallPotNearNutRiverValue);
             return defaultHorseDecisionWorkerDependencies.decide(p, g, s, m, o, rc, pr);
           },
         });
-        expect(seen).toEqual([false]);
-        expect(result.decision.featureAuthority).toBeUndefined();
-        expect(Object.keys(fires).filter((k) => k.startsWith('small_pot_near_nut_value_'))).toEqual(
-          []
-        );
+        expect(seen).toEqual([true]);
+        fired += Object.keys(fires).filter((k) => k.startsWith('small_pot_near_nut_value_')).length;
       }
+      // The gate is reached: an in-domain near-nut receipt fires.
+      expect(fired).toBeGreaterThan(0);
     },
     60_000
   );

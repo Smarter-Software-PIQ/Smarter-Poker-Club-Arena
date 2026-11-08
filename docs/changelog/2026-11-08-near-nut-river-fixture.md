@@ -1,4 +1,4 @@
-# Near-nut river fixture: the skill is reachable in development, unreachable in production (2026-11-08)
+# Near-nut river fixture: the skill reaches its decision in development, and in production once selected (2026-11-08)
 
 `smallPotNearNutRiverValue` (target `small_pot_near_nut_value_raise`, counter
 `small_pot_near_nut_value_raise_accepted`) acted once in 2,876 development
@@ -56,7 +56,7 @@ reference raise. The variant packs ran in candidate mode on every decision
 60/60 per variant). Neither the production arm nor the flag-off arm fired any
 near-nut receipt.
 
-## What it found: production cannot reach the gate (implementation defect, not fixed here)
+## What it found: production could not reach the gate (fixed in the base commit)
 
 The handoff concern that the PLO variant packs own the river first does not
 hold. The gate runs inside the policy graph's `reference` node
@@ -84,5 +84,14 @@ Either one alone refuses; with both corrected, the predicate admits the state.
 The worker then passes `smallPotNearNutRiverValue: false` to `HorseLogic.decide`.
 The rake mismatch is not specific to this skill: as written, it refuses every
 cash feature authority on every live cash snapshot. Selecting the skill
-therefore cannot activate it until the predicate is reconciled with the live
-snapshot. That is a separate, reviewed change, not part of this fixture.
+could not activate it until the predicate matched the live snapshot.
+
+**Fixed underneath this fixture** by
+`docs/changelog/2026-11-08-a-declared-feature-domain-admits-the-live-snapshot.md`
+(the commit this one is stacked on). The fixture's production test now
+asserts the opposite of what it found. Given an admitted near-nut authority,
+the original production worker hands `HorseLogic.decide`
+`smallPotNearNutRiverValue: true` on all twelve production snapshots per
+variant, and the gate's own receipts fire. The release still ships no
+selection, so production stays off until a held-out qualification selects the
+skill.
