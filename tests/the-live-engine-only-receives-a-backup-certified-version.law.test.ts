@@ -66,10 +66,11 @@ function runGate(ghBehaviour: string, sha = SHA) {
   return { ...result, output: readFileSync(output, 'utf8'), calls };
 }
 
-function runHostGate(body: string, rc = 0, sha = SHA) {
+function runHostGate(body: string, rc = 0, sha = SHA, stopped = false) {
   const dir = mkdtempSync(join(tmpdir(), 'backup-host-cert-'));
   scratch.push(dir);
   writeFileSync(join(dir, 'body'), body);
+  if (stopped) writeFileSync(join(dir, 'owner-stop-engine-replacement'), '');
   writeFileSync(
     join(dir, 'curl'),
     `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > '${dir}/calls'\ncat '${dir}/body'\nexit ${rc}\n`
@@ -77,7 +78,7 @@ function runHostGate(body: string, rc = 0, sha = SHA) {
   chmodSync(join(dir, 'curl'), 0o755);
   const result = spawnSync('bash', ['-c', `${hostGate}\nrequire_backup_certificate`], {
     encoding: 'utf8',
-    env: { PATH: `${dir}:${process.env.PATH}`, SHA: sha },
+    env: { PATH: `${dir}:${process.env.PATH}`, SHA: sha, ENGINE_RELEASE_STATE_DIR: dir },
   });
   let calls = '';
   try {
@@ -97,6 +98,17 @@ describe('host revalidates the exact Backup certificate before new ownership and
     expect(transaction).toMatch(
       /PREPARED=1\nrequire_backup_certificate[^\n]+\ndaily_cutover_clock[^\n]+\nMUTATION_STARTED=1/
     );
+  });
+
+  it('refuses a certified queued candidate while the durable owner stop is present', () => {
+    const result = runHostGate(
+      JSON.stringify([{ context: 'backup-engine/certified', state: 'success' }]),
+      0,
+      SHA,
+      true
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('owner stop active');
   });
 
   it('admits success from the fixed bounded HTTPS endpoint without redirects', () => {

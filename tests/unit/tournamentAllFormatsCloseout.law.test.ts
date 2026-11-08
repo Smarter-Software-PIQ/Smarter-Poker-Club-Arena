@@ -80,7 +80,7 @@ function client(role: (typeof roles)[number], satellite = false, terminal = true
       exitStarted=true;
       tournamentExitTimerRef.current=setTimeout(()=>publishResult({position,prize}),delay);
     };
-    const readMySatelliteQualifierResult=async()=>({qualified:true,amount:50,position:null,deliveryKind:'ticket'});
+    const readMySatelliteQualifierResult=async()=>userId==='champion'?{qualified:true,targetId:'target',amount:50,position:null,deliveryKind:'ticket'}:null;
     ${actual}
     return {run:exitFromDurableCompletion,complete:()=>{terminalCompletionWitnessed=true;return exitFromDurableCompletion()},dispose:()=>{isMounted=false;clearTimeout(tournamentExitTimerRef.current)}};
   `

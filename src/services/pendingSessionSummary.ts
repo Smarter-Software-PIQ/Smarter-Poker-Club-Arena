@@ -63,7 +63,7 @@ export interface TournamentResult {
   name?: string;
   /** Finishing position. null while still in play or if the row is unreadable. */
   finishPlace: number | null;
-  /** Immutable v3 satellite outcome; equal qualifiers have no finishing rank. */
+  /** Immutable satellite award. Ranked awards retain their place and equal qualifiers share an unranked result. */
   satelliteQualification?: {
     targetId: string;
     deliveryKind: 'seat' | 'ticket' | 'cash';

@@ -1,0 +1,3 @@
+# tests/the-close-pins-follow-the-evidence-report.law.test.ts
+
+When `fn_union_pnl_evidence_report` changes, the pins on its body move with it in the same change. 20261107021911 changed the report (`ca8931142b..` -> `b36f9e2528..`, rake check only) and left `smarter_private.original_inventory_proof_sources_match()` and `fn_accounting_union_earned_plan_advance` pinned to the old body; the original-inventory generation went NULL, close certificates stopped being kept and the advance fell back to a whole-week flow proof that job 272 cannot fit, so the 2026-10-19 close could not finish. 20261107234051 moves both pins (pre/post md5-pinned, metadata unchanged) and proves the 65-source list holds.

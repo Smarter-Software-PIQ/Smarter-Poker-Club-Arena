@@ -1,0 +1,3 @@
+# tests/a-test-database-never-guesses-a-tcp-port.law.test.ts
+
+A `scripts/ci` Python harness that makes PostgreSQL listen on TCP takes its port from the kernel (`bind`/`getsockname`), never from the process id or a literal inside Linux's ephemeral range, where an outbound connection on the runner can already own it. The twelve harnesses whose clients all use their own Unix socket listen on no TCP address (`-c listen_addresses=`) and print the server log when `pg_ctl` fails; the TLS credential check, which needs TCP, asks the kernel for its port and passes it to its fixture. Three accounting shards had failed with a bare "pg_ctl: could not start server" between 2026-11-05 and 2026-11-07.

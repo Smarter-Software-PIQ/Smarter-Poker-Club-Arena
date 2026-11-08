@@ -214,6 +214,22 @@ def main():
   chair=next((root/'supabase/migrations').glob('*_single_winner_satellite_seats_its_running_target_entry.sql'))
   e.sql(db,file=chair,label='single-running-chair-migration')
   e.sql(db,file=single_live_scene,label='single-live-field-new-green',seconds=180)
+  # New sessions read each winner's immutable award after the funded chair and
+  # ticket commit. They must never invoke settlement or consume the ticket.
+  award_db=e.database(db)
+  committed=single_live.replace('END $live_field$;', """INSERT INTO reconnect_award_source VALUES(s);
+END $live_field$;""")
+  e.sql(award_db,"CREATE TABLE reconnect_award_source(id uuid PRIMARY KEY);",label='reconnect-observer-id')
+  e.sql(award_db,one_seed+creator+'\n'+committed+'\nSET CONSTRAINTS ALL IMMEDIATE; COMMIT;',label='commit-ranked-seat-and-ticket',seconds=180)
+  read_fixture=(fixture/'read-my-committed-award.sql').read_text()
+  code,_,error=e.sql(award_db,read_fixture,label='ranked-result-reconnect-red',check=False)
+  if code==0 or 'ranked award identity' not in error:
+   raise ValueError('expected original ranked award gap: '+error[-2500:])
+  e.sql(award_db,file=next((root/'supabase/migrations').glob('*_read_my_ranked_satellite_award_after_reconnect.sql')),label='ranked-result-reader-migration')
+  e.sql(award_db,read_fixture,label='ranked-result-fresh-connection-before-redemption')
+  e.sql(award_db,file=fixture/'redeem-ranked-reconnect-ticket.sql',label='redeem-ranked-ticket-and-replay')
+  e.sql(award_db,read_fixture,label='ranked-result-fresh-connection-after-redemption')
+  e.discard(award_db)
   qualify_concurrent_consumption(e,root,native,db,output,seed,scene.read_text(),diamond_seed,(fixture/'native-diamond-cases.sql').read_text())
   e.report.update(passed=True,status='passed')
  finally:
