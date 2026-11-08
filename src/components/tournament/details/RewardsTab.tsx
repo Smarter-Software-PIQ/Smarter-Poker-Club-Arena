@@ -495,6 +495,7 @@ export default function RewardsTab({
           hasGuarantee ? Math.max(0, guarantee - currentFunding.collected) : 0
         )
     : 0;
+  const houseInStoredPool = Math.max(0, overlay - (currentFunding?.houseSupplementPaid ?? 0));
   const guaranteeMet = hasGuarantee && collectedPool !== null && collectedPool >= guarantee;
 
   const isFinalised = !!t.prize_pool_finalized;
@@ -1009,10 +1010,10 @@ export default function RewardsTab({
               )}
               {/* Only once funded: before close the overlay is not in the pool,
                   it is the house's pending share shown beside the guarantee. */}
-              {overlay > 0 && isFinalised && (
+              {houseInStoredPool > 0 && isFinalised && (
                 <li className="rw-mix__row">
                   <span className="rw-mix__label">Club Overlay</span>
-                  <span className="rw-mix__figure">{chips(overlay)}</span>
+                  <span className="rw-mix__figure">{chips(houseInStoredPool)}</span>
                 </li>
               )}
             </ul>
