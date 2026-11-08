@@ -247,7 +247,7 @@ describe("The champion's exit", () => {
     expect(fn.indexOf('publishSessionSummary(')).toBeLessThan(fn.indexOf("emit('TABLE_LEFT'"));
     expect(fn).toMatch(/\.\.\.\(full \?\? \{/);
     expect(fn).toMatch(
-      /finishPlace:[\s\S]*?committedSatelliteQualification\?\.qualified[\s\S]*?null[\s\S]*?position \|\| full\?\.finishPlace \|\| null/
+      /finishPlace:[\s\S]*?committedSatelliteQualification\?\.qualified[\s\S]*?committedSatelliteQualification\.position[\s\S]*?position \|\| full\?\.finishPlace \|\| null/
     );
     expect(fn).toMatch(/prize:\s*prize \|\| full\?\.prize \|\| 0/);
   });
@@ -450,7 +450,7 @@ describe('One card, one carrier', () => {
     // The persisted format identifies Spin; the mystery flag independently
     // controls the chest receipt read. Both must reach the result mapper.
     expect(reader).toMatch(
-      /select\(\s*'status, format_contract, name, current_players, variant, tournament_type, is_mystery_bounty, buy_in_amount, buy_in_fee'\s*\)/
+      /select\(\s*'status, format_contract, name, current_players, variant, tournament_type, is_mystery_bounty, buy_in_amount, buy_in_fee, satellite_target_id, satellite_target'\s*\)/
     );
   });
 });
@@ -480,6 +480,7 @@ describe('The actual TablePage qualifier completion caller', () => {
     },
     options: {
       known?: boolean;
+      satelliteTarget?: string;
       resultError?: unknown;
       seatError?: unknown;
       seatCount?: number | null;
@@ -521,6 +522,7 @@ describe('The actual TablePage qualifier completion caller', () => {
       'reportError',
       `let isMounted=true, durableCompletionLookupInFlight=false, durableCompletionHandled=false;
        let durableCompletionFailureReported=false, durableCompletionRetryTimer=null;
+       const loadedSatelliteTarget=${JSON.stringify(options.satelliteTarget ?? null)};
        let committedSatelliteQualification=null, exitStarted=false, terminalCompletionWitnessed=true,terminalCelebrationStarted=false;
        const tournamentExitTimerRef={current:null};
        let durableParticipantWitnessed=${Boolean(options.known)};
@@ -656,6 +658,19 @@ describe('The actual TablePage qualifier completion caller', () => {
     expect(c.champion).not.toHaveBeenCalled();
     expect(c.retry).toHaveBeenCalledTimes(1);
     expect(c.report).toHaveBeenCalledTimes(1);
+  });
+  it('reads a ranked award on reconnect and keeps its recorded finish place', async () => {
+    receiptTransport.rpc.mockResolvedValue({
+      data: { ...receipt(), receipt_version: 2, position: 2, delivery_kind: 'ticket' },
+      error: null,
+    });
+    const c = actualCaller(
+      { status: 'eliminated', position: 2, prize: 50 },
+      { satelliteTarget: targetId }
+    );
+    await c.run();
+    expect(receiptTransport.rpc).toHaveBeenCalledOnce();
+    expect(c.exit).toHaveBeenCalledWith(2, 50, TOURNAMENT_CHAMPION_DISPLAY_MS);
   });
   it('preserves a normal single-winner result without calling the new RPC', async () => {
     const c = actualCaller({ status: 'winner', position: 1, prize: 100 });

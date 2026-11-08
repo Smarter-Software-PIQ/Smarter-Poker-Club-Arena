@@ -147,7 +147,7 @@ const cancellationAdmission =
   /^(scripts\/ci\/(?:test-(?:tournament-cancellation-lane|undrawn-spin-cancellation|tournament-original-recovery)\.py$|(?:tournament_entry_hold_native|additional_five_refund_native)\.py$|fixtures\/(?:tournament-cancellation-lane|undrawn-spin-cancellation|tournament-recovery20|tournament-abort)\/)|\.github\/scripts\/(?:owner-retirement-control|additional-five-refund-control|tournament-original-recovery-control)\.mjs$|tests\/operations\/tournament-original-recovery-control\.test\.mjs$|tests\/unit\/(?:tournamentCancellationLane|undrawnSpinCancellation)\.test\.ts$)/;
 
 const satelliteQualifiers =
-  /^(scripts\/deploy\/phase-three-(?:versioned-final-deal|activate-versioned-final-deal)\.sql$|scripts\/ci\/(?:test-satellite-qualifiers\.py$|(?:satellite_qualifier_(?:fixture|concurrency)|satellite_entry_club_native|ordinary_terminal_transport|zero_pool_terminal_native|terminal_original_request_native)\.py$|fixtures\/(?:satellite-qualifiers|ordinary-terminal-transport|terminal-original-request)\/|probes\/(?:satellite-entry-club-native\.sql|satellite-qualifier(?:s-native\.sql|-(?:finish|reader)\.spec))$)|tests\/operations\/satellite-qualifier-results\.test\.py$)/;
+  /^(scripts\/deploy\/phase-three-(?:versioned-final-deal|activate-versioned-final-deal)\.sql$|scripts\/ci\/(?:test-satellite-qualifiers\.py$|(?:satellite_qualifier_(?:fixture|concurrency)|satellite_entry_club_native|ordinary_terminal_transport|zero_pool_terminal_native|terminal_original_request_native|satellite_bubble_handoff)\.py$|fixtures\/(?:satellite-qualifiers|ordinary-terminal-transport|terminal-original-request)\/|probes\/(?:satellite-entry-club-native\.sql|satellite-qualifier(?:s-native\.sql|-(?:finish|reader)\.spec))$)|tests\/operations\/satellite-qualifier-results\.test\.py$)/;
 const mttPreparation =
   /^(scripts\/ci\/(test-mtt-unlimited\.py$|mtt_(unlimited_fixture|isolation_results|format_qualification|historical_freebuy_proof|break_authoring_native)\.py$|fixtures\/mtt-(unlimited|format-preparation|historical-freebuy|break-authoring)\/|probes\/mtt-(isolation\/|.*(?:native\.sql|lock\.spec)$))|tests\/operations\/(mtt-(unlimited-runner|isolation-results)\.test\.py$|fixtures\/mtt-preparation-lock\/))/;
 // Actual activation reuses the same owned PG runner and its exact financial
@@ -465,6 +465,11 @@ export function classifyChangedPaths(paths) {
   const committedEvidence = matches(/^docs\/evidence\//);
   // The ranking inverse and reminder pg dependencies are executable accounting
   // inputs outside scripts/dev. Their changes also need the routing laws.
+  // These inputs are executed by test-midway-bounty-freezeout.py in the
+  // existing required native shard, including source-only proposal edits.
+  const midwayScheduleReview = matches(
+    /^(scripts\/tournament-schedules\/|scripts\/ci\/(?:test-midway-(?:bounty-freezeout|weekly-schedule)\.py$|fixtures\/midway-weekly\/)|docs\/tournament-schedules\/midway-weekly-2026-11-07\.json$)/
+  );
   const tournamentAccountingInput = matches(
     /^(scripts\/qualification\/(?:chip-deadlocks|replay-locks-and-player-stats-keys|cash-batch-profile-admission)(?:\.py|\.manifest\.json|-capture\.json|-(?:schema|stubs|live|live-doors)\.sql)|tests\/(?:the-chip-estate-takes-its-locks-in-one-order|the-replay-and-player-stats-writers-take-no-lock-out-of-order)\.law\.test\.ts|scripts\/ci\/test-a-finish-does-not-hold-the-union-wallet\.py|tests\/a-finish-does-not-hold-the-union-wallet\.law\.test\.ts|docs\/changelog\/2026-09-11-a-bust-is-ranked-by-when-it-happened\.rollback\.sql|scripts\/ci\/probes\/chip-journal-atomicity\/postgres-runtime\/package(-lock)?\.json)$/
   );
@@ -534,6 +539,7 @@ export function classifyChangedPaths(paths) {
       spinRules ||
       horsePriority ||
       tournamentAccountingInput ||
+      midwayScheduleReview ||
       devMatches(
         /^(server\/|supabase\/migrations\/|scripts\/dev\/|tests\/fixtures\/accounting-delivery\/|tests\/operations\/pko-probe-cleanup\.test\.py$)/
       ) ||
@@ -595,6 +601,7 @@ export function classifyChangedPaths(paths) {
       commitmentAudit ||
       matches(dataConsolePostgres) ||
       tournamentAccountingInput ||
+      midwayScheduleReview ||
       matches(nativeRecovery) ||
       matches(stableAdminQualification) ||
       matches(mttPreparation) ||

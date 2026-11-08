@@ -112,6 +112,18 @@ describe('the result card, finished', () => {
     expect(document.querySelector('.trc2__medal.trc2__medal--gold')).not.toBeNull();
   });
 
+  it('retains a ranked satellite award alongside its actual place', () => {
+    renderCard(
+      result({
+        finishPlace: 2,
+        satelliteQualification: { targetId: 't', deliveryKind: 'seat', amount: 50 },
+      })
+    );
+    expect(screen.getByText('Seat')).toBeInTheDocument();
+    expect(screen.getByText('Runner Up')).toBeInTheDocument();
+    expect(screen.getByLabelText('2nd')).toBeInTheDocument();
+  });
+
   it('cuts a long event name at a word and marks the cut', () => {
     renderCard(result({ name: 'Sunday Deepstack Bounty Heads Up Turbo Hyper Edition' }));
     const dialog = screen.getByRole('dialog');

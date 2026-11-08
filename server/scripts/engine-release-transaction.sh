@@ -1371,16 +1371,28 @@ require_backup_certificate() {
     --connect-timeout 3 --max-time 8 \
     "https://api.github.com/repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/commits/$SHA/statuses?per_page=100")" || return 1
   printf '%s' "$statuses" | python3 -c '
-import json,sys
+import json,os,sys
 try:
     rows=json.load(sys.stdin)
     if not isinstance(rows,list) or any(not isinstance(row,dict) for row in rows):
         raise ValueError("invalid statuses")
     latest=next((row for row in rows if row.get("context")=="backup-engine/certified"),{})
-    raise SystemExit(0 if latest.get("state")=="success" else 1)
-except (ValueError,TypeError):
+    if latest.get("state") != "success":
+        raise SystemExit(1)
+    # Only ENOENT for the marker inside the opened state directory is clear.
+    # A missing mount, unreadable directory or dangling link refuses entry.
+    directory=os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.stat("owner-stop-engine-replacement", dir_fd=directory, follow_symlinks=False)
+    except FileNotFoundError:
+        raise SystemExit(0)
+    finally:
+        os.close(directory)
+    sys.stderr.write("owner stop active: engine replacement refused\n")
     raise SystemExit(1)
-'
+except (ValueError,TypeError,OSError):
+    raise SystemExit(1)
+' "${ENGINE_RELEASE_STATE_DIR:-/var/lib/club-arena}"
 }
 
 daily_cutover_clock() {

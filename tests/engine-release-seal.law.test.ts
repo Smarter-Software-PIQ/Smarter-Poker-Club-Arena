@@ -211,7 +211,7 @@ it('recovers only genuinely orphaned finalization through the current completion
     { encoding: 'utf8' }
   );
   expect(result.status, result.stdout + result.stderr).toBe(0);
-  expect(result.stderr).toContain('Ran 11 tests');
+  expect(result.stderr).toContain('Ran 12 tests');
 });
 
 describe('the durable engine release seal', () => {
