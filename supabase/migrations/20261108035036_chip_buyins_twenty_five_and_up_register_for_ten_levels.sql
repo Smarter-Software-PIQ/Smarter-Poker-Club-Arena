@@ -54,6 +54,23 @@ $pure$);
       NEW.rebuy_levels := NEW.late_reg_levels;
     END IF;$rebuy$);
  EXECUTE source;
+ -- The owner requested this exact cutoff transition even for registered events.
+ -- The original lifecycle guard admits only the canonical full row image,
+ -- from the protected-main installer identity; every other edit stays guarded.
+ SELECT pg_get_functiondef('public.fn_guard_managed_game_lifecycle()'::regprocedure) INTO source;
+ IF md5(source)<>'766aeba0ff5dc94d3bcaf9676a819003' THEN RAISE EXCEPTION 'Late registration lifecycle source drift'; END IF;
+ source:=replace(source,E'BEGIN\n', $admission$BEGIN
+  IF TG_TABLE_NAME='tournaments'
+     AND session_user='postgres' AND current_user='postgres'
+     AND coalesce(current_setting('role',true),'none') IN ('none','postgres')
+     AND auth.role() IS NULL
+     AND current_setting('application_name')='apply-recorded-migration'
+     AND OLD.late_reg_levels=12 AND NEW.late_reg_levels=10
+     AND to_jsonb(NEW)=to_jsonb(public.fn_ca_ten_level_late_registration(OLD)) THEN
+    RETURN NEW;
+  END IF;
+$admission$);
+ EXECUTE source;
 END $source$;
 -- Capture and lock just the finite affected rows; compare all unaffected
 -- columns inside the same transaction, so trigger side effects abort.
