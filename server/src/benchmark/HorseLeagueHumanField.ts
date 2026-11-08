@@ -68,3 +68,24 @@ export const HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS: readonly string[] = Obje
   'plo5',
   'plo6',
 ]);
+
+/**
+ * THE HEADS-UP HUMAN PERSONA (2026-11-07). Every human-field card before this
+ * one is six-max, and the calibrated NLH profile was fitted on six-max tables:
+ * dealt heads-up it folds 61% of its small blinds, which no heads-up human
+ * does. A heads-up flag measured only horse-vs-horse (hu_bb_defends_to_price)
+ * has no human opponent to be checked against. This persona is the calibrated
+ * NLH profile with the heads-up human tendencies the flag is about: the small
+ * blind opens wide (80% of hands, 70% as a raise), the big blind defends and
+ * three-bets light, and checked-to seats stab most flops, so a horse that
+ * over-folds pays for it. Facing-bet postflop nodes keep the calibrated cutoffs
+ * (the only part of the profile backed by human data at this table size). A
+ * development persona, not a calibrated population: the row keeps the
+ * calibrated population id and adds `humanPersona`, so it says both.
+ * Heads-up NLH only (HorseLeague refuses it anywhere else).
+ */
+export const HU_WIDE_SB_AGGRESSOR_PERSONA = 'hu_wide_sb_aggressor_v1' as const;
+export type HumanFieldPersona = typeof HU_WIDE_SB_AGGRESSOR_PERSONA;
+export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze([
+  HU_WIDE_SB_AGGRESSOR_PERSONA,
+]);

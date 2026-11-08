@@ -59,6 +59,12 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
   exit 2
 fi
 
+# A clone whose shared config says core.bare=true breaks every worktree and
+# makes the hook below fail obscurely; refuse up front with the repair.
+if ! bash "$SCRIPT_DIR/guard-bare-flip.sh"; then
+  exit 2
+fi
+
 # The repository's own rule: no push from the shared clone. Reuse the guard so
 # the rule lives in one place.
 if ! bash "$SCRIPT_DIR/guard-shared-clone.sh" push; then

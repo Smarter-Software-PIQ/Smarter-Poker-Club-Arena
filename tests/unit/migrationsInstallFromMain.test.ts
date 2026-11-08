@@ -47,7 +47,8 @@ describe('a migration reaches production only from protected main', () => {
   });
 
   it('the automatic route the rule relies on is still wired to the merge', () => {
-    const wf = read('.github/workflows/agent-autopilot.yml');
+    // Its own workflow since 2026-11-07: Agent Autopilot is disabled.
+    const wf = read('.github/workflows/dispatch-merged-migrations.yml');
     expect(wf).toContain('dispatch-merged-migrations.sh');
     expect(wf).toMatch(/github\.event\.pull_request\.merged == true/);
     const script = read('.github/scripts/dispatch-merged-migrations.sh');
