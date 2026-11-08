@@ -40,3 +40,6 @@ finally:
 
 # Current net-coverage and promo-custody regression shares this required accounting route.
 run([sys.executable, root/'scripts/ci/test-net-guarantee-promo.py'])
+
+# Completed-event guarantee debt uses the established house-settlement door.
+run([sys.executable, root/'scripts/ci/test-net-guarantee-completed.py'])

@@ -35,6 +35,24 @@ describe('owner November 7: net guarantees and final ten-minute Horse rescue', (
     expect(operation).toContain('UPDATE public.tournaments SET prize_pool=1830 WHERE id=t');
     expect(operation).not.toMatch(/SET prize_pool=1830,\s*payout_structure/);
   });
+  it('a completed event receives eleven idempotent promo supplements without rewriting sealed books', () => {
+    const source = readFileSync(
+      'scripts/operations/owner-net-guarantee-completed-f22ceae6.sql',
+      'utf8'
+    );
+    expect(source).toContain("tr.status<>'COMPLETED'");
+    expect(source).toContain('public.fn_ca_prize_ladder(183000,weights,1)');
+    expect(source).toContain('public.fn_ca_adjustment_under_10_9');
+    expect(source).toContain('public.fn_credit_and_log');
+    expect(source).toContain("'union_wallets.promo_wallet'");
+    expect(source).toContain('OWNER_NET_GUARANTEE_ROLLBACK');
+    expect(source).not.toMatch(
+      /UPDATE public\.(tournaments|tournament_payouts|tournament_players|tournament_obligations|tournament_escrow|tournament_terminal_settlements)\b/
+    );
+    expect(readFileSync('scripts/ci/test-bounty-guarantee-postgres.py', 'utf8')).toContain(
+      "root/'scripts/ci/test-net-guarantee-completed.py'"
+    );
+  });
   it('Rewards compares the net coverage rather than gross payments', () => {
     const source = readFileSync('src/components/tournament/details/RewardsTab.tsx', 'utf8');
     expect(readFileSync('src/hooks/useTournamentPrizeFunding.ts', 'utf8')).toContain(
