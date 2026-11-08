@@ -237,6 +237,11 @@
   color: var(--tl-text-dim);
 }
 
+/* The names inherit the accent from .tt-mine; declared so the class resolves. */
+.tt-mine__names {
+  color: inherit;
+}
+
 .tt-mine__more {
   color: var(--tl-text-dim);
 }
