@@ -31,6 +31,37 @@ describe('final ten-minute net overlay rescue', () => {
     ).toBe(true);
     expect(horseOverlayRescueDue({ ...base, on_break: true, late_reg_mins: 100 }, now)).toBe(true);
   });
+  it('starts ten minutes before the estimated final add-on cutoff', () => {
+    const addOn = { ...base, add_on_available: true, late_reg_mins: 90 };
+    expect(horseOverlayRescueDue(addOn, now)).toBe(false);
+    expect(horseOverlayRescueDue(addOn, now + 59_999)).toBe(false);
+    expect(horseOverlayRescueDue(addOn, now + 60_000)).toBe(true);
+    expect(horseOverlayRescueDue({ ...addOn, current_level: 12 }, now)).toBe(true);
+    expect(horseOverlayRescueDue({ ...addOn, late_reg_levels: 0, late_reg_mins: 99 }, now)).toBe(
+      true
+    );
+  });
+  it('ignores a legacy early offer and uses the actual closing minute once stamped', () => {
+    const addOn = {
+      ...base,
+      add_on_available: true,
+      addon_from_start: true,
+      addon_period_started_at: base.started_at,
+      addon_period_ends_at: new Date(now + 20 * 60_000).toISOString(),
+    };
+    expect(horseOverlayRescueDue(addOn, now)).toBe(false);
+    expect(horseOverlayRescueDue(addOn, now + 60_000)).toBe(true);
+    expect(
+      horseOverlayRescueDue(
+        {
+          ...addOn,
+          addon_period_started_at: new Date(now).toISOString(),
+          addon_period_ends_at: new Date(now + 60_000).toISOString(),
+        },
+        now
+      )
+    ).toBe(true);
+  });
   it('uses the actual add-on cutoff while that controls admission', () => {
     expect(horseOverlayRescueDue({ ...base, add_on_available: true }, now)).toBe(false);
     expect(
