@@ -64,8 +64,23 @@ const FRESH_SCHEDULE_CLAIM_RETRY_DELAYS_MS = Object.freeze([
 export const FIXTURE_SEEDING_WINDOW_MS = 10 * 60_000;
 // The exact names the guarded certification-retirement coordinator accepts.
 // re-checks them, but this side refuses first so an unrecognized club is never
-// even offered to it.
-const CERTIFICATION_CLUB_NAME_PREFIXES = ['Crest Cert ', 'Preset Crest Cert '];
+// even offered to it. The welcome prefixes are the Create Club certificate's
+// own fixtures; 'Cert RH ' is scripts/ci/certify-rabbit-hunt.mjs's club, which
+// its own run retires through fn_retire_settled_club and no welcome door
+// recognizes (they check the Crest names themselves), so the stale sweep only
+// ever records a retired one as the owner's retained history (2026-11-07, #9830).
+const WELCOME_CLUB_NAME_PREFIXES = ['Crest Cert ', 'Preset Crest Cert '];
+export const RABBIT_HUNT_CLUB_NAME_PREFIX = 'Cert RH ';
+const CERTIFICATION_CLUB_NAME_PREFIXES = [
+  ...WELCOME_CLUB_NAME_PREFIXES,
+  RABBIT_HUNT_CLUB_NAME_PREFIX,
+];
+/** How a reader runs the sweep itself, and the residue pattern it drains (issue #9830). */
+export const STALE_RESIDUE_SWEEP_HINT =
+  'Run the Cert Residue Sweep by hand (Actions > Cert Residue Sweep > Run workflow, which runs ' +
+  '`node scripts/ci/production-e2e-account.mjs sweep-stale-residue`); a stale reserved identity ' +
+  'that still owns a certification club or holds seat or membership history is the residue ' +
+  'pattern of issue #9830, and this certification is its only reader.';
 
 /**
  * How many separate freezes one cleanup may sit through. Section 13 schedules
@@ -988,6 +1003,7 @@ export async function cleanupStaleProductionE2EAccounts({
   wait = (milliseconds) => new Promise((done) => setTimeout(done, milliseconds)),
   budgetMs,
   clock = () => Date.now(),
+  databaseClientFactory,
 } = {}) {
   const configuration = requireEnvironment(environment);
   const cutoff = new Date(now - STALE_ACCOUNT_AGE_MS).toISOString();
@@ -1061,6 +1077,7 @@ export async function cleanupStaleProductionE2EAccounts({
           record: account,
           reason: 'stale-cert-recovery',
           retainedRetiredClubs,
+          databaseClientFactory,
         });
         if (retainedRetiredClubs.length) {
           // The identity stays as the owner of record of retired clubs that keep
@@ -1075,7 +1092,13 @@ export async function cleanupStaleProductionE2EAccounts({
           );
           continue;
         }
-        await cleanupProductionE2EAccount({ environment, fetchImpl, wait, record: account });
+        await cleanupProductionE2EAccount({
+          environment,
+          fetchImpl,
+          wait,
+          record: account,
+          databaseClientFactory,
+        });
         recovered += 1;
       } catch (error) {
         failures.push(error);
@@ -1100,11 +1123,15 @@ export async function cleanupStaleProductionE2EAccounts({
     );
   }
   if (failures.length) {
+    // The Club Create Certification is the one reader of this sweep (its
+    // always-run cleanup embeds it); its failure names the sweep an operator
+    // runs by hand and the residue pattern, so nobody has to rediscover either.
     throw new AggregateError(
       failures,
       `Stale recovery left ${failures.length} of ${seen} stale account(s) unrecovered ` +
         `(${recovered} recovered, ${keptOwners.length} kept as owners of retired history): ` +
-        failures.map((error) => String(error?.message || error)).join('; ')
+        failures.map((error) => String(error?.message || error)).join('; ') +
+        ` ${STALE_RESIDUE_SWEEP_HINT}`
     );
   }
   return recovered;
@@ -1776,8 +1803,27 @@ export async function retireProductionCreateClubFixtures({
       throw new Error(`Refusing to retire unrecognized club ${String(club.id || 'unknown')}.`);
     }
   }
+  const staleSweep = !terminalFixtureOnly && Array.isArray(retainedRetiredClubs);
   const retained = [];
   for (const club of clubs) {
+    if (String(club.name || '').startsWith(RABBIT_HUNT_CLUB_NAME_PREFIX)) {
+      // A RABBIT-HUNT CLUB HAS PLAYED, BY DESIGN. certify-rabbit-hunt.mjs seats
+      // two reserved players at a real table, so its club is never a welcome
+      // fixture any welcome door could retire (they check the Crest names and
+      // refuse play), and the owner's own run retires it through
+      // fn_retire_settled_club. Retired, it is the owner's retained history
+      // (2026-11-07, #9830: clubs 110fc34f and 1ad7b7b9). Still active, it
+      // holds members' chips and hands that only its own run's cleanup
+      // settles; this sweep never reaches for them.
+      if (staleSweep && club.lifecycle_status === 'retired') {
+        retained.push(String(club.id));
+        continue;
+      }
+      throw new Error(
+        `Refusing to retire rabbit-hunt certification club ${club.id}: it has played and is still ` +
+          `${String(club.lifecycle_status || 'unknown')}; only its own run's cleanup settles it.`
+      );
+    }
     try {
       const result = await retireCertificationClubWithRetry({
         account,
@@ -1799,8 +1845,7 @@ export async function retireProductionCreateClubFixtures({
       // every time. Only that exact refusal, only for a club already retired,
       // and only when the stale sweep asks.
       if (
-        !terminalFixtureOnly &&
-        Array.isArray(retainedRetiredClubs) &&
+        staleSweep &&
         error?.refusal === RETIREMENT_REFUSAL_CLUB_HAS_HISTORY &&
         club.lifecycle_status === 'retired'
       ) {
