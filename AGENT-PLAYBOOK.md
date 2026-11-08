@@ -2,7 +2,7 @@
 
 # Agent playbook
 
-Use the [Backup and daily engine launch runbook](PUBLISHING.md#backup-and-daily-engine-launch) for candidate selection, certification, activation and verification. Hourly tournament breaks remain independent.
+Use the [Backup and daily engine launch runbook](PUBLISHING.md#backup-and-daily-engine-launch) for candidate selection, certification, activation and verification, and the step-by-step [engine release runbook](docs/ENGINE-RELEASE-RUNBOOK.md) when adding to the engine or managing a 04:00 cutover. Hourly tournament breaks remain independent.
 
 **Non-engine delivery: push, publish, verify and finish immediately; never wait for an engine window.** Apply the maintenance cutover only to an actual engine replacement or a specifically identified dependency on new engine behavior. A Club Arena client using existing engine APIs, an unrelated pending engine release, and a generic engine-health check do not create that dependency. Required checks and normal client publication/live proof still apply.
 
