@@ -148,6 +148,8 @@ Follow `PUBLISHING.md`. The authorized agent finds or creates its PR, handles re
 
 **Push with `bash scripts/agent-push.sh` from your own worktree (2026-11-05).** Two failures cost agents a session: over SSH the minutes-long `.husky/pre-push` hook leaves the connection idle and git then exits 141 (SIGPIPE) after the hook passes, with no ref pushed and no error text; and pushing to a bare HTTPS URL is refused by the hook with `[push baseline] UNKNOWN: Push destination tracking main is unavailable`. The helper keeps the remote name `origin`, fetches `origin main`, pushes over HTTPS with `gh` credentials and stdin closed, returns git's real exit code, then compares `git ls-remote origin refs/heads/<branch>` with HEAD and exits 3 if the ref did not land. It refuses the shared clone, `main` and a detached HEAD, and never forces or skips hooks.
 
+**Solver PCs M1/M2 (2026-11-08).** Reach them only with `~/.smarter-poker/ops/solver-host.sh check` (or `m1|m2 <command>`, `scp`). The agent terminal has no macOS Local Network permission, so a plain ping/nc/ssh always reads them as down; a session that believed this stalled R8 for 11 hours and asked Dan to wake PCs that were on. Never report M1/M2 down without a failed `solver-host.sh check`. Only the solver-round single writer in HORSE-LANES-STATUS.md runs work on them.
+
 ### 1.3 Never Do
 
 - Never run `vercel deploy` or `vercel --prod` in the Club Arena directory
