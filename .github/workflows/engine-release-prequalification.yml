@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'server/**'
+      - 'supabase/migrations/**'
       - '.github/workflows/engine-release-prequalification.yml'
       - '.github/workflows/stage-engine-release.yml'
       - '.github/workflows/auto-deploy-hetzner.yml'

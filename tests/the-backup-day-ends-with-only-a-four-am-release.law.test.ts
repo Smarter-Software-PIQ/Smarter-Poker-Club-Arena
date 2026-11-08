@@ -339,6 +339,30 @@ git() { echo unexpected-main-read >&2; return 99; }
       expect(result.calls).toContain(`/compare/${pushed}...${newest}`);
       expect(result.calls).toContain(`/commits/${newest}/statuses`);
     });
+    it('a migration push retains its exact pair when the newest server commit is older', () => {
+      const qualification = parse(
+        readFileSync(
+          resolve(process.cwd(), '.github/workflows/engine-release-prequalification.yml'),
+          'utf8'
+        )
+      );
+      for (const producer of [backup, qualification]) {
+        expect(producer.on.push.branches).toEqual(['main']);
+        expect(producer.on.push.paths).toContain('supabase/migrations/**');
+        expect(producer.on.push.paths).not.toContain('src/**');
+      }
+      const result = run(fakeGh(newest, 'behind', { [newest]: 'success' }), {
+        ...base,
+        EVENT: 'push',
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('sha=' + pushed);
+      expect(result.stdout).toContain('refresh=auto');
+      expect(result.stdout).not.toContain('RETARGETED');
+      expect(result.stdout).not.toContain('ALREADY CERTIFIED');
+      expect(result.calls).toContain(`/commits/${pushed}/statuses`);
+      expect(result.calls).not.toContain(`/commits/${newest}/statuses`);
+    });
     it.each([
       ['not a descendant', newest, 'diverged'],
       ['unreadable compare', newest, ''],

@@ -256,3 +256,5 @@ After the certified daily cutover, verify the original event's canonical receipt
 49 financial legs totaling 1,003 for the affected 48-ticket event, and completion.
 A rollback to the older engine must preserve any committed receipt; an unsupported
 receipt is a recovery hold, never authorization for another payment.
+
+Schema changes under `supabase/migrations/**` trigger both existing Backup and engine prequalification push workflows on protected main. A migration-only push retains its exact SHA when the latest server commit is older; changed migration inputs require full Backup certification and the existing schema-refresh decision. Later client-only changes can use that earlier physical certificate and exact prequalification when the selector's current schema, controls and serving-predecessor checks still pass. No new schedule or client-only qualification trigger is introduced.
