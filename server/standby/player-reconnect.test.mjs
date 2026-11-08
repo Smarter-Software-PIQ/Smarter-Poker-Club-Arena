@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import { observe } from './player-reconnect.mjs';
 
 test('the same bearer loses its old transport and observes its seat in a later successor hand', async () => {
+  // Node 20 CI and the Node 22 Backup image both exercise a real TCP socket.
+  globalThis.WebSocket ??= WebSocket;
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const options = {
