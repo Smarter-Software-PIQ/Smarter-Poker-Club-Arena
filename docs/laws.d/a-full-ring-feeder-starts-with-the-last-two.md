@@ -1,0 +1,3 @@
+# tests/a-full-ring-feeder-starts-with-the-last-two.law.test.ts
+
+Dan 2026-11-08: a nine-handed (full-ring) must-move game opens its second table only when four are on the list, by moving the last two players to sit at Main 1 onto the new feeder; their two Main chairs stay empty until the feeder has handedness - 2 (7) players, the bumped two are first to move and take any Main chair a leave or bust-out opens, and while a feeder exists a Main's open chair belongs to the must-move list (newcomers sit at the feeder, one feeder player moves up per chair only while the feeder has 7). 6-max is unchanged. The law pins each piece of migration 20261108193515 (the tick, the census, the open-seat count and the buy-in gate).
