@@ -27,6 +27,17 @@ md5(prosrc) 5269c4504db2708b7f34efc8a99eb253, read 2026-11-07), and proves:
   * the refusal is returned BEFORE the payer runs (a typed RETURN commits, so a
     refusal after the head was paid would leave a paid runner-up still playing);
   * re-applying the migration refuses on its own preimage guard.
+
+And of 20261108193616 (a provisional place 2 moves aside), run after it:
+
+  * its guarded preimage is byte for byte the body 20261107130652 installs;
+  * a place 2 that an EARLIER BUST still holds (the provisional ladder stamp
+    that no retry clears - Midnight Free Buy 7f473b6a, 2026-11-08) no longer
+    refuses: the holder moves to the lowest free place at 3 or above, the
+    runner-up is paid exactly his own head once and recorded in place 2, the
+    collision guard never fires, and the receipt names the relocation;
+  * a replay pays nothing; every other refusal still moves nothing;
+  * re-applying it refuses on its own preimage guard.
 """
 from pathlib import Path
 import json, os, shutil, subprocess, tempfile
@@ -34,7 +45,10 @@ import json, os, shutil, subprocess, tempfile
 ROOT = Path(__file__).resolve().parents[2]
 BASE = ROOT / 'supabase/migrations/20261106010426_bounty_only_pko_ends_with_two_players.sql'
 FIX = ROOT / 'supabase/migrations/20261107130652_the_final_two_close_never_dies_on_a_held_place_two.sql'
+MOVE = ROOT / 'supabase/migrations/20261108193616_a_provisional_place_two_moves_aside_for_the_final_two_close.sql'
 PREIMAGE = '32ef0b2af5e91401d50068b520ceda55'
+# The live body read on production 2026-11-08 19:40 UTC, which MOVE guards.
+MOVE_PREIMAGE = '37f5f201b9c12d82e78e22203c4310a1'
 PG = Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 work = Path(tempfile.mkdtemp(prefix='held-place-', dir=os.environ.get('TMPDIR')))
 sock = Path(tempfile.mkdtemp(prefix='s-', dir=os.environ.get('CA_PG_SOCKET_ROOT', os.environ.get('TMPDIR'))))
@@ -276,6 +290,62 @@ try:
 
     # The fix refuses to run twice: its preimage is no longer the live body.
     must_fail(FIX.read_text(), 'FINAL_TWO_CLOSE_PREIMAGE_CHANGED')
+
+    # ── A PROVISIONAL PLACE 2 MOVES ASIDE (20261108193616) ──────────────────
+    live = q("SELECT md5(pg_get_functiondef('public.fn_ca_bounty_only_pko_final_two(uuid)'::regprocedure));").strip()
+    assert live == MOVE_PREIMAGE, 'the body 20261107130652 installs is not the production preimage: %s' % live
+    q(MOVE.read_text())
+    body = q("SELECT pg_get_functiondef('public.fn_ca_bounty_only_pko_final_two(uuid)'::regprocedure);")
+    assert "'finishing_place_two_is_held'" not in body, 'the unclearable refusal is still answered'
+    # The relocation comes before the payer and before the runner-up stamp.
+    assert 0 < body.index('A PROVISIONAL PLACE 2 MOVES ASIDE') < body.index('fn_settle_tournament_obligation(') < body.index('position = 2,')
+
+    # Midnight Free Buy 7f473b6a: the true 3rd (C) was stamped place 2 at his
+    # bust and keeps it; place 3 is also taken by the true 4th (D). The close
+    # moves C to the lowest FREE place at 3 or above, which is 4, and closes.
+    D = 'dd000000-0000-0000-0000-000000000004'
+    t7 = event(7, 12, 5.25, [(A, 'playing', 5000, 4.50, 3.50), (B, 'playing', 3000, 2.25, 1.25),
+                             (C, 'eliminated', 0, 0, 0.50), (D, 'eliminated', 0, 0, 0)])
+    held(t7, C, 2)
+    held(t7, D, 3)
+    credits_before = int(q("SELECT count(*) FROM test_credits;").strip())
+    collisions_before = q("SELECT count(*) FROM tournament_place_collisions;").strip()
+    r = close(t7)
+    assert r['ok'] and r['winner_user_id'] == A and r['runner_up_user_id'] == B, r
+    assert r['relocated_provisional_place_2'] == C and r['relocated_to'] == 4, r
+    assert float(r['runner_up_head']) == 2.25, r
+    assert row(t7, B) == 'eliminated|2|0.00|3.50', row(t7, B)
+    assert row(t7, C) == 'eliminated|4|0.00|0.50', row(t7, C)
+    assert row(t7, D) == 'eliminated|3|0.00|0.00', row(t7, D)
+    assert row(t7, A) == 'playing||4.50|3.50', row(t7, A)
+    assert q("SELECT count(*) FROM tournament_place_collisions;").strip() == collisions_before, 'the guard fired'
+    new_credits = q(f"SELECT user_id||'|'||amount||'|'||kind FROM test_credits OFFSET {credits_before};").split()
+    assert new_credits == [f'{B}|2.25|bounty_residual'], new_credits
+    left = q(f"SELECT bounty_pool - bounty_pool_paid FROM tournaments WHERE id='{t7}';").strip()
+    assert left == '4.50', left
+    again = close(t7)
+    assert again.get('replayed') is True and again['relocated_provisional_place_2'] == C, again
+    assert int(q("SELECT count(*) FROM test_credits;").strip()) == credits_before + 1
+
+    # Every other refusal still moves nothing, and nothing is relocated by one.
+    paid_before = q("SELECT count(*) FROM test_credits;").strip()
+    t8 = event(8, 9, 3.00, [(A, 'playing', 10, 2, 1), (B, 'playing', 10, 2, 1), (C, 'playing', 10, 2, 1),
+                            (D, 'eliminated', 0, 0, 0)])
+    held(t8, D, 2)
+    assert close(t8) == {'ok': False, 'reason': 'field_is_not_two', 'live': 3}
+    assert row(t8, D) == 'eliminated|2|0.00|0.00', row(t8, D)
+    t9 = event(9, 6, 1.00, [(A, 'playing', 10, 2, 1), (B, 'playing', 10, 2, 1), (C, 'eliminated', 0, 0, 0)])
+    held(t9, C, 2)
+    assert close(t9)['reason'] == 'heads_do_not_match_the_open_pool'
+    assert row(t9, C) == 'eliminated|2|0.00|0.00', row(t9, C)
+    assert q("SELECT count(*) FROM test_credits;").strip() == paid_before
+    grants = q("""SELECT has_function_privilege('authenticated','public.fn_ca_bounty_only_pko_final_two(uuid)','execute')
+                  ||'|'||has_function_privilege('anon','public.fn_ca_bounty_only_pko_final_two(uuid)','execute')
+                  ||'|'||has_function_privilege('service_role','public.fn_ca_bounty_only_pko_final_two(uuid)','execute');""").strip()
+    assert grants == 'false|false|true', grants
+    must_fail(f"SET test.engine = '0'; SELECT public.fn_ca_bounty_only_pko_final_two('{t9}');", 'requires engine authority')
+    must_fail(MOVE.read_text(), 'FINAL_TWO_PROVISIONAL_PLACE_PREIMAGE_CHANGED')
+    print('final two close with a provisional place 2: the holder moves aside, the runner-up is paid once - OK')
     print('final two close with a held place 2: answered, not died; nothing moved; the cleared field closes once - OK')
 finally:
     if started:

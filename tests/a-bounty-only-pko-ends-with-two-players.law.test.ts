@@ -12,6 +12,19 @@ const fnStart = code.indexOf('CREATE FUNCTION public.fn_ca_bounty_only_pko_final
 const fn = code.slice(fnStart, code.indexOf('$function$;', fnStart));
 const flat = (path: string) => readFileSync(path, 'utf8').replace(/\s+/g, ' ');
 
+// 20261108193616 replaces the function in place (Midnight Free Buy 7f473b6a,
+// Midday Free Buy 72e9b116): a provisional place 2 an earlier bust still holds
+// moves aside before the runner-up is stamped, instead of being answered
+// finishing_place_two_is_held, which no retry could clear. The replacement
+// must keep every property pinned on the original AND carry the relocation.
+const MOVE =
+  'supabase/migrations/20261108193616_a_provisional_place_two_moves_aside_for_the_final_two_close.sql';
+const moveCode = readFileSync(MOVE, 'utf8').replace(/--[^\n]*/g, ' ');
+const moveStart = moveCode.indexOf(
+  'CREATE OR REPLACE FUNCTION public.fn_ca_bounty_only_pko_final_two'
+);
+const moveFn = moveCode.slice(moveStart, moveCode.indexOf('$function$;', moveStart));
+
 describe('a bounty only PKO ends with two players', () => {
   it('pays the second player his own head through the single payer, once', () => {
     expect(fn).toContain('public.fn_settle_tournament_obligation(');
@@ -50,6 +63,46 @@ describe('a bounty only PKO ends with two players', () => {
     );
     expect(code).toMatch(
       /REVOKE ALL ON public\.ca_bounty_only_final_two FROM PUBLIC, anon, authenticated, service_role;/
+    );
+  });
+
+  it('a provisional place 2 moves aside before the runner-up is stamped (2026-11-08)', () => {
+    expect(moveStart).toBeGreaterThan(0);
+    expect(moveFn).toContain('public.fn_settle_tournament_obligation(');
+    expect(moveFn).toContain("'bounty_residual', NULL, v_second.user_id");
+    expect(moveFn).toContain("'fn_ca_bounty_only_pko_final_two'");
+    expect(moveFn).not.toMatch(
+      /chip_balance|chip_ledger|wallet_transactions|INSERT INTO public\.tournament_payouts/
+    );
+    expect(moveFn).toContain('SELECT * INTO v_done FROM public.ca_bounty_only_final_two');
+    for (const reason of [
+      'not_a_bounty_only_pko',
+      'not_running_with_a_final_field',
+      'busts_not_settled',
+      'field_is_not_two',
+      'a_live_stack_is_empty',
+      'heads_do_not_match_the_open_pool',
+    ])
+      expect(moveFn).toContain(`'${reason}'`);
+    expect(moveFn).toContain('IF NOT public.fn_caller_is_engine() THEN');
+    expect(moveFn).toContain("status = 'eliminated',");
+    expect(moveFn).toContain('position = 2,');
+    // The holder moves to the lowest FREE place at 3 or above, before the payer
+    // and the stamp, and is never paid, deleted or refused.
+    expect(moveFn).toContain('AND tp.position = 2');
+    expect(moveFn).toContain('AND tp.user_id <> v_second.user_id');
+    expect(moveFn).toMatch(/generate_series\(3,/);
+    expect(moveFn).toContain("'no_free_provisional_place'");
+    expect(moveFn).toContain("'relocated_provisional_place_2', v_holder_user");
+    expect(moveFn).not.toContain("'finishing_place_two_is_held'");
+    expect(moveFn.indexOf('SET position = v_free_place')).toBeLessThan(
+      moveFn.indexOf('public.fn_settle_tournament_obligation(')
+    );
+    expect(moveFn.indexOf('public.fn_settle_tournament_obligation(')).toBeLessThan(
+      moveFn.indexOf('position = 2,')
+    );
+    expect(moveCode).toMatch(
+      /REVOKE ALL ON FUNCTION public\.fn_ca_bounty_only_pko_final_two\(uuid\) FROM PUBLIC, anon, authenticated;\s+GRANT EXECUTE ON FUNCTION public\.fn_ca_bounty_only_pko_final_two\(uuid\) TO service_role;/
     );
   });
 
