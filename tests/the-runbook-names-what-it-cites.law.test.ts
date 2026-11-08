@@ -222,10 +222,10 @@ describe('the engine release runbook quotes the constants the code holds', () =>
     expect(at(3284)).toContain('require_backup_certificate ||');
     expect(at(3873)).toContain('require_backup_certificate ||');
     expect(at(3874)).toContain('daily_cutover_clock ||');
-    expect(at(4014)).toContain('persist_result sealed');
+    expect(at(4017)).toContain('persist_result sealed');
     expect(FLAT).toContain('line 3284');
     expect(FLAT).toContain('line 3873');
     expect(FLAT).toContain('line 3874');
-    expect(FLAT).toContain('line 4014');
+    expect(FLAT).toContain('line 4017');
   });
 });

@@ -47,6 +47,54 @@ on:
     types: [run-post-deploy-e2e, run-stats-pagination-proof, run-private-record-client-proof]
 
 jobs:
+  release-gameplay-readback:
+    name: Observe post-thaw gameplay for the original sealed release
+    if: github.event_name == 'repository_dispatch' && github.event.action == 'run-post-deploy-e2e' && github.event.client_payload.release_run_key != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Observe original release through thaw and eligible hand advancement
+        env:
+          PGDATABASE: ${{ secrets.DATABASE_URL }}
+          PGOPTIONS: -c default_transaction_read_only=on
+          PGCONNECT_TIMEOUT: '5'
+          SEALED_RECEIPT: ${{ github.event.client_payload.gameplay_receipt }}
+          RUN_KEY: ${{ github.event.client_payload.release_run_key }}
+          TARGET_SHA: ${{ github.event.client_payload.engine_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_KEY" =~ ^[1-9][0-9]*-[1-9][0-9]*$ ]]
+          jq -cn --arg run "$RUN_KEY" --arg sha "$TARGET_SHA" '{runId:$run,targetSha:$sha,status:"original sealed receipt unavailable"}' > "$RUNNER_TEMP/gameplay.json"
+          printf '%s\n' "$SEALED_RECEIPT" | jq -ce --arg key "$RUN_KEY" --arg sha "$TARGET_SHA" \
+            'select(.result=="sealed" and .runId==$key and .sha==$sha)' > "$RUNNER_TEMP/original-seal.json"
+          node --input-type=module <<'JS'
+          import { spawnSync } from 'node:child_process';
+          import { scoreboardConnectionEnvironment } from './scripts/horse-human-scoreboard.mjs';
+          const tmp = process.env.RUNNER_TEMP;
+          let connection;
+          try { connection = scoreboardConnectionEnvironment(process.env); }
+          catch { throw new Error('Configured database connection unavailable'); }
+          const result = spawnSync('bash', ['scripts/operations/observe-release-gameplay.sh',
+            tmp + '/original-seal.json', tmp + '/gameplay.json'], {
+            env: {...connection, PGAPPNAME:'post-thaw-gameplay', PGOPTIONS:'-c default_transaction_read_only=on'},
+            stdio:'inherit', timeout:500000
+          });
+          process.exit(result.status ?? 1);
+          JS
+      - name: Retain original release gameplay observation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-thaw-gameplay-${{ github.event.client_payload.release_run_key }}
+          path: ${{ runner.temp }}/gameplay.json
+          if-no-files-found: error
+          retention-days: 30
+
   # No production fixture job may enter even its always-cleanup steps until
   # the root cleanup repair is installed. This job only reads catalog/history.
   certification-cleanup-safety:
@@ -3045,6 +3093,7 @@ jobs:
   stood-down-is-not-green:
     name: A stood-down run is marked superseded, not passed
     needs:
+      - release-gameplay-readback
       - tournament-only-verdict
       - private-record-client-proof
       - stats-pagination-proof

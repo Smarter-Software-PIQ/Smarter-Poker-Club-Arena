@@ -735,8 +735,8 @@ if [ "$kind" = image ]; then
   esac
   exit 0
 fi
-[ "$kind" = container ] && [ "$ref" = sp-autoheal ] && [ "$format" = '{{.State.Status}}' ] \
-  && { printf 'running\\n'; exit 0; }
+[ "$kind" = container ] && [ "$ref" = sp-autoheal ] && [ "$format" = '{{.Id}} {{.State.Status}}' ] \
+  && { printf '%s running\\n' '${'e'.repeat(64)}'; exit 0; }
 [ "$kind" = container ] && [ "$ref" = club-arena-engine ] || exit 1
 case "$format" in
   '{{json .}}'|'') printf '{"Image":"%s","State":{"Status":"running"}}\\n' '${A_IMAGE}' ;;
@@ -868,10 +868,11 @@ if [ "$kind" = container ] && [ "$action" = inspect ] && [ "$ref" = club-arena-e
   exit 0
 fi
 if [ "$kind" = container ] && [ "$action" = inspect ] && [ "$ref" = sp-autoheal ]; then
-  printf '%s\\n' "$(tr -d '\\n' < "$FAKE_AUTOHEAL_STATE")"
+  [ "$format" = '{{.Id}} {{.State.Status}}' ] || exit 1
+  printf '%s %s\\n' '${'e'.repeat(64)}' "$(tr -d '\\n' < "$FAKE_AUTOHEAL_STATE")"
   exit 0
 fi
-if [ "$kind" = start ] && [ "$action" = sp-autoheal ]; then
+if [ "$kind" = start ] && [ "$action" = '${'e'.repeat(64)}' ]; then
   printf 'running\\n' > "$FAKE_AUTOHEAL_STATE"
 fi
 if [ "$kind" = start ] && [ "$action" = club-arena-engine ]; then
@@ -2126,7 +2127,7 @@ describe('every host mutation path obeys the durable release authority', () => {
     const publicRecheck = transaction.indexOf('PRECOMMIT_PUBLIC_INSTANCE=', prove);
     const commit = transaction.indexOf('"$RELEASE_SEAL" commit', publicRecheck);
     const promote = transaction.indexOf('docker update --restart always', commit);
-    const autoheal = transaction.indexOf('docker start sp-autoheal', commit);
+    const autoheal = transaction.indexOf('docker start "$AUTOHEAL_ID"', commit);
     expect(prove).toBeGreaterThan(0);
     expect(publicRecheck).toBeGreaterThan(prove);
     expect(commit).toBeGreaterThan(publicRecheck);
@@ -2826,7 +2827,7 @@ describe('every host mutation path obeys the durable release authority', () => {
       'PREPARE_OUTPUT="$(bounded_break_command',
       lockedCertificate
     );
-    const cutover = transaction.indexOf('docker stop -t 15 sp-autoheal', prepare);
+    const cutover = transaction.indexOf('docker stop -t 15 "$AUTOHEAL_ID"', prepare);
     expect(certificate).toBeGreaterThan(0);
     expect(lock).toBeGreaterThan(certificate);
     expect(lockedCertificate).toBeGreaterThan(lock);
@@ -3167,7 +3168,7 @@ sys.exit(int(os.environ.get('FAKE_GIT_ARCHIVE_FAILURE', '0')))
       freshness
     );
     const prepare = transaction.indexOf('PREPARE_OUTPUT="$(bounded_break_command', certificate);
-    const autohealFence = transaction.indexOf('docker stop -t 15 sp-autoheal', prepare);
+    const autohealFence = transaction.indexOf('docker stop -t 15 "$AUTOHEAL_ID"', prepare);
     const start = transaction.indexOf('ENGINE_UP_LOCK_HELD=1', autohealFence);
     expect(lock).toBeGreaterThan(0);
     expect(freshness).toBeGreaterThan(lock);

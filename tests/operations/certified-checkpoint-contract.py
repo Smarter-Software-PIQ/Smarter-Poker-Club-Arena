@@ -47,10 +47,66 @@ def fixture(now=None, early=False):
     return request,proof,health
 
 class CertifiedContract(unittest.TestCase):
+    def test_post_release_observer_retains_eligible_census_and_refuses_late_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            receipt=root/'sealed.json'
+            receipt.write_text(json.dumps(dict(result='sealed',runId='1234-1',sha='a'*40,
+                startedAt='2026-11-07T16:30:20Z',instanceId='1-abcdef01',
+                completionRuntime={'instanceId':'1-abcdef01'})))
+            output=root/'gameplay.json'
+            psql=root/'psql'
+            psql.write_text('#!/bin/sh\ncat "$SAMPLE"\n')
+            psql.chmod(0o755)
+            # An unexpected attempt to wait in either terminal case is a failure.
+            sleeper=root/'sleep'; sleeper.write_text('#!/bin/sh\nexit 2\n'); sleeper.chmod(0o755)
+            sample=root/'snapshot'
+            for in_window in (True,False):
+                snapshot=dict(censusInObservationWindow=in_window,secondsSinceThaw=130,tables=[
+                    dict(kind='CASH',evidence='advanced'),dict(kind='MTT',evidence='tournament break')],
+                    lightning=[dict(settled_at='2026-11-07T16:34:44Z')])
+                sample.write_text(json.dumps(snapshot))
+                result=subprocess.run(['bash',str(ROOT/'scripts/operations/observe-release-gameplay.sh'),str(receipt),str(output)],
+                    timeout=5,capture_output=True,env={**os.environ,'PATH':str(root)+':'+os.environ['PATH'],'SAMPLE':str(sample)})
+                self.assertEqual(result.returncode,0 if in_window else 1,result.stderr)
+                self.assertEqual(json.loads(output.read_text()),snapshot)
+
+    def test_original_container_readback_decides_uncertain_start_in_both_owners(self):
+        supervisor=(ROOT/'server/scripts/engine-supervisor.sh').read_text()
+        transaction=(ROOT/'server/scripts/engine-release-transaction.sh').read_text()
+        recovery=supervisor[supervisor.index('ensure_autoheal_running() {'):supervisor.index('recreate() {')]
+        final=transaction[transaction.index('bounded_break_command 10 docker start "$AUTOHEAL_ID"'):
+                          transaction.index('FINAL_LOCAL_INSTANCE=')]
+        fixture='''set -eu
+AUTOHEAL_CONTAINER=sp-autoheal; AUTOHEAL_ID="$CID"; CONTAINER=engine
+log(){ :; }
+die(){ exit 1; }
+bounded_break_command(){ shift; "$@"; }
+bounded_recovery_command(){ shift; "$@"; }
+docker(){
+  if [ "$1" = start ]; then
+    [ "$2" = "$CID" ] && [ ! -e "$TRACE" ] || exit 21
+    touch "$TRACE"; return 124
+  fi
+  if [ "${!#}" = engine ]; then echo always; return; fi
+  if [ ! -e "$TRACE" ]; then echo "$CID exited"; return; fi
+  case "$CASE" in running) echo "$CID running";; stopped) echo "$CID exited";;
+    replaced) echo "${CID%a}b running";; unreadable) return 124;; esac
+}
+'''
+        for body in (recovery+'ensure_autoheal_running', final):
+            for case in ('running','stopped','replaced','unreadable'):
+                with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                    trace=Path(tmp)/'started'
+                    result=subprocess.run(['bash','-c',fixture+body],capture_output=True,
+                        env={**os.environ,'CASE':case,'CID':'a'*64,'TRACE':str(trace)})
+                    self.assertTrue(trace.exists())
+                    self.assertEqual(result.returncode==0,case=='running',result.stderr)
+
     def test_autoheal_is_fenced_and_restored_only_by_the_original_no_action_owner(self):
         source=(ROOT/'server/scripts/engine-release-transaction.sh').read_text()
         block=source[source.index('fence_certified_checkpoint_autoheal() {'):source.index('prove_rollback_readiness() {')]
-        for case in ('ok','ordinary','unlocked','stop-failed','foreign-fence','intent-remains','restore-failed'):
+        for case in ('ok','start-timed-out-after-running','ordinary','unlocked','stop-failed','foreign-fence','intent-remains','restore-failed'):
             with self.subTest(case),tempfile.TemporaryDirectory(prefix='certified-autoheal-') as directory:
                 script='''set -euo pipefail
 die(){ printf '%s\\n' "$*" >&2; exit 13; }
@@ -63,7 +119,7 @@ docker(){
  printf '%s\\n' "$*" >> "$REQUEST_ROOT/trace"
  case "$1" in
   stop) [ "$CASE" != stop-failed ] || return 1; printf exited > "$REQUEST_ROOT/status" ;;
-  start) [ "$CASE" != restore-failed ] || return 1; printf running > "$REQUEST_ROOT/status" ;;
+  start) [ "$CASE" != restore-failed ] || return 1; printf running > "$REQUEST_ROOT/status"; [ "$CASE" != start-timed-out-after-running ] ;;
   container)
    if [ "$4" = '{{.Id}}' ]; then printf '%s\\n' "$CID";
    elif [ "$CASE" = foreign-fence ]; then printf '%s exited\\n' "${CID%a}b";
@@ -85,8 +141,8 @@ printf '%s' "$CERTIFIED_AUTOHEAL_FENCED"
                 result=subprocess.run(['bash','-c',script],text=True,capture_output=True,timeout=5,
                     env={**os.environ,'CASE':case,'REQUEST_ROOT':directory,'CID':'a'*64})
                 trace=(Path(directory)/'trace').read_text() if (Path(directory)/'trace').exists() else ''
-                self.assertEqual(result.returncode,0 if case in ('ok','ordinary') else 13,result.stderr)
-                if case=='ok':
+                self.assertEqual(result.returncode,0 if case in ('ok','ordinary','start-timed-out-after-running') else 13,result.stderr)
+                if case in ('ok','start-timed-out-after-running'):
                     self.assertEqual(result.stdout,'0')
                     self.assertLess(trace.index('persist'),trace.index('stop -t 15'))
                     self.assertLess(trace.index('start '),trace.index('clear'))

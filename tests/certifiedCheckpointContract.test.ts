@@ -10,7 +10,7 @@ it('proves certified publisher ownership, complete clock credit and terminal cle
   });
   expect(result.error).toBeUndefined();
   expect(result.status, result.stdout + result.stderr).toBe(0);
-  expect(result.stderr).toContain('Ran 9 tests');
+  expect(result.stderr).toContain('Ran 11 tests');
 }, 35_000);
 
 it('runs the real bounded legacy adapter allocation and transport checks', () => {

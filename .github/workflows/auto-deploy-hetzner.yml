@@ -336,6 +336,7 @@ jobs:
       contents: read
     outputs:
       release_result: ${{ steps.release.outputs.result || 'not completed' }}
+      gameplay_receipt: ${{ steps.gameplay_receipt.outputs.receipt }}
       release_failure: ${{ steps.release.outputs.failed_stage || '' }}
       exit_stage: ${{ steps.exit_path.outputs.stage || 'unknown' }}
       exit_outcome: ${{ steps.exit_path.outputs.outcome || 'unknown' }}
@@ -903,6 +904,16 @@ jobs:
           [ "$PUBLIC_INSTANCE" = "$LOCAL_INSTANCE" ]
           echo 'verified=true' >> "$GITHUB_OUTPUT"
 
+      - name: Read original sealed runtime for the post-deploy gameplay observer
+        id: gameplay_receipt
+        if: steps.release.outputs.result == 'sealed' && steps.verify.outputs.verified == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          [[ "$RUN_KEY" =~ ^[1-9][0-9]*-[1-9][0-9]*$ ]]
+          receipt="$(timeout 8s "$HSSH" "cat /var/lib/club-arena/engine-release-results/$RUN_KEY.json" | jq -ce --arg run "$RUN_KEY" --arg sha "$SHA" 'select(.runId==$run and .sha==$sha and .result=="sealed") | {runId,sha,result,instanceId,startedAt,completionRuntime:{instanceId:.completionRuntime.instanceId}}')"
+          echo "receipt=$receipt" >> "$GITHUB_OUTPUT"
+
       - name: Remove exact staging and ephemeral SSH material
         if: always()
         env:
@@ -1151,15 +1162,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ENGINE_SHA: ${{ needs.preflight.outputs.target_sha }}
+          RELEASE_RESULT: ${{ needs.deploy.outputs.release_result }}
+          GAMEPLAY_RECEIPT: ${{ needs.deploy.outputs.gameplay_receipt }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           [[ "$ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] \
             || { echo '::error::The sealed engine release did not expose one full lowercase SHA.'; exit 1; }
           SENT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          GAMEPLAY_ARGS=()
+          if [ "$RELEASE_RESULT" = sealed ]; then
+            GAMEPLAY_ARGS=(-f "client_payload[release_run_key]=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" -f "client_payload[gameplay_receipt]=$GAMEPLAY_RECEIPT")
+          fi
           gh api --method POST "repos/$REPO/dispatches" \
             -f event_type=run-post-deploy-e2e \
-            -F "client_payload[engine_sha]=$ENGINE_SHA"
+            -F "client_payload[engine_sha]=$ENGINE_SHA" "${GAMEPLAY_ARGS[@]}"
           echo "Production E2E dispatch accepted for exact engine component $ENGINE_SHA."
 
           RECEIVER_ID=''

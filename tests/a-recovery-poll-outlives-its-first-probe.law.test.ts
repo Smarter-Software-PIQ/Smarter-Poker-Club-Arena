@@ -82,6 +82,7 @@ if [ "$1" = container ] && [ "$2" = inspect ]; then
     shift
   done
   case "$format" in
+    '{{.Id}} {{.State.Status}}') printf '%s\\n' '${'e'.repeat(64)} running' ;;
     '{{.State.Status}}') printf '%s\\n' 'running' ;;
     '{{.Image}}') printf '%s\\n' '${desiredImage}' ;;
     *sp.release.sha*) printf '%s\\n' '${desiredSha}' ;;

@@ -86,7 +86,7 @@ describe('engine release recovery stays inside one honest break boundary', () =>
     const deadline = transaction.indexOf('persist_break_deadline', shortBreak);
     const readiness = transaction.indexOf('prove_rollback_readiness', deadline);
     const prepare = transaction.indexOf('PREPARE_OUTPUT="$(bounded_break_command');
-    const candidateStop = transaction.indexOf('docker stop -t 15 sp-autoheal', prepare);
+    const candidateStop = transaction.indexOf('docker stop -t 15 "$AUTOHEAL_ID"', prepare);
     expect(shortBreak).toBeGreaterThan(0);
     expect(deadline).toBeGreaterThan(shortBreak);
     expect(readiness).toBeGreaterThan(deadline);
@@ -235,6 +235,7 @@ if [ "$1" = container ] && [ "$2" = inspect ]; then
     shift
   done
   case "$format" in
+    '{{.Id}} {{.State.Status}}') printf '%s\n' '${'e'.repeat(64)} running' ;;
     '{{.State.Status}}') printf '%s\n' 'running' ;;
     '{{.Image}}') [ -e '${switched}' ] && printf '%s\n' '${desiredImage}' || printf '%s\n' '${candidateImage}' ;;
     *sp.release.sha*) [ -e '${switched}' ] && printf '%s\n' '${desiredSha}' || printf '%s\n' '${'d'.repeat(40)}' ;;
