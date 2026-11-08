@@ -141,10 +141,29 @@ describe('tournament Mine Only reads the current club downline', () => {
 });
 
 describe('the Ranking tab passes the club the viewer is inside', () => {
-  const tab = readFileSync(
+  /* Since 2026-11-08 the club resolution lives in the shared useMyPlayers hook,
+     which Details, Ranking, Rewards and Tables all call, so one rule keys "mine"
+     on every tab. Ranking must reach the downline only through it. */
+  const ranking = readFileSync(
     resolve(__dirname, '../../src/components/tournament/details/RankingTab.tsx'),
     'utf8'
   );
+  const tab = readFileSync(
+    resolve(__dirname, '../../src/components/tournament/details/useMyPlayers.ts'),
+    'utf8'
+  );
+  it('Ranking and the other tabs read their players through the shared hook', () => {
+    expect(ranking).toMatch(/useMyPlayers\(tournament, merged, tables, currentUserId\)/);
+    expect(ranking).not.toMatch(/useDownlineIds\(/);
+    for (const file of ['DetailOverviewTab.tsx', 'RewardsTab.tsx', 'TablesTab.tsx']) {
+      const src = readFileSync(
+        resolve(__dirname, '../../src/components/tournament/details', file),
+        'utf8'
+      );
+      expect(src, file).toMatch(/useMyPlayers\(/);
+      expect(src, file).not.toMatch(/useDownlineIds\(/);
+    }
+  });
   it('keys Mine Only on the route club, else the link club, else the entered club - never the union', () => {
     expect(tab).toMatch(/useParams<\{ clubId\?: string \}>\(\)\.clubId/);
     expect(tab).toMatch(
