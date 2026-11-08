@@ -41,8 +41,9 @@
 }
 .has-premium-chassis tbody tr[data-id] {
   display: grid;
+  --premium-card-body-height: max(44px, 11.6cqw);
   grid-template-columns: 29.5% 13.7% 15.4% 10.8% 30.6%;
-  height: max(44px, 11.6cqw) !important;
+  height: var(--premium-card-body-height) !important;
   min-height: 0 !important;
 }
 .has-premium-chassis tbody tr[data-game-heading]::before,
@@ -64,7 +65,10 @@
 }
 .has-premium-chassis tbody tr[data-id]::before,
 .has-premium-chassis tbody tr[data-id]::after {
-  background-position: center calc(100% + 8.03cqw);
+  /* Fit the 228px lower crop to the actual row height. At the 44px
+     minimum, bottom alignment of the unstretched image repeated the seam. */
+  background-size: 100.814% calc(var(--premium-card-body-height) * 793 / 228);
+  background-position: center calc(var(--premium-card-body-height) * -407 / 228);
 }
 .has-premium-chassis tbody tr[data-game-heading]::after,
 .has-premium-chassis tbody tr[data-id]::after {

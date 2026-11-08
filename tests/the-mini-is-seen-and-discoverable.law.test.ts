@@ -254,7 +254,6 @@ describe('the feed refuses to guess, and never promises a refused mini', () => {
     expect(read('src/lib/bbjMiniFeed.ts')).toMatch(
       /if \(!tier \|\| !tier\.payable\) return null;\s*return tier\.amount > 0 \? tier\.amount : null;/
     );
-    expect(lobby).toMatch(/\.filter\(\(t\) => t\.enabled && t\.payable\)/);
     expect(jackpotPage).toMatch(/\.filter\(\(t\) => t\.enabled && t\.payable\)/);
     // and the plate draws nothing at all when there is no payable amount
     expect(plate).toContain("const showMini = typeof miniAmount === 'number' && miniAmount > 0;");
@@ -415,12 +414,13 @@ describe('the popup: three pages, each with a mini of its own', () => {
 });
 
 describe('every other surface the main appears on', () => {
-  it('the lobby tile carries the mini range', () => {
+  it('the lobby plaque opens the details that carry the mini range', () => {
     expect(lobby).toContain(
       "import { watchBbjMini, type BbjMiniSnapshot } from '../lib/bbjMiniFeed';"
     );
-    expect(lobby).toContain('className="lobby-bbj__mini"');
-    expect(read('src/pages/ClubHomePage.css')).toContain('.lobby-bbj__mini {');
+    expect(lobby).toContain('setShowBBJInfo(true)');
+    expect(lobby).toContain('mini={lobbyMini}');
+    expect(lobby).not.toContain('lobby-bbj__mini');
     // and it is torn down with the pool feed, not leaked
     expect(lobby).toMatch(/stopBbjMini\?\.\(\);/);
   });
@@ -636,7 +636,6 @@ describe('what the mini deliberately does NOT do', () => {
 describe('a shown mini is a payable mini - on every surface, without exception', () => {
   const RANGE_SURFACES = [
     'src/components/bbj/BBJInfoModal.tsx',
-    'src/pages/ClubHomePage.tsx',
     'src/pages/BadBeatJackpotPage.tsx',
     'src/components/bbj/BBJMiniPanel.tsx',
   ];

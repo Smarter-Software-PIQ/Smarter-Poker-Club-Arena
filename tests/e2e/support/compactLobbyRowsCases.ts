@@ -11,6 +11,17 @@ export function registerCompactLobbyRowsCases() {
     await page.addStyleTag({
       content: readFileSync('src/components/lobby/PremiumMttRows.css', 'utf8'),
     });
+    const crop = await page.locator('tr[data-id="fixture"]').evaluate((row) => {
+      const paint = getComputedStyle(row, '::before');
+      const imageHeight = Number.parseFloat(paint.backgroundSize.split(' ')[1]);
+      const offset = Number.parseFloat(paint.backgroundPositionY);
+      return {
+        firstPixel: (-offset / imageHeight) * 793,
+        lastPixel: ((row.getBoundingClientRect().height - offset) / imageHeight) * 793,
+      };
+    });
+    expect(crop.firstPixel).toBeCloseTo(407, 0);
+    expect(crop.lastPixel).toBeCloseTo(635, 0);
     await page.getByRole('button', { name: 'Details: Tournament', exact: true }).click();
     await expect(page.locator('body')).toHaveAttribute('data-details', 'opened');
     await page.locator('.premium-lobby-start-toggle').click();
