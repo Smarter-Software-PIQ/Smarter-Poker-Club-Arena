@@ -73,6 +73,10 @@ $function$
 -- Guarantees cover funded places and bounties, never rake (owner November 7).
 -- The original close transaction funds its net shortfall from the union promo
 -- wallet before finalization. The existing core still proves the final pool.
+INSERT INTO public.ca_money_rpc_registry(proname,status,notes)
+VALUES('fn_ca_fund_union_guarantee_promo_locked','approved',
+ 'Original registration-close transaction: settlement-lane and tournament locks, closed entry door, service-only execution; exact net guarantee shortfall debits the event union promo wallet, journals promo_send and credits escrow once before finalization. Insufficient bank, journal failure or inconsistent replay aborts the transaction.');
+
 CREATE FUNCTION public.fn_ca_fund_union_guarantee_promo_locked(p_tournament_id uuid)
 RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER
 SET search_path TO 'public', 'pg_temp'
