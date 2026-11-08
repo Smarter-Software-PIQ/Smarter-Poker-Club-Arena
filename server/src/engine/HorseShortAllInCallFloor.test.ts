@@ -320,7 +320,15 @@ describe('HorseLogic.decide obeys it end to end', () => {
   it('the worker boundary admits a fold turned into a call only in the short all-in spot', () => {
     const s = preflop();
     seedFastRandom(11);
-    const d = HorseLogic.decide(s.hero, s.gs, 'balanced', {}, { mind: false });
+    // The Nash call layer (nashCallVsJam, 2026-11-07) answers this lone jam
+    // itself; its off arm keeps the folding bar this floor exists to correct.
+    const d = HorseLogic.decide(
+      s.hero,
+      s.gs,
+      'balanced',
+      {},
+      { mind: false, nashCallVsJam: false }
+    );
     const flipped = d.policyGraph?.transitions.some(
       (t) => t.node === 'wager_rules' && t.before?.action === 'fold' && t.after.action === 'call'
     );
