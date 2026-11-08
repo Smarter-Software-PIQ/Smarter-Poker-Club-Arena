@@ -141,6 +141,14 @@ const validCopy = {
 };
 
 describe('the Backup Engine refuses partial restores and proves automatic recovery', () => {
+  it('exports required cash cluster parents without human profile or auth data', () => {
+    const result = spawnSync('python3', ['-B', root('scripts/ci/test_backup_cluster_seed.py')], {
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it('runs qualification admission regressions in the existing required DR suite', () => {
     const result = spawnSync(
       'python3',
