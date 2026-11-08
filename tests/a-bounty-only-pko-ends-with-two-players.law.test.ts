@@ -25,6 +25,17 @@ const moveStart = moveCode.indexOf(
 );
 const moveFn = moveCode.slice(moveStart, moveCode.indexOf('$function$;', moveStart));
 
+// 20261108222325 replaces it again (Midday Free Buy 36fc2465, velvet9): the
+// runner-up's chair closes in the same transaction as his roster write, or the
+// deferred roster-orphan guard refuses the whole close at commit.
+const SEAT =
+  'supabase/migrations/20261108222325_the_final_two_close_vacates_the_runner_up_seat.sql';
+const seatCode = readFileSync(SEAT, 'utf8').replace(/--[^\n]*/g, ' ');
+const seatStart = seatCode.indexOf(
+  'CREATE OR REPLACE FUNCTION public.fn_ca_bounty_only_pko_final_two'
+);
+const seatFn = seatCode.slice(seatStart, seatCode.indexOf('$function$;', seatStart));
+
 describe('a bounty only PKO ends with two players', () => {
   it('pays the second player his own head through the single payer, once', () => {
     expect(fn).toContain('public.fn_settle_tournament_obligation(');
@@ -102,6 +113,31 @@ describe('a bounty only PKO ends with two players', () => {
       moveFn.indexOf('position = 2,')
     );
     expect(moveCode).toMatch(
+      /REVOKE ALL ON FUNCTION public\.fn_ca_bounty_only_pko_final_two\(uuid\) FROM PUBLIC, anon, authenticated;\s+GRANT EXECUTE ON FUNCTION public\.fn_ca_bounty_only_pko_final_two\(uuid\) TO service_role;/
+    );
+  });
+
+  it("the runner-up's live chair closes with his finish, in the same transaction (2026-11-08)", () => {
+    expect(seatStart).toBeGreaterThan(0);
+    // Everything the provisional-place body carried is still there.
+    expect(seatFn).toContain("'bounty_residual', NULL, v_second.user_id");
+    expect(seatFn).toContain("'relocated_provisional_place_2', v_holder_user");
+    expect(seatFn).toContain('IF NOT public.fn_caller_is_engine() THEN');
+    expect(seatFn).not.toMatch(
+      /chip_balance|chip_ledger|wallet_transactions|INSERT INTO public\.tournament_payouts/
+    );
+    // The chair: only the runner-up's, only live ones, after his roster write.
+    expect(seatFn).toMatch(
+      /UPDATE public\.table_seats s\s+SET left_at = clock_timestamp\(\)[\s\S]*?AND s\.user_id = v_second\.user_id AND s\.left_at IS NULL/
+    );
+    expect(seatFn.indexOf("status = 'eliminated',")).toBeLessThan(
+      seatFn.indexOf('UPDATE public.table_seats s')
+    );
+    expect(seatFn.indexOf('UPDATE public.table_seats s')).toBeLessThan(
+      seatFn.indexOf('INSERT INTO public.ca_bounty_only_final_two')
+    );
+    expect(seatFn).toContain("'runner_up_seats_vacated', to_jsonb(v_seat_ids)");
+    expect(seatCode).toMatch(
       /REVOKE ALL ON FUNCTION public\.fn_ca_bounty_only_pko_final_two\(uuid\) FROM PUBLIC, anon, authenticated;\s+GRANT EXECUTE ON FUNCTION public\.fn_ca_bounty_only_pko_final_two\(uuid\) TO service_role;/
     );
   });
