@@ -61,6 +61,30 @@ const TournamentRankingCard = lazy(() => import('./TournamentRankingCard'));
 import { arenaAssetUnitCents } from '../../lib/arenaUnitCents';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import { useSessionHandStats } from '../../hooks/useSessionHandStats';
+import { useOptionalToast } from '../common/Toast';
+import { masterBus } from '../../core/MasterBus';
+import { platformFrozenMessage } from '../../utils/platformFrozen';
+import {
+  seatFirstBuyInReasonIsKnown,
+  seatFirstBuyInRefusalText,
+} from '../../services/TournamentService';
+import {
+  isHeadsUpFormat,
+  parseRematchAnswer,
+  rematchFellThrough,
+  rematchIsLive,
+  rematchView,
+  REMATCH_POLL_MS,
+  type RematchAnswer,
+  type RematchCardStatus,
+} from '../../services/headsUpRematch';
+
+/**
+ * A finished game can still read COMPLETING for a moment after the bust card
+ * is up; the rematch door answers not_eligible until it reads COMPLETED. Keep
+ * asking this long before taking not_eligible as the answer.
+ */
+const REMATCH_ELIGIBILITY_GRACE_MS = 30_000;
 
 export function TournamentRankingHost() {
   const [payload, setPayload] = useState<SessionSummaryPayload | null>(() => peekSessionSummary());
@@ -224,6 +248,245 @@ export function TournamentRankingHost() {
     };
   }, [tournamentId, reportUserId, finishSequence, finishPlace, satelliteQualification]);
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     HEADS UP REMATCH (Dan 2026-11-08). See src/services/headsUpRematch.ts.
+
+     For a two-seat Sit & Go the card's Play Again asks the opponent for a
+     rematch instead of hunting a stranger's game. The database answers every
+     question - who may ask, whether both agreed, which empty game and which
+     seat - and this host only polls while the card is up. When the answer is
+     matched it buys the player back in through the ordinary seat purchase,
+     the same door and the same charge as the first game, then opens the
+     table. Every other answer leaves the ordinary Play Again on the card.
+     ═══════════════════════════════════════════════════════════════════════ */
+  const toast = useOptionalToast();
+  const [rematchEligible, setRematchEligible] = useState(false);
+  const [rematchStatus, setRematchStatus] = useState<RematchCardStatus | null>(null);
+  const [rematchSeconds, setRematchSeconds] = useState<number | null>(null);
+  const [rematchJoining, setRematchJoining] = useState(false);
+  const rematchStatusRef = useRef<RematchCardStatus | null>(null);
+  rematchStatusRef.current = rematchStatus;
+  /* One buy-back-in per report, whatever arrives twice (a poll and the tap's
+     own answer can both say matched). */
+  const rematchJoinStartedRef = useRef(false);
+  const rematchRespondBusyRef = useRef(false);
+  const rematchReportKey = tournamentId ? `${reportUserId}:${tournamentId}:${finishSequence}` : '';
+
+  useEffect(() => {
+    setRematchEligible(false);
+    setRematchStatus(null);
+    setRematchSeconds(null);
+    setRematchJoining(false);
+    rematchJoinStartedRef.current = false;
+    rematchRespondBusyRef.current = false;
+  }, [rematchReportKey]);
+
+  const isCurrentRematchReport = useCallback(() => {
+    const current = peekSessionSummary()?.tournament;
+    return (
+      !!current &&
+      current.tournamentId === tournamentId &&
+      current.finishSequence === finishSequence &&
+      (!current.userId || current.userId === readLocalSession()?.userId)
+    );
+  }, [tournamentId, finishSequence]);
+
+  /** The buy-back-in: the existing seat purchase for the seat the server assigned. */
+  const joinRematch = useCallback(
+    async (answer: RematchAnswer) => {
+      if (rematchJoinStartedRef.current || !answer.tableId || !answer.seatNumber) return;
+      rematchJoinStartedRef.current = true;
+      setRematchJoining(true);
+      let outcome: { data: unknown; error: { message?: string } | null };
+      try {
+        outcome = await runWithRequestDeadline((signal) =>
+          supabase
+            .rpc('fn_take_seat_and_buy_in', {
+              p_table_id: answer.tableId,
+              p_seat_number: answer.seatNumber,
+            })
+            .abortSignal(signal)
+        );
+      } catch (err) {
+        /* No answer (a timeout or a dropped link): the purchase may or may not
+           have committed. Opening the table is right either way - the felt
+           shows the seat if it is ours and the seat sheet if it is not.
+           Nothing is retried here (section 2 rule 6: an executed write is
+           never replayed). */
+        reportError(err, 'TournamentRankingHost.rematch_buy_in_failed', { tournamentId });
+        if (!isCurrentRematchReport()) return;
+        close();
+        navigate(`/table/${answer.tableId}`);
+        return;
+      }
+      const { data, error } = outcome;
+      const res = (data ?? {}) as {
+        ok?: boolean;
+        reason?: string;
+        asset?: string;
+        cost?: number;
+        diamonds_after?: number | null;
+      };
+      if (error || !res.ok) {
+        // A definite refusal: nothing was bought, so the player stays here.
+        const reason = error?.message || res.reason || '';
+        const frozen = platformFrozenMessage(error ?? res);
+        if (frozen) toast?.info(frozen);
+        else {
+          if (!seatFirstBuyInReasonIsKnown(reason)) {
+            reportError(
+              new Error(`heads_up_rematch buy-in refused: ${reason || 'no_reason_given'}`),
+              'TournamentRankingHost.rematch_buy_in_refused',
+              { tournamentId, reason }
+            );
+          }
+          toast?.error(seatFirstBuyInRefusalText(reason));
+        }
+        setRematchJoining(false);
+        setRematchStatus('join_refused');
+        return;
+      }
+      if (res.asset === 'diamonds' && typeof res.diamonds_after === 'number') {
+        masterBus.emit('DIAMOND_BALANCE_CHANGED', {
+          newBalance: res.diamonds_after,
+          delta: -Number(res.cost ?? 0),
+          source: 'tournament_seat_first_buy_in',
+        });
+      }
+      if (!isCurrentRematchReport()) return;
+      close();
+      navigate(`/table/${answer.tableId}`);
+    },
+    [toast, tournamentId, isCurrentRematchReport, close, navigate]
+  );
+
+  const applyRematchAnswer = useCallback(
+    (answer: RematchAnswer | null) => {
+      if (!answer) return;
+      // A local refusal of the buy-in is final for this card.
+      if (rematchStatusRef.current === 'join_refused') return;
+      setRematchStatus(answer.status);
+      setRematchSeconds(answer.secondsLeft ?? null);
+      if (answer.status === 'matched') void joinRematch(answer);
+    },
+    [joinRematch]
+  );
+
+  /* Is this a heads-up result, and if so, poll the rematch while the card is
+     up. One format read; then one state read every REMATCH_POLL_MS until the
+     answer is final. Cancelled on unmount and on a new report. */
+  useEffect(() => {
+    if (!tournamentId) return;
+    if (!reportUserId || reportUserId !== readLocalSession()?.userId) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    (async () => {
+      try {
+        const { data: origin, error } = await runWithRequestDeadline(
+          (signal) =>
+            supabase
+              .from('tournaments')
+              .select('format_contract, max_players')
+              .eq('id', tournamentId)
+              .abortSignal(signal)
+              .maybeSingle(),
+          { signal: controller.signal }
+        );
+        if (cancelled) return;
+        if (error) throw error;
+        if (!origin || !isHeadsUpFormat(origin)) return;
+        setRematchEligible(true);
+      } catch (err) {
+        if (!cancelled) {
+          reportError(err, 'TournamentRankingHost.rematch_format_read_failed', { tournamentId });
+        }
+        return;
+      }
+      let errorReported = false;
+      const poll = async () => {
+        if (cancelled) return;
+        try {
+          const { data, error } = await runWithRequestDeadline(
+            (signal) =>
+              supabase
+                .rpc('ca_heads_up_rematch_state', { p_source_tournament_id: tournamentId })
+                .abortSignal(signal),
+            { signal: controller.signal }
+          );
+          if (cancelled) return;
+          if (error) throw error;
+          const answer = parseRematchAnswer(data);
+          if (answer?.status === 'not_eligible') {
+            if (Date.now() - startedAt < REMATCH_ELIGIBILITY_GRACE_MS) {
+              timer = setTimeout(poll, REMATCH_POLL_MS);
+              return;
+            }
+            setRematchEligible(false);
+            return;
+          }
+          applyRematchAnswer(answer);
+          if (answer && !rematchIsLive(answer.status)) return;
+        } catch (err) {
+          if (cancelled) return;
+          if (!errorReported) {
+            errorReported = true;
+            reportError(err, 'TournamentRankingHost.rematch_state_read_failed', { tournamentId });
+          }
+        }
+        if (!cancelled && rematchStatusRef.current !== 'join_refused') {
+          timer = setTimeout(poll, REMATCH_POLL_MS);
+        }
+      };
+      void poll();
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
+  }, [tournamentId, reportUserId, finishSequence, applyRematchAnswer]);
+
+  /** Answer the rematch. Idempotent on the server; one request at a time here. */
+  const respondToRematch = useCallback(
+    async (accept: boolean): Promise<RematchAnswer | null> => {
+      if (!tournamentId || rematchRespondBusyRef.current) return null;
+      rematchRespondBusyRef.current = true;
+      try {
+        const { data, error } = await runWithRequestDeadline((signal) =>
+          supabase
+            .rpc('ca_heads_up_rematch_respond', {
+              p_source_tournament_id: tournamentId,
+              p_accept: accept,
+            })
+            .abortSignal(signal)
+        );
+        if (error) throw error;
+        return parseRematchAnswer(data);
+      } catch (err) {
+        reportError(err, 'TournamentRankingHost.rematch_respond_failed', { tournamentId, accept });
+        return null;
+      } finally {
+        rematchRespondBusyRef.current = false;
+      }
+    },
+    [tournamentId]
+  );
+
+  /** Leaving the card is a No (Dan: both must agree). Best effort, never blocks the close. */
+  const declineRematchQuietly = useCallback(() => {
+    const status = rematchStatusRef.current;
+    if (!rematchEligible || rematchJoinStartedRef.current) return;
+    if (status !== null && !rematchIsLive(status)) return;
+    void respondToRematch(false);
+  }, [rematchEligible, respondToRematch]);
+
+  const dismissCard = useCallback(() => {
+    declineRematchQuietly();
+    close();
+  }, [declineRematchQuietly, close]);
+
   const playAgain = useCallback(() => {
     const requested = payload?.tournament;
     const isCurrentReport = () => {
@@ -331,6 +594,37 @@ export function TournamentRankingHost() {
     })();
   }, [tournamentId, payload?.tournament, close, navigate]);
 
+  /* The rematch's two plates. Play Again is a Yes while the offer is open;
+     once it has fallen through it is the ordinary Play Again above. */
+  const rematchPrimary = useCallback(() => {
+    const status = rematchStatusRef.current;
+    if (rematchJoinStartedRef.current) return;
+    if (rematchFellThrough(status)) {
+      playAgain();
+      return;
+    }
+    if (status === 'waiting_for_opponent' || status === 'finding_table' || status === 'matched')
+      return;
+    void respondToRematch(true).then((answer) => {
+      if (!isCurrentRematchReport()) return;
+      if (answer?.status === 'not_eligible' || answer === null) {
+        // The door could not take the answer: the ordinary Play Again stands.
+        if (answer?.status === 'not_eligible') setRematchEligible(false);
+        if (answer === null) playAgain();
+        return;
+      }
+      applyRematchAnswer(answer);
+    });
+  }, [playAgain, respondToRematch, applyRematchAnswer, isCurrentRematchReport]);
+
+  const rematchSecondary = useCallback(() => {
+    if (rematchJoinStartedRef.current) return;
+    void respondToRematch(false).then((answer) => {
+      if (!isCurrentRematchReport()) return;
+      applyRematchAnswer(answer ?? { status: 'you_declined' });
+    });
+  }, [respondToRematch, applyRematchAnswer, isCurrentRematchReport]);
+
   if (!payload?.tournament) return null;
   if (payload.tournament.userId && payload.tournament.userId !== readLocalSession()?.userId)
     return null;
@@ -375,8 +669,17 @@ export function TournamentRankingHost() {
          tests, so the asset on it IS the unit. */
         unitCents={arenaAssetUnitCents(payload.arenaAsset)}
         endedAt={payload.sessionEnd}
-        onDismiss={close}
+        onDismiss={dismissCard}
         onPlayAgain={playAgain}
+        rematch={
+          rematchEligible
+            ? {
+                ...rematchView(rematchStatus, rematchSeconds, rematchJoining),
+                onPrimary: rematchPrimary,
+                onSecondary: rematchSecondary,
+              }
+            : undefined
+        }
       />
     </Suspense>
   );
