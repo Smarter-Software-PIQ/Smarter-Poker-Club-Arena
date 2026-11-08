@@ -1045,6 +1045,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'River fast call-down'
   ),
   flag(
+    'probeAwareAggression',
+    "probe bets are not aggression (HorseOpponentExploit probeBetIndexes, ExploiterLeague): the share of an opponent's checked-to postflop bets that were probes (a big blind or a fifth of the pot or less) is taken back out of betCheckedTo, so a min-bettor is not read as a maniac whose real bets get called down; default on, false ablates (2026-11-08)",
+    'Probe-aware aggression'
+  ),
+  flag(
     'riverBluffFixedLimit',
     'fixed-limit path of the baseline river bluff range: the one fixed bet, so a low but real balanced share s/(1+s); default on, false restores the #9803 exclusion (2026-11-07)',
     'River bluff baseline'
@@ -4319,6 +4324,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (HorseRiverBluffRange, V11 gate)',
     'out-of-position river leads into the turn bettor: bluff_leadDraw / bluff_leadBlank (a bluff lead on a draw-completing or blank river), skip_station (a candidate checked because the bettor is a credible station), value_pass (the V11 gate let a value hand lead a draw-completing river)',
     'River lead range'
+  ),
+  // No floor: fires only against an opponent whose checked-to bets include probes.
+  receipt(
+    'opponent_read_probe_bets_discounted',
+    'HorseMind.opponentRead (probeAwareAggression)',
+    "an opponent read took the share of that player's checked-to bets that were probes back out of betCheckedTo",
+    'Probe-aware aggression'
   ),
   // No floor: fires only when a river opponent is read as calling down.
   receipt(

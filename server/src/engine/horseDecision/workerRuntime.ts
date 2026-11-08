@@ -577,7 +577,7 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     const previousScope = HorseMind.currentScope();
     HorseMind.setDecisionScope(completed.scope);
     try {
-      HorseMind.observe(completed.actions, [], identity);
+      HorseMind.observe(completed.actions, [], identity, undefined, request.bigBlind);
     } finally {
       HorseMind.setDecisionScope(previousScope);
     }

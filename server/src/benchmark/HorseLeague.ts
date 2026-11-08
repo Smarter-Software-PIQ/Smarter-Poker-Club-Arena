@@ -324,7 +324,52 @@ export interface LeagueHumanField {
    *  calibrated profile for the variant, as every card before it. Calibrated
    *  (non-V53) fields only. */
   profileOf?: (seatIdx: number) => Readonly<HumanCalibratedProfile> | undefined;
+  /** 2026-11-08 (ExploiterLeague): a scripted seat policy that plays a field
+   *  seat in place of the population's decision (a calling station, a river
+   *  over-bettor). It reads only its own cards and the public state, is
+   *  offered the same legal menu a calibrated seat gets, and its answer goes
+   *  through the same validation. Absent, or undefined for a seat: the
+   *  population decides, as every card before it. */
+  seatPolicyOf?: (seatIdx: number) => LeagueSeatPolicy | undefined;
 }
+
+/** What a scripted seat policy is shown: its own cards and the public state. */
+export interface LeagueSeatSpot {
+  variant: string;
+  isPotLimit: boolean;
+  stage: HandStage;
+  seatIdx: number;
+  numSeats: number;
+  dealerSeat: number;
+  bigBlind: number;
+  cards: Card[];
+  board: Card[];
+  pot: number;
+  toCall: number;
+  currentBet: number;
+  myBet: number;
+  stack: number;
+  /** Players still in the hand, the actor included. */
+  liveCount: number;
+  legalActions: string[];
+  /** Legal bet/raise-to range, or null when no wager is legal. */
+  minRaiseTo: number | null;
+  maxRaiseTo: number | null;
+  history: readonly ActionRecord[];
+  userId: string;
+  /** The production horse brain's decision for this seat, on this exact
+   *  state (the same HorseLogic.decide a horse seat runs, inside the hand's
+   *  sandbox). For policies that play like a horse except at the spot they
+   *  exploit; calling it consumes the deal's strategy randomness exactly as
+   *  a horse seat would. */
+  horseDecide: (
+    style: HorseStyle,
+    mods: HorseProfileMods,
+    opts: HorseDecideOpts
+  ) => { action: string; amount?: number };
+}
+
+export type LeagueSeatPolicy = (spot: LeagueSeatSpot) => { action: string; amount?: number };
 
 /**
  * 2026-11-07: a read-only observer of one dealt hand (RiverBluffBaselineLeague).
@@ -656,25 +701,47 @@ export function playHand(
         // Routed by the field's own seat assignment (the same predicate that
         // seated this player), so a seat's input device is chosen where the
         // seat was dealt, never re-derived from a flag on the player.
-        humanField?.isHuman(i) === true && humanField.population === V53_PRESSURE_POPULATION_ID
-          ? pressureFieldDecision(humanField, p, gs, currentBet, lastRaise, toCall)
-          : humanField?.isHuman(i) === true
-            ? humanFieldDecision(humanField, i, p, stage, boardCards, gameVariant, {
-                pot,
-                currentBet,
-                lastRaise,
-                toCall,
-                aggressionThisStreet: history.some(
-                  (a) =>
-                    a.stage === stage &&
-                    (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
-                ),
-              })
-            : sandbox
-              ? HorseMind.runInSandbox(sandbox, () =>
-                  HorseLogic.decide(p, gs, seat.style, seat.mods, seat.opts)
-                )
-              : HorseLogic.decide(p, gs, seat.style, seat.mods, seat.opts);
+        humanField?.isHuman(i) === true && humanField.seatPolicyOf?.(i) !== undefined
+          ? seatPolicyDecision(humanField.seatPolicyOf(i)!, {
+              i,
+              p,
+              stage,
+              board: boardCards,
+              gameVariant,
+              pot,
+              currentBet,
+              lastRaise,
+              toCall,
+              numSeats: SEATS,
+              dealerSeat,
+              liveCount: live().length,
+              history,
+              horseDecide: (style, mods, opts) =>
+                sandbox
+                  ? HorseMind.runInSandbox(sandbox, () =>
+                      HorseLogic.decide(p, gs, style, mods, opts)
+                    )
+                  : HorseLogic.decide(p, gs, style, mods, { ...opts, mind: false }),
+            })
+          : humanField?.isHuman(i) === true && humanField.population === V53_PRESSURE_POPULATION_ID
+            ? pressureFieldDecision(humanField, p, gs, currentBet, lastRaise, toCall)
+            : humanField?.isHuman(i) === true
+              ? humanFieldDecision(humanField, i, p, stage, boardCards, gameVariant, {
+                  pot,
+                  currentBet,
+                  lastRaise,
+                  toCall,
+                  aggressionThisStreet: history.some(
+                    (a) =>
+                      a.stage === stage &&
+                      (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
+                  ),
+                })
+              : sandbox
+                ? HorseMind.runInSandbox(sandbox, () =>
+                    HorseLogic.decide(p, gs, seat.style, seat.mods, seat.opts)
+                  )
+                : HorseLogic.decide(p, gs, seat.style, seat.mods, seat.opts);
 
       // Validate against the engine's own rules; downgrade an illegal action
       // to the safe fallback and count it (the conservation test asserts 0).
@@ -959,7 +1026,7 @@ export function playHand(
         const previousScope = HorseMind.currentScope();
         HorseMind.setDecisionScope(handScope);
         try {
-          HorseMind.observe(history, []);
+          HorseMind.observe(history, [], undefined, undefined, BB);
         } finally {
           HorseMind.setDecisionScope(previousScope);
         }
@@ -1046,6 +1113,68 @@ function humanFieldDecision(
     tally[d.action] = (tally[d.action] ?? 0) + 1;
   }
   return d.amount !== undefined ? { action: d.action, amount: d.amount } : { action: d.action };
+}
+
+/**
+ * A scripted seat policy's decision (LeagueHumanField.seatPolicyOf): the same
+ * legal menu humanFieldDecision offers, pot-limit aware, and the answer goes
+ * through the same validation in runStreet.
+ */
+function seatPolicyDecision(
+  policy: LeagueSeatPolicy,
+  t: {
+    i: number;
+    p: SeatPlayer;
+    stage: HandStage;
+    board: Card[];
+    gameVariant: string;
+    pot: number;
+    currentBet: number;
+    lastRaise: number;
+    toCall: number;
+    numSeats: number;
+    dealerSeat: number;
+    liveCount: number;
+    history: readonly ActionRecord[];
+    horseDecide: LeagueSeatSpot['horseDecide'];
+  }
+): { action: string; amount?: number } {
+  const { p, pot, currentBet, lastRaise, toCall } = t;
+  const isPotLimit = variantInfo(t.gameVariant).isPotLimit;
+  const legalActions: string[] = [];
+  if (toCall > 0) legalActions.push('fold');
+  else legalActions.push('check');
+  if (toCall > 0 && p.stack > toCall) legalActions.push('call');
+  const stackTo = p.bet + p.stack;
+  const potCapTo = isPotLimit ? currentBet + pot + toCall : Number.POSITIVE_INFINITY;
+  const maxTo = Math.min(stackTo, potCapTo);
+  const minTo = currentBet > 0 ? currentBet + Math.max(BB, lastRaise) : BB;
+  const canWager = maxTo > currentBet && maxTo >= minTo;
+  if (canWager) legalActions.push(currentBet > 0 ? 'raise' : 'bet');
+  if (p.stack > 0 && stackTo <= potCapTo) legalActions.push('all_in');
+  return policy({
+    variant: t.gameVariant,
+    isPotLimit,
+    stage: t.stage,
+    seatIdx: t.i,
+    numSeats: t.numSeats,
+    dealerSeat: t.dealerSeat,
+    bigBlind: BB,
+    cards: p.cards,
+    board: t.board,
+    pot,
+    toCall,
+    currentBet,
+    myBet: p.bet,
+    stack: p.stack,
+    liveCount: t.liveCount,
+    legalActions,
+    minRaiseTo: canWager ? minTo : null,
+    maxRaiseTo: canWager ? maxTo : null,
+    history: t.history,
+    userId: p.user_id,
+    horseDecide: t.horseDecide,
+  });
 }
 
 /**

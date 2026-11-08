@@ -221,7 +221,8 @@ export class HorseObserverReads {
             tableId: parts[0]!,
             handNumber: Number(parts[1]),
           },
-          entry.context.dealtCount
+          entry.context.dealtCount,
+          hand.bigBlind
         );
       HorseMind.observeHandComplete(
         hand.handKey,

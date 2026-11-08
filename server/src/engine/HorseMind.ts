@@ -94,6 +94,8 @@ import {
   barrelNarrowingScale,
   callDownRespectShift,
   exploitHandIncrements,
+  probeAdjustedCounters,
+  probeBetIndexes,
   freshExploitCounters,
   looseCallerWidth,
   maniacRaiseWidth,
@@ -225,6 +227,15 @@ export interface OpponentStats {
   rvOpps?: number;
   /** ... and calls or raises of them */
   rvCalls?: number;
+  // ── PROBE BETS (2026-11-08, HorseOpponentExploit probeBetIndexes). How
+  // many of this player's postflop bets into an unbet street were probes (a
+  // big blind, or a fifth of the pot or less). Counted only when the
+  // observation knows the big blind. Pooled and memory only, like rvOpps:
+  // never persisted, carried in read frames (v11) and by the mind mirror.
+  /** first wagers on a postflop street, observed with a known big blind */
+  ctBets?: number;
+  /** ... of which probes */
+  ctProbes?: number;
 }
 
 /** V43: a bet within this many ms of the previous action is a snap. */
@@ -595,9 +606,14 @@ export class HorseMind {
     history: ActionRecord[] | undefined,
     _players: SeatPlayer[],
     identity?: HorseMindHandIdentity | null,
-    originalDealtCount?: number
+    originalDealtCount?: number,
+    /** 2026-11-08: the hand's big blind, so a probe bet can be told from a
+     *  bet (OpponentStats.ctBets / ctProbes). Absent: neither is counted. */
+    bigBlind?: number
   ): void {
     if (!history || history.length === 0) return;
+    const probes =
+      typeof bigBlind === 'number' && bigBlind > 0 ? probeBetIndexes(history, bigBlind) : null;
 
     // Explicit null/invalid identity refuses the new mutation. Only legacy
     // direct/offline callers that omit the argument retain the old namespace.
@@ -750,6 +766,10 @@ export class HorseMind {
           s.aggr++;
           s.rAggr++;
           if (!preflop) s.postAggr++;
+          if (probes && !preflop && !facingAggr && a.action === 'bet') {
+            s.ctBets = (s.ctBets ?? 0) + 1;
+            s.ctProbes = (s.ctProbes ?? 0) + (probes.has(controllerOrdinal) ? 1 : 0);
+          }
           if (facingAggr) {
             s.facedAggr++;
             s.rFacedAggr++;
@@ -1125,6 +1145,29 @@ export class HorseMind {
     });
   }
 
+  /**
+   * PROBE BETS ARE NOT AGGRESSION (2026-11-08): while on, a read takes the
+   * share of this player's checked-to bets that were probes back out of
+   * betCheckedTo (HorseOpponentExploit probeAdjustedCounters). HorseLogic.decide
+   * sets it from HorseDecideOpts.probeAwareAggression for each decision and
+   * restores the default after; every read outside a decision uses the default.
+   */
+  private static probeAwareAggression = true;
+  static setProbeAwareAggression(on: boolean): void {
+    this.probeAwareAggression = on;
+  }
+
+  private static probeAdjusted<T extends Partial<ExploitCounters>>(
+    userId: string,
+    counters: T | undefined
+  ): T | undefined {
+    if (!counters || !this.probeAwareAggression) return counters;
+    const pooled = this.stats.get(userId);
+    const adjusted = probeAdjustedCounters(counters, pooled?.ctBets, pooled?.ctProbes);
+    if (adjusted !== counters) noteFire('opponent_read_probe_bets_discounted');
+    return adjusted;
+  }
+
   static opponentRead(userId: string): OpponentExploitRead | null {
     const scope = this.decisionScope;
     if (!scope) return null;
@@ -1152,10 +1195,13 @@ export class HorseMind {
           )
         : [];
     const read = opponentExploitRead(
-      durable ??
-        (this.durableOpponentMemory && variant
-          ? undefined
-          : this.exploitCounters.get(`${scope}|${userId}`)),
+      this.probeAdjusted(
+        userId,
+        durable ??
+          (this.durableOpponentMemory && variant
+            ? undefined
+            : this.exploitCounters.get(`${scope}|${userId}`))
+      ),
       scope,
       this.decisionVariant,
       siblings
@@ -1167,7 +1213,7 @@ export class HorseMind {
     if (family === 'omaha') {
       const presumed = presumedAggressorRead(
         read,
-        durable ?? this.exploitCounters.get(`${scope}|${userId}`),
+        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
         scope,
         this.decisionVariant
       );
@@ -1472,6 +1518,12 @@ export class HorseMind {
           ? { rvOpps: existing.rvOpps, rvCalls: existing.rvCalls ?? 0 }
           : r.rvOpps !== undefined
             ? { rvOpps: num(r.rvOpps), rvCalls: Math.min(num(r.rvCalls), num(r.rvOpps)) }
+            : {}),
+        // Probe tallies: memory only, the same rule as the river window.
+        ...(existing?.ctBets !== undefined
+          ? { ctBets: existing.ctBets, ctProbes: existing.ctProbes ?? 0 }
+          : r.ctBets !== undefined
+            ? { ctBets: num(r.ctBets), ctProbes: Math.min(num(r.ctProbes), num(r.ctBets)) }
             : {}),
       });
       applied++;
