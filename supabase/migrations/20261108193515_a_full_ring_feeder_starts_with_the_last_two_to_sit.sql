@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS public.cash_cluster_feeder_starts (
 COMMENT ON TABLE public.cash_cluster_feeder_starts IS
   'Full-ring must-move feeder starts (Dan 2026-11-08): Main 1 chairs held after the last two to sit were moved to a new feeder, and those two first-to-move players. Written only by fn_cash_cluster_tick.';
 ALTER TABLE public.cash_cluster_feeder_starts ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.cash_cluster_feeder_starts FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.cash_cluster_feeder_starts FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.cash_cluster_feeder_starts TO service_role;
 
 -- ONE DEFINITION: while a full-ring game has a feeder, an open chair on any of
