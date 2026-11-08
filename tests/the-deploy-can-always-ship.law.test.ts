@@ -55,9 +55,8 @@ describe('the engine deploy has one fail-closed Hetzner authority', () => {
     expect(triggers).toMatch(/^\s{2}push:$/m);
     expect(triggers).toContain('branches: [main]');
     expect(triggers).not.toMatch(/^\s+paths(?:-ignore)?:/m);
-    expect(triggers).not.toMatch(
-      /^\s{2}(?:repository_dispatch|pull_request|pull_request_target|workflow_run):/m
-    );
+    expect(triggers).toMatch(/^ {2}repository_dispatch:\n {4}types: \[prepare-daily-engine\]$/m);
+    expect(triggers).not.toMatch(/^\s{2}(?:pull_request|pull_request_target|workflow_run):/m);
     // The explicit migration continuation skips detection and every dependent engine signal.
     expect(engineSignal).toContain("if: github.event_name != 'workflow_dispatch'");
     expect(engineSignal).toContain('needs: detect');
