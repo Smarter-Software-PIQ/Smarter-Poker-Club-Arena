@@ -5,9 +5,17 @@
  * DOWN AND PLAY TOGETHER. IT JUST FROZE AND NEVER DEALT CARDS."
  *
  * The engine (TournamentRecurringService.seatFirstHumanPartnerHoldUntilMs)
- * keeps a seated player's open seats for other people until the later of the
- * board's own window (`start_time`) and 90 s after the first person sat,
- * never more than 350 s after it; then it fills them and the game deals.
+ * keeps a seated player's open seats for other people from 3 minutes after
+ * the first person sat, and never more than 7 minutes after it; then it fills
+ * them and the game deals.
+ *
+ * UPDATED 2026-11-08. It used to be "the later of the board's own window and
+ * 90 s", with a 350 s ceiling. A horse-opened board's window is now HOURS away
+ * (the waiting ladder, server/src/config/seatFirstLadder.ts), so taking the
+ * later of the two would have made the one person who actually sat down wait
+ * out the entire horse ladder. Dan's rule is counted from the moment they sat:
+ * "IF A HUMAN SITS AT AN EMPTY TABLE, OTHERS SHOULD JOIN THE SIT N GO WITHIN
+ * 3-7 MIN." The board's own window no longer enters into it.
  * This is the same rule, seen from the seat: the table names the wait and
  * counts it down instead of showing a felt that looks frozen.
  *
@@ -17,8 +25,8 @@
  * earlier the engine's hold ends sooner, never later: the countdown is an
  * upper bound and the game can only deal early.
  */
-export const SEAT_FIRST_PARTNER_HOLD_MS = 90_000;
-export const SEAT_FIRST_PARTNER_HOLD_MAX_MS = 350_000;
+export const SEAT_FIRST_PARTNER_HOLD_MS = 180_000;
+export const SEAT_FIRST_PARTNER_HOLD_MAX_MS = 420_000;
 /* The engine ends each board's hold somewhere in this spread after the
    rule's instant (SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS), so the opponent
    seat is never filled on the countdown's bell. The table counts down to the
@@ -40,7 +48,7 @@ export function seatFirstPartnerHoldEndsAtMs(
   }
   return Math.min(
     heroSeatedAtMs + SEAT_FIRST_PARTNER_HOLD_MAX_MS,
-    Math.max(start, heroSeatedAtMs + SEAT_FIRST_PARTNER_HOLD_MS) + SEAT_FIRST_PARTNER_HOLD_SPREAD_MS
+    heroSeatedAtMs + SEAT_FIRST_PARTNER_HOLD_MS + SEAT_FIRST_PARTNER_HOLD_SPREAD_MS
   );
 }
 
