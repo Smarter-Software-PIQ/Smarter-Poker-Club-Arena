@@ -4247,6 +4247,7 @@ export function holdemPremiumAggression(
       legalActions: gs.legalActions,
       minRaiseTo: gs.minRaiseTo,
       maxRaiseTo: gs.maxRaiseTo,
+      lastRaise: gs.lastRaise ?? gs.minRaise,
       actionHistory: gs.actionHistory,
       chipUnit: gs.chipUnit ?? (isTournamentMode(gs) ? 1 : 0.01),
       dominatedFold: opts.holdemDominatedFold !== false,

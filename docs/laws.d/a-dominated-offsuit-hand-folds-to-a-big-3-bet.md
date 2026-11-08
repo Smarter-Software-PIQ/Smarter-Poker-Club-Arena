@@ -1,0 +1,3 @@
+# server/src/engine/HorseDominatedThreeBetFold.law.test.ts
+
+Dan 2026-10-25 "THE ONE HORSE SHOULD BE FOLDING TO A HUGE THREE BET WITH KQO", pinned at its documented scope (HorseHoldemPremiumAggression rule 1): in no-limit hold'em, cash and tournaments, facing a 3-bet at least 2.5x the level it raised, deeper than 20bb effective, an offsuit unpaired hand other than AKo folds; an opener may also continue AQo, a cold caller folds it. Run through the whole brain heads-up, three-, six- and nine-handed at 25/40/80/150bb, with the controller's legal-action menu and without one: until 2026-11-07 a state with no menu (the league, the preflop audit) read as an empty menu and the rule stood aside, so a heads-up opener called a 3-bet to 8bb at 80bb with KQo, AJo and ATo.
