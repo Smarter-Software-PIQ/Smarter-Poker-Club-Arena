@@ -116,7 +116,7 @@ const defaults = (template: string, variant: string) => {
           ? [9, 6]
           : [2, 3, 4, 5, 6, 7, 8, 9]
         : [2, 3, 4, 5, 6, 7, 8],
-    min_buyin_bb: classic ? 40 : 100,
+    min_buyin_bb: 50,
     max_buyin_bb: 200,
     // Classic PLO5 and PLO6 play a BB ante and a 50% floor (20261024213131).
     regular_ante: classic && variant !== 'plo5' && variant !== 'plo6' ? 'none' : 'bb',
