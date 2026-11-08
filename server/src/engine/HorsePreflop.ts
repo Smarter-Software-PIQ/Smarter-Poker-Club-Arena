@@ -35,6 +35,7 @@ import { completePreflopCommitment } from './HorseContinuation.js';
 import { nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
 import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import { huBbRequiredEquity } from './HorseHuBbDefence.js';
+import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import {
   tournamentMZone,
   tournamentNextLevelProjectionApplies,
@@ -133,6 +134,10 @@ export interface PreflopCtx {
   /** V10: widen the isolation-raise range vs limpers in position (percentile
    *  points to loosen the open floor). 0 = off / legacy behavior. */
   isoWiden?: number;
+  /** LIMP-RERAISE READ (flag limpReraiseIsoRead): the strongest shrunk
+   *  limp-reraise rate among the limpers in front, present only when the read
+   *  engages (HorseLimpReraiseRead). Absent = today's isolation. */
+  limpReraiseRate?: number;
   /** V11 GAME MODE (Dan 2026-08-22): cash and tournaments are DIFFERENT games.
    *  Explicit mode from the table engine (tournament_id / game_type), never
    *  guessed from blind size. Absent = legacy behavior. */
@@ -1391,9 +1396,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // per-limper size bump below already punishes them. In position only, so
     // we are not bloating pots out of position.
     const isoW = ctx.isoWiden ?? 0;
-    if (isoW > 0 && limpers >= 1 && (position === 'late' || position === 'middle')) {
+    const limpReraiser = limpers >= 1 && ctx.limpReraiseRate !== undefined;
+    if (
+      isoW > 0 &&
+      limpers >= 1 &&
+      !limpReraiser &&
+      (position === 'late' || position === 'middle')
+    ) {
       openThresh -= isoW + Math.min(limpers - 1, 2) * 0.01;
     }
+    // LIMP-RERAISE READ: a limper seen to limp-reraise is isolated only with
+    // hands that stand his re-raise (HorseLimpReraiseRead).
+    if (limpReraiser) openThresh = limpReraiseIsoBar(openThresh, ctx.limpReraiseRate!);
 
     // Blind-vs-blind: heads-up SB vs BB plays much wider.
     // V11: TRUE heads-up (a 2-handed game, not just blinds left in a ring

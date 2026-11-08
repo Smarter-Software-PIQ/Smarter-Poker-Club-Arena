@@ -965,6 +965,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PfLeaks'
   ),
   flag(
+    'limpReraiseIsoRead',
+    "2026-11-07 default ON (exploiter league hx_limp_reraise, paired A/B on the same deals, 4 seeds x 8,000 pairs, horses' gain on minus off: six-max 40bb +12.3 +/- 3.0, 80bb +12.3 +/- 4.8 bb/100; mirror NLH 6/9-max 40/80bb cash and big-blind-ante tournament and the human-calibrated six-max field, two seeds x 20,000 pairs each: every card inert, no horse or human-field player limp-reraises enough to engage it): HorseMind counts, per player, the times a preflop limp met a raise behind it and the action came back, and the re-raises (OpponentStats.lrOpps / lrRaises, pooled, memory only, carried in read frames v12); the rate is shrunk toward a 5% population rate with 10 pseudo-observations, and against a limper whose shrunk rate is above 12% the no-limit hold'em isolation bar rises toward 0.58 strength (about the hands a horse continues against a 4x re-raise; the button over an under-the-gun limp at 40bb isolates 12% instead of 38%), fully at 30%, and the V10 isolation widen is withdrawn against him; nothing changes against a player never seen to limp-raise; explicit off arm retained; HorseLimpReraiseRead.ts; docs/changelog/2026-11-07-limp-reraise-read.md",
+    'PfLeaks'
+  ),
+  flag(
+    'commitUnderPot',
+    "2026-11-07 default OFF: in a heads-up no-limit hold'em pot on the flop or turn, a horse facing a bet whose remaining stack is smaller than the pot (the bet included) calls instead of folding (all in when the call is its stack), after every other layer (HorseLogic commitUnderPotCall); the committed branch (stack-to-pot under 1.2) already prices those calls at the pot odds; exploiter league hx_limp_reraise +6.8 +/- 2.4 (40bb) / +10.4 +/- 4.2 (80bb) bb/100, but the mirror and the human-calibrated field lose with it on every card measured (six-max cash 40bb -2.59 +/- 0.50 / -2.05 +/- 0.52, nine-max cash 40bb -1.68 +/- 0.34 / -1.74 +/- 0.34, six-max tournament 40bb -2.94 +/- 0.58 / -3.25 +/- 0.60, human six-max tournament 40bb -6.17 +/- 1.10 / -4.39 +/- 1.17), so it stays off; docs/changelog/2026-11-07-limp-reraise-read.md",
+    'PfLeaks'
+  ),
+  flag(
     'v77SeatAwareJams',
     "2026-11-02 (Burls via Dan: \"JAMMING ALL IN TOO MUCH, THEY AREN'T CONSIDERING THE UTG OR EARLY POSITION OPENERS\") the no-limit hold'em push/fold jam over exactly one open is tightened by the OPENER'S V70 per-seat open width (dealt-census indexed, ante-aware, HorseGtoVs3BetRanges.openWidth): the bar rises by 0.3 per unit of width the opener's seat does not open against the 40% late reference, capped at +0.10 (an under-the-gun ~12% width lands the 12-15bb bar at ~0.80, the same early bar the Phase 6 reshove node uses at 20bb); measured before (24 h to 2026-11-02 00:21 UTC, 439,087 facing-one-open spots): tournament jam rate 6.82% over an early open vs 8.11% over a late one at <=15bb, 3.53% vs 7.14% at 15-25bb; tighten-only (a 40%+ button or blind width keeps today's bar exactly); first-in jams (V71/V27), the facing-3-bet bar, the HorseTournamentShoveDiscipline caps and Omaha untouched; explicit off arm keeps the seat-blind bar",
     'V77'
@@ -4354,6 +4364,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic not-facing-a-bet river (HorseRiverBluffRange, V11 gate)',
     'out-of-position river leads into the turn bettor: bluff_leadDraw / bluff_leadBlank (a bluff lead on a draw-completing or blank river), skip_station (a candidate checked because the bettor is a credible station), value_pass (the V11 gate let a value hand lead a draw-completing river)',
     'River lead range'
+  ),
+  // No floor: fires only against a limper HorseMind has seen limp-reraise.
+  receipt(
+    'limp_reraise_iso_read',
+    'HorseLogic.decide (limpReraiseIsoRead)',
+    "an unopened no-limit hold'em pot with a limper whose shrunk limp-reraise rate engages the read: the isolation bar rose toward the hands that stand a re-raise and the V10 isolation widen was withdrawn",
+    'Limp-reraise read'
+  ),
+  // No floor: default-off flag.
+  receipt(
+    'commit_under_pot',
+    'HorseLogic.commitUnderPotCall (commitUnderPot)',
+    "a heads-up no-limit hold'em flop or turn fold with less than a pot behind became a call",
+    'Commit under the pot'
   ),
   // No floor: fires only against an opponent whose checked-to bets include probes.
   receipt(

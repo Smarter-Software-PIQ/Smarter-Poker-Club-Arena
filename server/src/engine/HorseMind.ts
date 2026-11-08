@@ -240,6 +240,12 @@ export interface OpponentStats {
   ctBets?: number;
   /** ... of which probes */
   ctProbes?: number;
+  // ── LIMP-RERAISE (2026-11-07, HorseLimpReraiseRead.ts). Pooled and memory
+  // only, like the probe tallies.
+  /** times their preflop limp met a raise behind it and they acted again */
+  lrOpps?: number;
+  /** ... and re-raised */
+  lrRaises?: number;
 }
 
 /** V43: a bet within this many ms of the previous action is a snap. */
@@ -1047,6 +1053,8 @@ export class HorseMind {
       return p;
     };
 
+    // Limp-reraise read: players who limped and have not yet answered a raise.
+    const limpedPending = new Set<string>();
     for (let controllerOrdinal = 0; controllerOrdinal < history.length; controllerOrdinal++) {
       const a = history[controllerOrdinal];
       // Preserve compatibility of individual legacy reads. The shared exploit
@@ -1234,6 +1242,18 @@ export class HorseMind {
         );
       }
 
+      if (preflop && a.userId) {
+        if (preflopRaises >= 1 && limpedPending.has(a.userId)) {
+          // The limper's next action after a raise came in behind the limp.
+          limpedPending.delete(a.userId);
+          if (isNew) {
+            s.lrOpps = (s.lrOpps ?? 0) + 1;
+            if (isAggr) s.lrRaises = (s.lrRaises ?? 0) + 1;
+          }
+        } else if (preflopRaises === 0 && a.action === 'call') {
+          limpedPending.add(a.userId);
+        }
+      }
       if (preflop && isAggr) preflopRaises++;
     }
     // Separate original-hand dedupe: a legacy observer may already have seen
@@ -1916,6 +1936,12 @@ export class HorseMind {
           ? { ctBets: existing.ctBets, ctProbes: existing.ctProbes ?? 0 }
           : r.ctBets !== undefined
             ? { ctBets: num(r.ctBets), ctProbes: Math.min(num(r.ctProbes), num(r.ctBets)) }
+            : {}),
+        // Limp-reraise tallies: memory only, the same rule.
+        ...(existing?.lrOpps !== undefined
+          ? { lrOpps: existing.lrOpps, lrRaises: existing.lrRaises ?? 0 }
+          : r.lrOpps !== undefined
+            ? { lrOpps: num(r.lrOpps), lrRaises: Math.min(num(r.lrRaises), num(r.lrOpps)) }
             : {}),
       });
       applied++;
@@ -3682,6 +3708,14 @@ export class HorseMind {
     const s = this.readStats(id);
     if (!s || s.cbetOpps < 10) return null;
     return this.shrunkResponseRate('foldToCbet', s.cbetFolds, s.cbetOpps);
+  }
+
+  /** Limp-reraise tallies (HorseLimpReraiseRead), pooled: the chances a
+   *  limp met a raise behind it and the re-raises. Null when never seen. */
+  static limpReraiseOf(id: string): { opps: number; raises: number } | null {
+    const s = this.stats.get(id);
+    if (!s || !(s.lrOpps! > 0)) return null;
+    return { opps: s.lrOpps!, raises: Math.min(s.lrRaises ?? 0, s.lrOpps!) };
   }
 
   /** Fold-to-3-bet frequency (0..1), or null below an 8-opportunity sample. */

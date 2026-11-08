@@ -31,6 +31,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the actual prior aggressor current-street check that releases the reference initiative gate without changing value pricing or legal sizing',
     'src/engine/HorseFeatureAuthority.ts':
       'boundary: exact qualified feature composition and live economic domain derive reference options; missing selection never activates a candidate',
+    'src/engine/HorseLimpReraiseRead.ts':
+      "the limp-reraise read (2026-11-07): the shrunk limp-reraise rate and the no-limit hold'em isolation bar against a limper seen to limp-reraise",
     'src/engine/HorseFastCalldownRead.ts':
       'the fast call-down read (2026-11-07): recent river call rate from the river recency and exploit fast windows, the station and calling-more flags and the fold-rate input the river bluff layers price with',
     'src/engine/HorseMultiwayRiverRead.ts':

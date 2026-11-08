@@ -21,6 +21,7 @@ import {
 import { hasPhysicalImpliedDraw } from './HorseOmahaImpliedDraw.js';
 import { horsePlanHandKey } from './HorseDecisionEffects.js';
 import { headsUpCashCommitment } from './HorseHeadsUpCommitment.js';
+import { limpReraiseEngagement, limpReraiseRate } from './HorseLimpReraiseRead.js';
 import {
   computeContinuationContenderFingerprint,
   evaluateMultiStreetBarrelContinuation,
@@ -2491,6 +2492,17 @@ export interface HorseDecideOpts {
    *  hand whose call is the stack jams instead of folding: a 20bb opener
    *  facing a 3-bet to 11bb folded 97-98% of its open. Default OFF. */
   vs3BetShortStack?: boolean;
+  /** LIMP-RERAISE READ (2026-11-07, HorseLimpReraiseRead.ts): against a
+   *  limper HorseMind has seen limp-reraise (shrunk toward the population),
+   *  the isolation bar rises toward the hands that stand a re-raise and the
+   *  V10 isolation widen is withdrawn. Default ON (exploiter league
+   *  hx_limp_reraise, docs/changelog/2026-11-07-limp-reraise-read.md);
+   *  explicit false keeps today's isolation. */
+  limpReraiseIsoRead?: boolean;
+  /** COMMIT UNDER THE POT (2026-11-07, commitUnderPotCall): heads-up NLH
+   *  flop or turn, facing a bet with a remaining stack smaller than the pot,
+   *  the horse calls instead of folding. Default OFF: only explicit true. */
+  commitUnderPot?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -4241,6 +4253,52 @@ function riverBluffCheckRaise(
 }
 
 /**
+ * COMMIT UNDER THE POT (2026-11-07, flag commitUnderPot, default off): in a
+ * heads-up no-limit hold'em pot on the flop or turn, a horse facing a bet
+ * whose whole remaining stack is smaller than the pot already in the middle
+ * (the bet included) does not fold: it calls, all in when the call is its
+ * stack. The exploiter suite found horses that called a limper's 4x re-raise
+ * at 40bb still folding about half their flops to a bet with less than a
+ * pot behind (docs/changelog/2026-11-07-limp-reraise-read.md). The brain's
+ * committed branch (stack-to-pot under 1.2) already prices such calls at the
+ * pot odds; this rule removes the fold outright. Runs with the owner rules,
+ * after every other layer.
+ */
+export function commitUnderPotCall(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.commitUnderPot !== true || decision.action !== 'fold') return decision;
+  if (gs.stage !== 'flop' && gs.stage !== 'turn') return decision;
+  if (String(gs.gameVariant ?? '').toLowerCase() !== 'nlh') return decision;
+  if (gs.bettingStructure && gs.bettingStructure !== 'no_limit') return decision;
+  if (gs.bombPot === true || gs.communityCards2?.length || gs.communityCards3?.length)
+    return decision;
+  const live = (gs.players ?? []).filter((p) => p.seat !== player.seat && !p.is_folded);
+  if (live.length !== 1) return decision;
+  const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  const toCall = Number.isFinite(gs.toCall)
+    ? Math.max(0, gs.toCall as number)
+    : Math.max(0, (gs.currentBet ?? 0) - (player.bet ?? 0));
+  const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+  if (toCall <= 0.005 || stack <= 0.005 || !(stack < pot)) return decision;
+  const legal = Array.isArray(gs.legalActions) ? new Set<string>(gs.legalActions) : null;
+  const cents = (v: number) => Math.round(v * 100) / 100;
+  if (toCall >= stack - 0.005) {
+    if (legal && !legal.has('all_in') && !legal.has('call')) return decision;
+    if (telemetryOn(opts)) noteFire('commit_under_pot');
+    return legal && !legal.has('all_in')
+      ? { ...decision, action: 'call', amount: cents(stack) }
+      : { ...decision, action: 'all_in', amount: undefined };
+  }
+  if (legal && !legal.has('call')) return decision;
+  if (telemetryOn(opts)) noteFire('commit_under_pot');
+  return { ...decision, action: 'call', amount: cents(toCall) };
+}
+
+/**
  * Dan 2026-10-25: in no-limit hold'em a premium (QQ+, AK) is never played
  * passively, and a dominated offsuit hand folds to a big 3-bet. See
  * HorseHoldemPremiumAggression.ts. Applied after every other layer, and the
@@ -4248,12 +4306,13 @@ function riverBluffCheckRaise(
  * re-raise still obeys the deep-shove rule.
  */
 export function holdemPremiumAggression(
-  decision: HorseDecision,
+  input: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
   opts: HorseDecideOpts = {}
 ): HorseDecision {
-  if (opts.holdemPremiumAggression === false) return decision;
+  if (opts.holdemPremiumAggression === false) return input;
+  const decision = commitUnderPotCall(input, player, gs, opts);
   let verdict: HoldemPremiumVerdict<HorseDecision> | null;
   try {
     verdict = holdemPremiumAggressionVerdict(decision, {
@@ -7395,6 +7454,9 @@ export class HorseLogic {
     let exploitPressure: AggressiveOpenerPressure | undefined;
     let exploitReRaiser: { fourBetBar: number; callBar: number } | undefined;
     let exploitIso = 0;
+    // LIMP-RERAISE READ (flag limpReraiseIsoRead, HorseLimpReraiseRead): the
+    // strongest shrunk limp-reraise rate among the limpers in front.
+    let limpReraiseRate69: number | undefined;
     if (opts.mind !== false) {
       try {
         const raiser =
@@ -7413,7 +7475,18 @@ export class HorseLogic {
             if (a.stage !== 'preflop' || a.action !== 'call' || a.userId === player.user_id)
               continue;
             exploitIso = Math.max(exploitIso, isolationWiden(HorseMind.opponentRead(a.userId)));
+            if ((opts.limpReraiseIsoRead ?? true) !== false) {
+              const lr = HorseMind.limpReraiseOf(a.userId);
+              const rate = limpReraiseRate(lr?.raises ?? 0, lr?.opps ?? 0);
+              limpReraiseRate69 = Math.max(limpReraiseRate69 ?? 0, rate);
+            }
           }
+          if (
+            limpReraiseRate69 !== undefined &&
+            limpReraiseEngagement(limpReraiseRate69) > 0 &&
+            telemetryOn(opts)
+          )
+            noteFire('limp_reraise_iso_read');
         }
         if (telemetryOn(opts) && (exploitOpener || exploitReRaiser || exploitIso > 0))
           noteFire('opponent_exploit_preflop');
@@ -7736,6 +7809,9 @@ export class HorseLogic {
       // NLH only: widening the iso range vs limpers is an NLH edge; PLO limped
       // pots play multiway/postflop where a wide iso bloats pots out of line.
       isoWiden: ((opts.v10Iso ?? opts.v10) !== false && !vi.isOmaha ? 0.06 : 0) + exploitIso,
+      ...(limpReraiseRate69 !== undefined && limpReraiseEngagement(limpReraiseRate69) > 0
+        ? { limpReraiseRate: limpReraiseRate69 }
+        : {}),
       // V11: explicit game mode + ante awareness (undefined when disabled so
       // the preflop layer keeps exact legacy behavior in ablation runs).
       mode: opts.v11 !== false ? (isTournamentMode(gs) ? 'tournament' : 'cash') : undefined,
