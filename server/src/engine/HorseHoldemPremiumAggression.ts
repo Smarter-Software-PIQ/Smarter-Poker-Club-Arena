@@ -160,9 +160,17 @@ export interface HoldemPremiumInput {
   currentBet: number;
   bigBlind: number;
   toCall?: number;
+  /**
+   * The controller's menu. Absent (an offline caller: the league, the audit
+   * harness, a replay without a schema-1 snapshot), the menu is derived from
+   * the state by `legalMenu` below, so the owner rules hold for every caller.
+   */
   legalActions?: readonly string[];
   minRaiseTo?: number | null;
   maxRaiseTo?: number | null;
+  /** The size of the last full raise this street (the state's lastRaise, else
+   *  its minRaise); derives the minimum raise only when no menu was given. */
+  lastRaise?: number;
   actionHistory?: readonly HoldemPremiumActionRecord[];
   /**
    * True when the brain reads the seat that made the last preflop raise as a
@@ -493,17 +501,65 @@ function effectiveBB(i: HoldemPremiumInput, opponentSeat: number | null): number
   return Math.min(hero, villain) / finite(i.bigBlind);
 }
 
+export interface HoldemPremiumMenu {
+  legal: ReadonlySet<string>;
+  minTo: number | null;
+  maxTo: number;
+}
+
+/**
+ * The actions open to the hero. The controller's menu when the state carries
+ * one (the live worker always does). Without one, the no-limit menu the
+ * table would offer, from the same state: fold or check, call while the
+ * stack covers more than the call, a bet or raise to at least the big blind
+ * or the last full raise over the current bet, and all in.
+ *
+ * Until 2026-11-07 an absent menu read as an EMPTY menu, so every rule here
+ * silently stood aside for offline callers: a heads-up opener called a 3-bet
+ * to 8bb at 80bb with KQo, AJo and ATo in the league and the preflop audit,
+ * against the 2026-10-25 owner rule, while the live table folded them.
+ */
+export function legalMenu(i: HoldemPremiumInput): HoldemPremiumMenu {
+  const stack = Math.max(0, finite(i.hero.stack));
+  const bet = Math.max(0, finite(i.hero.bet));
+  if (Array.isArray(i.legalActions)) {
+    return {
+      legal: new Set(i.legalActions),
+      minTo: Number.isFinite(i.minRaiseTo) ? (i.minRaiseTo as number) : null,
+      maxTo: Number.isFinite(i.maxRaiseTo) ? (i.maxRaiseTo as number) : stack + bet,
+    };
+  }
+  const toCall = toCallOf(i);
+  const bb = finite(i.bigBlind);
+  const current = Math.max(0, finite(i.currentBet));
+  const legal = new Set<string>();
+  if (toCall > 0.005) {
+    legal.add('fold');
+    if (stack > toCall + 0.005) legal.add('call');
+  } else {
+    legal.add('check');
+  }
+  if (stack > 0.005) legal.add('all_in');
+  // Whole settlement units: the least legal size rounds up, the stack down.
+  const unit = i.chipUnit === 1 ? 1 : 0.01;
+  const units = (n: number) => (unit === 1 ? n : Math.round(n) / 100);
+  const up = (v: number) => units(Math.ceil(v / unit - 1e-6));
+  const down = (v: number) => units(Math.floor(v / unit + 1e-6));
+  const maxTo = down(stack + bet);
+  const minTo = up(current > 0.005 ? current + Math.max(bb, finite(i.lastRaise)) : bb);
+  const kind = current > 0.005 ? 'raise' : 'bet';
+  // A stack that cannot reach the least raise has only the all-in.
+  if (maxTo > minTo + 0.005) legal.add(kind);
+  return { legal, minTo: legal.has(kind) ? minTo : null, maxTo };
+}
+
 /** A legal wager of `to` (absolute street total), or null when none is legal. */
 function wager(
   i: HoldemPremiumInput,
   to: number,
   kind: 'bet' | 'raise'
 ): HoldemPremiumDecision | null {
-  const legal = new Set(i.legalActions ?? []);
-  const minTo = Number.isFinite(i.minRaiseTo) ? (i.minRaiseTo as number) : null;
-  const maxTo = Number.isFinite(i.maxRaiseTo)
-    ? (i.maxRaiseTo as number)
-    : finite(i.hero.stack) + finite(i.hero.bet);
+  const { legal, minTo, maxTo } = legalMenu(i);
   const unit = i.chipUnit === 1 ? 1 : 0.01;
   const toUnit = (v: number): number => (unit === 1 ? Math.round(v) : Math.round(v * 100) / 100);
   if (legal.has(kind) && minTo !== null && maxTo >= minTo - 0.005) {
@@ -533,7 +589,7 @@ function preflopVerdict(
 ): HoldemPremiumVerdict | null {
   const read = readPreflop(i);
   const toCall = toCallOf(i);
-  const legal = new Set(i.legalActions ?? []);
+  const { legal } = legalMenu(i);
   const bb = finite(i.bigBlind);
 
   const deepEnough = effectiveBB(i, read.lastRaiserSeat) > PUSH_FOLD_EFFECTIVE_BB;
