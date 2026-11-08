@@ -28030,7 +28030,17 @@ function LiveTablePage({
             />
           </div>
         }
-        centerTop={
+        leftDock={
+          /* STAND UP & LEAVE IS IN THE UPPER LEFT (Dan 2026-11-08): "THE 'STAND
+           UP & LEAVE' BUTTON SHOULD NOT BE IN THE MIDDLE OF THE TABLE. IT
+           SHOULD BE IN THE UPPER LEFT HAND CORNER BELOW THE HAMBURGER MENU.
+           NOT OVERLAPPING ANYTHING ... IT SHOULD BE LINED UP HOW THE 'CHAT
+           MESSAGE ICON IS'." It was `centerTop`, which is the HUD's one
+           centring slot, so it floated over the felt above the pot. `leftDock`
+           pins it under the top chrome on the left edge, on the chat icon's
+           line (.hud-leave-dock, TableHUD.css). It shares that spot with
+           nothing: the seat-change dock above mounts only when there is no
+           lightning room, and this only when there is one. */
           lightningRoom && !lightningRoomClosed && userId && userId !== 'guest' ? (
             <LightningLeaveControl
               key={`${lightningRoom.poolSessionId}/${userId}`}

@@ -320,3 +320,64 @@
     --sp-hud-tile-radius: 8px;
   }
 }
+
+/* ── STAND UP & LEAVE IS IN THE UPPER LEFT (Dan 2026-11-08) ──────────────────
+   "THE 'STAND UP & LEAVE' BUTTON SHOULD NOT BE IN THE MIDDLE OF THE TABLE. IT
+   SHOULD BE IN THE UPPER LEFT HAND CORNER BELOW THE HAMBURGER MENU. NOT
+   OVERLAPPING ANYTHING OR INSIDE ITS CURRENT LOCATION. ... IT SHOULD BE LINED
+   UP HOW THE 'CHAT MESSAGE ICON IS'."
+
+   It used to be TableHUD's `centerTop` — the one slot in the upper row that
+   centres — so on a Lightning table a 180px plate floated over the middle of
+   the felt, above the pot. It is now its own pinned dock on the LEFT edge,
+   and the anchor is deliberately byte-for-byte the expression `.chat-collapsed`
+   uses on phones (TableChat.css): safe-area inset + 54px, which is the 42px
+   tab bar plus the 12px clearance from the 2026-08-25 derivation. Same number
+   on both edges, so the two buttons sit on one line by construction rather
+   than by two stylesheets agreeing on a pixel — the failure this codebase has
+   already paid for twice (see THE BOTTOM-EDGE LINE at the top of this file).
+
+   IT CANNOT COLLIDE WITH THE SEAT CHANGE BUTTON, which is pinned to the same
+   spot. The two are mutually exclusive at the source: `.hud-seat-change-dock`
+   mounts only when `!lightningRoom` and this control only when `lightningRoom`
+   (TablePage.tsx, the `upperRight` and `leftDock` slots). Do not give either
+   one a reason to render on the other's table without moving one of them.
+
+   Pinned by tests/unit/standUpAndLeaveIsInTheUpperLeft.test.ts. */
+.hud-leave-dock {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 54px);
+  left: 6px;
+  right: auto;
+  z-index: 101;
+  /* ONE LINE, NOT ONE TOP EDGE. The chat button is a --sp-tabbar-control box
+     (52px) whose artwork carries its own transparent margin, and this plate is
+     a 1280x315 shell that fills its box edge to edge at ~44px tall. Matching
+     the two TOPS therefore prints the plate visibly higher than the bubble,
+     which is what "lined up how the chat message icon is" rules out. The dock
+     takes the chat button's own height and centres the plate inside it, so the
+     two read as level without a magic offset that would rot the next time
+     either asset is redrawn. */
+  height: var(--sp-tabbar-control, 52px);
+  display: flex;
+  align-items: center;
+  /* The layer is transparent to input and its child takes the tap, for the
+     same reason the corners are — see THE CORNERS DO NOT CATCH TAPS above. */
+  pointer-events: none;
+}
+
+.hud-leave-dock > * {
+  pointer-events: auto;
+}
+
+/* A table in a multi-table slot already starts BELOW the tab bar, and that
+   slot's `contain: layout paint` (MultiTablePage.css) makes it the containing
+   block for the fixed layers inside it — so the bar's height would be counted
+   twice and the plate would hang over the top seats. Anchor in the owned slot
+   and keep the same 12px under-bar gap. This is the correction
+   `.multi-table-page .chat-collapsed` already carries; the containment is not
+   width-dependent, so neither is this. */
+.multi-table-page .hud-leave-dock {
+  position: absolute;
+  top: 12px;
+}
