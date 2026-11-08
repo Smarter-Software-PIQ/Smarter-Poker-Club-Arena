@@ -258,15 +258,42 @@ export function v81Cell(i: V81Input): string | null {
  * flush_nut_paired (n 1 day A), nut straights and full houses (win).
  * Per-slice outputs: docs/horse-measure/2026-11-07/v84-river-reraise-cells.txt.
  *
+ * Denominator (re-measured 2026-11-07 before activation, same two days, no
+ * filter at all: omaha-river-reraise-opportunities.sql and
+ * omaha-river-reraise-denominator.ts): the horses met this spot with an
+ * unpaired second-nut flush 49 times and CALLED all 49 (no fold, no re-raise);
+ * 22 fell to the V81 exclusions (14 raises under 0.9 pot, 4 heads-up tables,
+ * 2 bounty events, 2 at 20bb or less), leaving exactly the 27 calls above,
+ * matched hand for hand. None was a chop (a split pot's partial return is
+ * inside `net`, so a chop would have counted at its fractional value), none
+ * ran it twice, none was on an all-in-or-fold table. Every showdown was a
+ * nut flush or a straight flush.
+ *
+ * Price: the 27 calls needed 0.028 to 0.333 equity (call over the pot after
+ * calling; median 0.333). Zero wins in 27 bounds the true win rate at 0.105
+ * (one-sided 95%), so the evidence cannot say a call priced BELOW that loses.
+ * Four calls were (a horse all in for 2 to 61 chips into a large pot, prices
+ * 0.028, 0.048, 0.066, 0.096). V84 therefore folds only at a price of
+ * V84_MIN_CALL_PRICE or more: the 23 calls priced 0.134 and up all lost
+ * (day A n 11, day B n 12; 0/23 bounds the win rate at 0.122, under every
+ * price in that set), and a cheaper call keeps today's answer.
+ *
  * Limits: only the horses' own calls are observed, ICM is not modelled, and
  * a bettor MEASURED as a postflop over-bluffer keeps today's call, as in V81.
+ * All-in-or-fold tables were never observed in this spot and are excluded.
  */
 export const V84_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5', 'plo6']);
 const V84_RIVER_CELLS = new Set(['flush_second']);
+/** The cheapest call V84 folds: call / (pot + call), the equity it needs. */
+export const V84_MIN_CALL_PRICE = 0.13;
 
 export interface V84Input extends Omit<V81Input, 'heroHasStreetChips'> {
   /** The horse itself bet or raised this street before the raise it faces. */
   heroWageredStreet: boolean;
+  /** The chips the call puts in (capped at the stack) over the pot after it. */
+  callPrice: number;
+  /** An all-in-or-fold table: never observed in this spot. */
+  allInOrFold: boolean;
 }
 
 /** True when `seat` bet, raised or went all in on `street` (public history). */
@@ -289,8 +316,9 @@ export function v84Cell(i: V84Input): string | null {
   const variant = String(i.variant).toLowerCase();
   if (!V84_VARIANTS.has(variant)) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.headsUpTable || i.bountyEvent) return null;
-  if (!i.heroWageredStreet || i.bettorOverBluffs) return null;
+  if (!i.heroWageredStreet || i.bettorOverBluffs || i.allInOrFold) return null;
   if (!(i.potFrac >= V81_MIN_POT_FRAC) || !(i.effectiveBB > V81_MIN_EFFECTIVE_BB)) return null;
+  if (!(i.callPrice >= V84_MIN_CALL_PRICE)) return null;
   if (!Array.isArray(i.hole) || i.hole.length !== Number(variant.slice(3))) return null;
   if (i.street !== 'river' || !Array.isArray(i.board) || i.board.length !== 5) return null;
   const cls = omahaCallClass(i.hole, i.board);

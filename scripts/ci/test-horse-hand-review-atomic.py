@@ -517,10 +517,13 @@ def main():
                  arithmetic_equivalence)
 
             # ══ Receipt retention: 20261008041150 ═══════════════════════════
-            # Everything above qualified 20261007020953 alone. The cases below
-            # apply the retention migration, unchanged, over that state and prove
-            # the replay contract survives bounded pruning. Every time is taken
-            # from the cluster clock, so the cases never age.
+            # A–J use fixed UTC dates to prove exact publication arithmetic and
+            # intentionally leave orphan receipts. Start the retention cohort
+            # empty so those receipts cannot age into its global prune counts.
+            # R0 creates genuine pre-migration receipts before installing retention.
+            sql("""TRUNCATE public.horse_hand_review_receipts, public.horse_hand_reviews,
+                            public.horse_review_rollup;""")
+
             def at(days, minutes=0):
                 return sql(f"""SELECT to_char((now() - interval '{days} days' - interval '{minutes} minutes')
                                AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');""")
@@ -550,6 +553,13 @@ def main():
             def prosrc(sig):
                 return sql(f"SELECT prosrc FROM pg_proc WHERE oid = '{sig}'::regprocedure;")
 
+            # Atomic-publication cases deliberately leave historical receipts
+            # whose review rows were removed. Their fixed October dates can
+            # legitimately age past the receipt horizon. Retention qualification
+            # owns a fresh, self-contained population; do not let those earlier
+            # witnesses change R6's exact zero-prune assertion as the date moves.
+            # This is the private qualification cluster, never production.
+            sql('TRUNCATE public.horse_hand_review_receipts, public.horse_hand_reviews, public.horse_review_rollup;')
             retention_sql = RETENTION.read_text()
             hand_old, hand_old_b, hand_lg = u('ret-hand-old'), u('ret-hand-old-b'), u('ret-hand-legacy')
             old_1, old_2 = sorted([u('ret-old-1'), u('ret-old-2')])

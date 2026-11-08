@@ -68,6 +68,29 @@ export function decodedCardImageUrl(url: string): string {
   return decoded.get(url)?.src ?? url;
 }
 
+/** Paint retained decoded pixels, rather than starting another image load on mount. */
+export function drawDecodedCardImage(url: string, canvas: HTMLCanvasElement): boolean {
+  delete canvas.dataset.cardArtworkReady;
+  canvas.width = 0;
+  canvas.height = 0;
+  const image = decoded.get(url);
+  if (!image || !image.naturalWidth || !image.naturalHeight) return false;
+  try {
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('card_artwork_context_unavailable');
+    context.drawImage(image, 0, 0);
+    canvas.dataset.cardArtworkReady = 'true';
+    return true;
+  } catch {
+    // A failed draw must not retain an old card or claim artwork readiness.
+    canvas.width = 0;
+    canvas.height = 0;
+    return false;
+  }
+}
+
 export function isDeckReady(style: DeckStyle): boolean {
   return ready.has(style);
 }

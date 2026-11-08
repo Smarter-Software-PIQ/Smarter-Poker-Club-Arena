@@ -159,4 +159,26 @@ describe('the Mac runs the push checks the way CI does', () => {
     );
     expect(build).toBeLessThan(hook.indexOf('running the server test files you changed'));
   });
+
+  it('drops the git environment the hook inherited before any check or test can inherit it (2026-11-07)', () => {
+    // Git exports GIT_DIR to its hooks. A fixture repository under $TMPDIR, or
+    // a benchmark reader spawning git from server/, inherits the pointer and
+    // fails "this operation must be run in a work tree" - an environment
+    // verdict wearing a change's name. Eleven server benchmark cases refused a
+    // workflow-only Mac push this way on 2026-11-07.
+    const unset = hook.match(/^unset GIT_DIR(?:[^\n\\]|\\\n)*/m);
+    expect(unset, 'the hook unsets GIT_DIR').not.toBeNull();
+    for (const v of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) {
+      expect(unset![0]).toContain(v);
+    }
+    const firstCheck = hook.indexOf('guard-shared-clone.sh');
+    expect(unset!.index!).toBeLessThan(firstCheck);
+    // The hook's own git must still find this tree from its working directory.
+    const r = spawnSync('bash', ['-c', `${unset![0]}\ngit rev-parse --show-toplevel`], {
+      encoding: 'utf8',
+      env: { ...process.env, GIT_DIR: '/nonexistent/.git' },
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout.trim()).toBe(process.cwd());
+  });
 });

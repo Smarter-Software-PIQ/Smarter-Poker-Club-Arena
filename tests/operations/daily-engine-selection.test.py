@@ -17,6 +17,11 @@ class DailySelection(unittest.TestCase):
             value = datetime.fromtimestamp(mod.cutoff(day), timezone.utc)
             self.assertEqual((value.hour, value.minute), (hour, 30))
 
+    def test_backup_refuses_qualification_time_without_offset(self):
+        status = {'state': 'SUCCESS', 'createdAt': '2026-11-07T03:29:00'}
+        with self.assertRaisesRegex(ValueError, 'UTC offset'):
+            mod.backup('o/r', 'a' * 40, mod.cutoff('2026-11-07'), status)
+
     def test_future_status_and_failed_status_never_enter_certificate_read(self):
         for state, stamp in [('PENDING', '2026-11-07T09:00:00Z'), ('SUCCESS', '2026-11-07T09:30:01Z')]:
             with patch.object(mod, 'api', side_effect=AssertionError):
