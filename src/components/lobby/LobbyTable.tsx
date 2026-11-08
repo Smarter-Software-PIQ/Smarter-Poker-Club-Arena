@@ -1029,8 +1029,11 @@ function TournamentHeadingRow({
               {heading}
             </span>
             {/* Dan 2026-11-07: a free roll prints which event it is running
-                as a second title under the name (freeBuyKindLabel). */}
-            {freeBuyKind && <span className="lt-tournament-heading__format">{freeBuyKind}</span>}
+                as a second title under the name (freeBuyKindLabel), at the
+                title's size or a notch under ("BLUE FONTS NEED TO BE
+                LARGER") - so a long combination shrinks to fit its face
+                rather than losing its last words to an ellipsis. */}
+            {freeBuyKind && <HeadingFormatLine text={freeBuyKind} />}
             {playerState && <PlayerStateChip state={playerState} heading />}
           </span>
           <strong className="lt-tournament-heading__guarantee">
@@ -1046,6 +1049,16 @@ function TournamentHeadingRow({
         </span>
       </td>
     </tr>
+  );
+}
+
+/** The freeroll second title, fitted to the same name face as the title. */
+function HeadingFormatLine({ text }: { text: string }) {
+  const ref = useFitText<HTMLSpanElement>(text, 1, 0.55);
+  return (
+    <span ref={ref} className="lt-tournament-heading__format" title={text}>
+      {text}
+    </span>
   );
 }
 
