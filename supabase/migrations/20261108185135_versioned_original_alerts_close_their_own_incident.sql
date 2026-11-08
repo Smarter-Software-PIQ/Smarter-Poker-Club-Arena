@@ -72,12 +72,21 @@ BEGIN
            bool_and(COALESCE(e.detail->'financial_member_version'='1'::jsonb
              AND e.detail->>'source'=original.source
              AND a.source='Tournament.satellite_boundary_held' AND a.resolved
-             AND a.context->>'receipt_proven_tournament_completion'='true',false))
+             AND t.status='COMPLETED' AND t.current_players=0
+             AND e_escrow.prize_balance=0 AND e_escrow.bounty_balance=0 AND e_escrow.fee_balance=0
+             AND s.receipt_version=3 AND s.settled_at>=a.created_at
+             AND s.source_escrow_closed_at=e_escrow.terminal_closed_at
+             AND s.pool=t.prize_pool AND cardinality(s.qualifier_ids)>0,false))
       INTO member_count,distinct_alerts,all_resolved
       FROM public.ca_incident_events e
       LEFT JOIN public.financial_alerts a ON a.id=CASE
         WHEN e.detail->>'alert_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
         THEN (e.detail->>'alert_id')::uuid END
+      LEFT JOIN public.tournaments t ON t.id=CASE
+        WHEN a.context->>'tournament_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          THEN (a.context->>'tournament_id')::uuid END
+      LEFT JOIN public.tournament_escrow e_escrow ON e_escrow.tournament_id=t.id
+      LEFT JOIN public.tournament_satellite_settlements s ON s.tournament_id=t.id
      WHERE e.incident_id=original.id AND e.kind IN ('created','recurred');
 
     IF original.occurrences=expected.occurrences AND member_count=expected.occurrences

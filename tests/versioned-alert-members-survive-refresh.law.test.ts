@@ -27,7 +27,9 @@ describe('financial incident membership survives an alert refresh', () => {
     const historical = migration.split('DO $original$')[1];
     expect(historical).toContain("'97937ff2-fcad-42ba-9a92-0c004626dec7'::uuid,2");
     expect(historical).toContain("'a7359e4a-062d-4f4b-b203-56e20a6e90a7'::uuid,1");
-    expect(historical).toContain("a.context->>'receipt_proven_tournament_completion'='true'");
+    expect(historical).toContain("t.status='COMPLETED' AND t.current_players=0");
+    expect(historical).toContain('s.receipt_version=3 AND s.settled_at>=a.created_at');
+    expect(historical).toContain('s.source_escrow_closed_at=e_escrow.terminal_closed_at');
     expect(historical).toContain('AND distinct_alerts=expected.occurrences AND all_resolved');
   });
 });
