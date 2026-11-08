@@ -177,7 +177,11 @@ production database host is reachable. The engine boots with
 Runs are serialized (`concurrency: backup-engine`, `queue: max`).
 
 A push run also asks whether the candidate's ENGINE SOURCE is identical to an
-ancestor that already holds `success` (#9967, step `inherit`).
+ancestor that already holds `success` (#9967, step `inherit`). Its release-authority
+projection, `server/standby` rehearsal/seed inputs and migration tree plus latest
+migration commit identity must also match. Changed or unreadable qualification
+inputs stop the walk and run full certification; they are never skipped to find
+an older success.
 `bash scripts/ci/engine-source-identity.sh <sha>` prints a sha256 over
 exactly what `server/Dockerfile` copies into the image at that commit (plus
 the Dockerfile and the script itself), read from git blobs; `--manifest`
@@ -189,7 +193,10 @@ unreadable status, or a status that cannot be written all mean a full
 certification instead. Only push runs inherit; a dispatch, the nightly and
 the post-seal refresh always certify. So a docs-only or tests-only push to
 `server/**` is certified in seconds, and a candidate the selector offers
-always has its own `backup-engine/certified = success`.
+must still supply a physical exact-target artifact, a current restored schema,
+the actual serving predecessor and both reconnect proofs. Inherited status alone
+does not qualify; unchanged controls allow selection of the older physical
+candidate.
 
 ### 3.3 What `standby-engine certify <sha> 1800` does
 
@@ -301,11 +308,12 @@ break does not wait for a release.
 
 ### 4.1 03:30-03:50 preparation (`stage-engine-release.yml`)
 
-- **Admission** (job `detect`, step `admission`): the first eligible Stage run (operator delivery, push, schedule, or completion of a successful protected-main push Backup)
-  created inside 03:30-03:50 Chicago (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`)
-  owns the day's preparation; later runs refuse by name; an unreadable run list
-  prepares nothing. Crons `31,35,39,43 8/9 * * *` UTC are only chances to be
-  first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`).
+- **Admission** (job `detect`, step `admission`): the first eligible Stage run (push, schedule, or completion of a successful protected-main push Backup)
+  created from five elapsed hours before 03:30 through 03:50 Chicago owns the date.
+  The preparation itself stays 03:30-03:50 (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`); later runs refuse by name; an unreadable run list
+  prepares nothing. Crons `31,35,39,43 3,8 * * *` and `31,35,39,43 4,9 * * *` UTC are only chances to be
+  first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`). Operator deliveries may enter this same election only inside 03:30-03:50; they cannot reserve early or displace an earlier automatic owner.
+- **Cutoff** (step `cutoff`): the elected job waits once, at most five hours, until 03:30. It refreshes protected main and binds the newest cutoff commit. If release-control bytes changed since reservation, or the job misses 03:50, it keeps serving. The job has a 315-minute limit, below GitHub's six-hour maximum. On November 9 the early boundary is November 8 22:30 CST; DST boundaries use elapsed UTC time.
 - **Operator fallback.** If GitHub has delivered no Stage run by 03:35 Chicago,
   the release owner may issue the dispatch once from an authenticated GitHub user
   account with repository write access, before 03:50 Chicago. Check event, branch
@@ -334,8 +342,9 @@ break does not wait for a release.
 
 Observe: `gh run list --workflow stage-engine-release.yml --created ">=<today>T08:00:00Z" -L 10`;
 `gh run view <id> --log | grep -E "Daily preparation|certified|Receiver run"`.
-Failure handling: no admitted run means GitHub delivered nothing in the window
-and nothing was prepared; there is no retry, tomorrow's window prepares. Do
+Failure handling: no admitted run means no eligible original event reserved the date,
+or its owner failed a required gate. Nothing was prepared; there is no retry.
+The next date can reserve independently. Do
 not dispatch the receiver yourself to make up a missed window.
 
 ### 4.2 Receiver preflight (`auto-deploy-hetzner.yml`)

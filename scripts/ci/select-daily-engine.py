@@ -234,6 +234,7 @@ def main():
     parser.add_argument('--migration', action='append', default=[])
     for key in ('control', 'serving', 'date', 'output'):
         parser.add_argument('--' + key)
+    parser.add_argument("--stage")
     args = parser.parse_args()
     if args.selection:
         report = json.loads(args.selection.read_text())
@@ -243,7 +244,7 @@ def main():
     if not all((args.control, args.serving, args.date or args.owner_window, args.output)):
         parser.error('selection requires --control, --serving, --date and --output')
     report = {'schema': 1, 'outcome': 'keep-serving', 'targetSha': None, 'deferredCandidates': [],
-              'servingSha': args.serving, 'stageSha': args.control, 'controlSha': None, 'cutoffEpoch': cutoff(args.date) if args.date else None}
+              'servingSha': args.serving, 'stageSha': args.stage or args.control, 'controlSha': None, 'cutoffEpoch': cutoff(args.date) if args.date else None}
     try:
         if not re.fullmatch('[0-9a-f]{40}', args.control):
             raise ValueError('expected exact protected Stage SHA')
