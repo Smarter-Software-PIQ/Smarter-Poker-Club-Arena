@@ -80,6 +80,22 @@ describe('the merge dispatches the migrations it added', () => {
     expect(workflow.concurrency['cancel-in-progress']).toBe(false);
   });
 
+  it('the publishing law and the agent brief describe the merge that dispatches (2026-11-07)', () => {
+    // #9952's migration sat uninstalled after a non-autopilot merge because the
+    // written rule still said only the autopilot's merges dispatch.
+    for (const doc of [
+      'PUBLISHING.md',
+      'CLAUDE.md',
+      'docs/laws.d/a-merged-migration-is-dispatched-by-its-merger.md',
+    ]) {
+      const text = read(doc);
+      expect(text, doc).toContain('dispatch-merged-migrations.yml');
+      expect(text, doc).not.toMatch(
+        /autopilot merges a pull request|the autopilot's merge dispatches|after any other merge, dispatch it yourself/
+      );
+    }
+  });
+
   it('is not left inside the disabled autopilot workflow (2026-11-07)', () => {
     expect(autopilot.jobs['dispatch-merged-migrations']).toBeUndefined();
     expect(autopilot.on.pull_request_target.types).not.toContain('closed');

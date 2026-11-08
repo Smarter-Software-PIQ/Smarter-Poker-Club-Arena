@@ -408,6 +408,13 @@ jobs:
       - name: Native fixture gate rejects missing and skipped proof
         run: node --test tests/operations/fixture-required-ci.test.mjs
 
+      # A booking cannot start in the past (2026-11-07): playerNoticeAt must be
+      # no earlier than the moment the window merges (#9903, #9969).
+      - name: Owner maintenance bookings give notice after they merge
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/ci/check-owner-window-notice-after-merge.mjs
+
       - name: Local dependency preflight refuses incomplete or stale installs
         run: node --test tests/operations/local-dependency-policy.test.mjs
 
