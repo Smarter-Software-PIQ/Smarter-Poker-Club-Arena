@@ -6,6 +6,7 @@ import { seedFastRandom } from '../HorseEval.js';
 import { jointPolicyFixture } from '../multiway/JointRangeFixture.test-support.js';
 import { HorseQualifiedAuthorityHolder } from '../HorseQualifiedAuthority.js';
 import { horsePhase13ContinuationVersion } from '../HorsePhase13Authority.js';
+import { reconcileHorsePhaseReceipts } from '../HorsePhaseControllerWithdrawal.js';
 import { qualifiedPhase13TestAdmission } from '../HorsePhase13Authority.test-support.js';
 import type { HorseTournamentJointSamplerProvenance } from '../HorseTournamentUtilityEvidence.js';
 import {
@@ -587,6 +588,51 @@ describe('P13.1 the joint receipt binding at the worker boundary', () => {
     const unnamed = structuredClone(decide('shadow'));
     (unnamed.jointPolicy as { selectionRefusal: unknown }).selectionRefusal = 'busy';
     expect(horseDecisionReceiptIsValid(unnamed, 'plo4')).toBe(false);
+  });
+
+  it('accepts a joint cash bet superseded by an owner wager only with its exact graph witness', () => {
+    const original = decide('candidate');
+    const holder = new HorseQualifiedAuthorityHolder(
+      'p133-superseded',
+      horsePhase13ContinuationVersion('plo4')
+    );
+    holder.apply(qualifiedPhase13TestAdmission('plo4'));
+    const joint = original.jointPolicy!;
+    joint.authority = holder.receipt();
+    expect(joint).toMatchObject({ applied: true, selection: 'selected', proposalAction: 'bet' });
+    expect(horseDecisionReceiptRefusal(original, 'plo4')).toBeNull();
+    const withoutReplacement = structuredClone(original);
+    withoutReplacement.jointPolicy!.selection = 'shadow_change';
+    expect(horseDecisionReceiptRefusal(withoutReplacement, 'plo4')).toBe('phase13_selection');
+
+    const graph = new HorsePolicyGraph(() => 0);
+    let decision = original;
+    for (const transition of original.policyGraph!.transitions) {
+      decision = graph.run(transition.node, transition.before === null ? null : decision, () => {
+        const action = transition.after.action;
+        const amount = transition.after.amount ?? undefined;
+        if (transition.node === 'wager_rules') {
+          const leaving = { ...decision, amount: decision.amount! + 1 };
+          reconcileHorsePhaseReceipts([['phase13', joint]], leaving, 'wager_rules', false);
+          return { decision: leaving };
+        }
+        return {
+          decision: transition.node === 'timing' ? decision : { ...decision, action, amount },
+        };
+      }).decision;
+    }
+    const result = graph.finish(decision);
+    expect(result.jointPolicy).toMatchObject({ applied: true, selection: 'shadow_change' });
+    expect(horseDecisionReceiptRefusal(result, 'plo4')).toBeNull();
+    const withoutGraph = structuredClone(result);
+    delete withoutGraph.policyGraph;
+    expect(horseDecisionReceiptRefusal(withoutGraph, 'plo4')).toBe('phase13_selection');
+    const wrongProposal = structuredClone(result);
+    wrongProposal.jointPolicy!.proposalAmount! += 1;
+    expect(horseDecisionReceiptRefusal(wrongProposal, 'plo4')).toBe('phase13_selection');
+    const wrongFinal = structuredClone(result);
+    wrongFinal.jointPolicy!.finalAmount! += 1;
+    expect(horseDecisionReceiptRefusal(wrongFinal, 'plo4')).toBe('phase13_selection');
   });
 });
 
