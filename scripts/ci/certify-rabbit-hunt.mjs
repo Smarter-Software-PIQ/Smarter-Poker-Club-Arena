@@ -192,6 +192,320 @@ export function gitIsAncestor(cwd) {
   };
 }
 
+/**
+ * The service and anon clients one run uses, built once from its credentials
+ * so the stranded-club settlement below talks to production exactly as the
+ * run does. `fetchImpl` is injectable for tests only.
+ */
+export function clients({ SUPA, SR, ANON, fetchImpl = fetch, engineUrl = ENGINE_URL }) {
+  const H = {
+    apikey: SR,
+    Authorization: `Bearer ${SR}`,
+    'x-smarter-data-actor': 'service',
+    'x-smarter-data-protocol': '1',
+    'Content-Type': 'application/json',
+  };
+  const svc = async (path) => (await fetchImpl(`${SUPA}/rest/v1/${path}`, { headers: H })).json();
+  const svcRpc = async (fn, args) => {
+    const r = await fetchImpl(`${SUPA}/rest/v1/rpc/${fn}`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify(args),
+    });
+    const t = await r.text();
+    try {
+      return JSON.parse(t);
+    } catch {
+      return t;
+    }
+  };
+  const rpc = async (token, fn, args) => {
+    const r = await fetchImpl(`${SUPA}/rest/v1/rpc/${fn}`, {
+      method: 'POST',
+      headers: {
+        apikey: ANON,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(args),
+    });
+    const t = await r.text();
+    let b;
+    try {
+      b = JSON.parse(t);
+    } catch {
+      b = t;
+    }
+    return { status: r.status, body: b };
+  };
+  const engine = async (token, path, body) => {
+    const r = await fetchImpl(`${engineUrl}${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    let j = null;
+    try {
+      j = await r.json();
+    } catch {}
+    return { status: r.status, body: j };
+  };
+  const sessionFor = async (email) => {
+    const g = await fetchImpl(`${SUPA}/auth/v1/admin/generate_link`, {
+      method: 'POST',
+      headers: H,
+      body: JSON.stringify({ type: 'magiclink', email }),
+    }).then((r) => r.json());
+    const v = await fetchImpl(`${SUPA}/auth/v1/verify`, {
+      method: 'POST',
+      headers: { apikey: ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'magiclink',
+        token_hash: g.hashed_token || g.properties?.hashed_token,
+      }),
+    }).then((r) => r.json());
+    if (!v.access_token) throw new Error('a reserved certification session could not be opened');
+    return { token: v.access_token, refresh: v.refresh_token, user: v.user, userId: v.user.id };
+  };
+  const adminUser = async (id) => {
+    const r = await fetchImpl(`${SUPA}/auth/v1/admin/users/${encodeURIComponent(id)}`, {
+      headers: H,
+    });
+    if (!r.ok) throw new Error(`reserved identity ${id} could not be read (${r.status})`);
+    return r.json();
+  };
+  return { H, svc, svcRpc, rpc, engine, sessionFor, adminUser };
+}
+
+/** The name the run gives its one cash game; the stranded settlement closes only these. */
+export const RABBIT_HUNT_GAME_NAME = 'Cert RH';
+/** Every 'Cert RH ' club is this run's; production-e2e-account.mjs pins the same prefix. */
+export const RABBIT_HUNT_CLUB_NAME_PREFIX = 'Cert RH ';
+
+/**
+ * How long a leave is given to become a left seat. Both certification players
+ * leave at the end of the engine cases; with hit-and-run switched off for the
+ * certification club (main, below) a leave between hands is immediate and a
+ * mid-hand leave settles at the hand end, well inside this.
+ */
+export const LEAVE_SETTLES_WITHIN_MS = 60_000;
+
+/**
+ * SETTLE THE CERTIFICATION CLUB: the run's own cleanup, restartable from its
+ * record (CLAUDE.md 10.12). The run calls it in its finally; the stale sweep
+ * calls it, through settleStrandedRabbitHuntClub, for a 'Cert RH' club whose
+ * run died before this ran (2026-11-07, run 42411184920: "refused while
+ * seated"). Same doors in the same order, as the club's own owner:
+ *   1. nobody may still be seated (a live seat is the engine's, never ours);
+ *   2. every open certification VIP grant on a member is ended;
+ *   3. every member's chips go back to the club bank (fn_club_wallet_claim_back);
+ *   4. the run's cash tables are closed (fn_execute_managed_game_command);
+ *   5. the club is retired with its records (fn_retire_settled_club).
+ * Accounts are NOT touched here: the run retires its own three afterwards and
+ * the stale sweep retires stale identities through its own guarded door, which
+ * accepts a zero-balance player of a retired club (20261107210316) and keeps
+ * the owner as the owner of record. Each step is reported through `note`
+ * (name, ok, detail); nothing here throws past a failed step, so every step is
+ * named in the verdict.
+ */
+export async function settleRabbitHuntClub({
+  c,
+  clubId,
+  clubName,
+  ownerEmail,
+  memberIds,
+  tableIds,
+  note,
+  sleep: pause = sleep,
+  reason = 'Rabbit hunt certification club, cleanup',
+}) {
+  const ids = [...new Set(memberIds)];
+  const seated = ids.length
+    ? await c.svc(`table_seats?left_at=is.null&user_id=in.(${ids.join(',')})&select=table_id`)
+    : [];
+  if (!Array.isArray(seated)) {
+    note('read the certification seats', false, seated);
+    return { settled: false, seated: null };
+  }
+  if (seated.length) {
+    note('refused while seated', false, seated);
+    return { settled: false, seated };
+  }
+  const grants = ids.length
+    ? await c.svc(
+        `ca_certification_vip_grants?user_id=in.(${ids.join(',')})&ended_at=is.null&select=op_id,user_id`
+      )
+    : [];
+  if (!Array.isArray(grants)) {
+    note('read the certification VIP grants', false, grants);
+    return { settled: false, seated: [] };
+  }
+  for (const grant of grants) {
+    const r = await c.svcRpc('fn_ca_certification_vip_end', {
+      p_user_id: grant.user_id,
+      p_op_id: grant.op_id,
+      p_reason: 'certification cleanup',
+    });
+    note('end the certification VIP', r?.ok === true, r);
+  }
+  const O = await c.sessionFor(ownerEmail);
+  const members = await c.svc(
+    `club_members?club_id=eq.${clubId}&select=user_id,chip_balance&user_id=neq.${O.userId}`
+  );
+  if (!Array.isArray(members)) {
+    note('read the certification members', false, members);
+    return { settled: false, seated: [] };
+  }
+  for (const m of members) {
+    const bal = Number(m.chip_balance || 0);
+    if (!(bal > 0)) continue;
+    const r = await c.rpc(O.token, 'fn_club_wallet_claim_back', {
+      p_club_id: clubId,
+      p_from_user_id: m.user_id,
+      p_amount: bal,
+      p_source: 'player_wallet',
+      p_destination: 'club_bank',
+      p_reason: 'Certification cleanup: test chips returned to the certification club bank',
+      p_op_id: randomUUID(),
+      p_transaction_id: null,
+    });
+    note(`return ${m.user_id} chips to the club bank`, r.body?.success === true, r.body?.error);
+  }
+  if (tableIds.length) {
+    const l = await c.rpc(O.token, 'fn_list_managed_games', {
+      p_scope: 'club',
+      p_scope_id: clubId,
+      p_cursor: null,
+      p_cursor_kind: null,
+      p_cursor_id: null,
+      p_limit: 100,
+      p_cursor_bucket: null,
+      p_bucket: null,
+    });
+    let closedAny = false;
+    for (const tableId of tableIds) {
+      const it = (l.body?.items || []).find((i) => i.id === tableId);
+      if (!it) continue;
+      const r = await c.rpc(O.token, 'fn_execute_managed_game_command', {
+        p_command_id: randomUUID(),
+        p_kind: 'table',
+        p_game_id: tableId,
+        p_action: 'close',
+        p_expected_version: it.contract?.version ?? 1,
+        p_payload: {},
+      });
+      note('close the certification game', r.body?.ok === true, r.body?.reason);
+      closedAny = true;
+    }
+    if (closedAny) await pause(4000);
+  }
+  const r = await c.rpc(O.token, 'fn_retire_settled_club', {
+    p_club_id: clubId,
+    p_confirm_name: clubName,
+    p_reason: reason,
+  });
+  const retired = r.body?.success === true;
+  note('retire the certification club', retired, r.body?.error);
+  return { settled: retired, seated: [] };
+}
+
+/**
+ * A 'Cert RH' club whose run died before its cleanup is settled from its
+ * record: the club row names the owner, club_members names the players, and
+ * the run's tables are the club's cash tables named RABBIT_HUNT_GAME_NAME.
+ * Refuses, changing nothing, unless the club is an active 'Cert RH ' club
+ * owned by `ownerId`, EVERY member is a reserved certification identity, and
+ * nobody is seated. The stale sweep is its caller (production-e2e-account.mjs,
+ * retireProductionCreateClubFixtures); the identities are then swept there.
+ */
+export async function settleStrandedRabbitHuntClub({
+  environment = process.env,
+  fetchImpl = fetch,
+  clubId,
+  ownerId,
+  isReserved,
+  log: emit = log,
+  sleep: pause = sleep,
+}) {
+  const SUPA = String(environment.SUPABASE_URL || '').replace(/\/$/, '');
+  const SR = environment.SUPABASE_SERVICE_ROLE_KEY;
+  const ANON = environment.VITE_SUPABASE_ANON_KEY;
+  if (!SUPA || !SR || !ANON)
+    throw new Error(
+      `Cannot settle rabbit-hunt certification club ${clubId}: SUPABASE_URL, ` +
+        'SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_ANON_KEY are required.'
+    );
+  if (typeof isReserved !== 'function')
+    throw new Error('settleStrandedRabbitHuntClub requires the reserved-namespace predicate.');
+  const c = clients({ SUPA, SR, ANON, fetchImpl });
+  const club = (
+    await c.svc(
+      `clubs?id=eq.${encodeURIComponent(clubId)}&select=id,name,owner_id,lifecycle_status`
+    )
+  )?.[0];
+  if (
+    !club ||
+    club.id !== clubId ||
+    club.owner_id !== ownerId ||
+    !String(club.name || '').startsWith(RABBIT_HUNT_CLUB_NAME_PREFIX) ||
+    club.lifecycle_status !== 'active'
+  ) {
+    throw new Error(
+      `Refusing to settle club ${clubId}: not an active rabbit-hunt certification club owned by ${ownerId}.`
+    );
+  }
+  const members = await c.svc(
+    `club_members?club_id=eq.${encodeURIComponent(clubId)}&select=user_id,role`
+  );
+  if (!Array.isArray(members) || !members.length)
+    throw new Error(`Refusing to settle club ${clubId}: its members could not be read.`);
+  const identities = [];
+  for (const m of members) {
+    const user = await c.adminUser(m.user_id);
+    if (!user?.email || !isReserved(user.email))
+      throw new Error(
+        `Refusing to settle club ${clubId}: member ${m.user_id} is not a reserved certification identity.`
+      );
+    identities.push({ id: m.user_id, email: user.email, role: m.role });
+  }
+  const owner = identities.find((i) => i.id === ownerId);
+  if (!owner) throw new Error(`Refusing to settle club ${clubId}: its owner is not a member.`);
+  const tables = await c.svc(
+    `tables?club_id=eq.${encodeURIComponent(clubId)}&tournament_id=is.null&is_deleted=eq.false` +
+      `&name=eq.${encodeURIComponent(RABBIT_HUNT_GAME_NAME)}&status=neq.closed&select=id`
+  );
+  if (!Array.isArray(tables))
+    throw new Error(`Refusing to settle club ${clubId}: its tables could not be read.`);
+  const failures = [];
+  const note = (name, ok, detail) => {
+    emit(ok ? 'SETTLE' : 'SETTLE FAILED', clubId, name, detail ?? '');
+    if (!ok) failures.push(`${name}${detail ? ` (${JSON.stringify(detail).slice(0, 200)})` : ''}`);
+  };
+  const outcome = await settleRabbitHuntClub({
+    c,
+    clubId,
+    clubName: club.name,
+    ownerEmail: owner.email,
+    memberIds: identities.map((i) => i.id),
+    tableIds: tables.map((t) => t.id),
+    note,
+    sleep: pause,
+    reason: 'Rabbit hunt certification club, settled after its run died (stale sweep)',
+  });
+  if (!outcome.settled || failures.length)
+    throw new Error(
+      `Rabbit-hunt certification club ${clubId} was not settled: ${failures.join('; ') || 'the club is not retired'}.`
+    );
+  const after = (
+    await c.svc(`clubs?id=eq.${encodeURIComponent(clubId)}&select=id,owner_id,lifecycle_status`)
+  )?.[0];
+  if (after?.lifecycle_status !== 'retired' || after?.owner_id !== ownerId)
+    throw new Error(
+      `Rabbit-hunt certification club ${clubId} does not read retired after settlement.`
+    );
+  return { clubId, ownerId, members: identities.map((i) => i.id) };
+}
+
 const log = (...a) =>
   console.log(
     '[rabbit-hunt-cert]',
@@ -239,75 +553,7 @@ async function main() {
   const { awaitPlatformThaw, describeThaw, freezeBudgetMs } = await import(
     pathToFileURL(join(repoRoot, 'scripts/ci/platform-freeze-window.mjs')).href
   );
-  const H = {
-    apikey: SR,
-    Authorization: `Bearer ${SR}`,
-    'x-smarter-data-actor': 'service',
-    'x-smarter-data-protocol': '1',
-    'Content-Type': 'application/json',
-  };
-  const svc = async (path) => (await fetch(`${SUPA}/rest/v1/${path}`, { headers: H })).json();
-  const svcRpc = async (fn, args) => {
-    const r = await fetch(`${SUPA}/rest/v1/rpc/${fn}`, {
-      method: 'POST',
-      headers: H,
-      body: JSON.stringify(args),
-    });
-    const t = await r.text();
-    try {
-      return JSON.parse(t);
-    } catch {
-      return t;
-    }
-  };
-  const rpc = async (token, fn, args) => {
-    const r = await fetch(`${SUPA}/rest/v1/rpc/${fn}`, {
-      method: 'POST',
-      headers: {
-        apikey: ANON,
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(args),
-    });
-    const t = await r.text();
-    let b;
-    try {
-      b = JSON.parse(t);
-    } catch {
-      b = t;
-    }
-    return { status: r.status, body: b };
-  };
-  const engine = async (token, path, body) => {
-    const r = await fetch(`${ENGINE_URL}${path}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    let j = null;
-    try {
-      j = await r.json();
-    } catch {}
-    return { status: r.status, body: j };
-  };
-  const sessionFor = async (email) => {
-    const g = await fetch(`${SUPA}/auth/v1/admin/generate_link`, {
-      method: 'POST',
-      headers: H,
-      body: JSON.stringify({ type: 'magiclink', email }),
-    }).then((r) => r.json());
-    const v = await fetch(`${SUPA}/auth/v1/verify`, {
-      method: 'POST',
-      headers: { apikey: ANON, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'magiclink',
-        token_hash: g.hashed_token || g.properties?.hashed_token,
-      }),
-    }).then((r) => r.json());
-    if (!v.access_token) throw new Error('a reserved certification session could not be opened');
-    return { token: v.access_token, refresh: v.refresh_token, user: v.user, userId: v.user.id };
-  };
+  const { svc, svcRpc, rpc, engine, sessionFor } = clients({ SUPA, SR, ANON });
   const thaw = async () => {
     const rows = await svc(
       'engine_maintenance_break?select=phase,break_started_at,break_ends_at,enforce_freeze&limit=1'
@@ -360,6 +606,21 @@ async function main() {
     S.clubId = club.body?.id;
     S.clubName = club.body?.name;
     if (!S.clubId) throw new Error(`the certification club was not created (${club.status})`);
+    // HIT AND RUN is a club setting (20261107040516). A certification player
+    // who wins is "in profit" and owes the club's hand count before leaving; at
+    // a two-seat table whose other player has left, those hands never come and
+    // the seat stays until the hold lapses, which is what left run 42411184920
+    // "refused while seated". The owner switches the rule off for this club,
+    // through the owner's own door, before anyone sits.
+    const hitRun = await rpc(P.owner.token, 'fn_set_club_hit_run', {
+      p_club_id: S.clubId,
+      p_enabled: false,
+      p_hands: 10,
+    });
+    if (hitRun.body?.ok !== true)
+      throw new Error(
+        `hit-and-run could not be switched off for the certification club (${JSON.stringify(hitRun.body)})`
+      );
     for (const role of ['vip', 'plain']) {
       const j = await rpc(P[role].token, 'fn_join_club', { p_club_id: S.clubId });
       if (j.status >= 300) throw new Error(`${role} could not join the certification club`);
@@ -609,6 +870,7 @@ async function main() {
         { engine: o1.body, status: so1 }
       );
     } finally {
+      const leaves = {};
       for (const role of S.seated) {
         const seat = (
           await svc(
@@ -616,12 +878,33 @@ async function main() {
           )
         )[0];
         if (seat)
-          await engine(P[role].token, '/leave-occupancy', {
+          leaves[role] = await engine(P[role].token, '/leave-occupancy', {
             tableId: T,
             seatNumber: seat.seat_number,
             occupancyId: seat.occupancy_id,
           });
       }
+      // A leave is finished when the seat row says so, not when the request
+      // was answered: a mid-hand leave settles at the hand end. Waiting here
+      // is what lets the cleanup below find nobody seated.
+      const until = Date.now() + LEAVE_SETTLES_WITHIN_MS;
+      let still = [];
+      do {
+        still = S.seated.length
+          ? await svc(
+              `table_seats?table_id=eq.${T}&left_at=is.null&user_id=in.(${S.seated
+                .map((role) => P[role].userId)
+                .join(',')})&select=user_id`
+            )
+          : [];
+        if (Array.isArray(still) && !still.length) break;
+        await sleep(2000);
+      } while (Date.now() < until);
+      step(
+        'both certification players left their seats',
+        Array.isArray(still) && still.length === 0,
+        { leaves: Object.fromEntries(Object.entries(leaves).map(([r, l]) => [r, l.body])), still }
+      );
       sockets.forEach((w) => {
         try {
           w.close();
@@ -747,82 +1030,21 @@ async function main() {
       log(ok ? 'CLEANUP' : 'CLEANUP FAILED', name, detail ?? '');
     };
     try {
-      const ids = Object.values(S.accounts).map((a) => a.id);
-      const seated = ids.length
-        ? await svc(`table_seats?left_at=is.null&user_id=in.(${ids.join(',')})&select=table_id`)
-        : [];
-      if (seated.length) {
-        note('refused while seated', false, seated);
+      const outcome = S.clubId
+        ? await settleRabbitHuntClub({
+            c: { svc, svcRpc, rpc, sessionFor },
+            clubId: S.clubId,
+            clubName: S.clubName,
+            ownerEmail: S.accounts.owner.email,
+            memberIds: Object.values(S.accounts).map((a) => a.id),
+            tableIds: S.tableId ? [S.tableId] : [],
+            note,
+          })
+        : { settled: true, seated: [] };
+      if (outcome.seated === null || outcome.seated.length) {
+        // Nothing else is touched while a seat is live: the stale sweep
+        // settles this club once everyone has left (settleStrandedRabbitHuntClub).
       } else {
-        if (S.vipOp) {
-          const r = await svcRpc('fn_ca_certification_vip_end', {
-            p_user_id: S.accounts.vip.id,
-            p_op_id: S.vipOp,
-            p_reason: 'certification cleanup',
-          });
-          note('end the certification VIP', r?.ok === true, r);
-        }
-        if (S.clubId) {
-          const O = await sessionFor(S.accounts.owner.email);
-          for (const role of ['vip', 'plain']) {
-            const bal = Number(
-              (
-                await svc(
-                  `club_members?club_id=eq.${S.clubId}&user_id=eq.${S.accounts[role].id}&select=chip_balance`
-                )
-              )[0]?.chip_balance || 0
-            );
-            if (bal > 0) {
-              const c = await rpc(O.token, 'fn_club_wallet_claim_back', {
-                p_club_id: S.clubId,
-                p_from_user_id: S.accounts[role].id,
-                p_amount: bal,
-                p_source: 'player_wallet',
-                p_destination: 'club_bank',
-                p_reason:
-                  'Certification cleanup: test chips returned to the certification club bank',
-                p_op_id: randomUUID(),
-                p_transaction_id: null,
-              });
-              note(
-                `return ${role} chips to the club bank`,
-                c.body?.success === true,
-                c.body?.error
-              );
-            }
-          }
-          if (S.tableId) {
-            const l = await rpc(O.token, 'fn_list_managed_games', {
-              p_scope: 'club',
-              p_scope_id: S.clubId,
-              p_cursor: null,
-              p_cursor_kind: null,
-              p_cursor_id: null,
-              p_limit: 100,
-              p_cursor_bucket: null,
-              p_bucket: null,
-            });
-            const it = (l.body?.items || []).find((i) => i.id === S.tableId);
-            if (it) {
-              const c = await rpc(O.token, 'fn_execute_managed_game_command', {
-                p_command_id: randomUUID(),
-                p_kind: 'table',
-                p_game_id: S.tableId,
-                p_action: 'close',
-                p_expected_version: it.contract?.version ?? 1,
-                p_payload: {},
-              });
-              note('close the certification game', c.body?.ok === true, c.body?.reason);
-            }
-            await sleep(4000);
-          }
-          const r = await rpc(O.token, 'fn_retire_settled_club', {
-            p_club_id: S.clubId,
-            p_confirm_name: S.clubName,
-            p_reason: 'Rabbit hunt certification club, cleanup',
-          });
-          note('retire the certification club', r.body?.success === true, r.body?.error);
-        }
         for (const role of ['vip', 'plain', 'owner']) {
           if (!S.accounts[role]) continue;
           try {

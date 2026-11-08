@@ -44,6 +44,10 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # A stranded 'Cert RH' club is settled as its own owner through the
+          # anon client (settleStrandedRabbitHuntClub); the publishable key is
+          # the same one the certification workflows carry in the clear.
+          VITE_SUPABASE_ANON_KEY: 'sb_publishable__41LpJpzrfrb3hSUpEaYCA_tF53bBJx'
           # Per pass (accounts, then clubs): 2 x 22 minutes, plus the one
           # retirement already in flight when a budget runs out, fits the
           # 60-minute job. A backlog larger than one budget continues next hour.
