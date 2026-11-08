@@ -553,6 +553,13 @@ def main():
             def prosrc(sig):
                 return sql(f"SELECT prosrc FROM pg_proc WHERE oid = '{sig}'::regprocedure;")
 
+            # Atomic-publication cases deliberately leave historical receipts
+            # whose review rows were removed. Their fixed October dates can
+            # legitimately age past the receipt horizon. Retention qualification
+            # owns a fresh, self-contained population; do not let those earlier
+            # witnesses change R6's exact zero-prune assertion as the date moves.
+            # This is the private qualification cluster, never production.
+            sql('TRUNCATE public.horse_hand_review_receipts, public.horse_hand_reviews, public.horse_review_rollup;')
             retention_sql = RETENTION.read_text()
             hand_old, hand_old_b, hand_lg = u('ret-hand-old'), u('ret-hand-old-b'), u('ret-hand-legacy')
             old_1, old_2 = sorted([u('ret-old-1'), u('ret-old-2')])
