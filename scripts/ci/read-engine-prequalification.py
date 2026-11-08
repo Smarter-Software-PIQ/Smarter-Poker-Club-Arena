@@ -68,8 +68,11 @@ def projection(sha, *, release_authority=False):
 
 def owner_selection_policy(target, control, owner_id, cutoff):
     """Reuse the exact protected finite admission validator, never a caller's order."""
-    require(target == control, "owner selection requires exact target/control equality")
+    protected(target)
     protected(control)
+    git("merge-base", "--is-ancestor", target, control)
+    require(projection(target, release_authority=True) == projection(control, release_authority=True),
+            "owner candidate release controls differ")
     raw = git("show", control + ":server/release/activation-floor.json")
     floor = json.loads(raw)
     require(floor.get("ownerWindowId") == owner_id and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", owner_id),
@@ -120,7 +123,7 @@ def verify_selection(repo, rid, cutoff, qualification, owner_window=None):
             and selected[0]["status"] == "completed" and selected[0]["conclusion"] == "success",
             "selection job has not succeeded")
     if owner_window:
-        require(stage == qualification["controlSha"] == qualification["targetSha"], "owner Stage identity differs")
+        require(stage == qualification["controlSha"], "owner Stage identity differs")
         require(int(datetime.fromisoformat(run["created_at"].replace("Z", "+00:00")).timestamp()) == cutoff,
                 "owner cutoff differs from original Stage creation")
         owner_selection_policy(qualification["targetSha"], stage, owner_window, cutoff)

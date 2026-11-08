@@ -121,27 +121,28 @@ class DailySelection(unittest.TestCase):
         self.assertEqual(report['outcome'], 'selected')
         self.assertEqual(report['deferredCandidates'][0]['sha'], newest)
 
-    def test_owner_selection_never_falls_back_and_keeps_cutoff_distinct_from_admission_expiry(self):
+    def test_owner_ancestor_keeps_exact_controls_cutoff_and_admission_expiry(self):
         newest, old, serving = 'b'*40, 'a'*40, 'c'*40
         args = types.SimpleNamespace(repo='o/r', control=newest, serving=serving, owner_window='finite-owner')
-        for qualified in (False, True):
+        for compatible in (False, True):
             report = {'cutoffEpoch':100, 'ownerExpiresEpoch':200, 'deferredCandidates':[]}
-            processes = [mod.subprocess.CompletedProcess([], 0 if qualified else 3,
-                         mod.json.dumps({'targetSha':newest,'controlSha':newest})),
-                         mod.subprocess.CompletedProcess([], 0, '')]
+            processes = [mod.subprocess.CompletedProcess([], 3),
+                         mod.subprocess.CompletedProcess([], 0,
+                         mod.json.dumps({'targetSha':old,'controlSha':newest})),
+                         mod.subprocess.CompletedProcess([], 0 if compatible else 1, '')]
             with (patch.object(mod, 'git', side_effect=[newest+'\n'+old, serving]),
-                  patch.object(mod, 'statuses', return_value=[(newest,{})]) as statuses,
+                  patch.object(mod, 'statuses', return_value=[(newest,{}),(old,{})]) as statuses,
                   patch.object(mod, 'backup', return_value=dict(runId=123, rehearsedServingSha=serving,
                        playerReconnectedBothDirections=True, rollbackAdoptionSeconds=7, forwardAdoptionSeconds=7)),
                   patch.object(mod, 'current_schema', return_value=True),
                   patch.object(mod.subprocess, 'run', side_effect=processes) as run):
                 mod.select(args, report)
-                statuses.assert_called_once_with('o/r', [newest])
+                statuses.assert_called_once_with('o/r', [newest,old])
                 self.assertEqual(run.call_args_list[0].args[0][-1], '100')
-                if qualified:
-                    self.assertEqual(report['targetSha'], newest)
-                    self.assertIn('nov7-owner', run.call_args.args[0])
-                    self.assertEqual(run.call_args.args[0][-1], '200')
+                self.assertIn('nov7-owner', run.call_args.args[0])
+                self.assertEqual(run.call_args.args[0][-1], '200')
+                if compatible:
+                    self.assertEqual(report['targetSha'], old)
                 else:
                     self.assertNotIn('targetSha', report)
 

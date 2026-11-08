@@ -98,7 +98,7 @@ class Selection(unittest.TestCase):
             run.update(event="push" if wrong_event else "workflow_dispatch", head_sha="b"*40,
                        created_at=datetime.fromtimestamp(cutoff, timezone.utc).isoformat(),
                        run_attempt=2 if rerun else 1)
-            qualification["targetSha"] = "a"*40 if wrong_stage else "b"*40
+            qualification["controlSha"] = "d"*40 if wrong_stage else "b"*40
         receipt = dict(schema=1, outcome="selected", cutoffEpoch=cutoff+int(late),
                        qualification=qualification, stageSha=run["head_sha"],
                        targetSha=qualification["targetSha"], controlSha=qualification["controlSha"])
@@ -148,10 +148,14 @@ class OwnerPolicy(unittest.TestCase):
             call = command.call_args.args[0]
             self.assertEqual(call[3:], ["nov7-owner", "--repo", ".", "--target", "a"*40,
                                        "--control", "a"*40, "--deadline", str(now+600)])
-            for target, identity, cutoff in (("b"*40,owner,now),("a"*40,"forged",now),
+            for target, identity, cutoff in (("a"*40,"forged",now),
                                              ("a"*40,owner,now-61),("a"*40,owner,now+601)):
                 with self.assertRaises(reader.Unqualified):
                     reader.owner_selection_policy(target,"a"*40,identity,cutoff)
+            # An unrelated protected commit is allowed only with identical controls.
+            reader.owner_selection_policy("b"*40, "a"*40, owner, now)
+            with patch.object(reader, "projection", side_effect=["old", "changed"]), self.assertRaises(reader.Unqualified):
+                reader.owner_selection_policy("b"*40, "a"*40, owner, now)
             command.side_effect = subprocess.CalledProcessError(1, "pinned-validator")
             with self.assertRaises(subprocess.CalledProcessError):
                 reader.owner_selection_policy("a"*40,"a"*40,owner,now)

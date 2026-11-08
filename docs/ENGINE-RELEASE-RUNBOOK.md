@@ -629,10 +629,13 @@ workflow with `request_engine_release=true`, its exact `owner_window_id`, and
 fail. This does not change the daily election or grant authority from a chat.
 The release owner must first verify the actual public notice and required lead.
 
-This branch selects only the Stage SHA itself as both target and control. Its
+This branch freezes the Stage SHA as control and selects the newest qualified
+protected ancestor with identical release-control inputs and the same pinned
+owner floor and order. Unrelated later main commits do not discard valid
+qualification; changed release controls require new evidence. The candidate
 exact Backup, schema freshness, both-direction rollback rehearsal, four engine
 qualification shards and immutable images must already qualify at the original
-Stage run's creation time. No older candidate fallback is allowed. The original
+Stage run's creation time. The original
 single-attempt `owner-engine-selection-<owner_window_id>` artifact contains
 `daily-selection.json`; the existing signal passes its run ID to the existing
 receiver. The receiver verifies the archive digest, exact original successful

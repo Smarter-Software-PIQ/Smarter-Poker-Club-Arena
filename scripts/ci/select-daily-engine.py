@@ -141,8 +141,6 @@ def select(args, report):
         raise ValueError('serving release is outside the protected first-parent interval')
     if not commits and args.serving != args.control:
         raise ValueError('control is behind serving release')
-    if getattr(args, "owner_window", None):
-        commits = [args.control] if args.control != args.serving else []
     for offset in range(0, len(commits), 30):
         for sha, status in statuses(args.repo, commits[offset:offset + 30]):
             evidence = backup(args.repo, sha, report['cutoffEpoch'], status)
