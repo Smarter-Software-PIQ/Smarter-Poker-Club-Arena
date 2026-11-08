@@ -1,4 +1,5 @@
 import {
+  publicMemoryDomainFromRules,
   publicMemoryDomainIsValid,
   publicMemoryDomainKey,
   type HorsePublicMemoryDomain,
@@ -30,6 +31,7 @@ const ISSUES_OUTSIDE_PUBLIC_MEMORY_DOMAIN = new Set<string>([
   'live_field_recovery_pending',
   'live_field_stack_cardinality_mismatch',
   'dead_button_atlas_unsupported',
+  'level_timing_paused',
 ]);
 
 /** An individual observer's public-read partition. Unknown stays unavailable. */
@@ -98,6 +100,19 @@ export function horseObserverReadContextFromRequest(
       !dealt.every((seat) => provenance.projection.dealtSeatIds.includes(seat))
     )
       return null;
+    if (tournament.contextIssues.includes('level_timing_paused')) {
+      // The running hand retains its stakes across a break. Read only if the
+      // same cache generation saw the pause and the dealt ante rule agrees.
+      const originalRules = publicMemoryDomainFromRules('table', gs.ante, gs.bigBlindAnte);
+      if (
+        tournament.onBreak !== true ||
+        !provenance.source.contextIssues.includes('level_timing_paused') ||
+        !provenance.source.contextIssues.includes('satellite_award_depth_unavailable') ||
+        !originalRules ||
+        publicMemoryDomainKey(originalRules) !== publicMemoryDomainKey(gs.publicMemoryDomain)
+      )
+        return null;
+    }
     format = 'mtt';
   }
   // The original producer's dealt seats are required. RLS chairs and showdown

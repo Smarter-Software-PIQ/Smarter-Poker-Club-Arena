@@ -78,6 +78,27 @@ it('uses the original MTT contract for public reads while satellite payout utili
     publicMemoryDomain: gs.publicMemoryDomain,
   });
   expect(gs.tournament.contextStatus).toBe('incomplete');
+  const paused = structuredClone(request);
+  const pausedTournament = paused.gameState.tournament!;
+  const pausedIssues = [
+    'TOURNAMENT_CONTEXT_INCOMPLETE',
+    'satellite_award_depth_unavailable',
+    'level_timing_paused',
+  ];
+  pausedTournament.contextIssues = pausedIssues;
+  pausedTournament.contextProvenance!.issues = pausedIssues;
+  pausedTournament.contextProvenance!.source!.contextIssues = pausedIssues;
+  pausedTournament.onBreak = true;
+  paused.gameState.ante = 0;
+  paused.gameState.bigBlindAnte = false;
+  expect(horseObserverReadContextFromRequest(paused)).toMatchObject({ format: 'mtt' });
+  expect(pausedTournament.contextStatus).toBe('incomplete');
+  pausedTournament.onBreak = false;
+  expect(horseObserverReadContextFromRequest(paused)).toBeNull();
+  pausedTournament.onBreak = true;
+  paused.gameState.publicMemoryDomain = { version: 1, speed: 'table', ante: 'big_blind' };
+  expect(horseObserverReadContextFromRequest(paused)).toBeNull();
+
   const deadButton = structuredClone(request);
   deadButton.gameState.players.push({
     ...deadButton.gameState.players[1],
