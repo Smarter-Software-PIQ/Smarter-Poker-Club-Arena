@@ -15,7 +15,7 @@
     ".github/workflows/unpaid-lightning-funding-contracts.yml": "89f809d53556d53b8a7e25c9dd92a4ae4e5fb8731cef11e0e89b463cefbe9d62",
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "0ce886c016fd8a6bfb14a31c7f65c7ebf461599ed98b6d1df3fc74d99f89a78c",
-    "scripts/ci/apply-recorded-migration.mjs": "a353cba888482b38d9f6e430c88955d91e34ec33529599473f35e8b7e52d4ec4",
+    "scripts/ci/apply-recorded-migration.mjs": "b19c1708811882a0cad520375591c51a10bda6758a41f3fc31793caf680caa54",
     ".github/workflows/apply-merged-migration.yml": "32a882652058f3be483b2ca81a9624310f29178bd4b9579d62003e2e290fdbef",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
@@ -73,10 +73,10 @@
     "paths": {
       "scripts/ci/apply-recorded-migration.mjs": {
         "before": "8ffe6a2fbd68bb9cafc05f79ac1b15787d5be106522a352ae5178ba0ad9775db",
-        "after": "a353cba888482b38d9f6e430c88955d91e34ec33529599473f35e8b7e52d4ec4"
+        "after": "b19c1708811882a0cad520375591c51a10bda6758a41f3fc31793caf680caa54"
       }
     },
-    "review": "The only change in apply-recorded-migration.mjs is one import of migration-stale-pins.mjs and atomicSQL built through stalePinGuardSQL(file, sql, <the same history-bound body>), inside the existing refusal path: for migrations from 20261108000000 on, a snapshot of function md5s after BEGIN and a check before COMMIT that refuses a migration leaving another function pinned to a changed or dropped body. Nothing sent, bound or recorded otherwise changes.",
+    "review": "The only change in apply-recorded-migration.mjs is one import of stalePinParts from migration-stale-pins.mjs and the atomic history binding splicing its two pieces into the same single replace: for migrations from 20261108000000 on, a snapshot of function md5s right after BEGIN; and a check before the history insert that refuses a migration leaving another function pinned to a changed or dropped body (both empty before that version). Nothing else sent, bound or recorded changes.",
     "reason": "2026-11-07: 20261107021911 changed fn_union_pnl_evidence_report and left two md5 pins on its old body; the original-inventory generation went NULL and the 2026-10-19 close could not finish."
   }
 }

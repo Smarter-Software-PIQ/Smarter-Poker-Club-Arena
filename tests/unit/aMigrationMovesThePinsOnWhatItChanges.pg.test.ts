@@ -196,9 +196,13 @@ COMMIT;
       resolve(__dirname, '../../scripts/ci/apply-recorded-migration.mjs'),
       'utf8'
     );
-    expect(applier).toContain("import { stalePinGuardSQL } from './migration-stale-pins.mjs';");
-    expect(applier).toMatch(
-      /atomicSQL = stalePinGuardSQL\(\s*file,\s*sql,\s*transactionBody\.replace\(\/COMMIT/
+    expect(applier).toContain("import { stalePinParts } from './migration-stale-pins.mjs';");
+    expect(applier).toContain('stalePin = stalePinParts(file, sql, transactionBody);');
+    expect(applier).toContain(
+      'begin + stalePin.snapshot + middle + stalePin.check + historyStatement'
+    );
+    expect(applier.indexOf('stalePin = stalePinParts(')).toBeLessThan(
+      applier.indexOf('const atomicSQL = transactionBody.replace(')
     );
   });
 });

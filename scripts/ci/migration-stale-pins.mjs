@@ -89,16 +89,27 @@ END $ca_stale_pin_check$;`;
 }
 
 /**
- * Wrap a migration's atomic SQL (BEGIN; ... history ... COMMIT;) so the
- * function snapshot is taken right after BEGIN and the check runs right before
- * the final COMMIT. Returns the SQL unchanged for files before PIN_CHECKED_FROM.
+ * The two pieces the applier splices into a migration's own transaction: the
+ * snapshot (right after BEGIN;) and the check (right before the history
+ * insert and COMMIT;). Both are '' for files before PIN_CHECKED_FROM.
+ */
+export function stalePinParts(file, source, body) {
+  if (!isPinChecked(file)) return { snapshot: '', check: '' };
+  if (!/^[ \t]*BEGIN[ \t]*;/im.test(body) || !/COMMIT\s*;\s*$/i.test(body))
+    throw new Error('stale-pin guard requires one BEGIN; ... COMMIT; transaction');
+  if (body.includes('$ca_stale_pin_snapshot$') || body.includes('$ca_stale_pin_check$'))
+    throw new Error('migration conflicts with the reserved stale-pin delimiters');
+  return { snapshot: '\n' + SNAPSHOT, check: checkSQL(allowedStalePins(source)) + '\n' };
+}
+
+/**
+ * Wrap a migration's atomic SQL (BEGIN; ... COMMIT;) the way the applier does:
+ * snapshot right after BEGIN, check right before the final COMMIT.
  */
 export function stalePinGuardSQL(file, source, atomicSQL) {
-  if (!isPinChecked(file)) return atomicSQL;
-  if (!/^[ \t]*BEGIN[ \t]*;/im.test(atomicSQL) || !/COMMIT\s*;\s*$/i.test(atomicSQL))
-    throw new Error('stale-pin guard requires one BEGIN; ... COMMIT; transaction');
-  if (atomicSQL.includes('$ca_stale_pin_snapshot$') || atomicSQL.includes('$ca_stale_pin_check$'))
-    throw new Error('migration conflicts with the reserved stale-pin delimiters');
-  const opened = atomicSQL.replace(/^([ \t]*BEGIN[ \t]*;)/im, (b) => b + '\n' + SNAPSHOT);
-  return opened.replace(/COMMIT\s*;\s*$/i, () => checkSQL(allowedStalePins(source)) + '\nCOMMIT;');
+  const { snapshot, check } = stalePinParts(file, source, atomicSQL);
+  if (!snapshot) return atomicSQL;
+  return atomicSQL
+    .replace(/COMMIT\s*;\s*$/i, () => check + 'COMMIT;')
+    .replace(/^([ \t]*BEGIN[ \t]*;)/im, (b) => b + snapshot);
 }
