@@ -67,6 +67,8 @@ import {
 import { isBaggedStatus } from '../../../utils/multiDaySchedule';
 /* `TournamentEntry` was imported here too and referenced nowhere in the file. */
 import type { TournamentTable } from './types';
+import { useMyPlayers } from './useMyPlayers';
+import MyPlayersCard from './MyPlayersCard';
 import '../../../styles/tournament-lobby-3d.css';
 import './TablesTab.css';
 
@@ -118,6 +120,10 @@ function statusLabel(table: TournamentTable): StatusLabel {
   return { text: table.status ? table.status.replace(/_/g, ' ') : 'Unknown', tone: '' };
 }
 
+/** Names shown in full before the line folds the rest into "+N More". */
+const MY_NAMES_SHOWN = 2;
+const MY_NAMES_SEP = '\u0000';
+
 /** Everything one row needs, derived once for the whole list. */
 interface TableLine {
   table: TournamentTable;
@@ -135,6 +141,13 @@ interface TableLine {
   maxStack: number;
   hasStacks: boolean;
   isHeroTable: boolean;
+  /**
+   * The viewer's own players seated here right now (Dan 2026-11-08: "IF YOU
+   * CLICK ON THE 'TABLES' PAGE, IT SHOULD TELL YOU IF YOU HAVE A PLAYER ON THE
+   * TABLE AND WHO"). Joined into one string so the memo'd row compares a
+   * primitive, not a fresh array per chip tick. Empty when none.
+   */
+  myPlayerNames: string;
   openable: boolean;
   /** Why the row is inert, shown on the row itself. Empty when it is not. */
   blockedReason: string;
@@ -178,6 +191,7 @@ const TableRow = React.memo(function TableRow({
   maxStack,
   hasStacks,
   isHeroTable,
+  myPlayerNames,
   openable,
   blockedReason,
   scaleMax,
@@ -197,6 +211,9 @@ const TableRow = React.memo(function TableRow({
   const belowField = fieldAvg > 0 && avgStack > 0 && avgStack < fieldAvg;
 
   const seatText = `${chips(seated)}/${chips(table.max_players || 0)}`;
+  const mine = myPlayerNames ? myPlayerNames.split(MY_NAMES_SEP) : [];
+  const mineShown = mine.slice(0, MY_NAMES_SHOWN);
+  const mineMore = mine.length - mineShown.length;
 
   const body = (
     <>
@@ -208,6 +225,7 @@ const TableRow = React.memo(function TableRow({
         <span className="tt-headline">
           <span className="tl-name tt-name">{label}</span>
           {isHeroTable && <span className="tl-badge tl-badge--action">Your Table</span>}
+          {mine.length > 0 && <span className="tl-badge">Yours</span>}
         </span>
         <span className="tt-headmeta">
           <span className={`tl-badge${badge.tone}`}>{badge.text}</span>
@@ -258,6 +276,16 @@ const TableRow = React.memo(function TableRow({
         </span>
       </span>
 
+      {mine.length > 0 && (
+        <span className="tl-sub tt-mine" title={mine.join(', ')}>
+          <span className="tt-mine__label">
+            {mine.length === 1 ? 'Your Player:' : 'Your Players:'}
+          </span>{' '}
+          <span className="tt-mine__names">{mineShown.join(', ')}</span>
+          {mineMore > 0 && <span className="tt-mine__more"> +{chips(mineMore)} More</span>}
+        </span>
+      )}
+
       {blockedReason ? (
         <span className="tl-sub tt-blocked">{blockedReason}</span>
       ) : openable ? (
@@ -273,6 +301,7 @@ const TableRow = React.memo(function TableRow({
     'tt-row',
     openable ? 'tl-row--interactive' : 'tt-row--static',
     isHeroTable ? 'tl-row--hero' : '',
+    mine.length > 0 ? 'tt-row--mine' : '',
     normalisedStatus(table.status) === 'closed' ? 'tl-row--eliminated' : '',
   ]
     .filter(Boolean)
@@ -297,9 +326,10 @@ const TableRow = React.memo(function TableRow({
         onFocus={() => warmTable(table.id)}
         onClick={() => onOpen(table)}
         aria-label={
-          isHeroTable
+          (isHeroTable
             ? `Go To Your Table, ${label}, ${seatText} Players Seated`
-            : `Watch ${label}, ${seatText} Players Seated`
+            : `Watch ${label}, ${seatText} Players Seated`) +
+          (mine.length > 0 ? `, Your Players ${mine.join(', ')}` : '')
         }
       >
         {body}
@@ -321,6 +351,8 @@ export default function TablesTab({
 }: TournamentTabProps) {
   const toast = useToast();
   const tableListRef = useRef<HTMLUListElement>(null);
+  const myPlayers = useMyPlayers(tournament, entries, tables, currentUserId);
+  const myByTable = myPlayers.ready ? myPlayers.summary.byTable : null;
 
   /** Live players only. An eliminated row keeps its last table_id, and counting
    *  it would report a nine-handed table that has two players left on it. */
@@ -408,6 +440,7 @@ export default function TablesTab({
         maxStack,
         hasStacks,
         isHeroTable: !!heroTableId && table.id === heroTableId,
+        myPlayerNames: (myByTable?.get(table.id) ?? []).join(MY_NAMES_SEP),
         openable,
         blockedReason: !table.id
           ? 'This Table Cannot Be Opened'
@@ -428,7 +461,7 @@ export default function TablesTab({
     });
 
     return built;
-  }, [tables, byTable, heroTableId, tournament?.name, onWatchPlayer]);
+  }, [tables, byTable, heroTableId, tournament?.name, onWatchPlayer, myByTable]);
 
   const handleOpen = useCallback(
     (table: TournamentTable) => {
@@ -484,6 +517,7 @@ export default function TablesTab({
               : { title: 'No Tables Yet', hint: 'Tables Are Created When The Event Starts' };
     return (
       <div className="tl-panel tt-panel">
+        {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
         <div className="tl-empty">
           <span>{empty.title}</span>
           <span className="tl-empty__hint">{empty.hint}</span>
@@ -496,6 +530,9 @@ export default function TablesTab({
 
   return (
     <div className="tl-panel tt-panel">
+      {/* Your players first (Dan 2026-11-08), then the field. */}
+      {myPlayers.ready && <MyPlayersCard summary={myPlayers.summary} />}
+
       <div className="tl-stat-grid tt-stats">
         <div className="tl-stat">
           <span className="tl-stat__label">Tables</span>
