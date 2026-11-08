@@ -647,7 +647,7 @@ The release owner must first verify the actual public notice and required lead.
 This branch freezes the Stage SHA as control and selects the newest qualified
 protected ancestor with identical release-control inputs and the same pinned
 owner floor and order. Unrelated later main commits do not discard valid
-qualification; changed release controls require new evidence. The candidate
+qualification; changed release controls require new evidence. The candidate's
 exact Backup, schema freshness, both-direction rollback rehearsal, four engine
 qualification shards and immutable images must already qualify at the original
 Stage run's creation time. The original
@@ -658,3 +658,14 @@ selection job, cutoff, owner identity and still-open protected admission before
 handoff. Missing or changed evidence keeps the current engine serving. The
 host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
 thaw checks remain mandatory. Do not dispatch the receiver directly.
+
+### Capped satellite awards: schema before compatible engine
+
+Follow the capped satellite compatibility section in `PUBLISHING.md` for migration
+`20261108154158_capped_frozen_satellite_cohort_awards.sql`. Install and verify its
+three declared live function postimages through the protected migration route
+before selecting the compatible engine. The old executor refuses attached capped
+remainders without payment; the successor retains the original terminal request
+and generation. After the usual exact certificate, daily activation and seal,
+read the affected event's canonical settlement and table completion. Preserve an
+unknown or committed outcome across rollback; never replay its financial effects.

@@ -223,7 +223,7 @@ The release owner must first verify the actual public notice and required lead.
 This branch freezes the Stage SHA as control and selects the newest qualified
 protected ancestor with identical release-control inputs and the same pinned
 owner floor and order. Unrelated later main commits do not discard valid
-qualification; changed release controls require new evidence. The candidate
+qualification; changed release controls require new evidence. The candidate's
 exact Backup, schema freshness, both-direction rollback rehearsal, four engine
 qualification shards and immutable images must already qualify at the original
 Stage run's creation time. The original
@@ -234,3 +234,17 @@ selection job, cutoff, owner identity and still-open protected admission before
 handoff. Missing or changed evidence keeps the current engine serving. The
 host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
 thaw checks remain mandatory. Do not dispatch the receiver directly.
+
+### Capped satellite settlement compatibility
+
+Migration `20261108154158_capped_frozen_satellite_cohort_awards.sql` installs before
+its compatible engine. Existing terminal execution refuses a field-capped award
+with an attached remainder before financial effects. The successor engine uses
+`fn_execute_capped_satellite_terminal_request` for qualifier settlement, retaining
+the original durable request and lease generation. Its v3 consumer verifies the
+final ticket recipient also owns the attached remainder; legacy v2 stays strict.
+Do not manually settle, rewrite frozen entitlements, or replay an unknown outcome.
+After the certified daily cutover, verify the original event's canonical receipt,
+49 financial legs totaling 1,003 for the affected 48-ticket event, and completion.
+A rollback to the older engine must preserve any committed receipt; an unsupported
+receipt is a recovery hold, never authorization for another payment.

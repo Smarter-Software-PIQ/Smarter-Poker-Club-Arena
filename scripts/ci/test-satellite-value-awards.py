@@ -230,6 +230,69 @@ END $live_field$;""")
   e.sql(award_db,file=fixture/'redeem-ranked-reconnect-ticket.sql',label='redeem-ranked-ticket-and-replay')
   e.sql(award_db,read_fixture,label='ranked-result-fresh-connection-after-redemption')
   e.discard(award_db)
+
+  # The paid opening retains actual registration, overlay and escrow owners.
+  # The hand/start snapshot is synthetic, as in the existing qualifier probe.
+  capped_creator=creator.replace('pg_temp.single_value_case(', 'pg_temp.capped_value_case(')
+  replacements={
+   "IF survivors NOT IN (1,2)": "IF survivors NOT IN (29,48)",
+   "1..4 LOOP": "1..48 LOOP", "26.25": "20",
+   "current_players=4": "current_players=48", "4000/survivors": "48000/survivors",
+   "ELSE 5-i END": "ELSE 49-i END", "45,5,1000": "9,1,1000",
+   "source_id,target_id,2,50,100,105": "source_id,target_id,2,10,20,1003",
+   "prize_balance=105 AND gross_in=105": "prize_balance=960 AND gross_in=960",
+   "(r->>'prize_pool')::numeric=105": "(r->>'prize_pool')::numeric=1003",
+  }
+  for old,new in replacements.items():
+   if old not in capped_creator: raise ValueError('capped opening seam changed: '+old)
+   capped_creator=capped_creator.replace(old,new)
+  capped_creator=capped_creator.replace('four real entries fund exactly 105','48 real entries fund exactly 960')
+  overlay="""CREATE TEMP TABLE capped_overlay_subject (LIKE public.tournaments);
+CREATE TRIGGER capped_overlay BEFORE UPDATE OF status ON capped_overlay_subject
+FOR EACH ROW EXECUTE FUNCTION public.fn_ca_fund_overlay_on_lock();
+"""
+  overlay_call="""PERFORM set_config('session_replication_role','replica',true);
+ UPDATE public.clubs SET chip_treasury=43 WHERE id=club;
+ UPDATE public.tournaments SET guaranteed_prize=1003 WHERE id=source_id;
+ PERFORM set_config('session_replication_role','origin',true);
+ INSERT INTO capped_overlay_subject SELECT * FROM public.tournaments WHERE id=source_id;
+ UPDATE capped_overlay_subject SET status='RUNNING' WHERE id=source_id;
+ PERFORM pg_temp.qualifier_assert((SELECT chip_treasury=0 FROM public.clubs WHERE id=club),
+   'capped guarantee debits exactly43 from its actual bank');
+ PERFORM pg_temp.qualifier_assert((SELECT sum(amount)=43 FROM public.chip_ledger
+   WHERE tournament_id=source_id AND category='overlay'),'capped overlay has actual journal');
+ PERFORM set_config('session_replication_role','replica',true);
+ UPDATE public.tournaments SET prize_pool=1003 WHERE id=source_id;
+"""
+  seam="PERFORM set_config('session_replication_role','replica',true);\n UPDATE public.tournaments SET status='RUNNING'"
+  if capped_creator.count(seam)!=1:raise ValueError('capped start opening seam changed')
+  capped_creator=capped_creator.replace(seam,overlay_call+" UPDATE public.tournaments SET status='RUNNING'")
+  table_start=capped_creator.index(' INSERT INTO public.tables(id,name,tournament_id')
+  table_end=capped_creator.index(' FOR i IN 1..48 LOOP',table_start)
+  table_insert=capped_creator[table_start:table_end]
+  capped_creator=capped_creator[:table_start]+capped_creator[table_end:]
+  table_insert=table_insert.replace("'live',survivors,", "'live',greatest(0,least(8,survivors-i+1)),")
+  roster=" FOR i IN 1..48 LOOP\n  u:=md5('l04:'||case_name||':user:'||i)::uuid;\n  UPDATE public.tournament_players"
+  roster_new=" FOR i IN 1..48 LOOP\n  IF (i-1)%8=0 THEN\n   v_table_id:=md5('l04:'||case_name||':table:'||((i-1)/8))::uuid;\n"+table_insert+"  END IF;\n  u:=md5('l04:'||case_name||':user:'||i)::uuid;\n  UPDATE public.tournament_players"
+  if capped_creator.count(roster)!=1:raise ValueError('capped roster seam changed')
+  capped_creator=capped_creator.replace(roster,roster_new).replace('seat_number=i,','seat_number=(i-1)%8+1,').replace("::uuid,v_table_id,i,u,", "::uuid,v_table_id,(i-1)%8+1,u,")
+  capped_scene=output/'capped-cohort-cases.sql'
+  capped_scene.write_text(one_seed+overlay+capped_creator+(fixture/'capped-cohort-cases.sql').read_text()+"\nSET CONSTRAINTS ALL IMMEDIATE; ROLLBACK;\n")
+  current_capped=json.loads((fixture/'capped-owners.json').read_text())
+  for owner in current_capped:
+   if hashlib.md5(owner['definition'].encode()).hexdigest()!=owner['hash']:
+    raise ValueError('capped current owner changed: '+owner['signature'])
+   e.sql(db,owner['definition'],label='capped-current-'+owner['signature'])
+  code,_,error=e.sql(db,file=capped_scene,label='capped-old-red',seconds=180,check=False)
+  if code==0 or 'frozen full-ticket depth' not in error:
+   raise ValueError('expected actual capped full-ticket refusal: '+error[-3500:])
+  capped_migration=root/'supabase/migrations/20261108154158_capped_frozen_satellite_cohort_awards.sql'
+  e.sql(db,file=capped_migration,label='capped-exact-migration',seconds=30)
+  e.report['capped_migration_sha256']=hashlib.sha256(capped_migration.read_bytes()).hexdigest()
+  e.sql(db,"SELECT proname,md5(pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN ('fn_ca_settle_satellite_cohort','fn_ca_satellite_cohort_receipt','fn_execute_capped_satellite_terminal_request') ORDER BY proname;",label='capped-postimage-hashes')
+  e.sql(db,file=capped_scene,label='capped-new-green',seconds=180)
+  e.sql(db,file=composed,label='capped-preserves-ordinary-cohorts',seconds=180)
+  e.sql(db,file=single_scene,label='capped-preserves-legacy-single-winner',seconds=180)
   qualify_concurrent_consumption(e,root,native,db,output,seed,scene.read_text(),diamond_seed,(fixture/'native-diamond-cases.sql').read_text())
   e.report.update(passed=True,status='passed')
  finally:
