@@ -212,20 +212,22 @@ describe('the engine release runbook quotes the constants the code holds', () =>
     }
   });
 
-  it('the paired constant lines (52, 53, 109, 115) and the two certificate re-reads are where it says', () => {
+  it('the paired constant lines (52, 53, 109, 115) and the three certificate re-reads are where it says', () => {
     const at = (n: number) => TRANSACTION_LINES[n - 1];
     expect(at(52)).toMatch(/^BREAK_CUTOVER_PROOF_SECONDS=/);
     expect(at(53)).toMatch(/^BREAK_ROLLBACK_RESERVE_SECONDS=/);
     expect(at(109)).toMatch(/^MIN_BREAK_REMAINING_MS=/);
     expect(at(115)).toMatch(/^BREAK_WINDOW_MS=/);
     expect(FLAT).toContain('(lines 52, 53, 109, 115)');
-    expect(at(3272)).toContain('require_backup_certificate ||');
-    expect(at(3861)).toContain('require_backup_certificate ||');
-    expect(at(3862)).toContain('daily_cutover_clock ||');
-    expect(at(4002)).toContain('persist_result sealed');
-    expect(FLAT).toContain('line 3272');
-    expect(FLAT).toContain('line 3861');
-    expect(FLAT).toContain('line 3862');
-    expect(FLAT).toContain('line 4002');
+    expect(at(3284)).toContain('require_backup_certificate ||');
+    expect(at(3817)).toContain('require_backup_certificate ||');
+    expect(at(3873)).toContain('require_backup_certificate ||');
+    expect(at(3874)).toContain('daily_cutover_clock ||');
+    expect(at(4014)).toContain('persist_result sealed');
+    expect(FLAT).toContain('line 3284');
+    expect(FLAT).toContain('line 3817');
+    expect(FLAT).toContain('line 3873');
+    expect(FLAT).toContain('line 3874');
+    expect(FLAT).toContain('line 4014');
   });
 });
