@@ -222,6 +222,68 @@ PY
 RENDERED="$RENDERED
 $CLIENT_RENDERED"
 
+# ── Repeatedly failing pg_cron jobs (2026-11-07) ─────────────────────────
+# pg_cron job 117 failed every run for hours while the fleet gauge above only
+# said "N failures in the last hour". public.fn_cron_failing_jobs() names each
+# job failing repeatedly (>= 3 failed runs in a row for >= 10 minutes, or 18
+# of its last 20 runs over >= 10 minutes); this renders one labelled series
+# per job so PgCronJobFailingRepeatedly can say which. NOT fail closed, like
+# the client error half: a database without the function (it predates
+# migration 20261108020000) or a failed read drops these series and sets
+# poker_cron_failing_collect_ok to 0, never the gauges above.
+CRON_FAILING_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
+  -X POST "$SUPABASE_URL/rest/v1/rpc/fn_cron_failing_jobs" \
+  -H "apikey: $SERVICE_KEY" \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -d '{}' 2>&1) || CRON_FAILING_BODY=''
+CRON_FAILING_RENDERED=$(python3 - "$CRON_FAILING_BODY" <<'PY'
+import json, re, sys
+
+def label(value):
+    text = re.sub(r"[\x00-\x1f]", " ", str(value))[:120]
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+lines = []
+ok = 1
+try:
+    rows = json.loads(sys.argv[1])
+    if not isinstance(rows, list):
+        raise ValueError(f"expected a list, got {type(rows).__name__}")
+    series = []
+    for row in rows:
+        name = label(row["jobname"])
+        guard = "true" if row.get("is_guard") else "false"
+        streak = float(row.get("failed_in_a_row") or 0)
+        failed_of_20 = float(row.get("failed_of_last_20") or 0)
+        series.append(f'poker_cron_job_failing_streak{{jobname="{name}",guard="{guard}"}} {streak:g}')
+        series.append(f'poker_cron_job_failing_of_last_20{{jobname="{name}",guard="{guard}"}} {failed_of_20:g}')
+    lines += [
+        "# HELP poker_cron_jobs_failing_repeatedly pg_cron jobs failing repeatedly (fn_cron_failing_jobs).",
+        "# TYPE poker_cron_jobs_failing_repeatedly gauge",
+        f"poker_cron_jobs_failing_repeatedly {len(rows)}",
+        "# HELP poker_cron_job_failing_streak Consecutive failed runs of a pg_cron job that is failing repeatedly; one series per failing job.",
+        "# TYPE poker_cron_job_failing_streak gauge",
+    ] + [s for s in series if s.startswith("poker_cron_job_failing_streak")] + [
+        "# HELP poker_cron_job_failing_of_last_20 Failed runs among the last 20 of a pg_cron job that is failing repeatedly.",
+        "# TYPE poker_cron_job_failing_of_last_20 gauge",
+    ] + [s for s in series if s.startswith("poker_cron_job_failing_of_last_20")]
+except Exception as exc:
+    sys.stderr.write(f"collect-monitoring-health: cron failing-job gauges skipped: {exc}\n")
+    lines = []
+    ok = 0
+lines += [
+    "# HELP poker_cron_failing_collect_ok 1 when fn_cron_failing_jobs was read this run, else 0.",
+    "# TYPE poker_cron_failing_collect_ok gauge",
+    f"poker_cron_failing_collect_ok {ok}",
+]
+print("\n".join(lines))
+PY
+) || CRON_FAILING_RENDERED='poker_cron_failing_collect_ok 0'
+RENDERED="$RENDERED
+$CRON_FAILING_RENDERED"
+
 # ── Engine release owner gauges (2026-11-06) ─────────────────────────────
 # On 2026-11-05 release transaction 42099609162-1 sat as the runtime owner for
 # 2 h 36 m, systemd restarted it 222 times, and five newer releases refused to
