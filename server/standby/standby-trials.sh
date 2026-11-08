@@ -51,7 +51,7 @@ SELECT json_build_object(
       'reconnect_presence','reconnect_snapshots'],
     'count', s.n, 'fingerprint', s.fingerprint)
 FROM (SELECT count(*) n, md5(coalesce(string_agg(
-      table_id::text||':'||seat_number::text||':'||user_id::text,
+      jsonb_build_array(table_id,seat_number,user_id,stack)::text,
       ',' ORDER BY table_id,seat_number,user_id),'')) fingerprint
       FROM public.table_seats WHERE left_at IS NULL) s
 CROSS JOIN admitted CROSS JOIN authority
@@ -375,7 +375,9 @@ try: print(json.dumps(json.loads(sys.argv[1])))
 except ValueError: print("null")' "$post_boot") || return 1
   wait_frozen_seats "$seat_owner" "$((t0 + 1800))" && thaw_at=$THAW_OBSERVED_AT \
     || reasons="$reasons,frozen_seat_boundary_failed"
-  wait_dealing 420 || reasons="$reasons,to_did_not_deal_after_thaw"
+  # Start a fresh database observation after thaw. The health window alone
+  # can still contain hands from before the swap.
+  wait_pretrial_dealing "$to" || reasons="$reasons,to_did_not_deal_after_thaw"
   frozen_seat_receipt "$seat_owner" "${to:0:8}" || reasons="$reasons,frozen_seat_receipt_failed"
   local v=pass; [ -z "$reasons" ] || v=fail
   trial_verdict swap "$v" ",\"from\":\"$from\",\"to\":\"$to\",\"seats\":$count_before,\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"rejectedSeatObservation\":${FROZEN_SEATS_REJECTION:-null},\"secondsToFreeze\":$(trial_elapsed "$t0" "${frozen_at:-}"),\"postBootSeatSnapshot\":$post_boot,\"adoptedRuntimeIdentity\":$target_id,\"secondsBootToLive\":$(trial_elapsed "${stop_at:-}" "${live_at:-}"),\"secondsFrozenTotal\":$(trial_elapsed "${frozen_at:-}" "${thaw_at:-}"),\"reasons\":\"${reasons#,}\""

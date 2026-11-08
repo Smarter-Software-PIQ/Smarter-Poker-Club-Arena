@@ -114,3 +114,40 @@ export const PUBLIC_HIST215_PRIOR = [
   'utility_context=satellite',
   'utility_context=spin_ladder',
 ] as const;
+
+/** Contract v2 (holdem-public-hist215-v2, R8): v1 order unchanged, then these
+ * public one-hots appended at indices 215.. (sorted). Added for the R8 range
+ * bundle 7de4856b and positions/buckets R8 cells use; v1 never sees them. */
+export const PUBLIC_HIST215_V2_APPENDED = [
+  'facing_size_bucket=mid',
+  'hero_position=CO',
+  'hero_position=HJ',
+  'hero_position=UTG',
+  'iprange=1eff0dca52c74b86d77a314c3554cb7357e42e3979bda3970e306dd242e63b19',
+  'iprange=4c4aca48c0b577be5492f05d19eb294557a2cf87103dcf42773db40956b58bad',
+  'iprange=8094ad2bd7fd8e75d410ec521e9749199cc43986319efd148940aa1e886258b8',
+  'iprange=8d05309cf40a74905140d9a3c2b857b4aa0917f37c2434e43c95c8227e0a3c12',
+  'iprange=8e091848a962599d769f99a352a6a1bc7aed2222ede6509f457aa4ac6f44a129',
+  'iprange=940cbb36f68dfee091837aee988eed475ac6cf0f2b6107373014a6bca47eba3c',
+  'iprange=b1d304ccba44f89fa02db583045f4e04a6a6a350ddae1ca4e8dc5a4beb20efb1',
+  'iprange=c8a29032b419bc0f571b511b5c3b4ea5d34f19c07a92660643623102a4d5023c',
+  'iprange=cfb46e1b5d5e73cfbcfe954cd5e9a774181eb9154b3d1ff23d58de6b08335400',
+  'iprange=df7c2db33566dd6b1ab17146e5c86e45025159eb9b591efdfd0c403d102b50b0',
+  'iprange=ebefaf9e605ad69e732d3c29d38c966f229b56437748534ceb9281a318ccd31a',
+  'ooprange=22f7c9b7c5cd1a795476f2e5419b1829d6e13bbfe6dd7a682c56f8c6c72a387e',
+  'ooprange=2eb11daeca4ffdaa8dac768fabfb388ed7a7ea0eae4c65e46618c6eda3444e46',
+  'ooprange=45f108f17d60c7ca10db794ef2a2d1a1c354075f8e24e9eb94559baabaaea54b',
+  'ooprange=6f32554c839177cb628055124548b524a033250bcc2d2c2612e8b8885b4bdd46',
+  'ooprange=789b60c1614b66a8e8e9bfb7d457837683fda8aa798a1090564fea928a0c9ef2',
+  'ooprange=8c26e3d32a0944a4f66c3afbf54efe80ac6e24a4cee7eaf8311dc95c54743f65',
+  'ooprange=8e091848a962599d769f99a352a6a1bc7aed2222ede6509f457aa4ac6f44a129',
+  'ooprange=940cbb36f68dfee091837aee988eed475ac6cf0f2b6107373014a6bca47eba3c',
+  'ooprange=a70f8bc53d028a436d875c4374b9b8bb615e7eef33f14676bdb95fc64da0fe81',
+  'ooprange=b342d9978e3f4dc9b96aeb9509cff1501f71bb3480db9f0e74db160241937b13',
+  'ooprange=c8682c9598acfdb2947b0bf029bf812ba1f1c92b40b8fb452c81f28f46f99fed',
+  'ooprange=d94b67df0b44afe07d24d6b9b1b69ab517afc327a3186c1535aebab6a949310c',
+  'ooprange=df7c2db33566dd6b1ab17146e5c86e45025159eb9b591efdfd0c403d102b50b0',
+  'opponent_position=CO',
+  'opponent_position=HJ',
+  'opponent_position=UTG',
+] as const;

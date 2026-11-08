@@ -14,7 +14,13 @@ SHA=lambda b:hashlib.sha256(b).hexdigest()
 NAMESPACE='6b4ec729-fd3a-43d7-a75b-15fd3bced986'
 V1='public_hist215_feature_request_assembly_v1';V2='public_hist215_feature_request_assembly_v2'
 REQUEST={'format','source_namespace','inventory','execution_order','source_partition','original_manifest','input_root','pipeline_root','pipeline_source_lock','encoder_source_lock','physics_protocol','cache_schema','current','terminal'}
-R7_PINS={'contexts':107,'m1_per_context':57,'inventory_contract':'smarter-poker.r7-global-public-fold-inventory.DRAFT.v57','scenario_id_prefix':'r7f'}
+R7_PINS={'contexts':107,'m1_per_context':57,'inventory_contract':'smarter-poker.r7-global-public-fold-inventory.DRAFT.v57','scenario_id_prefix':'r7f','feature_contract_version':'holdem-public-hist215-v1'}
+PUBLIC215_CONTRACTS=('holdem-public-hist215-v1','holdem-public-hist215-v2')
+def feature_schema(codec,version):
+ """The declared contract's descriptor: v1 is the producer's frozen constant;
+ v2 comes from the producer's own contract table (never inferred)."""
+ need(version in PUBLIC215_CONTRACTS,'FEATURE_CONTRACT')
+ return codec.FEATURE_DESCRIPTOR_SHA256 if version=='holdem-public-hist215-v1' else codec.feature_contract(version)[0]
 def need(v,m):
  if not v:raise ValueError('PUBLIC215_REQUEST_'+m)
 def exact(v,k):need(isinstance(v,dict)and set(v)==set(k),'EXACT_KEYS');return v
@@ -28,6 +34,7 @@ def request_pins(config):
   exact(config,REQUEST);need(config['source_namespace']==NAMESPACE,'PLANNED_SOURCE_IDENTITY');return dict(R7_PINS)
  exact(config,REQUEST|{'pins'});need(config['format']==V2,'PLANNED_SOURCE_IDENTITY');pins=exact(config['pins'],set(R7_PINS))
  need(all(type(pins[k])is int and pins[k]>0 for k in['contexts','m1_per_context'])and pins['contexts']*pins['m1_per_context']<=99999,'PIN_CENSUS')
+ need(pins['feature_contract_version'] in PUBLIC215_CONTRACTS,'PIN_FEATURE_CONTRACT')
  need(isinstance(pins['inventory_contract'],str)and pins['inventory_contract'].startswith('smarter-poker.')and isinstance(pins['scenario_id_prefix'],str)and re.fullmatch('r[0-9]+f',pins['scenario_id_prefix'])is not None,'PIN_NAMES')
  namespace=config['source_namespace'];need(isinstance(namespace,str)and str(uuid.UUID(namespace))==namespace,'PLANNED_SOURCE_IDENTITY')
  # A new evaluation set never reuses the R7 namespace, inventory or ids.
@@ -73,7 +80,7 @@ def assemble(config,output,config_sha256):
  for name in ['contract.py','pio_upi.py','public_hist215.py']:need(pipeline/name in pins,'MAINTAINED_PRODUCER_SOURCE_PIN')
  sys.path.insert(0,str(pipeline));contract=importlib.import_module('contract');pio=importlib.import_module('pio_upi');codec=importlib.import_module('public_hist215')
  for module in [contract,pio,codec]:need(Path(module.__file__).resolve().parent==pipeline,'PRODUCER_IMPORT_ORIGIN')
- canonical=codec.canonical_bytes;digest=codec.digest
+ canonical=codec.canonical_bytes;digest=codec.digest;feature_schema_sha=feature_schema(codec,plan_pins['feature_contract_version'])
  encoder_lock=public_json(config['encoder_source_lock']);exact(encoder_lock,{'format','files'});need(encoder_lock['format']=='public_hist215_encoder_source_graph_v1'and encoder_lock['files'],'ENCODER_SOURCE_GRAPH')
  for file in encoder_lock['files']:checked(file)
  inventory=public_json(config['inventory']);order=public_json(config['execution_order']);partition=public_json(config['source_partition']);original=public_json(config['original_manifest']);physics=public_json(config['physics_protocol']);schema=public_json(config['cache_schema'])
@@ -109,7 +116,7 @@ def assemble(config,output,config_sha256):
   template={'format':'public_hist215_template_v1','context':context,'root_actor':'IP'if actor==1 else'OOP','scenario':{'pot_chips_f64':codec.encode_f64(s['pot_chips']),'effective_stack_chips_f64':codec.encode_f64(s['effective_stack_chips']),'chips_per_bb_f64':codec.encode_f64(s['chips_per_bb']),'rake_f64':[codec.encode_f64(v)for v in(s['rake']or[0,0])],'ip_range_checksum':s['ip_range_checksum'],'oop_range_checksum':s['oop_range_checksum']},'opponent_weights':[str(v)for v in ranges[s[opp+'_range_checksum']]['units']]}
   if cid in compiled:need(compiled[cid]==template and metadata[cid]['expected_children']==t['expected_children'],'ROOT_TEMPLATE_ACTIONS_STABLE')
   else:
-   compiled[cid]=template;checksum=write_new(output/'templates'/ (cid+'.json'),canonical(template));metadata[cid]={'context':context,'expected_children':t['expected_children'],'model_action_order':sorted(t['expected_children']),'template_checksum':checksum,'feature_schema_checksum':codec.FEATURE_DESCRIPTOR_SHA256}
+   compiled[cid]=template;checksum=write_new(output/'templates'/ (cid+'.json'),canonical(template));metadata[cid]={'context':context,'expected_children':t['expected_children'],'model_action_order':sorted(t['expected_children']),'template_checksum':checksum,'feature_schema_checksum':feature_schema_sha}
   planned={'cache_target_id':old,'target_id':t['target_id'],'scenario_id':s['scenario_id'],'context_id':cid,'board':t['board'],'source_node':t['node'],'scenario':s,'full_icm_table_identity':item['full_icm_table_identity']};plan.append(planned)
   ordered[cid].append({'target_id':t['target_id'],'board':t['board'],'source_node':t['node'],'cache_target_id':old})
  target_plan={'format':'public_hist215_final_M1_public_target_plan_v1','source_namespace':config['source_namespace'],'inventory_sha256':config['inventory']['sha256'],'execution_order_sha256':config['execution_order']['sha256'],'source_partition_checksum':digest(partition),'entries':plan}
@@ -122,7 +129,7 @@ def assemble(config,output,config_sha256):
    board=target['board'];blocked={board[i:i+2]for i in range(0,len(board),2)};opponents=[set(h)for h,w in zip(combos,op['units'])if w and not blocked.intersection(h)]
    hole=next((h for h,w in zip(combos,ow['units'])if w and not blocked.intersection(h)and any(not p.intersection(h)for p in opponents)),None);need(hole is not None,'PUBLIC_CASE_ROOT_SUPPORT');cases.append({'board':board,'own':list(hole)})
   request_groups.append({'context_id':cid,'context':template['context'],'template':{'path':str(output/'templates'/(cid+'.json')),'sha256':metadata[cid]['template_checksum']},'own_range':{k:ow[k]for k in['path','sha256']},'opponent_range':{k:op[k]for k in['path','sha256']},'targets':ordered[cid],'cases':cases});runtime_groups.append({'context':template['context'],'cases':cases})
- request={'format':'public_hist215_public_feature_batch_request_v1','feature_schema_checksum':codec.FEATURE_DESCRIPTOR_SHA256,'encoder_source_lock':config['encoder_source_lock'],'physics_checksum':digest(physics),'cache_schema':config['cache_schema'],'current':{**config['current'],'header':current_header},'terminal':{**config['terminal'],'header':terminal_header},'contexts':request_groups}
+ request={'format':'public_hist215_public_feature_batch_request_v1','feature_schema_checksum':feature_schema_sha,'encoder_source_lock':config['encoder_source_lock'],'physics_checksum':digest(physics),'cache_schema':config['cache_schema'],'current':{**config['current'],'header':current_header},'terminal':{**config['terminal'],'header':terminal_header},'contexts':request_groups}
  # Cache ancestry contains compiler multiline metadata, pinned by file SHA.
  request_sha=write_new(output/'public-feature-request.json',json.dumps(request,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False).encode('ascii'));runtime={'format':'public_hist215_runtime_parity_protocol_v1','method':'cold_public215_features_and_all_heads_v1','clock':'process.hrtime.bigint','platform':'linux','node_major':22,'napi_version':8,'native_source_checksum':codec.NATIVE_SOURCE_SHA256,'execution_limit_ms':8000,'contexts':runtime_groups}
  approved_metadata=canonical_context_order(list(metadata.values()),canonical);runtime['contexts']=canonical_context_order(runtime_groups,canonical)

@@ -11,6 +11,20 @@
 
 set -e
 
+# ── A HOOK'S GIT ENVIRONMENT NEVER REACHES THE TESTS (2026-11-07) ───────────
+# Git exports GIT_DIR (and, from a linked worktree, GIT_COMMON_DIR and
+# friends) to every hook it runs. Each one is an absolute pointer at THIS
+# repository's metadata. A test that spawns `git` anywhere else - a disposable
+# fixture under $TMPDIR, or the engine's benchmark readers running from
+# server/ - inherits that pointer and fails with "fatal: this operation must
+# be run in a work tree", a verdict about the environment that reads as a
+# verdict about the change. Measured 2026-11-07: a workflow-only push from a
+# Mac worktree was refused by eleven server benchmark cases that pass in every
+# other environment. Git finds this tree on its own from the hook's working
+# directory, so nothing below needs these; the tests must not see them.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR \
+  GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+
 # ── One working tree per agent (rule 1a) ────────────────────────────────────
 # Runs FIRST, for the same reason it runs first on pre-commit: if this push
 # should not be coming from this tree at all, none of the content checks below

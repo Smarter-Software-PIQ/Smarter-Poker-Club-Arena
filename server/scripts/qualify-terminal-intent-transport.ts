@@ -38,6 +38,7 @@ const server = createServer(async (req, res) => {
       [
         'fn_get_tournament_deal_consensus',
         'fn_prepare_tournament_terminal_request',
+        'fn_adopt_tournament_terminal_request',
         'fn_execute_tournament_terminal_request',
         'fn_resolve_tournament_terminal_request',
       ].includes(name)
@@ -74,6 +75,19 @@ const server = createServer(async (req, res) => {
       ).rows[0].value;
       original = result.request;
       assert.equal(original.phase, 'prepared');
+    } else if (name === 'fn_adopt_tournament_terminal_request') {
+      assert.equal(format, 'QUALIFIERS');
+      assert.equal(args.p_request_id, original.request_id);
+      assert.equal(args.p_previous_generation, original.original_generation);
+      assert.equal(args.p_generation, generation);
+      result = (
+        await db.query('SELECT public.fn_adopt_tournament_terminal_request($1,$2,$3) AS value', [
+          args.p_request_id,
+          args.p_previous_generation,
+          args.p_generation,
+        ])
+      ).rows[0].value;
+      assert.equal(result.request.current_generation, generation);
     } else if (name === 'fn_execute_tournament_terminal_request') {
       assert.deepEqual(args, { p_request_id: original.request_id, p_generation: generation });
       result = (
@@ -179,11 +193,67 @@ try {
     await import('../src/tournament/satelliteSettlementRpc.js');
   const { requestSatelliteQualifierReceipt } =
     await import('../src/tournament/satelliteQualifierRpc.js');
-  const { parseDurableTerminalRequest, executeDurableTerminalRequest } =
-    await import('../src/tournament/terminalDurableRequest.js');
+  const {
+    parseDurableTerminalRequest,
+    executeDurableTerminalRequest,
+    prepareDurableTerminalRequest,
+    adoptDurableTerminalRequest,
+  } = await import('../src/tournament/terminalDurableRequest.js');
   const { channelHub } = await import('../src/hub/ChannelHub.js');
   closeRuntime = () => channelHub.close();
   const authority = { tournamentId: event, leaseGeneration: generation };
+  let bubbleHandoff;
+  if (format === 'QUALIFIERS') {
+    const first = await runWithTournamentDataAuthority(authority, () =>
+      prepareDurableTerminalRequest({
+        kind: 'satellite_qualifiers',
+        tournamentId: event,
+        observedWinnerId: null,
+        qualifierIds: qualifiers,
+      })
+    );
+    assert(first);
+    // Advance only this disposable lease's clock, then use the real protocol-2 claim.
+    await db.query(
+      "UPDATE public.engine_tournament_leases SET heartbeat_at=clock_timestamp()-interval '5 minutes' WHERE tournament_id=$1 AND lease_generation=$2",
+      [event, generation]
+    );
+    generation = '92090000-0000-4000-8000-000000000003';
+    const successor = await db.query(
+      'SELECT * FROM public.claim_tournament_lease_v2($1,$2,$3,$4,30)',
+      [event, 'bubble-successor', 'native', generation]
+    );
+    assert.equal(successor.rows[0].granted, true);
+    await db.query('BEGIN');
+    await db.query(
+      "SELECT set_config('app.smarter_data_actor','tournament-manager',true),set_config('app.smarter_tournament_id',$1,true),set_config('app.smarter_tournament_lease_generation',$2,true)",
+      [event, first.originalGeneration]
+    );
+    await db.query('SET LOCAL ROLE service_role');
+    try {
+      await assert.rejects(
+        db.query('SELECT public.fn_execute_tournament_terminal_request($1,$2)', [
+          first.requestId,
+          first.originalGeneration,
+        ]),
+        { code: '42501', message: 'TOURNAMENT_MANAGER_FENCED' }
+      );
+    } finally {
+      await db.query('ROLLBACK');
+    }
+    authority.leaseGeneration = generation;
+    const adopted = await runWithTournamentDataAuthority(authority, () =>
+      adoptDurableTerminalRequest(first)
+    );
+    assert.equal(adopted.requestId, first.requestId);
+    assert.deepEqual(adopted.identity, first.identity);
+    assert.equal(adopted.currentGeneration, generation);
+    bubbleHandoff = {
+      originalGeneration: first.originalGeneration,
+      successorGeneration: generation,
+      requestId: first.requestId,
+    };
+  }
   const result: any = await runWithTournamentDataAuthority(authority, () =>
     format === 'SATELLITE'
       ? requestSatelliteSettlementReceipt(event, winner, { attempts: 1 })
@@ -203,6 +273,9 @@ try {
   );
   if (failure) throw failure;
   assert.deepEqual(calls, [
+    ...(bubbleHandoff
+      ? ['fn_prepare_tournament_terminal_request', 'fn_adopt_tournament_terminal_request']
+      : []),
     'fn_prepare_tournament_terminal_request',
     ...(format === 'LEGACY_DEAL' ? ['fn_get_tournament_deal_consensus'] : []),
     'fn_execute_tournament_terminal_request',
@@ -284,6 +357,11 @@ try {
     );
     assert.equal(payouts.filter((r) => r.source === 'satellite_seat').length, 2);
     assert.deepEqual(result.qualifierIds, qualifiers);
+    assert.equal(original.request_id, bubbleHandoff?.requestId);
+    assert.deepEqual(
+      (await snapshot())['public.hand_atomic_commits'],
+      before['public.hand_atomic_commits']
+    );
     assert.deepEqual(
       payouts
         .filter((r) => r.source === 'satellite_seat')
@@ -369,6 +447,7 @@ try {
         calls,
         relationCount: Object.keys(settled).length,
         realManagerHeaders: true,
+        ...(bubbleHandoff ? { bubbleHandoff } : {}),
         originalRequest: original.original_request,
         lostCommittedTcpResponse: true,
         exactReplay: true,

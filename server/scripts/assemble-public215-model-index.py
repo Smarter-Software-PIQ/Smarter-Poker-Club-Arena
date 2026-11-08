@@ -46,12 +46,12 @@ def validate_terminal(receipt,dataset,authority,contexts):
   workers[i]=(worker,result)
  need(set(workers)==set(range(4))and owned==set(contexts),'COMPLETE_DISJOINT_CONTEXT_OWNERSHIP');return workers
 
-def compare_reference_cases(reference,receipt_cases,actions,approved,decode):
+def compare_reference_cases(reference,receipt_cases,actions,approved,decode,width=215):
  need(isinstance(reference,list)and isinstance(receipt_cases,list)and len(reference)==len(receipt_cases)==len(approved)and 2<=len(reference)<=32,'REFERENCE_CASE_CENSUS')
  for ref,actual,case in zip(reference,receipt_cases,approved):
   exact(ref,REFERENCE);need(isinstance(actual,dict)and {'board','own'}<=set(actual),'ACTUAL_CASE')
   need({'board':ref['board'],'own':ref['own']}==case=={'board':actual['board'],'own':actual['own']},'REFERENCE_CASE_IDENTITY')
-  for key,size in [('features_f64',215),('raw_heads_f64',1+2*actions),('Q_f64',actions),('frequency_f64',actions)]:
+  for key,size in [('features_f64',width),('raw_heads_f64',1+2*actions),('Q_f64',actions),('frequency_f64',actions)]:
    need(isinstance(ref[key],list)and len(ref[key])==size and isinstance(actual.get(key),list)and len(actual[key])==size,'REFERENCE_VECTOR_SHAPE')
    for word in ref[key]:decode(word)
   decode(ref['policy_ev_f64'])
@@ -119,7 +119,7 @@ def assemble(mode,config,config_sha,output):
    shared={k:provenance[k]for k in['approved_input_bundle_id','input_bundle_checksum','manifest_checksum','capture_receipt_checksum','training_recipe_checksum','source_partition_checksum','feature_schema_checksum','encoder_checksum','physics_checksum','dependency_lock_checksum','runtime_parity_protocol_checksum','whole_variant']}
    need(global_authority is None or shared==global_authority,'ONE_GLOBAL_CAPTURE_RECIPE_VARIANT');global_authority=shared
    entry={'context':fragment['context'],'policy_representation':'public_hist215_v1','public_model':model,'public_template':templates[metadata[cid]['template_checksum']],'public_training_provenance':provenance,'model_checksum':fragment['model_checksum'],'template_checksum':metadata[cid]['template_checksum'],'feature_schema_checksum':metadata[cid]['feature_schema_checksum'],'training_provenance_checksum':fragment['training_provenance_checksum']}
-   ref=fragment['sklearn_reference_cases'];compare_reference_cases(ref,ref,len(model['action_ids']),cases[cid],codec.decode_f64)
+   ref=fragment['sklearn_reference_cases'];compare_reference_cases(ref,ref,len(model['action_ids']),cases[cid],codec.decode_f64,model['feature_count'])
    models[cid]=entry;references[cid]=ref;fragment_pins[cid]=fragment_file
    requests[cid]={'format':'public_hist215_preflight_request_v1','dataset_id':config['dataset_id'],'program':entry,'cases':cases[cid]}
    need(len(codec.canonical_bytes(requests[cid]))<=4*1024*1024,'ACTUAL_PREFLIGHT_REQUEST_4MIB')
@@ -136,7 +136,7 @@ def assemble(mode,config,config_sha,output):
    terminal=load(item['exit_receipt'],1024*1024);need(isinstance(terminal,dict)and type(terminal.get('exit_code'))is int and terminal['exit_code']==0 and terminal.get('context_id')==cid and terminal.get('request_sha256')==item['request_sha256'],'ACTUAL_LINUX_TERMINAL0')
    result=load(item['result'],4*1024*1024);exact(result,{'format','receipt','receipt_checksum','execution_ms_f64','peak_rss_bytes'});need(result['format']=='public_hist215_preflight_result_v1'and codec.decode_f64(result['execution_ms_f64'])>0 and type(result['peak_rss_bytes'])is int and 0<result['peak_rss_bytes']<2**53,'ACTUAL_LINUX_RESULT')
    entry=models[cid];receipt=result['receipt'];codec.serialize_build_receipt(receipt,expected_sha256=result['receipt_checksum'],model=entry['public_model'],provenance=entry['public_training_provenance'],dataset_id=config['dataset_id'],approved_cases=cases[cid])
-   compare_reference_cases(references[cid],receipt['cases'],len(entry['public_model']['action_ids']),cases[cid],codec.decode_f64)
+   compare_reference_cases(references[cid],receipt['cases'],len(entry['public_model']['action_ids']),cases[cid],codec.decode_f64,entry['public_model']['feature_count'])
    entry['public_model_build_receipt']=receipt;entry['model_build_receipt_checksum']=result['receipt_checksum']
   need(seen==set(metadata),'ALL107_LINUX_TERMINAL_PARITY');index['format']='public_hist215_build_index_v1'
  output=Path(output);need(output.is_absolute()and output.parent.resolve(strict=True)==output.parent and not output.exists(),'NEW_EXCLUSIVE_OUTPUT');output.mkdir()

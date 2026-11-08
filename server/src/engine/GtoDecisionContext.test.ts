@@ -225,6 +225,49 @@ describe('canonical V31 node context', () => {
     );
   });
 
+  it('keys a limp followed by two or more raises apart from a re-raised raise-first-in pot', () => {
+    // 6-max: UTG limps, BTN iso-raises, UTG limp-re-raises, BTN calls. Two
+    // raises, but the ranges are a limp-raise range against an iso range,
+    // not a three-bet range against an open.
+    const limp = rec(3, 'call', 2, 'preflop');
+    const iso = rec(6, 'raise', 10, 'preflop', true);
+    const limpReraise = rec(3, 'raise', 30, 'preflop', true);
+    const isoCall = rec(6, 'call', 30, 'preflop');
+    expect(gtoV31PotType([limp, iso, limpReraise, isoCall])).toBe('l3bet');
+    // Heads-up: the button completes, the big blind raises, the button re-raises.
+    expect(
+      gtoV31PotType([
+        rec(2, 'call', 1, 'preflop'),
+        rec(1, 'raise', 4, 'preflop', true),
+        rec(2, 'raise', 12, 'preflop', true),
+        rec(1, 'call', 12, 'preflop'),
+      ])
+    ).toBe('l3bet');
+    // A third raise after a limp (all-in or not) is a limped four-bet-plus pot.
+    const fourBet = rec(6, 'all_in', 100, 'preflop', true);
+    expect(gtoV31PotType([limp, iso, limpReraise, fourBet])).toBe('l4bet_plus');
+    expect(
+      gtoV31PotType([
+        limp,
+        iso,
+        limpReraise,
+        rec(6, 'raise', 80, 'preflop', true),
+        rec(3, 'raise', 200, 'preflop', true),
+      ])
+    ).toBe('l4bet_plus');
+    // An all-in limp counts as a limp before a re-raised pot too.
+    expect(
+      gtoV31PotType([rec(3, 'all_in', 2, 'preflop'), iso, rec(1, 'raise', 30, 'preflop', true)])
+    ).toBe('l3bet');
+    // Without a limp the re-raised pots keep their sealed families.
+    const open = rec(6, 'raise', 6, 'preflop', true);
+    const threeBet = rec(1, 'raise', 20, 'preflop', true);
+    expect(gtoV31PotType([rec(3, 'fold', 0, 'preflop'), open, threeBet])).toBe('3bet');
+    expect(gtoV31PotType([open, threeBet, rec(6, 'raise', 50, 'preflop', true)])).toBe('4bet_plus');
+    // A cold call of the open before the three-bet is a flat, not a limp.
+    expect(gtoV31PotType([open, rec(2, 'call', 6, 'preflop'), threeBet])).toBe('3bet');
+  });
+
   it('keeps distinct tournament utility families and refuses ordinary ICM in bounty events', () => {
     expect(gtoV31UtilityContext({ family: 'cash', objective: 'cash_ev' })).toBe('cash_ev');
     expect(gtoV31UtilityContext({ family: 'tourney_ev', objective: 'chip_ev' })).toBe('chip_ev');
