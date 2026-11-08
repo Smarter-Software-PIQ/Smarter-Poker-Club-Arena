@@ -1166,6 +1166,21 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     !ctx.isOmaha &&
     ctx.isShortDeck !== true &&
     ctx.isFixedLimit !== true;
+  // V82 DEPTH IS THE STACK THE HAND STARTED WITH (2026-11-08). The V82 band
+  // is 15 to 22bb counted as the stack behind plus the chips hero already
+  // has in this street, both ends inclusive; `stackBB` is only the chips
+  // behind, so a big blind that began the hand with 15.0-16.0bb read 14-15bb
+  // and `<= 15` put it back into jam-or-fold. Live on 40bc2467 (2026-11-07):
+  // three-handed BB 15-18bb facing one sized open continued 12.7% (n 370,
+  // mostly exactly 15.00bb); replayed, hands 84dd1c83, 64d4e91b, 76089692,
+  // 5263c30c and heads-up 5ea10c41 all folded at the push/fold node, on
+  // 92e26a9f and 40bc2467 alike. Facing action only: the unopened V70 open
+  // keeps v70JamZone exactly. The blind-clock projection (effStackBB) scales
+  // the hand-start depth the same way it scales the stack behind.
+  const v82HandStartBB = stackBB + Math.max(0, currentBet - toCall) / bb;
+  const v82DepthScale = stackBB > 0 ? effStackBB / stackBB : 1;
+  const v82FacingJamZone =
+    v82HandStartBB <= 12 || (mzOn && v82HandStartBB * v82DepthScale < V70_SHORT_HANDED_JAM_MAX_BB);
   // FULL-RING FACING-ACTION ZONE (2026-11-07, default off): four or more
   // dealt, facing action, the same <= 15bb zone. The table-scaled M put a
   // 20bb six-handed (M 4.8) and four-handed (M 3.2) big-blind-ante stack in
@@ -1183,8 +1198,13 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     ctx.isFixedLimit !== true;
   const facingZone84 = stackBB <= 12 || (mzOn && effStackBB <= V70_SHORT_HANDED_JAM_MAX_BB);
   const pushFoldNlh =
-    (v70HoldemShortHanded ? v70JamZone : fullRingFacing ? facingZone84 : legacyPushFold) &&
-    !v70Open;
+    (v70HoldemShortHanded
+      ? unopened
+        ? v70JamZone
+        : v82FacingJamZone
+      : fullRingFacing
+        ? facingZone84
+        : legacyPushFold) && !v70Open;
   // V25: the old Omaha gate (<=8bb / M<4) is superseded by the commitment
   // zone above, which triggers on the pot-limit arithmetic rather than a bb
   // count. It stays for the ablation path (ploTourney off).
