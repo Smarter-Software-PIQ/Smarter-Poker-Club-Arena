@@ -46,42 +46,51 @@ END $patch$;
 
 DO $original$
 DECLARE
+  expected record;
   original public.ca_drift_incidents%ROWTYPE;
   member_count bigint;
   distinct_alerts bigint;
   all_resolved boolean;
 BEGIN
-  SELECT * INTO original FROM public.ca_drift_incidents
-   WHERE id='97937ff2-fcad-42ba-9a92-0c004626dec7'
-     AND source='financial_alerts:Tournament.satellite_boundary_held' AND status<>'resolved';
-  IF NOT FOUND THEN RETURN; END IF;
-  PERFORM pg_advisory_xact_lock(hashtextextended(
-    'ca-financial-incident-members:' || public.fn_ca_stable_dedupe_key(original.dedupe_key),0));
-  SELECT * INTO original FROM public.ca_drift_incidents
-   WHERE id=original.id AND status<>'resolved' FOR UPDATE;
-  IF NOT FOUND THEN RETURN; END IF;
+  -- Either group's receipt can arrive while this migration is in flight.
+  FOR expected IN SELECT * FROM (VALUES
+    ('97937ff2-fcad-42ba-9a92-0c004626dec7'::uuid,2),
+    ('a7359e4a-062d-4f4b-b203-56e20a6e90a7'::uuid,1)
+  ) AS groups(id,occurrences)
+  LOOP
+    SELECT * INTO original FROM public.ca_drift_incidents
+     WHERE id=expected.id
+       AND source='financial_alerts:Tournament.satellite_boundary_held' AND status<>'resolved';
+    IF NOT FOUND THEN CONTINUE; END IF;
+    PERFORM pg_advisory_xact_lock(hashtextextended(
+      'ca-financial-incident-members:' || public.fn_ca_stable_dedupe_key(original.dedupe_key),0));
+    SELECT * INTO original FROM public.ca_drift_incidents
+     WHERE id=expected.id AND status<>'resolved' FOR UPDATE;
+    IF NOT FOUND THEN CONTINUE; END IF;
 
-  SELECT count(*),count(DISTINCT a.id),
-         bool_and(COALESCE(e.detail->'financial_member_version'='1'::jsonb
-           AND e.detail->>'source'=original.source
-           AND a.source='Tournament.satellite_boundary_held' AND a.resolved
-           AND a.context->>'receipt_proven_tournament_completion'='true',false))
-    INTO member_count,distinct_alerts,all_resolved
-    FROM public.ca_incident_events e
-    LEFT JOIN public.financial_alerts a ON a.id=CASE
-      WHEN e.detail->>'alert_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-      THEN (e.detail->>'alert_id')::uuid END
-   WHERE e.incident_id=original.id AND e.kind IN ('created','recurred');
+    SELECT count(*),count(DISTINCT a.id),
+           bool_and(COALESCE(e.detail->'financial_member_version'='1'::jsonb
+             AND e.detail->>'source'=original.source
+             AND a.source='Tournament.satellite_boundary_held' AND a.resolved
+             AND a.context->>'receipt_proven_tournament_completion'='true',false))
+      INTO member_count,distinct_alerts,all_resolved
+      FROM public.ca_incident_events e
+      LEFT JOIN public.financial_alerts a ON a.id=CASE
+        WHEN e.detail->>'alert_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        THEN (e.detail->>'alert_id')::uuid END
+     WHERE e.incident_id=original.id AND e.kind IN ('created','recurred');
 
-  IF original.occurrences=2 AND member_count=2 AND distinct_alerts=2 AND all_resolved THEN
-    UPDATE public.ca_drift_incidents
-       SET status='resolved',resolved_at=GREATEST(now(),detected_at),
-           closure_basis='verified_remeasured',
-           correction_ref='verified: both original boundary alerts resolved from terminal settlement receipts',
-           root_cause='A refresh of the original alert message changed its hash while its versioned incident membership stayed intact.',
-           resolution='Verified both exact original boundary alerts resolved from their terminal settlement receipts.'
-     WHERE id=original.id AND status<>'resolved';
-  END IF;
+    IF original.occurrences=expected.occurrences AND member_count=expected.occurrences
+       AND distinct_alerts=expected.occurrences AND all_resolved THEN
+      UPDATE public.ca_drift_incidents
+         SET status='resolved',resolved_at=GREATEST(now(),detected_at),
+             closure_basis='verified_remeasured',
+             correction_ref='verified: original boundary alerts resolved from terminal settlement receipts',
+             root_cause='A refresh of the original alert message changed its hash while its versioned incident membership stayed intact.',
+             resolution='Verified all exact original boundary alerts resolved from their terminal settlement receipts.'
+       WHERE id=original.id AND status<>'resolved';
+    END IF;
+  END LOOP;
 END $original$;
 
 COMMIT;

@@ -23,12 +23,11 @@ describe('financial incident membership survives an alert refresh', () => {
     expect(migration).toContain("count(DISTINCT lower(detail->>'alert_id'))");
   });
 
-  it('requires both original terminal receipts for the already stranded boundary incident', () => {
+  it('checks exact receipt evidence for both original groups, in either deployment order', () => {
     const historical = migration.split('DO $original$')[1];
-    expect(historical).toContain("id='97937ff2-fcad-42ba-9a92-0c004626dec7'");
+    expect(historical).toContain("'97937ff2-fcad-42ba-9a92-0c004626dec7'::uuid,2");
+    expect(historical).toContain("'a7359e4a-062d-4f4b-b203-56e20a6e90a7'::uuid,1");
     expect(historical).toContain("a.context->>'receipt_proven_tournament_completion'='true'");
-    expect(historical).toContain(
-      'original.occurrences=2 AND member_count=2 AND distinct_alerts=2 AND all_resolved'
-    );
+    expect(historical).toContain('AND distinct_alerts=expected.occurrences AND all_resolved');
   });
 });
