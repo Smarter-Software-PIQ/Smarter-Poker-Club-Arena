@@ -61,6 +61,7 @@ import { supersededBy } from './check-migrations-are-live.mjs';
 import { minutesBeforeBreakWindow } from './migration-concurrent-preamble.mjs';
 import { migrationTransactionShape } from './migration-transaction-shape.mjs';
 import { migrationCostRisks, isCostChecked } from './migration-cost-shape.mjs';
+import { stalePinParts } from './migration-stale-pins.mjs';
 
 import {
   recoveryRequest,
@@ -862,7 +863,22 @@ DO $ca_atomic_history_guard$ BEGIN
 END $ca_atomic_history_guard$;
 `;
 const transactionBody = preamble.length > 0 ? shape.body : sql;
-const atomicSQL = transactionBody.replace(/COMMIT\s*;\s*$/i, () => historyStatement + '\nCOMMIT;');
+// A migration that changes or drops a function whose old body is still pinned
+// by md5 in another installed function is refused inside its own transaction
+// (migration-stale-pins.mjs; 20261107021911 left two such pins and silently
+// stopped the 2026-10-19 close): a snapshot after BEGIN;, a check before the
+// history insert.
+let stalePin;
+try {
+  stalePin = stalePinParts(file, sql, transactionBody);
+} catch (e) {
+  refused(e.message);
+}
+const atomicSQL = transactionBody.replace(
+  /^([\s\S]*?(?:^|\n)[ \t]*BEGIN[ \t]*;)([\s\S]*)COMMIT\s*;\s*$/i,
+  (_whole, begin, middle) =>
+    begin + stalePin.snapshot + middle + stalePin.check + historyStatement + '\nCOMMIT;'
+);
 if (atomicSQL === transactionBody)
   refused('atomic migration history could not bind the final COMMIT');
 let admittedSQL;
