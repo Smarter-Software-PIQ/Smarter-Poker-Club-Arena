@@ -381,8 +381,8 @@ describe('the route runs on the daily schedule that already exists', () => {
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(job.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 8 * * *' },
-      { cron: '31,35,39,43 9 * * *' },
+      { cron: '31,35,39,43 3,8 * * *' },
+      { cron: '31,35,39,43 4,9 * * *' },
     ]);
     const admission = stage.jobs.detect.steps.find(
       (step: { id?: string }) => step.id === 'admission'

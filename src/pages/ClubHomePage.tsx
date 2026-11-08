@@ -979,25 +979,6 @@ function ClubHomePageContent({
   const setDiamondJackpot = (snapshot: DiamondJackpotSnapshot | null) =>
     setDiamondJackpotRead(snapshot ? { owner: diamondJackpotOwner, snapshot } : null);
   const [lobbyMini, setLobbyMini] = useState<BbjMiniSnapshot | null>(null);
-  /* "Mini 250 - 1,500": the range across the tiers that can pay right now.
-     Nothing when the mini is off or every tier is paused at the reserve floor
-     - a line that promised a paused mini would be a lie about money. */
-  const lobbyMiniLine = useMemo(() => {
-    if (isAutomaticArena) {
-      const payable =
-        diamondJackpot?.stakes.filter((s) => s.mini_payable).map((s) => s.mini_amount) ?? [];
-      if (!payable.length) return null;
-      const lo = Math.min(...payable).toLocaleString('en-US'),
-        hi = Math.max(...payable).toLocaleString('en-US');
-      return lo === hi ? `Mini ${lo} Diamonds` : `Mini ${lo} - ${hi} Diamonds`;
-    }
-    if (!lobbyMini || !lobbyMini.enabled) return null;
-    const payable = lobbyMini.tiers.filter((t) => t.enabled && t.payable).map((t) => t.amount);
-    if (payable.length === 0) return null;
-    const lo = Math.trunc(Math.min(...payable)).toLocaleString('en-US');
-    const hi = Math.trunc(Math.max(...payable)).toLocaleString('en-US');
-    return lo === hi ? `Mini ${lo}` : `Mini ${lo} - ${hi}`;
-  }, [lobbyMini, diamondJackpot, isAutomaticArena]);
   const [showBBJInfo, setShowBBJInfo] = useState(false);
   /* LOBBY V2 follow-up (Dan's QA, 2026-08-22): the lobby landed on the MTT
      tab, a leftover from before All Games was a real tab. A club with no open
@@ -5825,7 +5806,6 @@ function ClubHomePageContent({
                       : '-'}
                   </strong>
                 )}
-                {lobbyMiniLine && <span className="lobby-bbj__mini">{lobbyMiniLine}</span>}
               </button>
             )}
           </div>

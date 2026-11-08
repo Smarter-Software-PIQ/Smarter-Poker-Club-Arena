@@ -96,7 +96,7 @@ cat '${join(dir, 'policy.json')}'
       timeout() { shift 3; shift 3; git "$@"; }
       date() { printf '%s' "$HOUR"; }
       gh() {
-        case "$2" in
+        case "$*" in
           *'/workflows/'*) printf '%s' '{"total_count":0,"workflow_runs":[]}' ;;
           *) printf '%s' "$RUN_CREATED_AT" ;;
         esac
@@ -123,6 +123,8 @@ cat '${join(dir, 'policy.json')}'
           RUN_CREATED_AT: createdAt,
           REPO: 'test/repo',
           RUN_ID: '123',
+          GITHUB_RUN_ATTEMPT: '1',
+          RUNNER_TEMP: dir,
           MESSAGE: message,
           HEALTH: health,
           GITHUB_OUTPUT: join(dir, 'output'),
@@ -140,7 +142,7 @@ describe('daily routine admission uses the existing protected receiver only', ()
   it('queues ordinary daytime pushes even when they change server code', () => {
     expect(admit('push', '14', 'normal server change', '{"liveness":"ok"}')).toBe(false);
   });
-  it('admits only a run created inside the 03:30 Chicago window, across DST', () => {
+  it('admits the bounded reservation across DST without extending activation', () => {
     expect(admit('schedule', '03', 'routine', '{"liveness":"ok"}')).toBe(true);
     // The runner's wall-clock hour is not consulted; the run's creation is.
     expect(admit('schedule', '04', 'routine', '{"liveness":"ok"}')).toBe(true);
@@ -153,6 +155,9 @@ describe('daily routine admission uses the existing protected receiver only', ()
     ).toBe(true);
     expect(
       admit('schedule', '03', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-12-21T08:30:01Z')
+    ).toBe(true);
+    expect(
+      admit('schedule', '03', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-12-21T04:29:59Z')
     ).toBe(false);
     expect(
       admit('schedule', '04', 'routine', '{"liveness":"ok"}', '30 * * * *', '2026-03-08T08:30:01Z')

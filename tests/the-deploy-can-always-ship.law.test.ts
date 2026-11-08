@@ -67,8 +67,8 @@ describe('the engine deploy has one fail-closed Hetzner authority', () => {
     expect(triggers).not.toContain("cron: '30 * * * *'");
     expect((triggers.match(/cron:/g) ?? []).length).toBe(2);
     expect(engineSignalCode).toContain('PHASE1_RESTORING');
-    expect(triggers).toContain("cron: '31,35,39,43 8 * * *'");
-    expect(triggers).toContain("cron: '31,35,39,43 9 * * *'");
+    expect(triggers).toContain("cron: '31,35,39,43 3,8 * * *'");
+    expect(triggers).toContain("cron: '31,35,39,43 4,9 * * *'");
     expect(engineSignalCode).toContain(
       'moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at)'
     );

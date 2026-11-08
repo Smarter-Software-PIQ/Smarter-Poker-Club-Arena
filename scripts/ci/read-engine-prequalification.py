@@ -66,6 +66,19 @@ def projection(sha, *, release_authority=False):
     return git("ls-tree", "-r", sha, "--", *paths)
 
 
+def backup_projection(sha):
+    """Inputs whose change requires a new physical Backup certificate.
+
+    Migration history is included even after a revert: the selector compares
+    the latest migration commit time with the actual database restore time.
+    Runtime freshness and serving-predecessor checks remain in the selector.
+    """
+    require(re.fullmatch(SHA, sha), "invalid Backup input identity")
+    return "\n".join((projection(sha, release_authority=True),
+                      git("ls-tree", "-r", sha, "--", "server/standby", "supabase/migrations"),
+                      git("log", "-1", "--format=%H", sha, "--", "supabase/migrations")))
+
+
 def owner_selection_policy(target, control, owner_id, cutoff):
     """Reuse the exact protected finite admission validator, never a caller's order."""
     protected(target)
@@ -104,13 +117,14 @@ def verify_selection(repo, rid, cutoff, qualification, owner_window=None):
     """Bind repository_dispatch to the already uploaded, first-attempt selection."""
     require(re.fullmatch(r"[1-9][0-9]{0,19}", rid), "invalid selection run id")
     run = api(f"repos/{repo}/actions/runs/{rid}")
-    operator = run["event"] == "repository_dispatch" and run.get("actor", {}).get("type") == "User"
+    operator = (run["event"] == "repository_dispatch" and run.get("actor", {}).get("type") == "User"
+                and run.get("display_title") == "Original operator daily preparation")
     if operator:
         created = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
         require(created.utcoffset() is not None and cutoff <= created.timestamp() < cutoff + 20 * 60,
                 "operator Stage was created outside the preparation window")
     require(run["id"] == int(rid) and run["run_attempt"] == 1
-            and (run["event"] == "workflow_dispatch" if owner_window else (run["event"] in ("push", "schedule") or operator))
+            and (run["event"] == "workflow_dispatch" if owner_window else (run["event"] in ("push", "schedule") or operator or (run["event"] == "workflow_run" and run.get("display_title") == "Automatic Backup daily reservation")))
             and run["head_branch"] == "main"
             and run["path"] == ".github/workflows/stage-engine-release.yml"
             and run["repository"]["full_name"].lower() == repo.lower()
@@ -119,8 +133,17 @@ def verify_selection(repo, rid, cutoff, qualification, owner_window=None):
             "selection is not a protected original stage run")
     stage = run["head_sha"]
     protected(stage)
-    git("merge-base", "--is-ancestor", qualification["controlSha"], stage)
-    require(projection(stage, release_authority=True) == projection(qualification["controlSha"], release_authority=True), "stage release controls changed after cutoff")
+    control = qualification["controlSha"]
+    protected(control)
+    if not owner_window:
+        require(git("rev-list", "--first-parent", "-1", "--before=@" + str(cutoff), "refs/remotes/origin/main") == control,
+                "selection is not the newest protected cutoff control")
+        require(projection(stage, release_authority=True) == projection(control, release_authority=True), "stage release controls changed after cutoff")
+        created = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+        require(created.utcoffset() is not None, "reservation time has no offset")
+        early = run.get("display_title") in ("Daily engine reservation", "Automatic Backup daily reservation")
+        require(cutoff - (18000 if early else 0) <= created.timestamp() < cutoff + 1200,
+                "stage run does not own this reservation date")
     jobs = api(f"repos/{repo}/actions/runs/{rid}/attempts/1/jobs?per_page=100")
     require(jobs["total_count"] == len(jobs["jobs"]), "selection jobs incomplete")
     selected = [job for job in jobs["jobs"] if job["name"] == "Record the daily release evidence"]
@@ -135,6 +158,11 @@ def verify_selection(repo, rid, cutoff, qualification, owner_window=None):
         owner_selection_policy(qualification["targetSha"], stage, owner_window, cutoff)
         name = "owner-engine-selection-" + owner_window
     else:
+        started = datetime.fromisoformat(selected[0]["started_at"].replace("Z", "+00:00"))
+        completed = datetime.fromisoformat(selected[0]["completed_at"].replace("Z", "+00:00"))
+        require(started.utcoffset() is not None and completed.utcoffset() is not None
+                and cutoff <= started.timestamp() <= completed.timestamp() < cutoff + 1200,
+                "selection did not execute inside its reserved preparation window")
         chicago = datetime.fromtimestamp(cutoff, ZoneInfo("America/Chicago"))
         require((chicago.hour, chicago.minute, chicago.second) == (3, 30, 0), "invalid selection cutoff")
         name = "daily-engine-selection-" + chicago.date().isoformat()
