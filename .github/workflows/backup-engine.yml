@@ -197,8 +197,8 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "refresh=$refresh" >> "$GITHUB_OUTPUT"
       # The identity needs the candidate's trees and main's first-parent
-      # history, not its blobs: the Dockerfile and the identity script are the
-      # only blobs read, fetched on demand.
+      # history. Identity and qualification readers are checked out; tree inputs
+      # and the Dockerfile are fetched on demand.
       - uses: actions/checkout@v4
         if: steps.plan.outputs.inherit_eligible == 'true'
         with:
@@ -207,6 +207,7 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             scripts/ci/engine-source-identity.sh
+            scripts/ci/read-engine-prequalification.py
           sparse-checkout-cone-mode: false
       - name: Inherit the certificate of an identical engine source
         id: inherit
@@ -223,6 +224,13 @@ jobs:
             echo "engine source identity of $SHA is unreadable; certifying in full"
             echo "inherited=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          qualification_inputs() {
+            python3 -B -c 'import runpy,sys; m=runpy.run_path("scripts/ci/read-engine-prequalification.py"); print(m["backup_projection"](sys.argv[1]))' "$1"
+          }
+          inputs=$(qualification_inputs "$SHA") || {
+            echo "Backup qualification inputs are unreadable; certifying in full"
+            echo "inherited=false" >> "$GITHUB_OUTPUT"; exit 0
+          }
           echo "engine source identity of $SHA: $identity"
           source=''; stopped=''
           for ancestor in $(git rev-list --first-parent --skip=1 --max-count="$DEPTH" "$SHA"); do
@@ -231,6 +239,14 @@ jobs:
             # identical to this candidate; it is passed over, never asked about.
             ancestor_identity=$(bash scripts/ci/engine-source-identity.sh "$ancestor" 2>/dev/null) || continue
             [ "$ancestor_identity" = "$identity" ] || continue
+            # A changed authority/harness/schema is a boundary, not permission
+            # to skip its verdict and inherit a still older physical proof.
+            ancestor_inputs=$(qualification_inputs "$ancestor") || {
+              stopped="$ancestor qualification inputs are unreadable"; break
+            }
+            if [ "$ancestor_inputs" != "$inputs" ]; then
+              stopped="$ancestor qualification inputs differ"; break
+            fi
             state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$ancestor/statuses?per_page=100" \
               --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || state=unreadable
             case "$state" in

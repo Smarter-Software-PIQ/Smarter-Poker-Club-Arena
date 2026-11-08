@@ -64,6 +64,19 @@ def projection(sha, *, release_authority=False):
     return git("ls-tree", "-r", sha, "--", *paths)
 
 
+def backup_projection(sha):
+    """Inputs whose change requires a new physical Backup certificate.
+
+    Migration history is included even after a revert: the selector compares
+    the latest migration commit time with the actual database restore time.
+    Runtime freshness and serving-predecessor checks remain in the selector.
+    """
+    require(re.fullmatch(SHA, sha), "invalid Backup input identity")
+    return "\n".join((projection(sha, release_authority=True),
+                      git("ls-tree", "-r", sha, "--", "server/standby", "supabase/migrations"),
+                      git("log", "-1", "--format=%H", sha, "--", "supabase/migrations")))
+
+
 def verify_selection(repo, rid, cutoff, qualification):
     """Bind repository_dispatch to the already uploaded, first-attempt selection."""
     require(re.fullmatch(r"[1-9][0-9]{0,19}", rid), "invalid selection run id")
