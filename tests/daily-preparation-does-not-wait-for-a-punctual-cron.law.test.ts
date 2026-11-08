@@ -17,13 +17,14 @@
  * night.
  *
  * THE CONTRACT this file pins, by executing the real admission step:
- *   1. The preparation belongs to a WINDOW, 03:30-03:50 America/Chicago (DST
- *      aware), not to a schedule event. A push run and a schedule run are
- *      equally able to own it; the run's own creation instant decides.
- *   2. A run created outside the window - a cron delivered hours late, or a
- *      daytime push - prepares nothing, exactly as before.
- *   3. ONCE PER CHICAGO DATE. The first push/schedule run created in the
- *      window owns it; any later one refuses by naming the owner. Never a
+ *   1. The preparation stays 03:30-03:50 America/Chicago. The original job
+ *      can reserve five elapsed hours early, then waits once to 03:30.
+ *      Protected pushes, schedules and automatic push-Backup completions
+ *      share the election; current protected source is bound at the cutoff.
+ *   2. An event outside the reservation/preparation interval does nothing.
+ *      A replay, changed release authority or missed date fails closed.
+ *   3. ONCE PER CHICAGO DATE. The first eligible original run owns it;
+ *      any later one refuses by naming the owner. Never a
  *      second dispatch or a second installer run.
  *   4. A run list that cannot be read, or is truncated, is UNKNOWN and
  *      prepares nothing (CLAUDE.md 10.86): it is never read as "no owner yet".
@@ -66,6 +67,8 @@ type Case = {
   runs?: Run[];
   totalCount?: number;
   listFails?: boolean;
+  pages?: unknown[];
+  attempt?: string;
   health?: string;
   message?: string;
 };
@@ -106,9 +109,9 @@ cat '${join(dir, 'policy.json')}'
       git() { printf '%s' "$MESSAGE"; }
       date() { printf 14; }
       gh() {
-        case "$2" in
+        case "$*" in
           *'/workflows/'*)
-            printf '%s\\n' "$2" >> "$LIST_LOG"
+            printf '%s\\n' "\${@: -1}" >> "$LIST_LOG"
             [ "$LIST_FAILS" != 1 ] || return 1
             printf '%s' "$RUNS_JSON" ;;
           *) printf '%s' "$RUN_CREATED_AT" ;;
@@ -128,16 +131,20 @@ cat '${join(dir, 'policy.json')}'
           EVENT_NAME: c.event,
           PUSHED_AT: c.pushedAt ?? '',
           RUN_CREATED_AT: c.createdAt ?? '',
-          RUNS_JSON: JSON.stringify({
-            total_count: c.totalCount ?? runs.length,
-            workflow_runs: runs,
-          }),
+          RUNS_JSON: JSON.stringify(
+            c.pages ?? {
+              total_count: c.totalCount ?? runs.length,
+              workflow_runs: runs,
+            }
+          ),
           LIST_FAILS: c.listFails ? '1' : '0',
           LIST_LOG: join(dir, 'list.log'),
           HEALTH: c.health ?? '{"liveness":"ok"}',
           MESSAGE: c.message ?? 'routine',
           REPO: 'test/repo',
+          RUNNER_TEMP: dir,
           RUN_ID: '123',
+          GITHUB_RUN_ATTEMPT: c.attempt ?? '1',
           GITHUB_OUTPUT: join(dir, 'output'),
         },
       }
@@ -158,7 +165,7 @@ cat '${join(dir, 'policy.json')}'
   }
 }
 
-describe('the daily preparation belongs to the 03:30-03:50 Chicago window', () => {
+describe('the daily preparation reserves early and executes at the unchanged cutoff', () => {
   it('a schedule run that arrives inside the window prepares, in both DST states', () => {
     for (const [createdAt, date] of [
       ['2026-11-01T09:31:05Z', '2026-11-01'], // CST, the day DST ended
@@ -176,9 +183,9 @@ describe('the daily preparation belongs to the 03:30-03:50 Chicago window', () =
 
   it('a run created outside the window prepares nothing and asks nobody', () => {
     for (const createdAt of [
-      '2026-11-01T08:31:05Z', // 02:31 CST: the CDT twin on a CST day
+      '2026-11-01T03:29:59Z', // before the five-hour elapsed reservation
       '2026-10-21T09:31:00Z', // 04:31 CDT: the CST twin on a CDT day
-      '2026-12-21T09:29:59Z', // one second early
+      '2026-12-21T04:29:59Z', // one second before reservation
       '2026-12-21T09:50:00Z', // the end is exclusive
       '2026-10-30T15:08:44Z', // measured: delivered 6 hours late
       '2026-10-31T14:37:20Z', // measured: delivered 5 hours late
@@ -192,6 +199,53 @@ describe('the daily preparation belongs to the 03:30-03:50 Chicago window', () =
     }
   });
 
+  it('reserves up to five elapsed hours early across both DST changes', () => {
+    for (const [createdAt, expected] of [
+      ['2026-11-09T04:30:00Z', '2026-11-09'],
+      ['2026-11-01T04:30:00Z', '2026-11-01'],
+      ['2027-03-14T03:30:00Z', '2027-03-14'],
+    ]) {
+      const { outputs } = admit({ event: 'schedule', createdAt });
+      expect(outputs.daily_preparation).toBe('true');
+      expect(outputs.daily_preparation_date).toBe(expected);
+      expect(Number(outputs.cutoff_epoch) - Number(epoch(createdAt))).toBe(18000);
+    }
+  });
+
+  it('an early original reservation owns the date but an old no-op does not', () => {
+    const run = { id: 1, event: 'push', created_at: '2026-11-09T04:31:00Z' };
+    const c = { event: 'schedule' as const, createdAt: '2026-11-09T09:31:00Z' };
+    expect(admit({ ...c, runs: [run] }).outputs.allowed).toBe('true');
+    expect(
+      admit({ ...c, runs: [{ ...run, display_title: 'Daily engine reservation' } as never] })
+        .outputs.allowed
+    ).toBe('false');
+  });
+
+  it('reads all reservation pages and refuses an incomplete page', () => {
+    const c = { event: 'schedule' as const, createdAt: '2026-11-09T09:31:00Z' };
+    const owner = {
+      id: 1,
+      event: 'push',
+      created_at: '2026-11-09T04:31:00Z',
+      head_branch: 'main',
+      display_title: 'Daily engine reservation',
+    };
+    expect(
+      admit({
+        ...c,
+        pages: [
+          { total_count: 1, workflow_runs: [] },
+          { total_count: 1, workflow_runs: [owner] },
+        ],
+      }).outputs.allowed
+    ).toBe('false');
+    expect(
+      admit({ ...c, pages: [{ total_count: 1, workflow_runs: [] }] }).outputs.daily_preparation
+    ).toBe('unknown');
+    expect(admit({ ...c, pages: [{ total_count: 1 }] }).outputs.daily_preparation).toBe('unknown');
+  });
+
   it('a protected-main push inside the window is just as able to prepare', () => {
     const { outputs, listed } = admit({
       event: 'push',
@@ -201,7 +255,7 @@ describe('the daily preparation belongs to the 03:30-03:50 Chicago window', () =
     expect(outputs.daily_preparation).toBe('true');
     expect(outputs.daily_preparation_date).toBe('2026-11-01');
     expect(listed).toEqual([
-      'repos/test/repo/actions/workflows/stage-engine-release.yml/runs?created=2026-11-01T09:30:00Z..2026-11-01T09:50:00Z&per_page=100',
+      'repos/test/repo/actions/workflows/stage-engine-release.yml/runs?created=2026-11-01T04:30:00Z..2026-11-01T09:50:00Z&per_page=100',
     ]);
     // Daytime pushes still queue, and no push instant is still no admission.
     for (const pushedAt of [epoch('2026-11-01T19:40:00Z'), '']) {
@@ -228,7 +282,7 @@ describe('the preparation happens once per Chicago date', () => {
       id: 90,
       event: 'workflow_run',
       created_at: '2026-11-08T09:41:03Z',
-      display_title: 'Automatic protected Backup finished',
+      display_title: 'Automatic Backup daily reservation',
     };
     expect(
       admit({ event: 'workflow_run', createdAt: automatic.created_at }).outputs.daily_preparation
@@ -337,8 +391,8 @@ describe('the workflow adds chances, not authority', () => {
 
   it('retains only daily odd-minute DST chances', () => {
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 8 * * *' },
-      { cron: '31,35,39,43 9 * * *' },
+      { cron: '31,35,39,43 3,8 * * *' },
+      { cron: '31,35,39,43 4,9 * * *' },
     ]);
     expect(Object.keys(stage.jobs).sort()).toEqual([
       'detect',
@@ -354,5 +408,78 @@ describe('the workflow adds chances, not authority', () => {
     expect(admission).not.toMatch(/dispatches|--method|-X POST|sleep|while true/);
     expect(admission).toContain('START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20');
     expect(admission).toContain('ZoneInfo("America/Chicago")');
+  });
+});
+
+describe('the original reserved job waits once and expires without a release', () => {
+  const cutoffStep = stage.jobs.detect.steps.find((s: { id?: string }) => s.id === 'cutoff');
+  const cutoff = Number(epoch('2026-11-09T09:30:00Z'));
+  function bind(before: number, after: number, changed = false) {
+    const dir = mkdtempSync(join(tmpdir(), 'daily-reservation-'));
+    try {
+      const result = spawnSync(
+        'bash',
+        [
+          '-c',
+          `
+        date() { if [ -f "$MARK" ]; then printf '%s' "$AFTER"; else touch "$MARK"; printf '%s' "$BEFORE"; fi; }
+        sleep() { printf '%s' "$1" > "$WAIT_LOG"; }
+        git() { if [ "$1" = rev-list ]; then printf '%040d' 1; fi; }
+        python3() { cat > /dev/null; return "$CHANGED"; }
+        ${cutoffStep.run}
+      `,
+        ],
+        {
+          encoding: 'utf8',
+          cwd: dir,
+          env: {
+            ...process.env,
+            CUTOFF_EPOCH: String(cutoff),
+            BEFORE: String(before),
+            AFTER: String(after),
+            MARK: join(dir, 'clock'),
+            WAIT_LOG: join(dir, 'wait'),
+            GITHUB_OUTPUT: join(dir, 'output'),
+            CHANGED: changed ? '1' : '0',
+            GITHUB_SHA: 'a'.repeat(40),
+          },
+        }
+      );
+      return {
+        status: result.status,
+        wait: existsSync(join(dir, 'wait')) ? readFileSync(join(dir, 'wait'), 'utf8') : null,
+        output: existsSync(join(dir, 'output')) ? readFileSync(join(dir, 'output'), 'utf8') : '',
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  it('waits once for five hours maximum and binds source only at the cutoff', () => {
+    expect(bind(cutoff - 18000, cutoff)).toEqual({
+      status: 0,
+      wait: '18000',
+      output: `sha=${'0'.repeat(39)}1\n`,
+    });
+    expect(bind(cutoff + 1, cutoff + 2).wait).toBeNull();
+    expect(stage.jobs.detect['timeout-minutes']).toBe(315);
+    expect(cutoffStep.run).toContain('git fetch --no-tags origin main');
+    expect(cutoffStep.run).toContain(
+      'module.projection(os.environ["GITHUB_SHA"], release_authority=True)'
+    );
+    expect(stage.jobs.selection.steps[0].with.ref).toBe(
+      '${{ needs.detect.outputs.protected_sha }}'
+    );
+  });
+  it('refuses an excessive wait, early wake, missed date and changed authority', () => {
+    for (const args of [
+      [cutoff - 18001, cutoff],
+      [cutoff - 1, cutoff - 1],
+      [cutoff, cutoff + 1200],
+      [cutoff, cutoff, true],
+    ] as [number, number, boolean?][]) {
+      const result = bind(args[0], args[1], args[2]);
+      expect(result.status).not.toBe(0);
+      expect(result.output).toBe('');
+    }
   });
 });

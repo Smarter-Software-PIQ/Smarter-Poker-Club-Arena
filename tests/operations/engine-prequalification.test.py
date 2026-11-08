@@ -84,13 +84,20 @@ class Evidence(unittest.TestCase):
 
 
 class Selection(unittest.TestCase):
-    def verify(self, *, altered=False, duplicate=False, late=False, pending=False):
+    def verify(self, *, altered=False, duplicate=False, late=False, pending=False, early=False, backup=False, stale=False, controls=False, replay=False):
         repo = "Smarter-Software-PIQ/Smarter-Poker-Club-Arena"
         cutoff = int(datetime(2026, 11, 8, 9, 30, tzinfo=timezone.utc).timestamp())
         qualification = {"targetSha":"a"*40, "controlSha":"b"*40, "qualificationRunId":21}
         run = dict(id=22, run_attempt=1, event="schedule", head_branch="main", status="in_progress",
                    path=".github/workflows/stage-engine-release.yml", head_sha="c"*40,
-                   repository={"full_name":repo}, head_repository={"full_name":repo})
+                   repository={"full_name":repo}, head_repository={"full_name":repo},
+                   created_at="2026-11-08T09:31:00Z")
+        if early:
+            run.update(created_at="2026-11-08T04:30:00Z", display_title="Daily engine reservation")
+        if backup:
+            run.update(event="workflow_run", display_title="Automatic Backup daily reservation")
+        if replay:
+            run["run_attempt"] = 2
         receipt = dict(schema=1, outcome="selected", cutoffEpoch=cutoff+int(late),
                        qualification=qualification, stageSha=run["head_sha"],
                        targetSha=qualification["targetSha"], controlSha=qualification["controlSha"])
@@ -103,17 +110,51 @@ class Selection(unittest.TestCase):
         artifact = dict(id=7, name="daily-engine-selection-2026-11-08", expired=False,
                         size_in_bytes=len(archive), digest="sha256:"+hashlib.sha256(archive).hexdigest())
         job = dict(name="Record the daily release evidence", run_id=22, run_attempt=1,
-                   head_sha=run["head_sha"], status="completed", conclusion="success" if not pending else None)
+                   head_sha=run["head_sha"], status="completed", conclusion="success" if not pending else None,
+                   started_at="2026-11-08T09:30:00Z", completed_at="2026-11-08T09:32:00Z")
         with patch.object(reader, "api", side_effect=[run, {"total_count":1, "jobs":[job]}, {"total_count":1,"artifacts":[artifact]}]), \
-             patch.object(reader, "git", return_value=""), \
+             patch.object(reader, "git", side_effect=lambda *a: ("d"*40 if stale else qualification["controlSha"]) if a[0] == "rev-list" else ""), \
+             patch.object(reader, "projection", side_effect=["old", "new"] if controls else ["same", "same"]), \
              patch.object(reader.subprocess, "check_output", return_value=archive + (b"x" if altered else b"")):
             reader.verify_selection(repo, "22", cutoff, qualification)
 
     def test_verifies_stage_artifact_and_rejects_changed_archive_or_cutoff(self):
         self.verify()
-        for mismatch in ("altered","duplicate","late","pending"):
+        self.verify(early=True)
+        self.verify(early=True, backup=True)
+        for mismatch in ("altered","duplicate","late","pending","stale","controls","replay"):
             with self.subTest(mismatch=mismatch), self.assertRaises(reader.Unqualified):
                 self.verify(**{mismatch: True})
+
+
+class ReservationDoorOwner(unittest.TestCase):
+    def test_early_owner_and_preparation_owner_are_the_same(self):
+        spec = spec_from_file_location("window_doors", root / "server/scripts/engine-release-window-doors.py")
+        doors = module_from_spec(spec); spec.loader.exec_module(doors)
+        early = dict(id=10, event="push", head_branch="main", created_at="2026-11-09T04:31:00Z", display_title="Daily engine reservation")
+        legacy_noop = dict(id=9, event="push", head_branch="main", created_at="2026-11-09T04:30:00Z")
+        late = dict(id=11, event="schedule", head_branch="main", created_at="2026-11-09T09:31:00Z")
+        job = dict(name=doors.INSTALL_JOB, status="in_progress", conclusion=None, html_url="owner-job")
+        def read(path):
+            if "/workflows/" in path:
+                return dict(total_count=3, workflow_runs=[late, early, legacy_noop])
+            self.assertIn("/runs/10/jobs", path)
+            return dict(jobs=[job])
+        with patch.object(doors, "github", side_effect=read):
+            self.assertEqual(doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc))["url"], "owner-job")
+        early.update(event="workflow_run", display_title="Automatic Backup daily reservation")
+        with patch.object(doors, "github", side_effect=read):
+            self.assertEqual(doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc))["url"], "owner-job")
+
+    def test_unreadable_truncated_duplicate_and_naive_reservations_refuse(self):
+        spec = spec_from_file_location("window_doors", root / "server/scripts/engine-release-window-doors.py")
+        doors = module_from_spec(spec); spec.loader.exec_module(doors)
+        run = dict(id=10, event="push", head_branch="main", created_at="2026-11-09T04:31:00Z", display_title="Daily engine reservation")
+        for listing in [dict(total_count=1), dict(total_count=1,workflow_runs=[]),
+                        dict(total_count=2,workflow_runs=[run,run]),
+                        dict(total_count=1,workflow_runs=[{**run,"created_at":"2026-11-09T04:31:00"}])]:
+            with self.subTest(listing=listing), patch.object(doors,"github",return_value=listing), self.assertRaises(ValueError):
+                doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc))
 
 
 class ControlInputs(unittest.TestCase):

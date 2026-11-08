@@ -457,8 +457,8 @@ describe('the offer is the existing release, not a second publisher', () => {
     expect(stage.jobs.selection.needs).toBe('detect');
     expect(stage.jobs.signal.needs).toEqual(['detect', 'selection']);
     expect(stage.on.schedule).toEqual([
-      { cron: '31,35,39,43 8 * * *' },
-      { cron: '31,35,39,43 9 * * *' },
+      { cron: '31,35,39,43 3,8 * * *' },
+      { cron: '31,35,39,43 4,9 * * *' },
     ]);
     expect(
       stage.jobs.detect.steps.find((step: { id?: string }) => step.id === 'admission').run

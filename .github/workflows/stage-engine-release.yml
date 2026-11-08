@@ -12,20 +12,14 @@ name: Stage Exact Club Arena Engine Release
 # (scripts/ci/install-window-migrations.mjs). It sends no event, and never
 # touches the engine or the host.
 #
-# DAILY PREPARATION DOES NOT WAIT FOR A PUNCTUAL CRON (2026-11-01). GitHub
-# delivered the 03:30 schedule 3-20 minutes late through 2026-10-29, then
-# 5-6 hours late on 2026-10-30 and 2026-10-31, and not at all on 2026-11-01,
-# so the daily release and the queued window migration never got their
-# window. The preparation now belongs to the 03:30-03:50 America/Chicago
-# window, not to one schedule event: the FIRST eligible Stage run of this
-# workflow created inside that window prepares, once per Chicago date, and
-# every later run in it refuses by name. Four odd-minute schedule entries per
-# DST twin and the constant protected-main pushes are only chances to be that
-# first run; a run outside the window (a late cron) prepares nothing.
-# An automatic Backup completion reached GitHub at 03:41 on November 8
-# while no push or schedule entered the preparation window. Only automatic
-# main-push Backup completions participate; their SHA is never a nomination.
-run-name: ${{ github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic protected Backup finished' || 'Backup completion outside election') || '' }}
+# The daily owner can reserve at most five elapsed hours before 03:30 Chicago.
+# This removes the need for an event to arrive in one twenty-minute interval:
+# GitHub delivered the November 8 scheduled event six hours late. Protected
+# pushes, automatic push-Backup completions and the existing schedule compete
+# for one dated reservation. Its original job waits once until the cutoff,
+# refreshes protected source, then uses the same selection and receiver.
+# A missed date, changed release authority or failed owner never gains a retry.
+run-name: ${{ github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
 on:
   workflow_run:
     workflows: ['Backup Engine (Clone, Stage, Certify)']
@@ -45,11 +39,11 @@ on:
   push:
     branches: [main]
   schedule:
-    # 03:31-03:43 America/Chicago in both DST states (08 UTC is CDT, 09 UTC
-    # is CST). Off the congested :00/:30 minutes; the admission step admits
-    # only a run created inside the 03:30-03:50 Chicago window.
-    - cron: '31,35,39,43 8 * * *'
-    - cron: '31,35,39,43 9 * * *'
+    # Early UTC DST twins plus the existing preparation chances. A delivered
+    # event outside the five-hour reservation / twenty-minute preparation
+    # range does nothing. No second scheduler or publisher is introduced.
+    - cron: '31,35,39,43 3,8 * * *'
+    - cron: '31,35,39,43 4,9 * * *'
 
 permissions: {}
 
@@ -58,11 +52,12 @@ jobs:
     if: github.event_name != 'workflow_dispatch' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
     name: Prove Whether The Server Tree Changed
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 315
     permissions:
       contents: read
       actions: read
     outputs:
+      protected_sha: ${{ steps.cutoff.outputs.sha }}
       release_required: ${{ steps.change.outputs.release_required }}
       target_sha: ${{ steps.change.outputs.target_sha }}
       observed_live_sha: ${{ steps.change.outputs.observed_live_sha }}
@@ -90,17 +85,18 @@ jobs:
           filter: blob:none
           # Admission needs only these working-tree files. Historical policy,
           # source witnesses and server-tree selection still read full Git objects.
-          # Avoid hydrating unrelated client/assets within the three-minute job.
+          # Avoid hydrating unrelated client/assets before the bounded reservation.
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /scripts/ci/read-engine-prequalification.py
             /server/scripts/engine-release-seal.py
             /server/release/owner-maintenance-windows.json
             /server/release/activation-floor.json
 
       # Owner 2026-10-20 explicitly requests daily routine updates. The daily
       # preparation window is 03:30-03:50 America/Chicago (DST aware). The
-      # first eligible Stage run of this workflow created inside it owns the
-      # preparation for that Chicago date; no repair timer, secondary
+      # first eligible Stage run created up to five elapsed hours early
+      # reserves that Chicago date and waits once until the cutoff; no repair timer, secondary
       # publisher or automatic deadline-emergency exists. Commit-message
       # urgency is not authorization to interrupt live games.
       - name: Admit daily preparation or a measured engine emergency
@@ -127,10 +123,10 @@ jobs:
           export PHASE1_ACTIVE PHASE1_RESTORING
           daily_preparation=false
           daily_date=''
-          # When this run came into being: the schedule run's own creation time
-          # (a delayed cron is judged by when it actually arrived, so a run six
-          # hours late prepares nothing), or the push instant GitHub records in
-          # the push payload. Unreadable is simply "not inside the window".
+          cutoff_epoch=''
+          [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::A daily reservation cannot be replayed."; exit 1; }
+          # Original event time selects one bounded reservation date. A delayed
+          # event cannot claim an expired date, and a rerun cannot reserve again.
           moment=''
           if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ]; then
             moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at) || moment=''
@@ -157,22 +153,29 @@ jobs:
               raise SystemExit(1)
           local = moment.astimezone(ZoneInfo("America/Chicago"))
           start = local.replace(hour=START_HOUR, minute=START_MINUTE, second=0, microsecond=0).astimezone(timezone.utc)
+          # Reserve at most five elapsed hours early, including DST transition days.
+          if moment.astimezone(timezone.utc) >= start + timedelta(minutes=WINDOW_MINUTES):
+              tomorrow = local.date() + timedelta(days=1)
+              start = datetime.combine(tomorrow, datetime.min.time(), ZoneInfo("America/Chicago")).replace(hour=3, minute=30).astimezone(timezone.utc)
           end = start + timedelta(minutes=WINDOW_MINUTES)
-          if not (start <= moment.astimezone(timezone.utc) < end):
+          reservation = start - timedelta(hours=5)
+          if not (reservation <= moment.astimezone(timezone.utc) < end):
               raise SystemExit(1)
-          print(local.date().isoformat(), start.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ"))
+          print(start.astimezone(ZoneInfo("America/Chicago")).date().isoformat(), reservation.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ"), int(start.timestamp()))
           PYTHON
             ) || window=''
           fi
           if [ -n "$window" ]; then
-            read -r daily_date window_start window_end <<< "$window"
+            read -r daily_date window_start window_end cutoff_epoch <<< "$window"
             # ONCE PER CHICAGO DATE. The first eligible Stage run created in
-            # the window owns the preparation; GitHub run ids only increase,
+            # the reservation/preparation interval owns the preparation; GitHub run ids only increase,
             # so "an earlier run in this window exists" is a lower id. A list
             # that cannot be read is UNKNOWN and prepares nothing (10.86).
             verdict=unknown
-            if RUNS=$(gh api "repos/$REPO/actions/workflows/stage-engine-release.yml/runs?created=${window_start}..${window_end}&per_page=100"); then
-              verdict=$(RUNS="$RUNS" WINDOW_START="$window_start" WINDOW_END="$window_end" python3 - <<'PYTHON'
+            runs_file=$(mktemp "$RUNNER_TEMP/daily-reservations.XXXXXXXX")
+            trap 'rm -f -- "$runs_file"' EXIT
+            if gh api --paginate --slurp "repos/$REPO/actions/workflows/stage-engine-release.yml/runs?created=${window_start}..${window_end}&per_page=100" > "$runs_file"; then
+              verdict=$(RUNS_FILE="$runs_file" WINDOW_START="$window_start" WINDOW_END="$window_end" CUTOFF_EPOCH="$cutoff_epoch" python3 - <<'PYTHON'
           import json, os
           from datetime import datetime
           def when(value):
@@ -183,14 +186,23 @@ jobs:
           try:
               me = int(os.environ["RUN_ID"])
               start, end = when(os.environ["WINDOW_START"]), when(os.environ["WINDOW_END"])
-              document = json.loads(os.environ["RUNS"])
-              runs = document.get("workflow_runs")
-              if not isinstance(runs, list):
+              with open(os.environ["RUNS_FILE"], encoding="utf-8") as source:
+                  document = json.load(source)
+              pages = document if isinstance(document, list) else [document]
+              runs = [run for page in pages for run in page.get("workflow_runs", [])]
+              if not pages or any(not isinstance(page.get("workflow_runs"), list) for page in pages):
                   raise ValueError("run list unreadable")
+              ids = [run.get("id") for run in runs]
+              if any(type(rid) is not int or rid <= 0 for rid in ids) or len(ids) != len(set(ids)):
+                  raise ValueError("reservation run identities incomplete")
               earlier = []
               for run in runs:
-                  automatic_backup = run.get("event") == "workflow_run" and run.get("display_title") == "Automatic protected Backup finished"
-                  if (run.get("event") not in ("push", "schedule") and not automatic_backup) or run.get("head_branch") != "main":
+                  stamp = when(run["created_at"])
+                  original_window = stamp.timestamp() >= int(os.environ["CUTOFF_EPOCH"])
+                  title = run.get("display_title")
+                  automatic_backup = run.get("event") == "workflow_run" and (title == "Automatic Backup daily reservation" or (original_window and title == "Automatic protected Backup finished"))
+                  ordinary = run.get("event") in ("push", "schedule") and (title == "Daily engine reservation" or original_window)
+                  if (not ordinary and not automatic_backup) or run.get("head_branch") != "main":
                       continue
                   if not (start <= when(run["created_at"]) < end):
                       continue
@@ -200,7 +212,7 @@ jobs:
                       earlier.append(run["id"])
               if earlier:
                   print("false", min(earlier))
-              elif type(document.get("total_count")) is int and document["total_count"] <= len(runs):
+              elif all(type(page.get("total_count")) is int and page["total_count"] <= len(runs) for page in pages):
                   print("true", me)
               else:
                   print("unknown -")
@@ -230,14 +242,43 @@ jobs:
           echo "owner_window_id=$owner_window_id" >> "$GITHUB_OUTPUT"
           echo "daily_preparation=$daily_preparation" >> "$GITHUB_OUTPUT"
           echo "daily_preparation_date=$daily_date" >> "$GITHUB_OUTPUT"
+          echo "cutoff_epoch=$cutoff_epoch" >> "$GITHUB_OUTPUT"
           if [ "$allowed" = false ]; then
             echo 'Routine engine updates are queued for 04:00 America/Chicago.'
           fi
 
+      - name: Wait once for the reserved cutoff and bind protected source
+        id: cutoff
+        if: steps.admission.outputs.allowed == 'true'
+        env:
+          CUTOFF_EPOCH: ${{ steps.admission.outputs.cutoff_epoch }}
+        run: |
+          set -euo pipefail
+          now=$(date +%s)
+          [[ "$CUTOFF_EPOCH" =~ ^[1-9][0-9]*$ ]]
+          remaining=$((CUTOFF_EPOCH - now))
+          [ "$remaining" -le 18000 ] || { echo '::error::Reservation exceeds five hours.'; exit 1; }
+          [ "$remaining" -le 0 ] || sleep "$remaining"
+          now=$(date +%s)
+          [ "$now" -ge "$CUTOFF_EPOCH" ] && [ "$now" -lt "$((CUTOFF_EPOCH + 1200))" ] || { echo '::error::Reserved preparation window missed.'; exit 1; }
+          git fetch --no-tags origin main
+          control=$(git rev-list --first-parent -1 --before="@$CUTOFF_EPOCH" refs/remotes/origin/main)
+          [[ "$control" =~ ^[0-9a-f]{40}$ ]]
+          # Never execute new release authority under an old reservation owner.
+          CONTROL="$control" python3 - <<'PYTHON'
+          import importlib.util, os
+          spec = importlib.util.spec_from_file_location("qualification", "scripts/ci/read-engine-prequalification.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          if module.projection(os.environ["GITHUB_SHA"], release_authority=True) != module.projection(os.environ["CONTROL"], release_authority=True):
+              raise SystemExit("Release controls changed during reservation; keep serving.")
+          PYTHON
+          echo "sha=$control" >> "$GITHUB_OUTPUT"
+
       - name: Compare the complete server tree
         id: change
+        if: steps.admission.outputs.allowed == 'true'
         env:
-          AFTER_SHA: ${{ github.sha }}
+          AFTER_SHA: ${{ steps.cutoff.outputs.sha }}
           BEFORE_SHA: ${{ github.event.before }}
           ENGINE_HEALTH_URL: https://engine.smarter.poker/health
           EVENT_NAME: ${{ github.event_name }}
@@ -389,7 +430,7 @@ jobs:
       - name: Checkout protected main
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.detect.outputs.protected_sha || github.sha }}
           fetch-depth: 0
 
       - name: Use the production Node major
@@ -450,7 +491,7 @@ jobs:
       - uses: actions/checkout@v4
         if: needs.detect.outputs.daily_preparation == 'true'
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.detect.outputs.protected_sha }}
           fetch-depth: 0
           sparse-checkout: |
             scripts/ci
@@ -464,6 +505,7 @@ jobs:
           RELEASE_REQUIRED: ${{ needs.detect.outputs.release_required }}
           OFFER_REASON: ${{ needs.detect.outputs.offer_reason }}
           OBSERVED_LIVE_SHA: ${{ needs.detect.outputs.observed_live_sha }}
+          CUTOFF_CONTROL: ${{ needs.detect.outputs.protected_sha }}
         run: |
           set -euo pipefail
           [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::Daily selection already attempted; retain the original decision."; exit 1; }
@@ -479,7 +521,7 @@ jobs:
             [ "$outcome" = keep-serving ]
             exit
           fi
-          python3 -B scripts/ci/select-daily-engine.py --repo "$GITHUB_REPOSITORY" --control "$GITHUB_SHA" \
+          python3 -B scripts/ci/select-daily-engine.py --repo "$GITHUB_REPOSITORY" --control "$CUTOFF_CONTROL" --stage "$GITHUB_SHA" \
             --serving "$serving" --date "$RELEASE_DATE" --output daily-selection.json
           jq -r '"sha=" + (.targetSha // ""), "control=" + (.controlSha // ""), "send=" + ((.outcome == "selected") | tostring)' daily-selection.json >> "$GITHUB_OUTPUT"
       - name: Preserve the daily selection before offering the release

@@ -300,10 +300,11 @@ break does not wait for a release.
 ### 4.1 03:30-03:50 preparation (`stage-engine-release.yml`)
 
 - **Admission** (job `detect`, step `admission`): the first eligible Stage run (push, schedule, or completion of a successful protected-main push Backup)
-  created inside 03:30-03:50 Chicago (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`)
-  owns the day's preparation; later runs refuse by name; an unreadable run list
-  prepares nothing. Crons `31,35,39,43 8/9 * * *` UTC are only chances to be
+  created from five elapsed hours before 03:30 through 03:50 Chicago owns the date.
+  The preparation itself stays 03:30-03:50 (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`); later runs refuse by name; an unreadable run list
+  prepares nothing. Crons `31,35,39,43 3,8 * * *` and `31,35,39,43 4,9 * * *` UTC are only chances to be
   first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`).
+- **Cutoff** (step `cutoff`): the elected job waits once, at most five hours, until 03:30. It refreshes protected main and binds the newest cutoff commit. If release-control bytes changed since reservation, or the job misses 03:50, it keeps serving. The job has a 315-minute limit, below GitHub's six-hour maximum. On November 9 the early boundary is November 8 22:30 CST; DST boundaries use elapsed UTC time.
 - **Detect** (step `change`): is a release owed? Changed engine tree, or
   production's `/health.releaseSha` behind main's newest engine commit.
 - **Window migrations** (job `window-migrations`): runs only on the admitted
@@ -317,8 +318,9 @@ break does not wait for a release.
 
 Observe: `gh run list --workflow stage-engine-release.yml --created ">=<today>T08:00:00Z" -L 10`;
 `gh run view <id> --log | grep -E "Daily preparation|certified|Receiver run"`.
-Failure handling: no admitted run means GitHub delivered nothing in the window
-and nothing was prepared; there is no retry, tomorrow's window prepares. Do
+Failure handling: no admitted run means no eligible original event reserved the date,
+or its owner failed a required gate. Nothing was prepared; there is no retry.
+The next date can reserve independently. Do
 not dispatch the receiver yourself to make up a missed window.
 
 ### 4.2 Receiver preflight (`auto-deploy-hetzner.yml`)

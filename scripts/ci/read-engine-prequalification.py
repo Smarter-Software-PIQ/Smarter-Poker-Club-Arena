@@ -69,7 +69,7 @@ def verify_selection(repo, rid, cutoff, qualification):
     require(re.fullmatch(r"[1-9][0-9]{0,19}", rid), "invalid selection run id")
     run = api(f"repos/{repo}/actions/runs/{rid}")
     require(run["id"] == int(rid) and run["run_attempt"] == 1
-            and run["event"] in ("push", "schedule") and run["head_branch"] == "main"
+            and (run["event"] in ("push", "schedule") or (run["event"] == "workflow_run" and run.get("display_title") == "Automatic Backup daily reservation")) and run["head_branch"] == "main"
             and run["path"] == ".github/workflows/stage-engine-release.yml"
             and run["repository"]["full_name"].lower() == repo.lower()
             and run["head_repository"]["full_name"].lower() == repo.lower()
@@ -77,8 +77,16 @@ def verify_selection(repo, rid, cutoff, qualification):
             "selection is not a protected original stage run")
     stage = run["head_sha"]
     protected(stage)
-    git("merge-base", "--is-ancestor", qualification["controlSha"], stage)
-    require(projection(stage, release_authority=True) == projection(qualification["controlSha"], release_authority=True), "stage release controls changed after cutoff")
+    control = qualification["controlSha"]
+    protected(control)
+    require(git("rev-list", "--first-parent", "-1", "--before=@" + str(cutoff), "refs/remotes/origin/main") == control,
+            "selection is not the newest protected cutoff control")
+    require(projection(stage, release_authority=True) == projection(control, release_authority=True), "stage release controls changed after cutoff")
+    created = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+    require(created.utcoffset() is not None, "reservation time has no offset")
+    early = run.get("display_title") in ("Daily engine reservation", "Automatic Backup daily reservation")
+    require(cutoff - (18000 if early else 0) <= created.timestamp() < cutoff + 1200,
+            "stage run does not own this reservation date")
     jobs = api(f"repos/{repo}/actions/runs/{rid}/attempts/1/jobs?per_page=100")
     require(jobs["total_count"] == len(jobs["jobs"]), "selection jobs incomplete")
     selected = [job for job in jobs["jobs"] if job["name"] == "Record the daily release evidence"]
@@ -86,6 +94,11 @@ def verify_selection(repo, rid, cutoff, qualification):
             and selected[0]["head_sha"] == stage and selected[0]["run_attempt"] == 1
             and selected[0]["status"] == "completed" and selected[0]["conclusion"] == "success",
             "selection job has not succeeded")
+    started = datetime.fromisoformat(selected[0]["started_at"].replace("Z", "+00:00"))
+    completed = datetime.fromisoformat(selected[0]["completed_at"].replace("Z", "+00:00"))
+    require(started.utcoffset() is not None and completed.utcoffset() is not None
+            and cutoff <= started.timestamp() <= completed.timestamp() < cutoff + 1200,
+            "selection did not execute inside its reserved preparation window")
     chicago = datetime.fromtimestamp(cutoff, ZoneInfo("America/Chicago"))
     require((chicago.hour, chicago.minute, chicago.second) == (3, 30, 0), "invalid selection cutoff")
     name = "daily-engine-selection-" + chicago.date().isoformat()

@@ -86,6 +86,13 @@ Run `node scripts/ops/release-plan.mjs` at any time (an authenticated GitHub tok
 
 ### Select and activate the daily release
 
+The existing Stage workflow can reserve a Chicago date up to five elapsed hours
+before 03:30. One original run owns that date and waits once until the unchanged
+03:30 cutoff; it refreshes protected main before selecting. Later commits are
+included only if qualified by the cutoff. Changed release authority during the
+wait, a replay, or a missed 03:50 preparation deadline leaves production serving.
+No second scheduler, recurring repair or manual dispatch supplies this behavior.
+
 The release owner follows [daily staging](.github/workflows/stage-engine-release.yml) and its [receiver](.github/workflows/auto-deploy-hetzner.yml). Use America/Chicago calendar dates across daylight-saving changes. The normal last-hand notice starts at 03:58. Activation requires the 04:00–04:05 window, confirmed drain and freeze, exact Backup success, production database compatibility, a verified rollback source and the full cutover reserve. Keep the serving engine when any required evidence is missing. A late request cannot claim tomorrow's slot. Read the original request and result before retrying an interrupted operation.
 
 Use the original Stage run’s `daily-engine-selection-YYYY-MM-DD` artifact and its `daily-selection.json` member to check what made the cutoff. A repeat attempt cannot replace the original selection. Use a fresh evidence directory on the external evidence volume and a configured authenticated GitHub CLI. For example, with the Chicago release date and the original staging run ID set in the shell:
