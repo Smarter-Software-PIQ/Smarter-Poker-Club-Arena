@@ -256,6 +256,50 @@ describe('V31 key: a limp-raised pot is not a single-raised pot', () => {
   });
 });
 
+describe('V31 key: a limp-re-raised pot is not a three-bet pot', () => {
+  const THREE_BET_CELL: GtoPostflopV31Row = { ...CELL, pot_type: '3bet' };
+
+  it('a raise-first-in three-bet pot is keyed 3bet and answered by the 3bet cell', () => {
+    replaceGtoPostflopV31Evaluation([THREE_BET_CELL]);
+    const spots: V31DemandSpot[] = [];
+    // Heads-up: the button (seat 2) opens, the big blind (hero) three-bets, the button calls.
+    decidePreflop(
+      [
+        [2, 'raise', 300],
+        [1, 'raise', 900],
+        [2, 'call', 900],
+      ],
+      { onV31Demand: (s: V31DemandSpot) => spots.push(s) }
+    );
+    expect(spots).toHaveLength(1);
+    expect(spots[0]).toMatchObject({ potType: '3bet', hit: true });
+  });
+
+  it('a limped, raised and re-raised pot never matches a 3bet cell', () => {
+    replaceGtoPostflopV31Evaluation([THREE_BET_CELL]);
+    const spots: V31DemandSpot[] = [];
+    // Heads-up: the button completes, the big blind (hero) raises, the button
+    // re-raises, the big blind calls.
+    decidePreflop(
+      [
+        [2, 'call', 100],
+        [1, 'raise', 300],
+        [2, 'raise', 900],
+        [1, 'call', 900],
+      ],
+      { onV31Demand: (s: V31DemandSpot) => spots.push(s) }
+    );
+    expect(spots).toHaveLength(1);
+    expect(spots[0].potType).toBe('l3bet');
+    expect(spots[0].hit).toBe(false);
+    const asked = gtoV31DemandCell(spots[0])!;
+    const threeBet = gtoV31DemandCell({ ...spots[0], potType: '3bet' })!;
+    expect(asked.key).not.toBe(threeBet.key);
+    expect(asked.key.split('|')[5]).toBe('l3bet');
+    expect(asked.key.split('|')).toHaveLength(13);
+  });
+});
+
 function demand(): GtoV31Demand {
   // Two tables: the contract plays max(10,000, ceil(50,000 / 2)) = 25,000 pairs each.
   return {

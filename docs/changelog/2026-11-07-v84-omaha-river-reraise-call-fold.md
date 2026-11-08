@@ -96,3 +96,52 @@ cell on each day, because a CI from two to four hands is not evidence.
 Only the horses' own calls are observed (no counterfactual fold policy), ICM
 is not modelled, and a raiser MEASURED as a postflop over-bluffer keeps
 today's call as in V81. The measurement ran on the current engine, after V81.
+
+## Denominator, chops and pot odds, re-measured before activation (2026-11-07)
+
+The owner asked, before the 04:00 Chicago activation, for the complete
+eligible-opportunity denominator, the sizing and pot-odds evidence, proof that
+the 27 losses are all the qualifying outcomes, correct chop handling, and
+focused boundary checks. Evidence:
+`docs/horse-measure/2026-11-07/v84-river-reraise-denominator.txt`, produced by
+the new read-only template `scripts/horse-measure/sql/omaha-river-reraise-opportunities.sql`
+(every action, every exclusion kept as a column) and
+`scripts/horse-measure/omaha-river-reraise-denominator.ts`.
+
+- **Denominator.** Same two days and eligibility. The horses met the spot with
+  an unpaired second-nut flush 49 times and called all 49: no fold, no
+  re-raise. 22 fell to the V81 exclusions (14 raises under 0.9 pot, 4 heads-up
+  tables, 2 bounty events, 2 at 20bb or less), leaving exactly the 27 calls of
+  the first pull, matched hand for hand on full ids.
+- **Nothing dropped.** No 8-character id collision (222 decisions, 222
+  prefixes); a direct `hand_history` scan of two six-hour windows found every
+  qualifying decision in `ca_hand_facts` (94 and 202, none missing); no
+  run-it-twice; the only two-board or bomb-pot decisions were double-board
+  bomb pots, which V84 excludes; none of the 27 was on an all-in-or-fold
+  table; six faced an all-in raiser and are counted, as `v81StreetWager`
+  counts a raising all-in.
+- **Chops.** The EV is (net + chips in at the node) / bb with
+  `net = returned - invested`, so a split pot counts at its fractional
+  return. None of the 49 was a chop. Every showdown was a nut flush or a
+  straight flush.
+- **Pot odds.** Price = call (capped at the stack) / (pot + call), the
+  equity the call needs: 0.028 to 0.333, median 0.333. 0 wins in 27 bounds
+  the true win rate at 0.105 (one-sided 95%; Clopper-Pearson two-sided 0.128).
+  Four calls needed less than that (0.028, 0.048, 0.066, 0.096: a horse all
+  in for its last few chips), so the evidence does not show they lose.
+
+**Decision.** The cell still passes the admission rule. One boundary is
+added from the pot-odds evidence: V84 folds only a call priced at
+`V84_MIN_CALL_PRICE` = 0.13 or more. Those 23 calls all lost: day A -106.5
+[-169.6, -43.3] n 11, day B -101.8 [-145.2, -58.3] n 12, and 0/23 bounds the
+win rate at 0.122, below every price in the set. A cheaper call keeps today's
+answer. All-in-or-fold tables, never observed in this spot, are excluded too.
+Hand 3359656 (price 0.333) still folds.
+
+New boundary checks in `HorseOmahaRiverReraiseCalls.law.test.ts`, end to end
+against the off arm: a raise of exactly 0.9 pot folds and 0.883 keeps today;
+a horse that only called earlier on the river is out; paired board, nut flush
+and heads-up table keep today; an all-in raise for less than a full raise
+folds; an all-in call folds legally; a call priced 0.031 keeps today; all-in-
+or-fold, hi-lo, multi-board and bomb pots keep today; a raiser measured as a
+postflop over-bluffer keeps today.

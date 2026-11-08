@@ -115,15 +115,18 @@ def needs_funded_satellite_proof(repo, sha):
     # Historical sealed revisions still use their original qualification.
     # Resolve the protected introduction, so deleting the migration or probe
     # from a later candidate cannot opt that candidate out of the new proof.
-    git = ['git', '-C', str(repo)]
     award_migration = ('supabase/migrations/20261107190137_'
                        'a_blocked_satellite_target_releases_the_shared_finish_lane.sql')
-    award_merge = run([*git, 'log', '--first-parent', '--diff-filter=A', '--format=%H',
-                       'origin/main', '--', award_migration])
-    if not re.fullmatch('[0-9a-f]{40}', award_merge):
-        raise RuntimeError('cannot uniquely identify protected satellite settlement introduction')
-    hand_merge = '2524e3cd537006a011b5c57f726763feaa80529b'
-    for commit in (hand_merge, award_merge):
+    return introduced_by(repo, sha, award_migration, ['2524e3cd537006a011b5c57f726763feaa80529b'])
+
+
+def introduced_by(repo, sha, path, prerequisites=()):
+    git = ['git', '-C', str(repo)]
+    introduction = run([*git, 'log', '--first-parent', '--diff-filter=A', '--format=%H',
+                        'origin/main', '--', path])
+    if not re.fullmatch('[0-9a-f]{40}', introduction):
+        raise RuntimeError('cannot uniquely identify protected introduction: ' + path)
+    for commit in (*prerequisites, introduction):
         try:
             run([*git, 'merge-base', '--is-ancestor', commit, sha])
         except subprocess.CalledProcessError as error:
@@ -186,6 +189,9 @@ def main():
             'src/tournament/anEmptyPastStartEventIsCancelled.test.ts',
             'src/tournament/terminalDurableRequest.test.ts',
             'src/tournament/aQualifierRefusedByABreakFinishesTheBreak.law.test.ts',
+            'src/tournament/StaleBreakAdoptionHeal.test.ts',
+            'src/tournament/TournamentDurableBreakRecovery.test.ts',
+            'src/tournament/DurableTerminalContinuation.test.ts',
             'src/aTableThatCannotBeAdmittedIsStalled.test.ts',
             'src/observability/tournamentStallExposure.test.ts',
         ])
@@ -253,10 +259,12 @@ def main():
                           pg_image, '-u', 'postgres']))
         pg_gid = int(run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'id',
                           pg_image, '-g', 'postgres']))
-        native_packages = 'python3 nodejs' if require_satellite_thaw else 'python3'
+        require_bubble = require_satellite_thaw and introduced_by(repo, args.sha, 'scripts/ci/satellite_bubble_handoff.py')
+        native_packages = 'python3 nodejs npm' if require_bubble else ('python3 nodejs' if require_satellite_thaw else 'python3')
+        native_dependencies = 'RUN npm ci --prefix /source/server --include=dev --ignore-scripts --no-audit --no-fund\n' if require_bubble else ''
         (source / 'Qualification.pg').write_text(
             'FROM ' + pg_reference + f'\nUSER root\nRUN apk add --no-cache {native_packages}\n'
-            'COPY --chown=postgres:postgres . /source\nUSER postgres\nWORKDIR /source\n'
+            'COPY --chown=postgres:postgres . /source\n' + native_dependencies + 'USER postgres\nWORKDIR /source\n'
             'ENV PG_BIN=/nix/var/nix/profiles/default/bin\nENTRYPOINT ["python3"]\n')
         run(['docker', 'build', '--platform', pg_platform, '-f', 'Qualification.pg', '-t', native_tag, '.'],
             cwd=source, log=output / 'native-build.log')
@@ -282,7 +290,21 @@ def main():
                  '--peak-only', '--pg-bin', '/nix/var/nix/profiles/default/bin', '--evidence', '/evidence/satellite'],
                 log=output / 'satellite-native.log')
             funded = json.loads((evidence / 'satellite/result.json').read_text())
-            for path in ('scripts/ci/tournament_peak_thaw.py', 'scripts/ci/satellite_peak_thaw.py'):
+            if require_bubble:
+                receipt = funded['bubble_handoff']
+                handoff = receipt['bubbleHandoff']
+                if (not all(receipt.get(key) is True for key in
+                            ('passed', 'realManagerHeaders', 'lostCommittedTcpResponse', 'exactReplay'))
+                        or receipt['format'] != 'QUALIFIERS' or not handoff['requestId']
+                        or not handoff['originalGeneration'] or not handoff['successorGeneration']
+                        or handoff['originalGeneration'] == handoff['successorGeneration']):
+                    raise RuntimeError('funded qualifier owner handoff proof missing')
+                report['bubbleOwnerHandoff'] = receipt
+            required_inputs = ['scripts/ci/tournament_peak_thaw.py', 'scripts/ci/satellite_peak_thaw.py']
+            if require_bubble:
+                required_inputs.extend(['scripts/ci/satellite_bubble_handoff.py',
+                                        'server/scripts/qualify-terminal-intent-transport.ts', 'server/package-lock.json'])
+            for path in required_inputs:
                 if funded['source_sha256'].get(path) != hashlib.sha256((source / path).read_bytes()).hexdigest():
                     raise RuntimeError('funded rehearsal source identity differs: ' + path)
             report['fundedSatelliteThaw'] = verified_satellite_thaw(funded)

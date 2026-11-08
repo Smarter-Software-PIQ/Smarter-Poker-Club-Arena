@@ -667,7 +667,7 @@ describe('standby adoption authority and timing', () => {
     }
   );
 
-  it.each(['missing', 'malformed', 'unavailable', 'same', 'different'])(
+  it.each(['missing', 'malformed', 'unavailable', 'same', 'different', 'rollback-failed'])(
     'requires the serving baseline and its applicable rehearsal (%s)',
     (mode) => {
       const sha = 'a'.repeat(40);
@@ -685,14 +685,24 @@ describe('standby adoption authority and timing', () => {
           record() { echo "$1"; verdict=fail; }
           curl() { echo '{"releaseSha":"${serving}"}'; }
           unset -f trial_swap || :
-          if [ '${mode}' = different ]; then trial_swap() { echo swap >&2; }; fi
+          if [ '${mode}' = different ] || [ '${mode}' = rollback-failed ]; then
+            trial_swap() { echo "$1->$2" >&2; [ '${mode}' != rollback-failed ]; }
+          fi
           ${gate}
           [ "$verdict" = pass ]
         }
         admission
       `);
       expect(result.status === 0).toBe(mode === 'same' || mode === 'different');
-      if (mode === 'different') expect(result.stderr).toContain('swap');
+      if (mode === 'different')
+        expect(result.stderr.trim().split('\n')).toEqual([
+          `${sha}->${serving}`,
+          `${serving}->${sha}`,
+        ]);
+      if (mode === 'rollback-failed') {
+        expect(result.stderr.trim()).toBe(`${sha}->${serving}`);
+        expect(result.stdout).toContain('rollback_rehearsal_failed_to_');
+      }
     }
   );
   it('consumes health JSON even when the pipeline producer is delayed', () => {

@@ -6,6 +6,7 @@ import {
   roleAdmissionSql,
   assertRoleAdmission,
 } from '../private-record-gateway-credentials.mjs';
+const PG_PORT = Number(process.env.PRIVATE_RECORD_PG_PORT || 57649);
 const require = createRequire(new URL('../../../server/package.json', import.meta.url));
 const { Client } = require('pg');
 const password = 'f'.repeat(96);
@@ -13,7 +14,7 @@ const canonical =
   'postgresql://postgres:unrelated-fixture@db.kuklfnapbkmacvwxktbh.supabase.co:5432/postgres';
 const admin = new Client({
   host: process.argv[2],
-  port: 57649,
+  port: PG_PORT,
   user: 'postgres',
   database: 'postgres',
 });
@@ -21,7 +22,7 @@ const tls = { ca: readFileSync(process.argv[3], 'utf8'), rejectUnauthorized: tru
 const ownClient = () =>
   new Client({
     host: '127.0.0.1',
-    port: 57649,
+    port: PG_PORT,
     user: 'ca_record_gateway',
     password,
     database: 'postgres',
@@ -145,7 +146,7 @@ try {
   // A broader trusted-creator edge is also refused; restore its PG17 shape.
   const seed = new Client({
     host: process.argv[2],
-    port: 57649,
+    port: PG_PORT,
     user: 'fixture_admin',
     database: 'postgres',
   });
@@ -217,7 +218,7 @@ try {
   }
   const wrong = new Client({
     host: '127.0.0.1',
-    port: 57649,
+    port: PG_PORT,
     user: 'ca_record_gateway',
     password: 'e'.repeat(96),
     database: 'postgres',
@@ -230,7 +231,7 @@ try {
   }
   const untrusted = new Client({
     host: '127.0.0.1',
-    port: 57649,
+    port: PG_PORT,
     user: 'ca_record_gateway',
     password,
     database: 'postgres',
