@@ -57,18 +57,21 @@ type Run = {
   id: number;
   event: string;
   created_at: string;
+  actor?: { type: string };
+  run_attempt?: number;
   head_branch?: string;
   display_title?: string;
 };
 type Case = {
-  event: 'push' | 'schedule' | 'workflow_run';
+  event: 'push' | 'schedule' | 'repository_dispatch' | 'workflow_run';
+  sender?: string;
+  attempt?: number;
   createdAt?: string; // schedule: the run's own created_at from the API
   pushedAt?: string; // push: github.event.repository.pushed_at (epoch seconds)
   runs?: Run[];
   totalCount?: number;
   listFails?: boolean;
   pages?: unknown[];
-  attempt?: string;
   health?: string;
   message?: string;
 };
@@ -129,6 +132,8 @@ cat '${join(dir, 'policy.json')}'
           PATH: `${join(dir, 'bin')}:${process.env.PATH ?? ''}`,
           GITHUB_SHA: 'a'.repeat(40),
           EVENT_NAME: c.event,
+          SENDER_TYPE: c.sender ?? 'User',
+          GITHUB_RUN_ATTEMPT: String(c.attempt ?? 1),
           PUSHED_AT: c.pushedAt ?? '',
           RUN_CREATED_AT: c.createdAt ?? '',
           RUNS_JSON: JSON.stringify(
@@ -144,12 +149,18 @@ cat '${join(dir, 'policy.json')}'
           REPO: 'test/repo',
           RUNNER_TEMP: dir,
           RUN_ID: '123',
-          GITHUB_RUN_ATTEMPT: c.attempt ?? '1',
           GITHUB_OUTPUT: join(dir, 'output'),
         },
       }
     );
-    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(result.status, result.stdout + result.stderr).toBe(c.attempt === 2 ? 1 : 0);
+    if (c.attempt === 2)
+      return {
+        outputs: {} as Record<string, string>,
+        listed: [],
+        stdout: result.stdout,
+        status: result.status,
+      };
     const outputs = Object.fromEntries(
       readFileSync(join(dir, 'output'), 'utf8')
         .split('\n')
@@ -159,7 +170,7 @@ cat '${join(dir, 'policy.json')}'
     const listed = existsSync(join(dir, 'list.log'))
       ? readFileSync(join(dir, 'list.log'), 'utf8').trim().split('\n')
       : [];
-    return { outputs, listed, stdout: result.stdout };
+    return { outputs, listed, stdout: result.stdout, status: result.status };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -179,6 +190,40 @@ describe('the daily preparation reserves early and executes at the unchanged cut
       expect(outputs.daily_preparation_date, createdAt).toBe(date);
       expect(outputs.owner_window_id).toBe('');
     }
+  });
+
+  it('admits the original operator delivery using the same window and first owner', () => {
+    expect(stage.on.repository_dispatch.types).toEqual(['prepare-daily-engine']);
+    const event = 'repository_dispatch' as const;
+    const createdAt = '2026-11-08T09:35:00Z';
+    expect(admit({ event, createdAt, attempt: 2 }).status).toBe(1);
+    expect(admit({ event, createdAt }).outputs.daily_preparation_date).toBe('2026-11-08');
+    for (const refused of [
+      { sender: 'Bot' },
+      { createdAt: '2026-11-08T09:50:00Z' },
+      { createdAt: '2026-11-08T04:31:00Z' },
+      { listFails: true },
+      { runs: [{ id: 11, event: 'schedule', created_at: createdAt }] },
+    ]) {
+      expect(admit({ event, createdAt, ...refused }).outputs.allowed).toBe('false');
+    }
+    const previous = {
+      id: 12,
+      event,
+      created_at: createdAt,
+      actor: { type: 'User' },
+      run_attempt: 1,
+      display_title: 'Original operator daily preparation',
+    };
+    expect(admit({ event: 'schedule', createdAt, runs: [previous] }).outputs.allowed).toBe('false');
+    expect(
+      admit({ event: 'schedule', createdAt, runs: [{ ...previous, run_attempt: 2 }] }).outputs
+        .allowed
+    ).toBe('false');
+    expect(
+      admit({ event: 'schedule', createdAt, runs: [{ ...previous, actor: { type: 'Bot' } }] })
+        .outputs.allowed
+    ).toBe('true');
   });
 
   it('a run created outside the window prepares nothing and asks nobody', () => {
@@ -317,7 +362,7 @@ describe('the preparation happens once per Chicago date', () => {
     }
   });
 
-  it('only push and schedule runs on main inside the window compete', () => {
+  it('unrelated manual, foreign-branch and out-of-window runs do not compete', () => {
     const { outputs } = admit({
       ...inWindow,
       runs: [

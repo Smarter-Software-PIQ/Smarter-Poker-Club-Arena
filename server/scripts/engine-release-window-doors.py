@@ -516,9 +516,13 @@ def install_state(now):
         original = start <= created < end
         ordinary = run.get('event') in ('push', 'schedule') and (original or title == 'Daily engine reservation')
         backup = run.get('event') == 'workflow_run' and (title == 'Automatic Backup daily reservation' or (original and title == 'Automatic protected Backup finished'))
-        return run.get('head_branch') == 'main' and reservation <= created < end and (ordinary or backup)
+        operator = run.get('event') == 'repository_dispatch' and original and run.get('actor', {}).get('type') == 'User' and title == 'Original operator daily preparation'
+        return run.get('head_branch') == 'main' and reservation <= created < end and (ordinary or backup or operator)
     rows = sorted((r for r in rows if eligible(r)), key=lambda r: int(r['id']))
     for run in rows[:1]:
+        # A rerun cannot erase the date's owner, nor certify a second installer.
+        if run.get('event') == 'repository_dispatch' and run.get('run_attempt') != 1:
+            return None
         jobs = github(REPO_API + '/actions/runs/' + str(int(run['id'])) + '/jobs?per_page=100')
         for job in jobs.get('jobs', []):
             if job.get('name') != INSTALL_JOB:

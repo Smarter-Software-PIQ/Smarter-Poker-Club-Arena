@@ -303,8 +303,23 @@ break does not wait for a release.
   created from five elapsed hours before 03:30 through 03:50 Chicago owns the date.
   The preparation itself stays 03:30-03:50 (`START_HOUR, START_MINUTE, WINDOW_MINUTES = 3, 30, 20`); later runs refuse by name; an unreadable run list
   prepares nothing. Crons `31,35,39,43 3,8 * * *` and `31,35,39,43 4,9 * * *` UTC are only chances to be
-  first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`).
+  first (`tests/daily-preparation-does-not-wait-for-a-punctual-cron.law.test.ts`). Operator deliveries may enter this same election only inside 03:30-03:50; they cannot reserve early or displace an earlier automatic owner.
 - **Cutoff** (step `cutoff`): the elected job waits once, at most five hours, until 03:30. It refreshes protected main and binds the newest cutoff commit. If release-control bytes changed since reservation, or the job misses 03:50, it keeps serving. The job has a 315-minute limit, below GitHub's six-hour maximum. On November 9 the early boundary is November 8 22:30 CST; DST boundaries use elapsed UTC time.
+- **Operator fallback.** If GitHub has delivered no Stage run by 03:35 Chicago,
+  the release owner may issue the dispatch once from an authenticated GitHub user
+  account with repository write access, before 03:50 Chicago. Check event, branch
+  and creation time in the Stage run list first,
+  then read the original run's admission result and selection artifact.
+  GitHub supplies the event time and protected default branch. The operator
+  supplies no SHA, date, migration or receiver inputs. The 03:30 cutoff still
+  applies to every candidate. When an earlier eligible run exists, follow it.
+  After 03:50 the next ordinary window is the next opportunity.
+
+  ```sh
+  gh run list -R Smarter-Software-PIQ/Smarter-Poker-Club-Arena --workflow stage-engine-release.yml --branch main --limit 20 --json databaseId,event,createdAt
+  gh api --method POST repos/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/dispatches -f event_type=prepare-daily-engine
+  ```
+
 - **Detect** (step `change`): is a release owed? Changed engine tree, or
   production's `/health.releaseSha` behind main's newest engine commit.
 - **Window migrations** (job `window-migrations`): runs only on the admitted

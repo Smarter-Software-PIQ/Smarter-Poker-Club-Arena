@@ -68,8 +68,14 @@ def verify_selection(repo, rid, cutoff, qualification):
     """Bind repository_dispatch to the already uploaded, first-attempt selection."""
     require(re.fullmatch(r"[1-9][0-9]{0,19}", rid), "invalid selection run id")
     run = api(f"repos/{repo}/actions/runs/{rid}")
+    operator = (run["event"] == "repository_dispatch" and run.get("actor", {}).get("type") == "User"
+                and run.get("display_title") == "Original operator daily preparation")
+    if operator:
+        created = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+        require(created.utcoffset() is not None and cutoff <= created.timestamp() < cutoff + 20 * 60,
+                "operator Stage was created outside the preparation window")
     require(run["id"] == int(rid) and run["run_attempt"] == 1
-            and (run["event"] in ("push", "schedule") or (run["event"] == "workflow_run" and run.get("display_title") == "Automatic Backup daily reservation")) and run["head_branch"] == "main"
+            and (run["event"] in ("push", "schedule") or operator or (run["event"] == "workflow_run" and run.get("display_title") == "Automatic Backup daily reservation")) and run["head_branch"] == "main"
             and run["path"] == ".github/workflows/stage-engine-release.yml"
             and run["repository"]["full_name"].lower() == repo.lower()
             and run["head_repository"]["full_name"].lower() == repo.lower()

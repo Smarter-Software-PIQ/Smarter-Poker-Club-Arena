@@ -19,8 +19,10 @@ name: Stage Exact Club Arena Engine Release
 # for one dated reservation. Its original job waits once until the cutoff,
 # refreshes protected source, then uses the same selection and receiver.
 # A missed date, changed release authority or failed owner never gains a retry.
-run-name: ${{ github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
+run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
 on:
+  repository_dispatch:
+    types: [prepare-daily-engine]
   workflow_run:
     workflows: ['Backup Engine (Clone, Stage, Certify)']
     branches: [main]
@@ -103,6 +105,7 @@ jobs:
         id: admission
         env:
           EVENT_NAME: ${{ github.event_name }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
           PUSHED_AT: ${{ github.event.repository.pushed_at || '' }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -128,7 +131,7 @@ jobs:
           # Original event time selects one bounded reservation date. A delayed
           # event cannot claim an expired date, and a rerun cannot reserve again.
           moment=''
-          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ]; then
+          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
             moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at) || moment=''
           elif [ "$EVENT_NAME" = push ]; then
             moment="${PUSHED_AT:-}"
@@ -159,6 +162,8 @@ jobs:
               start = datetime.combine(tomorrow, datetime.min.time(), ZoneInfo("America/Chicago")).replace(hour=3, minute=30).astimezone(timezone.utc)
           end = start + timedelta(minutes=WINDOW_MINUTES)
           reservation = start - timedelta(hours=5)
+          if os.environ["EVENT_NAME"] == "repository_dispatch" and moment.astimezone(timezone.utc) < start:
+              raise SystemExit(1)
           if not (reservation <= moment.astimezone(timezone.utc) < end):
               raise SystemExit(1)
           print(start.astimezone(ZoneInfo("America/Chicago")).date().isoformat(), reservation.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ"), int(start.timestamp()))
@@ -202,7 +207,8 @@ jobs:
                   title = run.get("display_title")
                   automatic_backup = run.get("event") == "workflow_run" and (title == "Automatic Backup daily reservation" or (original_window and title == "Automatic protected Backup finished"))
                   ordinary = run.get("event") in ("push", "schedule") and (title == "Daily engine reservation" or original_window)
-                  if (not ordinary and not automatic_backup) or run.get("head_branch") != "main":
+                  operator = run.get("event") == "repository_dispatch" and original_window and run.get("actor", {}).get("type") == "User" and title == "Original operator daily preparation"
+                  if (not ordinary and not automatic_backup and not operator) or run.get("head_branch") != "main":
                       continue
                   if not (start <= when(run["created_at"]) < end):
                       continue
@@ -348,8 +354,8 @@ jobs:
           # nothing on that basis and says so.
           OFFER_REASON=changed
           SCHEDULED_CYCLE=false
-          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ]; then
-            # A scheduled event has no push-before SHA. Always prove the actual
+          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = workflow_run ] || [ "$EVENT_NAME" = repository_dispatch ]; then
+            # A preparation event has no push-before SHA. Always prove the actual
             # protected live identity before offering a same-image reset.
             RELEASE_REQUIRED=false
             if python3 server/scripts/engine-release-seal.py schedule-policy --repo . --sha "$AFTER_SHA" | python3 -c 'import json,sys; raise SystemExit(0 if json.load(sys.stdin)["phase1Status"]=="active" else 1)'; then

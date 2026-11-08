@@ -84,14 +84,15 @@ class Evidence(unittest.TestCase):
 
 
 class Selection(unittest.TestCase):
-    def verify(self, *, altered=False, duplicate=False, late=False, pending=False, early=False, backup=False, stale=False, controls=False, replay=False):
+    def verify(self, *, altered=False, duplicate=False, late=False, pending=False, early=False, backup=False,
+               stale=False, controls=False, replay=False, event="schedule", sender="User",
+               created="2026-11-08T09:35:00Z", attempt=1, title="Original operator daily preparation"):
         repo = "Smarter-Software-PIQ/Smarter-Poker-Club-Arena"
         cutoff = int(datetime(2026, 11, 8, 9, 30, tzinfo=timezone.utc).timestamp())
         qualification = {"targetSha":"a"*40, "controlSha":"b"*40, "qualificationRunId":21}
-        run = dict(id=22, run_attempt=1, event="schedule", head_branch="main", status="in_progress",
+        run = dict(id=22, run_attempt=attempt, event=event, actor={"type":sender}, created_at=created, head_branch="main", status="in_progress",
                    path=".github/workflows/stage-engine-release.yml", head_sha="c"*40,
-                   repository={"full_name":repo}, head_repository={"full_name":repo},
-                   created_at="2026-11-08T09:31:00Z")
+                   repository={"full_name":repo}, head_repository={"full_name":repo}, display_title=title)
         if early:
             run.update(created_at="2026-11-08T04:30:00Z", display_title="Daily engine reservation")
         if backup:
@@ -117,6 +118,13 @@ class Selection(unittest.TestCase):
              patch.object(reader, "projection", side_effect=["old", "new"] if controls else ["same", "same"]), \
              patch.object(reader.subprocess, "check_output", return_value=archive + (b"x" if altered else b"")):
             reader.verify_selection(repo, "22", cutoff, qualification)
+
+    def test_verifies_original_in_window_operator_only(self):
+        self.verify(event="repository_dispatch")
+        for changes in ({"sender":"Bot"}, {"attempt":2}, {"title":"forged"}, {"created":"2026-11-08T04:31:00Z"}, {"created":"2026-11-08T09:50:00Z"},
+                        {"created":"2026-11-07T09:35:00Z"}):
+            with self.subTest(changes=changes), self.assertRaises(reader.Unqualified):
+                self.verify(event="repository_dispatch", **changes)
 
     def test_verifies_stage_artifact_and_rejects_changed_archive_or_cutoff(self):
         self.verify()
@@ -145,6 +153,13 @@ class ReservationDoorOwner(unittest.TestCase):
         early.update(event="workflow_run", display_title="Automatic Backup daily reservation")
         with patch.object(doors, "github", side_effect=read):
             self.assertEqual(doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc))["url"], "owner-job")
+        early.update(event="repository_dispatch", display_title="Original operator daily preparation",
+                     actor={"type":"User"}, created_at="2026-11-09T09:30:00Z", run_attempt=1)
+        with patch.object(doors, "github", side_effect=read):
+            self.assertEqual(doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc))["url"], "owner-job")
+        early["run_attempt"] = 2
+        with patch.object(doors, "github", side_effect=read):
+            self.assertIsNone(doors.install_state(datetime(2026,11,9,10,tzinfo=timezone.utc)))
 
     def test_unreadable_truncated_duplicate_and_naive_reservations_refuse(self):
         spec = spec_from_file_location("window_doors", root / "server/scripts/engine-release-window-doors.py")
@@ -229,6 +244,24 @@ class ArchiveTransport(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.transport.config_identity(native, self.tag, manifest)
 
+
+
+class OperatorInstallationEvidence(unittest.TestCase):
+    def test_original_operator_install_is_visible_and_replays_are_excluded(self):
+        spec = spec_from_file_location("window_doors", root / "server/scripts/engine-release-window-doors.py")
+        doors = module_from_spec(spec)
+        spec.loader.exec_module(doors)
+        original = dict(id=7, event="repository_dispatch", actor={"type": "User"},
+                        run_attempt=1, head_branch="main", created_at="2026-11-09T09:35:00Z",
+                        display_title="Original operator daily preparation")
+        job = dict(name=doors.INSTALL_JOB, status="completed", conclusion="success", html_url="receipt")
+        for actor, attempt, visible in (("User", 1, True), ("Bot", 1, False), ("User", 2, False)):
+            row = dict(original, actor={"type": actor}, run_attempt=attempt)
+            with self.subTest(actor=actor, attempt=attempt), patch.dict(os.environ, {}, clear=True), patch.object(
+                doors, "github", side_effect=[{"total_count":1, "workflow_runs": [row]}, {"jobs": [job]}]
+            ):
+                result = doors.install_state(datetime(2026, 11, 9, 10, tzinfo=timezone.utc))
+                self.assertEqual(result is not None, visible)
 
 if __name__ == "__main__":
     unittest.main()
