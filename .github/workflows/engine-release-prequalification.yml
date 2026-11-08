@@ -92,7 +92,9 @@ jobs:
           tree="$(git rev-parse "$GITHUB_SHA:server")"
           [[ "$image" =~ ^sha256:[0-9a-f]{64}$ && "$tree" =~ ^[0-9a-f]{40}$ ]]
           code="$(base64 -w0 scripts/ci/prestage-engine-image.sh)"
-          docker image save "$image" | gzip -1 | timeout -k 5s 660s ssh -i "$dir/key" -o BatchMode=yes \
+          transfer_ref="club-arena-prestage:${image#sha256:}"
+          docker image tag "$image" "$transfer_ref"
+          docker image save "$transfer_ref" | gzip -1 | timeout -k 5s 660s ssh -i "$dir/key" -o BatchMode=yes \
             -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
             -o UserKnownHostsFile="$dir/hosts" -o ConnectTimeout=15 "root@$HOST" \
             "bash -c \"\$(printf '%s' '$code' | base64 -d)\" bash '$GITHUB_SHA' '$image' '$tree' '$size'" > "$dir/result"

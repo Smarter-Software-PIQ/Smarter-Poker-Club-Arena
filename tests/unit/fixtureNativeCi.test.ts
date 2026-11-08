@@ -2253,8 +2253,9 @@ describe('restored provider accounting qualification', () => {
     );
     expect(install.env.PG_CI_SHARD).toBe('${{ matrix.shard }}');
     expect(install.run).toContain(
-      'postgresql-17 postgresql-17-cron ${pg_ci_build_packages[@]+"${pg_ci_build_packages[@]}"}'
+      'PG_PACKAGES="postgresql-17 postgresql-17-cron ${pg_ci_build_packages[*]-}"'
     );
+    expect(install.run).toContain('bash .github/actions/install-postgres-17/install.sh');
     const temp = mkdtempSync(join(tmpdir(), 'pg-shard-readiness-'));
     try {
       for (const path of [
@@ -2362,10 +2363,12 @@ describe('restored provider accounting qualification', () => {
     );
     expect(install.run).toContain('-f /usr/share/postgresql/17/extension/pg_cron.control &&');
     expect(install.run).toContain('-f /usr/lib/postgresql/17/lib/pg_cron.so ]]; then exit 0; fi');
-    expect(install.run).toContain(
-      'install -y --no-install-recommends postgresql-17 postgresql-17-cron'
-    );
-    expect(install.run).toContain('create_main_cluster = false');
+    expect(install.run).toContain('PG_PACKAGES="postgresql-17 postgresql-17-cron');
+    expect(install.run).toContain('bash .github/actions/install-postgres-17/install.sh');
+    // The shared installer creates no default cluster and installs exactly PG_PACKAGES.
+    const shared = readFileSync('.github/actions/install-postgres-17/install.sh', 'utf8');
+    expect(shared).toContain('create_main_cluster = false');
+    expect(shared).toContain('install -y --no-install-recommends "${pg_packages[@]}"');
     const evidence = ci.jobs.accounting_postgres.steps.find(
       (step: { name?: string }) => step.name === 'Preserve weekly accounting qualification evidence'
     );

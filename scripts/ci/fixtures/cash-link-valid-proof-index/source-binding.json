@@ -12,7 +12,7 @@
     "tests/cash-link-index-keeps-the-original-proof.law.test.ts": "443138226b857a46e67472f88a8ec794ee212c23bf42abd94fb5fb4e38e6a481",
     "docs/laws.d/cash-link-index-keeps-the-original-proof.md": "7866d0b5911e64e4af1ed29dd400417a363f48909642c8b21631ffb569e69966",
     "docs/changelog/2026-10-28-cash-link-original-proof-index.md": "9d1cad7c248091753cdc85a59242ae2375f0f175119a1e1d3fe568fbb61c5705",
-    ".github/workflows/unpaid-lightning-funding-contracts.yml": "89f809d53556d53b8a7e25c9dd92a4ae4e5fb8731cef11e0e89b463cefbe9d62"
+    ".github/workflows/unpaid-lightning-funding-contracts.yml": "5a2a703ad7d198e1154ee7e5adcab6ea2b774981957c0027344b4c0a8f6f1e7d"
   },
   "cashLinkPhysicalProofWorkflowComposition20261028": {
     "review": "Preserves current63816 ordered-key and every prior native command plus the independently qualified65332 physical partial-index lane. Only active combined workflow identity renewed; no financial assertion or historical receipt restamp.",
@@ -40,5 +40,15 @@
     },
     "review": "The only change in this workflow is the PostgreSQL apt signing-key download (a three-line sudo curl of ACCC4CF8.asc from www.postgresql.org) replaced by one line installing the byte-identical key from the checkout, .github/pgdg/apt.postgresql.org.asc (fingerprint B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8, sha256 0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76). Same destination path, same apt verification of every package; triggers, jobs, steps, commands and qualification inputs are otherwise byte-identical. No financial, native or production qualification is restamped or claimed.",
     "reason": "2026-11-07: the key download failed with curl (55) SSL EOF in at least 11 jobs before any test ran, including a backup-engine certification run."
+  },
+  "postgresSharedInstaller20261107": {
+    "paths": {
+      ".github/workflows/unpaid-lightning-funding-contracts.yml": {
+        "before": "89f809d53556d53b8a7e25c9dd92a4ae4e5fb8731cef11e0e89b463cefbe9d62",
+        "after": "5a2a703ad7d198e1154ee7e5adcab6ea2b774981957c0027344b4c0a8f6f1e7d"
+      }
+    },
+    "review": "Reviewed exact diff: the only change in each pinned workflow is the inline 'Install PostgreSQL 17 from the signed PGDG source only' block (signed Ubuntu + PGDG sources in a private sourceparts directory, the checkout key .github/pgdg/apt.postgresql.org.asc at the Signed-By path, create_main_cluster=false, then apt-get install) replaced by the one shared installer .github/actions/install-postgres-17 (action step or its install.sh) that runs the same commands with the same packages, plus apt Acquire::Retries, APT::Update::Error-Mode=any and a bounded whole-command retry. ci-accounting-inputs.json changed only by its projection of that accounting_postgres step; chained bindings changed only by their own restamp. Triggers, jobs, other steps, commands and qualification inputs are otherwise byte-identical. No financial, native or production qualification is restamped or claimed.",
+    "reason": "2026-11-07: about seventy inline copies of the PostgreSQL install each failed alone on network blips (curl 55 / apt fetch); one shared installer with bounded retries."
   }
 }
