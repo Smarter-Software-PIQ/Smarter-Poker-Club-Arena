@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 146085,
-      "sha256": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
+      "bytes": 144778,
+      "sha256": "8b727bbaafa91d23717f865783d85912aaeb622cf20254aea453ca7be04c7714"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77125,
@@ -7144,6 +7144,21 @@
         "current": {
           "bytes": 146085,
           "sha256": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
+        }
+      }
+    }
+  },
+  "postgresSharedInstallerSourceAudit20261107": {
+    "reason": "Reviewed exact diff: inside its projection of ci.yml's accounting_postgres job, the inline signed-PGDG install (private sourceparts with the Ubuntu and PGDG sources, the checkout key at the Signed-By path, create_main_cluster=false, apt-get install of postgresql-17 postgresql-17-cron and the shard build packages) is replaced by the one shared installer .github/actions/install-postgres-17/install.sh, which runs the same commands with the same packages plus bounded apt retries (2026-11-07: about seventy inline copies each failed alone on network blips). No other projected input changed; qualification state is unchanged.",
+    "changes": {
+      "scripts/qualification/ci-accounting-inputs.json": {
+        "previous": {
+          "bytes": 146085,
+          "sha256": "31c41989a5811c353297bb881bab03dbe2aca6c9b0b055da37d9a16373b9a670"
+        },
+        "current": {
+          "bytes": 144778,
+          "sha256": "8b727bbaafa91d23717f865783d85912aaeb622cf20254aea453ca7be04c7714"
         }
       }
     }

@@ -465,6 +465,11 @@ export function classifyChangedPaths(paths) {
   const committedEvidence = matches(/^docs\/evidence\//);
   // The ranking inverse and reminder pg dependencies are executable accounting
   // inputs outside scripts/dev. Their changes also need the routing laws.
+  // These inputs are executed by test-midway-bounty-freezeout.py in the
+  // existing required native shard, including source-only proposal edits.
+  const midwayScheduleReview = matches(
+    /^(scripts\/tournament-schedules\/|scripts\/ci\/(?:test-midway-(?:bounty-freezeout|weekly-schedule)\.py$|fixtures\/midway-weekly\/)|docs\/tournament-schedules\/midway-weekly-2026-11-07\.json$)/
+  );
   const tournamentAccountingInput = matches(
     /^(scripts\/qualification\/(?:chip-deadlocks|replay-locks-and-player-stats-keys|cash-batch-profile-admission)(?:\.py|\.manifest\.json|-capture\.json|-(?:schema|stubs|live|live-doors)\.sql)|tests\/(?:the-chip-estate-takes-its-locks-in-one-order|the-replay-and-player-stats-writers-take-no-lock-out-of-order)\.law\.test\.ts|scripts\/ci\/test-a-finish-does-not-hold-the-union-wallet\.py|tests\/a-finish-does-not-hold-the-union-wallet\.law\.test\.ts|docs\/changelog\/2026-09-11-a-bust-is-ranked-by-when-it-happened\.rollback\.sql|scripts\/ci\/probes\/chip-journal-atomicity\/postgres-runtime\/package(-lock)?\.json)$/
   );
@@ -534,6 +539,7 @@ export function classifyChangedPaths(paths) {
       spinRules ||
       horsePriority ||
       tournamentAccountingInput ||
+      midwayScheduleReview ||
       devMatches(
         /^(server\/|supabase\/migrations\/|scripts\/dev\/|tests\/fixtures\/accounting-delivery\/|tests\/operations\/pko-probe-cleanup\.test\.py$)/
       ) ||
@@ -595,6 +601,7 @@ export function classifyChangedPaths(paths) {
       commitmentAudit ||
       matches(dataConsolePostgres) ||
       tournamentAccountingInput ||
+      midwayScheduleReview ||
       matches(nativeRecovery) ||
       matches(stableAdminQualification) ||
       matches(mttPreparation) ||

@@ -408,7 +408,12 @@ describe('the route runs on the daily schedule that already exists', () => {
     expect(wf.on.pull_request.paths).toContain('scripts/ci/apply-recorded-migration.mjs');
     const run = wf.jobs.qualify.steps.map((s: { run?: string }) => s.run ?? '').join('\n');
     expect(run).toContain('bash scripts/ci/test-maintenance-window-migrations.sh');
-    expect(run).toContain('postgresql-17');
+    // PostgreSQL 17 comes from the one shared signed installer (2026-11-07).
+    expect(
+      wf.jobs.qualify.steps.some(
+        (s: { uses?: string }) => s.uses === './.github/actions/install-postgres-17'
+      )
+    ).toBe(true);
   });
 
   it('a queued window migration is reported as queued, not as missing, for a week', () => {

@@ -57,6 +57,7 @@ jobs:
     outputs:
       release_required: ${{ steps.change.outputs.release_required }}
       target_sha: ${{ steps.change.outputs.target_sha }}
+      observed_live_sha: ${{ steps.change.outputs.observed_live_sha }}
       offer_reason: ${{ steps.change.outputs.offer_reason }}
       admission_allowed: ${{ steps.admission.outputs.allowed }}
       owner_window_id: ${{ steps.admission.outputs.owner_window_id }}
@@ -345,6 +346,7 @@ jobs:
 
           echo "release_required=$RELEASE_REQUIRED" >> "$GITHUB_OUTPUT"
           echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo "observed_live_sha=${LIVE_SHA:-}" >> "$GITHUB_OUTPUT"
           echo "offer_reason=$OFFER_REASON" >> "$GITHUB_OUTPUT"
           echo "Engine runtime release required: $RELEASE_REQUIRED ($OFFER_REASON)"
           echo "Exact engine component SHA: $LATEST_REQUIRED"
@@ -424,7 +426,7 @@ jobs:
   selection:
     name: Record the daily release evidence
     needs: detect
-    if: needs.detect.outputs.release_required == 'true' && needs.detect.outputs.admission_allowed == 'true'
+    if: needs.detect.outputs.admission_allowed == 'true' && (needs.detect.outputs.release_required == 'true' || needs.detect.outputs.daily_preparation == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 4
     permissions:
@@ -450,10 +452,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
+          RELEASE_REQUIRED: ${{ needs.detect.outputs.release_required }}
+          OFFER_REASON: ${{ needs.detect.outputs.offer_reason }}
+          OBSERVED_LIVE_SHA: ${{ needs.detect.outputs.observed_live_sha }}
         run: |
           set -euo pipefail
           [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::Daily selection already attempted; retain the original decision."; exit 1; }
-          serving=$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health | jq -er .releaseSha)
+          serving=$(curl -fsS --max-time 15 -H 'Cache-Control: no-cache' https://engine.smarter.poker/health | jq -er .releaseSha) || serving=unknown
+          if [ "$RELEASE_REQUIRED" = false ]; then
+            outcome=blocked
+            if [ "$OFFER_REASON" = current ] && [[ "$serving" =~ ^[0-9a-f]{40}$ ]] && [ "$serving" = "$OBSERVED_LIVE_SHA" ]; then
+              outcome=keep-serving
+            fi
+            jq -n --arg outcome "$outcome" --arg reason "$OFFER_REASON" --arg sha "$serving" --arg stage "$GITHUB_SHA" \
+              '{schema:1,outcome:$outcome,reason:$reason,servingSha:$sha,stageSha:$stage,controlSha:null,targetSha:null,deferredCandidates:[]}' > daily-selection.json
+            echo "send=false" >> "$GITHUB_OUTPUT"
+            [ "$outcome" = keep-serving ]
+            exit
+          fi
           python3 -B scripts/ci/select-daily-engine.py --repo "$GITHUB_REPOSITORY" --control "$GITHUB_SHA" \
             --serving "$serving" --date "$RELEASE_DATE" --output daily-selection.json
           jq -r '"sha=" + (.targetSha // ""), "control=" + (.controlSha // ""), "send=" + ((.outcome == "selected") | tostring)' daily-selection.json >> "$GITHUB_OUTPUT"

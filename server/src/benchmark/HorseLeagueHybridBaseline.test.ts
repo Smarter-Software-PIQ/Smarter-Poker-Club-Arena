@@ -86,18 +86,41 @@ describe('HorseLeague hybridBaseline', { timeout: 60_000 }, () => {
     await expect(
       runMatchup({ name: 'x', a: {}, b: {}, hybridBaseline: true, productionStyles: true }, 1, 1)
     ).rejects.toThrow(/productionStyles/);
+    // productionStyles assigns personas seat by seat; a human-field card has
+    // one horse seat, so it refuses it rather than ignoring it.
     await expect(
       runMatchup(
         {
           name: 'y',
           a: {},
           b: {},
-          hybridBaseline: true,
+          productionStyles: true,
           opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
         },
         1,
         1
       )
-    ).rejects.toThrow(/human-field/);
+    ).rejects.toThrow(/productionStyles/);
+  });
+
+  it("on a human-field card it is the hero horse's style and dials (2026-11-07)", async () => {
+    const spy = vi.spyOn(HorseLogic, 'decide');
+    const r = await runMatchup(
+      {
+        name: 'human_hybrid',
+        a: {},
+        b: { mind: false },
+        hybridBaseline: true,
+        opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+      },
+      6,
+      11
+    );
+    expect(r.opponentPopulation).toBe(HUMAN_CALIBRATED_POPULATION_ID);
+    expect(spy.mock.calls.length).toBeGreaterThan(0);
+    for (const call of spy.mock.calls) {
+      expect(call[2]).toBe(HORSE_HYBRID_PROFILES.cash.style);
+      expect(call[3]).toMatchObject(HORSE_HYBRID_PROFILES.cash.mods);
+    }
   });
 });

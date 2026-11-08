@@ -53,6 +53,8 @@ Verify the jobs and affected behavior applicable to the assigned change. A clien
 
 ## Backup and daily engine launch
 
+The step-by-step procedure for everything in this section, including the decision table for what an agent does unprompted at 03:30 and 04:00, the Backup certification steps, the host transaction's phases and reserves, the post-cutover checklist and the read-only tool table, is [`docs/ENGINE-RELEASE-RUNBOOK.md`](docs/ENGINE-RELEASE-RUNBOOK.md). This section states the policy and the trace examples; the runbook states the procedure. `scripts/ci/select-daily-engine.py`, named below, is not yet on main (checked 2026-11-07); until it lands, read the staging run's `signal` job log for the selected SHA.
+
 **Enforced today.** Protected merge, the exact-SHA Backup certificate, daily admission, in-break database readback and the host seal are enforced by the linked workflows.
 
 **Published controls.** The daily selector requires four passing exact-target shards, immutable candidate and rollback image evidence, and a successful Backup certificate by 03:30 Chicago. The protected receiver verifies the selection receipt before handoff. Measure the first natural daily run to establish elapsed times under these controls. [Daytime release preparation](#daytime-release-preparation)
@@ -111,6 +113,17 @@ The run IDs above are historical. Live health always describes the currently ser
 Once the gameplay evidence workflow is published, `post-deploy-e2e.yml` records `post-thaw-gameplay-<release-run>-<attempt>/gameplay.json`. For an operator readback, use `scripts/operations/release-gameplay-readback.sh SEALED_RESULT` through the configured read-only psql service. Match the result to the sealed attempt.
 
 On November 7 the original receiver reported failure after the recovery invocation sealed. Reattach the protected observer to the original run using `observe-engine-release.sh --sha "$candidate" --run-id 42389189340-1` on the release host through the scoped observer procedure. Match its `ENGINE_RELEASE_SHA` and `ENGINE_RELEASE_RESULT=sealed` to the receipt and public health. A failed observer alone does not authorize another cutover. [Observer correction](https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/9892)
+
+For an already recovered sealed operation whose Actions receiver remains failed,
+run the reporting-only **Report Recovered Engine Seal** workflow on protected main
+with `original_run` and `original_attempt`. It reads the original failed attempt,
+the immutable host result and fresh health, then publishes a separate
+**Recovered Engine Release Seal** check on the original target SHA. That check
+links to the original failed attempt and the retained recovery evidence. The
+original Actions conclusion and append-only failure receipt remain unchanged.
+A later serving release is shown separately; a historical seal never claims that
+its old instance is still serving. This workflow cannot dispatch a cutover,
+restart an engine, write the database or replay a payment.
 
 A successful receiver triggers a fresh Backup through the supported workflow. Inspect the resulting restore validation, seed failure count and final exact-SHA certificate. If the receiver concluded failure despite a verified seal, the release owner first checks for an existing refresh in the Backup queue. After proving the exact SHA is still serving, the owner can submit the supported Backup-only recovery once:
 
@@ -193,3 +206,7 @@ A protected-main engine push starts `engine-release-prequalification.yml`. Its f
 Use `python3 -B scripts/ci/read-engine-prequalification.py --repo Smarter-Software-PIQ/Smarter-Poker-Club-Arena --target TARGET_SHA --control CONTROL_SHA --cutoff EPOCH` from a checkout with authenticated protected-main history and read-only Actions access. A successful result identifies the production candidate and rollback image IDs, server tree, target and control SHAs, and qualification run and attempt. Exit 3 means the candidate lacks eligible evidence. Exit 2 means the verifier could not establish provenance.
 
 The receiver verifies the selected control against its actual protected control and requires the latest successful qualification to have finished by 03:30 Chicago. Missing shards, a superseding attempt, changed release inputs or a mismatch between the prepared and installed image identities prevents handoff. The exact Backup certificate and fresh production database-door checks remain mandatory. A failed preparation leaves the current engine serving and the candidate waits for a future eligible window.
+
+**Stop a queued engine replacement.** Using the authorized administrative shell on the production engine host, create the persistent stop marker with `mkdir -p /var/lib/club-arena/owner-stop-engine-replacement && sync -f /var/lib/club-arena`. The host checks for it before reservation, preparation and final replacement admission. Once replacement has passed final admission, its original transaction finishes verification or recovery. The marker survives process and host restarts. To resume future eligible releases, use `rmdir /var/lib/club-arena/owner-stop-engine-replacement && sync -f /var/lib/club-arena`. Clearing the marker does not dispatch a release.
+
+If a new candidate consumes its host start authorization and is aborted before commit, the seal retains its run, revision and image ID. Future routine reservations and prepares reject that revision. Submit the correction on protected main and qualify its new revision on Backup. An abort before token consumption leaves the candidate eligible. Recovery of the sealed desired release remains available.
