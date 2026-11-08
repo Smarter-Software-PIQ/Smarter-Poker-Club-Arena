@@ -8,7 +8,9 @@ trap 'rm -rf "$work"' EXIT
 if [ -z "${CADDY_BIN:-}" ]; then
   [ "$(uname -s)" = Linux ] && [ "$(uname -m)" = x86_64 ] || { echo 'Set CADDY_BIN to a verified local binary' >&2; exit 1; }
   archive=caddy_2.11.7_linux_amd64.tar.gz
-  curl --fail --silent --show-error --location --max-time 120 "https://github.com/caddyserver/caddy/releases/download/v2.11.7/$archive" -o "$work/$archive"
+  # Immutable upstream release asset for Caddy v2.11.7, linux/amd64.
+  curl --fail --silent --show-error --location --max-time 120 -H 'Accept: application/octet-stream' \
+    'https://api.github.com/repos/caddyserver/caddy/releases/assets/607245028' -o "$work/$archive"
   printf '%s  %s\n' 'a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7' "$work/$archive" | sha512sum -c -
   tar -xzf "$work/$archive" -C "$work" caddy
   export CADDY_BIN="$work/caddy"
