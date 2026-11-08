@@ -619,3 +619,14 @@ each needs its own PR, law and changelog.
    post-seal refresh run at once. Deferred: cost, a second pinned host key and
    egress lock, and no measured day yet where the single host was the limit
    after #9906.
+
+### Capped satellite awards: schema before compatible engine
+
+Follow the capped satellite compatibility section in `PUBLISHING.md` for migration
+`20261108154158_capped_frozen_satellite_cohort_awards.sql`. Install and verify its
+three declared live function postimages through the protected migration route
+before selecting the compatible engine. The old executor refuses attached capped
+remainders without payment; the successor retains the original terminal request
+and generation. After the usual exact certificate, daily activation and seal,
+read the affected event's canonical settlement and table completion. Preserve an
+unknown or committed outcome across rollback; never replay its financial effects.

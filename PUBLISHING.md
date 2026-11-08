@@ -210,3 +210,17 @@ The receiver verifies the selected control against its actual protected control 
 **Stop a queued engine replacement.** Using the authorized administrative shell on the production engine host, create the persistent stop marker with `mkdir -p /var/lib/club-arena/owner-stop-engine-replacement && sync -f /var/lib/club-arena`. The host checks for it before reservation, preparation and final replacement admission. Once replacement has passed final admission, its original transaction finishes verification or recovery. The marker survives process and host restarts. To resume future eligible releases, use `rmdir /var/lib/club-arena/owner-stop-engine-replacement && sync -f /var/lib/club-arena`. Clearing the marker does not dispatch a release.
 
 If a new candidate consumes its host start authorization and is aborted before commit, the seal retains its run, revision and image ID. Future routine reservations and prepares reject that revision. Submit the correction on protected main and qualify its new revision on Backup. An abort before token consumption leaves the candidate eligible. Recovery of the sealed desired release remains available.
+
+### Capped satellite settlement compatibility
+
+Migration `20261108154158_capped_frozen_satellite_cohort_awards.sql` installs before
+its compatible engine. Existing terminal execution refuses a field-capped award
+with an attached remainder before financial effects. The successor engine uses
+`fn_execute_capped_satellite_terminal_request` for qualifier settlement, retaining
+the original durable request and lease generation. Its v3 consumer verifies the
+final ticket recipient also owns the attached remainder; legacy v2 stays strict.
+Do not manually settle, rewrite frozen entitlements, or replay an unknown outcome.
+After the certified daily cutover, verify the original event's canonical receipt,
+49 financial legs totaling 1,003 for the affected 48-ticket event, and completion.
+A rollback to the older engine must preserve any committed receipt; an unsupported
+receipt is a recovery hold, never authorization for another payment.

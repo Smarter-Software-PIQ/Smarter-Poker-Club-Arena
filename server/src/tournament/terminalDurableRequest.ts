@@ -185,10 +185,15 @@ export async function prepareDurableTerminalRequest(
 export async function executeDurableTerminalRequest(
   request: DurableTerminalRequest
 ): Promise<{ data: unknown; error: unknown }> {
-  const result = await maintenanceSupabase.rpc('fn_execute_tournament_terminal_request', {
-    p_request_id: request.requestId,
-    p_generation: request.currentGeneration,
-  });
+  const result = await maintenanceSupabase.rpc(
+    request.identity.kind === 'satellite_qualifiers'
+      ? 'fn_execute_capped_satellite_terminal_request'
+      : 'fn_execute_tournament_terminal_request',
+    {
+      p_request_id: request.requestId,
+      p_generation: request.currentGeneration,
+    }
+  );
   if (result.error) return result;
   const row = acknowledged(result.data, request);
   if (!row || row.phase !== 'committed')
