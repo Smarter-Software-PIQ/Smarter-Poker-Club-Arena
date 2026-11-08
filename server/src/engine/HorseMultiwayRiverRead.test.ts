@@ -335,7 +335,7 @@ it('transports canonical reader sidecars into the actual worker independent read
     const capture = h.captures.at(-1)!;
     expect(horseRetainedPlanContext(capture, request).kind).toBe('current');
     expect(capture.observerReads).toMatchObject({ history: 'own_public_window', historyHands: 10 });
-    expect(JSON.stringify(capture)).toContain('horse-decision-reads-v10');
+    expect(JSON.stringify(capture)).toContain('horse-decision-reads-v11');
   } finally {
     await h.close();
   }

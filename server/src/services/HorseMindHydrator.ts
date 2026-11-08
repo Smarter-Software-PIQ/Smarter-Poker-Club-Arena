@@ -24,6 +24,7 @@
  * NEVER refer to the horses as "bots" — they are HORSES only.
  */
 
+import { bigBlindFromForcedPosts } from '../engine/HorseOpponentExploit.js';
 import { supabase } from './supabase.js';
 import { HorseMind } from '../engine/HorseMind.js';
 import { horseMindHandFromHistory } from '../engine/HorseMindHandIdentity.js';
@@ -163,7 +164,13 @@ export async function hydrateHorseMind(sinceIso?: string | null): Promise<void> 
         const previousScope = HorseMind.currentScope();
         HorseMind.setDecisionScope(null);
         try {
-          HorseMind.observe(projected.actions, [], identity);
+          HorseMind.observe(
+            projected.actions,
+            [],
+            identity,
+            undefined,
+            bigBlindFromForcedPosts(a as Parameters<typeof bigBlindFromForcedPosts>[0])
+          );
         } finally {
           HorseMind.setDecisionScope(previousScope);
         }

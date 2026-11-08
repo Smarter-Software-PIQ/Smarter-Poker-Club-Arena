@@ -2518,6 +2518,12 @@ export interface HorseDecideOpts {
    *  into a credible station; the V11 gate lets value hands lead those
    *  rivers. Disable to ablate (default: enabled). */
   riverLeadRange?: boolean;
+  /** PROBE BETS ARE NOT AGGRESSION (2026-11-08, ExploiterLeague): an
+   *  opponent's postflop bets of a big blind or a fifth of the pot or less are
+   *  taken back out of the aggressor read (betCheckedTo), so a player who
+   *  min-bets every street is not read as a maniac whose real bets are then
+   *  called down. Default on; false ablates it. */
+  probeAwareAggression?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -4992,7 +4998,13 @@ export class HorseLogic {
     // write synthetic hands into the live opponent memory.
     if (opts.mind !== false && opts.observeMind !== false) {
       try {
-        HorseMind.observe(gameState.actionHistory, gameState.players, opts.mindObservationHand);
+        HorseMind.observe(
+          gameState.actionHistory,
+          gameState.players,
+          opts.mindObservationHand,
+          undefined,
+          gameState.bigBlind
+        );
       } catch {
         /* observation is best-effort */
       }
@@ -5007,6 +5019,7 @@ export class HorseLogic {
     rangeCapture?: HorseRangeConsumptionCapture,
     planReadCapture?: HorsePlanReadCapture
   ): HorseDecision {
+    HorseMind.setProbeAwareAggression(opts.probeAwareAggression !== false);
     try {
       if (
         !horsePolicyRegistration(
@@ -5110,6 +5123,7 @@ export class HorseLogic {
       phase11DecisionEquityCeiling = null;
       phase12DecisionEquityCeiling = null;
       HorseMind.setDecisionScope(null);
+      HorseMind.setProbeAwareAggression(true);
     }
   }
 
