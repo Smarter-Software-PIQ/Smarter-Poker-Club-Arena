@@ -4,14 +4,17 @@
  *
  *  - Break-even bluffing: the postflop bluff multiplier follows the fold
  *    share above s / (1 + s) for the size being bet, read from the corrected
- *    postflop fold-to-bet counters shrunk toward the game's population.
+ *    postflop fold-to-bet counters shrunk toward the game's population. It
+ *    answers only for an opponent whose postflop bluff read is engaged
+ *    (2026-11-08): a stranger, a horse-like regular and every opponent while
+ *    reads are off keep the price they had with the flag off.
  *  - Scoped shrink: a thin scoped bucket answers for its own game, shrunk
  *    toward that game's population, instead of the pooled bucket that mixes
  *    every game the player has played.
  *
  * Both default off: with neither option every read is what it was.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BREAK_EVEN_MOD_MAX,
   BREAK_EVEN_MOD_MIN,
@@ -144,14 +147,42 @@ describe('breakEvenBluffMod', () => {
 
   it('a semi-bluff with a live draw needs fewer folds than air', () => {
     expect(breakEvenFoldShare(0.5)).toBeCloseTo(0.5 / 1.5, 12);
-    // 40% equity in a pot-sized bet already beats a call: no folds needed.
-    expect(breakEvenFoldShare(1, 0.4)).toBe(0);
-    // EV at the break-even share is zero: f + (1 - f)(e(1 + 2s) - s).
-    const f = breakEvenFoldShare(0.75, 0.2);
-    expect(f + (1 - f) * (0.2 * 2.5 - 0.75)).toBeCloseTo(0, 12);
-    // Into a station, air is at the floor and the draw keeps betting.
+    // Less equity, more folds needed, down to none from half the pot.
+    let prev = Infinity;
+    for (let e = 0; e <= 0.5; e += 0.05) {
+      const f = breakEvenFoldShare(0.75, e);
+      expect(f).toBeLessThan(prev);
+      prev = f;
+    }
+    expect(breakEvenFoldShare(1, 0.5)).toBe(0);
+    expect(breakEvenFoldShare(1, 0.7)).toBe(0);
+    // Into a station, air is at the floor and the draw keeps betting more.
     expect(breakEvenBluffMod(-0.25, 'holdem', 0.6)).toBe(BREAK_EVEN_MOD_MIN);
-    expect(breakEvenBluffMod(-0.25, 'holdem', 0.6, 0.4)).toBeGreaterThan(1);
+    expect(breakEvenBluffMod(-0.25, 'holdem', 0.6, 0.4)).toBeGreaterThan(BREAK_EVEN_MOD_MIN);
+  });
+
+  it('a semi-bluff is priced against CHECKING, not against giving the pot up (2026-11-08)', () => {
+    // At the break-even share betting is worth exactly what checking keeps:
+    // f + (1 - f)(e(1 + 2s) - s) = e, for every size and equity below half.
+    for (const s of [0.33, 0.5, 0.75, 1, 1.5])
+      for (const e of [0, 0.1, 0.2, 0.3, 0.4, 0.49]) {
+        const f = breakEvenFoldShare(s, e);
+        expect(f + (1 - f) * (e * (1 + 2 * s) - s)).toBeCloseTo(e, 12);
+        expect(f).toBeGreaterThan(0);
+        expect(f).toBeLessThanOrEqual(s / (1 + s));
+      }
+    // The first version said a pot bet with 40% (or a third) of the equity
+    // needed no folds at all, because the call alone beat giving up.
+    expect(breakEvenFoldShare(1, 0.4)).toBeCloseTo(0.25, 12);
+    expect(breakEvenFoldShare(1, 1 / 3)).toBeCloseTo(1 / 3, 12);
+    // So a third-of-the-pot draw into a station no longer bets at the ceiling.
+    expect(breakEvenBluffMod(-0.25, 'holdem', 1, 1 / 3)).toBeLessThan(BREAK_EVEN_MOD_MAX);
+    expect(breakEvenBluffMod(-0.25, 'holdem', 1, 1 / 3)).toBeGreaterThan(
+      breakEvenBluffMod(-0.25, 'holdem', 1)
+    );
+    // Bad input never escapes [0, 1).
+    expect(breakEvenFoldShare(Number.NaN, 0.2)).toBe(0);
+    expect(breakEvenFoldShare(0.5, Number.NaN)).toBeCloseTo(0.5 / 1.5, 12);
   });
 
   it('reads the curve flat beyond its measured sizes and never returns NaN', () => {
@@ -163,13 +194,17 @@ describe('breakEvenBluffMod', () => {
 
 describe('readBreakEvenBluff', () => {
   it('reads a preflop folder who calls every postflop bet as a station: bluffs at the floor', () => {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       play(NLH_HU, 'preflopFold', 4);
       play(NLH_HU, 'postflopCall', 1);
     }
-    // Default: the all-street rate reads a folder.
+    // The all-street rate the legacy price reads still sees a folder; the
+    // postflop read (engaged low, a station) is what the break-even reads.
+    expect(decide({}, () => HorseMind.foldVsAggressionRate('villain'))!).toBeGreaterThan(0.62);
+    expect(decide({}, () => HorseMind.opponentRead('villain'))!.stats.foldToBet.engaged).toBe(
+      'low'
+    );
     const legacy = decide({}, () => HorseMind.exploit('villain').bluffMod);
-    expect(legacy).toBeGreaterThan(1.3);
     const on = decide({ breakEvenBluff: true }, () => HorseMind.breakEvenBluffOf('villain'));
     expect(on!.mod).toBe(BREAK_EVEN_MOD_MIN);
     // bluffMod, which other consumers read as a classification, is unchanged.
@@ -178,16 +213,94 @@ describe('readBreakEvenBluff', () => {
     );
   });
 
-  it('bluffs a postflop over-folder at the ceiling and an unknown at the population volume', () => {
+  it('bluffs a postflop over-folder at the ceiling and leaves an unknown at its old price', () => {
     play(NLH_HU, 'postflopFold', 30);
     expect(decide({ breakEvenBluff: true }, () => HorseMind.breakEvenBluffOf('villain'))!.mod).toBe(
       BREAK_EVEN_MOD_MAX
     );
-    // No postflop sample at all: the population, not neutral 1.
-    expect(
-      decide({ breakEvenBluff: true }, () => HorseMind.breakEvenBluffOf('stranger'))!.mod
-    ).toBeCloseTo(BREAK_EVEN_REFERENCE_MOD, 12);
+    // No postflop sample at all: no break-even read, so the existing neutral
+    // price answers (2026-11-08; the first version gave the population x1.45).
+    expect(decide({ breakEvenBluff: true }, () => HorseMind.breakEvenBluffOf('stranger'))).toBe(
+      null
+    );
     expect(decide({}, () => HorseMind.exploit('stranger').bluffMod)).toBe(1);
+  });
+
+  it('answers only once the postflop bluff read engages: a short sample is not a read', () => {
+    // Four flop bets folded to: a sample, but not yet credibly outside the
+    // envelope, so opponentRead is null and nothing changes.
+    play(NLH_HU, 'postflopFold', 4);
+    expect(decide({ breakEvenBluff: true }, () => HorseMind.opponentRead('villain'))).toBe(null);
+    expect(decide({ breakEvenBluff: true }, () => HorseMind.breakEvenBluffOf('villain'))).toBe(
+      null
+    );
+    const players = [
+      { seat: 1, user_id: 'hero', is_folded: false, is_sitting_out: false, is_all_in: false },
+      { seat: 2, user_id: 'villain', is_folded: false, is_sitting_out: false, is_all_in: false },
+    ] as never;
+    expect(decide({ breakEvenBluff: true }, () => HorseMind.tableExploit(1, players))).toEqual(
+      decide({}, () => HorseMind.tableExploit(1, players))
+    );
+    // A long sample engages it.
+    play(NLH_HU, 'postflopFold', 20);
+    expect(
+      decide({ breakEvenBluff: true }, () => HorseMind.opponentRead('villain'))!.stats.foldToBet
+        .engaged
+    ).toBe('high');
+    expect(
+      decide({ breakEvenBluff: true }, () => HorseMind.breakEvenBluffOf('villain'))
+    ).not.toBeNull();
+  });
+
+  it('switches off with the reads: no opponentRead, no break-even read', () => {
+    play(NLH_HU, 'postflopCall', 20);
+    expect(
+      decide({ breakEvenBluff: true }, () => HorseMind.breakEvenBluffOf('villain'))
+    ).not.toBeNull();
+    const realRead = HorseMind.opponentRead;
+    (HorseMind as unknown as { opponentRead: () => null }).opponentRead = () => null;
+    try {
+      expect(decide({ breakEvenBluff: true }, () => HorseMind.breakEvenBluffOf('villain'))).toBe(
+        null
+      );
+      const players = [
+        { seat: 1, user_id: 'hero', is_folded: false, is_sitting_out: false, is_all_in: false },
+        { seat: 2, user_id: 'villain', is_folded: false, is_sitting_out: false, is_all_in: false },
+      ] as never;
+      expect(decide({ breakEvenBluff: true }, () => HorseMind.tableExploit(1, players))).toEqual(
+        decide({}, () => HorseMind.tableExploit(1, players))
+      );
+    } finally {
+      (HorseMind as unknown as { opponentRead: typeof realRead }).opponentRead = realRead;
+    }
+  });
+
+  it('a multiway bluff is still gated by an unread responder that prices lower', () => {
+    // villain: a read over-folder (break-even at the ceiling). caller: no
+    // postflop read engaged, but a long preflop-calling history the legacy
+    // all-street rate prices as a station.
+    play(NLH_HU, 'postflopFold', 30);
+    const players = [
+      { seat: 1, user_id: 'hero', is_folded: false, is_sitting_out: false, is_all_in: false },
+      { seat: 2, user_id: 'villain', is_folded: false, is_sitting_out: false, is_all_in: false },
+      { seat: 3, user_id: 'caller', is_folded: false, is_sitting_out: false, is_all_in: false },
+    ] as never;
+    const legacy = vi
+      .spyOn(HorseMind, 'exploit')
+      .mockImplementation((id: string) =>
+        id === 'caller'
+          ? { bluffMod: 0.55, callDownMod: 1, valueThinMod: 1.25 }
+          : { bluffMod: 1.5, callDownMod: 1, valueThinMod: 0.85 }
+      );
+    try {
+      const on = decide({ breakEvenBluff: true }, () => HorseMind.tableExploit(1, players));
+      expect(on.breakEvenBluff).toBeUndefined();
+      expect(on.foldShift).toBeUndefined();
+      expect(on).toEqual(decide({}, () => HorseMind.tableExploit(1, players)));
+      expect(on.bluffMod).toBe(0.55);
+    } finally {
+      legacy.mockRestore();
+    }
   });
 
   it('shrinks the postflop fold read toward the population with the stated strength', () => {
