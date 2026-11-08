@@ -2035,6 +2035,7 @@ it('binds the two remaining Midway files only to the November 7 database window'
   );
   // Reconstruct the exact registry selected before the Horse provenance booking
   // and the later cash-room realism engine booking.
+  expect(doc.windows.pop().id).toBe('2026-11-08-horse-study-successor-engine-1820z');
   expect(doc.windows.pop().id).toBe('2026-11-07-cash-room-realism-engine-2230z');
   expect(doc.databaseWindows.pop().id).toBe('2026-11-07-horse-fold-provenance-db-1800z');
   expect(doc.windows.pop().id).toBe('2026-11-07-horse-fold-provenance-engine-1800z');
