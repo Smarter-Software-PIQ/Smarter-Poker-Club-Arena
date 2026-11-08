@@ -4,6 +4,7 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
+from decimal import Decimal
 from satellite_qualifier_fixture import table_sql, exact_table_sql, lit
 BASE='supabase/migrations/'
 ABORT=BASE+'20260918053310_interrupted_sng_hands_keep_stacks_and_fence_their_original_writers.sql'
@@ -120,6 +121,27 @@ def paid_purchase_prevention(e,db,fix):
  code,out,err=e.sql(case,file=e.root/fix/'purchase-prevention.sql',label='current-purchase-final-failure',check=False)
  if code!=3 or err.count('NATIVE_PAID_PURCHASE_FINAL_FAILURE_PROVEN')!=1:raise RuntimeError('public purchase late failure not reached: '+err)
  if e.snapshot(case,'current-purchase-rollback')!=before:raise RuntimeError('current public purchase left a debit or custody effect after late failure')
+ # Discard the first connection's reply. The reconnect must replay the original
+ # committed purchase without a second wallet, seat, or prize-pool movement.
+ event = 'b7200000-0000-4000-8000-000000000004'
+ player = 'b7100000-0000-4000-8000-000000000007'
+ measurement = f"""SELECT json_build_array(
+   (SELECT count(*) FROM public.wallet_transactions WHERE user_id='{player}' AND related_entity_id='{event}' AND category='rebuy' AND type='debit' AND amount=1),
+   (SELECT coalesce(sum(s.stack),0) FROM public.table_seats s JOIN public.tables t ON t.id=s.table_id WHERE s.user_id='{player}' AND t.tournament_id='{event}' AND s.left_at IS NULL),
+   (SELECT coalesce(prize_pool,0) FROM public.tournaments WHERE id='{event}'));"""
+ def measure(label):
+  return json.loads(e.sql(case,measurement,label=label)[1], parse_float=Decimal)
+ initial=measure('before-lost-rebuy-reply')
+ purchase=f"SELECT public.process_tournament_rebuy('{event}','{player}','rebuy',1,100,1,'lost-rebuy-reply');"
+ e.sql(case,purchase,label='commit-rebuy-discard-client-reply')
+ committed=measure('after-lost-rebuy-reply')
+ if [b-a for a,b in zip(initial,committed)] != [1,100,Decimal('0.9')]:
+  raise RuntimeError(f'unexpected first rebuy effects: {initial} -> {committed}')
+ receipt=json.loads(e.sql(case,purchase,label='reconnect-retry-original-purchase')[1])
+ if (receipt.get('success') is not True or receipt.get('seated') is not True
+     or measure('after-reconnected-rebuy') != committed):
+  raise RuntimeError('reconnected rebuy did not return its receipt with unchanged balances')
+ e.report['rebuy_after_lost_reply']={'debits':1,'stack_credit':100,'prize_contribution':'0.9','separate_connections':True}
  e.discard(case);e.report['paid_purchase_prevention']={'installed_owner_definition_md5':capture['definition_md5'],'public_caller_final_receipt_failure':True,'real_debit_seat_candidate_reached':True,'complete_business_rollback':True}
 
 def private_rows(e,db,label):
@@ -194,6 +216,7 @@ def validate_complete(r):
   assert r['successful_transfer']['assertions']==7 and len(r['successful_transfer']['only_custody_rows_changed'])==8
   assert r['private_custody_unchanged'] is True
   assert r['acknowledged_supply']=={'original_installed_refusal':True,'whole_transaction_rollback':True,'current_getter_and_catalog_exact':True,'installer_refusals':5,'funded':317500,'acknowledged':320000,'original_acknowledgement':2500,'recorded_excess':5000,'installation_rows_unchanged':True,'deferred_guard_original_refused':True,'deferred_capability_refusals':5,'unrelated_catalog_unchanged':True}
+  assert r['rebuy_after_lost_reply']=={'debits':1,'stack_credit':100,'prize_contribution':'0.9','separate_connections':True}
   assert r['paid_purchase_prevention']=={'installed_owner_definition_md5':'a6adf208eae8476128f197c16f83d6c5','public_caller_final_receipt_failure':True,'real_debit_seat_candidate_reached':True,'complete_business_rollback':True}
   assert r['conserved_hands']['original_public_commit_refused'] is True
   assert r['conserved_hands']['actual_public_commit_and_outbox_completed'] is True

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { public215FeatureContractBySchema } from './GtoPublicHist215Contracts.js';
 
 /** Numeric-only sklearn 1.9.0 HistGradientBoostingRegressor inference.
  * _predictor.pyx SHA256 8c8e3e6408e42d47a908eeff413b1a2d1d827c8ac4e0676e9dd95f861d08274b
@@ -20,7 +21,8 @@ export interface PublicHist215Head {
 export interface PublicHist215Payload {
   format: typeof PUBLIC_HIST215_FORMAT;
   variant: 'direct' | 'coherent';
-  feature_count: 215;
+  /** 215 under contract v1, 246 under v2 (the model's pinned descriptor decides). */
+  feature_count: 215 | 246;
   action_ids: string[];
   heads: PublicHist215Head[];
   template_sha256: string;
@@ -103,7 +105,7 @@ interface Tree {
   value: Float64Array;
   missingLeft: Uint8Array;
 }
-function compileTree(input: unknown): Tree {
+function compileTree(input: unknown, featureCount: number): Tree {
   if (!Array.isArray(input) || input.length < 1 || input.length > 29) return fail('TREE_SIZE');
   const count = input.length;
   const tree: Tree = {
@@ -126,7 +128,7 @@ function compileTree(input: unknown): Tree {
       if (
         !Number.isInteger(node.feature) ||
         (node.feature as number) < 0 ||
-        (node.feature as number) >= 215
+        (node.feature as number) >= featureCount
       )
         return fail('FEATURE_INDEX');
       for (const child of [node.left, node.right])
@@ -189,6 +191,8 @@ export function public215ActionSum(values: readonly number[]): number {
 export interface CompiledPublicHist215 {
   readonly format: typeof PUBLIC_HIST215_FORMAT;
   readonly variant: 'direct' | 'coherent';
+  /** Input width of the bound descriptor: 215 (v1) or 246 (v2). */
+  readonly featureCount: number;
   readonly actionIds: readonly string[];
   /** Pure numeric inference only. Native feature extraction has its own worker guard. */
   predict(features: readonly number[]): PublicHist215Prediction;
@@ -206,6 +210,12 @@ export function compilePublicHist215(
     'provenance_sha256',
   ] as const)
     if (!validPublic215Digest(bindings[key])) return fail('BINDING_DIGEST');
+  // The vector width is the bound descriptor's: 246 for the v2 descriptor, and
+  // the v1 width 215 for any other, exactly as before v2 existed (the database's
+  // fn_gto_v31_public215_model_width and World Hub's model width agree). Which
+  // descriptor a cell may bind is decided by its dataset's contract, not here.
+  const featureCount =
+    public215FeatureContractBySchema(bindings.feature_schema_sha256)?.featureCount ?? 215;
   const model = strictObject(payload, [
     'format',
     'variant',
@@ -218,7 +228,7 @@ export function compilePublicHist215(
   ]);
   if (
     model.format !== PUBLIC_HIST215_FORMAT ||
-    model.feature_count !== 215 ||
+    model.feature_count !== featureCount ||
     (model.variant !== 'direct' && model.variant !== 'coherent')
   )
     return fail('FORMAT');
@@ -244,7 +254,10 @@ export function compilePublicHist215(
   const heads = model.heads.map((raw) => {
     const head = strictObject(raw, ['baseline_f64', 'trees']);
     if (!Array.isArray(head.trees) || head.trees.length !== 100) return fail('ITERATIONS');
-    return { baseline: decodePublic215F64(head.baseline_f64), trees: head.trees.map(compileTree) };
+    return {
+      baseline: decodePublic215F64(head.baseline_f64),
+      trees: head.trees.map((t) => compileTree(t, featureCount)),
+    };
   });
   const text = canonicalPublic215Json(model);
   if (
@@ -255,7 +268,7 @@ export function compilePublicHist215(
   const actionIds = Object.freeze([...actions]) as readonly string[],
     variant = model.variant;
   const predictRaw = (features: readonly number[]): number[] => {
-    if (features.length !== 215 || !features.every(Number.isFinite))
+    if (features.length !== featureCount || !features.every(Number.isFinite))
       return fail('FINITE_FEATURE_VECTOR');
     return heads.map((head) => {
       let prediction = 0;
@@ -268,6 +281,7 @@ export function compilePublicHist215(
   return Object.freeze({
     format: PUBLIC_HIST215_FORMAT,
     variant,
+    featureCount,
     actionIds,
     predictRaw,
     predict(features: readonly number[]) {

@@ -28,24 +28,20 @@ export type GtoV31SizeBucket = 'none' | 'small' | 'mid' | 'big' | 'all_in';
 /** Pot types a sealed V31 cell may carry (the database CHECKs the same four). */
 export type GtoV31SealedPotType = 'limped' | 'srp' | '3bet' | '4bet_plus';
 /**
- * Pot types the consult can ask for. 'lrp' is a limped-then-raised pot: a
- * voluntary preflop call came before the only raise. Its ranges are a limping
- * range against an iso-raise, not an open against a caller, so it must never
- * read an 'srp' cell. No sealed cell carries 'lrp' (the loader and the
- * database both refuse it), so every lrp consult misses with no_cell.
+ * Pot types the consult can ask for. A voluntary preflop call (a limp) before
+ * the first raise puts the pot in a limped family of its own, because its
+ * ranges are a limping range against an iso-raise, not an open against a
+ * caller:
+ *   'lrp'        limp, then exactly one raise (never an 'srp' cell)
+ *   'l3bet'      limp, then exactly two raises (never a '3bet' cell)
+ *   'l4bet_plus' limp, then three or more raises (never a '4bet_plus' cell)
+ * No sealed cell carries any of them (the loader and the database both refuse
+ * them), so every consult in a limped-then-raised pot misses with no_cell.
  */
-export type GtoV31PotType = GtoV31SealedPotType | 'lrp';
+export type GtoV31LimpedRaisedPotType = 'lrp' | 'l3bet' | 'l4bet_plus';
+export type GtoV31PotType = GtoV31SealedPotType | GtoV31LimpedRaisedPotType;
 export type GtoV31Position =
-  | 'UTG'
-  | 'UTG1'
-  | 'UTG2'
-  | 'UTG3'
-  | 'MP'
-  | 'HJ'
-  | 'CO'
-  | 'BTN'
-  | 'SB'
-  | 'BB';
+  'UTG' | 'UTG1' | 'UTG2' | 'UTG3' | 'MP' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB';
 export type GtoV31UtilityContext =
   | 'cash_ev'
   | 'chip_ev'
@@ -238,8 +234,8 @@ export function gtoV31PotType(history: ActionRecord[] | undefined): GtoV31PotTyp
     .some((action) => action.action === 'call' || action.action === 'all_in');
   if (raises === 0) return 'limped';
   if (raises === 1) return limpedFirst ? 'lrp' : 'srp';
-  if (raises === 2) return '3bet';
-  return '4bet_plus';
+  if (raises === 2) return limpedFirst ? 'l3bet' : '3bet';
+  return limpedFirst ? 'l4bet_plus' : '4bet_plus';
 }
 
 /**
