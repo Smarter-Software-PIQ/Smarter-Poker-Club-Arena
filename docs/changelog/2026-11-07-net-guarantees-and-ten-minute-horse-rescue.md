@@ -1,0 +1,11 @@
+# Net guarantees and final ten-minute Horse rescue
+
+Owner November 7 supersedes the November 5 gross-payment rule: rake never counts toward guaranteed prizes. The ledger funding reader retains gross payment evidence, exposes net coverage and funds only the net shortfall after earlier house funding. Rewards and shared client arithmetic use that same basis; prestart attendance and connected readiness/exposure reads exclude rake while retaining satellite seat prices and the Diamond rule.
+
+The existing running-event Horse arrival cycle independently checks the final ten minutes of the actual registration deadline, including level clocks, paused clocks and add-on cutoffs. It requests the net coverage shortfall through ordinary Horse admission, preserving activity, wallet, duplicate, capacity and maintenance safeguards. No new scheduler or repair loop.
+
+The original close transaction debits the event union's promo wallet, journals the exact transfer, credits escrow and increases place prizes before finalization. An insufficient bank or failed journal aborts the close; retries reconcile posted funding rather than paying twice.
+
+Event f22ceae6-2850-40ef-8f97-7d3660be32a3 finalized 1,742 place prizes and 670 bounties against a 2,500 guarantee. The owner authorized an 88-chip promo correction. The maintained operation requires installed net source, locks the original settlement lane and evidence, retains all paid awards, and allocates the corrected remaining place pool across unpaid places. Its narrow guard admission requires the exact promo journal and full before/after row images. It never clears finalization or edits an existing payout. The native regression proves the exact migration and correction with the actual close, escrow, immutable guards and canonical payout arithmetic, including failure and replay.
+
+Delivery and live evidence are recorded in the owning checkpoint on the external evidence volume. Engine activation follows exact Backup certification and the daily 04:00 Chicago window; compatible database and client delivery proceed independently.

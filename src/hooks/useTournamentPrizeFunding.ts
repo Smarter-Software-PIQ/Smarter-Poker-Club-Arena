@@ -29,9 +29,9 @@ export interface TournamentPrizeFunding {
   key: string;
   collected: number;
   overlay: number;
-  /** Gross player payments credited toward the buy-in guarantee. */
-  grossCoverage: number | null;
-  /** H = max(0, guarantee - gross): the house's whole obligation. */
+  /** Player-funded places and bounties after rake. */
+  netCoverage: number | null;
+  /** H = max(0, guarantee - net): the house's whole obligation. */
   houseRequired: number | null;
   /** House / promo funding already posted, net of returns. */
   housePosted: number | null;
@@ -102,7 +102,7 @@ export function useTournamentPrizeFunding(
           key: fundingKey,
           collected: Number(data.collected),
           overlay: Number(data.overlay),
-          grossCoverage: optional(data.gross_coverage),
+          netCoverage: optional(data.net_coverage),
           houseRequired: optional(data.house_required),
           housePosted: optional(data.house_posted),
           houseDue: optional(data.house_due),

@@ -21,22 +21,7 @@ export function placeGuarantee(guarantee: unknown, bounties: unknown): number {
   return Math.max(0, amount(guarantee) - amount(bounties));
 }
 
-/**
- * A BUY-IN GUARANTEE COUNTS THE WHOLE PLAYER PAYMENT (Dan, 2026-11-05).
- *
- * "The full qualifying player-funded tournament payment counts toward the
- * buy-in guarantee before deducting bounty allocations or rake." A 40-chip
- * entry split 26 prize / 10 bounty / 4 rake credits 40. So the house owes
- * only H = max(0, guarantee - gross), where gross = what reached the places
- * + what reached the bounties + the rake taken from those same payments.
- * Guarantee credit is not money: it adds nothing to any pool by itself.
- *
- * The database is the authority (fn_ca_guarantee_funding, read from the
- * ledger, funds H once at close); this is the same arithmetic for screens
- * that only hold the tournament row. Before the pool finalizes, the pending
- * house share is shown on top of what the field has paid; after it
- * finalizes the stored pool already contains it.
- */
+/** Guarantee coverage includes funded places and bounties, excluding rake (owner November 7). */
 export function guaranteeShortfall(
   guarantee: unknown,
   prizePool: unknown,
@@ -45,8 +30,9 @@ export function guaranteeShortfall(
 ): number {
   const gtd = amount(guarantee);
   if (gtd <= 0) return 0;
-  const gross = amount(prizePool) + amount(bountyPool) + amount(rake);
-  return Math.max(0, Math.round((gtd - gross) * 100) / 100);
+  void rake;
+  const net = amount(prizePool) + amount(bountyPool);
+  return Math.max(0, Math.round((gtd - net) * 100) / 100);
 }
 
 /**

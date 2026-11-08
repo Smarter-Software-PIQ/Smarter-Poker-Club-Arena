@@ -138,11 +138,11 @@ vi.mock('../src/lib/supabase', () => ({
             data: {
               tournament_id: args.p_tournament_id,
               collected: 1656,
-              overlay: 660,
-              gross_coverage: 1840,
-              house_required: 660,
+              overlay: 844,
+              net_coverage: 1656,
+              house_required: 844,
               house_posted: 0,
-              house_due: 660,
+              house_due: 844,
             },
             error: null,
           }),
@@ -246,7 +246,7 @@ describe('no projected payouts: the worked example', () => {
       isRegistered: false,
     } as unknown as TournamentTabProps;
     const { container } = render(<RewardsTab {...props} />);
-    await waitFor(() => expect(container.textContent).toContain('660 Overlay'));
+    await waitFor(() => expect(container.textContent).toContain('844 Overlay'));
     expect(container.querySelector('.rw-prize')?.textContent).toBe('598');
     expectNoFloor(container.textContent ?? '');
   });

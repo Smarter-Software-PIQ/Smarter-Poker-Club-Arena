@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { displayTotalPool, guaranteeShortfall } from '../src/utils/tournamentPrizeFunding';
 import { effectivePrizePool } from '../src/components/tournament/details/types';
 
+// Historical November 5 migration; superseded by the owner November 7 net rule.
 // Dan, 2026-11-05: "The full qualifying player-funded tournament payment
 // counts toward the buy-in guarantee before deducting bounty allocations or
 // rake." H = max(0, G - C), funded once; guarantee credit is not money.
@@ -42,9 +43,9 @@ describe('a buy-in guarantee counts the whole player payment', () => {
     expect(sql).toMatch(/an unpatched place guarantee remains/);
   });
 
-  it('the owner examples: 13 x 40 against 500 needs zero; 10 x 40 needs 100', () => {
-    expect(guaranteeShortfall(500, 13 * 26, 13 * 10, 13 * 4)).toBe(0);
-    expect(guaranteeShortfall(500, 10 * 26, 10 * 10, 10 * 4)).toBe(100);
+  it('net coverage excludes the rake on both sides of the guarantee', () => {
+    expect(guaranteeShortfall(500, 13 * 26, 13 * 10, 13 * 4)).toBe(32);
+    expect(guaranteeShortfall(500, 10 * 26, 10 * 10, 10 * 4)).toBe(140);
     // Places carry no pending overlay (Dan 2026-11-06); the house share is
     // shown beside the guarantee and funded at close.
     expect(effectivePrizePool(260, 500, 100, 40)).toBe(260);
@@ -105,7 +106,8 @@ describe('the overlay gates count the whole player payment too', () => {
   const GATES =
     'supabase/migrations/20261107183629_overlay_gates_count_the_whole_player_payment.sql';
   const sql = readFileSync(GATES, 'utf8');
-  const CREDIT = 'COALESCE(t.prize_pool, 0) + COALESCE(t.bounty_pool, 0) + COALESCE(t.total_rake, 0)';
+  const CREDIT =
+    'COALESCE(t.prize_pool, 0) + COALESCE(t.bounty_pool, 0) + COALESCE(t.total_rake, 0)';
 
   it('rewrites exactly the six doors, pinned pre and post', () => {
     for (const f of [
@@ -130,7 +132,7 @@ describe('the overlay gates count the whole player payment too', () => {
     expect(sql).toContain('v_required := greatest(v_effective_guarantee - v_credit, 0);');
     expect(sql).toContain(`) - (${CREDIT}),`);
     expect(sql).toContain(
-      "v_this     := greatest(coalesce(new.guaranteed_prize,0) - (coalesce(new.prize_pool,0) + coalesce(new.bounty_pool,0) + coalesce(new.total_rake,0)), 0);"
+      'v_this     := greatest(coalesce(new.guaranteed_prize,0) - (coalesce(new.prize_pool,0) + coalesce(new.bounty_pool,0) + coalesce(new.total_rake,0)), 0);'
     );
     expect(sql).toContain(
       ') - (coalesce(t.prize_pool, 0) + coalesce(t.bounty_pool, 0) + coalesce(t.total_rake, 0)),'
@@ -142,27 +144,40 @@ describe('the overlay gates count the whole player payment too', () => {
     expect(sql).toContain(
       'GREATEST(public.fn_ca_guarantee_place_floor(NEW.id, NEW.prize_pool, NEW.guaranteed_prize, NEW.bounty_pool),'
     );
-    expect(sql).toContain("(public.fn_ca_guarantee_funding(p_tournament_id)->>'gross_coverage')::numeric");
+    expect(sql).toContain(
+      "(public.fn_ca_guarantee_funding(p_tournament_id)->>'gross_coverage')::numeric"
+    );
     expect(sql).toContain(
       'v_target := GREATEST(round(v_collected + v_required, 2), COALESCE(v_seat_guarantee, 0), v_collected);'
     );
-    expect(sql).toContain('greatest(gtd-greatest(entries*(bi+fee),pool+pool_credit),0) entry_only_gap');
+    expect(sql).toContain(
+      'greatest(gtd-greatest(entries*(bi+fee),pool+pool_credit),0) entry_only_gap'
+    );
   });
 
   it('the diamond capture carries the current readiness door, and its md5 matches', async () => {
     const { createHash } = await import('node:crypto');
-    const manifest = JSON.parse(readFileSync('tests/sql/diamond-tournament-current.manifest.json', 'utf8'));
+    const manifest = JSON.parse(
+      readFileSync('tests/sql/diamond-tournament-current.manifest.json', 'utf8')
+    );
     const door = manifest.doors.find(
-      (d: { signature: string }) => d.signature === 'fn_tournament_management_readiness_for_row(jsonb)'
+      (d: { signature: string }) =>
+        d.signature === 'fn_tournament_management_readiness_for_row(jsonb)'
     );
     expect(door.full_md5).toBe('88ac34de6a2a33d22673cb324bd46497');
     expect(createHash('md5').update(door.definition).digest('hex')).toBe(door.full_md5);
     expect(door.definition).toContain(
       'v_required := greatest(greatest(v_guaranteed - v_credit, v_seat_guarantee - v_pool), 0);'
     );
-    expect(door.definition).not.toContain('v_required := greatest(v_effective_guarantee - v_credit, 0);');
-    expect(door.definition).toContain("v_bank_type := 'diamond_house_earmark';\n    -- A DIAMOND EVENT KEEPS ITS RECORDED PLACE-BASED GUARANTEE");
-    expect((door.definition.match(new RegExp(CREDIT.replace(/[()+]/g, '\\$&'), 'g')) || []).length).toBe(2);
+    expect(door.definition).not.toContain(
+      'v_required := greatest(v_effective_guarantee - v_credit, 0);'
+    );
+    expect(door.definition).toContain(
+      "v_bank_type := 'diamond_house_earmark';\n    -- A DIAMOND EVENT KEEPS ITS RECORDED PLACE-BASED GUARANTEE"
+    );
+    expect(
+      (door.definition.match(new RegExp(CREDIT.replace(/[()+]/g, '\\$&'), 'g')) || []).length
+    ).toBe(2);
   });
 
   it('the owner example on the gates: 46 x 40 against 2,500 owes 660, never 1,304', () => {
@@ -188,13 +203,16 @@ describe('a guaranteed seat and a Diamond guarantee keep their own credit', () =
     expect(sql).toContain("'88ac34de6a2a33d22673cb324bd46497'");
     expect(sql).toContain("'30d13b24ee6332f0191802a629d82abf'");
     expect(sql).toContain("'44d4ebbc497c11ce739d8a7d63c93b0c'");
-    expect(sql).toContain('v_required := greatest(greatest(v_guaranteed - v_credit, v_seat_guarantee - v_pool), 0);');
+    expect(sql).toContain(
+      'v_required := greatest(greatest(v_guaranteed - v_credit, v_seat_guarantee - v_pool), 0);'
+    );
     expect(sql).toContain('v_required := greatest(v_effective_guarantee - v_pool, 0);');
     expect(sql).toMatch(/^BEGIN;$/m);
     expect(sql).toMatch(/^COMMIT;$/m);
   });
   it('the owner arithmetic: 2 seats of 30 against 6 entries of 8.10 places + 0.90 rake needs 11.40', () => {
-    const places = 6 * 8.1, rake = 6 * 0.9;
+    const places = 6 * 8.1,
+      rake = 6 * 0.9;
     const seats = 60;
     const required = Math.max(0, 0 - (places + rake), seats - places);
     expect(Math.round(required * 100) / 100).toBe(11.4);

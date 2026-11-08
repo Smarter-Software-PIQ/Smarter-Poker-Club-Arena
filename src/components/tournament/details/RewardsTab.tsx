@@ -465,12 +465,9 @@ export default function RewardsTab({
 
   /* ── THE POOL ─────────────────────────────────────────────────────────── */
 
-  /* A BUY-IN GUARANTEE COUNTS THE WHOLE PAYMENT (Dan, 2026-11-05): what is
-     credited toward the guarantee is every player payment before bounty and
-     rake allocation. Older servers without the gross terms fall back to the
-     prize contribution they report. */
+  /* Rake is excluded from guarantee coverage (owner November 7). */
   const collectedPool = currentFunding
-    ? (currentFunding.grossCoverage ?? currentFunding.collected)
+    ? (currentFunding.netCoverage ?? currentFunding.collected)
     : null;
   const guarantee = num(t.guaranteed_prize);
   const hasGuarantee = guarantee > 0;
@@ -485,7 +482,7 @@ export default function RewardsTab({
     t.total_rake,
     t.prize_pool_finalized === true
   );
-  /* The house share is H = max(0, guarantee - gross), one total: once
+  /* The house share is H = max(0, guarantee - net), one total: once
      finalized, what was posted; before that, what will be owed if the field
      closes now. Never the guarantee minus the prize half. */
   const overlay = currentFunding
@@ -495,9 +492,7 @@ export default function RewardsTab({
         : currentFunding.houseRequired
       : Math.max(
           currentFunding.overlay,
-          hasGuarantee
-            ? Math.max(0, guarantee - currentFunding.collected - Math.max(0, num(t.total_rake)))
-            : 0
+          hasGuarantee ? Math.max(0, guarantee - currentFunding.collected) : 0
         )
     : 0;
   const guaranteeMet = hasGuarantee && collectedPool !== null && collectedPool >= guarantee;

@@ -15,11 +15,11 @@ const state = vi.hoisted(() => ({
     data: {
       tournament_id: id,
       collected: 1656,
-      overlay: 660,
-      gross_coverage: 1840,
-      house_required: 660,
+      overlay: 844,
+      net_coverage: 1656,
+      house_required: 844,
       house_posted: 0,
-      house_due: 660,
+      house_due: 844,
     },
     error: null,
   }),
@@ -51,11 +51,11 @@ afterEach(() => {
     data: {
       tournament_id: id,
       collected: 1656,
-      overlay: 660,
-      gross_coverage: 1840,
-      house_required: 660,
+      overlay: 844,
+      net_coverage: 1656,
+      house_required: 844,
       house_posted: 0,
-      house_due: 660,
+      house_due: 844,
     },
     error: null,
   });
@@ -76,11 +76,11 @@ describe('useTournamentPrizeFunding', () => {
     await waitFor(() => expect(result.current).not.toBeNull());
     expect(result.current).toMatchObject({
       collected: 1656,
-      overlay: 660,
-      grossCoverage: 1840,
-      houseRequired: 660,
+      overlay: 844,
+      netCoverage: 1656,
+      houseRequired: 844,
       housePosted: 0,
-      houseDue: 660,
+      houseDue: 844,
     });
     expect(state.calls).toEqual(['fn_ca_tournament_prize_funding']);
   });
