@@ -37,7 +37,8 @@ const mtt = (msUntilStart: number, maxPlayers: number | null = 200, isFree = fal
 
 /** Read the cumulative target independently of one call's bounded slice. */
 function curveAt(msUntilStart: number, over: Record<string, unknown> = {}) {
-  for (let current = 0; current <= 300; current++) {
+  // A free-entry field plans up to 600 Horses (owner November 8, 2026).
+  for (let current = 0; current <= 700; current++) {
     const target = mttPrestartHorseTarget({
       msUntilStart,
       maxPlayers: null,
@@ -47,7 +48,7 @@ function curveAt(msUntilStart: number, over: Record<string, unknown> = {}) {
     });
     if (target === 0) return current;
   }
-  throw new Error('A normal prestart field must remain below 300');
+  throw new Error('A prestart field must remain below 700');
 }
 
 function replay(isFree = false, over: Record<string, unknown> = {}) {
