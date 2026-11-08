@@ -18,6 +18,12 @@ describe('owner November 7: net guarantees and final ten-minute Horse rescue', (
     );
     expect(sql).toContain('promo_wallet=promo_wallet-due');
     expect(sql).toContain('before_escrow+due');
+    expect(
+      sql.indexOf('INSERT INTO public.ca_money_rpc_registry(proname,status,notes)')
+    ).toBeGreaterThan(-1);
+    expect(
+      sql.indexOf('INSERT INTO public.ca_money_rpc_registry(proname,status,notes)')
+    ).toBeLessThan(sql.indexOf('CREATE FUNCTION public.fn_ca_fund_union_guarantee_promo_locked'));
     expect(readFileSync('scripts/ci/test-bounty-guarantee-postgres.py', 'utf8')).toContain(
       "root/'scripts/ci/test-net-guarantee-promo.py'"
     );

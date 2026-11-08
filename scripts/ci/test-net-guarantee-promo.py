@@ -53,7 +53,19 @@ try:
  migration=next((ROOT/'supabase/migrations').glob('*_net_guarantee_coverage_and_union_promo_funding.sql'))
  q((ROOT/'supabase/migrations/20260823000000_fix_entry_split_no_default_rake.sql').read_text())
  q("CREATE TABLE ca_manual_adjustments(id uuid,target_kind text,target_id uuid,tournament_id uuid,status text,amount numeric);CREATE TABLE wallet_credit_idempotency(key text,user_id uuid,amount numeric);")
- q(migration.read_text())
+ # Reproduce the installed money-DDL admission with its real predicate and guard.
+ q("CREATE TABLE ca_money_rpc_registry(proname text PRIMARY KEY,status text,notes text);CREATE FUNCTION fn_ca_autoledger()RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW;END$$;CREATE TRIGGER native_promo_vocabulary AFTER UPDATE OF promo_wallet ON union_wallets FOR EACH ROW EXECUTE FUNCTION fn_ca_autoledger('promo_wallet=promo_wallet');")
+ guard_defs=json.loads((ROOT/'scripts/ci/fixtures/satellite-qualifiers/current-money-ddl-guard-20260917.json').read_text())
+ for definition in guard_defs['functions']:q(definition['definition']+';')
+ q("CREATE EVENT TRIGGER ab_ca_money_rpc_registered ON ddl_command_end WHEN TAG IN ('CREATE FUNCTION') EXECUTE FUNCTION fn_ca_money_rpc_registry_guard();")
+ source=migration.read_text()
+ start=source.index('INSERT INTO public.ca_money_rpc_registry(proname,status,notes)')
+ end=source.index('CREATE FUNCTION public.fn_ca_fund_union_guarantee_promo_locked',start)
+ fail(source[:start]+source[end:],'is not in ca_money_rpc_registry')
+ assert q("SELECT count(*) FROM pg_proc WHERE proname='fn_ca_fund_union_guarantee_promo_locked'")=='0'
+ q(source)
+ assert q("SELECT status FROM ca_money_rpc_registry WHERE proname='fn_ca_fund_union_guarantee_promo_locked'")=='approved'
+ print('PASS: exact pre-fix migration refused atomically by the real money-DDL guard; registered source installs',flush=True)
  f=json.loads(q(f"SELECT fn_ca_guarantee_funding('{T}')"));assert f['net_coverage']==2412 and f['house_due']==88,f
  # Ordinary close invokes the new helper and actual legacy finalizer; rerun cannot debit twice.
  q(f"""BEGIN;
