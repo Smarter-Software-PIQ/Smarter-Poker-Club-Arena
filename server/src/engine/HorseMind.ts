@@ -358,6 +358,10 @@ export interface DecisionReadOptions {
   /** A thin scoped bucket is shrunk toward its own game's population
    *  instead of falling back to the pooled bucket (see readStats). */
   scopedShrink?: boolean;
+  /** Omaha EV fold model: the bet engine's per-opponent fold multiplier is
+   *  the measured Omaha fold-over-MDF ratio scaled by the opponent's shrunk
+   *  postflop fold-to-bet read (see OMAHA_EV_FOLD_MODEL below). */
+  omahaEvFoldModel?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -504,6 +508,53 @@ export function breakEvenBluffMod(
   const mod = (BREAK_EVEN_REFERENCE_MOD * (fold - breakEvenFoldShare(s, equity))) / refSurplus;
   return Math.max(BREAK_EVEN_MOD_MIN, Math.min(BREAK_EVEN_MOD_MAX, mod));
 }
+
+/**
+ * OMAHA EV FOLD MODEL (2026-11-08, Omaha threshold calibration). Omaha,
+ * short deck, pineapple and fixed limit bet from the EV engine
+ * (HorseEvEngine.evaluateSpot), which prices each opponent's fold as MDF,
+ * s / (1 + s), times a fold multiplier. That multiplier was the exploit bluff
+ * multiplier: x1.45 above a 0.62 all-street fold rate, x0.55 below 0.35,
+ * else 1. Measured walk-forward on the 13,667 accepted PLO4/5/6 hands of the
+ * read calibration (2026-07-22 .. 2026-11-07, every player's read taken
+ * before the hand), fit on the first half of the timeline, scored on the
+ * second: against a first postflop bet the engine predicted 37.8% folds and
+ * players folded 52.0% (flop and turn, 9,268 responses; Brier 0.2471 against
+ * 0.2218 for this model). Against people it predicted 20.9% and they folded
+ * 35.7%, because the all-street rate counts preflop calls of raises, which
+ * Omaha players make constantly: 85% of human Omaha postflop spots read as a
+ * station (x0.55) and those players folded 40%.
+ *
+ *   foldMul = foldOverMdf x shrunk(fold to a postflop bet) / population
+ *
+ * foldOverMdf: every first postflop flop or turn bet's responses at cash
+ * tables, every seat pooled, no labels: the fold share over the mean MDF of
+ * the sizes faced. population: the same game's cash postflop fold-to-bet
+ * counter rate (the exploit counters' own definition, every player), and
+ * the shrink uses OMAHA_EV_FOLD_PRIOR_STRENGTH pseudo-observations of it, so
+ * a stranger is the population and a long sample speaks for itself.
+ * Full-sample cash constants: flop/turn responses PLO4 5,125, PLO5 12,104,
+ * PLO6 1,031; counter opportunities 6,909 / 16,002 / 1,528. mdfFold clamps
+ * the multiplier to 0.4 .. 1.8.
+ *
+ * CASH ONLY. Tournament Omaha players fold about MDF to a flop or turn bet
+ * (fold over MDF PLO4 1.09, PLO5 1.04, PLO6 1.05 on 693 tournament
+ * responses), and the first league run that priced tournaments with the cash
+ * ratio lost the PLO4 40bb tournament mirror (-3.25 +/- 1.16 and -5.26 +/-
+ * 1.18 bb/100), so a tournament decision keeps the exploit multiplier.
+ * Only the EV engine reads it (HorseMind.evFoldMul); the scalar bluffMod
+ * every other consumer classifies by is unchanged.
+ */
+export type OmahaEvFoldVariant = 'plo4' | 'plo5' | 'plo6';
+export const OMAHA_EV_FOLD_MODEL: Readonly<
+  Record<OmahaEvFoldVariant, Readonly<{ foldOverMdf: number; population: number }>>
+> = Object.freeze({
+  plo4: Object.freeze({ foldOverMdf: 1.289, population: 0.49 }),
+  plo5: Object.freeze({ foldOverMdf: 1.458, population: 0.536 }),
+  plo6: Object.freeze({ foldOverMdf: 1.409, population: 0.497 }),
+});
+/** Pseudo-observations of the population fold rate in the Omaha EV fold read. */
+export const OMAHA_EV_FOLD_PRIOR_STRENGTH = 16;
 
 /** Exploit multipliers derived from a specific opponent's tendencies. */
 export interface ExploitProfile {
@@ -3188,6 +3239,44 @@ export class HorseMind {
     if (!Number.isFinite(n) || !Number.isFinite(k)) return 0;
     const m = BREAK_EVEN_PRIOR_STRENGTH;
     return (k + m * pop) / (n + m) - pop;
+  }
+
+  /**
+   * The fold multiplier the EV bet engine (HorseEvEngine.mdfFold) prices this
+   * opponent's response with. Default: the exploit bluff multiplier, exactly
+   * as before. With omahaEvFoldModel on in PLO4 / PLO5 / PLO6 it is the
+   * Omaha EV fold model (OMAHA_EV_FOLD_MODEL) at cash tables: the game's
+   * measured fold share over MDF, scaled by this opponent's postflop
+   * fold-to-bet read shrunk toward the game's population. A proven winner
+   * keeps its bluff respect.
+   */
+  static evFoldMul(userId: string, recencyBlend: boolean = true): number {
+    const model = this.omahaEvFoldMulOf(userId);
+    if (model !== null) return model;
+    return this.exploit(userId, recencyBlend).bluffMod;
+  }
+
+  /** The Omaha EV fold model's multiplier, or null when the option is off,
+   *  outside a decision, at a tournament table, or in a game it was not
+   *  measured on. */
+  static omahaEvFoldMulOf(userId: string): number | null {
+    if (this.decisionReadOptions.omahaEvFoldModel !== true || !this.decisionScope) return null;
+    // Cash only: tournament Omaha players fold about MDF (see the model note).
+    if (this.decisionMode !== 'cash') return null;
+    const v = (this.decisionVariant ?? '').toLowerCase() as OmahaEvFoldVariant;
+    const cell = OMAHA_EV_FOLD_MODEL[v];
+    if (!cell) return null;
+    const c = this.decisionExploitCounters(userId);
+    const n = Math.max(0, Number(c?.foldToBetOpp ?? 0));
+    const k = Math.max(0, Math.min(n, Number(c?.foldToBet ?? 0)));
+    const m = OMAHA_EV_FOLD_PRIOR_STRENGTH;
+    const fold =
+      Number.isFinite(n) && Number.isFinite(k)
+        ? (k + m * cell.population) / (n + m)
+        : cell.population;
+    let mul = (cell.foldOverMdf * fold) / cell.population;
+    if (isProvenWinner(userId)) mul *= WINNER_BLUFF_MOD;
+    return mul;
   }
 
   /**
