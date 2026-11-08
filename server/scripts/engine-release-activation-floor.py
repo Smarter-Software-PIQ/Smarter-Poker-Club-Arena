@@ -25,9 +25,9 @@ CERTIFIED_END = 1793854800
 
 # The owner-directed Horse successor rebinds the existing single-use exception.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-08-horse-study-successor-engine-1720z'
-NOV7_MANIFEST_DIGEST = 'd087dff51e393884f0d297804275b058a855b1b77049424bb14a1eef39fdb814'
-NOV7_ORDER_DIGEST = '5e6749a65dcdf03ef58e66180f0145377ba861c02fbad616e92efca64730c8eb'
+NOV7_OWNER_ID = '2026-11-08-horse-study-successor-engine-1820z'
+NOV7_MANIFEST_DIGEST = 'b0cd81bf0f6cff39992da1f8918bce916e112e78ee7f69a33f840b5bc5b687f0'
+NOV7_ORDER_DIGEST = '25f70505f62297bf845e1bb068507de89ca14e78be0c3b56f09fb7e7b236984a'
 
 
 

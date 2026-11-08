@@ -829,13 +829,13 @@ echo CHECKPOINT_MUST_NOT_RUN
     def test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry(self):
         import hashlib
         window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
-        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-08-horse-study-successor-engine-1720z')
+        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-08-horse-study-successor-engine-1820z')
         self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
         self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
         self.assertEqual(window['releaseWitness']['sha256'], floor.NOV7_MANIFEST_DIGEST)
         canonical = json.dumps(window, sort_keys=True, separators=(',', ':')).encode()
         self.assertEqual(hashlib.sha256(canonical).hexdigest(), floor.NOV7_ORDER_DIGEST)
-        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-08T17:20:00Z', '2026-11-08T23:20:00Z'))
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-08T18:20:00Z', '2026-11-09T00:20:00Z'))
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
         self.assertIs(window['supersedesPhase1Schedule'], True)
         self.assertEqual(window['migrations'], [])

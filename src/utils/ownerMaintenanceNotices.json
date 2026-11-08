@@ -10,11 +10,11 @@
       "notAfter": "2026-11-08T04:30:00Z"
     },
     {
-      "id": "2026-11-08-horse-study-successor-engine-1720z",
+      "id": "2026-11-08-horse-study-successor-engine-1820z",
       "kind": "engine",
-      "noticeAt": "2026-11-08T17:00:00Z",
-      "notBefore": "2026-11-08T17:20:00Z",
-      "notAfter": "2026-11-08T23:20:00Z"
+      "noticeAt": "2026-11-08T18:00:00Z",
+      "notBefore": "2026-11-08T18:20:00Z",
+      "notAfter": "2026-11-09T00:20:00Z"
     }
   ]
 }
