@@ -1,0 +1,5 @@
+{
+  "_owner": "fix/cert-residue-one-reader-and-finished-owners",
+  "_comment": "Read-only service-only state of a reserved certification owner of record (20261108035207); the stale inventory skips a finished, Auth-retired one.",
+  "functions": ["fn_ca_certification_owner_of_record_state"]
+}

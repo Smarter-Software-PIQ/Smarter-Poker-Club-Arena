@@ -14,11 +14,21 @@ name: Cert Residue Sweep
 # A residue it cannot retire fails this run, loudly.
 
 # Operator policy (2026-10-31): no new automated production-deleting loop.
-# This sweep runs only when an operator starts it (Actions > Cert Residue
-# Sweep > Run workflow). The residue it would drain is reported by the
-# certification residue count instead of being retired on a timer.
+# There is no timer here. Two starts only:
+#   - an operator (Actions > Cert Residue Sweep > Run workflow): the full
+#     sweep, stale accounts and then stale certification clubs;
+#   - a completed Club Create Certification run (2026-11-08): the stale ACCOUNT
+#     recovery only, which is exactly the recovery that certificate used to
+#     embed in its own cleanup since 2026-10-08. It moved here so residue left
+#     by OTHER runs no longer paints an unrelated club-creation certificate
+#     red: that certificate's verdict is club creation, and this workflow is
+#     the one reader of stale residue. Its red run on main is what
+#     check-main-is-green (production-integrity-audit.yml) reports.
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ['Club Create Certification']
+    types: [completed]
 
 concurrency:
   # Never two sweeps at once, and never cancel one mid-retirement.
@@ -52,4 +62,5 @@ jobs:
           # retirement already in flight when a budget runs out, fits the
           # 60-minute job. A backlog larger than one budget continues next hour.
           STALE_CLEANUP_BUDGET_MS: '1320000'
-        run: node scripts/ci/production-e2e-account.mjs sweep-stale-residue
+        # The same refusals either way; only the scope differs (see `on:`).
+        run: node scripts/ci/production-e2e-account.mjs ${{ github.event_name == 'workflow_dispatch' && 'sweep-stale-residue' || 'sweep-stale-accounts' }}

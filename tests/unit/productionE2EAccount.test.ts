@@ -23,6 +23,7 @@ import {
   RETIREMENT_REFUSAL_CLUB_HAS_HISTORY,
   RABBIT_HUNT_CLUB_NAME_PREFIX,
   STALE_RESIDUE_SWEEP_HINT,
+  OWNER_OF_RECORD_STATE_RPC,
 } from '../../scripts/ci/production-e2e-account.mjs';
 
 const USER_ID = '00000000-0000-4000-8000-000000000099';
@@ -2361,9 +2362,25 @@ describe('one refused stale identity no longer strands the others (2026-10-26)',
   ) {
     const owned = new Map(clubs.map((club) => [club.id, club]));
     const calls: string[] = [];
+    // A kept owner of record is finished once (2026-11-08): its state is read,
+    // Auth soft-deletes it, and the state is read back.
+    const authCalls: string[] = [];
+    const softDeleted = new Set<string>();
     const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = decodeURIComponent(String(input));
       if (url.includes('/rpc/fn_ca_stale_certification_accounts')) return Response.json(accounts);
+      if (url.includes('/rpc/fn_ca_certification_owner_of_record_state')) {
+        const userId = JSON.parse(String(init?.body)).p_user_id;
+        authCalls.push(`state ${userId}`);
+        return Response.json(softDeleted.has(userId) ? 'retired' : 'credentials_live');
+      }
+      if (url.includes('/auth/v1/admin/users/') && init?.method === 'DELETE') {
+        const userId = /admin\/users\/([0-9a-f-]+)/.exec(url)?.[1] || '';
+        authCalls.push(`soft-delete ${userId}`);
+        expect(JSON.parse(String(init?.body))).toEqual({ should_soft_delete: true });
+        softDeleted.add(userId);
+        return Response.json({});
+      }
       if (url.includes('/rest/v1/clubs?')) {
         const owner = /owner_id=eq\.([0-9a-f-]+)/.exec(url)?.[1];
         return Response.json([...owned.values()].filter((club) => club.owner_id === owner));
@@ -2389,7 +2406,7 @@ describe('one refused stale identity no longer strands the others (2026-10-26)',
       if (url.includes('/auth/v1/admin/users/')) return new Response(null, { status: 404 });
       return new Response('unexpected request ' + url, { status: 500 });
     });
-    return { fetchImpl, calls, owned };
+    return { fetchImpl, calls, owned, authCalls };
   }
 
   const run = (fetchImpl: unknown) =>
@@ -2454,6 +2471,13 @@ describe('one refused stale identity no longer strands the others (2026-10-26)',
     expect(log.mock.calls.flat().join('\n')).toContain(
       `kept stale identity ${lobbyOwner.id} as the owner of record of retired fixture(s) ${LOBBY}`
     );
+    // Its credentials are retired once and verified, so the inventory stops
+    // listing it (fn_ca_stale_certification_accounts skips a 'retired' owner).
+    expect(model.authCalls).toEqual([
+      `state ${lobbyOwner.id}`,
+      `soft-delete ${lobbyOwner.id}`,
+      `state ${lobbyOwner.id}`,
+    ]);
   });
 
   it('still fails the run for a club with history that has NOT left the live board', async () => {
@@ -2730,7 +2754,11 @@ describe('stale certification residue drains', () => {
     // Operator policy (2026-10-31): no new automated production-deleting loop.
     expect(sweep).not.toMatch(/^\s*schedule:/m);
     expect(sweep).toContain('workflow_dispatch:');
-    expect(sweep).toContain('node scripts/ci/production-e2e-account.mjs sweep-stale-residue');
+    // An operator start runs the full sweep; a completed Club Create
+    // Certification starts the account recovery only (2026-11-08).
+    expect(sweep).toContain(
+      "node scripts/ci/production-e2e-account.mjs ${{ github.event_name == 'workflow_dispatch' && 'sweep-stale-residue' || 'sweep-stale-accounts' }}"
+    );
     for (const secret of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL'])
       expect(sweep).toContain(`${secret}: \${{ secrets.${secret} }}`);
     const script = readFileSync(
@@ -2773,6 +2801,9 @@ describe('the stale sweep recognizes a rabbit-hunt club (2026-11-07, #9830)', ()
     const fetchImpl = vi.fn(async (input: string | URL | Request) => {
       const url = decodeURIComponent(String(input));
       if (url.includes('/rpc/fn_ca_stale_certification_accounts')) return Response.json([owner]);
+      // Already finished: Auth-retired before this sweep, so nothing is soft-deleted.
+      if (url.includes('/rpc/fn_ca_certification_owner_of_record_state'))
+        return Response.json('retired');
       if (url.includes('/rest/v1/clubs?')) return Response.json([{ ...club }]);
       if (url.includes('/rest/v1/rpc/')) {
         doors.push(url);
@@ -2900,5 +2931,127 @@ describe('the stale sweep recognizes a rabbit-hunt club (2026-11-07, #9830)', ()
         databaseClientFactory: async () => world.client,
       })
     ).rejects.toThrow('Refusing to retire rabbit-hunt certification club');
+  });
+});
+
+/* 2026-11-08: every rabbit-hunt run and every retained Crest Cert template
+   left an owner of record with live credentials, and
+   fn_ca_stale_certification_accounts listed each one on every sweep for ever
+   (eight on 2026-11-07, one more a day). The sweep now finishes each once:
+   it reads fn_ca_certification_owner_of_record_state, retires the credentials
+   through GoTrue's soft delete only for 'credentials_live', and requires
+   'retired' back. Anything else is a named failure, never a quiet keep. */
+describe('a finished owner of record is retired once and leaves the inventory (2026-11-08)', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const NOW = Date.parse('2026-11-08T04:00:00.000Z');
+  const RH = '8f508869-0000-4000-8000-000000000001';
+  const owner = {
+    id: '1eb1fe67-0000-4000-8000-000000000002',
+    email: 'ca-customization-cert-postdeploy-1794083358063-rh@example.invalid',
+    created_at: '2026-11-07T20:29:18.218Z',
+  };
+  function build(states: unknown[]) {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = decodeURIComponent(String(input));
+      if (url.includes('/rpc/fn_ca_stale_certification_accounts')) return Response.json([owner]);
+      if (url.includes('/rest/v1/clubs?'))
+        return Response.json([
+          { id: RH, name: 'Cert RH 83360371', owner_id: owner.id, lifecycle_status: 'retired' },
+        ]);
+      if (url.includes(`/rpc/${OWNER_OF_RECORD_STATE_RPC}`)) {
+        calls.push('state');
+        const next = states.shift();
+        return next instanceof Response ? next : Response.json(next);
+      }
+      if (url.includes('/auth/v1/admin/users/') && init?.method === 'DELETE') {
+        calls.push('soft-delete');
+        return Response.json({});
+      }
+      calls.push(`unexpected ${url}`);
+      return new Response('unexpected request ' + url, { status: 500 });
+    });
+    return { fetchImpl, calls };
+  }
+  const run = (world: ReturnType<typeof build>) =>
+    cleanupStaleProductionE2EAccounts({
+      environment: {
+        ...environment(mkdtempSync(join(tmpdir(), 'production-e2e-owner-'))),
+        DATABASE_URL: 'postgres://synthetic',
+      },
+      fetchImpl: world.fetchImpl as typeof fetch,
+      now: NOW,
+      wait: vi.fn().mockResolvedValue(undefined),
+      databaseClientFactory: async () => ({
+        query: vi.fn(async () => ({ rows: [] })),
+        connect: vi.fn(),
+        end: vi.fn(),
+      }),
+    });
+
+  it('soft-deletes a credentials_live owner once and verifies it reads retired', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const world = build(['credentials_live', 'retired']);
+    await expect(run(world)).resolves.toBe(0);
+    expect(world.calls).toEqual(['state', 'soft-delete', 'state']);
+  });
+
+  it('touches nothing for an owner that is already retired', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const world = build(['retired']);
+    await expect(run(world)).resolves.toBe(0);
+    expect(world.calls).toEqual(['state']);
+  });
+
+  it('keeps the credentials of an owner that still holds custody and fails loudly', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const world = build(['not_finished']);
+    const outcome = run(world);
+    await expect(outcome).rejects.toThrow(`Owner of record ${owner.id} owns only retired`);
+    await expect(outcome).rejects.toThrow(STALE_RESIDUE_SWEEP_HINT);
+    expect(world.calls).toEqual(['state']);
+  });
+
+  it('an unreadable state is UNKNOWN, never finished', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    for (const answer of [null, 'maybe', Response.json({ message: 'boom' }, { status: 500 })]) {
+      const world = build([answer]);
+      await expect(run(world)).rejects.toThrow('Stale recovery left 1 of 1 stale account(s)');
+      expect(world.calls).toEqual(['state']);
+    }
+  });
+
+  it('a soft delete that does not read back retired fails the sweep', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const world = build(['credentials_live', 'credentials_live']);
+    await expect(run(world)).rejects.toThrow(
+      `Owner of record ${owner.id}: Auth retirement is not verified (state credentials_live).`
+    );
+    expect(world.calls).toEqual(['state', 'soft-delete', 'state']);
+  });
+
+  it('the migration teaches the inventory to skip a retired owner of record, nothing more', () => {
+    const migration = readFileSync(
+      resolve(
+        process.cwd(),
+        'supabase/migrations/20261108035207_stale_certification_inventory_skips_a_finished_owner_of_reco.sql'
+      ),
+      'utf8'
+    );
+    expect(migration).toContain(
+      "AND public.fn_ca_certification_owner_of_record_state(p.id) <> 'retired'"
+    );
+    expect(migration).toContain('AND NOT public.fn_ca_certification_identity_retired(p.id)');
+    expect(migration).toContain('ORDER BY p.created_at, p.id LIMIT 21');
+    expect(migration).toContain(
+      'REVOKE ALL ON FUNCTION public.fn_ca_certification_owner_of_record_state(uuid) FROM PUBLIC, anon, authenticated;'
+    );
+    expect(migration.match(/^BEGIN;$/gm)).toHaveLength(1);
+    expect(migration.match(/^COMMIT;$/gm)).toHaveLength(1);
+    const native = readFileSync(
+      resolve(process.cwd(), 'scripts/ci/test-certification-retirement-postgres.py'),
+      'utf8'
+    );
+    expect(native).toContain("FIXTURE/'qualify-owner-of-record.py'");
   });
 });

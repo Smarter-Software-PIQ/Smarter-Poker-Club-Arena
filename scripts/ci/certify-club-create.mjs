@@ -3,7 +3,6 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   cleanupProductionE2EAccount,
-  cleanupStaleProductionE2EAccounts,
   retireCertificationClubWithRetry,
 } from './production-e2e-account.mjs';
 import { retryTransient } from './transient-retry.mjs';
@@ -1112,29 +1111,19 @@ try {
     }
   }
   /*
-   * A FIXTURE ANOTHER RUN LEFT BEHIND IS RETIRED BY THE NEXT RUN (2026-10-08).
+   * RESIDUE OTHER RUNS LEFT BEHIND HAS ONE READER, AND IT IS NOT THIS
+   * CERTIFICATE (2026-11-08).
    *
-   * The UI lane's reserved accounts (ca-customization-cert-postdeploy-<n>-...)
-   * own the Create Club fixtures its Playwright step makes, and when that run's
-   * own `retire-create-clubs` step fails the fixture stays: nothing else ever
-   * looked for one. cleanupResidualDirectCertificates above only matches the
-   * `-direct-` accounts, and cleanupStaleProductionE2EAccounts - built for
-   * exactly these, with a cutoff sized past every lane's job ceiling - had no
-   * caller. Production 2026-10-08: four fixtures from 06:18Z the day before
-   * onward, each with nine live cash tables, a Spin and Sit & Go board and a
-   * daily MTT schedule, sat on the live board (one MTT 20 hours past its
-   * start), against Dan's four-clubs rule.
-   *
-   * Run here, in the always-run cleanup, so a residue it cannot retire is a
-   * loud cleanup failure of this run and never a reason to skip certifying.
+   * From 2026-10-08 this cleanup also ran cleanupStaleProductionE2EAccounts,
+   * so a stale identity some OTHER run (the UI lane, post-deploy, rabbit hunt)
+   * left behind turned this Club Create certificate red although club creation
+   * had passed. The Cert Residue Sweep workflow (.github/workflows/
+   * cert-residue-sweep.yml) now runs that same recovery, with the stale-club
+   * pass, after every Club Create Certification run: its own red run names
+   * the residue, and check-main-is-green reads it like any other workflow.
+   * This certificate's verdict is club creation and its OWN fixtures only.
+   * Pinned by tests/unit/clubCreateCertificationContract.test.ts.
    */
-  try {
-    await cleanupStaleProductionE2EAccounts({ environment: process.env });
-  } catch (error) {
-    cleanupFailures.push(
-      new Error(`Stale Create Club Fixture Recovery Failed: ${error?.message || error}`)
-    );
-  }
   if (cleanupFailures.length) {
     throw new AggregateError(cleanupFailures, 'Club Create Certification Cleanup Was Incomplete.');
   }

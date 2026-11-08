@@ -461,33 +461,47 @@ describe('Create Club production certification contract', () => {
   });
 });
 
-describe('a Create Club fixture another run left behind is retired by the next run (2026-10-08)', () => {
-  it('the certificate recovers stale UI-lane accounts in its always-run cleanup, as a loud cleanup failure', () => {
+describe('stale residue has one reader, and it is not the Club Create certificate (2026-11-08)', () => {
+  it("the certificate no longer embeds another run's residue recovery, so its verdict is club creation", () => {
     const certify = read('scripts/ci/certify-club-create.mjs');
-    expect(certify).toMatch(
-      /import \{[^}]*cleanupStaleProductionE2EAccounts[^}]*\} from '\.\/production-e2e-account\.mjs'/
+    // Since 2026-10-08 the always-run cleanup ran cleanupStaleProductionE2EAccounts
+    // and residue left by OTHER runs turned this certificate red.
+    expect(certify).not.toMatch(/import \{[^}]*cleanupStaleProductionE2EAccounts/);
+    expect(certify).not.toContain('await cleanupStaleProductionE2EAccounts(');
+    expect(certify).not.toContain('Stale Create Club Fixture Recovery Failed');
+    // Its OWN fixtures are still a loud cleanup failure.
+    expect(certify).toContain(
+      "throw new AggregateError(cleanupFailures, 'Club Create Certification Cleanup Was Incomplete.');"
     );
-    const recovery = certify.indexOf(
-      'await cleanupStaleProductionE2EAccounts({ environment: process.env })'
-    );
-    const verdict = certify.lastIndexOf('if (cleanupFailures.length)');
-    expect(recovery).toBeGreaterThan(-1);
-    expect(verdict).toBeGreaterThan(recovery);
-    expect(certify.slice(recovery - 200, recovery)).toContain('try {');
-    expect(certify.slice(recovery, verdict)).toContain('cleanupFailures.push(');
+    expect(read('.github/workflows/club-create-certification.yml')).not.toContain('sweep-stale');
   });
 
-  it('names the sweep an operator runs and the #9830 residue pattern when the embedded sweep fails (2026-11-07)', () => {
-    const account = read('scripts/ci/production-e2e-account.mjs');
+  it('the Cert Residue Sweep runs the same recovery after every Club Create Certification, on no timer', () => {
     const sweep = read('.github/workflows/cert-residue-sweep.yml');
-    // The certification stays the one reader: the sweep workflow is dispatch-only
-    // and the certification embeds the same recovery in its always-run cleanup.
-    expect(sweep).toMatch(/^on:\n  workflow_dispatch:\n/m);
+    const account = read('scripts/ci/production-e2e-account.mjs');
+    expect(sweep).toMatch(
+      /^on:\n  workflow_dispatch:\n  workflow_run:\n    workflows: \['Club Create Certification'\]\n    types: \[completed\]\n/m
+    );
     expect(sweep).not.toMatch(/^\s+schedule:/m);
-    expect(sweep).toContain('run: node scripts/ci/production-e2e-account.mjs sweep-stale-residue');
+    // The automatic start keeps exactly the scope the certificate embedded
+    // (accounts); the operator start keeps the full sweep.
+    expect(sweep).toContain(
+      "run: node scripts/ci/production-e2e-account.mjs ${{ github.event_name == 'workflow_dispatch' && 'sweep-stale-residue' || 'sweep-stale-accounts' }}"
+    );
+    expect(account).toContain(
+      "if (command === 'sweep-stale-accounts') return cleanupStaleProductionE2EAccounts();"
+    );
+    // Never two at once, never cancelled mid-retirement.
+    expect(sweep).toContain('group: cert-residue-sweep');
+    expect(sweep).toContain('cancel-in-progress: false');
+  });
+
+  it('names the sweep, its reader and the #9830 residue pattern when the recovery fails', () => {
+    const account = read('scripts/ci/production-e2e-account.mjs');
     expect(account).toContain('export const STALE_RESIDUE_SWEEP_HINT =');
     expect(account).toContain('sweep-stale-residue');
     expect(account).toContain('issue #9830');
+    expect(account).toContain('after every Club Create Certification run, is its one reader.');
     // The hint is part of the AggregateError's message: bound the window by
     // that constructor call, not by a byte count.
     const message =
