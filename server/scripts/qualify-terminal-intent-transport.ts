@@ -7,6 +7,10 @@ const [host, port, database, output, event, winner, format] = process.argv.slice
 assert(host.startsWith('/') && /^r46_mtt_isolation_[0-9a-f]{32}$/.test(database));
 let generation = '92090000-0000-4000-8000-000000000002';
 const db = new pg.Client({ host, port: Number(port), database, user: 'postgres' });
+const executor =
+  format === 'QUALIFIERS'
+    ? 'fn_execute_capped_satellite_terminal_request'
+    : 'fn_execute_tournament_terminal_request';
 const calls: string[] = [];
 let original: any;
 let execution: any;
@@ -39,7 +43,7 @@ const server = createServer(async (req, res) => {
         'fn_get_tournament_deal_consensus',
         'fn_prepare_tournament_terminal_request',
         'fn_adopt_tournament_terminal_request',
-        'fn_execute_tournament_terminal_request',
+        executor,
         'fn_resolve_tournament_terminal_request',
       ].includes(name)
     );
@@ -88,10 +92,10 @@ const server = createServer(async (req, res) => {
         ])
       ).rows[0].value;
       assert.equal(result.request.current_generation, generation);
-    } else if (name === 'fn_execute_tournament_terminal_request') {
+    } else if (name === executor) {
       assert.deepEqual(args, { p_request_id: original.request_id, p_generation: generation });
       result = (
-        await db.query('SELECT public.fn_execute_tournament_terminal_request($1,$2) AS value', [
+        await db.query(`SELECT public.${executor}($1,$2) AS value`, [
           args.p_request_id,
           args.p_generation,
         ])
@@ -109,7 +113,7 @@ const server = createServer(async (req, res) => {
       assert.deepEqual(result.outcome.receipt, execution.receipt);
     }
     await db.query('COMMIT');
-    if (name === 'fn_execute_tournament_terminal_request' && loseExecution) {
+    if (name === executor && loseExecution) {
       loseExecution = false;
       res.destroy();
     } else {
@@ -278,7 +282,7 @@ try {
       : []),
     'fn_prepare_tournament_terminal_request',
     ...(format === 'LEGACY_DEAL' ? ['fn_get_tournament_deal_consensus'] : []),
-    'fn_execute_tournament_terminal_request',
+    executor,
     'fn_resolve_tournament_terminal_request',
   ]);
   assert.equal(result.tournamentId, event);
