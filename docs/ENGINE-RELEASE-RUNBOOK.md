@@ -195,7 +195,7 @@ In `server/standby/standby-engine.sh` `cmd_certify`:
 
 1. `assert_valid_copy`: `database.json` says `restoreValidated: true`,
    `restoreErrors: 0`, `ownersSha256` matches `server/standby/standby-owners.sql`;
-   `seed.json` says `authFixtureVersion: 3` (horse identities plus validated cash-cluster parent closure), `tablesFailed: 0` and `seededAt >= restoredAt`.
+   `seed.json` says `tablesFailed: 0` and `seededAt >= restoredAt`.
 2. `cmd_run`: builds `club-arena-engine-standby:<sha>` from `git archive <sha> server`
    with `GIT_COMMIT_SHA` (`cmd_build`), writes the env, starts the container with
    `--restart unless-stopped`.

@@ -125,7 +125,7 @@ A later serving release is shown separately; a historical seal never claims that
 its old instance is still serving. This workflow cannot dispatch a cutover,
 restart an engine, write the database or replay a payment.
 
-A successful receiver triggers a fresh Backup through the supported workflow. Inspect the resulting restore validation, seed failure count and final exact-SHA certificate. Seed fixture version 3 includes the cash-game cluster parents referenced by the exported tables; older seeds must refresh before certification. If the receiver concluded failure despite a verified seal, the release owner first checks for an existing refresh in the Backup queue. After proving the exact SHA is still serving, the owner can submit the supported Backup-only recovery once:
+A successful receiver triggers a fresh Backup through the supported workflow. Inspect the resulting restore validation, seed failure count and final exact-SHA certificate. If the receiver concluded failure despite a verified seal, the release owner first checks for an existing refresh in the Backup queue. After proving the exact SHA is still serving, the owner can submit the supported Backup-only recovery once:
 
 ```sh
 served=$(curl -fsS https://engine.smarter.poker/health | jq -er .releaseSha) &&

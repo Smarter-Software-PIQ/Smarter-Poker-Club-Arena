@@ -132,10 +132,23 @@ const validCopy = {
       .update(readFileSync(root('server/standby/standby-owners.sql')))
       .digest('hex'),
   },
-  'seed.json': { authFixtureVersion: 3, seededAt: '2026-11-06T17:01:00Z', tablesFailed: 0 },
+  'seed.json': {
+    cashClusterParentsValidated: true,
+    authFixtureVersion: 2,
+    seededAt: '2026-11-06T17:01:00Z',
+    tablesFailed: 0,
+  },
 };
 
 describe('the Backup Engine refuses partial restores and proves automatic recovery', () => {
+  it('exports required cash cluster parents without human profile or auth data', () => {
+    const result = spawnSync('python3', ['-B', root('scripts/ci/test_backup_cluster_seed.py')], {
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it('runs qualification admission regressions in the existing required DR suite', () => {
     const result = spawnSync(
       'python3',
@@ -216,9 +229,12 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       },
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreErrors: 7 } },
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreValidated: false } },
+      {
+        ...validCopy,
+        'seed.json': { ...validCopy['seed.json'], cashClusterParentsValidated: undefined },
+      },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: undefined } },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: 1 } },
-      { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: 2 } },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], tablesFailed: 1 } },
       {
         ...validCopy,

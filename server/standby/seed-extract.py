@@ -10,15 +10,13 @@ Rules, decided per table from the live catalog:
     rows whose every person reference is NULL or a horse (profiles.is_horse).
   * A table with no person reference is copied whole when it is small
     (<= ROW_CAP rows) and is not a ledger/log/message/history table.
-  * Cash-game parents referenced by exported tables are retained as structure;
-    their person references receive existing id-only placeholders.
   * Everything else is skipped and listed in the manifest.
 
 Every read is its own short autocommit query (never a long snapshot; the
 production snapshot guard cancels outside snapshots held over five minutes).
 Output: <out>/<schema>.<table>.csv and <out>/manifest.json
 """
-import csv, json, os, re, subprocess, sys, time, uuid
+import json, os, re, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else None
@@ -54,55 +52,6 @@ def copy_out(select_sql, path):
 
 class SeedEligibilityError(RuntimeError):
     pass
-
-
-def close_cash_game_parents(manifest):
-    """Retain structural parents of the actual exported cash tables.
-
-    A cluster's creator is not its player: its profile is still never copied.
-    Existing placeholder generation supplies id-only structural owner accounts.
-    Use the child CSV, not a later production table scan that could race it.
-    """
-    def ids(name, column):
-        path = os.path.join(OUT, name + '.csv')
-        if not os.path.exists(path):
-            return set()
-        if name == 'public.cash_games' and os.path.getsize(path) > BYTE_CAP:
-            raise SeedEligibilityError(name + ' exceeds the parent closure byte budget')
-        with open(path, newline='') as source:
-            reader = csv.DictReader(source)
-            if column not in (reader.fieldnames or []):
-                raise SeedEligibilityError(name + ' is missing ' + column)
-            result = set()
-            for row in reader:
-                if row[column]:
-                    result.add(str(uuid.UUID(row[column])))
-                if len(result) > ROW_CAP * 4:
-                    raise SeedEligibilityError('cash_games exceeds the parent closure row budget')
-            return result
-
-    try:
-        required = ids('public.tables', 'cluster_id')
-        if not required:
-            return
-        wanted = required | ids('public.cash_games', 'id')
-        if len(wanted) > ROW_CAP * 4:
-            raise SeedEligibilityError('cash_games exceeds the parent closure row budget')
-        literals = ','.join("'%s'::uuid" % value for value in sorted(wanted))
-        path = os.path.join(OUT, 'public.cash_games.csv')
-        copy_out('select * from public.cash_games where id in (' + literals + ')', path)
-        actual = ids('public.cash_games', 'id')
-        if actual != wanted:
-            raise SeedEligibilityError('cash_games parent closure is incomplete')
-        for section in ('copied', 'skipped'):
-            manifest[section] = [row for row in manifest[section] if row['table'] != 'public.cash_games']
-        manifest['copied'].append({'table': 'public.cash_games', 'rows': len(actual),
-                                   'structuralParentOf': 'public.tables.cluster_id',
-                                   'personFilter': [], 'excludedRows': [], 'excludedRowCount': 0})
-    except SeedEligibilityError:
-        raise
-    except Exception as exc:
-        raise SeedEligibilityError('cash_games parent closure failed') from exc
 
 
 def playable_memberships(where):
@@ -168,6 +117,10 @@ def main():
             elif key in (("public", "clubs"), ("public", "unions"), ("public", "union_clubs")):
                 # Platform structure: copied whole; owner ids become id-only placeholders.
                 where = "true"
+            elif key == ("public", "cash_games"):
+                # Structural parents of the copied tables. Their owner IDs are
+                # covered by the existing ID-only placeholder pass.
+                where = "id in (select cluster_id from public.tables where tournament_id is null and status in ('waiting','running','active'))"
             elif key == ("public", "tables"):
                 where = "tournament_id is null and status in ('waiting','running','active')"
             elif key == ("public", "table_seats"):
@@ -183,18 +136,18 @@ def main():
             if key == ("public", "club_members"):
                 where, exclusions = playable_memberships(where)
             if int(nbytes) > BYTE_CAP and key not in (("public", "profiles"), ("public", "tables"), ("public", "table_seats"), ("public", "clubs"), ("public", "unions"), ("public", "union_clubs")):
-                if key == ("public", "club_members"):
+                if key in (("public", "club_members"), ("public", "cash_games")):
                     raise SeedEligibilityError("club_members exceeds the seed byte budget")
                 return ("skipped", {"table": name, "why": f"large_{int(nbytes)//1048576}_MB"})
             if key not in person_cols and key not in (("public", "profiles"), ("public", "clubs"), ("public", "unions"), ("public", "union_clubs")) and int(est) > ROW_CAP:
-                if key == ("public", "club_members"):
+                if key in (("public", "club_members"), ("public", "cash_games")):
                     raise SeedEligibilityError("club_members exceeds the seed row budget")
                 return ("skipped", {"table": name, "why": f"large_{est}_rows"})
             if int(nbytes) <= 16384 and int(est) <= 0 and key not in (("public", "profiles"), ("public", "club_members")):
                 return None  # empty table
             count = int(q(f'select count(*) from "{s}"."{t}" where {where}')[0][0])
             if count > ROW_CAP * 4:
-                if key == ("public", "club_members"):
+                if key in (("public", "club_members"), ("public", "cash_games")):
                     raise SeedEligibilityError("club_members exceeds the filtered seed row budget")
                 return ("skipped", {"table": name, "why": f"filtered_still_{count}_rows"})
             if count == 0:
@@ -207,7 +160,7 @@ def main():
         except SeedEligibilityError:
             raise
         except Exception as exc:  # optional non-membership tables retain their existing policy
-            if key == ("public", "club_members"):
+            if key in (("public", "club_members"), ("public", "cash_games")):
                 raise SeedEligibilityError("club_members extraction failed") from exc
             return ("skipped", {"table": name, "why": "error: " + str(exc)[:160]})
 
@@ -215,7 +168,6 @@ def main():
         for res in pool.map(one, sorted(tables)):
             if res:
                 manifest[res[0]].append(res[1])
-    close_cash_game_parents(manifest)
     # Horses' auth identities (no email/phone carried; ids only).
     copy_out(f"select id, aud, role, created_at from auth.users where id in {horses}", os.path.join(OUT, "auth.users.csv"))
     for f in os.listdir(OUT):
