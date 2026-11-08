@@ -20,6 +20,21 @@ result is appended to the job file. Log: ~/.smarter-poker/logs/install-queue.log
 A job interrupted mid-run resumes first; an install is never replayed once its
 version is recorded in supabase_migrations.schema_migrations.
 
+## Reach the solver PCs M1 and M2
+
+    ~/.smarter-poker/ops/solver-host.sh check
+    ~/.smarter-poker/ops/solver-host.sh m1|m2 '<command>'
+    ~/.smarter-poker/ops/solver-host.sh scp <from> <to>
+
+The agent terminal on this Mac has no macOS Local Network permission, so a
+plain ping, nc or ssh to 192.168.0.51 (M1) or 192.168.0.155 (M2) fails with
+"No route to host" even while both PCs are up. That false "down" stalled the
+R8 solver round on 2026-11-08 for about 11 hours. This helper connects through
+`sudo -n ssh` (root is exempt from the check) with the dedicated controller key
+and the pinned host keys; its `check` answer is the only valid reachability
+reading. Only the solver-round single writer named in HORSE-LANES-STATUS.md
+runs work on M1/M2; everyone else uses `check` only.
+
 ## Database access
 
 ~/.smarter-poker/ops/db.sh runs psql through the existing helper. The password
