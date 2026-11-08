@@ -77,7 +77,8 @@ BEGIN
  structure:=tr.payout_structure::jsonb;
  after_row:=to_jsonb(tr)||jsonb_build_object('prize_pool',1830);
  SELECT promo_wallet INTO STRICT before_bank FROM public.union_wallets WHERE union_id=bank FOR UPDATE;
- IF before_bank<88 THEN RAISE EXCEPTION 'union promo balance insufficient'; END IF;
+ IF before_bank IS NULL OR before_bank::text IN ('NaN','Infinity','-Infinity') OR before_bank<88 THEN
+   RAISE EXCEPTION 'union promo balance insufficient'; END IF;
  IF NOT probe_mode AND expected_promo IS DISTINCT FROM before_bank THEN
    RAISE EXCEPTION '88-chip promo balance differs from the rolled-back proof'; END IF;
  prev:=current_setting('app.ledger_autoskip_union_wallets',true);
@@ -97,7 +98,7 @@ BEGIN
  PERFORM set_config('app.owner_net_guarantee_correction',k,true);
  UPDATE public.tournaments SET prize_pool=1830 WHERE id=t;
  PERFORM set_config('app.owner_net_guarantee_correction','',true);
- IF after_bank<>before_bank-88 OR (SELECT prize_balance FROM public.tournament_escrow WHERE tournament_id=t)<>er.prize_balance+88
+ IF after_bank IS DISTINCT FROM before_bank-88 OR (SELECT prize_balance FROM public.tournament_escrow WHERE tournament_id=t)<>er.prize_balance+88
    OR (public.fn_ca_guarantee_funding(t)->>'house_due')::numeric<>0
    OR paid IS DISTINCT FROM (SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY id),'[]') FROM public.tournament_payouts p WHERE tournament_id=t)
    OR obligations IS DISTINCT FROM (SELECT coalesce(jsonb_agg(to_jsonb(o) ORDER BY id),'[]') FROM public.tournament_obligations o WHERE tournament_id=t)

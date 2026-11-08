@@ -68,6 +68,14 @@ try:
  DO $$BEGIN IF (SELECT promo_wallet FROM union_wallets)<>912 THEN RAISE EXCEPTION 'double promo debit';END IF;END$$;
  ROLLBACK;""")
  # Refused promo and failed journal roll back the complete original transaction.
+ for balance in ['NULL',"'NaN'::numeric"]:
+  q(f'UPDATE union_wallets SET promo_wallet={balance};')
+  fail(f"SELECT fn_apply_prize_guarantee('{T}','native-invalid-bank')",'union promo wallet cannot fund')
+  assert q(f"SELECT prize_pool||':'||prize_pool_finalized FROM tournaments WHERE id='{T}'")=='1742.00:false'
+ for balance in ["'Infinity'::numeric","'-Infinity'::numeric"]:
+  fail(f'UPDATE union_wallets SET promo_wallet={balance};','numeric field overflow')
+ q('UPDATE union_wallets SET promo_wallet=1000;')
+ print('PASS: null/NaN are refused by the writer; infinities are refused by the stored numeric type',flush=True)
  q('UPDATE union_wallets SET promo_wallet=87;')
  fail(f"SELECT fn_apply_prize_guarantee('{T}','native-insufficient')",'union promo wallet cannot fund')
  assert q(f"SELECT prize_pool||':'||prize_pool_finalized FROM tournaments WHERE id='{T}'")=='1742.00:false'

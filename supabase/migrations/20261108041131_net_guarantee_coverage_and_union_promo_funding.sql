@@ -77,7 +77,8 @@ BEGIN
    WHERE tournament_id=p_tournament_id FOR UPDATE;
  SELECT promo_wallet INTO STRICT before_bank FROM public.union_wallets
    WHERE union_id=t.union_id FOR UPDATE;
- IF before_bank<due THEN RAISE EXCEPTION 'union promo wallet cannot fund guarantee shortfall'; END IF;
+ IF before_bank IS NULL OR before_bank::text IN ('NaN','Infinity','-Infinity') OR before_bank<due THEN
+   RAISE EXCEPTION 'union promo wallet cannot fund guarantee shortfall'; END IF;
  prev:=current_setting('app.ledger_autoskip_union_wallets',true);
  PERFORM set_config('app.ledger_autoskip_union_wallets','1',true);
  UPDATE public.union_wallets SET promo_wallet=promo_wallet-due,updated_at=now()
