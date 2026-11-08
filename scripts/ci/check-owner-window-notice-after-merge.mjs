@@ -26,6 +26,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 export const FILE = 'server/release/owner-maintenance-windows.json';
 /** Windows main held before this instant are not judged by this rule. */
@@ -70,7 +71,7 @@ function gitBookedAt(base) {
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const base = process.env.CI_BASE_SHA || 'origin/main';
   const doc = JSON.parse(readFileSync(FILE, 'utf8'));
   const failures = bookingViolations(doc, gitBookedAt(base), Date.now());
