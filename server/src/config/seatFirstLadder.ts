@@ -140,3 +140,29 @@ export function openingRungMs(seats: number, rand: (spanInclusive: number) => nu
 export function humanArrivalMs(rand: (spanInclusive: number) => number): number {
   return HUMAN_ARRIVAL_MIN_MS + rand(HUMAN_ARRIVAL_MAX_MS - HUMAN_ARRIVAL_MIN_MS);
 }
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ *  HOW WIDE THE BOARD IS (Dan, 2026-11-08, binding)
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Dan: "SIT ONE HORSE AT LIKE 11 DIFFERENT SPINS AND LIKE 6 SIT N GO'S."
+ *
+ * These are PLATFORM-WIDE counts of boards a player can join, not per club and
+ * not per price point. Before this, every price point was permanently open on
+ * every activated board: 64 Spin configs and 32 Heads-Up configs, times the
+ * house board and each activated owner's. Measured 2026-11-08: 134 open
+ * seat-first boards across two owners, each one cycling about every six
+ * minutes.
+ *
+ * The catalogue is unchanged - every price point still exists and is still
+ * reachable. What changed is how many of them are open AT ONCE, and which ones
+ * is drawn fresh each tick (see the shuffle in ensureBoardOpen) so the board
+ * moves around the ladder over a day instead of pinning the cheapest eleven.
+ */
+export const SPIN_BOARD_OPEN_TARGET = 11;
+export const SNG_BOARD_OPEN_TARGET = 6;
+
+export function boardOpenTarget(variant: 'spin' | 'sng'): number {
+  return variant === 'spin' ? SPIN_BOARD_OPEN_TARGET : SNG_BOARD_OPEN_TARGET;
+}

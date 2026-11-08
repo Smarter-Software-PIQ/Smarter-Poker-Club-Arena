@@ -77,6 +77,7 @@ import {
   HUMAN_ARRIVAL_MIN_MS,
   HUMAN_ARRIVAL_MAX_MS,
   openingRungMs,
+  boardOpenTarget,
 } from '../config/seatFirstLadder.js';
 import { isFixedBoardClub } from '../config/fixedBoard.js';
 import {
@@ -3826,6 +3827,57 @@ export class TournamentRecurringService {
     }
   }
 
+  /**
+   * How many MORE seat-first boards of this variant the platform may open.
+   *
+   * Dan 2026-11-08: eleven Spins and six Heads-Up, open at once, across every
+   * club and union - not per owner and not per price point. Counts what a
+   * player could actually sit at: REGISTERING only, exactly as ensureBoardOpen
+   * does, because a RUNNING game is not a board anyone can join.
+   *
+   * Returns null when the count could not be read. The caller then opens
+   * NOTHING this tick rather than guessing - a failed read that defaulted to
+   * "plenty of room" would re-open the whole catalogue, which is the failure
+   * this target exists to prevent. A tick skipped costs a few minutes; the
+   * boards already open are untouched.
+   */
+  /**
+   * The house board and every activated owner's, in a fresh order each tick.
+   *
+   * With one platform-wide budget somebody has to go first, and a fixed order
+   * means the same board spends it every time - which is precisely how the
+   * per-board shares came to exist in the first place (the house went first on
+   * a shared budget, was perpetually short, and starved every club board). A
+   * drawn order gives each board the same expected share without anyone
+   * needing a share of their own.
+   */
+  private boardOpenOrder(owners: BoardOwner[]): BoardOwner[] {
+    const order = [this.houseOwner, ...owners];
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = secureRandomInt(i + 1);
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    return order;
+  }
+
+  private async seatFirstBoardRoom(variant: 'spin' | 'sng'): Promise<number | null> {
+    const { count, error } = await supabase
+      .from('tournaments')
+      .select('id', { count: 'exact', head: true })
+      .eq('variant', variant)
+      .eq('status', 'REGISTERING');
+    if (error || typeof count !== 'number') {
+      reportError(
+        new Error(
+          `[TournamentRecurring] ${variant} open-board count failed: ${error?.message ?? 'no count'}`
+        ),
+        'TournamentRecurring.board_room_read_failed'
+      );
+      return null;
+    }
+    return Math.max(0, boardOpenTarget(variant) - count);
+  }
+
   private async checkAndLaunchSNGs(): Promise<void> {
     await this.withBoardTick('sng', async () => {
       // THE FREEZE IS TOTAL (Dan 2026-09-03) - see checkAndLaunchTournaments.
@@ -3850,31 +3902,40 @@ export class TournamentRecurringService {
        * the Spin rule: never list a price point the owner did not sign
        * up for. */
       const owners = await this.activatedSpinOwners();
-      const share = boardBudgetShares(owners.length + 1);
-      await this.ensureBoardOpen(
-        'sng',
-        SNG_CONFIGS,
-        (c, o) => this.createSNG(c as any, o),
-        this.houseOwner,
-        { left: share }
-      );
-      for (const owner of owners) {
-        const affordable = SNG_CONFIGS.filter((c) => c.buyIn <= owner.maxStake);
-        if (affordable.length === 0) continue;
+      /* ONE BUDGET FOR THE WHOLE PLATFORM (Dan 2026-11-08). Each board used to
+         get its own share of BURST, because the board was every price point on
+         every owner and the only question was how fast it filled. The board is
+         now SIX Heads-Up in total, so a per-owner share would be six each. The
+         single budget is capped by what the platform has room for, and the
+         owners are drawn in a fresh order each tick so no board is permanently
+         first in the queue for it. */
+      const room = await this.seatFirstBoardRoom('sng');
+      if (room === null || room <= 0) return;
+      const budget = { left: Math.min(room, boardBudgetShares(1)) };
+      for (const board of this.boardOpenOrder(owners)) {
+        if (budget.left <= 0) break;
+        const configs =
+          board === this.houseOwner
+            ? SNG_CONFIGS
+            : SNG_CONFIGS.filter((c) => c.buyIn <= board.maxStake);
+        if (configs.length === 0) continue;
         await this.ensureBoardOpen(
           'sng',
-          affordable,
+          configs,
           (c, o) => this.createSNG(c as any, o),
-          owner,
-          { left: share }
+          board,
+          budget
         );
       }
 
       /* Satellite heads-ups ride the same tick as the heads-up board they
          sit on. A handful per owner at most (one per dear target), so the
          share is capped well under a board share: this is a feeder, not a
-         ladder. */
-      const satelliteShare = Math.min(share, SATELLITE_HU_TARGETS_PER_OWNER);
+         ladder. It is counted separately from the six-board target above - a
+         satellite exists to feed one named target, not to be a price point on
+         the open board, and starving its feeder would quietly close the
+         target's cheapest way in. */
+      const satelliteShare = Math.min(boardBudgetShares(1), SATELLITE_HU_TARGETS_PER_OWNER);
       await this.ensureSatelliteHeadsUps(this.houseOwner, satelliteShare);
       for (const owner of owners) {
         await this.ensureSatelliteHeadsUps(owner, satelliteShare);
@@ -4374,29 +4435,28 @@ export class TournamentRecurringService {
       // thirty-odd games short every tick, it starved every owner board
       // instead. See boardBudgetShares for the measurement.
       const owners = await this.activatedSpinOwners();
-      const share = boardBudgetShares(owners.length + 1);
-
-      await this.ensureBoardOpen(
-        'spin',
-        SPIN_CONFIGS,
-        (c, o) => this.createSpin(c as any, o),
-        this.houseOwner,
-        { left: share }
-      );
-
-      for (const owner of owners) {
-        // Only the price points this owner's seed can actually cover. The
-        // required seed is two top-tier jackpots at their largest stake, so
-        // offering a bigger buy-in than they seeded for would advertise a
-        // multiplier the wallet cannot pay.
-        const affordable = SPIN_CONFIGS.filter((c) => c.buyIn <= owner.maxStake);
-        if (affordable.length === 0) continue;
+      /* ELEVEN SPINS, PLATFORM-WIDE (Dan 2026-11-08). See the Heads-Up pass
+         above for why this is one budget rather than a share per board. An
+         owner's board still only ever offers the price points its seed can
+         cover: the required seed is two top-tier jackpots at its largest
+         stake, so a bigger buy-in would advertise a multiplier the wallet
+         cannot pay. */
+      const room = await this.seatFirstBoardRoom('spin');
+      if (room === null || room <= 0) return;
+      const budget = { left: Math.min(room, boardBudgetShares(1)) };
+      for (const board of this.boardOpenOrder(owners)) {
+        if (budget.left <= 0) break;
+        const configs =
+          board === this.houseOwner
+            ? SPIN_CONFIGS
+            : SPIN_CONFIGS.filter((c) => c.buyIn <= board.maxStake);
+        if (configs.length === 0) continue;
         await this.ensureBoardOpen(
           'spin',
-          affordable,
+          configs,
           (c, o) => this.createSpin(c as any, o),
-          owner,
-          { left: share }
+          board,
+          budget
         );
       }
     });
@@ -4539,6 +4599,18 @@ export class TournamentRecurringService {
       );
       const missing = configs.filter((c) => !open.has(c.name));
       if (missing.length === 0) return;
+
+      /* WHICH PRICE POINTS ARE OPEN IS DRAWN FRESH (Dan 2026-11-08). The board
+         is now eleven Spins and six Heads-Up platform-wide, out of a catalogue
+         of 64 and 32. Taking them in config order would pin the same cheapest
+         eleven open for ever and make the other fifty-three unreachable, which
+         is not a narrower board - it is a smaller product. Shuffled per tick,
+         so the open board walks the whole ladder over a day and a player who
+         looks twice sees different stakes. */
+      for (let i = missing.length - 1; i > 0; i--) {
+        const j = secureRandomInt(i + 1);
+        [missing[i], missing[j]] = [missing[j], missing[i]];
+      }
 
       /* Cap the per-tick burst. A cold start has every config missing, and
          creating them all in one tick means one insert plus one

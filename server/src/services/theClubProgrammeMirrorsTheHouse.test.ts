@@ -43,6 +43,8 @@ import {
   SPIN_LADDER,
   SNG_LADDER,
   SEAT_FIRST_OPENING_HORSES,
+  SPIN_BOARD_OPEN_TARGET,
+  SNG_BOARD_OPEN_TARGET,
 } from '../config/seatFirstLadder.js';
 import {
   RESTART_WEEKLY_MINUTES,
@@ -119,20 +121,37 @@ describe('3. a club spin board is the house board, and cannot be starved', () =>
     expect(boardBudgetShares(7)).toBe(BOARD_BUDGET_FLOOR);
     expect(boardBudgetShares(0)).toBe(12);
   });
-  it('the house no longer spends first on a shared budget', () => {
-    // The old shape: one `{ left: BURST }` threaded through the house call
-    // and then `if (budget.left <= 0) break;` at the top of the owner loop.
+  it('no board is permanently first in the queue for the shared budget', () => {
+    /* 2026-11-08: the per-board share is gone, because the board is now
+       ELEVEN Spins and SIX Heads-Up platform-wide (Dan's instruction) and a
+       share each would be eleven each. One budget again - but the reason the
+       shares existed is still real, so the boards are drawn in a fresh order
+       every tick instead. Nobody goes first twice by construction. */
     expect(RECURRING).not.toMatch(/const budget = \{ left: BURST \};/);
-    // The owner loops hand each owner its own `{ left: share }`; the only
-    // `budget.left` left in the file is ensureBoardOpen spending its own.
-    for (const loop of RECURRING.split('for (const owner of owners) {').slice(1)) {
-      const untilCall = loop.slice(0, loop.indexOf('await this.ensure'));
-      expect(untilCall).not.toMatch(/budget\.left/);
-    }
-    expect(RECURRING).toMatch(/const share = boardBudgetShares\(owners\.length \+ 1\);/);
+    expect(RECURRING).toMatch(/private boardOpenOrder\(owners: BoardOwner\[\]\): BoardOwner\[\]/);
+    expect(RECURRING).toMatch(/for \(const board of this\.boardOpenOrder\(owners\)\)/);
+    // And the budget itself can never exceed what the platform has room for.
+    expect(RECURRING).toMatch(
+      /const budget = \{ left: Math\.min\(room, boardBudgetShares\(1\)\) \};/
+    );
+  });
+  it('a failed open-board count opens nothing rather than guessing', () => {
+    // CLAUDE.md 10.86: an unreadable answer is never coerced into good news.
+    // Defaulting to "plenty of room" would re-open the whole 64-config
+    // catalogue, which is the exact failure the target exists to prevent.
+    expect(RECURRING).toMatch(/if \(room === null \|\| room <= 0\) return;/);
   });
   it('an owner board is the house SPIN_CONFIGS filtered only by its own stake cap', () => {
-    expect(RECURRING).toMatch(/SPIN_CONFIGS\.filter\(\(c\) => c\.buyIn <= owner\.maxStake\)/);
+    expect(RECURRING).toMatch(/SPIN_CONFIGS\.filter\(\(c\) => c\.buyIn <= board\.maxStake\)/);
+  });
+  it('the open board is eleven Spins and six Heads-Up, platform-wide', () => {
+    expect(SPIN_BOARD_OPEN_TARGET).toBe(11);
+    expect(SNG_BOARD_OPEN_TARGET).toBe(6);
+  });
+  it('which price points are open is drawn fresh, so the ladder is not pinned', () => {
+    // 64 Spin and 32 Heads-Up configs share 11 and 6 slots. Config order would
+    // pin the cheapest eleven open for ever and strand the other fifty-three.
+    expect(RECURRING).toMatch(/for \(let i = missing\.length - 1; i > 0; i--\)/);
   });
 });
 
