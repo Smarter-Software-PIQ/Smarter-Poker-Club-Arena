@@ -5986,10 +5986,23 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     return cleaned;
   }
 
+  private observeCommittedSatelliteReceipt(
+    receipt: VerifiedSatelliteSettlementReceipt | VerifiedSatelliteQualifierReceipt
+  ): void {
+    if (!receipt.awards?.length || !receipt.settledAt) return;
+    this.observeSatelliteBoundary({
+      kind: 'settlement',
+      receiptVersion: receipt.receiptVersion,
+      settledAt: receipt.settledAt,
+      payoutIds: receipt.awards.map((a) => a.payoutId),
+    });
+  }
+
   /** Announce and close the one format-owned satellite settlement receipt. */
   private async cleanupCommittedSatellite(
     receipt: VerifiedSatelliteSettlementReceipt
   ): Promise<boolean> {
+    this.observeCommittedSatelliteReceipt(receipt);
     this.retireBlindClockAfterCommittedTerminal();
     this.tournamentFinished = true;
     this.committedSatelliteReceipt = receipt;
@@ -6017,6 +6030,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
   private async cleanupCommittedSatelliteQualifiers(
     receipt: VerifiedSatelliteQualifierReceipt
   ): Promise<boolean> {
+    this.observeCommittedSatelliteReceipt(receipt);
     this.retireBlindClockAfterCommittedTerminal();
     this.tournamentFinished = true;
     this.committedSatelliteQualifierReceipt = receipt;
