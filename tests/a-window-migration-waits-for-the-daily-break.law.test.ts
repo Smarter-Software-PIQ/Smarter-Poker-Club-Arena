@@ -175,8 +175,10 @@ describe('a window migration names the lock it needs, for ordering only (2026-11
     // The declaration never reaches the applier: same flags, same transaction.
     expect(loop).not.toMatch(/--locks|declared.*APPLIER|APPLIER.*declared/);
     expect(installer).not.toMatch(/lock_timeout\s*[=:]|SET\s+(LOCAL\s+)?statement_timeout/i);
-    // The quiet-moment wait still reads the SQL, not the declaration.
-    expect(loop).toContain('await awaitQuietMoment(f, targets);');
+    // The quiet-moment wait still asks about the SQL's targets; the declaration
+    // only lets it stop waiting on idle holders the next step may terminate
+    // (a-window-install-ends-an-idle-holder-only-inside-the-freeze).
+    expect(loop).toContain('await awaitQuietMoment(f, targets, declared);');
     // The skip line and the verdict name the lost relation.
     expect(loop).toContain(
       "(relations.length ? ` Lost its lock on ${relations.join(', ')}.` : '')"

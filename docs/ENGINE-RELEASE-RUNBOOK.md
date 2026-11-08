@@ -481,7 +481,12 @@ shortens a safeguard.
    `ca_break_window_migration_overrides`, 1 s `lock_timeout`, 5 s statements,
    an 8 s budget asserted before COMMIT, started only while the freeze is
    confirmed with at least `START_RESERVE_SECONDS` left, and a quiet-moment
-   wait before each lock (`QUIET_HOLDER_AGE_MS`).
+   wait before each lock (`QUIET_HOLDER_AGE_MS`). Immediately before a file that
+   declares `-- @locks:`, one statement that re-confirms the freeze terminates
+   only postgres-family sessions left idle in transaction (at least
+   `IDLE_HOLDER_MIN_IDLE_MS`) holding a conflicting lock on a declared relation,
+   recording each in `ca_window_install_terminations`; never an active query,
+   a superuser, a Supabase role or pg_cron, and still one attempt.
 4. **Read the verdict.** The run summary names each file: installed, SKIPPED
    (refused, rolled back, still queued) or UNKNOWN. Exit 0 all installed or
    nothing queued; 1 at least one refused; 3 UNKNOWN. Native proof:
