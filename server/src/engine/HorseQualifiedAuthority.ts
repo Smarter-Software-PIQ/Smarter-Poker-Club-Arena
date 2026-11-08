@@ -641,6 +641,8 @@ export class HorsePhase8AuthorityGate {
   private readonly main: HorseQualifiedAuthorityHolder;
   private readonly workers = new Map<string, HorseAuthorityReceipt>();
   private admittedOnce = false;
+  /** Domain-scoped illegal-action disables, domain key to reason. */
+  private readonly withdrawnDomains = new Map<string, string>();
 
   constructor(
     private readonly admit: () => HorseAuthorityAdmission = () =>
@@ -669,6 +671,26 @@ export class HorsePhase8AuthorityGate {
 
   withdraw(reason: string): void {
     this.main.withdraw(reason);
+  }
+
+  /**
+   * Owner design change (2026-11-07): an illegal-action disable withdraws only
+   * the authority domain that produced it (`<variant>-<format>`, the Phase 14
+   * domain key), not the whole gate. Sticky for this gate's lifetime, which is
+   * one engine boot: there is no timer, no re-admission and no retry. Only a
+   * new gate (the next certified boot) starts with the domain usable. Every
+   * other domain keeps the gate's ordinary verdict. Returns true the first
+   * time `domain` is withdrawn.
+   */
+  withdrawDomain(domain: string, reason: string): boolean {
+    if (this.withdrawnDomains.has(domain)) return false;
+    this.withdrawnDomains.set(domain, reason);
+    return true;
+  }
+
+  /** The reason `domain` was withdrawn on this gate, or null. */
+  domainWithdrawal(domain: string): string | null {
+    return this.withdrawnDomains.get(domain) ?? null;
   }
 
   mainGeneration(): number {
@@ -707,9 +729,12 @@ export class HorsePhase8AuthorityGate {
   /** The acceptance-time recheck for authority carried by a returned ledger. */
   check(
     receipt: HorseAuthorityReceipt | null | undefined,
-    nowMs = Date.now()
+    nowMs = Date.now(),
+    domain: string | null = null
   ): HorseAuthorityVerdict {
     if (!receipt || !receiptIsWellFormed(receipt)) return 'missing_receipt';
+    // A domain this gate withdrew stays withdrawn for the gate's lifetime.
+    if (domain !== null && this.withdrawnDomains.has(domain)) return 'withdrawn';
     const mainAuthority = this.main.current();
     if (!mainAuthority) {
       const state = this.main.currentState();

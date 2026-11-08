@@ -2456,7 +2456,7 @@ describe('P10.3 acceptance-time Phase 10 authority recheck (the Phase 8 law)', (
     }
   );
 
-  it('a controller refusal of a selected PLO4 proposal withdraws Phase 10 authority for this process', async () => {
+  it('a controller refusal of a selected PLO4 proposal withdraws its Phase 10 domain for this process', async () => {
     const worker = authority();
     const { engine, player, enginePlayer, state } = harness(false);
     const receipt = receiptFor(
@@ -2469,9 +2469,21 @@ describe('P10.3 acceptance-time Phase 10 authority recheck (the Phase 8 law)', (
     await vi.advanceTimersByTimeAsync(1250);
     expect(receipt.executionStatus).toBe('fallback');
     expect(receipt.selection).toBe('selected');
-    expect(liveHorsePhase10Authority.mainState()).toBe('withdrawn');
-    expect(liveHorsePhase10Authority.check(liveHorsePhase10Authority.stamp(worker.receipt()))).toBe(
-      'withdrawn'
+    // Owner 2026-11-07: the illegal-action disable is scoped to the
+    // decision's authority domain, not the whole gate.
+    expect(liveHorsePhase10Authority.mainState()).toBe('usable');
+    expect(liveHorsePhase10Authority.domainWithdrawal('nlh-cash')).toBe(
+      'controller_fallback_candidate'
+    );
+    const stamped = liveHorsePhase10Authority.stamp(worker.receipt());
+    expect(liveHorsePhase10Authority.check(stamped, Date.now(), 'nlh-cash')).toBe('withdrawn');
+    expect(liveHorsePhase10Authority.check(stamped, Date.now(), 'plo4-cash')).toBe('usable');
+    expect(drainFires().map(({ feature }) => feature)).toEqual(
+      expect.arrayContaining([
+        'phase10_selected_candidate_fallback',
+        'phase10_authority_controller_withdrawn',
+        'phase10_authority_domain_withdrawn_nlh-cash',
+      ])
     );
   });
 
@@ -2732,7 +2744,7 @@ describe('P11.3 acceptance-time Phase 11 authority recheck (the Phase 8 law, one
     ).toBe('usable');
   });
 
-  it('a controller refusal of a selected proposal withdraws that pack only, for this process', async () => {
+  it('a controller refusal of a selected proposal withdraws that pack in its domain only, for this process', async () => {
     const plo6Worker = authority('plo6');
     const plo8Worker = authority('plo8');
     const { engine, player, enginePlayer, state } = harness(false);
@@ -2747,12 +2759,25 @@ describe('P11.3 acceptance-time Phase 11 authority recheck (the Phase 8 law, one
     await vi.advanceTimersByTimeAsync(1250);
     expect(receipt.executionStatus).toBe('fallback');
     expect(receipt.selection).toBe('selected');
-    expect(liveHorsePhase11Authorities.plo6.mainState()).toBe('withdrawn');
+    // Owner 2026-11-07: only the decision's authority domain of that pack.
+    expect(liveHorsePhase11Authorities.plo6.mainState()).toBe('usable');
+    expect(liveHorsePhase11Authorities.plo6.domainWithdrawal('nlh-cash')).toBe(
+      'controller_fallback_candidate'
+    );
     expect(
       liveHorsePhase11Authorities.plo6.check(
-        liveHorsePhase11Authorities.plo6.stamp(plo6Worker.receipt())
+        liveHorsePhase11Authorities.plo6.stamp(plo6Worker.receipt()),
+        Date.now(),
+        'nlh-cash'
       )
     ).toBe('withdrawn');
+    expect(
+      liveHorsePhase11Authorities.plo6.check(
+        liveHorsePhase11Authorities.plo6.stamp(plo6Worker.receipt()),
+        Date.now(),
+        'plo6-cash'
+      )
+    ).toBe('usable');
     expect(liveHorsePhase11Authorities.plo8.mainState()).toBe('usable');
     expect(
       liveHorsePhase11Authorities.plo8.check(
@@ -3025,7 +3050,7 @@ describe('P12.3 acceptance-time Phase 12 authority recheck (the Phase 8 law, one
     ).toBe('usable');
   });
 
-  it('a controller refusal of a selected proposal withdraws that pack only, for this process', async () => {
+  it('a controller refusal of a selected proposal withdraws that pack in its domain only, for this process', async () => {
     const flhWorker = authority('flh');
     const flo8Worker = authority('flo8');
     const { engine, player, enginePlayer, state } = harness(false);
@@ -3040,12 +3065,25 @@ describe('P12.3 acceptance-time Phase 12 authority recheck (the Phase 8 law, one
     await vi.advanceTimersByTimeAsync(1250);
     expect(receipt.executionStatus).toBe('fallback');
     expect(receipt.selection).toBe('selected');
-    expect(liveHorsePhase12Authorities.flh.mainState()).toBe('withdrawn');
+    // Owner 2026-11-07: only the decision's authority domain of that pack.
+    expect(liveHorsePhase12Authorities.flh.mainState()).toBe('usable');
+    expect(liveHorsePhase12Authorities.flh.domainWithdrawal('nlh-cash')).toBe(
+      'controller_fallback_candidate'
+    );
     expect(
       liveHorsePhase12Authorities.flh.check(
-        liveHorsePhase12Authorities.flh.stamp(flhWorker.receipt())
+        liveHorsePhase12Authorities.flh.stamp(flhWorker.receipt()),
+        Date.now(),
+        'nlh-cash'
       )
     ).toBe('withdrawn');
+    expect(
+      liveHorsePhase12Authorities.flh.check(
+        liveHorsePhase12Authorities.flh.stamp(flhWorker.receipt()),
+        Date.now(),
+        'flh-cash'
+      )
+    ).toBe('usable');
     expect(liveHorsePhase12Authorities.flo8.mainState()).toBe('usable');
     expect(
       liveHorsePhase12Authorities.flo8.check(
@@ -3347,7 +3385,7 @@ describe('P13.3 acceptance-time Phase 13 authority recheck (the Phase 8 law, one
     ).toBe('usable');
   });
 
-  it('a controller refusal of a selected joint proposal withdraws that variant only, for this process', async () => {
+  it('a controller refusal of a selected joint proposal withdraws that variant in its domain only, for this process', async () => {
     const plo5Worker = authority('plo5');
     const plo6Worker = authority('plo6');
     const packs = ['short_deck', 'pineapple', 'flh', 'flo8'] as const;
@@ -3364,7 +3402,12 @@ describe('P13.3 acceptance-time Phase 13 authority recheck (the Phase 8 law, one
     await vi.advanceTimersByTimeAsync(1250);
     expect(receipt.executionStatus).toBe('fallback');
     expect(receipt.selection).toBe('selected');
-    expect(liveHorsePhase13Authorities.plo5.mainState()).toBe('withdrawn');
+    // Owner 2026-11-07: only the decision's authority domain of that variant.
+    expect(liveHorsePhase13Authorities.plo5.mainState()).toBe('usable');
+    expect(liveHorsePhase13Authorities.plo5.domainWithdrawal('nlh-cash')).toBe(
+      'controller_fallback_candidate'
+    );
+    expect(liveHorsePhase13Authorities.plo6.domainWithdrawal('nlh-cash')).toBeNull();
     expect(liveHorsePhase13Authorities.plo6.mainState()).toBe('usable');
     expect(
       liveHorsePhase13Authorities.plo6.check(

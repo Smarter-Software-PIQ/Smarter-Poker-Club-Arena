@@ -3,6 +3,7 @@ import {
   checkedToNonBottomRiverBoat,
   checkedToOnePairAboveFlush,
 } from './HorseNonBottomRiverValue.js';
+import { reconcileHorsePhaseReceipts } from './HorsePhaseControllerWithdrawal.js';
 import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
@@ -6187,6 +6188,15 @@ export class HorseLogic {
       }
       return { decision };
     }).decision;
+    // Forced-phase authority (2026-11-07): the Phase 10-13 receipts are
+    // finalized before the corrective policy and the owner wager rules run. Keep them so the receipts can be
+    // reconciled with the action that actually leaves each later owner.
+    const phaseReceiptsBeforeLaterOwners = [
+      ['phase10', decision.plo4Policy],
+      ['phase11', decision.omahaVariantPolicy],
+      ['phase12', decision.remainingVariantPolicy],
+      ['phase13', decision.jointPolicy],
+    ] as const;
     decision = graph.run('corrective_policy', decision, () => {
       const baseline = decision;
       const correction = runCorrectiveKernelEvaluator(opts.phase14Corrective, baseline);
@@ -6205,6 +6215,12 @@ export class HorseLogic {
       }
       return { decision };
     }).decision;
+    reconcileHorsePhaseReceipts(
+      phaseReceiptsBeforeLaterOwners,
+      decision,
+      'corrective_policy',
+      tele
+    );
     // The owner rules run last, inside the graph, so the signed graph and its
     // timing node see the action they choose: the PLO paired-board fold, then
     // the hold'em premium rule (#8122, #8138), then - LAST, so nothing can
@@ -6301,6 +6317,10 @@ export class HorseLogic {
       }
       return { decision: finalWager };
     }).decision;
+    // Forced-phase authority (2026-11-07): an owner wager rule above may replace
+    // an authorised Phase 10-13 candidate; its receipt must say so
+    // (HorsePhaseControllerWithdrawal.ts, reconcileHorsePhaseReceipts).
+    reconcileHorsePhaseReceipts(phaseReceiptsBeforeLaterOwners, decision, 'wager_rules', tele);
     // smallPotNearNutRiverValue receipt: the raise it chose reached the final
     // action (applied) or a later owner replaced it (superseded).
     // v53PloTourneyIcm receipt: a changed reference choice that a later owner
