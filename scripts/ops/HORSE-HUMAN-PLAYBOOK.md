@@ -1,6 +1,6 @@
 # Horse playbook for decisions against humans
 
-The study cutoff is **12:35 UTC on November 7, 2026**. Six private volumes contain 42,444 retained histories, 36,657 eligible hands and 313,562 Horse decisions. A hand qualifies through eligible human participation. For advice about a human opponent, check that a human still had a stake or could respond at the decision. Original Horse cards remain missing on 10,077 decisions. Those decisions can establish public action, price and legality. Their hand strength remains unknown.
+The six-volume baseline cutoff is **12:35 UTC on November 7, 2026**. Six private volumes contain 42,444 retained histories, 36,657 eligible hands and 313,562 Horse decisions. A hand qualifies through eligible human participation. For advice about a human opponent, check that a human still had a stake or could respond at the decision. Original Horse cards remain missing on 10,077 decisions. Those decisions can establish public action, price and legality. Their hand strength remains unknown.
 
 ## Omaha coverage
 
@@ -51,6 +51,32 @@ The sixth volume adds 307 hands and 2,237 decisions, including 125 river decisio
 
 On one flop the Horse's all-in with pocket aces was an effective call for 12.15. The human's unmatched 1.64 returned. The enumerated call gained over folding against 1,072 of 1,081 legal human holdings and lost against nine, averaging all 990 legal turn-river runouts for each holding. Use the actual matched amount and captured fees. How often the human raised each holding remains unknown.
 
+## Decisions observed after the six-volume baseline
+
+By 23:20 UTC on November 7 the private index contained 42,938 retained histories, 37,065 eligible hands and 316,741 Horse decisions. The earlier tables retain their original denominators. The following decisions came from human-facing cash play with a big-blind ante.
+
+**PLO5 and PLO6 card comparisons.** For 22,020 human-facing postflop decisions we compared the Horse with every legal holding of one opponent using exactly two hole cards and three board cards. The sample contains 11,665 flop, 6,818 turn and 3,537 river decisions. For the flop and turn decisions, 804,252 possible next cards were classified by the Horse’s resulting made hand. A stronger made hand can still be drawing thin. Use the next-card distribution alongside the remaining stacks, players and price.
+
+| Mode           | PLO5 decisions | PLO6 decisions |
+| -------------- | -------------: | -------------: |
+| Ordinary cash  |         17,351 |          2,088 |
+| Lightning cash |          1,678 |             93 |
+| Tournament     |            331 |            479 |
+
+The comparison required a confirmed single board and ordinary pot-limit pot. Each count concerns one opponent at a time. Multiway decision EV also depends on overlapping card removal, action order and side pots. For tournaments the payout calculation remains separate.
+
+**Double-board PLO5 bomb pots.** The other 3,566 human-facing PLO5/PLO6 postflop decisions in this census came from cash bomb pots with two boards. Each opponent holds the same five cards on both boards. Removing the Horse’s cards and every exposed card on both boards, the study counted each legal opposing holding once and recorded the joint result. The cohort comprised 1,911 flop, 1,072 turn and 583 river decisions. Across the flop and turn there were 240,318 possible next-card outcomes counted separately by board. Evaluate scooping, splitting and being scooped before applying a single-board value rule. The single-board and double-board counts together cover all 25,586 human-facing PLO5/PLO6 postflop decisions identified in the processed volumes through this cutoff.
+
+**PLO4, including Lightning.** The same exact comparison covered 10,150 single-board decisions. They include 2,552 Lightning cash decisions, 7,046 ordinary cash decisions and 552 tournament decisions. Earlier streets supplied 377,815 next-card cases. A further 305 double-board PLO4 cash decisions used joint opposing holdings across both boards and supplied 21,048 next-card cases counted by board. Use the Lightning-specific records when evaluating how the fast-fold pool responds to a wager.
+
+**PLO8 before the river.** Exact current high/low comparisons covered 500 additional human-facing flop and turn decisions, 366 in tournaments and 134 in cash games. At 107 decisions the Horse could take exactly one quarter against at least one legal four-card holding. At 473 it could lose the whole pot to at least one holding. Neither statistic measures a human’s range or the frequency of a terminal outcome. Before raising for value, price what the Horse can win on each half, how often it shares the low, and whether it can improve on 22,595 next-card cases across these decisions. In tournaments, apply the resulting chip outcomes to the actual payout structure.
+
+**PLO6 river value.** After a human and a Horse checked, a Horse bet 13 into 33 with fours full of sevens. Against one player's 4,496,388 possible six-card holdings, 3,670,896 lost to the Horse, 101,680 tied and 723,812 won. In another hand a human checked and a Horse bet 23 into 23 with nines full of eights. It beat 4,266,507 possible holdings and lost to 229,881. Both actions satisfy the checked-to non-bottom full-house rule. To compare sizes, estimate which worse holdings pay each size and which better holdings raise. Uniform holding counts alone cannot supply those response frequencies.
+
+**PLO4 Lightning against an all-in raise.** A Horse led 24.43 into 24.43 with a full house. The human raised all-in to 70.86. The Horse's recorded raise to 204.87 returned 134.01 uncalled, with nobody else able to respond. The Horse contested exactly 46.43 more chips, the price of calling. Use matched contributions and the amount returned when grading value raises, or this hand incorrectly rewards aggression that collected no additional chips.
+
+**PLO4 Lightning river bluff candidate.** After a human checked, a Horse bet 15.75 into 15.75 with one pair on a board where it blocked eight of the 16 two-card combinations that made the nut straight. The execution receipt confirmed the chosen bet and a live read of prior human history. It did not record bluff intent. A zero-equity pot-sized bluff breaks even at 50% folds before deductions. With showdown value, compare the bet with checking and count the better hands that fold. The human's eventual call cannot establish whether the bet was profitable.
+
 ## Tournament pressure
 
 Across 35 one-paid events, surviving-entry and payout evidence confirmed two players remained. For 38 terminal call-versus-fold comparisons the chip-proportional heads-up regular-prize model gives the pot-odds threshold. In one PLO4 flop spot the human’s final 10 went into a 430-chip pot. Against every legal human holding the Horse retained at least 6.22% pot share, above the 2.27% price. Calling is supported even without estimating how often that human bluffs.
@@ -62,6 +88,20 @@ The study also identified 771 multi-place MTT bubble decisions. For a reconstruc
 Of 10,567 PLO4/5/6/8 tournament decisions, 231 had a bubble stage in the original records. Independent reconstruction identified 117 more PLO4 one-paid heads-up sit-and-go stone-bubble decisions. Of those 348, a human had chips available to act in 311, was all-in in five, and had already folded in 32. The 311 came from 145 hands in 13 tournaments. They break down into 79 multi-place MTT near-bubble decisions, 19 multi-place MTT stone-bubble decisions, 169 one-paid heads-up sit-and-go decisions and 44 one-paid Spin decisions. Original records established the stage in 196 of the 311 and retrospective evidence supplied it in 115. Across the PLO tournament corpus, 1,953 decisions still have an unresolved stage.
 
 All 213 one-paid heads-up decisions had two retained stacks, one regular prize, no bounty and no deal. Under equal-skill heads-up ICM, expected regular-prize share is linear in chip share. Eleven calls would have closed betting, with the amount matched and any uncalled excess priced separately. Of the 98 multi-place MTT decisions, 82 were PLO5 mystery-bounty, four PLO8 progressive-bounty and 12 non-bounty. None met the same heads-up terminal-call conditions. Use the actual payout steps, field stacks and available bounty values there. All four PLO8 decisions were preflop in one hand with seven remaining and six paid. At the short stack's call, five players still had claims on the pot. Include high, low, quartering, future betting and side-pot eligibility before pricing that call.
+
+### PLO8 short stack at seven left and six paid
+
+All seven final-table stacks were present in the four decisions from this progressive-knockout hand. The regular prize ladder paid 156.69, 90, 65.05, 51.68, 43.25 and 37.33. A short Horse faced a 7,000 raise with 9,420 chips and a 10,000 pot. Another Horse opened. A human remained able to act.
+
+Suppose the players behind fold, and a flat call checks through to showdown. Compare that 17,000 pot with folding or shoving the remaining stack and receiving a call for a 21,840 pot. Conditioning only on the short Horse’s original cards and the specified opener range gave the following regular-prize results.
+
+| Opener range                | Call chip change | Call regular-prize change | Called shove chip change | Called shove regular-prize change |
+| --------------------------- | ---------------: | ------------------------: | -----------------------: | --------------------------------: |
+| Uniform four-card holdings  |           +2,864 |                    +2.713 |                   +3,253 |                            +1.590 |
+| Contains an ace and a deuce |           +1,609 |                    +0.325 |                   +1,640 |                            −1.641 |
+| Contains at least two aces  |             −479 |                    −3.714 |                   −1,042 |                            −7.146 |
+
+Changes are relative to folding. With ace-deuce in the opener's hand, adding chips increased the short Horse’s expected chip count while reducing its expected regular prize compared with folding. Each range used 32,768 reproducible samples. The simultaneous 95% simulation half-widths were at most 0.299 regular-prize units for the call and 0.406 for the called shove. The opener covered the Horse, so the Horse could not win an immediate bounty in this heads-up branch. Other callers, future betting, opener folds and future bounty value can change the ranking.
 
 ### When the Horse lacked a recorded bubble stage
 

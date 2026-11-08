@@ -52,10 +52,10 @@ describe('the autopilot re-arms a protected merge after CI passes', () => {
 
   it('serializes per PR branch, so a re-arm and a new push never race', () => {
     expect(wf.concurrency.group).toBe(
-      "agent-autopilot-${{ github.event.pull_request.number || github.event.workflow_run.head_branch }}${{ github.event.action == 'closed' && '-merged' || '' }}"
+      'agent-autopilot-${{ github.event.pull_request.number || github.event.workflow_run.head_branch }}'
     );
-    // The merged-PR dispatch (a-merged-migration-is-dispatched-by-its-merger)
-    // runs in its own group and is never cancelled; every other event still is.
-    expect(wf.concurrency['cancel-in-progress']).toBe("${{ github.event.action != 'closed' }}");
+    // The merged-PR dispatch moved to its own workflow (2026-11-07,
+    // dispatch-merged-migrations.yml), so every autopilot event is cancellable.
+    expect(wf.concurrency['cancel-in-progress']).toBe(true);
   });
 });

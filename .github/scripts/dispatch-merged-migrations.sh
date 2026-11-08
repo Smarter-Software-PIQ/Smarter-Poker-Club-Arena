@@ -1,10 +1,23 @@
 #!/usr/bin/env bash
-# A MERGED MIGRATION IS DISPATCHED BY ITS MERGER (2026-10-25).
+# A MERGED MIGRATION IS DISPATCHED BY ITS MERGE (2026-10-25, 2026-11-07).
 #
-# Run by agent-autopilot.yml on the pull_request_target `closed` event of a PR
-# the autopilot App itself merged. Sends ONE repository_dispatch
-# (event_type apply-merged-migration, client_payload {migration, dry_run:false})
-# per migration file the PR added, in filename order, after the merge.
+# Run by .github/workflows/dispatch-merged-migrations.yml on the
+# pull_request_target `closed` event of every PR merged into the default branch
+# from a branch of this repository, whoever merged it. Sends ONE
+# repository_dispatch (event_type apply-merged-migration, client_payload
+# {migration, dry_run:false}) per migration file the PR added, in filename
+# order, after the merge.
+#
+# WHY NOT ONLY THE APP'S MERGES (2026-11-07). This began as the autopilot App
+# dispatching its own merges, so that "the person who merged" stayed the
+# applier's reader for a human merge. In practice the merger is an agent or
+# GitHub auto-merge armed by the owner account, and nobody dispatched:
+# #9876, #9858 and #9957 all left migrations uninstalled for hours. The real
+# intent was always "a file that merged into protected main gets installed";
+# the trust is the protected merge from this repository, which the workflow's
+# `if` and the applier's own merged-bytes check enforce. The job also used to
+# live in agent-autopilot.yml, which is disabled by owner instruction, so it
+# never ran at all; it now has its own workflow.
 #
 # apply-merged-migration.yml stays dispatch-only and keeps every guard; this
 # is the merger supplying the dispatch a person used to supply. It is not a
@@ -24,11 +37,10 @@
 # 04:00 freeze. They are named in the summary as queued for that route.
 set -euo pipefail
 
-: "${GH_TOKEN:?GH_TOKEN must be the autopilot App installation token}"
+: "${GH_TOKEN:?GH_TOKEN must be a token with contents:write (the job token)}"
 REPO="${REPO:?repository is required}"
 PR="${PR:?pull request number is required}"
 MERGED_BY="${MERGED_BY:-}"
-APP_SLUG="${APP_SLUG:?app slug is required}"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 PLANNER=scripts/ci/merged-migration-dispatch.mjs
 
@@ -61,7 +73,7 @@ if ! gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" \
     > "$ADDED"; then
   say "- **COULD NOT TELL** which files #$PR added: the PR file list was unreadable. Nothing was sent."
   say "- Read the PR's files and dispatch \`apply-merged-migration\` for each added \`supabase/migrations/*.sql\` (filename order) after :03 UTC."
-  gh pr comment "$PR" --repo "$REPO" --body "The autopilot merged this PR but could not read its file list, so it dispatched no migration. Dispatch \`apply-merged-migration\` for every \`supabase/migrations/*.sql\` this PR added, in filename order, outside :50-:03 UTC." || true
+  gh pr comment "$PR" --repo "$REPO" --body "This PR merged but the merged-migration dispatcher could not read its file list, so it dispatched no migration. Dispatch \`apply-merged-migration\` for every \`supabase/migrations/*.sql\` this PR added, in filename order, outside :50-:03 UTC." || true
   exit 1
 fi
 
@@ -94,7 +106,7 @@ if [ "$(jq -r '.withinBudget' <<<"$PLAN")" != "true" ]; then
   say "- **NOT DISPATCHED (break window)**: the applier would not admit ${LIST}within this run's bounded wait (next admitted: $(jq -r '.dispatchAt // "none in two hours"' <<<"$PLAN")). Nothing was sent."
   say "- Dispatch each, in this order, after :03 UTC: ${LIST}"
   echo "::error::Merged migrations not dispatched (break window): ${DISPATCH[*]}"
-  gh pr comment "$PR" --repo "$REPO" --body "The autopilot merged this PR inside the migration break window and could not reach an admitted moment within its bounded wait, so NOTHING was dispatched. Dispatch \`apply-merged-migration\` for each, in order, after :03 UTC: ${LIST}" || true
+  gh pr comment "$PR" --repo "$REPO" --body "This PR merged inside the migration break window, and the dispatcher could not reach an admitted moment within its bounded wait, so NOTHING was dispatched. Dispatch \`apply-merged-migration\` for each, in order, after :03 UTC: ${LIST}" || true
   exit 1
 fi
 
@@ -107,7 +119,7 @@ fi
 if ! node "$PLANNER" admitted "${#DISPATCH[@]}" "$PREAMBLE"; then
   say "- **NOT DISPATCHED**: the applier would still refuse after the wait. Dispatch each, in this order, after :03 UTC: ${LIST}"
   echo "::error::Merged migrations not dispatched: ${DISPATCH[*]}"
-  gh pr comment "$PR" --repo "$REPO" --body "The autopilot merged this PR but the migration break window outlasted its bounded wait, so NOTHING was dispatched. Dispatch \`apply-merged-migration\` for each, in order, after :03 UTC: ${LIST}" || true
+  gh pr comment "$PR" --repo "$REPO" --body "This PR merged but the migration break window outlasted its bounded wait, so NOTHING was dispatched. Dispatch \`apply-merged-migration\` for each, in order, after :03 UTC: ${LIST}" || true
   exit 1
 fi
 
@@ -123,7 +135,7 @@ for f in "${DISPATCH[@]}"; do
     REST=$(printf '`%s` ' "${DISPATCH[@]:$SENT}")
     say "- **DISPATCH REFUSED** for \`$f\`; not retried. Dispatch each remaining file, in this order: ${REST}"
     echo "::error::apply-merged-migration dispatch refused for $f; remaining: ${DISPATCH[*]:$SENT}"
-    gh pr comment "$PR" --repo "$REPO" --body "The autopilot merged this PR and dispatched ${SENT} migration(s), then GitHub refused the dispatch for \`$f\`. Dispatch \`apply-merged-migration\` for each remaining file, in order: ${REST}" || true
+    gh pr comment "$PR" --repo "$REPO" --body "This PR merged and the dispatcher sent ${SENT} migration(s), then GitHub refused the dispatch for \`$f\`. Dispatch \`apply-merged-migration\` for each remaining file, in order: ${REST}" || true
     exit 1
   fi
   # Keep creation order, which is the applier's queue order (run id).

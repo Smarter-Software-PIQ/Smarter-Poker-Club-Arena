@@ -14,12 +14,19 @@ for line in s.split('\n'):
     if line.startswith('-- @live-proof:'):
         proof = line[len('-- @live-proof:'):].strip()
 stmts = []
-for m in re.finditer(r'CREATE (?:OR REPLACE )?(FUNCTION|PROCEDURE)\s+([\w."]+)\s*\(', s):
+# Top-level statements only (line start): a CREATE quoted inside a DO block's
+# EXECUTE string is not a statement this file runs and cannot be cut out of it.
+for m in re.finditer(r'^CREATE (?:OR REPLACE )?(FUNCTION|PROCEDURE)\s+([\w."]+)\s*\(', s, re.M):
     a = m.start()
     t = re.compile(r'AS\s+(\$\w*\$)').search(s, a)
     tag = t.group(1); b = s.index(tag, t.end()) + len(tag)
     e = s.index(';', b) + 1
-    stmts.append((m.group(2).replace('"', ''), s[a:e]))
+    # Replay as CREATE OR REPLACE: a migration may create a NEW routine with a
+    # plain CREATE FUNCTION, which now exists in production and would abort the
+    # whole rolled-back readback ("already exists") before it printed anything.
+    # Re-creating with OR REPLACE is the same definition check either way.
+    text = re.sub(r'^CREATE\s+(?!OR\s+REPLACE\b)', 'CREATE OR REPLACE ', s[a:e], count=1)
+    stmts.append((m.group(2).replace('"', ''), text))
 names = sorted({n for n, _ in stmts})
 print("BEGIN; SET LOCAL statement_timeout='60s'; SET LOCAL lock_timeout='5s';")
 print("CREATE TEMP TABLE rb_before(sig text, d text) ON COMMIT DROP;")

@@ -80,11 +80,25 @@ class DailySelection(unittest.TestCase):
         with (patch.object(mod, 'git', side_effect=[newest+'\\n'+old, serving]),
               patch.object(mod, 'current_schema', return_value=True),
               patch.object(mod, 'statuses', return_value=[(newest, {}), (old, {})]),
-              patch.object(mod, 'backup', return_value={'runId': 123}) as backup,
+              patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving,
+                                                       'rollbackAdoptionSeconds': 135, 'forwardAdoptionSeconds': 7}) as backup,
               patch.object(mod.subprocess, 'run', return_value=mod.subprocess.CompletedProcess([], 2))):
             with self.assertRaises(mod.subprocess.CalledProcessError):
                 mod.select(args, {'cutoffEpoch': 1, 'deferredCandidates': []})
             self.assertEqual(backup.call_count, 1)
+
+    def test_selection_defers_unrehearsed_or_over_budget_rollback(self):
+        newest, serving = 'b' * 40, 'c' * 40
+        args = types.SimpleNamespace(repo='o/r', control=newest, serving=serving)
+        for predecessor, duration in [(newest, 1), (serving, 136), (serving, None)]:
+            report = {'cutoffEpoch': 1, 'deferredCandidates': []}
+            evidence = dict(rehearsedServingSha=predecessor, rollbackAdoptionSeconds=duration,
+                            forwardAdoptionSeconds=3)
+            with (patch.object(mod, 'git', side_effect=[newest, serving]),
+                  patch.object(mod, 'statuses', return_value=[(newest, {})]),
+                  patch.object(mod, 'backup', return_value=evidence)):
+                mod.select(args, report)
+            self.assertEqual(report['deferredCandidates'][0]['reason'], 'serving rollback rehearsal unavailable')
 
     def test_newest_missing_qualification_yields_the_pinned_older_candidate(self):
         old, newest, serving = ('a' * 40, 'b' * 40, 'c' * 40)
@@ -97,7 +111,8 @@ class DailySelection(unittest.TestCase):
         with (patch.object(mod, 'git', side_effect=[newest+'\n'+old, serving]),
               patch.object(mod, 'current_schema', return_value=True),
               patch.object(mod, 'statuses', return_value=[(newest, {}), (old, {})]),
-              patch.object(mod, 'backup', return_value={'runId': 123}),
+              patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving,
+                                                       'rollbackAdoptionSeconds': 135, 'forwardAdoptionSeconds': 7}),
               patch.object(mod.subprocess, 'run', side_effect=processes)):
             mod.select(args, report)
         self.assertEqual(report['targetSha'], old)

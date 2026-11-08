@@ -51,8 +51,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -x /usr/lib/postgresql/17/bin/initdb ]]; then exit 0; fi
-          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y --no-install-recommends postgresql-17
+          # The one shared install (signed sources, checkout key, bounded retries).
+          bash .github/actions/install-postgres-17/install.sh
       - name: Qualify report against an isolated database
         env:
           PG_SCOREBOARD_BIN: /usr/lib/postgresql/17/bin

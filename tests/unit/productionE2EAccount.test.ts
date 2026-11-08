@@ -21,6 +21,8 @@ import {
   retireCertificationClubWithRetry,
   retireProductionCreateClubFixtures,
   RETIREMENT_REFUSAL_CLUB_HAS_HISTORY,
+  RABBIT_HUNT_CLUB_NAME_PREFIX,
+  STALE_RESIDUE_SWEEP_HINT,
 } from '../../scripts/ci/production-e2e-account.mjs';
 
 const USER_ID = '00000000-0000-4000-8000-000000000099';
@@ -2735,5 +2737,105 @@ describe('stale certification residue drains', () => {
       'for (const step of [cleanupStaleProductionE2EAccounts, cleanupStaleCertificationClubs])'
     );
     expect(script).not.toContain('STALE_ACCOUNT_LIMIT');
+  });
+});
+
+/* 2026-11-07 (#9830): beside the three recycled welcome fixtures that the
+   history door (fn_ca_retire_stale_welcome_fixture_with_history, #9959) now
+   retires, the stale inventory held two rabbit-hunt owners whose 'Cert RH'
+   clubs the sweep refused as unrecognized by name, on every run, for ever. A
+   'Cert RH' club has played by design: retired, it is the owner's retained
+   history; active, only its own run's cleanup settles it. The sweep's failure
+   also names itself and the residue pattern, since the certification is its
+   only reader. */
+describe('the stale sweep recognizes a rabbit-hunt club (2026-11-07, #9830)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const NOW = Date.parse('2026-11-07T20:00:00.000Z');
+  const RH = '110fc34f-0000-4000-8000-000000000004';
+  const owner = {
+    id: '0f1f28e9-0000-4000-8000-000000000005',
+    email: 'ca-customization-cert-postdeploy-1762380903363-rh@example.invalid',
+    created_at: '2026-11-05T22:16:43.363Z',
+  };
+  const build = (lifecycle: string) => {
+    const doors: string[] = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = decodeURIComponent(String(input));
+      if (url.includes('/rpc/fn_ca_stale_certification_accounts')) return Response.json([owner]);
+      if (url.includes('/rest/v1/clubs?'))
+        return Response.json([
+          { id: RH, name: 'Cert RH 17004387', owner_id: owner.id, lifecycle_status: lifecycle },
+        ]);
+      if (url.includes('/rest/v1/rpc/')) {
+        doors.push(url);
+        return Response.json({ success: false, error: 'not a certification fixture by name' });
+      }
+      return new Response('unexpected request ' + url, { status: 500 });
+    });
+    const query = vi.fn(async () => ({ rows: [] }));
+    return { fetchImpl, doors, client: { query, connect: vi.fn(), end: vi.fn() } };
+  };
+  const run = (world: ReturnType<typeof build>) =>
+    cleanupStaleProductionE2EAccounts({
+      environment: {
+        ...environment(mkdtempSync(join(tmpdir(), 'production-e2e-rh-'))),
+        DATABASE_URL: 'postgres://synthetic',
+      },
+      fetchImpl: world.fetchImpl as typeof fetch,
+      now: NOW,
+      wait: vi.fn().mockResolvedValue(undefined),
+      databaseClientFactory: async () => world.client,
+    });
+
+  it("a retired Cert RH club is the owner's retained history: no door, no account sweep, kept and named", async () => {
+    expect(RABBIT_HUNT_CLUB_NAME_PREFIX).toBe('Cert RH ');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const world = build('retired');
+    await expect(run(world)).resolves.toBe(0);
+    expect(world.doors).toEqual([]);
+    expect(world.client.query).not.toHaveBeenCalled();
+    expect(log.mock.calls.flat().join('\n')).toContain(
+      `kept stale identity ${owner.id} as the owner of record of retired fixture(s) ${RH}`
+    );
+  });
+
+  it('an active Cert RH club is refused loudly, through no door, and the failure names the sweep and the pattern', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const world = build('active');
+    const outcome = run(world);
+    await expect(outcome).rejects.toThrow(
+      `Refusing to retire rabbit-hunt certification club ${RH}: it has played and is still active`
+    );
+    await expect(outcome).rejects.toThrow(STALE_RESIDUE_SWEEP_HINT);
+    expect(world.doors).toEqual([]);
+  });
+
+  it('never reads a retired Cert RH club as retained for a live run', async () => {
+    const world = build('retired');
+    await expect(
+      retireProductionCreateClubFixtures({
+        environment: {
+          ...environment(mkdtempSync(join(tmpdir(), 'production-e2e-rh-live-'))),
+          DATABASE_URL: 'postgres://synthetic',
+        },
+        fetchImpl: world.fetchImpl as typeof fetch,
+        record: owner,
+        retainedRetiredClubs: [],
+        terminalFixtureOnly: true,
+        databaseClientFactory: async () => world.client,
+      })
+    ).rejects.toThrow('Refusing to retire rabbit-hunt certification club');
+    await expect(
+      retireProductionCreateClubFixtures({
+        environment: {
+          ...environment(mkdtempSync(join(tmpdir(), 'production-e2e-rh-live-'))),
+          DATABASE_URL: 'postgres://synthetic',
+        },
+        fetchImpl: world.fetchImpl as typeof fetch,
+        record: owner,
+        databaseClientFactory: async () => world.client,
+      })
+    ).rejects.toThrow('Refusing to retire rabbit-hunt certification club');
   });
 });

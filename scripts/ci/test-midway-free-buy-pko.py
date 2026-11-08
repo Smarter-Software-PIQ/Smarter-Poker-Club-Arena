@@ -16,7 +16,7 @@ started=False
 
 def run(args,sql=None,env=None):
  r=subprocess.run([str(a) for a in args],input=sql,text=True,capture_output=True,timeout=60,env=env)
- if r.returncode: raise RuntimeError(r.stderr)
+ if r.returncode: raise RuntimeError(r.stderr + ((work/'postgres.log').read_text() if 'pg_ctl' in str(args[0]) and (work/'postgres.log').exists() else ''))
  return r.stdout
 
 def query(db,sql):
@@ -34,7 +34,7 @@ def candidate(name):
 
 try:
  run([PG/'initdb','-D',work/'data','-U','postgres','-A','trust','--no-locale'])
- run([PG/'pg_ctl','-D',work/'data','-l',work/'postgres.log','-o',f'-k {sock} -p {port} -h 127.0.0.1','-w','start']);started=True
+ run([PG/'pg_ctl','-D',work/'data','-l',work/'postgres.log','-o',f'-k {sock} -p {port} -c listen_addresses=','-w','start']);started=True
  query('postgres','CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;')
  for case in ['runtime','funding','conversion']:
   query('postgres','CREATE DATABASE '+case)

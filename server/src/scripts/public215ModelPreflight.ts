@@ -15,8 +15,8 @@ import {
   compilePublic215Template,
   encodePublic215Features,
   public215TemplateMatchesContext,
-  PUBLIC_HIST215_FEATURE_SCHEMA_SHA256,
 } from '../engine/GtoPublicHist215Features.js';
+import { public215FeatureContractBySchema } from '../engine/GtoPublicHist215Contracts.js';
 import { validatePublic215BuildReceipt } from '../engine/GtoPublicHist215BuildReceipt.js';
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const NATIVE_SOURCE = '83442cb6604dfaa30ec7ecc6ce38957355609e722b5df85b866365c97f0ccf9b';
@@ -48,9 +48,15 @@ export function validatePreflightRequest(input: unknown) {
     'training_provenance_checksum',
   ]);
   if (p.policy_representation !== 'public_hist215_v1') return fail('REPRESENTATION');
-  if (p.feature_schema_checksum !== PUBLIC_HIST215_FEATURE_SCHEMA_SHA256)
-    return fail('IMPLEMENTED_FEATURE_SCHEMA');
-  const t = compilePublic215Template(p.public_template, p.template_checksum as string);
+  // The prepared program's descriptor is the one the database bound to the
+  // dataset's declared feature_contract_version (fn_gto_v31_prepare_model).
+  const contract = public215FeatureContractBySchema(p.feature_schema_checksum);
+  if (!contract) return fail('IMPLEMENTED_FEATURE_SCHEMA');
+  const t = compilePublic215Template(
+    p.public_template,
+    p.template_checksum as string,
+    contract.version
+  );
   if (!public215TemplateMatchesContext(t, p.context as any)) return fail('CONTEXT');
   const provenance = compilePublic215Provenance(
     p.public_training_provenance,

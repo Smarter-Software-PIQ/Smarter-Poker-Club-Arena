@@ -569,6 +569,41 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       (step: { name?: string }) =>
         step.name === 'Install PostgreSQL 17 tools without a default database service'
     );
+    // The install itself is the one shared installer (2026-11-07,
+    // .github/actions/install-postgres-17, pinned by
+    // tests/postgres-installs-from-one-shared-action.law.test.ts). Normalize
+    // exactly those lines back to the reviewed inline install; every other
+    // command stays fingerprinted.
+    const sharedInstall = [
+      '# The one shared install (signed Ubuntu/PGDG sources only, the checkout key,',
+      '# bounded retries around every apt call): .github/actions/install-postgres-17.',
+      'PG_UBUNTU_MIRROR=true PG_PACKAGES="postgresql-17 postgresql-17-cron ${pg_ci_build_packages[*]-}" \\',
+      '  bash .github/actions/install-postgres-17/install.sh',
+    ].join('\n');
+    expect(keySetup.run.split(sharedInstall)).toHaveLength(2);
+    keySetup.run = keySetup.run.replace(
+      sharedInstall,
+      [
+        'sudo python3 scripts/ci/ubuntu-apt-mirror.py',
+        'pg_ci_sources="$(mktemp -d "$RUNNER_TEMP/ca-postgres-apt.XXXXXX")"',
+        'chmod 755 "$pg_ci_sources"',
+        'test -f /etc/apt/sources.list.d/ubuntu.sources',
+        'cp /etc/apt/sources.list.d/ubuntu.sources "$pg_ci_sources/ubuntu.sources"',
+        'pg_ci_apt=(-o "Dir::Etc::sourcelist=/dev/null" -o "Dir::Etc::sourceparts=$pg_ci_sources")',
+        'sudo apt-get "${pg_ci_apt[@]}" update',
+        'sudo apt-get "${pg_ci_apt[@]}" install -y --no-install-recommends postgresql-common curl ca-certificates',
+        'sudo install -d /usr/share/postgresql-common/pgdg',
+        '# The PGDG signing key is installed from the checkout (.github/pgdg); fetching',
+        '# it from either PGDG host failed with TLS EOFs before native tests ran.',
+        'sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc',
+        'pg_ci_codename="$(. /etc/os-release && printf \'%s\' "$VERSION_CODENAME")"',
+        "printf 'Types: deb\\nURIs: https://apt.postgresql.org/pub/repos/apt\\nSuites: %s-pgdg\\nComponents: main\\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\\n' \\",
+        '  "$pg_ci_codename" > "$pg_ci_sources/pgdg.sources"',
+        'sudo apt-get "${pg_ci_apt[@]}" update',
+        "printf 'create_main_cluster = false\\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null",
+        'sudo apt-get "${pg_ci_apt[@]}" install -y --no-install-recommends postgresql-17 postgresql-17-cron ${pg_ci_build_packages[@]+"${pg_ci_build_packages[@]}"}',
+      ].join('\n')
+    );
     const currentKeyBlock = [
       '# The PGDG signing key is installed from the checkout (.github/pgdg); fetching',
       '# it from either PGDG host failed with TLS EOFs before native tests ran.',
@@ -1370,6 +1405,34 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     // tests/the-postgres-signing-key-comes-from-the-checkout.law.test.ts).
     // Normalize exactly that one line back to the reviewed download; every
     // other byte of the workflow stays fingerprinted.
+    // The one shared installer (2026-11-07): normalize its two lines back to
+    // the reviewed inline install before the key normalization below.
+    const nativeShared = [
+      '  # The one shared install (signed sources, checkout key, bounded retries).',
+      '  PG_UBUNTU_MIRROR=true PG_PACKAGES=postgresql-client-17 bash .github/actions/install-postgres-17/install.sh',
+    ].join('\n');
+    const nativeSharedSteps = normalized.jobs['native-smoke'].steps.filter(
+      (step: { run?: string }) => step.run?.includes(nativeShared)
+    );
+    expect(nativeSharedSteps).toHaveLength(1);
+    nativeSharedSteps[0].run = nativeSharedSteps[0].run.replace(
+      nativeShared,
+      [
+        '  sudo python3 scripts/ci/ubuntu-apt-mirror.py',
+        '  pg_sources="$(mktemp -d "$RUNNER_TEMP/isolated-export-apt.XXXXXX")"',
+        '  chmod 755 "$pg_sources"',
+        '  cp /etc/apt/sources.list.d/ubuntu.sources "$pg_sources/ubuntu.sources"',
+        '  apt_options=(-o "Dir::Etc::sourcelist=/dev/null" -o "Dir::Etc::sourceparts=$pg_sources")',
+        '  sudo apt-get "${apt_options[@]}" update',
+        '  sudo apt-get "${apt_options[@]}" install -y --no-install-recommends postgresql-common curl ca-certificates',
+        '  sudo install -d /usr/share/postgresql-common/pgdg',
+        '  sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc',
+        '  pg_codename="$(. /etc/os-release && printf \'%s\' "$VERSION_CODENAME")"',
+        '  printf \'Types: deb\\nURIs: https://apt.postgresql.org/pub/repos/apt\\nSuites: %s-pgdg\\nComponents: main\\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\\n\' "$pg_codename" > "$pg_sources/pgdg.sources"',
+        '  sudo apt-get "${apt_options[@]}" update',
+        '  sudo apt-get "${apt_options[@]}" install -y --no-install-recommends postgresql-client-17',
+      ].join('\n')
+    );
     const keyFromCheckout =
       'sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc';
     const keySteps = normalized.jobs['native-smoke'].steps.filter((step: { run?: string }) =>

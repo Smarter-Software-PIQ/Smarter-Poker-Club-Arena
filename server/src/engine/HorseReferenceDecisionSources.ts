@@ -106,6 +106,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the frozen categorical and numeric feature ordering consumed by public215 inference',
     'src/engine/GtoPublicHist215FeatureDescriptor.json':
       'the full immutable public215 feature contract and predecessor graph identity',
+    'src/engine/GtoPublicHist215FeatureDescriptorV2.json':
+      'the public215 feature contract v2 (R8): the v1 contract with appended public category one-hots',
+    'src/engine/GtoPublicHist215Contracts.ts':
+      'the public215 feature contract table (v1 215 / v2 246) selected by the dataset feature_contract_version',
     'src/engine/GtoPublicHist215Model.ts':
       'bounded numeric tree inference and whole-variant frequency/value normalization used by public215 decisions',
     'native/public_hist215_wtl.cc':
