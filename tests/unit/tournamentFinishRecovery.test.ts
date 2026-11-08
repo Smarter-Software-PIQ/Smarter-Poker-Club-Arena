@@ -7,6 +7,7 @@ import {
 const resultRead = vi.hoisted(() => ({
   entry: { status: 'eliminated', position: null } as Record<string, unknown>,
   status: 'CANCELLED',
+  satelliteTarget: null as string | null,
   qualification: vi.fn(),
 }));
 vi.mock('../../src/services/satelliteQualifierResult', () => ({
@@ -20,7 +21,12 @@ vi.mock('../../src/lib/supabase', () => ({
         data: head
           ? null
           : table === 'tournaments'
-            ? { status: resultRead.status, name: 'Satellite', is_mystery_bounty: false }
+            ? {
+                status: resultRead.status,
+                name: 'Satellite',
+                is_mystery_bounty: false,
+                satellite_target_id: resultRead.satelliteTarget,
+              }
             : resultRead.entry,
         count: head ? 6 : null,
         error: null,
@@ -41,6 +47,7 @@ vi.mock('../../src/lib/supabase', () => ({
 beforeEach(() => {
   resultRead.entry = { status: 'eliminated', position: null };
   resultRead.status = 'CANCELLED';
+  resultRead.satelliteTarget = null;
   resultRead.qualification.mockReset().mockResolvedValue(null);
 });
 
@@ -86,6 +93,22 @@ describe('cancelled tournament result reader preserves canonical satellite evide
       expect(resultRead.qualification).not.toHaveBeenCalled();
     }
   );
+  it.each(['seat', 'ticket'])('recovers a ranked %s award on a cold read', async (deliveryKind) => {
+    resultRead.status = 'COMPLETED';
+    resultRead.satelliteTarget = 'target';
+    resultRead.entry = { status: 'eliminated', position: 2, prize: 50 };
+    resultRead.qualification.mockResolvedValue({
+      qualified: true,
+      targetId: 'target',
+      amount: 50,
+      position: 2,
+      deliveryKind,
+    });
+    const result = await fetchTournamentResult('satellite', 'hero');
+    expect(result.finishPlace).toBe(2);
+    expect(result.satelliteQualification).toEqual({ targetId: 'target', amount: 50, deliveryKind });
+  });
+
   it('keeps the existing completed null-rank winner qualification read', async () => {
     resultRead.status = 'COMPLETED';
     resultRead.entry = { status: 'winner', position: null };

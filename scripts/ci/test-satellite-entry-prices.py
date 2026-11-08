@@ -22,7 +22,7 @@ def check(statement):
  if result!='t':raise AssertionError(result)
 try:
  command('initdb','-D',str(data),'-A','trust','--no-locale','-U','postgres')
- command('pg_ctl','-D',str(data),'-l',str(log),'-o',f'-k {sock} -p {port} -h 127.0.0.1','-w','start')
+ command('pg_ctl','-D',str(data),'-l',str(log),'-o',f'-k {sock} -p {port} -c listen_addresses=','-w','start')
  sql("""
  CREATE TABLE clubs(id uuid PRIMARY KEY,asset text,is_platform boolean);
  CREATE TABLE tournament_schedules(id uuid PRIMARY KEY,club_id uuid,union_id uuid,name text,active boolean,config jsonb);

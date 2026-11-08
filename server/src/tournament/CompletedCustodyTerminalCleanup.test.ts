@@ -13,8 +13,14 @@ vi.mock('../services/supabase/client.js', () => ({
     rpc: vi.fn(() => {
       throw Error('Unexpected financial RPC');
     }),
-    from: vi.fn(() => {
-      throw Error('Unexpected database access');
+    from: vi.fn((table: string) => {
+      if (table !== 'financial_alerts') throw Error('Unexpected database access');
+      const read = {
+        select: () => read,
+        eq: () => read,
+        maybeSingle: async () => ({ data: null, error: null }),
+      };
+      return read;
     }),
   },
   maintenanceSupabase: {},
@@ -226,7 +232,9 @@ it.each([
     expect(manager.broadcastCommittedOutcome).toHaveBeenCalledTimes(announcements);
     const { supabase } = await import('../services/supabase/client.js');
     expect(supabase.rpc).not.toHaveBeenCalled();
-    expect(supabase.from).not.toHaveBeenCalled();
+    expect(
+      vi.mocked(supabase.from).mock.calls.every(([table]) => table === 'financial_alerts')
+    ).toBe(true);
   }
 );
 it.each([

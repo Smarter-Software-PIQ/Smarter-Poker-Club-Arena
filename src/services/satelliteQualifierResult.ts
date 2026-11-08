@@ -21,13 +21,14 @@ export async function readMySatelliteQualifierResult(
   if (
     !data ||
     data.ok !== true ||
-    data.receipt_version !== 3 ||
+    ![2, 3].includes(data.receipt_version) ||
     data.tournament_id !== tournamentId ||
     data.user_id !== userId ||
     typeof data.target_id !== 'string' ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.target_id) ||
     typeof data.qualified !== 'boolean' ||
-    (data.qualified
+    (data.receipt_version === 2 && data.qualified !== true) ||
+    (data.qualified && data.receipt_version === 3
       ? data.position !== null
       : !Number.isSafeInteger(data.position) || data.position < 1) ||
     typeof data.amount !== 'number' ||

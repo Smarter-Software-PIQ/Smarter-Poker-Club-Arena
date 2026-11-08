@@ -53,6 +53,8 @@ Verify the jobs and affected behavior applicable to the assigned change. A clien
 
 ## Backup and daily engine launch
 
+The step-by-step procedure for everything in this section, including the decision table for what an agent does unprompted at 03:30 and 04:00, the Backup certification steps, the host transaction's phases and reserves, the post-cutover checklist and the read-only tool table, is [`docs/ENGINE-RELEASE-RUNBOOK.md`](docs/ENGINE-RELEASE-RUNBOOK.md). This section states the policy and the trace examples; the runbook states the procedure. `scripts/ci/select-daily-engine.py`, named below, is not yet on main (checked 2026-11-07); until it lands, read the staging run's `signal` job log for the selected SHA.
+
 **Enforced today.** Protected merge, the exact-SHA Backup certificate, daily admission, in-break database readback and the host seal are enforced by the linked workflows.
 
 **Published controls.** The daily selector requires four passing exact-target shards, immutable candidate and rollback image evidence, and a successful Backup certificate by 03:30 Chicago. The protected receiver verifies the selection receipt before handoff. Measure the first natural daily run to establish elapsed times under these controls. [Daytime release preparation](#daytime-release-preparation)
@@ -60,6 +62,8 @@ Verify the jobs and affected behavior applicable to the assigned change. A clien
 ### Stage an upgrade during the day
 
 Start in an owned branch from protected main. Keep the engine change, required migrations and focused regression coverage together. Preview the applicable checks with `node scripts/ci/execution-preview.mjs --working-tree`. Run the selected local checks and required gates, then merge through the protected PR. A server-tree push starts [Backup qualification](.github/workflows/backup-engine.yml) for that revision. Backup uses an isolated database and rehearses boot, crash recovery and a 1,800-second soak. Agents contribute through Git. Editing a running clone would produce a version that cannot be traced to the PR.
+
+**A certificate follows identical engine source (2026-11-07).** The engine image is built from `git archive <sha> server` with `server/Dockerfile`, so `scripts/ci/engine-source-identity.sh <sha>` names exactly the bytes it is built from (the Dockerfile's context `COPY` sources, the Dockerfile and the script itself). A push run that is still the newest computes the candidate's identity, walks main's first-parent line back 60 commits, and inherits `backup-engine/certified = success` from the nearest ancestor with the same identity whose newest certificate is success, writing the candidate's own status as `Inherited from <sha>: identical engine source (<prefix>)` and building nothing. A same-identity ancestor whose newest certificate is failure, error or unreadable stops the walk and the candidate certifies in full; a different identity is never consulted; dispatch, schedule and post-seal runs always build. Selection and admission read only the state, so an inherited certificate qualifies exactly like an earned one, and the trace recipe below prints the inheritance in its description. The 1,800-second soak is unchanged for any candidate that builds. `docs/changelog/2026-11-07-a-certificate-follows-identical-engine-source.md`.
 
 ### Trace a change to its certificate
 
@@ -183,6 +187,8 @@ Run the applicable local prechecks on the final candidate before push, as requir
 Check required provider access, reporter identity and secret-store metadata before dependent hosted work. Follow the owner policy for necessary credential repairs without another human approval. A missing input or tool-required handoff applies only to the steps that require it: continue local checks, integration, other running checks and independent publication yourself. Do not stop at a pending question or intermediate milestone; retain the exact owning operation and finish all executable work. Never print secrets or substitute a different reporter to satisfy a trusted check.
 
 ### Daytime release preparation
+
+When the candidate differs from production, Backup rehearses both directions on its isolated database. It boots the candidate, swaps back to the serving revision, then swaps forward before crash and soak checks. Each swap compares occupied seat identities and chip stacks during the freeze and checks for resumed dealing after thaw. Failure in either direction disqualifies the candidate.
 
 A protected-main engine push starts `engine-release-prequalification.yml`. Its four server shards exercise the exact candidate, including the retained historical qualification once. A separate runner builds the candidate image from the committed server tree, transfers its digest-only archive to the pinned Hetzner host, and verifies the sealed rollback image is the running container’s image and is present locally. The host rejects a conflicting candidate tag or insufficient disk space. This workflow never dispatches a release or changes a running container.
 
