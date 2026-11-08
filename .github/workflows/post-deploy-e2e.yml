@@ -1213,8 +1213,12 @@ jobs:
           read_release release-bracket/lightning-before.json
           # Read-only Join Lightning from the member lobby (#7879) rides the same
           # authenticated account and the same release bracket.
+          # The frozen door (#9945, #9963) is proven here too, on the same
+          # isolated account: only the freeze ANSWERS are faked in the browser;
+          # production is never frozen (Dan 2026-11-07).
           npx playwright test tests/e2e/production-lightning-operator.spec.ts \
             tests/e2e/production-lightning-lobby-join.spec.ts \
+            tests/e2e/production-freeze-entry-door.spec.ts \
             --project=chromium --reporter=line,json --workers=1 --retries=0
           rc=$?
           read_release release-bracket/lightning-after.json

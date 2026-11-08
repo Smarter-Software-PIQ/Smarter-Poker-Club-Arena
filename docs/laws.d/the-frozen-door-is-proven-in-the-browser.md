@@ -1,0 +1,3 @@
+# tests/the-frozen-door-is-proven-in-the-browser.law.test.ts
+
+Dan, 2026-11-07: after every client publication the post-deploy client browser job proves, on the deployed site with the isolated account, that a frozen entry door says when it opens (board and panel countdown, disabled), the banner waits for the database's release boundary, and a refusal names its wait and is never called a failure. Production is never frozen for this: only the freeze answers (`fn_entry_purchases_frozen`, `fn_maintenance_break_state`, the rejoin door's refusal, the engine's maintenance presentation) are faked in the browser, and any admission or buy-in reaching the network fails the case. A seated player keeps Return To Game in all three lobby layouts.
