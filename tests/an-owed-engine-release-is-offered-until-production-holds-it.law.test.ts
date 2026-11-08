@@ -443,8 +443,14 @@ describe('the offer is the existing release, not a second publisher', () => {
   });
 
   it('uses protected main and the explicit Phase1 schedule without a release-completion chain', () => {
-    expect(Object.keys(stage.on)).toEqual(['workflow_dispatch', 'push', 'schedule']);
-    // Explicit dispatch is database-only: it cannot produce engine outputs.
+    expect(Object.keys(stage.on)).toEqual([
+      'repository_dispatch',
+      'workflow_dispatch',
+      'push',
+      'schedule',
+    ]);
+    expect(stage.on.repository_dispatch.types).toEqual(['prepare-daily-engine']);
+    // The existing workflow_dispatch is database-only: it cannot produce engine outputs.
     expect(stage.jobs.detect.if).toBe("github.event_name != 'workflow_dispatch'");
     expect(stage.jobs.selection.needs).toBe('detect');
     expect(stage.jobs.signal.needs).toEqual(['detect', 'selection']);
