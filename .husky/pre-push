@@ -22,8 +22,13 @@ set -e
 # Mac worktree was refused by eleven server benchmark cases that pass in every
 # other environment. Git finds this tree on its own from the hook's working
 # directory, so nothing below needs these; the tests must not see them.
+# The same inheritance flipped the shared clone to core.bare=true twice that
+# day: `git -C <tmp> init` under an inherited worktree GIT_DIR re-initialised
+# THIS repository, guessed "bare" and wrote it into the shared config
+# (scripts/guard-bare-flip.sh), which then refuses a clone left in that state.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR \
   GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+bash "$(git rev-parse --show-toplevel)/scripts/guard-bare-flip.sh"
 
 # ── One working tree per agent (rule 1a) ────────────────────────────────────
 # Runs FIRST, for the same reason it runs first on pre-commit: if this push
@@ -216,6 +221,23 @@ if [ "$(uname -s)" = Darwin ]; then
       if [ -n "$(find "$ca_old" -maxdepth 0 -mtime +1 2>/dev/null)" ]; then rm -rf -- "$ca_old"; fi
     done
   }
+  # A WRITABLE TMPDIR, NOT JUST AN EXTERNAL ONE (2026-11-07). A caller's
+  # TMPDIR on /Volumes used to be kept on its path alone. Agents inherit one
+  # under /Volumes/SmarterWork/agent-work/..., and while SmarterWork is the
+  # read-only root stub (the drive under "SmarterWork 1") that path cannot be
+  # created or written: vitest's first mkdtemp died with EACCES and the push
+  # was refused for the environment, not the content. Keep a caller's TMPDIR
+  # only when this run can make a directory in it; otherwise say so and take
+  # this run's own scratch below, exactly as for a boot-disk TMPDIR.
+  ca_dir_writable() {
+    [ -d "$1" ] && [ -w "$1" ] || return 1
+    ca_probe=$(mktemp -d "$1/.ca-probe.XXXXXX" 2>/dev/null) || return 1
+    rmdir "$ca_probe" 2>/dev/null || true
+  }
+  if [ "${TMPDIR#/Volumes/}" != "${TMPDIR:-}" ] && ! ca_dir_writable "$TMPDIR"; then
+    echo "[club-arena pre-push] note: TMPDIR $TMPDIR cannot be written; this run uses its own external scratch instead." >&2
+    TMPDIR=""
+  fi
   case "${TMPDIR:-}" in
     /Volumes/*) ;;
     *)

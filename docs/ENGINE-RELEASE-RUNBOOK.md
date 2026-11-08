@@ -531,7 +531,7 @@ shortens a safeguard.
 
 ### 7.3 The degraded-engine emergency, exactly
 
-`recovery_window_reason` (transaction line 1929) names `engine-degraded` only
+`recovery_window_reason` (transaction line 1917) names `engine-degraded` only
 when live `/health` shows `liveness == "dead"`, `wholeFleetStalled == true`, or
 `tournamentManagersQuarantined >= RECOVERY_QUARANTINED_MANAGERS`. That is the
 whole definition; a request deadline, a missed window, a red run or a slow

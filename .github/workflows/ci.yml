@@ -1565,24 +1565,10 @@ jobs:
           # Limit this installation to signed Ubuntu and PostgreSQL sources.
           # The same Azure mirror stalled native qualification for 18 minutes.
           # Preserve signed Ubuntu/PGDG sources and every package/test budget.
-          sudo python3 scripts/ci/ubuntu-apt-mirror.py
-          pg_ci_sources="$(mktemp -d "$RUNNER_TEMP/ca-postgres-apt.XXXXXX")"
-          chmod 755 "$pg_ci_sources"
-          test -f /etc/apt/sources.list.d/ubuntu.sources
-          cp /etc/apt/sources.list.d/ubuntu.sources "$pg_ci_sources/ubuntu.sources"
-          pg_ci_apt=(-o "Dir::Etc::sourcelist=/dev/null" -o "Dir::Etc::sourceparts=$pg_ci_sources")
-          sudo apt-get "${pg_ci_apt[@]}" update
-          sudo apt-get "${pg_ci_apt[@]}" install -y --no-install-recommends postgresql-common curl ca-certificates
-          sudo install -d /usr/share/postgresql-common/pgdg
-          # The PGDG signing key is installed from the checkout (.github/pgdg); fetching
-          # it from either PGDG host failed with TLS EOFs before native tests ran.
-          sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
-          pg_ci_codename="$(. /etc/os-release && printf '%s' "$VERSION_CODENAME")"
-          printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' \
-            "$pg_ci_codename" > "$pg_ci_sources/pgdg.sources"
-          sudo apt-get "${pg_ci_apt[@]}" update
-          printf 'create_main_cluster = false\n' | sudo tee /etc/postgresql-common/createcluster.conf >/dev/null
-          sudo apt-get "${pg_ci_apt[@]}" install -y --no-install-recommends postgresql-17 postgresql-17-cron ${pg_ci_build_packages[@]+"${pg_ci_build_packages[@]}"}
+          # The one shared install (signed Ubuntu/PGDG sources only, the checkout key,
+          # bounded retries around every apt call): .github/actions/install-postgres-17.
+          PG_UBUNTU_MIRROR=true PG_PACKAGES="postgresql-17 postgresql-17-cron ${pg_ci_build_packages[*]-}" \
+            bash .github/actions/install-postgres-17/install.sh
       - name: MTT lobby entries count committed registrations and rebuys
         if: matrix.shard == 4
         env:
