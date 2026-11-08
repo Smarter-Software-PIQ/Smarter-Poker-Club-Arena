@@ -466,11 +466,11 @@ cmd_certify() {
 
   local reasons_json="[]"
   [ ${#reasons[@]} -eq 0 ] || reasons_json=$(printf '%s\n' "${reasons[@]}" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')
-  python3 - "$result" <<PY
+  python3 - "$result" "$serving" "$rollback_seconds" "$forward_seconds" <<PY
 import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-       "rehearsedServingSha": "$serving", "rollbackAdoptionSeconds": json.loads("$rollback_seconds"), "forwardAdoptionSeconds": json.loads("$forward_seconds"),
+       "rehearsedServingSha": sys.argv[2], "rollbackAdoptionSeconds": json.loads(sys.argv[3]), "forwardAdoptionSeconds": json.loads(sys.argv[4]),
        "bootSeconds": ${boot1:--1}, "crashRecoverySeconds": ${boot2:--1}, "soakSeconds": $soak, "restartPolicy": "unless-stopped", "crashRestartsBefore": ${restart_before:--1}, "crashRestartsAfter": ${restart_after:--1},
        "standbyScriptSha256": "$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)",
        "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},
