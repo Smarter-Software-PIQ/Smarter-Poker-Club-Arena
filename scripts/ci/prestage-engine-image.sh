@@ -84,6 +84,14 @@ free="$(df -PB1 -- "$root" | awk 'NR == 2 { print $4 }')"
 transfer_ref="club-arena-prestage:${sender_image#sha256:}"
 remaining=$((deadline - $(date +%s)))
 (( remaining > 0 ))
+# Release only the transfer tag. Preserve a previously staged release tag
+# and the running container on every failure path.
+cleanup_transfer() {
+  if docker image inspect "$transfer_ref" >/dev/null 2>&1; then
+    docker image rm "$transfer_ref" >/dev/null || echo 'transfer tag cleanup failed' >&2
+  fi
+}
+trap cleanup_transfer EXIT
 timeout --kill-after=5s "${remaining}s" docker image load >/dev/null
 image="$(loaded_image "$transfer_ref" "$config")"
 if existing="$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null)"; then
@@ -98,4 +106,5 @@ fi
 docker tag "$image" "$ref"
 [[ "$(docker image inspect -f '{{.Id}}' "$ref")" = "$image" ]]
 docker image rm "$transfer_ref" >/dev/null
+trap - EXIT
 printf 'image=%s\nrollback=%s\ntree=%s\n' "$image" "$before" "$tree"
