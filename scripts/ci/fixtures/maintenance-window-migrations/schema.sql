@@ -67,6 +67,29 @@ CREATE TABLE public.ca_break_window_migration_overrides (
 GRANT SELECT ON public.engine_maintenance_break, public.engine_maintenance_thaws,
   public.ca_break_window_migration_overrides TO postgres;
 
+-- As on Supabase: the migrating role may signal non-superuser backends
+-- (production: pg_has_role('postgres','pg_signal_backend','member') is true,
+-- read 2026-11-08), and owns the termination record
+-- (20261108035024_a_window_install_records_every_idle_session_it_terminates).
+GRANT pg_signal_backend TO postgres;
+CREATE TABLE public.ca_window_install_terminations (
+  id               bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  terminated_at    timestamptz NOT NULL DEFAULT clock_timestamp(),
+  migration        text NOT NULL,
+  pid              integer NOT NULL,
+  session_role     text,
+  application_name text,
+  state            text NOT NULL,
+  relation         text NOT NULL,
+  lock_mode        text NOT NULL,
+  waiting          boolean NOT NULL,
+  xact_age         interval,
+  idle_for         interval,
+  terminated       boolean NOT NULL,
+  query            text
+);
+ALTER TABLE public.ca_window_install_terminations OWNER TO postgres;
+
 CREATE FUNCTION public.fn_active_maintenance_release_boundary()
  RETURNS timestamp with time zone
  LANGUAGE plpgsql

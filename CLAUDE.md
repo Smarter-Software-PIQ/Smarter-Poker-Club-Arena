@@ -329,7 +329,11 @@ supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS`, and each
     line: the installer then sends undeclared files first (oldest first), then
     declared files grouped by shared relation and oldest first, and a skipped
     file's line names the relation it lost; the line orders only and never
-    widens a timeout or earns a retry. "Queued" is simply "on main and not in schema_migrations"; never
+    widens a timeout or earns a retry. For a declared file, inside the
+    confirmed freeze only, the installer terminates postgres-family sessions
+    left idle in transaction on a declared relation just before the one
+    attempt and records each in `ca_window_install_terminations`; it never
+    touches an active query, a superuser, a Supabase role or pg_cron. "Queued" is simply "on main and not in schema_migrations"; never
     apply a declared file by hand or through the MCP. Window files may not
     set their own override, freeze bypass, longer timeouts, sleeps, blocking
     advisory locks or CONCURRENTLY preambles, and the freeze still refuses

@@ -172,7 +172,7 @@ describe('the installer waits, then sends each file once, exactly as before', ()
 
   it('asks for the quiet moment before the one spawnSync and never retries', () => {
     expect(loop.match(/spawnSync\(/g)).toHaveLength(1);
-    const wait = loop.indexOf('await awaitQuietMoment(f, targets);');
+    const wait = loop.indexOf('await awaitQuietMoment(f, targets, declared);');
     expect(wait).toBeGreaterThan(0);
     expect(wait).toBeLessThan(loop.indexOf('spawnSync('));
     expect(installer).not.toMatch(/\bretry\s*\(/i);

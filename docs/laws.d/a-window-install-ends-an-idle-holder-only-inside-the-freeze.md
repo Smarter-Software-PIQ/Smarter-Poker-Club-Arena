@@ -1,0 +1,3 @@
+# tests/a-window-install-ends-an-idle-holder-only-inside-the-freeze.law.test.ts
+
+Immediately before a daily-maintenance window file's one attempt, scripts/ci/install-window-migrations.mjs terminates, in one statement that re-confirms the daily freeze with its start reserve, only sessions of the postgres role family left idle in transaction (at least 2 s) that hold or queue for a conflicting lock on a relation the file declares with `-- @locks:`, and records each in public.ca_window_install_terminations in that same statement; never an active query, a superuser, a supabase_* role, pg_cron, PostgREST or the installer, never for an undeclared file or in an owner window, and never a retry (2026-11-08: one abandoned session used to cost a window file a full day).

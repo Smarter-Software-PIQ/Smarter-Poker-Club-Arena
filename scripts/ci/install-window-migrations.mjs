@@ -30,7 +30,16 @@
  *      LOCK IN A QUIET MOMENT" in maintenance-window-migrations.mjs). It
  *      requests no lock while it waits, and sends anyway when the bound
  *      passes, so it is never worse than sending at once.
- *   5. Sends each queued file, oldest version first, through
+ *   5. Immediately before a file that declares "-- @locks:", and only inside
+ *      the confirmed daily window (re-checked by the same statement),
+ *      terminates the sessions left IDLE IN TRANSACTION that hold or queue
+ *      for a conflicting lock on a declared relation (never an active query,
+ *      a superuser, a Supabase or replication role, pg_cron, PostgREST or this
+ *      installer), recording each in public.ca_window_install_terminations
+ *      ("AN IDLE SESSION DOES NOT COST A WINDOW FILE A DAY" in
+ *      maintenance-window-migrations.mjs). Never in an owner window, never for
+ *      an undeclared file, never a retry.
+ *   6. Sends each queued file, oldest version first, through
  *      apply-recorded-migration.mjs --maintenance-window: one transaction per
  *      file, one attempt per file. A REFUSED file (its transaction rolled
  *      back, nothing committed) is SKIPPED alone and stays queued for the
@@ -77,6 +86,12 @@ import {
   lostRelationsFromRefusal,
   isLockTimeoutRefusal,
   lostDeclaredRelations,
+  idleBlockerTargets,
+  quietHoldersAreIdleOnDeclared,
+  IDLE_BLOCKERS_TERMINATE_QUERY,
+  IDLE_HOLDER_MIN_IDLE_MS,
+  TERMINATE_WAIT_MS,
+  describeTerminations,
 } from './maintenance-window-migrations.mjs';
 import { splitConcurrentPreamble } from './migration-concurrent-preamble.mjs';
 import { supersededBy } from './check-migrations-are-live.mjs';
@@ -297,7 +312,7 @@ async function holders(client, targets, minAgeMs) {
   ]);
   return rows[0];
 }
-async function awaitQuietMoment(f, targets) {
+async function awaitQuietMoment(f, targets, declared) {
   if (targets.length === 0) return;
   const named = targets.map((t) => `${t.relation} (${t.mode})`).join(', ');
   const began = Date.now();
@@ -309,6 +324,13 @@ async function awaitQuietMoment(f, targets) {
       const row = await holders(client, targets, QUIET_HOLDER_AGE_MS);
       if (budgetMs === null) budgetMs = quietWaitBudgetMs(row.into_break_s, row.remaining_s);
       const held = row.holders || [];
+      if (!ownerWindow && quietHoldersAreIdleOnDeclared(held, declared)) {
+        say(
+          `only sessions idle in transaction hold ${named}; not waiting for them before \`${f}\`. ` +
+            `Held by: ${describeHolders(held)}`
+        );
+        return;
+      }
       if (held.length === 0) {
         const waited = Date.now() - began;
         if (waited >= QUIET_POLL_MS)
@@ -326,6 +348,46 @@ async function awaitQuietMoment(f, targets) {
     }
   } catch (e) {
     say(`lock holders of ${named} unreadable before \`${f}\` (${e.message}); sending it now, once`);
+  } finally {
+    if (client) await client.end().catch(() => {});
+  }
+}
+// The idle holders. One statement gates on the confirmed daily window, finds
+// the declared relations' idle-in-transaction holders, terminates them and
+// records each; it never exits the run, and an error terminates nothing.
+async function terminateIdleBlockers(f, targets, declared) {
+  if (ownerWindow || declared.length === 0) return;
+  const idle = idleBlockerTargets(declared, targets);
+  let client = null;
+  try {
+    client = new pg.Client({
+      connectionString: connectionURL.toString(),
+      ssl,
+      application_name: 'install-window-migrations-terminate',
+      statement_timeout: 5000,
+    });
+    client.on('error', () => {});
+    await client.connect();
+    const { rows } = await client.query(IDLE_BLOCKERS_TERMINATE_QUERY, [
+      idle.map((t) => t.relation),
+      idle.map((t) => t.mode),
+      IDLE_HOLDER_MIN_IDLE_MS,
+      TERMINATE_WAIT_MS,
+      f,
+    ]);
+    const row = rows[0] || {};
+    if (row.open !== true) {
+      say(`idle holders of ${declared.join(', ')} not examined before \`${f}\`: the confirmed freeze no longer has the reserve; nothing terminated`);
+      return;
+    }
+    const ended = row.terminations || [];
+    if (ended.length > 0)
+      say(
+        `terminated ${ended.filter((r) => r.terminated).length} of ${ended.length} session(s) idle in transaction on ` +
+          `${declared.join(', ')} before \`${f}\` (recorded in ca_window_install_terminations): ${describeTerminations(ended)}`
+      );
+  } catch (e) {
+    say(`idle holders of ${declared.join(', ')} unreadable before \`${f}\` (${e.message}); nothing terminated, sending it once`);
   } finally {
     if (client) await client.end().catch(() => {});
   }
@@ -356,7 +418,8 @@ for (const f of queued) {
   const started = Date.now();
   const targets = lockTargets(readFileSync(join(DIR, f), 'utf8'));
   const declared = declaredLocks.get(f) || [];
-  await awaitQuietMoment(f, targets);
+  await awaitQuietMoment(f, targets, declared);
+  await terminateIdleBlockers(f, targets, declared);
   const sent = Date.now();
   // The applier's stdout streams through; its stderr is captured so the
   // refusal it prints ([apply] ... 55P03: ...) can be read, and re-emitted
