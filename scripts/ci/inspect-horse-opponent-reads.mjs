@@ -215,8 +215,7 @@ export function lightningFoldStructure(capture, execution, hand, ordinals, bind)
     capture.decision?.action !== 'fold' ||
     execution?.executionStatus !== 'intended' ||
     execution.executedAction !== 'fold' ||
-    execution.selected?.action !== 'fold' ||
-    execution.handAnchor?.earlyLook === true
+    execution.selected?.action !== 'fold'
   )
     return null;
   const binding = bind(execution, hand);
@@ -258,6 +257,7 @@ export function lightningFoldStructure(capture, execution, hand, ordinals, bind)
   );
   return {
     actionOrdinal: binding.actionOrdinal,
+    ...(execution.handAnchor?.earlyLook === true ? { earlyLook: true } : {}),
     action: 'fold',
     pot: gs.pot,
     toCall: gs.currentBet,
