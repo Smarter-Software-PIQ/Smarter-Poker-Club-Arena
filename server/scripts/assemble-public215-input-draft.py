@@ -36,7 +36,8 @@ V2 = 'public_hist215_official_input_draft_request_v2'
 REQUEST = {'format','pipeline_root','pipeline_commit','original_manifest','original_input_root','target_plan','context_metadata','templates_root','protocol_files','source_namespace','dataset_key','manifest_version','bundle_key','bundle_version','approval_note'}
 # The R7 request (v1) is bound to exactly these values; v2 must state each one.
 R7_PINS = {'original_manifest_sha256':R6_SHA,'source_partition_sha256':PARTITION_SHA,'m2_selection_sha256':SELECTION_SHA,
-           'contexts':107,'m1_per_context':57,'m2_candidates':2147,'scenario_id_prefix':'r7f','draft_name':'public215-r7'}
+           'contexts':107,'m1_per_context':57,'m2_candidates':2147,'scenario_id_prefix':'r7f','draft_name':'public215-r7',
+           'feature_contract_version':'holdem-public-hist215-v1'}
 R7_NAMESPACE = '6b4ec729-fd3a-43d7-a75b-15fd3bced986'
 
 def need(value, label):
@@ -55,6 +56,7 @@ def request_pins(config):
     pins=exact(config['pins'],set(R7_PINS))
     need(all(hex_id(pins[k],64) for k in ('original_manifest_sha256','source_partition_sha256','m2_selection_sha256')),'PIN_SHA256')
     need(all(type(pins[k]) is int and pins[k]>0 for k in ('contexts','m1_per_context','m2_candidates')),'PIN_CENSUS')
+    need(pins['feature_contract_version'] in ('holdem-public-hist215-v1','holdem-public-hist215-v2'),'PIN_FEATURE_CONTRACT')
     need(isinstance(pins['scenario_id_prefix'],str) and re.fullmatch('r[0-9]+f',pins['scenario_id_prefix']) is not None and
          isinstance(pins['draft_name'],str) and re.fullmatch('public215-[a-z0-9][a-z0-9-]{0,62}',pins['draft_name']) is not None,'PIN_NAMES')
     # A new evaluation set never reuses the R7 public domain or R7 identities.
@@ -159,7 +161,7 @@ def assemble(config, output, config_sha):
     need(len(m2)==m2_n,'ALL2147_PUBLIC_CANDIDATES')
     tests=[copy.deepcopy(s) for s in original['scenarios'] if s['scenario_id']==original['self_test']['scenario_id']]
     need(len(tests)==1 and tests[0].get('purpose')=='self_test','ORIGINAL_ANALYTIC_SELFTEST')
-    manifest=copy.deepcopy(original);manifest.update({'dataset_key':config['dataset_key'],'manifest_version':config['manifest_version'],'pipeline_commit':producer,'feature_contract_version':'holdem-public-hist215-v1','policy_export_schema':'smarter-poker.pio-policy.v4','pipeline_contract_version':contract.PUBLIC215_PIPELINE_CONTRACT,'policy_representation':'public_hist215_v1','public215_contexts':contexts,'public215_protocols':protocols,'scenarios':m1+m2+tests,'input_bundle_id':prepare.PLACEHOLDER_BUNDLE_ID,'input_bundle_checksum':prepare.ZERO_CHECKSUM})
+    manifest=copy.deepcopy(original);manifest.update({'dataset_key':config['dataset_key'],'manifest_version':config['manifest_version'],'pipeline_commit':producer,'feature_contract_version':pins['feature_contract_version'],'policy_export_schema':'smarter-poker.pio-policy.v4','pipeline_contract_version':contract.PUBLIC215_PIPELINE_CONTRACT,'policy_representation':'public_hist215_v1','public215_contexts':contexts,'public215_protocols':protocols,'scenarios':m1+m2+tests,'input_bundle_id':prepare.PLACEHOLDER_BUNDLE_ID,'input_bundle_checksum':prepare.ZERO_CHECKSUM})
     manifest['pipeline_files']=[{'path':p,'checksum':sha((pipeline/p).read_bytes())} for p in sorted(contract.PUBLIC215_PIPELINE_FILES)]
     manifest['pipeline_bundle_checksum']=contract.pipeline_bundle_checksum(pipeline,manifest['pipeline_files'],expected_files=contract.PUBLIC215_PIPELINE_FILES)
     out=Path(output);need(out.is_absolute() and out.parent.resolve(strict=True)==out.parent and not out.exists(),'NEW_CANONICAL_OUTPUT');out.mkdir()

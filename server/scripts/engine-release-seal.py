@@ -286,6 +286,14 @@ def load_state() -> dict[str, Any]:
             die("release seal contains an invalid committed-run receipt")
         receipt.update(validate_release(receipt, f"committedRuns.{run_id}"))
     value["committedRuns"] = committed_runs
+    failures = value.get("uncommittedCandidateStarts", {})
+    if not isinstance(failures, dict):
+        die("failed candidate history is invalid")
+    for sha, receipt in failures.items():
+        if (not SHA_RE.fullmatch(sha) or not isinstance(receipt, dict)
+                or not RUN_ID_RE.fullmatch(str(receipt.get("runId", "")))):
+            die("failed candidate identity is invalid")
+        valid_image_id(str(receipt.get("imageId", "")), "uncommittedCandidateStarts.imageId")
     resolutions = value.get("orphanFinalizationResolutions", {})
     if not isinstance(resolutions, dict):
         die("release seal orphan finalization history is invalid")
@@ -1194,6 +1202,8 @@ def resolved_failed_source(state: dict[str, Any], sha: str) -> bool:
     resolutions = state.get('routineFailureResolutions') or {}
     if not isinstance(resolutions, dict):
         die('routine failure resolution history is invalid')
+    if sha in state.get("uncommittedCandidateStarts", {}):
+        return True
     if resolutions and sha == FAILED_ROUTINE_SHA:
         return True
     return any(isinstance(r, dict) and isinstance(r.get('originalCycle'), dict) and
@@ -4352,6 +4362,11 @@ def cmd_abort(args: argparse.Namespace) -> None:
         if not isinstance(pending, dict) or str(pending.get("runId")) != str(args.run_id):
             return
         target = {"sha": pending["sha"], "imageId": pending["imageId"]}
+        if pending["mode"] == "deploy" and pending["used"] and target["sha"] != state["desired"]["sha"]:
+            # Persist in the same atomic seal write that retires this token.
+            # A lost acknowledgment or repeated abort cannot clear the record.
+            state.setdefault("uncommittedCandidateStarts", {})[target["sha"]] = {
+                "runId": str(args.run_id), "imageId": target["imageId"]}
         state["pending"] = None
         state["updatedAt"] = int(time.time())
         write_state(state)

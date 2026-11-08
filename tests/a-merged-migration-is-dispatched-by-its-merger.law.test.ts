@@ -8,12 +8,18 @@
  * 20261024231549_lightning_voided_hand_returns_its_blind_stamps.sql, and the
  * file sat uninstalled until a hand dispatch at 02:30 UTC.
  *
+ * 2026-11-07: the job lived in agent-autopilot.yml, which is disabled by owner
+ * instruction, so it never ran: #9858 and #9957 (merged by GitHub auto-merge
+ * armed by the owner account) left their migrations uninstalled. It now has
+ * its own workflow, dispatch-merged-migrations.yml, for every merge.
+ *
  * What this pins:
- *   1. The dispatch lives in agent-autopilot.yml, the workflow that merges,
- *      on the native `closed` event of a merged same-repository PR; no timer,
- *      no workflow_run watcher, no repository_dispatch trigger of its own.
- *   2. It uses the same freshly minted App token and only acts on a merge the
- *      App itself performed.
+ *   1. The dispatch lives in its own workflow, on the native `closed` event of
+ *      a merged same-repository PR into the default branch; no timer, no
+ *      workflow_run watcher, no repository_dispatch trigger of its own - and
+ *      not in the disabled autopilot workflow.
+ *   2. It uses the job's own token and acts on every such merge, whoever
+ *      merged it.
  *   3. One repository_dispatch per added migration file, filename order,
  *      client_payload {migration, dry_run: false}, never retried.
  *   4. "-- @install-window: daily-maintenance" files are skipped by the
@@ -25,8 +31,10 @@
  *      triggers.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import {
   WAIT_BUDGET_MINUTES,
@@ -52,13 +60,16 @@ const WINDOWED = '-- @install-window: daily-maintenance\nBEGIN;\nSELECT 1;\nCOMM
 const PREAMBLE =
   'CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_a ON public.hand_history (id);\nBEGIN;\nSELECT 1;\nCOMMIT;\n';
 
-describe('the merger dispatches the migrations its merge added', () => {
-  const job = autopilot.jobs['dispatch-merged-migrations'];
+describe('the merge dispatches the migrations it added', () => {
+  const workflow = parse(read('.github/workflows/dispatch-merged-migrations.yml')) as Record<
+    string,
+    any
+  >;
+  const job = workflow.jobs['dispatch-merged-migrations'];
 
-  it('lives in the workflow that merges, on its own native closed event', () => {
-    expect(autopilot.on.pull_request_target.types).toContain('closed');
-    expect(autopilot.on.schedule).toBeUndefined();
-    expect(autopilot.on.repository_dispatch).toBeUndefined();
+  it('lives in its own workflow, on the native closed event of a protected merge', () => {
+    expect(Object.keys(workflow.on)).toEqual(['pull_request_target']);
+    expect(workflow.on.pull_request_target.types).toEqual(['closed']);
     expect(job).toBeDefined();
     expect(job.if).toContain("github.event.action == 'closed'");
     expect(job.if).toContain('github.event.pull_request.merged == true');
@@ -66,29 +77,65 @@ describe('the merger dispatches the migrations its merge added', () => {
     expect(job.if).toContain(
       'github.event.pull_request.base.ref == github.event.repository.default_branch'
     );
+    expect(workflow.concurrency['cancel-in-progress']).toBe(false);
   });
 
-  it('the merged event cannot cancel the merge run, and is never cancelled itself', () => {
-    expect(autopilot.concurrency.group).toContain("github.event.action == 'closed' && '-merged'");
-    expect(autopilot.concurrency['cancel-in-progress']).toBe("${{ github.event.action != 'closed' }}");
+  it('is not left inside the disabled autopilot workflow (2026-11-07)', () => {
+    expect(autopilot.jobs['dispatch-merged-migrations']).toBeUndefined();
+    expect(autopilot.on.pull_request_target.types).not.toContain('closed');
+    expect(autopilotRaw).not.toContain('dispatch-merged-migrations.sh');
   });
 
-  it('a closed event never re-enters the queue job', () => {
-    expect(autopilot.jobs['queue-pr'].if).toContain("github.event.action != 'closed'");
-  });
-
-  it('uses the merge job token, and only for a merge the App performed', () => {
-    const step = job.steps.find((s: any) => s.name === 'Dispatch each added migration to the applier');
-    expect(step.env.GH_TOKEN).toBe('${{ steps.app-token.outputs.token }}');
+  it('uses the job token and dispatches every merge, whoever merged it', () => {
+    const step = job.steps.find(
+      (s: any) => s.name === 'Dispatch each added migration to the applier'
+    );
+    expect(step.env.GH_TOKEN).toBe('${{ github.token }}');
     expect(step.env.MERGED_BY).toBe('${{ github.event.pull_request.merged_by.login }}');
-    expect(step.env.APP_SLUG).toBe('${{ steps.app-token.outputs.app-slug }}');
+    expect(step.run).toBe('bash .github/scripts/dispatch-merged-migrations.sh');
+    expect(workflow.permissions).toEqual({ contents: 'write', 'pull-requests': 'write' });
     expect(job.steps[0].with.ref).toBe('${{ github.event.repository.default_branch }}');
     // Every merge dispatches its own migrations, whoever merged it (2026-11-07:
     // an agent's hand merge of #9876 left 20261107130652 uninstalled for hours).
-    expect(scriptCode).not.toMatch(/\$MERGED_BY"? != "\$\{APP_SLUG\}\[bot\]"/);
-    expect(scriptCode).not.toMatch(/its merger dispatches its migrations\."\s*\n\s*exit 0/);
+    expect(scriptCode).not.toMatch(/MERGED_BY"? != /);
+    expect(scriptCode).not.toContain('APP_SLUG');
     expect(scriptCode).toContain('dispatching the migrations it added');
-    expect(autopilotRaw).not.toMatch(/GH_PAT|AUTOFIX_GITHUB_TOKEN|secrets\.GITHUB_TOKEN/);
+    expect(read('.github/workflows/dispatch-merged-migrations.yml')).not.toMatch(
+      /GH_PAT|AUTOFIX_GITHUB_TOKEN|secrets\./
+    );
+  });
+
+  it('a merge by the owner account reads the PR files instead of stopping (#9957)', () => {
+    const box = mkdtempSync(join(tmpdir(), 'merged-dispatch-'));
+    try {
+      const calls = join(box, 'calls');
+      writeFileSync(
+        join(box, 'gh'),
+        `#!/usr/bin/env bash\necho "$*" >> '${calls}'\ncase "$*" in *pulls/9957/files*) echo docs/x.md ;; esac\n`
+      );
+      chmodSync(join(box, 'gh'), 0o755);
+      const summary = join(box, 'summary');
+      const r = spawnSync('bash', ['.github/scripts/dispatch-merged-migrations.sh'], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${box}:${process.env.PATH}`,
+          GH_TOKEN: 'x',
+          REPO: 'o/r',
+          PR: '9957',
+          MERGED_BY: 'Smarter-Poker',
+          GITHUB_STEP_SUMMARY: summary,
+        },
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(readFileSync(calls, 'utf8')).toContain('repos/o/r/pulls/9957/files?per_page=100');
+      const said = readFileSync(summary, 'utf8');
+      expect(said).toContain('merged by `Smarter-Poker`; dispatching the migrations it added');
+      expect(said).toContain('no ordinary migration to dispatch');
+    } finally {
+      rmSync(box, { recursive: true, force: true });
+    }
   });
 
   it('sends one apply-merged-migration dispatch per file, dry_run false, never retried', () => {
@@ -167,7 +214,9 @@ describe('the merger dispatches the migrations its merge added', () => {
     }
     expect(worst / 60_000).toBeLessThanOrEqual(WAIT_BUDGET_MINUTES);
     expect(WAIT_BUDGET_MINUTES * 60 + 5 * 60).toBeLessThanOrEqual(
-      autopilot.jobs['dispatch-merged-migrations']['timeout-minutes'] * 60
+      (parse(read('.github/workflows/dispatch-merged-migrations.yml')) as Record<string, any>).jobs[
+        'dispatch-merged-migrations'
+      ]['timeout-minutes'] * 60
     );
   });
 
@@ -184,7 +233,7 @@ describe('the merger dispatches the migrations its merge added', () => {
     expect(plan.dispatch).toEqual(['20261024220000_ix.sql']);
     expect(plan.withinBudget).toBe(false);
     const block = scriptCode.slice(
-      scriptCode.indexOf('if [ "$(jq -r \'.withinBudget\''),
+      scriptCode.indexOf("if [ \"$(jq -r '.withinBudget'"),
       scriptCode.indexOf('WAIT=$(jq')
     );
     expect(block).toContain('NOT DISPATCHED (break window)');

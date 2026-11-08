@@ -1,0 +1,24 @@
+name: Install PostgreSQL 17 from the signed PGDG source only
+description: >-
+  The one copy of the PostgreSQL install every workflow uses: signed Ubuntu and
+  PGDG sources only, the byte-pinned PGDG key from the checkout, no default
+  cluster, and bounded retries around every apt call. Requires a checkout of
+  this repository (with .github/pgdg and .github/actions) first.
+inputs:
+  packages:
+    description: Space-separated packages to install from PGDG.
+    required: false
+    default: postgresql-17
+  ubuntu-mirror:
+    description: "'true' pins the Ubuntu mirror first (scripts/ci/ubuntu-apt-mirror.py)."
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Install PostgreSQL 17 from the signed PGDG source only
+      shell: bash
+      env:
+        PG_PACKAGES: ${{ inputs.packages }}
+        PG_UBUNTU_MIRROR: ${{ inputs.ubuntu-mirror }}
+      run: bash "$GITHUB_ACTION_PATH/install.sh"

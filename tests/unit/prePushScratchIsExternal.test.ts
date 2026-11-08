@@ -203,6 +203,40 @@ describe('the default scratch falls back to a short external root', () => {
     expect(kept.stdout).toContain(`RUNNER_TEMP=${given}\n`);
   });
 
+  it('replaces a /Volumes TMPDIR this run cannot write, instead of letting mkdtemp hit EACCES', () => {
+    // 2026-11-07: agents inherited TMPDIR under /Volumes/SmarterWork/agent-work
+    // while that path was the read-only root stub; the hook kept it because it
+    // started with /Volumes, and vitest died on its first mkdtemp.
+    const box = sandbox(['$V/Work']);
+    mkdirSync(join(box.vols, 'Work'), { recursive: true });
+    const root = join(box.vols, 'Work/.t');
+    const r = pickRoot(box, {
+      CA_PUSH_TMP_ROOTS: root,
+      TMPDIR: '/Volumes/__ca_never_mounted__/agent-work/T',
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toContain(
+      'TMPDIR /Volumes/__ca_never_mounted__/agent-work/T cannot be written'
+    );
+    expect(r.stdout).toContain(`TMPDIR=${root}/p.`);
+  });
+
+  it('keeps a writable caller TMPDIR and refuses a read-only one', () => {
+    const box = sandbox(['$V/Work']);
+    const ok = join(box.vols, 'Work/ok');
+    const locked = join(box.vols, 'Work/locked');
+    mkdirSync(ok, { recursive: true });
+    mkdirSync(locked, { recursive: true });
+    chmodSync(locked, 0o555);
+    try {
+      expect(run(box, `ca_dir_writable "${ok}"`).status).toBe(0);
+      expect(run(box, `ca_dir_writable "${locked}"`).status).toBe(1);
+      expect(run(box, `ca_dir_writable "${join(box.vols, 'Work/missing')}"`).status).toBe(1);
+    } finally {
+      chmodSync(locked, 0o755);
+    }
+  });
+
   it('refuses with every reason when no root is external', () => {
     const box = sandbox(['$V/Work 1']);
     mkdirSync(join(box.vols, 'Work/agent-work'), { recursive: true });

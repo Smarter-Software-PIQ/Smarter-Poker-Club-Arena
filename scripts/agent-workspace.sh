@@ -38,6 +38,21 @@ fi
 
 # Resolve the main clone regardless of which worktree we were invoked from.
 ROOT=$(git rev-parse --path-format=absolute --git-common-dir)
+# A CLONE THAT SAYS IT IS BARE (2026-11-07). A git child that inherited a
+# hook's GIT_DIR ran `git init` and wrote core.bare=true into this clone's
+# shared config; every worktree, including the one this would make, then fails
+# with "must be run in a work tree". Refuse with the repair, never paper over
+# it (scripts/guard-bare-flip.sh holds the cause and the same check).
+case "$ROOT" in
+  */.git)
+    if [ "$(git config --file "$ROOT/config" --get core.bare 2>/dev/null)" = true ]; then
+      echo "REFUSED: ${ROOT%/.git} has a working tree but its config says core.bare=true, which breaks every worktree." >&2
+      echo "  Restore it, then run this again:  git config --file \"$ROOT/config\" core.bare false" >&2
+      echo "  Cause and history: scripts/guard-bare-flip.sh" >&2
+      exit 1
+    fi
+    ;;
+esac
 ROOT=${ROOT%/.git}
 REPO=$(basename "$ROOT")
 # ── WORKTREES LIVE ON THE EXTERNAL SSD (2026-09-29) ────────────────────────

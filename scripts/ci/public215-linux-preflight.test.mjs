@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
-import {invocation,stageAdmission,sourceGraph,remoteCommand,GRAPH_FILES,digest,programRequest,executionEvidence,RESOLVE_EXISTING_IMAGE,remoteImageResolutionCommand,existingImageIdentity,resolveImageSelection} from './public215-linux-preflight.mjs';
+import {invocation,stageAdmission,sourceGraph,remoteCommand,GRAPH_FILES,GRAPH_FILES_V2,digest,programRequest,executionEvidence,RESOLVE_EXISTING_IMAGE,remoteImageResolutionCommand,existingImageIdentity,resolveImageSelection} from './public215-linux-preflight.mjs';
 const sha='a'.repeat(40),image='sha256:'+'b'.repeat(64),hex='c'.repeat(64);
 const env={GITHUB_REPOSITORY:'Smarter-Software-PIQ/Smarter-Poker-Club-Arena',GITHUB_REPOSITORY_ID:'1132369872',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/main'};
 const inputs={dataset:'11111111-1111-4111-8111-111111111111',candidate_sha:sha,image_id:image,stage_run:'123'};
@@ -22,6 +22,13 @@ test('closed ten-file approved graph maps absolute Mac paths to exact committed 
  sourceGraph(descriptor,digest(descriptor),p=>Buffer.from(p));
  assert.throws(()=>sourceGraph(descriptor,hex,p=>Buffer.from(p)));
  assert.throws(()=>sourceGraph(descriptor,digest(descriptor),()=>Buffer.from('changed')));
+ // Feature contract v2: exactly the v1 graph plus its descriptor and contract table.
+ const v2={format:'public_hist215_encoder_source_graph_v1',files:GRAPH_FILES_V2.map(p=>({path:'/Volumes/Fake/owned/'+p,sha256:createHash('sha256').update(p).digest('hex')}))};
+ assert.equal(GRAPH_FILES_V2.length,12);sourceGraph(v2,digest(v2),p=>Buffer.from(p));
+ const mixed={format:'public_hist215_encoder_source_graph_v1',files:[...v2.files.slice(0,9),v2.files[10]]};
+ assert.throws(()=>sourceGraph(mixed,digest(mixed),p=>Buffer.from(p)));
+ const short={format:'public_hist215_encoder_source_graph_v1',files:v2.files.slice(0,11)};
+ assert.throws(()=>sourceGraph(short,digest(short),p=>Buffer.from(p)));
  const bad=structuredClone(descriptor);bad.files[0].path='/Users/test/.env';assert.throws(()=>sourceGraph(bad,digest(bad),p=>Buffer.from(p)));
 });
 test('host invocation is isolated, resource bounded and never builds, activates or receives credentials',()=>{

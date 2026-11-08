@@ -166,13 +166,17 @@ export function stageAdmission(run,jobs,sha){
  for(const name of required){const matches=jobs.filter(j=>j.name===name);requireValue(matches.length===1&&matches[0].status==='completed'&&matches[0].conclusion==='success',`Existing source admission incomplete: ${name}`);}
 }
 export const GRAPH_FILES=Object.freeze(['server/src/engine/GtoPublicHist215Features.ts','server/src/engine/GtoPublicHist215FeatureSchema.ts','server/src/engine/GtoPublicHist215FeatureDescriptor.json','server/src/engine/GtoBoardRelativeFeaturesV1.ts','server/src/engine/GtoBoardRelativeFeaturesV2.ts','server/src/engine/GtoPublicHist215Model.ts','server/native/public_hist215_wtl.cc','server/scripts/build-public-hist215-native.mjs','server/src/scripts/buildPublicHist215Features.ts','server/scripts/prepare-public215-feature-request.py']);
+/** Feature contract v2 (holdem-public-hist215-v2) adds its descriptor and the contract table. */
+export const GRAPH_FILES_V2=Object.freeze([...GRAPH_FILES,'server/src/engine/GtoPublicHist215FeatureDescriptorV2.json','server/src/engine/GtoPublicHist215Contracts.ts']);
 export function sourceGraph(descriptor,expected,readCommitted){
- requireValue(exact(descriptor,['format','files'])&&descriptor.format==='public_hist215_encoder_source_graph_v1'&&digest(descriptor)===expected&&Array.isArray(descriptor.files)&&descriptor.files.length===10,'Approved complete encoder graph required');
+ requireValue(exact(descriptor,['format','files'])&&descriptor.format==='public_hist215_encoder_source_graph_v1'&&digest(descriptor)===expected&&Array.isArray(descriptor.files)&&(descriptor.files.length===GRAPH_FILES.length||descriptor.files.length===GRAPH_FILES_V2.length),'Approved complete encoder graph required');
+ // A closed graph is exactly the v1 set (10) or exactly the v2 set (12).
+ const closed=descriptor.files.length===GRAPH_FILES.length?GRAPH_FILES:GRAPH_FILES_V2;
  const seen=new Set();
  for(const f of descriptor.files){
   requireValue(exact(f,['path','sha256'])&&typeof f.path==='string'&&f.path.startsWith('/')&&!f.path.split('/').includes('..')&&HEX.test(f.sha256),'Canonical approved source graph file required');
   const marker=f.path.lastIndexOf('/server/');const relative=marker<0?'':f.path.slice(marker+1);
-  requireValue(GRAPH_FILES.includes(relative)&&!seen.has(relative),'Closed encoder graph path required');seen.add(relative);
+  requireValue(closed.includes(relative)&&!seen.has(relative),'Closed encoder graph path required');seen.add(relative);
   requireValue(createHash('sha256').update(readCommitted(relative)).digest('hex')===f.sha256,'Candidate bytes differ from approved encoder graph');
  }
 }

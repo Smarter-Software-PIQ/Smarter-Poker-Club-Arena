@@ -399,7 +399,7 @@ export default function TournamentRankingCard({
   }, [onDismiss]);
 
   const qualification = result.satelliteQualification;
-  const place = qualification ? null : result.finishPlace;
+  const place = result.finishPlace;
   const eventName = formatGameTitle(result.name || tableName || 'Tournament');
   const totalWon = (result.prize || 0) + (result.bountyWinnings || 0);
   /* MYSTERY BOUNTY (section 43). Cents, and absent on any non-mystery event. */
@@ -457,7 +457,7 @@ export default function TournamentRankingCard({
      if the player's name arrives after it. Share uses whatever is ready. */
   const shareImage = useRef<Blob | null>(null);
   const shareName = profile?.username ?? null;
-  const placeWord = placeTitle(place, Boolean(qualification));
+  const placeWord = placeTitle(place, Boolean(qualification) && place == null);
   const tier = qualification ? 'trc2__medal--gold' : medalClass(place);
   const pillText = qualification
     ? deliveryWord(qualification.deliveryKind)
@@ -478,11 +478,12 @@ export default function TournamentRankingCard({
           subtitle: subtitleText,
           pill: pillText,
           placeTitle: placeWord,
-          place: qualification
-            ? { word: bandWord }
-            : place != null
-              ? ordinalParts(place)
-              : { word: 'Finished' },
+          place:
+            qualification && place == null
+              ? { word: bandWord }
+              : place != null
+                ? ordinalParts(place)
+                : { word: 'Finished' },
           medal:
             qualification || (place != null && place <= 3)
               ? { trophy: true }
@@ -717,7 +718,7 @@ export default function TournamentRankingCard({
               still the finish's metal; it is the light the numeral sits in. */}
           <div className={`trc2__placeband ${tier}`}>
             <span className="trc2__place-title sc-ink--blue">{placeWord}</span>
-            {qualification ? (
+            {qualification && place == null ? (
               <span className="trc2__place-word sc-ink--silver">{bandWord}</span>
             ) : place != null ? (
               <span className="trc2__place-ordinal sc-ink--silver" aria-label={ordinal(place)}>

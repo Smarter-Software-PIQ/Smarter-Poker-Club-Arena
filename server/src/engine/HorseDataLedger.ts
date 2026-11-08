@@ -1969,33 +1969,45 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // No floor: v16Hu is default OFF since 2026-10-05, so silence is expected
   // until a league matchup resolves positive and the default changes.
   receipt('v16_hu_overlay', 'HorseLogic (V16)', 'heads-up overlay; opt-in (v16Hu)', 'V16'),
+  // 2026-11-07 (daily audit 2026-11-06, finding 1): the V16/V23 deep reads
+  // are OBSERVER-GATED since #8075 (2026-10-25). Each horse reads only what it
+  // observed itself, per variant / format / dealt-size scope; the owner's
+  // herd notes (#8235) feed the exploit read, not these counters. The old
+  // floors were set on the pooled mind and read the new design as dead.
+  // Measured per decide over 2026-11-01..11-07 (post-change steady state):
+  //   v16_reads_f3b   0.026-0.147%, median 0.083%  (18-22% pooled, 10-18..10-25)
+  //   v16_reads_cbet  0.011-0.050%, median 0.030%  (1.3-1.5% pooled)
+  //   v23_river_read  0.033-0.242%, median 0.116%  (3.6-4.4% pooled)
+  // Each floor now sits under the week's minimum, so a zero or a real
+  // collapse still trips it. HorseObserverDeepReads.test.ts pins the wiring.
   receipt(
     'v16_reads_f3b',
     'HorseLogic (V16)',
-    'fold-to-3-bet read consulted',
+    "fold-to-3-bet read consulted (observer-gated: the horse's own 8+ opportunities)",
     'V16',
     'decide',
-    0.1
+    0.0002
   ),
   receipt(
     'v16_reads_cbet',
     'HorseLogic (V16)',
-    'fold-to-c-bet read consulted',
+    "fold-to-c-bet read consulted (observer-gated: the horse's own 10+ opportunities)",
     'V16',
     'decide',
-    0.005
+    0.00005
   ),
   receipt(
     'v16_reads_tell',
     'HorseLogic (V16)',
-    // 2026-10-05: per CASH decision. The tell needs a river bettor with a
-    // big-bet showdown history, which is a cash-table read; per fleet decide
-    // it swung 1.8-5.9 per 1,000 with the tournament share alone, per cash
-    // decision it held 6.5-11.5 (2026-09-24..10-05).
-    'big-bet showdown tell consulted; measured per cash decision',
-    'V16',
-    'phase13_utility_cash',
-    0.004
+    // No floor (2026-11-07). Was 0.004 per cash decision (6.5-11.5 per
+    // 1,000 on the pooled mind, 2026-09-24..10-05). Observer-gated since
+    // #8075: five big river bets by one player that reached showdown, seen
+    // by ONE horse in one scope. Public history is card-free and cannot
+    // rebuild it, and the herd notes carry no showdown counter. 23,562 fires
+    // on 2026-10-25, 1,206 on 10-26, 0 every day 2026-11-01..11-07.
+    // fn_audit_layer_silence reports it as layer_observer_gated (note).
+    'big-bet showdown tell consulted; observer-gated (own 5+ big-bet showdowns), no floor',
+    'V16'
   ),
   receipt(
     'v16_sizecond_bigbet',
@@ -2268,10 +2280,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'v19_overbet_polarity',
     'HorseLogic (V19)',
-    'overbet respect shift',
+    // 2026-11-07: floor 0.0005 -> 0.00005. The layer fires when a horse faces
+    // a river overbet (> 1.2x pot), and since Hybrid v1 (#9488, live
+    // 2026-11-05/06: one Grinder/Tricky profile, sizing x0.94) the fleet
+    // stopped making them: cash NLH river wagers over 1.2x pot were 1,699 of
+    // 11,126 on 2026-11-04, 629 of 4,927 on 11-05, 150 of 3,849 on 11-06.
+    // Per decide 0.094-0.105% on 11-02..11-04, 0.0135% on 11-06, 0.0141% 11-07.
+    'overbet respect shift (fires only facing a > 1.2x-pot river overbet)',
     'V19',
     'decide',
-    0.0005
+    0.00005
   ),
   receipt(
     'v19_river_bigbet_cap',
@@ -2338,7 +2356,15 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     0.0002
   ),
   receipt('v21_war_gate', 'HorseLogic (V21)', 'river raise-war governor', 'V21', 'decide', 0.0002),
-  receipt('v23_river_read', 'HorseLogic (V23)', 'river read consulted', 'V23', 'decide', 0.01),
+  receipt(
+    'v23_river_read',
+    'HorseLogic (V23)',
+    // Observer-gated since #8075; see the V16 deep-read note above.
+    "river read consulted (observer-gated: the horse's own river-fold sample)",
+    'V23',
+    'decide',
+    0.0002
+  ),
   receipt(
     'river_call_light_read',
     'HorseLogic (river call read)',
@@ -4209,13 +4235,15 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'an Omaha hand with no flush draw, under eight straight outs and no nut low draw was refused the semi-bluff raise',
     'V74'
   ),
+  // No floor (2026-11-07): v62RiverBettorPolarity is OPT-IN since
+  // 2026-10-30 (#8781; mirror league -3.67 +/- 1.02 bb/100 at 200bb) and no
+  // live caller sets it, so zero fires is the default working, as with
+  // v16_hu_overlay. A floor here reported it as data_unread every day.
   receipt(
     'v62_river_bettor_polarity',
     "HorseLogic to HorseEval river-polar Hold'em sampler",
-    "a river bettor's sampled hand was kept by the V62 size-class likelihood that a human bets it",
-    'V62',
-    'decide',
-    0.001
+    "a river bettor's sampled hand was kept by the V62 size-class likelihood that a human bets it; opt-in (v62RiverBettorPolarity), no floor",
+    'V62'
   ),
   receipt(
     'v56_omaha_pressure_range',

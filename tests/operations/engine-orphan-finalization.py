@@ -82,6 +82,24 @@ class OrphanFinalization(unittest.TestCase):
         for p in mocks:
             p.start(); self.addCleanup(p.stop)
 
+    def test_aborted_consumed_candidate_is_excluded_across_reload(self):
+        failed = 'f' * 40
+        for used in (False, True):
+            state = copy.deepcopy(self.original)
+            state['finalization'] = None
+            state['pending'] = dict(sha=failed, imageId=IMAGE, mode='deploy', runId=CURRENT,
+                                    tokenHash='a' * 64, expiresAt=100, used=used)
+            seal.write_state(state)
+            seal.cmd_abort(argparse.Namespace(run_id=OLD))
+            self.assertIsNotNone(seal.load_state()['pending'])
+            seal.cmd_abort(self.args)
+            seal.cmd_abort(self.args)
+            reloaded = seal.load_state()
+            self.assertIsNone(reloaded['pending'])
+            self.assertEqual(seal.resolved_failed_source(reloaded, failed), used)
+            self.assertFalse(seal.resolved_failed_source(reloaded, SHA))
+            self.assertEqual(reloaded['desired'], state['desired'])
+
     def lines(self, path):
         if path.name == 'control-sha': return [CONTROL]
         if path.name.endswith('.generation'): return [str(self.control), CONTROL]

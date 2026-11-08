@@ -5986,10 +5986,23 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     return cleaned;
   }
 
+  private observeCommittedSatelliteReceipt(
+    receipt: VerifiedSatelliteSettlementReceipt | VerifiedSatelliteQualifierReceipt
+  ): void {
+    if (!receipt.awards?.length || !receipt.settledAt) return;
+    this.observeSatelliteBoundary({
+      kind: 'settlement',
+      receiptVersion: receipt.receiptVersion,
+      settledAt: receipt.settledAt,
+      payoutIds: receipt.awards.map((a) => a.payoutId),
+    });
+  }
+
   /** Announce and close the one format-owned satellite settlement receipt. */
   private async cleanupCommittedSatellite(
     receipt: VerifiedSatelliteSettlementReceipt
   ): Promise<boolean> {
+    this.observeCommittedSatelliteReceipt(receipt);
     this.retireBlindClockAfterCommittedTerminal();
     this.tournamentFinished = true;
     this.committedSatelliteReceipt = receipt;
@@ -6017,6 +6030,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
   private async cleanupCommittedSatelliteQualifiers(
     receipt: VerifiedSatelliteQualifierReceipt
   ): Promise<boolean> {
+    this.observeCommittedSatelliteReceipt(receipt);
     this.retireBlindClockAfterCommittedTerminal();
     this.tournamentFinished = true;
     this.committedSatelliteQualifierReceipt = receipt;
@@ -6231,6 +6245,8 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             throw new Error('Unknown satellite qualifier outcome');
         }
       };
+      // A receipt survives a lease change. Its retired reader cannot stop or announce for the successor.
+      if (!this.isRunning()) return 'pending';
       if (await cleanCommitted()) return 'complete';
       if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
         return pending('manager_not_running_or_frozen_or_out_of_budget_after_read');
@@ -6384,6 +6400,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         // All accepted writers and in-flight hands are drained now. The
         // second serialized read owns cohort membership for this boundary.
         state = await readState();
+        if (!this.isRunning()) return 'pending';
         if (await cleanCommitted()) return 'complete';
         if (!this.isRunning() || isMaintenanceFrozen() || !this.eliminationMutationAllowed())
           return pending('manager_not_running_or_frozen_or_out_of_budget_after_second_read');
@@ -6468,6 +6485,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               this.tournamentId,
               state.qualifierIds
             );
+            if (!this.isRunning()) return 'pending';
             this.satelliteRefusals = null;
             await this.cleanupCommittedSatelliteQualifiers(receipt);
             return 'complete';

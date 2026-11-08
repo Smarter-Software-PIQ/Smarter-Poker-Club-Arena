@@ -97,7 +97,9 @@ describe('a blind level is not spent on a hand that was never dealt', () => {
     // The zero-stack gate belongs to the manager (it decides whether to wake
     // the sweep); the engine must not filter the event itself.
     const settlement = codeOnly(readFileSync(SETTLEMENT, 'utf8'));
-    const call = settlement.indexOf('this.handCompleteCallback(this.tableId, finalStacks)');
+    const call = settlement.indexOf(
+      'this.handCompleteCallback(this.tableId, finalStacks, acceptedHand)'
+    );
     expect(call, 'postHandTasks must invoke the hand-complete callback').toBeGreaterThan(-1);
     const guardStart = settlement.lastIndexOf('if (', call);
     const guard = settlement.slice(guardStart, settlement.indexOf('{', guardStart));
@@ -150,7 +152,7 @@ describe('a blind level is not spent on a hand that was never dealt', () => {
   it('the recheck interval is a bounded local wake, not a per-second one', () => {
     const match = code.match(/STALLED_LEVEL_RECHECK_MS\s*=\s*([^;]+);/);
     expect(match, 'STALLED_LEVEL_RECHECK_MS must be declared').not.toBeNull();
-     
+
     const ms = Number(eval(match![1]));
     expect(Number.isFinite(ms)).toBe(true);
     // A multi-day stall must not become a per-second wake, and a resumed
