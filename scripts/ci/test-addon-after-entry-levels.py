@@ -12,11 +12,11 @@ ENV = {k:v for k,v in os.environ.items() if not k.startswith('PG')}
 ENV.update(LC_ALL='C', LANG='C')
 CLUSTER = pathlib.Path(tempfile.mkdtemp(prefix='addon-entry-'))
 SOCK = CLUSTER / 'sock'; SOCK.mkdir()
-PSQL = [PG/'psql', '-XqAt', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', '55783', '-U', 'postgres']
+PSQL = [PG/'psql', '-XqAt', '-v', 'ON_ERROR_STOP=1', '-h', SOCK, '-p', '55783', '-U', 'postgres']
 checks=[]
 def call(args, sql=None, ok=True):
     r=subprocess.run(list(map(str,args)), input=sql, text=True, capture_output=True, env=ENV, timeout=60)
-    if ok and r.returncode: raise RuntimeError(r.stderr)
+    if ok and r.returncode: raise RuntimeError(r.stderr + ((CLUSTER/'pg.log').read_text() if 'pg_ctl' in str(args[0]) and (CLUSTER/'pg.log').exists() else ''))
     return r
 
 def run(sql): return call(PSQL, sql).stdout.strip()
@@ -28,7 +28,7 @@ PURCHASE=f"SELECT process_tournament_rebuy('{T}','{U}','addon',15,10000,99,NULL)
 def refusal(): return call(PSQL,PURCHASE,False).stderr
 try:
     call([PG/'initdb','-D',CLUSTER/'data','-U','postgres','--auth=trust','--no-locale'])
-    call([PG/'pg_ctl','-D',CLUSTER/'data','-l',CLUSTER/'pg.log','-o','-k "" -p 55783 -h 127.0.0.1','-w','start'])
+    call([PG/'pg_ctl','-D',CLUSTER/'data','-l',CLUSTER/'pg.log','-o',f"-k {SOCK} -p 55783 -c listen_addresses=",'-w','start'])
     run('''CREATE SCHEMA auth;
     CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$SELECT 'service_role'::text$$;
     CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$SELECT NULL::uuid$$;

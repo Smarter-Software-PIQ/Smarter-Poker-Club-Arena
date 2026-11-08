@@ -400,7 +400,13 @@ cmd_certify() {
       record 'serving_baseline_unknown'
     elif [ "$serving" != "$sha" ]; then
       if declare -F trial_swap >/dev/null; then
-        trial_swap "$serving" "$sha" >/dev/null || record "swap_rehearsal_failed_from_${serving:0:12}"
+        # Exercise the predecessor against the database after candidate boot.
+        # End on the candidate for the crash and soak checks below.
+        if trial_swap "$sha" "$serving" >/dev/null; then
+          trial_swap "$serving" "$sha" >/dev/null || record "swap_rehearsal_failed_from_${serving:0:12}"
+        else
+          record "rollback_rehearsal_failed_to_${serving:0:12}"
+        fi
       else
         record 'swap_rehearsal_unavailable'
       fi

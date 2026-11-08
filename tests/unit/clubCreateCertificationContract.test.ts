@@ -1,4 +1,5 @@
 import { timeoutBudgetMinutes } from '../productionJobBudget';
+import { sliceCall } from '../helpers/sourceWindow';
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -474,6 +475,45 @@ describe('a Create Club fixture another run left behind is retired by the next r
     expect(verdict).toBeGreaterThan(recovery);
     expect(certify.slice(recovery - 200, recovery)).toContain('try {');
     expect(certify.slice(recovery, verdict)).toContain('cleanupFailures.push(');
+  });
+
+  it('names the sweep an operator runs and the #9830 residue pattern when the embedded sweep fails (2026-11-07)', () => {
+    const account = read('scripts/ci/production-e2e-account.mjs');
+    const sweep = read('.github/workflows/cert-residue-sweep.yml');
+    // The certification stays the one reader: the sweep workflow is dispatch-only
+    // and the certification embeds the same recovery in its always-run cleanup.
+    expect(sweep).toMatch(/^on:\n  workflow_dispatch:\n/m);
+    expect(sweep).not.toMatch(/^\s+schedule:/m);
+    expect(sweep).toContain('run: node scripts/ci/production-e2e-account.mjs sweep-stale-residue');
+    expect(account).toContain('export const STALE_RESIDUE_SWEEP_HINT =');
+    expect(account).toContain('sweep-stale-residue');
+    expect(account).toContain('issue #9830');
+    // The hint is part of the AggregateError's message: bound the window by
+    // that constructor call, not by a byte count.
+    const message =
+      'Stale recovery left ${failures.length} of ${seen} stale account(s) unrecovered';
+    const at = account.indexOf(message);
+    expect(at).toBeGreaterThan(-1);
+    const aggregate = sliceCall(
+      account.slice(account.lastIndexOf('throw new AggregateError(', at)),
+      'throw new AggregateError('
+    );
+    expect(aggregate).toContain(message);
+    expect(aggregate).toContain('STALE_RESIDUE_SWEEP_HINT');
+  });
+
+  it('a rabbit-hunt club is recognized by name and never offered to a welcome door (2026-11-07)', () => {
+    const account = read('scripts/ci/production-e2e-account.mjs');
+    const rabbit = read('scripts/ci/certify-rabbit-hunt.mjs');
+    expect(rabbit).toContain('p_name: `Cert RH ${');
+    expect(account).toContain("export const RABBIT_HUNT_CLUB_NAME_PREFIX = 'Cert RH '");
+    expect(account).toContain('RABBIT_HUNT_CLUB_NAME_PREFIX,');
+    // Only the stale sweep keeps a retired one as the owner's retained history.
+    expect(account).toContain(
+      'const staleSweep = !terminalFixtureOnly && Array.isArray(retainedRetiredClubs);'
+    );
+    expect(account).toContain("if (staleSweep && club.lifecycle_status === 'retired') {");
+    expect(account).toContain('Refusing to retire rabbit-hunt certification club');
   });
 
   it('the stale cutoff still clears every lane that shares the reserved namespace', () => {

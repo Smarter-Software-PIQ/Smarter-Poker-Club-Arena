@@ -19,7 +19,7 @@ started=False
 
 def run(args,sql=None,env=None,timeout=60):
  r=subprocess.run([str(a) for a in args],input=sql,text=True,capture_output=True,timeout=timeout,env=env)
- if r.returncode: raise RuntimeError(r.stderr)
+ if r.returncode: raise RuntimeError(r.stderr + ((work/'postgres.log').read_text() if 'pg_ctl' in str(args[0]) and (work/'postgres.log').exists() else ''))
  return r.stdout
 
 def query(db,sql):
@@ -30,7 +30,7 @@ def query(db,sql):
 
 try:
  run([PG/'initdb','-D',work/'data','-U','postgres','-A','trust','--no-locale'])
- run([PG/'pg_ctl','-D',work/'data','-l',work/'postgres.log','-o',f'-k {sock} -p {port} -h 127.0.0.1 -c max_prepared_transactions=1','-w','start']);started=True
+ run([PG/'pg_ctl','-D',work/'data','-l',work/'postgres.log','-o',f'-k {sock} -p {port} -c listen_addresses= -c max_prepared_transactions=1','-w','start']);started=True
  query('postgres','CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;')
  query('postgres','CREATE DATABASE rotation')
  db='rotation'

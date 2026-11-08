@@ -105,17 +105,44 @@ export async function engineGate({ health, isAncestor }) {
   };
 }
 
-/** One verdict for the whole run. */
+/**
+ * One verdict for the whole run. A cleanup step that did not finish FAILS the
+ * run: a fixture this run cannot retire is residue the Cert Residue Sweep has
+ * to drain (#9830), and a green run that left it behind would hide that. The
+ * one terminal outcome that is not a failure is recorded as `ok: true` with
+ * its detail: the owner identity kept as the owner of record of the retired
+ * 'Cert RH' club (ownerRetainedAsRecord below), exactly the disposition the
+ * stale sweep records for the same identity.
+ */
 export function verdict({ gate, steps, error, cleanup }) {
   if (!gate.carries) return { conclusion: 'unknown', reason: gate.reason };
   const failed = steps.filter((s) => !s.ok).map((s) => s.name);
-  const cleanupFailed = (cleanup || []).filter((c) => c.ok === false).map((c) => c.step);
+  const cleanupFailed = (cleanup || []).filter((c) => c.ok !== true).map((c) => c.step);
   if (error) failed.push(`error: ${error}`);
   if (cleanupFailed.length) failed.push(`cleanup: ${cleanupFailed.join(', ')}`);
   if (!steps.length && !error) failed.push('no case ran');
   return failed.length
     ? { conclusion: 'fail', reason: failed.join('; ') }
     : { conclusion: 'pass', reason: `${steps.length} cases passed and every fixture was retired` };
+}
+
+/**
+ * The owner of a RETIRED 'Cert RH' club can never be removed: the club keeps
+ * its tables, seats, hands and receipts (records_retained), and the account
+ * door refuses any club owner (CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_
+ * CUSTODY). That is the terminal state, not a failure. It holds only when the
+ * door's refusal was exactly that, and the club row reads retired and owned
+ * by this identity; anything else stays a failed cleanup.
+ */
+export function ownerRetainedAsRecord({ error, club, ownerId, clubId }) {
+  const message = String(error?.message || error || '');
+  return (
+    message.includes('CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY') &&
+    Boolean(clubId) &&
+    club?.id === clubId &&
+    club?.owner_id === ownerId &&
+    club?.lifecycle_status === 'retired'
+  );
 }
 
 /** The #9303 device token: one stable browser per reserved account and origin. */
@@ -805,6 +832,30 @@ async function main() {
             });
             note(`retire the ${role} account`, true);
           } catch (e) {
+            let retainedOwner = false;
+            if (role === 'owner' && S.clubId) {
+              try {
+                const club = (
+                  await svc(`clubs?id=eq.${S.clubId}&select=id,owner_id,lifecycle_status`)
+                )[0];
+                retainedOwner = ownerRetainedAsRecord({
+                  error: e,
+                  club,
+                  ownerId: S.accounts.owner.id,
+                  clubId: S.clubId,
+                });
+              } catch {
+                // Unreadable is not retained: the refusal below stands.
+              }
+            }
+            if (retainedOwner) {
+              note(
+                'retire the owner account',
+                true,
+                `kept as the owner of record of retired club ${S.clubId}; its records are retained and never deleted`
+              );
+              continue;
+            }
             note(`retire the ${role} account`, false, String(e?.message || e).slice(0, 200));
           }
         }

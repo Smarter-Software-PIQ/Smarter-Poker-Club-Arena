@@ -67,7 +67,7 @@ export async function fetchTournamentResult(
            is_mystery_bounty gates the second read below, so an ordinary
            freezeout makes no extra RPC calls on the way out of the table. */
         .select(
-          'status, format_contract, name, current_players, variant, tournament_type, is_mystery_bounty, buy_in_amount, buy_in_fee'
+          'status, format_contract, name, current_players, variant, tournament_type, is_mystery_bounty, buy_in_amount, buy_in_fee, satellite_target_id, satellite_target'
         )
         .eq('id', tournamentId)
         .maybeSingle(),
@@ -102,10 +102,25 @@ export async function fetchTournamentResult(
       }
     }
 
+    const rankedSatellite =
+      tourney?.status === 'COMPLETED' &&
+      (tourney.satellite_target_id || tourney.satellite_target) &&
+      entry != null &&
+      Number.isSafeInteger(entry.position) &&
+      entry.position > 0;
     const qualification =
-      entry?.position === null && (entry.status === 'winner' || tourney?.status === 'CANCELLED')
+      rankedSatellite ||
+      (entry?.position === null && (entry.status === 'winner' || tourney?.status === 'CANCELLED'))
         ? await readMySatelliteQualifierResult(tournamentId, userId)
         : null;
+    if (
+      qualification?.qualified &&
+      rankedSatellite &&
+      (qualification.position !== entry.position ||
+        qualification.targetId !== (tourney.satellite_target_id ?? tourney.satellite_target))
+    ) {
+      throw new Error('Satellite award differs from the recorded result');
+    }
     return {
       satelliteQualification: qualification?.qualified
         ? {

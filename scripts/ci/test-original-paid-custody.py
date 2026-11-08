@@ -221,7 +221,7 @@ def main():
   e.report['private_custody_unchanged']=True
   conserved_hands(e,db,FIX,Path('supabase/migrations/20260918125231_tournament_felt_guard_recognizes_conserved_hands.sql'),activation.refusal)
   validate_complete(e.report)
-  keys=['original_refusal','refusals','private_role_refusals','races','owner_races','activation','installer_refusals','postimage','successful_transfer','private_custody_unchanged','paid_purchase_prevention','acknowledged_supply','conserved_hands']
+  keys=['original_refusal','refusals','private_role_refusals','races','owner_races','activation','installer_refusals','postimage','successful_transfer','private_custody_unchanged','paid_purchase_prevention','rebuy_after_lost_reply','acknowledged_supply','conserved_hands']
   for key in keys:
    bad=copy.deepcopy(e.report);bad.pop(key)
    try:validate_complete(bad)

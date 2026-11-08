@@ -19,8 +19,16 @@ vi.mock('../../src/services/tableWarmup', () => ({
   observeLobbyTableWarmups: vi.fn(() => () => {}),
   warmTable: vi.fn(),
 }));
-beforeEach(() => localStorage.clear());
-afterEach(cleanup);
+beforeEach(() => {
+  localStorage.clear();
+  // Pins belong to today's local calendar; keep +1 minute fixtures in that day.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(2026, 10, 7, 12));
+});
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 const club = 'favorite-priority-club';
 function event(id: string, price: number, kind: 'mtt' | 'spin' | 'sng' = 'mtt', featured = false) {
   return tournamentEntry(

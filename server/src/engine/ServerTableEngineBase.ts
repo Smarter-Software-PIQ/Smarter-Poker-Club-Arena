@@ -2413,7 +2413,11 @@ export abstract class ServerTableEngineBase {
   // mirror failed); consumers must stay fire-and-forget, gate their own work
   // on the stacks they are handed, and independently verify durable authority.
   protected handCompleteCallback:
-    | ((tableId: string, players: { user_id: string; stack: number }[]) => void)
+    | ((
+        tableId: string,
+        players: { user_id: string; stack: number }[],
+        acceptedHand?: { handId: string; startedAt: number }
+      ) => void)
     | null = null;
   /**
    * Exact hand-for-hand barrier signal. The tournament coordinator used to
@@ -7767,7 +7771,11 @@ export abstract class ServerTableEngineBase {
   }
 
   onHandComplete(
-    callback: (tableId: string, players: { user_id: string; stack: number }[]) => void
+    callback: (
+      tableId: string,
+      players: { user_id: string; stack: number }[],
+      acceptedHand?: { handId: string; startedAt: number }
+    ) => void
   ): void {
     this.handCompleteCallback = callback;
   }

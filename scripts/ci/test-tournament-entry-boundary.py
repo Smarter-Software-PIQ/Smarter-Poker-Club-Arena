@@ -8,7 +8,7 @@ sock=pathlib.Path(tempfile.mkdtemp(prefix='sph-sock-',dir=os.environ.get('CA_PG_
 env={**os.environ,'LC_ALL':'C','LANG':'C'}
 def cmd(args,sql=None,ok=True):
  r=subprocess.run([str(a) for a in args],input=sql,text=True,capture_output=True,env=env)
- if ok and r.returncode: raise RuntimeError(r.stderr)
+ if ok and r.returncode: raise RuntimeError(r.stderr + ((cluster/'pg.log').read_text() if 'pg_ctl' in str(args[0]) and (cluster/'pg.log').exists() else ''))
  return r
 psql=[PG/'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-h',sock,'-p','55937','-U','postgres']
 def sql(s):return cmd(psql,s).stdout.strip()
@@ -26,7 +26,7 @@ def fixture(**extra):
 def call(name):return json.loads(sql("select public."+name+"('"+ID+"')"))
 try:
  cmd([PG/'initdb','-D',cluster/'data','-U','postgres','-A','trust','--no-locale'])
- cmd([PG/'pg_ctl','-D',cluster/'data','-l',cluster/'pg.log','-o',f'-k {sock} -p 55937 -h 127.0.0.1','-w','start'])
+ cmd([PG/'pg_ctl','-D',cluster/'data','-l',cluster/'pg.log','-o',f'-k {sock} -p 55937 -c listen_addresses=','-w','start'])
  sql('''create role service_role;
 create table tournaments(id uuid,status text,current_level int,late_reg_levels int,rebuy_levels int,late_reg_mins int,started_at timestamptz,prize_pool_finalized bool,add_on_available bool,is_rebuy bool,is_reentry bool,addon_period_triggered bool,addon_period_started_at timestamptz,addon_period_ends_at timestamptz);
 create function fn_tournament_late_registration_open(tid uuid) returns boolean language sql as $$ select coalesce((select status='RUNNING' and not coalesce(prize_pool_finalized,false) and (case when coalesce(late_reg_levels,rebuy_levels,0)>0 then coalesce(current_level,0)<coalesce(late_reg_levels,rebuy_levels,0) else coalesce(late_reg_mins,0)>0 end) and (coalesce(late_reg_mins,0)<=0 or (started_at is not null and clock_timestamp()<started_at+make_interval(mins=>late_reg_mins))) from tournaments where id=tid),false) $$;

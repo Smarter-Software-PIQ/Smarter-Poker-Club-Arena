@@ -4,12 +4,12 @@ description: >
   Inspect, deliver and verify an assigned Club Arena engine change through the
   existing protected GitHub and Hetzner route. Independent client changes use
   their normal publisher without an engine maintenance hold.
-version: 4.0.0
+version: 4.1.0
 ---
 
 # Club Arena engine delivery
 
-Read root `AGENTS.md`, `PUBLISHING.md` and `docs/agent-policy/OPERATING-LAW.md` first. These are the current authority for submission, publication, recovery and access. This skill does not assign another development phase or override a required check.
+Read root `AGENTS.md`, `PUBLISHING.md`, `docs/agent-policy/OPERATING-LAW.md` and the step-by-step `docs/ENGINE-RELEASE-RUNBOOK.md` first. The runbook holds the Backup certification steps, the 04:00 cutover minute by minute, the post-cutover checklist and the decision table for what an agent does unprompted at 03:30 and 04:00. These are the current authority for submission, publication, recovery and access. This skill does not assign another development phase or override a required check.
 
 ## Classify and prepare promptly
 

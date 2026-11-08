@@ -1,17 +1,22 @@
 /** Owner 2026-11-06: isolated Backup qualification, daily-only replacement. */
-import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
-import { describe, expect, it } from 'vitest';
-function planShell(script: string, env: NodeJS.ProcessEnv) {
+import { afterAll, describe, expect, it } from 'vitest';
+// A pre-push hook exports GIT_DIR and friends; a step reading a disposable
+// fixture repository must not be pointed at the repository being pushed.
+const hookFreeEnv = (): NodeJS.ProcessEnv =>
+  Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+function planShell(script: string, env: NodeJS.ProcessEnv, cwd?: string) {
   const dir = mkdtempSync(resolve(tmpdir(), 'backup-plan-'));
   const output = resolve(dir, 'github-output');
   try {
     const result = spawnSync('bash', ['-c', script], {
       encoding: 'utf8',
-      env: { ...process.env, ...env, GITHUB_OUTPUT: output },
+      cwd,
+      env: { ...hookFreeEnv(), ...env, GITHUB_OUTPUT: output },
     });
     let emitted = '';
     try {
@@ -393,6 +398,337 @@ git() { echo unexpected-main-read >&2; return 99; }
         expect(result.stdout).not.toContain('ALREADY CERTIFIED');
       }
     );
+  });
+  // 2026-11-07: a certificate follows identical engine source. The plan job
+  // inherits backup-engine/certified = success from a first-parent ancestor
+  // whose engine source identity (the Dockerfile's COPY set, the Dockerfile
+  // and the identity script) equals the candidate's; everything else builds.
+  describe('a certificate follows identical engine source', () => {
+    const planStep = backup.jobs.plan.steps.find((s: any) => s.id === 'plan');
+    const checkout = backup.jobs.plan.steps.find((s: any) =>
+      s.uses?.startsWith('actions/checkout')
+    );
+    const inherit = backup.jobs.plan.steps.find((s: any) => s.id === 'inherit');
+    const identityScript = read('scripts/ci/engine-source-identity.sh');
+    const candidate = 'a'.repeat(40);
+    const pushBase = {
+      INPUT_SHA: '',
+      INPUT_REFRESH: 'false',
+      GITHUB_SHA: candidate,
+      RUN_ID: '500',
+      GITHUB_REPOSITORY: 'o/r',
+    };
+    /** A repo whose engine identity is readable at every commit after C0. */
+    function fixture(options: { scriptFrom?: 'c1' } = {}) {
+      const dir = mkdtempSync(resolve(tmpdir(), 'engine-identity-'));
+      const cleanEnv = hookFreeEnv();
+      const git = (...args: string[]) => {
+        const r = spawnSync('git', args, {
+          cwd: dir,
+          encoding: 'utf8',
+          env: {
+            ...cleanEnv,
+            GIT_AUTHOR_NAME: 't',
+            GIT_AUTHOR_EMAIL: 't@t',
+            GIT_COMMITTER_NAME: 't',
+            GIT_COMMITTER_EMAIL: 't@t',
+            GIT_CONFIG_GLOBAL: '/dev/null',
+          },
+        });
+        if (r.status !== 0) throw new Error(r.stderr);
+        return r.stdout.trim();
+      };
+      const write = (p: string, body: string) => {
+        mkdirSync(resolve(dir, p, '..'), { recursive: true });
+        writeFileSync(resolve(dir, p), body);
+      };
+      const commit = (msg: string) => {
+        git('add', '-A');
+        git('commit', '-q', '-m', msg);
+        return git('rev-parse', 'HEAD');
+      };
+      git('init', '-q', '-b', 'main');
+      if (!options.scriptFrom) write('scripts/ci/engine-source-identity.sh', identityScript);
+      write(
+        'server/Dockerfile',
+        [
+          'FROM node:22-slim@sha256:abc AS builder',
+          'COPY native/kernel.cc ./native/kernel.cc',
+          'FROM node:22-slim@sha256:abc',
+          'COPY package.json \\',
+          '     package-lock.json ./',
+          'COPY --from=builder /native-build/kernel.node ./native/kernel.node',
+          'COPY --chown=node:node src/ ./src/',
+          'COPY release-evidence/ ./release-evidence/',
+          'CMD ["node", "dist/index.js"]',
+        ].join('\n') + '\n'
+      );
+      write('server/package.json', '{"name":"engine"}\n');
+      write('server/package-lock.json', '{"lockfileVersion":3}\n');
+      write('server/native/kernel.cc', 'int main() {}\n');
+      write('server/src/index.ts', 'export const v = 1;\n');
+      write('server/src/index.test.ts', 'test 1\n');
+      write('server/release-evidence/r.json', '{}\n');
+      write('server/tests/engine.test.ts', 'test 1\n');
+      write('server/standby/standby-engine.sh', 'echo standby 1\n');
+      write('server/README.md', 'docs 1\n');
+      const shas: Record<string, string> = {};
+      shas.c0 = commit('c0: base');
+      if (options.scriptFrom) write('scripts/ci/engine-source-identity.sh', identityScript);
+      write('server/src/index.ts', 'export const v = 2;\n');
+      shas.c1 = commit('c1: engine source changes');
+      write('server/tests/engine.test.ts', 'test 2\n');
+      write('server/standby/standby-engine.sh', 'echo standby 2\n');
+      shas.c2 = commit('c2: outside the image');
+      write('server/README.md', 'docs 2\n');
+      shas.c3 = commit('c3: docs only');
+      const identity = (sha: string, ...extra: string[]) =>
+        spawnSync('bash', ['scripts/ci/engine-source-identity.sh', sha, ...extra], {
+          cwd: dir,
+          encoding: 'utf8',
+          env: cleanEnv,
+        });
+      return { dir, git, write, commit, shas, identity };
+    }
+    it('is wired: push-only eligibility, a blobless checkout of the candidate, outputs that plan nothing when inherited', () => {
+      expect(backup.permissions.statuses).toBe('write');
+      expect(planStep.run).toContain('echo "inherit_eligible=true" >> "$GITHUB_OUTPUT"');
+      expect(planStep.run.indexOf('SUPERSEDED:')).toBeLessThan(
+        planStep.run.indexOf('inherit_eligible=true')
+      );
+      expect(checkout.if).toBe("steps.plan.outputs.inherit_eligible == 'true'");
+      expect(checkout.with.ref).toBe('${{ steps.plan.outputs.sha }}');
+      expect(checkout.with.filter).toBe('blob:none');
+      expect(inherit.if).toBe("steps.plan.outputs.inherit_eligible == 'true'");
+      expect(inherit.env.SHA).toBe('${{ steps.plan.outputs.sha }}');
+      expect(inherit.env.GH_TOKEN).toBe('${{ github.token }}');
+      expect(inherit.run).toContain('bash scripts/ci/engine-source-identity.sh "$SHA"');
+      expect(inherit.run).toContain(
+        'git rev-list --first-parent --skip=1 --max-count="$DEPTH" "$SHA"'
+      );
+      expect(inherit.run).toContain('-f state=success -f context="$STATUS_CONTEXT"');
+      expect(backup.jobs.plan.outputs.sha).toBe(
+        "${{ steps.inherit.outputs.inherited != 'true' && steps.plan.outputs.sha || '' }}"
+      );
+      expect(backup.jobs.plan.outputs.refresh).toBe(
+        "${{ steps.inherit.outputs.inherited != 'true' && steps.plan.outputs.refresh || '' }}"
+      );
+    });
+    it('the plan step offers inheritance only to a push run that is not superseded', () => {
+      const newest = planShell('gh() { echo 0; }\n' + planStep.run, { ...pushBase, EVENT: 'push' });
+      expect(newest.status, newest.stderr).toBe(0);
+      expect(newest.stdout).toContain('inherit_eligible=true');
+      const superseded = planShell('gh() { echo 2; }\n' + planStep.run, {
+        ...pushBase,
+        EVENT: 'push',
+      });
+      expect(superseded.status).toBe(0);
+      expect(superseded.stdout).toContain('SUPERSEDED');
+      expect(superseded.stdout).not.toContain('inherit_eligible');
+    });
+    it.each([
+      ['workflow_dispatch', { INPUT_SHA: candidate }],
+      ['schedule', {}],
+      ['workflow_run', { RELEASE_TITLE: 'Engine Release ' + candidate }],
+    ])('a %s run never inherits', (event, extra) => {
+      const result = planShell(
+        `gh() { echo 0; }\ngit() { printf '%s\\trefs/heads/main\\n' ${candidate}; }\ncurl() { printf '%s' '${JSON.stringify({ releaseSha: candidate })}'; }\n` +
+          planStep.run,
+        { ...pushBase, ...extra, EVENT: event }
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('sha=' + candidate);
+      expect(result.stdout).not.toContain('inherit_eligible');
+    });
+    describe('the identity script', () => {
+      const f = fixture();
+      afterAll(() => rmSync(f.dir, { recursive: true, force: true }));
+      it('is deterministic and names only the Dockerfile COPY sources, the Dockerfile and itself', () => {
+        const a = f.identity(f.shas.c1, '--manifest');
+        expect(a.status, a.stderr).toBe(0);
+        const lines = a.stdout.trim().split('\n');
+        const identity = lines.pop()!;
+        expect(identity).toMatch(/^[0-9a-f]{64}$/);
+        expect(lines[0]).toMatch(/^identity-script [0-9a-f]{40}$/);
+        expect(lines[1]).toMatch(/^dockerfile [0-9a-f]{40}$/);
+        expect(lines.slice(2).map((l) => l.split(' ')[1])).toEqual([
+          'native/kernel.cc',
+          'package-lock.json',
+          'package.json',
+          'release-evidence',
+          'src',
+        ]);
+        expect(lines.some((l) => l.includes('kernel.node'))).toBe(false);
+        expect(f.identity(f.shas.c1).stdout.trim()).toBe(identity);
+      });
+      it('changes when an enumerated input changes and not when anything outside it does', () => {
+        const id = (s: string) => f.identity(s).stdout.trim();
+        expect(id(f.shas.c0)).not.toBe(id(f.shas.c1));
+        expect(id(f.shas.c2)).toBe(id(f.shas.c1));
+        expect(id(f.shas.c3)).toBe(id(f.shas.c1));
+        f.write('server/src/index.test.ts', 'test 2\n');
+        const srcTest = f.commit('a test under src ships in the image');
+        expect(id(srcTest)).not.toBe(id(f.shas.c3));
+        f.write('server/package-lock.json', '{"lockfileVersion":3,"x":1}\n');
+        const lock = f.commit('lockfile');
+        expect(id(lock)).not.toBe(id(srcTest));
+        f.write('server/release-evidence/r.json', '{"a":1}\n');
+        const evidence = f.commit('evidence');
+        expect(id(evidence)).not.toBe(id(lock));
+      });
+      it('changes when the Dockerfile COPY set or the script itself changes', () => {
+        const id = (s: string) => f.identity(s).stdout.trim();
+        const before = f.git('rev-parse', 'HEAD');
+        f.write(
+          'server/Dockerfile',
+          readFileSync(resolve(f.dir, 'server/Dockerfile'), 'utf8') + 'COPY tests/ ./tests/\n'
+        );
+        const widened = f.commit('copy tests too');
+        expect(id(widened)).not.toBe(id(before));
+        expect(f.identity(widened, '--manifest').stdout).toContain('copy tests ');
+        f.write('scripts/ci/engine-source-identity.sh', identityScript + '# revised\n');
+        const revised = f.commit('identity script revised');
+        expect(id(revised)).not.toBe(id(widened));
+      });
+      it('answers nothing for a commit that cannot be read, a non-sha, or one without the script or Dockerfile', () => {
+        expect(f.identity('f'.repeat(40)).status).not.toBe(0);
+        expect(f.identity('HEAD').status).not.toBe(0);
+        expect(f.identity('f'.repeat(40)).stdout).toBe('');
+        f.git('rm', '-q', 'server/Dockerfile');
+        const noDockerfile = f.commit('dockerfile gone');
+        expect(f.identity(noDockerfile).status).not.toBe(0);
+        expect(f.identity(noDockerfile).stdout).toBe('');
+      });
+    });
+    describe('the inherit step', () => {
+      const f = fixture();
+      afterAll(() => rmSync(f.dir, { recursive: true, force: true }));
+      const env = (sha: string) => ({
+        SHA: sha,
+        DEPTH: '60',
+        GH_TOKEN: 'fake',
+        GITHUB_REPOSITORY: 'o/r',
+        GITHUB_SERVER_URL: 'https://github.test',
+        GITHUB_RUN_ID: '500',
+        STATUS_CONTEXT: backup.env.STATUS_CONTEXT,
+      });
+      /** gh stub: `states` maps ancestor sha -> newest certified state; writes are logged. */
+      const gh = (states: Record<string, string>, writeRc = 0) =>
+        `gh() {
+  echo "gh $*" >&2
+  case "$2" in
+    repos/o/r/statuses/*) return ${writeRc} ;;
+    repos/o/r/commits/*/statuses*) ;;
+    *) echo "unexpected gh call: $*" >&2; return 99 ;;
+  esac
+  local sha; sha=\${2#repos/o/r/commits/}; sha=\${sha%%/*}
+  case "$sha" in
+${Object.entries(states)
+  .map(([s, st]) => `    ${s}) ${st === 'unreadable' ? 'return 1' : `echo ${st}`} ;;`)
+  .join('\n')}
+    *) echo missing ;;
+  esac
+}
+`;
+      it('inherits from the nearest identical ancestor holding success, passing over one with no verdict, never asking about a different identity', () => {
+        const result = planShell(
+          gh({ [f.shas.c1]: 'success' }) + inherit.run,
+          env(f.shas.c3),
+          f.dir
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain(`identical ancestor ${f.shas.c2} has no verdict (missing)`);
+        expect(result.stdout).toContain(
+          `INHERITED: Inherited from ${f.shas.c1}: identical engine source (`
+        );
+        expect(result.stdout).toContain('inherited=true');
+        expect(result.stderr).toContain(
+          `gh api repos/o/r/statuses/${f.shas.c3} -f state=success -f context=backup-engine/certified -f description=Inherited from ${f.shas.c1}: identical engine source (`
+        );
+        expect(result.stderr).toContain('-f target_url=https://github.test/o/r/actions/runs/500');
+        expect(result.stderr).not.toContain(`commits/${f.shas.c0}/`);
+      });
+      it('does not inherit when the only certified ancestor has a different identity', () => {
+        const result = planShell(
+          gh({ [f.shas.c0]: 'success' }) + inherit.run,
+          env(f.shas.c1),
+          f.dir
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('no inherited certificate: no identical ancestor');
+        expect(result.stdout).toContain('inherited=false');
+        expect(result.stderr).not.toContain('gh api');
+      });
+      it.each(['failure', 'error'])(
+        'does not inherit past an identical ancestor whose newest certificate is %s, even with an older success behind it',
+        (state) => {
+          const result = planShell(
+            gh({ [f.shas.c2]: state, [f.shas.c1]: 'success' }) + inherit.run,
+            env(f.shas.c3),
+            f.dir
+          );
+          expect(result.status, result.stderr).toBe(0);
+          expect(result.stdout).toContain(
+            `${f.shas.c2} is identical and its newest certificate is ${state}`
+          );
+          expect(result.stdout).toContain('inherited=false');
+          expect(result.stderr).not.toContain(`commits/${f.shas.c1}/`);
+          expect(result.stderr).not.toContain('repos/o/r/statuses/');
+        }
+      );
+      it('does not inherit when the statuses cannot be read', () => {
+        const result = planShell(
+          gh({ [f.shas.c2]: 'unreadable', [f.shas.c1]: 'success' }) + inherit.run,
+          env(f.shas.c3),
+          f.dir
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('newest certificate is unreadable');
+        expect(result.stdout).toContain('inherited=false');
+        expect(result.stderr).not.toContain('repos/o/r/statuses/');
+      });
+      it('certifies in full when the inherited status cannot be written', () => {
+        const result = planShell(
+          gh({ [f.shas.c1]: 'success' }, 1) + inherit.run,
+          env(f.shas.c3),
+          f.dir
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('could not write the inherited certificate');
+        expect(result.stdout).toContain('inherited=false');
+        expect(result.stdout).not.toContain('inherited=true');
+      });
+      it('certifies in full when the candidate identity itself is unreadable, asking GitHub nothing', () => {
+        const result = planShell(
+          gh({ [f.shas.c1]: 'success' }) + inherit.run,
+          env('f'.repeat(40)),
+          f.dir
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('is unreadable; certifying in full');
+        expect(result.stdout).toContain('inherited=false');
+        expect(result.stderr).not.toContain('gh api');
+      });
+      it('passes over ancestors that predate the identity script without asking about them', () => {
+        const late = fixture({ scriptFrom: 'c1' });
+        try {
+          expect(late.identity(late.shas.c0).status).not.toBe(0);
+          const result = planShell(
+            gh({ [late.shas.c0]: 'success' }) + inherit.run,
+            env(late.shas.c3),
+            late.dir
+          );
+          expect(result.status, result.stderr).toBe(0);
+          expect(result.stdout).toContain(
+            `identical ancestor ${late.shas.c1} has no verdict (missing)`
+          );
+          expect(result.stdout).toContain('inherited=false');
+          expect(result.stderr).not.toContain(`commits/${late.shas.c0}/`);
+        } finally {
+          rmSync(late.dir, { recursive: true, force: true });
+        }
+      });
+    });
   });
   it('serializes all Backup candidates and refreshes only after a successful sealed release', () => {
     expect(backup.concurrency).toEqual({
