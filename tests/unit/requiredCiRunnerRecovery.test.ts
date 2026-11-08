@@ -863,6 +863,21 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       );
       selected[0].if = previous;
     }
+    // A booking cannot start in the past (2026-11-07): one exact added step,
+    // pinned here and by tests/a-booking-cannot-start-in-the-past.law.test.ts.
+    {
+      const bookingStep = {
+        name: 'Owner maintenance bookings give notice after they merge',
+        env: { CI_BASE_SHA: '${{ github.event.pull_request.base.sha }}' },
+        run: 'node scripts/ci/check-owner-window-notice-after-merge.mjs',
+      };
+      const steps = normalized.jobs.typecheck_compile.steps;
+      const index = steps.findIndex((s: { name: string }) => s.name === bookingStep.name);
+      expect(steps.filter((s: { name: string }) => s.name === bookingStep.name)).toHaveLength(1);
+      expect(steps[index]).toStrictEqual(bookingStep);
+      expect(steps[index - 1].name).toBe('Native fixture gate rejects missing and skipped proof');
+      steps.splice(index, 1);
+    }
     // Pin the entire reviewed producer and transfer pair before reconstructing
     // the former browser shape. The historical job hash still protects every
     // original build command, browser assertion, timeout and step ordering.
