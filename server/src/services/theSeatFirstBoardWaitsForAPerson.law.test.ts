@@ -38,6 +38,14 @@ const RECURRING = readFileSync(
 );
 const GAME_SERVER = readFileSync(join(process.cwd(), 'src/GameServer.ts'), 'utf8');
 
+/** A method's own body, bounded by the next method rather than by a count. */
+function method(src: string, signature: string): string {
+  const start = src.indexOf(signature);
+  expect(start, `${signature} must still exist`).toBeGreaterThan(-1);
+  const next = src.indexOf('\n  private async ', start + signature.length);
+  return src.slice(start, next > -1 ? next : src.length);
+}
+
 const MIN = 60_000;
 /** Every rung is randomised, so a rule is checked over many draws, not one. */
 const DRAWS = 400;
@@ -262,7 +270,9 @@ describe('8. satellite feeders are outside the six', () => {
   });
 
   it('and it is a SATELLITE row, so it is counted and reported on its own', () => {
-    const create = RECURRING.slice(RECURRING.indexOf('private async createSatelliteHeadsUp('));
-    expect(create.slice(0, 4000)).toMatch(/tournament_type: 'SATELLITE'/);
+    // Bounded by the method it is about, never by a byte count
+    // (tests/unit/noFixedSizeSourceWindows.test.ts).
+    const create = method(RECURRING, 'private async createSatelliteHeadsUp(');
+    expect(create).toMatch(/tournament_type: 'SATELLITE'/);
   });
 });
