@@ -71,6 +71,13 @@ class PublicModelIndexTests(unittest.TestCase):
    with self.assertRaisesRegex(ValueError,'FILE_BYTES'):h.validate_terminal(missing,'synthetic','c'*64,contexts)
    missing=copy.deepcopy(terminal);missing['workers'][0]['result']['sha256']=None
    with self.assertRaises(ValueError):h.validate_terminal(missing,'synthetic','c'*64,contexts)
+ def test_census_comes_from_the_manifest_and_frozen_recipe_not_r7_literals(self):
+  # R7 is 107 x 57 = 6,099 and R8 100 x 57 = 5,700; neither is written into the assembler.
+  import re
+  src=Path(h.__file__).read_text()
+  self.assertIn("'EXACT_RECIPE_CONTEXT_CENSUS'",src)
+  self.assertIn("recipe.get('source_count')==count*per",src)
+  for literal in ['==107','==6099','==57',"'contexts':107"]:self.assertNotIn(literal,src)
  def test_reference_file_hash_refuses_mutated_saved_sklearn_words(self):
   with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'])as d:
    path=Path(d)/'references.json';raw=json.dumps(cases()).encode();path.write_bytes(raw);pin={'path':str(path),'sha256':hashlib.sha256(raw).hexdigest()};self.assertEqual(h.load(pin),cases());path.write_bytes(raw.replace(b'0000000000000000',b'8000000000000000',1))

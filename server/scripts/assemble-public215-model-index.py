@@ -101,7 +101,10 @@ def assemble(mode,config,config_sha,output):
  recipe=raw['public215_protocols']['training_recipe'];need(authority['public_feature_index_checksum']==recipe.get('public_feature_index_checksum')and authority['dependency_lock_checksum']==codec.digest(raw['public215_protocols']['dependency_lock']),'APPROVED_FEATURE_INDEX_AND_DEPENDENCY_AUTHORITY')
  encoder_lock=load({'path':authority['encoder_source_lock_path'],'sha256':authority['encoder_source_lock_checksum']},16*1024*1024);exact(encoder_lock,{'format','files'});need(encoder_lock['format']=='public_hist215_encoder_source_graph_v1','ACTUAL_ENCODER_SOURCE_GRAPH')
  for source in encoder_lock['files']:pinned(source,16*1024*1024)
- metadata={codec.digest(g['context']):g for g in raw['public215_contexts']};need(len(metadata)==107,'EXACT107');terminal=load(config['training_terminal'],4*1024*1024);workers=validate_terminal(terminal,config['dataset_id'],config['training_authority']['sha256'],metadata)
+ metadata={codec.digest(g['context']):g for g in raw['public215_contexts']}
+ # Census from the approved manifest and its frozen recipe (R7: 107 x 57 = 6,099; R8: 100 x 57 = 5,700).
+ count=len(raw['public215_contexts']);per=recipe.get('training_sources_per_context')
+ need(count>0 and len(metadata)==count and recipe.get('context_count')==count and type(per)is int and per>0 and recipe.get('source_count')==count*per,'EXACT_RECIPE_CONTEXT_CENSUS');terminal=load(config['training_terminal'],4*1024*1024);workers=validate_terminal(terminal,config['dataset_id'],config['training_authority']['sha256'],metadata)
  templates={}
  for f in raw['public215_template_files']:
   path=Path(config['input_root'])/f['path'];templates[f['checksum']]=load({'path':str(path),'sha256':f['checksum']},1024*1024)
@@ -112,7 +115,7 @@ def assemble(mode,config,config_sha,output):
    need(fragment['format']=='public_hist215_final_M1_fragment_v1'and fragment['context_id']==cid and codec.digest(fragment['context'])==cid and fragment['context']==metadata[cid]['context']and fragment['dataset_id']==config['dataset_id']and fragment['training_authority_checksum']==config['training_authority']['sha256']and fragment['status']=='UNQUALIFIED_REQUIRES_ACTUAL_LINUX_BUILD_PARITY_AND_SQL','ACTUAL_FRAGMENT_IDENTITY')
    model=fragment['public_model'];provenance=fragment['public_training_provenance'];codec.serialize_training_provenance(provenance,expected_sha256=fragment['training_provenance_checksum'])
    need(provenance['encoder_checksum']==codec.digest(encoder_lock),'ACTUAL_ENCODER_GRAPH_PROVENANCE')
-   need(provenance['parameters']==codec.FROZEN_PARAMETERS and provenance['source_count']==57 and provenance['board_count']==57 and provenance['whole_variant']==authority['whole_variant']==raw['public215_protocols']['training_recipe']['whole_variant'],'FROZEN_PARAMETERS_AND_WHOLE_VARIANT')
+   need(provenance['parameters']==codec.FROZEN_PARAMETERS and provenance['source_count']==per and provenance['board_count']==per and provenance['whole_variant']==authority['whole_variant']==raw['public215_protocols']['training_recipe']['whole_variant'],'FROZEN_PARAMETERS_AND_WHOLE_VARIANT')
    for source in provenance['sources']:
     source_key=(source['source_row_id'],source['source_node']);need(source_key not in source_keys,'DUPLICATE_GLOBAL_CAPTURE_NODE');source_keys.add(source_key)
     previous=artifact_shas.setdefault(source['source_row_id'],source['artifact_checksum']);need(previous==source['artifact_checksum'],'GLOBAL_SOURCE_ARTIFACT_IDENTITY');global_sources.append(source)
@@ -123,14 +126,14 @@ def assemble(mode,config,config_sha,output):
    models[cid]=entry;references[cid]=ref;fragment_pins[cid]=fragment_file
    requests[cid]={'format':'public_hist215_preflight_request_v1','dataset_id':config['dataset_id'],'program':entry,'cases':cases[cid]}
    need(len(codec.canonical_bytes(requests[cid]))<=4*1024*1024,'ACTUAL_PREFLIGHT_REQUEST_4MIB')
- need(len(global_sources)==6099 and len(source_keys)==6099 and codec.digest(sorted(global_sources,key=lambda source:(source['source_row_id'],source['source_node'])))==global_authority['capture_receipt_checksum'],'COMPLETE6099_GLOBAL_SQL_CAPTURE_RECEIPT')
+ need(len(global_sources)==count*per and len(source_keys)==count*per and codec.digest(sorted(global_sources,key=lambda source:(source['source_row_id'],source['source_node'])))==global_authority['capture_receipt_checksum'],'COMPLETE_GLOBAL_SQL_CAPTURE_RECEIPT')
  order=sorted(metadata,key=lambda cid:codec.canonical_bytes(metadata[cid]['context']))
  index={'format':'public_hist215_prepare_index_v1','dataset_id':config['dataset_id'],'models':[models[c]for c in order]}
  ref_index={'format':'public_hist215_original_sklearn_reference_index_v1','dataset_id':config['dataset_id'],'training_authority_checksum':config['training_authority']['sha256'],'training_terminal_sha256':config['training_terminal']['sha256'],'contexts':[{'context_id':cid,'fragment':fragment_pins[cid],'references':references[cid],'request_sha256':codec.digest(requests[cid])}for cid in order]}
  if mode=='finalize':
   exact(config['prepared'],{'index','references','receipt'});prepared=load(config['prepared']['index']);need(prepared==index,'PREPARED_MODELS_UNCHANGED');need(load(config['prepared']['references'])==ref_index,'ORIGINAL_SKLEARN_REFERENCES_UNCHANGED')
   prior=load(config['prepared']['receipt'],4*1024*1024);need(prior.get('format')=='public_hist215_model_index_assembly_receipt_v1'and prior.get('mode')=='prepare'and prior.get('dataset_id')==config['dataset_id']and prior.get('source_sha256')==SHA(Path(__file__).read_bytes())and prior.get('manifest_sha256')==manifest.checksum and prior.get('pipeline_source_lock_sha256')==config['pipeline_source_lock']['sha256']and prior.get('index_sha256')==config['prepared']['index']['sha256']and prior.get('references_sha256')==config['prepared']['references']['sha256']and prior.get('training_terminal_sha256')==config['training_terminal']['sha256']and prior.get('training_authority_sha256')==config['training_authority']['sha256'],'PREPARED_RECEIPT_BINDINGS')
-  need(isinstance(config['linux_results'],list)and len(config['linux_results'])==107,'EXACT107_LINUX_RESULTS');seen=set()
+  need(isinstance(config['linux_results'],list)and len(config['linux_results'])==count,'EXACT_LINUX_RESULT_CENSUS');seen=set()
   for item in config['linux_results']:
    exact(item,{'context_id','request_sha256','result','exit_receipt'});cid=item['context_id'];need(cid in models and cid not in seen and item['request_sha256']==codec.digest(requests[cid]),'ACTUAL_LINUX_REQUEST');seen.add(cid)
    terminal=load(item['exit_receipt'],1024*1024);need(isinstance(terminal,dict)and type(terminal.get('exit_code'))is int and terminal['exit_code']==0 and terminal.get('context_id')==cid and terminal.get('request_sha256')==item['request_sha256'],'ACTUAL_LINUX_TERMINAL0')
@@ -138,14 +141,14 @@ def assemble(mode,config,config_sha,output):
    entry=models[cid];receipt=result['receipt'];codec.serialize_build_receipt(receipt,expected_sha256=result['receipt_checksum'],model=entry['public_model'],provenance=entry['public_training_provenance'],dataset_id=config['dataset_id'],approved_cases=cases[cid])
    compare_reference_cases(references[cid],receipt['cases'],len(entry['public_model']['action_ids']),cases[cid],codec.decode_f64,entry['public_model']['feature_count'])
    entry['public_model_build_receipt']=receipt;entry['model_build_receipt_checksum']=result['receipt_checksum']
-  need(seen==set(metadata),'ALL107_LINUX_TERMINAL_PARITY');index['format']='public_hist215_build_index_v1'
+  need(seen==set(metadata),'ALL_LINUX_TERMINAL_PARITY');index['format']='public_hist215_build_index_v1'
  output=Path(output);need(output.is_absolute()and output.parent.resolve(strict=True)==output.parent and not output.exists(),'NEW_EXCLUSIVE_OUTPUT');output.mkdir()
  checksum=validate_then_publish(output/'model-index.json',index,raw,config['dataset_id'],codec,mode=='prepare')
  references_sha=new_bytes(output/'original-sklearn-references.json',codec.canonical_bytes(ref_index))
  if mode=='prepare':
   (output/'linux-requests').mkdir()
   for cid in order:new_bytes(output/'linux-requests'/(cid+'.json'),codec.canonical_bytes(requests[cid]))
- receipt={'format':'public_hist215_model_index_assembly_receipt_v1','mode':mode,'dataset_id':config['dataset_id'],'config_sha256':config_sha,'source_sha256':SHA(Path(__file__).read_bytes()),'pipeline_source_lock_sha256':config['pipeline_source_lock']['sha256'],'manifest_sha256':manifest.checksum,'training_authority_sha256':config['training_authority']['sha256'],'training_terminal_sha256':config['training_terminal']['sha256'],'index_sha256':checksum,'references_sha256':references_sha,'contexts':107,'status':'PRIVATE_PREPARE_ONLY_NOT_MODEL_FREEZE'if mode=='prepare'else'ALL107_ORIGINAL_SKLEARN_PARITY_CHECKED_NOT_SQL_CERTIFICATION_OR_FREEZE','qualityCertified':False,'M2_labels_read':False}
+ receipt={'format':'public_hist215_model_index_assembly_receipt_v1','mode':mode,'dataset_id':config['dataset_id'],'config_sha256':config_sha,'source_sha256':SHA(Path(__file__).read_bytes()),'pipeline_source_lock_sha256':config['pipeline_source_lock']['sha256'],'manifest_sha256':manifest.checksum,'training_authority_sha256':config['training_authority']['sha256'],'training_terminal_sha256':config['training_terminal']['sha256'],'index_sha256':checksum,'references_sha256':references_sha,'contexts':count,'status':'PRIVATE_PREPARE_ONLY_NOT_MODEL_FREEZE'if mode=='prepare'else'ALL107_ORIGINAL_SKLEARN_PARITY_CHECKED_NOT_SQL_CERTIFICATION_OR_FREEZE','qualityCertified':False,'M2_labels_read':False}
  new_bytes(output/'assembly-receipt.json',codec.canonical_bytes(receipt));return receipt
 
 def main():
