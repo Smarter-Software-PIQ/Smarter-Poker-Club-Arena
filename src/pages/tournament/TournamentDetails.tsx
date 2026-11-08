@@ -2018,16 +2018,21 @@ export default function TournamentDetails({
                  waiting for a seat" and "I want to see the action" are not
                  mutually exclusive, and a busted player still wants to watch
                  the rest of it out. See featuredTableId. */
+      /* WATCH WEARS THE SAME PLATE (Dan 2026-11-08): "MAKE THE WATCH BUTTON
+         LOOK AND FEEL LIKE THE OTHER BUTTONS ON THE PAGE. IT LOOKS VERY
+         CHEAP, FLAT AND BORING." It was a bare accent outline beside the
+         painted Late Register plate. It now prints on that same rendered
+         chrome-and-blue-glass plate, same face, same type, same press. */
       const watchBtn =
         !footer && featuredTableId ? (
-          <button
-            className="btn btn-watch"
+          <TournamentRegisterButton
+            className="btn btn-watch btn-watch-plate"
             type="button"
             onClick={() => watchTable(featuredTableId)}
             title="Watch The Featured Table"
           >
             WATCH
-          </button>
+          </TournamentRegisterButton>
         ) : null;
 
       if (myEntry?.status === 'registered') {
