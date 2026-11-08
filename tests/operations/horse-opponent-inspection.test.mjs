@@ -417,6 +417,17 @@ test('projects only coarse counts from a selected and accepted PLO4 Lightning Ho
     pairedSuits: 2,
     maxFiveRankWindow: 4,
   });
+  // The canonical binder can match an out-of-turn Lightning fold to the
+  // actor's first subsequent accepted action. The price is the earlier quote.
+  execution.handAnchor = { earlyLook: true };
+  assert.equal(project()?.earlyLook, true);
+  assert.equal(project()?.toCall, 4);
+  assert.equal(
+    lightningFoldStructure(capture, execution, {}, target.ordinals, () => ({
+      status: 'unavailable',
+    })),
+    null
+  );
   target.ordinals = [5];
   assert.equal(project(), null);
   target.ordinals = [4];
