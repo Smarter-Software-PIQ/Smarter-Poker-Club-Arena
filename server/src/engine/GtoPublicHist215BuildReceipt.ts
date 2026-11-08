@@ -126,7 +126,7 @@ export function validatePublic215BuildReceipt(input: unknown, bindings: Public21
     const identity = c.board + ':' + [...c.own].sort().join('');
     if (seen.has(identity)) return fail('DUPLICATE_CASE');
     seen.add(identity);
-    const features = vector(c.features_f64, 215);
+    const features = vector(c.features_f64, bindings.model.featureCount);
     const heads = vector(c.raw_heads_f64, 1 + 2 * actions.length);
     const qs = vector(c.Q_f64, actions.length);
     const frequencies = vector(c.frequency_f64, actions.length);

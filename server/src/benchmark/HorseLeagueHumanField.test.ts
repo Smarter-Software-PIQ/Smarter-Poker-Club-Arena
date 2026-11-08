@@ -73,6 +73,8 @@ const EXPECTED_HUMAN_CARDS: Array<[string, string]> = [
   ['human_v10_strategy', 'v10_strategy'],
   ['human_v20_multiway', 'v20_multiway'],
   ['human_full_vs_v2_legacy', 'full_vs_v2_legacy'],
+  // 2026-11-07: heads-up, against the hu_wide_sb_aggressor_v1 persona.
+  ['human_hu_bb_defends_to_price', 'hu_bb_defends_to_price'],
 ];
 
 afterEach(() => {
@@ -256,7 +258,8 @@ describe(
         expect(m, `${mirror} left the card; ${human} has no mirror twin`).toBeDefined();
         expect(h.name.startsWith(HUMAN_FIELD_NAME_PREFIX)).toBe(true);
         expect(h.variant ?? 'nlh').toBe('nlh');
-        expect(h.seats ?? 6).toBe(6);
+        expect(h.seats ?? 6).toBe(m!.seats ?? 6);
+        expect(h.stackBB).toBe(m!.stackBB);
         expect(h.a).toEqual(m!.a);
         expect(h.b).toEqual(m!.b);
         expect(m!.opponentPopulation).toBeUndefined();
@@ -464,8 +467,9 @@ describe('the nightly runner sends the human cards and records their field', () 
       expect(sent!.opponentPopulation).toBe(HUMAN);
       const row = upserts.find((u) => u.matchup === card.name)!;
       expect(row, `${card.name} was not written`).toBeDefined();
-      expect(row.config_a).toEqual({ ...card.a, opponentPopulation: HUMAN });
-      expect(row.config_b).toEqual({ ...card.b, opponentPopulation: HUMAN });
+      const persona = card.humanPersona ? { humanPersona: card.humanPersona } : {};
+      expect(row.config_a).toEqual({ ...card.a, opponentPopulation: HUMAN, ...persona });
+      expect(row.config_b).toEqual({ ...card.b, opponentPopulation: HUMAN, ...persona });
       expect(row.config_a).toEqual(leagueResultConfig(card, 'a'));
       expect(row.hands).toBe(4);
       const components = row.candidate_benchmark_components as Array<{ scenario: string }>;

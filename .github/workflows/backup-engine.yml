@@ -268,6 +268,7 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             .github/pgdg
+            .github/actions/install-postgres-17
             scripts/dr
             scripts/verification-harness/leaderboard-native-function-batch.mjs
             scripts/ci/test_native_supabase_export.py
@@ -298,10 +299,9 @@ jobs:
         if: steps.due.outputs.due == 'true'
         run: |
           set -euo pipefail
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-17 postgresql-client-17 libzstd-dev zstd pkg-config >/dev/null 2>&1 \
-            || { sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'; \
-                 sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg < "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc"; \
-                 sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-17 postgresql-client-17 libzstd-dev zstd pkg-config >/dev/null; }
+          # The one shared install (signed sources, checkout key, bounded retries).
+          PG_PACKAGES="postgresql-17 postgresql-client-17 libzstd-dev zstd pkg-config" \
+            bash .github/actions/install-postgres-17/install.sh
           python3 scripts/dr/build-native-export-client.py --scratch "$RUNNER_TEMP" --pg-bin /usr/lib/postgresql/17/bin > client.log 2>&1 || true
           PG_DUMP=$(find "$RUNNER_TEMP" -path '*src/bin/pg_dump/pg_dump' -type f -perm -u+x | head -1)
           [ -n "$PG_DUMP" ] || { tail -40 client.log; exit 1; }

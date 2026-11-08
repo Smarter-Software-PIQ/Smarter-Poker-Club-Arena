@@ -451,6 +451,7 @@ exit 91
             PATH: `${bin}:${process.env.PATH ?? ''}`,
             REPO_DIR: repo,
             ENGINE_RELEASE_REQUEST_ROOT: requestRoot,
+            ENGINE_RELEASE_STATE_DIR: sandbox,
             ENGINE_CONTROL_STAGING_ROOT: join(sandbox, 'staging'),
             ENGINE_RELEASE_IMAGE_LEASE_ROOT: leaseRoot,
             ENGINE_LOCK_FILE: join(sandbox, 'engine.lock'),

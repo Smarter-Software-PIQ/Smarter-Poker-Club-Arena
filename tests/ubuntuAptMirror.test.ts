@@ -13,9 +13,16 @@ describe('Ubuntu browser dependency mirror', () => {
         step.name === 'Install PostgreSQL 17 tools without a default database service'
     ).run;
     const selection = 'sudo python3 scripts/ci/ubuntu-apt-mirror.py';
-    expect(native).toContain(selection);
-    expect(native.indexOf(selection)).toBeLessThan(
-      native.indexOf('cp /etc/apt/sources.list.d/ubuntu.sources')
+    // The native install runs the one shared installer with the mirror on; it
+    // selects the mirror before copying the Ubuntu sources it installs from.
+    expect(native).toContain('PG_UBUNTU_MIRROR=true');
+    expect(native).toContain('bash .github/actions/install-postgres-17/install.sh');
+    const shared = readFileSync('.github/actions/install-postgres-17/install.sh', 'utf8');
+    const sharedSelection = 'sudo python3 "$GITHUB_WORKSPACE/scripts/ci/ubuntu-apt-mirror.py"';
+    expect(shared).toContain('if [ "${PG_UBUNTU_MIRROR:-false}" = true ]; then');
+    expect(shared.indexOf(sharedSelection)).toBeGreaterThan(0);
+    expect(shared.indexOf(sharedSelection)).toBeLessThan(
+      shared.indexOf('cp /etc/apt/sources.list.d/ubuntu.sources')
     );
     const browsers = workflow.jobs['css-beats-e2e'].steps;
     const selected = browsers.findIndex((step: { run?: string }) => step.run === selection);

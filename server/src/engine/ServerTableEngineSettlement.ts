@@ -4056,7 +4056,11 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
     }));
     if (this.lifecycleCanMutate() && this.handCompleteCallback) {
       try {
-        this.handCompleteCallback(this.tableId, finalStacks);
+        const acceptedHand =
+          durablePostCommitObligations && v_handHistoryId && snap.startedAt
+            ? { handId: v_handHistoryId, startedAt: snap.startedAt }
+            : undefined;
+        this.handCompleteCallback(this.tableId, finalStacks, acceptedHand);
       } catch (err) {
         reportError(err, 'ServerTableEngine.handCompleteCallback_error', {
           tableId: this.tableId,

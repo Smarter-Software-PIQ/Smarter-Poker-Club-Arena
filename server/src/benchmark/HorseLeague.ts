@@ -71,6 +71,7 @@ import { SUITS, RANKS, validateAction, calculateBettingState } from '../engine/P
 import {
   HUMAN_CALIBRATED_POPULATION_ID,
   humanCalibratedDecide,
+  humanCalibratedProfileFor,
   type HumanCalibratedProfile,
   type HumanCalibratedSpot,
 } from './HumanCalibratedPopulation.js';
@@ -82,6 +83,9 @@ import {
   HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID,
   V53_PRESSURE_FIELD_VARIANTS,
   V53_PRESSURE_POPULATION_ID,
+  HU_WIDE_SB_AGGRESSOR_PERSONA,
+  HUMAN_FIELD_PERSONAS,
+  type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
 import { pressureOpponentDecision } from './V53PressurePopulation.js';
 
@@ -93,6 +97,9 @@ export {
   HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID,
   V53_PRESSURE_FIELD_VARIANTS,
   V53_PRESSURE_POPULATION_ID,
+  HU_WIDE_SB_AGGRESSOR_PERSONA,
+  HUMAN_FIELD_PERSONAS,
+  type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
 
 /** The opponent fields a league card may seat around one hero horse (see
@@ -258,6 +265,15 @@ export interface LeagueMatchup {
    */
   opponentPopulation?: LeagueOpponentPopulation;
   /**
+   * HUMAN PERSONA (2026-11-07). Absent: every field seat plays the
+   * population's own calibrated profile, as every human-field card before.
+   * Set (human-calibrated field only): every field seat plays that persona's
+   * profile instead (humanFieldPersonaProfile; HorseLeagueHumanField.ts says
+   * what each persona is and is not). The stored config carries it next to
+   * opponentPopulation, so a row says which persona it was measured against.
+   */
+  humanPersona?: HumanFieldPersona;
+  /**
    * PRODUCTION PERSONAS (2026-10-31). Absent: every horse plays the
    * 'balanced' style, as every mirror card always has. True: each seat plays
    * the production persona Plo4StrengthContract assigns from the deal seed and
@@ -278,7 +294,8 @@ export interface LeagueMatchup {
    * (HORSE_HYBRID_PROFILES: cash Grinder/Pebbles, tournament Tricky/Flint),
    * the same at every seat and in both passes, so the arms still differ
    * only in their flags; modsA / modsB, when set, are applied over the
-   * Hybrid dials. Mirror cards only: a human-field card refuses it.
+   * Hybrid dials. On a human-field card (2026-11-07) it is the hero horse's
+   * persona and dials in both passes; the field is unchanged.
    */
   hybridBaseline?: boolean;
   /**
@@ -345,12 +362,17 @@ export interface LeagueHandObserver {
  * (`human_*`) says it too.
  */
 export function leagueResultConfig(
-  matchup: Pick<LeagueMatchup, 'a' | 'b' | 'opponentPopulation'>,
+  matchup: Pick<LeagueMatchup, 'a' | 'b' | 'opponentPopulation'> &
+    Partial<Pick<LeagueMatchup, 'humanPersona'>>,
   arm: 'a' | 'b'
 ): Record<string, unknown> {
   const opts = matchup[arm] as Record<string, unknown>;
   return matchup.opponentPopulation
-    ? { ...opts, opponentPopulation: matchup.opponentPopulation }
+    ? {
+        ...opts,
+        opponentPopulation: matchup.opponentPopulation,
+        ...(matchup.humanPersona ? { humanPersona: matchup.humanPersona } : {}),
+      }
     : opts;
 }
 
@@ -1101,12 +1123,10 @@ export async function runMatchup(
   runSeed: number,
   shouldContinue: () => boolean = () => true
 ): Promise<LeagueResult> {
+  if (matchup.humanPersona !== undefined && matchup.opponentPopulation === undefined) {
+    throw new Error(`${matchup.name}: humanPersona needs a human field (opponentPopulation)`);
+  }
   if (matchup.opponentPopulation !== undefined) {
-    if (matchup.hybridBaseline === true) {
-      throw new Error(
-        `${matchup.name}: hybridBaseline is a mirror-card option; a human-field card cannot apply it`
-      );
-    }
     return runHumanFieldMatchup(matchup, pairs, runSeed, shouldContinue);
   }
   if (matchup.hybridBaseline === true && matchup.productionStyles === true) {
@@ -1267,6 +1287,58 @@ export async function runMatchup(
   };
 }
 
+/**
+ * The profile a human-field persona plays (LeagueMatchup.humanPersona). Each
+ * persona is the population's calibrated NLH profile with named nodes
+ * replaced; every other node keeps its calibrated cutoffs. Refuses a persona
+ * outside the table it was written for instead of playing it somewhere else.
+ *
+ * hu_wide_sb_aggressor_v1 (strength is the calibrated preflop percentile, or
+ * the postflop equity against one random hand, higher is stronger):
+ *   preflop/unopened      fold < 0.20, raise >= 0.30: the small blind plays
+ *                         80% of hands, 70% as an open (calibrated: fold
+ *                         < 0.61, raise >= 0.81)
+ *   preflop/facing_raise  fold < 0.40, raise >= 0.85: defends 60% of big
+ *                         blinds and three-bets 15% (calibrated: < 0.65 /
+ *                         >= 0.92); the same node answers a three-bet
+ *   preflop/free          raises 35% of big blinds over a limp (calibrated 18%)
+ *   {flop,turn,river}/checked_to  bets at >= 0.35 / 0.42 / 0.50: stabs when
+ *                         checked to (calibrated 0.72 / 0.66 / 0.78)
+ *   {flop,turn,river}/facing_bet  calibrated, unchanged
+ */
+export function humanFieldPersonaProfile(
+  persona: HumanFieldPersona,
+  table: { population: LeagueOpponentPopulation; variant: string; seats: number }
+): Readonly<HumanCalibratedProfile> {
+  if (!HUMAN_FIELD_PERSONAS.includes(persona)) {
+    throw new Error(`Unknown human-field persona: ${String(persona)}`);
+  }
+  if (
+    table.population !== HUMAN_CALIBRATED_POPULATION_ID ||
+    table.variant !== 'nlh' ||
+    table.seats !== 2
+  ) {
+    throw new Error(
+      `${persona} is a heads-up NLH persona of the ${HUMAN_CALIBRATED_POPULATION_ID} field; ` +
+        `refused for ${table.population} ${table.variant} at ${table.seats} seats`
+    );
+  }
+  const base = humanCalibratedProfileFor('nlh');
+  return Object.freeze({
+    ...base,
+    id: `${base.id}-${HU_WIDE_SB_AGGRESSOR_PERSONA}`,
+    preflop: Object.freeze({ ...base.preflop, freeRaise: 0.35 }),
+    cutoffs: Object.freeze({
+      ...(base.cutoffs ?? {}),
+      'preflop/unopened': { fold: 0.2, raise: 0.3 },
+      'preflop/facing_raise': { fold: 0.4, raise: 0.85 },
+      'flop/checked_to': { bet: 0.35 },
+      'turn/checked_to': { bet: 0.42 },
+      'river/checked_to': { bet: 0.5 },
+    }),
+  });
+}
+
 /** Seat index the hero horse takes on a human-field card. The dealer button
  *  rotates every pair, so the hero plays every position once per SEATS pairs. */
 export const HUMAN_FIELD_HERO_SEAT = 0;
@@ -1312,6 +1384,25 @@ async function runHumanFieldMatchup(
   const SEATS = matchup.seats ?? DEFAULT_SEATS;
   const learn = matchup.memoryLearning !== 'off';
   const HERO = HUMAN_FIELD_HERO_SEAT;
+  if (matchup.productionStyles === true) {
+    throw new Error(`${matchup.name}: productionStyles is a mirror-card option`);
+  }
+  const persona =
+    matchup.humanPersona === undefined
+      ? undefined
+      : humanFieldPersonaProfile(matchup.humanPersona, {
+          population,
+          variant,
+          seats: SEATS,
+        });
+  // The hero horse's persona and dials (LeagueMatchup.hybridBaseline); the
+  // field never reaches HorseLogic, so it is unchanged by them.
+  const hybrid =
+    matchup.hybridBaseline === true
+      ? HORSE_HYBRID_PROFILES[
+          (matchup.context ?? CASH_LEAGUE_CONTEXT).gameMode === 'tournament' ? 'tournament' : 'cash'
+        ]
+      : undefined;
   const t0 = Date.now();
   const counters: LeagueCounters = { illegal: 0, truncated: 0 };
   let candidatePolicyHits = 0;
@@ -1327,6 +1418,7 @@ async function runHumanFieldMatchup(
     population,
     isHuman: (s) => s !== HERO,
     responses,
+    ...(persona ? { profileOf: () => persona } : {}),
   };
   const rngBefore = saveFastRandom();
   const sb1 = HorseMind.createSandbox();
@@ -1351,8 +1443,9 @@ async function runHumanFieldMatchup(
   };
   const optsA = withLearning(withEvidence(matchup.a), learn);
   const optsB = withLearning(withEvidence(matchup.b), learn);
-  const modsA = matchup.modsA ?? {};
-  const modsB = matchup.modsB ?? {};
+  const modsA = hybrid ? { ...hybrid.mods, ...(matchup.modsA ?? {}) } : (matchup.modsA ?? {});
+  const modsB = hybrid ? { ...hybrid.mods, ...(matchup.modsB ?? {}) } : (matchup.modsB ?? {});
+  const styleOf = hybrid ? () => hybrid.style : undefined;
 
   try {
     for (let p = 0; p < pairs; p++) {
@@ -1374,7 +1467,7 @@ async function runHumanFieldMatchup(
           matchup.context ?? CASH_LEAGUE_CONTEXT,
           () => mods,
           field,
-          undefined,
+          styleOf,
           learn
         );
       const a = play(optsA, modsA, sb1)[HERO];
@@ -1976,6 +2069,37 @@ for (const name of HUMAN_FIELD_TWINS) {
   const mirror = LEAGUE_MATCHUPS.find((m) => m.name === name);
   if (!mirror) throw new Error(`HUMAN_FIELD_TWINS names ${name}, which is not on the card`);
   LEAGUE_MATCHUPS.push(humanFieldTwin(mirror));
+}
+
+/**
+ * HEADS-UP HUMAN-FIELD CARD (2026-11-07). hu_bb_defends_to_price read
+ * +0.37 +/- 0.31 bb/100 horse-vs-horse: unresolved, and against a small
+ * blind that opens what horses open. The flag exists because a human who
+ * opens every button wins the blinds, so it is measured here against that
+ * human: the same two arms, heads-up 80bb, the hero on the live cash Hybrid
+ * persona with the deal-seeded mood clock (as on the mirror), against the
+ * hu_wide_sb_aggressor_v1 persona of the calibrated field. The dealer
+ * rotates every pair, so the hero plays the small blind and the big blind
+ * equally often. The flag stays default OFF until the nightly league
+ * confirms it across runs on both cards.
+ */
+export const HUMAN_HU_BB_DEFENDS_TO_PRICE = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_to_price`;
+{
+  const mirror = LEAGUE_MATCHUPS.find((m) => m.name === 'hu_bb_defends_to_price');
+  if (!mirror)
+    throw new Error('hu_bb_defends_to_price left the card; its human twin has no mirror');
+  LEAGUE_MATCHUPS.push({
+    name: HUMAN_HU_BB_DEFENDS_TO_PRICE,
+    seats: 2,
+    stackBB: mirror.stackBB,
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: mirror.hybridBaseline,
+    moodClock: mirror.moodClock,
+    a: { ...mirror.a },
+    b: { ...mirror.b },
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+    humanPersona: HU_WIDE_SB_AGGRESSOR_PERSONA,
+  });
 }
 
 /**

@@ -127,19 +127,8 @@ jobs:
         if: inputs.connected_ui_observations
         run: |
           if [[ ! -x /usr/lib/postgresql/17/bin/pg_dump ]]; then
-            sudo python3 scripts/ci/ubuntu-apt-mirror.py
-            pg_sources="$(mktemp -d "$RUNNER_TEMP/isolated-export-apt.XXXXXX")"
-            chmod 755 "$pg_sources"
-            cp /etc/apt/sources.list.d/ubuntu.sources "$pg_sources/ubuntu.sources"
-            apt_options=(-o "Dir::Etc::sourcelist=/dev/null" -o "Dir::Etc::sourceparts=$pg_sources")
-            sudo apt-get "${apt_options[@]}" update
-            sudo apt-get "${apt_options[@]}" install -y --no-install-recommends postgresql-common curl ca-certificates
-            sudo install -d /usr/share/postgresql-common/pgdg
-            sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
-            pg_codename="$(. /etc/os-release && printf '%s' "$VERSION_CODENAME")"
-            printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' "$pg_codename" > "$pg_sources/pgdg.sources"
-            sudo apt-get "${apt_options[@]}" update
-            sudo apt-get "${apt_options[@]}" install -y --no-install-recommends postgresql-client-17
+            # The one shared install (signed sources, checkout key, bounded retries).
+            PG_UBUNTU_MIRROR=true PG_PACKAGES=postgresql-client-17 bash .github/actions/install-postgres-17/install.sh
           fi
           /usr/lib/postgresql/17/bin/pg_dump --version | grep -Eq '^pg_dump \(PostgreSQL\) 17\.'
           echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"

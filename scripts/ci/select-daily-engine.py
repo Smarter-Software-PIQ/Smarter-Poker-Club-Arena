@@ -80,6 +80,9 @@ def backup(repo, sha, limit, status):
             or not re.fullmatch('[0-9a-f]{64}', db['ownersSha256'])):
         raise ValueError('successful Backup run conflicts with certificate contents')
     return {'runId': run['id'], 'attempt': run['run_attempt'], 'artifactId': matches[0]['id'], 'producerSha': producer,
+            'rehearsedServingSha': cert.get('rehearsedServingSha'),
+            'rollbackAdoptionSeconds': cert.get('rollbackAdoptionSeconds'),
+            'forwardAdoptionSeconds': cert.get('forwardAdoptionSeconds'),
             'certifiedAt': cert['certifiedAt'], 'database': db, 'seed': seed, 'compatibility': compat}
 
 
@@ -140,6 +143,13 @@ def select(args, report):
         for sha, status in statuses(args.repo, commits[offset:offset + 30]):
             evidence = backup(args.repo, sha, report['cutoffEpoch'], status)
             if evidence is None:
+                continue
+            rollback = evidence.get('rollbackAdoptionSeconds')
+            forward = evidence.get('forwardAdoptionSeconds')
+            if (evidence.get('rehearsedServingSha') != args.serving
+                    or type(rollback) is not int or not 0 <= rollback <= 135
+                    or type(forward) is not int or forward < 0):
+                report['deferredCandidates'].append({'sha': sha, 'reason': 'serving rollback rehearsal unavailable'})
                 continue
             if not current_schema(args.control, evidence):
                 report['deferredCandidates'].append({'sha': sha, 'reason': 'Backup restore predates current schema inputs'})
