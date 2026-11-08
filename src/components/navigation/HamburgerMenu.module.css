@@ -77,7 +77,7 @@
   align-items: center;
   justify-content: space-between;
   min-height: 62px;
-  padding: 10px 6px 8px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 6px 8px;
   background: linear-gradient(180deg, #070b10 70%, transparent);
 }
 
@@ -735,6 +735,10 @@
 
   .drawer::before {
     width: min(366px, calc(100vw - 18px));
+  }
+
+  .utilityRail {
+    padding-top: calc(10px + max(24px, env(safe-area-inset-top, 0px)));
   }
 
   .navDescription {
