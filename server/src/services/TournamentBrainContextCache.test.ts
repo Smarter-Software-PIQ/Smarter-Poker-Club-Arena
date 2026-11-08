@@ -623,6 +623,7 @@ describe('TournamentBrainContext lifecycle cache', () => {
     });
     expect(snapshot.context?.stackByUser).not.toHaveProperty('recovery-pending');
     expect(snapshot.contextProvenance.source?.contextStatus).toBe('incomplete');
+    expect(snapshot.contextProvenance.source?.mttFormatContract).toBe('mtt-v1');
     expect(snapshot.contextProvenance.source?.contextIssues).toEqual(
       snapshot.context?.contextIssues
     );

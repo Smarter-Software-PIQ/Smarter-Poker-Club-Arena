@@ -18,6 +18,8 @@ export interface HorseTournamentContextSource {
   readStartedAtMs: number;
   readCompletedAtMs: number;
   contextDigest: string;
+  /** Immutable database marker observed in this successful cache publication. */
+  mttFormatContract?: 'mtt-v1' | 'mtt-v2';
   contextStatus: 'complete' | 'incomplete';
   contextIssues: string[];
 }
@@ -81,6 +83,7 @@ export function horseTournamentProvenanceIsValid(
       return false;
   } else {
     if (
+      !obj(s) ||
       !exact(s, [
         'version',
         'tournamentId',
@@ -89,9 +92,13 @@ export function horseTournamentProvenanceIsValid(
         'readStartedAtMs',
         'readCompletedAtMs',
         'contextDigest',
+        ...(Object.hasOwn(s, 'mttFormatContract') ? ['mttFormatContract'] : []),
         'contextStatus',
         'contextIssues',
       ]) ||
+      (Object.hasOwn(s, 'mttFormatContract') &&
+        s.mttFormatContract !== 'mtt-v1' &&
+        s.mttFormatContract !== 'mtt-v2') ||
       s.version !== 1 ||
       !text(s.tournamentId) ||
       typeof s.cacheId !== 'string' ||

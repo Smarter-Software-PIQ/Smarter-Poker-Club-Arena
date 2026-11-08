@@ -1,8 +1,11 @@
 import {
+  publicMemoryDomainFromRules,
   publicMemoryDomainIsValid,
   publicMemoryDomainKey,
   type HorsePublicMemoryDomain,
 } from './HorsePublicMemoryDomain.js';
+import { horseTournamentProvenanceMatchesSnapshot } from './HorseTournamentContextProvenance.js';
+import { TOURNAMENT_CONTEXT_INCOMPLETE } from './HorseTournamentPreflop.js';
 import type { LiveHorseDecisionSnapshot } from './horseDecision/protocol.js';
 const VARIANTS = [
   'nlh',
@@ -20,6 +23,16 @@ const memoryVariant = (value: unknown): ObserverVariant | null =>
   typeof value === 'string' && VARIANTS.includes(value as ObserverVariant)
     ? (value as ObserverVariant)
     : null;
+
+// These original issues affect payout, field valuation or seat-position charts.
+const ISSUES_OUTSIDE_PUBLIC_MEMORY_DOMAIN = new Set<string>([
+  TOURNAMENT_CONTEXT_INCOMPLETE,
+  'satellite_award_depth_unavailable',
+  'live_field_recovery_pending',
+  'live_field_stack_cardinality_mismatch',
+  'dead_button_atlas_unsupported',
+  'level_timing_paused',
+]);
 
 /** An individual observer's public-read partition. Unknown stays unavailable. */
 export interface HorseObserverReadContext {
@@ -67,13 +80,45 @@ export function horseObserverReadContextFromRequest(
   const { gameState: gs, player } = request;
   const variant = memoryVariant(gs.gameVariant);
   const dealt = gs.dealtSeatIds;
+  let format = gs.format;
+  if (gs.gameMode === 'tournament' && gs.tournament?.contextStatus !== 'complete') {
+    const tournament = gs.tournament;
+    const provenance = tournament?.contextProvenance;
+    if (
+      tournament?.contextStatus !== 'incomplete' ||
+      !provenance?.source?.mttFormatContract ||
+      !publicMemoryDomainIsValid(gs.publicMemoryDomain) ||
+      !Array.isArray(gs.players) ||
+      !Array.isArray(tournament.contextIssues) ||
+      !horseTournamentProvenanceMatchesSnapshot(request) ||
+      !tournament.contextIssues.some((issue) => issue !== TOURNAMENT_CONTEXT_INCOMPLETE) ||
+      !tournament.contextIssues.every((issue) => ISSUES_OUTSIDE_PUBLIC_MEMORY_DOMAIN.has(issue)) ||
+      !Array.isArray(dealt) ||
+      (tournament.contextIssues.includes('dead_button_atlas_unsupported') &&
+        (dealt.length <= 2 || gs.dealerSeat == null || dealt.includes(gs.dealerSeat))) ||
+      dealt.length !== provenance.projection.dealtSeatIds.length ||
+      !dealt.every((seat) => provenance.projection.dealtSeatIds.includes(seat))
+    )
+      return null;
+    if (tournament.contextIssues.includes('level_timing_paused')) {
+      // The running hand retains its stakes across a break. Read only if the
+      // same cache generation saw the pause and the dealt ante rule agrees.
+      const originalRules = publicMemoryDomainFromRules('table', gs.ante, gs.bigBlindAnte);
+      if (
+        tournament.onBreak !== true ||
+        !provenance.source.contextIssues.includes('level_timing_paused') ||
+        !provenance.source.contextIssues.includes('satellite_award_depth_unavailable') ||
+        !originalRules ||
+        publicMemoryDomainKey(originalRules) !== publicMemoryDomainKey(gs.publicMemoryDomain)
+      )
+        return null;
+    }
+    format = 'mtt';
+  }
   // The original producer's dealt seats are required. RLS chairs and showdown
   // cards do not reconstruct participation. Never infer format from stack size.
   if (
     !variant ||
-    // Incomplete tournament context can carry the transport's MTT fallback.
-    // It cannot attest an exact MTT/SNG/Spin read partition.
-    (gs.gameMode === 'tournament' && gs.tournament?.contextStatus !== 'complete') ||
     !Array.isArray(gs.players) ||
     !Array.isArray(dealt) ||
     new Set(dealt).size !== dealt.length ||
@@ -93,7 +138,7 @@ export function horseObserverReadContextFromRequest(
       : {}),
     observerId: player.user_id?.toLowerCase(),
     variant,
-    format: gs.format,
+    format,
     dealtCount: dealt.length,
   };
   return horseObserverReadContextIsValid(value) ? Object.freeze(value) : null;

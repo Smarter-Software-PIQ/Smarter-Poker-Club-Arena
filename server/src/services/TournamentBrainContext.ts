@@ -1907,6 +1907,9 @@ async function refresh(
       readStartedAtMs,
       readCompletedAtMs,
       contextDigest,
+      ...(tournament.format_contract === 'mtt-v1' || tournament.format_contract === 'mtt-v2'
+        ? { mttFormatContract: tournament.format_contract }
+        : {}),
       contextStatus: publishedContext.contextStatus,
       contextIssues: [...publishedContext.contextIssues],
     });

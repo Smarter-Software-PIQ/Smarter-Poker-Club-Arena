@@ -179,6 +179,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the public river-call category eligibility and confidence boundary used by the reference opponent read',
     'src/engine/HorsePublicMemoryDomain.ts':
       'original public speed and ante domain validation, canonical keys and unknown-domain refusal',
+    'src/engine/HorseTournamentContextProvenance.ts':
+      'original tournament cache generation, format marker and dealt roster used to admit public reads when payout context is incomplete',
     'src/engine/HorseObserverReadContext.ts':
       'the exact individual, variant, explicit format and dealt-size partition for public observation history',
     'src/engine/horseDecision/ownPublicHistory.ts':
