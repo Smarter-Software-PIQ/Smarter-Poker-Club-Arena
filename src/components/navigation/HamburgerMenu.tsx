@@ -1162,6 +1162,23 @@ export default function HamburgerMenu({ isOpen, onClose }: HamburgerMenuProps) {
           </button>
         </div>
 
+        <button
+          type="button"
+          className={styles.navItem}
+          onClick={handleOpenTableStudio}
+          aria-label="Open Table Studio"
+        >
+          <span>
+            <span className={styles.navLabel}>Table Studio</span>
+            <span className={styles.navDescription}>
+              Themes, Tables, Buttons, Backgrounds, And Card Backs
+            </span>
+          </span>
+          <span className={styles.navArrow} aria-hidden="true">
+            ›
+          </span>
+        </button>
+
         {/* User Profile Card */}
         <button
           type="button"
@@ -1662,23 +1679,6 @@ export default function HamburgerMenu({ isOpen, onClose }: HamburgerMenuProps) {
               </span>
             </button>
           </div>
-
-          <button
-            type="button"
-            className={styles.navItem}
-            onClick={handleOpenTableStudio}
-            aria-label="Open Table Studio"
-          >
-            <span>
-              <span className={styles.navLabel}>Table Studio</span>
-              <span className={styles.navDescription}>
-                Themes, Tables, Buttons, Backgrounds, And Card Backs
-              </span>
-            </span>
-            <span className={styles.navArrow} aria-hidden="true">
-              ›
-            </span>
-          </button>
 
           <button
             type="button"

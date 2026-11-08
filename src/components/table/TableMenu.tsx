@@ -10,7 +10,7 @@
  * - Help & feedback
  */
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import './TableMenu.css';
 import { useSeatChangeVisibility } from '../../hooks/useSeatChangeVisibility';
@@ -35,6 +35,10 @@ import { useUserTableSettings } from '../../hooks/useUserTableSettings';
 import { AvatarGallery } from '../customization/AvatarGallery';
 import { useHeaderDataStore } from '../../stores/useHeaderDataStore';
 import { useButtonImage } from '../../hooks/useButtonImage';
+
+const TableStudio = lazy(() =>
+  import('./ThemeSettingsModal').then(({ ThemeSettingsModal }) => ({ default: ThemeSettingsModal }))
+);
 
 // ─── SVG Icons for Identity section ─── */
 const AvatarIcon = () => (
@@ -338,6 +342,7 @@ export function TableMenu({
      nobody and read by nobody since the file was written. */
   const menuRef = useRef<HTMLDivElement>(null);
   const [showAvatarGallery, setShowAvatarGallery] = useState(false);
+  const [showTableStudio, setShowTableStudio] = useState(false);
   // LAZY INITIALIZER (2026-08-28): the stored value was read one tick later
   // in an effect, so the menu's "Real Name / Username" badge flashed wrong on
   // mount. TablePage reads the very same key in its initializer — TableMenu
@@ -419,6 +424,16 @@ export function TableMenu({
           ),
           onClick: () => setShowAvatarGallery(true),
         },
+        ...(user
+          ? [
+              {
+                id: 'table-studio',
+                label: 'Table Studio',
+                icon: <SettingsIcon />,
+                onClick: () => setShowTableStudio(true),
+              },
+            ]
+          : []),
         /* Two DIFFERENT identity settings live here, and until this pass one of
            them was unreachable while the other called itself by the other's
            name.
@@ -596,7 +611,11 @@ export function TableMenu({
               role="menu"
               aria-label={tableName || 'Table Menu'}
             >
-              {/* Header */}
+              <div className="table-menu__utility">
+                <button type="button" className="table-menu__close" onClick={onClose}>
+                  Close
+                </button>
+              </div>
               {/* Header with table name, connection, and hand info */}
               {(tableName || connectionStatus) && (
                 <div className="table-menu__header">
@@ -698,6 +717,20 @@ export function TableMenu({
               )}
             </div>
           </>,
+          document.body
+        )}
+
+      {user &&
+        showTableStudio &&
+        createPortal(
+          <Suspense fallback={null}>
+            <TableStudio
+              isOpen
+              onClose={() => setShowTableStudio(false)}
+              userId={user.id}
+              isVip={isVip}
+            />
+          </Suspense>,
           document.body
         )}
 
