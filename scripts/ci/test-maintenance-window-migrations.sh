@@ -25,6 +25,12 @@
 #      follow by version grouped by relation, a file that loses its declared
 #      lock is skipped alone naming that relation while the others install,
 #      and an unparseable @locks value is refused before any wait.
+#  13. "-- @install-budget-seconds:" (migration-install-budget.mjs, ordinary
+#      route): an admitted offline file runs past 12 s and installs; the same
+#      file undeclared is killed at exactly the 12 s bound; a declared file
+#      that writes a live table statically is refused before sending; one
+#      that reaches a live table through dynamic SQL is rolled back by the
+#      in-transaction scope check.
 #
 # Usage: PG_BIN=/usr/lib/postgresql/17/bin bash scripts/ci/test-maintenance-window-migrations.sh
 # Needs node with `pg` resolvable from scripts/ci (CI: npm i pg@8 --no-save).
@@ -605,6 +611,84 @@ grep -q 'not a comma-separated list of schema-qualified relations' <<<"$out" || 
 [ "$(su_sql "SELECT count(*) FROM information_schema.columns WHERE column_name = 'window_fixture_badlocks'")" = 0 ] \
   || fail 'bad @locks file committed'
 pass 'an unparseable @locks line is refused before any wait and nothing is sent'
+
+# 13. A declared offline install budget, on the ORDINARY route. The database's
+# hourly :50-:03 refusal is stubbed out for this section only (it reads the
+# real clock, and the ordinary route is not what is under test there), and the
+# applier's own clock is moved to minute :20 as in section 1.
+su_sql "SELECT public.fixture_close_window();
+        CREATE OR REPLACE FUNCTION public.fn_ca_break_window_refuses_migrations(p_at timestamptz)
+          RETURNS text LANGUAGE sql AS 'SELECT NULL::text';
+        CREATE TABLE public.gto_v31_budget_fixture (id integer PRIMARY KEY);
+        ALTER TABLE public.gto_v31_budget_fixture OWNER TO postgres;" >/dev/null
+BUDGET="$WORK/budget"
+mkdir -p "$BUDGET/supabase/migrations"
+budget_file() { # name, header line, body
+  printf -- '-- Fixture: install budget case.\n%s\nBEGIN;\nSET LOCAL lock_timeout = '"'"'2s'"'"';\n%s\nCOMMIT;\n' "$2" "$3" \
+    > "$BUDGET/supabase/migrations/$1"
+}
+budget_apply() {
+  (cd "$BUDGET" && FAKE_NOW_MS="$OUTSIDE_BREAK_MINUTE" APPLY_DDL_ADMISSION_WAIT_MS=0 \
+    node --import "$FIXTURES/shift-clock.mjs" "$ROOT/scripts/ci/apply-recorded-migration.mjs" \
+    --ssl-root-cert "$CA" --migration "$1")
+}
+fixture_rows() { su_sql "SELECT count(*) FROM public.gto_v31_budget_fixture WHERE id = $1"; }
+history_has() { su_sql "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '${1:0:14}'"; }
+
+B_OK=20991231000030_budget_fixture_offline_declared.sql
+budget_file "$B_OK" '-- @install-budget-seconds: 30' \
+  'INSERT INTO public.gto_v31_budget_fixture VALUES (1);
+SELECT pg_sleep(13.5);'
+set +e
+started=$(date +%s); out="$(budget_apply "$B_OK" 2>&1)"; code=$?; took=$(( $(date +%s) - started ))
+set -e
+echo "$out" > "$EVIDENCE/13-declared-offline.log"
+[ "$code" = 0 ] || fail "declared offline file exit $code: $out"
+grep -q 'declared offline install budget 30 s admitted' <<<"$out" || fail "no admission line: $out"
+[ "$took" -ge 13 ] || fail "declared offline install took ${took}s; it never ran past 12 s"
+[ "$(fixture_rows 1)" = 1 ] && [ "$(history_has "$B_OK")" = 1 ] || fail 'declared offline file did not commit'
+pass "an admitted offline file declaring 30 s runs past the ordinary 12 s (${took}s) and installs"
+
+B_PLAIN=20991231000031_budget_fixture_offline_undeclared.sql
+budget_file "$B_PLAIN" '-- (no budget declared)' \
+  'INSERT INTO public.gto_v31_budget_fixture VALUES (2);
+SELECT pg_sleep(13.5);'
+set +e
+out="$(budget_apply "$B_PLAIN" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/13-undeclared.log"
+[ "$code" = 1 ] || fail "undeclared slow file exit $code: $out"
+grep -q '25P04' <<<"$out" || fail "undeclared slow file not killed by transaction_timeout: $out"
+ms="$(sed -n 's/.*REFUSED after \([0-9]*\)ms.*/\1/p' <<<"$out" | head -1)"
+[ -n "$ms" ] && [ "$ms" -ge 11500 ] && [ "$ms" -lt 13000 ] || fail "undeclared bound was ${ms}ms, expected ~12000"
+[ "$(fixture_rows 2)" = 0 ] && [ "$(history_has "$B_PLAIN")" = 0 ] || fail 'undeclared slow file committed'
+pass "the same offline file undeclared is killed at the ordinary 12 s bound (${ms}ms) and nothing commits"
+
+B_LIVE=20991231000032_budget_fixture_live_static.sql
+budget_file "$B_LIVE" '-- @install-budget-seconds: 30' \
+  "UPDATE public.clubs SET name = name WHERE id = 1;"
+set +e
+out="$(budget_apply "$B_LIVE" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/13-live-static.log"
+[ "$code" = 1 ] && grep -q 'touches public.clubs, which is not an offline relation' <<<"$out" \
+  || fail "declared live file: $code $out"
+! grep -q 'applying the migration as ONE transaction' <<<"$out" || fail 'declared live file was sent'
+[ "$(history_has "$B_LIVE")" = 0 ] || fail 'declared live file committed'
+pass 'a declared file that writes a live table is refused before anything is sent'
+
+B_DYN=20991231000033_budget_fixture_live_dynamic.sql
+budget_file "$B_DYN" '-- @install-budget-seconds: 30' \
+  "INSERT INTO public.gto_v31_budget_fixture VALUES (3);
+DO \$d\$ BEGIN EXECUTE 'UPDATE public.clubs SET name = name WHERE id = 1'; END \$d\$;"
+set +e
+out="$(budget_apply "$B_DYN" 2>&1)"; code=$?
+set -e
+echo "$out" > "$EVIDENCE/13-live-dynamic.log"
+[ "$code" = 1 ] && grep -q 'install_budget_outside_offline_scope: this install holds public.clubs (RowExclusiveLock)' <<<"$out" \
+  || fail "dynamic live write: $code $out"
+[ "$(fixture_rows 3)" = 0 ] && [ "$(history_has "$B_DYN")" = 0 ] || fail 'dynamic live write committed'
+pass 'a declared file reaching a live table through dynamic SQL is rolled back by the in-transaction scope check'
 
 su_sql "SELECT version || ' ' || name FROM supabase_migrations.schema_migrations ORDER BY version" \
   > "$EVIDENCE/history.txt"

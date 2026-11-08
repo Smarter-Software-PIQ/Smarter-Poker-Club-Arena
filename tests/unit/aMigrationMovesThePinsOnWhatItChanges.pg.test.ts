@@ -198,8 +198,10 @@ COMMIT;
     );
     expect(applier).toContain("import { stalePinParts } from './migration-stale-pins.mjs';");
     expect(applier).toContain('stalePin = stalePinParts(file, sql, transactionBody);');
-    expect(applier).toContain(
-      'begin + stalePin.snapshot + middle + stalePin.check + historyStatement'
+    // A declared offline install budget adds its scope check between the
+    // stale-pin check and the history row (migration-install-budget.mjs).
+    expect(applier).toMatch(
+      /begin \+\s*stalePin\.snapshot \+\s*middle \+\s*stalePin\.check \+\s*\(declaredBudget \? offlineScopeCheckSQL\(\) : ''\) \+\s*historyStatement/
     );
     expect(applier.indexOf('stalePin = stalePinParts(')).toBeLessThan(
       applier.indexOf('const atomicSQL = transactionBody.replace(')

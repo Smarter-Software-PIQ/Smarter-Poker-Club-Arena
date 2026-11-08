@@ -37,7 +37,8 @@ describe('migration identity belongs to the owning transaction', () => {
   it('binds both the ordinary and settlement-lane owning send, with native enforcement', () => {
     const door = readFileSync('scripts/ci/apply-recorded-migration.mjs', 'utf8');
     expect(door).toContain('SETTLEMENT_LANE ? atomicSQL : admittedSQL,');
-    expect(door).toContain('ordinaryTransaction ? (TRANSACTION_BUDGET_SECONDS + 4) * 1000 : null');
+    expect(door).toContain('ordinaryTransaction ? ordinaryBudgetMs : null');
+    expect(door).toContain('ordinaryBudgetMs = ordinaryMigrationBudgetMs(file, sql);');
     expect(door.match(/client\.query\(transactionSQL\)/g)).toHaveLength(2);
     expect(readFileSync('scripts/ci/test-data-console-postgres-contracts.sh', 'utf8')).toContain(
       'python3 -B "$repo/scripts/ci/test-a-long-outside-snapshot-does-not-stall-the-tables.py"'
