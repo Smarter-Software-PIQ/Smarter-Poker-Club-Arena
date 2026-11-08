@@ -9,27 +9,35 @@ import { parse } from 'yaml';
 // tests/the-postgres-signing-key-comes-from-the-checkout.law.test.ts); the
 // signed PGDG package index and Signed-By verification are unchanged.
 describe('required PostgreSQL installers retain signed repository authority', () => {
+  // Since 2026-11-07 both run the one shared installer; its bytes carry the
+  // signed-source authority (tests/postgres-installs-from-one-shared-action.law.test.ts).
+  const shared = readFileSync('.github/actions/install-postgres-17/install.sh', 'utf8');
+
   it.each([
     ['.github/workflows/ci.yml', 'accounting_postgres'],
     ['.github/workflows/production-e2e-synthetic-hand-guard.yml', 'daily-missions-hand-trigger'],
-  ])('%s installs its signing key from the checkout', (file, jobId) => {
+  ])('%s installs through the shared signed installer', (file, jobId) => {
     const job = parse(readFileSync(file, 'utf8')).jobs[jobId];
-    const setup = job.steps.find((step: { run?: string }) =>
-      step.run?.includes('/pgdg/apt.postgresql.org.asc')
+    const setup = job.steps.find(
+      (step: { run?: string; uses?: string }) =>
+        step.uses === './.github/actions/install-postgres-17' ||
+        step.run?.includes('bash .github/actions/install-postgres-17/install.sh')
     );
     expect(setup).toBeDefined();
-    expect(setup.run).toContain(
-      'sudo install -m 0644 "$GITHUB_WORKSPACE/.github/pgdg/apt.postgresql.org.asc" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc'
-    );
-    expect(setup.run).not.toContain('ACCC4CF8.asc');
-    expect(setup.run).not.toContain('https://www.postgresql.org/');
-    expect(setup.run).toContain('URIs: https://apt.postgresql.org/pub/repos/apt');
-    expect(setup.run).toContain(
-      'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc'
-    );
-    expect(setup.run).toContain('install -y --no-install-recommends postgresql-17');
-    expect(setup.run).toContain('set -euo pipefail');
-    expect(setup.run).not.toMatch(/--insecure|--allow-unauthenticated|trusted=yes/);
     expect(setup['continue-on-error']).not.toBe(true);
+    expect(String(setup.run ?? '')).not.toMatch(/--insecure|--allow-unauthenticated|trusted=yes/);
+  });
+
+  it('the shared installer keeps the signed PGDG source and the checkout key', () => {
+    expect(shared).toContain('sudo install -m 0644 "$PG_KEY_SRC" "$PG_KEY_DST"');
+    expect(shared).toContain('PG_KEY_DST=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc');
+    expect(shared).not.toContain('ACCC4CF8.asc');
+    expect(shared).not.toContain('https://www.postgresql.org/');
+    expect(shared).toContain('URIs: https://apt.postgresql.org/pub/repos/apt');
+    expect(shared).toContain('Signed-By: %s');
+    expect(shared).toContain('"$codename" "$PG_KEY_DST" > "$pg_sources/pgdg.sources"');
+    expect(shared).toContain('install -y --no-install-recommends "${pg_packages[@]}"');
+    expect(shared).toContain('set -euo pipefail');
+    expect(shared).not.toMatch(/--insecure|--allow-unauthenticated|trusted=yes/);
   });
 });

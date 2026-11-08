@@ -13,6 +13,11 @@
 # written. Two guards, both correct, both unable to refuse anything.
 set -e
 
+# No child may inherit this commit's git directory (2026-11-07): a `git init`
+# run under an inherited GIT_DIR rewrites the shared clone's core.bare. The
+# index git hands this commit (GIT_INDEX_FILE) is kept: it is the one to check.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_PREFIX
+
 # One working tree per agent. Runs FIRST: if this commit should not be
 # happening here at all, there is no point formatting it.
 # One clone per repo, before one worktree per agent - being in the wrong TREE

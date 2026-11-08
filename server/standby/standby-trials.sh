@@ -309,7 +309,7 @@ request_break() {  # a real recovery-window break, requested from inside the con
 trial_verdict() {  # name verdict json-fields...
   local name="$1" verdict="$2"; shift 2
   local line; line=$(printf '{"trial":"%s","verdict":"%s","at":"%s"%s}' "$name" "$verdict" "$(date -u +%FT%TZ)" "$*")
-  echo "$line" | tee -a "$STATE_DIR/trials.jsonl"
+  echo "$line" | tee -a "$STATE_DIR/trials.jsonl" || return 1
   [ "$verdict" = pass ]
 }
 
@@ -350,6 +350,7 @@ trial_swap() {
   count_before=$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["count"])' "$seats_before") || return 1
   # The cutover: the serving engine stops inside the freeze (graceful SIGTERM,
   # as the release transaction's drain does), the candidate takes the fleet.
+  local swap_started=$(date +%s)
   docker stop -t 60 "$CONTAINER" >/dev/null 2>&1 || { trial_verdict swap fail ',"reason":"from_stop_failed"'; return 1; }
   stop_at=$(date +%s)
   cmd_run "$to" || return 1
@@ -362,6 +363,7 @@ trial_swap() {
     && post_boot=$(frozen_seat_snapshot "$seats_before" "${to:0:8}") \
     && adoption_state=$(frozen_seat_state "$post_boot" "$seats_before" adopt "${to:0:8}" 2>&1) \
     && [ "$(swap_target_identity "$to")" = "$target_id" ]; then
+    SWAP_ADOPTION_SECONDS=$(( $(date +%s) - swap_started ))
     seat_owner=$post_boot
   else
     [ "${adoption_state:-}" != frozen ] || adoption_state=candidate_identity_changed
