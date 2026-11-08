@@ -28,7 +28,7 @@ B = 'b0000000-0000-0000-0000-00000000000b'
 def run(args, sql=None, timeout=120):
     r = subprocess.run([str(a) for a in args], input=sql, text=True, capture_output=True, timeout=timeout)
     if r.returncode:
-        raise RuntimeError(r.stderr)
+        raise RuntimeError(r.stderr + ((work / 'postgres.log').read_text() if 'pg_ctl' in str(args[0]) and (work / 'postgres.log').exists() else ''))
     return r.stdout
 
 
@@ -57,7 +57,7 @@ def row(user, reason='unanswered_heartbeat', rejoined='true', gap='4250', waited
 
 try:
     run([PG / 'initdb', '-D', work / 'data', '-U', 'postgres', '-A', 'trust', '--no-locale'])
-    run([PG / 'pg_ctl', '-D', work / 'data', '-l', work / 'postgres.log', '-o', f'-k {sock} -p {port} -h 127.0.0.1', '-w', 'start'])
+    run([PG / 'pg_ctl', '-D', work / 'data', '-l', work / 'postgres.log', '-o', f'-k {sock} -p {port} -c listen_addresses=', '-w', 'start'])
     started = True
     run([PG / 'psql', '-X', '-qAt', '-h', sock, '-p', port, '-U', 'postgres', '-d', 'postgres'],
         'CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS; CREATE DATABASE w;')

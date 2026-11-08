@@ -45,7 +45,7 @@ describe('hero-cards-no-glitch waits for the reveal with the test budget', () =>
   });
 
   it('is used at every reveal the spec waits for, and the "false" checks are untouched', () => {
-    expect(spec.match(/await expectTableRevealed\(page, startedAt, '/g)).toHaveLength(3);
+    expect(spec.match(/await expectTableRevealed\(page, startedAt, '/g)).toHaveLength(4);
     expect(spec.match(/toHaveAttribute\('data-ready', 'false'\)/g)).toHaveLength(2);
   });
 

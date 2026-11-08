@@ -4,7 +4,8 @@ CREATE FUNCTION fixture.u(n int) RETURNS uuid LANGUAGE sql IMMUTABLE AS $$SELECT
 CREATE FUNCTION fixture.assert(ok boolean,label text) RETURNS void LANGUAGE plpgsql AS $$BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'FAIL: %',label; END IF; RAISE NOTICE 'PASS: %',label;END $$;
 INSERT INTO auth.users(id) SELECT fixture.u(x) FROM generate_series(900,908) x;
 INSERT INTO profiles(id,username,is_horse) SELECT fixture.u(x),'weekly_native_'||x,x IN(904,905,908) FROM generate_series(900,908) x;
-INSERT INTO clubs(id,name,owner_id,chip_treasury,asset) VALUES(fixture.u(101),'Original A',fixture.u(901),1000,'chips'),(fixture.u(102),'Original B',fixture.u(902),1000,'chips');
+-- Stable short IDs keep synthetic clubs independent of the captured random default.
+INSERT INTO clubs(id,club_id,name,owner_id,chip_treasury,asset) VALUES(fixture.u(101),99101,'Original A',fixture.u(901),1000,'chips'),(fixture.u(102),99102,'Original B',fixture.u(902),1000,'chips');
 INSERT INTO unions(id,name,slug,owner_id,settings) VALUES(fixture.u(201),'Original Union','original-union-native',fixture.u(900),'{"eco_enabled":true,"eco_base_mode":"club_cash_profit","eco_rate":0.1,"eco_include_horses":true}');
 INSERT INTO union_clubs(id,union_id,club_id,club_commission_rate) VALUES(fixture.u(1),fixture.u(201),fixture.u(101),0.9),(fixture.u(2),fixture.u(201),fixture.u(102),0.9);
 INSERT INTO cash_games(id,club_id,union_id,name,template_name,variant,sb,bb,handedness,ruleset_snapshot) VALUES(fixture.u(300),fixture.u(101),fixture.u(201),'Original game','classic','nlh',1,2,9,'{}');
@@ -12,9 +13,9 @@ INSERT INTO tables(id,name,game_type,cluster_id,club_id,union_id,min_buy_in,max_
 INSERT INTO club_members(user_id,club_id,chip_balance,role,status) VALUES(fixture.u(903),fixture.u(102),500,'player','active'),(fixture.u(904),fixture.u(101),500,'player','active'),(fixture.u(905),fixture.u(101),500,'player','active');
 INSERT INTO union_wallets(union_id,chip_balance,rake_wallet) VALUES(fixture.u(201),1000,0);
 -- Independent raked-hand book; synthetic opening balances precede all money triggers.
-INSERT INTO clubs(id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
- (fixture.u(104),'Raked member',fixture.u(901),1000,'chips',false,NULL),
- (fixture.u(203),'Raked Union house',fixture.u(900),1000,'chips',true,NULL);
+INSERT INTO clubs(id,club_id,name,owner_id,chip_treasury,asset,is_union,union_id) VALUES
+ (fixture.u(104),99104,'Raked member',fixture.u(901),1000,'chips',false,NULL),
+ (fixture.u(203),99203,'Raked Union house',fixture.u(900),1000,'chips',true,NULL);
 INSERT INTO unions(id,name,slug,owner_id,settings) VALUES(fixture.u(203),'Raked Union','raked-union-native',fixture.u(900),'{"eco_enabled":true,"eco_base_mode":"club_cash_profit","eco_rate":0.1,"eco_include_horses":true}');
 UPDATE clubs SET union_id=fixture.u(203) WHERE id IN(fixture.u(104),fixture.u(203));
 INSERT INTO union_clubs(id,union_id,club_id,club_commission_rate) VALUES(fixture.u(3),fixture.u(203),fixture.u(104),0.9),(fixture.u(4),fixture.u(203),fixture.u(203),0.9);

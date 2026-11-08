@@ -1,34 +1,47 @@
 import React, { useState, memo } from 'react';
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { CardImage, type Card } from '../../../src/components/table/CardImage';
 import { useDeckImages } from '../../../src/hooks/useDeckImages';
 import { isTableImageDecoded, useTableArt } from '../../../src/hooks/useTableArt';
 import { deckImageUrls, decodedCardImageUrl, isDeckReady } from '../../../src/utils/deckWarmer';
 
 // Seats/boards stay mounted and memoized underneath the real table's art cover.
-const Cards = memo(({ style, hand }: { style: '4color' | '2color'; hand: number }) => (
-  <div key={hand} style={{ display: 'flex', gap: 4 }}>
-    {['A', 'K', 'Q', 'J', 'T', '9', '8'].map((rank, i) => (
-      <div key={i} className={i < 5 ? 'community-cards__card' : 'seat'}>
-        <div className={i < 5 ? undefined : 'seat__card seat__card--face'}>
-          <CardImage
-            card={{ rank, suit: ['h', 'd', 'c', 's'][i % 4] } as Card}
-            loading="eager"
-            deckStyle={style}
-          />
+const Cards = memo(
+  ({
+    style,
+    hand,
+    loading,
+  }: {
+    style: '4color' | '2color';
+    hand: number;
+    loading: 'eager' | 'lazy';
+  }) => (
+    <div key={hand} style={{ display: 'flex', gap: 4 }}>
+      {['A', 'K', 'Q', 'J', 'T', '9', '8'].map((rank, i) => (
+        <div key={i} className={i < 5 ? 'community-cards__card' : 'seat'}>
+          <div className={i < 5 ? undefined : 'seat__card seat__card--face'}>
+            <CardImage
+              card={{ rank, suit: ['h', 'd', 'c', 's'][i % 4] } as Card}
+              loading={loading}
+              deckStyle={style}
+            />
+          </div>
         </div>
-      </div>
-    ))}
-  </div>
-));
+      ))}
+    </div>
+  )
+);
 function Table() {
   const [style, setStyle] = useState<'4color' | '2color'>('4color');
   const [hand, setHand] = useState(0);
+  const [loading, setLoading] = useState<'eager' | 'lazy'>('eager');
   const ready = useDeckImages(style);
   const art = useTableArt('', '', true, 'test', ready);
   Object.assign(window, {
-    nextHand: () => setHand((h) => h + 1),
-    changeDeck: () => setStyle('2color'),
+    nextHand: () => flushSync(() => setHand((h) => h + 1)),
+    setCardLoading: (value: 'eager' | 'lazy') => flushSync(() => setLoading(value)),
+    changeDeck: () => flushSync(() => setStyle('2color')),
     // WHAT data-ready IS STILL WAITING ON (2026-11-07). data-ready is
     // useTableArt().reveal: the deck decoded (useDeckImages), the felt and
     // room decoded (both '' here), or the cover's TABLE_ART_MAX_COVER_MS
@@ -61,7 +74,7 @@ function Table() {
           Preparing Table
         </div>
       )}
-      <Cards style={style} hand={hand} />
+      <Cards style={style} hand={hand} loading={loading} />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   validateSelection,
+  lightningFoldStructure,
   acceptedSharedRead,
   summarizeDecision,
   sanitizeInspectionFailure,
@@ -52,12 +53,24 @@ test('emits only selected public counters and scalar execution receipts, never p
     },
     decision: { action: 'raise', cards: [secret] },
     observerReads: {
+      disposition: 'unknown_context',
       history: 'own_public_window',
       historyHands: 12,
       learnedThroughMs: 9,
       private: secret,
     },
     readFrame: { json: secret },
+  };
+  capture.snapshot.gameState.tournament = {
+    contextStatus: 'incomplete',
+    contextIssues: [
+      'TOURNAMENT_CONTEXT_INCOMPLETE',
+      'live_field_stack_cardinality_mismatch',
+      'live_field_stack_cardinality_mismatch',
+      'private_but_word_shaped',
+      secret,
+    ],
+    details: secret,
   };
   const view = {
     stats: new Map([[id, { hands: 12, vpip: 10, pfr: 8, threeBet: 3, private: secret }]]),
@@ -84,6 +97,26 @@ test('emits only selected public counters and scalar execution receipts, never p
   assert.equal(result.opponent.hands, 12);
   assert.equal(result.execution.phase11.mode, 'candidate');
   assert.equal(result.independent, true);
+  assert.equal(result.observerDisposition, 'unknown_context');
+  assert.equal(result.tournamentContextStatus, 'incomplete');
+  assert.deepEqual(result.tournamentIssues, {
+    codes: ['live_field_stack_cardinality_mismatch'],
+    otherIssuePresent: true,
+  });
+  for (const invalid of [undefined, 'private_but_word_shaped', { private: secret }]) {
+    const other = {
+      ...capture,
+      observerReads: { ...capture.observerReads, disposition: invalid },
+      snapshot: {
+        ...capture.snapshot,
+        gameState: { ...capture.snapshot.gameState, tournament: { contextStatus: invalid } },
+      },
+    };
+    const row = summarizeDecision({}, other, view, id, false);
+    assert.equal(row.observerDisposition, null);
+    assert.equal(row.tournamentContextStatus, null);
+    assert.equal(row.tournamentIssues, null);
+  }
   assert.ok(!JSON.stringify(result).includes(secret));
   assert.equal(
     summarizeDecision({}, capture, view, '22222222-2222-4222-8222-222222222222', true),
@@ -235,7 +268,7 @@ test('untrusted errors cannot forge diagnostic codes or disclose their payload',
 test('actual CLI reports the failing bounded stage and preserves successful output', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'horse-read-diagnostic-'));
   const script = fileURLToPath(
-    new URL('../../scripts/ci/inspect-horse-opponent-reads.mjs', import.meta.url),
+    new URL('../../scripts/ci/inspect-horse-opponent-reads.mjs', import.meta.url)
   );
   const run = (stage, journal = 'unused-synthetic-directory', input = selection) =>
     spawnSync(process.execPath, [script, Buffer.from(JSON.stringify(input)).toString('base64')], {
@@ -331,4 +364,62 @@ test('actual CLI reports the failing bounded stage and preserves successful outp
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+test('projects only coarse counts from a selected and accepted PLO4 Lightning Horse fold', () => {
+  const target = { handKey: selection.handKeys[0], ordinals: [4] };
+  validateSelection({ sourceSha: selection.sourceSha, foldTargets: [target] });
+  assert.throws(() =>
+    validateSelection({
+      sourceSha: selection.sourceSha,
+      foldTargets: [{ ...target, ordinals: [4, 4] }],
+    })
+  );
+  const context = { variant: 'plo4', format: 'cash', publicMemoryDomain: { speed: 'lightning' } };
+  const cards = [
+    { rank: 'A', suit: 'hearts' },
+    { rank: '2', suit: 'hearts' },
+    { rank: '3', suit: 'clubs' },
+    { rank: '3', suit: 'clubs' },
+  ];
+  const snapshot = {
+    type: 'DECIDE_FAST',
+    player: { bet: 0, cards },
+    gameState: {
+      stage: 'preflop',
+      pot: 9,
+      currentBet: 4,
+      legalActions: ['fold', 'call', 'raise'],
+      players: [{ cards: 'PRIVATE' }],
+    },
+  };
+  const capture = { snapshot, decision: { action: 'fold' }, observerReads: { context } };
+  const execution = {
+    executionStatus: 'intended',
+    executedAction: 'fold',
+    selected: { action: 'fold' },
+  };
+  const project = () =>
+    lightningFoldStructure(capture, execution, {}, target.ordinals, () => ({
+      status: 'bound',
+      actionOrdinal: 4,
+    }));
+  assert.equal(project(), null);
+  cards[3] = { rank: '4', suit: 'clubs' };
+  assert.deepEqual(project(), {
+    actionOrdinal: 4,
+    action: 'fold',
+    pot: 9,
+    toCall: 4,
+    invested: 0,
+    legalActions: ['fold', 'call', 'raise'],
+    distinctRanks: 4,
+    pairedSuits: 2,
+    maxFiveRankWindow: 4,
+  });
+  target.ordinals = [5];
+  assert.equal(project(), null);
+  target.ordinals = [4];
+  context.variant = 'plo8';
+  assert.equal(project(), null);
 });

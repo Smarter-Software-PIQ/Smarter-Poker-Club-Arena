@@ -1,0 +1,143 @@
+# V84 denominator, sizing and pot-odds evidence (2026-11-07, read-only measurement before activation)
+# Same two days and eligibility as v84-river-reraise-cells.txt: day A 2026-11-05 16:00 to 11-06 16:00 UTC,
+# day B 11-06 16:00 to 11-07 16:00 UTC; river, the horse bet or raised the river first, then faced a raise.
+# Source: scripts/horse-measure/sql/omaha-river-reraise-opportunities.sql (every action, no size, table,
+# event or depth filter; each exclusion is a column), run per day with a flush-candidate filter (the horse
+# holds two cards of a suit the board shows three times). Raw rows with full hand ids:
+# v84-river-reraise-calls/denominator-flush-{A,B}.json. Classified by the engine's own omahaCallClass:
+#   cd server && npx tsx ../scripts/horse-measure/omaha-river-reraise-denominator.ts \
+#     --day A .../denominator-flush-A.json --day B .../denominator-flush-B.json --prior .../{A1,A2,B1,B2}.json
+#
+# All-class denominator (eligible: raise >= 0.9 pot, more than two seats dealt, no bounty, > 20bb),
+# day A, every action: plo4 cash fold 23 call 12 all-in call 6 raise 6 all-in raise 7; plo4 tour fold 4
+# call 4 all-in call 3 all-in raise 3; plo5 cash fold 12 call 8 all-in call 8 raise 3 all-in raise 6;
+# plo5 tour fold 3 call 1 all-in raise 6; plo6 cash fold 8 call 10 all-in call 8 raise 12 all-in raise 14;
+# plo6 tour fold 11 call 4 all-in call 7 all-in raise 2. Day A eligible calls 71, as in the first pull.
+# Day B, eligible / all: plo4 cash fold 139/159 call 46/99 all-in call 58/72 raise 39/39 all-in raise 43/47;
+# plo4 tour fold 3/84 call 1/48 all-in call 1/40 raise 1/1 all-in raise 0/11; plo5 cash fold 12/15 call 4/9
+# all-in call 14/16 raise 4/4 all-in raise 7/8; plo5 tour fold 4/20 call 2/23 all-in call 4/16 raise 1/2
+# all-in raise 2/4; plo6 cash fold 12/14 call 6/13 all-in call 20/24 raise 7/7 all-in raise 21/22; plo6 tour
+# fold 1/1 call 1/1 all-in call 1/1 all-in raise 1/1. Day B eligible calls 158 against 157 in the first pull
+# (one decision outside the flush classes; the flush_second calls match exactly).
+#
+# Reconciliation of the 27 flush_second calls:
+#  - 8-character id truncation: the 222 decisions pulled have 222 distinct 8-character prefixes, and the
+#    27 calls of the first pull match the 27 found here hand for hand (none missing, none new).
+#  - 0.9-pot filter: every flush_second decision was pulled unfiltered; 14 were calls of raises under 0.9.
+#  - ca_hand_facts coverage: a direct hand_history scan (no ca_hand_facts) of 2026-11-06 10:00-16:00 and
+#    11-07 04:00-10:00 UTC found 94 and 202 horse river decisions after their own river wager; 0 lacked a
+#    ca_hand_facts row and 0 had aggressive_actions_river = 0 (the candidate filter), so none was dropped.
+#  - run-it-twice / two boards / bomb pots: none of the 49 flush_second decisions ran it twice; the 6
+#    eligible-shaped decisions in two-board or bomb hands over the 48 hours were all double-board bomb pots,
+#    which V84 excludes. None of the 27 was on an all-in-or-fold table (legal actions read per decision).
+#  - all-in raises: 6 of the 27 faced a raiser who was all in (1dd17d6b, 2f802de3, 6db06ec4, 0c8deb85,
+#    4d1f15f0, 729050d9); all are counted, as v81StreetWager counts a raising all-in.
+#  - 20bb exclusion: 2 flush_second calls (day A) were 20bb or less; both are excluded.
+#  - actions: the horses never folded and never re-raised a flush_second here: 49 decisions, 49 calls.
+#
+# Chops: decision EV = (net + chips already invested at the node) / bb, where net = returned - invested
+# from ca_hand_facts, so a split pot counts at its fractional return (it is never a loss and never dropped).
+# 0 of the 49 flush_second decisions was a chop; every showdown was a nut flush or a straight flush.
+#
+# Pot odds: price = call (capped at the stack) / (pot at the node + call) = the equity the call needs.
+
+## Day A: 96 flush-candidate decisions (all actions, unfiltered)
+class | eligible by action (fold call all_in_call raise all_in_raise) | excluded
+flush_dominated | 7 0 0 0 0 | 19
+flush_dominated_paired | 2 0 0 0 0 | 14
+flush_nut | 0 1 0 0 1 | 2
+flush_nut_paired | 3 1 0 0 0 | 5
+flush_second | 0 10 2 0 0 | 13
+flush_second_paired | 2 2 0 0 0 | 5
+full_house_plus | 0 0 3 0 1 | 3
+
+### flush_second (unpaired board), day A: 25 decisions before exclusions
+  20bb or less / call: 2
+  ELIGIBLE / call: 12
+  heads-up table / call: 2
+  raise under 0.9 pot / call: 9
+  eligible by variant / format: fold call all_in_call raise all_in_raise
+    plo4 cash: 0 4 0 0 0
+    plo4 tournament: 0 1 0 0 0
+    plo5 cash: 0 0 2 0 0
+    plo6 cash: 0 3 0 0 0
+    plo6 tournament: 0 2 0 0 0
+  calls: n 12 (hands 12) mean -100.8 [-159.5, -42.0] bb; won 0; chopped 0
+  calls priced >= 0.13 (V84_MIN_CALL_PRICE): n 11 mean -106.5 [-169.6, -43.3] bb; won 0
+    plo4: n 5 mean -76.8 [-115.1, -38.5]
+    plo5: n 1 mean -187.8 [n/a, n/a]
+    plo6: n 5 mean -119.8 [-254.7, 15.1]
+    cash: n 8 mean -84.2 [-123.5, -44.9]
+    tournament: n 3 mean -165.8 [-388.1, 56.6]
+  chops among all 25 flush_second decisions (any action, any exclusion): 0
+  hand | variant fmt | action | raise/pot | to call | pot | price = needed equity | EV bb | chop | showdown
+  1db077a7-8ae0-4f6a-89e5-cd2e07fbacc3 | plo5 cash | all_in_call | 1.611 | 46.95 | 95.38 | 0.330 | -187.8 | no | Flush Ace High; Flush Ten High
+  1dd17d6b-6e31-4c1d-953e-016b24052989 | plo5 cash | all_in_call | 1.349 | 9.56 | 135.04 | 0.066 | -38.24 | no | Flush Ace High
+  24d7144d-bf80-492b-b0b0-36419c52c3c5 | plo6 cash | call | 1.806 | 14.24 | 28.48 | 0.333 | -56.96 | no | Flush Ace High
+  2719a23f-fa32-4eaa-84f3-935659a14129 | plo6 cash | call | 1.800 | 49 | 98 | 0.333 | -24.5 | no | Flush Ace High
+  2f802de3-9f73-4ab9-b1d9-15c691cc3ad4 | plo4 cash | call | 1.092 | 26.75 | 75.42 | 0.262 | -107 | no | Flush Ace High
+  34b24b6b-b6ff-45f4-ad80-132bc5374bfb | plo4 cash | call | 2.000 | 7.95 | 15.9 | 0.333 | -31.8 | no | Flush Ace High
+  6ac5dfa9-4407-4a35-94eb-eaba24b8daf2 | plo6 cash | call | 1.881 | 21.15 | 42.3 | 0.333 | -84.6 | no | Flush Ace High
+  6db06ec4-9b5d-4ce3-975c-f35d42263383 | plo4 cash | call | 1.532 | 68.09 | 160.2 | 0.298 | -136.18 | no | Straight Flush Queen High
+  892ef525-8ad5-46cb-9c21-82766f346046 | plo6 tour | call | 1.814 | 2043 | 4086 | 0.333 | -40.86 | no | Flush Ace High
+  d0d4dd64-2b75-4564-bf87-7d8ff27ab3cb | plo4 cash | call | 2.000 | 11.22 | 22.44 | 0.333 | -44.88 | no | Flush Ace High
+  e08b0443-157e-47ab-af0c-b6e92c1d735f | plo4 tour | call | 1.925 | 3209 | 6418 | 0.333 | -64.18 | no | Straight Flush Eight High
+  f0e3c1b4-f1cc-4948-ab72-cc9f78b79dd3 | plo6 tour | call | 1.823 | 9806 | 19612 | 0.333 | -392.24 | no | Flush Ace High
+
+## Day B: 136 flush-candidate decisions (all actions, unfiltered)
+class | eligible by action (fold call all_in_call raise all_in_raise) | excluded
+flush_dominated | 20 0 3 0 0 | 13
+flush_dominated_paired | 4 0 0 0 0 | 12
+flush_nut | 0 0 1 3 5 | 5
+flush_nut_paired | 10 6 0 0 0 | 5
+flush_second | 0 9 6 0 0 | 9
+flush_second_paired | 3 4 0 0 0 | 7
+full_house_plus | 0 1 3 1 3 | 3
+
+### flush_second (unpaired board), day B: 24 decisions before exclusions
+  ELIGIBLE / call: 15
+  bounty event / call: 2
+  heads-up table / call: 2
+  raise under 0.9 pot / call: 5
+  eligible by variant / format: fold call all_in_call raise all_in_raise
+    plo4 cash: 0 7 5 0 0
+    plo5 cash: 0 1 1 0 0
+    plo6 cash: 0 1 0 0 0
+  calls: n 15 (hands 15) mean -93.0 [-130.3, -55.6] bb; won 0; chopped 0
+  calls priced >= 0.13 (V84_MIN_CALL_PRICE): n 12 mean -101.8 [-145.2, -58.3] bb; won 0
+    plo4: n 9 mean -112.8 [-169.6, -56.0]
+    plo5: n 2 mean -72.9 [-80.0, -65.8]
+    plo6: n 1 mean -60.5 [n/a, n/a]
+    cash: n 12 mean -101.8 [-145.2, -58.3]
+  chops among all 24 flush_second decisions (any action, any exclusion): 0
+  hand | variant fmt | action | raise/pot | to call | pot | price = needed equity | EV bb | chop | showdown
+  062df395-b22a-4817-9e9e-3757052db727 | plo5 cash | all_in_call | 1.912 | 153 | 990 | 0.134 | -76.5 | no | Flush Ace High
+  0c8deb85-e6bb-436d-9e47-1095a443eab8 | plo4 cash | call | 1.933 | 49.97 | 102.29 | 0.328 | -99.94 | no | Flush Ace High
+  2778a1ba-8185-4237-a7e6-6aa2d434f7a6 | plo4 cash | call | 1.247 | 16.11 | 45.47 | 0.262 | -32.22 | no | Flush Ace High
+  456c6639-c94a-41a6-87b7-f0cb065ba1b4 | plo4 cash | call | 2.000 | 93.33 | 186.66 | 0.333 | -186.66 | no | Flush Ace High
+  4d1f15f0-9336-4843-bcb4-484bbd0e0e09 | plo4 cash | all_in_call | 1.724 | 2.02 | 70.17 | 0.028 | -8.08 | no | Flush Ace High
+  5b7dbb87-92b1-4abf-9b44-84a1fe00c43a | plo4 cash | call | 1.653 | 84.34 | 194.02 | 0.303 | -168.68 | no | Flush Ace High
+  729050d9-41f2-48f0-8f2b-a2ce7a2d3341 | plo4 cash | all_in_call | 1.767 | 144.52 | 335.11 | 0.301 | -289.04 | no | Flush Ace High
+  971fab89-8700-459a-99c9-7e007cd54e70 | plo4 cash | call | 2.000 | 17.25 | 34.5 | 0.333 | -34.5 | no | Flush Ace High
+  9fa08789-5319-4034-899b-299c14cb4c6f | plo4 cash | call | 2.000 | 23.25 | 46.5 | 0.333 | -46.5 | no | Flush Ace High
+  ac6843bd-cda1-4090-9d96-f6657071514b | plo4 cash | all_in_call | 1.687 | 21.8 | 204.38 | 0.096 | -43.6 | no | Flush Ace High
+  cdb830dc-e782-4843-8ad4-083fc7c19868 | plo4 cash | all_in_call | 1.887 | 26.75 | 132.68 | 0.168 | -53.5 | no | Flush Ace High
+  d0421d1f-43ff-4636-8352-26947edb230c | plo5 cash | call | 1.698 | 17.31 | 34.62 | 0.333 | -69.24 | no | Flush Ace High
+  d905f676-7cd9-404f-a8aa-45b6b594ca7f | plo4 cash | all_in_call | 1.831 | 60.77 | 1208.66 | 0.048 | -121.54 | no | Flush Ace High
+  e03513d8-b05e-4b76-9788-2be79a1b0c64 | plo6 cash | call | 1.916 | 121 | 242 | 0.333 | -60.5 | no | Flush Ace High
+  eb559846-1829-4de0-b13a-7c8eaa3f9dd2 | plo4 cash | call | 1.821 | 52.03 | 104.06 | 0.333 | -104.06 | no | Flush Ace High
+
+## Pooled flush_second calls: 27, won 0
+needed equity: min 0.028, median 0.333, max 0.333, mean 0.270
+priced >= 0.13: 23; 0 wins in 23 bounds the win rate at 0.122 (one-sided 95%)
+0 wins in 27: one-sided 95% upper bound on the true win rate 0.105; Clopper-Pearson two-sided 95% upper 0.128
+
+## Reconciliation with the earlier pull: prior 27 flush_second calls, found 27; prior not found: none; new here: none
+
+## Admission, re-applied
+# The cell still passes V81's rule with the 10-hands-per-day floor: below zero both days, no variant or
+# format slice with n >= 10 positive, 0 wins and 0 chops. The pot-odds evidence adds one boundary: 0/27
+# only bounds the true win rate at 0.105, so a call needing less equity than that (4 calls: 0.028, 0.048,
+# 0.066, 0.096, a horse all in for its last few chips) is not shown to lose. V84 now folds only at a price
+# of 0.13 or more (V84_MIN_CALL_PRICE); those 23 calls all lost (day A n 11, day B n 12), and 0/23 bounds
+# the win rate at 0.122, below every price in the set. All-in-or-fold tables were never observed: excluded.

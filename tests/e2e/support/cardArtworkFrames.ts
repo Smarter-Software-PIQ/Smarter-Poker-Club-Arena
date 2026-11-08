@@ -13,12 +13,15 @@ export type CardArtworkExposure = {
   performanceAt: number;
   previousFrameAt: number | null;
   gapMs: number | null;
+  surfaceKind?: 'image' | 'decoded-canvas';
   imageVisible: boolean;
   complete: boolean;
   naturalWidth: number;
   naturalHeight: number;
   local: boolean;
   bounds: { x: number; y: number; width: number; height: number };
+  /** Public outer card slot, separate from the rotating face's subpixel bounds. */
+  rasterBounds?: { x: number; y: number; width: number; height: number };
 };
 export type CardArtworkSnapshot = {
   schema: 'card-artwork-first-visible-raf/v1';
@@ -239,6 +242,17 @@ export function installCardArtworkFrames(options: {
     surfaces.forEach((surface) => {
       const image = surface.querySelector<HTMLImageElement>('.card-image__img');
       const source = image?.currentSrc || image?.src || '';
+      const canvas = surface.querySelector<HTMLCanvasElement>('.card-image__artwork');
+      const paintedCanvas =
+        !!canvas &&
+        canvas.dataset.cardArtworkReady === 'true' &&
+        canvas.width > 0 &&
+        canvas.height > 0 &&
+        visible(canvas);
+      const artworkVisible = paintedCanvas || (!!image && visible(image));
+      const artworkComplete = paintedCanvas || (image?.complete ?? false);
+      const artworkWidth = paintedCanvas ? canvas!.width : (image?.naturalWidth ?? 0);
+      const artworkHeight = paintedCanvas ? canvas!.height : (image?.naturalHeight ?? 0);
       let item = seen.get(surface);
       if (!item) {
         item = {
@@ -259,17 +273,16 @@ export function installCardArtworkFrames(options: {
         item.sourceEpoch++;
       }
       const eligible = visible(surface);
-      const imageVisible = !!image && visible(image);
+      const imageVisible = artworkVisible;
       if (
         eligible &&
-        image &&
         imageVisible &&
-        image.complete &&
-        image.naturalWidth > 0 &&
+        artworkComplete &&
+        artworkWidth > 0 &&
         !uniqueVisibleSources.has(source)
       ) {
         uniqueVisibleSources.add(source);
-        frameSurfaceBytes += image.naturalWidth * image.naturalHeight * 4;
+        frameSurfaceBytes += artworkWidth * artworkHeight * 4;
       }
       if (eligible && (!item.eligible || sourceChanged)) {
         if (!item.eligible) {
@@ -277,6 +290,8 @@ export function installCardArtworkFrames(options: {
           item.natural = !item.initialAtJoin || item.everEligible;
         }
         const bounds = surface.getBoundingClientRect();
+        const slot = surface.closest('.community-cards__card, .seat__card')!;
+        const rasterBounds = slot.getBoundingClientRect();
         if (exposures.length >= maxExposures) {
           state.overflow = true;
           return;
@@ -301,12 +316,19 @@ export function installCardArtworkFrames(options: {
           performanceAt: performance.now(),
           previousFrameAt: prior,
           gapMs,
+          surfaceKind: paintedCanvas ? 'decoded-canvas' : 'image',
           imageVisible,
-          complete: image?.complete ?? false,
-          naturalWidth: image?.naturalWidth ?? 0,
-          naturalHeight: image?.naturalHeight ?? 0,
+          complete: artworkComplete,
+          naturalWidth: artworkWidth,
+          naturalHeight: artworkHeight,
           local: source.startsWith('blob:'),
           bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+          rasterBounds: {
+            x: rasterBounds.x,
+            y: rasterBounds.y,
+            width: rasterBounds.width,
+            height: rasterBounds.height,
+          },
         });
         item.everEligible = true;
       }
@@ -353,6 +375,13 @@ export function cardArtworkFramesEvidence(
         entry.visibilityEpoch <= 0 ||
         typeof entry.natural !== 'boolean' ||
         typeof entry.imageVisible !== 'boolean' ||
+        (entry.surfaceKind !== undefined &&
+          !['image', 'decoded-canvas'].includes(entry.surfaceKind)) ||
+        (entry.rasterBounds !== undefined &&
+          (!entry.rasterBounds ||
+            Object.values(entry.rasterBounds).some((value) => !Number.isFinite(value)) ||
+            entry.rasterBounds.width <= 0 ||
+            entry.rasterBounds.height <= 0)) ||
         typeof entry.complete !== 'boolean' ||
         typeof entry.local !== 'boolean' ||
         !Number.isFinite(entry.firstEligibleAt) ||
@@ -405,7 +434,7 @@ export function cardArtworkFramesEvidence(
           ? 'unknown'
           : 'qualified',
     limit:
-      'First eligible requestAnimationFrame image readiness; compositor raster coverage must be correlated separately. Public showdown holes only; no private hero participation.',
+      'First eligible requestAnimationFrame rendered artwork readiness (loaded image or synchronously drawn decoded canvas); compositor raster coverage must be correlated separately. Public showdown holes only; no private hero participation.',
     counts: {
       board: board.length,
       publicHoles: publicHoles.length,
