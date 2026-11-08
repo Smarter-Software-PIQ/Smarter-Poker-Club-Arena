@@ -14,13 +14,14 @@
  *  4. Outside the cell the answer is exactly today.
  *  5. Label flips never change the answer.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import {
   omahaCallClass,
+  V84_MIN_CALL_PRICE,
   v84Cell,
   v84HeroWageredStreet,
   type V84Input,
@@ -93,7 +94,13 @@ function river(variant: string, hole: string, board: string, o: Spot = {}) {
       is_horse: o.flip === true,
     } as SeatPlayer,
   ];
-  const history: Array<Record<string, unknown>> = [];
+  const history: Array<{
+    stage: string;
+    seat: number;
+    userId: string;
+    action: string;
+    amount: number;
+  }> = [];
   for (let k = 0; k < folders; k++) {
     const seat = 3 + k;
     players.push({
@@ -221,6 +228,8 @@ describe('V84 Omaha river re-raise call discipline', () => {
       bombPot: false,
       heroWageredStreet: true,
       bettorOverBluffs: false,
+      callPrice: 0.333,
+      allInOrFold: false,
     };
     const at = (o: Partial<V84Input> = {}) => v84Cell({ ...base, ...o });
     expect(at()).toBe('flush_second');
@@ -228,6 +237,7 @@ describe('V84 Omaha river re-raise call discipline', () => {
     expect(at({ variant: 'plo6', hole: cards(SECOND.plo6) })).toBe('flush_second');
     expect(at({ tournament: true })).toBe('flush_second');
     expect(at({ potFrac: 0.9 })).toBe('flush_second');
+    expect(at({ callPrice: V84_MIN_CALL_PRICE })).toBe('flush_second');
     // Not admitted classes.
     expect(at({ hole: cards('Ah5h6s6d') })).toBeNull(); // nut flush
     expect(at({ hole: cards('Jh8hTsTd') })).toBeNull(); // dominated flush (not measured in)
@@ -237,6 +247,9 @@ describe('V84 Omaha river re-raise call discipline', () => {
     // Every exclusion.
     expect(at({ heroWageredStreet: false })).toBeNull();
     expect(at({ potFrac: 0.89 })).toBeNull();
+    expect(at({ callPrice: 0.129 })).toBeNull(); // cheaper than the evidence bounds
+    expect(at({ callPrice: NaN })).toBeNull();
+    expect(at({ allInOrFold: true })).toBeNull();
     expect(at({ effectiveBB: 20 })).toBeNull();
     expect(at({ headsUpTable: true })).toBeNull();
     expect(at({ bountyEvent: true })).toBeNull();
@@ -350,5 +363,147 @@ describe('V84 Omaha river re-raise call discipline', () => {
         decideMany(river('plo4', hole, FLUSHY), {}, 15).acts
       );
     }
+  });
+});
+
+/**
+ * The boundaries the denominator re-measurement fixed (2026-11-07,
+ * docs/horse-measure/2026-11-07/v84-river-reraise-denominator.txt): each one
+ * end to end, the V84 arm against the off arm.
+ */
+describe('V84 boundaries', () => {
+  beforeEach(() => {
+    enableBrainTelemetry();
+    HorseMind.reset();
+    drainFires();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    HorseMind.reset();
+    drainFires();
+  });
+
+  type Built = ReturnType<typeof river>;
+  const today = (label: string, s: Built, seeds = 15) => {
+    const on = decideMany(s, {}, seeds);
+    const off = decideMany(s, OFF, seeds);
+    expect(on.acts, label).toEqual(off.acts);
+    expect(on.fires, label).toBe(0);
+    return off;
+  };
+  const folds = (label: string, s: Built) => {
+    const on = decideMany(s, {}, 15);
+    expect(putIn(on.acts), label).toBe(0);
+    for (let seed = 1; seed <= 5; seed++) {
+      seedFastRandom(seed);
+      HorseMind.reset();
+      const d = HorseLogic.decide(s.hero, s.gs as never, 'balanced', {}, { mind: false } as never);
+      expect(
+        horseDecisionReceiptIsValid(d, String(s.gs.gameVariant), {
+          player: s.hero,
+          gameState: s.gs as never,
+        }),
+        label
+      ).toBe(true);
+    }
+    return { on, off: decideMany(s, OFF, 15) };
+  };
+
+  it('a raise of exactly 0.9 pot folds; one just under keeps today', () => {
+    // Hero bets 24 into 36: the raise is measured against 60.
+    const at = folds('0.9 pot', river('plo4', SECOND.plo4, FLUSHY, { raiseTo: 54 }));
+    expect(putIn(at.off.acts)).toBeGreaterThan(0);
+    const under = today('0.883 pot', river('plo4', SECOND.plo4, FLUSHY, { raiseTo: 53 }));
+    expect(putIn(under.acts)).toBeGreaterThan(0); // not vacuous: today calls it
+  });
+
+  it('a horse that only CALLED earlier on the river is out of V84 (and V81)', () => {
+    const s = river('plo4', SECOND.plo4, FLUSHY, { folders: 1 });
+    // Villain bets 24, hero calls 24, seat 3 raises to 96.
+    const players = s.gs.players.map((p) =>
+      p.seat === 2
+        ? { ...p, stack: 276, bet: 24, totalInvested: 42 }
+        : p.seat === 3
+          ? { ...p, is_folded: false, stack: 204, bet: 96, totalInvested: 114 }
+          : p
+    );
+    const history = s.gs.actionHistory
+      .filter((a) => a.stage !== 'river' && !(a.stage === 'preflop' && a.seat === 3))
+      .concat([
+        { stage: 'preflop', seat: 3, userId: 'folder0', action: 'call', amount: 18, timestamp: 90 },
+        { stage: 'river', seat: 2, userId: VILLAIN, action: 'bet', amount: 24, timestamp: 91 },
+        { stage: 'river', seat: 1, userId: 'hero', action: 'call', amount: 24, timestamp: 92 },
+        { stage: 'river', seat: 3, userId: 'folder0', action: 'raise', amount: 96, timestamp: 93 },
+      ] as never[]);
+    today('called first', {
+      hero: players[0],
+      gs: { ...s.gs, players, actionHistory: history, pot: 54 + 24 + 24 + 96 },
+    } as Built);
+  });
+
+  it('a paired board, a nut flush and a heads-up table keep today', () => {
+    today('paired board', river('plo4', SECOND.plo4, 'Kh9h4h7c7d'));
+    today('nut flush', river('plo4', 'Ah5h6s6d', FLUSHY));
+    today('heads-up table', river('plo4', SECOND.plo4, FLUSHY, { folders: 0 }));
+  });
+
+  it('an all-in raise for less than a full raise folds like a raise', () => {
+    // Hero bets 36 into 36; the villain is all in for 70, short of the 72 a
+    // full raise needs: 70 added over 72 is 0.97 pot, and hero may only call.
+    const s = river('plo4', SECOND.plo4, FLUSHY, { bet: 36, raiseTo: 70, villainStart: 70 });
+    const players = s.gs.players.map((p) => (p.seat === 2 ? { ...p, is_all_in: true } : p));
+    const actionHistory = s.gs.actionHistory.map((a) =>
+      a.stage === 'river' && a.seat === 2 ? { ...a, action: 'all_in' } : a
+    );
+    const r = folds('all-in for less', {
+      hero: players[0],
+      gs: { ...s.gs, players, actionHistory, legalActions: ['fold', 'call'] },
+    } as Built);
+    expect(r.on.fires).toBeGreaterThan(0);
+  });
+
+  it('a call for the whole stack folds legally; a call too cheap for the evidence keeps today', () => {
+    // 36 behind facing 72 more: the call is all in for 36 into 156, price 0.19.
+    const allIn = river('plo4', SECOND.plo4, FLUSHY, { heroStart: 60 });
+    const r = folds('all-in call', {
+      ...allIn,
+      gs: { ...allIn.gs, legalActions: ['fold', 'call', 'all_in'] },
+    } as Built);
+    expect(putIn(r.off.acts)).toBeGreaterThan(0);
+    // 5 behind: all in for 5 into 156, price 0.031, under V84_MIN_CALL_PRICE
+    // (58bb effective at a 0.5 big blind, so only the price keeps it out).
+    const cheap = river('plo4', SECOND.plo4, FLUSHY, { heroStart: 29, bigBlind: 0.5 });
+    const kept = today('cheap call', {
+      ...cheap,
+      gs: { ...cheap.gs, legalActions: ['fold', 'call', 'all_in'] },
+    } as Built);
+    expect(putIn(kept.acts)).toBeGreaterThan(0);
+  });
+
+  it('all-in-or-fold tables, hi-lo, multi-board and bomb pots keep today', () => {
+    const base = river('plo4', SECOND.plo4, FLUSHY);
+    today('all-in or fold', {
+      ...base,
+      gs: { ...base.gs, allInOrFold: true, legalActions: ['fold', 'all_in'] },
+    } as Built);
+    today('hi-lo', {
+      ...base,
+      gs: { ...base.gs, variantRules: { splitLow8OrBetter: true } },
+    } as Built);
+    today('multi-board', {
+      ...base,
+      gs: { ...base.gs, communityCards2: cards('Qd8s5c3c2s') },
+    } as Built);
+    today('bomb pot', { ...base, gs: { ...base.gs, bombPot: true } } as Built);
+  });
+
+  it('a raiser MEASURED as a postflop over-bluffer keeps today', () => {
+    const s = river('plo4', SECOND.plo4, FLUSHY);
+    expect(putIn(decideMany(s, {}, 10).acts)).toBe(0); // folds without the read
+    vi.spyOn(HorseMind, 'opponentRead').mockImplementation(((id: string) =>
+      id === VILLAIN
+        ? { stats: { betCheckedTo: { engaged: 'high', mean: 0.9 } } }
+        : null) as never);
+    today('over-bluffer', s);
   });
 });

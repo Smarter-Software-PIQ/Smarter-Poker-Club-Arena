@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-07T18:00:00Z",
-  "activationAt": "2026-11-07T18:00:00Z",
-  "expiresAt": "2026-11-08T00:00:00Z",
+  "preparationAt": "2026-11-07T22:30:00Z",
+  "activationAt": "2026-11-07T22:30:00Z",
+  "expiresAt": "2026-11-08T04:30:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-11-07-horse-fold-provenance-engine-1800z",
-  "clientPublicationAt": "2026-11-07T18:00:00Z"
+  "ownerWindowId": "2026-11-07-cash-room-realism-engine-2230z",
+  "clientPublicationAt": "2026-11-07T22:30:00Z"
 }

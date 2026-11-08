@@ -868,6 +868,7 @@ describe('required CI owns native fixture verification', () => {
     'scripts/ci/ordinary_terminal_transport.py',
     'scripts/ci/zero_pool_terminal_native.py',
     'scripts/ci/terminal_original_request_native.py',
+    'scripts/ci/satellite_bubble_handoff.py',
     'scripts/ci/fixtures/terminal-original-request/custody-preimage.sql',
     'scripts/ci/fixtures/terminal-original-request/deal-consent.sql',
     'scripts/ci/fixtures/terminal-original-request/legacy-deal-votes.sql',

@@ -26,7 +26,10 @@ def api(path):
 
 
 def epoch(value):
-    return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
+    moment = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if moment.utcoffset() is None:
+        raise ValueError('qualification evidence timestamp has no UTC offset')
+    return moment.timestamp()
 
 
 def cutoff(day):

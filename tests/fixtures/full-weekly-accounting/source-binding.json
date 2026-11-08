@@ -1,4 +1,22 @@
 {
+  "deterministicBootstrapClubIds20261107": {
+    "reason": "Reviewed fixture-only repair after required accounting shard 6 collided on random club ID 62538: the four union-weekly bootstrap clubs now supply deterministic distinct five-digit IDs 99101, 99102, 99104, 99203. UUIDs, captured financial schema/defaults, source authority bodies, money values and assertions are unchanged. Refresh only these current composed input identities.",
+    "verification": "Unchanged scripts/dev/test-union-weekly-basis.py passed on a fresh private PostgreSQL 17.11 cluster: exit 0 and 94 PASS labels; cluster shutdown verified. No additional composed native suite was rerun.",
+    "changes": [
+      {
+        "path": "tests/fixtures/union-weekly-basis/bootstrap.sql",
+        "previousSHA256": "c0a5fdfbaf5ca0aa7751dc862bbb62d6bf52e819758eb9df45b0e8e13b07a1d1",
+        "currentSHA256": "bbf133c8fdedf8654fc8887b6cf8ea80b30e483468f83d7e9ce8cf881ff2cee8"
+      },
+      {
+        "path": "tests/fixtures/union-weekly-basis/source-binding.json",
+        "previousSHA256": "e3d2f70f9a3785da06ca6076e3ebe0c83991903cea894b4abc6406ea9c060385",
+        "currentSHA256": "0807c93c2acd4a03e5eb967e92c14c98b8cc1f1a1ea0ed1b11f2d2f96f89909e"
+      }
+    ],
+    "historicalEvidenceRestamped": false,
+    "qualificationStateChanged": false
+  },
   "pageEvidenceFixtureIds20261106": {
     "reason": "Required accounting shard 6 failed on random fixture club ID39595. Page-evidence fixtures now use explicit unique IDs outside the captured random range; existing native assertions enforce them. Production SQL/defaults/constraints unchanged.",
     "verification": "Full scripts/dev/test-union-weekly-basis.py passed locally, including page-evidence-regression and commission before/after; 20 page-evidence law tests passed.",
@@ -458,7 +476,7 @@
     "tests/fixtures/union-pnl-inventory/README.md": "1ec2588a68d7fa3123ca63a033c2ac6b02e3b0d4efb43aff01091ba36d56d826",
     "tests/fixtures/union-pnl-inventory/bootstrap.sql": "7bbbc23553513e88b53c066f6afe47170d5a2f85f2b215ac72fd2df603cd8a08",
     "supabase/migrations/20260917231832_union_accounting_schedule_adoption.sql": "ad8d6c8ff386f7701a7ae394059099bb847574ac88cc06d29401f35b2e62a876",
-    "tests/fixtures/union-weekly-basis/source-binding.json": "e3d2f70f9a3785da06ca6076e3ebe0c83991903cea894b4abc6406ea9c060385",
+    "tests/fixtures/union-weekly-basis/source-binding.json": "0807c93c2acd4a03e5eb967e92c14c98b8cc1f1a1ea0ed1b11f2d2f96f89909e",
     "tests/fixtures/union-weekly-basis/installed-precondition.sql": "e72a8066b405a3abe1f573a1b2925986da0bb086f5b0b6cbed7492b777636297",
     "tests/fixtures/union-weekly-basis/captured-close-dependencies.json": "e696d389d3b69ff1b101d56d0b94beb6878faa2ea6113b31cbf6b1d7ec59a3a9",
     "tests/fixtures/union-weekly-basis/tournament-regression.sql": "d3b981a7be49916f2b672c174acfac2f5e3a5e136984cf9e801fe5120dce7a6d",
@@ -478,7 +496,7 @@
     "tests/fixtures/union-weekly-basis/payment-regression.sql": "2270f4bd2e60c1601783173fa24a351b52bdb1ea489fed92c059fd83da90ee96",
     "tests/fixtures/union-weekly-basis/captured-document-dependencies.json": "b5f5a9e7e0a2a7c710295bcd6b0a1b5aca7ddf9c27a6268167eba1a8e35fa23b",
     "tests/fixtures/union-weekly-basis/negative-regression.sql": "b1621071f538fc63c3a479b3dc0d51fde9b85c4d68f93f857699b866df0ce4c7",
-    "tests/fixtures/union-weekly-basis/bootstrap.sql": "c0a5fdfbaf5ca0aa7751dc862bbb62d6bf52e819758eb9df45b0e8e13b07a1d1",
+    "tests/fixtures/union-weekly-basis/bootstrap.sql": "bbf133c8fdedf8654fc8887b6cf8ea80b30e483468f83d7e9ce8cf881ff2cee8",
     "scripts/dev/test-union-weekly-basis.py": "bec0ca77f49087a1406c9dc465a21f1fe8760cdc176c34adb5247b3b4d8d5295",
     "scripts/ci/schema-manifest.d/union-weekly-original-basis.json": "fa2f2f378db56fa7b586c6ddecaf43d58cac0b34817e8497b13ebb5159f33798",
     "supabase/migrations/20260917234315_union_weekly_pnl_uses_original_qualified_basis.sql": "09d254067d87cd0216fd5333c9c6e75c9e64c8077b5ce68b1d553e8bcdab7ee7",
@@ -1446,7 +1464,7 @@
         "sha256": "cd173b15400a8d0dcc3861a80e22511df741e8732b0fb9dece85e8e0b7038f3f"
       }
     ],
-    "focused_validation": "Actual isolated PostgreSQL17.11 passed bootstrap/create/demote/reconnect withpostgresNOSUPERUSER,BYPASSRLS anddatabaseownerpostgres. No financial source changed; full hosted qualification pending."
+    "focused_validation": "Actual isolated PostgreSQL 17.11 passed bootstrap/create/demote/reconnect withpostgresNOSUPERUSER,BYPASSRLS anddatabaseownerpostgres. No financial source changed; full hosted qualification pending."
   },
   "managed_cron_settings_correction_20260917": {
     "failed_run": 35248124931,
@@ -1463,7 +1481,7 @@
       "cron_timezone": "GMT"
     },
     "reason": "Preserve the unchanged provider settings guards by reproducing the observed read-only monitoring role in the isolated managed caller; no production privilege changes.",
-    "focused_validation": "Exact maintained managed-cron-role-regression.py passed with actual local PostgreSQL17.11 and pg_cron1.6.8 against prior accepted schema: oldLOCK42501, exact source transition and rollback, job272 staleupdate40001, job271 retirementguardrefusal and preserved concurrent rows, final272 timing race40001. No job launched. Full final hosted job remains required."
+    "focused_validation": "Exact maintained managed-cron-role-regression.py passed with actual local PostgreSQL 17.11 and pg_cron1.6.8 against prior accepted schema: oldLOCK42501, exact source transition and rollback, job272 staleupdate40001, job271 retirementguardrefusal and preserved concurrent rows, final272 timing race40001. No job launched. Full final hosted job remains required."
   },
   "original_inventory_successor_20260917": {
     "migration": "20260917233148",

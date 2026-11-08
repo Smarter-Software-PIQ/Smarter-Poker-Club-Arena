@@ -8,6 +8,7 @@ import { decodedCardImageUrl } from '../../src/utils/deckWarmer';
 vi.mock('../../src/utils/deckWarmer', () => ({
   decodedCardImageUrl: vi.fn((url: string) => url),
   subscribeCardImages: () => () => {},
+  drawDecodedCardImage: vi.fn(() => false),
 }));
 afterEach(() => {
   vi.useRealTimers();
