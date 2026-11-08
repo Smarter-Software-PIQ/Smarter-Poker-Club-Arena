@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Receive a content-addressed staging archive over stdin. This path has no runtime or release action.
+# Receive one isolated transport tag and prove its exact image configuration. This path has no runtime or release action.
 set -euo pipefail
-sha=$1 image=$2 tree=$3 size=$4
+sha=$1 config=$2 tree=$3 size=$4 transport=$5
+[[ "$transport" =~ ^club-arena-prestage:[1-9][0-9]*-[1-9][0-9]*$ ]]
 [[ "$size" =~ ^[1-9][0-9]{0,10}$ ]]
-[[ "$sha" =~ ^[0-9a-f]{40}$ && "$image" =~ ^sha256:[0-9a-f]{64}$ && "$tree" =~ ^[0-9a-f]{40}$ ]]
+[[ "$sha" =~ ^[0-9a-f]{40}$ && "$config" =~ ^sha256:[0-9a-f]{64}$ && "$tree" =~ ^[0-9a-f]{40}$ ]]
 deadline="$(python3 - <<'PY'
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -32,20 +33,35 @@ rollback() {
 }
 before="$(rollback)"
 ref="club-arena-engine:$sha"
-if existing="$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null)"; then
-  [[ "$existing" = "$image" ]] || { echo 'candidate tag conflicts with qualified digest' >&2; exit 1; }
+if docker image inspect "$transport" >/dev/null 2>&1; then
+  echo 'transport tag already exists' >&2
+  exit 1
 fi
 root="$(docker info --format '{{.DockerRootDir}}')"
 free="$(df -PB1 -- "$root" | awk 'NR == 2 { print $4 }')"
 [[ "$free" =~ ^[0-9]+$ ]]
 (( free > size * 3 + 4 * 1024 * 1024 * 1024 ))
-# A transfer tag keeps the loaded manifest reachable across Docker image stores.
-# Its namespace is separate from release tags and its name binds the expected ID.
-transfer_ref="club-arena-prestage:${image#sha256:}"
+# The unique transport reference was absent under this same host lock.
+remove_transport_tag() {
+  if docker image inspect "$transport" >/dev/null 2>&1; then
+    timeout 15s docker image rm "$transport" >/dev/null
+  fi
+}
+trap remove_transport_tag EXIT
+# The sender proved the archive carries only the isolated transport tag.
 remaining=$((deadline - $(date +%s)))
 (( remaining > 0 ))
 timeout --kill-after=5s "${remaining}s" docker image load >/dev/null
-[[ "$(docker image inspect -f '{{.Id}}' "$transfer_ref")" = "$image" ]]
+image="$(docker image inspect -f '{{.Id}}' "$transport")"
+[[ "$image" =~ ^sha256:[0-9a-f]{64}$ ]]
+remaining=$((deadline - $(date +%s)))
+(( remaining > 0 ))
+proof="$(printf '%s' "$PROOF_B64" | base64 -d)"
+loaded_config="$(timeout --kill-after=5s "${remaining}s" docker image save "$transport" | python3 -B -c "$proof" "$transport" "$image")"
+[[ "$loaded_config" = "$config" ]] || { echo 'transferred image config digest differs' >&2; exit 1; }
+if existing="$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null)"; then
+  [[ "$existing" = "$image" ]] || { echo 'candidate tag conflicts with qualified native digest' >&2; exit 1; }
+fi
 [[ "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" = "$sha" ]]
 [[ "$(docker image inspect -f '{{index .Config.Labels "com.smarterpoker.engine.source-tree"}}' "$image")" = "$tree" ]]
 [[ "$(docker image inspect -f '{{index .Config.Labels "com.smarterpoker.engine.build-contract"}}' "$image")" = clean-server-archive-v1 ]]
@@ -54,5 +70,6 @@ timeout --kill-after=5s "${remaining}s" docker image load >/dev/null
 (( deadline > $(date +%s) ))
 docker tag "$image" "$ref"
 [[ "$(docker image inspect -f '{{.Id}}' "$ref")" = "$image" ]]
-docker image rm "$transfer_ref" >/dev/null
+remove_transport_tag
+trap - EXIT
 printf 'image=%s\nrollback=%s\ntree=%s\n' "$image" "$before" "$tree"

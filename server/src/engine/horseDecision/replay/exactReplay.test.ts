@@ -413,7 +413,11 @@ describe('P15-A exact historical replay', () => {
     expect(await outcome(claimed)).toBe('non_replayable:admission:phase8Postflop');
     // Another JavaScript runtime is not the original artifact: refused by name.
     for (const runtime of [
-      { node: 'v22.23.2', v8: '12.4.254.21-node.56', arch: process.arch },
+      {
+        node: process.version === 'v22.23.2' ? 'v22.23.1' : 'v22.23.2',
+        v8: process.versions.v8,
+        arch: process.arch,
+      },
       {
         node: process.version,
         v8: process.versions.v8,
