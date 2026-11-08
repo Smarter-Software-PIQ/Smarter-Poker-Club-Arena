@@ -80,7 +80,68 @@ export const STALE_RESIDUE_SWEEP_HINT =
   'Run the Cert Residue Sweep by hand (Actions > Cert Residue Sweep > Run workflow, which runs ' +
   '`node scripts/ci/production-e2e-account.mjs sweep-stale-residue`); a stale reserved identity ' +
   'that still owns a certification club or holds seat or membership history is the residue ' +
-  'pattern of issue #9830, and this certification is its only reader.';
+  'pattern of issue #9830. The Cert Residue Sweep workflow, which also runs the account recovery ' +
+  'after every Club Create Certification run, is its one reader.';
+
+/*
+ * A FINISHED OWNER OF RECORD LEAVES THE STALE INVENTORY (2026-11-08).
+ *
+ * A reserved identity that owns a retired certification club is kept as that
+ * club's owner of record: the account door refuses any club owner, and a
+ * retired club that keeps immutable history is never deleted. Every rabbit-hunt
+ * run (certify-rabbit-hunt.mjs) and every retained Crest Cert template leaves
+ * one, still holding its password and sessions, so
+ * fn_ca_stale_certification_accounts listed each of them on every sweep for
+ * ever: eight on 2026-11-07, one more a day. Each is now FINISHED once:
+ * fn_ca_certification_owner_of_record_state reads the same custody the door
+ * reads ('not_finished' while anything is live; 'credentials_live' when every
+ * club it owns is retired, empty and closed and it holds nothing else;
+ * 'retired' once Auth has soft-deleted it), the sweep retires the credentials
+ * through GoTrue's supported soft delete (the same call the door's
+ * auth_soft_delete_required answer uses), and the inventory stops listing a
+ * 'retired' owner. Anything else is a failure named in the sweep's verdict.
+ */
+export const OWNER_OF_RECORD_STATE_RPC = 'fn_ca_certification_owner_of_record_state';
+async function finishOwnerOfRecord({ configuration, fetchImpl, account }) {
+  const readState = async () => {
+    const state = await serviceRequest(
+      configuration,
+      `/rest/v1/rpc/${OWNER_OF_RECORD_STATE_RPC}`,
+      { method: 'POST', body: JSON.stringify({ p_user_id: account.id }) },
+      fetchImpl
+    );
+    if (!['not_finished', 'credentials_live', 'retired'].includes(state)) {
+      // UNKNOWN is its own outcome (CLAUDE.md 10.86): never read as finished.
+      throw new Error(
+        `Owner of record ${account.id}: the finished-state read was unreadable ` +
+          `(${JSON.stringify(state)}).`
+      );
+    }
+    return state;
+  };
+  const before = await readState();
+  if (before === 'retired') return 'retired';
+  if (before === 'not_finished') {
+    throw new Error(
+      `Owner of record ${account.id} owns only retired certification fixtures but still holds ` +
+        'live custody (a club that is not retired, empty and closed, a seat, a balance, or ' +
+        'another membership); its credentials are kept.'
+    );
+  }
+  await serviceRequest(
+    configuration,
+    `/auth/v1/admin/users/${encodeURIComponent(account.id)}`,
+    { method: 'DELETE', body: JSON.stringify({ should_soft_delete: true }) },
+    fetchImpl
+  );
+  const after = await readState();
+  if (after !== 'retired') {
+    throw new Error(
+      `Owner of record ${account.id}: Auth retirement is not verified (state ${after}).`
+    );
+  }
+  return 'retired';
+}
 
 /**
  * How many separate freezes one cleanup may sit through. Section 13 schedules
@@ -1082,13 +1143,14 @@ export async function cleanupStaleProductionE2EAccounts({
         if (retainedRetiredClubs.length) {
           // The identity stays as the owner of record of retired clubs that keep
           // immutable history; the account door refuses any club owner, and a
-          // retired club with that history is never deleted. Nothing here is
-          // live: it is the recorded terminal state, named on every run.
+          // retired club with that history is never deleted. Its credentials
+          // are retired once, and then the inventory stops listing it.
+          await finishOwnerOfRecord({ configuration, fetchImpl, account });
           keptOwners.push(account.id);
           console.log(
             `[production-e2e-account] kept stale identity ${account.id} as the owner of record of ` +
               `retired fixture(s) ${retainedRetiredClubs.join(', ')}: they keep immutable history ` +
-              'and are never deleted.'
+              'and are never deleted; its credentials are retired and it is finished.'
           );
           continue;
         }
@@ -1123,9 +1185,10 @@ export async function cleanupStaleProductionE2EAccounts({
     );
   }
   if (failures.length) {
-    // The Club Create Certification is the one reader of this sweep (its
-    // always-run cleanup embeds it); its failure names the sweep an operator
-    // runs by hand and the residue pattern, so nobody has to rediscover either.
+    // The Cert Residue Sweep workflow is the one reader of this recovery (it
+    // runs it after every Club Create Certification and when an operator
+    // starts it); its failure names the sweep and the residue pattern, so
+    // nobody has to rediscover either.
     throw new AggregateError(
       failures,
       `Stale recovery left ${failures.length} of ${seen} stale account(s) unrecovered ` +
@@ -2064,10 +2127,15 @@ export async function main(command = process.argv[2], options = {}) {
   }
   if (command === 'cleanup')
     return cleanupProductionE2EAccount({ expectedEmail: process.env.SP_EMAIL });
-  // The hourly Cert Residue Sweep (.github/workflows/cert-residue-sweep.yml):
-  // every stale reserved identity (with the fixtures it owns), then every
-  // stale certification-named club no identity sweep can reach. Both run even
-  // when the first fails; any failure exits non-zero.
+  // The Cert Residue Sweep (.github/workflows/cert-residue-sweep.yml), after
+  // a completed Club Create Certification: the stale reserved identities
+  // (with the fixtures they own) only - the recovery that certificate used to
+  // embed in its own cleanup.
+  if (command === 'sweep-stale-accounts') return cleanupStaleProductionE2EAccounts();
+  // The same workflow started by an operator: every stale reserved identity
+  // (with the fixtures it owns), then every stale certification-named club no
+  // identity sweep can reach. Both run even when the first fails; any failure
+  // exits non-zero.
   if (command === 'sweep-stale-residue') {
     const failures = [];
     for (const step of [cleanupStaleProductionE2EAccounts, cleanupStaleCertificationClubs]) {
@@ -2086,7 +2154,7 @@ export async function main(command = process.argv[2], options = {}) {
     return true;
   }
   throw new Error(
-    'Usage: production-e2e-account.mjs <create|create-first-run|cleanup-first-run|prepare-staff|prepare-spectator|prepare-lightning-staff|prepare-template-staff|retire-create-clubs|cleanup|sweep-stale-residue>'
+    'Usage: production-e2e-account.mjs <create|create-first-run|cleanup-first-run|prepare-staff|prepare-spectator|prepare-lightning-staff|prepare-template-staff|retire-create-clubs|cleanup|sweep-stale-accounts|sweep-stale-residue>'
   );
 }
 
