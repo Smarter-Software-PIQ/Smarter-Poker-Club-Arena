@@ -23,7 +23,8 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         sock.bind(('127.0.0.1',0));port=str(sock.getsockname()[1])
     run('pg_ctl','-D',str(path/'data'),'-l',str(path/'log'),'-o',f'-k {parent} -p {port} -h 127.0.0.1','start')
     try:
-        def sql(text): return run('psql','-X','-q','-t','-A','-v','ON_ERROR_STOP=1','-h','127.0.0.1','-p',port,'-d','postgres',input=text)
+        sql_prefix=''
+        def sql(text): return run('psql','-X','-q','-t','-A','-v','ON_ERROR_STOP=1','-h','127.0.0.1','-p',port,'-d','postgres',input=sql_prefix+text)
         sql("""CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
          CREATE SCHEMA auth; CREATE SCHEMA smarter_private;
          CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS $$SELECT current_setting('request.jwt.claim.role',true)$$;
@@ -244,12 +245,55 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         # Owner November7: only twelve-level chip entries priced25+ change.
         # The existing final row boundary is captured after its earlier clock fix.
         sql((fixture/'final-clock-before-ten-levels.sql').read_text())
-        sql("CREATE TABLE clubs(id uuid PRIMARY KEY,asset text);")
-        sql("INSERT INTO clubs VALUES('"+scope+"','chips'),('99999999-9999-4999-8999-999999999999','diamonds')")
+        sql("CREATE TABLE clubs(id uuid PRIMARY KEY,asset text,is_platform boolean DEFAULT false);")
+        sql("INSERT INTO clubs(id,asset) VALUES('"+scope+"','chips'),('99999999-9999-4999-8999-999999999999','diamonds')")
         sql("CREATE TABLE before_ten AS SELECT id,to_jsonb(t) row FROM tournaments t;")
         assert sql("SELECT count(*) FROM tournaments WHERE club_id='"+scope+"' AND buy_in_amount+buy_in_fee>=25 AND late_reg_levels=12 AND status='REGISTERING'")!='0'
         ten=next((root/'supabase/migrations').glob('*chip_buyins_twenty_five_and_up_register_for_ten_levels.sql'))
-        sql(ten.read_text().replace('BEGIN;\n',"BEGIN;\nSET LOCAL application_name='apply-recorded-migration';\nSET LOCAL transaction_timeout='12s';\n",1))
+        # The first installer refusal came from this omitted UPDATE authority.
+        # Capture its actual source and pure dependencies; no guard is stubbed.
+        lifecycle=json.loads((fixture/'lifecycle-contract.json').read_text())
+        # Empty, exact typed read projection for the unrelated prior guarantee
+        # exception. The real guard plans this relation even when its ID differs.
+        sql('CREATE TABLE chip_ledger('+','.join(c['name']+' '+c['type'] for c in lifecycle['ledgerColumns'])+')')
+        sql('SET check_function_bodies=off;'+''.join(f['definition']+';' for f in lifecycle['functions'])+lifecycle['guard']+';')
+        for function in lifecycle['functions']:
+            assert sql("SELECT md5(pg_get_functiondef(oid)) FROM pg_proc WHERE proname='"+function['name']+"' AND pronamespace='public'::regnamespace")==function['hash'],function['name']
+        assert sql("SELECT md5(pg_get_functiondef('public.fn_guard_managed_game_lifecycle()'::regprocedure))")==lifecycle['guardHash']
+        sql(lifecycle['trigger']+';')
+        registered='22222222-2222-4222-8222-222222222222'
+        sql("INSERT INTO tournament_players(id,tournament_id) VALUES(gen_random_uuid(),'"+registered+"'); ALTER ROLE postgres SUPERUSER;")
+        # The isolated cluster's admin starts as the local OS identity. The
+        # production installer connects as postgres; reproduce that identity.
+        sql_prefix='SET SESSION AUTHORIZATION postgres; '
+        failed=(fixture/'ten-levels-before-lifecycle-admission.sql').read_text()
+        def installer(text):
+            return text.replace('BEGIN;\n',"BEGIN;\nSET LOCAL application_name='apply-recorded-migration';\nSET LOCAL transaction_timeout='12s';\n",1)
+        try: sql(installer(failed))
+        except RuntimeError as error: assert 'This tournament cannot be modified after a player has registered' in str(error),str(error)
+        else: raise AssertionError('registered-player lifecycle refusal did not reproduce')
+        assert sql("SELECT to_regprocedure('public.fn_ca_ten_level_late_registration(public.tournaments)') IS NULL")=='t','refused migration partially committed'
+        assert sql("SELECT late_reg_levels FROM tournaments WHERE id='"+registered+"'")=='12'
+        # Stage only the candidate source in isolation for negative admission
+        # probes, then restore every preimage before the exact full migration.
+        signatures=['fn_ca_midway_weekly_catalog()','fn_ca_tournament_level_clock_floor()','fn_ca_bounty_mtt_rebuys_until_registration_closes()','fn_guard_managed_game_lifecycle()']
+        preimages=[sql("SELECT pg_get_functiondef('public."+sig+"'::regprocedure)") for sig in signatures]
+        candidate=ten.read_text()
+        sql(installer(candidate[:candidate.index('-- Capture and lock')]+"COMMIT;"))
+        exact="UPDATE tournaments SET late_reg_levels=10,short_description=replace(short_description,'Late Registration Through Level 12.','Late Registration Through Level 10.') WHERE id='"+registered+"'"
+        bad_contexts=[("SET application_name='ordinary-request'; ",exact),
+          ("SET application_name='apply-recorded-migration'; SET request.jwt.claim.role='authenticated'; ",exact),
+          ("SET application_name='apply-recorded-migration'; ",exact.replace('late_reg_levels=10,','late_reg_levels=10,rebuy_levels=13,')),
+          ("SET application_name='apply-recorded-migration'; ",exact.replace('late_reg_levels=10,','late_reg_levels=9,'))]
+        for context,statement in bad_contexts:
+            try: sql(context+statement)
+            except RuntimeError as error: assert 'This tournament cannot be modified after a player has registered' in str(error),str(error)
+            else: raise AssertionError('lifecycle admission accepted an unauthorized context or unrelated edit')
+            assert sql("SELECT to_jsonb(t)=b.row FROM tournaments t JOIN before_ten b USING(id) WHERE t.id='"+registered+"'")=='t'
+        sql('SET check_function_bodies=off;'+''.join(definition+';' for definition in preimages)+"DROP FUNCTION public.fn_ca_ten_level_late_registration(public.tournaments);")
+        sql(installer(candidate))
+        print('PASS: actual registered-player lifecycle refusal reproduced and rolled back; exact installer cutoff admitted; ordinary caller, wrong context, rebuy edits and other cutoffs remain refused')
+
         # Compare whole persisted rows; the allowed difference is exactly the
         # registration level and its literal description, never rebuy/addon.
         for before in json.loads(sql("SELECT jsonb_agg(row) FROM before_ten")):
