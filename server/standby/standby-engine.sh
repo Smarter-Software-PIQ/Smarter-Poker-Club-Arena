@@ -164,16 +164,23 @@ CREATE TEMP TABLE h(id uuid, aud text, role text, created_at timestamptz);
 \copy h FROM '/tmp/seed/auth.users.csv' CSV HEADER
 -- GoTrue scans unset token and change fields as strings. The schema permits
 -- NULL, but its Admin API cannot read such a user to initialize a login.
+-- It scans created_at and updated_at into non-pointer time.Time the same way
+-- (fixture version 2, 2026-11-08): the copy held 1,095 of 1,097 users with a
+-- NULL updated_at and 35 with a NULL created_at, so every rollback rehearsal
+-- since #10008 failed "Scan error on column index 33, name updated_at".
 INSERT INTO auth.users (
-  id, aud, role, created_at, instance_id, email, encrypted_password,
+  id, aud, role, created_at, updated_at, instance_id, email, encrypted_password,
   confirmation_token, recovery_token, email_change_token_new, email_change,
   email_change_token_current, phone_change, phone_change_token, reauthentication_token,
   raw_app_meta_data, raw_user_meta_data
 )
-SELECT id, aud, role, created_at, '00000000-0000-0000-0000-000000000000',
+SELECT id, aud, role, COALESCE(created_at, now()), COALESCE(created_at, now()),
+       '00000000-0000-0000-0000-000000000000',
        'standby-' || id || '@example.invalid', '',
        '', '', '', '', '', '', '', '', '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb
 FROM h ON CONFLICT (id) DO UPDATE SET
+  created_at = COALESCE(auth.users.created_at, EXCLUDED.created_at),
+  updated_at = COALESCE(auth.users.updated_at, EXCLUDED.updated_at),
   email = EXCLUDED.email, encrypted_password = EXCLUDED.encrypted_password,
   confirmation_token = '', recovery_token = '', email_change_token_new = '', email_change = '',
   email_change_token_current = '', phone_change = '', phone_change_token = '', reauthentication_token = '',
@@ -244,7 +251,7 @@ with open(path + '.new', 'w') as output:
 os.replace(path + '.new', path)
 PY_VALID
   [ "$?" = 0 ] || return 1
-  printf '{"authFixtureVersion":1,"seededAt":"%s","tablesLoaded":%s,"tablesFailed":%s,"cashTables":%s,"horses":%s,"seatedHorses":%s}\n' \
+  printf '{"authFixtureVersion":2,"seededAt":"%s","tablesLoaded":%s,"tablesFailed":%s,"cashTables":%s,"horses":%s,"seatedHorses":%s}\n' \
     "$(date -u +%FT%TZ)" "$loaded" "$failed" "$tables" "$horses" "$seats" | tee "$STATE_DIR/seed.json"
 }
 
@@ -297,7 +304,7 @@ try:
     database, seed = (json.load(open(p)) for p in sys.argv[1:3])
     assert database.get('ownersSha256') == hashlib.sha256(open(sys.argv[3], 'rb').read()).hexdigest()
     assert database.get('restoreValidated') is True and database.get('restoreErrors') == 0
-    assert seed.get('authFixtureVersion') == 1
+    assert seed.get('authFixtureVersion') == 2
     assert seed['tablesFailed'] == 0 and seed['seededAt'] >= database['restoredAt']
 except (OSError, ValueError, KeyError, TypeError, AssertionError):
     sys.exit('standby database restore/seed is unqualified')

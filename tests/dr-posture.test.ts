@@ -132,7 +132,7 @@ const validCopy = {
       .update(readFileSync(root('server/standby/standby-owners.sql')))
       .digest('hex'),
   },
-  'seed.json': { authFixtureVersion: 1, seededAt: '2026-11-06T17:01:00Z', tablesFailed: 0 },
+  'seed.json': { authFixtureVersion: 2, seededAt: '2026-11-06T17:01:00Z', tablesFailed: 0 },
 };
 
 describe('the Backup Engine refuses partial restores and proves automatic recovery', () => {
@@ -217,6 +217,8 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreErrors: 7 } },
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreValidated: false } },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: undefined } },
+      // A version-1 copy seeded NULL created_at/updated_at that GoTrue cannot read.
+      { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: 1 } },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], tablesFailed: 1 } },
       {
         ...validCopy,
