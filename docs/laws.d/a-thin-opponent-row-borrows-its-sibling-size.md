@@ -1,0 +1,3 @@
+# server/src/engine/horseDecision/aThinOpponentRowBorrowsItsSiblingSize.law.test.ts
+
+A known maniac is a maniac at every table size on the path live decisions actually take (2026-10-24, 2026-10-25; Item 12). The pooled public read in the observer sandbox carries the sibling table-size row of the same game, mode and original speed/ante domain. It never carries another domain's row, and heads-up has none. A thin or missing exact row borrows it, weighted by the hands the player has played since that row was last refreshed, counted on the player's own accepted-hand clock at the decision's cutoff. Each borrow leaves `opponent_memory_donor_fresh`, `_stale` or `_expired`.

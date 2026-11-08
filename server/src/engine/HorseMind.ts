@@ -461,6 +461,11 @@ export interface HorseMindSandbox {
    *  fingerprint a planned barrel expects to meet on the next street, keyed
    *  like outlooks. Absent only on predecessor snapshots. */
   planFingerprints?: Map<string, ContinuationContenderFingerprint>;
+  /** Item 12 on the pooled public path (2026-11-08): for each sibling
+   *  table-size donor row in `exploit` (opponentMemoryKey), the hands the
+   *  player has played since that row was last refreshed, on the player's own
+   *  hand clock (PooledPublicProfiles). Absent when the read carried no donor. */
+  donorStaleness?: Map<string, number>;
 }
 
 /** V23: what hero decided AT BET TIME it would do about a raise. */
@@ -630,6 +635,9 @@ export class HorseMind {
    *  donor bucket's staleness is the distance from this mark to the player's
    *  current clock, never `exact.observed_hands - donor.observed_hands`. */
   private static durableOpponentImportClock = new Map<string, number>();
+  /** The sandbox's donor staleness (HorseMindSandbox.donorStaleness) while one
+   *  runs; null outside a sandbox or for a read that carried no donor. */
+  private static donorStaleness: Map<string, number> | null = null;
   private static decisionVariant: string | null = null;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
@@ -1142,20 +1150,34 @@ export class HorseMind {
     size: MemorySize,
     receipt = true
   ): ExploitCounters | undefined {
-    const exact = this.exploitCounters.get(
-      opponentMemoryKey(userId, variant, this.decisionMode, size)
-    );
     const donorKeys = opponentMemoryDonors(this.decisionMode, size).map(([mode, donorSize]) =>
       opponentMemoryKey(userId, variant, mode, donorSize)
     );
     const donors = donorKeys.map((key) => this.exploitCounters.get(key));
-    const handClock = this.stats.get(userId)?.hands ?? 0;
-    let donorClock = handClock;
-    for (const key of donorKeys) {
-      const mark = this.durableOpponentImportClock.get(key);
-      if (mark !== undefined && mark < donorClock) donorClock = mark;
+    const pooledStaleness = this.donorStaleness;
+    // On the pooled public path the exact context's own evidence is this
+    // horse's individual row when no pooled exact row exists, so a thin
+    // individual read borrows the donor instead of being replaced by it.
+    const exact =
+      this.exploitCounters.get(opponentMemoryKey(userId, variant, this.decisionMode, size)) ??
+      (pooledStaleness && this.decisionScope && donors.some((row) => !!row)
+        ? this.exploitCounters.get(`${this.decisionScope}|${userId}`)
+        : undefined);
+    let staleness = 0;
+    if (pooledStaleness) {
+      // The oldest donor sets the staleness, as the import-clock path does.
+      donorKeys.forEach((key, i) => {
+        if (donors[i]) staleness = Math.max(staleness, pooledStaleness.get(key) ?? 0);
+      });
+    } else {
+      const handClock = this.stats.get(userId)?.hands ?? 0;
+      let donorClock = handClock;
+      for (const key of donorKeys) {
+        const mark = this.durableOpponentImportClock.get(key);
+        if (mark !== undefined && mark < donorClock) donorClock = mark;
+      }
+      staleness = computeDonorHandClockStaleness(donorClock, handClock);
     }
-    const staleness = computeDonorHandClockStaleness(donorClock, handClock);
     const blended = blendOpponentMemoryWithExpiry(exact, donors, staleness);
     const consultedDonor =
       !(exact && exact.hands >= OPPONENT_MEMORY_THIN_HANDS) && donors.some((row) => !!row);
@@ -1832,6 +1854,9 @@ export class HorseMind {
               const donorKey = opponentMemoryKey(id, variant, donorMode, donorSize);
               const donor = this.exploitCounters.get(donorKey);
               if (donor) view.exploit.set(donorKey, { ...donor });
+              const donorAge = this.donorStaleness?.get(donorKey);
+              if (donor && donorAge !== undefined)
+                (view.donorStaleness ??= new Map()).set(donorKey, donorAge);
             }
           }
       for (const other of ids) {
@@ -1891,8 +1916,10 @@ export class HorseMind {
       dirtyScoped: this.dirtyScoped,
       exploit: this.exploitCounters,
       planFingerprints: this.planFingerprints,
+      donorStaleness: this.donorStaleness,
     };
     this.stats = sandbox.stats;
+    this.donorStaleness = sandbox.donorStaleness ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -1925,6 +1952,7 @@ export class HorseMind {
       this.raisePlans = live.raisePlans;
       this.outlooks = live.outlooks;
       this.planFingerprints = live.planFingerprints;
+      this.donorStaleness = live.donorStaleness;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;

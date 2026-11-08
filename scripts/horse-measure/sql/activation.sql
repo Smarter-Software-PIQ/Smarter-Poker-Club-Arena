@@ -134,6 +134,7 @@ FROM (VALUES
   ('plan_fingerprint_checked_scare_card', 'Items 21 and 23 plan fingerprint (met, scare)'),
   ('plan_fingerprint_aborted_multiway_contender_shift', 'Items 21 and 23 plan fingerprint (withdrawn: contender)'),
   ('plan_fingerprint_aborted_stack_exposure_shift', 'Items 21 and 23 plan fingerprint (withdrawn: exposure)'),
+  ('plan_fingerprint_aborted_scare_under_pressure', 'Items 21 and 23 plan fingerprint (withdrawn: scare card led into the planner, receipt only)'),
   ('plan_fingerprint_absent', 'Items 21 and 23 plan fingerprint (plan carried none)'),
   ('opponent_memory_donor_fresh', 'Item 12 donor staleness (fresh)'),
   ('opponent_memory_donor_stale', 'Item 12 donor staleness (stale)'),
