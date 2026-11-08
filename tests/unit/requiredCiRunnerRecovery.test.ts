@@ -524,6 +524,14 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
 
   it('preserves all other CI commands, gates, budgets, permissions and client partitions', () => {
     const normalized = structuredClone(ci);
+    const hostingSteps = normalized.jobs.accounting_postgres.steps.filter(
+      (step: { name?: string }) => step.name === 'Data console native PostgreSQL contracts'
+    );
+    expect(hostingSteps).toHaveLength(1);
+    expect(hostingSteps[0].env.GH_TOKEN).toBe('${{ github.token }}');
+    // Normalize only the authenticated fixture input; every prior command,
+    // permission, assertion and job fingerprint remains independently pinned.
+    delete hostingSteps[0].env.GH_TOKEN;
     normalizeTournamentLockAddition(normalized.jobs.accounting_postgres);
     normalizeRootInstallAddition(normalized.jobs.accounting_postgres);
     normalizeBackupSequenceAddition(normalized.jobs.accounting_postgres);

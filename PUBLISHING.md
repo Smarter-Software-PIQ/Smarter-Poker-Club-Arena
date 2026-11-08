@@ -1,3 +1,4 @@
+**November 8 Horse study continuation:** the owner directed completion now in chat `01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430`. The single successor `2026-11-08-horse-study-successor-engine-1820z` preserves the expired prior booking and admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593`, between 18:20 UTC November 8 and 00:20 UTC November 9, after the published 18:00 UTC November 8 player notice has actually been available for at least twenty minutes. Exact qualification, Backup, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. This does not renew the expired prior operation or change the standing daily schedule.
 **Owner direction November 6, 2026 (chat `01a1b095-8bd5-7d42-afcf-1a0843448274`):** All engine upgrades are staged and certified on isolated Backup during the day. Production replacements require certification for the exact version and may activate ONLY in the 04:00-04:05 America/Chicago maintenance window, after the 03:58 notice and all existing custody, freeze, proof, rollback and thaw safeguards. The temporary Phase1 hourly exception and historical urgent/degraded/owner-window replacement exceptions are revoked. A successful sealed release triggers a fresh Backup copy. Agents work in owned branches and merge through required checks; they never edit the live engine or a shared running Backup directly. A failed or missing certificate leaves the current engine running. Source preparation and non-engine delivery continue throughout the day.
 
 # Publishing through the restored providers
@@ -217,3 +218,41 @@ The receiver verifies the selected control against its actual protected control 
 **Stop a queued engine replacement.** Using the authorized administrative shell on the production engine host, create the persistent stop marker with `mkdir -p /var/lib/club-arena/owner-stop-engine-replacement && sync -f /var/lib/club-arena`. The host checks for it before reservation, preparation and final replacement admission. Once replacement has passed final admission, its original transaction finishes verification or recovery. The marker survives process and host restarts. To resume future eligible releases, use `rmdir /var/lib/club-arena/owner-stop-engine-replacement && sync -f /var/lib/club-arena`. Clearing the marker does not dispatch a release.
 
 If a new candidate consumes its host start authorization and is aborted before commit, the seal retains its run, revision and image ID. Future routine reservations and prepares reject that revision. Submit the correction on protected main and qualify its new revision on Backup. An abort before token consumption leaves the candidate eligible. Recovery of the sealed desired release remains available.
+
+### Explicit finite owner selection
+
+A separately protected, currently open owner order can use the existing Stage
+workflow with `request_engine_release=true`, its exact `owner_window_id`, and
+`request_database_break=false` on `main`. Only the protected pinned
+`nov7-owner` validator admits this branch; arbitrary, old or expired orders
+fail. This does not change the daily election or grant authority from a chat.
+The release owner must first verify the actual public notice and required lead.
+
+This branch freezes the Stage SHA as control and selects the newest qualified
+protected ancestor with identical release-control inputs and the same pinned
+owner floor and order. Unrelated later main commits do not discard valid
+qualification; changed release controls require new evidence. The candidate's
+exact Backup, schema freshness, both-direction rollback rehearsal, four engine
+qualification shards and immutable images must already qualify at the original
+Stage run's creation time. The original
+single-attempt `owner-engine-selection-<owner_window_id>` artifact contains
+`daily-selection.json`; the existing signal passes its run ID to the existing
+receiver. The receiver verifies the archive digest, exact original successful
+selection job, cutoff, owner identity and still-open protected admission before
+handoff. Missing or changed evidence keeps the current engine serving. The
+host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
+thaw checks remain mandatory. Do not dispatch the receiver directly.
+
+### Capped satellite settlement compatibility
+
+Migration `20261108154158_capped_frozen_satellite_cohort_awards.sql` installs before
+its compatible engine. Existing terminal execution refuses a field-capped award
+with an attached remainder before financial effects. The successor engine uses
+`fn_execute_capped_satellite_terminal_request` for qualifier settlement, retaining
+the original durable request and lease generation. Its v3 consumer verifies the
+final ticket recipient also owns the attached remainder; legacy v2 stays strict.
+Do not manually settle, rewrite frozen entitlements, or replay an unknown outcome.
+After the certified daily cutover, verify the original event's canonical receipt,
+49 financial legs totaling 1,003 for the affected 48-ticket event, and completion.
+A rollback to the older engine must preserve any committed receipt; an unsupported
+receipt is a recovery hold, never authorization for another payment.

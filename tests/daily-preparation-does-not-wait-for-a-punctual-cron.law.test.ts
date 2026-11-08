@@ -415,11 +415,10 @@ describe('the preparation happens once per Chicago date', () => {
 });
 
 describe('the workflow adds chances, not authority', () => {
-  it('feeds the installer only from the owned daily preparation or an owner window', () => {
+  it('separates the installer from an explicit owner engine selection', () => {
     const job = stage.jobs['window-migrations'];
-    expect(job.if).toContain(
-      "(needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != '')"
-    );
+    expect(job.if).toContain('!inputs.request_engine_release');
+    expect(job.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(job.if).not.toContain("github.event_name == 'schedule'");
     expect(job.concurrency).toEqual({
@@ -459,7 +458,7 @@ describe('the workflow adds chances, not authority', () => {
 describe('the original reserved job waits once and expires without a release', () => {
   const cutoffStep = stage.jobs.detect.steps.find((s: { id?: string }) => s.id === 'cutoff');
   const cutoff = Number(epoch('2026-11-09T09:30:00Z'));
-  function bind(before: number, after: number, changed = false) {
+  function bind(before: number, after: number, changed = false, owner = false) {
     const dir = mkdtempSync(join(tmpdir(), 'daily-reservation-'));
     try {
       const result = spawnSync(
@@ -479,7 +478,8 @@ describe('the original reserved job waits once and expires without a release', (
           cwd: dir,
           env: {
             ...process.env,
-            CUTOFF_EPOCH: String(cutoff),
+            CUTOFF_EPOCH: owner ? '' : String(cutoff),
+            OWNER_WINDOW_ID: owner ? 'validated-finite-owner' : '',
             BEFORE: String(before),
             AFTER: String(after),
             MARK: join(dir, 'clock'),
@@ -499,6 +499,14 @@ describe('the original reserved job waits once and expires without a release', (
       rmSync(dir, { recursive: true, force: true });
     }
   }
+  it('preserves the already admitted finite owner source without a daily cutoff or wait', () => {
+    expect(cutoffStep.env.OWNER_WINDOW_ID).toBe('${{ steps.admission.outputs.owner_window_id }}');
+    expect(bind(cutoff + 24000, cutoff + 24001, false, true)).toEqual({
+      status: 0,
+      wait: null,
+      output: `sha=${'a'.repeat(40)}\n`,
+    });
+  });
   it('waits once for five hours maximum and binds source only at the cutoff', () => {
     expect(bind(cutoff - 18000, cutoff)).toEqual({
       status: 0,

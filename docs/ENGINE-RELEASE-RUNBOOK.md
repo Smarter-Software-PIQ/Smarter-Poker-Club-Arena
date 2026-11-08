@@ -1,3 +1,5 @@
+**November 8 Horse study continuation:** the owner directed completion now in chat `01a1af6b-2112-7fc2-b6bf-f6b5f0e9f430`. The single successor `2026-11-08-horse-study-successor-engine-1820z` preserves the expired prior booking and admits only one certified replacement of `391f7bc0d57c71637bd4af5181f70520661e3593`, between 18:20 UTC November 8 and 00:20 UTC November 9, after the published 18:00 UTC November 8 player notice has actually been available for at least twenty minutes. Exact qualification, Backup, protected target/control, hand drain, full freeze/proof/rollback reserve and thaw remain required. This does not renew the expired prior operation or change the standing daily schedule.
+
 # Engine release runbook: Backup, certification and the 04:00 cutover
 
 Written 2026-11-07 on the owner's instruction to write down "any and all things
@@ -643,3 +645,38 @@ each needs its own PR, law and changelog.
    post-seal refresh run at once. Deferred: cost, a second pinned host key and
    egress lock, and no measured day yet where the single host was the limit
    after #9906.
+
+### Explicit finite owner selection
+
+A separately protected, currently open owner order can use the existing Stage
+workflow with `request_engine_release=true`, its exact `owner_window_id`, and
+`request_database_break=false` on `main`. Only the protected pinned
+`nov7-owner` validator admits this branch; arbitrary, old or expired orders
+fail. This does not change the daily election or grant authority from a chat.
+The release owner must first verify the actual public notice and required lead.
+
+This branch freezes the Stage SHA as control and selects the newest qualified
+protected ancestor with identical release-control inputs and the same pinned
+owner floor and order. Unrelated later main commits do not discard valid
+qualification; changed release controls require new evidence. The candidate's
+exact Backup, schema freshness, both-direction rollback rehearsal, four engine
+qualification shards and immutable images must already qualify at the original
+Stage run's creation time. The original
+single-attempt `owner-engine-selection-<owner_window_id>` artifact contains
+`daily-selection.json`; the existing signal passes its run ID to the existing
+receiver. The receiver verifies the archive digest, exact original successful
+selection job, cutoff, owner identity and still-open protected admission before
+handoff. Missing or changed evidence keeps the current engine serving. The
+host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
+thaw checks remain mandatory. Do not dispatch the receiver directly.
+
+### Capped satellite awards: schema before compatible engine
+
+Follow the capped satellite compatibility section in `PUBLISHING.md` for migration
+`20261108154158_capped_frozen_satellite_cohort_awards.sql`. Install and verify its
+three declared live function postimages through the protected migration route
+before selecting the compatible engine. The old executor refuses attached capped
+remainders without payment; the successor retains the original terminal request
+and generation. After the usual exact certificate, daily activation and seal,
+read the affected event's canonical settlement and table completion. Preserve an
+unknown or committed outcome across rollback; never replay its financial effects.

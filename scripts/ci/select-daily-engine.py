@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Freeze a protected first-parent candidate using evidence available by 03:30 Chicago."""
 import argparse
+import importlib.util
 from datetime import date, datetime, time
 import io
 import hashlib
@@ -167,13 +168,14 @@ def select(args, report):
             if qual['targetSha'] != sha or qual['controlSha'] != args.control:
                 raise ValueError('prequalification identity differs')
             floor = subprocess.run([sys.executable, '-B', 'server/scripts/engine-release-activation-floor.py',
-                                    'daily-compatibility', '--repo', '.', '--target', sha,
-                                    '--control', args.control, '--deadline', str(report['cutoffEpoch'])], capture_output=True)
+                                    'nov7-owner' if getattr(args, 'owner_window', None) else 'daily-compatibility',
+                                    '--repo', '.', '--target', sha,
+                                    '--control', args.control, '--deadline', str(report.get('ownerExpiresEpoch', report['cutoffEpoch']))], capture_output=True)
             if floor.returncode:
                 report['deferredCandidates'].append({'sha': sha, 'reason': 'protected release controls differ'})
                 continue
             report.update(outcome='selected', targetSha=sha, backup=evidence, qualification=qual,
-                          controls=json.loads(floor.stdout))
+                          controls={"ownerWindowId": args.owner_window} if getattr(args, "owner_window", None) else json.loads(floor.stdout))
             return
 
 
@@ -225,6 +227,8 @@ def check_intent(report, repo, prs, migrations):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', required=True)
+    parser.add_argument('--owner-window')
+    parser.add_argument('--selection-run-id')
     parser.add_argument('--selection', type=Path, help='Inspect an already frozen daily-selection.json')
     parser.add_argument('--pr', type=int, action='append', default=[])
     parser.add_argument('--migration', action='append', default=[])
@@ -237,14 +241,35 @@ def main():
         print(json.dumps({'targetSha': report['targetSha'], 'controlSha': report['controlSha'],
                           'intent': check_intent(report, args.repo, args.pr, args.migration)}, indent=2))
         return 0
-    if not all((args.control, args.serving, args.date, args.output)):
+    if not all((args.control, args.serving, args.date or args.owner_window, args.output)):
         parser.error('selection requires --control, --serving, --date and --output')
     report = {'schema': 1, 'outcome': 'keep-serving', 'targetSha': None, 'deferredCandidates': [],
-              'servingSha': args.serving, 'stageSha': args.stage or args.control, 'controlSha': None, 'cutoffEpoch': cutoff(args.date)}
+              'servingSha': args.serving, 'stageSha': args.stage or args.control, 'controlSha': None, 'cutoffEpoch': cutoff(args.date) if args.date else None}
     try:
         if not re.fullmatch('[0-9a-f]{40}', args.control):
             raise ValueError('expected exact protected Stage SHA')
-        args.control = git('rev-list', '--first-parent', '-1', '--before=@' + str(report['cutoffEpoch']), args.control)
+        if args.owner_window:
+            if args.date or not args.selection_run_id:
+                raise ValueError('owner selection requires original Stage run, not a daily date')
+            spec = importlib.util.spec_from_file_location('qualification', Path(__file__).with_name('read-engine-prequalification.py'))
+            reader = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(reader)
+            report['cutoffEpoch'] = reader.selection_cutoff(args.repo, args.selection_run_id)
+            run = reader.api(f'repos/{args.repo}/actions/runs/{args.selection_run_id}')
+            if (run['head_sha'] != args.control or run['event'] != 'workflow_dispatch'
+                    or run['run_attempt'] != 1 or run['head_branch'] != 'main'
+                    or run['path'] != '.github/workflows/stage-engine-release.yml'
+                    or run['repository']['full_name'].lower() != args.repo.lower()
+                    or run['head_repository']['full_name'].lower() != args.repo.lower()):
+                raise ValueError('owner selection requires original protected Stage dispatch')
+            try:
+                owner = reader.owner_selection_policy(args.control, args.control, args.owner_window, report['cutoffEpoch'])
+                report['ownerExpiresEpoch'] = int(epoch(owner['expiresAt']))
+            except reader.Unqualified as error:
+                raise ValueError(str(error)) from error
+            report['ownerWindowId'] = args.owner_window
+        else:
+            args.control = git('rev-list', '--first-parent', '-1', '--before=@' + str(report['cutoffEpoch']), args.control)
         if not args.control:
             raise ValueError('no protected first-parent control existed at the selection cutoff')
         report['controlSha'] = args.control

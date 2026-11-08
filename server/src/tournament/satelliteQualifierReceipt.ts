@@ -385,7 +385,8 @@ export function verifySatelliteQualifierReceipt(
   }
 
   const remainderCents = poolCents - ticketAwardCount * ticketCents;
-  if (remainderCents < 0 || remainderCents >= ticketCents) return null;
+  const cappedField = ticketAwardCount === fieldSize;
+  if (remainderCents < 0 || (!cappedField && remainderCents >= ticketCents)) return null;
 
   let remainder: VerifiedSatelliteQualifierReceipt['remainder'] = null;
   if (remainderCents === 0) {
@@ -397,10 +398,10 @@ export function verifySatelliteQualifierReceipt(
     const amountCents = exactCents(rawRemainder?.amount);
     if (
       !userId ||
-      position !== ticketAwardCount + 1 ||
+      position !== (cappedField ? fieldSize : ticketAwardCount + 1) ||
       position > fieldSize ||
       amountCents !== remainderCents ||
-      awardUsers.has(userId)
+      (cappedField ? awards[awards.length - 1]?.userId !== userId : awardUsers.has(userId))
     ) {
       return null;
     }

@@ -141,6 +141,39 @@ describe('durable pre-send acknowledgement', () => {
     });
     expect(await closeDurableTerminalRequest(intent)).toBe(false);
   });
+  it.each(['places', 'satellite', 'satellite_qualifiers'] as const)(
+    'retains original custody through the compatible %s executor',
+    async (kind) => {
+      const id = '00000000-0000-4000-8000-000000000004';
+      const original =
+        kind === 'satellite_qualifiers'
+          ? { kind, tournamentId, observedWinnerId: null, qualifierIds: [winner] }
+          : { ...identity, kind };
+      const intent: any = {
+        requestId: id,
+        identity: original,
+        originalGeneration: generation,
+        currentGeneration: generation,
+        phase: 'prepared',
+      };
+      const receipt = { fully_settled: true };
+      mocks.rpc.mockResolvedValue({
+        data: {
+          ok: true,
+          request: { ...row(id), original_request: original, phase: 'committed' },
+          receipt,
+        },
+        error: null,
+      });
+      expect(await executeDurableTerminalRequest(intent)).toEqual({ data: receipt, error: null });
+      expect(mocks.rpc).toHaveBeenCalledWith(
+        kind === 'satellite_qualifiers'
+          ? 'fn_execute_capped_satellite_terminal_request'
+          : 'fn_execute_tournament_terminal_request',
+        { p_request_id: id, p_generation: generation }
+      );
+    }
+  );
   it('a malformed absence is unknown rather than permission to start', async () => {
     mocks.rpc.mockResolvedValue({
       data: { ok: true, found: false, tournament_id: winner },

@@ -1197,6 +1197,55 @@ SELECT count(*) FROM tournament_schedule_spawns s
     run('transfer-cannot-requalify',f"UPDATE clubs SET owner_id='{owner3}' WHERE id='00000000-0000-4000-9000-000000000099'; SET request.jwt.claim.sub='{owner3}'; INSERT INTO clubs(id,owner_id) VALUES('{c4}','{owner3}'); INSERT INTO club_creation_requests VALUES('{owner3}',gen_random_uuid(),'{c4}'); SELECT count(*) FROM club_welcome_entitlements WHERE owner_id='{owner3}';",'0')
     run('hand-history-blocks-reset',f"SET request.jwt.claim.sub='{owner1}'; INSERT INTO hand_history(table_id) SELECT initial_table_id FROM club_welcome_package_items WHERE club_id='{c1}' AND entity_kind='cash_game' ORDER BY slot_key LIMIT 1; SELECT fn_get_club_welcome_package_reset_impact('{c1}')->>'can_reset',fn_get_club_welcome_package_reset_impact('{c1}')#>>'{{blocking,hand_history}}';",'false|1')
     run('reset-discovers-both-schedule-links',f"SET request.jwt.claim.sub='{owner1}'; DELETE FROM hand_history; WITH s AS(SELECT entity_id FROM club_welcome_package_items WHERE club_id='{c1}' AND entity_kind='tournament_schedule'), a AS(INSERT INTO tournaments(id,club_id,schedule_id,status) SELECT gen_random_uuid(),'{c1}',entity_id,'REGISTERING' FROM s RETURNING id), b AS(INSERT INTO tournaments(id,club_id,status) VALUES(gen_random_uuid(),'{c1}','REGISTERING') RETURNING id) INSERT INTO tournament_schedule_spawns(schedule_id,tournament_id,spawn_key) SELECT s.entity_id,b.id,'backlink' FROM s,b; SELECT jsonb_array_length(fn_get_club_welcome_package_reset_impact('{c1}')->'tournament_ids');",'2')
+    # Use the maintained autoledger function for the owner reset. The other
+    # money writers in this fixture remain isolated.
+    autoledger_migration = ROOT / 'supabase/migrations/20261015141043_the_autoledger_never_journals_an_account_to_itself.sql'
+    autoledger_source = autoledger_migration.read_text().split(
+        'CREATE OR REPLACE FUNCTION public.fn_ca_autoledger()', 1
+    )[1].split('DO $post$', 1)[0]
+    run('install-real-welcome-autoledger', 'CREATE OR REPLACE FUNCTION public.fn_ca_autoledger()' + autoledger_source)
+    run('welcome-autoledger-fixture-ports', """
+ALTER TABLE chip_ledger DROP CONSTRAINT chip_ledger_category_check,
+  ADD CONSTRAINT chip_ledger_category_check CHECK(category IN ('club_opening_allocation','reversal','treasury_transfer','adjustment'));
+CREATE OR REPLACE FUNCTION fn_ca_declare_ledger(text,text,uuid DEFAULT NULL,uuid DEFAULT NULL,text DEFAULT NULL,text[] DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql AS $$BEGIN
+  PERFORM set_config('app.ledger_category',$1,true);
+  PERFORM set_config('app.ledger_counterparty',$2,true);
+  PERFORM set_config('app.ledger_counterparty_entity',COALESCE($3::text,''),true);
+  PERFORM set_config('app.ledger_counterparty_label','',true);
+  IF 'bbj_pools' = ANY($6) THEN
+    PERFORM set_config('app.ledger_autoskip_bbj_pools','1',true);
+  END IF;
+END$$;
+CREATE FUNCTION fn_ca_declare_guard_redefinition(text,text) RETURNS void LANGUAGE sql AS $$SELECT$$;
+CREATE TRIGGER fixture_welcome_treasury_autoledger AFTER UPDATE OF chip_treasury ON clubs
+  FOR EACH ROW EXECUTE FUNCTION fn_ca_autoledger('chip_treasury=club_treasury');
+CREATE TRIGGER fixture_welcome_bbj_autoledger AFTER UPDATE OF main_balance ON bbj_pools
+  FOR EACH ROW EXECUTE FUNCTION fn_ca_autoledger('main_balance=bbj_pool');
+""")
+    bbj_return_probe = f"""
+BEGIN;
+SET LOCAL request.jwt.claim.sub='{owner1}';
+SELECT fn_remove_first_club_welcome_games('{c1}','00000000-0000-4000-f001-000000000001')->>'ok';
+SELECT fn_remove_first_club_welcome_games('{c1}','00000000-0000-4000-f001-000000000001')->>'replayed';
+SELECT l.from_label,l.to_label,l.amount,p.main_balance,c.chip_treasury
+  FROM chip_ledger l JOIN bbj_pools p ON p.id=l.from_entity_id
+  JOIN clubs c ON c.id=l.to_entity_id
+ WHERE l.from_type='bbj_pool' AND l.to_type='club_treasury'
+   AND l.category='treasury_transfer' AND p.club_id='{c1}' AND c.id='{c1}';
+ROLLBACK;
+"""
+    run('welcome-bbj-return-before-source-fix',bbj_return_probe,'true\ntrue\n|clubs.chip_treasury|100.00|0|100000.00')
+    bbj_return_migration = ROOT / 'supabase/migrations/20261108155826_welcome_jackpot_returns_name_their_source_bank.sql'
+    results['migrations'].append(bbj_return_migration.name)
+    run('install-welcome-bbj-source-bank',bbj_return_migration.read_text())
+    run('welcome-bbj-return-journals-both-banks-once',bbj_return_probe,'true\ntrue\nbbj_pools.main_balance|clubs.chip_treasury|100.00|0|100000.00')
+    run('remove-isolated-welcome-autoledger-triggers',"""
+DROP TRIGGER fixture_welcome_treasury_autoledger ON clubs;
+DROP TRIGGER fixture_welcome_bbj_autoledger ON bbj_pools;
+CREATE OR REPLACE FUNCTION fn_ca_declare_ledger(text,text,uuid DEFAULT NULL,uuid DEFAULT NULL,text DEFAULT NULL,text[] DEFAULT NULL)
+RETURNS void LANGUAGE sql AS $$SELECT$$;
+""")
     run('owner-reset-soft-retires',f"SET request.jwt.claim.sub='{owner1}'; SELECT fn_remove_first_club_welcome_games('{c1}',gen_random_uuid())->>'ok'; SELECT count(*) FROM tournaments WHERE club_id='{c1}' AND status='CANCELLED'; SELECT count(*) FROM club_welcome_package_items WHERE club_id='{c1}' AND retired_at IS NOT NULL;",'true\n2\n10')
     run('retired-schedule-fences-spawn',f"SET request.jwt.claim.sub='{owner1}'; DO $x$ DECLARE s uuid; BEGIN SELECT entity_id INTO s FROM club_welcome_package_items WHERE club_id='{c1}' AND entity_kind='tournament_schedule'; BEGIN INSERT INTO tournaments(id,club_id,schedule_id,status) VALUES(gen_random_uuid(),'{c1}',s,'REGISTERING'); RAISE EXCEPTION 'spawn_not_fenced'; EXCEPTION WHEN sqlstate '55000' THEN NULL; END; END $x$; SELECT 'refused';",'refused')
     run('certification-cleanup-package-derived-table-setup',f"INSERT INTO auth.users VALUES('{owner4}','ca-customization-cert-postdeploy-native@example.invalid'); INSERT INTO clubs(id,owner_id,name) VALUES('{c5}','{owner4}','Crest Cert Native'); INSERT INTO club_members(club_id,user_id) VALUES('{c5}','{owner4}'); SET request.jwt.claim.sub='{owner4}'; INSERT INTO club_creation_requests VALUES('{owner4}',gen_random_uuid(),'{c5}'); INSERT INTO tables(id,club_id,cluster_id,game_type,created_by,role,main_index,lifecycle,status,current_players) SELECT gen_random_uuid(),'{c5}',entity_id,'cash','{owner4}','feeder',NULL,'opening','waiting',0 FROM club_welcome_package_items WHERE club_id='{c5}' AND entity_kind='cash_game' ORDER BY slot_key LIMIT 1; INSERT INTO cash_cluster_events(game_id,table_id) SELECT cluster_id,id FROM tables WHERE club_id='{c5}' ORDER BY id DESC LIMIT 1; SELECT is_active,activated_at IS NOT NULL,deactivated_at IS NULL,balance,seeded_amount,offered_max_stake,highest_stake,(SELECT count(*) FROM spin_reserve_ledger WHERE club_id='{c5}') FROM spin_bonus_pools WHERE club_id='{c5}';",'t|t|t|200.00|200.00|1|1|2')

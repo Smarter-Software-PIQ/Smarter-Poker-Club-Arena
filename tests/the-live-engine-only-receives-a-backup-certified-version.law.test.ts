@@ -245,3 +245,26 @@ it('refuses missing, superseded and incompatible daytime qualification evidence'
   });
   expect(result.status, result.stderr).toBe(0);
 });
+
+it('binds explicit finite owner selection to the existing receiver without authorizing database work', () => {
+  const stage = parse(
+    readFileSync(resolve(__dirname, '..', '.github/workflows/stage-engine-release.yml'), 'utf8')
+  );
+  const receiver = parse(
+    readFileSync(resolve(__dirname, '..', '.github/workflows/auto-deploy-hetzner.yml'), 'utf8')
+  );
+  expect(stage.on.workflow_dispatch.inputs.request_engine_release.default).toBe(false);
+  expect(stage.jobs.detect.if).toContain('!inputs.request_database_break');
+  expect(stage.jobs['window-migrations'].if).toContain('!inputs.request_engine_release');
+  const admission = stage.jobs.detect.steps.find((step: any) => step.id === 'admission');
+  expect(admission.run).toContain('reader.owner_selection_policy(');
+  const selection = stage.jobs.selection.steps.find((step: any) => step.id === 'freeze');
+  expect(selection.run).toContain(
+    '--owner-window "$OWNER_WINDOW_ID" --selection-run-id "$GITHUB_RUN_ID"'
+  );
+  const signal = stage.jobs.signal.steps.at(-1);
+  expect(signal.run).toContain('client_payload[owner_window_id]=$OWNER_WINDOW_ID');
+  const preparation = receiver.jobs.preflight.steps.find((step: any) => step.id === 'preparation');
+  expect(preparation.run).toContain('selection_args=(--owner-window "$OWNER_WINDOW_ID")');
+  expect(preparation.run).toContain('--selection-run-id "$SELECTION_RUN"');
+});
