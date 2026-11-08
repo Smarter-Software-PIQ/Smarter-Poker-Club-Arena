@@ -124,6 +124,9 @@ try:
       NOT has_function_privilege('anon', 'public.fn_cron_failing_jobs()', 'EXECUTE')
       AND NOT has_function_privilege('authenticated', 'public.fn_cron_failing_jobs()', 'EXECUTE')
       AND has_function_privilege('service_role', 'public.fn_cron_failing_jobs()', 'EXECUTE')
+      AND NOT has_function_privilege('anon', 'public.fn_ca_cron_failure_watch()', 'EXECUTE')
+      AND NOT has_function_privilege('authenticated', 'public.fn_ca_cron_failure_watch()', 'EXECUTE')
+      AND has_function_privilege('service_role', 'public.fn_ca_cron_failure_watch()', 'EXECUTE')
       AND (SELECT prosecdef FROM pg_proc WHERE oid = 'public.fn_cron_failing_jobs()'::regprocedure);""", 't')
 
     # 2026-11-07, job 117: one success, then a failed run every 10 s for 13.5 minutes.

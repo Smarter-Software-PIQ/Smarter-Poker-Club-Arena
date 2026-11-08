@@ -220,3 +220,8 @@ BEGIN
   VALUES ('fn_ca_cron_failure_watch', jsonb_build_object('raised', n));
   RETURN n;
 END $function$;
+
+-- Production already allows only service_role (checked 2026-11-07: anon and
+-- authenticated false); stated here so this redefinition can never widen it.
+REVOKE ALL ON FUNCTION public.fn_ca_cron_failure_watch() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_cron_failure_watch() TO service_role;

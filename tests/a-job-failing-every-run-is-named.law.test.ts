@@ -48,6 +48,15 @@ describe('a job failing every run is named', () => {
     );
   });
 
+  it('the redefined watch stays closed to browsers', () => {
+    expect(migration).toContain(
+      'REVOKE ALL ON FUNCTION public.fn_ca_cron_failure_watch() FROM PUBLIC, anon, authenticated;'
+    );
+    expect(migration).toContain(
+      'GRANT EXECUTE ON FUNCTION public.fn_ca_cron_failure_watch() TO service_role;'
+    );
+  });
+
   it('the per-job watch raises the streak by name, once a day per job, and a broken read is critical', () => {
     expect(migration).toContain('FOR r IN SELECT f.* FROM public.fn_cron_failing_jobs() f');
     expect(migration).toContain('WHERE NOT (f.jobname = ANY (v_raised))');
