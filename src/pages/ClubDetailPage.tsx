@@ -1,4 +1,5 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
+import { CASH_TABLE_MIN_BB } from '../config/cashGames';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  CLUB ENGINE — Club Detail Page
@@ -1346,7 +1347,8 @@ export default function ClubDetailPage() {
             <div className={styles.card}>
               <h3> Club Rules</h3>
               <ul className={styles.rulesList}>
-                <li>Minimum Buy-In: {club.settings.minBuyInBB} BB</li>
+                {/* Dan 2026-11-08: every cash game's minimum is 50 BB; the club column is not read by any game. */}
+                <li>Minimum Buy-In: {CASH_TABLE_MIN_BB} BB</li>
                 <li>Maximum Buy-In: {club.settings.maxBuyInBB} BB</li>
                 <li>
                   Rake: {club.settings.defaultRakePercent}% (Capped At {club.settings.rakeCap} BB)
