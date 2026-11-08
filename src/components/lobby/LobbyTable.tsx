@@ -158,7 +158,8 @@ interface ColumnDef {
 function ClockFace({ text }: { text: string }) {
   const parts = /^(.*?)(\d+(?::\d{2}){1,2}|\d+d \d+h)$/.exec(text.trim());
   if (!parts) return <>{text}</>;
-  const label = parts[1].trim();
+  const phase = parts[1].trim();
+  const label = phase === 'Late Reg Ends In' ? 'Late Reg Ends' : phase;
   return (
     <span
       className="premium-lobby-clock"
