@@ -17,6 +17,7 @@
  * listeners in the same commit, or this goes red at the pull request.
  */
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -32,23 +33,7 @@ const nameOf = (text: string): string | null => {
 
 /** Every quoted or bare entry of a `workflows:` list under `workflow_run:`. */
 const listenedNames = (text: string): string[] => {
-  const out: string[] = [];
-  const re = /^\s*workflow_run:\s*\n([\s\S]*?)(?=^\s*[a-z_]+:\s*$|^\S)/gm;
-  let block: RegExpExecArray | null;
-  while ((block = re.exec(text))) {
-    const w =
-      /workflows:\s*\[([^\]]*)\]/.exec(block[1]) ??
-      /workflows:\s*\n((?:\s*-\s*.+\n)+)/.exec(block[1]);
-    if (!w) continue;
-    for (const raw of w[1].split(/,|\n/)) {
-      const v = raw
-        .replace(/^\s*-\s*/, '')
-        .trim()
-        .replace(/^(['"])(.*)\1$/, '$2');
-      if (v) out.push(v);
-    }
-  }
-  return out;
+  return parse(text)?.on?.workflow_run?.workflows ?? [];
 };
 
 describe('a workflow_run listener names a workflow that exists', () => {
@@ -79,8 +64,8 @@ describe('a workflow_run listener names a workflow that exists', () => {
   it('production certification requires a publication event', () => {
     const workflow = read('post-deploy-e2e.yml');
     const triggers = workflow.split(/^jobs:/m)[0];
-    expect(triggers).not.toMatch(/^  schedule:/m);
-    expect(triggers).toMatch(/^  repository_dispatch:/m);
+    expect(triggers).not.toMatch(/^ {2}schedule:/m);
+    expect(triggers).toMatch(/^ {2}repository_dispatch:/m);
     expect(listenedNames(workflow)).toEqual(['Publish Club Arena']);
     expect(workflow).not.toContain('if [ "$EVENT_NAME" = schedule ]');
     expect(workflow).toContain('Unsupported production certification event');

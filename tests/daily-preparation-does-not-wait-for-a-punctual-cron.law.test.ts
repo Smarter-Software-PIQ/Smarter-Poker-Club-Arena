@@ -52,9 +52,15 @@ const stage = parse(stageText);
 const admissionStep = stage.jobs.detect.steps.find((s: { id?: string }) => s.id === 'admission');
 const admission: string = admissionStep.run;
 
-type Run = { id: number; event: string; created_at: string; head_branch?: string };
+type Run = {
+  id: number;
+  event: string;
+  created_at: string;
+  head_branch?: string;
+  display_title?: string;
+};
 type Case = {
-  event: 'push' | 'schedule';
+  event: 'push' | 'schedule' | 'workflow_run';
   createdAt?: string; // schedule: the run's own created_at from the API
   pushedAt?: string; // push: github.event.repository.pushed_at (epoch seconds)
   runs?: Run[];
@@ -209,6 +215,36 @@ describe('the daily preparation belongs to the 03:30-03:50 Chicago window', () =
 
 describe('the preparation happens once per Chicago date', () => {
   const inWindow = { event: 'push' as const, pushedAt: epoch('2026-11-01T09:44:00Z') };
+
+  it('admits the automatic Backup completion in the original window and preserves the cutoff', () => {
+    expect(stage.on.workflow_run).toEqual({
+      workflows: ['Backup Engine (Clone, Stage, Certify)'],
+      branches: ['main'],
+      types: ['completed'],
+    });
+    expect(stage.jobs.detect.if).toContain("github.event.workflow_run.event == 'push'");
+    expect(stage.jobs.detect.if).toContain("github.event.workflow_run.conclusion == 'success'");
+    const automatic = {
+      id: 90,
+      event: 'workflow_run',
+      created_at: '2026-11-08T09:41:03Z',
+      display_title: 'Automatic protected Backup finished',
+    };
+    expect(
+      admit({ event: 'workflow_run', createdAt: automatic.created_at }).outputs.daily_preparation
+    ).toBe('true');
+    expect(
+      admit({ event: 'workflow_run', createdAt: '2026-11-08T09:50:00Z' }).outputs.daily_preparation
+    ).toBe('false');
+    const push = { event: 'push' as const, pushedAt: epoch('2026-11-08T09:44:00Z') };
+    expect(admit({ ...push, runs: [automatic] }).outputs.daily_preparation).toBe('false');
+    expect(
+      admit({
+        ...push,
+        runs: [{ ...automatic, display_title: 'Backup completion outside election' }],
+      }).outputs.daily_preparation
+    ).toBe('true');
+  });
 
   it('an earlier push or schedule run in the window owns it; this run refuses by name', () => {
     for (const event of ['push', 'schedule']) {
