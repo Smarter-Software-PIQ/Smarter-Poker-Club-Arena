@@ -270,6 +270,7 @@ jobs:
           TARGET: ${{ steps.target.outputs.sha }}
           SELECTED_CONTROL: ${{ github.event.client_payload.control_sha }}
           SELECTION_RUN: ${{ github.event.client_payload.selection_run_id }}
+          OWNER_WINDOW_ID: ${{ github.event.client_payload.owner_window_id }}
         run: |
           set -euo pipefail
           [[ "$SELECTED_CONTROL" =~ ^[0-9a-f]{40}$ ]]
@@ -277,7 +278,11 @@ jobs:
           reader="$(mktemp "$RUNNER_TEMP/reader.XXXXXXXX")"
           git show "$GITHUB_SHA:scripts/ci/read-engine-prequalification.py" > "$reader"
           cutoff="$(python3 -c 'from datetime import datetime; from zoneinfo import ZoneInfo; print(int(datetime.now(ZoneInfo("America/Chicago")).replace(hour=3, minute=30, second=0, microsecond=0).timestamp()))')"
-          receipt="$(python3 -B "$reader" --repo "$GITHUB_REPOSITORY" --target "$TARGET" --control "$SELECTED_CONTROL" --receiver-control "$GITHUB_SHA" --selection-run-id "$SELECTION_RUN" --cutoff "$cutoff")"
+          selection_args=(--cutoff "$cutoff")
+          if [ -n "$OWNER_WINDOW_ID" ]; then
+            selection_args=(--owner-window "$OWNER_WINDOW_ID")
+          fi
+          receipt="$(python3 -B "$reader" --repo "$GITHUB_REPOSITORY" --target "$TARGET" --control "$SELECTED_CONTROL" --receiver-control "$GITHUB_SHA" --selection-run-id "$SELECTION_RUN" "${selection_args[@]}")"
           echo "image_id=$(jq -er .imageId <<< "$receipt")" >> "$GITHUB_OUTPUT"
           echo "rollback_image_id=$(jq -er .rollbackImageId <<< "$receipt")" >> "$GITHUB_OUTPUT"
 

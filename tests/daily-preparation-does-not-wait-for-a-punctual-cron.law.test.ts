@@ -343,11 +343,10 @@ describe('the preparation happens once per Chicago date', () => {
 });
 
 describe('the workflow adds chances, not authority', () => {
-  it('feeds the installer only from the owned daily preparation or an owner window', () => {
+  it('separates the installer from an explicit owner engine selection', () => {
     const job = stage.jobs['window-migrations'];
-    expect(job.if).toContain(
-      "(needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != '')"
-    );
+    expect(job.if).toContain('!inputs.request_engine_release');
+    expect(job.if).toContain("needs.detect.outputs.daily_preparation == 'true'");
     expect(job.if).toContain("needs.detect.outputs.admission_allowed == 'true'");
     expect(job.if).not.toContain("github.event_name == 'schedule'");
     expect(job.concurrency).toEqual({

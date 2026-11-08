@@ -637,6 +637,30 @@ each needs its own PR, law and changelog.
    egress lock, and no measured day yet where the single host was the limit
    after #9906.
 
+### Explicit finite owner selection
+
+A separately protected, currently open owner order can use the existing Stage
+workflow with `request_engine_release=true`, its exact `owner_window_id`, and
+`request_database_break=false` on `main`. Only the protected pinned
+`nov7-owner` validator admits this branch; arbitrary, old or expired orders
+fail. This does not change the daily election or grant authority from a chat.
+The release owner must first verify the actual public notice and required lead.
+
+This branch freezes the Stage SHA as control and selects the newest qualified
+protected ancestor with identical release-control inputs and the same pinned
+owner floor and order. Unrelated later main commits do not discard valid
+qualification; changed release controls require new evidence. The candidate's
+exact Backup, schema freshness, both-direction rollback rehearsal, four engine
+qualification shards and immutable images must already qualify at the original
+Stage run's creation time. The original
+single-attempt `owner-engine-selection-<owner_window_id>` artifact contains
+`daily-selection.json`; the existing signal passes its run ID to the existing
+receiver. The receiver verifies the archive digest, exact original successful
+selection job, cutoff, owner identity and still-open protected admission before
+handoff. Missing or changed evidence keeps the current engine serving. The
+host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
+thaw checks remain mandatory. Do not dispatch the receiver directly.
+
 ### Capped satellite awards: schema before compatible engine
 
 Follow the capped satellite compatibility section in `PUBLISHING.md` for migration

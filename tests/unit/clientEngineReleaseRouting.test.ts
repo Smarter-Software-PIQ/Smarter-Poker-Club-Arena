@@ -39,6 +39,7 @@ describe('bounded read-only recovery checkouts', () => {
       '/server/scripts/engine-release-seal.py',
       '/server/release/owner-maintenance-windows.json',
       '/server/release/activation-floor.json',
+      '/scripts/ci/read-engine-prequalification.py',
     ]);
   });
 

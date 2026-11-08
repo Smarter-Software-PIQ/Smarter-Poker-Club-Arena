@@ -279,6 +279,7 @@ describe('hosting qualification remains enforced', () => {
     expect(owners).toHaveLength(1);
     expect(owners[0].if).toBe('matrix.shard == 2');
     expect(owners[0]['continue-on-error']).toBeUndefined();
+    expect(owners[0].env.GH_TOKEN).toBe('${{ github.token }}');
     expect(JSON.parse(readFileSync('package.json', 'utf8')).scripts['test:data:postgres']).toBe(
       'bash scripts/ci/test-data-console-postgres-contracts.sh'
     );
@@ -303,6 +304,39 @@ describe('hosting qualification remains enforced', () => {
         (step: any) => step.run === 'bash scripts/ci/test-private-record-hosting.sh'
       )
     ).toBe(false);
+  });
+  it('authenticates the pinned hosted Caddy download and propagates transport refusal', () => {
+    const root = fixture();
+    const source = readFileSync('scripts/ci/test-private-record-hosting.sh', 'utf8');
+    const block = source.slice(
+      source.indexOf('if [ -z "${CADDY_BIN:-}" ]'),
+      source.indexOf('export PRIVATE_RECORD_HOSTING_WORK=')
+    );
+    const runner = `set -euo pipefail
+work="$1"
+uname() { if [ "$1" = -s ]; then echo Linux; else echo x86_64; fi; }
+curl() {
+  [[ "$*" = *"Authorization: Bearer fixture-token"* ]] || exit 91
+  [[ "$*" = *"--max-time 120"* ]] || exit 92
+  [[ "$*" = *"https://api.github.com/repos/caddyserver/caddy/releases/assets/607245028"* ]] || exit 93
+  echo authenticated-pinned-download
+  return 23
+}
+${block}`;
+    for (const token of ['', 'fixture-token']) {
+      const result = spawnSync('bash', ['-c', runner, 'qualification', root], {
+        encoding: 'utf8',
+        env: { ...process.env, GITHUB_ACTIONS: 'true', GH_TOKEN: token, CADDY_BIN: '' },
+      });
+      expect(result.status).toBe(token ? 23 : 1);
+      expect(result.stdout.includes('authenticated-pinned-download')).toBe(Boolean(token));
+      expect(result.stdout + result.stderr).not.toContain('fixture-token');
+    }
+    expect(block).toContain('sha512sum -c -');
+    expect(block).toContain(
+      'a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7'
+    );
+    expect(block.indexOf('sha512sum -c -')).toBeLessThan(block.indexOf('tar -xzf'));
   });
   it('propagates hosting failure through the actual Data Console Member Record block', () => {
     const root = fixture();

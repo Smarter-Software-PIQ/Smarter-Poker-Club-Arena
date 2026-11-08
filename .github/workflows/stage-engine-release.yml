@@ -36,9 +36,14 @@ on:
   workflow_dispatch:
     inputs:
       owner_window_id:
-        description: 'Reviewed database-only owner window; never requests an engine release or a break'
+        description: 'Exact protected owner window identity'
         required: true
         type: string
+      request_engine_release:
+        description: 'Explicit finite protected owner engine selection; requires completed exact qualification'
+        required: false
+        default: false
+        type: boolean
       request_database_break:
         description: 'Explicit reviewed DB-only maintenance reservation; never replaces the engine'
         required: false
@@ -57,7 +62,7 @@ permissions: {}
 
 jobs:
   detect:
-    if: github.event_name != 'workflow_dispatch' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
+    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
     name: Prove Whether The Server Tree Changed
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -98,6 +103,7 @@ jobs:
             /server/scripts/engine-release-seal.py
             /server/release/owner-maintenance-windows.json
             /server/release/activation-floor.json
+            /scripts/ci/read-engine-prequalification.py
 
       # Owner 2026-10-20 explicitly requests daily routine updates. The daily
       # preparation window is 03:30-03:50 America/Chicago (DST aware). The
@@ -114,6 +120,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          OWNER_WINDOW_ID: ${{ inputs.owner_window_id }}
+          REQUEST_ENGINE_RELEASE: ${{ inputs.request_engine_release }}
         run: |
           set -euo pipefail
           allowed=false
@@ -231,6 +239,18 @@ jobs:
           # cannot override this rule. Backup qualification remains all day.
           allowed=false
           [ "$daily_preparation" = true ] && allowed=true
+          if [ "$EVENT_NAME" = workflow_dispatch ] && [ "$REQUEST_ENGINE_RELEASE" = true ]; then
+            [ "$GITHUB_RUN_ATTEMPT" = 1 ]
+            python3 -B - "$GITHUB_SHA" "$OWNER_WINDOW_ID" "$REPO" "$RUN_ID" <<'PYTHON'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location('reader', 'scripts/ci/read-engine-prequalification.py')
+          reader = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(reader)
+          reader.owner_selection_policy(sys.argv[1], sys.argv[1], sys.argv[2], reader.selection_cutoff(sys.argv[3], sys.argv[4]))
+          PYTHON
+            allowed=true
+            owner_window_id="$OWNER_WINDOW_ID"
+          fi
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
           echo "owner_window_id=$owner_window_id" >> "$GITHUB_OUTPUT"
           echo "daily_preparation=$daily_preparation" >> "$GITHUB_OUTPUT"
@@ -380,9 +400,9 @@ jobs:
     needs: detect
     if: >-
       always() &&
-      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      ((github.event_name == 'workflow_dispatch' && !inputs.request_engine_release && github.ref == 'refs/heads/main') ||
        (needs.detect.result == 'success' && needs.detect.outputs.admission_allowed == 'true' &&
-        (needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != '')))
+        needs.detect.outputs.daily_preparation == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     concurrency:
@@ -453,7 +473,7 @@ jobs:
       control: ${{ steps.freeze.outputs.control }}
     steps:
       - uses: actions/checkout@v4
-        if: needs.detect.outputs.daily_preparation == 'true'
+        if: needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -462,13 +482,14 @@ jobs:
             server/scripts
       - name: Freeze the exact daily candidate and report inclusion
         id: freeze
-        if: needs.detect.outputs.daily_preparation == 'true'
+        if: needs.detect.outputs.daily_preparation == 'true' || needs.detect.outputs.owner_window_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_DATE: ${{ needs.detect.outputs.daily_preparation_date }}
           RELEASE_REQUIRED: ${{ needs.detect.outputs.release_required }}
           OFFER_REASON: ${{ needs.detect.outputs.offer_reason }}
           OBSERVED_LIVE_SHA: ${{ needs.detect.outputs.observed_live_sha }}
+          OWNER_WINDOW_ID: ${{ needs.detect.outputs.owner_window_id }}
         run: |
           set -euo pipefail
           [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::Daily selection already attempted; retain the original decision."; exit 1; }
@@ -484,14 +505,18 @@ jobs:
             [ "$outcome" = keep-serving ]
             exit
           fi
+          selection_args=(--date "$RELEASE_DATE")
+          if [ -n "$OWNER_WINDOW_ID" ]; then
+            selection_args=(--owner-window "$OWNER_WINDOW_ID" --selection-run-id "$GITHUB_RUN_ID")
+          fi
           python3 -B scripts/ci/select-daily-engine.py --repo "$GITHUB_REPOSITORY" --control "$GITHUB_SHA" \
-            --serving "$serving" --date "$RELEASE_DATE" --output daily-selection.json
+            --serving "$serving" "${selection_args[@]}" --output daily-selection.json
           jq -r '"sha=" + (.targetSha // ""), "control=" + (.controlSha // ""), "send=" + ((.outcome == "selected") | tostring)' daily-selection.json >> "$GITHUB_OUTPUT"
       - name: Preserve the daily selection before offering the release
         if: always() && steps.freeze.outcome != 'skipped' && hashFiles('daily-selection.json') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: daily-engine-selection-${{ needs.detect.outputs.daily_preparation_date }}
+          name: ${{ needs.detect.outputs.owner_window_id != '' && format('owner-engine-selection-{0}', needs.detect.outputs.owner_window_id) || format('daily-engine-selection-{0}', needs.detect.outputs.daily_preparation_date) }}
           path: daily-selection.json
           if-no-files-found: error
 
@@ -557,6 +582,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REF_SHA: ${{ needs.selection.outputs.sha }}
           CONTROL_SHA: ${{ needs.selection.outputs.control }}
+          OWNER_WINDOW_ID: ${{ needs.detect.outputs.owner_window_id }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -575,7 +601,8 @@ jobs:
               -f event_type=deploy-club-arena-engine \
               -F "client_payload[ref_sha]=$REF_SHA" \
               -F "client_payload[control_sha]=$CONTROL_SHA" \
-              -F "client_payload[selection_run_id]=$GITHUB_RUN_ID"
+              -F "client_payload[selection_run_id]=$GITHUB_RUN_ID" \
+              -F "client_payload[owner_window_id]=$OWNER_WINDOW_ID"
             echo "Dispatch delivery $delivery accepted for Club Arena engine release $REF_SHA"
             for _ in $(seq 1 12); do
               RECEIVER_ID=$(gh api \
