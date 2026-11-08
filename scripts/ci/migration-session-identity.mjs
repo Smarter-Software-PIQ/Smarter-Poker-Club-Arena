@@ -1,3 +1,8 @@
+import {
+  declaredInstallBudgetSeconds,
+  DEFAULT_INSTALL_BUDGET_MS,
+} from './migration-install-budget.mjs';
+
 // Supavisor can replace startup application_name. Bind the existing installer
 // identity on the backend that owns this transaction, without changing source
 // bytes recorded in migration history or exempting any other session.
@@ -20,7 +25,18 @@ export function bindMigrationSession(sql, transactionBudgetMs = null) {
 
 // The original installer owns the whole transaction budget. A migration may
 // shorten it, but must not silently turn it off or extend it during live play.
+// capMs is the budget the installer binds: exactly DEFAULT_INSTALL_BUDGET_MS
+// (12 s), or the declared budget of a file ordinaryMigrationBudgetMs admitted
+// (migration-install-budget.mjs). Any other pairing is refused, so a larger cap
+// can never reach a file that did not declare it and pass the offline check.
 export function assertOrdinaryMigrationBudget(sql, capMs) {
+  const declared = declaredInstallBudgetSeconds(sql);
+  if (declared === null ? capMs !== DEFAULT_INSTALL_BUDGET_MS : capMs !== declared * 1000)
+    throw new Error(
+      declared === null
+        ? `ordinary migration budget must be the installer's ${DEFAULT_INSTALL_BUDGET_MS} ms unless the file declares an admitted install budget`
+        : `ordinary migration budget ${capMs} ms is not the file's admitted declared install budget`
+    );
   const code = String(sql)
     .replace(/--[^\n]*/g, ' ')
     .replace(/\/\*[\s\S]*?\*\//g, ' ');

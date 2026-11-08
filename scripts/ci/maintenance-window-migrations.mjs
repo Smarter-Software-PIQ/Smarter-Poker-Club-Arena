@@ -244,7 +244,8 @@ export function lostDeclaredRelations(declared, holders) {
 /** Blank comments and dollar-quoted bodies' tags are kept; only `--` text goes. */
 const uncommented = (sql) => String(sql).replace(/--[^\n]*/g, ' ');
 
-function durationMs(raw) {
+/** A timeout setting's value in ms ('2s', '1500ms', '0.1min', 2000), or null. */
+export function durationMs(raw) {
   const m = /^\s*'?\s*(\d+(?:\.\d+)?)\s*(ms|s|min)?\s*'?\s*$/i.exec(String(raw));
   if (!m) return null;
   const n = Number(m[1]);
