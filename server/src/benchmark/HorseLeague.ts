@@ -2045,6 +2045,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // OFF, so arm A turns it on (the v16Hu pattern); it is promoted to every
   // horse only after qualification and an explicit protected default change.
   { name: 'v54_river_bluff', pairs: 6000, a: { v54RiverBluff: true }, b: {} },
+  // READ CALIBRATION (2026-11-07, HorseMind DecisionReadOptions): both
+  // default OFF, so arm A turns each on. readPostflopFoldRate prices the
+  // legacy exploit's bluffs with postflop fold-to-bet instead of folds over
+  // every street (which read preflop tightness); readShrinkResponse shrinks
+  // riverFoldRate / foldToCbetOf toward the family population rate. A
+  // horse mirror misreads horses as folders on the all-street rate (68%
+  // all-street, 52.5% postflop), so the mirror measures the first directly.
+  { name: 'read_postflop_fold_rate', pairs: 6000, a: { readPostflopFoldRate: true }, b: {} },
+  {
+    name: 'plo4_read_postflop_fold_rate',
+    variant: 'plo4',
+    pairs: 6000,
+    a: { readPostflopFoldRate: true },
+    b: {},
+  },
+  { name: 'read_shrink_response', pairs: 24_000, a: { readShrinkResponse: true }, b: {} },
   {
     name: 'plo4_v54_river_bluff',
     variant: 'plo4',

@@ -93,6 +93,8 @@ import {
 import {
   barrelNarrowingScale,
   callDownRespectShift,
+  exploitEnvelopeFor,
+  statRead,
   exploitHandIncrements,
   probeAdjustedCounters,
   probeBetIndexes,
@@ -310,6 +312,55 @@ export function aggressionShownAsValue(
   if (!s || !(s.bigBetSD >= V83_MIN_BIG_BET_SHOWDOWNS)) return false;
   return s.bigBetSDStrong / s.bigBetSD >= V83_VALUE_SHARE;
 }
+
+/**
+ * READ CALIBRATION (2026-11-07, benchmark/HorseReadCalibration.ts).
+ * A walk-forward replay of 41,013 accepted hands with humans seated
+ * (2026-07-22 .. 2026-11-07, HorseReadCalibration.ts) scored every opponent
+ * read against what the player did next. Two systematic errors, both read
+ * the same way for every opponent:
+ *
+ *  - postflopFoldRate: legacyExploit's fold rate is folds / faced
+ *    aggression over ALL streets, but its bluffMod prices POSTFLOP bluffs.
+ *    Preflop folds to a raise dominate the ratio, so it measures preflop
+ *    tightness: on 12,117 human postflop spots it predicted 38.1% folds
+ *    against 45.4% actual (Brier 0.259, worse than the population prior
+ *    0.247), and it filed 56% of those spots under "station, bluff x0.55"
+ *    where the players actually folded 41.5%. Horses are misread the other
+ *    way (68% all-street folds, 52.5% postflop). On: the rate is the
+ *    postflop fold-to-bet posterior of the decision context's exploit
+ *    counters (the shared-memory profile when one is loaded), Brier 0.240
+ *    on the same spots; below FOLD_READ_MIN_OPPS postflop opportunities the
+ *    fold-rate exploit stays neutral instead of reading preflop folds.
+ *  - shrinkResponseReads: riverFoldRate and foldToCbetOf are raw k / n from
+ *    8 and 10 opportunities. Below about 40 opportunities the raw rate
+ *    predicted worse than the population rate; shrunk with
+ *    RESPONSE_READ_PRIOR_STRENGTH pseudo-observations of the family's
+ *    population rate it beats both at every sample size (out of sample:
+ *    river fold 0.2193 -> 0.2159, fold to c-bet 0.2237 -> 0.2216). The
+ *    sample gates and null semantics are unchanged.
+ *
+ * Both default off; each is a HorseDecideOpts flag measured in the league.
+ */
+export interface DecisionReadOptions {
+  postflopFoldRate?: boolean;
+  shrinkResponseReads?: boolean;
+}
+/** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
+export const FOLD_READ_MIN_OPPS = 8;
+/** Pseudo-observations of the population rate in a shrunk response read. */
+export const RESPONSE_READ_PRIOR_STRENGTH = 16;
+/**
+ * Population response rates per card family, every opponent pooled (horses
+ * and humans alike, 1,620,362 scored read events in the replay above): the
+ * label-free prior a shrunk read starts from.
+ */
+export const RESPONSE_READ_PRIOR: Readonly<
+  Record<'riverFold' | 'foldToCbet', Readonly<Record<'holdem' | 'omaha' | 'sixplus', number>>>
+> = Object.freeze({
+  riverFold: Object.freeze({ holdem: 0.55, omaha: 0.66, sixplus: 0.52 }),
+  foldToCbet: Object.freeze({ holdem: 0.46, omaha: 0.46, sixplus: 0.46 }),
+});
 
 /** Exploit multipliers derived from a specific opponent's tendencies. */
 export interface ExploitProfile {
@@ -580,6 +631,8 @@ export class HorseMind {
    *  current clock, never `exact.observed_hands - donor.observed_hands`. */
   private static durableOpponentImportClock = new Map<string, number>();
   private static decisionVariant: string | null = null;
+  /** Read calibration options of the decision in flight (DecisionReadOptions). */
+  private static decisionReadOptions: DecisionReadOptions = {};
   /** dedupe of processed ActionRecords across repeated decide() calls */
   private static seenActions = new Set<string>();
   /** per (handKey|userId) preflop-participation flags already counted */
@@ -1086,7 +1139,8 @@ export class HorseMind {
   private static blendDurableRead(
     userId: string,
     variant: MemoryVariant,
-    size: MemorySize
+    size: MemorySize,
+    receipt = true
   ): ExploitCounters | undefined {
     const exact = this.exploitCounters.get(
       opponentMemoryKey(userId, variant, this.decisionMode, size)
@@ -1105,7 +1159,7 @@ export class HorseMind {
     const blended = blendOpponentMemoryWithExpiry(exact, donors, staleness);
     const consultedDonor =
       !(exact && exact.hands >= OPPONENT_MEMORY_THIN_HANDS) && donors.some((row) => !!row);
-    if (consultedDonor) {
+    if (consultedDonor && receipt) {
       if (blended === exact) noteFire('opponent_memory_donor_expired');
       else if (staleness > 0) noteFire('opponent_memory_donor_stale');
       else noteFire('opponent_memory_donor_fresh');
@@ -1274,6 +1328,16 @@ export class HorseMind {
     this.decisionMode = mode;
     this.decisionScope = scope;
     this.decisionVariant = scope ? variant : null;
+    if (!scope) this.decisionReadOptions = {};
+  }
+
+  /** Set by HorseLogic beside the decision scope; cleared with it. */
+  static setDecisionReadOptions(options: DecisionReadOptions): void {
+    this.decisionReadOptions = this.decisionScope ? { ...options } : {};
+  }
+
+  static currentDecisionReadOptions(): Readonly<DecisionReadOptions> {
+    return this.decisionReadOptions;
   }
 
   static currentScope(): ReadScope | null {
@@ -2318,17 +2382,8 @@ export class HorseMind {
     // large and persistent, the gate opens, and the blend adapts within ~20
     // hands. Unconditional blending paid a measurable noise tax for a benefit
     // that only exists when opponents actually adapt.
-    if (s.facedAggr >= 8) {
-      const lifetime = s.folds / s.facedAggr;
-      let foldRate = lifetime;
-      if (recencyBlend && rec.rFacedAggr >= 6) {
-        const recent = rec.rFolds / rec.rFacedAggr;
-        const se = Math.sqrt(Math.max(0.04, lifetime * (1 - lifetime)) / rec.rFacedAggr);
-        if (Math.abs(recent - lifetime) > 2 * se) {
-          const wr = Math.min(0.5, rec.rFacedAggr / 32);
-          foldRate = (1 - wr) * lifetime + wr * recent;
-        }
-      }
+    const foldRate = this.foldVsAggressionRate(userId, recencyBlend);
+    if (foldRate !== null) {
       if (foldRate > 0.62) {
         bluffMod = blend(1.45);
         // V28 AUDIT FIX: valueThinMod was only ever RAISED (stations), so the
@@ -2692,7 +2747,74 @@ export class HorseMind {
   static riverFoldRate(id: string): number | null {
     const s = this.readStats(id);
     if (!s || s.riverBetOpps < 8) return null;
-    return s.riverBetFolds / s.riverBetOpps;
+    return this.shrunkResponseRate('riverFold', s.riverBetFolds, s.riverBetOpps);
+  }
+
+  /**
+   * Read calibration: a gated raw response rate, shrunk toward the decision
+   * family's population rate when shrinkResponseReads is on. Off, or outside
+   * a decision scope, it is the raw rate exactly.
+   */
+  private static shrunkResponseRate(
+    read: keyof typeof RESPONSE_READ_PRIOR,
+    successes: number,
+    opportunities: number
+  ): number {
+    const raw = successes / opportunities;
+    if (!this.decisionReadOptions.shrinkResponseReads || !this.decisionScope) return raw;
+    const family = this.decisionScope.split(':')[0] as 'holdem' | 'omaha' | 'sixplus';
+    const prior = RESPONSE_READ_PRIOR[read][family];
+    if (prior === undefined) return raw;
+    const m = RESPONSE_READ_PRIOR_STRENGTH;
+    return (successes + m * prior) / (opportunities + m);
+  }
+
+  /** The exploit counters a decision reads for this opponent, as opponentRead
+   *  selects them, without its telemetry receipts. */
+  private static decisionExploitCounters(userId: string): ExploitCounters | undefined {
+    const scope = this.decisionScope;
+    if (!scope) return undefined;
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const durable = variant ? this.blendDurableRead(userId, variant, size, false) : undefined;
+    return (
+      durable ??
+      (this.durableOpponentMemory && variant
+        ? undefined
+        : this.exploitCounters.get(`${scope}|${userId}`))
+    );
+  }
+
+  /**
+   * The fold-vs-aggression rate legacyExploit prices bluffs with, or null
+   * when it has no read (the exploit stays neutral on this statistic).
+   * Default: lifetime folds / faced aggression over every street, with the
+   * V7 change-point recency blend. postflopFoldRate: the postflop
+   * fold-to-bet posterior of the decision context (see DecisionReadOptions).
+   */
+  static foldVsAggressionRate(userId: string, recencyBlend: boolean = true): number | null {
+    if (this.decisionReadOptions.postflopFoldRate && this.decisionScope) {
+      const c = this.decisionExploitCounters(userId);
+      const n = Number(c?.foldToBetOpp ?? 0);
+      if (!c || !(n >= FOLD_READ_MIN_OPPS)) return null;
+      const k = Number(c.foldToBet ?? 0);
+      const env = exploitEnvelopeFor(this.decisionScope, this.decisionVariant);
+      return env ? statRead(k, n, env.foldToBet).mean : Math.max(0, Math.min(1, k / n));
+    }
+    const s = this.readStats(userId);
+    if (!s || s.hands < 10 || s.facedAggr < 8) return null;
+    // V45: the recency window is pooled (gears are not per-scope).
+    const rec = this.stats.get(userId) ?? s;
+    const lifetime = s.folds / s.facedAggr;
+    if (recencyBlend && rec.rFacedAggr >= 6) {
+      const recent = rec.rFolds / rec.rFacedAggr;
+      const se = Math.sqrt(Math.max(0.04, lifetime * (1 - lifetime)) / rec.rFacedAggr);
+      if (Math.abs(recent - lifetime) > 2 * se) {
+        const wr = Math.min(0.5, rec.rFacedAggr / 32);
+        return (1 - wr) * lifetime + wr * recent;
+      }
+    }
+    return lifetime;
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -3180,7 +3302,7 @@ export class HorseMind {
   static foldToCbetOf(id: string): number | null {
     const s = this.readStats(id);
     if (!s || s.cbetOpps < 10) return null;
-    return s.cbetFolds / s.cbetOpps;
+    return this.shrunkResponseRate('foldToCbet', s.cbetFolds, s.cbetOpps);
   }
 
   /** Fold-to-3-bet frequency (0..1), or null below an 8-opportunity sample. */

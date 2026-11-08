@@ -2704,6 +2704,17 @@ export interface HorseDecideOpts {
    *  neutral respect (HorseMind.aggressionShownAsValue). Default on;
    *  explicit false keeps the ratio-only read. */
   v83AggressionNeedsBluffs?: boolean;
+  /** READ CALIBRATION (2026-11-07, HorseMind DecisionReadOptions): the
+   *  legacy exploit's bluff-pricing fold rate reads postflop fold-to-bet
+   *  (the decision context's exploit counters) instead of folds over every
+   *  street, which measured preflop tightness. Default off; the league
+   *  matchup read_postflop_fold_rate measures it. */
+  readPostflopFoldRate?: boolean;
+  /** READ CALIBRATION (2026-11-07): riverFoldRate and foldToCbetOf are
+   *  shrunk toward the card family's population rate (16 pseudo-
+   *  observations) instead of trusting a raw 8- or 10-opportunity rate.
+   *  Default off; the league matchup read_shrink_response measures it. */
+  readShrinkResponse?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -5073,6 +5084,11 @@ export class HorseLogic {
       typeof gameState.gameVariant === 'string' ? gameState.gameVariant : null,
       gameState.gameMode === 'tournament' || gameState.tournament ? 'tournament' : 'cash'
     );
+    // Read calibration options travel with the scope and are cleared with it.
+    HorseMind.setDecisionReadOptions({
+      postflopFoldRate: opts.readPostflopFoldRate === true,
+      shrinkResponseReads: opts.readShrinkResponse === true,
+    });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
     // V12: benchmark/league decisions pass mind:false — they must never
