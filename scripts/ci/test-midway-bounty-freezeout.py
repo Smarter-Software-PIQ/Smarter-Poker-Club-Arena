@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """Exercise the real bounty trigger before/after in private PostgreSQL."""
-import os, pathlib, subprocess, tempfile, socket
+import json, os, pathlib, runpy, subprocess, tempfile, socket
 root = pathlib.Path(__file__).resolve().parents[2]
+# The existing required accounting shard refuses invalid weekly source before
+# any publication. Keep review-tool regressions in this directly invoked route.
+review_tools = root / 'scripts/tournament-schedules'
+review = runpy.run_path(str(review_tools / 'review-midway-weekly.py'))
+errors = review['validate'](json.loads((root / 'docs/tournament-schedules/midway-weekly-2026-11-07.json').read_text()))
+if errors:
+    raise RuntimeError('Weekly schedule validation refused: ' + json.dumps(errors))
+subprocess.run([os.environ.get('PYTHON', 'python3'), '-B', '-m', 'unittest', 'discover',
+                '-s', str(review_tools), '-p', 'test_*.py'], check=True)
 pg = pathlib.Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin'))
 parent = os.environ.get('TMPDIR') or os.environ.get('RUNNER_TEMP')
 if not parent: raise RuntimeError('Set TMPDIR to owned SSD scratch')

@@ -29,6 +29,16 @@ import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
+
+# THE FIXTURE DAY MOVES WITH THE CLOCK (2026-11-07). The fixture hands were
+# played on a literal 2026-10-06; once that day fell more than 32 UTC days
+# behind (2026-11-08 00:00Z) the receipt retention installed in R0 pruned a
+# fixture receipt and R6 failed on every run, on every branch. The fixture day
+# is now two UTC days before the run, as it was when this harness was written.
+FIXTURE_DAY = (datetime.now(timezone.utc) - timedelta(days=2)).date()
+D0 = FIXTURE_DAY.isoformat()
+D1 = (FIXTURE_DAY + timedelta(days=1)).isoformat()
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / 'tests/sql/fixtures/horse-hand-review-atomic'
@@ -56,7 +66,7 @@ def literal(value):
 def row(hand, horse, **over):
     base = {
         'hand_id': hand, 'table_id': u('table'), 'tournament_id': None, 'club_id': u('club'),
-        'played_at': '2026-10-06T21:15:30.125Z', 'game_variant': 'nlh', 'format': 'cash',
+        'played_at': D0 + 'T21:15:30.125Z', 'game_variant': 'nlh', 'format': 'cash',
         'big_blind': 2, 'horse_user_id': horse, 'seat': 3, 'net_amount': 48.5, 'net_bb': 24.25,
         'pot_size': 120, 'hole_cards': [{'rank': 'A', 'suit': 's'}, {'rank': 'K', 'suit': 's'}],
         'board': [{'rank': '2', 'suit': 'h'}], 'actions': [{'userId': horse, 'action': 'raise', 'amount': 6}],
@@ -137,7 +147,7 @@ def main():
               'rollup', (SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.horse_user_id, r.day, r.game_variant), '[]') FROM public.horse_review_rollup r),
               'receipts', (SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.hand_id, r.horse_user_id), '[]') FROM public.horse_hand_review_receipts r));"""))
 
-        def rollup(horse, day='2026-10-06', variant='nlh'):
+        def rollup(horse, day=D0, variant='nlh'):
             out = sql(f"""SELECT to_jsonb(r) - 'horse_user_id' - 'updated_at' FROM public.horse_review_rollup r
                           WHERE horse_user_id='{horse}' AND day='{day}' AND game_variant='{variant}';""")
             return json.loads(out) if out else None
@@ -229,7 +239,7 @@ def main():
                     err = sql(f'SET ROLE {role}; SELECT count(*) FROM public.horse_hand_review_receipts;', succeeds=False)
                     assert 'permission denied for table horse_hand_review_receipts' in err, err
                     err = sql(f"""SET ROLE {role}; INSERT INTO public.horse_hand_review_receipts
-                        VALUES ('{u('h')}', '{u('h')}', repeat('a', 64), 1, '2026-10-06', 'nlh');""", succeeds=False)
+                        VALUES ('{u('h')}', '{u('h')}', repeat('a', 64), 1, '{D0}', 'nlh');""", succeeds=False)
                     assert 'permission denied for table horse_hand_review_receipts' in err, err
                 assert sql("SELECT relrowsecurity FROM pg_class WHERE oid = 'public.horse_hand_review_receipts'::regclass;") == 't'
                 assert sql("SELECT count(*) FROM pg_policy WHERE polrelid = 'public.horse_hand_review_receipts'::regclass;") == '0'
@@ -264,10 +274,10 @@ def main():
                         assert rv[key] == src[key], (key, rv[key], src[key])
                     for key in ('big_blind', 'net_amount', 'net_bb', 'pot_size'):
                         assert (rv[key] is None and src[key] is None) or float(rv[key]) == float(src[key]), key
-                    assert sql(f"SELECT played_at = '2026-10-06T21:15:30.125Z'::timestamptz FROM "
+                    assert sql(f"SELECT played_at = '{D0}T21:15:30.125Z'::timestamptz FROM "
                                f"public.horse_hand_reviews WHERE id = {rv['id']};") == 't', rv['played_at']
                     assert rv['is_win'] == (src['net_bb'] > 0) and rv['review_status'] == 'auto_reviewed'
-                    assert rc['review_id'] == rv['id'] and rc['rollup_day'] == '2026-10-06'
+                    assert rc['review_id'] == rv['id'] and rc['rollup_day'] == D0
                     assert rc['game_variant'] == 'nlh' and len(rc['identity_digest']) == 64
                     assert all(c in '0123456789abcdef' for c in rc['identity_digest'])
                 # JSON null evidence is stored as SQL NULL, not as a jsonb 'null'.
@@ -316,7 +326,7 @@ def main():
             def identity_conflict():
                 publish([row(hand_d, horse_hi)])
                 before = snapshot()
-                for change in ({'net_bb': 24.26}, {'leak_tags': []}, {'played_at': '2026-10-06T21:15:30.126Z'},
+                for change in ({'net_bb': 24.26}, {'leak_tags': []}, {'played_at': D0 + 'T21:15:30.126Z'},
                                {'seat': 4}, {'game_variant': 'plo'}):
                     refused([row(hand_d, horse_hi, **change)], 'hhr_identity_conflict')
                     assert snapshot() == before, change
@@ -342,9 +352,9 @@ def main():
                     ({'net_bb': 0}, 'hhr_invalid_net_bb'),
                     ({'big_blind': 0}, 'hhr_invalid_big_blind'),
                     ({'horse_user_id': 'not-a-uuid'}, 'hhr_invalid_value'),
-                    ({'played_at': '2026-10-06T21:15:30'}, 'hhr_invalid_played_at'),
+                    ({'played_at': D0 + 'T21:15:30'}, 'hhr_invalid_played_at'),
                     ({'played_at': 'infinity'}, 'hhr_invalid_played_at'),
-                    ({'played_at': '2026-10-06'}, 'hhr_invalid_played_at'),
+                    ({'played_at': D0}, 'hhr_invalid_played_at'),
                     ({'played_at': '2026-02-30T00:00:00Z'}, 'hhr_invalid_value'),
                     ({'leak_tags': 'river'}, 'hhr_invalid_leak_tags'),
                     ({'leak_tags': ['ok', 3]}, 'hhr_invalid_leak_tags'),
@@ -406,7 +416,7 @@ def main():
                 hand_h, legacy, fresh = u('hand-h'), u('horse-h-legacy'), u('horse-h-fresh')
                 sql(f"""INSERT INTO public.horse_hand_reviews (hand_id, table_id, played_at, game_variant, format,
                         big_blind, horse_user_id, net_amount, net_bb, leak_tags)
-                        VALUES ('{hand_h}', '{u('table')}', '2026-10-06T21:15:30.125Z', 'nlh', 'cash', 2,
+                        VALUES ('{hand_h}', '{u('table')}', '{D0}T21:15:30.125Z', 'nlh', 'cash', 2,
                                 '{legacy}', 48.5, 24.25, ARRAY['river_aggr_won']);""")
                 old_add(legacy, row(hand_h, legacy))  # its history: maybe applied, maybe not
                 before = snapshot()
@@ -494,8 +504,8 @@ def main():
                     dict(net_bb=-0.005, leak_tags=['x']),
                     dict(net_bb=1e-3, leak_tags=['z', 'x', 'z']),
                     dict(net_bb=-45.5, leak_tags=['q'], game_variant='plo'),
-                    dict(net_bb=22.0, leak_tags=['x'], played_at='2026-10-07T00:00:00.000Z'),
-                    dict(net_bb=-25.75, leak_tags=['x'], played_at='2026-10-06T23:59:59.999999Z'),
+                    dict(net_bb=22.0, leak_tags=['x'], played_at=D1 + 'T00:00:00.000Z'),
+                    dict(net_bb=-25.75, leak_tags=['x'], played_at=D0 + 'T23:59:59.999999Z'),
                 ]
                 for i, change in enumerate(series):
                     r = row(u(f'eq-hand-{i}'), horse, **change)
@@ -509,18 +519,21 @@ def main():
                 assert len(mine) == 3, mine
                 # Rollup day follows played_at in UTC, whatever the session TimeZone.
                 tz_horse = u('tz-horse')
-                publish([row(u('tz-hand'), tz_horse, played_at='2026-10-06T23:30:00.000Z')],
+                publish([row(u('tz-hand'), tz_horse, played_at=D0 + 'T23:30:00.000Z')],
                         prefix="SET TimeZone = 'Pacific/Auckland'; ")
-                assert rollup(tz_horse, day='2026-10-06') is not None
-                assert sql(f"SELECT rollup_day FROM public.horse_hand_review_receipts WHERE hand_id = '{u('tz-hand')}';") == '2026-10-06'
+                assert rollup(tz_horse, day=D0) is not None
+                assert sql(f"SELECT rollup_day FROM public.horse_hand_review_receipts WHERE hand_id = '{u('tz-hand')}';") == D0
             case('J rollup arithmetic equals the installed fn_hhr_rollup_add (rounding, repeated tags, days, variants)',
                  arithmetic_equivalence)
 
             # ══ Receipt retention: 20261008041150 ═══════════════════════════
-            # Everything above qualified 20261007020953 alone. The cases below
-            # apply the retention migration, unchanged, over that state and prove
-            # the replay contract survives bounded pruning. Every time is taken
-            # from the cluster clock, so the cases never age.
+            # A–J use fixed UTC dates to prove exact publication arithmetic and
+            # intentionally leave orphan receipts. Start the retention cohort
+            # empty so those receipts cannot age into its global prune counts.
+            # R0 creates genuine pre-migration receipts before installing retention.
+            sql("""TRUNCATE public.horse_hand_review_receipts, public.horse_hand_reviews,
+                            public.horse_review_rollup;""")
+
             def at(days, minutes=0):
                 return sql(f"""SELECT to_char((now() - interval '{days} days' - interval '{minutes} minutes')
                                AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');""")
@@ -550,6 +563,13 @@ def main():
             def prosrc(sig):
                 return sql(f"SELECT prosrc FROM pg_proc WHERE oid = '{sig}'::regprocedure;")
 
+            # Atomic-publication cases deliberately leave historical receipts
+            # whose review rows were removed. Their fixed October dates can
+            # legitimately age past the receipt horizon. Retention qualification
+            # owns a fresh, self-contained population; do not let those earlier
+            # witnesses change R6's exact zero-prune assertion as the date moves.
+            # This is the private qualification cluster, never production.
+            sql('TRUNCATE public.horse_hand_review_receipts, public.horse_hand_reviews, public.horse_review_rollup;')
             retention_sql = RETENTION.read_text()
             hand_old, hand_old_b, hand_lg = u('ret-hand-old'), u('ret-hand-old-b'), u('ret-hand-legacy')
             old_1, old_2 = sorted([u('ret-old-1'), u('ret-old-2')])

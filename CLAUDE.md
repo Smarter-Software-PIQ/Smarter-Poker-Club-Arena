@@ -1,6 +1,6 @@
 **Owner direction November 6, 2026 (chat `01a1b095-8bd5-7d42-afcf-1a0843448274`):** All engine upgrades are staged and certified on isolated Backup during the day. Production replacements require certification for the exact version and may activate ONLY in the 04:00-04:05 America/Chicago maintenance window, after the 03:58 notice and all existing custody, freeze, proof, rollback and thaw safeguards. The temporary Phase1 hourly exception and historical urgent/degraded/owner-window replacement exceptions are revoked. A successful sealed release triggers a fresh Backup copy. Agents work in owned branches and merge through required checks; they never edit the live engine or a shared running Backup directly. A failed or missing certificate leaves the current engine running. Source preparation and non-engine delivery continue throughout the day.
 
-Use the [Backup and daily engine launch runbook](PUBLISHING.md#backup-and-daily-engine-launch) for candidate selection, certification, activation and verification. Hourly tournament breaks remain independent.
+Use the [Backup and daily engine launch runbook](PUBLISHING.md#backup-and-daily-engine-launch) for candidate selection, certification, activation and verification, and [`docs/ENGINE-RELEASE-RUNBOOK.md`](docs/ENGINE-RELEASE-RUNBOOK.md) for the step-by-step procedure an agent follows unprompted. Hourly tournament breaks remain independent.
 
 **Non-engine delivery: push, publish, verify and finish immediately; never wait for an engine window.** Apply the maintenance cutover only to an actual engine replacement or a specifically identified dependency on new engine behavior. A Club Arena client using existing engine APIs, an unrelated pending engine release, and a generic engine-health check do not create that dependency. Required checks and normal client publication/live proof still apply.
 
@@ -1657,6 +1657,14 @@ Required invariants (verify their actual execution for the assigned change):
    sends one exact-SHA event to `auto-deploy-hetzner.yml`; that single receiver
    stages the durable host transaction and waits in its break gate.) If you
    deliberately change one, change them together with the law, in one commit.
+
+The operating procedure for this section (adding to the engine, Backup
+certification, the 04:00 cutover minute by minute, verification, window
+migrations, rollback, read-only tools and the decision table for what an
+agent does unprompted at 03:30 and 04:00) is
+[`docs/ENGINE-RELEASE-RUNBOOK.md`](./docs/ENGINE-RELEASE-RUNBOOK.md);
+`tests/the-runbook-names-what-it-cites.law.test.ts` keeps its paths and
+constants true.
 
 Full history and rationale: `docs/changelog/2026-09-01-scheduled-maintenance-break.md`
 and `docs/changelog/2026-09-01-total-platform-freeze.md`. Remaining backlog:

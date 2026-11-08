@@ -7,6 +7,7 @@ import {
   RABBIT_HUNT_REQUIRED_COMMITS,
   PREVIEW_TO_CHARGE,
   sameCards,
+  ownerRetainedAsRecord,
 } from '../../scripts/ci/certify-rabbit-hunt.mjs';
 
 const SHA = 'a'.repeat(40);
@@ -95,6 +96,73 @@ describe('the verdict', () => {
         .reason
     ).toMatch(/cleanup: retire/);
     expect(verdict({ gate, steps: [], cleanup: [] }).reason).toMatch(/no case ran/);
+  });
+  it('FAIL on a cleanup step that never reported a result: residue is never a pass (2026-11-07, #9830)', () => {
+    expect(
+      verdict({
+        gate,
+        steps: [{ name: 'a', ok: true }],
+        cleanup: [{ step: 'retire the vip account', ok: undefined }],
+      })
+    ).toMatchObject({ conclusion: 'fail', reason: 'cleanup: retire the vip account' });
+    expect(
+      verdict({
+        gate,
+        steps: [{ name: 'a', ok: true }],
+        cleanup: [
+          { step: 'retire the vip account', ok: true },
+          {
+            step: 'retire the owner account',
+            ok: true,
+            detail: 'kept as the owner of record of retired club x',
+          },
+        ],
+      }).conclusion
+    ).toBe('pass');
+  });
+});
+
+describe('the owner of a retired Cert RH club is its owner of record (2026-11-07, #9830)', () => {
+  const ownerId = '0f1f28e9-0000-4000-8000-000000000001';
+  const clubId = '110fc34f-0000-4000-8000-000000000002';
+  const refusal = new Error(
+    'Guarded test-account sweep refused ' +
+      ownerId +
+      ': Supabase service request POST /rest/v1/rpc/cleanup_reserved_certification_account failed (500): {"code":"55000","message":"CERTIFICATION_RETIREMENT_HAS_AUTHORITY_OR_CUSTODY"}'
+  );
+  const retired = { id: clubId, owner_id: ownerId, lifecycle_status: 'retired' };
+  it('is exactly the custody refusal on an owned club that reads retired', () => {
+    expect(ownerRetainedAsRecord({ error: refusal, club: retired, ownerId, clubId })).toBe(true);
+  });
+  it('is nothing else: another refusal, an active club, another owner, an unreadable club, no club', () => {
+    expect(
+      ownerRetainedAsRecord({
+        error: new Error('canceling statement due to statement timeout'),
+        club: retired,
+        ownerId,
+        clubId,
+      })
+    ).toBe(false);
+    expect(
+      ownerRetainedAsRecord({
+        error: refusal,
+        club: { ...retired, lifecycle_status: 'active' },
+        ownerId,
+        clubId,
+      })
+    ).toBe(false);
+    expect(
+      ownerRetainedAsRecord({
+        error: refusal,
+        club: { ...retired, owner_id: 'someone-else' },
+        ownerId,
+        clubId,
+      })
+    ).toBe(false);
+    expect(ownerRetainedAsRecord({ error: refusal, club: undefined, ownerId, clubId })).toBe(false);
+    expect(
+      ownerRetainedAsRecord({ error: refusal, club: retired, ownerId, clubId: undefined })
+    ).toBe(false);
   });
 });
 

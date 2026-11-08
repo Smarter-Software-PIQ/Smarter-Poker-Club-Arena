@@ -68,7 +68,8 @@ class DraftGuardTests(unittest.TestCase):
 
     def fresh(self, **pin_changes):
         pins={'original_manifest_sha256':'1'*64,'source_partition_sha256':'2'*64,'m2_selection_sha256':'3'*64,
-              'contexts':100,'m1_per_context':57,'m2_candidates':2000,'scenario_id_prefix':'r8f','draft_name':'public215-r8'}
+              'contexts':100,'m1_per_context':57,'m2_candidates':2000,'scenario_id_prefix':'r8f','draft_name':'public215-r8',
+              'feature_contract_version':'holdem-public-hist215-v2'}
         pins.update(pin_changes)
         return self.request(format=draft.V2,pipeline_commit='a'*40,source_namespace=NS,pins=pins)
 
@@ -78,7 +79,8 @@ class DraftGuardTests(unittest.TestCase):
         self.assertEqual(pins,{'original_manifest_sha256':'3ce35b5cfa4297575ff37c9583091056cd52bfde832afc861741829f291f1269',
             'source_partition_sha256':'8440d9613fe3013b82f8a1d76150499fbbcb4bf87ee9af0bf4bc8a63430d5427',
             'm2_selection_sha256':'973a54525509685a3533e984f9a147087fd16e9620e6a4c2ba77d315728f3797',
-            'contexts':107,'m1_per_context':57,'m2_candidates':2147,'scenario_id_prefix':'r7f','draft_name':'public215-r7'})
+            'contexts':107,'m1_per_context':57,'m2_candidates':2147,'scenario_id_prefix':'r7f','draft_name':'public215-r7',
+            'feature_contract_version':'holdem-public-hist215-v1'})
         for bad in [self.request(pipeline_commit='a'*40),{**self.request(),'pins':{}},self.request(format='public_hist215_official_input_draft_request_v0')]:
             with self.assertRaises(ValueError):draft.request_pins(bad)
 
@@ -87,7 +89,7 @@ class DraftGuardTests(unittest.TestCase):
         self.assertEqual(producer,'a'*40);self.assertEqual(pins['contexts']*pins['m1_per_context'],5700)
         self.assertEqual(set(pins),set(draft.R7_PINS))
         broken=self.fresh();del broken['pins']['m2_candidates']
-        cases=[broken,self.fresh(contexts=0),self.fresh(contexts=True),self.fresh(original_manifest_sha256='0'*64),
+        cases=[broken,self.fresh(feature_contract_version='holdem-public-hist215-v3'),self.fresh(feature_contract_version=None),self.fresh(contexts=0),self.fresh(contexts=True),self.fresh(original_manifest_sha256='0'*64),
                self.fresh(scenario_id_prefix='r8'),self.fresh(draft_name='../r8'),{**self.fresh(),'pipeline_commit':'A'*40},
                {**self.fresh(),'extra':1},{**self.fresh(),'format':draft.V1}]
         for bad in cases:

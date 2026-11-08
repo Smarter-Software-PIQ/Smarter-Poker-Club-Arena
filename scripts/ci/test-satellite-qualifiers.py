@@ -49,6 +49,11 @@ def main():
     (output/'entry-close-dependencies.sql').write_text(manifest.pop('entry_sql'))
     qualifier_probe=root/'scripts/ci/probes/satellite-qualifiers-native.sql'
     manifest['source_sha256'][str(qualifier_probe.relative_to(root))] = sha(qualifier_probe)
+    for path in ('scripts/ci/satellite_bubble_handoff.py', 'server/scripts/qualify-terminal-intent-transport.ts',
+                 'scripts/ci/fixtures/terminal-original-request/custody-preimage.sql',
+                 'server/package-lock.json', 'server/src/tournament/terminalDurableRequest.ts',
+                 'server/src/tournament/satelliteQualifierRpc.ts', 'server/src/services/supabase/dataActorContext.ts'):
+        manifest['source_sha256'][path] = sha(root/path)
     prep=root/'supabase/migrations'
     # Validate and install the same eight prepared authorities as production.
     # Their existing probes/races are source-bound, not rerun in this L04 task.
@@ -208,7 +213,9 @@ def main():
         manifest['source_sha256'].update(qualify_entry_club(e,root,db,output,probe))
         (output/'source-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
         if args.peak_only:
+            from satellite_bubble_handoff import bubble_handoff
             from satellite_peak_thaw import qualify as qualify_peak
+            e.report["bubble_handoff"] = bubble_handoff(e,root,output,db,qualifier_probe)
             qualify_blocked_target(e,root,native,db,output,qualifier_probe)
             e.report['peak_thaw'] = qualify_peak(e,root,db,output,qualifier_probe)
         else:

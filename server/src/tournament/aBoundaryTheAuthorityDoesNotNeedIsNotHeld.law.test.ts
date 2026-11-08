@@ -95,6 +95,8 @@ function satellite(rows: string[] = [HELD, PARKED]) {
   m.gameServer.getTableEngine = (tableId: string) => m.tableEngines.get(tableId);
   const query: any = {
     select: () => query,
+    update: () => query,
+    maybeSingle: async () => ({ data: null, error: null }),
     eq: () => query,
     in: () => query,
     order: () => query,
@@ -414,42 +416,61 @@ describe('law 4: a held boundary that cannot decide pages its reason', () => {
     expect(alerts.raise).not.toHaveBeenCalled();
   });
 
-  it('a paged boundary closes its own alert the moment it lifts', async () => {
+  it('keeps a released page open until its blocked dealer commits a new hand', async () => {
     const { m } = satelliteThirty();
     const t0 = m.satelliteQualifierBoundaryHeldSinceMs;
-    m.noteSatelliteBoundaryPending('field_unresolved_at_its_tickets', t0 + AFTER);
-    expect(alerts.raise).toHaveBeenCalledTimes(1);
-    const filters: Array<[string, unknown]> = [];
-    const update = vi.fn();
-    const query: any = {
-      update: (row: unknown) => {
-        update(row);
-        return query;
-      },
-      eq: (column: string, value: unknown) => {
-        filters.push([column, value]);
-        return query;
-      },
-      then: (resolve: any) => Promise.resolve({ data: null, error: null }).then(resolve),
+    const episode = {
+      id: 'open-episode',
+      created_at: new Date(t0).toISOString(),
+      context: { held_since: new Date(t0).toISOString(), blocked_table_id: HELD },
     };
-    vi.spyOn(supabase, 'from').mockReturnValue(query);
+    const writes: any[] = [];
+    let updating = false;
+    const filters: unknown[][] = [];
+    vi.spyOn(supabase, 'from').mockImplementation(() => {
+      updating = false;
+      const q: any = {
+        select: () => q,
+        eq: (k: string, v: unknown) => {
+          filters.push([k, v]);
+          return q;
+        },
+        update: (value: unknown) => {
+          updating = true;
+          writes.push(value);
+          return q;
+        },
+        maybeSingle: async () => ({ error: null, data: updating ? { id: episode.id } : episode }),
+        then: (f: any) => Promise.resolve({ error: null }).then(f),
+      };
+      return q;
+    });
+    m.noteSatelliteBoundaryPending('blocked', t0 + AFTER, {
+      tableId: HELD,
+      wake: 'hand_completion',
+    });
+    await m.drainLifecycleJobs();
     expect(m.releaseSatelliteQualifierBoundary(4)).toBe(true);
-    await Promise.resolve();
-    expect(update).toHaveBeenCalledWith(expect.objectContaining({ resolved: true }));
-    expect(filters).toEqual(
-      expect.arrayContaining([
-        ['source', 'Tournament.satellite_boundary_held'],
-        ['context->>dedupe_key', `satellite-boundary-held:${EVENT}`],
-        ['resolved', false],
-      ])
-    );
-    // An unpaged release touches no alert row.
-    update.mockClear();
-    const { m: quiet } = satelliteThirty();
-    vi.spyOn(supabase, 'from').mockReturnValue(query);
-    expect(quiet.releaseSatelliteQualifierBoundary(4)).toBe(true);
-    await Promise.resolve();
-    expect(update).not.toHaveBeenCalled();
+    expect(writes.filter((w) => w.resolved)).toHaveLength(0);
+    const startedAt = m.satelliteBoundaryLastReleaseMs + 1;
+    for (const [tableId, start] of [
+      [PARKED, startedAt],
+      [HELD, t0],
+    ] as const) {
+      m.observeSatelliteBoundary({ kind: 'hand', tableId, handId: id(11), startedAt: start });
+      await m.drainLifecycleJobs();
+    }
+    expect(writes.filter((w) => w.resolved)).toHaveLength(0);
+    m.observeSatelliteBoundary({ kind: 'hand', tableId: HELD, handId: id(12), startedAt });
+    await m.drainLifecycleJobs();
+    expect(writes.filter((w) => w.resolved)).toEqual([
+      expect.objectContaining({
+        context: expect.objectContaining({
+          recovery_evidence: { kind: 'hand', tableId: HELD, handId: id(12), startedAt },
+        }),
+      }),
+    ]);
+    expect(filters).toContainEqual(['context', JSON.stringify(episode.context)]);
   });
 
   it('every pending answer of the sweep carries a reason', async () => {
