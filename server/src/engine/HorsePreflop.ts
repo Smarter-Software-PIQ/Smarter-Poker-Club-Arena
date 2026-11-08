@@ -201,6 +201,17 @@ export interface PreflopCtx {
    *  table-scaled M zone. True on every live decision; absent keeps the
    *  legacy jam-or-fold gate (the off arm). */
   facingOpenShortHandedZone?: boolean;
+  /** FULL-RING FACING-ACTION ZONE (2026-11-07, flag facingOpenFullRingZone,
+   *  default off): four or more dealt, no-limit hold'em FACING action (never
+   *  the open) reads the same <= 15bb jam-or-fold zone V82 gave two- and
+   *  three-handed tables instead of the table-scaled M zone (red M, up to
+   *  22bb). Absent keeps the legacy gate. */
+  facingOpenFullRingZone?: boolean;
+  /** SHORT-STACK 3-BET DEFENCE (2026-11-07, flag vs3BetShortStack, default
+   *  off): the opener facing one 3-bet whose V73 continue read says continue
+   *  but whose call would commit more than the stack cap allows jams instead
+   *  of folding (at 12-25bb effective the call is the stack). */
+  vs3BetShortJam?: boolean;
   /** V77 (2026-11-02): the V70 open width (percent of 1,326 combos) of the
    *  seat that made the ONLY raise hero faces, dealt-census indexed and
    *  ante-aware. Supplied by HorseLogic for no-limit hold'em facing exactly
@@ -1155,7 +1166,25 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     !ctx.isOmaha &&
     ctx.isShortDeck !== true &&
     ctx.isFixedLimit !== true;
-  const pushFoldNlh = (v70HoldemShortHanded ? v70JamZone : legacyPushFold) && !v70Open;
+  // FULL-RING FACING-ACTION ZONE (2026-11-07, default off): four or more
+  // dealt, facing action, the same <= 15bb zone. The table-scaled M put a
+  // 20bb six-handed (M 4.8) and four-handed (M 3.2) big-blind-ante stack in
+  // jam-or-fold facing a 2.5bb open: measured through HorseLogic.decide
+  // (tournament Hybrid persona), the big blind folded 88.6% to a button
+  // min-raise at 6-max and 4-max 20bb against 27% at 9-max, where the same
+  // stack reads M 7.2. The open (the orange-zone shove, an owner decision)
+  // is untouched: this reads only spots that are not unopened.
+  const fullRingFacing =
+    ctx.facingOpenFullRingZone === true &&
+    !v70ShortHanded &&
+    !unopened &&
+    !ctx.isOmaha &&
+    ctx.isShortDeck !== true &&
+    ctx.isFixedLimit !== true;
+  const facingZone84 = stackBB <= 12 || (mzOn && effStackBB <= V70_SHORT_HANDED_JAM_MAX_BB);
+  const pushFoldNlh =
+    (v70HoldemShortHanded ? v70JamZone : fullRingFacing ? facingZone84 : legacyPushFold) &&
+    !v70Open;
   // V25: the old Omaha gate (<=8bb / M<4) is superseded by the commitment
   // zone above, which triggers on the pot-limit arithmetic rather than a bb
   // count. It stays for the ablation path (ploTourney off).
@@ -2222,6 +2251,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     const pricedCallThresh = Math.max(floor3, callThresh - relief3 - commit3);
     const capOK3 = toCall <= stack * 0.35 || (investedShare >= 0.1 && guardOdds <= 0.45);
     if (callStrength >= pricedCallThresh && capOK3) return v76Done({ a: 'call' });
+    // SHORT-STACK 3-BET DEFENCE (2026-11-07, default off): a hand the V73
+    // read continues with, whose call the stack cap refuses because it IS
+    // the stack (12-25bb effective), goes in instead of folding.
+    if (ctx.vs3BetShortJam === true && v73 && callStrength >= pricedCallThresh && !capOK3) {
+      return v76Done({ a: 'jam' });
+    }
     if (toCall > 0 && toCall <= pricePot * 0.15 && strength >= 0.45) return v76Done({ a: 'call' });
     if (toCall === 0) return v76Done({ a: 'check' });
     return v76Done({ a: 'fold' });

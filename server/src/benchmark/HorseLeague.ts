@@ -1792,6 +1792,33 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { nashCallVsJam: false },
   },
+  // 2026-11-07 PREFLOP DEFENCE LEAKS, both default OFF, so arm A turns each
+  // on (docs/changelog/2026-11-07-horse-preflop-defence-leaks.md). A 20bb
+  // four-handed big-blind-ante big blind facing a min-raise (jam-or-fold
+  // today; mirror +1.38 / +2.82 bb/100, human six-handed field -3.13 / -1.54,
+  // unresolved) and a 20bb six-handed cash opener facing a 3-bet (folds 97%
+  // of its open today; mirror +0.30 / +0.70, one human seed -2.98 +/- 1.31).
+  // Promoted only after the nightly league confirms them across runs.
+  {
+    name: 'mtt4_facing_open_full_ring_20bb',
+    seats: 4,
+    stackBB: 20,
+    context: bigBlindAnteMttContext(4, 20),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { facingOpenFullRingZone: true },
+    b: {},
+  },
+  {
+    name: 'nlh_20bb_vs3bet_short_stack',
+    stackBB: 20,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { vs3BetShortStack: true },
+    b: {},
+  },
   /*
    * v16_ratio_rescale is NOT on the card (2026-09-05). Measured 2026-09-04:
    * 0.00 bb100 with 0.00 stderr over 12,000 hands - the flag changed no
