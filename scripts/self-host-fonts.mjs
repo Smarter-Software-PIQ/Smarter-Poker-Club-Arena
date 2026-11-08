@@ -47,6 +47,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fontFileName } from './lib/font-file-name.mjs';
+import { fetchFontInput } from './lib/fetch-font-input.mjs';
 import { FONT_UA, fontInputHash, validateFontInputs } from './ci/client-runtime-font-inputs.mjs';
 
 const ROOT = process.argv[2] || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -78,9 +79,8 @@ async function main() {
   }
   const cssUrl = cssUrlMatch[0].replace(/&amp;/g, '&');
 
-  const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': UA } });
-  if (!cssRes.ok) throw new Error(`css2 fetch failed: ${cssRes.status}`);
-  const cssBytes = Buffer.from(await cssRes.arrayBuffer());
+  // Timed, verified, and retried when transient (lib/fetch-font-input.mjs).
+  const cssBytes = await fetchFontInput(cssUrl, { kind: 'css', userAgent: UA });
   let css = cssBytes.toString('utf8');
   const externalInputs = {
     schema: 1,
@@ -103,9 +103,7 @@ async function main() {
     // e.g. https://fonts.gstatic.com/s/inter/v19/xyz.woff2 -> inter-v19-xyz.woff2;
     // a kit URL (/l/font?kit=...) is named by its hash (lib/font-file-name.mjs).
     const name = fontFileName(url);
-    const res = await fetch(url, { headers: { 'User-Agent': UA } });
-    if (!res.ok) throw new Error(`font fetch failed: ${res.status} ${url}`);
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = await fetchFontInput(url, { kind: 'woff2', userAgent: UA });
     writeFileSync(path.join(fontsDir, name), buf);
     bytes += buf.length;
     externalInputs.files.push({ url, sha256: fontInputHash(buf), bytes: buf.length });
