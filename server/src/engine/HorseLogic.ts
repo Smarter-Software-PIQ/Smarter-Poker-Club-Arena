@@ -2755,8 +2755,12 @@ export interface HorseDecideOpts {
    *  (shrunk toward the game's population) against each bet size's
    *  break-even fold share s / (1 + s), instead of the legacy all-street
    *  rate against fixed 0.62 / 0.35 lines. The c-bet, probe, semi-bluff and
-   *  pure-bluff bets price their own size. nlh and plo4-6 only. Default off;
-   *  the league matchups break_even_bluff* measure it. */
+   *  pure-bluff bets price their own size. nlh and plo4-6 only. 2026-11-08:
+   *  it answers only for an opponent whose postflop bluff read is engaged
+   *  (HorseMind.breakEvenBluffOf), so a horse that has read nobody plays
+   *  exactly as with it off, and a semi-bluff's break-even is measured
+   *  against checking (breakEvenFoldShare). Default off; the league matchups
+   *  break_even_bluff* and readCalibrationLeague measure it. */
   readBreakEvenBluff?: boolean;
   /** SCOPED SHRINK (2026-11-08): a scoped read with fewer than 40 hands in
    *  this game is shrunk toward this game's population (16 pseudo-

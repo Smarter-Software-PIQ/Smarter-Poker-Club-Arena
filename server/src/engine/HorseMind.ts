@@ -420,6 +420,19 @@ export const RESPONSE_READ_PRIOR: Readonly<
  *
  * Read for every opponent the same way; null outside nlh / plo4-6 (no curve
  * measured) and outside a decision scope, where the legacy profile answers.
+ *
+ * ONLY AGAINST AN OPPONENT WHOSE BLUFF PRICE IS ALREADY READ (2026-11-08).
+ * The standing law "a horse that has read nobody plays exactly as it did
+ * before it could" (HorseOpponentExploitNeutrality.law) lets the exploit layer
+ * move bluff frequency only against an opponent whose postflop fold-to-bet or
+ * river-call read is credibly outside the measured envelope (postflopBluffMod
+ * not null). The break-even multiplier is a re-pricing of that same bluff
+ * read, so it follows the same gate: against any other opponent, a stranger
+ * included, breakEvenBluffOf is null and the existing price answers exactly
+ * as with the flag off. The first version answered for everyone, and an
+ * opponent with no postflop sample got the population's x1.45 where every
+ * other read gives no adjustment. The gate reads opponentRead, so a decision
+ * whose reads are switched off has no break-even read either.
  */
 export const BREAK_EVEN_FOLD_CURVE: Readonly<
   Record<'holdem' | 'omaha', ReadonlyArray<readonly [size: number, fold: number]>>
@@ -477,16 +490,25 @@ export function breakEvenCurveFold(family: BreakEvenFamily, size: number): numbe
 }
 
 /**
- * The fold share at which a bet of `size` pots breaks even when a call
- * leaves it `equity` to win the pot it built: with X = equity (1 + 2s) - s,
- * EV = fold + (1 - fold) X, zero at fold = -X / (1 - X). Air (equity 0) is
- * s / (1 + s); a draw that is already paid by the call needs no folds.
+ * The fold share at which a bet of `size` pots does as well as CHECKING, when
+ * a call leaves it `equity` of the pot it built. Betting is worth
+ * fold + (1 - fold)(equity (1 + 2s) - s) pots; checking keeps equity of the
+ * pot already there. They are equal at
+ *
+ *   fold = s (1 - 2 equity) / (1 + s - equity (1 + 2s)),
+ *
+ * which is s / (1 + s) for air (equity 0) and zero from equity 0.5 (a value
+ * bet). 2026-11-08 correction: the first version compared the bet with
+ * giving the pot up (EV 0) rather than with checking, so any hand with about
+ * a third of the equity "needed no folds" and bet at the ceiling multiplier
+ * even into a calling station.
  */
 export function breakEvenFoldShare(size: number, equity = 0): number {
   const e = Number.isFinite(equity) ? Math.max(0, Math.min(1, equity)) : 0;
-  const x = e * (1 + 2 * size) - size;
-  if (x >= 0) return 0;
-  return -x / (1 - x);
+  const s = Number.isFinite(size) && size > 0 ? size : 0;
+  const gain = s * (1 - 2 * e);
+  if (gain <= 0) return 0;
+  return gain / (1 + s - e * (1 + 2 * s));
 }
 
 /**
@@ -3204,18 +3226,21 @@ export class HorseMind {
    * against this opponent, with the fold read it came from. A credible
    * river-call station (river calls are not in the fold read) and a proven
    * winner still take bluffs down, as they do for bluffMod. Null when the
-   * decision has no measured fold curve.
+   * decision has no measured fold curve, and null for an opponent whose
+   * postflop bluff read is not engaged (postflopBluffMod null: a stranger, a
+   * horse-like regular, or any opponent while reads are off), so the existing
+   * price answers for them exactly as with the flag off.
    */
   static breakEvenBluffOf(userId: string): { mod: number; foldShift: number } | null {
-    const foldShift = this.postflopFoldShift(userId);
     const family = this.breakEvenFamily();
-    if (foldShift === null || !family) return null;
-    let mod = breakEvenBluffMod(foldShift, family, BREAK_EVEN_REFERENCE_SIZE);
+    if (!family) return null;
     const read = this.opponentRead(userId);
-    if (read && read.stats.riverCall.engaged === 'high') {
-      const capped = postflopBluffMod(read);
-      if (capped !== null) mod = Math.min(mod, capped);
-    }
+    const layer = postflopBluffMod(read);
+    if (layer === null || !read) return null;
+    const foldShift = this.postflopFoldShift(userId);
+    if (foldShift === null) return null;
+    let mod = breakEvenBluffMod(foldShift, family, BREAK_EVEN_REFERENCE_SIZE);
+    if (read.stats.riverCall.engaged === 'high') mod = Math.min(mod, layer);
     if (isProvenWinner(userId)) mod *= WINNER_BLUFF_MOD;
     return { mod, foldShift };
   }
@@ -3892,6 +3917,9 @@ export class HorseMind {
     const breakEven = this.decisionReadOptions.breakEvenBluff === true;
     let beBluff = Infinity;
     let beShift = 0;
+    // The weakest responder still gates a multiway bluff when that responder
+    // has no break-even read: its existing price stays in the minimum.
+    let unreadBluff = Infinity;
     for (const o of opps) {
       const e = this.exploit(o.user_id, recencyBlend, options);
       // An all-in wager still carries the aggressor's observed tendencies;
@@ -3901,7 +3929,8 @@ export class HorseMind {
         responders++;
         bluffMod = Math.min(bluffMod, e.bluffMod); // weakest responder gates bluffs
         const be = breakEven ? this.breakEvenBluffOf(o.user_id) : null;
-        if (be && be.mod < beBluff) {
+        if (!be) unreadBluff = Math.min(unreadBluff, e.bluffMod);
+        else if (be.mod < beBluff) {
           beBluff = be.mod;
           beShift = be.foldShift;
         }
@@ -3914,8 +3943,12 @@ export class HorseMind {
       callDownMod: callDownMod / opps.length,
       valueThinMod: responders > 0 ? valueThinMod / responders : 1,
       // Break-even bluffing: the weakest responder's multiplier and fold read
-      // travel with the profile so each bluff bet prices its own size.
-      ...(isFinite(beBluff) ? { breakEvenBluff: beBluff, foldShift: beShift } : {}),
+      // travel with the profile so each bluff bet prices its own size. When
+      // an unread responder prices lower (or nobody has a break-even read),
+      // nothing is attached and the bluff scale is the flag-off one.
+      ...(isFinite(beBluff) && beBluff < unreadBluff
+        ? { breakEvenBluff: beBluff, foldShift: beShift }
+        : {}),
     };
   }
 }
