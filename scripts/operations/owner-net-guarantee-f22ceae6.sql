@@ -1,7 +1,13 @@
 -- Exact owner-authorized correction of the 88-chip net guarantee shortfall.
--- Run the entire file with ROLLBACK first; commit only the installed protected source.
--- Paid awards and obligations are retained; remaining place weights share the
--- corrected remaining pool. No player wallet is edited or existing prize taken back.
+-- First set LOCAL app.owner_net_guarantee_probe='on' in this transaction:
+-- the final deliberate exception rolls back every write and reports the paid
+-- digest, promo balance and full ladder. For commit, leave probe off and set
+-- LOCAL app.owner_net_guarantee_expected_paid and
+-- LOCAL app.owner_net_guarantee_expected_promo from that exact rolled-back proof.
+-- Changed proof inputs abort before funding. Use installed protected source only.
+-- Published payout percentages and existing paid records are retained. The
+-- original atomic finish settles each full canonical entitlement less its prior
+-- payments, including the increases owed to players who have already been paid.
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='8s';
@@ -15,6 +21,9 @@ DECLARE
  paid jsonb; obligations jsonb; roster jsonb; paid_total numeric;
  weights jsonb; ladder jsonb; structure jsonb; after_row jsonb;
  before_bank numeric; after_bank numeric; prev text; funding jsonb;
+ probe_mode boolean:=coalesce(current_setting('app.owner_net_guarantee_probe',true),'')='on';
+ expected_paid text:=current_setting('app.owner_net_guarantee_expected_paid',true);
+ expected_promo numeric:=nullif(current_setting('app.owner_net_guarantee_expected_promo',true),'')::numeric;
 BEGIN
  PERFORM public.fn_ca_lock_settlement_lane_for_tournament(t);
  SELECT * INTO STRICT tr FROM public.tournaments WHERE id=t FOR UPDATE;
@@ -40,6 +49,8 @@ BEGIN
  SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY id),'[]') INTO paid FROM public.tournament_payouts p WHERE tournament_id=t;
  SELECT coalesce(jsonb_agg(to_jsonb(o) ORDER BY id),'[]') INTO obligations FROM public.tournament_obligations o WHERE tournament_id=t;
  SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY id),'[]') INTO roster FROM public.tournament_players p WHERE tournament_id=t;
+ IF NOT probe_mode AND expected_paid IS DISTINCT FROM md5(paid::text) THEN
+   RAISE EXCEPTION '88-chip paid evidence differs from the rolled-back proof'; END IF;
  IF (SELECT count(*) FROM public.tournament_players WHERE tournament_id=t)<>67
  OR EXISTS(SELECT 1 FROM public.tournament_place_settlement_batches WHERE tournament_id=t)
  OR EXISTS(SELECT 1 FROM public.tournament_final_table_deal_batches WHERE tournament_id=t)
@@ -58,19 +69,17 @@ BEGIN
    OR er.prize_out<>paid_total OR er.closed_at IS NOT NULL OR er.terminal_closed_at IS NOT NULL
    OR er.refund_prize<>0 OR er.refund_bounty<>0 THEN RAISE EXCEPTION 'escrow or paid awards changed'; END IF;
  SELECT jsonb_agg(jsonb_build_object('place',(e->>'place')::integer,'bp',round((e->>'percentage')::numeric*100)::bigint) ORDER BY (e->>'place')::integer)
- INTO weights FROM jsonb_array_elements(tr.payout_structure::jsonb)e
- WHERE NOT EXISTS(SELECT 1 FROM public.tournament_payouts p WHERE p.tournament_id=t AND p.position=(e->>'place')::integer);
- SELECT jsonb_agg(jsonb_build_object('place',place,'amount',amount) ORDER BY place) INTO ladder FROM (
-   SELECT l.place,l.cents::numeric/100 amount FROM public.fn_ca_prize_ladder(round((1830-paid_total)*100)::bigint,weights,1)l
-   UNION ALL SELECT p.position,p.amount FROM public.tournament_payouts p WHERE tournament_id=t
- )x;
+ INTO weights FROM jsonb_array_elements(tr.payout_structure::jsonb)e;
+ SELECT jsonb_agg(jsonb_build_object('place',l.place,'amount',l.cents::numeric/100) ORDER BY l.place)
+ INTO ladder FROM public.fn_ca_prize_ladder(183000,weights,1)l;
  IF jsonb_array_length(ladder)<>11 OR (SELECT sum((e->>'amount')::numeric) FROM jsonb_array_elements(ladder)e)<>1830 THEN
-   RAISE EXCEPTION 'corrected ladder does not conserve the funded pool'; END IF;
- SELECT jsonb_agg(jsonb_build_object('place',(e->>'place')::integer,'percentage',(e->>'amount')::numeric) ORDER BY (e->>'place')::integer)
- INTO structure FROM jsonb_array_elements(ladder)e;
- after_row:=to_jsonb(tr)||jsonb_build_object('prize_pool',1830,'payout_structure',structure::text);
+   RAISE EXCEPTION 'corrected canonical ladder does not conserve the funded pool'; END IF;
+ structure:=tr.payout_structure::jsonb;
+ after_row:=to_jsonb(tr)||jsonb_build_object('prize_pool',1830);
  SELECT promo_wallet INTO STRICT before_bank FROM public.union_wallets WHERE union_id=bank FOR UPDATE;
  IF before_bank<88 THEN RAISE EXCEPTION 'union promo balance insufficient'; END IF;
+ IF NOT probe_mode AND expected_promo IS DISTINCT FROM before_bank THEN
+   RAISE EXCEPTION '88-chip promo balance differs from the rolled-back proof'; END IF;
  prev:=current_setting('app.ledger_autoskip_union_wallets',true);
  PERFORM set_config('app.ledger_autoskip_union_wallets','1',true);
  UPDATE public.union_wallets SET promo_wallet=promo_wallet-88,updated_at=now() WHERE union_id=bank RETURNING promo_wallet INTO after_bank;
@@ -86,7 +95,7 @@ BEGIN
  PERFORM public.fn_ca_escrow_apply(t,'Owner 88 chip net guarantee',p_gross_in=>88);
  UPDATE public.tournament_entry_close_receipts SET final_prize_pool=1830,payout_structure_snapshot=structure,updated_at=now() WHERE tournament_id=t;
  PERFORM set_config('app.owner_net_guarantee_correction',k,true);
- UPDATE public.tournaments SET prize_pool=1830,payout_structure=structure::text WHERE id=t;
+ UPDATE public.tournaments SET prize_pool=1830 WHERE id=t;
  PERFORM set_config('app.owner_net_guarantee_correction','',true);
  IF after_bank<>before_bank-88 OR (SELECT prize_balance FROM public.tournament_escrow WHERE tournament_id=t)<>er.prize_balance+88
    OR (public.fn_ca_guarantee_funding(t)->>'house_due')::numeric<>0
@@ -95,5 +104,10 @@ BEGIN
    OR roster IS DISTINCT FROM (SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY id),'[]') FROM public.tournament_players p WHERE tournament_id=t)
    OR (SELECT jsonb_agg(jsonb_build_object('place',place,'amount',amount)ORDER BY place) FROM public.fn_ca_tournament_place_amounts(t)) IS DISTINCT FROM ladder
  THEN RAISE EXCEPTION '88-chip conservation or retained awards failed'; END IF;
- RAISE NOTICE '88 promo chips funded; 1830 place prizes + 670 bounties = 2500; paid awards unchanged';
+ IF probe_mode THEN
+   RAISE EXCEPTION USING MESSAGE='OWNER_NET_GUARANTEE_ROLLBACK '||jsonb_build_object(
+     'paid_digest',md5(paid::text),'promo_before',before_bank,'promo_after',after_bank,
+     'place_pool',1830,'bounty_pool',670,'payout_percentages_unchanged',true,'full_ladder',ladder)::text;
+ END IF;
+ RAISE NOTICE '88 promo chips funded; 1830 place prizes + 670 bounties = 2500; published percentages unchanged; original finish settles prior paid-place increases';
 END $correction$;

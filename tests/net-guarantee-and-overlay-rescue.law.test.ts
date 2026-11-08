@@ -29,6 +29,12 @@ describe('owner November 7: net guarantees and final ten-minute Horse rescue', (
     expect(source).toContain('horseOverlayRescueEntries(funding, mttGuaranteeEntryAmount(t))');
     expect(source).toContain('seeder.topUpWithHorses(t.id, live + want');
   });
+  it('the 88-chip correction preserves published payout percentages for every finisher', () => {
+    const operation = readFileSync('scripts/operations/owner-net-guarantee-f22ceae6.sql', 'utf8');
+    expect(operation).toContain('structure:=tr.payout_structure::jsonb');
+    expect(operation).toContain('UPDATE public.tournaments SET prize_pool=1830 WHERE id=t');
+    expect(operation).not.toMatch(/SET prize_pool=1830,\s*payout_structure/);
+  });
   it('Rewards compares the net coverage rather than gross payments', () => {
     const source = readFileSync('src/components/tournament/details/RewardsTab.tsx', 'utf8');
     expect(readFileSync('src/hooks/useTournamentPrizeFunding.ts', 'utf8')).toContain(

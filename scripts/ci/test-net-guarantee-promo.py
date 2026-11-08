@@ -90,7 +90,15 @@ try:
  # Native exact-event correction retains a settled place and all bounty obligations.
  q(f"UPDATE tournaments SET prize_pool_finalized=true WHERE id='{T}';INSERT INTO tournament_entry_close_receipts VALUES('{T}',1742,(SELECT payout_structure::jsonb FROM tournaments WHERE id='{T}'),now(),now());INSERT INTO tournament_players(id,tournament_id,user_id,position,status,prize) SELECT md5('roster:'||i)::uuid,'{T}',md5('user:'||i)::uuid,i,CASE WHEN i<11 THEN 'playing' ELSE 'eliminated' END,CASE WHEN i=11 THEN 17.42 ELSE 0 END FROM generate_series(1,67)i;INSERT INTO tournament_payouts(tournament_id,user_id,position,amount,source,idempotency_key)VALUES('{T}',md5('user:11')::uuid,11,17.42,'structure','paid:11');INSERT INTO tournament_obligations(tournament_id,user_id,place,amount_owed,amount_paid,kind)VALUES('{T}',md5('user:11')::uuid,11,17.42,17.42,'place');UPDATE tournament_escrow SET prize_out=17.42,prize_balance=1724.58 WHERE tournament_id='{T}';")
  fail(f"UPDATE tournaments SET prize_pool=1830 WHERE id='{T}'",'finalized')
+ old_structure=q(f"SELECT payout_structure FROM tournaments WHERE id='{T}'")
  op=(ROOT/'scripts/operations/owner-net-guarantee-f22ceae6.sql').read_text()
+ probe=op.replace('BEGIN;\n',"BEGIN;\nSET LOCAL app.owner_net_guarantee_probe='on';\n",1)
+ fail(probe,'OWNER_NET_GUARANTEE_ROLLBACK')
+ assert q('SELECT promo_wallet FROM union_wallets')=='1000.00'
+ digest=q(f"SELECT md5(coalesce(jsonb_agg(to_jsonb(p) ORDER BY id),'[]')::text) FROM tournament_payouts p WHERE tournament_id='{T}'")
+ op=op.replace('BEGIN;\n',f"BEGIN;\nSET LOCAL app.owner_net_guarantee_expected_paid='{digest}';\nSET LOCAL app.owner_net_guarantee_expected_promo='1000';\n",1)
+ fail(op.replace(digest,'00000000000000000000000000000000'),'paid evidence differs')
+ fail(op.replace("expected_promo='1000'","expected_promo='999'"),'promo balance differs')
  q("CREATE TRIGGER reject_net_journal BEFORE INSERT ON chip_ledger FOR EACH ROW WHEN(NEW.category='promo_send')EXECUTE FUNCTION reject_net_journal();")
  fail(op+'\nCOMMIT;', 'native journal refusal')
  assert q('SELECT promo_wallet FROM union_wallets')=='1000.00'
@@ -99,10 +107,13 @@ try:
  q(op+'\nCOMMIT;')
  assert q(f"SELECT prize_pool+bounty_pool FROM tournaments WHERE id='{T}'")=='2500.00'
  assert q(f"SELECT sum(amount) FROM tournament_payouts WHERE tournament_id='{T}'")=='17.42'
+ assert q(f"SELECT payout_structure FROM tournaments WHERE id='{T}'")==old_structure
+ assert q(f"SELECT amount FROM fn_ca_tournament_place_amounts('{T}')WHERE place=11")=='18.30'
+ assert q(f"SELECT amount FROM fn_ca_tournament_place_amounts('{T}')WHERE place=1")=='915.00'
  assert q('SELECT promo_wallet FROM union_wallets')=='912.00'
  q(op+'\nCOMMIT;')
  assert q('SELECT promo_wallet FROM union_wallets')=='912.00'
- print('PASS: finalized receipt-bound 88-chip correction, preserved paid award and exact canonical ladder, replay',flush=True)
+ print('PASS: finalized receipt-bound 88-chip correction, retained paid receipt, unchanged published percentages and full canonical increased entitlements, replay',flush=True)
 finally:
  if started:run([PG/'pg_ctl','-D',work/'data','-m','immediate','stop'])
  guard.close();shutil.rmtree(work);shutil.rmtree(sock)

@@ -270,7 +270,7 @@ BEGIN
     AND OLD.guaranteed_prize=2500 AND NEW.guaranteed_prize=2500
     AND OLD.bounty_pool=670 AND NEW.bounty_pool=670
     AND OLD.prize_pool_finalized AND NEW.prize_pool_finalized
-    AND (to_jsonb(NEW)-ARRAY['prize_pool','payout_structure'])=(to_jsonb(OLD)-ARRAY['prize_pool','payout_structure'])
+    AND (to_jsonb(NEW)-'prize_pool')=(to_jsonb(OLD)-'prize_pool')
     AND current_setting('app.owner_net_guarantee_correction',true)=
       'tourney:f22ceae6-2850-40ef-8f97-7d3660be32a3:owner_net_guarantee_88'
     AND EXISTS(SELECT 1 FROM public.chip_ledger l
