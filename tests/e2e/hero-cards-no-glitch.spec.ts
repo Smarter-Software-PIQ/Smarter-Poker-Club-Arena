@@ -239,6 +239,65 @@ test.describe('decoded card artwork', () => {
     );
   });
 
+  test('remounted board and public hole faces retain exact decoded pixels while their new images are pending', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    const startedAt = Date.now();
+    await page.route('**/__card-art-test', (route) =>
+      route.fulfill({ contentType: 'text/html', body: (server as any).__cardTestHtml })
+    );
+    await page.goto(address, { waitUntil: 'domcontentloaded' });
+    await expectTableRevealed(page, startedAt, 'remount pixels');
+    const before = await page
+      .locator('canvas.card-image__artwork')
+      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLCanvasElement).toDataURL()));
+    expect(before).toHaveLength(7);
+    const first = await page.evaluate(async () => {
+      // Reproduce the measured per-element pending state independently of the
+      // decoded cache. The actual canvas pixels still come from real deck media.
+      for (const key of ['complete', 'naturalWidth', 'naturalHeight'] as const) {
+        const original = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, key)!;
+        Object.defineProperty(HTMLImageElement.prototype, key, {
+          configurable: true,
+          get() {
+            if (this.classList.contains('card-image__img')) return key === 'complete' ? false : 0;
+            return original.get!.call(this);
+          },
+        });
+      }
+      (window as any).nextHand();
+      await new Promise(requestAnimationFrame);
+      return [...document.querySelectorAll<HTMLCanvasElement>('canvas.card-image__artwork')].map(
+        (canvas) => ({
+          ready: canvas.dataset.cardArtworkReady,
+          pixels: canvas.toDataURL(),
+          alpha: canvas.getContext('2d')!.getImageData(180, 252, 1, 1).data[3],
+          pending: !canvas.parentElement!.querySelector<HTMLImageElement>('img')!.complete,
+        })
+      );
+    });
+    expect(first).toHaveLength(7);
+    first.forEach((entry, index) => {
+      expect(entry.ready).toBe('true');
+      expect(entry.pending).toBe(true);
+      expect(entry.alpha).toBe(255);
+      expect(entry.pixels).toBe(before[index]);
+    });
+    const lazy = await page.evaluate(async () => {
+      (window as any).setCardLoading('lazy');
+      await new Promise(requestAnimationFrame);
+      return [...document.querySelectorAll<HTMLCanvasElement>('canvas.card-image__artwork')].map(
+        (canvas) => ({
+          width: canvas.width,
+          height: canvas.height,
+          ready: canvas.dataset.cardArtworkReady,
+        })
+      );
+    });
+    expect(lazy).toEqual(Array(7).fill({ width: 0, height: 0, ready: undefined }));
+  });
+
   test('first-visible observer correlates real board and public hole artwork with compositor crops', async ({
     page,
   }) => {
@@ -284,7 +343,7 @@ test.describe('decoded card artwork', () => {
             id: `${e.kind}-${e.id}-${e.sourceEpoch}-${e.visibilityEpoch}`,
             firstEligibleAt: e.firstEligibleAt,
             previousFrameAt: e.previousFrameAt,
-            bounds: e.bounds,
+            bounds: e.rasterBounds ?? e.bounds,
           }))
       );
       expect(captures).toHaveLength(7);

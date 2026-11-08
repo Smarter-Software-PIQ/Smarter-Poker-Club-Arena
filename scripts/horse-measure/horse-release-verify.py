@@ -17,6 +17,7 @@ Usage:
   horse-release-verify.py sql reshove START END                 # <= ~1 day per call
   horse-release-verify.py sql omaha-calls START END             # <= ~4h per call; then omaha-call-cells.ts
   horse-release-verify.py sql omaha-river-reraise-calls START END  # <= ~6h per call; then omaha-call-cells.ts
+  horse-release-verify.py sql omaha-river-reraise-opportunities START END  # <= ~12h; V84 denominator, every action
   horse-release-verify.py sql deep-raise-continues START END    # one UTC day per call; cells with CIs
   horse-release-verify.py sql deep-preflop START END            # one UTC day per call; cells with CIs
   horse-release-verify.py slices START END HOURS                # print window slices
@@ -62,6 +63,7 @@ SQL = {
     'reshove': HERE / 'sql' / 'reshove-ev.sql',
     'omaha-calls': HERE / 'sql' / 'omaha-calls.sql',
     'omaha-river-reraise-calls': HERE / 'sql' / 'omaha-river-reraise-calls.sql',
+    'omaha-river-reraise-opportunities': HERE / 'sql' / 'omaha-river-reraise-opportunities.sql',
     'deep-raise-continues': HERE / 'sql' / 'deep-raise-continues.sql',
     'deep-preflop': HERE / 'sql' / 'deep-preflop-premiums.sql',
 }

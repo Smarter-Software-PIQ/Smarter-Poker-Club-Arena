@@ -12,12 +12,12 @@ port='55483'
 env={k:v for k,v in os.environ.items() if not k.startswith('PG')};env['LC_ALL']='C'
 def command(args,sql=None):
  r=subprocess.run([str(x) for x in args],input=sql,text=True,capture_output=True,env=env,timeout=60)
- if r.returncode: raise RuntimeError(r.stderr[-4000:])
+ if r.returncode: raise RuntimeError(r.stderr[-4000:] + ((cluster/'postgres.log').read_text() if 'pg_ctl' in str(args[0]) and (cluster/'postgres.log').exists() else ''))
  return r.stdout.strip()
 def sql(s):return command([PG/'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-h',sock,'-p',port,'-U','postgres','-d','postgres'],s)
 try:
  command([PG/'initdb','-D',cluster/'data','-U','postgres','--auth=trust','--no-locale'])
- command([PG/'pg_ctl','-D',cluster/'data','-l',cluster/'postgres.log','-o',f'-k {sock} -p {port} -h 127.0.0.1','-w','start'])
+ command([PG/'pg_ctl','-D',cluster/'data','-l',cluster/'postgres.log','-o',f'-k {sock} -p {port} -c listen_addresses=','-w','start'])
  base=(ROOT/'supabase/migrations/20261021174448_midway_cash_rake_policy_two_point_five_bb.sql').read_text()
  definition=base.split('EXECUTE $definition$CREATE OR REPLACE FUNCTION public.fn_complete_club_opening_setup',1)[1].split('$definition$;',1)[0]
  definition='CREATE OR REPLACE FUNCTION public.fn_complete_club_opening_setup'+definition

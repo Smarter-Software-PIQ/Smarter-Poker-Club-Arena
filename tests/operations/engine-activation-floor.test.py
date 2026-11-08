@@ -812,9 +812,9 @@ echo CHECKPOINT_MUST_NOT_RUN
 
     def test_provenance_worker_and_database_windows_bind_the_same_corrective_release(self):
         import hashlib
-        window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
-        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
-        self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
+        window, raw = self.historical_floor('2026-11-07-horse-fold-provenance-engine-1800z')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), 'd25f21c7ceebc9ea58a9e13f64ad591e0628f11c37d1559970dcef85d9847deb')
+        self.assertEqual(window['releaseWitness']['sha256'], hashlib.sha256(raw).hexdigest())
         self.assertEqual(window['migrations'], [])
         self.assertEqual(window['announcementPolicy'], 'earliest-certified')
         windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
@@ -825,6 +825,27 @@ echo CHECKPOINT_MUST_NOT_RUN
         migration = ROOT / 'supabase/migrations' / database['migrations'][0]
         self.assertEqual(hashlib.sha256(migration.read_bytes()).hexdigest(),
                          'f0093f6afa8347dc122a1ed95060bfb73339ef89d34208ac9f36b82562ede266')
+
+    def test_cash_room_realism_window_binds_the_live_floor_and_keeps_the_provenance_entry(self):
+        import hashlib
+        window, raw = self.historical_floor(floor.NOV7_OWNER_ID)
+        self.assertEqual(floor.NOV7_OWNER_ID, '2026-11-07-cash-room-realism-engine-2230z')
+        self.assertEqual(raw, (ROOT / MANIFEST).read_bytes())
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), floor.NOV7_MANIFEST_DIGEST)
+        self.assertEqual(window['releaseWitness']['sha256'], floor.NOV7_MANIFEST_DIGEST)
+        canonical = json.dumps(window, sort_keys=True, separators=(',', ':')).encode()
+        self.assertEqual(hashlib.sha256(canonical).hexdigest(), floor.NOV7_ORDER_DIGEST)
+        self.assertEqual((window['notBefore'], window['notAfter']), ('2026-11-07T22:30:00Z', '2026-11-08T04:30:00Z'))
+        self.assertEqual(window['announcementPolicy'], 'earliest-certified')
+        self.assertIs(window['supersedesPhase1Schedule'], True)
+        self.assertEqual(window['migrations'], [])
+        windows = json.loads((ROOT / 'server/release/owner-maintenance-windows.json').read_text())
+        self.assertEqual(windows['windows'][-1]['id'], floor.NOV7_OWNER_ID)
+        self.assertEqual(windows['windows'][-2]['id'], '2026-11-07-horse-fold-provenance-engine-1800z')
+        current = self.owner_record(window_id=floor.NOV7_OWNER_ID)
+        self.assertEqual(current['ownerWindowId'], floor.NOV7_OWNER_ID)
+        self.assertTrue(current['supersedesPhase1Schedule'])
+        self.assertEqual(current['expiresEpoch'] - current['activationEpoch'], 21600)
 
     def test_process_actor_continuation_preserves_prior_floor_and_expiry(self):
         import hashlib

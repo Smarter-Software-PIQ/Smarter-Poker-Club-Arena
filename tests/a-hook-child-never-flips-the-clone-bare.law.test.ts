@@ -29,6 +29,17 @@ const ID = {
   GIT_COMMITTER_EMAIL: 't@example.invalid',
 };
 const boxes: string[] = [];
+
+/** The hook's `unset GIT_DIR ...` command, continuation lines included. */
+function scrubOf(hook: string) {
+  const start = hook.indexOf('\nunset GIT_DIR ') + 1;
+  const lines: string[] = [];
+  for (const line of hook.slice(start).split('\n')) {
+    lines.push(line);
+    if (!line.endsWith('\\')) break;
+  }
+  return { start, text: lines.join('\n') };
+}
 afterEach(() => {
   for (const d of boxes.splice(0)) rmSync(d, { recursive: true, force: true });
 });
@@ -67,8 +78,8 @@ describe('the cause, reproduced', () => {
   it("the hook's own scrub line keeps the same init in the scratch directory", () => {
     const r = cloneWithWorktree();
     const hook = read('.husky/pre-push');
-    const scrub = hook.split('\n').find((l) => l.startsWith('unset GIT_DIR'))!;
-    expect(scrub).toBeDefined();
+    const scrub = scrubOf(hook).text;
+    expect(scrub).toContain('GIT_DIR');
     const s = spawnSync('bash', ['-c', `${scrub}\ngit -C "${r.scratch}" init -q`], {
       cwd: r.wt,
       encoding: 'utf8',
@@ -83,12 +94,14 @@ describe('the cause, reproduced', () => {
 describe('the hooks drop the inherited git directory before running anything', () => {
   it('pre-push unsets GIT_DIR and friends before its first command', () => {
     const hook = read('.husky/pre-push');
-    const unset = hook.indexOf('\nunset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE');
-    expect(unset).toBeGreaterThan(0);
+    const { start, text } = scrubOf(hook);
+    expect(start).toBeGreaterThan(0);
+    for (const v of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE'])
+      expect(text).toContain(v);
     const firstCommand = hook.search(/\n(bash|node|git|npm|npx) /);
-    expect(firstCommand).toBeGreaterThan(unset);
+    expect(firstCommand).toBeGreaterThan(start);
     // The bare-clone guard is the command right after the scrub.
-    const nextLine = hook.slice(unset + 1).split('\n')[1];
+    const nextLine = hook.slice(start + text.length + 1).split('\n')[0];
     expect(nextLine).toBe('bash "$(git rev-parse --show-toplevel)/scripts/guard-bare-flip.sh"');
   });
 
