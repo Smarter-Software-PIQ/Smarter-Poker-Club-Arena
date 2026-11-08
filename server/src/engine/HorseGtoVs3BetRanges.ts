@@ -184,6 +184,15 @@ export const V73_MIN_THREEBET_X = 1.8;
 export const V73_MAX_THREEBET_X = 7;
 /** Shallowest effective depth (big blinds): below it the jam-or-fold zones own the spot. */
 export const V73_MIN_EFFECTIVE_BB = 25;
+/**
+ * SHORT-STACK 3-BET DEFENCE (2026-11-07, flag vs3BetShortStack): the
+ * shallowest effective depth the V73 read answers when the flag is on. At
+ * 12-25bb the jam-or-fold zones did NOT own the spot outside the
+ * tournament M zones (a cash 20bb opener facing a 3-bet to 11bb folded
+ * 97-98% of its open, measured), so the read now reaches 12bb, where the
+ * <= 12bb push/fold zone takes over.
+ */
+export const V73_SHORT_MIN_EFFECTIVE_BB = 12;
 
 /**
  * ═══ V75 THE SQUEEZED OPENER (2026-11-01) ═══════════════════════════════

@@ -935,6 +935,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'NashV2'
   ),
   flag(
+    'facingOpenFullRingZone',
+    "2026-11-07 default OFF: four or more dealt, no-limit hold'em FACING action (never the open) reads the <= 15bb jam-or-fold zone V82 gave two- and three-handed tables (stack <= 12bb, or the M layer and <= 15bb) instead of the table-scaled M zone (red M < 6 up to 22bb); measured before (HorseLogic.decide, tournament Hybrid persona, 1bb big-blind ante, 24 samples per class): at 20bb the big blind folded 88.6% to a button 2.5bb open six-handed (M 4.8) and four-handed (M 3.2) against 27.4% nine-handed (M 7.2), and 90.9% to an under-the-gun open six-handed; on, 28.1% and 46.6%; the open (the orange-zone shove, an owner decision), <= 15bb, short deck, fixed limit and Omaha unchanged; league facing_open_full_ring: mirror four-handed 20bb +1.38 +/- 0.79 / +2.82 +/- 0.80, six-handed 20bb +0.56 +/- 0.60 / +0.07 +/- 0.60, human-calibrated six-handed 20bb -3.13 +/- 2.00 / -1.54 +/- 2.24 bb/100, not significant on both seeds, so it stays off; docs/changelog/2026-11-07-horse-preflop-defence-leaks.md",
+    'PfLeaks'
+  ),
+  flag(
+    'vs3BetShortStack',
+    '2026-11-07 default OFF: the V73 opener-facing-one-3-bet read reaches 12bb effective (V73_SHORT_MIN_EFFECTIVE_BB) instead of 25bb, and a hand the read continues whose call the stack cap refuses (the call is the stack) jams instead of folding; measured before (HorseLogic.decide, live personas, 24 samples per class): a 20bb button facing a big-blind 3-bet to 11bb folded 97-98% of its 45% open in cash and in tournaments; on, it jams about half its open; league vs3bet_short_stack: see docs/changelog/2026-11-07-horse-preflop-defence-leaks.md (one human-calibrated seed below -2 stderr, so it stays off)',
+    'PfLeaks'
+  ),
+  flag(
     'v77SeatAwareJams',
     "2026-11-02 (Burls via Dan: \"JAMMING ALL IN TOO MUCH, THEY AREN'T CONSIDERING THE UTG OR EARLY POSITION OPENERS\") the no-limit hold'em push/fold jam over exactly one open is tightened by the OPENER'S V70 per-seat open width (dealt-census indexed, ante-aware, HorseGtoVs3BetRanges.openWidth): the bar rises by 0.3 per unit of width the opener's seat does not open against the 40% late reference, capped at +0.10 (an under-the-gun ~12% width lands the 12-15bb bar at ~0.80, the same early bar the Phase 6 reshove node uses at 20bb); measured before (24 h to 2026-11-02 00:21 UTC, 439,087 facing-one-open spots): tournament jam rate 6.82% over an early open vs 8.11% over a late one at <=15bb, 3.53% vs 7.14% at 15-25bb; tighten-only (a 40%+ button or blind width keeps today's bar exactly); first-in jams (V71/V27), the facing-3-bet bar, the HorseTournamentShoveDiscipline caps and Omaha untouched; explicit off arm keeps the seat-blind bar",
     'V77'

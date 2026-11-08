@@ -183,6 +183,7 @@ import {
   openWidth,
   V73_MAX_THREEBET_X,
   V73_MIN_EFFECTIVE_BB,
+  V73_SHORT_MIN_EFFECTIVE_BB,
   V73_MIN_THREEBET_X,
 } from './HorseGtoVs3BetRanges.js';
 import {
@@ -2469,6 +2470,18 @@ export interface HorseDecideOpts {
    *  six-max and tournaments unchanged. Default OFF: only explicit true turns
    *  it on (league hu_bb_defends_to_price). */
   huBbDefendsToPrice?: boolean;
+  /** FULL-RING FACING-ACTION ZONE (2026-11-07): four or more dealt,
+   *  no-limit hold'em facing action reads the <= 15bb jam-or-fold zone V82
+   *  gave two- and three-handed tables, instead of the table-scaled M zone
+   *  that left a 20bb six-handed big-blind-ante stack jam-or-fold against a
+   *  min-raise (big blind folded 88.6% to a button open). The open is
+   *  untouched. Default OFF: only explicit true turns it on. */
+  facingOpenFullRingZone?: boolean;
+  /** SHORT-STACK 3-BET DEFENCE (2026-11-07): the V73 read reaches 12bb
+   *  effective (V73_SHORT_MIN_EFFECTIVE_BB) instead of 25bb, and a continuing
+   *  hand whose call is the stack jams instead of folding: a 20bb opener
+   *  facing a 3-bet to 11bb folded 97-98% of its open. Default OFF. */
+  vs3BetShortStack?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
    *  12 points from a pot-sized one, before the call test. Draws, the
@@ -7514,7 +7527,9 @@ export class HorseLogic {
       if (!(threeBetX >= V73_MIN_THREEBET_X && threeBetX <= V73_MAX_THREEBET_X)) return undefined;
       const effBB =
         Math.min(player.stack + player.bet, (reRaiser.stack ?? 0) + (reRaiser.bet ?? 0)) / bb;
-      if (!(effBB >= V73_MIN_EFFECTIVE_BB)) return undefined;
+      const minEff73 =
+        opts.vs3BetShortStack === true ? V73_SHORT_MIN_EFFECTIVE_BB : V73_MIN_EFFECTIVE_BB;
+      if (!(effBB >= minEff73)) return undefined;
       const openerBehind = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
       const reRaiserBehind = preflopPlayersBehind(lastRaiserSeat, gs, opts.v13 !== false);
       if (openerBehind === null || reRaiserBehind === null || reRaiserBehind >= openerBehind)
@@ -7749,6 +7764,8 @@ export class HorseLogic {
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,
       retireFourBetBluffBand: opts.v76RetireFourBetBluffBand === false ? undefined : true,
       facingOpenShortHandedZone: opts.v70FacingOpenZone === false ? undefined : true,
+      facingOpenFullRingZone: opts.facingOpenFullRingZone === true ? true : undefined,
+      vs3BetShortJam: opts.vs3BetShortStack === true ? true : undefined,
       // V18 STRADDLE: the shape the fallback above detected - hand the
       // truth to the preflop engine so its unopened branch owns the pot.
       // V28: the single source of truth computed above — unopened for EVERY
