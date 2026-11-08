@@ -72,6 +72,12 @@ import {
   mttLateRegistrationMinutes,
 } from '../tournament/mttStructurePolicy.js';
 import { clampSeatsForVariant } from '../config/tableSeating.js';
+import {
+  SEAT_FIRST_OPENING_HORSES,
+  HUMAN_ARRIVAL_MIN_MS,
+  HUMAN_ARRIVAL_MAX_MS,
+  openingRungMs,
+} from '../config/seatFirstLadder.js';
 import { isFixedBoardClub } from '../config/fixedBoard.js';
 import {
   FREE_BUY_BOARD_NAMES,
@@ -890,8 +896,34 @@ const OPEN_TABLE_WAIT_MS = 10 * 60 * 1000;
  * deal. Still randomised per game, for the reason above: a constant delay
  * makes the whole board tick over in lockstep.
  */
-export const SEAT_FIRST_HUMAN_WINDOW_MIN_MS = 90 * 1000;
-export const SEAT_FIRST_HUMAN_WINDOW_MAX_MS = 350 * 1000;
+/**
+ * ── THE WINDOW IS NOW HOURS, AND IT BELONGS TO THE LADDER (2026-11-08) ──────
+ *
+ * These two constants no longer describe how long a HORSE-opened board waits.
+ * That is the ladder's job now (server/src/config/seatFirstLadder.ts): a Spin
+ * waits 60-80 minutes for its second horse and another 30-60 for its third, a
+ * Heads-Up waits three to four hours. See that file for Dan's words and for
+ * the seven-day measurement that ended the 90-350 SECOND window - 55,998 games
+ * played by the fleet against itself to produce seven that a person sat in.
+ *
+ * What these two still govern is the HUMAN path, which Dan set in the same
+ * message: "IF A HUMAN SITS AT AN EMPTY TABLE, OTHERS SHOULD JOIN THE SIT N GO
+ * WITHIN 3-7 MIN." So the floor is three minutes and the ceiling is seven, and
+ * the partner hold below is measured from the moment that person sat rather
+ * than from a board window that is now hours away.
+ */
+export const SEAT_FIRST_HUMAN_WINDOW_MIN_MS = HUMAN_ARRIVAL_MIN_MS;
+export const SEAT_FIRST_HUMAN_WINDOW_MAX_MS = HUMAN_ARRIVAL_MAX_MS;
+
+/**
+ * The opening wait for a freshly created seat-first board: the first rung of
+ * its ladder, randomised per board. `start_time` carries it, exactly as it
+ * carried the old window, so every reader downstream is unchanged - only the
+ * magnitude moved from minutes to hours.
+ */
+export function seatFirstOpeningWindowMs(seats: number): number {
+  return openingRungMs(seats, (span) => secureRandomInt(span + 1));
+}
 
 function seatFirstHumanWindowMs(): number {
   const span = SEAT_FIRST_HUMAN_WINDOW_MAX_MS - SEAT_FIRST_HUMAN_WINDOW_MIN_MS;
@@ -908,13 +940,20 @@ function seatFirstHumanWindowMs(): number {
 }
 
 /**
- * How many horses open a seat-first game: every seat but one.
+ * How many horses open a seat-first game: ONE, whatever the seat count.
  *
- * Spin (3 seats) -> 2 horses. Heads-up (2 seats) -> 1 horse. The remaining
- * seat is the human's for the window above.
+ * Dan 2026-11-08: "WE SHOULD ONLY HAVE ONE HORSE SITTING AT HAND FULL OF
+ * EVENTS, WE ARE AUTO RUNNING WAY TOO MANY ... SIT ONE HORSE AT LIKE 11
+ * DIFFERENT SPINS AND LIKE 6 SIT N GO'S."
+ *
+ * Was `seats - 1` - two on a Spin, one on a Heads-Up - so a Spin appeared on
+ * the board already one seat from dealing and filled itself inside six
+ * minutes. A board that opens with one horse is a board a person can actually
+ * walk up to; the rest of the field arrives a rung at a time (seatFirstLadder)
+ * or at once when a person sits.
  */
 function openingHorsesForSeatFirst(seats: number): number {
-  return Math.max(0, seats - 1);
+  return Math.min(Math.max(0, seats), SEAT_FIRST_OPENING_HORSES);
 }
 
 /**
@@ -1189,13 +1228,22 @@ export function seatFirstHumanPartnerHoldUntilMs(
       : windowEnd;
   }
   if (!Number.isFinite(firstHumanSeatedAtMs)) return -Infinity;
+  /* A PERSON OVERTAKES THE LADDER (2026-11-08). This used to hold until the
+     LATER of the board's own window and the partner floor. That was right when
+     the board window was 350 seconds; it is wrong now that a horse-opened
+     board's window is hours away, because it would make the one person who
+     actually sat down wait out the whole horse ladder. Dan's rule is counted
+     from the moment that person sat: "IF A HUMAN SITS AT AN EMPTY TABLE,
+     OTHERS SHOULD JOIN THE SIT N GO WITHIN 3-7 MIN." So the hold is 3 minutes
+     after they sat, 7 at the outside, and the board's own window no longer
+     enters into it. */
   const partnerFloor = firstHumanSeatedAtMs + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS;
   const ceiling = firstHumanSeatedAtMs + SEAT_FIRST_HUMAN_WINDOW_MAX_MS;
   const spread = Math.min(
     Math.max(0, Number.isFinite(jitterMs) ? jitterMs : 0),
     SEAT_FIRST_HUMAN_PARTNER_HOLD_SPREAD_MS
   );
-  return Math.min(ceiling, Math.max(windowEnd, partnerFloor) + spread);
+  return Math.min(ceiling, partnerFloor + spread);
 }
 
 /**
@@ -4049,7 +4097,7 @@ export class TournamentRecurringService {
     owner: BoardOwner = this.houseOwner
   ): Promise<{ tournamentId: string | null; registered: number; created?: boolean }> {
     try {
-      const startTime = new Date(Date.now() + seatFirstHumanWindowMs());
+      const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(config.maxPlayers));
       const dbGameType = dbGameTypeFor(config.gameVariant, 'createSatelliteHeadsUp');
 
       const satelliteRow = {
@@ -5049,12 +5097,13 @@ export class TournamentRecurringService {
   ): Promise<{ tournamentId: string | null; registered: number }> {
     try {
       // A heads-up game is seat-first: one horse opens it and the second seat
-      // is a human's for 60-180s. A 6-max or 9-max SNG is a field, not a table
-      // you walk up to, and keeps the longer scheduled lead-in.
+      // is a person's for three to four HOURS (Dan 2026-11-08). A 6-max or
+      // 9-max SNG is a field, not a table you walk up to, and keeps the longer
+      // scheduled lead-in.
       const startTime = new Date(
         Date.now() +
           (isSeatFirstFormat('sng', config.maxPlayers)
-            ? seatFirstHumanWindowMs()
+            ? seatFirstOpeningWindowMs(config.maxPlayers)
             : OPEN_TABLE_WAIT_MS)
       );
       const dbGameType = dbGameTypeFor(config.gameVariant, 'createSNG');
@@ -6071,9 +6120,10 @@ export class TournamentRecurringService {
           'TournamentRecurring.spin_seat_count_override'
         );
       }
-      // The last seat is a human's for 60-180s; after that the past-start
-      // top-up is allowed to fill it. See seatFirstHumanWindowMs.
-      const startTime = new Date(Date.now() + seatFirstHumanWindowMs());
+      // Every seat is a person's for the ladder's first rung - 60-80 minutes
+      // on a Spin - and `start_time` is the instant that rung ends. See
+      // seatFirstOpeningWindowMs and server/src/config/seatFirstLadder.ts.
+      const startTime = new Date(Date.now() + seatFirstOpeningWindowMs(SPIN_SEATS));
 
       // THE DRAW DOES NOT HAPPEN HERE ANY MORE (2026-08-20, second pass).
       //

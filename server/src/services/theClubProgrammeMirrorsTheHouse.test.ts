@@ -38,10 +38,12 @@ import {
   SATELLITE_HU_TARGETS_PER_OWNER,
   type SatelliteTargetRow,
 } from './TournamentRecurringService.js';
+import { freshHumanWindowMs } from './liveTournamentTableRecovery.js';
 import {
-  FRESH_HUMAN_WINDOW_MIN_S,
-  FRESH_HUMAN_WINDOW_MAX_S,
-} from './liveTournamentTableRecovery.js';
+  SPIN_LADDER,
+  SNG_LADDER,
+  SEAT_FIRST_OPENING_HORSES,
+} from '../config/seatFirstLadder.js';
 import {
   RESTART_WEEKLY_MINUTES,
   RESTART_MAX_MINUTES,
@@ -62,44 +64,50 @@ const SCHEDULED = readFileSync(
 );
 const FLEET = readFileSync(join(process.cwd(), 'src/services/HorseFleetManager.ts'), 'utf8');
 const ROTATOR = readFileSync(join(process.cwd(), 'src/services/HorseSessionRotator.ts'), 'utf8');
-const REPAIR_MIGRATION = readFileSync(
-  join(
-    process.cwd(),
-    '../supabase/migrations/20260905104109_the_third_seat_waits_90_to_350_seconds_for_a_human.sql'
-  ),
-  'utf8'
-);
 
 /**
- * Dan 2026-09-05: "fleet should hold the seat for 90-350 seconds max before
- * filling the 3rd seat." Widened from 60-150 (Dan 2026-09-03) on the strength
- * of a measurement: in the seven days to 2026-09-05, 31,153 Spins ran on this
- * platform and FOUR of them had a human in them.
+ * ── THE WAIT IS NOW A LADDER, NOT A WINDOW (Dan 2026-11-08) ────────────────
  *
- * All three surfaces still move together or none do. That is the whole reason
- * this block exists - the engine seating a horse at 90s while the repair sweep
- * hands the same board a 60s window is a race nobody would find by reading.
+ * Dan: "SPINS AND SIT N GO'S WAIT FOR HUMANS TO JOIN, AFTER 1 HOURS TO 1:20
+ * MINUTES WITH NO HUMANS A SECOND HORSE SITS FOR SPINS, AND THEN WITHIN THE
+ * NEXT 30-60 MIN A 3RD HORSE WILL SIT TO PLAY ... FOR SIT N GOES, HORSE WAITS
+ * UP TO 4 HOURS FOR A HUMAN TO JOIN."
+ *
+ * This replaced the 90-350 SECOND window, which was measured over the seven
+ * days to 2026-11-07: 29,593 Spins and 26,405 Heads-Up games completed, SEVEN
+ * of the 55,998 with a person in them.
+ *
+ * There were THREE surfaces; there are now TWO. `fn_repair_seat_first_games`
+ * was dropped on 2026-09-08 (20260908043450_seat_first_inventory_is_created_atomically),
+ * so the SQL window it carried has had no caller since - pinning its text kept
+ * a retired rule looking live, which is exactly what CLAUDE.md 10.86 warns
+ * about. The two surfaces that remain still move together or neither does.
  */
-describe('4. the third seat waits 90 to 350 seconds for a human', () => {
-  it('the engine window is 90 to 350 seconds', () => {
-    expect(SEAT_FIRST_HUMAN_WINDOW_MIN_MS).toBe(90_000);
-    expect(SEAT_FIRST_HUMAN_WINDOW_MAX_MS).toBe(350_000);
+describe('4. the board waits out its ladder for a person', () => {
+  it('the engine human window is Dan 3-7 minutes, not the retired 90-350 seconds', () => {
+    expect(SEAT_FIRST_HUMAN_WINDOW_MIN_MS).toBe(180_000);
+    expect(SEAT_FIRST_HUMAN_WINDOW_MAX_MS).toBe(420_000);
   });
-  it('the recovery window agrees', () => {
-    expect(FRESH_HUMAN_WINDOW_MIN_S).toBe(90);
-    expect(FRESH_HUMAN_WINDOW_MAX_S).toBe(350);
+  it('a Spin opens on a 60-80 minute rung and climbs a 30-60 minute one', () => {
+    expect(SPIN_LADDER).toEqual([
+      { minMs: 60 * 60_000, maxMs: 80 * 60_000 },
+      { minMs: 30 * 60_000, maxMs: 60 * 60_000 },
+    ]);
   });
-  it('and so does the SQL repair (90 + [0, 260] seconds)', () => {
-    expect(REPAIR_MIGRATION).toMatch(/v_window := 90 \+ floor\(random\(\) \* 261\)::int;/);
+  it('a Heads-Up waits three to four hours', () => {
+    expect(SNG_LADDER).toEqual([{ minMs: 180 * 60_000, maxMs: 240 * 60_000 }]);
   });
-  it('the three agree on the same pair of numbers, derived not retyped', () => {
-    // A fourth statement of the same rule is a fourth thing to forget.
-    expect(SEAT_FIRST_HUMAN_WINDOW_MIN_MS).toBe(FRESH_HUMAN_WINDOW_MIN_S * 1000);
-    expect(SEAT_FIRST_HUMAN_WINDOW_MAX_MS).toBe(FRESH_HUMAN_WINDOW_MAX_S * 1000);
-    const sql = /v_window := (\d+) \+ floor\(random\(\) \* (\d+)\)::int;/.exec(REPAIR_MIGRATION);
-    expect(sql, 'the SQL window statement moved').toBeTruthy();
-    expect(Number(sql![1])).toBe(FRESH_HUMAN_WINDOW_MIN_S);
-    expect(Number(sql![1]) + Number(sql![2]) - 1).toBe(FRESH_HUMAN_WINDOW_MAX_S);
+  it('one horse opens a board, whatever its seat count', () => {
+    expect(SEAT_FIRST_OPENING_HORSES).toBe(1);
+  });
+  it('the recovery sweep hands a repaired board its own ladder rung', () => {
+    // Both surfaces derive from seatFirstLadder; neither retypes a number.
+    const spin = freshHumanWindowMs(3);
+    expect(spin).toBeGreaterThanOrEqual(60 * 60_000);
+    expect(spin).toBeLessThanOrEqual(80 * 60_000);
+    const headsUp = freshHumanWindowMs(2);
+    expect(headsUp).toBeGreaterThanOrEqual(180 * 60_000);
+    expect(headsUp).toBeLessThanOrEqual(240 * 60_000);
   });
 });
 

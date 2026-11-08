@@ -33,10 +33,14 @@
  */
 
 /** A tournament that is still expecting to be played. */
+import { openingRungMs } from '../config/seatFirstLadder.js';
+
 export interface LiveTournamentRow {
   id: string;
   status?: string | null;
   start_time?: string | null;
+  /** Seats, so a repaired board gets ITS OWN ladder rung back (2026-11-08). */
+  max_players?: number | null;
 }
 
 /** A table row belonging to one of those tournaments. */
@@ -62,6 +66,8 @@ export interface TableReopenPlan {
    * the same reason, as fn_repair_seat_first_games.
    */
   refreshHumanWindow: boolean;
+  /** Seats on the repaired board; decides which ladder rung it waits out. */
+  seats: number;
 }
 
 /**
@@ -146,27 +152,29 @@ export function planTableReopens(
       toStatus: running ? 'running' : 'waiting',
       currentPlayers: seats,
       refreshHumanWindow: !running,
+      seats: Number(tourney.max_players) || 0,
     });
   }
   return plans;
 }
 
 /**
- * A fresh 90-350 second human window, randomised per game so a repaired board
- * does not tick over in lockstep with every other repaired board. Identical to
- * the window fn_repair_seat_first_games hands back and to
- * seatFirstHumanWindowMs in TournamentRecurringService.
+ * A fresh OPENING RUNG for a repaired board, randomised per game so repaired
+ * boards do not tick over in lockstep with each other.
  *
- * Dan 2026-09-05: "fleet should hold the seat for 90-350 seconds max before
- * filling the 3rd seat" - widened from 60-150 after a week in which 31,153
- * Spins ran and four had a human in them. All THREE surfaces move together or
- * none of them do; theClubProgrammeMirrorsTheHouse.test.ts pins that.
+ * Dan 2026-11-08 replaced the 90-350 SECOND window with the waiting ladder in
+ * server/src/config/seatFirstLadder.ts: a repaired Spin waits 60-80 minutes
+ * for its next seat and a repaired Heads-Up three to four hours, exactly as a
+ * freshly opened one does. A repaired board is a board that was open, not one
+ * that is filled the instant it comes back - that was always the rule here,
+ * and only the magnitude changed.
+ *
+ * The two surfaces (this one and seatFirstOpeningWindowMs in
+ * TournamentRecurringService) move together or neither does;
+ * theClubProgrammeMirrorsTheHouse.test.ts pins that.
  */
-export const FRESH_HUMAN_WINDOW_MIN_S = 90;
-export const FRESH_HUMAN_WINDOW_MAX_S = 350;
-export function freshHumanWindowMs(): number {
-  const span = FRESH_HUMAN_WINDOW_MAX_S - FRESH_HUMAN_WINDOW_MIN_S;
-  return (FRESH_HUMAN_WINDOW_MIN_S + Math.floor(Math.random() * (span + 1))) * 1000;
+export function freshHumanWindowMs(seats: number): number {
+  return openingRungMs(seats, (span) => Math.floor(Math.random() * (span + 1)));
 }
 
 /**

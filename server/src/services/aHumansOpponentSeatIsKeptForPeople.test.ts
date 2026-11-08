@@ -66,22 +66,31 @@ describe('the rule', () => {
     const until = seatFirstHumanPartnerHoldUntilMs(WINDOW, SAT, 0);
     expect(until).toBe(SAT + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS);
     expect(until).toBeGreaterThan(HORSE_TOOK_IT);
-    expect(SEAT_FIRST_HUMAN_PARTNER_HOLD_MS).toBe(90_000);
+    expect(SEAT_FIRST_HUMAN_PARTNER_HOLD_MS).toBe(180_000);
   });
 
-  it("keeps the board's own window when it is the later of the two", () => {
+  it("ignores the board's own window once a person has sat (2026-11-08)", () => {
+    /* It used to take the LATER of the window and the partner floor. A
+       horse-opened board's window is now HOURS away (the waiting ladder), so
+       that would strand the one person who actually sat down. Dan: "IF A HUMAN
+       SITS AT AN EMPTY TABLE, OTHERS SHOULD JOIN THE SIT N GO WITHIN 3-7
+       MIN." - measured from their seat, never from the board's clock. */
     const late = SAT + 200_000;
-    expect(seatFirstHumanPartnerHoldUntilMs(late, SAT)).toBe(late);
-  });
-
-  it('never holds longer than the window ceiling after the first human sat', () => {
-    expect(seatFirstHumanPartnerHoldUntilMs(SAT + 86_400_000, SAT)).toBe(
-      SAT + SEAT_FIRST_HUMAN_WINDOW_MAX_MS
+    expect(seatFirstHumanPartnerHoldUntilMs(late, SAT)).toBe(SAT + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS);
+    const hoursAway = SAT + 4 * 3_600_000;
+    expect(seatFirstHumanPartnerHoldUntilMs(hoursAway, SAT)).toBe(
+      SAT + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS
     );
   });
 
-  it('an unreadable start time still gets the 90 s floor', () => {
-    expect(seatFirstHumanPartnerHoldUntilMs(NaN, SAT)).toBe(SAT + 90_000);
+  it('never holds longer than the window ceiling after the first human sat', () => {
+    expect(
+      seatFirstHumanPartnerHoldUntilMs(SAT + 86_400_000, SAT, 29_999)
+    ).toBeLessThanOrEqual(SAT + SEAT_FIRST_HUMAN_WINDOW_MAX_MS);
+  });
+
+  it('an unreadable start time still gets the 3 minute floor', () => {
+    expect(seatFirstHumanPartnerHoldUntilMs(NaN, SAT)).toBe(SAT + 180_000);
   });
 
   it('no seated human holds nothing', () => {
@@ -124,16 +133,16 @@ describe('the rule', () => {
     }
     expect(new Set(jitters).size).toBeGreaterThan(150);
     expect(seatFirstHumanPartnerHoldJitterMs(ids[7])).toBe(jitters[7]);
-    expect(seatFirstHumanPartnerHoldUntilMs(WINDOW, SAT, 20_000)).toBe(SAT + 110_000);
+    expect(seatFirstHumanPartnerHoldUntilMs(WINDOW, SAT, 20_000)).toBe(SAT + 200_000);
     expect(seatFirstHumanPartnerHoldUntilMs(SAT + 999_999, SAT, 29_999)).toBe(
-      SAT + SEAT_FIRST_HUMAN_WINDOW_MAX_MS
+      SAT + 180_000 + 29_999
     );
   });
 
   it('the table countdown is never earlier than the engine hold, for any spread', () => {
     // Mirrors src/utils/seatFirstPartnerHold.ts (pinned there against these constants).
     const tableLatest = (start: number, sat: number) =>
-      Math.min(sat + 350_000, Math.max(start, sat + 90_000) + 30_000);
+      Math.min(sat + 420_000, sat + 180_000 + 30_000);
     for (const [start, sat] of [
       [SAT + 15_000, SAT],
       [SAT + 200_000, SAT],
@@ -223,7 +232,8 @@ describe('topUpWithHorses honours the hold', () => {
   });
 
   it('once the hold has run out, the board fills exactly as before', async () => {
-    board(95_000, -60_000);
+    // 95 s was enough under the retired 90 s floor; the floor is 3 minutes now.
+    board(245_000, -60_000);
     expect(await svc.topUpWithHorses(T, 2, { forHuman: true })).toBe(1);
     expect(pick).toHaveBeenCalled();
   });
