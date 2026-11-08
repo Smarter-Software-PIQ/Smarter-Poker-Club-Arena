@@ -254,6 +254,8 @@ export const HORSE_REFERENCE_DECISION_EXCLUDED: Readonly<Record<string, string>>
   'src/engine/HorsePhase6Attribution.ts':
     'the Phase 6 preflop attribution receipt, built after the decision from it',
   'src/engine/HorseReviewSignals.ts': 'review signals are observed and explicitly ignored',
+  'src/engine/HorsePhaseControllerWithdrawal.ts':
+    'reconciles the Phase 10-13 receipts (selection, final action) with the action a later owner already chose; never an action or amount',
   'src/engine/multiway/JointLivePolicy.ts':
     'the Phase 13 owner: bound by the Phase 13 digest; runs after the variant owners and acts only when Phase 13 is selected',
   'src/engine/multiway/JointSampleAcquisition.ts':
