@@ -132,7 +132,7 @@ const validCopy = {
       .update(readFileSync(root('server/standby/standby-owners.sql')))
       .digest('hex'),
   },
-  'seed.json': { authFixtureVersion: 2, seededAt: '2026-11-06T17:01:00Z', tablesFailed: 0 },
+  'seed.json': { authFixtureVersion: 3, seededAt: '2026-11-06T17:01:00Z', tablesFailed: 0 },
 };
 
 describe('the Backup Engine refuses partial restores and proves automatic recovery', () => {
@@ -218,6 +218,7 @@ describe('the Backup Engine refuses partial restores and proves automatic recove
       { ...validCopy, 'database.json': { ...validCopy['database.json'], restoreValidated: false } },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: undefined } },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: 1 } },
+      { ...validCopy, 'seed.json': { ...validCopy['seed.json'], authFixtureVersion: 2 } },
       { ...validCopy, 'seed.json': { ...validCopy['seed.json'], tablesFailed: 1 } },
       {
         ...validCopy,
@@ -665,7 +666,9 @@ describe('the swap seat boundary is read after the serving engine drains', () =>
 
   it('only the swap demands the drain witness', () => {
     const script = readFileSync(root('server/standby/standby-trials.sh'), 'utf8');
-    expect(script).toContain('capture_frozen_seats "$((t0 + 600))" drained || { trial_verdict swap fail');
+    expect(script).toContain(
+      'capture_frozen_seats "$((t0 + 600))" drained || { trial_verdict swap fail'
+    );
   });
 });
 

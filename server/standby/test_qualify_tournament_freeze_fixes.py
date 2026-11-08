@@ -114,6 +114,43 @@ class QualificationAdmission(unittest.TestCase):
 
 
 class SeedEligibility(unittest.TestCase):
+    def test_exported_tables_retain_human_created_cluster_parents_without_human_profiles(self):
+        seed_spec = importlib.util.spec_from_file_location('seed_closure', Path(__file__).with_name('seed-extract.py'))
+        seed = importlib.util.module_from_spec(seed_spec)
+        seed_spec.loader.exec_module(seed)
+        human_cluster, horse_cluster, human = ('00000000-0000-0000-0000-%012d' % i for i in (1, 2, 3))
+        for failure in (None, 'missing', 'unreadable', 'invalid', 'bytes', 'rows'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as folder, patch.object(seed, 'OUT', folder):
+                Path(folder, 'public.tables.csv').write_text('id,cluster_id\ntable,%s\n' % (human_cluster if failure != 'invalid' else 'invalid'))
+                Path(folder, 'public.cash_games.csv').write_text('id,created_by\n%s,\n' % horse_cluster)
+                Path(folder, 'public.profiles.csv').write_text('id,is_horse\nhorse,true\n')
+                manifest = {'copied': [{'table': 'public.cash_games', 'rows': 1, 'personFilter': ['created_by']}], 'skipped': []}
+
+                def export(sql, path):
+                    self.assertIn(human_cluster, sql)
+                    self.assertIn(horse_cluster, sql)
+                    self.assertNotIn('profiles', sql)
+                    self.assertNotIn('created_by', sql)
+                    if failure == 'unreadable':
+                        raise RuntimeError('production read failed')
+                    Path(path).write_text('id,created_by\n%s,\n' % horse_cluster +
+                                          ('' if failure == 'missing' else '%s,%s\n' % (human_cluster, human)))
+
+                with patch.object(seed, 'copy_out', side_effect=export), \
+                     patch.object(seed, 'BYTE_CAP', 1 if failure == 'bytes' else seed.BYTE_CAP), \
+                     patch.object(seed, 'ROW_CAP', 0 if failure == 'rows' else seed.ROW_CAP):
+                    if failure:
+                        with self.assertRaises(seed.SeedEligibilityError):
+                            seed.close_cash_game_parents(manifest)
+                    else:
+                        seed.close_cash_game_parents(manifest)
+                        self.assertIn(human_cluster, Path(folder, 'public.cash_games.csv').read_text())
+                        self.assertEqual(Path(folder, 'public.profiles.csv').read_text(), 'id,is_horse\nhorse,true\n')
+                        self.assertEqual(manifest['copied'][0]['rows'], 2)
+                        self.assertEqual(manifest['copied'][0]['personFilter'], [])
+                        self.assertEqual(manifest['copied'][0]['structuralParentOf'], 'public.tables.cluster_id')
+                        self.assertEqual(manifest['skipped'], [])
+
     def test_only_proven_empty_retired_memberships_are_omitted_and_recorded(self):
         seed_spec = importlib.util.spec_from_file_location('seed_extract', Path(__file__).with_name('seed-extract.py'))
         seed = importlib.util.module_from_spec(seed_spec)

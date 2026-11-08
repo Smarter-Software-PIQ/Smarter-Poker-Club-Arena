@@ -223,6 +223,13 @@ SQL
   docker exec "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres -q -f /tmp/placeholders.sql >>"$LOG_DIR/seed.log" 2>&1 \
     || { log "seed: placeholder accounts reported errors (see seed.log)"; return 1; }
   [ "$failed" = 0 ] || return 1
+  psql_db -v ON_ERROR_STOP=1 -qc "DO \$\$ BEGIN
+    IF EXISTS (SELECT 1 FROM public.tables t LEFT JOIN public.cash_games c ON c.id=t.cluster_id
+               WHERE t.cluster_id IS NOT NULL AND c.id IS NULL) THEN
+      RAISE EXCEPTION 'seed: tables reference missing cash_games cluster parents';
+    END IF;
+  END \$\$;" >>"$LOG_DIR/seed.log" 2>&1 \
+    || { log "seed: cash-game parent validation failed (see seed.log)"; return 1; }
   local tables horses seats
   tables=$(psql_db -Atc "select count(*) from public.tables") || return 1
   horses=$(psql_db -Atc "select count(*) from public.profiles where is_horse") || return 1
@@ -245,7 +252,7 @@ with open(path + '.new', 'w') as output:
 os.replace(path + '.new', path)
 PY_VALID
   [ "$?" = 0 ] || return 1
-  printf '{"authFixtureVersion":2,"seededAt":"%s","tablesLoaded":%s,"tablesFailed":%s,"cashTables":%s,"horses":%s,"seatedHorses":%s}\n' \
+  printf '{"authFixtureVersion":3,"seededAt":"%s","tablesLoaded":%s,"tablesFailed":%s,"cashTables":%s,"horses":%s,"seatedHorses":%s}\n' \
     "$(date -u +%FT%TZ)" "$loaded" "$failed" "$tables" "$horses" "$seats" | tee "$STATE_DIR/seed.json"
 }
 
@@ -298,7 +305,7 @@ try:
     database, seed = (json.load(open(p)) for p in sys.argv[1:3])
     assert database.get('ownersSha256') == hashlib.sha256(open(sys.argv[3], 'rb').read()).hexdigest()
     assert database.get('restoreValidated') is True and database.get('restoreErrors') == 0
-    assert seed.get('authFixtureVersion') == 2
+    assert seed.get('authFixtureVersion') == 3
     assert seed['tablesFailed'] == 0 and seed['seededAt'] >= database['restoredAt']
 except (OSError, ValueError, KeyError, TypeError, AssertionError):
     sys.exit('standby database restore/seed is unqualified')
