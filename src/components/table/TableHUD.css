@@ -350,6 +350,17 @@
   left: 6px;
   right: auto;
   z-index: 101;
+  /* ONE LINE, NOT ONE TOP EDGE. The chat button is a --sp-tabbar-control box
+     (52px) whose artwork carries its own transparent margin, and this plate is
+     a 1280x315 shell that fills its box edge to edge at ~44px tall. Matching
+     the two TOPS therefore prints the plate visibly higher than the bubble,
+     which is what "lined up how the chat message icon is" rules out. The dock
+     takes the chat button's own height and centres the plate inside it, so the
+     two read as level without a magic offset that would rot the next time
+     either asset is redrawn. */
+  height: var(--sp-tabbar-control, 52px);
+  display: flex;
+  align-items: center;
   /* The layer is transparent to input and its child takes the tap, for the
      same reason the corners are — see THE CORNERS DO NOT CATCH TAPS above. */
   pointer-events: none;

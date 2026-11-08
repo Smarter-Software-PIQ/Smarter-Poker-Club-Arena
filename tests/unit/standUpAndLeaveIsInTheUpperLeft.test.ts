@@ -59,6 +59,12 @@ describe('stand up & leave placement', () => {
     expect(chat).toMatch(anchor);
   });
 
+  it('centres the plate on the chat button line rather than matching top edges', () => {
+    const dock = rule(CSS, '.hud-leave-dock {') ?? '';
+    expect(dock).toMatch(/height:\s*var\(--sp-tabbar-control, 52px\)/);
+    expect(dock).toMatch(/align-items:\s*center/);
+  });
+
   it('takes the same under-bar gap as chat inside a multi-table slot', () => {
     const dock = rule(CSS, '.multi-table-page .hud-leave-dock {');
     expect(dock).not.toBeNull();
