@@ -2492,6 +2492,13 @@ export interface HorseDecideOpts {
    *  hand whose call is the stack jams instead of folding: a 20bb opener
    *  facing a 3-bet to 11bb folded 97-98% of its open. Default OFF. */
   vs3BetShortStack?: boolean;
+  /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
+   *  3-bet or 4-bet made all in with every other live opponent all in or
+   *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
+   *  longer veto a call the price-aware strength bar makes (the call closes
+   *  the betting and risks only the price). Explicit false restores the caps
+   *  (ablation only). docs/changelog/2026-11-08-horse-opener-facing-an-all-in-3-bet.md */
+  facingClosedAllIn?: boolean;
   /** LIMP-RERAISE READ (2026-11-07, HorseLimpReraiseRead.ts): against a
    *  limper HorseMind has seen limp-reraise (shrunk toward the population),
    *  the isolation bar rises toward the hands that stand a re-raise and the
@@ -7989,6 +7996,22 @@ export class HorseLogic {
         }
         return Math.min(player.stack + player.bet, cover) / bb;
       })(),
+      // FACING A CLOSED ALL-IN RE-RAISE (2026-11-08): the raise hero faces
+      // was made all in and every other live opponent is all in or folded,
+      // so a call closes the betting (HorsePreflop.facingClosedAllIn).
+      // Public seat flags only; never who anybody is.
+      facingClosedAllIn:
+        opts.facingClosedAllIn === false
+          ? undefined
+          : (() => {
+              if (raises < 2 || lastRaiserSeat < 0 || toCall <= 0) return undefined;
+              const raiser = gs.players.find((p) => p.seat === lastRaiserSeat);
+              if (!raiser || !raiser.is_all_in) return undefined;
+              const open = gs.players.some(
+                (p) => p.seat !== player.seat && !p.is_folded && !p.is_all_in
+              );
+              return open ? undefined : true;
+            })(),
       v13: opts.v13 !== false,
       // V34: the button is not a second cutoff. classifyPosition merges the
       // two into 'late'; the dealer seat tells them apart exactly.

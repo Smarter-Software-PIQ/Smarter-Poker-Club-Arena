@@ -1,0 +1,363 @@
+{
+ "version": 1,
+ "slug": "kk-three-bettor-folds-to-a-4-bet",
+ "title": "KK 3-bets and folds to a sized 4-bet 121bb deep in cash",
+ "complaint": "When a horse opens and is 3-bet or 4-bet it almost always folds (owner report 2026-11-08); live hand d481b609",
+ "handId": "d481b609-db1a-4754-bac9-30fecdf163a9",
+ "fmt": "cash",
+ "variant": "nlh",
+ "players": [
+  {
+   "seat": 1,
+   "isHorse": true
+  },
+  {
+   "seat": 2,
+   "isHorse": true
+  },
+  {
+   "seat": 3,
+   "isHorse": true
+  },
+  {
+   "seat": 4,
+   "isHorse": true
+  },
+  {
+   "seat": 5,
+   "isHorse": true
+  },
+  {
+   "seat": 6,
+   "isHorse": true
+  }
+ ],
+ "hole": {
+  "1": [
+   {
+    "rank": "K",
+    "suit": "clubs"
+   },
+   {
+    "rank": "K",
+    "suit": "hearts"
+   }
+  ]
+ },
+ "actions": [
+  {
+   "ord": 1,
+   "seat": 1,
+   "stage": "preflop",
+   "action": "sb",
+   "amount": 0.25,
+   "origin": "forced",
+   "isFullRaise": false,
+   "dead": false
+  },
+  {
+   "ord": 2,
+   "seat": 2,
+   "stage": "preflop",
+   "action": "bb",
+   "amount": 0.5,
+   "origin": "forced",
+   "isFullRaise": false,
+   "dead": false
+  },
+  {
+   "ord": 3,
+   "seat": 2,
+   "stage": "preflop",
+   "action": "ante",
+   "amount": 0.5,
+   "origin": "forced",
+   "isFullRaise": false,
+   "dead": true
+  },
+  {
+   "ord": 4,
+   "seat": 3,
+   "stage": "preflop",
+   "action": "fold",
+   "amount": 0,
+   "origin": "horse_policy",
+   "isFullRaise": false,
+   "dead": false
+  },
+  {
+   "ord": 5,
+   "seat": 4,
+   "stage": "preflop",
+   "action": "raise",
+   "amount": 1.64,
+   "origin": "horse_policy",
+   "isFullRaise": true,
+   "dead": false
+  },
+  {
+   "ord": 6,
+   "seat": 5,
+   "stage": "preflop",
+   "action": "fold",
+   "amount": 0,
+   "origin": "horse_policy",
+   "isFullRaise": false,
+   "dead": false
+  },
+  {
+   "ord": 7,
+   "seat": 6,
+   "stage": "preflop",
+   "action": "fold",
+   "amount": 0,
+   "origin": "horse_policy",
+   "isFullRaise": false,
+   "dead": false
+  },
+  {
+   "ord": 8,
+   "seat": 1,
+   "stage": "preflop",
+   "action": "raise",
+   "amount": 7.3,
+   "origin": "horse_policy",
+   "isFullRaise": true,
+   "dead": false,
+   "publicNode": {
+    "pot": 2.89,
+    "ante": 0.5,
+    "anteType": "big_blind",
+    "mode": "cash",
+    "seats": [
+     [
+      1,
+      60.35,
+      0.25,
+      0.25,
+      0,
+      0,
+      0
+     ],
+     [
+      2,
+      142.82,
+      0.5,
+      1,
+      0.5,
+      0,
+      0
+     ],
+     [
+      3,
+      113.69,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     [
+      4,
+      76.71,
+      1.64,
+      1.64,
+      0,
+      0,
+      0
+     ],
+     [
+      5,
+      843.54,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     [
+      6,
+      972.72,
+      0,
+      0,
+      0,
+      0,
+      1
+     ]
+    ],
+    "boards": [
+     ""
+    ],
+    "street": "preflop",
+    "toCall": 1.39,
+    "currentBet": 1.64,
+    "minRaiseTo": 2.78,
+    "maxRaiseTo": 60.6,
+    "legalActions": [
+     "fold",
+     "call",
+     "raise",
+     "all_in"
+    ],
+    "dealerSeat": 6,
+    "chipUnit": 0.01,
+    "bigBlind": 0.5,
+    "smallBlind": 0.25,
+    "variant": "nlh",
+    "structure": "no_limit",
+    "actorSeat": 1,
+    "bombPot": false,
+    "tournamentStage": {
+     "status": "not_applicable",
+     "version": 1
+    }
+   }
+  },
+  {
+   "ord": 9,
+   "seat": 2,
+   "stage": "preflop",
+   "action": "fold",
+   "amount": 0,
+   "origin": "horse_policy",
+   "isFullRaise": false,
+   "dead": false
+  },
+  {
+   "ord": 10,
+   "seat": 4,
+   "stage": "preflop",
+   "action": "raise",
+   "amount": 16.79,
+   "origin": "horse_policy",
+   "isFullRaise": true,
+   "dead": false
+  },
+  {
+   "ord": 11,
+   "seat": 1,
+   "stage": "preflop",
+   "action": "fold",
+   "amount": 0,
+   "origin": "horse_policy",
+   "isFullRaise": false,
+   "dead": false,
+   "publicNode": {
+    "pot": 25.09,
+    "ante": 0.5,
+    "anteType": "big_blind",
+    "mode": "cash",
+    "seats": [
+     [
+      1,
+      53.3,
+      7.3,
+      7.3,
+      0,
+      0,
+      0
+     ],
+     [
+      2,
+      142.82,
+      0.5,
+      1,
+      0.5,
+      0,
+      1
+     ],
+     [
+      3,
+      113.69,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     [
+      4,
+      61.56,
+      16.79,
+      16.79,
+      0,
+      0,
+      0
+     ],
+     [
+      5,
+      843.54,
+      0,
+      0,
+      0,
+      0,
+      1
+     ],
+     [
+      6,
+      972.72,
+      0,
+      0,
+      0,
+      0,
+      1
+     ]
+    ],
+    "boards": [
+     ""
+    ],
+    "street": "preflop",
+    "toCall": 9.49,
+    "currentBet": 16.79,
+    "minRaiseTo": 26.28,
+    "maxRaiseTo": 60.6,
+    "legalActions": [
+     "fold",
+     "call",
+     "raise",
+     "all_in"
+    ],
+    "dealerSeat": 6,
+    "chipUnit": 0.01,
+    "bigBlind": 0.5,
+    "smallBlind": 0.25,
+    "variant": "nlh",
+    "structure": "no_limit",
+    "actorSeat": 1,
+    "bombPot": false,
+    "tournamentStage": {
+     "status": "not_applicable",
+     "version": 1
+    }
+   }
+  },
+  {
+   "ord": 12,
+   "seat": 4,
+   "stage": "preflop",
+   "action": "return",
+   "amount": 9.49,
+   "isFullRaise": false,
+   "dead": false
+  }
+ ],
+ "forbidden": [
+  {
+   "ord": 11,
+   "kind": "fold"
+  }
+ ],
+ "seeds": [
+  1,
+  7,
+  42,
+  99,
+  2026,
+  3,
+  11,
+  17,
+  23,
+  31
+ ],
+ "control": null
+}
