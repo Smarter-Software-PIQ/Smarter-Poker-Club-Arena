@@ -1,6 +1,6 @@
 -- Owner November 7: restore net guarantee coverage and original-close union promo funding.
 -- Rake remains separately earned and never counts as prizes. House transfers are not player coverage.
--- Journal-bound finalized correction admission is limited to the exact authorized 88-chip event.
+-- Completed-event supplements use the existing house-adjustment door; finality guards stay unchanged.
 -- @live-proof: position('net_coverage' in pg_get_functiondef('public.fn_ca_guarantee_funding(uuid)'::regprocedure))>0 AND position('fn_ca_fund_union_guarantee_promo_locked' in pg_get_functiondef('public.fn_apply_prize_guarantee(uuid,text)'::regprocedure))>0
 
 BEGIN;
@@ -282,39 +282,7 @@ BEGIN
 END;
 $function$
 ;
-DO $admit$
-DECLARE d text; f record;
-BEGIN
- FOR f IN SELECT * FROM (VALUES ('public.fn_guard_managed_game_lifecycle()','766aeba0ff5dc94d3bcaf9676a819003'),('public.trg_freeze_finalized_tournament_prize_pool()','0ad37ed9105c244a62c44b34c7f37a73'))x(signature,hash) LOOP
- d:=pg_get_functiondef(f.signature::regprocedure);
- IF md5(d)<>f.hash OR position(E'BEGIN\n' in d)=0 THEN RAISE EXCEPTION 'finalized guard owner changed: %',f.signature; END IF;
- d:=overlay(d placing E'BEGIN\n'||$admission$
-  -- Exact owner correction, bound to the committed promo journal and both rows.
-  IF TG_TABLE_NAME='tournaments' AND current_user='postgres'
-    AND OLD.id='f22ceae6-2850-40ef-8f97-7d3660be32a3'::uuid
-    AND OLD.status='RUNNING' AND NEW.status='RUNNING'
-    AND OLD.prize_pool=1742 AND NEW.prize_pool=1830
-    AND OLD.guaranteed_prize=2500 AND NEW.guaranteed_prize=2500
-    AND OLD.bounty_pool=670 AND NEW.bounty_pool=670
-    AND OLD.prize_pool_finalized AND NEW.prize_pool_finalized
-    AND (to_jsonb(NEW)-'prize_pool')=(to_jsonb(OLD)-'prize_pool')
-    AND current_setting('app.owner_net_guarantee_correction',true)=
-      'tourney:f22ceae6-2850-40ef-8f97-7d3660be32a3:owner_net_guarantee_88'
-    AND EXISTS(SELECT 1 FROM public.chip_ledger l
-      WHERE l.idempotency_key=current_setting('app.owner_net_guarantee_correction',true)
-        AND l.tournament_id=OLD.id AND l.category='promo_send' AND l.amount=88
-        AND l.from_type='union_wallet' AND l.from_label='union_wallets.promo_wallet'
-        AND l.from_entity_id='fade0000-0000-0000-0000-000000000001'::uuid
-        AND l.to_type='prize_liability' AND l.to_entity_id=OLD.id
-        AND l.metadata->>'kind'='owner_net_guarantee_88'
-        AND l.metadata->'tournament_before'=to_jsonb(OLD)
-        AND l.metadata->'tournament_after'=to_jsonb(NEW)) THEN
-    RETURN NEW;
-  END IF;
-$admission$ from position(E'BEGIN\n' in d) for 6);
- EXECUTE d;
- END LOOP;
-END $admit$;
+
 DO $credit$
 DECLARE d text;
 BEGIN
