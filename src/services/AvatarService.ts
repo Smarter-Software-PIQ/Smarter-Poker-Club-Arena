@@ -87,6 +87,7 @@ const CUSTOM_AVATARS_BUCKET = 'custom-avatars';
  * that moves affected players onto library art rolls back to if it ever has to.
  */
 
+const CUSTOM_ART_UNLOCK_PREFIX = 'custom-art:';
 const OWNER_UPLOAD_PATH = /^avatars\/free\/owner_([a-f0-9-]{36})_[a-f0-9]{16}\.png$/;
 
 function isOwnUploadedAvatar(url: string, userId: string): boolean {
@@ -284,6 +285,30 @@ class AvatarServiceClass {
     return (await this.getAvatarLibraryResult(userId)).avatars;
   }
 
+  private async _listOperatorAvatarPaths(folder: string, ownerPrefix: string): Promise<string[]> {
+    const bucket = supabase.storage.from(CUSTOM_AVATARS_BUCKET);
+    const paths: string[] = [];
+    const pageSize = 100;
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await bucket.list(folder, {
+        search: ownerPrefix,
+        limit: pageSize,
+        offset,
+        sortBy: { column: 'name', order: 'asc' },
+      });
+      if (error) throw error;
+      for (const object of data ?? []) {
+        if (
+          object.name.startsWith(ownerPrefix) &&
+          /^[a-f0-9]{16}\.png$/.test(object.name.slice(ownerPrefix.length))
+        ) {
+          paths.push(`${folder}/${object.name}`);
+        }
+      }
+      if (!data || data.length < pageSize) return paths;
+    }
+  }
+
   /**
    * The same library, plus whether each source actually answered.
    *
@@ -313,13 +338,19 @@ class AvatarServiceClass {
     }
 
     if (userId) {
-      const [history, saved] = await Promise.allSettled([
+      const [history, saved, uploads, generated] = await Promise.allSettled([
         supabase
           .from('user_avatars')
           .select('id, custom_image_url, custom_prompt')
           .eq('user_id', userId)
           .order('created_at', { ascending: false }),
-        supabase.rpc('fn_my_saved_table_avatars'),
+        supabase
+          .from('avatar_unlocks')
+          .select('avatar_id')
+          .eq('user_id', userId)
+          .eq('unlock_method', 'operator_upload'),
+        this._listOperatorAvatarPaths('avatars/free', `owner_${userId}_`),
+        this._listOperatorAvatarPaths('generated', `${userId}_owner_`),
       ]);
 
       const customUrls = new Set<string>();
@@ -345,14 +376,37 @@ class AvatarServiceClass {
         reportWarning('user_avatars read failed', 'AvatarService.getAvatarLibraryResult');
       }
 
+      const addSavedPath = (path: string) => {
+        const url = path.startsWith('/avatars/table/')
+          ? path
+          : supabase.storage.from(CUSTOM_AVATARS_BUCKET).getPublicUrl(path).data.publicUrl;
+        addCustom(`saved:${path}`, url);
+      };
+
       if (saved.status === 'fulfilled' && !saved.value.error) {
-        for (const { asset_path } of saved.value.data ?? []) {
-          const url = asset_path.startsWith('/avatars/table/')
-            ? asset_path
-            : supabase.storage.from(CUSTOM_AVATARS_BUCKET).getPublicUrl(asset_path).data.publicUrl;
-          addCustom(`saved:${asset_path}`, url);
+        for (const { avatar_id } of saved.value.data ?? []) {
+          if (!avatar_id.startsWith(CUSTOM_ART_UNLOCK_PREFIX)) continue;
+          const path = avatar_id.slice(CUSTOM_ART_UNLOCK_PREFIX.length);
+          if (
+            /^\/avatars\/table\/[a-z0-9_@.-]+\.(?:webp|png)$/.test(path) ||
+            (path.startsWith(`generated/${userId}_`) &&
+              /^[a-z0-9_]+\.png$/.test(path.slice(`generated/${userId}_`.length)))
+          ) {
+            addSavedPath(path);
+          }
         }
-      } else {
+      }
+      for (const listing of [uploads, generated]) {
+        if (listing.status === 'fulfilled') {
+          for (const path of listing.value) addSavedPath(path);
+        }
+      }
+      if (
+        saved.status === 'rejected' ||
+        saved.value.error ||
+        uploads.status === 'rejected' ||
+        generated.status === 'rejected'
+      ) {
         customFailed = true;
         reportWarning('Saved table avatar read failed', 'AvatarService.getAvatarLibraryResult');
       }

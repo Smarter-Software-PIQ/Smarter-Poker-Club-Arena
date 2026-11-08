@@ -1,4 +1,4 @@
--- @live-proof: to_regprocedure('public.fn_my_saved_table_avatars()') IS NOT NULL AND has_function_privilege('authenticated','public.fn_my_saved_table_avatars()','EXECUTE') AND NOT has_function_privilege('anon','public.fn_my_saved_table_avatars()','EXECUTE')
+-- @live-proof: EXISTS (SELECT 1 FROM pg_catalog.pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname = 'Players list their own operator avatar objects' AND cmd = 'SELECT' AND roles = ARRAY['authenticated']::name[])
 -- Save approved published avatar assignments in the existing private ownership
 -- ledger, independently of the single equipped-avatar mirror. The asset paths
 -- come from the verified custom publication map and current assignment readback.
@@ -50,30 +50,4 @@ USING (
   )
 );
 
-CREATE FUNCTION public.fn_my_saved_table_avatars()
-RETURNS TABLE(asset_path text)
-LANGUAGE sql
-STABLE
-SECURITY INVOKER
-SET search_path = ''
-AS $function$
-  SELECT substr(a.avatar_id, length('custom-art:') + 1)
-  FROM public.avatar_unlocks AS a
-  WHERE a.user_id = (SELECT auth.uid())
-    AND a.unlock_method = 'operator_upload'
-    AND a.avatar_id LIKE 'custom-art:%'
-  UNION
-  SELECT o.name
-  FROM storage.objects AS o
-  WHERE o.bucket_id = 'custom-avatars'
-    AND o.owner_id IS NULL
-    AND o.name ~ (
-      '^(avatars/free/owner_' || (SELECT auth.uid())::text ||
-      '_|generated/' || (SELECT auth.uid())::text || '_owner_)[a-f0-9]{16}[.]png$'
-    )
-  ORDER BY 1;
-$function$;
-
-REVOKE ALL ON FUNCTION public.fn_my_saved_table_avatars() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_my_saved_table_avatars() TO authenticated;
 COMMIT;

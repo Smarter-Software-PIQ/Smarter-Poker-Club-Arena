@@ -28,24 +28,33 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const unlockRows = { data: [] as Array<{ avatar_id: string }>, error: null as any };
 const userAvatarRows = { data: [] as any[], error: null as any };
-const savedRows = { data: [] as Array<{ asset_path: string }>, error: null as any };
+const savedRows = { data: [] as Array<{ avatar_id: string }>, error: null as any };
+const storageRows = { data: {} as Record<string, Array<{ name: string }>> };
 const storageRoot = 'https://test.supabase.co/storage/v1/object/public/custom-avatars/';
 const equipped = { url: '' };
 
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
-    rpc: (name: string) => {
-      if (name !== 'fn_my_saved_table_avatars') throw new Error(name);
-      return Promise.resolve(savedRows);
-    },
     storage: {
       from: () => ({
+        list: (folder: string) =>
+          Promise.resolve({ data: storageRows.data[folder] ?? [], error: null }),
         getPublicUrl: (path: string) => ({ data: { publicUrl: storageRoot + path } }),
       }),
     },
     from: (table: string) => {
       if (table === 'avatar_unlocks') {
-        return { select: () => ({ eq: () => Promise.resolve(unlockRows) }) };
+        return {
+          select: () => ({
+            eq: () =>
+              Object.assign(Promise.resolve(unlockRows), {
+                eq: (column: string, method: string) => {
+                  expect([column, method]).toEqual(['unlock_method', 'operator_upload']);
+                  return Promise.resolve(savedRows);
+                },
+              }),
+          }),
+        };
       }
       if (table === 'profiles') {
         return {
@@ -99,6 +108,7 @@ beforeEach(() => {
   userAvatarRows.error = null;
   savedRows.data = [];
   savedRows.error = null;
+  storageRows.data = {};
   equipped.url = '';
   vi.stubGlobal(
     'fetch',
@@ -266,16 +276,24 @@ describe('owner-uploaded table art', () => {
     const assetPath = `avatars/free/owner_${userId}_0123456789abcdef.png`;
     const upload = storageRoot + assetPath;
     const staticArt = '/avatars/table/custom_complete_aabbccddeeff0011@2x.webp';
-    savedRows.data = [{ asset_path: assetPath }, { asset_path: staticArt }];
+    const generated = `${userId}_owner_abcdef0123456789.png`;
+    savedRows.data = [{ avatar_id: 'custom-art:' + staticArt }];
+    storageRows.data = {
+      'avatars/free': [
+        { name: assetPath.split('/').at(-1)! },
+        { name: 'owner_01234567-abcd-1234-1234-123456789abc_0123456789abcdef.png' },
+      ],
+      generated: [{ name: generated }],
+    };
     userAvatarRows.data = [{ id: 'active', custom_image_url: 'https://smarter.poker' + staticArt }];
 
     let gallery = await avatarService.getAvatarLibrary(userId);
-    expect(gallery.filter((avatar) => avatar.category === 'custom')).toHaveLength(2);
+    expect(gallery.filter((avatar) => avatar.category === 'custom')).toHaveLength(3);
     expect(await avatarService.setUserAvatar(userId, '/avatars/table/free_shark@2x.webp')).toBe(
       true
     );
     gallery = await avatarService.getAvatarLibrary(userId);
-    for (const imageUrl of [upload, staticArt]) {
+    for (const imageUrl of [upload, staticArt, storageRoot + 'generated/' + generated]) {
       expect(gallery).toContainEqual(
         expect.objectContaining({ imageUrl, category: 'custom', isOwned: true })
       );
@@ -288,7 +306,7 @@ describe('owner-uploaded table art', () => {
 
   it('retains saved choices when the equipped-avatar mirror cannot be read', async () => {
     const path = '/avatars/table/custom_art.webp';
-    savedRows.data = [{ asset_path: path }];
+    savedRows.data = [{ avatar_id: 'custom-art:' + path }];
     userAvatarRows.error = { code: '42501' };
     const result = await avatarService.getAvatarLibraryResult('u1');
     expect(result.customFailed).toBe(true);
