@@ -17,12 +17,14 @@ name: Stage Exact Club Arena Engine Release
 # 5-6 hours late on 2026-10-30 and 2026-10-31, and not at all on 2026-11-01,
 # so the daily release and the queued window migration never got their
 # window. The preparation now belongs to the 03:30-03:50 America/Chicago
-# window, not to one schedule event: the FIRST push or schedule run of this
+# window, not to one schedule event: the FIRST eligible original run of this
 # workflow created inside that window prepares, once per Chicago date, and
 # every later run in it refuses by name. Four odd-minute schedule entries per
 # DST twin and the constant protected-main pushes are only chances to be that
 # first run; a run outside the window (a late cron) prepares nothing.
 on:
+  repository_dispatch:
+    types: [prepare-daily-engine]
   workflow_dispatch:
     inputs:
       owner_window_id:
@@ -91,7 +93,7 @@ jobs:
 
       # Owner 2026-10-20 explicitly requests daily routine updates. The daily
       # preparation window is 03:30-03:50 America/Chicago (DST aware). The
-      # first push or schedule run of this workflow created inside it owns the
+      # first eligible push, schedule or operator run created inside it owns
       # preparation for that Chicago date; no repair timer, secondary
       # publisher or automatic deadline-emergency exists. Commit-message
       # urgency is not authorization to interrupt live games.
@@ -99,6 +101,7 @@ jobs:
         id: admission
         env:
           EVENT_NAME: ${{ github.event_name }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
           PUSHED_AT: ${{ github.event.repository.pushed_at || '' }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -119,12 +122,12 @@ jobs:
           export PHASE1_ACTIVE PHASE1_RESTORING
           daily_preparation=false
           daily_date=''
-          # When this run came into being: the schedule run's own creation time
-          # (a delayed cron is judged by when it actually arrived, so a run six
+          # Use the provider creation time for a schedule or operator request
+          # (a delayed event is judged by when it actually arrived, so a run six
           # hours late prepares nothing), or the push instant GitHub records in
           # the push payload. Unreadable is simply "not inside the window".
           moment=''
-          if [ "$EVENT_NAME" = schedule ]; then
+          if [ "$EVENT_NAME" = schedule ] || { [ "$EVENT_NAME" = repository_dispatch ] && [ "$SENDER_TYPE" = User ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; }; then
             moment=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq .created_at) || moment=''
           elif [ "$EVENT_NAME" = push ]; then
             moment="${PUSHED_AT:-}"
@@ -158,7 +161,7 @@ jobs:
           fi
           if [ -n "$window" ]; then
             read -r daily_date window_start window_end <<< "$window"
-            # ONCE PER CHICAGO DATE. The first push or schedule run created in
+            # ONCE PER CHICAGO DATE. The first eligible Stage run created in
             # the window owns the preparation; GitHub run ids only increase,
             # so "an earlier run in this window exists" is a lower id. A list
             # that cannot be read is UNKNOWN and prepares nothing (10.86).
@@ -181,7 +184,9 @@ jobs:
                   raise ValueError("run list unreadable")
               earlier = []
               for run in runs:
-                  if run.get("event") not in ("push", "schedule") or run.get("head_branch") != "main":
+                  event = run.get("event")
+                  operator = event == "repository_dispatch" and run["actor"]["type"] == "User"
+                  if (event not in ("push", "schedule") and not operator) or run.get("head_branch") != "main":
                       continue
                   if not (start <= when(run["created_at"]) < end):
                       continue
@@ -298,8 +303,8 @@ jobs:
           # nothing on that basis and says so.
           OFFER_REASON=changed
           SCHEDULED_CYCLE=false
-          if [ "$EVENT_NAME" = schedule ]; then
-            # A scheduled event has no push-before SHA. Always prove the actual
+          if [ "$EVENT_NAME" = schedule ] || [ "$EVENT_NAME" = repository_dispatch ]; then
+            # A preparation event has no push-before SHA. Always prove the actual
             # protected live identity before offering a same-image reset.
             RELEASE_REQUIRED=false
             if python3 server/scripts/engine-release-seal.py schedule-policy --repo . --sha "$AFTER_SHA" | python3 -c 'import json,sys; raise SystemExit(0 if json.load(sys.stdin)["phase1Status"]=="active" else 1)'; then

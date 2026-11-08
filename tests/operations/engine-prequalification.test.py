@@ -84,11 +84,12 @@ class Evidence(unittest.TestCase):
 
 
 class Selection(unittest.TestCase):
-    def verify(self, *, altered=False, duplicate=False, late=False, pending=False):
+    def verify(self, *, altered=False, duplicate=False, late=False, pending=False, event="schedule",
+               sender="User", created="2026-11-08T09:35:00Z", attempt=1):
         repo = "Smarter-Software-PIQ/Smarter-Poker-Club-Arena"
         cutoff = int(datetime(2026, 11, 8, 9, 30, tzinfo=timezone.utc).timestamp())
         qualification = {"targetSha":"a"*40, "controlSha":"b"*40, "qualificationRunId":21}
-        run = dict(id=22, run_attempt=1, event="schedule", head_branch="main", status="in_progress",
+        run = dict(id=22, run_attempt=attempt, event=event, actor={"type":sender}, created_at=created, head_branch="main", status="in_progress",
                    path=".github/workflows/stage-engine-release.yml", head_sha="c"*40,
                    repository={"full_name":repo}, head_repository={"full_name":repo})
         receipt = dict(schema=1, outcome="selected", cutoffEpoch=cutoff+int(late),
@@ -108,6 +109,13 @@ class Selection(unittest.TestCase):
              patch.object(reader, "git", return_value=""), \
              patch.object(reader.subprocess, "check_output", return_value=archive + (b"x" if altered else b"")):
             reader.verify_selection(repo, "22", cutoff, qualification)
+
+    def test_verifies_original_in_window_operator_only(self):
+        self.verify(event="repository_dispatch")
+        for changes in ({"sender":"Bot"}, {"attempt":2}, {"created":"2026-11-08T09:50:00Z"},
+                        {"created":"2026-11-07T09:35:00Z"}):
+            with self.subTest(changes=changes), self.assertRaises(reader.Unqualified):
+                self.verify(event="repository_dispatch", **changes)
 
     def test_verifies_stage_artifact_and_rejects_changed_archive_or_cutoff(self):
         self.verify()
