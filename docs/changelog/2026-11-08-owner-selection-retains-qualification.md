@@ -22,3 +22,8 @@ SHA-512 check, 120-second request bound and all native assertions remain intact;
 no unchecked fallback or retry is added. Focused regression executes the shell
 branch with a synthetic credential and transport refusal, verifies no credential
 is printed, and pins the required caller and checksum-before-extraction contract.
+
+The accounting workflow projection and its existing ten source bindings retain
+the reviewed one-line token environment change, with nested binding hashes
+updated and source-only audit notes. No historical execution or financial
+qualification result is restamped.
