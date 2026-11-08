@@ -29,3 +29,11 @@ it('preserves operator cancellation and records only the timeout function and li
   expect(handler).toContain("'timeout_line',v_timeout_frame[2]");
   expect(handler.split('v_scope_error:=')[1]).not.toContain('v_context');
 });
+
+it('moves the weekly payout eligibility pin to the changed coordinator in the same transaction', () => {
+  expect(migration).toContain(
+    'EXECUTE replace(payout_eligibility, old_coordinator_hash, new_coordinator_hash)'
+  );
+  expect(migration).toContain('WEEKLY_PAYOUT_ELIGIBILITY_PREIMAGE_CHANGED');
+  expect(migration).not.toContain('@stale-pin-ok');
+});
