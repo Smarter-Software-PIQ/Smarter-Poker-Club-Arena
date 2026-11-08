@@ -80,7 +80,7 @@ class DailySelection(unittest.TestCase):
         with (patch.object(mod, 'git', side_effect=[newest+'\\n'+old, serving]),
               patch.object(mod, 'current_schema', return_value=True),
               patch.object(mod, 'statuses', return_value=[(newest, {}), (old, {})]),
-              patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving,
+              patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving, 'playerReconnectedBothDirections': True,
                                                        'rollbackAdoptionSeconds': 135, 'forwardAdoptionSeconds': 7}) as backup,
               patch.object(mod.subprocess, 'run', return_value=mod.subprocess.CompletedProcess([], 2))):
             with self.assertRaises(mod.subprocess.CalledProcessError):
@@ -90,9 +90,11 @@ class DailySelection(unittest.TestCase):
     def test_selection_defers_unrehearsed_or_over_budget_rollback(self):
         newest, serving = 'b' * 40, 'c' * 40
         args = types.SimpleNamespace(repo='o/r', control=newest, serving=serving)
-        for predecessor, duration in [(newest, 1), (serving, 136), (serving, None)]:
+        for predecessor, duration, reconnected in [(newest, 1, True), (serving, 136, True),
+                                                 (serving, None, True), (serving, 5, False)]:
             report = {'cutoffEpoch': 1, 'deferredCandidates': []}
-            evidence = dict(rehearsedServingSha=predecessor, rollbackAdoptionSeconds=duration,
+            evidence = dict(playerReconnectedBothDirections=reconnected,
+                            rehearsedServingSha=predecessor, rollbackAdoptionSeconds=duration,
                             forwardAdoptionSeconds=3)
             with (patch.object(mod, 'git', side_effect=[newest, serving]),
                   patch.object(mod, 'statuses', return_value=[(newest, {})]),
@@ -111,7 +113,7 @@ class DailySelection(unittest.TestCase):
         with (patch.object(mod, 'git', side_effect=[newest+'\n'+old, serving]),
               patch.object(mod, 'current_schema', return_value=True),
               patch.object(mod, 'statuses', return_value=[(newest, {}), (old, {})]),
-              patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving,
+              patch.object(mod, 'backup', return_value={'runId': 123, 'rehearsedServingSha': serving, 'playerReconnectedBothDirections': True,
                                                        'rollbackAdoptionSeconds': 135, 'forwardAdoptionSeconds': 7}),
               patch.object(mod.subprocess, 'run', side_effect=processes)):
             mod.select(args, report)
