@@ -470,7 +470,7 @@ cmd_certify() {
 import json, sys, time
 doc = {"schema": "club-arena-standby-certificate/v1", "sha": "$sha", "verdict": "$verdict",
        "reasons": $reasons_json, "certifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-       "rehearsedServingSha": "$serving", "rollbackAdoptionSeconds": $rollback_seconds, "forwardAdoptionSeconds": $forward_seconds,
+       "rehearsedServingSha": "$serving", "rollbackAdoptionSeconds": json.loads("$rollback_seconds"), "forwardAdoptionSeconds": json.loads("$forward_seconds"),
        "bootSeconds": ${boot1:--1}, "crashRecoverySeconds": ${boot2:--1}, "soakSeconds": $soak, "restartPolicy": "unless-stopped", "crashRestartsBefore": ${restart_before:--1}, "crashRestartsAfter": ${restart_after:--1},
        "standbyScriptSha256": "$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)",
        "memoryStart": "${rss0:-}", "memoryEnd": "${rss1:-}", "fatalLogLines": $fatals, "peakHandsInWindow": ${dealt:-0},
