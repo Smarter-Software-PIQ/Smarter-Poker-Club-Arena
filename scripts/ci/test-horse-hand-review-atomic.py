@@ -517,10 +517,13 @@ def main():
                  arithmetic_equivalence)
 
             # ══ Receipt retention: 20261008041150 ═══════════════════════════
-            # Everything above qualified 20261007020953 alone. The cases below
-            # apply the retention migration, unchanged, over that state and prove
-            # the replay contract survives bounded pruning. Every time is taken
-            # from the cluster clock, so the cases never age.
+            # A–J use fixed UTC dates to prove exact publication arithmetic and
+            # intentionally leave orphan receipts. Start the retention cohort
+            # empty so those receipts cannot age into its global prune counts.
+            # R0 creates genuine pre-migration receipts before installing retention.
+            sql("""TRUNCATE public.horse_hand_review_receipts, public.horse_hand_reviews,
+                            public.horse_review_rollup;""")
+
             def at(days, minutes=0):
                 return sql(f"""SELECT to_char((now() - interval '{days} days' - interval '{minutes} minutes')
                                AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');""")
