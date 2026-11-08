@@ -91,6 +91,15 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
+it('recovers the same seated session across two actual WebSocket connections', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['--test', root('server/standby/player-reconnect.test.mjs')],
+    { encoding: 'utf8' }
+  );
+  expect(result.status, result.stderr + result.stdout).toBe(0);
+});
+
 const STANDBY = 'server/standby/standby-engine.sh';
 function standbyShell(body: string, files: Record<string, unknown> = {}) {
   const dir = mkdtempSync(resolve(tmpdir(), 'standby-regression-'));
@@ -690,9 +699,9 @@ describe('standby adoption authority and timing', () => {
           sha='${sha}'; verdict=pass
           record() { echo "$1"; verdict=fail; }
           curl() { echo '{"releaseSha":"${serving}"}'; }
-          unset -f trial_swap || :
+          unset -f certified_player_swap || :
           if [ '${mode}' = different ] || [ '${mode}' = rollback-failed ] || [ '${mode}' = slow-rollback ]; then
-            trial_swap() { SWAP_ADOPTION_SECONDS=5; [ '${mode}' != slow-rollback ] || SWAP_ADOPTION_SECONDS=136; echo "$1->$2" >&2; [ '${mode}' != rollback-failed ]; }
+            certified_player_swap() { SWAP_ADOPTION_SECONDS=5; [ '${mode}' != slow-rollback ] || SWAP_ADOPTION_SECONDS=136; echo "$1->$2" >&2; [ '${mode}' != rollback-failed ]; }
           fi
           ${gate}
           [ "$verdict" = pass ]

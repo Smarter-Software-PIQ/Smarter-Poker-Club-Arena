@@ -81,6 +81,7 @@ def backup(repo, sha, limit, status):
         raise ValueError('successful Backup run conflicts with certificate contents')
     return {'runId': run['id'], 'attempt': run['run_attempt'], 'artifactId': matches[0]['id'], 'producerSha': producer,
             'rehearsedServingSha': cert.get('rehearsedServingSha'),
+            'playerReconnectedBothDirections': cert.get('playerReconnectedBothDirections'),
             'rollbackAdoptionSeconds': cert.get('rollbackAdoptionSeconds'),
             'forwardAdoptionSeconds': cert.get('forwardAdoptionSeconds'),
             'certifiedAt': cert['certifiedAt'], 'database': db, 'seed': seed, 'compatibility': compat}
@@ -146,7 +147,8 @@ def select(args, report):
                 continue
             rollback = evidence.get('rollbackAdoptionSeconds')
             forward = evidence.get('forwardAdoptionSeconds')
-            if (evidence.get('rehearsedServingSha') != args.serving
+            if (evidence.get('playerReconnectedBothDirections') is not True
+                    or evidence.get('rehearsedServingSha') != args.serving
                     or type(rollback) is not int or not 0 <= rollback <= 135
                     or type(forward) is not int or forward < 0):
                 report['deferredCandidates'].append({'sha': sha, 'reason': 'serving rollback rehearsal unavailable'})

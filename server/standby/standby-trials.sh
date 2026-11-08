@@ -335,6 +335,45 @@ trial_break() {
   trial_verdict break "$v" ",\"sha\":\"$sha\",\"secondsToFreeze\":$(trial_elapsed "$t0" "${frozen_at:-}"),\"secondsFrozen\":$(trial_elapsed "${frozen_at:-}" "${thaw_at:-}"),\"unparkedAtFreeze\":\"${unparked}\",\"frozenSeatBoundary\":$seats_before,\"lastVerifiedFrozenSnapshot\":$FROZEN_SEATS_LAST,\"rejectedSeatObservation\":${FROZEN_SEATS_REJECTION:-null},\"reasons\":\"${reasons#,}\""
 }
 
+start_player_witness() {
+  local from=$1 to=$2 row table user seat script=/usr/local/share/club-arena-standby/player-reconnect.mjs
+  row=$(psql_db -Atc "select s.table_id,s.user_id,s.seat_number from public.table_seats s join public.profiles p on p.id=s.user_id where p.is_horse and s.left_at is null and exists (select from public.hand_history h where h.table_id=s.table_id and h.created_at > now()-interval '5 minutes') order by s.table_id,s.seat_number limit 1") || return 1
+  IFS='|' read -r table user seat <<< "$row"
+  [[ "$table" =~ ^[a-f0-9-]{36}$ && "$user" =~ ^[a-f0-9-]{36}$ && "$seat" =~ ^[0-9]+$ ]] || return 1
+  # The signer stays inside the current isolated engine. Its client's only
+  # credential is the normal player session passed over stdin.
+  (
+    set -o pipefail
+    docker exec -i "$CONTAINER" node --input-type=module - session "$table" "$user" < "$script" |
+      docker run --rm -i --name "$witness_name" --network "$NETWORK" --read-only --cap-drop ALL \
+        --user "$(id -u):$(id -g)" --mount "type=bind,source=$script,target=/probe.mjs,readonly" \
+        --mount "type=bind,source=$witness_dir,target=/proof" --entrypoint node "$IMAGE_REPO:$from" \
+        /probe.mjs witness "$table" "$user" "$seat" "$from" "$to"
+  ) > "$witness_dir/verdict" &
+  witness_pid=$!
+  local end=$((SECONDS + 45))
+  until [ -f "$witness_dir/connected" ]; do
+    kill -0 "$witness_pid" 2>/dev/null && (( SECONDS < end )) || return 1
+    sleep 1
+  done
+}
+
+certified_player_swap() {
+  local witness_dir witness_name witness_pid='' result=1
+  witness_dir=$(mktemp -d "$STATE_DIR/player-proof.XXXXXXXX") || return 1
+  witness_name="standby-${witness_dir##*/}"
+  if trial_swap "$1" "$2" && wait "$witness_pid"; then
+    cat "$witness_dir/verdict" >&2
+    result=0
+  fi
+  if [ -n "$witness_pid" ]; then
+    docker rm -f "$witness_name" >/dev/null 2>&1 || true
+    wait "$witness_pid" 2>/dev/null || true
+  fi
+  rm -rf -- "$witness_dir"
+  return "$result"
+}
+
 trial_swap() {
   local from="$1" to="$2" t0 frozen_at stop_at live_at thaw_at reasons=""
   valid_sha "$from"; valid_sha "$to"
@@ -342,6 +381,9 @@ trial_swap() {
   wait_live 600 >/dev/null || { trial_verdict swap fail ',"reason":"from_never_live"'; return 1; }
   wait_pretrial_dealing "$from" || { trial_verdict swap fail ',"reason":"from_never_dealt"'; return 1; }
   cmd_build "$to" >/dev/null || { trial_verdict swap fail ',"reason":"to_build_failed"'; return 1; }
+  if [ -n "${witness_dir:-}" ]; then
+    start_player_witness "$from" "$to" || { trial_verdict swap fail ',"reason":"player_session_unavailable"'; return 1; }
+  fi
   local seats_before count_before post_boot seat_owner target_id adoption_state
   t0=$(date +%s)
   request_break >/dev/null || { trial_verdict swap fail ',"reason":"break_request_refused"'; return 1; }

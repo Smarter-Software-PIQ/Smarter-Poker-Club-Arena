@@ -227,7 +227,7 @@ the verdict on the exact commit"). Readers, newest status first:
   from the owed SHA (60 commits) and offers the newest `success`;
 - `auto-deploy-hetzner.yml` step `backup_certificate` refuses any request
   whose SHA is not `success`;
-- the host transaction re-reads it at line 3284 (before the cycle) and line
+- the host transaction re-reads it at line 3284 (before the cycle), line 3817 (before preparation) and line
   3873 (before the replacement).
 
 Read it yourself:
