@@ -403,6 +403,57 @@ groups:
           description: 'The fleet normally runs ~856 an hour. The collector is fresh, so this is the scheduler, not the gauge.'
           runbook: 'docs/changelog/2026-09-11-fifteen-rules-were-watching-thirteen-metrics-that-did-not-exist.md'
 
+      # A JOB FAILING EVERY RUN IS NAMED (2026-11-07). sp_prune_hand_history_10m
+      # failed on every run from 19:56 UTC; PgCronFailuresElevated above said
+      # only "103 pg_cron failures in the last hour". These name the job.
+      # fn_cron_failing_jobs already requires a streak of >= 3 failed runs for
+      # >= 10 minutes (or 18 of the last 20 over >= 10 minutes), so a single
+      # transient failure never appears. A guard job is critical; any other
+      # job is a warning. They read failing_of_last_20, present for every named
+      # job: a job named by 18 of its last 20 can have a current streak of 0.
+      # keep_firing_for holds a job that recovers for a few
+      # minutes and fails again as ONE episode (job 117 did, 21:18-21:23).
+      - alert: PgCronJobFailingRepeatedly
+        expr: |
+          max by (jobname) (poker_cron_job_failing_of_last_20{guard="false"}) > 0
+          unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
+        for: 2m
+        keep_firing_for: 15m
+        labels:
+          severity: warning
+          component: cron
+        annotations:
+          summary: 'pg_cron job {{ $labels.jobname }} is failing repeatedly ({{ $value }} of its last 20 runs failed)'
+          description: "SELECT * FROM public.fn_cron_failing_jobs(); then SELECT status, return_message, start_time FROM cron.job_run_details d JOIN cron.job j USING (jobid) WHERE j.jobname = '{{ $labels.jobname }}' ORDER BY runid DESC LIMIT 20."
+          runbook: 'docs/runbooks/cron-job-failing-repeatedly.md'
+
+      - alert: PgCronGuardJobFailingRepeatedly
+        expr: |
+          max by (jobname) (poker_cron_job_failing_of_last_20{guard="true"}) > 0
+          unless on() max_over_time(poker_maintenance_break_active[6m]) == 1
+        for: 2m
+        keep_firing_for: 15m
+        labels:
+          severity: critical
+          component: cron
+        annotations:
+          summary: 'Guard job {{ $labels.jobname }} is failing repeatedly ({{ $value }} of its last 20 runs failed)'
+          description: 'A job listed in ca_guard_inventory is not doing its work. SELECT * FROM public.fn_cron_failing_jobs().'
+          runbook: 'docs/runbooks/cron-job-failing-repeatedly.md'
+
+      - alert: CronFailingJobsBlind
+        expr: |
+          max_over_time(poker_cron_failing_collect_ok[30m]) == 0
+          and poker_cron_metrics_stale_seconds < 300
+        for: 5m
+        labels:
+          severity: warning
+          component: cron
+        annotations:
+          summary: 'The repeatedly-failing pg_cron job read has failed for 30 minutes'
+          description: 'collect-monitoring-health.sh could not read public.fn_cron_failing_jobs(), so a job failing every run cannot be named. The fleet gauges are still being collected.'
+          runbook: 'docs/runbooks/cron-job-failing-repeatedly.md'
+
       - alert: CronMetricsBlind
         expr: |
           (

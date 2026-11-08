@@ -1,0 +1,3 @@
+# tests/a-job-failing-every-run-is-named.law.test.ts
+
+Dan, 2026-11-07: a pg_cron job failing run after run is named within ten minutes. One rule, `public.fn_cron_failing_jobs()` (at least 3 consecutive failed runs for at least 10 minutes, or 18 of the last 20 runs over at least 10 minutes), is read by the per-job watch `fn_ca_cron_failure_watch` and by the monitoring collector, which emits `poker_cron_job_failing_streak{jobname,guard}` for `PgCronJobFailingRepeatedly` (warning) and `PgCronGuardJobFailingRepeatedly` (critical). A single transient failure never qualifies; behaviour is proved on PostgreSQL 17 by `scripts/ci/test-cron-failing-jobs.py`.

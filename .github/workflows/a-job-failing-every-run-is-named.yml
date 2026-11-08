@@ -1,0 +1,41 @@
+name: A job failing every run is named
+
+# fn_cron_failing_jobs and fn_ca_cron_failure_watch (migration
+# 20261108020000) plus the collector's labelled cron series. Runs
+# scripts/ci/test-cron-failing-jobs.py against a throwaway PostgreSQL 17
+# cluster, never production: a job failing run after run is named within ten
+# minutes, a transient failure never is, sporadic successes do not hide a job
+# that is mostly failing, the watch raises the streak once a day per job, and
+# only service_role can read it. Kept in its own file so the change does not
+# edit ci.yml (whose accounting job is a pinned qualification input). No timer
+# (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261108020000_a_job_failing_every_run_is_named.sql
+      - scripts/ci/test-cron-failing-jobs.py
+      - server/scripts/collect-monitoring-health.sh
+      - .github/workflows/a-job-failing-every-run-is-named.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: a-job-failing-every-run-is-named-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  a-job-failing-every-run-is-named:
+    name: A job failing every run is named
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: A job failing every run is named
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-cron-failing-jobs.py --output "$GITHUB_WORKSPACE/artifacts/cron-failing-jobs"
