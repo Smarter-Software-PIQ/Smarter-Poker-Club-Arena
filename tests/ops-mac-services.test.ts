@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
+import { execFileSync } from 'child_process';
 
 const dir = 'operations/ops-mac';
 const read = (f: string) => fs.readFileSync(`${dir}/${f}`, 'utf8');
@@ -23,6 +24,23 @@ describe('operations Mac services', () => {
   it('installs and reads back outside the :44 to :05 UTC break', () => {
     expect(driver).toMatch(/-ge 44 \] \|\| \[ "\$M" -lt 5 \]/);
     expect(queue).toMatch(/wait_window {2}# the readback re-executes definitions/);
+  });
+  it('reads back a migration that creates new routines with plain CREATE and patches others in DO blocks', () => {
+    // 20261107224538 (2026-11-08): five plain CREATE FUNCTION helpers plus DO-block
+    // patches. Replayed verbatim, the first CREATE hit "already exists", aborted the
+    // rolled-back transaction and the queue marked a correct install failed.
+    const out = execFileSync(
+      'python3',
+      [`${dir}/readback.py`, 'tests/fixtures/ops-mac-readback/plain-create-and-patch.sql'],
+      { encoding: 'utf8' }
+    );
+    expect(out).toContain('CREATE OR REPLACE FUNCTION public.fn_new_helper(p_version text)');
+    expect(out).toContain('CREATE OR REPLACE FUNCTION public.fn_existing(p int)');
+    expect(out).not.toMatch(/^CREATE FUNCTION/m);
+    // A CREATE quoted inside a DO block is not a top-level statement to replay.
+    expect(out).not.toContain('fn_patched');
+    expect(out).toContain("ARRAY['public.fn_existing','public.fn_new_helper']");
+    expect(out.trim().split('\n').at(-1)).toMatch(/^SELECT 'liveproof', \(/);
   });
   it('alerts on a failed job and on a stopped queue', () => {
     expect(queue).toContain('InstallQueueJobFailed');
