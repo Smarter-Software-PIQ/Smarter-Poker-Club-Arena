@@ -233,16 +233,26 @@ describe('the desktop board prints the note after the style word', () => {
         />
       </MemoryRouter>
     );
-    for (const note of [ACTION_NOTE, MADNESS_NOTE]) {
-      for (const phrase of note.split(/,\s*/)) {
-        const lines = screen.getAllByTitle(phrase);
-        expect(lines.length).toBeGreaterThan(0);
-        for (const line of lines) {
-          expect(line).toHaveTextContent(phrase.replace(/\bMinimum\b/g, 'Min'));
-          expect(line.closest('.premium-cash-style')).not.toBeNull();
-        }
-      }
+    /* Dan 2026-11-08: a Lightning game's style bay says just "Lightning",
+       and its rules print as the second line under the title:
+       "BIG BLIND ANTE - 40% MIN VPIP". */
+    const titleLine = MADNESS_NOTE.split(/,\s*/)
+      .map((part) => part.replace(/\bMinimum\b/g, 'Min'))
+      .join(' - ');
+    for (const id of ['a', 'm']) {
+      const heading = document.querySelector(`tr[data-game-heading="${id}"]`);
+      expect(heading?.querySelector('.lt-tournament-heading__format')?.textContent).toBe(
+        titleLine
+      );
+      const style = document.querySelector(`tr[data-id="${id}"] .premium-cash-style`);
+      expect(style?.textContent).toBe('Lightning');
+      expect(style?.classList.contains('premium-cash-style--single')).toBe(true);
     }
+    const classic = document.querySelector('tr[data-id="c"] .premium-cash-style');
+    expect(classic?.textContent).toBe('Classic');
+    expect(
+      document.querySelector('tr[data-game-heading="c"] .lt-tournament-heading__format')
+    ).toBeNull();
     expect(screen.queryByText(/No Antes, No Bombs/)).toBeNull();
   });
 });

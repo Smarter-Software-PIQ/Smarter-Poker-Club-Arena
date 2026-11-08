@@ -472,10 +472,17 @@
 }
 /* Decimal stakes must fit their own painted bay, including both blinds.
    The shared fitter measures this inset zone after fonts and bay resizing. */
+/* Dan 2026-11-08: "STAKES SHOULD BE AT THE SAME HEIGHT AS 'PLAYERS' NEXT TO
+   IT AND BOTH THE LETTERS AND NUMBERS SHOULD BE LINED UP THE SAME." The zone
+   keeps the full-size value line box, so a shrunk "0.25/0.50" centres on the
+   same midline as the players count instead of dropping the label. */
 .has-premium-chassis .premium-cash-stakes-zone {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: calc(100% - 8px);
   min-width: 0;
+  height: calc(clamp(12px, 4cqw, 28px) * 1.05);
 }
 .has-premium-chassis .premium-cash-stakes-value {
   display: block;
@@ -489,9 +496,6 @@
 }
 .has-premium-chassis [data-label='Buy-In'] .premium-cash-stakes-value {
   font-size: max(12px, calc(clamp(12px, 4cqw, 28px) * var(--fit, 1)));
-}
-.has-premium-chassis tbody tr[data-id] > td[data-label='Stakes'] {
-  padding-bottom: 1cqw !important;
 }
 .has-premium-chassis tr[data-kind='mtt'] .compact-lobby__meta {
   display: none;
@@ -704,6 +708,13 @@
   width: 100%;
   font-size: calc(clamp(12px, 2.6cqw, 22px) * var(--fit, 1));
   white-space: nowrap;
+}
+/* Dan 2026-11-08: "IF ITS JUST 'CLASSIC' CLASSIC SHOULD FIT IN THAT WHOLE
+   SPACE." One word prints at the value size of the bays beside it; the fitter
+   shrinks it only if the glass is narrower than the word. */
+.has-premium-chassis tbody tr[data-id] .premium-cash-style--single > span {
+  font-size: calc(clamp(14px, 4.6cqw, 34px) * var(--fit, 1));
+  line-height: 1;
 }
 /* The native glass is shorter than the full raster crop (which includes
    its lower rim). Center three readable lines in that glass, not the crop. */
