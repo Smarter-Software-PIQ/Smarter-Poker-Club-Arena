@@ -1,9 +1,9 @@
 /**
- * Dan 2026-11-06: "IT LOOKS FAKE WHEN THERE ARE THE EXACT MAX AMOUNT OF PLAYERS
- * ON EVERY GAME, AND ZERO PLAYERS ON THE WAITING LIST."
+ * Dan 2026-11-08: "STATUS SHOULD JUST SAY HOW MANY TABLES NOT 'WAITLIST 3'
+ * UNDER IT." (Replaces the 2026-11-06/07 labels that printed the list.)
  *
- * A running must-move game names its list, then a second table. The status
- * KEY stays 'running' so the card keeps the game's own Join Game door (which
+ * A running must-move game's status names its tables only. The status KEY
+ * stays 'running' so the card keeps the game's own Join Game door (which
  * queues the player on the game list) instead of the single-table waitlist.
  */
 import { describe, it, expect } from 'vitest';
@@ -12,24 +12,33 @@ import { resolve } from 'node:path';
 import { clusterRunningStatus } from '../src/components/lobby/lobbyEntries';
 import { premiumStatusBadge } from '../src/components/lobby/game-cards/premiumStatus';
 
-describe('a running game shows its waiting list and its tables', () => {
-  it('names the list first, then a second table, else Running', () => {
-    expect(clusterRunningStatus(1, 3)).toEqual({ key: 'running', label: 'Waitlist 3' });
-    expect(clusterRunningStatus(2, 2)).toEqual({ key: 'running', label: '2 Tables · Waitlist 2' });
+describe('a running game status says how many tables, never the list', () => {
+  it('names a second table, else Running, whatever the list holds', () => {
+    expect(clusterRunningStatus(1, 3)).toEqual({ key: 'running', label: 'Running' });
+    expect(clusterRunningStatus(2, 2)).toEqual({ key: 'running', label: '2 Tables' });
+    expect(clusterRunningStatus(13, 4)).toEqual({ key: 'running', label: '13 Tables' });
     expect(clusterRunningStatus(2, 0)).toEqual({ key: 'running', label: '2 Tables' });
     expect(clusterRunningStatus(1, 0)).toEqual({ key: 'running', label: 'Running' });
   });
 
-  it('the card prints those labels rather than a flat Running', () => {
-    expect(premiumStatusBadge({ status: 'running', statusLabel: 'Waitlist 3' }).label).toBe(
-      'Waitlist 3'
-    );
+  it('never prints a waitlist in a running status', () => {
+    for (const tables of [1, 2, 9]) {
+      for (const waiting of [0, 1, 3, 12]) {
+        expect(clusterRunningStatus(tables, waiting).label).not.toMatch(/Waitlist/i);
+      }
+    }
+  });
+
+  it('the card prints the table count rather than a flat Running', () => {
     expect(premiumStatusBadge({ status: 'running', statusLabel: '2 Tables' }).label).toBe(
       '2 Tables'
     );
     expect(
       premiumStatusBadge({ status: 'running', statusLabel: '2 Tables · Waitlist 4' }).label
-    ).toBe('2 Tables · Waitlist 4');
+    ).toBe('Running');
+    expect(premiumStatusBadge({ status: 'running', statusLabel: 'Waitlist 3' }).label).toBe(
+      'Running'
+    );
     expect(premiumStatusBadge({ status: 'running', statusLabel: 'anything' }).label).toBe(
       'Running'
     );
