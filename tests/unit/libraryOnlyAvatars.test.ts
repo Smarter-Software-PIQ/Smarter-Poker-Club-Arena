@@ -99,7 +99,9 @@ describe('library-only avatar guard', () => {
     // Guarding first would reject the very paths the Hub sends.
     const service = CA('src/services/AvatarService.ts');
     const normalise = service.indexOf('avatarUrl = normalizeAvatarUrl(avatarUrl)');
-    const guard = service.indexOf('if (!isLibraryAvatarUrl(avatarUrl))');
+    const guard = service.indexOf(
+      'if (!isLibraryAvatarUrl(avatarUrl) && !isOwnUploadedAvatar(avatarUrl, userId))'
+    );
     expect(normalise).toBeGreaterThan(-1);
     expect(guard).toBeGreaterThan(-1);
     expect(guard, 'guard must run after normalisation').toBeGreaterThan(normalise);
