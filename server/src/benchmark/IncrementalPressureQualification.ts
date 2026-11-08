@@ -626,23 +626,46 @@ export async function authenticateIncrementalPlan(
   }
   if (git('ls-files', '--others', 'server/src', 'server/scripts', '.github/workflows'))
     throw Error('Incremental untracked executable source');
-  // Full executable source closure prevents a plan from omitting a changed helper.
-  const sourceFiles = git('ls-files', 'server/src')
-    .split('\n')
-    .filter(
-      (p) =>
-        /\.(?:ts|json)$/.test(p) &&
-        !/\.(?:test|spec)\.ts$/.test(p) &&
-        !/Qualification(?:Plans|Families)\.json$/.test(p)
-    );
-  for (const path of sourceFiles) {
-    const relative = path.slice('server/'.length);
+  const serverFile = (relative: string) =>
+    readFileSync(fileURLToPath(new URL('../../../server/' + relative, import.meta.url)));
+  if (plan.sourceBinding !== undefined) {
+    // Decision-closure binding: the plan holds exactly the closure recomputed
+    // from the tracked bytes at this revision, and every one of them matches.
+    const { featureAuthorityClosure } = await import('../engine/HorseFeatureAuthority.js');
+    const tracked = new Set(git('ls-files', 'server').split('\n'));
+    const closure = featureAuthorityClosure((relative) => {
+      if (!tracked.has('server/' + relative)) throw Error('untracked');
+      return serverFile(relative);
+    });
     if (
-      createHash('sha256')
-        .update(readFileSync(fileURLToPath(new URL('../../../' + path, import.meta.url))))
-        .digest('hex') !== plan.runtimeSourceFiles[relative]
+      plan.sourceBinding !== 'horse-decision-closure-v1' ||
+      JSON.stringify(closure) !== JSON.stringify(Object.keys(plan.runtimeSourceFiles).sort())
     )
-      throw Error('Incremental full source closure changed');
+      throw Error('Incremental decision closure changed');
+    for (const relative of closure)
+      if (
+        createHash('sha256').update(serverFile(relative)).digest('hex') !==
+        plan.runtimeSourceFiles[relative]
+      )
+        throw Error('Incremental decision closure changed');
+  } else {
+    // Full executable source closure prevents a plan from omitting a changed helper.
+    const sourceFiles = git('ls-files', 'server/src')
+      .split('\n')
+      .filter(
+        (p) =>
+          /\.(?:ts|json)$/.test(p) &&
+          !/\.(?:test|spec)\.ts$/.test(p) &&
+          !/Qualification(?:Plans|Families)\.json$/.test(p)
+      );
+    for (const path of sourceFiles) {
+      const relative = path.slice('server/'.length);
+      if (
+        createHash('sha256').update(serverFile(relative)).digest('hex') !==
+        plan.runtimeSourceFiles[relative]
+      )
+        throw Error('Incremental full source closure changed');
+    }
   }
   return {
     protectedPlanCommit: commit,

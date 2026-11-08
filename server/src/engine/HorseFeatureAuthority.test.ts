@@ -19,7 +19,9 @@ import {
 import {
   admitHorseFeatureAuthority,
   admittedHorseFeatureFlags,
+  featureAuthorityClosure,
   featureDomainMatches,
+  horseFeatureDomainVerdict,
   horseFeatureAcceptanceUsable,
   HORSE_FEATURE_AUTHORITY_VERSION,
   type HorseFeatureDomain,
@@ -32,6 +34,9 @@ import {
 import { horsePlanPolicyGenerationFromDecision } from './HorsePlanEffectReceipt.js';
 import type { HorseDecision } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
+import { featureLiveDomainRefusals } from './HorseFeatureLiveDomain.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 const hash = (x: unknown) =>
   createHash('sha256')
     .update(JSON.stringify(canonical(x)))
@@ -309,9 +314,15 @@ describe('feature authority connected admission and receipt', () => {
     // Fixture assembler variant is updated by the fixture builder below.
     const a = f.admit();
     expect(a.status).toBe('admitted');
-    for (const admitted of [false, true]) {
+    for (const [admitted, outside] of [
+      [false, false],
+      [true, false],
+      [true, true],
+    ]) {
       const seen: any[] = [];
+      const fires: string[] = [];
       const h = workerHarness({
+        noteFeature: (k) => fires.push(k),
         admitFeatureAuthority: () =>
           admitted ? a : { status: 'refused', reason: 'unselected', transient: false },
         decide: (_p, _g, _s, _m, o) => {
@@ -362,12 +373,20 @@ describe('feature authority connected admission and receipt', () => {
           tableSeats: 6,
           seats: 2,
         }).bbjConfig;
+        // Outside the admitted domain: a 300bb table is not the measured 100bb profile.
+        if (outside) r.gameState.players.forEach((p) => (p.stack = 594));
+        if (outside) r.player.stack = 594;
         r.decisionKey = buildHorseDecisionKey(r);
         const result = await h.fast(r);
-        expect(seen.at(-1).comboDrawPressure).toBe(admitted);
+        const applied = admitted && !outside;
+        expect(seen.at(-1).comboDrawPressure).toBe(applied);
         expect(seen.at(-1).multiwayRiverBluffCheckRaise).toBe(false);
-        expect(!!result.decision.featureAuthority).toBe(admitted);
-        expect(!!(h.captures.at(-1)?.decision as HorseDecision).featureAuthority).toBe(admitted);
+        expect(!!result.decision.featureAuthority).toBe(applied);
+        expect(!!(h.captures.at(-1)?.decision as HorseDecision).featureAuthority).toBe(applied);
+        expect(fires.includes('horse_feature_authority_admitted_in_domain')).toBe(applied);
+        expect(fires.includes('horse_feature_authority_outside_admitted_domain')).toBe(
+          admitted && outside
+        );
       } finally {
         await h.close();
       }
@@ -461,5 +480,173 @@ describe('feature authority connected admission and receipt', () => {
     expect(f.admit({ ...f.selection, expiresAt: new Date(now - 1).toISOString() }).status).toBe(
       'refused'
     );
+  });
+});
+
+describe('domain-scoped selection (2026-11-08)', () => {
+  const scope = (variant = 'plo4', dealtSeats = 2, stackBB = 100) => ({
+    schema: 'horse-feature-admitted-domain-v1',
+    variant,
+    dealtSeats,
+    stackBB,
+  });
+  it('admits inside its admitted domain and refuses outside with outside_admitted_domain', () => {
+    const a = fixture((_q, p) => (p.admittedDomain = scope())).admit();
+    expect(a.status).toBe('admitted');
+    if (a.status !== 'admitted') throw Error();
+    const inside = horseFeatureDomainVerdict(a.authority, true, state(), {});
+    expect(inside.status).toBe('admitted');
+    expect(inside.flags.comboDrawPressure).toBe(true);
+    const threeHanded = {
+      ...state(),
+      dealtSeatIds: [0, 1, 2],
+      players: [0, 1, 2].map((seat) => ({
+        seat,
+        stack: 200,
+        bet: 0,
+        totalInvested: 0,
+        is_folded: false,
+      })),
+    } as unknown as HorseGameStateV2;
+    const deep = {
+      ...state(),
+      players: state().players.map((p) => ({ ...p, stack: 400 })),
+    } as unknown as HorseGameStateV2;
+    const otherVariant = {
+      ...state(),
+      gameVariant: 'nlh',
+      bettingStructure: 'no_limit',
+    } as unknown as HorseGameStateV2;
+    for (const gs of [threeHanded, deep, otherVariant]) {
+      const v = horseFeatureDomainVerdict(a.authority, true, gs, {});
+      expect(v).toMatchObject({ status: 'refused', reason: 'outside_admitted_domain' });
+      expect(Object.values(v.flags).some(Boolean)).toBe(false);
+    }
+    expect(horseFeatureDomainVerdict(a.authority, false, state(), {})).toMatchObject({
+      status: 'refused',
+      reason: 'unusable',
+    });
+    expect(
+      horseFeatureDomainVerdict(a.authority, true, state(), { comboDrawPressure: false })
+    ).toMatchObject({ status: 'refused', reason: 'partial_disable' });
+    expect(horseFeatureDomainVerdict(null, true, state(), {})).toMatchObject({
+      status: 'refused',
+      reason: 'no_authority',
+    });
+  });
+  it('refuses a selection whose admitted domain is not the live profile it measured', () => {
+    for (const bad of [
+      scope('nlh'),
+      scope('plo4', 4),
+      scope('plo4', 2, 200),
+      { ...scope(), extra: true },
+      { ...scope(), schema: 'other' },
+    ])
+      expect(fixture((_q, p) => (p.admittedDomain = bad)).admit()).toMatchObject({
+        status: 'refused',
+        reason: 'evidence_mismatch',
+      });
+    // A scoped plan that measured a profile outside its domain cannot admit either.
+    const plan = {
+      schema: 'horse-incremental-ablation-plan-v2',
+      state: 'heldout_locked',
+      target: 'combo_draw_pressure',
+      admittedDomain: scope(),
+      profiles: [
+        {
+          id: 'combo_draw_pressure-plo4-6max-2dealt-100bb',
+          variant: 'plo4',
+          seats: 2,
+          stackBB: 100,
+        },
+      ],
+      liveAdmission: {
+        schema: 'horse-feature-live-domain-v1',
+        profileId: 'combo_draw_pressure-plo4-6max-2dealt-100bb',
+        domain,
+      },
+    };
+    expect(featureLiveDomainRefusals(plan)).toEqual([]);
+    plan.profiles.push({
+      id: 'combo_draw_pressure-plo4-6max-4dealt-100bb',
+      variant: 'plo4',
+      seats: 4,
+      stackBB: 100,
+    });
+    expect(featureLiveDomainRefusals(plan)).toEqual(['live_domain_admitted_domain']);
+  });
+});
+
+describe('closure-bound selection (2026-11-08)', () => {
+  const serverRoot = fileURLToPath(new URL('../../', import.meta.url));
+  const cache = new Map<string, Buffer>();
+  const read = (p: string) => {
+    if (!cache.has(p)) cache.set(p, readFileSync(serverRoot + p));
+    return cache.get(p)!;
+  };
+  const closure = featureAuthorityClosure(read);
+  const bind = (files: string[]) => (_q: any, p: any) => {
+    p.sourceBinding = 'horse-decision-closure-v1';
+    p.runtimeSourceFiles = Object.fromEntries(files.map((f) => [f, bh(read(f))]));
+    p.runtimeSourceDigest = hash(p.runtimeSourceFiles);
+    p.dependencyDigest = bh(read('package-lock.json'));
+  };
+  const admit = (f: ReturnType<typeof fixture>, src: (p: string) => Buffer = read) =>
+    admitHorseFeatureAuthority(f.selection, f.reader, now, src);
+
+  it('admits exactly the recomputed decision closure on the bytes it was measured on', () => {
+    expect(admit(fixture(bind(closure))).status).toBe('admitted');
+  });
+  it('refuses a plan that leaves out any executed module or binds anything else', () => {
+    for (const victim of [
+      'src/engine/HorseLogic.ts',
+      'src/engine/HorseDecisionClosure.ts',
+      'src/services/horseCorrectiveReview/kernelGenerationLedgerRules.mjs',
+      closure[Math.floor(closure.length / 2)],
+    ])
+      expect(admit(fixture(bind(closure.filter((f) => f !== victim)))), victim).toMatchObject({
+        status: 'refused',
+        reason: 'policy_digest_mismatch',
+      });
+    expect(admit(fixture(bind([...closure, 'src/index.ts'])))).toMatchObject({
+      status: 'refused',
+      reason: 'policy_digest_mismatch',
+    });
+    expect(
+      admit(
+        fixture((q, p) => {
+          bind(closure)(q, p);
+          p.sourceBinding = 'whole-tree';
+        })
+      )
+    ).toMatchObject({ status: 'refused', reason: 'policy_digest_mismatch' });
+  });
+  it('a change to any one bound byte refuses admission', () => {
+    const f = fixture(bind(closure));
+    // Admission compares every bound file and the lock against the plan...
+    const touched = new Set<string>();
+    expect(
+      admit(f, (p) => {
+        touched.add(p);
+        return read(p);
+      }).status
+    ).toBe('admitted');
+    for (const p of [...closure, 'package-lock.json']) expect(touched.has(p), p).toBe(true);
+    // ...and a one-byte change to any of them refuses (entries, non-TS modules
+    // and a deterministic stride across the rest keep this law fast).
+    const victims = new Set([
+      'package-lock.json',
+      ...closure
+        .filter((p, i) => i % 9 === 0 || !p.endsWith('.ts') || p.includes('Horse'))
+        .slice(0, 80),
+      'src/engine/HorseLogic.ts',
+      'src/engine/horseDecision/workerRuntime.ts',
+      'src/engine/HorseFeatureAuthority.ts',
+      'src/engine/HorseDecisionClosure.ts',
+    ]);
+    for (const victim of victims) {
+      const changed = Buffer.concat([read(victim), Buffer.from('\n')]);
+      expect(admit(f, (p) => (p === victim ? changed : read(p))).status, victim).toBe('refused');
+    }
   });
 });

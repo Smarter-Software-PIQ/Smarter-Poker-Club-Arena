@@ -1,4 +1,5 @@
 import { HORSE_REFERENCE_DECISION_SOURCE_REASONS } from '../engine/HorseReferenceDecisionSources.js';
+import { HORSE_DECISION_CLOSURE_BINDING } from '../engine/HorseDecisionClosure.js';
 import { featureLiveDomainRefusals as validateLiveDeclaration } from '../engine/HorseFeatureLiveDomain.js';
 import {
   incrementalDevelopmentProfiles,
@@ -62,8 +63,7 @@ import { V53_PRESSURE_POPULATION_ID } from './V53PressurePopulation.js';
 
 export type LegacyFeatureAblationTarget = 'plo6_v24' | 'v53_pressure';
 export type FeatureAblationTarget =
-  | LegacyFeatureAblationTarget
-  | import('./IncrementalPressureDevelopment.js').IncrementalTarget;
+  LegacyFeatureAblationTarget | import('./IncrementalPressureDevelopment.js').IncrementalTarget;
 export type FeatureVariant = 'nlh' | 'plo4' | 'plo5' | 'plo6';
 export interface FeatureQualificationProfile {
   id: string;
@@ -81,8 +81,23 @@ export interface FeatureQualificationCell {
   firstPair: number;
   pairs: number;
 }
+/** Optional domain scope (2026-11-08): the plan measures, and its selection
+ * may admit, only this variant x dealt-count x starting depth. Every gate
+ * applies unchanged to the profiles inside it; nothing outside is measured,
+ * so nothing outside is admitted (outside_admitted_domain at runtime). */
+export interface FeatureAdmittedDomain {
+  schema: 'horse-feature-admitted-domain-v1';
+  variant: FeatureVariant;
+  dealtSeats: 2 | 4 | 6;
+  stackBB: 40 | 100 | 200;
+}
 export interface FeatureAblationQualificationPlan {
   liveAdmission?: import('../engine/HorseFeatureLiveDomain.js').HorseFeatureLiveDeclaration;
+  /** Absent: every variant and registered shape must qualify (unchanged). */
+  admittedDomain?: FeatureAdmittedDomain;
+  /** Absent: the whole-tree source binding (unchanged). Present: exactly the
+   * decision closure (HorseDecisionClosure.ts), recomputed at run and admission. */
+  sourceBinding?: typeof HORSE_DECISION_CLOSURE_BINDING;
   schema: 'horse-feature-ablation-plan-v1' | 'horse-incremental-ablation-plan-v2';
   version: string;
   state: 'heldout_locked';
@@ -197,6 +212,22 @@ const variants = (target: FeatureAblationTarget): FeatureVariant[] =>
       ? ['plo4', 'plo5', 'plo6']
       : ['nlh', 'plo4', 'plo5', 'plo6'];
 const SHAPES = ['2:100', '4:100', '6:40', '6:100', '6:200'];
+const admittedDomainValid = (p: FeatureAblationQualificationPlan, shapes: string[]) => {
+  const a = p.admittedDomain;
+  return (
+    !!a &&
+    typeof a === 'object' &&
+    Object.keys(a).sort().join(',') === 'dealtSeats,schema,stackBB,variant' &&
+    a.schema === 'horse-feature-admitted-domain-v1' &&
+    variants(p.target).includes(a.variant) &&
+    shapes.includes(`${a.dealtSeats}:${a.stackBB}`)
+  );
+};
+/** The variants a plan measures: its admitted domain's, else every one. */
+const planVariants = (p: FeatureAblationQualificationPlan): FeatureVariant[] =>
+  p.admittedDomain !== undefined && admittedDomainValid(p, SHAPES)
+    ? [p.admittedDomain.variant]
+    : variants(p.target);
 const BINDINGS = [
   'policyDigestsDigest',
   'dependencyDigest',
@@ -264,7 +295,8 @@ export function validateLockedFeatureAblationPlan(p: FeatureAblationQualificatio
         k.endsWith('FeatureAblationQualificationPlans.json')
     ) ||
     Object.values(p.runtimeSourceFiles).some((v) => !digest(v)) ||
-    sha(featureQualificationCanonical(p.runtimeSourceFiles)) !== p.runtimeSourceDigest
+    sha(featureQualificationCanonical(p.runtimeSourceFiles)) !== p.runtimeSourceDigest ||
+    (p.sourceBinding !== undefined && p.sourceBinding !== HORSE_DECISION_CLOSURE_BINDING)
   )
     bad('runtime_source_closure');
   if (
@@ -336,19 +368,34 @@ export function validateLockedFeatureAblationPlan(p: FeatureAblationQualificatio
     new Set(p.profiles.map((x) => x?.id)).size !== p.profiles.length
   )
     return [...reasons, 'profile_shape'];
-  for (const v of variants(p.target)) {
+  const registeredShapes = incremental?.shapes ?? SHAPES;
+  if (p.admittedDomain !== undefined) {
+    if (!admittedDomainValid(p, registeredShapes)) bad('admitted_domain');
+    // The selection must be bound to the scope it was measured on.
+    else if (p.liveAdmission === undefined) bad('admitted_domain_live_binding');
+    const a = p.admittedDomain;
+    if (
+      !p.profiles.length ||
+      p.profiles.some(
+        (x) => x?.variant !== a?.variant || x?.seats !== a?.dealtSeats || x?.stackBB !== a?.stackBB
+      )
+    )
+      bad('admitted_domain_coverage');
+  }
+  const shapesFor =
+    p.admittedDomain !== undefined && admittedDomainValid(p, registeredShapes)
+      ? [`${p.admittedDomain.dealtSeats}:${p.admittedDomain.stackBB}`]
+      : registeredShapes;
+  for (const v of planVariants(p)) {
     const ps = p.profiles.filter((x) => x.variant === v);
     if (
-      !equal(
-        ps.map((x) => `${x.seats}:${x.stackBB}`).sort(),
-        [...(incremental?.shapes ?? SHAPES)].sort()
-      ) ||
+      !equal(ps.map((x) => `${x.seats}:${x.stackBB}`).sort(), [...shapesFor].sort()) ||
       !ps.every((x) => x.id && Number.isFinite(x.weight) && x.weight > 0) ||
       !ps.every((x) => x.weight === ps[0]?.weight)
     )
       bad('physical_profiles:' + v);
   }
-  if (p.profiles.some((x) => !variants(p.target).includes(x.variant))) bad('unexpected_variant');
+  if (p.profiles.some((x) => !planVariants(p).includes(x.variant))) bad('unexpected_variant');
   if (
     !Array.isArray(p.matrix) ||
     !p.matrix.length ||
@@ -659,7 +706,7 @@ export function summarizeFeatureAblationQualification(
       byVariant,
       opportunityDenominator: 'not_measured',
     };
-  for (const variant of variants(plan.target)) {
+  for (const variant of planVariants(plan)) {
     const profiles = plan.profiles.filter((p) => p.variant === variant),
       results = selectedResults.filter((e) => profiles.some((p) => p.id === e.result.profileId));
     const local: string[] = [];
