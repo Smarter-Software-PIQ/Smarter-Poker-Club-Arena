@@ -27,6 +27,7 @@ EXCLUDE = re.compile(r"(^accounting_|conversation|ledger|transaction|transfer|_l
                      r"receipt|journal|event|snapshot|archive|invoice|payment|cashout|deposit|withdraw|"
                      r"session|token|secret|credential|email|phone|kyc|address|chat|report|outbox|_runs?$|"
                      r"attempt|fault|cancellation|telemetry|metric|observation|sample)")
+PLAYABLE_TABLES = "tournament_id is null and status in ('waiting','running','active')"
 PERSON_TABLES = {("public", "profiles"), ("auth", "users")}
 
 CONN = os.environ.get("SEED_DATABASE_URL") or ("host=aws-0-us-west-2.pooler.supabase.com port=5432 user=postgres.kuklfnapbkmacvwxktbh "
@@ -52,6 +53,18 @@ def copy_out(select_sql, path):
 
 class SeedEligibilityError(RuntimeError):
     pass
+
+
+def cluster_seed_query(eligible, person_columns):
+    # Keep existing eligible clusters. A playable table also needs its real
+    # structural parent when a human created it; omit personal attribution.
+    columns = sorted(set(person_columns) | {'created_by', 'closed_by'})
+    mask = ', '.join("'" + col.replace("'", "''") + "', null" for col in columns)
+    referenced = f"id in (select cluster_id from public.tables where {PLAYABLE_TABLES})"
+    where = f"({eligible}) or {referenced}"
+    projection = (f"(case when ({eligible}) then cash_games else "
+                  f"jsonb_populate_record(cash_games, jsonb_build_object({mask})) end).*")
+    return where, projection
 
 
 def playable_memberships(where):
@@ -112,13 +125,14 @@ def main():
         name = f"{s}.{t}"
         out = os.path.join(OUT, f"{name}.csv")
         try:
+            projection = "*"
             if key == ("public", "profiles"):
                 where = "is_horse is true"
             elif key in (("public", "clubs"), ("public", "unions"), ("public", "union_clubs")):
                 # Platform structure: copied whole; owner ids become id-only placeholders.
                 where = "true"
             elif key == ("public", "tables"):
-                where = "tournament_id is null and status in ('waiting','running','active')"
+                where = PLAYABLE_TABLES
             elif key == ("public", "table_seats"):
                 where = (f"left_at is null and user_id in {horses} and table_id in "
                          "(select id from public.tables where tournament_id is null and status in ('waiting','running','active'))")
@@ -128,6 +142,8 @@ def main():
                 where = " and ".join(f'("{c}" is null or "{c}" in {horses})' for c in person_cols[key])
             else:
                 where = "true"
+            if key == ("public", "cash_games"):
+                where, projection = cluster_seed_query(where, person_cols.get(key, []))
             exclusions = []
             if key == ("public", "club_members"):
                 where, exclusions = playable_memberships(where)
@@ -149,7 +165,7 @@ def main():
             if count == 0:
                 return ("skipped", {"table": name, "why": "no_playable_memberships", "excludedRows": exclusions, "excludedRowCount": len(exclusions)}) if exclusions else None
             if key == ("public", "club_members") or not (os.path.exists(out) and os.path.getsize(out) > 0 and os.path.exists(out + ".done")):
-                copy_out(f'select * from "{s}"."{t}" where {where}', out)
+                copy_out(f'select {projection} from "{s}"."{t}" where {where}', out)
                 open(out + ".done", "w").close()
             return ("copied", {"table": name, "rows": count, "excludedRows": exclusions, "excludedRowCount": len(exclusions),
                                "personFilter": person_cols.get(key, ["is_horse"] if key == ("public", "profiles") else [])})

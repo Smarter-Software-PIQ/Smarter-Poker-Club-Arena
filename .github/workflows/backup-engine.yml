@@ -285,7 +285,7 @@ jobs:
           install -m 700 -d ~/.ssh; printf '%s\n' "$SSH_KEY" > ~/.ssh/standby; chmod 600 ~/.ssh/standby
           printf '%s\n' "$STANDBY_HOST_KEY" > ~/.ssh/known_hosts
           owners_sha=$(sha256sum server/standby/standby-owners.sql | cut -d' ' -f1)
-          stamp=$(ssh -i ~/.ssh/standby "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"ownersSha256\") == \"$owners_sha\" and d.get(\"restoreValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"authFixtureVersion\") == 2 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
+          stamp=$(ssh -i ~/.ssh/standby "root@$STANDBY_HOST" "python3 -c 'import json;print((lambda d,s: d[\"restoredAt\"] if d.get(\"ownersSha256\") == \"$owners_sha\" and d.get(\"restoreValidated\") is True and d.get(\"restoreErrors\") == 0 and s.get(\"authFixtureVersion\") == 2 and s.get(\"missingCashGameClusters\") == 0 and s.get(\"tablesFailed\") == 0 and s[\"seededAt\"] >= d[\"restoredAt\"] else \"1970-01-01T00:00:00Z\")(json.load(open(\"/var/lib/club-arena-standby/database.json\")),json.load(open(\"/var/lib/club-arena-standby/seed.json\"))))'" 2>/dev/null || echo 1970-01-01T00:00:00Z)
           restored=$(date -d "$stamp" +%s)
           newest=$(git log -1 --format=%ct origin/main -- supabase/migrations 2>/dev/null || echo 0)
           today=$(TZ=America/Chicago date +%F); copy_day=$(TZ=America/Chicago date -d "$stamp" +%F)

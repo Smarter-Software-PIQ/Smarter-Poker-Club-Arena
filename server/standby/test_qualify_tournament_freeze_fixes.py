@@ -130,6 +130,15 @@ class SeedEligibility(unittest.TestCase):
                 with self.assertRaisesRegex(seed.SeedEligibilityError, 'playable, funded, seated, or not retired'):
                     seed.playable_memberships('person_is_eligible')
 
+    def test_cluster_parents_preserve_eligible_rows_and_mask_only_structural_copies(self):
+        spec = importlib.util.spec_from_file_location('seed_clusters', Path(__file__).with_name('seed-extract.py'))
+        seed = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(seed)
+        where, projection = seed.cluster_seed_query("eligible", ["created_by", "owner_id"])
+        self.assertEqual(where, f"(eligible) or id in (select cluster_id from public.tables where {seed.PLAYABLE_TABLES})")
+        self.assertIn("when (eligible) then cash_games", projection)
+        self.assertIn("jsonb_build_object('closed_by', null, 'created_by', null, 'owner_id', null)", projection)
+
     def test_membership_query_copy_and_budget_failures_cannot_be_skipped(self):
         seed_spec = importlib.util.spec_from_file_location('seed_extract_failure', Path(__file__).with_name('seed-extract.py'))
         seed = importlib.util.module_from_spec(seed_spec)
