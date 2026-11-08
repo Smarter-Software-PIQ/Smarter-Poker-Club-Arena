@@ -339,7 +339,7 @@ supabase_migrations.schema_migrations ADD COLUMN IF NOT EXISTS`, and each
     `docs/changelog/2026-10-22-a-migration-that-needs-the-live-tables-waits-for-the-daily-break.md`.
 11. **A MIGRATION REACHES PRODUCTION ONLY FROM PROTECTED MAIN (owner
     instruction, 2026-10-25).** Merge first; every same-repository merge into
-    main dispatches each added migration to `apply-merged-migration.yml`
+    main dispatches each added or modified migration to `apply-merged-migration.yml`
     (`dispatch-merged-migrations.yml`, on the merge's own `closed` event,
     whoever merged), which sends the merged bytes once and answers
     ALREADY-APPLIED for a version production holds. Dispatch by hand only a
