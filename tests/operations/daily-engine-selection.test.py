@@ -1,4 +1,11 @@
+import hashlib
 import importlib.util
+import io
+import json
+import os
+import subprocess
+import tarfile
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 import types
@@ -12,6 +19,40 @@ spec.loader.exec_module(mod)
 
 
 class DailySelection(unittest.TestCase):
+    def test_transferred_image_is_bound_across_docker_stores(self):
+        script = ROOT / 'scripts/ci/prestage-engine-image.sh'
+        config = b'{"rootfs":{"type":"layers","diff_ids":[]}}'
+        config_id = 'sha256:' + hashlib.sha256(config).hexdigest()
+        ref = 'club-arena-prestage:' + config_id[7:]
+        with tempfile.TemporaryDirectory() as scratch:
+            directory = Path(scratch)
+            archive = directory / 'image.tar'
+            with tarfile.open(archive, 'w') as bundle:
+                for name, data in [('manifest.json', json.dumps([{'RepoTags': [ref], 'Config': 'config.json'}]).encode()),
+                                   ('config.json', config)]:
+                    entry = tarfile.TarInfo(name)
+                    entry.size = len(data)
+                    bundle.addfile(entry, io.BytesIO(data))
+            def run(*args, **env):
+                return subprocess.run(['bash', script, *args], text=True, capture_output=True,
+                                      env={**os.environ, 'PATH': scratch + ':' + os.environ['PATH'], **env})
+            self.assertEqual(run('--archive-config', archive, ref).stdout.strip(), config_id)
+            self.assertNotEqual(run('--archive-config', archive, 'wrong-tag').returncode, 0)
+            for name, program in [('docker', 'echo "$LOCAL_ID"'), ('ctr', 'printf %s "$MANIFEST"'),
+                                  ('timeout', 'shift; exec "$@"')]:
+                binary = directory / name
+                binary.write_text('#!/bin/sh\n' + program + '\n')
+                binary.chmod(0o755)
+            manifest = json.dumps({'schemaVersion': 2, 'mediaType': 'application/vnd.oci.image.manifest.v1+json',
+                                   'config': {'digest': config_id}})
+            local_id = 'sha256:' + hashlib.sha256(manifest.encode()).hexdigest()
+            def verify(local, data, expected):
+                return run('--verify-loaded', ref, expected, LOCAL_ID=local, MANIFEST=data)
+            self.assertEqual(verify(config_id, '', config_id).stdout.strip(), config_id)
+            self.assertEqual(verify(local_id, manifest, config_id).stdout.strip(), local_id)
+            self.assertNotEqual(verify(local_id, manifest + ' ', config_id).returncode, 0)
+            self.assertNotEqual(verify(local_id, manifest, 'sha256:' + '1'*64).returncode, 0)
+
     def test_chicago_cutoff_tracks_dst(self):
         for day, hour in [('2026-11-07', 9), ('2026-07-01', 8)]:
             value = datetime.fromtimestamp(mod.cutoff(day), timezone.utc)
