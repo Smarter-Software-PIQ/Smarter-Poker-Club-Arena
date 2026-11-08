@@ -34,22 +34,20 @@ describe('displayTotalPool', () => {
   });
 });
 
-// 2026-11-05 (Dan): the WHOLE player payment counts toward a buy-in
-// guarantee - places + bounties + rake - and the house owes only
-// max(0, guarantee - gross).
-describe('a buy-in guarantee counts the whole payment', () => {
-  it('thirteen 40-chip entries (26 / 10 / 4) meet a 500 guarantee: zero house funding', () => {
-    expect(guaranteeShortfall(500, 13 * 26, 13 * 10, 13 * 4)).toBe(0);
+// Owner November 7: net places and bounties count; rake never does.
+describe('a prize guarantee excludes rake', () => {
+  it('thirteen 40-chip entries (26 / 10 / 4) owe 32 chips toward a 500 guarantee', () => {
+    expect(guaranteeShortfall(500, 13 * 26, 13 * 10, 13 * 4)).toBe(32);
     expect(displayTotalPool(338, 500, 130, 52)).toBe(468);
   });
 
-  it('ten such entries owe exactly 100; the pool shows only what they paid net of rake', () => {
-    expect(guaranteeShortfall(500, 260, 100, 40)).toBe(100);
+  it('ten such entries owe exactly 140; the pool shows only what they paid net of rake', () => {
+    expect(guaranteeShortfall(500, 260, 100, 40)).toBe(140);
     expect(displayTotalPool(260, 500, 100, 40)).toBe(360);
   });
 
-  it('the owner screenshot: 41 payments of 30 (27 + 3) against 1,500 owe 270, pool 1,107', () => {
-    expect(guaranteeShortfall(1500, 41 * 27, 0, 41 * 3)).toBe(270);
+  it('the owner screenshot: 41 payments of 30 (27 + 3) against 1,500 owe 393, pool 1,107', () => {
+    expect(guaranteeShortfall(1500, 41 * 27, 0, 41 * 3)).toBe(393);
     expect(displayTotalPool(41 * 27, 1500, 0, 41 * 3)).toBe(1107);
   });
 
@@ -57,8 +55,8 @@ describe('a buy-in guarantee counts the whole payment', () => {
   // 26 prize / 10 bounty / 4 rake. Credited 1,840; overlay 660; the total
   // prize pool is 1,656 and growing (36 x 46), never 2,316; places are
   // 1,656 - 460 bounty = 1,196.
-  it('the 2.5K bounty freezeout: 1,656 total, 660 overlay, never 2,316', () => {
-    expect(guaranteeShortfall(2500, 46 * 26, 46 * 10, 46 * 4)).toBe(660);
+  it('the 2.5K bounty freezeout: 1,656 total, 844 overlay, never 2,316', () => {
+    expect(guaranteeShortfall(2500, 46 * 26, 46 * 10, 46 * 4)).toBe(844);
     expect(displayTotalPool(46 * 26, 2500, 46 * 10, 46 * 4)).toBe(1656);
     expect(displayTotalPool(46 * 26, 2500, 46 * 10, 46 * 4)).not.toBe(2316);
   });

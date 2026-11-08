@@ -33,7 +33,7 @@ export function mttPlannedField(
 
 /**
  * The advertised guarantee covers regular prizes AND bounties. The owner's
- * no-rake break-even floor uses the full entry charge, not a regular-pool share.
+ * net prize coverage uses the entry amount without rake, not a regular-pool share.
  * This plans attendance only; it never redirects fees or changes payout splits.
  */
 export function mttGuaranteeEntryAmount(row: {
@@ -44,7 +44,7 @@ export function mttGuaranteeEntryAmount(row: {
   const buyIn = Number(row.buy_in_amount ?? 0);
   const fee = Number(row.buy_in_fee ?? 0);
   if (!Number.isFinite(buyIn) || !Number.isFinite(fee) || buyIn < 0 || fee < 0) return 0;
-  return (Math.round(buyIn * 100) + Math.round(fee * 100)) / 100;
+  return Math.round(buyIn * 100) / 100;
 }
 
 export function mttPrestartPlan(

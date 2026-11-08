@@ -230,6 +230,26 @@ describe('the pass enters horses through the ordinary door', () => {
     expect(opts).toEqual({ allLanes: false });
   });
 
+  it('rescues the net shortfall in the final ten minutes even after the ordinary arrival plan is met', async () => {
+    h.tables.set('tournaments', [
+      { ...running, guaranteed_prize: 2500, buy_in_amount: 36, buy_in_fee: 4 },
+    ]);
+    h.tables.set('tournament_players', { late: 200, live: 8, all: 267 });
+    h.rpc.mockImplementation(async (name: string) => ({
+      data:
+        name === 'fn_ca_guarantee_funding'
+          ? { guarantee: 2500, net_coverage: 2412, house_posted: 88 }
+          : true,
+      error: null,
+    }));
+    await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 72 * MIN);
+    expect(h.topUp).toHaveBeenCalledWith(running.id, 11, { allLanes: false });
+    h.topUp.mockClear();
+    h.rpc.mockResolvedValue({ data: false, error: null });
+    await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 72 * MIN);
+    expect(h.topUp).not.toHaveBeenCalled();
+  });
+
   it('a closed late registration is left alone', async () => {
     h.rpc.mockResolvedValue({ data: false, error: null });
     await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 30 * MIN);

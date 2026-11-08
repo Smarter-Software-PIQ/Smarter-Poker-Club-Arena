@@ -140,26 +140,26 @@ describe('varied prestart fields and arrivals throughout late registration', () 
       expect(arrivalMinutes.some((minute) => minute > 60)).toBe(true);
     }
   );
-  it('counts the full entry charge toward total-guarantee no-rake break-even', () => {
+  it('excludes rake and includes bounties in the net guarantee floor', () => {
     for (const bounty of [0, 20, 25, 45]) {
       const amount = mttGuaranteeEntryAmount({
         buy_in_amount: '45',
         buy_in_fee: '5',
         bounty_amount: bounty,
       });
-      expect(amount).toBe(50);
+      expect(amount).toBe(45);
       expect(mttPlannedField(10_000, amount, 'total-guarantee')).toBe(
-        mttPlannedField(10_000, 50, 'total-guarantee')
+        mttPlannedField(10_000, 45, 'total-guarantee')
       );
-      expect(mttPlannedField(10_000, amount, 'total-guarantee')).toBeGreaterThan(200);
-      expect(mttPlannedField(10_000, amount, 'total-guarantee')).toBeLessThanOrEqual(260);
+      expect(mttPlannedField(10_000, amount, 'total-guarantee')).toBeGreaterThan(223);
+      expect(mttPlannedField(10_000, amount, 'total-guarantee')).toBeLessThanOrEqual(290);
     }
-    expect(mttGuaranteeEntryAmount({ buy_in_amount: 180, buy_in_fee: 20 })).toBe(200);
-    expect(mttPlannedField(40_000, 200, 'forty-k')).toBeGreaterThan(200);
-    expect(mttPlannedField(40_000, 200, 'forty-k')).toBeLessThanOrEqual(260);
+    expect(mttGuaranteeEntryAmount({ buy_in_amount: 180, buy_in_fee: 20 })).toBe(180);
+    expect(mttPlannedField(40_000, 180, 'forty-k')).toBeGreaterThan(223);
+    expect(mttPlannedField(40_000, 180, 'forty-k')).toBeLessThanOrEqual(290);
     expect(
       mttGuaranteeEntryAmount({ buy_in_amount: '13.50', buy_in_fee: '1.50', bounty_amount: '7.00' })
-    ).toBe(15);
+    ).toBe(13.5);
     expect(mttGuaranteeEntryAmount({ buy_in_amount: 0, buy_in_fee: 0 })).toBe(0);
     expect(mttGuaranteeEntryAmount({ buy_in_amount: 'bad', buy_in_fee: 5 })).toBe(0);
     expect(mttGuaranteeEntryAmount({ buy_in_amount: Infinity })).toBe(0);
