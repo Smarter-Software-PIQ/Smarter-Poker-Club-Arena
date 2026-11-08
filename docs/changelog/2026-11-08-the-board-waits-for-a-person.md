@@ -8,11 +8,11 @@ launch schedule.
 
 Counted on production, by Chicago day, for the seven days to 2026-11-07:
 
-| | 7-day average | Nov 5-7 (after the engine changeover) |
-|---|---|---|
-| Spins | 4,228 a day | 5,914 a day |
-| Heads-Up | 3,772 a day | 5,625 a day |
-| Combined | ~8,000 a day | ~11,539 a day |
+|          | 7-day average | Nov 5-7 (after the engine changeover) |
+| -------- | ------------- | ------------------------------------- |
+| Spins    | 4,228 a day   | 5,914 a day                           |
+| Heads-Up | 3,772 a day   | 5,625 a day                           |
+| Combined | ~8,000 a day  | ~11,539 a day                         |
 
 The seven-day average is dragged down by 2026-11-03, on which not a single
 Spin or Heads-Up was created or started, and by a very short 2026-11-04. The

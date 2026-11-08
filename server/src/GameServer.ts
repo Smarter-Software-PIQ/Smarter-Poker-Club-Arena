@@ -13125,7 +13125,9 @@ export class GameServer {
            rule as fn_repair_seat_first_games. */
         const { error: windowErr } = await supabase
           .from('tournaments')
-          .update({ start_time: new Date(Date.now() + freshHumanWindowMs(plan.seats)).toISOString() })
+          .update({
+            start_time: new Date(Date.now() + freshHumanWindowMs(plan.seats)).toISOString(),
+          })
           .eq('id', plan.tournamentId)
           .eq('status', 'REGISTERING');
         if (windowErr) {

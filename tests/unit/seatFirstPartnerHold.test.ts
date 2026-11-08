@@ -51,12 +51,8 @@ describe('seatFirstPartnerHoldEndsAtMs', () => {
     );
     /* 2026-11-08: the two window constants now carry Dan's 3-7 minute human
        rule rather than the retired 90-350 second board window. */
-    expect(SERVER).toContain(
-      'export const SEAT_FIRST_HUMAN_WINDOW_MIN_MS = HUMAN_ARRIVAL_MIN_MS;'
-    );
-    expect(SERVER).toContain(
-      'export const SEAT_FIRST_HUMAN_WINDOW_MAX_MS = HUMAN_ARRIVAL_MAX_MS;'
-    );
+    expect(SERVER).toContain('export const SEAT_FIRST_HUMAN_WINDOW_MIN_MS = HUMAN_ARRIVAL_MIN_MS;');
+    expect(SERVER).toContain('export const SEAT_FIRST_HUMAN_WINDOW_MAX_MS = HUMAN_ARRIVAL_MAX_MS;');
   });
 });
 

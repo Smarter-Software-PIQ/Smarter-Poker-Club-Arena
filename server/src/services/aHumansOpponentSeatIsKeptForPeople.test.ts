@@ -76,7 +76,9 @@ describe('the rule', () => {
        SITS AT AN EMPTY TABLE, OTHERS SHOULD JOIN THE SIT N GO WITHIN 3-7
        MIN." - measured from their seat, never from the board's clock. */
     const late = SAT + 200_000;
-    expect(seatFirstHumanPartnerHoldUntilMs(late, SAT)).toBe(SAT + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS);
+    expect(seatFirstHumanPartnerHoldUntilMs(late, SAT)).toBe(
+      SAT + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS
+    );
     const hoursAway = SAT + 4 * 3_600_000;
     expect(seatFirstHumanPartnerHoldUntilMs(hoursAway, SAT)).toBe(
       SAT + SEAT_FIRST_HUMAN_PARTNER_HOLD_MS
@@ -84,9 +86,9 @@ describe('the rule', () => {
   });
 
   it('never holds longer than the window ceiling after the first human sat', () => {
-    expect(
-      seatFirstHumanPartnerHoldUntilMs(SAT + 86_400_000, SAT, 29_999)
-    ).toBeLessThanOrEqual(SAT + SEAT_FIRST_HUMAN_WINDOW_MAX_MS);
+    expect(seatFirstHumanPartnerHoldUntilMs(SAT + 86_400_000, SAT, 29_999)).toBeLessThanOrEqual(
+      SAT + SEAT_FIRST_HUMAN_WINDOW_MAX_MS
+    );
   });
 
   it('an unreadable start time still gets the 3 minute floor', () => {
