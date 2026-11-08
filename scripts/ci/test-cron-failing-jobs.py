@@ -56,6 +56,9 @@ CREATE FUNCTION public.fn_ca_raise_drift_incident(p_source text, p_classificatio
   INSERT INTO public.raised VALUES (p_severity, p_dedupe_key, p_suspected_cause, p_metadata);
   SELECT gen_random_uuid() $$;
 CREATE FUNCTION public.fn_ca_ledger_invariant_refusal_watch() RETURNS integer LANGUAGE sql AS 'SELECT 0';
+CREATE TABLE public.declared (proname text, ref text);
+CREATE FUNCTION public.fn_ca_declare_guard_redefinition(p_proname text, p_ref text) RETURNS void
+  LANGUAGE sql AS $$ INSERT INTO public.declared VALUES (p_proname, p_ref) $$;
 -- runs(job, n, status, every, ending): n runs of one status, `every` apart, the last one `ending` ago.
 CREATE FUNCTION public.runs(p_job text, p_n int, p_status text, p_every interval, p_ending interval)
 RETURNS void LANGUAGE sql AS $$
@@ -127,7 +130,9 @@ try:
       AND NOT has_function_privilege('anon', 'public.fn_ca_cron_failure_watch()', 'EXECUTE')
       AND NOT has_function_privilege('authenticated', 'public.fn_ca_cron_failure_watch()', 'EXECUTE')
       AND has_function_privilege('service_role', 'public.fn_ca_cron_failure_watch()', 'EXECUTE')
-      AND (SELECT prosecdef FROM pg_proc WHERE oid = 'public.fn_cron_failing_jobs()'::regprocedure);""", 't')
+      AND (SELECT prosecdef FROM pg_proc WHERE oid = 'public.fn_cron_failing_jobs()'::regprocedure)
+      AND (SELECT count(*) = 1 FROM public.declared WHERE proname = 'fn_ca_cron_failure_watch'
+             AND ref = 'migration 20261108020000_a_job_failing_every_run_is_named');""", 't')
 
     # 2026-11-07, job 117: one success, then a failed run every 10 s for 13.5 minutes.
     run('the-117-shape-is-named', RESET + """

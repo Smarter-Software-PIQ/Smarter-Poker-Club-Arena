@@ -228,4 +228,8 @@ END $function$;
 REVOKE ALL ON FUNCTION public.fn_ca_cron_failure_watch() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_cron_failure_watch() TO service_role;
 
+-- A watched guard redefined here, declared in the same transaction so the
+-- guard watch records it rather than raising it.
+SELECT public.fn_ca_declare_guard_redefinition('fn_ca_cron_failure_watch', 'migration 20261108020000_a_job_failing_every_run_is_named');
+
 COMMIT;
