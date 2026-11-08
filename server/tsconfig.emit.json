@@ -2,6 +2,7 @@
   "extends": "./tsconfig.runtime.json",
   "files": [
     "src/engine/GtoPublicHist215FeatureDescriptor.json",
+    "src/engine/GtoPublicHist215FeatureDescriptorV2.json",
     "src/maintenance/maintenanceSchedulePolicy.json",
     "src/services/horseUnionCashPlan.json"
   ],

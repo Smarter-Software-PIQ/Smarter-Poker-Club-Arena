@@ -26,9 +26,9 @@ import {
   compilePublic215Template,
   encodePublic215Features,
   public215TemplateMatchesContext,
-  PUBLIC_HIST215_FEATURE_SCHEMA_SHA256,
   type CompiledPublic215Template,
 } from './GtoPublicHist215Features.js';
+import { public215FeatureContract } from './GtoPublicHist215Contracts.js';
 import { deepFreezeSolverPolicy } from '../gto/SolverPolicyContract.js';
 import { depthCandidates, textureClass } from './GtoPostflop.js';
 import {
@@ -66,7 +66,8 @@ export interface GtoV31SourceSeal {
   feature_contract_version?:
     | 'rank-suit-count-v1'
     | 'holdem-board-relative-v2'
-    | 'holdem-public-hist215-v1';
+    | 'holdem-public-hist215-v1'
+    | 'holdem-public-hist215-v2';
   policy_export_schema?: 'smarter-poker.pio-policy.v4';
   dataset_id: string;
   dataset_key: string;
@@ -245,7 +246,8 @@ export function gtoV31FeatureContractVersion(value: {
     return 'rank-suit-count-v1';
   return value.feature_contract_version === 'rank-suit-count-v1' ||
     value.feature_contract_version === 'holdem-board-relative-v2' ||
-    value.feature_contract_version === 'holdem-public-hist215-v1'
+    value.feature_contract_version === 'holdem-public-hist215-v1' ||
+    value.feature_contract_version === 'holdem-public-hist215-v2'
     ? value.feature_contract_version
     : null;
 }
@@ -549,8 +551,10 @@ function rowIsValid(
   }
 
   if (row.policy_representation === 'public_hist215_v1') {
+    // The row's explicit contract selects the descriptor it must carry.
+    const contract = public215FeatureContract(row.feature_contract_version);
     return (
-      row.feature_contract_version === 'holdem-public-hist215-v1' &&
+      contract !== null &&
       row.hand_matrix == null &&
       row.policy_ev_matrix == null &&
       row.action_ev_matrix == null &&
@@ -561,12 +565,12 @@ function rowIsValid(
         row.training_provenance_checksum,
         row.model_build_receipt_checksum,
       ].every((v) => typeof v === 'string' && HEX64.test(v) && v !== '0'.repeat(64)) &&
-      row.feature_schema_checksum === PUBLIC_HIST215_FEATURE_SCHEMA_SHA256
+      row.feature_schema_checksum === contract.schemaSha256
     );
   }
   if (
     (row.policy_representation != null && row.policy_representation !== 'matrix_v2') ||
-    row.feature_contract_version === 'holdem-public-hist215-v1' ||
+    public215FeatureContract(row.feature_contract_version) !== null ||
     !row.hand_matrix ||
     typeof row.hand_matrix !== 'object' ||
     Array.isArray(row.hand_matrix)
@@ -739,7 +743,14 @@ function* validatedStoreSteps(
     // detached snapshot once at admission so no consumer can change a sealed
     // mix, size, EV or provenance while retaining the original checksum.
     if (row.policy_representation === 'public_hist215_v1') {
-      const template = compilePublic215Template(row.public_template, row.template_checksum);
+      const contract = public215FeatureContract(row.feature_contract_version);
+      if (!contract || contract.schemaSha256 !== row.feature_schema_checksum)
+        throw new Error('v31_public215_feature_contract_mismatch');
+      const template = compilePublic215Template(
+        row.public_template,
+        row.template_checksum,
+        contract.version
+      );
       if (!public215TemplateMatchesContext(template, row))
         throw new Error('v31_public215_template_context_mismatch');
       const provenance = compilePublic215Provenance(
