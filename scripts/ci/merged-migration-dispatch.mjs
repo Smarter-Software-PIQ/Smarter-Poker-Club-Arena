@@ -17,6 +17,18 @@
  * at which the applier will admit them, so the merger waits once, bounded,
  * instead of dispatching into a refusal that leaves the file uninstalled.
  *
+ * MODIFIED FILES TOO (2026-11-08). A migration that merged, was REFUSED at
+ * install (nothing applied, no schema_migrations row) and was then fixed in
+ * place by a later PR is "modified", not "added", in that later PR: #10026 and
+ * #10029 fixed 20261108011659 that way and the dispatcher said "no ordinary
+ * migration to dispatch". A file the PR modified is now dispatched as well.
+ * This job holds no database credential (only the job token), so it cannot
+ * read schema_migrations; the applier does, and answers ALREADY-APPLIED
+ * (exit 0, "Nothing sent. This run changed nothing.") for a version that is
+ * already installed, so dispatching a modified file that is already installed
+ * is harmless. A removed file is never dispatched, and a rename's old name
+ * (previous_filename) is never read.
+ *
  * It sends nothing and reads no network. The shell half is
  * .github/scripts/dispatch-merged-migrations.sh.
  */
@@ -107,15 +119,63 @@ export function earliestDispatch(now, count, preamble) {
   return null;
 }
 
+/** PR file statuses whose filename now holds the file's bytes on main. */
+export const ADDED_STATUSES = ['added', 'renamed', 'copied'];
+export const MODIFIED_STATUSES = ['modified'];
+
 /**
- * Classify the files a merged PR added.
+ * Split a merged PR's file list ({filename, status} per GitHub's pulls/files)
+ * into the paths it added and the paths it modified. "removed" (and anything
+ * else) is neither; a rename contributes only its NEW filename, never its
+ * previous_filename.
  *
- * @param {string[]} added   PR file paths whose status is "added"
+ * @param {{filename: string, status: string}[]} files
+ */
+export function changedPaths(files) {
+  const added = [];
+  const modified = [];
+  for (const f of files) {
+    if (ADDED_STATUSES.includes(f.status)) added.push(f.filename);
+    else if (MODIFIED_STATUSES.includes(f.status)) modified.push(f.filename);
+  }
+  return { added, modified };
+}
+
+/**
+ * Parse the shell half's PR file list: one "<status>\t<filename>" per line.
+ * A line with no tab is a bare path from the original format, read as added.
+ */
+export function parseFileList(text) {
+  return text
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const tab = line.indexOf('\t');
+      return tab < 0
+        ? { status: 'added', filename: line }
+        : { status: line.slice(0, tab).trim(), filename: line.slice(tab + 1).trim() };
+    });
+}
+
+/**
+ * Classify the migration files a merged PR added or modified.
+ *
+ * @param {string[]} added   PR file paths whose status is added/renamed/copied
  * @param {(name: string) => string | null} readSql  file text on main, null if absent
  * @param {number} now       epoch ms
+ * @param {string[]} [modified]  PR file paths whose status is "modified"
  */
-export function planDispatch(added, readSql, now) {
-  const names = [...new Set(added.map((p) => MIGRATION_PATH.exec(p)?.[1]).filter(Boolean))].sort();
+export function planDispatch(added, readSql, now, modified = []) {
+  const nameOf = (p) => MIGRATION_PATH.exec(p)?.[1];
+  const addedNames = new Set(added.map(nameOf).filter(Boolean));
+  const modifiedNames = new Set(
+    modified
+      .map(nameOf)
+      .filter(Boolean)
+      .filter((n) => !addedNames.has(n))
+  );
+  const names = [...new Set([...addedNames, ...modifiedNames])].sort();
   const dispatch = [];
   const windowQueued = [];
   const notOnMain = [];
@@ -146,6 +206,9 @@ export function planDispatch(added, readSql, now) {
   const waitSeconds = at === null ? null : Math.ceil((at - now) / 1000);
   return {
     dispatch,
+    // The dispatched files this PR modified rather than added: the applier
+    // answers ALREADY-APPLIED for any whose version is installed.
+    modified: dispatch.filter((n) => modifiedNames.has(n)),
     windowQueued,
     notOnMain,
     malformed,
@@ -156,24 +219,27 @@ export function planDispatch(added, readSql, now) {
   };
 }
 
-// CLI: node scripts/ci/merged-migration-dispatch.mjs plan <added-paths-file> [now-ms]
+// CLI: node scripts/ci/merged-migration-dispatch.mjs plan <pr-files-file> [now-ms]
+//        <pr-files-file>: one "<status>\t<filename>" per line (a bare path = added)
 //      node scripts/ci/merged-migration-dispatch.mjs admitted <count> <preamble 0|1> [now-ms]
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [cmd, a, b, c] = process.argv.slice(2);
   const dir = join(process.cwd(), 'supabase', 'migrations');
   if (cmd === 'plan') {
-    const added = readFileSync(a, 'utf8').split('\n').map((s) => s.trim()).filter(Boolean);
+    const { added, modified } = changedPaths(parseFileList(readFileSync(a, 'utf8')));
     const now = b ? Number(b) : Date.now();
     const readSql = (name) => {
       const p = join(dir, name);
       return existsSync(p) ? readFileSync(p, 'utf8') : null;
     };
-    process.stdout.write(JSON.stringify(planDispatch(added, readSql, now)) + '\n');
+    process.stdout.write(JSON.stringify(planDispatch(added, readSql, now, modified)) + '\n');
   } else if (cmd === 'admitted') {
     const now = c ? Number(c) : Date.now();
     process.exit(admissibleAt(now, Number(a), b === '1') ? 0 : 1);
   } else {
-    console.error('usage: merged-migration-dispatch.mjs plan <file> [now] | admitted <count> <0|1> [now]');
+    console.error(
+      'usage: merged-migration-dispatch.mjs plan <file> [now] | admitted <count> <0|1> [now]'
+    );
     process.exit(2);
   }
 }
