@@ -15,7 +15,7 @@
     ".github/workflows/unpaid-lightning-funding-contracts.yml": "5a2a703ad7d198e1154ee7e5adcab6ea2b774981957c0027344b4c0a8f6f1e7d",
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "0ce886c016fd8a6bfb14a31c7f65c7ebf461599ed98b6d1df3fc74d99f89a78c",
-    "scripts/ci/apply-recorded-migration.mjs": "8ffe6a2fbd68bb9cafc05f79ac1b15787d5be106522a352ae5178ba0ad9775db",
+    "scripts/ci/apply-recorded-migration.mjs": "b19c1708811882a0cad520375591c51a10bda6758a41f3fc31793caf680caa54",
     ".github/workflows/apply-merged-migration.yml": "32a882652058f3be483b2ca81a9624310f29178bd4b9579d62003e2e290fdbef",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
@@ -78,5 +78,15 @@
     },
     "review": "Reviewed exact diff: the only change in each pinned workflow is the inline 'Install PostgreSQL 17 from the signed PGDG source only' block (signed Ubuntu + PGDG sources in a private sourceparts directory, the checkout key .github/pgdg/apt.postgresql.org.asc at the Signed-By path, create_main_cluster=false, then apt-get install) replaced by the one shared installer .github/actions/install-postgres-17 (action step or its install.sh) that runs the same commands with the same packages, plus apt Acquire::Retries, APT::Update::Error-Mode=any and a bounded whole-command retry. ci-accounting-inputs.json changed only by its projection of that accounting_postgres step; chained bindings changed only by their own restamp. Triggers, jobs, other steps, commands and qualification inputs are otherwise byte-identical. No financial, native or production qualification is restamped or claimed.",
     "reason": "2026-11-07: about seventy inline copies of the PostgreSQL install each failed alone on network blips (curl 55 / apt fetch); one shared installer with bounded retries."
+  },
+  "aMigrationMovesThePinsOnWhatItChanges20261107": {
+    "paths": {
+      "scripts/ci/apply-recorded-migration.mjs": {
+        "before": "8ffe6a2fbd68bb9cafc05f79ac1b15787d5be106522a352ae5178ba0ad9775db",
+        "after": "b19c1708811882a0cad520375591c51a10bda6758a41f3fc31793caf680caa54"
+      }
+    },
+    "review": "The only change in apply-recorded-migration.mjs is one import of stalePinParts from migration-stale-pins.mjs and the atomic history binding splicing its two pieces into the same single replace: for migrations from 20261108000000 on, a snapshot of function md5s right after BEGIN; and a check before the history insert that refuses a migration leaving another function pinned to a changed or dropped body (both empty before that version). Nothing else sent, bound or recorded changes.",
+    "reason": "2026-11-07: 20261107021911 changed fn_union_pnl_evidence_report and left two md5 pins on its old body; the original-inventory generation went NULL and the 2026-10-19 close could not finish."
   }
 }
