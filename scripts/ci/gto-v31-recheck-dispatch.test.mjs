@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { recheckDispatchPlan, busyDatasetsFromRuns, recheckDispatchBody, releaseEventAdmitted,
+import { recheckDispatchPlan, busyDatasetsFromRuns, recheckDispatchBody, releaseEventAdmitted, RELEASE_WORKFLOW_PATH,
   RELEASE_WORKFLOW_NAME, RECHECK_WORKFLOW } from './gto-v31-recheck-dispatch.mjs';
 
 const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
@@ -68,14 +68,21 @@ test('the dispatch is exactly the recheck operation the qualification workflow a
 
 test('every completed protected-main engine release of this repository starts a decision, whatever its verdict', () => {
   const ok = { eventName: 'workflow_run', repository: 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena', repositoryId: '1132369872',
-    workflowRun: { name: RELEASE_WORKFLOW_NAME, conclusion: 'success', head_branch: 'main' } };
+    // The payload shape of run 42413295909, the release that put 391f7bc0 in service:
+    // its name is the run title, not the workflow's name.
+    workflowRun: { name: 'Engine Release 391f7bc0d57c71637bd4af5181f70520661e3593',
+      path: '.github/workflows/auto-deploy-hetzner.yml', conclusion: 'success', head_branch: 'main' } };
   assert.equal(releaseEventAdmitted(ok), true);
+  // A run of the release workflow is admitted whatever its title (withdrawals and observations change nothing the decision does not re-read).
+  for (const name of [RELEASE_WORKFLOW_NAME, 'Engine Withdrawal x', undefined])
+    assert.equal(releaseEventAdmitted({ ...ok, workflowRun: { ...ok.workflowRun, name } }), true, String(name));
   // Run 42389189340 activated 40bc24676 and then failed a later job: the engine served anyway.
   for (const conclusion of ['failure', 'cancelled', 'timed_out'])
     assert.equal(releaseEventAdmitted({ ...ok, workflowRun: { ...ok.workflowRun, conclusion } }), true, conclusion);
   for (const bad of [{ eventName: 'push' }, { repository: 'someone/fork' }, { repositoryId: '1' },
     { workflowRun: { ...ok.workflowRun, head_branch: 'feature' } },
-    { workflowRun: { ...ok.workflowRun, name: 'Publish Club Arena' } }])
+    { workflowRun: { ...ok.workflowRun, path: '.github/workflows/publish-club-arena.yml' } },
+    { workflowRun: { ...ok.workflowRun, path: undefined } }])
     assert.equal(releaseEventAdmitted({ ...ok, ...bad }), false);
 });
 
@@ -83,6 +90,8 @@ test('the workflow listens to the real release workflow, with no timer, and the 
   const yml = readFileSync(new URL('../../.github/workflows/gto-v31-qualification.yml', import.meta.url), 'utf8');
   const release = readFileSync(new URL('../../.github/workflows/auto-deploy-hetzner.yml', import.meta.url), 'utf8');
   assert.ok(release.startsWith(`name: ${RELEASE_WORKFLOW_NAME}\n`), 'the listened-to name is the release workflow name');
+  assert.equal(RELEASE_WORKFLOW_PATH, '.github/workflows/auto-deploy-hetzner.yml');
+  assert.match(release, /^run-name: /m, 'release runs carry a per-run title, so admission cannot use the run name');
   assert.ok(yml.includes(`  workflow_run:\n    workflows: ['${RELEASE_WORKFLOW_NAME}']\n    types: [completed]\n`));
   assert.ok(!/^\s*schedule:/m.test(yml), 'no timer');
   const job = yml.slice(yml.indexOf('  recheck-after-release:'), yml.indexOf('  qualify:'));
