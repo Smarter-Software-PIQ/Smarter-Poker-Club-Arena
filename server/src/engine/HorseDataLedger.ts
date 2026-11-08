@@ -900,6 +900,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V83'
   ),
   flag(
+    'readPostflopFoldRate',
+    '2026-11-07 (read calibration, HorseReadCalibration walk-forward over 41,013 accepted hands with humans seated) the legacy exploit fold rate that sets bluffMod and valueThinMod reads the decision context postflop fold-to-bet posterior (exploit counters, the shared-memory profile when loaded; neutral below 8 decayed opportunities) instead of lifetime folds over every street; the all-street rate predicted 38.1% against 45.4% actual postflop folds for humans (Brier 0.259 vs 0.240 for the postflop read on the same 12,264 spots) and read horses as folders (68% vs 52.5%); default off, the league measures it',
+    'Read calibration'
+  ),
+  flag(
+    'readShrinkResponse',
+    '2026-11-07 (read calibration) riverFoldRate and foldToCbetOf shrink toward the card family population rate with 16 pseudo-observations above their unchanged 8 / 10 opportunity gates; raw rates predicted worse than the population rate below ~40 opportunities (out of sample Brier: river fold 0.2193 -> 0.2159, fold to c-bet 0.2237 -> 0.2216); default off, the league measures it',
+    'Read calibration'
+  ),
+  flag(
     'planFingerprint',
     '2026-11-05 (Decision Readiness Items 21 and 23, activation of the dormant #9351 helpers) a planned multi-street barrel records, through the accepted-wager effect sink, the next-street state it expects (every live contender hero included; effective stack and pot once the wager is matched once; public information only) and the next street compares the state that actually arrived against it (HorseContinuationPlanInvalidation.evaluateMultiStreetBarrelContinuation): a contender the plan never expected, a stack-to-pot exposure more than 65 percent from the planned one, or a scare card under pressure withdraws the plan before it fires and the decision runs the ordinary ladder; the card class is recorded as the causality tag while V39 keeps its measured authority over good, blank and scare cards; explicit off arm keeps the unconditional plan',
     'Items21And23'
