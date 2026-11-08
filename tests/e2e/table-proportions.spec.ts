@@ -1270,7 +1270,13 @@ for (const [width, heightOverride] of occupiedViewports)
             page.locator('.seat__cards--revealed .seat__card').evaluateAll((cards) =>
               cards.map((card) => {
                 const b = card.getBoundingClientRect();
-                return { x: b.x, y: b.y, w: b.width, h: b.height };
+                return {
+                  x: b.x,
+                  y: b.y,
+                  w: b.width,
+                  h: b.height,
+                  heroSix: Boolean(card.closest('.seat__cards--hero[data-card-count="6"]')),
+                };
               })
             );
           const layoutVectors = () =>
@@ -1287,7 +1293,12 @@ for (const [width, heightOverride] of occupiedViewports)
                   chain.push({
                     width: element.offsetWidth,
                     height: element.offsetHeight,
-                    translate: getComputedStyle(element).translate,
+                    // Blink's CSSOM may round a computed translation on either side
+                    // of the last decimal while its inline value stays exact.
+                    translate: getComputedStyle(element).translate.replace(
+                      /-?\d+(?:\.\d+)?px/g,
+                      (value) => `${parseFloat(value).toFixed(3)}px`
+                    ),
                     inline: element.style.translate,
                   });
                   element = element.parentElement;
@@ -1342,12 +1353,23 @@ for (const [width, heightOverride] of occupiedViewports)
             .locator('.seat__cards--revealed')
             .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).style.translate));
           expect(before.length).toBeGreaterThanOrEqual(villainCards);
-          // Same dimensions at every chair, including the all-in hero.
-          if (villainCards >= 5)
+          if (villainCards >= 5) {
+            const normal = before.find((card) => !card.heroSix);
+            const boardWidth = await page
+              .locator('.table-scaler')
+              .evaluate((scaler) =>
+                parseFloat(getComputedStyle(scaler).getPropertyValue('--sp-board-card-w'))
+              );
             for (const card of before) {
-              expect(card.w).toBeCloseTo(before[0].w, 1);
-              expect(card.h).toBeCloseTo(before[0].h, 1);
+              if (card.heroSix) {
+                expect(card.w).toBeCloseTo(boardWidth, 1);
+                expect(card.h).toBeCloseTo((boardWidth * 92) / 64, 1);
+              } else if (normal) {
+                expect(card.w).toBeCloseTo(normal.w, 1);
+                expect(card.h).toBeCloseTo(normal.h, 1);
+              }
             }
+          }
           await page.evaluate(() => {
             document.dispatchEvent(new Event('fixture-runout'));
             const pot = document.querySelector('.pot-display')!;
