@@ -1,5 +1,4 @@
-/* Choose a family before opening its controls. The clean, sealed lobby rail
-   shares the page's polished chrome, black glass and restrained blue lights. */
+/* The Table Leather plate fits the approved quilt into the lobby's blue-lit chrome. */
 .lobby-game-sections {
   display: grid;
   width: 100%;
@@ -15,39 +14,17 @@
   position: relative;
   container-type: inline-size;
   width: 100%;
-  aspect-ratio: 1566 / 672;
+  aspect-ratio: 1566 / 504;
   min-height: 44px;
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: none;
+  background: url('/assets/club-buttons/lobby/chrome-arena-controls-v1/table-leather-v1.webp')
+    center / contain no-repeat;
   overflow: hidden;
   box-shadow: none;
   color: #e4e7ec;
   cursor: pointer;
-}
-
-/* Native 2172x724 blank plate: visible alpha x49..2123/y98..602.
-   Preserve complete 330px endcaps at uniform H/504 scale. Only the blank
-   centre and its straight chrome beams change horizontal length. The
-   pseudo's cqw resolve against the button, whose aspect matches the upper 1566:672 master. */
-.lobby-game-sections__button::before {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-  box-sizing: border-box;
-  top: -8.34397616007cqw;
-  left: -4.171988080034cqw;
-  width: calc(100% + 8.343976160068cqw);
-  height: 61.64325244785cqw;
-  border-style: solid;
-  border-color: transparent;
-  border-width: 0 28.097062579821cqw;
-  border-image-source: url('/assets/club-buttons/lobby/chrome-arena-controls-v1/filter-plate.png');
-  border-image-slice: 0 330 fill;
-  /* Paint widths retain fractional precision independently of snapped layout borders. */
-  border-image-width: 0 28.097062579821cqw;
-  border-image-repeat: stretch;
 }
 
 .lobby-game-sections__button[aria-expanded='true'] {
@@ -57,7 +34,6 @@
 
 .lobby-game-sections__well {
   position: absolute;
-  /* The retargeted native glass is centred inside the complete compact frame. */
   inset: auto 18.5%;
   top: 50%;
   transform: translateY(-50%);

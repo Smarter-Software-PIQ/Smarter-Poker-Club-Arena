@@ -45,6 +45,11 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
             ),
           })
       );
+      const leatherPlate =
+        'assets/club-buttons/lobby/chrome-arena-controls-v1/table-leather-v1.webp';
+      await page.route(`**/${leatherPlate}`, (route) =>
+        route.fulfill({ contentType: 'image/webp', body: readFileSync(`public/${leatherPlate}`) })
+      );
       await page.setContent(
         `<meta name="viewport" content="width=device-width,initial-scale=1"><base href="https://fixture.invalid/"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700;800&display=swap"><style>body{margin:0;background:#000;color:#e4e7ec}.club-home{width:100%;padding:0}.club-lobby-command-top{display:block!important;min-height:0!important;padding:0!important}${css}</style><div id="root"></div>`
       );
@@ -66,63 +71,24 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
         const rect = await button.boundingBox();
         expect(rect!.height).toBeGreaterThanOrEqual(44);
         expect(rect!.width).toBeGreaterThanOrEqual(140);
-        expect(rect!.width / rect!.height).toBeCloseTo(1566 / 672, 2);
-        const paint = await button.evaluate((el) => {
-          const box = el.getBoundingClientRect();
-          const art = getComputedStyle(el, '::before');
-          const scaleY = parseFloat(art.height) / 724;
-          const widths = art.borderImageWidth
-            .trim()
-            .split(/\s+/)
-            .map((value) =>
-              /^0(?:\.0+)?$/.test(value)
-                ? 0
-                : /^\d+(?:\.\d+)?px$/.test(value)
-                  ? parseFloat(value)
-                  : NaN
-            );
-          const sides =
-            widths.length === 1
-              ? [widths[0], widths[0], widths[0], widths[0]]
-              : widths.length === 2
-                ? [widths[0], widths[1], widths[0], widths[1]]
-                : widths.length === 3
-                  ? [widths[0], widths[1], widths[2], widths[1]]
-                  : widths.length === 4
-                    ? widths
-                    : [NaN, NaN, NaN, NaN];
-          const validWidths =
-            widths.length >= 1 && widths.length <= 4 && widths.every(Number.isFinite);
-          const scaleLeft = validWidths ? sides[3] / 330 : NaN;
-          const scaleRight = validWidths ? sides[1] / 330 : NaN;
+        const paint = await button.evaluate(async (el) => {
+          const { backgroundImage, backgroundPosition, backgroundSize } = getComputedStyle(el);
+          const plate = new Image();
+          plate.src = backgroundImage.slice('url("'.length, -2);
+          await plate.decode();
           return {
-            source: art.borderImageSource,
-            slice: art.borderImageSlice,
-            paintWidths: art.borderImageWidth,
-            layoutBorderLeft: art.borderLeftWidth,
-            scaleY,
-            scaleLeft,
-            scaleRight,
-            left: parseFloat(art.left) + 49 * scaleLeft,
-            right: parseFloat(art.left) + parseFloat(art.width) - 49 * scaleRight,
-            top: parseFloat(art.top) + 98 * scaleY,
-            bottom: parseFloat(art.top) + 602 * scaleY,
-            width: box.width,
-            height: box.height,
+            source: plate.src,
+            width: plate.naturalWidth,
+            height: plate.naturalHeight,
+            position: backgroundPosition,
+            size: backgroundSize,
           };
         });
-        await testInfo.attach(`native-paint-${width}-${await button.textContent()}.json`, {
-          body: JSON.stringify(paint),
-          contentType: 'application/json',
-        });
-        expect(paint.source).toContain('chrome-arena-controls-v1/filter-plate.png');
-        expect(paint.slice).toBe('0 330 fill');
-        expect(paint.scaleLeft, JSON.stringify(paint)).toBeCloseTo(paint.scaleY, 3);
-        expect(paint.scaleRight, JSON.stringify(paint)).toBeCloseTo(paint.scaleY, 3);
-        expect(Math.abs(paint.left)).toBeLessThanOrEqual(1);
-        expect(Math.abs(paint.top)).toBeLessThanOrEqual(1);
-        expect(Math.abs(paint.right - paint.width)).toBeLessThanOrEqual(1);
-        expect(Math.abs(paint.bottom - paint.height)).toBeLessThanOrEqual(1);
+        expect(paint.source).toContain(leatherPlate);
+        expect(paint.width / paint.height).toBeCloseTo(1566 / 504, 2);
+        expect(rect!.width / rect!.height).toBeCloseTo(paint.width / paint.height, 2);
+        expect(paint.position).toBe('50% 50%');
+        expect(paint.size).toBe('contain');
         await expect
           .poll(
             () =>
@@ -143,7 +109,7 @@ export function registerLobbyGameSectionsCases(lobbyGameSectionsFixture: () => P
                   Math.abs((ink.top + ink.bottom - box.top - box.bottom) / 2) <= 1
                 );
               }),
-            { message: 'Full labels must fit and center inside the native compact glass' }
+            { message: 'Full labels must fit and center inside the quilted face' }
           )
           .toBe(true);
         await testInfo.attach(`family-frame-${width}-${await button.textContent()}.json`, {
