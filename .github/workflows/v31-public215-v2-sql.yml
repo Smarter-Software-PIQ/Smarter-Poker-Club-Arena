@@ -1,0 +1,35 @@
+name: V31 public215 v2 SQL encoding chain equals the TS v2 encoder
+
+# Native proof of migration 20261108011659 against a throwaway PostgreSQL 17
+# cluster (never production): scripts/ci/test-v31-public215-v2-sql-parity.py,
+# with its mutation checks. No timer: pull_request only, scoped to what it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261108011659_v31_public215_v2_sql_encoding_chain.sql
+      - scripts/ci/test-v31-public215-v2-sql-parity.py
+      - scripts/ci/fixtures/v31-public215-v2-sql/**
+      - .github/workflows/v31-public215-v2-sql.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v31-public215-v2-sql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  v31-public215-v2-sql:
+    name: V31 v2 SQL features equal the TS v2 encoder; v1 encoder unchanged
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: Native proof and mutation checks
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-v31-public215-v2-sql-parity.py --mutations
