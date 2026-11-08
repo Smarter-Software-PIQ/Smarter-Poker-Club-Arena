@@ -30,6 +30,9 @@ try:
  schema=schema.replace('description, club_id, union_id, tournament_id, idempotency_key, correlation_id)','description, from_label, club_id, union_id, tournament_id, idempotency_key, correlation_id)')
  schema=schema.replace('p_description, v_club, (SELECT union_id','p_description, current_setting(\'app.ledger_counterparty_label\',true), v_club, (SELECT union_id')
  q(schema)
+ migration=(ROOT/'supabase/migrations/20261108041131_net_guarantee_coverage_and_union_promo_funding.sql').read_text()
+ helper=migration[migration.index('CREATE FUNCTION public.fn_ca_guarantee_house_supplements'):]
+ helper=helper[:helper.index('$supplement$;')+len('$supplement$;')]
  q("""ALTER TABLE union_wallets ADD promo_wallet numeric(20,2);
  ALTER TABLE tournaments ADD club_id uuid, ADD total_rake numeric, ADD prize_pool_finalized boolean, ADD payout_math_version integer, ADD payout_structure jsonb, ADD bubble_protection boolean;
  ALTER TABLE tournament_players ADD club_id uuid;
@@ -42,6 +45,7 @@ try:
  supplemental=(ROOT/'tests/sql/fixtures/bounty-owner-correction.sql').read_text()
  ladder=supplemental[supplemental.index('CREATE OR REPLACE FUNCTION public.fn_ca_prize_ladder('):]
  q(ladder[:ladder.index('CREATE OR REPLACE FUNCTION public.fn_ca_prize_ladder_versioned')])
+ q(helper)
  structure=json.dumps([{'place':i,'percentage':p}for i,p in enumerate([26.94,15.47,11.19,8.89,7.43,6.42,5.68,5.10,4.65,4.27,3.96],1)])
  q(f"INSERT INTO clubs VALUES('{U}','union','{U}');INSERT INTO union_wallets VALUES('{U}',100000,now(),1000);INSERT INTO tournaments(id,status,prize_pool,bounty_pool,total_rake,guaranteed_prize,union_id,club_id,prize_pool_finalized,payout_math_version,payout_structure)VALUES('{T}','COMPLETED',1742,670,268,2500,'{U}','{U}',true,1,'{structure}');INSERT INTO tournament_escrow VALUES('{T}',1742,0,0,0,'2026-11-08 05:05:19Z');INSERT INTO tournament_terminal_settlements VALUES('{T}','places',1742,670,11,1742,670,'2026-11-08 05:05:19Z');")
  q(f"INSERT INTO tournament_players(tournament_id,user_id,position,prize) SELECT '{T}',md5('user:'||i)::uuid,i,0 FROM generate_series(1,67)i;UPDATE tournament_players SET club_id='{U}' WHERE tournament_id='{T}';INSERT INTO club_members SELECT user_id,club_id,9000 FROM tournament_players WHERE position<=11;INSERT INTO tournament_payouts(tournament_id,user_id,position,amount,source)SELECT '{T}',md5('user:'||i)::uuid,i,a,'structure' FROM unnest(ARRAY[469.29,269.49,194.93,154.86,129.43,111.84,98.95,88.84,81,74.38,68.99])WITH ORDINALITY x(a,i);")
@@ -52,6 +56,7 @@ try:
  assert proof['total']==88 and len(proof['plan'])==11
  assert q('SELECT promo_wallet FROM union_wallets')=='1000.00'
  assert q('SELECT count(*) FROM wallet_credit_idempotency')=='0'
+ assert q(f"SELECT fn_ca_guarantee_house_supplements('{T}')")=='0'
  commit=op.replace('BEGIN;\n',f"BEGIN;\nSET LOCAL app.owner_net_guarantee_expected_paid='{proof['paid_digest']}';\nSET LOCAL app.owner_net_guarantee_expected_promo='1000';\n",1)+'\nCOMMIT;'
  fail(commit.replace(proof['paid_digest'],'00000000000000000000000000000000'),'proof inputs changed')
  q('UPDATE union_wallets SET promo_wallet=87;');fail(probe,'promo balance insufficient');q('UPDATE union_wallets SET promo_wallet=1000;')
@@ -65,8 +70,9 @@ try:
  for session in sessions:
   out,err=session.communicate(timeout=20);assert session.returncode==0,err
  assert q('SELECT promo_wallet FROM union_wallets')=='912.00';assert q('SELECT sum(amount) FROM wallet_credit_idempotency')=='88.00';assert q("SELECT count(*) FROM ca_manual_adjustments WHERE status='settled'")=='11'
+ assert q(f"SELECT fn_ca_guarantee_house_supplements('{T}')")=='88.00'
  q(commit);assert q('SELECT promo_wallet FROM union_wallets')=='912.00'
- q("UPDATE ca_manual_adjustments SET status='approved' WHERE id=(SELECT id FROM ca_manual_adjustments LIMIT 1);");fail(commit,'replay receipts conflict')
+ q("UPDATE ca_manual_adjustments SET status='approved' WHERE id=(SELECT id FROM ca_manual_adjustments LIMIT 1);");fail(commit,'replay receipts conflict');assert q(f"SELECT fn_ca_guarantee_house_supplements('{T}')<88")=='t'
  print('PASS: completed guarantee supplements pay 11 canonical deltas totaling88 from promo; sealed records unchanged; rollback probe, drift, insufficient bank, partial journal rollback, replay and tamper refusal',flush=True)
 finally:
  if started:run([PG/'pg_ctl','-D',work/'data','-m','immediate','stop'])

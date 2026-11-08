@@ -80,9 +80,38 @@ describe('useTournamentPrizeFunding', () => {
       netCoverage: 1656,
       houseRequired: 844,
       housePosted: 0,
+      houseSupplementPaid: null,
       houseDue: 844,
     });
     expect(state.calls).toEqual(['fn_ca_tournament_prize_funding']);
+  });
+
+  it('reads actual completed promo supplements separately from the sealed prize pool', async () => {
+    state.answer = (id) => ({
+      data: {
+        tournament_id: id,
+        collected: 2412,
+        overlay: 0,
+        net_coverage: 2412,
+        house_required: 88,
+        house_posted: 88,
+        house_due: 0,
+        house_supplement_paid: 88,
+      },
+      error: null,
+    });
+    const { result } = renderHook(() =>
+      useTournamentPrizeFunding(
+        't-closed',
+        row({
+          prize_pool: 1742,
+          bounty_pool: 670,
+          prize_pool_finalized: true,
+        })
+      )
+    );
+    await waitFor(() => expect(result.current?.houseSupplementPaid).toBe(88));
+    expect(result.current).toMatchObject({ netCoverage: 2412, housePosted: 88, houseDue: 0 });
   });
 
   it('does not read for an event without a guarantee', async () => {

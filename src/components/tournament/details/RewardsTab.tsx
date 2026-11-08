@@ -952,11 +952,13 @@ export default function RewardsTab({
               />
             </div>
             <p className="rw-gtd__note">
-              {isFinalised || isComplete
-                ? `The House Funded ${chips(overlay)} Above Entry Contributions`
-                : housePostedEarly
-                  ? `The House Has Already Put In ${chips(housePostedNow)} And Adds ${chips(pendingHouse)} More If The Field Does Not Close It`
-                  : `The House Covers The ${chips(overlay)} Overlay If The Field Does Not Close It`}
+              {(currentFunding.houseSupplementPaid ?? 0) > 0
+                ? `${chips(currentFunding.houseSupplementPaid)} Promo Paid Separately To The Finishers After Completion`
+                : isFinalised || isComplete
+                  ? `The House Funded ${chips(overlay)} Above Entry Contributions`
+                  : housePostedEarly
+                    ? `The House Has Already Put In ${chips(housePostedNow)} And Adds ${chips(pendingHouse)} More If The Field Does Not Close It`
+                    : `The House Covers The ${chips(overlay)} Overlay If The Field Does Not Close It`}
             </p>
           </div>
         )}

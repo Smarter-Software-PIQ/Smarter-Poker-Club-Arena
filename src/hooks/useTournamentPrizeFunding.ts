@@ -35,6 +35,8 @@ export interface TournamentPrizeFunding {
   houseRequired: number | null;
   /** House / promo funding already posted, net of returns. */
   housePosted: number | null;
+  /** Paid separately after a completed event, with settled credit receipts. */
+  houseSupplementPaid?: number | null;
   /** What the house still adds at close: required minus already posted. */
   houseDue: number | null;
 }
@@ -105,6 +107,7 @@ export function useTournamentPrizeFunding(
           netCoverage: optional(data.net_coverage),
           houseRequired: optional(data.house_required),
           housePosted: optional(data.house_posted),
+          houseSupplementPaid: optional(data.house_supplement_paid),
           houseDue: optional(data.house_due),
         });
       } catch (error) {

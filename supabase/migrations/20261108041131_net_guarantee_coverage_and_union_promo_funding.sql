@@ -6,6 +6,27 @@
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='8s';
+-- Completed books stay sealed. Only settled, correlated promo supplements
+-- through the approved adjustment and idempotent wallet doors count as paid.
+CREATE FUNCTION public.fn_ca_guarantee_house_supplements(p_tournament_id uuid)
+RETURNS numeric LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'public'
+AS $supplement$
+ SELECT coalesce(sum(l.amount),0) FROM public.chip_ledger l
+ JOIN public.ca_manual_adjustments a ON a.id=l.correlation_id
+ JOIN public.wallet_credit_idempotency c ON c.key=l.idempotency_key
+ WHERE a.tournament_id=p_tournament_id AND a.status='settled'
+ AND a.target_kind='player_wallet' AND a.target_id=c.user_id AND a.amount=c.amount
+ AND c.amount=l.amount AND l.to_type='player_wallet' AND l.to_entity_id=c.user_id
+ AND l.from_type='union_wallet' AND l.from_label='union_wallets.promo_wallet'
+ AND l.from_entity_id=(SELECT t.union_id FROM public.tournaments t WHERE t.id=p_tournament_id)
+ AND l.category='settlement' AND coalesce(l.status,'posted')='posted'
+ AND l.tournament_id IS NULL
+ AND l.idempotency_key='net-guarantee-house:'||p_tournament_id::text||':'||c.user_id::text;
+$supplement$;
+REVOKE ALL ON FUNCTION public.fn_ca_guarantee_house_supplements(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_guarantee_house_supplements(uuid) TO service_role;
+
 CREATE OR REPLACE FUNCTION public.fn_ca_guarantee_funding(p_tournament_id uuid)
  RETURNS jsonb
  LANGUAGE sql
@@ -34,7 +55,7 @@ AS $function$
       AND l.category = 'reversal' AND l.to_type IN ('union_bank', 'union_wallet', 'club_treasury')), 0) AS house_out
   FROM l
  ), v AS (
-  SELECT t.g, round(greatest(0, s.paid_in - s.paid_back), 2) AS gross, round(greatest(0, s.paid_in - s.paid_back - t.rake), 2) AS c, round(s.house_in - s.house_out, 2) AS p
+  SELECT t.g, round(greatest(0, s.paid_in - s.paid_back), 2) AS gross, round(greatest(0, s.paid_in - s.paid_back - t.rake), 2) AS c, round(s.house_in - s.house_out + public.fn_ca_guarantee_house_supplements(p_tournament_id), 2) AS p
     FROM t, s
  )
  SELECT jsonb_build_object(
@@ -43,6 +64,7 @@ AS $function$
   'net_coverage', v.c,
   'house_required', greatest(0, v.g - v.c),
   'house_posted', v.p,
+  'house_supplement_paid', public.fn_ca_guarantee_house_supplements(p_tournament_id),
   'house_due', greatest(0, greatest(0, v.g - v.c) - v.p),
   'house_over_required', greatest(0, v.p - greatest(0, v.g - v.c)))
  FROM v;
@@ -187,7 +209,7 @@ BEGIN
                                    'late_reg_adjustment','final_table_deal',
                                    'spin_backpay','bubble_protection',
                                    'overlay_backpay')
-             ), 0) + COALESCE(t.bounty_pool_paid, 0) AS paid,
+             ), 0) + COALESCE(t.bounty_pool_paid, 0) + public.fn_ca_guarantee_house_supplements(t.id) AS paid,
              EXISTS (SELECT 1 FROM public.tournament_guarantee_overlays o
                       WHERE o.tournament_id = t.id) AS overlay_funded,
              t.ended_at

@@ -52,6 +52,7 @@ try:
  print('PASS: reproduced gross coverage hides the 88-chip shortfall',flush=True)
  migration=next((ROOT/'supabase/migrations').glob('*_net_guarantee_coverage_and_union_promo_funding.sql'))
  q((ROOT/'supabase/migrations/20260823000000_fix_entry_split_no_default_rake.sql').read_text())
+ q("CREATE TABLE ca_manual_adjustments(id uuid,target_kind text,target_id uuid,tournament_id uuid,status text,amount numeric);CREATE TABLE wallet_credit_idempotency(key text,user_id uuid,amount numeric);")
  q(migration.read_text())
  f=json.loads(q(f"SELECT fn_ca_guarantee_funding('{T}')"));assert f['net_coverage']==2412 and f['house_due']==88,f
  # Ordinary close invokes the new helper and actual legacy finalizer; rerun cannot debit twice.

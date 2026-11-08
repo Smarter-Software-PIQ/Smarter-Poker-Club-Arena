@@ -1,4 +1,4 @@
 {
   "_owner": "fix/overlay-net-01a1b950",
-  "functions": ["fn_ca_fund_union_guarantee_promo_locked"]
+  "functions": ["fn_ca_fund_union_guarantee_promo_locked", "fn_ca_guarantee_house_supplements"]
 }

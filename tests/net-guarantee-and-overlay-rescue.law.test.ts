@@ -59,6 +59,7 @@ describe('owner November 7: net guarantees and final ten-minute Horse rescue', (
       'optional(data.net_coverage)'
     );
     expect(source).toContain('currentFunding.netCoverage');
+    expect(source).toContain('Promo Paid Separately To The Finishers After Completion');
     expect(source).not.toContain('data.gross_coverage');
   });
 });
