@@ -241,6 +241,39 @@ with tempfile.TemporaryDirectory(prefix='midway-weekly-',dir=parent) as folder:
         finally: sql('DELETE FROM engine_maintenance_break')
         insert_generic({'name':'Capacity normalization witness','max_players':2,'min_players':2})
         assert sql("SELECT max_players IS NULL AND min_players=3 AND format_contract='mtt-v2' AND payout_percent=15 AND payout_depth_percent=15 FROM tournaments WHERE name='Capacity normalization witness'")=='t'
+        # Owner November7: only twelve-level chip entries priced25+ change.
+        # The existing final row boundary is captured after its earlier clock fix.
+        sql((fixture/'final-clock-before-ten-levels.sql').read_text())
+        sql("CREATE TABLE clubs(id uuid PRIMARY KEY,asset text);")
+        sql("INSERT INTO clubs VALUES('"+scope+"','chips'),('99999999-9999-4999-8999-999999999999','diamonds')")
+        sql("CREATE TABLE before_ten AS SELECT id,to_jsonb(t) row FROM tournaments t;")
+        assert sql("SELECT count(*) FROM tournaments WHERE club_id='"+scope+"' AND buy_in_amount+buy_in_fee>=25 AND late_reg_levels=12 AND status='REGISTERING'")!='0'
+        ten=next((root/'supabase/migrations').glob('*chip_buyins_twenty_five_and_up_register_for_ten_levels.sql'))
+        sql(ten.read_text().replace('BEGIN;\n',"BEGIN;\nSET LOCAL application_name='apply-recorded-migration';\nSET LOCAL transaction_timeout='12s';\n",1))
+        # Compare whole persisted rows; the allowed difference is exactly the
+        # registration level and its literal description, never rebuy/addon.
+        for before in json.loads(sql("SELECT jsonb_agg(row) FROM before_ten")):
+            expected=dict(before)
+            if before['club_id']==scope and before['buy_in_amount']+before['buy_in_fee']>=25 and before['late_reg_levels']==12 and before['status'] not in ['COMPLETED','COMPLETING','CANCELLED','CANCELED','FAILED']:
+                expected['late_reg_levels']=10
+                if expected['short_description'] is not None: expected['short_description']=expected['short_description'].replace('Late Registration Through Level 12.','Late Registration Through Level 10.')
+            actual=json.loads(sql("SELECT to_jsonb(t) FROM tournaments t WHERE id='"+before['id']+"'"))
+            assert actual==expected,(before['name'],{k:(before[k],actual[k]) for k in before if before[k]!=actual[k]})
+        for event in document['events']:
+            assert sql("SELECT config->'midwayWeeklyTerms'->>'late_reg_levels' FROM tournament_schedules WHERE id='"+event['id']+"'")==str(event['terms']['late_reg_levels']),event['name']
+        # Generic stored boundary covers exact25 (22.5+2.5), higher prices,
+        # running games, and preservation of other caps, terminal and diamonds.
+        for total,cap,status,asset,want in [(25,12,'REGISTERING','chips',10),(24,12,'REGISTERING','chips',12),(100,12,'RUNNING','chips',10),(25,6,'RUNNING','chips',6),(25,0,'RUNNING','chips',0),(25,12,'COMPLETED','chips',12),(25,12,'RUNNING','diamonds',12)]:
+            row=dict(buy_in_amount=total*.9,buy_in_fee=total*.1,late_reg_levels=cap,status=status,club_id=scope if asset=='chips' else '99999999-9999-4999-8999-999999999999',rebuy_levels=12,late_reg_mins=96,short_description='Original')
+            encoded=json.dumps(row).replace("'","''")
+            actual=json.loads(sql("SELECT to_jsonb(fn_ca_ten_level_late_registration(jsonb_populate_record(NULL::tournaments,'"+encoded+"'::jsonb)))"))
+            assert actual['late_reg_levels']==want,(row,actual)
+            assert actual['rebuy_levels']==12 and actual['late_reg_mins']==96 and actual['short_description']=='Original'
+        insert_event('91000000-0000-4000-8000-000000000001',target['id'])
+        assert sql("SELECT late_reg_levels=10 AND rebuy_levels=12 FROM tournaments WHERE id='91000000-0000-4000-8000-000000000001'")=='t'
+        sql("UPDATE tournaments SET is_rebuy=is_rebuy WHERE id='91000000-0000-4000-8000-000000000001'")
+        assert sql("SELECT late_reg_levels=10 AND rebuy_levels=12 FROM tournaments WHERE id='91000000-0000-4000-8000-000000000001'")=='t'
+        print('PASS: twelve to ten at total25; all other persisted event/schedule fields, lower prices, currencies, other caps and terminal records preserved; future insert and repeated write keep rebuy12')
         # Execute the maintained snapshot against this production-shaped schema.
         # Empty read inputs do not emulate cancellation or certify a refund.
         sql("""ALTER TABLE tournament_players ADD COLUMN IF NOT EXISTS user_id uuid;
