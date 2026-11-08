@@ -84,36 +84,77 @@ class Evidence(unittest.TestCase):
 
 
 class Selection(unittest.TestCase):
-    def verify(self, *, altered=False, duplicate=False, late=False, pending=False):
+    def verify(self, *, altered=False, duplicate=False, late=False, pending=False, owner=False, wrong_owner=False, wrong_stage=False, wrong_event=False, rerun=False):
         repo = "Smarter-Software-PIQ/Smarter-Poker-Club-Arena"
         cutoff = int(datetime(2026, 11, 8, 9, 30, tzinfo=timezone.utc).timestamp())
+        owner_id = "2026-11-08-horse-study-successor-engine-1720z" if owner else None
+        if owner:
+            cutoff = int(datetime(2026, 11, 8, 17, 20, tzinfo=timezone.utc).timestamp())
         qualification = {"targetSha":"a"*40, "controlSha":"b"*40, "qualificationRunId":21}
         run = dict(id=22, run_attempt=1, event="schedule", head_branch="main", status="in_progress",
                    path=".github/workflows/stage-engine-release.yml", head_sha="c"*40,
                    repository={"full_name":repo}, head_repository={"full_name":repo})
+        if owner:
+            run.update(event="push" if wrong_event else "workflow_dispatch", head_sha="b"*40,
+                       created_at=datetime.fromtimestamp(cutoff, timezone.utc).isoformat(),
+                       run_attempt=2 if rerun else 1)
+            qualification["targetSha"] = "a"*40 if wrong_stage else "b"*40
         receipt = dict(schema=1, outcome="selected", cutoffEpoch=cutoff+int(late),
                        qualification=qualification, stageSha=run["head_sha"],
                        targetSha=qualification["targetSha"], controlSha=qualification["controlSha"])
+        if owner:
+            receipt["ownerWindowId"] = "forged" if wrong_owner else owner_id
         data = io.BytesIO()
         with zipfile.ZipFile(data, "w") as bundle:
             bundle.writestr("daily-selection.json", json.dumps(receipt))
             if duplicate:
                 bundle.writestr("other.json", "{}")
         archive = data.getvalue()
-        artifact = dict(id=7, name="daily-engine-selection-2026-11-08", expired=False,
+        artifact = dict(id=7, name="owner-engine-selection-" + owner_id if owner else "daily-engine-selection-2026-11-08", expired=False,
                         size_in_bytes=len(archive), digest="sha256:"+hashlib.sha256(archive).hexdigest())
         job = dict(name="Record the daily release evidence", run_id=22, run_attempt=1,
                    head_sha=run["head_sha"], status="completed", conclusion="success" if not pending else None)
         with patch.object(reader, "api", side_effect=[run, {"total_count":1, "jobs":[job]}, {"total_count":1,"artifacts":[artifact]}]), \
              patch.object(reader, "git", return_value=""), \
+             patch.object(reader, "owner_selection_policy") as policy, \
              patch.object(reader.subprocess, "check_output", return_value=archive + (b"x" if altered else b"")):
-            reader.verify_selection(repo, "22", cutoff, qualification)
+            reader.verify_selection(repo, "22", cutoff, qualification, owner_id)
+            if owner:
+                policy.assert_called_once_with(qualification["targetSha"], run["head_sha"], owner_id, cutoff)
+
+    def test_owner_requires_original_protected_exact_stage_and_bound_artifact(self):
+        self.verify(owner=True)
+        for mismatch in ("altered", "duplicate", "late", "pending", "wrong_owner", "wrong_stage", "wrong_event", "rerun"):
+            with self.subTest(mismatch=mismatch), self.assertRaises(reader.Unqualified):
+                self.verify(owner=True, **{mismatch: True})
 
     def test_verifies_stage_artifact_and_rejects_changed_archive_or_cutoff(self):
         self.verify()
         for mismatch in ("altered","duplicate","late","pending"):
             with self.subTest(mismatch=mismatch), self.assertRaises(reader.Unqualified):
                 self.verify(**{mismatch: True})
+
+
+class OwnerPolicy(unittest.TestCase):
+    def test_reuses_pinned_validator_and_rejects_wrong_identity_or_interval(self):
+        now = int(datetime.now(timezone.utc).timestamp())
+        owner = "finite-owner"
+        floor = dict(ownerWindowId=owner,
+                     activationAt=datetime.fromtimestamp(now-60, timezone.utc).isoformat(),
+                     expiresAt=datetime.fromtimestamp(now+600, timezone.utc).isoformat())
+        with patch.object(reader, "protected"), patch.object(reader, "git", return_value=json.dumps(floor)), \
+             patch.object(reader.subprocess, "check_output", return_value=b"# original protected helper") as command:
+            self.assertEqual(reader.owner_selection_policy("a"*40, "a"*40, owner, now), floor)
+            call = command.call_args.args[0]
+            self.assertEqual(call[3:], ["nov7-owner", "--repo", ".", "--target", "a"*40,
+                                       "--control", "a"*40, "--deadline", str(now+600)])
+            for target, identity, cutoff in (("b"*40,owner,now),("a"*40,"forged",now),
+                                             ("a"*40,owner,now-61),("a"*40,owner,now+601)):
+                with self.assertRaises(reader.Unqualified):
+                    reader.owner_selection_policy(target,"a"*40,identity,cutoff)
+            command.side_effect = subprocess.CalledProcessError(1, "pinned-validator")
+            with self.assertRaises(subprocess.CalledProcessError):
+                reader.owner_selection_policy("a"*40,"a"*40,owner,now)
 
 
 class ControlInputs(unittest.TestCase):

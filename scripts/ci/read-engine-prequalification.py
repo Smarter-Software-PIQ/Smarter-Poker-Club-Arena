@@ -8,6 +8,8 @@ import re
 import subprocess
 import sys
 import zipfile
+import tempfile
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from datetime import datetime, timezone
 
@@ -64,12 +66,43 @@ def projection(sha, *, release_authority=False):
     return git("ls-tree", "-r", sha, "--", *paths)
 
 
-def verify_selection(repo, rid, cutoff, qualification):
+def owner_selection_policy(target, control, owner_id, cutoff):
+    """Reuse the exact protected finite admission validator, never a caller's order."""
+    require(target == control, "owner selection requires exact target/control equality")
+    protected(control)
+    raw = git("show", control + ":server/release/activation-floor.json")
+    floor = json.loads(raw)
+    require(floor.get("ownerWindowId") == owner_id and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", owner_id),
+            "owner selection identity differs")
+    start = int(datetime.fromisoformat(floor["activationAt"].replace("Z", "+00:00")).timestamp())
+    end = int(datetime.fromisoformat(floor["expiresAt"].replace("Z", "+00:00")).timestamp())
+    require(start <= cutoff < end and cutoff <= datetime.now(timezone.utc).timestamp(),
+            "owner selection cutoff outside original window")
+    # The helper verifies pinned manifest/order digests, protected ancestry,
+    # exact helper bytes, control/target authority and current admission time.
+    with tempfile.TemporaryDirectory(prefix="owner-selection-") as folder:
+        helper = Path(folder) / "engine-release-activation-floor.py"
+        helper.write_bytes(subprocess.check_output(["git", "--no-replace-objects", "show",
+                            control + ":server/scripts/engine-release-activation-floor.py"], timeout=30))
+        subprocess.check_output([sys.executable, "-B", str(helper), "nov7-owner", "--repo", ".",
+                                 "--target", target, "--control", control, "--deadline", str(end)], timeout=30)
+    return floor
+
+
+def selection_cutoff(repo, rid):
+    require(re.fullmatch(r"[1-9][0-9]{0,19}", rid or ""), "invalid selection run id")
+    run = api(f"repos/{repo}/actions/runs/{rid}")
+    moment = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+    require(moment.utcoffset() is not None, "selection creation time lacks offset")
+    return int(moment.timestamp())
+
+
+def verify_selection(repo, rid, cutoff, qualification, owner_window=None):
     """Bind repository_dispatch to the already uploaded, first-attempt selection."""
     require(re.fullmatch(r"[1-9][0-9]{0,19}", rid), "invalid selection run id")
     run = api(f"repos/{repo}/actions/runs/{rid}")
     require(run["id"] == int(rid) and run["run_attempt"] == 1
-            and run["event"] in ("push", "schedule") and run["head_branch"] == "main"
+            and run["event"] in (("workflow_dispatch",) if owner_window else ("push", "schedule")) and run["head_branch"] == "main"
             and run["path"] == ".github/workflows/stage-engine-release.yml"
             and run["repository"]["full_name"].lower() == repo.lower()
             and run["head_repository"]["full_name"].lower() == repo.lower()
@@ -86,9 +119,16 @@ def verify_selection(repo, rid, cutoff, qualification):
             and selected[0]["head_sha"] == stage and selected[0]["run_attempt"] == 1
             and selected[0]["status"] == "completed" and selected[0]["conclusion"] == "success",
             "selection job has not succeeded")
-    chicago = datetime.fromtimestamp(cutoff, ZoneInfo("America/Chicago"))
-    require((chicago.hour, chicago.minute, chicago.second) == (3, 30, 0), "invalid selection cutoff")
-    name = "daily-engine-selection-" + chicago.date().isoformat()
+    if owner_window:
+        require(stage == qualification["controlSha"] == qualification["targetSha"], "owner Stage identity differs")
+        require(int(datetime.fromisoformat(run["created_at"].replace("Z", "+00:00")).timestamp()) == cutoff,
+                "owner cutoff differs from original Stage creation")
+        owner_selection_policy(qualification["targetSha"], stage, owner_window, cutoff)
+        name = "owner-engine-selection-" + owner_window
+    else:
+        chicago = datetime.fromtimestamp(cutoff, ZoneInfo("America/Chicago"))
+        require((chicago.hour, chicago.minute, chicago.second) == (3, 30, 0), "invalid selection cutoff")
+        name = "daily-engine-selection-" + chicago.date().isoformat()
     listing = api(f"repos/{repo}/actions/runs/{rid}/artifacts?name={name}&per_page=2")
     require(listing["total_count"] == len(listing["artifacts"]) == 1, "unique selection artifact absent")
     artifact = listing["artifacts"][0]
@@ -104,6 +144,7 @@ def verify_selection(repo, rid, cutoff, qualification):
         require(len(entries) == 1 and entries[0].filename == "daily-selection.json"
                 and entries[0].file_size <= 1024 * 1024, "invalid selection archive contents")
         receipt = json.loads(bundle.read(entries[0]))
+    require(receipt.get("ownerWindowId") == owner_window, "selection owner differs")
     require(receipt["schema"] == 1 and receipt["outcome"] == "selected"
             and receipt["targetSha"] == qualification["targetSha"]
             and receipt["stageSha"] == stage and receipt["controlSha"] == qualification["controlSha"]
@@ -162,15 +203,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for flag in ("repo", "target", "control"):
         parser.add_argument("--" + flag, required=True)
-    parser.add_argument("--cutoff", required=True, type=int)
+    parser.add_argument("--cutoff", type=int)
+    parser.add_argument("--owner-window")
     parser.add_argument("--receiver-control")
     parser.add_argument("--selection-run-id")
     try:
         args = parser.parse_args()
+        if args.owner_window:
+            require(args.receiver_control and args.selection_run_id, "owner receiver requires original Stage run")
+            require(args.cutoff is None, "owner cutoff must come from original Stage")
+            args.cutoff = selection_cutoff(args.repo, args.selection_run_id)
+            owner_selection_policy(args.target, args.control, args.owner_window, args.cutoff)
+        require(type(args.cutoff) is int, "qualification cutoff required")
         result = read(args)
         if args.receiver_control:
             require(args.selection_run_id, "receiver requires an immutable selection run")
-            verify_selection(args.repo, args.selection_run_id, args.cutoff, result)
+            verify_selection(args.repo, args.selection_run_id, args.cutoff, result, args.owner_window)
         print(json.dumps(result))
     except Unqualified as error:
         print(error, file=sys.stderr)

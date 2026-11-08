@@ -121,6 +121,30 @@ class DailySelection(unittest.TestCase):
         self.assertEqual(report['outcome'], 'selected')
         self.assertEqual(report['deferredCandidates'][0]['sha'], newest)
 
+    def test_owner_selection_never_falls_back_and_keeps_cutoff_distinct_from_admission_expiry(self):
+        newest, old, serving = 'b'*40, 'a'*40, 'c'*40
+        args = types.SimpleNamespace(repo='o/r', control=newest, serving=serving, owner_window='finite-owner')
+        for qualified in (False, True):
+            report = {'cutoffEpoch':100, 'ownerExpiresEpoch':200, 'deferredCandidates':[]}
+            processes = [mod.subprocess.CompletedProcess([], 0 if qualified else 3,
+                         mod.json.dumps({'targetSha':newest,'controlSha':newest})),
+                         mod.subprocess.CompletedProcess([], 0, '')]
+            with (patch.object(mod, 'git', side_effect=[newest+'\n'+old, serving]),
+                  patch.object(mod, 'statuses', return_value=[(newest,{})]) as statuses,
+                  patch.object(mod, 'backup', return_value=dict(runId=123, rehearsedServingSha=serving,
+                       playerReconnectedBothDirections=True, rollbackAdoptionSeconds=7, forwardAdoptionSeconds=7)),
+                  patch.object(mod, 'current_schema', return_value=True),
+                  patch.object(mod.subprocess, 'run', side_effect=processes) as run):
+                mod.select(args, report)
+                statuses.assert_called_once_with('o/r', [newest])
+                self.assertEqual(run.call_args_list[0].args[0][-1], '100')
+                if qualified:
+                    self.assertEqual(report['targetSha'], newest)
+                    self.assertIn('nov7-owner', run.call_args.args[0])
+                    self.assertEqual(run.call_args.args[0][-1], '200')
+                else:
+                    self.assertNotIn('targetSha', report)
+
     def test_unavailable_intent_identity_keeps_other_items_reportable(self):
         report = {'controlSha': None, 'targetSha': None, 'cutoffEpoch': 1}
         with patch.object(mod, 'api', side_effect=mod.subprocess.CalledProcessError(1, ['gh'])), \
