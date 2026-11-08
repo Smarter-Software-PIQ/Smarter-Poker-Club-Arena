@@ -31,11 +31,25 @@
 -- the program leaves 'rebuilding'. It reads only; it never starts, retries or
 -- changes solver work, datasets, engines or money.
 --
--- Scheduled hourly at minute 17 (outside the :50-:03 break window).
--- periodic-work: this is detection, not compensation. It restarts, retries and settles nothing; a stalled round is resumed by its single writer. The schedule exists only because an idle round leaves no other reader that would page anyone before the 72-hour program stall.
+-- A SWITCHED-ON PLAYBOOK THE SERVING ENGINE DOES NOT USE IS PAGED TOO.
+-- After each engine release gto-v31-recheck-dispatch.mjs (#9852, #9913)
+-- dispatches a strict re-check that binds the new engine to an active
+-- contract v3 playbook. When the new engine's execution fingerprint differs
+-- it skips with one line in the workflow summary, and a refused or failed
+-- re-check leaves the engine unbound: in every case the horses silently play
+-- without the certified playbook. fn_gto_v31_serving_binding_check(p_grace_hours)
+-- pages ONE warning per (playbook, serving engine) when a promoted, unretired
+-- dataset has no unrevoked gto_v31_serving_bindings row for the engine that
+-- has led for more than p_grace_hours (a re-check needs that long), and
+-- resolves it when the binding appears, the playbook is retired, or a
+-- different engine leads. A stale leader heartbeat is unknown: nothing is
+-- raised or resolved.
+--
+-- Scheduled hourly at minutes 17 and 19 (outside the :50-:03 break window).
+-- periodic-work: this is detection, not compensation. It restarts, retries, binds and settles nothing; a stalled round is resumed by its single writer and an unbound engine is re-checked or re-certified by the V31 lane. The schedules exist only because an idle round and an unbound serving engine leave no other reader that would page anyone.
 -- Native proof: scripts/ci/test-a-stalled-solver-round-is-paged.py.
 --
--- @live-proof: (SELECT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'gto-v31-round-stall-check-hourly' AND schedule = '17 * * * *' AND active) AND to_regprocedure('public.fn_gto_v31_round_stall_check(integer)') IS NOT NULL AND NOT has_function_privilege('anon','public.fn_gto_v31_round_stall_check(integer)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_gto_v31_round_stall_check(integer)','EXECUTE') AND has_function_privilege('service_role','public.fn_gto_v31_round_stall_check(integer)','EXECUTE'))
+-- @live-proof: (SELECT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'gto-v31-round-stall-check-hourly' AND schedule = '17 * * * *' AND active) AND to_regprocedure('public.fn_gto_v31_round_stall_check(integer)') IS NOT NULL AND NOT has_function_privilege('anon','public.fn_gto_v31_round_stall_check(integer)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_gto_v31_round_stall_check(integer)','EXECUTE') AND has_function_privilege('service_role','public.fn_gto_v31_round_stall_check(integer)','EXECUTE') AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'gto-v31-serving-binding-check-hourly' AND schedule = '19 * * * *' AND active) AND to_regprocedure('public.fn_gto_v31_serving_binding_check(integer)') IS NOT NULL AND NOT has_function_privilege('anon','public.fn_gto_v31_serving_binding_check(integer)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_gto_v31_serving_binding_check(integer)','EXECUTE'))
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
@@ -161,6 +175,97 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_gto_v31_round_stall_check(integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_gto_v31_round_stall_check(integer) TO service_role;
 
+CREATE FUNCTION public.fn_gto_v31_serving_binding_check(p_grace_hours integer DEFAULT 8)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+SET statement_timeout TO '30s'
+AS $function$
+DECLARE
+  v_grace     integer := GREATEST(COALESCE(p_grace_hours, 8), 1);
+  v_version   text;
+  v_beat      timestamptz;
+  v_since     timestamptz;
+  v_d         record;
+  v_a         record;
+  v_unbound   jsonb := '[]'::jsonb;
+  v_raised    integer := 0;
+  v_resolved  integer := 0;
+BEGIN
+  SELECT l.engine_version, l.heartbeat_at INTO v_version, v_beat
+    FROM public.engine_leader l
+   ORDER BY l.heartbeat_at DESC NULLS LAST
+   LIMIT 1;
+  IF v_version IS NULL OR v_beat IS NULL OR v_beat < now() - interval '5 minutes' THEN
+    RETURN jsonb_build_object('ok', false, 'checked_at', now(), 'state', 'leader_unknown',
+                              'engine_version', v_version, 'heartbeat_at', v_beat);
+  END IF;
+
+  -- When this version first led: the oldest leader acquisition of the same version
+  -- is not kept, so the newest acquisition stands in (a restart only delays a page).
+  SELECT min(l.acquired_at) INTO v_since FROM public.engine_leader l
+   WHERE left(l.engine_version, 8) = left(v_version, 8);
+
+  -- Close pages that no longer hold: a binding exists, the playbook left service, or another engine leads.
+  FOR v_a IN
+    SELECT fa.id, (fa.context->>'dataset_id')::uuid AS dataset_id, fa.context->>'serving_version' AS serving
+      FROM public.financial_alerts fa
+     WHERE fa.source = 'fn_gto_v31_serving_binding_check' AND NOT fa.resolved
+  LOOP
+    IF left(COALESCE(v_a.serving, ''), 8) IS DISTINCT FROM left(v_version, 8)
+       OR NOT EXISTS (SELECT 1 FROM public.gto_v31_datasets d WHERE d.dataset_id = v_a.dataset_id
+                         AND d.promoted_at IS NOT NULL AND d.retired_at IS NULL)
+       OR EXISTS (SELECT 1 FROM public.gto_v31_serving_bindings b WHERE b.dataset_id = v_a.dataset_id
+                     AND b.revoked_at IS NULL AND left(b.serving_commit, 8) = left(v_version, 8)) THEN
+      UPDATE public.financial_alerts fa
+         SET resolved = true, resolved_at = now(),
+             resolution = format('Re-measured by fn_gto_v31_serving_binding_check at %s: engine %s leads; '
+                                 || 'the page named %s for playbook %s, which is now bound, retired or no longer served.',
+                                 now(), left(v_version, 8), left(COALESCE(v_a.serving, ''), 8), v_a.dataset_id)
+       WHERE fa.id = v_a.id AND NOT fa.resolved;
+      v_resolved := v_resolved + 1;
+    END IF;
+  END LOOP;
+
+  FOR v_d IN
+    SELECT d.dataset_id, d.dataset_key, d.promoted_at
+      FROM public.gto_v31_datasets d
+     WHERE d.promoted_at IS NOT NULL AND d.retired_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM public.gto_v31_serving_bindings b WHERE b.dataset_id = d.dataset_id
+                          AND b.revoked_at IS NULL AND left(b.serving_commit, 8) = left(v_version, 8))
+  LOOP
+    v_unbound := v_unbound || jsonb_build_object('dataset_id', v_d.dataset_id, 'dataset_key', v_d.dataset_key);
+    IF v_since < now() - make_interval(hours => v_grace)
+       AND NOT EXISTS (SELECT 1 FROM public.financial_alerts fa
+                        WHERE fa.source = 'fn_gto_v31_serving_binding_check' AND NOT fa.resolved
+                          AND fa.context->>'dataset_id' = v_d.dataset_id::text) THEN
+      INSERT INTO public.financial_alerts (severity, source, message, context)
+      VALUES ('warning', 'fn_gto_v31_serving_binding_check',
+              format('Certified V31 playbook %s is switched on, but engine %s has served for more than %s hours '
+                     || 'without a serving binding, so the horses are playing without it. The post-release strict '
+                     || 're-check (gto-v31-qualification.yml, operation recheck) either has not finished, refused, '
+                     || 'or was skipped because this engine''s decision code differs from the certified one, which '
+                     || 'needs a new certification. Read the latest recheck-after-release job summary.',
+                     COALESCE(v_d.dataset_key, v_d.dataset_id::text), left(v_version, 8), v_grace),
+              jsonb_build_object('checked_at', now(), 'grace_hours', v_grace,
+                                 'dataset_id', v_d.dataset_id, 'dataset_key', v_d.dataset_key,
+                                 'promoted_at', v_d.promoted_at, 'serving_version', left(v_version, 8),
+                                 'serving_since', v_since, 'leader_heartbeat_at', v_beat));
+      v_raised := v_raised + 1;
+    END IF;
+  END LOOP;
+
+  RETURN jsonb_build_object('ok', true, 'checked_at', now(),
+                            'state', CASE WHEN jsonb_array_length(v_unbound) = 0 THEN 'bound_or_none' ELSE 'unbound' END,
+                            'serving_version', left(v_version, 8), 'serving_since', v_since,
+                            'unbound', v_unbound, 'raised', v_raised, 'resolved', v_resolved);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_gto_v31_serving_binding_check(integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_gto_v31_serving_binding_check(integer) TO service_role;
+
 DO $schedule$
 BEGIN
   IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'gto-v31-round-stall-check-hourly') THEN
@@ -168,6 +273,11 @@ BEGIN
   END IF;
   PERFORM cron.schedule('gto-v31-round-stall-check-hourly', '17 * * * *',
                         'select public.fn_gto_v31_round_stall_check(6);');
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'gto-v31-serving-binding-check-hourly') THEN
+    PERFORM cron.unschedule('gto-v31-serving-binding-check-hourly');
+  END IF;
+  PERFORM cron.schedule('gto-v31-serving-binding-check-hourly', '19 * * * *',
+                        'select public.fn_gto_v31_serving_binding_check(8);');
 END
 $schedule$;
 

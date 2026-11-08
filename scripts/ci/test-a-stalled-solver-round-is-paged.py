@@ -44,6 +44,10 @@ CREATE TABLE public.gto_v31_evaluation_epochs (dataset_id uuid, opened_at timest
 CREATE TABLE public.gto_v31_release_evaluations (dataset_id uuid, evaluated_at timestamptz);
 CREATE TABLE public.solver_worker_heartbeats (machine_id text, received_at timestamptz);
 CREATE TABLE public.solver_compact_heartbeats (received_at timestamptz);
+CREATE TABLE public.engine_leader (id boolean PRIMARY KEY DEFAULT true, instance_id text, engine_version text,
+  acquired_at timestamptz, heartbeat_at timestamptz);
+CREATE TABLE public.gto_v31_serving_bindings (binding_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), dataset_id uuid,
+  serving_commit text, bound_at timestamptz DEFAULT now(), revoked_at timestamptz);
 CREATE TABLE public.financial_alerts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   severity text CHECK (severity = ANY (ARRAY['critical','warning','info'])), source text, message text,
   context jsonb, resolved boolean NOT NULL DEFAULT false, resolved_at timestamptz,
@@ -162,7 +166,49 @@ def main():
         assert sql("SELECT has_function_privilege('anon','public.fn_gto_v31_round_stall_check(integer)','EXECUTE')") == 'f'
         assert sql("SELECT has_function_privilege('authenticated','public.fn_gto_v31_round_stall_check(integer)','EXECUTE')") == 'f'
         assert sql("SELECT has_function_privilege('service_role','public.fn_gto_v31_round_stall_check(integer)','EXECUTE')") == 't'
-        print('a stalled solver round is paged: 11/11 behaviours proven')
+        # --- fn_gto_v31_serving_binding_check ---
+        def bcheck(field='state'):
+            return sql(f"SELECT public.fn_gto_v31_serving_binding_check(8)->>'{field}'")
+
+        def bopen():
+            return int(sql("SELECT count(*) FROM financial_alerts WHERE source='fn_gto_v31_serving_binding_check' AND NOT resolved"))
+
+        serving = '391f7bc0' + '1' * 32
+        sql(f"INSERT INTO engine_leader VALUES (true, '1-abc', '{serving[:8]}', now() - interval '2 hours', now())")
+        # 12. No playbook in service: nothing to bind.
+        assert bcheck() == 'bound_or_none' and bopen() == 0
+        # 13. Playbook promoted, engine led 2h without a binding: unbound, inside the re-check grace, no page.
+        sql("UPDATE gto_v31_datasets SET promoted_at = now() - interval '3 days' WHERE dataset_key='r8'")
+        assert bcheck() == 'unbound' and bopen() == 0
+        # 14. Past the grace: one warning naming the playbook and the engine; no duplicate.
+        sql("UPDATE engine_leader SET acquired_at = now() - interval '9 hours'")
+        assert bcheck() == 'unbound' and bopen() == 1
+        row = sql("SELECT severity||'|'||(context->>'dataset_key')||'|'||(context->>'serving_version') "
+                  "FROM financial_alerts WHERE source='fn_gto_v31_serving_binding_check'")
+        assert row == 'warning|r8|391f7bc0', row
+        assert bcheck() == 'unbound' and bopen() == 1
+        # 15. A stale leader is unknown: neither raises nor resolves.
+        sql("UPDATE engine_leader SET heartbeat_at = now() - interval '10 minutes'")
+        assert bcheck() == 'leader_unknown' and bopen() == 1
+        sql("UPDATE engine_leader SET heartbeat_at = now()")
+        # 16. A binding for another engine does not count; one for this engine resolves the page.
+        sql("INSERT INTO gto_v31_serving_bindings(dataset_id, serving_commit) SELECT dataset_id, 'deadbeef' || repeat('0',32) FROM gto_v31_datasets WHERE dataset_key='r8'")
+        assert bcheck() == 'unbound' and bopen() == 1
+        sql(f"INSERT INTO gto_v31_serving_bindings(dataset_id, serving_commit) SELECT dataset_id, '{serving}' FROM gto_v31_datasets WHERE dataset_key='r8'")
+        assert bcheck() == 'bound_or_none' and bopen() == 0
+        # 17. A revoked binding is no binding: a new page after the grace.
+        sql("UPDATE gto_v31_serving_bindings SET revoked_at = now()")
+        assert bcheck() == 'unbound' and bopen() == 1
+        # 18. A different engine leads: the old page closes; the new engine gets its own grace.
+        sql("UPDATE engine_leader SET engine_version='5b6c7d8e', acquired_at=now() - interval '5 minutes', heartbeat_at=now()")
+        assert bcheck() == 'unbound' and bopen() == 0
+        # 19. A retired playbook is never paged.
+        sql("UPDATE engine_leader SET acquired_at = now() - interval '9 hours'")
+        sql("UPDATE gto_v31_datasets SET retired_at = now() WHERE dataset_key='r8'")
+        assert bcheck() == 'bound_or_none' and bopen() == 0
+        assert sql("SELECT count(*) FROM cron.job WHERE jobname='gto-v31-serving-binding-check-hourly' AND schedule='19 * * * *'") == '1'
+        assert sql("SELECT has_function_privilege('anon','public.fn_gto_v31_serving_binding_check(integer)','EXECUTE')") == 'f'
+        print('a stalled solver round and an unbound serving engine are paged: 19/19 behaviours proven')
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)
         shutil.rmtree(scratch, ignore_errors=True)
