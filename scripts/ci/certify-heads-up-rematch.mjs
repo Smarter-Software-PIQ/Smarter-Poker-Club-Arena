@@ -298,10 +298,17 @@ async function main() {
     const acted = new Set();
     const diag = { messages: {}, turns: [], actions: [], closes: [] };
     evidence.socket = diag;
-    const watch = (tableId) => {
+    // A heads-up table has no engine until its game starts, and a socket opened
+    // before that is refused at once (run 42577549337: no message, one error).
+    // The watcher therefore connects after the start and reconnects if it drops.
+    S.stopped = false;
+    const watch = (tableId, attempt = 0) => {
       let state = null;
       const ws = new WebSocket(`wss://engine.smarter.poker/ws/table/${tableId}`, ['bearer', P.b.token]);
-      ws.onclose = (e) => diag.closes.push({ code: e.code, reason: e.reason });
+      ws.onclose = (e) => {
+        diag.closes.push({ code: e.code, reason: e.reason });
+        if (!S.stopped && attempt < 60) setTimeout(() => watch(tableId, attempt + 1), 2000);
+      };
       ws.onerror = () => diag.closes.push({ error: true });
       S.sockets.push(ws);
       ws.onmessage = async (e) => {
@@ -341,8 +348,6 @@ async function main() {
       throw new Error(`timed out waiting for ${what}`);
     };
 
-    watch(S.source.tableId);
-    await sleep(2000);
     const seats = await Promise.all(
       ['a', 'b'].map((role, i) =>
         rpc(P[role].token, 'fn_take_seat_and_buy_in', { p_table_id: S.source.tableId, p_seat_number: i + 1 })
@@ -402,6 +407,7 @@ async function main() {
       return t && ['RUNNING', 'COMPLETED'].includes(String(t.status).toUpperCase()) ? t : null;
     }, 120_000);
     step('the engine started the first game', !!running, running?.status);
+    watch(S.source.tableId);
     setTimeout(() => log('socket after 60s', diag), 60_000);
     const done = await until('the first game to finish', async () => {
       const t = await status(S.source.tournamentId);
@@ -509,6 +515,7 @@ async function main() {
       if (Array.isArray(open) && !open.length) break;
       await sleep(2000);
     }
+    S.stopped = true;
     S.sockets.forEach((w) => {
       try { w.close(); } catch {}
     });
