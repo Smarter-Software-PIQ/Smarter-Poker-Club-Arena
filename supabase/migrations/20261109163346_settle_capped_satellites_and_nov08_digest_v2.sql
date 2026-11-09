@@ -43,13 +43,10 @@
 --    Migration 20261108041131 added fn_ca_fund_union_guarantee_promo_locked(uuid),
 --    which funds net guarantee shortfalls at registration close by inserting a
 --    chip_ledger row with category = 'promo_send', to_type = 'prize_liability',
---    and metadata->>'kind' = 'net_guarantee_promo', and credits tournament_escrow.
---    However, fn_ca_tournament_escrow_chips(uuid) only summed
---    metadata->>'kind' = 'midway_free_buy_promo_head' and
---    'guarantee_promo_excess_return' in its promo CTE, causing a -160.00 false
---    shadow discrepancy after payout.
---    Fix: Include metadata->>'kind' = 'net_guarantee_promo' in the promo CTE of
---    fn_ca_tournament_escrow_chips(uuid).
+--    and metadata->>'kind' = 'net_guarantee_promo' (alongside Midway Free Buy's
+--    free_buy_entry_promo / midway_free_buy_promo_head and
+--    guarantee_promo_excess_return). Migration 20261109151859 owns the
+--    accounting reader patch for net_guarantee_promo and free_buy_entry_promo.
 --
 -- 3. ca-collusion-daily statement timeout (drift incident f310ef4c-d3f1-4fd7-8b9b-9b649a137b2e):
 --    public.fn_ca_collusion_scan(integer) lacked a function-level
@@ -62,7 +59,6 @@
 --    for critical_alert_rising (3,055 events) and stuck_tournament (events
 --    371108 and 372143) with verified_fix provenance.
 --
--- @live-proof: md5(pg_get_functiondef('public.fn_ca_tournament_escrow_chips(uuid)'::regprocedure)) = '106048822dd555a8bef8fc3e6c119f11'
 -- @live-proof: md5(pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure)) = '9922d5bdafdfd794c7a3393ea8168f06'
 -- @live-proof: md5(pg_get_functiondef('public.fn_ca_satellite_cohort_receipt(uuid,uuid[])'::regprocedure)) = '605f94538e5ca3507512e8631ff88f8f'
 -- @live-proof: (SELECT count(*) FROM public.tournaments WHERE id IN ('6cb6f619-3275-4590-8185-23e724c19599'::uuid, '7a41f0a1-2115-44f6-86cb-3fef955daa7b'::uuid) AND status = 'COMPLETED' AND current_players = 0) = 2
@@ -71,34 +67,7 @@ BEGIN;
 SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '120s';
 
--- 1. Patch public.fn_ca_tournament_escrow_chips(uuid) to include net_guarantee_promo
-DO $patch_escrow$
-DECLARE
-  v_src text := pg_get_functiondef('public.fn_ca_tournament_escrow_chips(uuid)'::regprocedure);
-  v_old text := $old$      -- 20261105225426 returns promo above max(0, G - C) at finalization.
-      OR (l.metadata->>'kind'='guarantee_promo_excess_return'
-          AND l.category='reversal' AND l.from_type='prize_liability'
-          AND l.from_entity_id=p_tournament_id))$old$;
-  v_new text := $new$      -- 20261105225426 returns promo above max(0, G - C) at finalization.
-      OR (l.metadata->>'kind'='guarantee_promo_excess_return'
-          AND l.category='reversal' AND l.from_type='prize_liability'
-          AND l.from_entity_id=p_tournament_id)
-      OR (l.metadata->>'kind'='net_guarantee_promo'
-          AND l.category='promo_send' AND l.to_type='prize_liability'
-          AND l.to_entity_id=p_tournament_id))$new$;
-BEGIN
-  IF md5(v_src) <> '41b17e9b04b9db24ff94f70f821e5485' THEN
-    RAISE EXCEPTION 'fn_ca_tournament_escrow_chips preimage drift: %', md5(v_src);
-  END IF;
-  v_src := replace(v_src, v_old, v_new);
-  EXECUTE v_src;
-  IF md5(pg_get_functiondef('public.fn_ca_tournament_escrow_chips(uuid)'::regprocedure)) <> '106048822dd555a8bef8fc3e6c119f11' THEN
-    RAISE EXCEPTION 'fn_ca_tournament_escrow_chips postimage drift';
-  END IF;
-END
-$patch_escrow$;
-
--- 2. Patch public.fn_ca_settle_satellite_cohort(uuid,uuid[]) and public.fn_ca_satellite_cohort_receipt(uuid,uuid[])
+-- 1. Patch public.fn_ca_settle_satellite_cohort(uuid,uuid[]) and public.fn_ca_satellite_cohort_receipt(uuid,uuid[])
 DO $patch_sat$
 DECLARE
   v_settle text := pg_get_functiondef('public.fn_ca_settle_satellite_cohort(uuid,uuid[])'::regprocedure);
@@ -142,10 +111,10 @@ BEGIN
 END
 $patch_sat$;
 
--- 3. Configure statement_timeout = '120s' on public.fn_ca_collusion_scan(integer)
+-- 2. Configure statement_timeout = '120s' on public.fn_ca_collusion_scan(integer)
 ALTER FUNCTION public.fn_ca_collusion_scan(integer) SET statement_timeout TO '120s';
 
--- 4. Settle the two stuck capped satellites (6cb6f619-3275-4590-8185-23e724c19599 and 7a41f0a1-2115-44f6-86cb-3fef955daa7b)
+-- 3. Settle the two stuck capped satellites (6cb6f619-3275-4590-8185-23e724c19599 and 7a41f0a1-2115-44f6-86cb-3fef955daa7b)
 DO $settle_stuck_sats$
 DECLARE
   v_tid uuid;
@@ -185,7 +154,7 @@ BEGIN
 END
 $settle_stuck_sats$;
 
--- 5. Resolve settled financial_alerts rows for completed satellites and resolved drift incidents
+-- 4. Resolve settled financial_alerts rows for completed satellites and resolved drift incidents
 SELECT public.fn_resolve_settled_financial_alerts(true, 5000);
 
 UPDATE public.financial_alerts a
@@ -228,7 +197,7 @@ UPDATE public.financial_alerts a
      )
    );
 
--- 6. Resolve the 13 open 2026-11-08 drift_past_deadline incidents (and any matching open twins)
+-- 5. Resolve the 13 open 2026-11-08 drift_past_deadline incidents (and any matching open twins)
 UPDATE public.ca_drift_incidents d
    SET status = 'resolved',
        resolved_at = GREATEST(COALESCE(d.resolved_at, now()), d.detected_at),
@@ -248,7 +217,7 @@ UPDATE public.ca_drift_incidents d
        END,
        resolution = CASE
          WHEN d.detector = 'fn_ca_escrow_balance_drift' THEN
-           'Patched public.fn_ca_tournament_escrow_chips(uuid) in migration 20261109163346 to include net_guarantee_promo in the promo CTE; verified zero escrow drift on both tournaments.'
+           'Patched public.fn_ca_tournament_escrow_chips(uuid) in migration 20261109151859 to include net_guarantee_promo in the promo CTE; verified zero escrow drift on both tournaments.'
          WHEN d.detector = 'fn_ca_cron_failure_watch' THEN
            'Configured statement_timeout = 120s on public.fn_ca_collusion_scan(integer) in migration 20261109163346.'
          WHEN d.detector = 'fn_ca_ledger_replay' THEN
@@ -267,7 +236,7 @@ UPDATE public.ca_drift_incidents d
  )
  AND d.status <> 'resolved';
 
--- 7. Mark the 2026-11-08 operational_alert_events in Needs Your Attention as verified_fixed
+-- 6. Mark the 2026-11-08 operational_alert_events in Needs Your Attention as verified_fixed
 UPDATE public.operational_alert_events e
    SET investigation_status = 'verified_fixed',
        investigation_touched_at = COALESCE(e.investigation_touched_at, now()),
