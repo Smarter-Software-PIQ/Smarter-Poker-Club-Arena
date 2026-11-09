@@ -5172,11 +5172,14 @@ export function holdemRealDraw(hole: Card[], board: Card[]): boolean {
  * in the hand is all in or folded, so a call closes the betting and risks
  * exactly its price. Any opponent who can still put chips in (a cold caller
  * with chips behind, a blind yet to act, anyone not all in) keeps it
- * undefined, and the stack caps apply as before. Public seat flags only;
- * never who anybody is.
+ * undefined, and the stack caps apply as before. HorsePreflop applies it only
+ * in no-limit hold'em at an effective stack of CLOSED_ALL_IN_MAX_EFFECTIVE_BB
+ * or less. Public seat flags only; never who anybody is.
  */
 export function facingClosedAllInRaise(
-  players: ReadonlyArray<Pick<SeatPlayer, 'seat' | 'is_folded' | 'is_all_in'>>,
+  players: ReadonlyArray<
+    Pick<SeatPlayer, 'seat' | 'is_folded' | 'is_all_in'> & { is_sitting_out?: boolean }
+  >,
   heroSeat: number,
   lastRaiserSeat: number,
   raises: number,
@@ -5185,7 +5188,10 @@ export function facingClosedAllInRaise(
   if (raises < 2 || lastRaiserSeat < 0 || !(toCall > 0)) return undefined;
   const raiser = players.find((p) => p.seat === lastRaiserSeat);
   if (!raiser || raiser.is_all_in !== true || raiser.is_folded) return undefined;
-  const open = players.some((p) => p.seat !== heroSeat && !p.is_folded && !p.is_all_in);
+  // A seat sitting out is not dealt and cannot bet (the same rule as oppsLeft).
+  const open = players.some(
+    (p) => p.seat !== heroSeat && !p.is_folded && !p.is_all_in && p.is_sitting_out !== true
+  );
   return open ? undefined : true;
 }
 export class HorseLogic {

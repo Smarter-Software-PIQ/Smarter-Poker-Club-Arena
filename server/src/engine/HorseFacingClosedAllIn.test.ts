@@ -6,8 +6,16 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { facingClosedAllInRaise } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
-import { complaintPathHits, type ComplaintFixture } from './HorseComplaintReplay.js';
+import {
+  complaintPathHits,
+  replayAt,
+  replayProfiles,
+  stateAt,
+  type ComplaintFixture,
+} from './HorseComplaintReplay.js';
+import { CLOSED_ALL_IN_MAX_EFFECTIVE_BB } from './HorsePreflop.js';
 import QQ from './horseComplaints/qq-opener-folds-to-an-all-in-3-bet.fixture.json';
+import TT from './horseComplaints/tt-heads-up-opener-folds-to-an-all-in-3-bet.fixture.json';
 
 const seat = (s: number, folded = false, allIn = false) => ({
   seat: s,
@@ -84,5 +92,71 @@ describe('the real QQ hand, re-played with a live cold caller behind', () => {
     const off = complaintPathHits(fx, { facingClosedAllIn: false });
     expect(on.length).toBeGreaterThan(0);
     expect(on).toEqual(off);
+  });
+});
+
+describe('the closed all-in exception stops at CLOSED_ALL_IN_MAX_EFFECTIVE_BB', () => {
+  afterEach(() => HorseMind.reset());
+
+  /** The real heads-up TT hand (a 13bb jam over a 2.2bb open), rescaled so
+   * the jam and the opener's stack are both `depthBB` deep. */
+  function ttAt(depthBB: number, mode: 'cash' | 'tournament') {
+    const fx = JSON.parse(JSON.stringify(TT)) as ComplaintFixture & {
+      fmt: string;
+      actions: Array<{ ord: number; amount: number; publicNode?: any }>;
+    };
+    const bb = 50,
+      D = depthBB * bb;
+    fx.fmt = mode === 'cash' ? 'cash' : 'tour';
+    const jam = fx.actions.find((a) => a.ord === 4)!;
+    jam.amount = D;
+    for (const a of fx.actions) {
+      if (!a.publicNode) continue;
+      a.publicNode.mode = mode;
+      if (mode === 'cash') delete a.publicNode.tournamentStage;
+    }
+    const node = fx.actions.find((a) => a.ord === 5)!;
+    const n = node.publicNode as unknown as Record<string, unknown>;
+    n.seats = [
+      [1, 0, D, D, 0, 0, 2],
+      [2, D - 109, 109, 109, 0, 0, 0],
+    ];
+    n.pot = D + 109;
+    n.currentBet = D;
+    n.toCall = D - 109;
+    n.minRaiseTo = D;
+    n.maxRaiseTo = D;
+    n.legalActions = ['fold', 'call', 'all_in'];
+    return { fx, node };
+  }
+  const SEEDS = [1, 7, 42, 99, 2026, 3, 11, 17, 23, 31];
+
+  it('the bound is 40bb effective', () => {
+    expect(CLOSED_ALL_IN_MAX_EFFECTIVE_BB).toBe(40);
+  });
+
+  // Before the depth bound, the independent review measured the live cash
+  // hybrid calling this TT 20/20 at 100bb with the exception and 0/20 without.
+  it('at 100bb the caps veto the call exactly as with the exception off', () => {
+    for (const mode of ['cash', 'tournament'] as const) {
+      const { fx, node } = ttAt(100, mode);
+      const st = stateAt(fx, node as never);
+      for (const p of replayProfiles(mode)) {
+        const on = replayAt(st, p, SEEDS, {}).kinds;
+        const off = replayAt(st, p, SEEDS, { facingClosedAllIn: false }).kinds;
+        expect(on, `${mode} ${p.name}`).toEqual(off);
+      }
+    }
+  });
+
+  it('at 30bb (inside the bound) the exception changes the decision', () => {
+    const { fx, node } = ttAt(30, 'tournament');
+    const st = stateAt(fx, node as never);
+    const differs = replayProfiles('tournament').some((p) => {
+      const on = replayAt(st, p, SEEDS, {}).kinds;
+      const off = replayAt(st, p, SEEDS, { facingClosedAllIn: false }).kinds;
+      return JSON.stringify(on) !== JSON.stringify(off);
+    });
+    expect(differs).toBe(true);
   });
 });

@@ -506,6 +506,13 @@ const V70_SHORT_HANDED_JAM_MAX_BB = 15;
  * ceiling itself and an all-in for less, both of which are the largest legal
  * wager available.
  */
+/** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08): the stack caps of the 3-bet
+ * and 4-bet nodes stop vetoing a call that closes an all-in only up to this
+ * effective depth. The measured defect was 12-25bb (tournament openers folding
+ * 89-95% to all-in 3-bets); deeper, the 35% cap is what keeps a style from
+ * stacking off light (independent review of #10095: without it LAG calls a
+ * 200bb jam with KQs, ATs, 99 and AQo), so it stays. */
+export const CLOSED_ALL_IN_MAX_EFFECTIVE_BB = 40;
 export const PLO_MIN_OPEN_BB = 3;
 
 /**
@@ -761,6 +768,13 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   const ploIcm = ctx.ploIcm;
   const t53 = (x: number, family: keyof OmahaPressureShifts): number =>
     ploIcm ? capBar(x * ctx.tightness + ploIcm[family]) : t(x);
+  // No-limit hold'em only: the closed all-in exception and the 4-bet-node
+  // tightness clamp were measured there and nowhere else.
+  const noLimitHoldem = !ctx.isOmaha && ctx.isFixedLimit !== true && ctx.isShortDeck !== true;
+  const closedAllInCall =
+    ctx.facingClosedAllIn === true &&
+    noLimitHoldem &&
+    (ctx.effectiveStackBB ?? Infinity) <= CLOSED_ALL_IN_MAX_EFFECTIVE_BB;
   const tCall53 = (x: number): number =>
     ploIcm ? capBar(x * ctx.tightness + ploIcm.call) : tCall(x);
   // V35: the game's own width. Zero for hold'em and for every ablation.
@@ -2267,16 +2281,13 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       // balanced line. The ICM premium (riskAdd / the V53 family shift) and
       // the V21 deep scale still apply in full. Hold'em only: Omaha keeps its
       // own calibration on this node.
-      const tight5 = ctx.isOmaha ? ctx.tightness : Math.min(1, ctx.tightness);
+      const tight5 = noLimitHoldem ? Math.min(1, ctx.tightness) : ctx.tightness;
       const t5 = (x: number, family: keyof OmahaPressureShifts): number =>
         capBar(x * tight5 + (ploIcm ? ploIcm[family] : ctx.riskAdd));
       if (strength >= t5(Math.min(0.98, 0.95 + deepT), 'fourBet')) return { a: 'jam' };
       // The 30% stack cap stops a call that more betting can follow; a call
       // that closes an all-in risks only what is priced (facingClosedAllIn).
-      if (
-        strength >= t5(0.88 + deepT, 'call') &&
-        (toCall <= stack * 0.3 || (ctx.facingClosedAllIn === true && !ctx.isOmaha))
-      ) {
+      if (strength >= t5(0.88 + deepT, 'call') && (toCall <= stack * 0.3 || closedAllInCall)) {
         return { a: 'call' };
       }
       if (toCall === 0) return { a: 'check' };
@@ -2325,9 +2336,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // and 88 all folded at this line (docs/changelog/
     // 2026-11-08-horse-opener-facing-an-all-in-3-bet.md).
     const capOK3 =
-      toCall <= stack * 0.35 ||
-      (investedShare >= 0.1 && guardOdds <= 0.45) ||
-      (ctx.facingClosedAllIn === true && !ctx.isOmaha);
+      toCall <= stack * 0.35 || (investedShare >= 0.1 && guardOdds <= 0.45) || closedAllInCall;
     if (callStrength >= pricedCallThresh && capOK3) return v76Done({ a: 'call' });
     // SHORT-STACK 3-BET DEFENCE (2026-11-07, default off): a hand the V73
     // read continues with, whose call the stack cap refuses because it IS

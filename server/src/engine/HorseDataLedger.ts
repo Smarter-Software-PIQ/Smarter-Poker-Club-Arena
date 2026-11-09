@@ -50,13 +50,7 @@ export type LedgerKind =
   | 'tag';
 
 export type LedgerCadence =
-  | 'per_action'
-  | 'per_hand'
-  | 'per_sit'
-  | 'minute'
-  | 'boot'
-  | 'nightly'
-  | 'legacy_unused';
+  'per_action' | 'per_hand' | 'per_sit' | 'minute' | 'boot' | 'nightly' | 'legacy_unused';
 
 export interface LedgerEntry {
   key: string;
@@ -966,7 +960,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'facingClosedAllIn',
-    "2026-11-08 default ON: no-limit hold'em, hero facing a 3-bet or 4-bet that was made all in with every other live opponent all in or folded (the call closes the betting and risks exactly the price): the 3-bet node's 35%-of-stack cap and the 4-bet node's 30% cap no longer veto a call the price-aware strength bar makes (the companion 4-bet-node change, the call/jam bars no longer multiplying a style tightness above 1, is unconditional source and not under this flag); measured before on 391f7bc0 (2026-11-07 21:20 to 2026-11-08 20:30 UTC, hand_history publicNode): tournament NLH heads-up openers facing a 12-25bb all-in 3-bet folded 205 of 212, six-handed 165 of 173, and replayed through HorseLogic.decide QQ (22bb jam, 43% to call), JJ, TT, AKo, AQo, 99, 88 all folded at the cap, and in cash the Grinder hybrid folded KK at 121bb, QQ, AKo to a sized 4-bet because 0.95 x 1.0976 and 0.88 x 1.0976 both hit BAR_CAP 0.965; opponent identity is never read; Omaha unchanged; explicit off arm restores both caps; docs/changelog/2026-11-08-horse-opener-facing-an-all-in-3-bet.md",
+    "2026-11-08 default ON: no-limit hold'em (not fixed limit, not short deck) at an effective stack of 40bb or less (CLOSED_ALL_IN_MAX_EFFECTIVE_BB; deeper, the cap keeps a style from stacking off light), hero facing a 3-bet or 4-bet that was made all in with every other player still in the hand all in, folded or sitting out (the call closes the betting and risks exactly the price): the 3-bet node's 35%-of-stack cap and the 4-bet node's 30% cap no longer veto a call the price-aware strength bar makes (the companion 4-bet-node change, the no-limit hold'em call/jam bars no longer multiplying a style tightness above 1, is unconditional source and not under this flag); measured before on 391f7bc0 (2026-11-07 21:20 to 2026-11-08 20:30 UTC, hand_history publicNode): tournament NLH heads-up openers facing a 12-25bb all-in 3-bet folded 205 of 212, six-handed 165 of 173, and replayed through HorseLogic.decide QQ (22bb jam, 43% to call), JJ, TT, AKo, AQo, 99, 88 all folded at the cap, and in cash the Grinder hybrid folded KK at 121bb, QQ, AKo to a sized 4-bet because 0.95 x 1.0976 and 0.88 x 1.0976 both hit BAR_CAP 0.965; opponent identity is never read; Omaha unchanged; explicit off arm restores both caps; docs/changelog/2026-11-08-horse-opener-facing-an-all-in-3-bet.md",
     'F3B'
   ),
   flag(
@@ -1207,17 +1201,15 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
       ['callRespect', 'variant call respect offset (HorseVariantProfile)'],
       ['familyBias', 'V18 sizing family hashed from the horse id'],
     ] as const
-  ).map(
-    ([key, note]): LedgerEntry => ({
-      key,
-      kind: 'param',
-      source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
-      cadence: 'per_action',
-      consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
-      note,
-      since: key === 'familyBias' ? 'V18' : 'V2',
-    })
-  ),
+  ).map(([key, note]): LedgerEntry => ({
+    key,
+    kind: 'param',
+    source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
+    cadence: 'per_action',
+    consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
+    note,
+    since: key === 'familyBias' ? 'V18' : 'V2',
+  })),
 
   // ─────────────────────────────────────────────────────────────────────────
   // PROFILE KEYS. profiles.horse_profile (jsonb). Read at sit-down today
@@ -1253,22 +1245,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
         'V48',
       ],
     ] as const
-  ).map(
-    ([key, note, since]): LedgerEntry => ({
-      key,
-      kind: 'profile',
-      source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
-      cadence: 'per_sit',
-      consumer:
-        key === 'persona'
-          ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
-          : key.startsWith('leaks')
-            ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
-            : 'HorseLogic.decide',
-      note,
-      since,
-    })
-  ),
+  ).map(([key, note, since]): LedgerEntry => ({
+    key,
+    kind: 'profile',
+    source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
+    cadence: 'per_sit',
+    consumer:
+      key === 'persona'
+        ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
+        : key.startsWith('leaks')
+          ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
+          : 'HorseLogic.decide',
+    note,
+    since,
+  })),
 
   // ─────────────────────────────────────────────────────────────────────────
   // HORSEMIND COUNTERS. One OpponentStats per observed player, shared by the

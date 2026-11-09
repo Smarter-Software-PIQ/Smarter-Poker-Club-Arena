@@ -91,3 +91,20 @@ There the cap still applies and the result equals the flag-off arm.
 `facingClosedAllIn=false` control re-taking the fold) and
 `kk-three-bettor-folds-to-a-4-bet.law.test.ts`, plus
 `server/src/engine/HorseFacingClosedAllIn.test.ts` (multiway).
+
+## Review changes (independent review, 2026-11-09)
+
+- **Depth bound.** The exception applies only at an effective stack of 40bb or
+  less (`CLOSED_ALL_IN_MAX_EFFECTIVE_BB`). The measured defect was 12-25bb.
+  Deeper, the 35% cap is what keeps a style from stacking off light: without
+  the bound the cash hybrid called a 100bb jam with JJ, TT and AQo, and LAG
+  called a 200bb jam with KQs, ATs, 99 and AQo.
+  `HorseFacingClosedAllIn.test.ts` re-plays the real TT hand rescaled:
+  - at 100bb the result equals the flag-off arm for every profile, and this
+    test fails if the bound is removed;
+  - at 30bb the exception changes the decision.
+- **Scope.** The exception and the 4-bet-node tightness clamp are limited to
+  no-limit hold'em (not fixed limit, not short deck). That is where they were
+  measured.
+- **Sitting-out seats.** A seat sitting out is not dealt and cannot bet, so it
+  no longer keeps the exception off. This is the same rule as `oppsLeft`.
