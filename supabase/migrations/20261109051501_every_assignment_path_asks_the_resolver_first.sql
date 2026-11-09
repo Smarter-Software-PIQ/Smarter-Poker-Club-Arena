@@ -27,6 +27,8 @@
 -- No player's placement changes here. These are the rules for the NEXT write.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
+BEGIN;
+
 SET LOCAL lock_timeout = '1s';
 
 -- ── 1. The join no longer parks everyone under the owner ────────────────────
@@ -252,3 +254,5 @@ BEGIN
   END IF;
 END
 $patch$;
+
+COMMIT;

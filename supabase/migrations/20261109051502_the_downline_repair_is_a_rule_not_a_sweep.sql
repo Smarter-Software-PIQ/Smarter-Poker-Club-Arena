@@ -18,6 +18,8 @@
 -- It also carries the regression suite for all of it.
 -- ═══════════════════════════════════════════════════════════════════════════════
 
+BEGIN;
+
 SET LOCAL lock_timeout = '1s';
 
 -- The 2026-11-08 checkpoint becomes the platform's downline-repair ledger.
@@ -135,7 +137,11 @@ BEGIN
 END
 $function$;
 
-REVOKE ALL ON FUNCTION public.fn_repair_club_referral_downlines(uuid,boolean) FROM public, anon;
+-- Operator door. It writes, and it is reachable by anything that can log in
+-- unless we say otherwise, so it is closed to browser roles outright rather
+-- than relying on its own authorization check alone.
+REVOKE ALL ON FUNCTION public.fn_repair_club_referral_downlines(uuid,boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_repair_club_referral_downlines(uuid,boolean) TO service_role;
 
 -- ── The regression suite ────────────────────────────────────────────────────
 -- Assertions over the live records, not synthetic fixtures: CLAUDE.md rule 3
@@ -253,4 +259,10 @@ BEGIN
 END
 $function$;
 
-REVOKE ALL ON FUNCTION public.fn_test_referral_downline_rules() FROM public, anon;
+-- Takes no arguments and returns a set, so it cannot be scoped to a caller:
+-- exactly the shape that leaked every unpaid bad-beat share on 2026-09-06.
+-- Operator-only, explicitly.
+REVOKE ALL ON FUNCTION public.fn_test_referral_downline_rules() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_test_referral_downline_rules() TO service_role;
+
+COMMIT;

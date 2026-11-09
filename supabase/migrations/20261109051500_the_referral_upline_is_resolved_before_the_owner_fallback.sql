@@ -73,6 +73,8 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- CLAUDE.md Production DDL policy rule 9: take the lock once, briefly.
+BEGIN;
+
 SET LOCAL lock_timeout = '1s';
 
 ALTER TABLE public.club_members
@@ -220,9 +222,17 @@ BEGIN
 END
 $function$;
 
-REVOKE ALL ON FUNCTION public.fn_referral_referrer(uuid,uuid) FROM public, anon;
-REVOKE ALL ON FUNCTION public.fn_resolve_referral_upline(uuid,uuid) FROM public, anon;
-REVOKE ALL ON FUNCTION public.fn_club_placement_is_unchosen(uuid,uuid) FROM public, anon;
+-- Postgres grants EXECUTE to PUBLIC on every new function, and silence is "open
+-- to everyone", not "closed" (scripts/ci/check-definer-authorization.mjs, after
+-- fn_bbj_unclaimed_shares on 2026-09-06). These three are internal helpers for
+-- the SECURITY DEFINER assignment paths, which call them as their own owner;
+-- nobody in a browser has any reason to reach them.
+REVOKE ALL ON FUNCTION public.fn_referral_referrer(uuid,uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_resolve_referral_upline(uuid,uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_club_placement_is_unchosen(uuid,uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_referral_referrer(uuid,uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_resolve_referral_upline(uuid,uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_club_placement_is_unchosen(uuid,uuid) TO service_role;
 
 -- The ten corrections applied on 2026-11-08 are recorded as what they are:
 -- placements resolved from referral evidence, not fallbacks.
@@ -234,3 +244,5 @@ UPDATE public.club_members m
    AND m.user_id = s.subject_user_id
    AND m.club_id = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4'
    AND m.agent_assignment_source IS NULL;
+
+COMMIT;
