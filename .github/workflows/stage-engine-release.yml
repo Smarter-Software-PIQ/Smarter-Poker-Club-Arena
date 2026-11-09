@@ -19,19 +19,12 @@ name: Stage Exact Club Arena Engine Release
 # for one dated reservation. Its original job waits once until the cutoff,
 # refreshes protected source, then uses the same selection and receiver.
 # A missed date, changed release authority or failed owner never gains a retry.
-#
-# An open owner-ordered window starts its own cutover (2026-11-08): the
-# owner-window job below re-decides on every protected push and every
-# successful Backup or prequalification completion, and when the window is
-# ready it dispatches this workflow's existing explicit owner selection
-# (workflow_dispatch with owner_window_id). Prequalification completions
-# only feed that decision; they never enter the daily election.
-run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && (github.event.workflow_run.name == 'Backup Engine (Clone, Stage, Certify)' && github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || github.event.workflow_run.name == 'Engine release prequalification' && 'Prequalification completion outside election' || 'Backup completion outside election') || github.event_name == 'workflow_dispatch' && inputs.request_engine_release && format('Owner engine window {0}', inputs.owner_window_id) || 'Daily engine reservation' }}
+run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
 on:
   repository_dispatch:
     types: [prepare-daily-engine]
   workflow_run:
-    workflows: ['Backup Engine (Clone, Stage, Certify)', 'Engine release prequalification']
+    workflows: ['Backup Engine (Clone, Stage, Certify)']
     branches: [main]
     types: [completed]
   workflow_dispatch:
@@ -63,7 +56,7 @@ permissions: {}
 
 jobs:
   detect:
-    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.name == 'Backup Engine (Clone, Stage, Certify)' && github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
+    if: (github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))
     name: Prove Whether The Server Tree Changed
     runs-on: ubuntu-latest
     timeout-minutes: 315
@@ -441,94 +434,6 @@ jobs:
           echo "Engine runtime release required: $RELEASE_REQUIRED ($OFFER_REASON)"
           echo "Exact engine component SHA: $LATEST_REQUIRED"
           echo "Offered server tree SHA: $TARGET_SHA"
-
-  # AN OPEN OWNER WINDOW STARTS ITS OWN CUTOVER (2026-11-08). The decision
-  # (select-daily-engine.py --owner-start) only reads: window open, notice
-  # public for its lead, announcement band, protected owner admission, a
-  # qualified candidate, no release of this window serving, nothing running,
-  # and for a later attempt new evidence. When it says start, this job sends
-  # the one existing manual owner dispatch; every gate after that is the
-  # route's own. No timer: it runs on events this workflow already receives.
-  owner-window:
-    name: Start An Open Owner Window
-    if: >-
-      github.run_attempt == 1 && github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'schedule' ||
-       (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    concurrency:
-      group: owner-window-start
-      cancel-in-progress: false
-    permissions:
-      actions: write
-      contents: read
-      statuses: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          sparse-checkout: |
-            server/release
-          sparse-checkout-cone-mode: false
-      - name: Ask whether an owner window is open
-        id: open
-        run: |
-          set -euo pipefail
-          python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
-          import json, time
-          from datetime import datetime
-          floor = json.load(open('server/release/activation-floor.json'))
-          at = lambda v: datetime.fromisoformat(v.replace('Z', '+00:00')).timestamp()
-          owner = floor.get('ownerWindowId') if floor.get('schema') == 'engine-release-activation-floor/v2-owner-window' else None
-          print('open=' + ('true' if owner and at(floor['activationAt']) <= time.time() < at(floor['expiresAt']) else 'false'))
-          PYTHON
-      - uses: actions/checkout@v4
-        if: steps.open.outputs.open == 'true'
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          sparse-checkout: |
-            scripts/ci
-            server/scripts
-            server/release
-      - name: Decide whether the open owner window starts now
-        id: decide
-        if: steps.open.outputs.open == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # Read-only, for the selector's own schema evidence checks.
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          set -euo pipefail
-          python3 -B scripts/ci/select-daily-engine.py --repo "$GITHUB_REPOSITORY" --owner-start \
-            --control "$GITHUB_SHA" --output owner-start.json
-          cat owner-start.json
-          jq -r '"start=" + (.start | tostring), "owner_window_id=" + (.ownerWindowId // "")' owner-start.json >> "$GITHUB_OUTPUT"
-      - name: Dispatch the existing explicit owner selection
-        if: steps.decide.outputs.start == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OWNER_WINDOW_ID: ${{ steps.decide.outputs.owner_window_id }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          [[ "$OWNER_WINDOW_ID" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]
-          SENT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          gh api --method POST "repos/$REPO/actions/workflows/stage-engine-release.yml/dispatches" \
-            -f ref=main -f "inputs[owner_window_id]=$OWNER_WINDOW_ID" \
-            -f 'inputs[request_engine_release]=true' -f 'inputs[request_database_break]=false'
-          # Hold this job's lock until the attempt is visible, so the next
-          # decision counts it and never sends a second one for this evidence.
-          for _ in $(seq 1 24); do
-            RUN=$(gh api "repos/$REPO/actions/workflows/stage-engine-release.yml/runs?event=workflow_dispatch&per_page=30" \
-              --jq "[.workflow_runs[] | select(.display_title == \"Owner engine window $OWNER_WINDOW_ID\" and .created_at >= \"$SENT_AT\")][0].id // empty")
-            if [ -n "$RUN" ]; then echo "Owner selection run $RUN started for $OWNER_WINDOW_ID."; exit 0; fi
-            sleep 5
-          done
-          echo "::error::GitHub accepted the owner dispatch but no owner selection run appeared."
-          exit 1
 
   # A MIGRATION THAT NEEDS THE LIVE TABLES WAITS FOR THE DAILY BREAK
   # (2026-10-22). Migrations that need ACCESS EXCLUSIVE on clubs, tables or

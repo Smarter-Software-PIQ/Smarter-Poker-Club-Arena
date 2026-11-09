@@ -529,7 +529,7 @@ describe('explicit database-only owner-window continuation', () => {
     expect(workflow.on.workflow_dispatch.inputs.request_engine_release.default).toBe(false);
     expect(workflow.jobs['window-migrations'].if).toContain('!inputs.request_engine_release');
     expect(workflow.jobs.detect.if).toBe(
-      "(github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.name == 'Backup Engine (Clone, Stage, Certify)' && github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
+      "(github.event_name != 'workflow_dispatch' || (inputs.request_engine_release && !inputs.request_database_break && github.ref == 'refs/heads/main')) && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success'))"
     );
     expect(workflow.jobs.selection.needs).toBe('detect');
     expect(workflow.jobs.signal.needs).toEqual(['detect', 'selection']);

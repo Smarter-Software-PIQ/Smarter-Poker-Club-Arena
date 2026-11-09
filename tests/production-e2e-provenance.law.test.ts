@@ -635,7 +635,7 @@ describe('a retained runtime superseded before the browsers start', () => {
       .replaceAll('${{ needs.publication-gate.outputs.verification_sha }}', here)
       .replaceAll('${{ needs.publication-gate.outputs.client_target_sha }}', retained)
       .replace(/\$\{\{[^}]*\}\}/g, 'x')
-      .replaceAll('node scripts/ci/production-e2e-provenance.mjs', `node "${CLI}"`)
+      .replaceAll('node scripts/ci/production-e2e-provenance.mjs', `node ${CLI}`)
       .replaceAll('node scripts/ci/client-runtime-retention.mjs harness', 'true');
     const output = join(cwd, '..', 'output');
     const summary = join(cwd, '..', 'summary');
@@ -830,7 +830,7 @@ describe('the Lightning operator certificate classifies a release that moved und
     );
     const script = scriptOf(classify)
       .replaceAll('timeout 30s git fetch --no-tags origin main', 'true')
-      .replaceAll('node scripts/ci/production-e2e-provenance.mjs', `node "${CLI}"`);
+      .replaceAll('node scripts/ci/production-e2e-provenance.mjs', `node ${CLI}`);
     const output = join(cwd, '..', 'output');
     const summary = join(cwd, '..', 'summary');
     writeFileSync(output, '');

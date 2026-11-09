@@ -147,7 +147,7 @@ describe('original publisher verdict receipt', () => {
       );
       const command = writer.run.replaceAll(
         'scripts/ci/publisher-verdict-receipt.mjs',
-        JSON.stringify(join(process.cwd(), 'scripts/ci/publisher-verdict-receipt.mjs'))
+        join(process.cwd(), 'scripts/ci/publisher-verdict-receipt.mjs')
       );
       const result = spawnSync('bash', ['--noprofile', '--norc', '-c', command], {
         cwd: dir,

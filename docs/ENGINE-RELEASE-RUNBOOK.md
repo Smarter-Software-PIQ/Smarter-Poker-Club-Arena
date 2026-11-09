@@ -672,16 +672,18 @@ handoff. Missing or changed evidence keeps the current engine serving. The
 host's one-use predecessor, actual notice, custody, freeze, proof, rollback and
 thaw checks remain mandatory. Do not dispatch the receiver directly.
 
-An open owner window now starts this route on its own. The `owner-window` job in
-`.github/workflows/stage-engine-release.yml` runs `scripts/ci/select-daily-engine.py --owner-start`
-on every protected push, existing schedule tick and successful push Backup or
-prequalification completion. It dispatches the same workflow_dispatch above only
-when the window is open, the served client has carried the booked notice for at
-least twenty minutes, the moment is inside :05:30-:49:00 with 420 s left before
-the window closes, the protected owner admission passes, a candidate has
-complete current evidence, no release of this window is serving, and no owner
-selection or receiver is running. A later attempt needs evidence that completed
-after the previous attempt. No timer was added. The manual dispatch still works.
+An open owner window tells its release owner; it never starts itself (owner
+order 2026-11-09). `.github/workflows/owner-window-ready.yml` runs
+`scripts/ci/owner-window-ready.py` on protected pushes and successful push
+Backup or prequalification completions. When the window is open, the served
+client has carried the booked notice for at least twenty minutes, 420 s still fit
+before the window closes, the protected owner admission passes, a candidate has
+complete current evidence, no release of this window is serving and no owner
+selection or receiver is running, it opens or comments on the GitHub issue
+`Owner Window <owner_window_id> Is Ready To Start`, once per window and
+evidence. It holds no `actions: write` and dispatches, retries and cancels
+nothing (`tests/an-open-owner-window-only-notifies-its-owner.law.test.ts`). The
+release owner then starts the selection above by hand.
 
 ### Capped satellite awards: schema before compatible engine
 

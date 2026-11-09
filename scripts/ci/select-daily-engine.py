@@ -2,15 +2,13 @@
 """Freeze a protected first-parent candidate using evidence available by 03:30 Chicago."""
 import argparse
 import importlib.util
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time
 import io
 import hashlib
 import json
 import re
 import subprocess
 import sys
-import time as clock
-import types
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import zipfile
@@ -246,160 +244,6 @@ def select(args, report):
             return
 
 
-# AN OPEN OWNER WINDOW STARTS ITS OWN CUTOVER (2026-11-08). A booked owner
-# window used to do nothing until a person dispatched the explicit owner
-# selection: the November 7 booking expired unused, and on November 8 the
-# 18:20Z window sat idle for about seventy minutes and every retry after new
-# evidence waited for someone to notice. The decision below only reads. When
-# it says start, Stage dispatches the SAME manual owner route
-# (workflow_dispatch with owner_window_id), so the pinned nov7-owner
-# validator, this selector, the receiver and the host's single-use claim
-# still decide everything. These constants are the guard's own:
-OWNER_NOTICE_LEAD_SECONDS = 20 * 60  # tests/a-booked-window-gives-players-notice.law.test.ts
-OWNER_ANNOUNCEMENT_BAND = (330, 2940)  # engine-release-seal.py require_nov7_reservation_authority
-OWNER_WINDOW_SECONDS = 420  # announcement + 420 s must fit before the window closes
-OWNER_TITLE = 'Owner engine window '
-PUBLIC_BUILD_INFO = 'https://smarter.poker/hub/club-arena/build-info.json'
-ENGINE_HEALTH = 'https://engine.smarter.poker/health'
-PUBLISH_JOB = 'client-publication / production / publish-to-origin'
-NOTICES = 'src/utils/ownerMaintenanceNotices.json'
-
-
-def fetch_json(url):
-    return json.loads(command('curl', '-fsS', '--max-time', '15', '-H', 'Cache-Control: no-cache', url))
-
-
-def contains(ancestor, sha):
-    result = subprocess.run(['git', '--no-replace-objects', 'merge-base', '--is-ancestor', ancestor, sha],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
-    if result.returncode not in (0, 1):
-        raise ValueError('cannot compare release ancestry')
-    return result.returncode == 0
-
-
-def carries_notice(sha, window):
-    try:
-        rows = json.loads(git('show', sha + ':' + NOTICES)).get('notices', [])
-    except (subprocess.SubprocessError, ValueError, AttributeError):
-        return False
-    return any(row.get('id') == window['id'] and row.get('noticeAt') == window['playerNoticeAt']
-               and row.get('notBefore') == window['notBefore'] and row.get('notAfter') == window['notAfter']
-               for row in rows)
-
-
-def notice_refusal(repo, window, now):
-    """The actual public notice, as the runbook requires of the release owner:
-    the client players are served carries this booking now, and the client
-    that was served the required lead ago carried it too."""
-    horizon = now - OWNER_NOTICE_LEAD_SECONDS
-    if not isinstance(window.get('playerNoticeAt'), str) or epoch(window['playerNoticeAt']) > horizon:
-        return 'the player notice has not been public for its required lead'
-    live = fetch_json(PUBLIC_BUILD_INFO).get('ca_sha')
-    if not isinstance(live, str) or not re.fullmatch('[0-9a-f]{40}', live) or not carries_notice(live, window):
-        return 'the served client does not carry the booked notice'
-    stamp = datetime.fromtimestamp(horizon, timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    runs = api(f'repos/{repo}/actions/workflows/publish-club-arena.yml/runs?branch=main&status=success'
-               f'&created=%3C%3D{stamp}&per_page=30')['workflow_runs']
-    for run in runs:
-        jobs = api(f'repos/{repo}/actions/runs/{run["id"]}/attempts/{run["run_attempt"]}/jobs?per_page=100')['jobs']
-        if not any(job['name'] == PUBLISH_JOB and job['conclusion'] == 'success' and job.get('completed_at')
-                   and epoch(job['completed_at']) <= horizon for job in jobs):
-            continue
-        if carries_notice(run['head_sha'], window):
-            return None
-        return 'the client served the required lead ago did not carry the notice'
-    return 'no client publication is known to have served the notice for its required lead'
-
-
-def owner_admission(control, owner, now):
-    """The exact protected admission the dispatched owner route applies first."""
-    spec = importlib.util.spec_from_file_location('qualification', Path(__file__).with_name('read-engine-prequalification.py'))
-    reader = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(reader)
-    try:
-        reader.owner_selection_policy(control, control, owner, now)
-    except (reader.Unqualified, subprocess.CalledProcessError) as error:
-        return str(error) or 'refused'
-    return None
-
-
-def owner_start(args):
-    """Decide, read-only, whether the open owner window may start now."""
-    now = int(clock.time())
-    decision = {'schema': 1, 'start': False, 'ownerWindowId': None, 'evaluatedAt': now}
-
-    def refuse(reason, **extra):
-        decision.update(reason=reason, **extra)
-        return decision
-    try:
-        control = args.control
-        floor = json.loads(git('show', control + ':server/release/activation-floor.json'))
-        owner = floor.get('ownerWindowId')
-        if floor.get('schema') != 'engine-release-activation-floor/v2-owner-window' or not owner:
-            return refuse('no owner window is booked')
-        decision['ownerWindowId'] = owner
-        if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', owner):
-            return refuse('owner window identity is invalid')
-        orders = json.loads(git('show', control + ':server/release/owner-maintenance-windows.json'))
-        matches = [w for w in orders.get('windows', []) if w.get('id') == owner]
-        if len(matches) != 1:
-            return refuse('the owner order for this window is unavailable')
-        window = matches[0]
-        opens = max(epoch(window['notBefore']), epoch(floor['activationAt']))
-        closes = min(epoch(window['notAfter']), epoch(floor['expiresAt']))
-        if now < opens:
-            return refuse('the owner window has not opened')
-        if now >= closes:
-            return refuse('the owner window has closed')
-        if not OWNER_ANNOUNCEMENT_BAND[0] <= now % 3600 <= OWNER_ANNOUNCEMENT_BAND[1]:
-            return refuse('an announcement now would fall outside :05:30-:49:00')
-        if now + OWNER_WINDOW_SECONDS > closes:
-            return refuse('the announcement and cutover no longer fit before the window closes')
-        refused = owner_admission(control, owner, now)
-        if refused:
-            return refuse(f'the protected owner admission refuses this window now: {refused}')
-        why = notice_refusal(args.repo, window, now)
-        if why:
-            return refuse(why)
-        serving = fetch_json(ENGINE_HEALTH).get('releaseSha')
-        if not isinstance(serving, str) or not re.fullmatch('[0-9a-f]{40}', serving):
-            return refuse('the live engine release is unreadable')
-        # Every release this window admits contains its ordered commit
-        # (engine-release-activation-floor.py policy), so once one has sealed
-        # the window has nothing left to release.
-        if contains(window['contains'], serving):
-            return refuse('this window already has its release serving')
-        listing = api(f'repos/{args.repo}/actions/workflows/stage-engine-release.yml/runs?event=workflow_dispatch'
-                      f'&created=%3E%3D{window["notBefore"]}&per_page=100')
-        if listing['total_count'] > len(listing['workflow_runs']):
-            return refuse('the owner selection history is incomplete')
-        attempts = [r for r in listing['workflow_runs'] if r.get('display_title') == OWNER_TITLE + owner]
-        if any(r['status'] != 'completed' for r in attempts):
-            return refuse('an owner selection for this window is already running')
-        receivers = api(f'repos/{args.repo}/actions/workflows/auto-deploy-hetzner.yml/runs?event=repository_dispatch&per_page=30')
-        if any(r['status'] != 'completed' and str(r.get('display_title', '')).startswith('Engine Release ')
-               for r in receivers['workflow_runs']):
-            return refuse('an engine receiver is already running')
-        report = {'cutoffEpoch': now, 'ownerExpiresEpoch': int(epoch(floor['expiresAt'])), 'deferredCandidates': []}
-        select(types.SimpleNamespace(repo=args.repo, control=control, serving=serving, owner_window=owner), report)
-        if report.get('outcome') != 'selected':
-            return refuse('no protected candidate has complete current evidence',
-                          deferredCandidates=report['deferredCandidates'])
-        landed = max(epoch(report['backup']['certifiedAt']), epoch(report['qualification']['completedAt']))
-        decision.update(candidateSha=report['targetSha'], servingSha=serving, evidenceLandedAt=int(landed),
-                        evidenceRunIds=[report['backup']['runId'], report['qualification']['qualificationRunId']],
-                        previousAttempts=[r['id'] for r in attempts])
-        # A later attempt needs NEW qualifying evidence: a Backup certificate or
-        # qualification that completed after the newest attempt was created.
-        if attempts and landed <= max(epoch(r['created_at']) for r in attempts):
-            return refuse('no new qualifying evidence since the last attempt')
-        decision['start'] = True
-        decision['reason'] = 'the open owner window is ready to start'
-        return decision
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, zipfile.BadZipFile) as error:
-        return refuse(f'owner window readiness is unreadable: {error}')
-
-
 def check_intent(report, repo, prs, migrations):
     """Evaluate supplied identities against an existing immutable selection."""
     target = report.get('targetSha')
@@ -456,14 +300,7 @@ def main():
     for key in ('control', 'serving', 'date', 'output'):
         parser.add_argument('--' + key)
     parser.add_argument("--stage")
-    parser.add_argument('--owner-start', action='store_true', help='Decide whether the open owner window may start')
     args = parser.parse_args()
-    if args.owner_start:
-        if not (args.control and args.output):
-            parser.error('owner start requires --control and --output')
-        decision = owner_start(args)
-        Path(args.output).write_text(json.dumps(decision, indent=2) + '\n')
-        return 0
     if args.selection:
         report = json.loads(args.selection.read_text())
         print(json.dumps({'targetSha': report['targetSha'], 'controlSha': report['controlSha'],

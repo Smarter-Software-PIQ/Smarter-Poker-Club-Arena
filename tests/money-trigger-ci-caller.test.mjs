@@ -147,7 +147,7 @@ test('actual readonly CLI defers an applicable ruleset with GitHub-hidden bypass
           options.headers.Authorization !== 'Bearer modeled-standard-token') throw Error('unexpected request');
       return {ok:true,json:async()=>({target:'branch',enforcement:'active',conditions:{ref_name:{include:['refs/heads/main'],exclude:[]}},rules:[{type:'required_status_checks',parameters:{required_status_checks:[{context:'Money trigger declaration authority',integration_id:4962039}]}}]})};
     };
-    process.argv[1] = ${JSON.stringify(fileURLToPath(source))};
+    process.argv[1] = ${JSON.stringify(source.pathname)};
     await import(${JSON.stringify(source.href)});
   `;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -229,7 +229,7 @@ function finish(kind, repository = 'Smarter-Poker/Smarter-Poker-Club-Arena') {
         }
         throw Error('unexpected request');
       };
-      process.argv=[process.execPath,${JSON.stringify(fileURLToPath(source))},'finish'];
+      process.argv=[process.execPath,${JSON.stringify(source.pathname)},'finish'];
       await import(${JSON.stringify(source.href)});
     `.replaceAll('Smarter-Poker/Smarter-Poker-Club-Arena',repository);
     const result=spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:dir,encoding:'utf8',timeout:5000,env:{PATH:process.env.PATH,GITHUB_REPOSITORY:repository,GITHUB_REPOSITORY_ID:'1132369872',GITHUB_RUN_ID:'1234',PR_NUMBER:'7',REPORTER_APP_ID:'4962039',REPORTER_TOKEN:'modeled-reporter-token',GITHUB_TOKEN:'modeled-standard-token',PROTECTION_READER_TOKEN:kind==='missing-token'?'':'modeled-reader-token',VERIFY_OUTCOME:kind==='sql-failed'?'failure':'success'}});
