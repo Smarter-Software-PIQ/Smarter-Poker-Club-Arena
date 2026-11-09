@@ -1,0 +1,3 @@
+# tests/an-open-owner-window-starts-its-own-cutover.law.test.ts
+
+An open owner-ordered window starts its own cutover through the existing manual owner dispatch. It decides only on events stage-engine-release.yml already receives: protected pushes, the existing schedule, and successful push Backup and prequalification completions. It adds no timer. It starts only when every condition holds: the window is open; the served notice has had its 20-minute lead; the :05:30-:49:00 band and the 420 s budget fit; the protected owner admission passes; a candidate has complete current evidence; the window's release is not already serving; and nothing is running. Re-attempts need newer evidence. The manual route and every downstream gate are unchanged.
