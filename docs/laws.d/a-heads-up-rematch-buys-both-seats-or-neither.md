@@ -1,0 +1,3 @@
+# tests/a-heads-up-rematch-buys-both-seats-or-neither.law.test.ts
+
+Dan 2026-11-08: when a heads-up match ends and both players say Play Again, they both buy back in and the match starts over. The law pins that the fresh game and both buy-ins happen in one database subtransaction (a refusal or error undoes all of it, so nobody is ever charged alone and no game is left behind), that 'matched' is written only when that subtransaction finished cleanly on a locked row, that a person is charged through md5-pinned named-payer copies of the eight production buy-in layers that no browser or service role can execute and that refuse at runtime if a source changes, that both browser doors refuse a signed-out session, and that the browser never buys a rematch seat itself.
