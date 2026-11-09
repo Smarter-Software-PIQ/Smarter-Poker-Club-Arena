@@ -37,7 +37,7 @@ it('runs the composed original trigger and deferred refusal under both caller mo
   expect(native).toContain("exercise('1',True)");
   expect(native).toContain("for skip in ['1','']");
   expect(native).toContain('repeat=True');
-  expect(
-    readFileSync('.github/workflows/unpaid-lightning-funding-contracts.yml', 'utf8')
-  ).toContain('python3 -B scripts/ci/test-split-late-return-postgres.py');
+  expect(readFileSync('.github/workflows/weekly-refusal-cover.yml', 'utf8')).toContain(
+    'python3 -B scripts/ci/test-split-late-return-postgres.py'
+  );
 });
