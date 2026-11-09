@@ -21,7 +21,7 @@ Acceptance follow-up (owner, 2026-11-08 23:03 Chicago):
 | --- | --- | --- | --- |
 | A1 | Two independent sessions accepting at once produce one rematch and one charge per player, including an interrupted request and its retry | PASSED. Native proof on the production definitions (md5-checked), run green at main by `heads-up-rematch-concurrency.yml` (run 42569886982). Details below | No (database only) |
 | A2 | A committed signed-in rematch reaches its first hand with the correct opponent, stacks and rake | PASSED in production. Run 42584396854: browser Play Again, same two players, 300-chip stacks, 0.95 + 0.05 rake each, one transaction for both charges, browser moved to the new table, engine start and first hand; finish and chip conservation read afterwards. Details below | No. Proven on the serving engine 391f7bc0, which predates this work |
-| A3 | The next weekly-schedule satellite is created with the target-derived name and no duplicate | NOT YET OBSERVED (natural event). No schedule spawn of a satellite has happened since the fix was installed at 03:12Z. Details under "Weekly satellite" below | No (database trigger; the existing engine spawns it) |
+| A3 | The next weekly-schedule satellite is created with the target-derived name and no duplicate | OBSERVED 2026-11-09 18:00:12Z, FAILED on the name, FIXED at the root. `7eae51cb` had the right target and no duplicate but was named "40 Chip Freezeout - 0 GTD (NLH) Satellite 5" (and `e0c83025`, 17:15Z, "Sunday Deep Stack Satellite 25"): `tournaments_lock_level_clock` restamps the catalog name after the copy trigger. Fixed by 20261109180446 (copy trigger moved after every rewriter, law test generalized). Live result: see "Weekly satellite" below | No (database trigger; the existing engine spawns it) |
 | A4 | The frozen-satellite recovery has an acknowledged owner and a tracked outcome | HANDED OFF, not a gate of this lane. Verifier ACK: release-blockers lane, 06:56Z (COORDINATION-INBOX.md). Recovery: the release owner's ASAP owner-window operation (PR #10063 comment 6741660924), which must carry 66cfdde743. Who acts if either stays dark after a sealed release: asked at PR #10063 comment 6742262566, answer pending. This lane makes no mutation and reuses the verifier's receipt | Yes: the recovery needs an engine carrying 66cfdde743 |
 
 Other items closed in this task:
@@ -57,6 +57,12 @@ Other items closed in this task:
 - Since the fix: 0 events created with a "0 GTD" name. Every satellite created since 03:12Z (all unscheduled) carries a
   target-derived name.
 
+- OBSERVED 2026-11-09 18:00:12Z (schedule d84a104f, start 2026-11-12 15:45Z): one non-cancelled row (`7eae51cb`), target
+  `80e0c952` "40 Chip Freezeout - 1.5K GTD (NLH)" at 18:00Z created 18:00:10Z. Target link and uniqueness PASS; the name was
+  "40 Chip Freezeout - 0 GTD (NLH) Satellite 5": FAIL. Cause: `tournaments_lock_level_clock` also restamps the weekly terms
+  (`NEW := jsonb_populate_record(NEW, fn_ca_midway_weekly_terms(...))`, name included) and sorted after the copy trigger.
+  Fixed by 20261109180446 (see docs/changelog/2026-11-09-the-satellite-name-follows-the-level-clock-terms.md).
+
 ## Engine dependency
 
 - Database only, verified on the serving engine 391f7bc0 (which predates this work): deliverables 1-6 and items A1-A3.
@@ -65,7 +71,8 @@ Other items closed in this task:
 
 ## What this lane leaves open
 
-- A3: one natural observation of the next weekly satellite spawn, due about 18:00:40Z.
+- A3: the next natural spawn after 20261109180446 is installed should carry the target-derived name. The install itself
+  renames the open rows, and the build law pins the trigger order.
 - Owner acknowledgments not yet received:
   - #9830 (certification leftovers, and the retirement rule for played clubs);
   - PR #10063 comment 6742262566 point 3 (who acts if a satellite stays dark after a sealed release).

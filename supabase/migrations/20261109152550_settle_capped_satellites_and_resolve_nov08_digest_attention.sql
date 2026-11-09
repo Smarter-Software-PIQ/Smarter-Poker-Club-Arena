@@ -1,3 +1,4 @@
+-- SUPERSEDED BY 20261109163346
 -- 20261109152550_settle_capped_satellites_and_resolve_nov08_digest_attention
 --
 -- Reserved by scripts/reserve-migration-version.sh on 2026-11-09 15:25:50 UTC.

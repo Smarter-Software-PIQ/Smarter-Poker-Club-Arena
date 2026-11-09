@@ -7,6 +7,11 @@ import { join } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import {
+  qualificationReadDeadline,
+  readGithubJsonWithRetry,
+  readGithubWithRetry,
+} from './feature-ablation-github-read.mjs';
 const LIMIT = 2 * 1024 ** 3;
 async function hashStream(stream) {
   const hash = createHash('sha256');
@@ -77,14 +82,15 @@ export async function authenticateFeatureArtifacts(runs, target, runId) {
   )
     throw Error('artifact_provider_unavailable');
   const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
+  const deadline = qualificationReadDeadline('assemble');
   const artifacts = [];
   for (let page = 1; page <= 30; page++) {
-    const response = await fetch(
+    const { response, value: body } = await readGithubJsonWithRetry(
       `https://api.github.com/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100&page=${page}`,
-      { headers, signal: AbortSignal.timeout(20000) }
+      { headers },
+      deadline
     );
     if (!response.ok) throw Error('artifact_inventory_unavailable');
-    const body = await response.json();
     if (!Array.isArray(body.artifacts)) throw Error('artifact_inventory_shape');
     artifacts.push(...body.artifacts.filter((a) => a.name.startsWith(`fa-${target}-`)));
     if (body.artifacts.length < 100) break;
@@ -107,9 +113,11 @@ export async function authenticateFeatureArtifacts(runs, target, runId) {
     const directory = await mkdtemp(join(scratch, 'feature-artifact-'));
     try {
       const zip = join(directory, 'original.zip');
-      const response = await fetch(
+      // Only the answer is waited out; a body that fails mid-stream still refuses.
+      const response = await readGithubWithRetry(
         `https://api.github.com/repos/${repo}/actions/artifacts/${artifact.id}/zip`,
-        { headers, signal: AbortSignal.timeout(120000) }
+        { headers, timeoutMs: 120000 },
+        deadline
       );
       if (!response.ok || !response.body) throw Error('artifact_download_unavailable');
       const hash = createHash('sha256');
