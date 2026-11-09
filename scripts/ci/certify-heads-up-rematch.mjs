@@ -70,6 +70,11 @@ export function certificationConfig(template, clubId, now = Date.now()) {
     'blind_structure', 'payout_structure', 'late_reg_levels', 'late_reg_mins',
   ];
   const config = Object.fromEntries(keep.map((k) => [k, template[k]]));
+  // blind_structure and payout_structure are text columns; the creation door
+  // requires JSON arrays (SEAT_FIRST_CREATE_INVALID_CONFIG otherwise).
+  for (const k of ['blind_structure', 'payout_structure']) {
+    if (typeof config[k] === 'string') config[k] = JSON.parse(config[k]);
+  }
   return {
     ...config,
     club_id: clubId,
