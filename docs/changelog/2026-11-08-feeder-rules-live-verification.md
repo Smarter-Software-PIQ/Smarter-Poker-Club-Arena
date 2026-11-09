@@ -83,20 +83,22 @@ observable: horses filled a third chair within a second.
 
 ## Status
 
-| transition                                                                        | evidence                                                                       |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| four waiting opens the feeder                                                     | observed live                                                                  |
-| the two latest Main arrivals move, stacks exact                                   | observed live                                                                  |
-| held chairs refuse direct seating (horses)                                        | observed live (6 refusals)                                                     |
-| newcomers go to the feeder                                                        | observed live (no Main joins during the start)                                 |
-| 7-player gate before each held chair fills, one at a time                         | observed live (2 releases)                                                     |
-| first-to-move order on release                                                    | observed live (both bumped players first)                                      |
-| bumped player returns at once when a Main player leaves or busts (feeder under 7) | observed live on a leave (2026-11-09, section 6); bust-out path in local tests |
-| real player's Join Game puts them on the list                                     | observed live                                                                  |
-| 6-max opens with no bump                                                          | observed live                                                                  |
-| 6-max deals heads-up at the start                                                 | not a requirement (section 6); two-seat start shown in local tests             |
-| closing feeder players moved or cashed out with stacks accounted                  | observed live                                                                  |
-| signed-in lobby on phone and desktop                                              | observed live (section 6)                                                      |
+| transition                                                                        | evidence                                                                            |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| four waiting opens the feeder                                                     | observed live                                                                       |
+| the two latest Main arrivals move, stacks exact                                   | observed live                                                                       |
+| held chairs refuse direct seating (horses)                                        | observed live (6 refusals)                                                          |
+| newcomers go to the feeder                                                        | observed live (no Main joins during the start)                                      |
+| 7-player gate before each held chair fills, one at a time                         | observed live (2 releases)                                                          |
+| first-to-move order on release                                                    | observed live (both bumped players first)                                           |
+| bumped player returns at once when a Main player leaves or busts (feeder under 7) | observed live on a leave (2026-11-09, section 6); bust-out path in local tests only |
+| real player's Join Game puts them on the list                                     | observed live                                                                       |
+| 6-max opens with no bump                                                          | observed live                                                                       |
+| 6-max deals heads-up at the start                                                 | not a requirement (section 6); two-seat start shown in local tests                  |
+| closing feeder players moved or cashed out with stacks accounted                  | observed live                                                                       |
+| signed-in lobby on phone and desktop                                              | observed live (section 6)                                                           |
+| standalone table keeps `Waitlist N`                                               | unit test and served bundle only (no standalone table in production)                |
+| returned player loses first-to-move; a rejoin queues normally (section 7)         | fix installed; local tests; awaiting a natural rejoin in production                 |
 
 ## 6. Update 2026-11-09 (UTC)
 
@@ -145,3 +147,20 @@ and an open Main seat is filled from the feeder at once.
 on the next tick; the 36 retired-test-club errors are recorded separately.
 
 Separate finding, not part of this change: `docs/changelog/2026-11-08-retired-test-clubs-tick-errors.md`.
+
+## 7. First-to-move fix installed (2026-11-09 UTC)
+
+- PR #10109 merged at 02:04 (held until after the :50-:03 migration window).
+  Apply Merged Migration installed `20261109010155` at 02:05; it is recorded
+  in `schema_migrations`, its marker appears once in the live
+  `fn_cash_cluster_tick`, the live function contains the merged block
+  byte-for-byte, and only `service_role` may run it.
+- Reading the two live paths showed the step decides at each tick, so a player
+  could go back to Main or cash out and sit at the feeder again before the next
+  tick and keep the priority. Production had not hit it (fastest same-game
+  rejoin 8.06 s over 732 cash-outs in six hours; ticks every ~5 s). The
+  follow-up `20261109021129` ends it from the move-back and cash-out records
+  themselves. See `2026-11-09-first-to-move-ends-at-the-return-itself.md`.
+- Still waiting on a natural event: a bumped player who returned rejoining a
+  feeder (the corrected behaviour), and a bumped player's return after a Main
+  bust-out. Both are covered by local tests only until seen.
