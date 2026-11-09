@@ -16,7 +16,7 @@ Every read is its own short autocommit query (never a long snapshot; the
 production snapshot guard cancels outside snapshots held over five minutes).
 Output: <out>/<schema>.<table>.csv and <out>/manifest.json
 """
-import json, os, re, subprocess, sys, time
+import csv, json, os, re, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else None
@@ -106,6 +106,17 @@ def main():
     horses = "(select id from public.profiles where is_horse is true)"
     manifest = {"extractedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "copied": [], "skipped": []}
 
+    def exported_table_values(column):
+        path = os.path.join(OUT, "public.tables.csv")
+        if not os.path.exists(path):
+            return []
+        csv.field_size_limit(2**31 - 1)
+        with open(path, newline="") as data:
+            return sorted({r[column] for r in csv.DictReader(data) if r.get(column)})
+
+    def id_list(ids):
+        return ",".join("'%s'" % i.replace("'", "''") for i in ids) if ids else "null"
+
     def one(row):
         s, t, est, nbytes = row
         key = (s, t)
@@ -119,13 +130,15 @@ def main():
                 where = "true"
             elif key == ("public", "cash_games"):
                 # Structural parents of the copied tables. Their owner IDs are
-                # covered by the existing ID-only placeholder pass.
-                where = "id in (select cluster_id from public.tables where tournament_id is null and status in ('waiting','running','active'))"
+                # covered by the existing ID-only placeholder pass. Read from
+                # the exported tables file, not a second live query: a table
+                # created between the two reads must never lack its parent.
+                where = "id in (%s)" % id_list(exported_table_values("cluster_id"))
             elif key == ("public", "tables"):
                 where = "tournament_id is null and status in ('waiting','running','active')"
             elif key == ("public", "table_seats"):
                 where = (f"left_at is null and user_id in {horses} and table_id in "
-                         "(select id from public.tables where tournament_id is null and status in ('waiting','running','active'))")
+                         "(%s)" % id_list(exported_table_values("id")))
             elif EXCLUDE.search(t):
                 return ("skipped", {"table": name, "why": "ledger_or_personal_record"})
             elif key in person_cols:
@@ -164,10 +177,15 @@ def main():
                 raise SeedEligibilityError("club_members extraction failed") from exc
             return ("skipped", {"table": name, "why": "error: " + str(exc)[:160]})
 
+    # Cash tables first, then exactly their parents and seats, then the rest.
+    ordered = sorted(tables)
+    first = [r for k in ("tables", "cash_games", "table_seats") for r in ordered if (r[0], r[1]) == ("public", k)]
+    results = [one(r) for r in first]
     with ThreadPoolExecutor(max_workers=4) as pool:
-        for res in pool.map(one, sorted(tables)):
-            if res:
-                manifest[res[0]].append(res[1])
+        results += list(pool.map(one, [r for r in ordered if r not in first]))
+    for res in results:
+        if res:
+            manifest[res[0]].append(res[1])
     # Horses' auth identities (no email/phone carried; ids only).
     copy_out(f"select id, aud, role, created_at from auth.users where id in {horses}", os.path.join(OUT, "auth.users.csv"))
     for f in os.listdir(OUT):
