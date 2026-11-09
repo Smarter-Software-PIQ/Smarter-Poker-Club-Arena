@@ -216,6 +216,12 @@ mapfile() {
         join(generation, 'engine-release-window-doors.py'),
         '#!/usr/bin/env python3\nimport sys\nassert sys.argv[1:2] == ["list"]\nprint("")\n'
       );
+      // The certificate names its copy's installed migration set (2026-11-08);
+      // the in-break comparison with production finds it unchanged here.
+      writeFileSync(
+        join(generation, 'engine-release-installed-migrations.py'),
+        '#!/usr/bin/env python3\nimport sys\nif sys.argv[1:2] == ["certified"]:\n    print("f" * 64)\nelse:\n    assert sys.argv[1:2] == ["status"] and sys.argv[-1] == "f" * 64\n    print("READY - production still holds the certified installed migration set")\n'
+      );
 
       writeFileSync(
         join(generation, 'engine-release-seal.py'),

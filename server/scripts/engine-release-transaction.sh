@@ -3452,6 +3452,39 @@ fi
 WINDOW_DOORS_READY=0
 WINDOW_DOORS_WAITING=0
 [ -n "$WINDOW_DOOR_NAMES" ] || WINDOW_DOORS_READY=1
+# THE CERTIFIED COPY STILL MATCHES PRODUCTION (2026-11-08). The certificate
+# names the installed migration set the Backup copy held. Inside the admitted
+# break, after the window doors and before the engine lock, prepare and any
+# replacement, production's set is read again: a migration installed after
+# certification (other than this target's own break-window files, whose doors
+# are read just above) means the copy no longer rehearsed this database, and
+# the cutover refuses by name. The current engine keeps running. The script
+# always assigns INSTALLED_MIGRATIONS below; only an isolated loop harness that
+# sources no part of this block leaves it unset, and then skips the read.
+installed_migrations_unchanged() {
+  local verdict rc
+  set +e
+  verdict="$(timeout --signal=TERM --kill-after=1s 60s \
+    python3 -B "$INSTALLED_MIGRATIONS" status --env-file "$ENV_FILE" --repo "$REPO_DIR" \
+      --sha "$SHA" --certified "$CERTIFIED_INSTALLED_MIGRATIONS")"
+  rc=$?
+  set -e
+  case "$rc" in
+    0) echo "[engine-release-transaction] $verdict"; return 0 ;;
+    1) die "INSTALLED MIGRATIONS CHANGED AFTER CERTIFICATION: $verdict; nothing was prepared and the current engine keeps running" ;;
+    *) die "INSTALLED MIGRATIONS UNKNOWN (status $rc) - ${verdict:-the helper gave no answer}; nothing was prepared and the current engine keeps running" ;;
+  esac
+}
+INSTALLED_MIGRATIONS="$CONTROL_DIR/engine-release-installed-migrations.py"
+# The installed set the target's certificate names, read once here; inside the
+# break production is compared with it (installed_migrations_unchanged).
+set +e
+CERTIFIED_INSTALLED_MIGRATIONS="$(timeout --signal=TERM --kill-after=1s 30s \
+  python3 -B "$INSTALLED_MIGRATIONS" certified --sha "$SHA")"
+CERTIFIED_INSTALLED_RC=$?
+set -e
+[ "$CERTIFIED_INSTALLED_RC" = 0 ] && [[ "$CERTIFIED_INSTALLED_MIGRATIONS" =~ ^[0-9a-f]{64}$ ]] \
+  || die "INSTALLED MIGRATIONS UNKNOWN - the certificate of $SHA names no installed migration set (status $CERTIFIED_INSTALLED_RC); refusing before any cutover"
 if [ "$WINDOW_DOORS_READY" != 1 ]; then
   echo "[engine-release-transaction] window-migration doors this build calls, re-read inside the break before any cutover: $WINDOW_DOOR_NAMES"
 fi
@@ -3592,6 +3625,7 @@ while :; do
     bounded_sleep 3
     continue
   fi
+  [ -z "${INSTALLED_MIGRATIONS:-}" ] || installed_migrations_unchanged
   acquire_engine_lock 'maintenance cutover'
   if [ "$LEGACY_CHECKPOINT_REQUIRED" = 1 ]; then legacy_entry_trace locked verified; fi
   source_target_is_current

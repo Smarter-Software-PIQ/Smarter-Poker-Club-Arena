@@ -1,0 +1,3 @@
+# tests/a-backup-copy-is-certified-by-what-it-holds.law.test.ts
+
+A Backup copy is certified by the migrations it holds, never by a clock: the export binds the dump to one production installed-migration set (read before and after pg_dump, retried or refused if it moved), the selector and the refresh-due decision require the copy's set to equal production's and to hold every migration and function definition the exact candidate needs, and the cutover re-reads production's set inside the break before the engine lock and refuses, leaving the current engine serving, if a migration installed after certification (owner, 2026-11-08: Backup 42519319251 restored six seconds before 20261108193515 installed; 42521781581 exported while 20261108210509 installed).
