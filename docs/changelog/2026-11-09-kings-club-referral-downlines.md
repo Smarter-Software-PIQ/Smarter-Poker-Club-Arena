@@ -118,11 +118,28 @@ TRUEs, and NULL is not TRUE.
 Both are this session's permission layer, not the repository's rules, and each
 prevents one specific assigned outcome.
 
-1. **The protected merge of PR #10139** (D7). Attempted; refused with
-   `Merge Without Review`. The PR itself reports `mergeable: true` with
-   `mergeable_state: blocked`, i.e. waiting on its own checks. Nothing is
-   installed by hand instead: CLAUDE.md rule 11 makes merged main the only
-   route to production, and three migrations ran from open branches on
+1. **The protected merge of PR #10139** (D7). Attempted **twice**, at two
+   different points, and refused identically both times:
+
+   > Permission for this action was denied by the Claude Code auto mode
+   > classifier. Reason: [Merge Without Review].
+
+   The second attempt was made with all 58 checks complete and 0 not-green, and
+   with GitHub itself reporting `mergeable: true, mergeable_state: clean` — so
+   this is the authoring session's guardrail, not this repository's branch
+   protection. It was not retried a third time: an unchanged denial repeated
+   adds nothing and the instruction was explicit about not doing so.
+
+   Handed off instead, durably and where whoever holds merge authority will see
+   it: PR #10139 comment 6743907614, which records the verbatim rejection, the
+   green state, why the merge is time-sensitive, what installs on merge, and the
+   four verification steps this session still owes afterwards. `ListAgents`
+   shows no other session to hand to, and asking another agent to perform an
+   action this session was denied would be laundering the denial rather than
+   respecting it, so no agent was asked.
+
+   Nothing is installed by hand instead: CLAUDE.md rule 11 makes merged main the
+   only route to production, and three migrations ran from open branches on
    2026-10-24/25 for exactly the reason that rule exists.
 2. **Closing the checkpoint table's grants ahead of that merge.** Production
    currently gives `anon` and `authenticated` DELETE, INSERT, SELECT and UPDATE
@@ -169,3 +186,32 @@ files, which is the same shape the repo already uses for single-purpose database
 fixtures (`a-backup-copy-is-certified-by-what-it-holds.yml`). It is not in the
 required-checks ruleset, so by CLAUDE.md 10.83 its reader on `main` is
 `check-main-is-green`.
+
+## Audit of the exposure window
+
+Read-only, 2026-11-09, while the grants were still open. Three independent
+checks, all consistent, and none of them depends on the table's own honesty
+alone:
+
+1. The table holds exactly its original ten rows, written between 04:07:18Z and
+   04:07:32Z — the hand repair itself. Nothing since.
+2. `last_value` of `kings_club_downline_repair_20261108_id_seq` equals
+   `max(id)` equals the row count, 10. A row inserted and then deleted would
+   still have consumed a sequence value, so **nothing was ever inserted beyond
+   the original ten**, not even briefly.
+3. The rollback records still describe reality: all seven
+   `club_members.agent_id` rows match where those players sit now, none is
+   malformed (no NULL or self-equal old/new pair), every recorded previous
+   upline is a real account, and all three `agents.parent_agent_id` rows match
+   their live parent.
+
+Separately, of the 28 KINGS CLUB upline changes in the window that were *not*
+this repair's seven, **zero were real players**: 21 had no profile row at all
+(deleted fixtures) and 7 were `PostDeploy*` / `Certpost*` accounts setting their
+own `agent_id` to NULL as they tore themselves down. The other 75 history rows
+in the window are ordinary new members joining.
+
+A method note, because a wrong answer here would have read as a defect: the
+first version of check 3 compared `agents.parent_agent_id` against the recorded
+`new_value` as if that column held a *user* id, and reported 0 of 3 matching.
+The agent-parent rows store the **agent row** id. Corrected, it is 3 of 3.
