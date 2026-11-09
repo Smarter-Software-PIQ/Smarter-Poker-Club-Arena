@@ -6,6 +6,7 @@ const workflow = YAML.parse(readFileSync('.github/workflows/post-deploy-e2e.yml'
 const fixtureJobs = [
   'private-record-client-proof',
   'stats-pagination-proof',
+  'plo-lightning-lifecycle-proof',
   'production-e2e',
   'live-table-e2e',
   'club-channel-lifecycle-e2e',
@@ -28,6 +29,7 @@ describe('production fixtures require installed scoped cleanup', () => {
             .replaceAll('always()', 'true')
             .replaceAll('cancelled()', JSON.stringify(cancelled))
             .replaceAll('needs.certification-cleanup-safety.result', JSON.stringify(cleanup))
+            .replaceAll('github.ref', JSON.stringify('refs/heads/main'))
             .replaceAll('github.event_name', JSON.stringify('repository_dispatch'))
             .replaceAll('github.event.action', JSON.stringify('run-stats-pagination-proof'));
           return Function(`"use strict"; return (${expression});`)();
@@ -225,7 +227,11 @@ describe('catalog proof admits no unsafe fixture', () => {
     const gate = workflow.jobs['certification-cleanup-safety'];
     expect(gate.needs).toBe('publication-gate');
     expect(gate.if).toContain("needs.publication-gate.outputs.should_run == 'true'");
-    for (const action of ['run-stats-pagination-proof', 'run-private-record-client-proof'])
+    for (const action of [
+      'run-stats-pagination-proof',
+      'run-private-record-client-proof',
+      'run-plo-lightning-lifecycle-proof',
+    ])
       expect(gate.if).toContain(action);
     expect(gate.steps.at(-1).env.DATABASE_URL).toBe('${{ secrets.DATABASE_URL }}');
     expect(gate.steps.at(-1).run).toBe('node scripts/ci/await-certification-cleanup-safety.mjs');

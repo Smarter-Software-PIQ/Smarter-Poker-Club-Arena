@@ -366,7 +366,7 @@ jobs:
       always() && !cancelled() && needs.certification-cleanup-safety.result == 'success' &&
       github.event_name == 'repository_dispatch' && github.event.action == 'run-plo-lightning-lifecycle-proof' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     concurrency:
       group: plo-lightning-lifecycle-proof
       cancel-in-progress: false
@@ -382,7 +382,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium
+      - name: Install Chromium only
+        timeout-minutes: 5
+        run: |
+          sudo python3 scripts/ci/ubuntu-apt-mirror.py
+          npx playwright install --with-deps chromium
       - name: Observe one owned funded journey through ordinary player paths
         env:
           GITHUB_EVENT_ACTION: ${{ github.event.action }}
@@ -3145,6 +3149,7 @@ jobs:
       - tournament-only-verdict
       - private-record-client-proof
       - stats-pagination-proof
+      - plo-lightning-lifecycle-proof
       - publication-gate
       - post-deploy-verdict
       - club-channel-lifecycle-e2e

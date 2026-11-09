@@ -78,7 +78,7 @@ export async function main(environment = process.env) {
   const one = async path => { const rows = await read(path); assert(rows.length === 1, 'Exactly one owned row required'); return rows[0]; };
   const gameRead = () => one(`cash_games?id=eq.${GAME}&select=id,club_id,variant,sb,bb,handedness,enabled,lightning_enabled,cluster_mode,ruleset_snapshot`);
   const census = async () => {
-    const tables = await read(`tables?cluster_id=eq.${GAME}&lifecycle=neq.closed&is_deleted=eq.false&select=id,role,lifecycle,auto_start_players,min_buy_in,max_buy_in`);
+    const tables = await read(`tables?cluster_id=eq.${GAME}&and=(or(lifecycle.neq.closed,lifecycle.is.null),or(is_deleted.eq.false,is_deleted.is.null))&select=id,role,lifecycle,auto_start_players,min_buy_in,max_buy_in`);
     assert(tables.length > 0, 'Target has no supported tables');
     const ids = tables.map(t => t.id).join(',');
     const seats = await read(`table_seats?table_id=in.(${ids})&left_at=is.null&select=id,table_id,user_id,seat_number,occupancy_id,joined_at,stack,is_sitting_out,leave_pending`);

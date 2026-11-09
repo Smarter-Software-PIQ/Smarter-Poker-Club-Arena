@@ -94,7 +94,7 @@ BEGIN
   IF p_now<v_progress.next_admission_at THEN
     RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='LIGHTNING_ADMISSION_PACED: next individual arrival is not due';
   END IF;
-  -- Normal fleet ticks make this about 90–120 seconds between actual arrivals.
+  -- Normal fleet ticks make this about 90-120 seconds between actual arrivals.
   -- Schedule from THIS successful admission, never from an overdue deadline.
   -- The first opponent is immediate; rollback of any buy-in rolls this back too.
   UPDATE public.lightning_horse_admission
