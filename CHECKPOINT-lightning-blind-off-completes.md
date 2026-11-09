@@ -18,4 +18,4 @@ Hit And Run blind off in a Lightning pool: stop door, matcher legality, disconne
 
 ## Read-only production sweep (2026-11-09 23:4x UTC)
 
-Every live seat, human or horse, in a Lightning-mode Cluster with no open pool session and `hr_blind_off` or hands owed: one row, the reported seat `65fb6b94-a167-4f2b-9377-fe926ed182b5`, since settled by the coordinator.
+Every live seat, human or horse, in a Lightning-mode Cluster with no open pool session and `hr_blind_off` or hands owed: one row, the reported seat, since settled separately by the coordinator.
