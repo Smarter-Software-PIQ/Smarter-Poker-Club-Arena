@@ -49,7 +49,8 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 # push runs inherit; dispatch, schedule and post-seal runs always build.
 on:
   repository_dispatch:
-    types: [run-post-deploy-e2e]
+    # The second event lets the owner deliver a previously lost seal to Backup alone.
+    types: [run-post-deploy-e2e, refresh-sealed-engine-backup]
   push:
     branches: [main]
     paths:

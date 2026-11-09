@@ -553,7 +553,23 @@ shortens a safeguard.
 - Reattach the observer (4.9).
 - Re-run a failed GitHub job that released nothing:
   `env -u GH_TOKEN -u GITHUB_TOKEN gh run rerun <id> --failed`.
-- Submit the one Backup-only refresh after proving the sealed SHA is serving:
+- For an original seal whose automatic event was lost, check the Backup queue,
+  original sealed result and current serving instance first. Deliver the original
+  receipt to the same Backup verifier using its dedicated recovery event. Use the
+  original result file read through the scoped observer. The event has no gameplay
+  or engine deployment receiver. Duplicate events reuse the first Backup run for
+  the original seal. A failed existing run needs investigation before recovery.
+
+  ```sh
+  jq -ec '
+    select(.result == "sealed") | {event_type:"refresh-sealed-engine-backup",
+      client_payload:{engine_sha:.sha,release_run_key:.runId,
+        gameplay_receipt:({runId,sha,result,instanceId,startedAt,
+          completionRuntime:{instanceId:.completionRuntime.instanceId}} | tojson)}}' "$sealed_result" |
+    gh api --method POST "repos/$repo/dispatches" --input -
+  ```
+
+- For a Backup-only forced refresh after proving the sealed SHA is serving:
 
   ```sh
   served=$(curl -fsS https://engine.smarter.poker/health | jq -er .releaseSha) &&
