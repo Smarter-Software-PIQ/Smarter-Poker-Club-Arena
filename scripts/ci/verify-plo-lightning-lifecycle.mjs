@@ -5,12 +5,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { createProductionE2EAccount, prepareProductionE2EStaffMembership, cleanupProductionE2EAccount } from './production-e2e-account.mjs';
 import { clients, fixtureBrowserId } from './certify-rabbit-hunt.mjs';
+import { supabaseServerHeaders } from './supabase-auth-headers.mjs';
 import { gameplayHasResumed, msUntilNextAnnouncement } from './await-engine-gameplay.mjs';
 
 export const GAME = 'c79d8ec2-2281-411d-b4e1-42b5610849e2';
@@ -21,8 +22,62 @@ const BUY_IN = 400;
 const POST_LEAVE_MS = 8 * 60_000; // covers the incident's six-minute departure burst
 
 export function admitPayload(payload) {
-  assert(payload && Object.keys(payload).length === 1 && /^[0-9a-f]{40}$/.test(payload.engine_sha ?? ''), 'One exact engine_sha and no other input is required');
+  assert(payload && Object.keys(payload).every(k => ['engine_sha', 'cleanup_run_id'].includes(k)) && /^[0-9a-f]{40}$/.test(payload.engine_sha ?? '') && (payload.cleanup_run_id === undefined || (typeof payload.cleanup_run_id === 'string' && /^[1-9][0-9]{5,19}$/.test(payload.cleanup_run_id))), 'One exact engine_sha and optional original cleanup_run_id required');
   return payload.engine_sha;
+}
+export function requireCleanupSource(run, original, sha, runId) {
+  assert(String(run.id) === runId && run.event === 'repository_dispatch' && run.head_branch === 'main' &&
+    run.path === '.github/workflows/post-deploy-e2e.yml' && run.status === 'completed' &&
+    /^[0-9a-f]{40}$/.test(run.head_sha ?? ''), 'Original protected proof run required');
+  assert(original.gameId === GAME && original.engineSha === sha && original.cleanup?.completed === false &&
+    !original.cleanup?.retainedUnknownFinancialIntent && original.funding?.confirmed === true &&
+    original.ownedFundingLegs?.some(l => l.idempotency_key === `club_bank_send:${original.funding.opId}` && Number(l.amount) === BUY_IN),
+    'Only reconciled original proof cleanup can recover; unknown money remains retained');
+  const accounts = Object.values(original.accounts ?? {});
+  assert(accounts.length === 2 && new Set(accounts).size === 2 && accounts.every(id => /^[0-9a-f-]{36}$/.test(id)), 'Exact original owned actors required');
+  return accounts;
+}
+export async function requestGuardedCleanup(environment, id, fetchImpl = fetch) {
+  const response = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/rpc/cleanup_reserved_certification_account`, {
+    method: 'POST', headers: supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ p_user_id: id }), signal: AbortSignal.timeout(20_000),
+  });
+  return { status: response.status, body: await response.json() };
+}
+async function recoverProofCleanup(environment, sha, runId, out, read) {
+  const result = { status: 'cleanup-only', engineSha: sha, gameId: GAME, originalRunId: runId, cleanup: { completed: false }, accounts: {} };
+  const save = () => writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, 2));
+  const gh = args => execFileSync('gh', args, { encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    assert(environment.GITHUB_REPOSITORY === 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena', 'Owning repository required');
+    const run = JSON.parse(gh(['api', `repos/${environment.GITHUB_REPOSITORY}/actions/runs/${runId}`]));
+    const source = join(out, 'original');
+    mkdirSync(source, { recursive: true });
+    gh(['run', 'download', runId, '--repo', environment.GITHUB_REPOSITORY, '--name', `plo-lightning-lifecycle-${runId}`, '--dir', source]);
+    const original = JSON.parse(readFileSync(join(source, 'result.json'), 'utf8'));
+    const accounts = requireCleanupSource(run, original, sha, runId);
+    execFileSync('git', ['merge-base', '--is-ancestor', run.head_sha, 'origin/main'], { stdio: 'pipe' });
+    result.accounts = original.accounts; save();
+    // The guarded door owns live custody checks. No funding, seat write,
+    // claim-back or replay of an uncertain financial operation exists here.
+    for (const id of accounts) {
+      const seats = await read(`table_seats?user_id=eq.${id}&left_at=is.null&select=id`);
+      const members = await read(`club_members?user_id=eq.${id}&select=chip_balance,promo_balance,held_chips,locked_chips,credit_used,credit_limit`);
+      assert(!seats.length && members.every(m => Object.values(m).every(v => Number(v) === 0)), 'Original actor still holds live custody');
+    }
+    for (const id of accounts) {
+      const checked = await requestGuardedCleanup(environment, id);
+      assert(checked.status === 200, 'Original guarded cleanup is unavailable or refused');
+      if (checked.body?.success === true) continue; // original retirement already verified by its owner
+      assert(checked.body?.reason === 'auth_soft_delete_required' && checked.body.user_id === id, 'Original cleanup has no qualified Auth retirement');
+      const email = checked.body.email;
+      assert(typeof email === 'string' && email.startsWith('ca-customization-cert-postdeploy-') && email.endsWith('@example.invalid'), 'Original reserved marker required');
+      await cleanupProductionE2EAccount({ environment: { ...environment, E2E_TEST_ACCOUNT_FILE: join(out, `${id}.private.json`) }, record: { id, email }, expectedEmail: email });
+    }
+    result.cleanup.completed = true;
+  } catch (error) { result.error = String(error.message); }
+  save();
+  return result.cleanup.completed ? 0 : 3;
 }
 export function requireBatch(result, player, amount) {
   assert(result.status >= 200 && result.status < 300, 'Cashier request has no successful HTTP verdict');
@@ -83,7 +138,8 @@ export function summarizeHands(rows, player) {
 }
 
 export async function main(environment = process.env) {
-  const sha = admitPayload(JSON.parse(environment.PLO_LIGHTNING_PROOF_PAYLOAD ?? 'null'));
+  const payload = JSON.parse(environment.PLO_LIGHTNING_PROOF_PAYLOAD ?? 'null');
+  const sha = admitPayload(payload);
   assert(environment.GITHUB_EVENT_NAME === 'repository_dispatch' && environment.GITHUB_REF === 'refs/heads/main', 'Protected explicit dispatch required');
   assert(environment.GITHUB_EVENT_ACTION === 'run-plo-lightning-lifecycle-proof', 'Proof event refused');
   execFileSync('git', ['merge-base', '--is-ancestor', sha, 'origin/main'], { stdio: 'pipe' });
@@ -96,8 +152,11 @@ export async function main(environment = process.env) {
   const fetchImpl = (url, init = {}) => fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(20_000) });
   const c = clients({ SUPA: environment.SUPABASE_URL, SR: environment.SUPABASE_SERVICE_ROLE_KEY, ANON: environment.VITE_SUPABASE_ANON_KEY, fetchImpl });
   const read = async path => {
-    const r = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/${path}`, { headers: { ...c.H, Prefer: 'count=exact', Range: '0-999' } });
-    assert(r.ok, `Read unavailable (${r.status}); proof is UNKNOWN`);
+    const r = await fetchImpl(`${environment.SUPABASE_URL}/rest/v1/${path}`, { headers: supabaseServerHeaders(environment.SUPABASE_SERVICE_ROLE_KEY, { Prefer: 'count=exact', Range: '0-999' }) });
+    if (!r.ok) {
+      const error = await r.json().catch(() => ({}));
+      throw new Error(`Read unavailable (${r.status}) for ${path.split('?')[0]}: ${error.code ?? 'unknown'}; proof is UNKNOWN`);
+    }
     const rows = await r.json();
     const total = /\/(\d+)$/.exec(r.headers.get('content-range') ?? '');
     assert(Array.isArray(rows) && total && Number(total[1]) === rows.length, 'Read is incomplete; proof is UNKNOWN');
@@ -121,6 +180,7 @@ export async function main(environment = process.env) {
     assert(profiles.length === users.length, 'Participant identity read incomplete');
     return { tables, ids, seats, pools, profiles };
   };
+  if (payload.cleanup_run_id) return recoverProofCleanup(environment, sha, payload.cleanup_run_id, out, read);
   const initial = await health();
   requireHealth(initial, sha);
   assert(msUntilNextAnnouncement(Date.now(), initial.maintenance.schedule) > 40 * 60_000, 'Not enough normal play before maintenance');
@@ -275,7 +335,7 @@ export async function main(environment = process.env) {
       if (g.cluster_mode === 'must_move' && state.profiles.length >= 3 && state.tables.some(t=>t.role==='feeder' && state.seats.some(s=>s.table_id===t.id))) {
         report.milestones.feederGrowth ??= new Date().toISOString();
       }
-      const hands = summarizeHands(await read(`hand_history?table_id=in.(${state.ids})&started_at=gte.${encodeURIComponent(sessions[0].opened_at)}&order=started_at.asc&select=id,table_id,hand_number,started_at,ended_at,players`), player.id);
+      const hands = summarizeHands(await read(`hand_history?table_id=in.(${state.ids})&created_at=gte.${encodeURIComponent(sessions[0].opened_at)}&started_at=gte.${encodeURIComponent(sessions[0].opened_at)}&order=created_at.asc&select=id,table_id,hand_number,started_at,ended_at,players`), player.id);
       const hu = hands.find(h => h.playerCount === 2 && h.includesTestPlayer && h.endedAt);
       if (hu && !report.headsUpHand) { report.headsUpHand = hu; report.milestones.headsUp = hu.startedAt; await page.screenshot({ path: join(out,'heads-up.png') }); }
       const lh = await read(`lightning_hand?cluster_id=eq.${GAME}&formed_at=gte.${encodeURIComponent(sessions[0].opened_at)}&order=formed_at.asc&select=hand_id,formed_at,settled_at,hand_number,host_table_id,player_count`);
@@ -368,7 +428,12 @@ export async function main(environment = process.env) {
         report.ownedFundingLegs=legs;
         }
       }
-      for (const [role,account] of [['player',player],['cashier',cashier]]) if(account) await cleanupProductionE2EAccount({environment:roleEnv(role),fetchImpl,record:account,expectedEmail:account.email});
+      const retirementErrors = [];
+      for (const [role,account] of [['player',player],['cashier',cashier]]) if(account) {
+        try { await cleanupProductionE2EAccount({environment:roleEnv(role),fetchImpl,record:account,expectedEmail:account.email}); }
+        catch (error) { retirementErrors.push(`${role}: ${error.message}`); }
+      }
+      assert(!retirementErrors.length, retirementErrors.join('; '));
       report.cleanup.completed=true;
     } catch(e) { report.cleanup.completed=false; report.cleanup.error=String(e.message); report.status='unknown'; }
     if(browser) await browser.close();

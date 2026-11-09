@@ -725,3 +725,10 @@ separately; unknown financial intents retain identities for authoritative
 readback instead of another purchase or transfer. Only result JSON and public
 screenshots are uploaded, never private account files. It does not retire the
 house club or its tables. A refusal or missing evidence is not a live pass.
+
+For an interrupted PLO witness whose funding is reconciled but owned account
+retirement failed, the same explicit event accepts `cleanup_run_id` beside
+`engine_sha`. It retrieves that exact protected original run artifact, verifies
+its binding and zero live balances, and invokes only the existing guarded
+retirement owner. It never replays a purchase or transfer. Read `cleanup-only`
+separately from live gameplay acceptance; unknown money remains retained.
