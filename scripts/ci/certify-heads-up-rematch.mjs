@@ -45,6 +45,7 @@ import {
   settleRabbitHuntClub,
 } from './certify-rabbit-hunt.mjs';
 
+// production-e2e-account.mjs pins the same prefix (HEADS_UP_CLUB_NAME_PREFIX).
 export const HEADS_UP_CERT_CLUB_NAME_PREFIX = 'Cert HU ';
 const GAME_DEADLINE_MS = 15 * 60_000;
 

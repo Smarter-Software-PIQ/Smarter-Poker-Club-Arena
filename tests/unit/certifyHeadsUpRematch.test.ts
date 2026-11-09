@@ -65,4 +65,13 @@ describe('heads-up rematch live certification', () => {
     expect(script).not.toContain('fn_ca_mint');
     expect(HEADS_UP_CERT_CLUB_NAME_PREFIX).toBe('Cert HU ');
   });
+
+  it('the account sweep recognizes its club by the same prefix and never offers it to a welcome door', () => {
+    const account = readFileSync('scripts/ci/production-e2e-account.mjs', 'utf8');
+    expect(account).toContain(`export const HEADS_UP_CLUB_NAME_PREFIX = '${HEADS_UP_CERT_CLUB_NAME_PREFIX}';`);
+    expect(account).toMatch(/CERTIFICATION_CLUB_NAME_PREFIXES = \[[^\]]*HEADS_UP_CLUB_NAME_PREFIX/);
+    expect(account).toContain('Refusing to retire heads-up rematch certification club');
+    const script = readFileSync('scripts/ci/certify-heads-up-rematch.mjs', 'utf8');
+    expect(script).toContain('p_name: `${HEADS_UP_CERT_CLUB_NAME_PREFIX}${');
+  });
 });

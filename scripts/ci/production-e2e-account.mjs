@@ -71,9 +71,14 @@ export const FIXTURE_SEEDING_WINDOW_MS = 10 * 60_000;
 // ever records a retired one as the owner's retained history (2026-11-07, #9830).
 const WELCOME_CLUB_NAME_PREFIXES = ['Crest Cert ', 'Preset Crest Cert '];
 export const RABBIT_HUNT_CLUB_NAME_PREFIX = 'Cert RH ';
+// 'Cert HU ' is scripts/ci/certify-heads-up-rematch.mjs's club (2026-11-09). Like
+// a rabbit-hunt club it has played by design and its own run retires it through
+// fn_retire_settled_club; retired, it is the owner's retained history.
+export const HEADS_UP_CLUB_NAME_PREFIX = 'Cert HU ';
 const CERTIFICATION_CLUB_NAME_PREFIXES = [
   ...WELCOME_CLUB_NAME_PREFIXES,
   RABBIT_HUNT_CLUB_NAME_PREFIX,
+  HEADS_UP_CLUB_NAME_PREFIX,
 ];
 /** How a reader runs the sweep itself, and the residue pattern it drains (issue #9830). */
 export const STALE_RESIDUE_SWEEP_HINT =
@@ -1821,6 +1826,16 @@ export async function retireProductionCreateClubFixtures({
     if (staleSweep && club.lifecycle_status === 'retired') {
       retained.push(String(club.id));
       continue;
+    }
+    if (String(club.name || '').startsWith(HEADS_UP_CLUB_NAME_PREFIX)) {
+      // A HEADS-UP REMATCH CLUB HAS PLAYED, BY DESIGN (two tournaments). Retired,
+      // it was handled above as retained history. Still active, its run died
+      // before its own cleanup; it is refused by name, never offered to a
+      // welcome door, and settled by that run's owner path once its games end.
+      throw new Error(
+        `Refusing to retire heads-up rematch certification club ${club.id}: it has played and is still ` +
+          `${String(club.lifecycle_status || 'unknown')}; only its own run's cleanup settles it.`
+      );
     }
     if (String(club.name || '').startsWith(RABBIT_HUNT_CLUB_NAME_PREFIX)) {
       // A RABBIT-HUNT CLUB HAS PLAYED, BY DESIGN. certify-rabbit-hunt.mjs seats
