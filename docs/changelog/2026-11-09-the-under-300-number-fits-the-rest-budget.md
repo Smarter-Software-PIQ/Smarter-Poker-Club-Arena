@@ -109,3 +109,58 @@ The under-300 comparison, the satellite-feeder line, the human/horse split and
 the digest's schedule are untouched. The first digest run that reports a day
 served entirely by the waiting ladder is the one on 2026-11-11, reporting
 Tuesday 2026-11-10.
+
+## Correction, the same night: the day filter was only half of it
+
+The first attempt at the function migration was REFUSED by the applier at
+03:04Z with
+
+```
+[apply] FATAL 25P04: terminating connection due to transaction timeout
+[apply] WHERE: SQL function "fn_ca_seat_first_daily_starts" statement 1
+```
+
+in this file's own assertion. Nothing was committed, so the file stayed queued
+and was corrected in place rather than chased with a second one. The index
+migration in the same merge applied cleanly beside it
+(`idx_tournaments_started_at valid (17275ms)`, built CONCURRENTLY, committed in
+547 ms).
+
+What the refusal exposed is that the scan was never the main cost. With the
+index in place the tournaments side of the plan is an index range read of
+12,521 rows in 66 ms - and the query still took 13,861 ms, because of the seat
+side:
+
+```
+Hash Right Join
+  -> Index Only Scan ... tournament_players_tournament_id_user_id_key
+     rows=3,080,845   actual time=0.681..13,224 ms   buffers=713,772
+```
+
+The planner estimated 108,304 boards for a day against 12,521 actual, decided
+the boards were the small side, and hashed against the WHOLE of
+`tournament_players`. Fixing only the day filter would have left that in place,
+which is 10.86 rule 4 exactly: a fix with the same trap one level up.
+
+Rewriting the seat test as a plain `EXISTS` was not enough either - Postgres
+hashed the subquery and scanned all 3.08 M rows twice, 2,088 ms. A LATERAL
+carrying `LIMIT 1` cannot be flattened or hashed, so it runs once per board as
+a nested loop over the same index:
+
+| shape                                   | time      | buffers |
+| --------------------------------------- | --------- | ------- |
+| as shipped (#10110)                     | 13,861 ms | 759,099 |
+| sargable day only                       | 13,861 ms | 759,099 |
+| sargable day + `EXISTS`                 | 2,088 ms  | 756,043 |
+| sargable day + `LATERAL ... LIMIT 1`    | **296 ms** | 151,457 |
+
+and about 5 ms on an ordinary day once a day holds a couple of hundred boards
+rather than 12,521. `MATERIALIZED` on the board CTE is load bearing: inlined,
+the planner is free to flatten the LATERAL back into the join it just came
+from.
+
+The counts do not move, and both shapes were run against production for
+2026-11-07 before the file was rewritten: Spin 6,670 with one human-triggered,
+regular heads-up 5,847, satellite feeder 4. The assertion now pins the human
+split as well as the three totals, and costs 296 ms rather than the 12 s that
+refused the first attempt.
