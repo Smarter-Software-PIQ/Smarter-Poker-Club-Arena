@@ -75,9 +75,9 @@ def capture(container=None, body_only=False):
         command = ['docker', 'exec', '-i', '-e', 'PGOPTIONS=' + options, container,
                    *command, '-U', 'supabase_admin', '-d', 'postgres']
     elif os.environ.get('DATABASE_URL'):
-        # libpq accepts the configured connection string through PGDATABASE.
-        # It stays out of process arguments and diagnostics.
-        environment['PGDATABASE'] = os.environ['DATABASE_URL']
+        # psql expands a URI only through its explicit dbname argument.
+        # Provider diagnostics are suppressed below so they cannot expose it.
+        command.extend(['--dbname', os.environ['DATABASE_URL']])
     try:
         result = subprocess.run(command, input=sql, text=True, capture_output=True,
                                 env=environment, timeout=30)
