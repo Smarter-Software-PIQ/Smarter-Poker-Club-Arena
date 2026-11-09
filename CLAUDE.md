@@ -1712,7 +1712,7 @@ scripts/dev/graphify-bootstrap.sh            # install CLI if missing, build or 
   scripts or assets). SQL functions, migrations and client-to-RPC wiring in SQL are therefore
   **not** in the graph; search for those directly.
 - Storage: `graphify-out/` is gitignored and never committed (the graph is about 45 MB).
-  On the owner's Mac set `GRAPHIFY_STORE="/Volumes/SmarterArchives 1/graphify-store"` so the
+  On the owner's Mac, `~/.claude/settings.json` sets `env.GRAPHIFY_STORE="/Volumes/SmarterWork 1/agent-work/graphify-store"` so the
   graph and its cache live on the authorized SSD and `graphify-out` is a symlink. Cloud
   sessions keep it inside their own checkout.
 - Cost: about 140 s on the Mac Studio and about 4 min on a 2-core cloud container, 0 tokens.
