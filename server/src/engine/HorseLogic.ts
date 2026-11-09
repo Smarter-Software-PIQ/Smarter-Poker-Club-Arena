@@ -2492,6 +2492,13 @@ export interface HorseDecideOpts {
    *  hand whose call is the stack jams instead of folding: a 20bb opener
    *  facing a 3-bet to 11bb folded 97-98% of its open. Default OFF. */
   vs3BetShortStack?: boolean;
+  /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
+   *  3-bet or 4-bet made all in with every other live opponent all in or
+   *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
+   *  longer veto a call the price-aware strength bar makes (the call closes
+   *  the betting and risks only the price). Explicit false restores the caps
+   *  (ablation only). docs/changelog/2026-11-08-horse-opener-facing-an-all-in-3-bet.md */
+  facingClosedAllIn?: boolean;
   /** LIMP-RERAISE READ (2026-11-07, HorseLimpReraiseRead.ts): against a
    *  limper HorseMind has seen limp-reraise (shrunk toward the population),
    *  the isolation bar rises toward the hands that stand a re-raise and the
@@ -5174,6 +5181,34 @@ export function holdemRealDraw(hole: Card[], board: Card[]): boolean {
   return outRanks >= 2;
 }
 
+/**
+ * FACING A CLOSED ALL-IN RE-RAISE (2026-11-08). True only when the raise the
+ * hero faces (a 3-bet or later) was made all in AND every other player still
+ * in the hand is all in or folded, so a call closes the betting and risks
+ * exactly its price. Any opponent who can still put chips in (a cold caller
+ * with chips behind, a blind yet to act, anyone not all in) keeps it
+ * undefined, and the stack caps apply as before. HorsePreflop applies it only
+ * in no-limit hold'em at an effective stack of CLOSED_ALL_IN_MAX_EFFECTIVE_BB
+ * or less. Public seat flags only; never who anybody is.
+ */
+export function facingClosedAllInRaise(
+  players: ReadonlyArray<
+    Pick<SeatPlayer, 'seat' | 'is_folded' | 'is_all_in'> & { is_sitting_out?: boolean }
+  >,
+  heroSeat: number,
+  lastRaiserSeat: number,
+  raises: number,
+  toCall: number
+): true | undefined {
+  if (raises < 2 || lastRaiserSeat < 0 || !(toCall > 0)) return undefined;
+  const raiser = players.find((p) => p.seat === lastRaiserSeat);
+  if (!raiser || raiser.is_all_in !== true || raiser.is_folded) return undefined;
+  // A seat sitting out is not dealt and cannot bet (the same rule as oppsLeft).
+  const open = players.some(
+    (p) => p.seat !== heroSeat && !p.is_folded && !p.is_all_in && p.is_sitting_out !== true
+  );
+  return open ? undefined : true;
+}
 export class HorseLogic {
   /** Original post-observation boundary, shared with the admitted worker path.
    * The caller owns scope cleanup when it captures before decide(). */
@@ -8005,6 +8040,14 @@ export class HorseLogic {
         }
         return Math.min(player.stack + player.bet, cover) / bb;
       })(),
+      // FACING A CLOSED ALL-IN RE-RAISE (2026-11-08): the raise hero faces
+      // was made all in and every other live opponent is all in or folded,
+      // so a call closes the betting (HorsePreflop.facingClosedAllIn).
+      // Public seat flags only; never who anybody is.
+      facingClosedAllIn:
+        opts.facingClosedAllIn === false
+          ? undefined
+          : facingClosedAllInRaise(gs.players, player.seat, lastRaiserSeat, raises, toCall),
       v13: opts.v13 !== false,
       // V34: the button is not a second cutoff. classifyPosition merges the
       // two into 'late'; the dealer seat tells them apart exactly.

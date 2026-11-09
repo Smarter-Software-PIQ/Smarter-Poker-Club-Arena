@@ -1,0 +1,265 @@
+{
+ "version": 1,
+ "slug": "tt-heads-up-opener-folds-to-an-all-in-3-bet",
+ "title": "TT opens heads-up and folds to a 13bb all-in 3-bet",
+ "complaint": "When a horse opens and is 3-bet or 4-bet it almost always folds (owner report 2026-11-08); live hand b6d4d909",
+ "handId": "b6d4d909-321f-496f-80ea-38be642dbd7d",
+ "fmt": "tour",
+ "variant": "nlh",
+ "players": [
+  {
+   "seat": 1,
+   "isHorse": true
+  },
+  {
+   "seat": 2,
+   "isHorse": true
+  }
+ ],
+ "hole": {
+  "2": [
+   {
+    "rank": "T",
+    "suit": "hearts"
+   },
+   {
+    "rank": "T",
+    "suit": "clubs"
+   }
+  ]
+ },
+ "actions": [
+  {
+   "ord": 1,
+   "seat": 1,
+   "stage": "preflop",
+   "action": "bb",
+   "amount": 50,
+   "origin": "forced",
+   "isFullRaise": false,
+   "dead": false
+  },
+  {
+   "ord": 2,
+   "seat": 2,
+   "stage": "preflop",
+   "action": "sb",
+   "amount": 25,
+   "origin": "forced",
+   "isFullRaise": false,
+   "dead": false
+  },
+  {
+   "ord": 3,
+   "seat": 2,
+   "stage": "preflop",
+   "action": "raise",
+   "amount": 109,
+   "origin": "horse_policy",
+   "isFullRaise": true,
+   "dead": false,
+   "publicNode": {
+    "pot": 75,
+    "ante": 0,
+    "anteType": "per_player",
+    "mode": "tournament",
+    "seats": [
+     [
+      1,
+      604,
+      50,
+      50,
+      0,
+      0,
+      0
+     ],
+     [
+      2,
+      1321,
+      25,
+      25,
+      0,
+      0,
+      0
+     ]
+    ],
+    "boards": [
+     ""
+    ],
+    "street": "preflop",
+    "toCall": 25,
+    "currentBet": 50,
+    "minRaiseTo": 100,
+    "maxRaiseTo": 1346,
+    "legalActions": [
+     "fold",
+     "call",
+     "raise",
+     "all_in"
+    ],
+    "dealerSeat": 2,
+    "chipUnit": 1,
+    "bigBlind": 50,
+    "smallBlind": 25,
+    "variant": "nlh",
+    "structure": "no_limit",
+    "actorSeat": 2,
+    "bombPot": false,
+    "tournamentStage": {
+     "ageMs": 11042,
+     "isPko": false,
+     "rules": "tournament-stage-public-v1",
+     "format": "hu_sng",
+     "status": "captured",
+     "inMoney": false,
+     "onBreak": false,
+     "version": 1,
+     "entrants": 2,
+     "isBounty": false,
+     "rebuyOpen": false,
+     "satellite": false,
+     "spotsPaid": 1,
+     "finalTable": false,
+     "nearBubble": true,
+     "handForHand": false,
+     "playersLeft": 2,
+     "reentryOpen": false,
+     "currentLevel": 0,
+     "seatsPerTable": 2,
+     "satelliteSeats": 0,
+     "addOnPeriodOpen": false,
+     "isMysteryBounty": false,
+     "registrationOpen": false,
+     "mysteryBountyStage": "none",
+     "lateRegistrationOpen": false
+    }
+   }
+  },
+  {
+   "ord": 4,
+   "seat": 1,
+   "stage": "preflop",
+   "action": "all_in",
+   "amount": 654,
+   "origin": "horse_policy",
+   "isFullRaise": true,
+   "dead": false
+  },
+  {
+   "ord": 5,
+   "seat": 2,
+   "stage": "preflop",
+   "action": "fold",
+   "amount": 0,
+   "origin": "horse_policy",
+   "isFullRaise": false,
+   "dead": false,
+   "publicNode": {
+    "pot": 763,
+    "ante": 0,
+    "anteType": "per_player",
+    "mode": "tournament",
+    "seats": [
+     [
+      1,
+      0,
+      654,
+      654,
+      0,
+      0,
+      2
+     ],
+     [
+      2,
+      1237,
+      109,
+      109,
+      0,
+      0,
+      0
+     ]
+    ],
+    "boards": [
+     ""
+    ],
+    "street": "preflop",
+    "toCall": 545,
+    "currentBet": 654,
+    "minRaiseTo": 1199,
+    "maxRaiseTo": 1346,
+    "legalActions": [
+     "fold",
+     "call",
+     "raise",
+     "all_in"
+    ],
+    "dealerSeat": 2,
+    "chipUnit": 1,
+    "bigBlind": 50,
+    "smallBlind": 25,
+    "variant": "nlh",
+    "structure": "no_limit",
+    "actorSeat": 2,
+    "bombPot": false,
+    "tournamentStage": {
+     "ageMs": 14780,
+     "isPko": false,
+     "rules": "tournament-stage-public-v1",
+     "format": "hu_sng",
+     "status": "captured",
+     "inMoney": false,
+     "onBreak": false,
+     "version": 1,
+     "entrants": 2,
+     "isBounty": false,
+     "rebuyOpen": false,
+     "satellite": false,
+     "spotsPaid": 1,
+     "finalTable": false,
+     "nearBubble": true,
+     "handForHand": false,
+     "playersLeft": 2,
+     "reentryOpen": false,
+     "currentLevel": 0,
+     "seatsPerTable": 2,
+     "satelliteSeats": 0,
+     "addOnPeriodOpen": false,
+     "isMysteryBounty": false,
+     "registrationOpen": false,
+     "mysteryBountyStage": "none",
+     "lateRegistrationOpen": false
+    }
+   }
+  },
+  {
+   "ord": 6,
+   "seat": 1,
+   "stage": "preflop",
+   "action": "return",
+   "amount": 545,
+   "isFullRaise": false,
+   "dead": false
+  }
+ ],
+ "forbidden": [
+  {
+   "ord": 5,
+   "kind": "fold"
+  }
+ ],
+ "seeds": [
+  1,
+  7,
+  42,
+  99,
+  2026,
+  3,
+  11,
+  17,
+  23,
+  31
+ ],
+ "control": {
+  "facingClosedAllIn": false
+ }
+}
